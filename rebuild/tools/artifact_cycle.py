@@ -44,13 +44,13 @@ Between the run_m1 skip and a full rebuild there is a third route. When the per-
 
 This module, not the caller, decides which passes stop the review server, because only the resolved plan knows. Two things a cycle writes belong to the running app: the surface it serves (livereload watches every shard, and a restamped manifest orphans the tab's store) and the verdict store, which merge_verdicts will not touch under a live server because an open tab would write its own copy back over the merge. A pass whose plan skips both writes neither, so a listening server is left alone and the open tab keeps working for the whole run. That is the pass with no artifact work, whose long verification would otherwise take the app down for its whole length.
 
-A pass whose surface did not change but whose store did has its own route. The carry there maps every unit id to itself and keeps each record's `at`, which the merge compares strictly, so the carry is skipped and the master is merged straight in; the master is the one input the store's own hash cannot see. That pass still writes the store, so it takes the port. The route needs the master stamped for the served surface, as the merge requires of every input. A master stamped for another surface, which a pass stopped between the surface build and the carry leaves behind, takes the full carry instead. The carry source's resolution says which of the two an auto-resolved master is, and `master_stamped_for_surface` says it for a --verdicts one.
+A pass whose surface did not change but whose store did has its own route. The carry there maps every unit id to itself and keeps each record's `at`, which the merge compares strictly, so the carry is skipped and the master is merged straight in; the master is the one input the store's own hash cannot see. That pass still writes the store, so it stops the review server. The route needs the master stamped for the served surface, as the merge requires of every input. A master stamped for another surface, which a pass stopped between the surface build and the carry leaves behind, takes the full carry instead. The carry source's resolution says which of the two an auto-resolved master is, and `master_stamped_for_surface` says it for a --verdicts one.
 
-An edit confined to rebuild/review/static/ also has its own route. The copied app assets are the one surface input no unit depends on, so the pass copies them over the served copy and restamps that one fingerprint component (`assets-refresh`). Every shard, both sidecars, the unit-cache store and `generated_at` stay as they were, so nothing the tab is keyed on changes, the server stays up, and livereload reloads the tab with the new assets.
+An edit confined to rebuild/review/static/ also has its own route. The copied app assets are the one surface input no unit depends on, so the pass copies them over the served copy and restamps that one fingerprint component (`assets-refresh`). Every shard, both sidecars, the unit-cache store and `generated_at` stay as they were, so nothing the tab is keyed on changes, the review server keeps running, and livereload reloads the tab with the new assets.
 
-A surface promotion is the opposite case under the same skip. The whole tree under the app is replaced by the rehearsal's and the stamp changes with it, so the pass takes the port. Both the plumbing skip and the store-only route are off, because both assume the surface did not change, and here the store's verdicts must be carried onto the promoted units by id.
+A surface promotion is the opposite case under the same skip. The whole tree under the app is replaced by the rehearsal's and the stamp changes with it, so the pass stops the review server. Both the plumbing skip and the store-only route are off, because both assume the surface did not change, and here the store's verdicts must be carried onto the promoted units by id.
 
-A pass that writes under the app needs the port to itself. --stop-server (which `make review-cycle` passes) lets it terminate the server and wait until the port is free; without it the pass stops and prints how to proceed. Retention also writes: the app appends to the journal as verdicts are recorded, and a compaction rewrites the file around a read, so while a server is up the journal and the stash sweep that depends on it are left for a later pass.
+A pass that writes under the app needs the review server stopped. --stop-server (which `make review-cycle` passes) lets it terminate the server and wait until the port is free; without it the pass stops and prints how to proceed. Retention also writes: the app appends to the journal as verdicts are recorded, and a compaction rewrites the file around a read, so while a server is up the journal and the stash sweep that depends on it are left for a later pass.
 
 A green finish ends with a retention pass over the cycle's own files, all of them regenerable or covered by the journal. Root verdicts-carried-*.json files not stamped for the live surface are deleted, since `status.pick_frontier` reads only files stamped for the live surface, and the tracked copy under rebuild/evidence/ is never touched. verdicts-autosave-* stashes not referenced by a journal event at or after the last base event are deleted. The journal, not the stashes, is the supported recovery path, and the check uses the journal's references because a stash's mtime predates the event that created it. The journal is compacted to the newest base event older than RETENTION_WINDOW_DAYS, keeping at least that many days of --restore-as-of history, and build-log run directories beyond the newest `cycle_paths.BUILD_LOGS_KEEP` are deleted. Failed, interrupted, first-run, and rehearsal cycles never prune, --keep-history turns retention off, and a retention error prints a warning and never turns a green cycle red.
 
@@ -124,7 +124,9 @@ UNDECIDED_UNTIL_RUN_M1 = {
 }
 ASSETS_REFRESH_NOTE = "only the review UI assets moved since the surface was stamped; they are copied over the served copy and the manifest's static component restamped in place — no shard, sidecar or generated_at moves; --fresh overrides"
 SURFACE_PROMOTE_NOTE = "a rehearsal already built the surface these inputs produce, byte for byte, unit store and signature store beside it; that directory is moved into place instead of being rebuilt; --fresh overrides"
-SERVER_STAYS_UP_NOTE = "rewrites no unit shard, moves no manifest stamp, and leaves the verdict store alone"
+SERVER_KEEPS_RUNNING_NOTE = (
+    "rewrites no unit shard, moves no manifest stamp, and leaves the verdict store alone"
+)
 SERVER_STOP_PATTERN = r"rebuild\.review\.serve"
 SERVER_STOP_TIMEOUT = 15.0
 # The gate thread pool's worker count, sized to the tasks the chain submits, not to the cores. Under the queue policy a waiting task holds its worker for the whole wait (conform waits on make-test, and contracts on both), so every gate task needs a worker at the same time, with spare workers on top. With fewer workers a waiting task could sit behind an unrelated task's completion, and a width taken from the cores would cause that on a small machine. `test_the_gate_pool_seats_every_gate_task_at_once` in rebuild/test_artifact_cycle.py checks that this equals the gate task count plus two.
@@ -2121,8 +2123,10 @@ def resolve_short_id() -> str:
     return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
 
-def server_may_stay_up(*, skip_surface: bool, writes_store: bool, promotes_surface: bool = False) -> bool:
-    """Return whether a live review server can keep running through this pass. The app owns two things a cycle writes: the surface's units and stamp (livereload watches every shard, and a restamped manifest orphans the tab's store) and the verdict store (merge_verdicts refuses to write it under a live server, because an open tab would write its copy back over the merge). So the answer depends on the plan's writes, not on a skip flag. A pass that rewrites no units and merges nothing into the store (a --no-carry pass, a --no-merge carry over an unchanged surface, a pass with no artifact work) writes neither, so the review server keeps running and the open tab keeps working for the whole run. An assets refresh is such a pass: it rewrites no shard and leaves `generated_at` unchanged, so the tab's store stays aligned, and livereload reloads the tab onto the new app files. A surface promotion sets the same skip flag but replaces every shard and the stamp in one rename, so `promotes_surface` requires the port even when the store is untouched. Everything else the cycle writes is outside the served tree (the census pins, the m1 summaries, the carried file) or is read by the app only as status, which is meant to update during a pass."""
+def server_can_keep_running(
+    *, skip_surface: bool, writes_store: bool, promotes_surface: bool = False
+) -> bool:
+    """Return whether a live review server can keep running through this pass. The app owns two things a cycle writes: the surface's units and stamp (livereload watches every shard, and a restamped manifest orphans the tab's store) and the verdict store (merge_verdicts refuses to write it under a live server, because an open tab would write its copy back over the merge). So the answer depends on the plan's writes, not on a skip flag. A pass that rewrites no units and merges nothing into the store (a --no-carry pass, a --no-merge carry over an unchanged surface, a pass with no artifact work) writes neither, so the review server keeps running and the open tab keeps working for the whole run. An assets refresh is such a pass: it rewrites no shard and leaves `generated_at` unchanged, so the tab's store stays aligned, and livereload reloads the tab onto the new app files. A surface promotion sets the same skip flag but replaces every shard and the stamp in one rename, so `promotes_surface` requires stopping the review server even when the store is untouched. Everything else the cycle writes is outside the served tree (the census pins, the m1 summaries, the carried file) or is read by the app only as status, which is meant to update during a pass."""
     return skip_surface and not promotes_surface and not writes_store
 
 
@@ -2641,7 +2645,7 @@ def _do_assets_refresh(
 
 
 def _do_promote_surface(report: CycleReport, *, emit: console.Digest, plan: Plan) -> bool:
-    """Move a rehearsal's surface into place, in this process, on a pass whose plan found one that reproduces these inputs byte for byte. It runs in place of the surface build, which then reports itself skipped over the promoted manifest. The move replaces every shard and the manifest stamp, so a promoting pass is never one the review server may stay up through."""
+    """Move a rehearsal's surface into place, in this process, on a pass whose plan found one that reproduces these inputs byte for byte. It runs in place of the surface build, which then reports itself skipped over the promoted manifest. The move replaces every shard and the manifest stamp, so a promoting pass never keeps the review server running."""
     assert plan.promote_surface is not None
     emit.step_start("surface-promote", None, plan.describe("surface-promote"))
     started = time.perf_counter()
@@ -3788,7 +3792,7 @@ def _emit_cycle_summary(
         timings.finish(payload)
 
 
-def _preflight(args: argparse.Namespace, *, may_stay_up: bool = False) -> bool:
+def _preflight(args: argparse.Namespace, *, can_keep_running: bool = False) -> bool:
     if args.review_out is not None:
         print(
             f"Rehearsal mode: surface writes redirected to {args.review_out}; the live surface at rebuild/out/review is never written."
@@ -3796,8 +3800,8 @@ def _preflight(args: argparse.Namespace, *, may_stay_up: bool = False) -> bool:
         return True
     if not server_listening():
         return True
-    if may_stay_up:
-        print(f"The review server stays up: this pass {SERVER_STAYS_UP_NOTE}.")
+    if can_keep_running:
+        print(f"The review server keeps running: this pass {SERVER_KEEPS_RUNNING_NOTE}.")
         return True
     if args.stop_server:
         print("Stopping the review server: this pass writes the surface or the verdict store under it.")
@@ -4058,7 +4062,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--stop-server",
         action="store_true",
-        help="stop a listening review server instead of refusing, but only when this pass writes under it — the served surface's units or stamp, or the verdict store it holds. A pass that writes neither leaves the server up whether or not this is passed, so the letters stay on screen through it — an assets refresh is such a pass, since it moves no unit and no stamp and livereload simply reloads the tab onto the new shell; `make review-cycle` passes this, which is what makes a pass with no artifact work background verification rather than a lockout. It also says the recipe answers the server question after the pass, so the readiness checklist a green finish prints leaves the server row to it",
+        help="stop a listening review server instead of refusing, but only when this pass writes under it — the served surface's units or stamp, or the verdict store it holds. A pass that writes neither does not stop the server whether or not this is passed, so the review server keeps running and the open tab keeps working — an assets refresh is such a pass, since it moves no unit and no stamp and livereload simply reloads the tab onto the new shell; `make review-cycle` passes this, which is what makes a pass with no artifact work background verification rather than a lockout. It also says the recipe answers the server question after the pass, so the readiness checklist a green finish prints leaves the server row to it",
     )
     parser.add_argument(
         "--dry-run",
@@ -4254,7 +4258,7 @@ def main(argv: list[str] | None = None) -> int:
         digest.plan_block(render_plan(plan))
         if not _preflight(
             args,
-            may_stay_up=server_may_stay_up(
+            can_keep_running=server_can_keep_running(
                 skip_surface=skip_surface,
                 writes_store=plan.do_merge,
                 promotes_surface=plan.promote_surface is not None,

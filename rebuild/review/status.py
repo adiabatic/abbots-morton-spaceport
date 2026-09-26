@@ -362,7 +362,7 @@ def _freshness_check(
     if on_disk != recorded_sha:
         return {
             "level": "fail",
-            "detail": "The surface's after font is not the M1 font on disk: rebuild/out/m1/M1.otf is missing or has moved on since this surface was built, so the letters being served are last build's.",
+            "detail": "The surface's after font is not the M1 font on disk: rebuild/out/m1/M1.otf is missing or has moved on since this surface was built, so the review app is serving last build's font.",
             "remedy": artifact_cycle_remedy,
             "components": components,
         }

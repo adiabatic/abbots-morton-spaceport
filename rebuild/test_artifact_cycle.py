@@ -6441,12 +6441,12 @@ def test_main_plans_no_assets_refresh_when_the_surface_already_matches(tmp_path,
     assert "uv run python -m rebuild.review.build" in _step_lines(out, "surface-build")
 
 
-def test_server_may_stay_up_only_when_the_pass_writes_neither_of_the_apps_files():
-    """The predicate depends on what the plan writes. A --no-carry pass, or a --no-merge carry over an unmoved surface, leaves the server up; any pass that writes the store (store-only included) or rewrites the surface needs the port."""
-    assert ac.server_may_stay_up(skip_surface=True, writes_store=False) is True
-    assert ac.server_may_stay_up(skip_surface=True, writes_store=True) is False
-    assert ac.server_may_stay_up(skip_surface=False, writes_store=False) is False
-    assert ac.server_may_stay_up(skip_surface=False, writes_store=True) is False
+def test_server_can_keep_running_only_when_the_pass_writes_neither_of_the_apps_files():
+    """The predicate depends on what the plan writes. A --no-carry pass, or a --no-merge carry over an unmoved surface, keeps the review server running; any pass that writes the store (store-only included) or rewrites the surface stops the review server."""
+    assert ac.server_can_keep_running(skip_surface=True, writes_store=False) is True
+    assert ac.server_can_keep_running(skip_surface=True, writes_store=True) is False
+    assert ac.server_can_keep_running(skip_surface=False, writes_store=False) is False
+    assert ac.server_can_keep_running(skip_surface=False, writes_store=True) is False
 
 
 def _preflight_args(**overrides):
@@ -6455,15 +6455,17 @@ def _preflight_args(**overrides):
     return argparse.Namespace(**kw)
 
 
-def test_preflight_leaves_a_listening_server_up_for_a_pass_that_writes_nothing_under_it(monkeypatch, capsys):
-    """A pass that writes neither the surface nor the store leaves a listening server up for the whole run. This holds with or without --stop-server, which permits stopping a server but does not require it."""
+def test_preflight_keeps_a_listening_review_server_running_for_a_pass_that_writes_nothing_under_it(
+    monkeypatch, capsys
+):
+    """A pass that writes neither the surface nor the store keeps a listening review server running for the whole run. This holds with or without --stop-server, which permits stopping a server but does not require it."""
     stops: list[int] = []
     monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: True)
     monkeypatch.setattr(ac, "stop_review_server", lambda timeout=0.0: stops.append(1) or True)
     for args in (_preflight_args(), _preflight_args(stop_server=True)):
-        assert ac._preflight(args, may_stay_up=True) is True
+        assert ac._preflight(args, can_keep_running=True) is True
     assert stops == []
-    assert ac.SERVER_STAYS_UP_NOTE in capsys.readouterr().out
+    assert ac.SERVER_KEEPS_RUNNING_NOTE in capsys.readouterr().out
 
 
 def test_preflight_stops_the_server_for_a_writing_pass_only_when_allowed(monkeypatch, capsys):
@@ -6474,11 +6476,11 @@ def test_preflight_stops_the_server_for_a_writing_pass_only_when_allowed(monkeyp
         ac, "stop_review_server", lambda timeout=ac.SERVER_STOP_TIMEOUT: stops.append(1) or True
     )
 
-    assert ac._preflight(_preflight_args(stop_server=True), may_stay_up=False) is True
+    assert ac._preflight(_preflight_args(stop_server=True), can_keep_running=False) is True
     assert stops == [1]
     assert "Stopping the review server" in capsys.readouterr().out
 
-    assert ac._preflight(_preflight_args(), may_stay_up=False) is False
+    assert ac._preflight(_preflight_args(), can_keep_running=False) is False
     assert stops == [1]
     assert "REFUSING TO RUN" in capsys.readouterr().out
 
@@ -6487,7 +6489,7 @@ def test_preflight_refuses_when_the_stop_leaves_the_port_held(monkeypatch, capsy
     """If the port is still held after the stop (something else serves 7294, or the server hung during shutdown), the pass refuses rather than write the surface under a live reader."""
     monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: True)
     monkeypatch.setattr(ac, "stop_review_server", lambda timeout=ac.SERVER_STOP_TIMEOUT: False)
-    assert ac._preflight(_preflight_args(stop_server=True), may_stay_up=False) is False
+    assert ac._preflight(_preflight_args(stop_server=True), can_keep_running=False) is False
     assert "still listening" in capsys.readouterr().out
 
 
@@ -6510,8 +6512,8 @@ def test_stop_review_server_waits_for_the_port_to_come_free(monkeypatch):
     assert ac.stop_review_server(timeout=0.0) is False
 
 
-def test_main_leaves_the_server_up_on_the_settled_pass(tmp_path, monkeypatch, capsys):
-    """End to end through `main`: the pass that skips the surface and the plumbing keeps the server up and never stops it."""
+def test_main_keeps_the_review_server_running_on_the_settled_pass(tmp_path, monkeypatch, capsys):
+    """End to end through `main`: the pass that skips the surface and the plumbing keeps the review server running and never stops it."""
     _settled_repo(tmp_path, monkeypatch)
     ac.record_plumbing_green("plu")
     monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: True)
@@ -6520,7 +6522,7 @@ def test_main_leaves_the_server_up_on_the_settled_pass(tmp_path, monkeypatch, ca
     )
     monkeypatch.setattr(ac, "_run_cycle", lambda plan, report, emit, registry, **_: 0)
     assert ac.main([]) == 0
-    assert ac.SERVER_STAYS_UP_NOTE in capsys.readouterr().out
+    assert ac.SERVER_KEEPS_RUNNING_NOTE in capsys.readouterr().out
 
 
 def test_main_stops_the_server_when_the_pass_rebuilds_the_surface(tmp_path, monkeypatch, capsys):
@@ -6536,8 +6538,8 @@ def test_main_stops_the_server_when_the_pass_rebuilds_the_surface(tmp_path, monk
     assert "Stopping the review server" in capsys.readouterr().out
 
 
-def test_main_leaves_the_server_up_for_an_assets_refresh_pass(tmp_path, monkeypatch, capsys):
-    """An assets refresh moves no shard and no stamp, so the server stays up and livereload reloads the tab onto the new app shell. The same pass with a moved plumbing record writes the store, so without --stop-server it refuses."""
+def test_main_keeps_the_review_server_running_for_an_assets_refresh_pass(tmp_path, monkeypatch, capsys):
+    """An assets refresh moves no shard and no stamp, so the review server keeps running and livereload reloads the tab onto the new app shell. The same pass with a moved plumbing record writes the store, so without --stop-server it refuses."""
     _assets_only_repo(tmp_path, monkeypatch)
     ac.record_plumbing_green("plu")
     monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: True)
@@ -6546,7 +6548,7 @@ def test_main_leaves_the_server_up_for_an_assets_refresh_pass(tmp_path, monkeypa
     )
     monkeypatch.setattr(ac, "_run_cycle", lambda plan, report, emit, registry, **_: 0)
     assert ac.main([]) == 0
-    assert ac.SERVER_STAYS_UP_NOTE in capsys.readouterr().out
+    assert ac.SERVER_KEEPS_RUNNING_NOTE in capsys.readouterr().out
 
     ac.record_plumbing_green("moved")
     assert ac.main([]) == 2
@@ -6593,12 +6595,12 @@ def test_a_promoting_pass_runs_the_whole_chain(tmp_path, monkeypatch, capsys):
     assert "stamped for the served surface" not in out
 
 
-def test_a_promoting_pass_takes_the_port(tmp_path, monkeypatch, capsys):
+def test_a_promoting_pass_stops_the_review_server(tmp_path, monkeypatch, capsys):
     """A promotion replaces every shard and the stamp under the app in one rename, so it counts as a surface write whatever the skip flag says. The predicate returns False for it, and its other three answers are unchanged. End to end, a listening server makes the pass refuse without --stop-server (a --no-merge pass too, since the surface moves, not the store) and is stopped with it."""
-    assert ac.server_may_stay_up(skip_surface=True, writes_store=False, promotes_surface=True) is False
-    assert ac.server_may_stay_up(skip_surface=True, writes_store=False) is True
-    assert ac.server_may_stay_up(skip_surface=True, writes_store=True) is False
-    assert ac.server_may_stay_up(skip_surface=False, writes_store=False) is False
+    assert ac.server_can_keep_running(skip_surface=True, writes_store=False, promotes_surface=True) is False
+    assert ac.server_can_keep_running(skip_surface=True, writes_store=False) is True
+    assert ac.server_can_keep_running(skip_surface=True, writes_store=True) is False
+    assert ac.server_can_keep_running(skip_surface=False, writes_store=False) is False
 
     _rehearsal_repo(tmp_path, monkeypatch)
     monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: True)

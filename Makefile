@@ -85,7 +85,7 @@ artifact-cycle:
 review-cycle:
 	uv run python rebuild/tools/artifact_cycle.py --stop-server $(ARGS)
 	@if lsof -ti tcp:7294 -sTCP:LISTEN >/dev/null 2>&1; then \
-		printf '\nThe review server stayed up through this pass — the letters were on screen for all of it.\n'; \
+		printf '\nThe review server kept running through this pass, so the open review tab kept working.\n'; \
 	elif [ "$(SERVE)" = "0" ]; then \
 		printf '\nThe review server was left stopped (SERVE=0). To look at the letters:\n    make review-serve\n'; \
 	elif [ "$(SERVE)" = "bg" ]; then \
