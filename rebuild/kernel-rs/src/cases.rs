@@ -1,12 +1,12 @@
-//! Case replay for the `settle-cases` subcommand. Each input line is a tab-separated question, and each output line is that question, a tab, and this kernel's answer. `rebuild/pipeline/kernel_exec.py` writes questions with `case_line` and reads answers with `trace_of` (JSON) or `_settled_of_fields` (tab-separated). `kernel_exec._settle_cases` checks that each answer line starts with its own question and a tab before it decodes that line's answer.
+//! Case replay for the `settle-cases` subcommand. Each input line is a tab-separated case line, and each output line is that case line, a tab, and this kernel's case result. `rebuild/pipeline/kernel_exec.py` writes case lines with `case_line` and reads case results with `trace_of` (JSON) or `_settled_of_fields` (tab-separated). `kernel_exec._settle_cases` checks that each output line starts with its own case line and a tab before it decodes that line's case result.
 //!
-//! The echo makes that check possible: a line the reader skipped, reordered, or answered out of turn cannot pass as the answer to the question that was asked. The echo is the input line's bytes unchanged, so it does not show that the input was understood. The parser's errors do that. A field count other than [`CASE_FIELDS`], a name the spec never interned, a kind name outside the six, an adjustments token outside the grammar, and a record field the parser cannot place are all errors, so a misread case stops the run instead of producing a wrong answer.
+//! The echo makes that check possible: a line the reader skipped, reordered, or settled out of turn cannot pass as the result of the case line that was sent. The echo is the input line's bytes unchanged, so it does not show that the input was understood. The parser's errors do that. A field count other than [`CASE_FIELDS`], a name the spec never interned, a kind name outside the six, an adjustments token outside the grammar, and a record field the parser cannot place are all errors, so a misread case stops the run instead of producing a wrong result.
 //!
-//! A question has thirteen fields: the left's kind and its record (rune, stance, entry, exit, comma-joined adjustments, seam, extension; all seven empty for a left with no record, and a height or seam empty where there is none), then the rune being settled and the four raw slots after it. Each slot is a rune name or the kind name of a boundary or unknown slot. None of these values can contain a tab or a newline.
+//! A case line has thirteen fields: the left's kind and its record (rune, stance, entry, exit, comma-joined adjustments, seam, extension; all seven empty for a left with no record, and a height or seam empty where there is none), then the rune being settled and the four raw slots after it. Each slot is a rune name or the kind name of a boundary or unknown slot. None of these values can contain a tab or a newline.
 //!
-//! The command line chooses one of two answer shapes. The trace ([`Answer::Trace`]) is one JSON object: the settled cell, the prospect, the joint-floor flag, the notes, and the fired delta, then the deciding stage, the runner-up, the ranked candidates, and the eliminations. The last four record how the decision was reached, and `explain` and the review corpus's explain view read them: a window can settle on the right cell for the wrong reason, and the ranking shows that. The settled-only answer ([`Answer::SettledOnly`]) is the record alone as seven tab-separated fields in the [`settled_fields`] format, for the conform walker, which keeps only outcomes. A settlement error is the same `{"raise":…,"message":…}` object in both shapes. In the settled-only shape a reader tells it from a record by its first byte, `{`; in the trace shape, by its `raise` key.
+//! The command line chooses one of two result shapes. The trace ([`CaseResult::Trace`]) is one JSON object: the settled cell, the prospect, the joint-floor flag, the notes, and the fired delta, then the deciding stage, the runner-up, the ranked candidates, and the eliminations. The last four record how the decision was reached, and `explain` and the review corpus's explain view read them: a window can settle on the right cell for the wrong reason, and the ranking shows that. The settled-only result ([`CaseResult::SettledOnly`]) is the record alone as seven tab-separated fields in the [`settled_fields`] format, for the conform walker, which keeps only outcomes. A settlement error is the same `{"raise":…,"message":…}` object in both shapes. In the settled-only shape a reader tells it from a record by its first byte, `{`; in the trace shape, by its `raise` key.
 //!
-//! The fired delta is the trace memo's journaled delta for this case's key. A missing delta is an error, not an empty list: it means this replay's key no longer matches the memo's key, or the engine has no trace memo. The settled-only answer looks the delta up too without reporting it, so both shapes fail the same way.
+//! The fired delta is the trace memo's journaled delta for this case's key. A missing delta is an error, not an empty list: it means this replay's key no longer matches the memo's key, or the engine has no trace memo. The settled-only result looks the delta up too without reporting it, so both shapes fail the same way.
 
 use crate::emit::json_string;
 use crate::engine::{Engine, Slots};
@@ -23,19 +23,19 @@ const RAISE_INCOMPARABLE: &str = "E-INCOMPARABLE";
 const RAISE_AMBIGUOUS: &str = "E-AMBIGUOUS";
 const RAISE_UNREACHABLE: &str = "E-UNREACHABLE";
 
-/// How many tab-separated fields a question line is: the left's kind, its seven record fields, the input rune, and the four right slots.
+/// How many tab-separated fields a case line is: the left's kind, its seven record fields, the input rune, and the four right slots.
 pub const CASE_FIELDS: usize = 13;
 
-/// Which answer a replay writes after the echoed question.
+/// Which case result a replay writes after the echoed case line.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Answer {
+pub enum CaseResult {
     /// The whole trace as one JSON object, the shape `kernel_exec.trace_of` reads.
     Trace,
     /// The settled record alone as seven tab-separated fields, the shape `kernel_exec._settled_of_fields` reads.
     SettledOnly,
 }
 
-/// One case: the window to settle and the question line its answer follows. The line is kept as given so the echo is the caller's own bytes.
+/// One case: the window to settle and the case line its result follows. The line is kept as given so the echo is the caller's own bytes.
 #[derive(Clone, Debug)]
 pub struct Case<'l> {
     pub left: LeftContext,
@@ -44,7 +44,7 @@ pub struct Case<'l> {
     line: &'l str,
 }
 
-/// Reads one question line; the inverse of `kernel_exec.case_line`. A name the spec never interned is an error, not a settlement outcome: the case was written against a different spec, and answering it would answer a different question.
+/// Reads one case line; the inverse of `kernel_exec.case_line`. A name the spec never interned is an error, not a settlement outcome: the case was written against a different spec, and settling it would settle a different window.
 pub fn parse_case<'l>(index: &SpecIndex, line: &'l str) -> Result<Case<'l>, String> {
     let fields: Vec<&str> = line.split('\t').collect();
     let [
@@ -88,23 +88,23 @@ pub fn parse_case<'l>(index: &SpecIndex, line: &'l str) -> Result<Case<'l>, Stri
     })
 }
 
-/// One case's output line: the question as received, a tab, and this kernel's answer in the requested shape.
+/// One case's output line: the case line as received, a tab, and this kernel's case result in the requested shape.
 pub fn replay_case(
     engine: &mut Engine<'_>,
     case: &Case<'_>,
-    answer: Answer,
+    shape: CaseResult,
 ) -> Result<String, String> {
-    let result = result_text(engine, case, answer)?;
+    let result = result_text(engine, case, shape)?;
     Ok(format!("{}\t{result}", case.line))
 }
 
 /// Replays a whole case file through one engine in file order; the body of the `settle-cases` subcommand. A first line starting with `# ` is a head and is skipped: the modes a batch is settled under come from CLI flags, never from the file.
 ///
-/// The engine is shared across the file, so later cases reuse its memo. This changes no answer: a memo hit replays the journaled fired delta, so a cached answer and an uncached one have the same fired set.
+/// The engine is shared across the file, so later cases reuse its memo. This changes no case result: a memo hit replays the journaled fired delta, so a cached result and an uncached one have the same fired set.
 pub fn replay_cases(
     engine: &mut Engine<'_>,
     text: &str,
-    answer: Answer,
+    shape: CaseResult,
 ) -> Result<Vec<String>, String> {
     let mut lines = Vec::new();
     for (seat, line) in text.lines().enumerate() {
@@ -113,13 +113,17 @@ pub fn replay_cases(
         }
         let numbered = |complaint: String| format!("line {}: {complaint}", seat + 1);
         let case = parse_case(engine.index(), line).map_err(numbered)?;
-        lines.push(replay_case(engine, &case, answer).map_err(numbered)?);
+        lines.push(replay_case(engine, &case, shape).map_err(numbered)?);
     }
     Ok(lines)
 }
 
-/// This case's answer. The trace shape gives the settled record with its fired delta and the ranking; the settled-only shape gives the record's seven fields. In either shape a settlement error gives its bucket and message, which `settle.SettleError` carries as `.bucket` and its text. The delta is looked up in both shapes because a missing delta is an error.
-fn result_text(engine: &mut Engine<'_>, case: &Case<'_>, answer: Answer) -> Result<String, String> {
+/// This case's result. The trace shape gives the settled record with its fired delta and the ranking; the settled-only shape gives the record's seven fields. In either shape a settlement error gives its bucket and message, which `settle.SettleError` carries as `.bucket` and its text. The delta is looked up in both shapes because a missing delta is an error.
+fn result_text(
+    engine: &mut Engine<'_>,
+    case: &Case<'_>,
+    shape: CaseResult,
+) -> Result<String, String> {
     let index = engine.index();
     let trace = match engine.transition_trace(&case.left, case.token, case.slots) {
         Ok(trace) => trace,
@@ -128,9 +132,9 @@ fn result_text(engine: &mut Engine<'_>, case: &Case<'_>, answer: Answer) -> Resu
     let Some(delta) = engine.trace_delta(&case.left, case.token, case.slots) else {
         return Err("the settled case left no journaled fired delta — the trace memo's key shape has moved and this replay's key must follow".to_owned());
     };
-    match answer {
-        Answer::SettledOnly => Ok(settled_fields(index, &trace.settled)),
-        Answer::Trace => {
+    match shape {
+        CaseResult::SettledOnly => Ok(settled_fields(index, &trace.settled)),
+        CaseResult::Trace => {
             let fired: Vec<String> = delta.iter().map(|pointer| pointer.text(index)).collect();
             Ok(settled_text(index, &trace, &fired))
         }
@@ -150,7 +154,7 @@ fn raise_text(error: &SettleError) -> String {
     )
 }
 
-/// The settled trace, in the key order an answer is read in: the stored row fields and their fired delta first, then the deciding stage, the runner-up, the ranked candidates and the eliminations.
+/// The settled trace, in the key order a case result is read in: the stored row fields and their fired delta first, then the deciding stage, the runner-up, the ranked candidates and the eliminations.
 fn settled_text(index: &SpecIndex, trace: &TransitionTrace, fired: &[String]) -> String {
     let ranking = trace.ranking();
     let runner_up = match &ranking.runner_up {
@@ -265,7 +269,7 @@ fn parse_left(index: &SpecIndex, kind: &str, record: [&str; 7]) -> Result<LeftCo
     })
 }
 
-/// The letter token a field names. It fails on a name the spec never interned and on a name that is not a registered family: questions name only registry runes, because `settle.tokens_from_codepoints` refuses anything else before a line is written.
+/// The letter token a field names. It fails on a name the spec never interned and on a name that is not a registered family: case lines name only registry runes, because `settle.tokens_from_codepoints` refuses anything else before a line is written.
 fn letter_of(index: &SpecIndex, field: &str, what: &str) -> Result<RightToken, String> {
     let name = symbol(index, field, what)?;
     index
@@ -273,7 +277,7 @@ fn letter_of(index: &SpecIndex, field: &str, what: &str) -> Result<RightToken, S
         .ok_or_else(|| format!("{what} names no registered family: {field}"))
 }
 
-/// Reads the seven record fields (rune, stance, entry, exit, comma-joined adjustments, seam, extension) into a settled record. This is a question's left, in the format [`settled_fields`] writes.
+/// Reads the seven record fields (rune, stance, entry, exit, comma-joined adjustments, seam, extension) into a settled record. This is a case line's left, in the format [`settled_fields`] writes.
 pub(crate) fn parse_settled(
     index: &SpecIndex,
     [rune, stance, entry, exit, adjustments, seam, extension]: [&str; 7],
@@ -428,20 +432,20 @@ mod tests {
     const UNACCEPTED_EXIT: &str =
         "letter\tqsPea\thalf\t\tx-height\t\tx-height\t0\tqsTea\tqsMay\tedge\tunknown\tunknown";
 
-    fn answer(line: &str, shape: Answer) -> String {
+    fn output_line(line: &str, shape: CaseResult) -> String {
         let index = fixtures::mini();
         let mut engine = replaying_engine(&index);
         let case = parse_case(&index, line).expect("the case parses");
         replay_case(&mut engine, &case, shape).expect("the case replays")
     }
 
-    /// The answer alone: the text after the echoed question and its tab.
-    fn result_of(line: &str, shape: Answer) -> String {
-        let answered = answer(line, shape);
-        answered
+    /// The case result alone: the text after the echoed case line and its tab.
+    fn result_of(line: &str, shape: CaseResult) -> String {
+        let output = output_line(line, shape);
+        output
             .strip_prefix(line)
             .and_then(|rest| rest.strip_prefix('\t'))
-            .expect("the question is echoed ahead of the answer")
+            .expect("the case line is echoed ahead of the case result")
             .to_owned()
     }
 
@@ -449,7 +453,7 @@ mod tests {
     #[test]
     fn a_settled_case_carries_the_record_the_delta_and_the_ranking_that_chose_it() {
         assert_eq!(
-            result_of(UNJOINED, Answer::Trace),
+            result_of(UNJOINED, CaseResult::Trace),
             r#"{"settled":{"cell":["qsPea","half",null,null,[]],"seam":null,"extension":0},"prospect":0,"joint_floor":false,"notes":[],"fired":[],"decided_stage":"only-candidate","runner_up":null,"ranked":[[["half",null,null,0,9999],0,0]],"eliminations":[["lookahead-closure","qsPea.half: exit x-height has no refusal-aware acceptor cell on qsTea",null]]}"#
         );
     }
@@ -459,20 +463,20 @@ mod tests {
     fn the_ranking_carries_the_stage_the_runner_up_both_ranked_entries_and_each_eliminations_provenance()
      {
         assert_eq!(
-            result_of(ORDERED, Answer::Trace),
+            result_of(ORDERED, CaseResult::Trace),
             r#"{"settled":{"cell":["qsTea","full",null,null,[]],"seam":null,"extension":0},"prospect":0,"joint_floor":false,"notes":["qsTea.yaml:policy.refuse[0]"],"fired":["qsTea.yaml:policy.refuse[0]"],"decided_stage":"order","runner_up":["half",null,null,2,9999],"ranked":[[["full",null,null,1,9999],0,0],[["half",null,null,2,9999],0,0]],"eliminations":[["lookahead-closure","qsTea.half: exit x-height has no refusal-aware acceptor cell on qsPea",null],["refuse","qsTea.half: exit baseline refused","qsTea.yaml:policy.refuse[0]"]]}"#
         );
     }
 
-    /// The settled-only answer is the trace's settled record as seven fields, with an empty height where the trace has `null`, and no ranking.
+    /// The settled-only case result is the trace's settled record as seven fields, with an empty height where the trace has `null`, and no ranking.
     #[test]
-    fn a_settled_only_answer_is_the_records_seven_fields() {
+    fn a_settled_only_case_result_is_the_records_seven_fields() {
         assert_eq!(
-            result_of(UNJOINED, Answer::SettledOnly),
+            result_of(UNJOINED, CaseResult::SettledOnly),
             "qsPea\thalf\t\t\t\t\t0"
         );
         assert_eq!(
-            result_of(ORDERED, Answer::SettledOnly),
+            result_of(ORDERED, CaseResult::SettledOnly),
             "qsTea\tfull\t\t\t\t\t0"
         );
     }
@@ -480,11 +484,11 @@ mod tests {
     #[test]
     fn a_raising_case_carries_its_bucket_and_the_message_byte_for_byte() {
         let refusal = r#"{"raise":"E-UNREACHABLE","message":"E-UNACCEPTED-EXIT: qsPea.half.ex-y5 committed an exit at x-height but qsTea has no acceptor cell (the lookahead closure should have prevented this commitment)"}"#;
-        assert_eq!(result_of(UNACCEPTED_EXIT, Answer::Trace), refusal);
+        assert_eq!(result_of(UNACCEPTED_EXIT, CaseResult::Trace), refusal);
         assert_eq!(
-            result_of(UNACCEPTED_EXIT, Answer::SettledOnly),
+            result_of(UNACCEPTED_EXIT, CaseResult::SettledOnly),
             refusal,
-            "a refusal is the same object under either answer shape"
+            "a refusal is the same object under either result shape"
         );
     }
 
@@ -523,11 +527,11 @@ mod tests {
     }
 
     #[test]
-    fn the_question_is_echoed_byte_for_byte_ahead_of_the_answer() {
+    fn the_case_line_is_echoed_byte_for_byte_ahead_of_the_case_result() {
         for line in [UNJOINED, ORDERED, UNACCEPTED_EXIT] {
-            for shape in [Answer::Trace, Answer::SettledOnly] {
-                let answered = answer(line, shape);
-                assert!(answered.starts_with(&format!("{line}\t")), "{answered}");
+            for shape in [CaseResult::Trace, CaseResult::SettledOnly] {
+                let output = output_line(line, shape);
+                assert!(output.starts_with(&format!("{line}\t")), "{output}");
             }
         }
     }
@@ -579,18 +583,19 @@ mod tests {
         );
         assert_eq!(index.resolve(left.seam.expect("a seam")), "x-height");
         assert_eq!(left.extension, 1);
-        let answered = replay_case(&mut engine, &case, Answer::Trace).expect("the case replays");
-        assert!(answered.starts_with(&format!("{line}\t")));
+        let output = replay_case(&mut engine, &case, CaseResult::Trace).expect("the case replays");
+        assert!(output.starts_with(&format!("{line}\t")));
     }
 
-    /// The left's record uses the same seven fields as the settled-only answer, so a settled-only answer can be used as the next question's left and reads back as the same record.
+    /// The left's record uses the same seven fields as the settled-only case result, so a settled-only result can be used as the next case line's left and reads back as the same record.
     #[test]
-    fn a_settled_only_answer_reads_back_as_a_lefts_record() {
+    fn a_settled_only_case_result_reads_back_as_a_lefts_record() {
         let index = fixtures::mini();
         let mut engine = replaying_engine(&index);
         let case = parse_case(&index, UNJOINED).expect("the case parses");
-        let answered = result_text(&mut engine, &case, Answer::SettledOnly).expect("an answer");
-        let fields: Vec<&str> = answered.split('\t').collect();
+        let result =
+            result_text(&mut engine, &case, CaseResult::SettledOnly).expect("a case result");
+        let fields: Vec<&str> = result.split('\t').collect();
         let record: [&str; 7] = fields.as_slice().try_into().expect("seven fields");
         let settled = parse_settled(&index, record).expect("reads back");
         let trace = engine
@@ -600,12 +605,12 @@ mod tests {
     }
 
     #[test]
-    fn a_head_line_is_skipped_and_every_case_after_it_is_answered() {
+    fn a_head_line_is_skipped_and_every_case_after_it_is_settled() {
         let index = fixtures::mini();
         let mut engine = replaying_engine(&index);
         let text = format!("# ams-m1-cases\tdefault\n{UNJOINED}\n{UNACCEPTED_EXIT}\n");
         let lines =
-            replay_cases(&mut engine, &text, Answer::SettledOnly).expect("the file replays");
+            replay_cases(&mut engine, &text, CaseResult::SettledOnly).expect("the file replays");
         assert_eq!(lines.len(), 2);
         assert_eq!(lines[0], format!("{UNJOINED}\tqsPea\thalf\t\t\t\t\t0"));
         assert!(lines[1].starts_with(&format!("{UNACCEPTED_EXIT}\t{{\"raise\":\"E-UNREACHABLE\"")));
@@ -617,7 +622,7 @@ mod tests {
         let index = fixtures::mini();
         let mut engine = Engine::new(&index, Vec::new());
         let case = parse_case(&index, UNJOINED).expect("the case parses");
-        for shape in [Answer::Trace, Answer::SettledOnly] {
+        for shape in [CaseResult::Trace, CaseResult::SettledOnly] {
             let complaint =
                 replay_case(&mut engine, &case, shape).expect_err("no journal, no delta");
             assert!(
@@ -628,7 +633,7 @@ mod tests {
     }
 
     #[test]
-    fn a_name_the_spec_never_mentions_is_a_hard_error_and_not_an_answer() {
+    fn a_name_the_spec_never_mentions_is_a_hard_error_and_not_a_case_result() {
         let index = fixtures::mini();
         let line = UNJOINED.replace("qsPea", "qsZoo");
         let complaint = parse_case(&index, &line).expect_err("qsZoo is not in this spec");

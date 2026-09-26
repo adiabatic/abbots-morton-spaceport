@@ -2541,19 +2541,19 @@ class TestSettledWindowWalk:
         original = kernel_exec.settle_windows
 
         def injecting(asked_spec, cases, features, **rest):
-            answers = original(asked_spec, cases, features, **rest)
+            results = original(asked_spec, cases, features, **rest)
             hits = [
                 index
                 for index, case in enumerate(cases)
                 if case.split("\t")[kernel_exec.CASE_INPUT_FIELD] == refused
             ]
             if not hits:
-                return answers
+                return results
             if rest.get("on_error") != "drop":
                 raise settle.SettleError(f"{refused}: the injected refusal", "E-INCOMPARABLE")
             for index in hits:
-                answers[index] = None
-            return answers
+                results[index] = None
+            return results
 
         monkeypatch.setattr(kernel_exec, "settle_windows", injecting)
         walker = conform._SettledWindowWalk(spec, frozenset(), {}, guard, on_error="drop")
@@ -3416,11 +3416,11 @@ class TestSettleMemoFile:
         original = kernel_exec.settle_windows
 
         def injecting(asked_spec, cases, features, **rest):
-            answers = original(asked_spec, cases, features, **rest)
+            results = original(asked_spec, cases, features, **rest)
             for index, case in enumerate(cases):
                 if case.split("\t")[kernel_exec.CASE_INPUT_FIELD] == "qsTea":
-                    answers[index] = None
-            return answers
+                    results[index] = None
+            return results
 
         monkeypatch.setattr(kernel_exec, "settle_windows", injecting)
         memo = self._memo(tmp_path)

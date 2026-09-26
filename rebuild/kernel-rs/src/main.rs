@@ -9,7 +9,7 @@
 //! The CLI takes positional arguments and scans flags by hand, with no argument parser. stdout carries the answer and nothing else. The three mode flags are written as negations of the shipping configuration (`--candidacy-prospect`, `--follower-prefer-slots-off`, `--deep-classes-off`), so a bare invocation runs what ships and every departure from it shows in the command line:
 //!
 //! - `ams-m1-kernel spec-echo <spec>` writes the canonical dump plus one newline.
-//! - `ams-m1-kernel settle-cases <spec> <cases> [--features=a,b,…] [--settled-only] [--candidacy-prospect] [--follower-prefer-slots-off]` settles a plain-text case file through one engine, in file order. Each line of the file is one tab-separated window, as `kernel_exec.case_line` writes it. Each output line is the input line, a tab, and the answer: the whole trace as JSON (`kernel_exec.trace_of` reads it), or with `--settled-only` the settled record as seven tab-separated fields (`kernel_exec._settled_of_fields` reads it). A window that raises a settlement error gets an ordinary answer line, the same `{"raise":…,"message":…}` object in either shape, and does not change the exit status.
+//! - `ams-m1-kernel settle-cases <spec> <cases> [--features=a,b,…] [--settled-only] [--candidacy-prospect] [--follower-prefer-slots-off]` settles a plain-text case file through one engine, in file order. Each line of the file is one tab-separated window, as `kernel_exec.case_line` writes it. Each output line is the case line, a tab, and the case result: the whole trace as JSON (`kernel_exec.trace_of` reads it), or with `--settled-only` the settled record as seven tab-separated fields (`kernel_exec._settled_of_fields` reads it). A window that raises a settlement error gets an ordinary output line, the same `{"raise":…,"message":…}` object in either shape, and does not change the exit status.
 //! - `ams-m1-kernel guard-sweep <spec> [--config=<token>]` writes the section 5.7 late-formation surface, one tab-separated verdict per line. Without `--config=`, each verdict is quantified over the powerset of capability-unlock features, which is the surface the font ships. With `--config=`, the surface is answered under that one configuration, named by a token in `--configs=` form; `default` names the no-feature configuration, which an empty `--features=` could not. The rebuild suite compares each configuration's surface with the quantified one. The guard fixes its own engine modes, so the two mode flags are a usage error here.
 //! - `ams-m1-kernel enumerate <spec> [--features=a,b,…] [--candidacy-prospect] [--follower-prefer-slots-off] [--deep-classes-off] [--timings] [--cache-stats]` runs one configuration's table-build fixpoint and writes the uncompressed `ams-m1-transitions/1` stream (a head line and one row per window), which `kernel_exec.read_stream` reads. `--deep-classes-off` selects label grain, like Python's `AMS_DEEP_CLASSES=0`. With both `--candidacy-prospect` and `--follower-prefer-slots-off`, enumeration is label grain anyway, so the flag is accepted and has no effect.
 //! - `ams-m1-kernel enumerate-configs <spec> <outdir> --configs=a,b,… [--threads=N] [--candidacy-prospect] [--follower-prefer-slots-off] [--deep-classes-off] [--timings] [--cache-stats]` runs several configurations' fixpoints in one process and writes each stream to `<outdir>/transitions-<config>.ndjson`. It creates the directory with its parents and overwrites existing streams. Before writing, it deletes every other `transitions-*.ndjson` in the directory, so after exit 0 the directory holds only the configurations the command line named. stdout stays empty. The files are valid only on exit 0: a failing configuration exits 1 with its name in the message and leaves the other configurations' files in place. `--configs=` is required and uses Python's tokens (`conform.ACCEPTANCE_CONFIGS`): `default` for no features, otherwise a `+`-joined feature list whose names are checked against the spec as `--features=` names are. A token that is not the canonical form of its features (out of order, repeated, empty, or with an empty part between two `+`) is a usage error, so the filename, the stream head's `config`, and the caller's name for the configuration always agree. The mode flags apply to every configuration in the run.
@@ -94,7 +94,7 @@ struct Vocabulary {
     emitted: bool,
     /// The table build's memo flags. `--no-default-memo-sharing` enumerates every configuration from scratch instead of reading `default`'s finished memo for the windows a configuration shares with it. `--previous-memos=` names a previous build's memo files, and `--edited=` (runes) and `--moved-classes=` (predicate classes) name what changed since; those two are valid only with `--previous-memos=`. `--memo-stamp=` is the stamp this build writes its own memo files under; without it, no memo files are written.
     memo_flags: bool,
-    /// `--settled-only`: answer with the settled record as seven tab-separated fields instead of the whole trace. Only `settle-cases` returns a trace.
+    /// `--settled-only`: make each case result the settled record as seven tab-separated fields instead of the whole trace. Only `settle-cases` returns a trace.
     settled: bool,
 }
 
@@ -805,12 +805,12 @@ fn settle_cases(plan: &CasesPlan<'_>) -> Result<(), String> {
     );
     let text =
         std::fs::read_to_string(plan.cases).map_err(|error| format!("{}: {error}", plan.cases))?;
-    let answer = if plan.settled_only {
-        cases::Answer::SettledOnly
+    let shape = if plan.settled_only {
+        cases::CaseResult::SettledOnly
     } else {
-        cases::Answer::Trace
+        cases::CaseResult::Trace
     };
-    let lines = cases::replay_cases(&mut engine, &text, answer)
+    let lines = cases::replay_cases(&mut engine, &text, shape)
         .map_err(|complaint| format!("{}: {complaint}", plan.cases))?;
     write_lines(&lines)
 }

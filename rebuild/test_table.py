@@ -638,9 +638,9 @@ class TestDeepClasses:
                     )
                     asked.append(((index, 4), row.key, member))
 
-        answers = kernel_exec.settle_cases(spec, cases, frozenset(), decode=kernel_exec.trace_of)
+        results = kernel_exec.settle_cases(spec, cases, frozenset(), decode=kernel_exec.trace_of)
         records: dict[tuple[int, int], tuple[tuple, dict[tuple, str]]] = {}
-        for (asked_at, key, member), trace in zip(asked, answers):
+        for (asked_at, key, member), trace in zip(asked, results):
             probe = (trace.settled, trace.prospect, trace.joint_floor, trace.notes)
             records.setdefault(asked_at, (key, {}))[1][probe] = member
         checked3 = 0

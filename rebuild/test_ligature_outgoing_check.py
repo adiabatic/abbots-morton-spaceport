@@ -269,8 +269,8 @@ def _refusing_kernel(monkeypatch, bucket):
         stderr = b""
 
         def __init__(self, arguments):
-            questions = Path(arguments[3]).read_text(encoding="utf-8").splitlines()
-            self.stdout = "".join(f"{question}\t{refusal}\n" for question in questions).encode()
+            case_lines = Path(arguments[3]).read_text(encoding="utf-8").splitlines()
+            self.stdout = "".join(f"{line}\t{refusal}\n" for line in case_lines).encode()
 
     monkeypatch.setattr(kernel_exec, "_run_kernel", lambda arguments, verb: Finished(arguments))
 

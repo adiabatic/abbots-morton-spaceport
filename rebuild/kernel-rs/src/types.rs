@@ -1,4 +1,4 @@
-//! The values settlement passes between its stages. Every string a dump or a Python caller writes is represented here in one of three ways: an interned [`Sym`] when the spec authored it, a closed enum when the kernel defines the set, or an owned `String` when only formatting reads it. `rebuild/pipeline/settle.py` keeps the same types as plain Python classes, for the tokenizing and ligature formation that happen before a window reaches this crate and for decoding the answers that come back.
+//! The values settlement passes between its stages. Every string a dump or a Python caller writes is represented here in one of three ways: an interned [`Sym`] when the spec authored it, a closed enum when the kernel defines the set, or an owned `String` when only formatting reads it. `rebuild/pipeline/settle.py` keeps the same types as plain Python classes, for the tokenizing and ligature formation that happen before a window reaches this crate and for decoding the case results that come back.
 //!
 //! Runes, stances, heights, bitmap names, and class names are authored, so they are symbols and compare as a `u32`. The six right-token kinds, the four word positions, the elimination and decided stages, and the adjustments grammar that `model.py` documents are the kernel's own closed sets, so they are enums and cannot be misspelled. A comparison such as `left.kind != cond.is_token`, which a dump writes as two plain strings, compares a kernel enum against an authored value. The kernel makes it by comparing the condition's symbol with the kind's symbol in [`Vocab`], the one place the closed vocabulary is interned into the spec's string pool.
 //!
@@ -474,7 +474,7 @@ impl NotesPool {
     }
 }
 
-/// The left neighbor in the form the memo keys store: the settled cell's rune and stance and the committed seam, each as the [`Ordinal`] of its key field. They are resolved once, when the left is built, so building a key looks nothing up. All three are absent for a boundary left. Every read the kernel makes of a left's rune, stance, or seam first checks that the left is a letter. The only read of a settled record without that check is the commit's same-seam check of the extension, and `TraceKey` keys it by its own `left_extension` field. So a boundary left gets the same key whether or not its case question gave a record beside its kind.
+/// The left neighbor in the form the memo keys store: the settled cell's rune and stance and the committed seam, each as the [`Ordinal`] of its key field. They are resolved once, when the left is built, so building a key looks nothing up. All three are absent for a boundary left. Every read the kernel makes of a left's rune, stance, or seam first checks that the left is a letter. The only read of a settled record without that check is the commit's same-seam check of the extension, and `TraceKey` keys it by its own `left_extension` field. So a boundary left gets the same key whether or not its case line gave a record beside its kind.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct LeftOrdinals {
     pub rune: Option<Ordinal>,
@@ -483,7 +483,7 @@ pub struct LeftOrdinals {
 }
 
 impl LeftOrdinals {
-    /// The three ordinals of a settled record used as a left, or `None` when its rune is not a registered family, its stance is not declared by any rune, or its seam is not a height the spec offers. No settlement of this spec produces such a cell, and `cases.rs` rejects a case question whose left names one.
+    /// The three ordinals of a settled record used as a left, or `None` when its rune is not a registered family, its stance is not declared by any rune, or its seam is not a height the spec offers. No settlement of this spec produces such a cell, and `cases.rs` rejects a case line whose left names one.
     pub fn of(index: &SpecIndex, settled: &Settled) -> Option<Self> {
         let rune = index.rune_ordinal(settled.cell.rune)?;
         let stance = index.stance_ordinal(settled.cell.stance)?;
@@ -499,7 +499,7 @@ impl LeftOrdinals {
     }
 }
 
-/// The resolved left neighbor a window is settled against, `settle.LeftContext`. The kind is never [`TokenKind::Unknown`], because a left is always already settled or known to be a boundary. `settled` is present for a letter left, and for a boundary left only when a case question gives it a record. The ordinals are the settled record's, as [`LeftOrdinals`] describes, stored beside it so the keys read them from the left instead of resolving them for each window.
+/// The resolved left neighbor a window is settled against, `settle.LeftContext`. The kind is never [`TokenKind::Unknown`], because a left is always already settled or known to be a boundary. `settled` is present for a letter left, and for a boundary left only when a case line gives it a record. The ordinals are the settled record's, as [`LeftOrdinals`] describes, stored beside it so the keys read them from the left instead of resolving them for each window.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct LeftContext {
     pub kind: TokenKind,
@@ -916,7 +916,7 @@ pub fn provenance_pointer(index: &SpecIndex, provenance: &Provenance) -> String 
     )
 }
 
-/// One settled record as JSON, in the shape `kernel_exec.settled_of_row` reads: `{"cell":[rune,stance,entry,exit,[adjustments]],"seam":…,"extension":…}`, with a height as its name or `null`. The `settle-cases` trace answer writes its `settled` key with this function, and the replay's window memo writes one record per line with it, so Python decodes one JSON shape. [`settled_fields`] is the tab-separated form the settled-only answer uses.
+/// One settled record as JSON, in the shape `kernel_exec.settled_of_row` reads: `{"cell":[rune,stance,entry,exit,[adjustments]],"seam":…,"extension":…}`, with a height as its name or `null`. The `settle-cases` trace result writes its `settled` key with this function, and the replay's window memo writes one record per line with it, so Python decodes one JSON shape. [`settled_fields`] is the tab-separated form the settled-only result uses.
 pub(crate) fn settled_json(index: &SpecIndex, settled: &Settled) -> String {
     let adjustments: Vec<String> = settled
         .cell
@@ -936,7 +936,7 @@ pub(crate) fn settled_json(index: &SpecIndex, settled: &Settled) -> String {
     )
 }
 
-/// One settled record as seven tab-separated fields, in the shape `kernel_exec._settled_of_fields` reads: rune, stance, entry, exit, comma-joined adjustments, seam, extension, with an empty field for a missing height. A `settle-cases` question gives its left record in the same seven fields (`cases::parse_settled` reads them), so a settled-only answer can serve as the next question's left.
+/// One settled record as seven tab-separated fields, in the shape `kernel_exec._settled_of_fields` reads: rune, stance, entry, exit, comma-joined adjustments, seam, extension, with an empty field for a missing height. A `settle-cases` case line gives its left record in the same seven fields (`cases::parse_settled` reads them), so a settled-only result can serve as the next case line's left.
 pub(crate) fn settled_fields(index: &SpecIndex, settled: &Settled) -> String {
     let adjustments: Vec<String> = settled
         .cell

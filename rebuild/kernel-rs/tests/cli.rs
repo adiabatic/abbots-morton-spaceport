@@ -193,27 +193,27 @@ fn a_malformed_command_line_is_a_two_and_an_unanswerable_one_is_a_one() {
     );
 }
 
-/// The case replay echoes each question before its answer in both shapes: the full trace by default, and the settled record's seven fields under `--settled-only`. `liveness-cases` has no trace to leave out, so it rejects the flag as a usage error.
+/// The case replay echoes each case line before its result in both shapes: the full trace by default, and the settled record's seven fields under `--settled-only`. `liveness-cases` has no trace to leave out, so it rejects the flag as a usage error.
 #[test]
-fn a_case_replay_answers_in_either_shape_and_the_liveness_verb_refuses_the_flag() {
+fn a_case_replay_writes_either_result_shape_and_the_liveness_verb_refuses_the_flag() {
     let root = scratch("cli-cases");
     let spec = spec_at(&root);
-    let question = "edge\t\t\t\t\t\t\t\tqsPea\tqsTea\tedge\tunknown\tunknown";
+    let case_line = "edge\t\t\t\t\t\t\t\tqsPea\tqsTea\tedge\tunknown\tunknown";
     let cases = root.join("cases.tsv");
-    std::fs::write(&cases, format!("{question}\n"))
+    std::fs::write(&cases, format!("{case_line}\n"))
         .expect("the scratch directory takes a case file");
     let traced = run(&["settle-cases", word(&spec), word(&cases)]);
     assert_eq!(traced.status.code(), Some(0), "{}", complaint(&traced));
     let stdout = String::from_utf8_lossy(&traced.stdout);
     assert!(
-        stdout.starts_with(&format!("{question}\t{{\"settled\":")),
+        stdout.starts_with(&format!("{case_line}\t{{\"settled\":")),
         "{stdout}"
     );
     let settled = run(&["settle-cases", word(&spec), word(&cases), "--settled-only"]);
     assert_eq!(settled.status.code(), Some(0), "{}", complaint(&settled));
     assert_eq!(
         String::from_utf8_lossy(&settled.stdout),
-        format!("{question}\tqsPea\thalf\t\t\t\t\t0\n")
+        format!("{case_line}\tqsPea\thalf\t\t\t\t\t0\n")
     );
     let refused = run(&[
         "liveness-cases",
