@@ -419,7 +419,8 @@ def build_anchor_map(variant: str = "senior") -> tuple[AnchorMap, dict[str, set[
     if variant in _ANCHOR_MAPS:
         return _ANCHOR_MAPS[variant]
     data = load_glyph_data(GLYPH_DATA_DIR)
-    _COMPILED_GLYPH_META[variant] = compile_glyph_set(data, variant).glyph_meta
+    compiled = compile_glyph_set(data, variant)
+    _COMPILED_GLYPH_META[variant] = {**compiled.glyph_meta, **compiled.ss10_twins}
 
     result: AnchorMap = {}
     base_potential_entries: dict[str, set[int]] = {}

@@ -356,7 +356,7 @@ class TestAliasAndLedger:
     _LEDGER_FOR_EVERY_ARM = [
         {"id": "boundary-echo", "match": {"predicate": "boundary_echo", "configs": "all"}},
         {"id": "kern-out-of-scope", "match": {"predicate": "kern_channel_out_of_scope", "configs": "all"}},
-        {"id": "ss10-isolation", "match": {"predicate": "ss10_isolation_completed", "configs": ["ss10"]}},
+        {"id": "kern-on-ss04", "match": {"predicate": "kern_channel_out_of_scope", "configs": ["ss04"]}},
         {"id": "dangling-on-ss04", "match": {"predicate": "dangling_anchor_dropped", "configs": ["ss04"]}},
         {"id": "nobody-knows-this", "match": {"predicate": "no_such_predicate", "configs": "all"}},
         {"id": "everything", "match": {}},
@@ -381,8 +381,8 @@ class TestAliasAndLedger:
             answers[(row.config, row.codepoints)] = expected
         assert answers == {
             ("default", "200C:E652:E670"): ["boundary-echo", "everything"],
-            ("ss10", "E650:E659"): ["ss10-isolation", "everything", "seams-only"],
-            ("ss04", "E650:E652"): ["kern-out-of-scope", "everything"],
+            ("ss10", "E650:E659"): ["everything", "seams-only"],
+            ("ss04", "E650:E652"): ["kern-out-of-scope", "kern-on-ss04", "everything"],
             ("default", "E650:E652"): ["everything"],
             ("ss05", "E650:E665:E652"): ["everything", "<unnamed>"],
             ("ss03", "E652:E679"): ["everything", "pre-ligature-window", "seams-only", "cleanup-on-ss03"],
@@ -748,82 +748,19 @@ class TestClassifierRouting:
     def test_position_drift_never_rides_a_cell_grain_class(self):
         assert oracle.classify_divergence(self._row("default", ("exit-dropped", "position-drift"))) is None
 
-    def test_ss10_predicate_yields_boundary_rows_to_the_blanket(self):
-        for boundary in ("0020", "200C"):
-            row = conform.DivergentRow(
-                config="ss10",
-                codepoints=f"{boundary}:E665:E653",
-                kinds=("cell", "seam"),
-                position=1,
-                baseline_glyphs=("space", "qsMay", "qsDay"),
-                baseline_seams=("break", "y5"),
-                new_cells=("space", "qsMay/loop/None/None/", "qsDay/full/None/None/"),
-                new_seams=("break", "break"),
-                phenomena=("seam-loss",),
-            )
-            assert oracle.PREDICATES["ss10_isolation_completed"](row) is False, boundary
-            assert oracle.classify_divergence(row) == "boundary-echo", boundary
-
-    def test_ss10_ligation_routes_to_ligature_suppressed(self):
-        pairs = oracle.ss10_formable_pairs()
-        assert {
-            "E653:E67A",
-            "E652:E679",
-            "E67B:E652",
-            "E659:E67A",
-            "E65A:E67A",
-            "E65D:E67A",
-            "E657:E67A",
-        } <= pairs
-        for pair in sorted(pairs):
-            row = self._row("ss10", ("ligation",), codepoints=f"E650:{pair}")
-            assert oracle.classify_divergence(row) == "ss10-ligature-suppressed", pair
-
-    def test_ss10_formable_pairs_are_the_registry_sequences(self, tmp_path):
-        registry = tmp_path / "script.yaml"
-        registry.write_text(
-            "families:\n"
-            "  qsPea: {codepoint: 0xE650}\n"
-            "  qsTea: {codepoint: 0xE652}\n"
-            "  qsOy: {codepoint: 0xE679}\n"
-            "  qsTea_qsOy: {sequence: [qsTea, qsOy]}\n"
-            "  qsPea_qsTea_qsOy: {sequence: [qsPea, qsTea, qsOy]}\n",
-            encoding="utf-8",
-        )
-        assert oracle.ss10_formable_pairs(registry) == frozenset({"E652:E679", "E650:E652:E679"})
-
-    def test_ss10_predicate_needs_a_member_on_every_lost_seam(self):
-        def loss(left_cp, left, right_cp, right):
-            return conform.DivergentRow(
-                config="ss10",
-                codepoints=f"{left_cp}:{right_cp}",
-                kinds=("seam",),
-                position=0,
-                baseline_glyphs=(left.split("/")[0], right.split("/")[0]),
-                baseline_seams=("y0",),
-                new_cells=(left, right),
-                new_seams=("break",),
-                phenomena=("seam-loss",),
-            )
-
-        bare_carrier = loss("E650", "qsPea/full/None/None/", "E659", "qsVie/normal/None/None/")
-        assert oracle.PREDICATES["ss10_isolation_completed"](bare_carrier) is True
-        for rune in ("qsI", "qsEt", "qsSee", "qsRoe", "qsVie"):
-            assert rune in oracle.SS10_UNCOVERED_BY_OLD_FONT, rune
-        non_members = loss("E650", "qsPea/full/None/None/", "E665", "qsMay/loop/None/None/")
-        assert oracle.PREDICATES["ss10_isolation_completed"](non_members) is False
-
-    def test_ss10_namer_dot_ligation_outranks_marker_staging(self):
-        row = self._row("ss10", ("ligation",), codepoints="00B7:E653:E67A")
-        assert oracle.classify_divergence(row) == "ss10-ligature-suppressed"
-
     def test_ss10_ligation_boundary_rows_stay_on_the_blanket(self):
         row = self._row("ss10", ("ligation",), codepoints="200C:E653:E67A")
         assert oracle.classify_divergence(row) == "boundary-echo"
 
-    def test_ss10_ligation_without_a_formable_pair_matches_nothing(self):
-        row = self._row("ss10", ("ligation",), codepoints="E650:E665:E652")
-        assert oracle.classify_divergence(row) is None
+    def test_ss10_rows_off_a_boundary_take_no_class(self):
+        for codepoints, phenomena in (
+            ("E650:E653:E67A", ("ligation",)),
+            ("00B7:E653:E67A", ("ligation",)),
+            ("E679:E652", ("stance",)),
+        ):
+            assert (
+                oracle.classify_divergence(self._row("ss10", phenomena, codepoints=codepoints)) is None
+            ), codepoints
 
     def test_non_ss10_ligation_keeps_marker_staging(self):
         row = self._row("ss03", ("ligation",), codepoints="E665:E652:E679")

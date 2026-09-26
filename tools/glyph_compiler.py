@@ -8,6 +8,7 @@ from quikscript_ir import (
     compile_quikscript_ir,
     flatten_join_glyphs,
     get_base_glyph_name,
+    ss10_twins,
 )
 from quikscript_join_analysis import validate_join_consistency, warn_join_contract_issues
 
@@ -26,6 +27,7 @@ class CompiledGlyphSet:
     legacy_glyphs: dict[str, GlyphDef | None]
     join_glyphs: dict[str, JoinGlyph]
     glyph_meta: dict[str, JoinGlyph]
+    ss10_twins: dict[str, JoinGlyph] = field(default_factory=dict)
     _glyph_definitions: dict[str, GlyphDef] | None = field(default=None, init=False, repr=False)
 
     @property
@@ -34,7 +36,7 @@ class CompiledGlyphSet:
             glyph_definitions: dict[str, GlyphDef] = {
                 k: v for k, v in self.legacy_glyphs.items() if v is not None
             }
-            glyph_definitions.update(flatten_join_glyphs(self.join_glyphs))
+            glyph_definitions.update(flatten_join_glyphs({**self.join_glyphs, **self.ss10_twins}))
             self._glyph_definitions = glyph_definitions
         return self._glyph_definitions
 
@@ -295,6 +297,7 @@ def compile_glyph_set(glyph_data: GlyphData, variant: str) -> CompiledGlyphSet:
         validate_join_consistency(join_glyphs)
         warn_join_contract_issues(join_glyphs)
 
+    twins = ss10_twins(join_glyphs) if variant == "senior" else {}
     glyph_meta = build_join_glyphs(legacy_glyphs)
     glyph_meta.update(join_glyphs)
 
@@ -302,6 +305,7 @@ def compile_glyph_set(glyph_data: GlyphData, variant: str) -> CompiledGlyphSet:
         legacy_glyphs=legacy_glyphs,
         join_glyphs=join_glyphs,
         glyph_meta=glyph_meta,
+        ss10_twins=twins,
     )
 
 

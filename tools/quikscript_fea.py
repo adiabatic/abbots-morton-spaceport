@@ -11,6 +11,8 @@ from quikscript_ir import (
     family_names_from_compiled,
     heal_glyph_name,
     resolve_known_glyph_names,
+    ss10_twin_name,
+    ss10_twins,
 )
 
 _ENTRY_EXTENSION_SUFFIXES = (
@@ -6647,7 +6649,8 @@ def _emit_quikscript_curs(
     return "\n".join(lines)
 
 
-def emit_quikscript_ss(glyph_meta: dict[str, JoinGlyph]) -> str | None:
+def emit_quikscript_ss(glyph_meta: dict[str, JoinGlyph], *, ss10_reverts_stances: bool = True) -> str | None:
+    """Emit the stylistic-set features that run after `calt`: each stance's `revert_feature`, each `replaces_family_feature`, and, when `ss10_reverts_stances` is set, an ss10 that substitutes every non-ligature stance by its bare glyph. Junior uses that ss10. Senior passes False and gets its ss10 from `emit_ss10_isolated_input`."""
     groups: dict[str, list[tuple[str, str]]] = defaultdict(list)
     for name, meta in glyph_meta.items():
         if meta.revert_feature:
@@ -6655,7 +6658,7 @@ def emit_quikscript_ss(glyph_meta: dict[str, JoinGlyph]) -> str | None:
 
     NOJOIN_TAG = "ss10"
     for name, meta in glyph_meta.items():
-        if name != meta.base_name and len(meta.sequence) <= 1:
+        if ss10_reverts_stances and name != meta.base_name and len(meta.sequence) <= 1:
             groups[NOJOIN_TAG].append((name, meta.base_name))
 
     for name, meta in glyph_meta.items():
@@ -6675,6 +6678,26 @@ def emit_quikscript_ss(glyph_meta: dict[str, JoinGlyph]) -> str | None:
             lines.append(f"    sub {variant} by {base};")
         lines.append(f"}} {feature_tag};")
 
+    return "\n".join(lines)
+
+
+def emit_ss10_isolated_input(join_glyphs: dict[str, JoinGlyph]) -> str | None:
+    """Emit Senior's ss10: one lookup that substitutes every glyph of a letter that has a twin (`ss10_twins` in tools/quikscript_ir.py) by that anchor-free twin. The caller places it ahead of every other GSUB lookup of the join pipeline, so under ss10 the twins reach the gated stylistic sets and `calt` instead of the letters. No twin is in any of their rules, so no ligature forms, no stance is chosen, and no two glyphs attach."""
+    twin_bases = {meta.base_name for meta in ss10_twins(join_glyphs).values()}
+    rules = sorted(
+        (name, ss10_twin_name(meta.base_name))
+        for name, meta in join_glyphs.items()
+        if meta.base_name in twin_bases
+    )
+    if not rules:
+        return None
+    lines = ["lookup ss10_isolated_input {"]
+    lines.extend(f"    sub {name} by {twin};" for name, twin in rules)
+    lines.append("} ss10_isolated_input;")
+    lines.append("")
+    lines.append("feature ss10 {")
+    lines.append("    lookup ss10_isolated_input;")
+    lines.append("} ss10;")
     return "\n".join(lines)
 
 
@@ -6955,6 +6978,10 @@ def emit_quikscript_senior_features(
     analysis.predecessor_demote_overrides = tuple(predecessor_demote_overrides)
     analysis.trailing_demote_overrides = tuple(trailing_demote_overrides)
 
+    ss10_fea = emit_ss10_isolated_input(join_glyphs)
+    if ss10_fea:
+        parts.append(ss10_fea)
+
     ss_gate_fea = _emit_quikscript_ss_gate(analysis)
     if ss_gate_fea:
         parts.append(ss_gate_fea)
@@ -6963,7 +6990,7 @@ def emit_quikscript_senior_features(
     if calt_fea:
         parts.append(calt_fea)
 
-    ss_fea = emit_quikscript_ss(join_glyphs)
+    ss_fea = emit_quikscript_ss(join_glyphs, ss10_reverts_stances=False)
     if ss_fea:
         parts.append(ss_fea)
 
@@ -7003,6 +7030,7 @@ __all__ = [
     "emit_namer_dot_calt",
     "emit_quikscript_senior_features",
     "emit_quikscript_ss",
+    "emit_ss10_isolated_input",
     "expand_hoisted_classes",
     "hoist_repeated_classes",
 ]

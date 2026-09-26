@@ -22,8 +22,6 @@
       "may-jai-extension-consolidated",
       "jai-entry-contraction-respelled",
       "zoo-entry-contraction-respelled",
-      "ss10-isolation-completed",
-      "ss10-ligature-suppressed",
       "ss03-out-tea-ligature-kept",
       "kern-channel-out-of-scope",
       "no-chain-gains",
@@ -46,9 +44,6 @@
       "may-jai-extension-consolidated",
       "jai-entry-contraction-respelled",
       "zoo-entry-contraction-respelled",
-      "ss10-isolation-completed",
-      "ss10-ligature-suppressed",
-      "kern-channel-out-of-scope",
       "extension-non-summing",
       "deferred-ss04",
       "deferred-ss03"
@@ -75,15 +70,15 @@
   "volatile": {
     "manifest": {
       "totals": {
-        "units": 2150839,
-        "rows": 7498333,
+        "units": 1398458,
+        "rows": 6745952,
         "batches": 777,
         "echo_groups": 9814
       },
       "machine_approved": {
-        "units": 1875526,
+        "units": 1123265,
         "by_class": {
-          "boundary-echo": 260293,
+          "boundary-echo": 171505,
           "zwnj-word-initial-unification": 136,
           "halves-entry-extension-restored": 330,
           "same-seam-extension-non-summing": 2030,
@@ -92,23 +87,20 @@
           "may-jai-extension-consolidated": 981,
           "jai-entry-contraction-respelled": 395,
           "zoo-entry-contraction-respelled": 1287,
-          "ss10-isolation-completed": 622216,
-          "ss10-ligature-suppressed": 28005,
-          "kern-channel-out-of-scope": 13252,
           "extension-non-summing": 1162,
           "deferred-ss04": 3,
           "deferred-ss03": 1
         }
       },
       "class_unit_count": {
-        "boundary-echo": 289485,
+        "boundary-echo": 200577,
         "dangling-anchor-dropped": 362928,
         "bare-name-live-join": 611125
       },
       "secondary_seams": {
-        "units_with_markers": 186859,
-        "seams_homed": 149199,
-        "seams_homeless": 52298,
+        "units_with_markers": 49140,
+        "seams_homed": 5691,
+        "seams_homeless": 46454,
         "seams_suppressed_invisible": 1481
       }
     },
@@ -119,10 +111,6 @@
         [
           null,
           1301890
-        ],
-        [
-          "only under ss10",
-          752381
         ],
         [
           "only when ss03 is off",
@@ -175,12 +163,12 @@
       ]
     },
     "audit": {
-      "row_count": 7498333,
-      "units": 2157361
+      "row_count": 6745952,
+      "units": 1404980
     },
     "ink": {
       "machine_total": 1084754,
-      "non_identical": 1072607,
+      "non_identical": 320226,
       "by_class": {
         "boundary-echo": 168058,
         "zwnj-word-initial-unification": 136,
@@ -188,9 +176,9 @@
         "bare-name-live-join": 585584,
         "zoo-entry-contraction-respelled": 1281
       },
-      "boundary_echo_exempt": 136182,
-      "human_units": 936425,
-      "batches": 3122
+      "boundary_echo_exempt": 47274,
+      "human_units": 272952,
+      "batches": 910
     },
     "families": {
       "census": {

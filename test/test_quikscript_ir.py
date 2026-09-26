@@ -39,6 +39,7 @@ from quikscript_ir import (
     expand_selectors_for_ligatures,
     get_base_glyph_name,
     resolve_known_glyph_names,
+    ss10_twins,
 )
 from review_scoped_anchor_selectors import (
     VariantExample,
@@ -1137,7 +1138,7 @@ def test_senior_feature_emitter_uses_join_glyphs_and_noentry_links():
 def _parse_senior_fea(join_glyphs: dict[str, JoinGlyph]) -> str:
     fea = emit_quikscript_senior_features(join_glyphs, 50, 50)
     assert fea is not None
-    FeaParser(io.StringIO(fea), glyphNames=set(join_glyphs)).parse()
+    FeaParser(io.StringIO(fea), glyphNames=set(join_glyphs) | set(ss10_twins(join_glyphs))).parse()
     return fea
 
 
@@ -1239,9 +1240,10 @@ def test_build_font_uses_compiled_join_glyphs_for_feature_generation(monkeypatch
     compiled = compile_glyph_set(data, "senior")
 
     class FakeCompiledGlyphSet:
-        def __init__(self, glyph_definitions, join_glyphs):
+        def __init__(self, glyph_definitions, join_glyphs, twins):
             self.glyph_definitions = glyph_definitions
             self.join_glyphs = join_glyphs
+            self.ss10_twins = twins
 
     monkeypatch.setattr(
         build_font,
@@ -1249,6 +1251,7 @@ def test_build_font_uses_compiled_join_glyphs_for_feature_generation(monkeypatch
         lambda glyph_data, variant: FakeCompiledGlyphSet(
             compiled.glyph_definitions,
             compiled.join_glyphs,
+            compiled.ss10_twins,
         ),
     )
 
