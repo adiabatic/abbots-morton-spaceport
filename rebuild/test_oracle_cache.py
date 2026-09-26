@@ -492,18 +492,18 @@ def _store_at(tmp_path: Path, repo: Path, spec, pass_ordinal: int, ages, name: s
 
 
 def test_a_record_older_than_the_age_cap_is_re_derived(repo, tmp_path):
-    """No verdict may stand for `MAX_RECORD_AGE` passes without being recomputed, whatever its families did. This bounds how long a wrong record can survive in a store that otherwise re-writes it unchanged on every pass. Two clauses enforce it. The ordinal clause retires one row in `MAX_RECORD_AGE` on every pass, so the whole table is renewed within that many passes and the renewal is spread out. The age clause catches a record whose pass ordinals skipped."""
+    """No verdict may stand for `MAX_RECORD_AGE` passes without being recomputed, whatever its families did. This bounds how long a wrong record can survive in a store that otherwise re-writes it unchanged on every pass. Two clauses enforce it. The ordinal clause re-derives one row in `MAX_RECORD_AGE` on every pass, so the whole table is re-derived within that many passes and the scheduled re-derivation is spread out. The age clause catches a record whose pass ordinals skipped."""
     spec = fixtures.mini_spec()
     rows = 2 * oracle_cache.MAX_RECORD_AGE
     fresh = [1] * rows
 
-    retired: set[int] = set()
+    rederived: set[int] = set()
     for ordinal in range(oracle_cache.MAX_RECORD_AGE):
         store = _store_at(tmp_path, repo, spec, ordinal, fresh, f"pass-{ordinal}")
         due = {index for index in range(rows) if store.due(index)}
         assert len(due) == rows // oracle_cache.MAX_RECORD_AGE
-        retired |= due
-    assert retired == set(range(rows))
+        rederived |= due
+    assert rederived == set(range(rows))
 
     aged = _store_at(tmp_path, repo, spec, oracle_cache.MAX_RECORD_AGE, fresh, "aged")
     assert all(aged.due(index) for index in range(rows))
@@ -515,8 +515,8 @@ def test_a_record_older_than_the_age_cap_is_re_derived(repo, tmp_path):
     assert not mixed.due(3)
 
 
-def test_a_read_only_pass_rotates_the_slice_it_retires(repo, tmp_path):
-    """A read-only pass does not change the ordinal on disk, so without rotation every such pass would retire the same slice of the table and draw the same verification sample. Rotation moves both, and `MAX_RECORD_AGE` rotations still cover the table exactly once. Rotation must not change the age arithmetic: a rotated current ordinal would read every record as past the cap and retire the whole table, which would remove the saving the store provides."""
+def test_a_read_only_pass_rotates_its_scheduled_re_derivation(repo, tmp_path):
+    """A read-only pass does not change the ordinal on disk, so without rotation every such pass would re-derive the same rows and draw the same verification sample. Rotation moves both, and `MAX_RECORD_AGE` rotations still cover the table exactly once. Rotation must not change the age arithmetic: a rotated current ordinal would read every record as past the cap and re-derive the whole table, which would remove the saving the store provides."""
     spec = fixtures.mini_spec()
     rows = 2 * oracle_cache.MAX_RECORD_AGE
     stamp = _stamp(repo, spec)
@@ -786,14 +786,14 @@ def test_a_sliced_store_answers_the_tables_count_and_refuses_rows_outside_its_ra
     assert sliced.served == 0
 
 
-def test_a_wrong_anchor_inside_the_range_still_aborts_the_serve(repo, tmp_path):
-    """A misaligned anchor inside a slice aborts the serve as it does in a whole store; it is not a miss. The range changes which rows a store holds, not what a mismatched record means about the table."""
+def test_a_wrong_row_check_digest_inside_the_range_still_aborts_the_serve(repo, tmp_path):
+    """A mismatched row check digest inside a range aborts the serve as it does in a whole store; it is not a miss. The range changes which rows a store holds, not what a mismatched record means about the table."""
     spec = fixtures.mini_spec()
     path, stamp, keys = _aged_store(tmp_path, repo, spec)
     sliced = oracle_cache.load_store(path, stamp, "subset-digest", spec, keys, first_row=2, stop_row=4)
     assert sliced is not None
     assert sliced.serve(3, (PEA, PEA + 3)).row_age == 3
-    with pytest.raises(SystemExit, match="misaligned at row 3"):
+    with pytest.raises(SystemExit, match="does not match the table at row 3"):
         sliced.serve(3, (PEA, PEA + 4))
 
 
@@ -996,7 +996,7 @@ def test_a_record_carries_both_verdicts_and_their_ages():
             record.position is position if position is oracle_cache.UNSHAPED else record.position == position
         )
         assert (record.row_age, record.position_age) == ages
-        assert line.startswith(oracle_cache.row_anchor((PEA, TEA)))
+        assert line.startswith(oracle_cache.row_check_digest((PEA, TEA)))
     assert oracle_cache.encode_record((PEA,), None, 1).endswith("\t-\t?\t1\t0")
 
 

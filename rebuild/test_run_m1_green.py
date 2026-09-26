@@ -823,7 +823,7 @@ class TestOracleFanIn:
         assert (tmp_path / "divergence-audit.tsv").is_file()
 
     def test_a_pass_that_may_not_write_a_store_rotates_its_coverage(self, monkeypatch, tmp_path):
-        """The renewal slice and the verification sample that keep a wrong record from being served forever both advance on the pass ordinal, which advances only when a store is written. `--gates-only` writes no store, so without a rotation it would renew the same slice and verify the same sample on every run. A pass that writes no store therefore passes a nonzero `rotation`; a writing pass passes zero."""
+        """The scheduled re-derivation and the verification sample that keep a wrong record from being served forever both advance on the pass ordinal, which advances only when a store is written. `--gates-only` writes no store, so without a rotation it would re-derive the same rows and verify the same sample on every run. A pass that writes no store therefore passes a nonzero `rotation`; a writing pass passes zero."""
         seen: list = []
         self._pool(monkeypatch, self._worker(record=seen))
         run_m1.run_oracle(out_dir=tmp_path, jobs=6)

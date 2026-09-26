@@ -1403,7 +1403,7 @@ def _font_edited(source: Path, target: Path, touches) -> Path:
     return target
 
 
-def _cache_renewed(rows: int, pass_ordinal: int) -> set[int]:
+def _cache_rederived(rows: int, pass_ordinal: int) -> set[int]:
     """The rows this pass re-derives regardless of their families: the ordinal clause of `RowStore.due`, which re-derives one row in every `MAX_RECORD_AGE` rows on each pass, so no verdict goes that many passes without being recomputed. This is why no test below expects every row to be served."""
     current = pass_ordinal + 1
     return {
@@ -1538,7 +1538,7 @@ class TestOracleRowCache:
         return _position_bench(spec, tmp_path, ledger_entries)
 
     def test_a_served_position_channel_writes_the_audit_a_cold_one_writes(self, spec, tmp_path):
-        """A pass that took its position verdicts from the previous pass's store writes the same `divergence-audit.tsv` as a cold pass over the same font, and so does the uncached path, while serving every position except the renewal slice. The bench drifts for real (old-font positions against the frozen after font), so the audit has position rows and the equality covers drift descriptions, not an empty channel."""
+        """A pass that took its position verdicts from the previous pass's store writes the same `divergence-audit.tsv` as a cold pass over the same font, and so does the uncached path, while serving every position outside the scheduled re-derivation. The bench drifts for real (old-font positions against the frozen after font), so the audit has position rows and the equality covers drift descriptions, not an empty channel."""
         tables, aliases, ledger, stamps, configs, rows = self._position_bench(spec, tmp_path)
         keys = self._keys(spec)
         position = oracle_cache.position_keys(REPO_ROOT, keys, MINI / "M1.otf", None)
@@ -1563,19 +1563,19 @@ class TestOracleRowCache:
             **asdict(cold_report),
             "positions_served": served_report.positions_served,
         }
-        renewed = _cache_renewed(len(rows), 0)
-        assert served_report.positions_served == len(rows) - len(renewed | excluded)
+        rederived = _cache_rederived(len(rows), 0)
+        assert served_report.positions_served == len(rows) - len(rederived | excluded)
         store = oracle_cache.store_path(served_stores, "default")
         assert {
             index for index, age in enumerate(_cache_position_ages(store)) if age == 1
-        } == renewed | excluded
-        assert {index for index, age in enumerate(_cache_ages(store)) if age == 1} == renewed
+        } == rederived | excluded
+        assert {index for index, age in enumerate(_cache_ages(store)) if age == 1} == rederived
         assert {index for index, tag in enumerate(_cache_position_tags(store)) if tag == "?"} == excluded
 
     def test_a_served_position_channel_that_disagrees_with_harfbuzz_is_a_hard_stop(
         self, spec, tmp_path, monkeypatch
     ):
-        """The served-position verifier must stop the run: a served pass whose sampled positions re-shape to something other than what the store holds aborts instead of writing them into the audit. No other test triggers this check. The test replaces `_position_drift` in the position channel's module, which `oracle._compare_config` calls through the module and not through an imported name. The renewal slice's fresh shaping therefore stores the same wrong answer (the abort prevents that store from being promoted), and the sampled served rows, re-shaped through the replaced function, disagree with the records they were served from. A verifier with nothing to re-shape would let this pass."""
+        """The served-position verifier must stop the run: a served pass whose sampled positions re-shape to something other than what the store holds aborts instead of writing them into the audit. No other test triggers this check. The test replaces `_position_drift` in the position channel's module, which `oracle._compare_config` calls through the module and not through an imported name. The scheduled re-derivation's fresh shaping therefore stores the same wrong answer (the abort prevents that store from being promoted), and the sampled served rows, re-shaped through the replaced function, disagree with the records they were served from. A verifier with nothing to re-shape would let this pass."""
         tables, aliases, ledger, stamps, configs, _rows = self._position_bench(spec, tmp_path)
         keys = self._keys(spec)
         position = oracle_cache.position_keys(REPO_ROOT, keys, MINI / "M1.otf", None)
@@ -1621,12 +1621,12 @@ class TestOracleRowCache:
         assert fresh_audit.read_bytes() != cold_audit.read_bytes(), "the glyph edit moved no row"
         naming = {index for index, codepoints in enumerate(rows) if 0xE652 in codepoints}
         excluded = _excluded_from_the_channel(cold_audit, len(rows))
-        expected = naming | _cache_renewed(len(rows), 0)
+        expected = naming | _cache_rederived(len(rows), 0)
         store = oracle_cache.store_path(carried_stores, "default")
         assert {
             index for index, age in enumerate(_cache_position_ages(store)) if age == 1
         } == expected | excluded
-        assert {index for index, age in enumerate(_cache_ages(store)) if age == 1} == _cache_renewed(
+        assert {index for index, age in enumerate(_cache_ages(store)) if age == 1} == _cache_rederived(
             len(rows), 0
         )
         assert carried_report.positions_served == len(rows) - len(expected | excluded)
@@ -1662,9 +1662,9 @@ class TestOracleRowCache:
         )
         assert carried_audit.read_bytes() == fresh_audit.read_bytes()
         assert fresh_audit.read_bytes() != cold_audit.read_bytes(), "the rune edit moved no row"
-        expected = {index for index, codepoints in enumerate(rows) if 0xE652 in codepoints} | _cache_renewed(
-            len(rows), 0
-        )
+        expected = {
+            index for index, codepoints in enumerate(rows) if 0xE652 in codepoints
+        } | _cache_rederived(len(rows), 0)
         excluded = _excluded_from_the_channel(fresh_audit, len(rows))
         store = oracle_cache.store_path(carried_stores, "default")
         assert {index for index, age in enumerate(_cache_ages(store)) if age == 1} == expected
@@ -1701,7 +1701,7 @@ class TestOracleRowCache:
         assert carried_report.positions_served == 0
         store = oracle_cache.store_path(carried_stores, "default")
         assert set(_cache_position_ages(store)) == {1}
-        assert {index for index, age in enumerate(_cache_ages(store)) if age == 1} == _cache_renewed(
+        assert {index for index, age in enumerate(_cache_ages(store)) if age == 1} == _cache_rederived(
             len(rows), 0
         )
 
@@ -1741,7 +1741,7 @@ class TestOracleRowCache:
         )
         assert carried_report.positions_compared == 0
         tags = _cache_position_tags(oracle_cache.store_path(carried_stores, "default"))
-        assert {index for index, tag in enumerate(tags) if tag == "?"} == _cache_renewed(
+        assert {index for index, tag in enumerate(tags) if tag == "?"} == _cache_rederived(
             len(rows), 1
         ) | excluded
 
@@ -1750,7 +1750,7 @@ class TestOracleRowCache:
         )
         assert again_audit.read_bytes() == fresh_audit.read_bytes()
         assert again_report.positions_served == len(rows) - len(
-            _cache_renewed(len(rows), 1) | _cache_renewed(len(rows), 2) | excluded
+            _cache_rederived(len(rows), 1) | _cache_rederived(len(rows), 2) | excluded
         )
 
     def test_a_served_oracle_writes_the_audit_a_cold_one_writes(self, spec, tmp_path):
@@ -1778,7 +1778,7 @@ class TestOracleRowCache:
             ages = _cache_ages(oracle_cache.store_path(served_stores, config))
             assert len(ages) == len(self.LETTER_ROWS)
             assert set(ages) == {0, 1}
-            assert {index for index, age in enumerate(ages) if age == 1} == _cache_renewed(len(ages), 0)
+            assert {index for index, age in enumerate(ages) if age == 1} == _cache_rederived(len(ages), 0)
 
     def test_a_served_verdict_that_disagrees_with_a_fresh_comparison_is_a_hard_stop(
         self, spec, tmp_path, monkeypatch
@@ -1807,7 +1807,7 @@ class TestOracleRowCache:
 
     @pytest.mark.parametrize("k", (1, 2, 3, 4))
     def test_an_edit_to_k_runes_re_derives_exactly_the_rows_that_name_them(self, spec, tmp_path, k):
-        """However many runes moved, the re-derived rows are exactly those that name one of them: a union, with no threshold and no whole-store drop, so a four-rune edit still serves every row that names none of the four. The renewal slice is added to the expected set, because it is a property of the store and not of the edit."""
+        """However many runes moved, the re-derived rows are exactly those that name one of them: a union, with no threshold and no whole-store drop, so a four-rune edit still serves every row that names none of the four. The scheduled re-derivation is added to the expected set, because it is a property of the store and not of the edit."""
         tables, aliases, stamps, configs = self._bench(tmp_path)
         ledger = tmp_path / "ledger.yaml"
         ledger.write_text("[]\n")
@@ -1838,7 +1838,7 @@ class TestOracleRowCache:
             for index, codepoints in enumerate(self.LETTER_ROWS)
             if {family_of[codepoint] for codepoint in codepoints} & set(moved)
         }
-        expected = naming | _cache_renewed(len(self.LETTER_ROWS), 0)
+        expected = naming | _cache_rederived(len(self.LETTER_ROWS), 0)
         for config in configs:
             ages = _cache_ages(oracle_cache.store_path(edited_stores, config))
             assert {index for index, age in enumerate(ages) if age == 1} == expected
@@ -1867,7 +1867,7 @@ class TestOracleRowCache:
         assert fresh_audit.read_bytes() != cold_audit.read_bytes(), "the rune edit moved no row"
 
     def test_a_ledger_edit_serves_every_row_and_still_rewrites_the_matches(self, spec, tmp_path):
-        """The main use of the cache. `rebuild/m1-divergences.yaml` is outside the key because `_match_compiled` runs on every row on every pass, served or not. Replacing the ledger therefore re-derives only the pass's renewal slice, and every `matched_entry` in the audit changes as it does for a pass that compared every row from scratch."""
+        """The main use of the cache. `rebuild/m1-divergences.yaml` is outside the key because `_match_compiled` runs on every row on every pass, served or not. Replacing the ledger therefore re-derives only the rows the pass's scheduled re-derivation covers, and every `matched_entry` in the audit changes as it does for a pass that compared every row from scratch."""
         tables, aliases, stamps, configs = self._bench(tmp_path)
         empty = tmp_path / "empty-ledger.yaml"
         empty.write_text("[]\n")
@@ -1888,7 +1888,7 @@ class TestOracleRowCache:
 
         for config in configs:
             ages = _cache_ages(oracle_cache.store_path(served_stores, config))
-            assert {index for index, age in enumerate(ages) if age == 1} == _cache_renewed(len(ages), 0)
+            assert {index for index, age in enumerate(ages) if age == 1} == _cache_rederived(len(ages), 0)
 
         assert served_audit.read_bytes() == fresh_audit.read_bytes()
         assert served_audit.read_bytes() != cold_audit.read_bytes()
@@ -1905,11 +1905,11 @@ class TestOracleRowCache:
             "garbled-header",
             "short-count",
             "another-table",
-            "misaligned-record",
+            "mismatched-record",
         ),
     )
-    def test_a_corrupt_or_short_or_misaligned_store_costs_a_full_pass(self, spec, tmp_path, damage):
-        """Any doubt about a store costs one cold oracle pass and nothing else: a store that does not load is ignored, and the pass starts its own store at ordinal zero. The misaligned record is the exception: an anchor that disagrees with its row means the table under the whole store was replaced, so the pass aborts instead of treating the record as a miss and serving every other record just as wrongly."""
+    def test_a_corrupt_or_short_or_mismatched_store_costs_a_full_pass(self, spec, tmp_path, damage):
+        """Any doubt about a store costs one cold oracle pass and nothing else: a store that does not load is ignored, and the pass starts its own store at ordinal zero. The mismatched record is the exception: a row check digest that disagrees with its row means the table under the whole store was replaced, so the pass aborts instead of treating the record as a miss and serving every other record just as wrongly."""
         tables, aliases, stamps, configs = self._bench(tmp_path, configs=("default",))
         ledger = tmp_path / "ledger.yaml"
         ledger.write_text("[]\n")
@@ -1947,11 +1947,11 @@ class TestOracleRowCache:
             elif damage == "another-table":
                 body[0] = body[0].replace(stamps["default"].labels["subset"], "0" * 64)
             else:
-                body[1] = "0" * oracle_cache.ANCHOR_WIDTH + body[1][oracle_cache.ANCHOR_WIDTH :]
+                body[1] = "0" * oracle_cache.ROW_CHECK_WIDTH + body[1][oracle_cache.ROW_CHECK_WIDTH :]
             store.write_bytes(gzip.compress(("\n".join(body) + "\n").encode("utf-8"), mtime=0))
 
-        if damage == "misaligned-record":
-            with pytest.raises(SystemExit, match="the oracle row cache is misaligned"):
+        if damage == "mismatched-record":
+            with pytest.raises(SystemExit, match="the oracle row cache does not match the table"):
                 self._pass(spec, tmp_path, "after", read_dir=cold_stores, **shared)
             return
 
@@ -1988,7 +1988,7 @@ class TestOracleRowCache:
         ages = _cache_ages(oracle_cache.store_path(stores, configs[0]))
         assert {index for index, age in enumerate(ages) if age == 0} == {
             index for index in range(1, len(rows), 2)
-        } - _cache_renewed(len(rows), 0)
+        } - _cache_rederived(len(rows), 0)
         assert 0 in ages and 1 in ages, "the pass did not interleave served and fresh rows"
 
         lines = [line.split("\t") for line in audit.read_text().splitlines()[1:]]
@@ -2183,7 +2183,7 @@ class TestOracleRowRanges:
         assert oracle_cache.load_store(short, stamp, stamp.labels["subset"], spec, shared["keys"]) is None
 
     def test_a_cut_warm_pass_serves_what_a_whole_warm_pass_serves(self, spec, tmp_path):
-        """The serve path, the renewal slice and the verification draw are all keyed on the row's ordinal in the table, so a warm pass cut into ranges serves the same rows as a whole warm pass, re-derives the same renewal slice, writes the same audit and stages the same store. `positions_served` sums to the whole pass's figure, and each range draws its own verification sample, which is a superset of the whole pass's draw."""
+        """The serve path, the scheduled re-derivation and the verification draw are all keyed on the row's ordinal in the table, so a warm pass cut into ranges serves the same rows as a whole warm pass, re-derives the same scheduled rows, writes the same audit and stages the same store. `positions_served` sums to the whole pass's figure, and each range draws its own verification sample, which is a superset of the whole pass's draw."""
         shared, rows = self._bench(spec, tmp_path)
         _cold, _, cold_stores = self._ranged(
             spec, tmp_path, "cold", [oracle.OracleShard("default")], **shared
