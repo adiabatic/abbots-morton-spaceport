@@ -295,7 +295,7 @@ test('createRecordCache freshens an entry on a hit, so a re-read is not the next
   assert.equal(cache.has('b'), false);
 });
 
-test('createRecordCache re-seating a key keeps one entry and moves it to the end', () => {
+test('createRecordCache re-setting a key keeps one entry and moves it to the end', () => {
   const cache = createRecordCache(3);
   for (const id of ['a', 'b']) cache.set(id, { id });
   cache.set('a', { id: 'a', again: true });
@@ -362,7 +362,7 @@ test('machineFoldPlan drops a class out of the view when the batch moves past it
   assert.deepEqual(machineFoldPlan(manifest, viewState({ batch: 1 })), []);
 });
 
-test('machineFoldPlan rides a batchless class along with batch 0, the way unitsForView did', () => {
+test('machineFoldPlan includes a batchless class with batch 0, the way unitsForView did', () => {
   const batchless = {
     classes: [
       { id: 'all-machine', batches: [], unit_count: 9, machine_approved_count: 9, no_verdict: false, machine_channels: { ink_identical: 9, picture_identical: 0, junior_equivalent: 0 } },

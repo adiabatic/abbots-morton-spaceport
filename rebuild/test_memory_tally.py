@@ -247,7 +247,7 @@ def test_a_column_size_estimate_charges_a_shared_string_table_to_one_line():
     assert shared == memory_tally.Measure(3, 12 + 3 + 4, held.packed)
 
 
-def test_an_empty_boundary_still_lands_on_the_record():
+def test_an_empty_boundary_is_still_written_to_the_record():
     out = io.StringIO()
     tally = memory_tally.MemoryTally(out=out)
     assert tally.boundary("manifest+check") == []
@@ -270,7 +270,7 @@ def test_a_held_collection_is_reread_at_every_boundary_and_a_released_one_is_not
     assert lines[-1] == "[tally] third largest=-"
 
 
-def test_a_packed_shape_prices_each_field_off_the_member_it_reads():
+def test_a_packed_shape_estimates_each_field_off_the_member_it_reads():
     for index in (0, 1, 5, 7, 1200):
         state = _state(index)
         assert memory_tally.packed_size(_STATE_SHAPE, state) == _packed_bytes(state)
@@ -283,7 +283,7 @@ def test_a_packed_shape_prices_each_field_off_the_member_it_reads():
     assert memory_tally.packed_size(memory_tally.Derived(lambda text: 1 + 2 * len(text)), "abc") == 7
 
 
-def test_a_drifted_declaration_raises_rather_than_pricing_the_wrong_field():
+def test_a_drifted_declaration_raises_rather_than_estimating_the_wrong_field():
     with pytest.raises(TypeError):
         memory_tally.packed_size(memory_tally.Id(), 7)
     with pytest.raises(TypeError):
@@ -307,7 +307,7 @@ def test_a_hex_column_charges_its_width_whether_the_digest_is_there_or_not():
         memory_tally.packed_size(digest, 7)
 
 
-def test_a_derived_column_prices_an_absent_value_without_reading_it():
+def test_a_derived_column_estimates_an_absent_value_without_reading_it():
     """An absent value is never passed to the callable and costs the column's `absent` width, by default the `COUNT_WIDTH` count slot. The build's `checker.identity` shape in rebuild/review/build.py is a codepoint window in a `Positional` triple, and a member with no window must cost a zero count there instead of raising."""
     window = memory_tally.Derived(lambda values: 1 + 2 * len(values))
     assert memory_tally.packed_size(window, (0xE650, 0xE651)) == 5
@@ -327,7 +327,7 @@ def test_a_nested_collection_takes_no_packed_shape_at_the_call_site_or_at_the_bo
     assert memory_tally.measure(tables, nested=True).count == 1
 
 
-def test_a_pinned_record_prices_to_the_width_it_is_declared_at():
+def test_a_pinned_record_is_estimated_at_the_width_it_is_declared_at():
     """A member with one field of each shape kind costs a known number of bytes: eight flags take one byte, a digest its thirty-two raw bytes, a window a count byte plus two bytes per codepoint, an id four bytes, a variable-length field an offset and a count plus its elements, a mapping the same pair plus a key and a value per entry, and a positional address its three slots. An absent member costs every fixed column under it and the offset-and-count pair of every variable one."""
     assert memory_tally.packed_size(_PINNED_SHAPE, _pinned()) == 80
     assert memory_tally.packed_size(_PINNED_SHAPE, None) == 60
@@ -377,7 +377,7 @@ def test_the_bare_ids_of_one_record_come_off_one_pass_over_the_members():
     assert cost.string_bytes == sum(len(string) + memory_tally.OFFSET_WIDTH for string in strings)
 
 
-def test_a_mapping_is_priced_by_its_values_unless_a_table_prices_its_entries():
+def test_a_mapping_is_estimated_by_its_values_unless_a_table_estimates_its_entries():
     collection = {f"{index:064x}": _state(index) for index in range(512)}
     by_ordinal = memory_tally.packed_estimate(collection, _STATE_SHAPE, sample_size=512)
     by_key = memory_tally.packed_estimate(

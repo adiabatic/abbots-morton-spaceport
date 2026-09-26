@@ -183,7 +183,7 @@ def test_settlement_rows(row_labels, sequence, features, expected):
     assert row_labels[(sequence, features)] == expected
 
 
-def test_exit_extension_amount_rides_the_seam(row_settled):
+def test_exit_extension_amount_is_recorded_on_the_seam(row_settled):
     settled = row_settled[("qsMay qsIt", ())]
     assert settled[0].extension == 1
     assert settled[0].seam == "x-height"
@@ -258,7 +258,7 @@ def test_absolute_prefer_outranks_join_count():
     assert labels[0] == "A.flourish"
 
 
-def test_bind_contract_lands_in_the_adjustments_grammar():
+def test_bind_contract_is_included_in_the_adjustments_grammar():
     contract = PolicyRecord(
         kind="contract",
         stance="hook",

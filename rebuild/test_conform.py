@@ -176,7 +176,7 @@ class TestIsolatedOverlay:
         )
         assert divergent.new_seams == ("break",)
 
-    def test_the_overlay_arm_sweeps_two_letters_and_never_reaches_the_crate(self, spec, monkeypatch):
+    def test_the_overlay_case_sweeps_two_letters_and_never_reaches_the_crate(self, spec, monkeypatch):
         """At any belt maximum length, the overlay branch shapes every text of one or two alphabet symbols and nothing longer, and it never forms, settles, memoizes or calls the crate."""
 
         def unreachable(*args, **kwargs):
@@ -311,7 +311,7 @@ class TestAliasAndLedger:
         return matches
 
     @staticmethod
-    def _rows_for_every_arm():
+    def _rows_for_every_case():
         def row(
             config,
             codepoints,
@@ -353,7 +353,7 @@ class TestAliasAndLedger:
         seamed_scoped = row("ss03", "E652:E679", ("cell", "seam"), ("seam-gain:qsTea",))
         return [boundary_echo, ss10_seam_loss, position_kern, unclassified, scoped_out, seamed_scoped]
 
-    _LEDGER_FOR_EVERY_ARM = [
+    _LEDGER_FOR_EVERY_CASE = [
         {"id": "boundary-echo", "match": {"predicate": "boundary_echo", "configs": "all"}},
         {"id": "kern-out-of-scope", "match": {"predicate": "kern_channel_out_of_scope", "configs": "all"}},
         {"id": "kern-on-ss04", "match": {"predicate": "kern_channel_out_of_scope", "configs": ["ss04"]}},
@@ -371,10 +371,10 @@ class TestAliasAndLedger:
 
     def test_the_compiled_ledger_answers_what_a_walk_of_the_raw_ledger_answers(self):
         """The compiled ledger against the reference walk, over a ledger with one entry of each kind: a class entry open to every configuration, a class entry scoped to one configuration, a function predicate, a predicate in neither map, an empty `match`, a `window` test, a `seam_change` test, and an entry with no `id`. The rows reach each of them. List equality checks both the ids and their order."""
-        ledger = self._LEDGER_FOR_EVERY_ARM
+        ledger = self._LEDGER_FOR_EVERY_CASE
         compiled = oracle.compile_ledger(ledger)
         answers = {}
-        for row in self._rows_for_every_arm():
+        for row in self._rows_for_every_case():
             expected = self._walk_raw_ledger(ledger, row)
             assert oracle._match_compiled(compiled, row) == expected, row
             assert oracle._match_ledger(ledger, row) == expected, row
@@ -422,9 +422,9 @@ class TestAliasAndLedger:
         assert compiled.by_class == {}
         assert compiled.functions == ()
         assert compiled.unconditional == ((1, "everything", None, None, False),)
-        for row in self._rows_for_every_arm():
+        for row in self._rows_for_every_case():
             assert oracle._match_compiled(compiled, row) == ["everything"], row
-        unclassified = self._rows_for_every_arm()[3]
+        unclassified = self._rows_for_every_case()[3]
         assert oracle.classify_divergence(unclassified) is None
         assert oracle._match_compiled(compiled, unclassified) == ["everything"]
 
@@ -432,9 +432,9 @@ class TestAliasAndLedger:
         """A bare-string `configs` keeps the reference walk's substring `in` test: the ss05 row matches `ss03+ss05` under it and would not under an exact match. A `configs:` with no value fails when the ledger compiles instead of matching every configuration."""
         bare = [{"id": "bare", "match": {"predicate": "dangling_anchor_dropped", "configs": "ss03+ss05"}}]
         compiled = oracle.compile_ledger(bare)
-        for row in self._rows_for_every_arm():
+        for row in self._rows_for_every_case():
             assert oracle._match_compiled(compiled, row) == self._walk_raw_ledger(bare, row), row
-        scoped_out = self._rows_for_every_arm()[4]
+        scoped_out = self._rows_for_every_case()[4]
         assert scoped_out.config == "ss05"
         assert oracle._match_compiled(compiled, scoped_out) == ["bare"]
         with pytest.raises(TypeError):
@@ -745,7 +745,7 @@ class TestClassifierRouting:
             == "entered-it-baseline-join-gain"
         )
 
-    def test_position_drift_never_rides_a_cell_grain_class(self):
+    def test_position_drift_never_falls_under_a_cell_grain_class(self):
         assert oracle.classify_divergence(self._row("default", ("exit-dropped", "position-drift"))) is None
 
     def test_ss10_ligation_boundary_rows_stay_on_the_blanket(self):
@@ -3671,7 +3671,7 @@ class TestSettleMemoFile:
             assert store.probe(window) is outcome
         assert store.reached_count() == len(expected)
 
-    def test_a_window_filed_twice_lands_as_one_row_with_the_later_outcome(self, spec, guard, tmp_path):
+    def test_a_window_listed_twice_is_written_as_one_row_with_the_later_outcome(self, spec, guard, tmp_path):
         """The writer's fold, on a memo that lists one window twice with two outcomes: the file holds one row at the first entry's position with the later entry's outcome, as a dict of the entries would. So `len`, `items` order and every probe match the dict, and a pruning save counts and writes only the distinct windows."""
         memo = self._memo(tmp_path)
         seed = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)

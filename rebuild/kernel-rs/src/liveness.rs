@@ -1229,7 +1229,7 @@ pub(crate) mod tests {
 
     /// A window outside every chain's deep-slot rune set, opened by the prospect branch alone: `qsPea`'s two exits tie where the third token makes `qsTea` give up its onward join, and the input letter's prefer then decides differently.
     #[test]
-    fn a_chain_dead_context_opens_on_the_prospect_arm() {
+    fn a_chain_dead_context_opens_on_the_prospect_branch() {
         let index = prospect_spec();
         let pea = fixtures::sym(&index, "qsPea");
         let tea = fixtures::sym(&index, "qsTea");
@@ -1261,7 +1261,7 @@ pub(crate) mod tests {
 
     /// The follower prefer branch opens a window the prospect branch leaves dead: `qsTea` offers no exit, so the input letter's prospect cannot change, and only `qsTea`'s follower prefer reads the third token.
     #[test]
-    fn the_follower_prefer_arm_opens_a_slot_the_prospect_arm_leaves_shut() {
+    fn the_follower_prefer_branch_opens_a_slot_the_prospect_branch_leaves_shut() {
         let index = follower_prefer_spec();
         let pea = fixtures::sym(&index, "qsPea");
         let tea = fixtures::sym(&index, "qsTea");
@@ -1300,7 +1300,7 @@ pub(crate) mod tests {
 
     /// Stage one is `(simulated_prospect and prospect) or (follower_prefer_slots and follower prefer)`, and the `or` short-circuits: where the prospect branch fires, the follower prefer branch does not run. Both orders reach the same verdict, but a follower prefer probe records the pointers its records fire, so running the follower prefer branch first would add provenance to the product. The follower prefer branch's empty memo shows it did not run.
     #[test]
-    fn a_fired_prospect_arm_leaves_the_follower_prefer_arm_unasked() {
+    fn a_fired_prospect_branch_leaves_the_follower_prefer_branch_unasked() {
         let index = prospect_spec();
         let pea = fixtures::sym(&index, "qsPea");
         let tea = fixtures::sym(&index, "qsTea");

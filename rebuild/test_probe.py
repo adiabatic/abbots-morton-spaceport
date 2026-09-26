@@ -115,7 +115,7 @@ def test_no_wanted_window_opens_no_table(monkeypatch, tmp_path):
     assert probe.baseline_rows("default", set()) == {}
 
 
-def test_every_window_and_configuration_rides_one_explain_many_call(monkeypatch):
+def test_every_window_and_configuration_goes_into_one_explain_many_call(monkeypatch):
     """Two windows under two configurations make one `explain_many` call whose requests are the cross product in window-major order, so the explainer's warm-up cost is paid once per process."""
     _spec, calls = _stub_settlement(monkeypatch, ["default", "ss03"])
     monkeypatch.setattr(probe, "features_for_config", lambda config: frozenset({config}))

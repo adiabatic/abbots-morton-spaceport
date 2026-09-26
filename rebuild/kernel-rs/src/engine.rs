@@ -3861,7 +3861,7 @@ mod tests {
     }
 
     #[test]
-    fn an_unlock_exit_lands_past_the_declared_rows_and_never_shadows_one() {
+    fn an_unlock_exit_is_placed_past_the_declared_rows_and_never_shadows_one() {
         let index = spec_of(&[
             letter(
                 "qsPea",
@@ -5856,7 +5856,7 @@ mod tests {
     }
 
     #[test]
-    fn the_prefer_arms_read_their_own_deep_slots_and_the_follower_prefer_reads_them_shifted() {
+    fn the_prefer_branches_read_their_own_deep_slots_and_the_follower_prefer_reads_them_shifted() {
         let index = follower_prefer_slot_spec();
         let pea = fixtures::sym(&index, "qsPea");
         let tea = fixtures::sym(&index, "qsTea");

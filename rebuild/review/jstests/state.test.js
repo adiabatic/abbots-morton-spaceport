@@ -42,14 +42,14 @@ test('hash state round-trips', () => {
   assert.deepEqual(reparsed, { ...state, family: null, machine: null, units: null, order: null, queue: null, decision: null, stamp: null, view: null });
 });
 
-test('a units worklist rides the hash and round-trips', () => {
+test('a units worklist is stored in the hash and round-trips', () => {
   assert.equal(parseHash('#units=u-1163,u-2224').units, 'u-1163,u-2224');
   assert.equal(parseHash('#batch=0').units, null);
   const serialized = writeHash({ batch: 0, units: 'u-1163,u-2224' });
   assert.equal(parseHash(`#${serialized}`).units, 'u-1163,u-2224');
 });
 
-test('a worklist order rides the hash beside the units it orders and round-trips', () => {
+test('a worklist order is stored in the hash beside the units it orders and round-trips', () => {
   const parsed = parseHash('#units=u-0002,u-0001&order=given');
   assert.equal(parsed.units, 'u-0002,u-0001');
   assert.equal(parsed.order, 'given');
@@ -60,7 +60,7 @@ test('a worklist order rides the hash beside the units it orders and round-trips
   assert.equal(reparsed.order, 'given');
 });
 
-test('the queue cursor rides the hash beside a units worklist and round-trips', () => {
+test('the queue cursor is stored in the hash beside a units worklist and round-trips', () => {
   const parsed = parseHash('#units=u-0001,u-0002&queue=1');
   assert.equal(parsed.units, 'u-0001,u-0002');
   assert.equal(parsed.queue, '1');
@@ -90,7 +90,7 @@ test('shedWorklist keeps a cursor move or machine toggle inside the worklist, in
   assert.deepEqual(shedWorklist({}), {});
 });
 
-test('the corpus stamp rides the hash beside a queue worklist and round-trips', () => {
+test('the corpus stamp is stored in the hash beside a queue worklist and round-trips', () => {
   const parsed = parseHash('#units=u-0001,u-0002&queue=1&stamp=2026-08-23T20%3A08%3A03Z');
   assert.equal(parsed.stamp, '2026-08-23T20:08:03Z');
   assert.equal(parseHash('#units=u-0001,u-0002&queue=1').stamp, null);
@@ -100,7 +100,7 @@ test('the corpus stamp rides the hash beside a queue worklist and round-trips', 
   assert.equal(reparsed.stamp, '2026-08-23T20:08:03Z');
 });
 
-test('the decision key rides the hash beside a queue worklist and round-trips, the singleton run included', () => {
+test('the decision key is stored in the hash beside a queue worklist and round-trips, the singleton run included', () => {
   assert.equal(parseHash('#units=u-0030&queue=1&decision=%23singletons').decision, '#singletons');
   assert.equal(parseHash('#units=u-0030&queue=1').decision, null);
   for (const decision of ['#singletons', 'c-bbe6acfa']) {
@@ -110,7 +110,7 @@ test('the decision key rides the hash beside a queue worklist and round-trips, t
   }
 });
 
-test('the queue view rides the hash and round-trips', () => {
+test('the queue view is stored in the hash and round-trips', () => {
   assert.equal(parseHash('#view=queue').view, 'queue');
   assert.equal(parseHash('#batch=0').view, null);
   const serialized = writeHash({ view: 'queue' });
@@ -126,7 +126,7 @@ test('the old docket spellings in a bookmarked or logged hash open the review qu
   assert.equal(writeHash(parsed), 'units=u-0001%2Cu-0002&queue=1&decision=c-bbe6acfa');
 });
 
-test('the machine toggle rides the hash and round-trips', () => {
+test('the machine toggle is stored in the hash and round-trips', () => {
   assert.equal(parseHash('#machine=1').machine, '1');
   assert.equal(parseHash('#batch=0').machine, null);
   const serialized = writeHash({ batch: 0, machine: '1' });

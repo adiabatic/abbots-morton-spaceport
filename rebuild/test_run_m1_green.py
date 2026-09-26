@@ -486,7 +486,7 @@ class TestOracleFanIn:
             ),
         )
 
-    def _landed(self, out_dir):
+    def _files_left(self, out_dir):
         """The files the oracle left in its out directory, excluding the timings journal, which `rebuild/conftest.py` redirects into the same `tmp_path` and the fan-out's pool record writes to."""
         return sorted(path.name for path in out_dir.iterdir() if path.name != ct.JOURNAL.name)
 
@@ -531,7 +531,7 @@ class TestOracleFanIn:
         lines = (tmp_path / "divergence-audit.tsv").read_text(encoding="utf-8").splitlines()
         assert lines[0] == oracle.ORACLE_AUDIT_HEADER
         assert [line.split("\t")[0] for line in lines[1:]] == list(conform.ACCEPTANCE_CONFIGS)
-        assert self._landed(tmp_path) == ["divergence-audit.tsv", "oracle_summary.json"]
+        assert self._files_left(tmp_path) == ["divergence-audit.tsv", "oracle_summary.json"]
 
     def test_the_summary_counts_every_ranges_multi_matched_rows(self, monkeypatch, tmp_path):
         """The gate reads `multi_matched` from `oracle_summary.json`, so the file must hold the sum of the counts the ranges return (one per configuration when nothing is cut, one per range when the tables are), or a ledger with overlapping entries would pass. Every range reports at least two, and each cut range one more than the range before it, so a summary that counted ranges instead of summing their counts would be short."""
@@ -563,7 +563,7 @@ class TestOracleFanIn:
         assert standing.read_bytes() == b"the audit of the last green run\n"
         assert [path.name for path in tmp_path.iterdir()] == ["divergence-audit.tsv"]
 
-    def test_the_fan_in_counts_the_ranges_as_they_land(self, monkeypatch, tmp_path, capsys):
+    def test_the_fan_in_counts_the_ranges_as_they_finish(self, monkeypatch, tmp_path, capsys):
         """The oracle is the longest part of a pass that prints nothing else while it runs, so it prints a progress counter as each row range finishes, over the number of ranges submitted: one per configuration when the stamp counts no rows, more when it does. A count that stops short of the total is a future the fan-in never collected."""
         self._pool(monkeypatch, self._worker())
         run_m1.run_oracle(out_dir=tmp_path, jobs=6)
@@ -628,7 +628,7 @@ class TestOracleFanIn:
                 assert memo is not None and memo.write_path == oracle.settle_memo_part(
                     oracle.oracle_audit_scratch(tmp_path), shard.config, shard.index
                 )
-        assert self._landed(tmp_path) == ["divergence-audit.tsv", "oracle_summary.json"]
+        assert self._files_left(tmp_path) == ["divergence-audit.tsv", "oracle_summary.json"]
 
     def test_a_range_that_falls_over_leaves_the_standing_audit_alone(self, monkeypatch, tmp_path):
         standing = tmp_path / "divergence-audit.tsv"
@@ -724,7 +724,7 @@ class TestOracleFanIn:
             run_m1.run_oracle(out_dir=tmp_path, jobs=6, memo_inputs=memo_inputs, memo_ready=red)
         assert order == []
         assert standing.read_bytes() == b"the audit of the last green run\n"
-        assert self._landed(tmp_path) == ["divergence-audit.tsv"]
+        assert self._files_left(tmp_path) == ["divergence-audit.tsv"]
 
     def test_a_cut_configurations_store_is_joined_from_its_ranges_segments_and_read_back(
         self, monkeypatch, tmp_path
@@ -843,7 +843,7 @@ class TestOracleFanIn:
         with pytest.raises(ValueError, match="7 divergent"):
             run_m1.run_oracle(out_dir=tmp_path, jobs=6)
         assert standing.read_bytes() == b"the audit of the last green run\n"
-        assert self._landed(tmp_path) == ["divergence-audit.tsv"]
+        assert self._files_left(tmp_path) == ["divergence-audit.tsv"]
 
 
 class TestConformFanIn:
@@ -938,7 +938,7 @@ class TestConformFanIn:
             f"kind-{config}" for config in conform.ACCEPTANCE_CONFIGS
         ]
 
-    def test_the_priced_worker_pickles_for_spawn(self):
+    def test_the_estimated_worker_pickles_for_spawn(self):
         """The inline pool never pickles what it runs, but a spawn pool pickles every submission by module and name, so a nested wrapper would pass every other test here and fail only on the first real pooled belt."""
         assert (
             pickle.loads(pickle.dumps(run_m1._estimated_conformance_config))

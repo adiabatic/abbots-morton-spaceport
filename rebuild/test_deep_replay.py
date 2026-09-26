@@ -8,8 +8,8 @@ from rebuild.tools import cycle_paths
 from rebuild.tools import deep_replay, deep_sweep
 
 RUNES = {"qsPea": "p1", "qsTea": "t1", "qsIt": "i1"}
-BOX_48_GIB = 51_539_607_552
-BOX_32_GIB = 34_359_738_368
+MACHINE_48_GIB = 51_539_607_552
+MACHINE_32_GIB = 34_359_738_368
 JOURNAL: list = []
 
 
@@ -228,7 +228,7 @@ def test_a_deeper_record_is_current_and_a_shallower_one_is_due(bench, monkeypatc
     assert ac.deep_replay_status(bench, 7)[0] == "due"
 
 
-def test_the_width_is_the_boxs_memory_or_the_stated_knob(monkeypatch):
+def test_the_width_is_the_machines_memory_or_the_stated_knob(monkeypatch):
     monkeypatch.delenv("AMS_DEEP_REPLAY_THREADS", raising=False)
     assert deep_replay.replay_threads(total_bytes=deep_replay.DEEP_REPLAY_PEAK_BYTES) == 1
     assert deep_replay.replay_threads(total_bytes=deep_replay.DEEP_REPLAY_PEAK_BYTES * 40) == len(
@@ -241,7 +241,7 @@ def test_the_width_is_the_boxs_memory_or_the_stated_knob(monkeypatch):
         deep_replay.replay_threads()
 
 
-def test_the_memo_ceiling_is_the_stated_knob_or_the_priced_default(monkeypatch):
+def test_the_memo_ceiling_is_the_stated_knob_or_the_checked_in_default(monkeypatch):
     """The ceiling is `AMS_DEEP_REPLAY_MEMO_WINDOWS` when set and `DEEP_REPLAY_MEMO_WINDOWS` otherwise. A set value that is not a bare decimal count of at least one raises an error naming the variable instead of falling back to the default."""
     monkeypatch.delenv("AMS_DEEP_REPLAY_MEMO_WINDOWS", raising=False)
     assert deep_replay.replay_memo_windows() == deep_replay.DEEP_REPLAY_MEMO_WINDOWS
@@ -255,9 +255,9 @@ def test_the_memo_ceiling_is_the_stated_knob_or_the_priced_default(monkeypatch):
 
 @pytest.mark.parametrize(
     "total, wanted",
-    [(BOX_32_GIB, len(conform.SETTLEMENT_CONFIGS)), (BOX_48_GIB, len(conform.SETTLEMENT_CONFIGS))],
+    [(MACHINE_32_GIB, len(conform.SETTLEMENT_CONFIGS)), (MACHINE_48_GIB, len(conform.SETTLEMENT_CONFIGS))],
 )
-def test_the_shipped_walk_cost_holds_both_fleet_boxes_at_their_widths(total, wanted, monkeypatch):
+def test_the_shipped_walk_cost_holds_both_fleet_machines_at_their_widths(total, wanted, monkeypatch):
     """Both fleet machines (`doc/fleet.md`) walk every settlement configuration at once under the checked-in `DEEP_REPLAY_PEAK_BYTES`. No cycle runs this walk, so `make job-costs` does not watch the constant, and the width assertions above pass for any positive value. This test fails if the constant goes above 5.27 GB, which drops the 32 GiB machine to four walks, or above 8.71 GB, which does the same on the 48 GiB machine."""
     monkeypatch.delenv("AMS_DEEP_REPLAY_THREADS", raising=False)
     assert deep_replay.replay_threads(total_bytes=total) == wanted

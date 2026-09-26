@@ -37,10 +37,10 @@ def built(tmp_path_factory):
     return font_path, gsub_plan, cursive, ss10_twins
 
 
-class TestOverlayArm:
+class TestOverlayCase:
     """The belt's overlay case on the real mini font. Under ss10, HarfBuzz shapes every text up to `OVERLAY_MAX_LENGTH` as per-letter twins at zero offset with their `hmtx` advances, with nothing formed and nothing attached. `IsolatedOverlayShaper` returns the same result without shaping, which is what justifies the oracle's use of it."""
 
-    def test_the_overlay_arm_passes_on_the_mini_font(self, built):
+    def test_the_overlay_case_passes_on_the_mini_font(self, built):
         spec = fixtures.mini_spec()
         font_path, _plan, _cursive, _twins = built
         result = conform._conformance_config(

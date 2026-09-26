@@ -394,7 +394,7 @@ def test_conflicting_mechanical_drafts_on_one_draft_target_are_flagged(repo):
     assert group["draft_conflicts"] is True
 
 
-def test_complaints_with_no_provenance_land_in_a_terminal_unattributed_group(repo):
+def test_complaints_with_no_provenance_go_in_a_terminal_unattributed_group(repo):
     write_corpus(repo, [unit("u-0001", []), unit("u-0002", [P_EXTEND_1])])
     write_verdicts(repo, [v("u-0001", "reject", at=NEW), v("u-0002", "reject")])
     assert run(repo) == 0

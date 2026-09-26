@@ -136,7 +136,7 @@ def test_the_font_compile_roster_is_the_import_closure_of_what_the_pipeline_name
     ), f"FONT_COMPILE_TOOL_MODULES names files that are not under tools/: {', '.join(strays)}"
 
 
-def test_the_font_compile_roster_rides_both_the_run_record_and_the_tables_stamp():
+def test_the_font_compile_roster_is_included_in_both_the_run_record_and_the_tables_stamp():
     """The compile is on the build side, so its tools/ closure belongs in `table_code_paths` as well as `pipeline_code_paths`. A font-compile module left out of `table_code_paths` would let a serialized enumeration pass as current after its sources changed."""
     paths = set(fingerprint.font_compile_tool_paths(REPO_ROOT))
     assert paths

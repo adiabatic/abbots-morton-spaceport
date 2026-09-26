@@ -726,7 +726,7 @@ def test_a_replay_reaches_the_terminal_copy_and_says_nothing_twice(capsys, tmp_p
     assert capsys.readouterr().out == ""
 
 
-def test_a_crash_inside_the_console_lands_its_traceback_in_the_terminal_copy(capsys, tmp_path):
+def test_a_crash_inside_the_console_writes_its_traceback_to_the_terminal_copy(capsys, tmp_path):
     """Python prints an escaping exception's traceback after `stop` has restored the real streams, so it would never reach terminal.log. `__exit__` writes the traceback to terminal.log itself. It does not print it to the terminal, because Python already prints it there once."""
     run = tmp_path / "run"
     before = (sys.stdout, sys.stderr)

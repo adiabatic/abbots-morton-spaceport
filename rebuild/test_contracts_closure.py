@@ -578,7 +578,7 @@ def _child(pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch, *args: st
 
 class TestTheRecorderEndToEnd:
     @pytest.mark.parametrize("workers", ["0", "2"])
-    def test_every_recorded_fact_lands_in_the_sidecar(self, pytester, monkeypatch, tmp_path, workers):
+    def test_every_recorded_fact_is_written_to_the_sidecar(self, pytester, monkeypatch, tmp_path, workers):
         sidecar = tmp_path / "closures.json"
         result = _child(
             pytester, monkeypatch, "--lane", "contracts", "-n", workers, "--closure-record", str(sidecar)
@@ -713,7 +713,7 @@ class TestTheAnnouncedImport:
     """A session fixture that imports a module at setup adds that module to a requesting test's closure only through `announced_import`. Both load orders are tested. In the first, the fixture itself loads the module first, so its source read would be recorded anyway. In the second, another test module imports it at collection, so no import event or read happens during the fixture's setup. The real suite runs in this order, because collection imports every test module before any fixture runs. The silent fixture is the control: in both orders its requesting test records neither the module nor a read, which is the unsafe skip `announced_import` prevents."""
 
     @pytest.mark.parametrize("loaded_at_collection", [False, True])
-    def test_the_announced_module_lands_in_every_requesters_closure(
+    def test_the_announced_module_is_included_in_every_requesters_closure(
         self, pytester, monkeypatch, tmp_path, loaded_at_collection
     ):
         monkeypatch.setenv("PYTHONPATH", str(REPO_ROOT))

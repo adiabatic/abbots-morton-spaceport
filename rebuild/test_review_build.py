@@ -1249,7 +1249,7 @@ def test_a_cached_rebuild_holds_no_collection_of_the_records_the_cache_handed_it
     assert _store_lines_are_exact(captured.out)["plan"]
 
 
-def test_a_cached_rebuild_prices_the_records_the_walk_has_to_place(
+def test_a_cached_rebuild_estimates_the_records_the_walk_has_to_place(
     tmp_path, mini_bundle, capsys, monkeypatch
 ):
     """The records a cached plan buffers are measured whenever there are any. In a store written before addresses were recorded, every record waits for the walk, so the plan boundary estimates one record per unit under `unit_cache.unplaced`, by the declared shape and above zero, which shows the collection is estimated and not only declared. Every unit is still reused."""
@@ -1551,7 +1551,7 @@ def test_the_machine_approved_classes_are_listed_in_the_manifests_class_order(mi
     assert sum(manifest["machine_approved"]["by_class"].values()) == manifest["machine_approved"]["units"]
 
 
-def test_export_skips_verdicts_landing_on_picture_identical_units():
+def test_export_skips_verdicts_on_picture_identical_units():
     """The picture-identical channel takes units out of the set of human units as the other two channels do, so a verdict on a unit it approved (one recorded before this channel approved the unit) is counted as an ignored verdict and drafts nothing."""
     manifest, units = _export_corpus()
     unit_id = manifest["human_unit_ids"][-1]

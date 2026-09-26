@@ -770,7 +770,7 @@ mod tests {
 
     /// How the head writes the class map: one pair per entry, sorted by token, members in stored order. The expected bytes are `kernel_io.write_transitions`'s output for the same product, captured from the Python writer.
     #[test]
-    fn a_deep_class_map_rides_the_head_sorted_by_token() {
+    fn a_deep_class_map_is_written_in_the_head_sorted_by_token() {
         let index = fixtures::mini();
         let mut labels = LabelPool::default();
         let product = FixpointProduct {

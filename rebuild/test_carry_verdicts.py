@@ -133,7 +133,7 @@ def _carry(tmp_path, corpus_units, *verdict_files, machine=(), **held):
     return json.loads(out.read_text())
 
 
-def test_a_verdict_lands_on_the_unit_of_its_id_and_a_stale_stamp_is_no_bar(tmp_path):
+def test_a_verdict_goes_to_the_unit_of_its_id_and_a_stale_stamp_is_no_bar(tmp_path):
     """The carry matches verdicts to units by id alone, so a verdicts file stamped for an older corpus still carries. The unit still on the corpus gets its verdict under the new manifest stamp, and the verdict whose unit is gone is orphaned."""
     kept, gone = _content_unit("E650:E652"), _content_unit("E652:E653")
     verdicts = tmp_path / "verdicts.json"
@@ -164,7 +164,7 @@ def test_the_newest_verdict_per_unit_wins_across_files_and_skips_never_carry(tmp
     ]
 
 
-def test_the_carry_prints_its_four_counts_whatever_it_landed(tmp_path, capsys):
+def test_the_carry_prints_its_four_counts_whatever_it_matched(tmp_path, capsys):
     """The `carry counts:` line, which the cycle records: the human units on the new corpus, how many matched a prior verdict, how many did not, and how many prior verdicts matched no unit."""
     kept, gone, fresh = _content_unit("E650:E652"), _content_unit("E652:E653"), _content_unit("E653:E654")
     verdicts = tmp_path / "verdicts.json"

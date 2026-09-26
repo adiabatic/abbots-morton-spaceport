@@ -491,7 +491,7 @@ class TestProspectLiveSlots:
 
 
 class TestDeepClasses:
-    """Tests class-grain enumeration, where deep slots hold outcome fibers that `expanded_transitions` expands back to labels. The `test_two_arm_expansion_equality_*` tests build one spec with `DEEP_CLASSES_DEFAULT` on and off (off runs the kernel's label-grain path, which uses no fiber code) and assert the same expanded rows, rules, identity-guard count, reachable cells, cited provenance, and treaty rows. `test_actual_lefts_agree_with_the_left_class_assumption` settles every member of every multi-member row at the row's settled left, one window at a time, so a fiber whose members settle differently there fails."""
+    """Tests class-grain enumeration, where deep slots hold outcome fibers that `expanded_transitions` expands back to labels. The `test_class_and_label_expansion_equality_*` tests build one spec with `DEEP_CLASSES_DEFAULT` on and off (off runs the kernel's label-grain path, which uses no fiber code) and assert the same expanded rows, rules, identity-guard count, reachable cells, cited provenance, and treaty rows. `test_actual_lefts_agree_with_the_left_class_assumption` settles every member of every multi-member row at the row's settled left, one window at a time, so a fiber whose members settle differently there fails."""
 
     @pytest.fixture()
     def deep_world(self, monkeypatch):
@@ -523,14 +523,14 @@ class TestDeepClasses:
         runes["qsTea"] = dataclasses.replace(tea, policy=dataclasses.replace(tea.policy, prefer=(record,)))
         return dataclasses.replace(spec, runes=runes)
 
-    def _both_arms(self, spec, monkeypatch):
+    def _both_builds(self, spec, monkeypatch):
         monkeypatch.setattr(kernel_exec, "DEEP_CLASSES_DEFAULT", True)
         class_decision, class_treaty = build_tables(spec, frozenset())
         monkeypatch.setattr(kernel_exec, "DEEP_CLASSES_DEFAULT", False)
         label_decision, label_treaty = build_tables(spec, frozenset())
         return class_decision, class_treaty, label_decision, label_treaty
 
-    def _assert_arms_equal(self, class_decision, class_treaty, label_decision, label_treaty):
+    def _assert_builds_equal(self, class_decision, class_treaty, label_decision, label_treaty):
         assert not label_decision.deep_classes
         expanded = list(class_decision.expanded_transitions())
         assert [(r.key, r.outcome) for r in expanded] == [
@@ -542,29 +542,31 @@ class TestDeepClasses:
         assert class_decision.cited_provenance == label_decision.cited_provenance
         assert class_treaty.rows == label_treaty.rows
 
-    def test_two_arm_expansion_equality_on_the_mini_spec(self, monkeypatch):
-        class_decision, class_treaty, label_decision, label_treaty = self._both_arms(SPEC, monkeypatch)
+    def test_class_and_label_expansion_equality_on_the_mini_spec(self, monkeypatch):
+        class_decision, class_treaty, label_decision, label_treaty = self._both_builds(SPEC, monkeypatch)
         assert class_decision.deep_classes
         assert len(class_decision.transitions) < len(label_decision.transitions)
-        self._assert_arms_equal(class_decision, class_treaty, label_decision, label_treaty)
+        self._assert_builds_equal(class_decision, class_treaty, label_decision, label_treaty)
 
-    def test_two_arm_expansion_equality_on_the_synthetic_depth4_spec(
+    def test_class_and_label_expansion_equality_on_the_synthetic_depth4_spec(
         self, synthetic_depth4_spec, monkeypatch
     ):
-        class_decision, class_treaty, label_decision, label_treaty = self._both_arms(
+        class_decision, class_treaty, label_decision, label_treaty = self._both_builds(
             synthetic_depth4_spec, monkeypatch
         )
         assert any(
             row.right4 in class_decision.deep_classes for row in class_decision.transitions
         ), "the synthetic reach-3 chain should mint an r4 class"
-        self._assert_arms_equal(class_decision, class_treaty, label_decision, label_treaty)
+        self._assert_builds_equal(class_decision, class_treaty, label_decision, label_treaty)
 
-    def test_two_arm_expansion_equality_on_the_prospect_spec(self, deep_world, prospect_spec, monkeypatch):
-        class_decision, class_treaty, label_decision, label_treaty = self._both_arms(
+    def test_class_and_label_expansion_equality_on_the_prospect_spec(
+        self, deep_world, prospect_spec, monkeypatch
+    ):
+        class_decision, class_treaty, label_decision, label_treaty = self._both_builds(
             prospect_spec, monkeypatch
         )
         assert class_decision.deep_classes
-        self._assert_arms_equal(class_decision, class_treaty, label_decision, label_treaty)
+        self._assert_builds_equal(class_decision, class_treaty, label_decision, label_treaty)
 
     def test_the_pinned_world_stays_label_grain(self):
         decision, _treaty = candidacy_tables(SPEC, frozenset())

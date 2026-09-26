@@ -1666,7 +1666,7 @@ mod tests {
             "the grain flag is independent of the world flags, and in this world it does nothing"
         );
         let label_grain = enumerated(&["spec.json", "--deep-classes-off"])
-            .expect("the label-grain arm of the deep world");
+            .expect("the label-grain case of the deep world");
         assert!(label_grain.simulated_prospect && label_grain.follower_prefer_slots);
         assert!(!label_grain.deep_classes);
         let cases = cased(&["spec.json", "cases.txt", "--candidacy-prospect"])

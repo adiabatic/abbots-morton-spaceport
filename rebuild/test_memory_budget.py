@@ -29,19 +29,19 @@ SAMPLES = REPO_ROOT / "rebuild" / "fixtures" / "memory_budget"
 KERNEL_CONFIG_BYTES = 9_000_000_000
 FONT_POOL_BYTES = 2_800_000_000
 ISSUE_RESERVE_FLOOR_BYTES = 4_000_000_000
-BOX_32_GIB = 34_359_738_368
-BOX_48_GIB = 51_539_607_552
-BOX_32_GB = 32_000_000_000
-BOX_64_GB = 64_000_000_000
-BOX_1_TB = 1_000_000_000_000
-SPELLINGS_OF_32_GB = (BOX_32_GIB, BOX_32_GB)
+MACHINE_32_GIB = 34_359_738_368
+MACHINE_48_GIB = 51_539_607_552
+MACHINE_32_GB = 32_000_000_000
+MACHINE_64_GB = 64_000_000_000
+MACHINE_1_TB = 1_000_000_000_000
+SPELLINGS_OF_32_GB = (MACHINE_32_GIB, MACHINE_32_GB)
 
-BOX_SIZES = (
+MACHINE_SIZES = (
     4_000_000_000,
     8_000_000_000,
     16_000_000_000,
-    BOX_32_GB,
-    BOX_32_GIB,
+    MACHINE_32_GB,
+    MACHINE_32_GIB,
     48_000_000_000,
     64_000_000_000,
     96_000_000_000,
@@ -122,7 +122,7 @@ def _parser_built_by(main: Callable[[list[str]], object]) -> argparse.ArgumentPa
 
 class TestTheWidthsAlreadyOnRecord:
     @pytest.mark.parametrize("total", SPELLINGS_OF_32_GB)
-    def test_the_formula_lands_on_the_solo_kernel_width_issue_46_measured(self, total: int):
+    def test_the_formula_gives_the_solo_kernel_width_issue_46_measured(self, total: int):
         """Sub-issue #46 ran the fan-out at widths 1, 2, 3 and 6 on a 10-core 32 GB Darwin machine and concluded that the solo width there "is about 3". That measurement did not use this module, and this module was not tuned toward it: the divisor is the recorded cost of one configuration in flight and the floor is the one issue #85 stated. Both readings of "32 GB" are tested, so the result does not depend on the unit convention."""
         assert (
             memory_budget.how_many_fit(
@@ -132,7 +132,7 @@ class TestTheWidthsAlreadyOnRecord:
         )
 
     @pytest.mark.parametrize("total", SPELLINGS_OF_32_GB)
-    def test_subtracting_the_font_pool_lands_on_the_width_the_32_gb_box_shipped(self, total: int):
+    def test_subtracting_the_font_pool_gives_the_width_the_32_gb_machine_shipped(self, total: int):
         """The second recorded fact: with the font suite's ten co-resident workers subtracted, because a cycle runs the fan-out beside a pytest pool, the same formula returns 2 on the same 32 GB machine. `kernel_threads_budget` in `rebuild/tools/artifact_cycle.py` makes this subtraction in the shipped code, estimating the pool at `MAKE_TEST_POOL_WORKERS` workers, not ten, so this test keeps the recorded fact with its own constants. The live `KERNEL_THREADS_DEFAULT` is not asserted, because it is the running machine's solo width and differs between machines."""
         assert (
             memory_budget.how_many_fit(
@@ -145,7 +145,7 @@ class TestTheWidthsAlreadyOnRecord:
         )
 
     @pytest.mark.parametrize("total", SPELLINGS_OF_32_GB)
-    def test_the_shipped_eight_gigabyte_floor_yields_the_width_the_32_gb_box_shipped(self, total: int):
+    def test_the_shipped_eight_gigabyte_floor_yields_the_width_the_32_gb_machine_shipped(self, total: int):
         """The shipped policy reserves 8 GB instead of the issue's 4 GB, which costs the same 32 GB machine one configuration: with nothing subtracted it returns 2 where the issue's floor returned 3, and it still returns 2 with the font pool subtracted. That is why the floor is a parameter, so the test above can reproduce the issue's width."""
         assert memory_budget.how_many_fit(KERNEL_CONFIG_BYTES, total_bytes=total) == 2
         assert (
@@ -155,8 +155,8 @@ class TestTheWidthsAlreadyOnRecord:
             == 2
         )
 
-    @pytest.mark.parametrize("total, wanted", [(BOX_32_GIB, 3), (BOX_32_GB, 3)])
-    def test_the_shipped_divisor_holds_the_32_gb_box_at_its_budgeted_width(
+    @pytest.mark.parametrize("total, wanted", [(MACHINE_32_GIB, 3), (MACHINE_32_GB, 3)])
+    def test_the_shipped_divisor_holds_the_32_gb_machine_at_its_budgeted_width(
         self, total: int, wanted: int, monkeypatch: pytest.MonkeyPatch
     ):
         """The shipped kernel width subtracts `DEFAULT_MEMO_BYTES` from the machine before dividing the remaining budget by `DELTA_PEAK_BYTES`. Both readings of 32 GB fit three of the four delta configurations. The fleet machine is the GiB one. Its 34.36 GB is 1.34 GB short of fitting a fourth delta (35.7 GB is the smallest total that fits four), and the decimal 32 GB is 3.7 GB short. Changing either constant moves these widths. The second assertion checks that `TABLE_BUILD_PEAK_BYTES` is at most the memo plus one `DELTA_PEAK_BYTES` per delta configuration, which is what a width equal to the delta count holds; at a width equal to the configuration count, the extra worker slot runs `default`'s fold after its memo file is written. `AMS_KERNEL_THREADS` is cleared first, because an exported width would decide the first assertion whatever the constants are."""
@@ -167,16 +167,18 @@ class TestTheWidthsAlreadyOnRecord:
         assert kernel_threads_default(total_bytes=total) == wanted
         assert TABLE_BUILD_PEAK_BYTES <= DEFAULT_MEMO_BYTES + DELTA_PEAK_BYTES * (len(SETTLEMENT_CONFIGS) - 1)
 
-    def test_the_shipped_pair_seats_the_whole_delta_wave_on_the_48_gib_box(self, monkeypatch):
+    def test_the_shipped_pair_fits_the_whole_delta_wave_on_the_48_gib_machine(self, monkeypatch):
         """The criterion `DELTA_PEAK_BYTES` and `DEFAULT_MEMO_BYTES` are chosen against: on the fleet's 48 GiB machine the solo width covers every configuration past `default`, so the delta wave runs in one round with no trailing round of a single delta. A change to either constant that costs that machine its fourth delta fails here. The 32 GiB machine fits three of the four deltas, which the test above checks. `AMS_KERNEL_THREADS` is cleared first, because an exported width would satisfy the inequality whatever the constants are."""
         from rebuild.pipeline.conform import SETTLEMENT_CONFIGS
         from rebuild.pipeline.kernel_exec import kernel_threads_default
 
         monkeypatch.delenv("AMS_KERNEL_THREADS", raising=False)
-        assert kernel_threads_default(total_bytes=BOX_48_GIB) >= len(SETTLEMENT_CONFIGS) - 1
+        assert kernel_threads_default(total_bytes=MACHINE_48_GIB) >= len(SETTLEMENT_CONFIGS) - 1
 
-    @pytest.mark.parametrize("total", (BOX_32_GIB, BOX_48_GIB))
-    def test_the_replay_divisor_seats_every_configuration_on_both_fleet_boxes(self, total: int, monkeypatch):
+    @pytest.mark.parametrize("total", (MACHINE_32_GIB, MACHINE_48_GIB))
+    def test_the_replay_divisor_fits_every_configuration_on_both_fleet_machines(
+        self, total: int, monkeypatch
+    ):
         """The criterion `REPLAY_PEAK_BYTES` is chosen against: on both fleet machines the string replay's memory-derived width covers every settlement configuration, so all texts replay in one round. The second assertion checks that a replay costs less than a delta, since a replay's engine holds a subset of what a delta holds through enumeration; a value at or above `DELTA_PEAK_BYTES` means the constant no longer measures the replay. `AMS_REPLAY_THREADS` is cleared first, for the same reason as in the delta-wave test."""
         from rebuild.pipeline.conform import SETTLEMENT_CONFIGS
         from rebuild.pipeline.kernel_exec import REPLAY_PEAK_BYTES, replay_threads_default
@@ -189,11 +191,14 @@ class TestTheWidthsAlreadyOnRecord:
         """`DEFAULT_MEMO_BYTES` covers `default`'s memo snapshots kept alive for the wave, stored as compact records with their pools, while `DELTA_PEAK_BYTES` covers a configuration enumerated from scratch and held through its memo write, so the memo term must be the smaller. Setting them equal would charge the wave a whole configuration for a snapshot."""
         assert 0 < DEFAULT_MEMO_BYTES < DELTA_PEAK_BYTES
 
-    def test_the_shipped_corpus_divisor_holds_the_32_gib_box_at_the_cap_by_division(self):
+    def test_the_shipped_corpus_divisor_holds_the_32_gib_machine_at_the_cap_by_division(self):
         """On the 10-core 32 GiB machine under a gated cycle, the corpus build's width is `CORPUS_JOBS_CAP` because eight workers fit the memory budget, which is the claim the `CORPUS_WORKER_BYTES` comment makes for that machine. This is an upper bound on `CORPUS_WORKER_BYTES` and `CORPUS_PARENT_BYTES`: a change that makes eight workers exceed this machine's budget narrows the width below the cap and fails here. A width test cannot give a lower bound without an invented machine tuned to divide exactly, which every change to the constants would have to re-tune. A worker estimate below what a worker really holds is caught instead by the corpus-worker row of `make job-costs`, against the pool records `rebuild/review/build.py` writes."""
         import rebuild.tools.artifact_cycle as ac
 
-        assert ac.corpus_job_budget(skip_gates=False, ncores=10, total_bytes=BOX_32_GIB) == ac.CORPUS_JOBS_CAP
+        assert (
+            ac.corpus_job_budget(skip_gates=False, ncores=10, total_bytes=MACHINE_32_GIB)
+            == ac.CORPUS_JOBS_CAP
+        )
 
 
 class TestWhatDashNAutoResolvesTo:
@@ -219,7 +224,7 @@ class TestWhatDashNAutoResolvesTo:
         """Without `--lane contracts` the rebuild hook returns None and the root conftest decides. A bare `uv run pytest rebuild/`, a single rebuild test file and a mixed collection all arrive as lane `all`."""
         assert lane_hook.pytest_xdist_auto_num_workers(_StubConfig("rebuild/")) is None
 
-    def test_the_font_suite_takes_the_cores_whatever_the_box_has_to_say(
+    def test_the_font_suite_takes_the_cores_whatever_the_machine_has_to_say(
         self, root_hook: ModuleType, monkeypatch: pytest.MonkeyPatch
     ):
         """The root hook returns the cores for a font-suite run. A font-suite worker is small enough that the cores limit the pool before memory does, so the answer is right even on a machine too small for a memory-derived width."""
@@ -228,8 +233,8 @@ class TestWhatDashNAutoResolvesTo:
             memory_budget.usable_cores()
         )
 
-    @pytest.mark.parametrize("total", ["4000000000", str(BOX_1_TB)])
-    def test_a_run_this_hook_cannot_narrow_takes_the_cores_whatever_the_box(
+    @pytest.mark.parametrize("total", ["4000000000", str(MACHINE_1_TB)])
+    def test_a_run_this_hook_cannot_narrow_takes_the_cores_whatever_the_machine(
         self, root_hook: ModuleType, monkeypatch: pytest.MonkeyPatch, total: str
     ):
         """The root hook also returns the cores for a rebuild run: no rebuild worker reads a live artifact, so there is no per-worker cost to divide by, and a small machine and a large one both get the cores this process may run on."""
@@ -266,7 +271,7 @@ class TestTheHandRunDefaults:
         host = os.process_cpu_count() or os.cpu_count() or 1
         assert extract._shard_workers_default(cgroup_root=SAMPLES / "container-v2") == min(host, 2)
         assert extract._shard_workers_default(cgroup_root=SAMPLES / "container-v1") == min(host, 2)
-        assert extract._shard_workers_default(cgroup_root=SAMPLES / "no-such-box") == host
+        assert extract._shard_workers_default(cgroup_root=SAMPLES / "no-such-machine") == host
 
     def test_the_m1_driver_sweeps_at_the_budget_the_artifact_cycle_would_pass(
         self, monkeypatch: pytest.MonkeyPatch
@@ -286,7 +291,7 @@ class TestTheHandRunDefaults:
         run_m1.main(["--gates-only", "--conform-only"])
         assert handed == [sweep, sweep]
 
-    def test_the_corpus_build_takes_the_unreserved_arm_of_its_own_budget(
+    def test_the_corpus_build_takes_its_own_budget_with_no_gate_reservation(
         self, monkeypatch: pytest.MonkeyPatch
     ):
         """A hand run has no co-resident `make test` pool to leave cores or memory to, so the default is `corpus_job_budget` with `skip_gates=True`. Where memory holds the derived width below the cap, a checked-in width equal to it would pass the first equality. So the test moves the machine to 1 TB, where memory cannot bind, and checks that the width becomes the cores clamped at `CORPUS_JOBS_CAP`. On both fleet machines the width is already at the cap, so there the move changes nothing."""
@@ -294,12 +299,12 @@ class TestTheHandRunDefaults:
         from rebuild.review import build
 
         assert _parser_built_by(build.main).parse_args([]).jobs == ac.corpus_job_budget(skip_gates=True)
-        monkeypatch.setenv("AMS_TOTAL_MEMORY_BYTES", str(BOX_1_TB))
+        monkeypatch.setenv("AMS_TOTAL_MEMORY_BYTES", str(MACHINE_1_TB))
         widened = _parser_built_by(build.main).parse_args([]).jobs
         assert widened == ac.corpus_job_budget(skip_gates=True)
         assert widened == min(memory_budget.usable_cores(), ac.CORPUS_JOBS_CAP)
 
-    def test_the_signature_width_is_the_hand_runs_whole_box(self, monkeypatch: pytest.MonkeyPatch):
+    def test_the_signature_width_is_the_hand_runs_whole_machine(self, monkeypatch: pytest.MonkeyPatch):
         """The signature width does not depend on memory: a signature worker is one comparator, so the hand run's default is the cores with `skip_gates=True`. Shrinking the machine until `--jobs` falls to one unit worker leaves the signature width unchanged, which a memory-derived width would not."""
         import rebuild.tools.artifact_cycle as ac
         from rebuild.review import build
@@ -319,26 +324,26 @@ class TestTheFloorAtOne:
         [
             {"total_bytes": 2_000_000_000},
             {"total_bytes": 8_000_000_000},
-            {"total_bytes": BOX_32_GB, "cap": 0},
-            {"total_bytes": BOX_32_GB, "cap": -4},
-            {"total_bytes": BOX_32_GB, "coresident_bytes": 24_000_000_000},
-            {"total_bytes": BOX_32_GB, "coresident_bytes": 1_000_000_000_000},
+            {"total_bytes": MACHINE_32_GB, "cap": 0},
+            {"total_bytes": MACHINE_32_GB, "cap": -4},
+            {"total_bytes": MACHINE_32_GB, "coresident_bytes": 24_000_000_000},
+            {"total_bytes": MACHINE_32_GB, "coresident_bytes": 1_000_000_000_000},
             {"total_bytes": 1},
         ],
     )
-    def test_a_box_too_small_for_one_unit_answers_one_and_never_zero(self, kwargs: dict[str, int]):
+    def test_a_machine_too_small_for_one_unit_answers_one_and_never_zero(self, kwargs: dict[str, int]):
         """A build that will not start on a small machine is worse than one that runs slowly, so every way of reaching a budget of nothing returns one instead of zero: a tiny machine, a cap of zero or less, a co-resident pool that uses up the budget, and a pool larger than the machine. A negative budget does not raise."""
         assert memory_budget.how_many_fit(KERNEL_CONFIG_BYTES, **kwargs) == 1
 
-    def test_a_per_unit_cost_larger_than_any_box_still_answers_one(self):
+    def test_a_per_unit_cost_larger_than_any_machine_still_answers_one(self):
         assert memory_budget.how_many_fit(1_000_000_000_000_000, total_bytes=512_000_000_000) == 1
 
     def test_an_unmeasured_unit_answers_the_cap_or_one_and_never_divides_by_zero(self):
         """A per-unit cost of zero or less means the unit is unmeasured, so it gets no memory-derived width: the answer is the cap if there is one, and one otherwise."""
-        assert memory_budget.how_many_fit(0, total_bytes=BOX_32_GB) == 1
-        assert memory_budget.how_many_fit(0, total_bytes=BOX_32_GB, cap=6) == 6
-        assert memory_budget.how_many_fit(-1, total_bytes=BOX_32_GB, cap=6) == 6
-        assert memory_budget.how_many_fit(0, total_bytes=BOX_32_GB, cap=0) == 1
+        assert memory_budget.how_many_fit(0, total_bytes=MACHINE_32_GB) == 1
+        assert memory_budget.how_many_fit(0, total_bytes=MACHINE_32_GB, cap=6) == 6
+        assert memory_budget.how_many_fit(-1, total_bytes=MACHINE_32_GB, cap=6) == 6
+        assert memory_budget.how_many_fit(0, total_bytes=MACHINE_32_GB, cap=0) == 1
 
 
 class TestNoInputWidensTheAnswerByAccident:
@@ -360,15 +365,15 @@ class TestNoInputWidensTheAnswerByAccident:
 
     def test_a_byte_count_written_the_way_this_repo_writes_a_gigabyte_answers_an_int(self):
         """`peak_rss.py` writes a gigabyte as `1e9`, so a byte-count keyword is often a float. A float width fails far from its cause (`range` raises on it and an argv carries it as `-n 4.0`), so each byte count is truncated to an int on the way in."""
-        width = memory_budget.how_many_fit(9e9, total_bytes=BOX_32_GB, floor_bytes=4e9)
+        width = memory_budget.how_many_fit(9e9, total_bytes=MACHINE_32_GB, floor_bytes=4e9)
         assert isinstance(width, int)
         assert width == memory_budget.how_many_fit(
-            KERNEL_CONFIG_BYTES, total_bytes=BOX_32_GB, floor_bytes=ISSUE_RESERVE_FLOOR_BYTES
+            KERNEL_CONFIG_BYTES, total_bytes=MACHINE_32_GB, floor_bytes=ISSUE_RESERVE_FLOOR_BYTES
         )
-        assert isinstance(memory_budget.os_reserve_bytes(total_bytes=BOX_32_GB, floor_bytes=8e9), int)
+        assert isinstance(memory_budget.os_reserve_bytes(total_bytes=MACHINE_32_GB, floor_bytes=8e9), int)
         assert "4.0" not in memory_budget.describe_fit(
             KERNEL_CONFIG_BYTES,
-            total_bytes=BOX_32_GB,
+            total_bytes=MACHINE_32_GB,
             cap=4.0,  # pyright: ignore[reportArgumentType]
         )
 
@@ -384,11 +389,11 @@ class TestNoInputWidensTheAnswerByAccident:
 
 
 class TestTheReserveAndCapShape:
-    def test_the_sweep_straddles_the_crossover_so_both_arms_are_exercised(self):
+    def test_the_sweep_straddles_the_crossover_so_both_branches_are_exercised(self):
         crossover = memory_budget.RESERVE_FLOOR_BYTES / memory_budget.RESERVE_FRACTION
-        assert min(BOX_SIZES) < crossover < max(BOX_SIZES)
+        assert min(MACHINE_SIZES) < crossover < max(MACHINE_SIZES)
 
-    @pytest.mark.parametrize("total", BOX_SIZES)
+    @pytest.mark.parametrize("total", MACHINE_SIZES)
     def test_the_floor_binds_below_the_crossover_and_the_fraction_above_it(self, total: int):
         floor = memory_budget.RESERVE_FLOOR_BYTES
         fraction = memory_budget.RESERVE_FRACTION
@@ -402,20 +407,20 @@ class TestTheReserveAndCapShape:
     def test_the_floor_and_the_fraction_are_both_levers(self):
         """Both the floor and the fraction change the reserve, which lets a test reproduce an earlier policy's widths without fitting today's constants to them."""
         assert (
-            memory_budget.os_reserve_bytes(total_bytes=BOX_32_GB, floor_bytes=ISSUE_RESERVE_FLOOR_BYTES)
+            memory_budget.os_reserve_bytes(total_bytes=MACHINE_32_GB, floor_bytes=ISSUE_RESERVE_FLOOR_BYTES)
             == 4_800_000_000
         )
-        assert memory_budget.os_reserve_bytes(total_bytes=BOX_32_GB) == 8_000_000_000
-        assert memory_budget.os_reserve_bytes(total_bytes=BOX_32_GB, fraction=0.5) == 16_000_000_000
+        assert memory_budget.os_reserve_bytes(total_bytes=MACHINE_32_GB) == 8_000_000_000
+        assert memory_budget.os_reserve_bytes(total_bytes=MACHINE_32_GB, fraction=0.5) == 16_000_000_000
         assert (
             memory_budget.os_reserve_bytes(
-                total_bytes=BOX_32_GB, floor_bytes=ISSUE_RESERVE_FLOOR_BYTES, fraction=0.0
+                total_bytes=MACHINE_32_GB, floor_bytes=ISSUE_RESERVE_FLOOR_BYTES, fraction=0.0
             )
             == ISSUE_RESERVE_FLOOR_BYTES
         )
 
-    def test_the_count_never_falls_as_the_box_grows(self):
-        totals = sorted(BOX_SIZES)
+    def test_the_count_never_falls_as_the_machine_grows(self):
+        totals = sorted(MACHINE_SIZES)
         counts = [memory_budget.how_many_fit(KERNEL_CONFIG_BYTES, total_bytes=total) for total in totals]
         with_pool = [
             memory_budget.how_many_fit(
@@ -429,7 +434,7 @@ class TestTheReserveAndCapShape:
         assert counts[0] == 1 and counts[-1] > counts[0]
         assert all(pooled <= alone for pooled, alone in zip(with_pool, counts))
 
-    @pytest.mark.parametrize("total", BOX_SIZES)
+    @pytest.mark.parametrize("total", MACHINE_SIZES)
     def test_the_cap_binds_when_it_is_lower_and_is_invisible_when_it_is_not(self, total: int):
         uncapped = memory_budget.how_many_fit(KERNEL_CONFIG_BYTES, total_bytes=total)
         capped = memory_budget.how_many_fit(KERNEL_CONFIG_BYTES, total_bytes=total, cap=4)
@@ -464,8 +469,8 @@ class TestTheCgroupClamp:
 
     def test_a_root_with_no_proc_self_cgroup_answers_none_at_the_first_open(self):
         """With no `/proc/self/cgroup` under the root, each reader returns None after one failed open and no walk, so both clamps cost almost nothing on Darwin."""
-        assert memory_budget._cgroup_memory_limit_bytes(SAMPLES / "no-such-box") is None
-        assert memory_budget._cgroup_cpu_allowance(SAMPLES / "no-such-box") is None
+        assert memory_budget._cgroup_memory_limit_bytes(SAMPLES / "no-such-machine") is None
+        assert memory_budget._cgroup_cpu_allowance(SAMPLES / "no-such-machine") is None
 
     def test_the_cpu_quota_clamp_reads_v2_and_v1_alike(self):
         """The v2 leaf sets two cores under an ancestor's `max 100000`, and the v1 container sets one and a half cores under a mount root whose quota is -1; both return two whole cores."""
@@ -478,7 +483,7 @@ class TestTheCgroupClamp:
         assert memory_budget.usable_cores(SAMPLES / "container-v2") == min(host, 2)
         assert memory_budget.usable_cores(SAMPLES / "container-v1") == min(host, 2)
         assert memory_budget.usable_cores(SAMPLES / "host-unlimited") == memory_budget.usable_cores(
-            SAMPLES / "no-such-box"
+            SAMPLES / "no-such-machine"
         )
 
     def test_the_memory_clamp_is_linux_only(self):
@@ -503,7 +508,7 @@ class TestTheCgroupClamp:
             == 2_000_000_000
         )
         assert (
-            memory_budget.total_memory_bytes(platform="linux", cgroup_root=SAMPLES / "no-such-box")
+            memory_budget.total_memory_bytes(platform="linux", cgroup_root=SAMPLES / "no-such-machine")
             == memory_budget.RESERVE_FLOOR_BYTES
         )
         assert (
@@ -624,13 +629,13 @@ class TestTheEnvironmentOverride:
             == 12_345_678_901
         )
 
-    def test_it_moves_the_box_and_never_the_policy(self, monkeypatch: pytest.MonkeyPatch):
+    def test_it_moves_the_machine_and_never_the_policy(self, monkeypatch: pytest.MonkeyPatch):
         """The override replaces only the probed total: the same reserve is applied on top, and the floor and fraction parameters still decide the width."""
-        monkeypatch.setenv("AMS_TOTAL_MEMORY_BYTES", str(BOX_32_GB))
-        assert memory_budget.os_reserve_bytes() == memory_budget.os_reserve_bytes(total_bytes=BOX_32_GB)
+        monkeypatch.setenv("AMS_TOTAL_MEMORY_BYTES", str(MACHINE_32_GB))
+        assert memory_budget.os_reserve_bytes() == memory_budget.os_reserve_bytes(total_bytes=MACHINE_32_GB)
         assert memory_budget.os_reserve_bytes() == memory_budget.RESERVE_FLOOR_BYTES
         assert memory_budget.how_many_fit(KERNEL_CONFIG_BYTES) == memory_budget.how_many_fit(
-            KERNEL_CONFIG_BYTES, total_bytes=BOX_32_GB
+            KERNEL_CONFIG_BYTES, total_bytes=MACHINE_32_GB
         )
         assert memory_budget.how_many_fit(KERNEL_CONFIG_BYTES, floor_bytes=ISSUE_RESERVE_FLOOR_BYTES) == 3
         assert memory_budget.how_many_fit(KERNEL_CONFIG_BYTES) == 2
@@ -647,7 +652,7 @@ class TestTheEnvironmentOverride:
 
 
 class TestTheLiveProbe:
-    def test_the_box_answers_a_plausible_positive_figure_and_answers_it_twice(self):
+    def test_the_machine_answers_a_plausible_positive_figure_and_answers_it_twice(self):
         total = memory_budget.total_memory_bytes()
         assert 1_000_000_000 <= total <= 100_000_000_000_000
         assert memory_budget.total_memory_bytes() == total
@@ -659,23 +664,23 @@ class TestTheLiveProbe:
         ).stdout
         assert memory_budget.total_memory_bytes() == int(stated.strip())
 
-    def test_usable_cores_is_at_least_one_and_never_more_than_the_box_offers(self):
+    def test_usable_cores_is_at_least_one_and_never_more_than_the_machine_offers(self):
         cores = memory_budget.usable_cores()
         assert cores >= 1
         assert cores <= (os.process_cpu_count() or os.cpu_count() or 1)
 
-    def test_a_width_taken_off_the_live_box_is_startable_and_honors_its_cap(self):
+    def test_a_width_taken_off_the_live_machine_is_startable_and_honors_its_cap(self):
         cores = memory_budget.usable_cores()
         assert memory_budget.how_many_fit(KERNEL_CONFIG_BYTES) >= 1
         assert 1 <= memory_budget.how_many_fit(KERNEL_CONFIG_BYTES, cap=cores) <= cores
 
 
 class TestDescribeFit:
-    def test_the_clause_names_the_cost_the_box_the_reserve_and_the_co_resident_pool(self):
+    def test_the_clause_names_the_cost_the_machine_the_reserve_and_the_co_resident_pool(self):
         clause = memory_budget.describe_fit(
             KERNEL_CONFIG_BYTES,
             coresident_bytes=FONT_POOL_BYTES,
-            total_bytes=BOX_32_GIB,
+            total_bytes=MACHINE_32_GIB,
             floor_bytes=ISSUE_RESERVE_FLOOR_BYTES,
         )
         assert clause == (
@@ -683,7 +688,7 @@ class TestDescribeFit:
         )
 
     def test_the_clause_is_a_fragment_fit_for_a_plan_line(self):
-        clause = memory_budget.describe_fit(KERNEL_CONFIG_BYTES, total_bytes=BOX_32_GIB, cap=8)
+        clause = memory_budget.describe_fit(KERNEL_CONFIG_BYTES, total_bytes=MACHINE_32_GIB, cap=8)
         assert "\n" not in clause
         assert clause == clause.strip()
         assert not clause.endswith(".")
@@ -693,34 +698,36 @@ class TestDescribeFit:
     def test_a_reader_can_recompute_the_width_from_the_clause(self):
         """The clause exists so that a reader surprised by a width can check its derivation instead of trusting it."""
         clause = memory_budget.describe_fit(
-            KERNEL_CONFIG_BYTES, coresident_bytes=FONT_POOL_BYTES, total_bytes=BOX_32_GB
+            KERNEL_CONFIG_BYTES, coresident_bytes=FONT_POOL_BYTES, total_bytes=MACHINE_32_GB
         )
         stated = CLAUSE.match(clause)
         assert stated is not None
         budget = float(stated["total"]) - float(stated["reserve"]) - float(stated["coresident"])
         assert int(budget // float(stated["per_unit"])) == int(stated["count"])
         assert int(stated["count"]) == memory_budget.how_many_fit(
-            KERNEL_CONFIG_BYTES, coresident_bytes=FONT_POOL_BYTES, total_bytes=BOX_32_GB
+            KERNEL_CONFIG_BYTES, coresident_bytes=FONT_POOL_BYTES, total_bytes=MACHINE_32_GB
         )
 
     def test_the_optional_clauses_appear_only_when_they_apply(self):
-        plain = memory_budget.describe_fit(KERNEL_CONFIG_BYTES, total_bytes=BOX_32_GB)
+        plain = memory_budget.describe_fit(KERNEL_CONFIG_BYTES, total_bytes=MACHINE_32_GB)
         assert "co-resident" not in plain and "capped at" not in plain and "floored" not in plain
-        assert "capped at 8" in memory_budget.describe_fit(KERNEL_CONFIG_BYTES, total_bytes=BOX_32_GB, cap=8)
+        assert "capped at 8" in memory_budget.describe_fit(
+            KERNEL_CONFIG_BYTES, total_bytes=MACHINE_32_GB, cap=8
+        )
         assert "less 2.80 GB co-resident" in memory_budget.describe_fit(
-            KERNEL_CONFIG_BYTES, coresident_bytes=FONT_POOL_BYTES, total_bytes=BOX_32_GB
+            KERNEL_CONFIG_BYTES, coresident_bytes=FONT_POOL_BYTES, total_bytes=MACHINE_32_GB
         )
         assert memory_budget.describe_fit(KERNEL_CONFIG_BYTES, total_bytes=8_000_000_000) == (
             "1 at 9.00 GB each out of 8.00 GB total, less a reserve of 8.00 GB, floored at one"
         )
 
     def test_an_unmeasured_unit_says_so_instead_of_inventing_a_divisor(self):
-        assert memory_budget.describe_fit(0, total_bytes=BOX_32_GB, cap=6) == (
+        assert memory_budget.describe_fit(0, total_bytes=MACHINE_32_GB, cap=6) == (
             "6 at an unmeasured per-unit cost, so no memory-derived width, capped at 6"
         )
 
     def test_the_clause_and_the_count_never_disagree(self):
-        for total in BOX_SIZES:
+        for total in MACHINE_SIZES:
             clause = memory_budget.describe_fit(
                 KERNEL_CONFIG_BYTES, coresident_bytes=FONT_POOL_BYTES, total_bytes=total, cap=6
             )

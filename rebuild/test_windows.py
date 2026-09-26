@@ -167,7 +167,7 @@ class TestWindowsDigest:
         assert table_module.windows_digest(moved) != table_module.windows_digest(built)
 
 
-def test_the_deep_classes_stamp_rides_tables_inputs(monkeypatch):
+def test_the_deep_classes_stamp_is_included_in_tables_inputs(monkeypatch):
     monkeypatch.setattr(kernel_exec, "DEEP_CLASSES_DEFAULT", True)
     with_classes = run_m1.tables_inputs()
     assert with_classes.endswith("+deep-classes")

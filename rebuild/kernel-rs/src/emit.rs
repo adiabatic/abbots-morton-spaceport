@@ -592,7 +592,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_plain_ascii_string_rides_through_untouched() {
+    fn a_plain_ascii_string_passes_through_untouched() {
         assert_eq!(json_string("qsZoo"), "\"qsZoo\"");
         assert_eq!(json_string(""), "\"\"");
         assert_eq!(json_string("a/b"), "\"a/b\"");

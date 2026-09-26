@@ -258,7 +258,7 @@ def test_record_check_writes_one_parentless_check_line(tmp_path):
     assert re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", entry["finished_at"])
 
 
-def test_a_check_line_carries_its_own_box_context(tmp_path):
+def test_a_check_line_carries_its_own_machine_context(tmp_path):
     """A check line records its own host, cores, and memory, because an interactive check has no run line to say which machine it ran on."""
     path = tmp_path / "j.ndjson"
     ct.record_check(_check_result(), path=path)

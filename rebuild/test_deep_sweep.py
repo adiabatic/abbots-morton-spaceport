@@ -103,7 +103,7 @@ def test_a_red_run_records_nothing_and_clears_a_contradicted_green(bench, monkey
     assert ac.read_green_record(bench / "conform-green.json") is None
 
 
-def test_a_build_landing_mid_sweep_records_nothing(bench, monkeypatch, capsys):
+def test_a_build_finishing_mid_sweep_records_nothing(bench, monkeypatch, capsys):
     _stub_sweep(monkeypatch, {"pass": True, "divergences": 0})
     real = ac.deep_sweep_skip_fingerprint
     calls = [0]

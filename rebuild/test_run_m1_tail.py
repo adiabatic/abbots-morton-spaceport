@@ -15,7 +15,7 @@ from rebuild.tools import console
 SPEC = fixtures.mini_spec()
 STAMP = "tail-test"
 CONFIGS = conform.SETTLEMENT_CONFIGS
-BOX_32_GIB = 34_359_738_368
+MACHINE_32_GIB = 34_359_738_368
 TABLES = {config: (SimpleNamespace(rules=()), SimpleNamespace(rows=())) for config in CONFIGS}
 GREEN_REPLAY = {"pass": True, "complaint": None, "max_length": run_m1.REPLAY_MAX_LENGTH, "families": None}
 GREEN_WITNESSES = {"pass": True, "failures": [], "configs": {}}
@@ -522,7 +522,7 @@ class TestTheTailWidth:
         monkeypatch.setattr(run_m1, "replay_structure_stamp", lambda spec, root=None: "s1")
         monkeypatch.setattr(run_m1.fingerprint, "rune_digests", lambda root: {})
         monkeypatch.delenv("AMS_REPLAY_THREADS", raising=False)
-        monkeypatch.setenv("AMS_TOTAL_MEMORY_BYTES", str(BOX_32_GIB))
+        monkeypatch.setenv("AMS_TOTAL_MEMORY_BYTES", str(MACHINE_32_GIB))
         monkeypatch.setattr(run_m1, "usable_cores", lambda: 64)
 
         def replay_strings(

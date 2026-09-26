@@ -208,7 +208,7 @@ class TestTheDumpSeesTheWholeTree:
         assert kernel_io.spec_json(moved) != kernel_io.spec_json(spec)
         assert kernel_io.spec_of(kernel_io.spec_json(moved)) == moved
 
-    def test_prose_rides_along(self, spec):
+    def test_prose_survives_the_round_trip(self, spec):
         parsed = kernel_io.spec_of(kernel_io.spec_json(spec))
         assert all(parsed.runes[name].ductus == rune.ductus for name, rune in spec.runes.items())
         assert all(parsed.runes[name].notes == rune.notes for name, rune in spec.runes.items())
@@ -285,13 +285,13 @@ class TestTheMiniReachesEveryShapeTheLiveDumpDoes:
         ), f"the live dump hands the encoder shapes the mini never does: {sorted(missing)} — widen `_reaching_mini` until it reaches them, or those codec paths go untested"
 
 
-@pytest.mark.parametrize("arm", ["mini", "live"])
+@pytest.mark.parametrize("case", ["mini", "live"])
 class TestTheCrateEchoesTheDumpByteForByte:
     """Checks that the crate's spec ingest loses nothing: `spec-echo` parses the dump into the crate's model and emits it again from that model alone, so a field the model does not carry, a reordered mapping, or a differently escaped string shows up as a byte difference. A `model.py` change the crate has not followed fails here. The mini case runs beside the live one because it is cheap and exercises the crate's `against`, `mono`, and `when: null` emit paths even if the live alphabet has none of those shapes. The spawn goes through `kernel_exec._run_kernel` so the binary relink lock orders it against a concurrent `ensure_built`."""
 
-    def test_the_dump_comes_back_out_of_the_binary_unchanged(self, arm, live_spec, tmp_path):
-        subject = SPEC if arm == "mini" else live_spec
-        path = tmp_path / f"spec-{arm}.json"
+    def test_the_dump_comes_back_out_of_the_binary_unchanged(self, case, live_spec, tmp_path):
+        subject = SPEC if case == "mini" else live_spec
+        path = tmp_path / f"spec-{case}.json"
         kernel_io.write_spec(subject, path)
         kernel_exec.ensure_built()
         finished = kernel_exec._run_kernel([str(kernel_exec.BINARY), "spec-echo", str(path)], "spec-echo")

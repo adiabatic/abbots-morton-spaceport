@@ -607,7 +607,7 @@ def test_the_name_tuples_are_released_after_phase_one(mini):
     assert after.count == before.count == table.n
 
 
-def test_the_table_sizes_are_the_columns_bytes_and_the_pools_priced_beside_the_string_table(mini):
+def test_the_table_sizes_are_the_columns_bytes_and_the_pools_estimated_beside_the_string_table(mini):
     """The table's `workload.units` reading is exact. The packed figure is the columns' bytes plus every pool's packed size, the string table is reported beside it, and the two summed are the walked figure. A compaction removes the merged rows' bytes from it."""
     table = mini.table
     reading = unit_table_sizes(table)

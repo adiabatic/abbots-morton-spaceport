@@ -2306,7 +2306,7 @@ def test_a_pure_slide_matches(slide_context):
     assert sv._matches(SLIDE_RULE["match"], window, context=slide_context())
 
 
-def test_a_union_invisible_respelling_rides_along_with_the_slide(slide_context):
+def test_a_union_invisible_respelling_is_matched_along_with_the_slide(slide_context):
     assert sv._matches(SLIDE_RULE["match"], founding_window(), context=slide_context())
 
 
@@ -3890,7 +3890,7 @@ def test_a_window_holding_one_candidate_position_is_never_shaped():
     assert sv._combined_match(COMBINABLE_RULES, extension_only_window(), _RefusingContext()) is None
 
 
-def test_markers_ride_through_a_combined_window(slide_context):
+def test_markers_pass_through_a_combined_window(slide_context):
     spaced = slide_unit(
         "c-space",
         ["space", "qsL", "qsSee.ex-y0", "space", "qsM", "qsJ.ex-y0.ex-ext-1", "qsF3"],
@@ -4646,7 +4646,7 @@ def test_a_combined_ligature_continuation_still_checks_the_whole_compound(contra
     assert sv._combined_match(COMBINED_CONTRACTED_ENTRY_RULES, window, context) is None
 
 
-def test_a_union_invisible_suffix_respelling_rides_with_an_entry_contraction(slide_context):
+def test_a_union_invisible_suffix_respelling_is_matched_with_an_entry_contraction(slide_context):
     assert sv._matches(
         CONTRACTED_ENTRY_RULE["match"],
         contracted_entry_covered_window(),
@@ -4750,7 +4750,7 @@ def test_a_slide_and_an_entry_contraction_in_one_window_combine(slide_context):
     assert events == {SLIDE_RULE["id"]: [1], CONTRACTED_ENTRY_RULE["id"]: [3]}
 
 
-def test_a_union_invisible_suffix_respelling_rides_in_a_combined_entry_contraction(slide_context):
+def test_a_union_invisible_suffix_respelling_is_matched_in_a_combined_entry_contraction(slide_context):
     events = sv._combined_match(
         COMBINED_CONTRACTED_ENTRY_RULES,
         combined_contracted_entry_covered_window(),
@@ -4857,7 +4857,7 @@ def test_a_pure_stub_drop_matches(slide_context):
     assert sv._matches(STUB_RULE["match"], stub_window(), context=slide_context())
 
 
-def test_a_second_may_keeping_its_form_rides_as_span_ink(slide_context):
+def test_a_second_may_keeping_its_form_counts_as_span_ink(slide_context):
     window = stub_companion_window()
     context = slide_context()
     assert sv._matches(STUB_RULE["match"], window, context=context)
@@ -6974,7 +6974,7 @@ def test_an_entry_extended_frame_names_the_same_cell_swap_one_column_over(slide_
     assert sv._matches(REDRAWN_RULE["match"], window, context=slide_context())
 
 
-def test_a_second_pivot_family_glyph_keeping_its_form_rides_as_span_ink(slide_context):
+def test_a_second_pivot_family_glyph_keeping_its_form_counts_as_span_ink(slide_context):
     window = slide_unit(
         "rd-5", ["qsL", "qsEight", "qsF3", "qsEight"], spell(LEAD, EIGHT, FOLLOWER_3, EIGHT_UNCHANGED)
     )
@@ -8078,7 +8078,7 @@ def _inline_pools(monkeypatch):
     return pools
 
 
-def _pile(count: int) -> list[dict]:
+def _keyed_units(count: int) -> list[dict]:
     """Keyed units with distinct content keys, so each has its own memo key, plus one unit the build never stamped."""
     return [_keyed_unit(f"k-{index}", content_key=f"{index:064x}") for index in range(count)] + [
         canonical("u-unkeyed")
@@ -8087,7 +8087,7 @@ def _pile(count: int) -> list[dict]:
 
 def test_the_prefill_counts_what_the_serial_pass_counts(tmp_path, monkeypatch):
     """The parent's bookkeeping over pooled results matches the serial pass. With a memo already holding some of the units, a pooled run (the pool run in-process, its chunks returned in reverse) leaves the Decider with the same decisions, the same served, computed, and unkeyed totals, and the same fresh memo entries as a serial run. This catches an accounting regression without the cost of spawning workers."""
-    units = _pile(9)
+    units = _keyed_units(9)
     memo_path = tmp_path / "memo.ndjson.gz"
     served = sv.Memo(memo_path, "env", {})
     seed = sv.Decider([RULE], None, served)
@@ -8147,10 +8147,10 @@ def test_the_prefill_asks_only_what_the_run_asks(tmp_path, monkeypatch):
     assert len(asked) == 3
 
 
-def test_a_shallow_miss_pile_and_a_width_of_one_never_start_a_pool(monkeypatch):
+def test_a_few_misses_and_a_width_of_one_never_start_a_pool(monkeypatch):
     """A warm pass's few misses stay below `_STANDING_POOL_THRESHOLD`, and a width of one always decides serially, so neither starts a pool. The test makes the pool's entry point fail."""
     monkeypatch.setattr(sv.multiprocessing, "get_context", lambda method: pytest.fail("a pool was started"))
-    units = _pile(5)
+    units = _keyed_units(5)
     monkeypatch.setattr(sv, "_STANDING_POOL_THRESHOLD", len(units) + 1)
     decider = sv.Decider([RULE], None, sv.Memo(pathlib.Path("unused"), "env", {}))
     sv._prefill(decider, units, 8)
@@ -8477,7 +8477,7 @@ def test_the_memo_stamp_holds_still_across_a_version_bump(tmp_path, slide_fonts)
     "flags", [(), ("--open-only",), ("--open-only", "--require-reach"), ("--explain", RULE["id"])]
 )
 def test_one_shot_source_preserves_reports_fills_and_cold_warm_memos(tmp_path, monkeypatch, capsys, flags):
-    units = _pile(6)
+    units = _keyed_units(6)
     corpus = _corpus(tmp_path, units)
     rules = _write_rules(tmp_path / "rules.yaml", [RULE])
     verdicts = tmp_path / "verdicts.json"
@@ -8612,7 +8612,7 @@ def test_pool_releases_previous_wave_before_decoding_the_next(monkeypatch):
     monkeypatch.setattr(sv, "_STANDING_POOL_THRESHOLD", 1)
     monkeypatch.setattr(sv, "_STANDING_POOL_CHUNK", chunk_size)
     decider = sv.Decider([RULE], None)
-    sv._prefill(decider, _pile(30), width)
+    sv._prefill(decider, _keyed_units(30), width)
     assert peak == width * chunk_size
     assert not alive
     assert len(decider._decided) == 31
@@ -8636,6 +8636,6 @@ def test_pool_worker_failure_closes_the_spool(monkeypatch):
     monkeypatch.setattr(sv, "_STANDING_POOL_THRESHOLD", 1)
     monkeypatch.setattr(sv, "_STANDING_POOL_CHUNK", 2)
     with pytest.raises(RuntimeError, match="worker failed"):
-        sv._prefill(sv.Decider([RULE], None), _pile(4), 2)
+        sv._prefill(sv.Decider([RULE], None), _keyed_units(4), 2)
     assert len(handles) == 1
     assert handles[0].closed

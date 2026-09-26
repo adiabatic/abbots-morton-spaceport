@@ -33,12 +33,12 @@ from rebuild.tools.cycle_timings import CycleTimings
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 # Width assertions use stated machine sizes, not the host running the suite. With DELTA_PEAK_BYTES at 6.3 GB and DEFAULT_MEMO_BYTES at 2.5 GB, 36 GB fits four deltas alone and three beside the default pytest pool, 38 GB leaves room to test larger stated pool widths, and 44 GB is `_plan`'s default machine, which the plan and width tests share. Changing either constant changes these expectations and can require a different size to keep the pool's reservation visible in a width.
-BOX_44_GB = 44_000_000_000
-BOX_38_GB = 38_000_000_000
-BOX_36_GB = 36_000_000_000
+MACHINE_44_GB = 44_000_000_000
+MACHINE_38_GB = 38_000_000_000
+MACHINE_36_GB = 36_000_000_000
 # The fleet's two machines (`doc/fleet.md`), for the corpus width's assertions. On both, the corpus build reaches its cap whether or not the pytest pool's bytes are subtracted, so no total separates the gated and solo cases; the reservation arithmetic is asserted through `_corpus_fit_terms`, which takes no total.
-BOX_48_GIB = 51_539_607_552
-BOX_32_GIB = 34_359_738_368
+MACHINE_48_GIB = 51_539_607_552
+MACHINE_32_GIB = 34_359_738_368
 
 
 @pytest.fixture(autouse=True)
@@ -252,7 +252,7 @@ def test_dry_run_plan_default():
         first_run=False,
         short_id="abc1234",
         ncores=1,
-        total_bytes=BOX_44_GB,
+        total_bytes=MACHINE_44_GB,
     )
     assert plan.carry_out == ac.ROOT / "verdicts-carried-abc1234.json"
 
@@ -345,7 +345,7 @@ def test_dry_run_plan_conform_jobs_cap():
             verdict_update_runs=plan.runs("verdict-update"),
             pool_policy=plan.pool_policy,
             ncores=12,
-            total_bytes=BOX_44_GB,
+            total_bytes=MACHINE_44_GB,
         )
         == len(ACCEPTANCE_CONFIGS)
     )
@@ -432,7 +432,7 @@ def test_dry_run_plan_staging_pass_never_touches_the_autosave(tmp_path):
     assert plan.do_merge is False
 
 
-def test_dry_run_plan_complaints_rides_inside_the_verdict_update(tmp_path, monkeypatch):
+def test_dry_run_plan_complaints_runs_inside_the_verdict_update(tmp_path, monkeypatch):
     autosave = tmp_path / "verdicts-autosave.json"
     autosave.write_text("{}")
     monkeypatch.setattr(ac, "AUTOSAVE", autosave)
@@ -833,7 +833,7 @@ def _plan(**overrides: Any) -> ac.Plan:
         first_run=False,
         short_id="testid",
         ncores=4,
-        total_bytes=BOX_44_GB,
+        total_bytes=MACHINE_44_GB,
     )
     kw.update(overrides)
     return ac.build_plan(**kw)
@@ -1532,7 +1532,7 @@ def test_pool_queue_contracts_falls_back_to_make_test_when_conform_skipped(monke
     assert box["rc"] == 0
 
 
-def test_the_gate_pool_seats_every_gate_task_at_once():
+def test_the_gate_pool_runs_every_gate_task_at_once():
     """Under the queue policy a waiting task holds its worker for the whole wait (conform waits on make-test, contracts on both), so the pool has a worker for every gate task plus two spare. A smaller pool would not deadlock, because tasks are submitted in the order they wait on each other and the pool is FIFO, but a task could then wait for an unrelated task to finish before it starts."""
     gate_tasks = (
         ac._gate_js_task,
@@ -1757,16 +1757,16 @@ def test_a_rebuild_lane_stays_captured_and_parses_failures(lane, capsys):
     assert f"hard rebuild failure ({lane}): rebuild/test_boom.py::test_y" in out
 
 
-def test_gate_make_test_says_so_when_the_font_suite_stood_itself_down(capsys):
+def test_gate_make_test_says_so_when_the_font_suite_skipped_itself(capsys):
     """`make test` exits zero whether it ran the suite or skipped it on its own green record. The wrapper's first line says which, and both the closing line and the table row report it, so a skipped suite is not shown as having run."""
-    stood_down = (
+    self_skipped = (
         "make test: SKIPPED — input closure unchanged since its last green run (2026-09-04T12:00:00Z). "
         "Run `make test FORCE=1` to run it anyway."
     )
     emit = ac._Emitter()
     result = ac._gate_make_test_task(
         ["make", "test"],
-        lambda name, argv, *, emit, registry, stream: _step(name, 0, stdout=stood_down),
+        lambda name, argv, *, emit, registry, stream: _step(name, 0, stdout=self_skipped),
         emit,
         ac._ChildRegistry(),
     )
@@ -2144,35 +2144,35 @@ def test_sweep_job_budget_is_the_cores_under_the_oracle_shards_memory_clamp():
     assert ac.sweep_job_budget(12, total_bytes=roomy) == 12
     assert ac.sweep_job_budget(3, total_bytes=roomy) == 3
     assert ac.sweep_job_budget(1, total_bytes=roomy) == 1
-    reserve = memory_budget.os_reserve_bytes(total_bytes=BOX_32_GIB)
-    fits = (BOX_32_GIB - reserve) // ac.ORACLE_SHARD_BYTES
+    reserve = memory_budget.os_reserve_bytes(total_bytes=MACHINE_32_GIB)
+    fits = (MACHINE_32_GIB - reserve) // ac.ORACLE_SHARD_BYTES
     assert 1 < fits < 64
-    assert ac.sweep_job_budget(64, total_bytes=BOX_32_GIB) == fits
+    assert ac.sweep_job_budget(64, total_bytes=MACHINE_32_GIB) == fits
     assert ac.sweep_job_budget(64, total_bytes=ac.ORACLE_SHARD_BYTES) == 1
     assert f"at {format_gb(ac.ORACLE_SHARD_BYTES)} GB each" in ac.sweep_job_derivation(
-        64, total_bytes=BOX_32_GIB
+        64, total_bytes=MACHINE_32_GIB
     )
     assert "capped at 64" in ac.sweep_job_derivation(64, total_bytes=roomy)
 
 
-def test_both_fleet_boxes_run_the_oracle_at_the_cores():
+def test_both_fleet_machines_run_the_oracle_at_the_cores():
     """On both fleet machines (`doc/fleet.md`) the oracle runs at the cores: the twelve-core 48 GiB machine at twelve and the 32 GiB machine at ten, with the division never limiting the width before the cap does. The capped budget cannot distinguish the cap from a division that equals it, so the uncapped division is also checked. A change to `ORACLE_SHARD_BYTES` that narrows either machine below its cores, or puts it at the edge of the division, fails here. The suite does not catch a constant that is too low: only the oracle-shard row of `make job-costs` (the cycle's job-costs step) compares it with the workers that ran."""
     from rebuild.tools import memory_budget
 
-    assert ac.sweep_job_budget(12, total_bytes=BOX_48_GIB) == 12
-    assert ac.sweep_job_derivation(12, total_bytes=BOX_48_GIB).startswith("12 at ")
-    assert memory_budget.how_many_fit(ac.ORACLE_SHARD_BYTES, total_bytes=BOX_48_GIB) > 12
-    assert ac.sweep_job_budget(10, total_bytes=BOX_32_GIB) == 10
-    assert ac.sweep_job_derivation(10, total_bytes=BOX_32_GIB).startswith("10 at ")
-    assert memory_budget.how_many_fit(ac.ORACLE_SHARD_BYTES, total_bytes=BOX_32_GIB) > 10
+    assert ac.sweep_job_budget(12, total_bytes=MACHINE_48_GIB) == 12
+    assert ac.sweep_job_derivation(12, total_bytes=MACHINE_48_GIB).startswith("12 at ")
+    assert memory_budget.how_many_fit(ac.ORACLE_SHARD_BYTES, total_bytes=MACHINE_48_GIB) > 12
+    assert ac.sweep_job_budget(10, total_bytes=MACHINE_32_GIB) == 10
+    assert ac.sweep_job_derivation(10, total_bytes=MACHINE_32_GIB).startswith("10 at ")
+    assert memory_budget.how_many_fit(ac.ORACLE_SHARD_BYTES, total_bytes=MACHINE_32_GIB) > 10
 
 
 def test_the_plan_prints_the_sweep_width_with_its_derivation():
-    plan = _plan(ncores=10, total_bytes=BOX_48_GIB)
-    assert plan.sweep_jobs == ac.sweep_job_budget(10, total_bytes=BOX_48_GIB) == 10
+    plan = _plan(ncores=10, total_bytes=MACHINE_48_GIB)
+    assert plan.sweep_jobs == ac.sweep_job_budget(10, total_bytes=MACHINE_48_GIB) == 10
     text = _plan_text(plan)
     assert f"run_m1 sweeps --jobs             : {plan.sweep_jobs}  (the oracle's row-range workers, " in text
-    assert ac.sweep_job_derivation(10, total_bytes=BOX_48_GIB) in text
+    assert ac.sweep_job_derivation(10, total_bytes=MACHINE_48_GIB) in text
     by_name = {step.name: step for step in plan.steps}
     assert _argv(by_name["run_m1"])[5:7] == ["--jobs", str(plan.sweep_jobs)]
     assert _argv(by_name["gate:conform"])[-2:] == ["--jobs", str(plan.conform_jobs)]
@@ -2181,34 +2181,34 @@ def test_the_plan_prints_the_sweep_width_with_its_derivation():
 class TestTheCorpusBuildWidth:
     """Both bounds are checked, because which one limits the width matters: the cap stops the pool where widening stops helping on a machine with memory to spare, and the division protects a machine with none."""
 
-    def test_the_cap_binds_where_the_box_has_room_to_spare(self):
+    def test_the_cap_binds_where_the_machine_has_room_to_spare(self):
         """A machine with memory for dozens of workers gets `CORPUS_JOBS_CAP`. The limit is not memory: one parent process hands out the batches and merges the replies, and eight is the widest pool measured (the comment on `CORPUS_JOBS_CAP` in rebuild/tools/artifact_cycle.py)."""
         assert (
             ac.corpus_job_budget(skip_gates=True, ncores=12, total_bytes=1_000_000_000_000)
             == ac.CORPUS_JOBS_CAP
         )
 
-    def test_a_box_with_fewer_cores_than_the_cap_gets_its_cores(self):
+    def test_a_machine_with_fewer_cores_than_the_cap_gets_its_cores(self):
         """The cap and the core count are one `min()` because neither is a memory limit, and gate:make-test's two cores are subtracted from the core count before the `min()`: a five-core machine runs five workers alone and three beside that pool, with memory to spare in both cases."""
         assert ac.corpus_job_budget(skip_gates=True, ncores=5, total_bytes=1_000_000_000_000) == 5
         assert ac.corpus_job_budget(skip_gates=False, ncores=5, total_bytes=1_000_000_000_000) == 3
 
-    def test_both_fleet_boxes_keep_a_pooled_build_under_a_gated_cycle(self):
-        """On both fleet machines (`doc/fleet.md`) the build runs a pool: beside gate:make-test's pool the 48 GiB machine runs it at the cap, and the 32 GiB machine runs more than one worker both gated and alone. The lower bound is what a change to the worker constant must not cross, because a width of one is the serial build. For the 32 GiB machine this test requires only more than one worker, so it still passes if a change to the constant narrows that machine's width below the cap. `test_the_shipped_corpus_divisor_holds_the_32_gib_box_at_the_cap_by_division` in rebuild/test_memory_budget.py checks that the gated width there is the cap. The derivation is checked too, because the plan line quotes it."""
-        roomy = ac.corpus_job_budget(skip_gates=False, ncores=12, total_bytes=BOX_48_GIB)
+    def test_both_fleet_machines_keep_a_pooled_build_under_a_gated_cycle(self):
+        """On both fleet machines (`doc/fleet.md`) the build runs a pool: beside gate:make-test's pool the 48 GiB machine runs it at the cap, and the 32 GiB machine runs more than one worker both gated and alone. The lower bound is what a change to the worker constant must not cross, because a width of one is the serial build. For the 32 GiB machine this test requires only more than one worker, so it still passes if a change to the constant narrows that machine's width below the cap. `test_the_shipped_corpus_divisor_holds_the_32_gib_machine_at_the_cap_by_division` in rebuild/test_memory_budget.py checks that the gated width there is the cap. The derivation is checked too, because the plan line quotes it."""
+        roomy = ac.corpus_job_budget(skip_gates=False, ncores=12, total_bytes=MACHINE_48_GIB)
         assert roomy == ac.CORPUS_JOBS_CAP
-        assert ac.corpus_job_derivation(skip_gates=False, ncores=12, total_bytes=BOX_48_GIB).startswith(
+        assert ac.corpus_job_derivation(skip_gates=False, ncores=12, total_bytes=MACHINE_48_GIB).startswith(
             f"{ac.CORPUS_JOBS_CAP} at "
         )
-        narrow = ac.corpus_job_budget(skip_gates=False, ncores=10, total_bytes=BOX_32_GIB)
+        narrow = ac.corpus_job_budget(skip_gates=False, ncores=10, total_bytes=MACHINE_32_GIB)
         assert 1 < narrow <= ac.CORPUS_JOBS_CAP
-        assert ac.corpus_job_derivation(skip_gates=False, ncores=10, total_bytes=BOX_32_GIB).startswith(
+        assert ac.corpus_job_derivation(skip_gates=False, ncores=10, total_bytes=MACHINE_32_GIB).startswith(
             f"{narrow} at "
         )
-        alone = ac.corpus_job_budget(skip_gates=True, ncores=10, total_bytes=BOX_32_GIB)
+        alone = ac.corpus_job_budget(skip_gates=True, ncores=10, total_bytes=MACHINE_32_GIB)
         assert 1 < alone <= ac.CORPUS_JOBS_CAP
 
-    def test_the_pytest_pool_comes_off_the_box_before_the_division(self):
+    def test_the_pytest_pool_comes_off_the_machine_before_the_division(self):
         """A cycle runs this build beside gate:make-test's pool, so the pool's bytes are added to the co-resident term and its two cores come off the cap before the division. The test checks the fit terms directly, because on the fleet machines the subtraction does not change the resulting width, and a machine size chosen to sit where it would is a number every change to the constants would have to retune."""
         solo = ac._corpus_fit_terms(skip_gates=True, skip_make_test=False, ncores=9)
         beside = ac._corpus_fit_terms(skip_gates=False, skip_make_test=False, ncores=9)
@@ -2219,7 +2219,7 @@ class TestTheCorpusBuildWidth:
             ac.CORPUS_JOBS_CAP - 1,
         )
 
-    def test_the_floor_answers_one_on_a_box_that_cannot_hold_a_worker(self):
+    def test_the_floor_answers_one_on_a_machine_that_cannot_hold_a_worker(self):
         """A machine with no memory left after its reserve floors at one in both cases. Width one is the serial build: there is no pool, and every fragment exists once instead of twice."""
         assert ac.corpus_job_budget(skip_gates=True, ncores=12, total_bytes=8_000_000_000) == 1
         assert ac.corpus_job_budget(skip_gates=False, ncores=12, total_bytes=8_000_000_000) == 1
@@ -2227,15 +2227,17 @@ class TestTheCorpusBuildWidth:
     def test_the_printed_derivation_is_the_one_that_produced_the_width(self):
         """The plan line and the `--jobs` help quote the derivation, and it and the width come from the same three terms, so the clause starts with the width it explains."""
         for skip_gates in (False, True):
-            width = ac.corpus_job_budget(skip_gates=skip_gates, ncores=10, total_bytes=BOX_48_GIB)
-            derivation = ac.corpus_job_derivation(skip_gates=skip_gates, ncores=10, total_bytes=BOX_48_GIB)
+            width = ac.corpus_job_budget(skip_gates=skip_gates, ncores=10, total_bytes=MACHINE_48_GIB)
+            derivation = ac.corpus_job_derivation(
+                skip_gates=skip_gates, ncores=10, total_bytes=MACHINE_48_GIB
+            )
             assert derivation.startswith(f"{width} at ")
 
 
 class TestTheStandingFillWidth:
     """The cycle sizes the standing fill's refill pool, and the fill uses the width it is given. The fill's code is part of its memo's stamp, so a width computed there would invalidate the memo on every edit to the arithmetic."""
 
-    def test_the_pytest_pool_comes_off_the_box_and_two_cores_off_the_cap(self):
+    def test_the_pytest_pool_comes_off_the_machine_and_two_cores_off_the_cap(self):
         solo = ac._standing_fill_terms(skip_gates=True, skip_make_test=False, ncores=9)
         beside = ac._standing_fill_terms(skip_gates=False, skip_make_test=False, ncores=9)
         assert solo == (ac.STANDING_FILL_WORKER_BYTES, ac.STANDING_FILL_PARENT_BYTES, 9)
@@ -2245,28 +2247,30 @@ class TestTheStandingFillWidth:
             7,
         )
 
-    def test_the_cores_bind_on_both_fleet_boxes(self):
+    def test_the_cores_bind_on_both_fleet_machines(self):
         """A refill worker holds a chunk and two shapers, so on both fleet machines memory allows more workers than there are cores: gated, the ten-core 32 GiB machine runs eight beside gate:make-test's two, and the twelve-core 48 GiB machine alone runs twelve."""
-        assert ac.standing_fill_jobs(skip_gates=False, ncores=10, total_bytes=BOX_32_GIB) == 8
-        assert ac.standing_fill_jobs(skip_gates=True, ncores=12, total_bytes=BOX_48_GIB) == 12
+        assert ac.standing_fill_jobs(skip_gates=False, ncores=10, total_bytes=MACHINE_32_GIB) == 8
+        assert ac.standing_fill_jobs(skip_gates=True, ncores=12, total_bytes=MACHINE_48_GIB) == 12
 
-    def test_a_box_that_cannot_hold_the_parent_floors_at_one(self):
+    def test_a_machine_that_cannot_hold_the_parent_floors_at_one(self):
         assert ac.standing_fill_jobs(skip_gates=True, ncores=12, total_bytes=8_000_000_000) == 1
         assert ac.standing_fill_jobs(skip_gates=False, ncores=12, total_bytes=8_000_000_000) == 1
 
     def test_the_printed_derivation_is_the_one_that_produced_the_width(self):
         for skip_gates in (False, True):
-            width = ac.standing_fill_jobs(skip_gates=skip_gates, ncores=10, total_bytes=BOX_32_GIB)
-            derivation = ac.standing_fill_derivation(skip_gates=skip_gates, ncores=10, total_bytes=BOX_32_GIB)
+            width = ac.standing_fill_jobs(skip_gates=skip_gates, ncores=10, total_bytes=MACHINE_32_GIB)
+            derivation = ac.standing_fill_derivation(
+                skip_gates=skip_gates, ncores=10, total_bytes=MACHINE_32_GIB
+            )
             assert derivation.startswith(f"{width} at ")
-        solo = ac.standing_fill_derivation(skip_gates=True, ncores=10, total_bytes=BOX_32_GIB)
+        solo = ac.standing_fill_derivation(skip_gates=True, ncores=10, total_bytes=MACHINE_32_GIB)
         assert f"less {format_gb(ac.STANDING_FILL_PARENT_BYTES)} GB co-resident" in solo
 
     def test_the_plan_states_the_width_on_the_verdict_updates_argv_and_in_its_text(self):
         """Every width is stated on the command line, including one, and the plan block gives its derivation as it does for the corpus build."""
         for skip_gates in (False, True):
-            plan = _plan(skip_gates=skip_gates, ncores=10, total_bytes=BOX_32_GIB)
-            width = ac.standing_fill_jobs(skip_gates=skip_gates, ncores=10, total_bytes=BOX_32_GIB)
+            plan = _plan(skip_gates=skip_gates, ncores=10, total_bytes=MACHINE_32_GIB)
+            width = ac.standing_fill_jobs(skip_gates=skip_gates, ncores=10, total_bytes=MACHINE_32_GIB)
             by_name = {step.name: step for step in plan.steps}
             argv = _argv(by_name["verdict-update"])
             assert argv[argv.index("--standing-fill-jobs") + 1] == str(width)
@@ -2274,7 +2278,8 @@ class TestTheStandingFillWidth:
             text = _plan_text(plan)
             assert "verdict-update --standing-fill-jobs" in text
             assert (
-                ac.standing_fill_derivation(skip_gates=skip_gates, ncores=10, total_bytes=BOX_32_GIB) in text
+                ac.standing_fill_derivation(skip_gates=skip_gates, ncores=10, total_bytes=MACHINE_32_GIB)
+                in text
             )
         small = _plan(ncores=2)
         assert _argv({step.name: step for step in small.steps}["verdict-update"])[-2:] == [
@@ -2305,18 +2310,18 @@ def _plan_conform_derivation(plan: ac.Plan, *, ncores: int, total_bytes: int) ->
 class TestTheConformBeltWidth:
     """The cycle sizes gate:conform's belt: one spawn process per acceptance configuration, each holding `CONFORM_BELT_BYTES`. The belt is submitted when run_m1's gate passes, so it runs beside the build lane's corpus build or the verdict-update step after it, and the larger of the two that the pass runs is subtracted from memory before the division."""
 
-    def test_the_corpus_build_comes_off_the_box_before_the_division(self):
+    def test_the_corpus_build_comes_off_the_machine_before_the_division(self):
         """Checked at the fit terms, where no machine size enters, for the same reason as the corpus build's reservation: on no fleet machine does the subtraction change the belt's width. The corpus term is the build's parent plus the workers `corpus_job_budget` gives the same pass. A pass that runs the verdict-update step without the build subtracts the verdict update's process and the refill pool `standing_fill_jobs` gives instead. gate:make-test's pool is added under the overlap policy only, because the queue policy makes the belt wait for make-test."""
         from rebuild.pipeline.conform import ACCEPTANCE_CONFIGS
 
         def corpus(skip_make_test):
             return ac.CORPUS_PARENT_BYTES + ac.CORPUS_WORKER_BYTES * ac.corpus_job_budget(
-                skip_gates=False, skip_make_test=skip_make_test, ncores=9, total_bytes=BOX_48_GIB
+                skip_gates=False, skip_make_test=skip_make_test, ncores=9, total_bytes=MACHINE_48_GIB
             )
 
         def verdict_update(skip_make_test):
             return ac.STANDING_FILL_PARENT_BYTES + ac.STANDING_FILL_WORKER_BYTES * ac.standing_fill_jobs(
-                skip_gates=False, skip_make_test=skip_make_test, ncores=9, total_bytes=BOX_48_GIB
+                skip_gates=False, skip_make_test=skip_make_test, ncores=9, total_bytes=MACHINE_48_GIB
             )
 
         def terms(*, skip_make_test=False, skip_corpus=False, verdict_update_runs=False, pool_policy="queue"):
@@ -2327,7 +2332,7 @@ class TestTheConformBeltWidth:
                 verdict_update_runs=verdict_update_runs,
                 pool_policy=pool_policy,
                 ncores=9,
-                total_bytes=BOX_48_GIB,
+                total_bytes=MACHINE_48_GIB,
             )
 
         configs = len(ACCEPTANCE_CONFIGS)
@@ -2364,8 +2369,8 @@ class TestTheConformBeltWidth:
 
     def test_the_larger_build_lane_step_is_the_one_that_comes_off(self):
         """The belt starts beside the corpus build, and a belt still running when the build finishes, or one the queue policy starts late, runs beside the verdict-update step, so a pass that runs both subtracts the larger. The corpus build stops at `CORPUS_JOBS_CAP` while the standing fill takes all the cores, so on a machine with enough cores the verdict-update step is the larger and is the one subtracted."""
-        box: dict[str, Any] = dict(skip_gates=False, skip_make_test=False, total_bytes=BOX_48_GIB)
-        wide: dict[str, Any] = dict(box, ncores=40)
+        machine: dict[str, Any] = dict(skip_gates=False, skip_make_test=False, total_bytes=MACHINE_48_GIB)
+        wide: dict[str, Any] = dict(machine, ncores=40)
         corpus = ac.CORPUS_PARENT_BYTES + ac.CORPUS_WORKER_BYTES * ac.corpus_job_budget(**wide)
         verdict_update = (
             ac.STANDING_FILL_PARENT_BYTES + ac.STANDING_FILL_WORKER_BYTES * ac.standing_fill_jobs(**wide)
@@ -2383,19 +2388,19 @@ class TestTheConformBeltWidth:
             ac._conform_fit_terms(**wide, skip_corpus=False, verdict_update_runs=True, pool_policy="queue")[1]
             == verdict_update
         )
-        narrow: dict[str, Any] = dict(box, ncores=9)
+        narrow: dict[str, Any] = dict(machine, ncores=9)
         assert (
             ac._conform_build_lane(**narrow, skip_corpus=False, verdict_update_runs=True)[0] == "corpus-build"
         )
         assert ac._conform_build_lane(**narrow, skip_corpus=True, verdict_update_runs=False) == ("", 0)
 
-    def test_both_fleet_boxes_run_the_belt_at_the_configuration_count(self):
+    def test_both_fleet_machines_run_the_belt_at_the_configuration_count(self):
         """On the fleet machines (`doc/fleet.md`), the 48 GiB machines at twelve and eighteen cores and the 32 GiB machine at ten, the belt runs one worker per acceptance configuration beside a gated build lane (the corpus build and the verdict-update step) and beside the verdict-update step alone, and the division never limits the width before the cap does. The capped budget cannot distinguish the cap from a division that equals it, so the uncapped division is also checked, and a change to the constant that narrows a fleet machine fails here. The suite does not catch a constant that is too low: only the conform-belt row of `make job-costs` compares it with the workers that ran."""
         from rebuild.pipeline.conform import ACCEPTANCE_CONFIGS
         from rebuild.tools import memory_budget
 
         configs = len(ACCEPTANCE_CONFIGS)
-        for ncores, total_bytes in ((12, BOX_48_GIB), (18, BOX_48_GIB), (10, BOX_32_GIB)):
+        for ncores, total_bytes in ((12, MACHINE_48_GIB), (18, MACHINE_48_GIB), (10, MACHINE_32_GIB)):
             for skip_corpus in (False, True):
                 gated: dict[str, Any] = dict(
                     skip_gates=False,
@@ -2438,19 +2443,19 @@ class TestTheConformBeltWidth:
 
     def test_the_plan_prints_the_belt_width_with_its_derivation(self):
         """Every Lane conform line that runs the belt quotes its width, the constant it divides by, and the derivation over the flags the plan resolved. The co-resident term is the larger build-lane step, plus gate:make-test's pool under the overlap policy: the corpus build when it runs and holds more than the verdict-update step, the verdict-update step when the build does not run or the step holds more. For a pass that runs neither, the line says so and prints no co-resident term unless gate:make-test's pool runs beside the belt."""
-        box: dict[str, Any] = dict(ncores=10, total_bytes=BOX_32_GIB)
-        arms = {
-            "queued": _plan(**box),
-            "make-test skipped": _plan(skip_make_test=True, make_test_note="closure unchanged", **box),
-            "overlap": _plan(pool_policy="overlap", **box),
+        machine: dict[str, Any] = dict(ncores=10, total_bytes=MACHINE_32_GIB)
+        cases = {
+            "queued": _plan(**machine),
+            "make-test skipped": _plan(skip_make_test=True, make_test_note="closure unchanged", **machine),
+            "overlap": _plan(pool_policy="overlap", **machine),
         }
-        assert "QUEUED behind gate:make-test" in _lane_conform_line(arms["queued"])
-        assert "gate:make-test not running, so no queueing" in _lane_conform_line(arms["make-test skipped"])
-        assert "CO-RESIDENT with the pytest pools" in _lane_conform_line(arms["overlap"])
-        for plan in arms.values():
+        assert "QUEUED behind gate:make-test" in _lane_conform_line(cases["queued"])
+        assert "gate:make-test not running, so no queueing" in _lane_conform_line(cases["make-test skipped"])
+        assert "CO-RESIDENT with the pytest pools" in _lane_conform_line(cases["overlap"])
+        for plan in cases.values():
             assert plan.runs("verdict-update")
             line = _lane_conform_line(plan)
-            derivation = _plan_conform_derivation(plan, **box)
+            derivation = _plan_conform_derivation(plan, **machine)
             assert (
                 f"(--jobs {plan.conform_jobs}; CONFORM_BELT_BYTES a belt worker, beside the corpus build's parent and its {plan.corpus_jobs} workers"
                 in line
@@ -2459,7 +2464,7 @@ class TestTheConformBeltWidth:
             assert f"at {format_gb(ac.CONFORM_BELT_BYTES)} GB each" in derivation
             assert "less a reserve of" in derivation
             assert "GB co-resident" in derivation
-        overlap = arms["overlap"]
+        overlap = cases["overlap"]
         assert "workers and gate:make-test's pool; " in _lane_conform_line(overlap)
         _per_unit, coresident, _cap = ac._conform_fit_terms(
             skip_gates=False,
@@ -2468,15 +2473,15 @@ class TestTheConformBeltWidth:
             verdict_update_runs=True,
             pool_policy="overlap",
             ncores=10,
-            total_bytes=BOX_32_GIB,
+            total_bytes=MACHINE_32_GIB,
         )
         assert coresident > ac.CORPUS_PARENT_BYTES + ac.CORPUS_WORKER_BYTES * overlap.corpus_jobs
-        assert f"less {format_gb(coresident)} GB co-resident" in _plan_conform_derivation(overlap, **box)
-        assert "gate:make-test's pool" not in _lane_conform_line(arms["queued"])
+        assert f"less {format_gb(coresident)} GB co-resident" in _plan_conform_derivation(overlap, **machine)
+        assert "gate:make-test's pool" not in _lane_conform_line(cases["queued"])
 
-        beside_verdict_update = _plan(skip_corpus=True, corpus_note="inputs unchanged", **box)
+        beside_verdict_update = _plan(skip_corpus=True, corpus_note="inputs unchanged", **machine)
         line = _lane_conform_line(beside_verdict_update)
-        derivation = _plan_conform_derivation(beside_verdict_update, **box)
+        derivation = _plan_conform_derivation(beside_verdict_update, **machine)
         workers = beside_verdict_update.standing_fill_jobs
         assert (
             f"(--jobs {beside_verdict_update.conform_jobs}; CONFORM_BELT_BYTES a belt worker, the corpus build not running this pass, so beside the verdict update's process and its {workers} refill workers; "
@@ -2492,10 +2497,10 @@ class TestTheConformBeltWidth:
             "skip_verdict_update": True,
             "verdict_update_note": "nothing moved",
         }
-        alone = _plan(**idle, **box)
+        alone = _plan(**idle, **machine)
         assert not alone.runs("verdict-update")
         line = _lane_conform_line(alone)
-        derivation = _plan_conform_derivation(alone, **box)
+        derivation = _plan_conform_derivation(alone, **machine)
         assert (
             f"(--jobs {alone.conform_jobs}; CONFORM_BELT_BYTES a belt worker, neither the corpus build nor the verdict-update step running this pass, so nothing co-resident; "
             in line
@@ -2503,12 +2508,12 @@ class TestTheConformBeltWidth:
         assert line.endswith(f"; {derivation})")
         assert "GB co-resident" not in derivation
 
-        overlap_alone = _plan(**idle, pool_policy="overlap", **box)
+        overlap_alone = _plan(**idle, pool_policy="overlap", **machine)
         line = _lane_conform_line(overlap_alone)
         assert "so only gate:make-test's pool co-resident; " in line
-        assert "GB co-resident" in _plan_conform_derivation(overlap_alone, **box)
+        assert "GB co-resident" in _plan_conform_derivation(overlap_alone, **machine)
 
-        wide: dict[str, Any] = dict(ncores=40, total_bytes=BOX_48_GIB)
+        wide: dict[str, Any] = dict(ncores=40, total_bytes=MACHINE_48_GIB)
         outweighed = _plan(**wide)
         line = _lane_conform_line(outweighed)
         assert (
@@ -2519,7 +2524,7 @@ class TestTheConformBeltWidth:
 
     def test_the_printed_derivation_is_the_one_that_produced_the_width(self):
         """The plan line quotes the derivation, and it and the width come from the same three terms, so in every case the clause starts with the width it explains."""
-        for total_bytes in (BOX_32_GIB, 20_000_000_000):
+        for total_bytes in (MACHINE_32_GIB, 20_000_000_000):
             for skip_make_test in (False, True):
                 for skip_corpus, verdict_update_runs in itertools.product((False, True), repeat=2):
                     for pool_policy in ac.POOL_POLICIES:
@@ -2567,52 +2572,54 @@ def test_a_stated_pool_width_is_the_width_the_cycle_reserves_by(monkeypatch):
     """The make-test child inherits this process's environment, so a width already set in PYTEST_XDIST_AUTO_NUM_WORKERS is the width its pool takes. The cycle reserves memory for that width, so the reservation matches the pool that runs."""
     monkeypatch.setenv("PYTEST_XDIST_AUTO_NUM_WORKERS", "9")
     assert ac.make_test_pool_width(ncores=1) == 9
-    assert ac.kernel_threads_budget(ncores=12, total_bytes=BOX_38_GB) == 3
+    assert ac.kernel_threads_budget(ncores=12, total_bytes=MACHINE_38_GB) == 3
     monkeypatch.setenv("PYTEST_XDIST_AUTO_NUM_WORKERS", "64")
-    assert ac.kernel_threads_budget(ncores=12, total_bytes=BOX_38_GB) == 1
+    assert ac.kernel_threads_budget(ncores=12, total_bytes=MACHINE_38_GB) == 1
 
 
-def test_kernel_threads_budget_takes_the_pytest_pool_off_the_box_first():
+def test_kernel_threads_budget_takes_the_pytest_pool_off_the_machine_first():
     """The kernel width subtracts the pytest pool along with default's retained memo before dividing. With the 6.3 GB per-delta bound and the 2.5 GB memo snapshot, a 36 GB machine fits four deltas alone, and subtracting the 0.6 GB pytest pool leaves room for three. At this boundary a missing reservation changes the answer."""
-    solo = ac.kernel_threads_budget(skip_make_test=True, ncores=8, total_bytes=BOX_36_GB)
-    beside = ac.kernel_threads_budget(ncores=8, total_bytes=BOX_36_GB)
+    solo = ac.kernel_threads_budget(skip_make_test=True, ncores=8, total_bytes=MACHINE_36_GB)
+    beside = ac.kernel_threads_budget(ncores=8, total_bytes=MACHINE_36_GB)
     assert (solo, beside) == (4, 3)
 
 
-def test_the_gated_arm_seats_what_the_solo_arm_seats_on_both_fleet_boxes(monkeypatch):
+def test_the_kernel_fits_as_many_deltas_with_the_test_gates_running_as_run_alone_on_both_fleet_machines(
+    monkeypatch,
+):
     """`kernel_exec.DELTA_PEAK_BYTES` and `DEFAULT_MEMO_BYTES` are chosen so that gate:make-test's pytest pool costs neither fleet machine a worker slot, and this test checks the gated widths, which only the cycle computes. On the eighteen-core 48 GiB machine the gated and skipped-gate widths are equal and cover every configuration after default, so the delta wave runs in one round. On the 32 GiB machine both widths are three. `AMS_KERNEL_THREADS` is cleared first, because an exported width would pass these assertions whatever the constants are."""
     from rebuild.pipeline.conform import SETTLEMENT_CONFIGS
 
     monkeypatch.delenv("AMS_KERNEL_THREADS", raising=False)
-    gated = ac.kernel_threads_budget(ncores=18, total_bytes=BOX_48_GIB)
+    gated = ac.kernel_threads_budget(ncores=18, total_bytes=MACHINE_48_GIB)
     assert gated >= len(SETTLEMENT_CONFIGS) - 1
-    assert ac.kernel_threads_budget(skip_make_test=True, ncores=18, total_bytes=BOX_48_GIB) == gated
-    assert ac.kernel_threads_budget(ncores=10, total_bytes=BOX_32_GIB) == 3
-    assert ac.kernel_threads_budget(skip_make_test=True, ncores=10, total_bytes=BOX_32_GIB) == 3
+    assert ac.kernel_threads_budget(skip_make_test=True, ncores=18, total_bytes=MACHINE_48_GIB) == gated
+    assert ac.kernel_threads_budget(ncores=10, total_bytes=MACHINE_32_GIB) == 3
+    assert ac.kernel_threads_budget(skip_make_test=True, ncores=10, total_bytes=MACHINE_32_GIB) == 3
 
 
-def test_replay_threads_budget_takes_the_pytest_pool_off_the_box_first():
+def test_replay_threads_budget_takes_the_pytest_pool_off_the_machine_first():
     """The replay width subtracts gate:make-test's pool before dividing, as the kernel width does. So the gated width is never wider than the skipped-gate width, and where the cap does not bind, the pool is what separates them. Both are capped at the configuration count and the cores."""
     from rebuild.pipeline.conform import SETTLEMENT_CONFIGS
     from rebuild.pipeline.kernel_exec import REPLAY_PEAK_BYTES
 
-    solo = ac.replay_threads_budget(skip_make_test=True, ncores=8, total_bytes=BOX_36_GB)
-    beside = ac.replay_threads_budget(ncores=8, total_bytes=BOX_36_GB)
+    solo = ac.replay_threads_budget(skip_make_test=True, ncores=8, total_bytes=MACHINE_36_GB)
+    beside = ac.replay_threads_budget(ncores=8, total_bytes=MACHINE_36_GB)
     assert 1 <= beside <= solo <= len(SETTLEMENT_CONFIGS)
-    assert ac.replay_threads_budget(ncores=2, total_bytes=BOX_44_GB) == 2
-    narrow_box = 8_000_000_000 + 3 * REPLAY_PEAK_BYTES + 300_000_000
-    assert ac.replay_threads_budget(skip_make_test=True, ncores=8, total_bytes=narrow_box) == 3
-    assert ac.replay_threads_budget(ncores=8, total_bytes=narrow_box) == 2
+    assert ac.replay_threads_budget(ncores=2, total_bytes=MACHINE_44_GB) == 2
+    narrow_machine = 8_000_000_000 + 3 * REPLAY_PEAK_BYTES + 300_000_000
+    assert ac.replay_threads_budget(skip_make_test=True, ncores=8, total_bytes=narrow_machine) == 3
+    assert ac.replay_threads_budget(ncores=8, total_bytes=narrow_machine) == 2
 
 
-def test_the_gated_arm_replays_every_configuration_in_one_wave_on_the_fleets_32_gib_box():
+def test_every_configuration_replays_in_one_wave_with_the_test_gates_running_on_the_fleets_32_gib_machine():
     """`REPLAY_PEAK_BYTES` is chosen so that every settlement configuration replays in one round even with gate:make-test's pytest pool subtracted. On the 32 GiB machine the gated and skipped-gate widths both equal the configuration count. This test checks the gated width, which only the cycle computes."""
     from rebuild.pipeline.conform import SETTLEMENT_CONFIGS
 
-    gated = ac.replay_threads_budget(ncores=10, total_bytes=BOX_32_GIB)
+    gated = ac.replay_threads_budget(ncores=10, total_bytes=MACHINE_32_GIB)
     assert gated == len(SETTLEMENT_CONFIGS)
-    assert ac.replay_threads_budget(skip_make_test=True, ncores=10, total_bytes=BOX_32_GIB) == gated
-    assert ac.replay_threads_derivation(ncores=10, total_bytes=BOX_32_GIB).endswith(f"capped at {gated}")
+    assert ac.replay_threads_budget(skip_make_test=True, ncores=10, total_bytes=MACHINE_32_GIB) == gated
+    assert ac.replay_threads_derivation(ncores=10, total_bytes=MACHINE_32_GIB).endswith(f"capped at {gated}")
 
 
 def test_replay_threads_budget_cuts_a_stated_width_only_to_the_cap(monkeypatch):
@@ -2620,9 +2627,9 @@ def test_replay_threads_budget_cuts_a_stated_width_only_to_the_cap(monkeypatch):
     from rebuild.pipeline.conform import SETTLEMENT_CONFIGS
 
     monkeypatch.setenv("AMS_REPLAY_THREADS", "2")
-    assert ac.replay_threads_budget(ncores=8, total_bytes=BOX_44_GB) == 2
+    assert ac.replay_threads_budget(ncores=8, total_bytes=MACHINE_44_GB) == 2
     monkeypatch.setenv("AMS_REPLAY_THREADS", "99")
-    assert ac.replay_threads_budget(ncores=8, total_bytes=BOX_44_GB) == len(SETTLEMENT_CONFIGS)
+    assert ac.replay_threads_budget(ncores=8, total_bytes=MACHINE_44_GB) == len(SETTLEMENT_CONFIGS)
 
 
 def test_the_replay_plan_line_explains_the_width_it_prints_on_every_route(monkeypatch):
@@ -2631,26 +2638,26 @@ def test_the_replay_plan_line_explains_the_width_it_prints_on_every_route(monkey
     from rebuild.pipeline.kernel_exec import REPLAY_PEAK_BYTES
 
     count = len(SETTLEMENT_CONFIGS)
-    derived = ac.replay_threads_derivation(ncores=10, total_bytes=BOX_32_GIB)
+    derived = ac.replay_threads_derivation(ncores=10, total_bytes=MACHINE_32_GIB)
     assert derived.startswith(f"every settlement configuration in one wave; {count} at ")
     assert "AMS_REPLAY_THREADS" not in derived
-    narrow_box = 8_000_000_000 + 3 * REPLAY_PEAK_BYTES + 300_000_000
-    narrow = ac.replay_threads_derivation(skip_make_test=True, ncores=8, total_bytes=narrow_box)
+    narrow_machine = 8_000_000_000 + 3 * REPLAY_PEAK_BYTES + 300_000_000
+    narrow = ac.replay_threads_derivation(skip_make_test=True, ncores=8, total_bytes=narrow_machine)
     assert narrow.startswith(f"2 waves over {count} settlement configurations; 3 at ")
     monkeypatch.setenv("AMS_REPLAY_THREADS", "2")
-    stated = ac.replay_threads_derivation(ncores=10, total_bytes=BOX_32_GIB)
+    stated = ac.replay_threads_derivation(ncores=10, total_bytes=MACHINE_32_GIB)
     assert stated == f"3 waves over {count} settlement configurations; AMS_REPLAY_THREADS states 2"
     assert " at " not in stated
-    text = _plan_text(_plan(ncores=10, total_bytes=BOX_32_GIB))
+    text = _plan_text(_plan(ncores=10, total_bytes=MACHINE_32_GIB))
     assert f"run_m1 --replay-threads          : 2  (the string replay's own ceiling, {stated})" in text
     monkeypatch.setenv("AMS_REPLAY_THREADS", "99")
     assert (
-        ac.replay_threads_derivation(ncores=10, total_bytes=BOX_32_GIB)
+        ac.replay_threads_derivation(ncores=10, total_bytes=MACHINE_32_GIB)
         == f"every settlement configuration in one wave; AMS_REPLAY_THREADS states 99, cut to the cap of {count}"
     )
     monkeypatch.setenv("AMS_REPLAY_THREADS", "0")
     assert (
-        ac.replay_threads_derivation(ncores=10, total_bytes=BOX_32_GIB)
+        ac.replay_threads_derivation(ncores=10, total_bytes=MACHINE_32_GIB)
         == f"{count} waves over {count} settlement configurations; AMS_REPLAY_THREADS states 0, floored at one"
     )
 
@@ -2658,8 +2665,8 @@ def test_the_replay_plan_line_explains_the_width_it_prints_on_every_route(monkey
 def test_kernel_threads_budget_never_narrows_a_stated_kernel_width(monkeypatch):
     """`AMS_KERNEL_THREADS` is set to keep a build out of swap, so it overrides every derivation here, including the pytest pool reservation. The budget still caps it at the configuration count and the cores, as `run_m1._table_build_threads` does, so a stated width at or below that cap passes through unchanged."""
     monkeypatch.setenv("AMS_KERNEL_THREADS", "5")
-    assert ac.kernel_threads_budget(ncores=8, total_bytes=BOX_44_GB) == 5
-    assert ac.kernel_threads_budget(skip_make_test=True, ncores=8, total_bytes=BOX_44_GB) == 5
+    assert ac.kernel_threads_budget(ncores=8, total_bytes=MACHINE_44_GB) == 5
+    assert ac.kernel_threads_budget(skip_make_test=True, ncores=8, total_bytes=MACHINE_44_GB) == 5
 
 
 def test_kernel_threads_budget_holds_its_answer_at_the_configuration_count_and_the_cores(monkeypatch):
@@ -2668,30 +2675,30 @@ def test_kernel_threads_budget_holds_its_answer_at_the_configuration_count_and_t
     from rebuild.pipeline.kernel_exec import kernel_threads_default
 
     count = len(SETTLEMENT_CONFIGS)
-    assert kernel_threads_default(total_bytes=BOX_48_GIB) > count
-    assert ac.kernel_threads_budget(ncores=18, total_bytes=BOX_48_GIB) == count
-    assert ac.kernel_threads_budget(skip_make_test=True, ncores=12, total_bytes=BOX_48_GIB) == count
-    assert ac.kernel_threads_budget(ncores=2, total_bytes=BOX_48_GIB) == 2
-    plan = _plan(ncores=18, total_bytes=BOX_48_GIB)
+    assert kernel_threads_default(total_bytes=MACHINE_48_GIB) > count
+    assert ac.kernel_threads_budget(ncores=18, total_bytes=MACHINE_48_GIB) == count
+    assert ac.kernel_threads_budget(skip_make_test=True, ncores=12, total_bytes=MACHINE_48_GIB) == count
+    assert ac.kernel_threads_budget(ncores=2, total_bytes=MACHINE_48_GIB) == 2
+    plan = _plan(ncores=18, total_bytes=MACHINE_48_GIB)
     assert plan.kernel_threads == count
     assert (
         f"run_m1 --kernel-threads          : {count}  (the table build's memory ceiling, less gate:make-test's {plan.make_test_workers} workers, capped at the configuration count and the cores)"
         in _plan_text(plan)
     )
     monkeypatch.setenv("AMS_KERNEL_THREADS", "99")
-    assert ac.kernel_threads_budget(ncores=18, total_bytes=BOX_48_GIB) == count
+    assert ac.kernel_threads_budget(ncores=18, total_bytes=MACHINE_48_GIB) == count
 
 
 def test_a_plan_reserves_for_the_pytest_pool_only_when_that_gate_runs():
     """The plan subtracts the pytest pool only when gate:make-test runs. When the gate is auto-skipped or `--skip-gates` is given, no pool runs, so the kernel width gets that memory back."""
-    assert _plan(ncores=8, total_bytes=BOX_36_GB).kernel_threads == 3
+    assert _plan(ncores=8, total_bytes=MACHINE_36_GB).kernel_threads == 3
     assert (
         _plan(
-            ncores=8, total_bytes=BOX_36_GB, skip_make_test=True, make_test_note="closure unchanged"
+            ncores=8, total_bytes=MACHINE_36_GB, skip_make_test=True, make_test_note="closure unchanged"
         ).kernel_threads
         == 4
     )
-    assert _plan(ncores=8, total_bytes=BOX_36_GB, skip_gates=True).kernel_threads == 4
+    assert _plan(ncores=8, total_bytes=MACHINE_36_GB, skip_gates=True).kernel_threads == 4
 
 
 def test_dry_run_renders_concurrency():
@@ -2703,7 +2710,7 @@ def test_dry_run_renders_concurrency():
         first_run=False,
         short_id="abc1234",
         ncores=12,
-        total_bytes=BOX_44_GB,
+        total_bytes=MACHINE_44_GB,
     )
     text = _plan_text(plan)
     assert "pool policy: queue" in text
@@ -2720,19 +2727,19 @@ def test_dry_run_renders_concurrency():
     )
     assert "QUEUED behind gate:conform (queue policy — one heavy pool at a time)" in text
     assert f"run_m1 sweeps --jobs             : {plan.sweep_jobs}" in text
-    assert plan.sweep_jobs == ac.sweep_job_budget(12, total_bytes=BOX_44_GB)
+    assert plan.sweep_jobs == ac.sweep_job_budget(12, total_bytes=MACHINE_44_GB)
     assert "run_m1 --kernel-threads          : " in text
     assert (
         f"run_m1 --replay-threads          : {plan.replay_threads}  (the string replay's own ceiling" in text
     )
-    assert plan.replay_threads == ac.replay_threads_budget(ncores=12, total_bytes=BOX_44_GB)
-    assert ac.replay_threads_derivation(ncores=12, total_bytes=BOX_44_GB) in text
+    assert plan.replay_threads == ac.replay_threads_budget(ncores=12, total_bytes=MACHINE_44_GB)
+    assert ac.replay_threads_derivation(ncores=12, total_bytes=MACHINE_44_GB) in text
     auto_skipped = _plan_text(_plan(skip_conform=True, conform_note=ac.CONFORM_SKIP_NOTE))
     assert f"Lane conform                     : SKIPPED ({ac.CONFORM_SKIP_NOTE})" in auto_skipped
     assert "Lane conform                     : SKIPPED (--skip-conform)" in _plan_text(
         _plan(skip_conform=True)
     )
-    corpus_width = ac.corpus_job_budget(skip_gates=False, ncores=12, total_bytes=BOX_44_GB)
+    corpus_width = ac.corpus_job_budget(skip_gates=False, ncores=12, total_bytes=MACHINE_44_GB)
     assert f"corpus-build --jobs              : {corpus_width}" in text
     _per_unit, coresident, _cap = ac._corpus_fit_terms(skip_gates=False, skip_make_test=False, ncores=12)
     assert f"less {format_gb(coresident)} GB co-resident" in text
@@ -2752,11 +2759,11 @@ def test_dry_run_skip_gates_appends_jobs_budgets():
         first_run=False,
         short_id="abc1234",
         ncores=12,
-        total_bytes=BOX_44_GB,
+        total_bytes=MACHINE_44_GB,
     )
     by_name = {step.name: step for step in plan.steps}
-    solo_width = ac.corpus_job_budget(skip_gates=True, ncores=12, total_bytes=BOX_44_GB)
-    assert plan.sweep_jobs == ac.sweep_job_budget(12, total_bytes=BOX_44_GB)
+    solo_width = ac.corpus_job_budget(skip_gates=True, ncores=12, total_bytes=MACHINE_44_GB)
+    assert plan.sweep_jobs == ac.sweep_job_budget(12, total_bytes=MACHINE_44_GB)
     assert _argv(by_name["run_m1"])[5:7] == ["--jobs", str(plan.sweep_jobs)]
     assert _argv(by_name["corpus-build"])[-4:-2] == ["--jobs", str(solo_width)]
     assert f"run_m1 sweeps --jobs {plan.sweep_jobs}" in _plan_text(plan)
@@ -2770,10 +2777,10 @@ def test_dry_run_skip_gates_appends_jobs_budgets():
         first_run=False,
         short_id="abc1234",
         ncores=12,
-        total_bytes=BOX_44_GB,
+        total_bytes=MACHINE_44_GB,
     )
     default_by_name = {step.name: step for step in default_plan.steps}
-    gated_width = ac.corpus_job_budget(skip_gates=False, ncores=12, total_bytes=BOX_44_GB)
+    gated_width = ac.corpus_job_budget(skip_gates=False, ncores=12, total_bytes=MACHINE_44_GB)
     assert _argv(default_by_name["run_m1"])[5:7] == ["--jobs", str(default_plan.sweep_jobs)]
     assert default_plan.sweep_jobs == plan.sweep_jobs
     assert _argv(default_by_name["corpus-build"])[-4:-2] == ["--jobs", str(gated_width)]
@@ -3444,10 +3451,10 @@ def test_the_plan_reserves_make_tests_pool_exactly_when_the_wrapper_runs_it(
 
 def test_the_signature_pool_takes_the_cores_the_corpus_width_cannot():
     """The ink-signature width is the one fan-out in the plan that memory does not derive: a signature worker holds one comparator, and no `*_BYTES` constant covers it. On a ten-core machine the gated width is the cores less gate:make-test's two, and the skipped-gate width is all ten. It is never below the corpus width, which memory derives and `CORPUS_JOBS_CAP` caps. On a machine with a quarter of the memory, the reserve and the parent's co-resident memory exceed the total, so the corpus width floors at one while the signature width stays at eight. With gate:make-test skipped the signature width is ten, above `CORPUS_JOBS_CAP`, because that cap applies only to the corpus build's unit workers. The argv passes the width after `--jobs`, and the plan shows it on its own row with its derivation."""
-    gated = _plan(skip_make_test=False, ncores=10, total_bytes=BOX_32_GIB)
+    gated = _plan(skip_make_test=False, ncores=10, total_bytes=MACHINE_32_GIB)
     assert gated.signature_jobs == ac.signature_job_budget(skip_gates=False, ncores=10) == 8
     assert gated.signature_jobs >= gated.corpus_jobs == ac.CORPUS_JOBS_CAP
-    narrow = _plan(skip_make_test=False, ncores=10, total_bytes=BOX_32_GIB // 4)
+    narrow = _plan(skip_make_test=False, ncores=10, total_bytes=MACHINE_32_GIB // 4)
     assert narrow.signature_jobs == 8 > narrow.corpus_jobs == 1
     gated_by_name = {step.name: step for step in gated.steps}
     assert _argv(gated_by_name["corpus-build"])[-4:] == [
@@ -3460,7 +3467,9 @@ def test_the_signature_pool_takes_the_cores_the_corpus_width_cannot():
     assert "    corpus-build --signature-jobs    : 8  (" in rendered
     assert "8 of 10 cores, less gate:make-test's two" in rendered
 
-    solo = _plan(skip_make_test=True, make_test_note="closure unchanged", ncores=10, total_bytes=BOX_32_GIB)
+    solo = _plan(
+        skip_make_test=True, make_test_note="closure unchanged", ncores=10, total_bytes=MACHINE_32_GIB
+    )
     assert (
         solo.signature_jobs == ac.signature_job_budget(skip_gates=False, skip_make_test=True, ncores=10) == 10
     )
@@ -3468,7 +3477,7 @@ def test_the_signature_pool_takes_the_cores_the_corpus_width_cannot():
     assert _argv({step.name: step for step in solo.steps}["corpus-build"])[-2:] == ["--signature-jobs", "10"]
     assert "10 of 10 cores, the whole machine" in _plan_text(solo)
 
-    skipped = _plan(skip_gates=True, ncores=10, total_bytes=BOX_32_GIB)
+    skipped = _plan(skip_gates=True, ncores=10, total_bytes=MACHINE_32_GIB)
     assert skipped.signature_jobs == 10
     assert "corpus-build --signature-jobs 10 (" in _plan_text(skipped)
 
@@ -3478,49 +3487,54 @@ def test_the_signature_pool_takes_the_cores_the_corpus_width_cannot():
 
 def test_the_contracts_pool_is_the_cores_the_corpus_build_leaves():
     """The rebuild suite's width under a cycle is the second fan-out that memory does not derive. It runs beside the corpus build, so it gets the cores less the build's parent and its `corpus_job_budget` workers. Under the overlap policy it also loses gate:make-test's pool. Under the queue policy the suite waits until that pool finishes, so nothing is subtracted for it. With no corpus build it gets every core, and it never drops below one. Widths that depend on the corpus constants are computed from the budget functions, so re-measuring those constants does not require editing this test."""
-    corpus = ac.corpus_job_budget(skip_gates=False, ncores=10, total_bytes=BOX_32_GIB)
-    queue = ac.contracts_pool_width(skip_gates=False, ncores=10, total_bytes=BOX_32_GIB)
+    corpus = ac.corpus_job_budget(skip_gates=False, ncores=10, total_bytes=MACHINE_32_GIB)
+    queue = ac.contracts_pool_width(skip_gates=False, ncores=10, total_bytes=MACHINE_32_GIB)
     assert queue == 10 - 1 - corpus >= 1
     assert f"{queue} of 10 cores, less the corpus build's parent and its {corpus} workers" == (
-        ac.contracts_pool_derivation(skip_gates=False, ncores=10, total_bytes=BOX_32_GIB)
+        ac.contracts_pool_derivation(skip_gates=False, ncores=10, total_bytes=MACHINE_32_GIB)
     )
 
     overlap = ac.contracts_pool_width(
-        skip_gates=False, pool_policy="overlap", ncores=10, total_bytes=BOX_32_GIB
+        skip_gates=False, pool_policy="overlap", ncores=10, total_bytes=MACHINE_32_GIB
     )
     assert overlap == max(1, queue - ac.make_test_pool_width(ncores=10))
     assert (
         f"less gate:make-test's {ac.make_test_pool_width(ncores=10)} (overlap policy)"
         in ac.contracts_pool_derivation(
-            skip_gates=False, pool_policy="overlap", ncores=10, total_bytes=BOX_32_GIB
+            skip_gates=False, pool_policy="overlap", ncores=10, total_bytes=MACHINE_32_GIB
         )
     )
 
-    solo = ac.contracts_pool_width(skip_gates=False, skip_make_test=True, ncores=10, total_bytes=BOX_32_GIB)
+    solo = ac.contracts_pool_width(
+        skip_gates=False, skip_make_test=True, ncores=10, total_bytes=MACHINE_32_GIB
+    )
     assert solo == 10 - 1 - ac.corpus_job_budget(
-        skip_gates=False, skip_make_test=True, ncores=10, total_bytes=BOX_32_GIB
+        skip_gates=False, skip_make_test=True, ncores=10, total_bytes=MACHINE_32_GIB
     )
 
     assert (
-        ac.contracts_pool_width(skip_gates=False, skip_corpus=True, ncores=10, total_bytes=BOX_32_GIB) == 10
+        ac.contracts_pool_width(skip_gates=False, skip_corpus=True, ncores=10, total_bytes=MACHINE_32_GIB)
+        == 10
     )
     assert (
-        ac.contracts_pool_derivation(skip_gates=False, skip_corpus=True, ncores=10, total_bytes=BOX_32_GIB)
+        ac.contracts_pool_derivation(
+            skip_gates=False, skip_corpus=True, ncores=10, total_bytes=MACHINE_32_GIB
+        )
         == "10 of 10 cores, the whole machine (no corpus build to share it with)"
     )
     solo_overlap = ac.contracts_pool_width(
-        skip_gates=False, skip_corpus=True, pool_policy="overlap", ncores=10, total_bytes=BOX_32_GIB
+        skip_gates=False, skip_corpus=True, pool_policy="overlap", ncores=10, total_bytes=MACHINE_32_GIB
     )
     assert solo_overlap == 10 - ac.make_test_pool_width(ncores=10)
     assert ac.contracts_pool_derivation(
-        skip_gates=False, skip_corpus=True, pool_policy="overlap", ncores=10, total_bytes=BOX_32_GIB
+        skip_gates=False, skip_corpus=True, pool_policy="overlap", ncores=10, total_bytes=MACHINE_32_GIB
     ) == (
         f"{solo_overlap} of 10 cores, the machine (no corpus build to share it with), "
         f"less gate:make-test's {ac.make_test_pool_width(ncores=10)} (overlap policy)"
     )
 
-    assert ac.contracts_pool_width(skip_gates=False, ncores=2, total_bytes=BOX_32_GIB) == 1
-    assert ac.contracts_pool_derivation(skip_gates=False, ncores=2, total_bytes=BOX_32_GIB).endswith(
+    assert ac.contracts_pool_width(skip_gates=False, ncores=2, total_bytes=MACHINE_32_GIB) == 1
+    assert ac.contracts_pool_derivation(skip_gates=False, ncores=2, total_bytes=MACHINE_32_GIB).endswith(
         "floored at one"
     )
 
@@ -3528,18 +3542,18 @@ def test_the_contracts_pool_is_the_cores_the_corpus_build_leaves():
 def test_a_stated_contracts_width_is_the_width_the_cycle_hands_the_child(monkeypatch):
     """The rebuild suite's child inherits this process's environment, as gate:make-test's does, so a width already set in PYTEST_XDIST_AUTO_NUM_WORKERS is the width that pool takes. The plan reports that width instead of printing arithmetic the pool would ignore."""
     monkeypatch.setenv("PYTEST_XDIST_AUTO_NUM_WORKERS", "9")
-    assert ac.contracts_pool_width(skip_gates=False, ncores=2, total_bytes=BOX_32_GIB) == 9
+    assert ac.contracts_pool_width(skip_gates=False, ncores=2, total_bytes=MACHINE_32_GIB) == 9
     assert (
-        ac.contracts_pool_derivation(skip_gates=False, ncores=2, total_bytes=BOX_32_GIB)
+        ac.contracts_pool_derivation(skip_gates=False, ncores=2, total_bytes=MACHINE_32_GIB)
         == "PYTEST_XDIST_AUTO_NUM_WORKERS states 9"
     )
-    plan = _plan(ncores=2, total_bytes=BOX_32_GIB)
+    plan = _plan(ncores=2, total_bytes=MACHINE_32_GIB)
     assert plan.contracts_workers == 9
 
 
 def test_the_plan_states_the_contracts_pool_width_on_its_lane_line():
     """The lane line shows the suite's width and its derivation, and the build lane line shows the suite submitted before the corpus build. On a ten-core machine beside a corpus build at `CORPUS_JOBS_CAP` workers, the suite gets one worker under either policy. On a twelve-core machine the overlap policy reaches one worker from the arithmetic alone, without the floor, which is narrower than the queue policy's width, and the plan prints it. When the corpus build is skipped, the plan says the suite is submitted once the run_m1 gate passes, not that it runs beside a build the plan shows as SKIPPED."""
-    gated = _plan(ncores=10, total_bytes=BOX_32_GIB)
+    gated = _plan(ncores=10, total_bytes=MACHINE_32_GIB)
     text = _plan_text(gated)
     assert (
         "Lane build[serial, main thread]  : run_m1 -> submit gate:rebuild-contracts -> corpus-build -> verdict-update -> review-facts"
@@ -3550,23 +3564,23 @@ def test_the_plan_states_the_contracts_pool_width_on_its_lane_line():
         in text
     )
     assert gated.contracts_workers == ac.contracts_pool_width(
-        skip_gates=False, ncores=10, total_bytes=BOX_32_GIB
+        skip_gates=False, ncores=10, total_bytes=MACHINE_32_GIB
     )
     assert {step.name: step for step in gated.steps}["gate:rebuild-contracts"].note == (
         "submitted beside the corpus build"
     )
 
-    overlap = _plan(pool_policy="overlap", ncores=10, total_bytes=BOX_32_GIB)
+    overlap = _plan(pool_policy="overlap", ncores=10, total_bytes=MACHINE_32_GIB)
     assert overlap.contracts_workers == gated.contracts_workers == 1
     assert f"-n {overlap.contracts_workers} (" in _plan_text(overlap)
     assert "CO-RESIDENT with the other pools (overlap policy)" in _plan_text(overlap)
-    roomy = _plan(ncores=12, total_bytes=BOX_48_GIB)
-    roomy_overlap = _plan(pool_policy="overlap", ncores=12, total_bytes=BOX_48_GIB)
+    roomy = _plan(ncores=12, total_bytes=MACHINE_48_GIB)
+    roomy_overlap = _plan(pool_policy="overlap", ncores=12, total_bytes=MACHINE_48_GIB)
     assert roomy_overlap.contracts_workers == 1 < roomy.contracts_workers
     assert "floored" not in roomy_overlap.contracts_reason
     assert f"-n {roomy_overlap.contracts_workers} (" in _plan_text(roomy_overlap)
 
-    solo = _plan(skip_corpus=True, corpus_note="unchanged", ncores=10, total_bytes=BOX_32_GIB)
+    solo = _plan(skip_corpus=True, corpus_note="unchanged", ncores=10, total_bytes=MACHINE_32_GIB)
     solo_text = _plan_text(solo)
     assert solo.contracts_workers == 10
     assert (
@@ -3579,23 +3593,23 @@ def test_the_plan_states_the_contracts_pool_width_on_its_lane_line():
     )
 
     assert "Lane rebuild-contracts" not in _plan_text(
-        _plan(skip_gates=True, ncores=10, total_bytes=BOX_32_GIB)
+        _plan(skip_gates=True, ncores=10, total_bytes=MACHINE_32_GIB)
     )
 
 
 def test_skip_make_test_frees_the_corpus_build_budget():
-    """gate:make-test does not affect the oracle sweep width, but the corpus build gets cores and memory back when the pytest pool is not running. On the 48 GiB machine both cases reach `CORPUS_JOBS_CAP`, so the widths are equal; `test_the_pytest_pool_comes_off_the_box_before_the_division` checks that their terms differ. This test checks that the plan uses each case's own terms and that its reason line says which: the gated derivation includes the pool's memory in its co-resident amount, and the skipped-gate line says the build takes the whole machine. The widths are computed from the budget functions, so re-measuring either corpus constant does not require editing this test."""
+    """gate:make-test does not affect the oracle sweep width, but the corpus build gets cores and memory back when the pytest pool is not running. On the 48 GiB machine both cases reach `CORPUS_JOBS_CAP`, so the widths are equal; `test_the_pytest_pool_comes_off_the_machine_before_the_division` checks that their terms differ. This test checks that the plan uses each case's own terms and that its reason line says which: the gated derivation includes the pool's memory in its co-resident amount, and the skipped-gate line says the build takes the whole machine. The widths are computed from the budget functions, so re-measuring either corpus constant does not require editing this test."""
     plan = _plan(
         skip_make_test=True,
         make_test_note="closure unchanged since its last green run",
         ncores=10,
-        total_bytes=BOX_48_GIB,
+        total_bytes=MACHINE_48_GIB,
     )
     solo_width = ac.corpus_job_budget(
-        skip_gates=False, skip_make_test=True, ncores=10, total_bytes=BOX_48_GIB
+        skip_gates=False, skip_make_test=True, ncores=10, total_bytes=MACHINE_48_GIB
     )
     assert plan.corpus_jobs == solo_width
-    assert plan.sweep_jobs == ac.sweep_job_budget(10, total_bytes=BOX_48_GIB)
+    assert plan.sweep_jobs == ac.sweep_job_budget(10, total_bytes=MACHINE_48_GIB)
     by_name = {step.name: step for step in plan.steps}
     assert _argv(by_name["corpus-build"])[-4:-2] == ["--jobs", str(solo_width)]
     rendered = _plan_text(plan)
@@ -3603,10 +3617,10 @@ def test_skip_make_test_frees_the_corpus_build_budget():
     assert f"less {format_gb(ac.CORPUS_PARENT_BYTES)} GB co-resident" in rendered
     assert "gate:make-test skipped, so the corpus build takes the whole machine" in rendered
 
-    gated = _plan(skip_make_test=False, ncores=10, total_bytes=BOX_48_GIB)
-    gated_width = ac.corpus_job_budget(skip_gates=False, ncores=10, total_bytes=BOX_48_GIB)
+    gated = _plan(skip_make_test=False, ncores=10, total_bytes=MACHINE_48_GIB)
+    gated_width = ac.corpus_job_budget(skip_gates=False, ncores=10, total_bytes=MACHINE_48_GIB)
     assert gated.corpus_jobs == gated_width
-    assert gated.sweep_jobs == ac.sweep_job_budget(10, total_bytes=BOX_48_GIB)
+    assert gated.sweep_jobs == ac.sweep_job_budget(10, total_bytes=MACHINE_48_GIB)
     gated_by_name = {step.name: step for step in gated.steps}
     assert _argv(gated_by_name["corpus-build"])[-4:-2] == ["--jobs", str(gated_width)]
     _per_unit, gated_coresident, _cap = ac._corpus_fit_terms(
@@ -7338,7 +7352,7 @@ def test_do_run_m1_files_a_check_line_on_the_skip_path(monkeypatch, tmp_path):
     assert (report.unmatched, report.multi_matched) == (7, 0)
 
 
-def test_do_run_m1_files_a_red_when_no_summaries_landed(monkeypatch, tmp_path):
+def test_do_run_m1_records_a_red_when_no_summaries_were_written(monkeypatch, tmp_path):
     """A build that wrote no summaries is recorded red, with the same failure text the cycle's failure list uses (`_run_m1_reasons(None)`)."""
     monkeypatch.setattr(
         cycle_paths,

@@ -1070,7 +1070,7 @@ class TestConfigurationBlindness:
             _unlocked(stance, everything) != stance
             for rune in spec.runes.values()
             for stance in rune.stances.values()
-        ), "the fold has to move some stance for the pin to have teeth"
+        ), "the fold has to move some stance for the pin to be able to fail"
         for label, features in _configurations(spec).items():
             for class_name, expression in declared.items():
                 derived = {

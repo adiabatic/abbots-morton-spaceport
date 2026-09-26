@@ -931,7 +931,7 @@ test('availableBatches respects a class filter', () => {
   assert.deepEqual(availableBatches(manifest, 'nonexistent'), []);
 });
 
-test('classesInBatch names the classes with units in a batch, batchless classes riding with batch 0', () => {
+test('classesInBatch names the classes with units in a batch, batchless classes included with batch 0', () => {
   assert.deepEqual(
     [...classesInBatch(manifest, 0)].sort(),
     ['dangling-anchor-dropped', 'marker-staging-ligature-formation'],

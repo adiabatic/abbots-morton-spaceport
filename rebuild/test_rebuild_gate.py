@@ -150,7 +150,7 @@ def test_the_lane_names_its_pool_on_its_own_child(green_store, monkeypatch):
     assert spawned[0][1][rg.POOL_UNIT_ENV] == "rebuild-contracts"
 
 
-def test_pyright_rides_into_the_spawned_lane(green_store, monkeypatch):
+def test_pyright_is_passed_to_the_spawned_lane(green_store, monkeypatch):
     monkeypatch.setenv(rg.PYRIGHT_ENV, "1")
     _fingerprints(monkeypatch, ["c-1"] * 2)
     spawned = _suite_stub(monkeypatch, (0, ""))

@@ -139,7 +139,7 @@ class TestEmitGsub:
         settle_block = plan.fea_text.split("lookup m1_settle useExtension {")[1].split("} m1_settle;")[0]
         assert settle_block.count("subtable;") == 2  # qsIt | qsMay | qsTea.ss03
 
-    def test_provenance_comments_ride_along(self, spec, glyphs):
+    def test_provenance_comments_are_included(self, spec, glyphs):
         plan = emit_gsub.emit_gsub(spec, {frozenset(): FakeDecision(_rules(spec, glyphs))}, glyphs=glyphs)
         assert "# joint row | p2" in plan.fea_text
 
@@ -181,7 +181,7 @@ class TestEmitGsub:
         assert "@s_qsIt_la4_0 = [qsPea qsTea];" in plan.class_definitions
         assert four_slot_line.index("@s_qsIt_la3_0") < four_slot_line.index("@s_qsIt_la4_0")
 
-    def test_every_settlement_outcome_rides_a_named_lookup_defined_before_the_settle_lookup(
+    def test_every_settlement_outcome_is_emitted_in_a_named_lookup_defined_before_the_settle_lookup(
         self, spec, glyphs
     ):
         plan = emit_gsub.emit_gsub(spec, {frozenset(): FakeDecision(_rules(spec, glyphs))}, glyphs=glyphs)

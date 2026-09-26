@@ -70,7 +70,7 @@ class TestSemantics:
                 assert rune.codepoint in alphabet
 
 
-class TestTeeth:
+class TestTheGateCanFail:
     def test_contradicting_pin_fails(self, mini_bundle):
         """The gate must fail a pin the font contradicts. That needs a font and a spec that match each other, which the frozen mini bundle provides. The test checks two pins for ·Pea·Tea, a break (`·Pea | ·Tea`) and an x-height join (`·Pea ~x~ ·Tea`). They cannot both hold, so at least one must fail."""
         spec = enrich.load_spec(mini_bundle.spec_root)
@@ -93,6 +93,4 @@ class TestTeeth:
             manual_pins._check_pin(spec, shaper, classifier, pin, report)
             if report.disagreements:
                 return
-        pytest.fail(
-            "neither a break pin nor an x-height-join pin failed for ·Pea·Tea — the gate has no teeth"
-        )
+        pytest.fail("neither a break pin nor an x-height-join pin failed for ·Pea·Tea — the gate cannot fail")

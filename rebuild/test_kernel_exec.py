@@ -139,7 +139,7 @@ class TestTheInvocationInterface:
             )
         assert "make kernel-build" in str(complaint.value)
 
-    def test_a_box_without_cargo_names_the_remedy(self, monkeypatch):
+    def test_a_machine_without_cargo_names_the_remedy(self, monkeypatch):
         def absent(*arguments, **rest):
             raise FileNotFoundError("cargo")
 
@@ -218,7 +218,7 @@ class TestTheInvocationInterface:
         assert traced.value.bucket == "E-UNREACHABLE"
         assert str(traced.value) == message
 
-    def test_settled_only_rides_the_argv_settle_windows_builds_and_no_other(self, monkeypatch):
+    def test_settled_only_is_included_in_the_argv_settle_windows_builds_and_no_other(self, monkeypatch):
         """Only `settle_windows` passes `--settled-only` and gets the seven-field case result. `settle_cases` and `settle_sequences` get the full trace, because their callers need the ranking."""
         case = kernel_exec.case_line(LeftContext("edge"), RightToken("letter", "qsMay"), (EDGE,) * 4)
         record = {"cell": ["qsMay", "full", None, None, []], "seam": None, "extension": 0}
@@ -937,11 +937,11 @@ class TestTheMemoryDerivedThreadDefault:
     @pytest.mark.parametrize(
         "total, wanted", [(4_000_000_000, 1), (34_359_738_368, 3), (32_000_000_000, 3), (64_000_000_000, 8)]
     )
-    def test_the_width_follows_the_box_and_never_falls_below_one(self, total, wanted):
+    def test_the_width_follows_the_machine_and_never_falls_below_one(self, total, wanted):
         """A 32 GiB machine fits three deltas at `DELTA_PEAK_BYTES` (6.3 GB) beside `DEFAULT_MEMO_BYTES` (2.5 GB), 1.34 GB short of a fourth, and a decimal 32 GB machine also fits three. A machine too small for one delta gets one, and a 64 GB machine fits eight before the caller's configuration and core caps."""
         assert kernel_exec.kernel_threads_default(total_bytes=total) == wanted
 
-    def test_a_coresident_pool_comes_off_the_box_before_it_is_divided(self):
+    def test_a_coresident_pool_comes_off_the_machine_before_it_is_divided(self):
         """`coresident_bytes` is memory used by something running beside the fan-out, such as the artifact cycle's pytest pool. It is subtracted in addition to `DEFAULT_MEMO_BYTES`, so 10 GB costs the 64 GB machine two deltas. It defaults to zero because a bare run_m1 runs alone."""
         assert kernel_exec.kernel_threads_default(total_bytes=64_000_000_000) == 8
         assert (

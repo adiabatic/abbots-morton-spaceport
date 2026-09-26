@@ -148,7 +148,7 @@ def test_no_stamped_review_module_is_outside_the_builds_reach():
     )
 
 
-def test_every_pipeline_and_validation_module_the_build_reaches_rides_the_store_stamp():
+def test_every_pipeline_and_validation_module_the_build_reaches_is_included_in_the_store_stamp():
     reached = _reached_files_under(PIPELINE_DIR) | _reached_files_under(VALIDATION_DIR)
     assert (
         PIPELINE_DIR / "kernel_exec.py" in reached
@@ -304,7 +304,7 @@ def _verb_closure() -> set[Path]:
     return files
 
 
-def test_every_crate_module_the_settlement_verbs_reach_rides_the_store_stamp():
+def test_every_crate_module_the_settlement_verbs_reach_is_included_in_the_store_stamp():
     reached = _verb_closure()
     for name in ("cases.rs", "guard.rs", "engine.rs", "parse.rs"):
         assert KERNEL_SRC / name in reached, f"the crate walk never reached {name}; the verbs' handlers moved"
@@ -343,7 +343,7 @@ def test_the_sweep_the_row_cache_the_emitter_and_the_geometry_stay_outside_the_s
     assert "labels.py" in stamped
 
 
-def test_every_module_the_comparator_reaches_rides_the_signature_stamp():
+def test_every_module_the_comparator_reaches_is_included_in_the_signature_stamp():
     unstamped = _relative(_signature_reached() - _signature_stamped())
     assert unstamped == [], (
         "the ink comparator runs these modules but signature_code_paths does not hash them, so a cached "

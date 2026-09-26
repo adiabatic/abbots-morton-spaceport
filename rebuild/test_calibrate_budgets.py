@@ -94,7 +94,7 @@ def test_the_controllers_own_peak_is_never_one_of_the_workers_observations():
     assert [item.peak_bytes for item in observed] == [1_000_000]
 
 
-def test_a_corpus_pool_record_prices_the_worker_constant():
+def test_a_corpus_pool_record_calibrates_the_worker_constant():
     """The corpus build writes its own pool records under the unit `corpus`, and only the corpus-worker row reads them. The corpus-parent row reads the `corpus-build` step peak, so the two corpus rows never share an observation."""
     record = _pool("corpus", [6_000_000_000, 7_000_000_000])
     observed, _, _ = cb.observations(_unit("corpus-worker"), [record], {}, host=HOST, recent=20)
@@ -104,7 +104,7 @@ def test_a_corpus_pool_record_prices_the_worker_constant():
     assert parent == []
 
 
-def test_a_conform_belt_pool_record_lands_on_the_belt_row_only():
+def test_a_conform_belt_pool_record_goes_to_the_belt_row_only():
     """The belt and the oracle both fan out from run_m1 over the acceptance configurations, but a belt worker and an oracle range worker hold different data. Each row reads only its own pool's records, because a record read by the other row would misstate that row's peak."""
     belt = _pool("conform-belt", [390_000_000, 920_000_000])
     observed, _, _ = cb.observations(_unit("conform-belt"), [belt], {}, host=HOST, recent=20)
@@ -142,7 +142,7 @@ def test_the_belt_cap_reads_the_acceptance_configurations_the_pipeline_defines()
     assert cb._acceptance_config_count(cb.ROOT / cb.CONFORM_SOURCE) == len(conform.ACCEPTANCE_CONFIGS)
 
 
-def test_a_verdict_update_step_peak_prices_the_standing_fill_parent():
+def test_a_verdict_update_step_peak_calibrates_the_standing_fill_parent():
     """The verdict-update step peak is the max over the verdict update and any refill workers, and only the standing-fill-parent row reads it. The refill pool writes no pool record, so no worker row gets observations from it."""
     steps = {"r1": [_step("verdict-update", 9_000_000_000)]}
     observed, _, _ = cb.observations(_unit("standing-fill-parent"), [], steps, host=HOST, recent=20)
@@ -461,7 +461,7 @@ def test_the_unmeasured_lane_is_reported_and_never_checked(tmp_path, capsys):
     assert "40.00 GB" in out
 
 
-def test_a_signature_pool_record_lands_on_the_cores_bound_row(tmp_path, capsys):
+def test_a_signature_pool_record_goes_to_the_cores_bound_row(tmp_path, capsys):
     """The corpus build's signature pool writes records under the unit `signature`, and only the `signature-worker` row reads them. A signature worker holds only a comparator, so reading its peak as a corpus worker's would understate the corpus worker's peak. The row has no constant, so `--check` passes at any peak and the row only reports the figure."""
     assert _unit("signature-worker").constant is None
     readers = [unit.name for unit in cb.UNITS if "signature" in unit.pool_units]
@@ -497,7 +497,7 @@ def test_the_report_states_the_width_each_constant_implies_here(tmp_path, capsys
     assert "GB each out of" in out
 
 
-def test_the_width_clauses_answer_for_the_box_and_the_tree_they_are_given(tmp_path, capsys):
+def test_the_width_clauses_answer_for_the_machine_and_the_tree_they_are_given(tmp_path, capsys):
     """`render_rows` takes the machine's memory, its cores, and the source tree as arguments, so this test checks the width arithmetic against a stated machine and a fixture tree instead of the machine and checkout running the test."""
     tree = tmp_path / "tree"
     (tree / "rebuild" / "tools").mkdir(parents=True)
