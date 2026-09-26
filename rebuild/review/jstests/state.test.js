@@ -79,7 +79,7 @@ test('shedWorklist drops the units worklist, the docket cursor, and the docket v
   assert.equal(cleared.units, null, 'clear-filters sheds the worklist alongside the other filters');
   assert.equal(cleared.order, null, 'clear-filters sheds the worklist order alongside the worklist itself');
   assert.equal(cleared.docket, null, 'clear-filters sheds the docket cursor alongside the other filters');
-  assert.equal(cleared.stamp, null, 'clear-filters sheds the worklist surface stamp alongside the worklist it pins');
+  assert.equal(cleared.stamp, null, 'clear-filters sheds the worklist corpus stamp alongside the worklist it pins');
   assert.equal(cleared.view, null, 'clear-filters leaves the docket view too');
 });
 
@@ -90,7 +90,7 @@ test('shedWorklist keeps a cursor move or machine toggle inside the worklist, in
   assert.deepEqual(shedWorklist({}), {});
 });
 
-test('the surface stamp rides the hash beside a docket worklist and round-trips', () => {
+test('the corpus stamp rides the hash beside a docket worklist and round-trips', () => {
   const parsed = parseHash('#units=u-0001,u-0002&docket=1&stamp=2026-08-23T20%3A08%3A03Z');
   assert.equal(parsed.stamp, '2026-08-23T20:08:03Z');
   assert.equal(parseHash('#units=u-0001,u-0002&docket=1').stamp, null);

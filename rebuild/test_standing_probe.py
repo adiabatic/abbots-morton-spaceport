@@ -1,4 +1,4 @@
-"""Tests for rebuild/tools/standing_probe.py, the read-only tool used to write standing-approval rules. They check that every family and cell list prints in code-point order, the order the rules file is written in, so a survey can be pasted from directly, and that an `--extension-cells` header for a contraction names only the contraction it lists. They check that a verdicts file stamped for another manifest prints every verdict as UNKNOWN_VERDICT instead of BLANK, and that a surface with no font pair says which columns and which composed line are missing and why. They check that `--shapes` lists every entry of `standing_verdicts.SHAPES` with the opening words of its matcher's docstring, that a run whose unit ids all miss the surface prints the same list, and that a listing run such as `--extension-cells` does not. They check that `--find` is a substring match over notations that lists blanks first and is capped with the total stated. They check that a run with no daemon loads the daemon's projection of the human records, `standing_daemon.UNIT_FIELDS`, and builds no set of the surface's unit ids. They check that `--survey` groups every position under a before-glyph prefix by before form, after cell, left family, seam changes, and follower, each with a verdict tally and in code-point order, that it can narrow to one after cell, that it counts the windows it cannot place, and that it says when no window carries the glyph. They check that `--coverage` re-runs a rule's enumeration without the rule's named lists and prints, once, the followers, forms, and cells the rule does not name, for every shape except ligature and ink-delta, and that it says so when a rule's shape has no enumeration. They also check `_cell_glyph_name` against `cell_label` over the mini spec, and that the dropped and added pixels in a redrawn reading are never truncated. Every test uses a synthetic surface and rules file under tmp_path, or the frozen mini bundle, and reads no live build artifact."""
+"""Tests for rebuild/tools/standing_probe.py, the read-only tool used to write standing-approval rules. They check that every family and cell list prints in code-point order, the order the rules file is written in, so a survey can be pasted from directly, and that an `--extension-cells` header for a contraction names only the contraction it lists. They check that a verdicts file stamped for another manifest prints every verdict as UNKNOWN_VERDICT instead of BLANK, and that a corpus with no font pair says which columns and which composed line are missing and why. They check that `--shapes` lists every entry of `standing_verdicts.SHAPES` with the opening words of its matcher's docstring, that a run whose unit ids all miss the corpus prints the same list, and that a listing run such as `--extension-cells` does not. They check that `--find` is a substring match over notations that lists blanks first and is capped with the total stated. They check that a run with no daemon loads the daemon's projection of the human records, `standing_daemon.UNIT_FIELDS`, and builds no set of the corpus's unit ids. They check that `--survey` groups every position under a before-glyph prefix by before form, after cell, left family, seam changes, and follower, each with a verdict tally and in code-point order, that it can narrow to one after cell, that it counts the windows it cannot place, and that it says when no window carries the glyph. They check that `--coverage` re-runs a rule's enumeration without the rule's named lists and prints, once, the followers, forms, and cells the rule does not name, for every shape except ligature and ink-delta, and that it says so when a rule's shape has no enumeration. They also check `_cell_glyph_name` against `cell_label` over the mini spec, and that the dropped and added pixels in a redrawn reading are never truncated. Every test uses a synthetic corpus and rules file under tmp_path, or the frozen mini bundle, and reads no live build artifact."""
 
 import json
 
@@ -172,18 +172,18 @@ def window(uid, glyphs, cells, seams, after_seams, **kwargs):
     return unit(uid, glyphs, seams, cells, after_seams, codepoints=codepoints, **kwargs)
 
 
-def _surface(tmp_path, units):
-    surface = tmp_path / "review"
-    (surface / "units").mkdir(parents=True)
-    (surface / "manifest.json").write_text(
+def _corpus(tmp_path, units):
+    corpus = tmp_path / "review"
+    (corpus / "units").mkdir(parents=True)
+    (corpus / "manifest.json").write_text(
         json.dumps({"generated_at": STAMP, "classes": [{"id": "all", "shards": ["units/all.json"]}]})
     )
-    (surface / "units" / "all.json").write_text(json.dumps(units))
-    return surface
+    (corpus / "units" / "all.json").write_text(json.dumps(units))
+    return corpus
 
 
 def _run(tmp_path, capsys, units, argv, *, rules=(EXT_RULE,), records=(), stamp=STAMP):
-    surface = _surface(tmp_path, units)
+    corpus = _corpus(tmp_path, units)
     rules_path = tmp_path / "rules.yaml"
     rules_path.write_text(json.dumps({"format": sv.FORMAT, "rules": list(rules)}))
     verdicts_path = tmp_path / "verdicts.json"
@@ -199,8 +199,8 @@ def _run(tmp_path, capsys, units, argv, *, rules=(EXT_RULE,), records=(), stamp=
     probe.main(
         [
             *argv,
-            "--surface",
-            str(surface),
+            "--corpus",
+            str(corpus),
             "--rules",
             str(rules_path),
             "--verdicts",
@@ -320,7 +320,7 @@ def test_the_retarget_survey_orders_its_cells_the_same_way(tmp_path, capsys):
 
 
 def test_a_stale_verdicts_stamp_labels_every_verdict_it_invalidates(tmp_path, capsys):
-    """A verdicts file stamped for another manifest says nothing about this surface, so every verdict prints as UNKNOWN_VERDICT, and BLANK appears only in the warning."""
+    """A verdicts file stamped for another manifest says nothing about this corpus, so every verdict prints as UNKNOWN_VERDICT, and BLANK appears only in the warning."""
     units = [
         tea_window("u-1", "qsVie", "qsVie/normal/baseline/None/", deltas={"default": DELTA}),
         tea_window("u-2", "qsMay", "qsMay/loop/baseline/None/", deltas={"default": DELTA}),
@@ -366,7 +366,7 @@ def test_shapes_lists_every_row_of_the_shapes_table(capsys):
 def test_a_mistyped_unit_still_yields_the_shape_menu(tmp_path, capsys):
     units = [tea_window("u-1", "qsVie", "qsVie/normal/baseline/None/")]
     out = _run(tmp_path, capsys, units, ["u-nope"])
-    assert "u-nope: not a human unit on this surface" in out
+    assert "u-nope: not a human unit on this corpus" in out
     for name in sv.SHAPES:
         assert f"  {name}  — declared by" in out
 
@@ -443,7 +443,7 @@ def test_find_matches_the_notation_as_plain_text(tmp_path, capsys):
 
 
 def test_an_in_process_run_holds_the_daemons_projection_and_no_id_set(tmp_path, capsys, monkeypatch):
-    """With no daemon, the probe loads what the standing daemon holds: the human records projected onto `standing_daemon.UNIT_FIELDS`, with no set of every unit id on the surface built beside them."""
+    """With no daemon, the probe loads what the standing daemon holds: the human records projected onto `standing_daemon.UNIT_FIELDS`, with no set of every unit id on the corpus built beside them."""
     held = []
     id_sets = []
     human = probe._human
@@ -454,9 +454,9 @@ def test_an_in_process_run_holds_the_daemons_projection_and_no_id_set(tmp_path, 
         held.extend(records)
         return records
 
-    def streaming(surface, reader, unit_ids):
+    def streaming(corpus, reader, unit_ids):
         id_sets.append(unit_ids)
-        return stream(surface, reader, unit_ids)
+        return stream(corpus, reader, unit_ids)
 
     monkeypatch.setattr(probe, "_human", holding)
     monkeypatch.setattr(unit_index, "_stream_human_shards", streaming)

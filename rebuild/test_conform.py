@@ -988,7 +988,7 @@ class TestOracleAudit:
     def test_a_serial_oracle_that_dies_partway_leaves_the_audit_it_found_standing(
         self, monkeypatch, spec, tmp_path
     ):
-        """A truncated audit hashes differently instead of reading as stale, so the surface build would take it as a new, smaller, self-consistent audit. That is why `--jobs 1` writes through a staging copy and promotes it only after the last configuration, and why an oracle that fails on its second configuration must leave the previous file in place."""
+        """A truncated audit hashes differently instead of reading as stale, so the corpus build would take it as a new, smaller, self-consistent audit. That is why `--jobs 1` writes through a staging copy and promotes it only after the last configuration, and why an oracle that fails on its second configuration must leave the previous file in place."""
         standing = tmp_path / "divergence-audit.tsv"
         standing.write_bytes(b"the audit of the last green run\n")
         aliases = tmp_path / "aliases.yaml"

@@ -506,7 +506,7 @@ test('writeShownDecisions and readShownDecisions round-trip the rotation in the 
   assert.deepEqual([...restored], ['c-bbe6acfa', 'c-cdde37a0']);
 });
 
-test('readShownDecisions starts a fresh rotation on a rebuilt surface, unreadable storage, or nothing stored at all', () => {
+test('readShownDecisions starts a fresh rotation on a rebuilt corpus, unreadable storage, or nothing stored at all', () => {
   const stamp = '2026-09-12T00:52:00Z';
   const stored = writeShownDecisions(new Set(['c-bbe6acfa']), '2026-09-01T00:00:00Z');
   assert.deepEqual([...readShownDecisions(stored, stamp)], []);
@@ -516,14 +516,14 @@ test('readShownDecisions starts a fresh rotation on a rebuilt surface, unreadabl
   assert.deepEqual([...readShownDecisions(JSON.stringify({ stamp, keys: ['c-bbe6acfa', 7, null] }), stamp)], ['c-bbe6acfa']);
 });
 
-test('docketResumeAction restacks a worklist stamped for another surface, stampless hashes included, before trusting any of its ids', () => {
+test('docketResumeAction restacks a worklist stamped for another corpus, stampless hashes included, before trusting any of its ids', () => {
   const records = { 'u-0001': { unit: 'u-0001', verdict: 'approve', note: '', at: '2026-01-01' } };
   const recordOf = (id) => records[id];
   assert.equal(docketResumeAction({ stamp: '2026-01-01T00:00:00Z', manifestStamp: '2026-01-02T00:00:00Z', unitIds: ['u-0001', 'u-0002'], recordOf }), 'restack');
   assert.equal(docketResumeAction({ stamp: null, manifestStamp: '2026-01-02T00:00:00Z', unitIds: ['u-0001', 'u-0002'], recordOf }), 'restack');
 });
 
-test('docketResumeAction advances a current-surface worklist whose every listed unit carries a real verdict', () => {
+test('docketResumeAction advances a current-corpus worklist whose every listed unit carries a real verdict', () => {
   const records = {
     'u-0001': { unit: 'u-0001', verdict: 'approve', note: '', at: '2026-01-01' },
     'u-0002': { unit: 'u-0002', verdict: 'reject', note: 'worse', at: '2026-01-01' },
@@ -534,7 +534,7 @@ test('docketResumeAction advances a current-surface worklist whose every listed 
   assert.equal(docketResumeAction({ stamp, manifestStamp: stamp, unitIds: [], recordOf }), 'advance');
 });
 
-test('docketResumeAction renders a current-surface worklist holding a blank or a skip — clicking a skipped-through cluster card must re-show the deferred reps, never teleport', () => {
+test('docketResumeAction renders a current-corpus worklist holding a blank or a skip — clicking a skipped-through cluster card must re-show the deferred reps, never teleport', () => {
   const records = {
     'u-0001': { unit: 'u-0001', verdict: 'approve', note: '', at: '2026-01-01' },
     'u-0003': { unit: 'u-0003', verdict: 'skip', note: '', at: '2026-01-01' },

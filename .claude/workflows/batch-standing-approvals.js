@@ -1,10 +1,10 @@
 export const meta = {
   name: 'batch-standing-approvals',
-  description: 'Turn a docket of approved review-surface units into standing-approval rules, commit one commit per phenomenon on the current branch, then launch the detached gate-and-cycle chain',
+  description: 'Turn a docket of approved review-corpus units into standing-approval rules, commit one commit per phenomenon on the current branch, then launch the detached gate-and-cycle chain',
   whenToUse: 'The batch form of the dont-bug-me-about-this-ever-again skill. args: the unit ids, as an array, a whitespace-separated string, or {units: [...]}. Running it is the go-ahead for the per-phenomenon commits.',
   phases: [
     { title: 'Cluster', detail: 'a clean-tree check, then one probe over every unit, the distinct changes clustered by phenomenon and balanced by work' },
-    { title: 'Analyze', detail: 'one read-only analyst per cluster, at most three holding a surface at once, each rule proven on a scratch rules copy', model: 'opus' },
+    { title: 'Analyze', detail: 'one read-only analyst per cluster, at most three holding a corpus at once, each rule proven on a scratch rules copy', model: 'opus' },
     { title: 'Land', detail: 'one lander, serial, in dependency order: paste, one whole-domain dry run, one targeted test run, one commit per phenomenon' },
     { title: 'Verify', detail: 'one dry run over the live rules and one probe over the whole input list' },
     { title: 'Launch', detail: 'the detached make test-rebuild && make review-cycle SERVE=bg chain, only on a clean tree with commits behind it' },
@@ -18,14 +18,14 @@ if (!UNITS.length) return { error: 'batch-standing-approvals takes unit ids as a
 log(`${UNITS.length} unit ids`)
 
 const SCRATCH = 'tmp/standing-wf'
-const SURFACE_HOLDERS = 3
+const CORPUS_HOLDERS = 3
 const SKILL = '.claude/skills/dont-bug-me-about-this-ever-again/SKILL.md'
 const TARGETED_TESTS = 'uv run pytest rebuild/test_standing_verdicts.py rebuild/test_standing_probe.py --lane contracts -n auto --dist worksteal'
 const CHAIN = 'nohup caffeinate -i sh -c \'make test-rebuild && make review-cycle SERVE=bg; echo "rc=$?"\' > tmp/cycle-pass.log 2>&1 &'
 
 const COMMON = `You work in the git repository at your working directory (its CLAUDE.md names Abbots Morton Spaceport). Read, in this order, before anything else: CLAUDE.md, and obey it in full; ${SKILL} in full, including its Batches section, which is the procedure you are one stage of; the module docstring at the top of rebuild/tools/standing_verdicts.py, the authority on every rule shape and on the composed reading (never restate its contracts anywhere); doc/parallelism.md and doc/running-long-steps.md; and skim rebuild/standing-approvals.yaml for the file's idiom (ids, the agent-written note: voice, match blocks, cell lists, except_left).
 
-Surface loads: every standing_probe.py call except a bare --shapes, and every standing_verdicts.py run, loads the review surface; the skill's Concurrency bullet says what that costs and why the cap is procedure. You run at most one surface-loading process at a time, and other agents may be holding one beside you. Batch every unit id and flag you already have into one call. Give each such Bash call a timeout of 600000 ms and redirect its output to a file under ${SCRATCH}/ (the project's tmp/, which is gitignored; never /tmp), then read that file with grep or sed, never whole.
+Corpus loads: every standing_probe.py call except a bare --shapes, and every standing_verdicts.py run, loads the review corpus; the skill's Concurrency bullet says what that costs and why the cap is procedure. You run at most one corpus-loading process at a time, and other agents may be holding one beside you. Batch every unit id and flag you already have into one call. Give each such Bash call a timeout of 600000 ms and redirect its output to a file under ${SCRATCH}/ (the project's tmp/, which is gitignored; never /tmp), then read that file with grep or sed, never whole.
 
 Never run make test, make test-rebuild, make review-cycle, make artifact-cycle, make kernel-gate, make conform-deep or rebuild_gate: this workflow's last step launches the gate-and-cycle chain once, after every commit. Never start or stop the review server. Nothing but this workflow's lander commits; git status, git diff, git log and git show are yours. Never edit rebuild/review-census-pins.json.
 
@@ -163,13 +163,13 @@ const LAUNCH_SCHEMA = {
 phase('Cluster')
 const clusters = await agent(`${COMMON}
 
-You are the clustering agent, read-only against the tree: edit no tracked file, commit nothing, write only under ${SCRATCH}/. Start with git status --porcelain and record git rev-parse HEAD as head_before. This workflow runs only on a clean tree, because its lander commits shared files by path and reverts a phenomenon it cannot land by file, and an uncommitted edit already sitting in one of those files would be folded into a commit or discarded: if the listing is non-empty, stop there and return tree_clean false with every listed line under dirty_paths, empty clusters and empty lists, probing nothing; otherwise tree_clean is true and dirty_paths is empty. Then rm -rf ${SCRATCH} && mkdir -p ${SCRATCH}, write uv run python rebuild/tools/standing_probe.py --shapes > ${SCRATCH}/shapes-menu.txt (the one probe form that never loads the surface, so nothing else rides on it), then make ONE probe call over every unit id: uv run python rebuild/tools/standing_probe.py ${UNITS.join(' ')} > ${SCRATCH}/probe-all.txt 2>&1. That dump is the batch's only probe until the analysts run; every later agent reads it instead of re-probing these units. Report its path as probe_dump and the menu's as shapes_menu.
+You are the clustering agent, read-only against the tree: edit no tracked file, commit nothing, write only under ${SCRATCH}/. Start with git status --porcelain and record git rev-parse HEAD as head_before. This workflow runs only on a clean tree, because its lander commits shared files by path and reverts a phenomenon it cannot land by file, and an uncommitted edit already sitting in one of those files would be folded into a commit or discarded: if the listing is non-empty, stop there and return tree_clean false with every listed line under dirty_paths, empty clusters and empty lists, probing nothing; otherwise tree_clean is true and dirty_paths is empty. Then rm -rf ${SCRATCH} && mkdir -p ${SCRATCH}, write uv run python rebuild/tools/standing_probe.py --shapes > ${SCRATCH}/shapes-menu.txt (the one probe form that never loads the corpus, so nothing else rides on it), then make ONE probe call over every unit id: uv run python rebuild/tools/standing_probe.py ${UNITS.join(' ')} > ${SCRATCH}/probe-all.txt 2>&1. That dump is the batch's only probe until the analysts run; every later agent reads it instead of re-probing these units. Report its path as probe_dump and the menu's as shapes_menu.
 
-For each unit, from its block in the dump (a block starts at its u-… line): list every change in the window as (position index, before glyph, after cell, seam change into and out of it, the rendered reading) that no "rule X: matches" line explains and the composed: line does not credit. A unit every change of which is already explained goes under already_covered with the rule or credit that explains it; a "not a human unit on this surface" line goes under not_human; a unit whose same-deltas tally or survey siblings show neither or reject on the stroke in question goes under held_out with why.
+For each unit, from its block in the dump (a block starts at its u-… line): list every change in the window as (position index, before glyph, after cell, seam change into and out of it, the rendered reading) that no "rule X: matches" line explains and the composed: line does not credit. A unit every change of which is already explained goes under already_covered with the rule or credit that explains it; a "not a human unit on this corpus" line goes under not_human; a unit whose same-deltas tally or survey siblings show neither or reject on the stroke in question goes under held_out with why.
 
 Cluster the distinct changes by phenomenon, as the skill's "Cluster by phenomenon" bullet says: same pivot family and form, same follower family, same seam change, same shift or trade. A window with two unexplained changes belongs to two phenomena. Every change that would extend the same checked-in rule (a pivot form, follower or cell it lacks) is one phenomenon naming that rule under candidate_rules. Phenomena that must compose in the same windows go in the same cluster, so one analyst reads the composed line on one scratch copy.
 
-Balance the clusters by the work each costs, never by unit count (the skill's "Balance the clusters" bullet): a matcher extension or a cell-enumerating shape weighs more than a form added to an existing rule. Target ${SURFACE_HOLDERS} clusters, since that many analysts hold a surface at once; split further only when a cluster would hold more phenomena than one analyst can carry through the skill's steps 2 through 5 in one context. Each cluster's brief is the analyst's orientation: the phenomena, the specimen and unit ids per phenomenon, the candidate rules and the shape you expect, the companions in the same windows, and where to look for the decision's record. It is a hypothesis for the analyst to verify, not a finding.`, { label: 'cluster:all', phase: 'Cluster', schema: CLUSTERS_SCHEMA })
+Balance the clusters by the work each costs, never by unit count (the skill's "Balance the clusters" bullet): a matcher extension or a cell-enumerating shape weighs more than a form added to an existing rule. Target ${CORPUS_HOLDERS} clusters, since that many analysts hold a corpus at once; split further only when a cluster would hold more phenomena than one analyst can carry through the skill's steps 2 through 5 in one context. Each cluster's brief is the analyst's orientation: the phenomena, the specimen and unit ids per phenomenon, the candidate rules and the shape you expect, the companions in the same windows, and where to look for the decision's record. It is a hypothesis for the analyst to verify, not a finding.`, { label: 'cluster:all', phase: 'Cluster', schema: CLUSTERS_SCHEMA })
 
 if (!clusters) return { units: UNITS, error: 'the clustering agent returned nothing' }
 if (!clusters.tree_clean) return { units: UNITS, error: `the tree is not clean, and the lander commits shared files by path and reverts by file, so nothing runs until it is: ${clusters.dirty_paths.join(' ')}` }
@@ -178,7 +178,7 @@ log(`${clusters.clusters.length} clusters; ${clusters.already_covered.length} al
 function analystPrompt(cluster) {
   return `${COMMON}
 
-You are the analyst for cluster ${cluster.key}: ${cluster.title}. Read-only against the tree: edit no tracked file, commit nothing, write only under ${SCRATCH}/${cluster.key}/. Up to ${SURFACE_HOLDERS - 1} other analysts hold a surface beside you. The probe output for every unit in the batch is at ${clusters.probe_dump} (read your units' blocks there rather than re-probing them) and the shapes menu at ${clusters.shapes_menu}. The clustering agent recorded the units it held out or found already covered; do not re-open them.
+You are the analyst for cluster ${cluster.key}: ${cluster.title}. Read-only against the tree: edit no tracked file, commit nothing, write only under ${SCRATCH}/${cluster.key}/. Up to ${CORPUS_HOLDERS - 1} other analysts hold a corpus beside you. The probe output for every unit in the batch is at ${clusters.probe_dump} (read your units' blocks there rather than re-probing them) and the shapes menu at ${clusters.shapes_menu}. The clustering agent recorded the units it held out or found already covered; do not re-open them.
 
 Your units: ${cluster.units.join(' ')}
 
@@ -213,7 +213,7 @@ async function capped(cap, thunks) {
 }
 
 phase('Analyze')
-const analysisResults = await capped(SURFACE_HOLDERS, clusters.clusters.map(cluster => () =>
+const analysisResults = await capped(CORPUS_HOLDERS, clusters.clusters.map(cluster => () =>
   agent(analystPrompt(cluster), { label: `analyze:${cluster.key}`, phase: 'Analyze', model: 'opus', schema: ANALYSIS_SCHEMA })))
 const analyses = analysisResults.filter(Boolean)
 const missing = clusters.clusters.filter((cluster, index) => !analysisResults[index]).map(cluster => cluster.key)
@@ -260,7 +260,7 @@ if (ordered.length) {
   phase('Land')
   landing = await agent(`${COMMON}
 
-You are the lander and you run alone: no other agent touches the tree or holds a surface while you work, so you may edit tracked files and commit on the current branch. You are the only agent in this workflow that commits, and running this workflow was the user's go-ahead for these commits. Do not push, do not branch, no worktree, never --amend, never rewrite history. Scratch goes under ${SCRATCH}/land/. The probe dump for every unit is at ${clusters.probe_dump}.
+You are the lander and you run alone: no other agent touches the tree or holds a corpus while you work, so you may edit tracked files and commit on the current branch. You are the only agent in this workflow that commits, and running this workflow was the user's go-ahead for these commits. Do not push, do not branch, no worktree, never --amend, never rewrite history. Scratch goes under ${SCRATCH}/land/. The probe dump for every unit is at ${clusters.probe_dump}.
 
 Before anything else, git status --porcelain must print nothing. The clustering agent found the tree clean and every step below rests on that: the files a phenomenon touches hold no uncommitted edit but that phenomenon's, so a revert by file and a commit by path each reach exactly that and nothing else. If anything is listed, land nothing, put every phenomenon under not_landed with the listing as its why, and stop.
 
@@ -301,7 +301,7 @@ ${JSON.stringify(landing, null, 2)}`, { label: 'verify:all', phase: 'Verify', sc
     phase('Launch')
     launch = await agent(`${COMMON}
 
-Every rule of this batch is committed and no agent holds the surface any longer. Read doc/running-long-steps.md and the skill's steps 6(b) and 7. Check that git status --porcelain is empty and that no gate, cycle or surface-loading process is running (pgrep -f 'standing_verdict[s]|standing_prob[e]|artifact_cycl[e]|rebuild_gat[e]|run_m[1]', bracketed so the watcher cannot match itself); refuse with why_not if either check fails. Then mkdir -p tmp and launch exactly this line: ${CHAIN}
+Every rule of this batch is committed and no agent holds the corpus any longer. Read doc/running-long-steps.md and the skill's steps 6(b) and 7. Check that git status --porcelain is empty and that no gate, cycle or corpus-loading process is running (pgrep -f 'standing_verdict[s]|standing_prob[e]|artifact_cycl[e]|rebuild_gat[e]|run_m[1]', bracketed so the watcher cannot match itself); refuse with why_not if either check fails. Then mkdir -p tmp and launch exactly this line: ${CHAIN}
 Capture $! as the pid, wait a few seconds, and confirm kill -0 <pid>. Return the pid, the log path tmp/cycle-pass.log, and whether it is alive. Do not wait for it.`, { label: 'launch:chain', phase: 'Launch', effort: 'low', schema: LAUNCH_SCHEMA })
     log(launch && launch.launched ? `chain launched, pid ${launch.pid}` : `chain not launched: ${launch ? launch.why_not : 'the launcher returned nothing'}`)
   } else {

@@ -9,7 +9,7 @@ The user has just adjudicated units in the review app and wants the fresh compla
 ## Hard rules
 
 - Fresh complaints are the work; **standing complaints stay standing unless the user asks** — they are usually tied to an open fork recorded in WHATNEXT.md. Check there before touching one.
-- Never write or edit the verdict store or any `verdicts-*.json`, never run `merge_verdicts` while the review server is up, and never rebuild the review surface (`review.build`) — surface rebuild, carry, and merge are `make review-cycle`'s job, which the user runs after the fix commits.
+- Never write or edit the verdict store or any `verdicts-*.json`, never run `merge_verdicts` while the review server is up, and never rebuild the review corpus (`review.build`) — corpus rebuild, carry, and merge are `make review-cycle`'s job, which the user runs after the fix commits.
 - Never author `why:` text. Lift the user's verdict note verbatim (the `note`/`gist` on the reject unit) onto the one record it actually describes — not onto sibling guard records it doesn't. Unlock records accept `why:` like the policy kinds; if a record shape ever lacks a `why:` slot, the verbatim note goes in a `#` comment on the record instead.
 - Never commit without explicit approval; at the natural commit point, spawn a fresh sub-agent for commit-message suggestions (reader-experience phrasing, not mechanism).
 

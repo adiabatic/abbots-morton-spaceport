@@ -1,4 +1,4 @@
-"""Tests for the standing daemon, the process that holds a review surface for the standing probe and the standing dry run. Over a real build of the frozen mini bundle, they check that the probe's unit, find, survey, and coverage modes and both dry-run forms (whole-domain with a fill file, and targeted) produce the same exit code, stdout, and fill bytes through the daemon as in-process, with the held font pair used for the rendered grain. They also check the fallback when no daemon answers, the stale and wrong-surface declines, socket removal on SIGTERM and `stop`, the lock a daemon holds for its lifetime, the refusal to start a second daemon, both beside a live daemon and beside one that holds the lock but has not bound, the exit of a daemon whose socket file was replaced without removing the replacement, the `status` and `stop` subcommands, and that a caller passing its own units is never served. Each daemon is a real child process on a socket under tmp_path, and rebuild/conftest.py points the tools' default socket under tmp_path for every test, so no test can reach a daemon running on the machine."""
+"""Tests for the standing daemon, the process that holds a review corpus for the standing probe and the standing dry run. Over a real build of the frozen mini bundle, they check that the probe's unit, find, survey, and coverage modes and both dry-run forms (whole-domain with a fill file, and targeted) produce the same exit code, stdout, and fill bytes through the daemon as in-process, with the held font pair used for the rendered grain. They also check the fallback when no daemon answers, the stale and wrong-corpus declines, socket removal on SIGTERM and `stop`, the lock a daemon holds for its lifetime, the refusal to start a second daemon, both beside a live daemon and beside one that holds the lock but has not bound, the exit of a daemon whose socket file was replaced without removing the replacement, the `status` and `stop` subcommands, and that a caller passing its own units is never served. Each daemon is a real child process on a socket under tmp_path, and rebuild/conftest.py points the tools' default socket under tmp_path for every test, so no test can reach a daemon running on the machine."""
 
 import fcntl
 import json
@@ -25,26 +25,26 @@ STOP_SECONDS = 30
 POLL_SECONDS = 0.25
 
 
-def _stamp(surface):
-    return json.loads((surface / "manifest.json").read_text())["generated_at"]
+def _stamp(corpus):
+    return json.loads((corpus / "manifest.json").read_text())["generated_at"]
 
 
-def _verdicts(path, surface, records):
+def _verdicts(path, corpus, records):
     path.write_text(
         json.dumps(
-            {"format": "ams-review-verdicts/1", "manifest_generated_at": _stamp(surface), "verdicts": records}
+            {"format": "ams-review-verdicts/1", "manifest_generated_at": _stamp(corpus), "verdicts": records}
         )
     )
     return path
 
 
-def _start(surface, cwd):
-    """Starts a daemon over `surface` listening at `cwd / "daemon.sock"`, with its log in `cwd`, and returns once it answers a `status` request. If the child exits or does not answer within START_SECONDS, the test fails with the log."""
+def _start(corpus, cwd):
+    """Starts a daemon over `corpus` listening at `cwd / "daemon.sock"`, with its log in `cwd`, and returns once it answers a `status` request. If the child exits or does not answer within START_SECONDS, the test fails with the log."""
     sock = cwd / "daemon.sock"
     log = cwd / "daemon.log"
     with log.open("w") as handle:
         proc = subprocess.Popen(
-            [sys.executable, str(DAEMON), "serve", "--surface", str(surface), "--socket", str(sock)],
+            [sys.executable, str(DAEMON), "serve", "--corpus", str(corpus), "--socket", str(sock)],
             cwd=cwd,
             stdout=handle,
             stderr=subprocess.STDOUT,
@@ -71,9 +71,9 @@ def _stop(proc, sock):
 
 
 @pytest.fixture(scope="module")
-def daemon(mini_surface, tmp_path_factory):
-    """One daemon over the mini surface, shared by the tests that only send it requests. Teardown stops it and checks that it exits 0 and removes its socket."""
-    proc, sock = _start(mini_surface, tmp_path_factory.mktemp("standing-daemon"))
+def daemon(mini_corpus, tmp_path_factory):
+    """One daemon over the mini corpus, shared by the tests that only send it requests. Teardown stops it and checks that it exits 0 and removes its socket."""
+    proc, sock = _start(mini_corpus, tmp_path_factory.mktemp("standing-daemon"))
     yield proc, sock
     assert _stop(proc, sock) == 0
     assert not os.path.lexists(sock)
@@ -91,22 +91,22 @@ def _fill(capsys, argv):
     return code, captured.out, captured.err
 
 
-def _probe_argv(surface, tmp_path, sock, *units):
-    verdicts = _verdicts(tmp_path / "verdicts.json", surface, [])
-    return [*units, "--surface", str(surface), "--verdicts", str(verdicts), "--socket", str(sock)]
+def _probe_argv(corpus, tmp_path, sock, *units):
+    verdicts = _verdicts(tmp_path / "verdicts.json", corpus, [])
+    return [*units, "--corpus", str(corpus), "--verdicts", str(verdicts), "--socket", str(sock)]
 
 
-def test_a_served_probe_is_byte_identical_to_the_in_process_one(daemon, mini_surface, tmp_path, capsys):
+def test_a_served_probe_is_byte_identical_to_the_in_process_one(daemon, mini_corpus, tmp_path, capsys):
     """Runs every probe mode in one call, as the dont-bug-me-about-this-ever-again skill batches them: three unit ids, --find, --survey over the first unit's family, and --coverage on a rule whose shape has an enumeration, against a store with one reject. The served and in-process runs must match on exit code and every byte of stdout, with nothing on stderr. The rendered-grain columns must appear, which shows the daemon used its held SlideContext and did not fall back to NO_FONTS."""
     _proc, sock = daemon
-    human = _human_units(mini_surface)
+    human = _human_units(mini_corpus)
     ids = [unit["id"] for unit in human[:3]]
     verdicts = _verdicts(
         tmp_path / "verdicts.json",
-        mini_surface,
-        [{"unit": ids[0], "verdict": "reject", "note": "", "at": _stamp(mini_surface)}],
+        mini_corpus,
+        [{"unit": ids[0], "verdict": "reject", "note": "", "at": _stamp(mini_corpus)}],
     )
-    rules = _mini_rules(mini_surface, tmp_path / "rules.yaml")
+    rules = _mini_rules(mini_corpus, tmp_path / "rules.yaml")
     family = sv._family(human[0]["before"]["glyphs"][0])
     covered = next(
         rule["id"]
@@ -121,8 +121,8 @@ def test_a_served_probe_is_byte_identical_to_the_in_process_one(daemon, mini_sur
         family,
         "--coverage",
         covered,
-        "--surface",
-        str(mini_surface),
+        "--corpus",
+        str(mini_corpus),
         "--rules",
         str(rules),
         "--verdicts",
@@ -142,22 +142,22 @@ def test_a_served_probe_is_byte_identical_to_the_in_process_one(daemon, mini_sur
 
 
 def test_a_served_dry_run_is_byte_identical_to_the_in_process_one(
-    daemon, mini_surface, tmp_path, monkeypatch, capsys
+    daemon, mini_corpus, tmp_path, monkeypatch, capsys
 ):
     """Runs both dry-run forms under the bundle's own rules against a store with one reject and one approve. The whole-domain run uses a relative --out, which both sides resolve under the client's working directory. Its served and in-process runs must match on exit code, report lines, and the fill file's bytes, and the file must contain fills. The targeted runs must match on exit code and report lines and write no files."""
     _proc, sock = daemon
-    human = [unit["id"] for unit in _human_units(mini_surface)]
-    stamp = _stamp(mini_surface)
+    human = [unit["id"] for unit in _human_units(mini_corpus)]
+    stamp = _stamp(mini_corpus)
     verdicts = _verdicts(
         tmp_path / "verdicts.json",
-        mini_surface,
+        mini_corpus,
         [
             {"unit": human[0], "verdict": "reject", "note": "", "at": stamp},
             {"unit": human[-1], "verdict": "approve", "note": "", "at": stamp},
         ],
     )
-    rules = _mini_rules(mini_surface, tmp_path / "rules.yaml")
-    base = [str(verdicts), "--surface", str(mini_surface), "--rules", str(rules), "--socket", str(sock)]
+    rules = _mini_rules(mini_corpus, tmp_path / "rules.yaml")
+    base = [str(verdicts), "--corpus", str(mini_corpus), "--rules", str(rules), "--socket", str(sock)]
     whole = {}
     for mode in ("always", "never"):
         cwd = tmp_path / "whole" / mode
@@ -184,20 +184,20 @@ def test_a_served_dry_run_is_byte_identical_to_the_in_process_one(
     assert code == 0 and err == "" and out.startswith("  targeted at mini-bundle-ink-delta:")
 
 
-def test_the_fallback_engages_when_no_daemon_answers(mini_surface, tmp_path, capsys):
-    """With --socket naming a path that does not exist, auto mode gives the same result as never mode for both tools, with nothing on stderr. With a plain file at the socket path, auto mode gives the same result and writes one stderr line saying it is loading the surface in this process. Always mode exits with a message naming the socket."""
+def test_the_fallback_engages_when_no_daemon_answers(mini_corpus, tmp_path, capsys):
+    """With --socket naming a path that does not exist, auto mode gives the same result as never mode for both tools, with nothing on stderr. With a plain file at the socket path, auto mode gives the same result and writes one stderr line saying it is loading the corpus in this process. Always mode exits with a message naming the socket."""
     unbound = tmp_path / "nothing" / "daemon.sock"
     plain = tmp_path / "plain.sock"
     plain.write_text("")
-    human = _human_units(mini_surface)
+    human = _human_units(mini_corpus)
     unit_id = human[0]["id"]
-    rules = _mini_rules(mini_surface, tmp_path / "rules.yaml")
-    verdicts = _verdicts(tmp_path / "verdicts.json", mini_surface, [])
-    probe_argv = [unit_id, "--surface", str(mini_surface), "--verdicts", str(verdicts), "--rules", str(rules)]
+    rules = _mini_rules(mini_corpus, tmp_path / "rules.yaml")
+    verdicts = _verdicts(tmp_path / "verdicts.json", mini_corpus, [])
+    probe_argv = [unit_id, "--corpus", str(mini_corpus), "--verdicts", str(verdicts), "--rules", str(rules)]
     fill_argv = [
         str(verdicts),
-        "--surface",
-        str(mini_surface),
+        "--corpus",
+        str(mini_corpus),
         "--rules",
         str(rules),
         "--explain",
@@ -210,7 +210,7 @@ def test_the_fallback_engages_when_no_daemon_answers(mini_surface, tmp_path, cap
         assert auto == never and auto[2] == "" and auto[0] == 0
         code, out, err = run(capsys, [*argv, "--socket", str(plain), "--daemon", "auto"])
         assert (code, out) == never[:2]
-        assert err.count("\n") == 1 and "loading the surface in this process instead" in err
+        assert err.count("\n") == 1 and "loading the corpus in this process instead" in err
     with pytest.raises(SystemExit, match=re.escape(str(unbound))):
         probe.main([*probe_argv, "--socket", str(unbound), "--daemon", "always"])
     with pytest.raises(SystemExit, match=re.escape(str(unbound))):
@@ -218,10 +218,10 @@ def test_the_fallback_engages_when_no_daemon_answers(mini_surface, tmp_path, cap
 
 
 @pytest.mark.parametrize("axis", ["manifest", "font"])
-def test_a_stale_daemon_declines_and_exits(mini_surface, tmp_path, capsys, axis):
-    """Starts a daemon over a copy of the mini surface, then changes one field of the copy's stamp: the manifest's generated_at or the after font's bytes. The daemon must decline the next request as stale, exit 0, and remove its socket."""
-    copy = tmp_path / "surface"
-    shutil.copytree(mini_surface, copy)
+def test_a_stale_daemon_declines_and_exits(mini_corpus, tmp_path, capsys, axis):
+    """Starts a daemon over a copy of the mini corpus, then changes one field of the copy's stamp: the manifest's generated_at or the after font's bytes. The daemon must decline the next request as stale, exit 0, and remove its socket."""
+    copy = tmp_path / "corpus"
+    shutil.copytree(mini_corpus, copy)
     proc, sock = _start(copy, tmp_path)
     try:
         if axis == "manifest":
@@ -231,7 +231,7 @@ def test_a_stale_daemon_declines_and_exits(mini_surface, tmp_path, capsys, axis)
         else:
             with (copy / "fonts" / "after.otf").open("ab") as handle:
                 handle.write(b"\0")
-        unit_id = _human_units(mini_surface)[0]["id"]
+        unit_id = _human_units(mini_corpus)[0]["id"]
         with pytest.raises(SystemExit, match="stale"):
             probe.main([*_probe_argv(copy, tmp_path, sock, unit_id), "--daemon", "always"])
         capsys.readouterr()
@@ -244,28 +244,28 @@ def test_a_stale_daemon_declines_and_exits(mini_surface, tmp_path, capsys, axis)
             proc.wait()
 
 
-def test_a_request_for_another_surface_is_declined(daemon, mini_surface, tmp_path, capsys):
-    """A request for a copy of the held surface is declined with a reason naming both paths. Always mode exits with that reason, auto mode falls back to the in-process output with one stderr line, and the daemon keeps running."""
+def test_a_request_for_another_corpus_is_declined(daemon, mini_corpus, tmp_path, capsys):
+    """A request for a copy of the held corpus is declined with a reason naming both paths. Always mode exits with that reason, auto mode falls back to the in-process output with one stderr line, and the daemon keeps running."""
     proc, sock = daemon
     copy = tmp_path / "other"
-    shutil.copytree(mini_surface, copy)
-    unit_id = _human_units(mini_surface)[0]["id"]
+    shutil.copytree(mini_corpus, copy)
+    unit_id = _human_units(mini_corpus)[0]["id"]
     argv = _probe_argv(copy, tmp_path, sock, unit_id)
     with pytest.raises(SystemExit) as caught:
         probe.main([*argv, "--daemon", "always"])
-    assert str(mini_surface.resolve()) in str(caught.value) and str(copy.resolve()) in str(caught.value)
+    assert str(mini_corpus.resolve()) in str(caught.value) and str(copy.resolve()) in str(caught.value)
     never = _probe(capsys, [*argv, "--daemon", "never"])
     code, out, err = _probe(capsys, [*argv, "--daemon", "auto"])
     assert (code, out) == never[:2] and never[2] == ""
-    assert err.count("\n") == 1 and "it holds" in err and "loading the surface in this process instead" in err
+    assert err.count("\n") == 1 and "it holds" in err and "loading the corpus in this process instead" in err
     assert proc.poll() is None
     status = standing_client.exchange(sock, {"tool": "status"})
     assert status is not None and status["ok"]
 
 
-def test_sigterm_removes_the_socket_and_a_second_daemon_refuses_to_start(mini_surface, tmp_path, capsys):
+def test_sigterm_removes_the_socket_and_a_second_daemon_refuses_to_start(mini_corpus, tmp_path, capsys):
     """A running daemon answers `status` and holds the lock file beside its socket, with its pid written there. A second `serve` on the same socket exits 1 without loading, naming the first daemon's pid. SIGTERM makes the first daemon exit 0, remove its socket, and release the lock, after which `status` reports that no daemon answers."""
-    proc, sock = _start(mini_surface, tmp_path)
+    proc, sock = _start(mini_corpus, tmp_path)
     lock = None
     try:
         lock = os.open(standing_daemon.lock_path(sock), os.O_RDWR)
@@ -274,7 +274,7 @@ def test_sigterm_removes_the_socket_and_a_second_daemon_refuses_to_start(mini_su
         with pytest.raises(BlockingIOError):
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         assert os.pread(lock, 32, 0).decode().strip() == str(proc.pid)
-        assert standing_daemon.main(["serve", "--surface", str(mini_surface), "--socket", str(sock)]) == 1
+        assert standing_daemon.main(["serve", "--corpus", str(mini_corpus), "--socket", str(sock)]) == 1
         out = capsys.readouterr().out
         assert "already answers" in out and f"pid {proc.pid}" in out
         assert proc.poll() is None
@@ -294,7 +294,7 @@ def test_sigterm_removes_the_socket_and_a_second_daemon_refuses_to_start(mini_su
 
 
 def test_a_second_serve_refuses_to_start_while_the_first_holds_the_lock(
-    mini_surface, tmp_path, capsys, monkeypatch
+    mini_corpus, tmp_path, capsys, monkeypatch
 ):
     """Recreates the window between a first `serve` taking its lock and binding: the test holds the lock file beside the socket with a pid written in it, and a leftover socket file sits at the socket path, so a `status` request gets no reply. A second `serve` must exit 1 naming the lock holder's pid, without binding and without deleting the socket file."""
     sock = tmp_path / "daemon.sock"
@@ -308,7 +308,7 @@ def test_a_second_serve_refuses_to_start_while_the_first_holds_the_lock(
             raise AssertionError(f"a second serve bound {path}")
 
         monkeypatch.setattr(standing_client, "bind", refuse_to_bind)
-        assert standing_daemon.main(["serve", "--surface", str(mini_surface), "--socket", str(sock)]) == 1
+        assert standing_daemon.main(["serve", "--corpus", str(mini_corpus), "--socket", str(sock)]) == 1
         out = capsys.readouterr().out
         assert "already answers" in out and "pid 4242" in out
         assert sock.is_file()
@@ -317,7 +317,7 @@ def test_a_second_serve_refuses_to_start_while_the_first_holds_the_lock(
 
 
 def test_a_daemon_whose_socket_is_replaced_exits_and_leaves_the_replacement(
-    mini_surface, tmp_path, monkeypatch
+    mini_corpus, tmp_path, monkeypatch
 ):
     """Runs `serve` on a thread with a short idle check, then replaces its socket file with a plain file, as a daemon that lost its socket would find it. The daemon must exit 0 by itself at the next idle check and leave the replacement in place, since the file is no longer the one it bound. The test runs from tmp_path because both threads' socket calls chdir into the socket's directory and back, and `chdir` is process-wide."""
     monkeypatch.setattr(standing_daemon, "IDLE_CHECK_SECONDS", 0.2)
@@ -325,7 +325,7 @@ def test_a_daemon_whose_socket_is_replaced_exits_and_leaves_the_replacement(
     sock = tmp_path / "daemon.sock"
     result = []
     runner = threading.Thread(
-        target=lambda: result.append(standing_daemon.serve(mini_surface, sock)), daemon=True
+        target=lambda: result.append(standing_daemon.serve(mini_corpus, sock)), daemon=True
     )
     runner.start()
     deadline = time.monotonic() + START_SECONDS
@@ -344,13 +344,13 @@ def test_a_daemon_whose_socket_is_replaced_exits_and_leaves_the_replacement(
     assert sock.read_text() == "replacement"
 
 
-def test_the_status_and_stop_verbs_report_the_held_surface(mini_surface, tmp_path, capsys):
-    proc, sock = _start(mini_surface, tmp_path)
+def test_the_status_and_stop_verbs_report_the_held_corpus(mini_corpus, tmp_path, capsys):
+    proc, sock = _start(mini_corpus, tmp_path)
     try:
         assert standing_daemon.main(["status", "--socket", str(sock)]) == 0
         out = capsys.readouterr().out
-        assert str(mini_surface.resolve()) in out and _stamp(mini_surface) in out
-        assert f"{len(_human_units(mini_surface))} human units" in out
+        assert str(mini_corpus.resolve()) in out and _stamp(mini_corpus) in out
+        assert f"{len(_human_units(mini_corpus))} human units" in out
         assert standing_daemon.main(["stop", "--socket", str(sock)]) == 0
         assert f"pid {proc.pid}" in capsys.readouterr().out
         proc.wait(STOP_SECONDS)
@@ -364,19 +364,19 @@ def test_the_status_and_stop_verbs_report_the_held_surface(mini_surface, tmp_pat
             proc.wait()
 
 
-def test_a_caller_that_injects_units_is_never_served(mini_surface, tmp_path, capsys):
+def test_a_caller_that_injects_units_is_never_served(mini_corpus, tmp_path, capsys):
     """The verdict update passes `main` its own units. With --daemon always and a socket that nothing binds, both tools still run to completion in-process, which shows that a caller passing units never contacts the daemon."""
     unbound = tmp_path / "nothing" / "daemon.sock"
-    units = _human_units(mini_surface)
-    rules = _mini_rules(mini_surface, tmp_path / "rules.yaml")
-    verdicts = _verdicts(tmp_path / "verdicts.json", mini_surface, [])
+    units = _human_units(mini_corpus)
+    rules = _mini_rules(mini_corpus, tmp_path / "rules.yaml")
+    verdicts = _verdicts(tmp_path / "verdicts.json", mini_corpus, [])
     flags = ["--daemon", "always", "--socket", str(unbound)]
     assert (
         sv.main(
             [
                 str(verdicts),
-                "--surface",
-                str(mini_surface),
+                "--corpus",
+                str(mini_corpus),
                 "--rules",
                 str(rules),
                 "--out",
@@ -390,7 +390,7 @@ def test_a_caller_that_injects_units_is_never_served(mini_surface, tmp_path, cap
     assert (tmp_path / "out.json").is_file()
     assert (
         probe.main(
-            [units[0]["id"], "--surface", str(mini_surface), "--verdicts", str(verdicts), *flags],
+            [units[0]["id"], "--corpus", str(mini_corpus), "--verdicts", str(verdicts), *flags],
             units=units,
         )
         == 0
@@ -411,17 +411,17 @@ def test_the_stamp_reads_the_lock_by_its_dependency_pins(tmp_path, monkeypatch):
     root.mkdir()
     lock = root / "uv.lock"
     lock.write_text(_DAEMON_LOCK, encoding="utf-8")
-    surface = tmp_path / "surface"
-    surface.mkdir()
-    (surface / "manifest.json").write_text(json.dumps({"generated_at": "2026-01-01T00:00:00Z"}))
+    corpus = tmp_path / "corpus"
+    corpus.mkdir()
+    (corpus / "manifest.json").write_text(json.dumps({"generated_at": "2026-01-01T00:00:00Z"}))
     monkeypatch.setattr(standing_daemon, "ROOT", root)
-    held = standing_daemon.stamp_of(surface)
+    held = standing_daemon.stamp_of(corpus)
     assert held.lock not in ("-", "absent")
     lock.write_text(_DAEMON_LOCK.replace('version = "16.0.0"', 'version = "16.1.0"'), encoding="utf-8")
-    assert standing_daemon.stamp_of(surface) == held
+    assert standing_daemon.stamp_of(corpus) == held
     lock.write_text(_DAEMON_LOCK.replace('version = "0.50.2"', 'version = "0.51.0"'), encoding="utf-8")
-    fresh = standing_daemon.stamp_of(surface)
+    fresh = standing_daemon.stamp_of(corpus)
     assert fresh != held
     assert standing_daemon._moved(held, fresh) == "uv.lock moved"
     lock.unlink()
-    assert standing_daemon.stamp_of(surface).lock == "-"
+    assert standing_daemon.stamp_of(corpus).lock == "-"

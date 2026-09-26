@@ -1,4 +1,4 @@
-"""Seed and audit echo-group verdicts on the live review surface. An echo group (the unit JSON's `echo` field) is a set of human units whose localized before-to-after ink change is pixel-identical, with the same judged pair, class, configurations and follower shift. Unchanged letters around the change, including followers that only moved by the advance change, are not compared (`InkComparator.config_diff`). For every group with more than one member, this tool reads a verdicts file and does one of two things. When the recorded verdicts agree (`review_docket.verdicts_agree`: all the same, or a mix of approve and identical) and some members are blank, it writes fill records for the blanks, copied from the most recently recorded member, to an importable verdicts file. When the recorded verdicts disagree, it prints the group for a person to re-check. Skip verdicts count toward neither agreement nor blanks, so a skipped member is never filled. The app fills echo members as verdicts are recorded. This tool handles verdicts that never passed through the app's fill, such as carried verdicts, and audits the groups for consistency. The verdict update (`rebuild/tools/verdict_update.py`) runs it after the carry and merge, so blanks fill across cycles without a review session."""
+"""Seed and audit echo-group verdicts on the live review corpus. An echo group (the unit JSON's `echo` field) is a set of human units whose localized before-to-after ink change is pixel-identical, with the same judged pair, class, configurations and follower shift. Unchanged letters around the change, including followers that only moved by the advance change, are not compared (`InkComparator.config_diff`). For every group with more than one member, this tool reads a verdicts file and does one of two things. When the recorded verdicts agree (`review_docket.verdicts_agree`: all the same, or a mix of approve and identical) and some members are blank, it writes fill records for the blanks, copied from the most recently recorded member, to an importable verdicts file. When the recorded verdicts disagree, it prints the group for a person to re-check. Skip verdicts count toward neither agreement nor blanks, so a skipped member is never filled. The app fills echo members as verdicts are recorded. This tool handles verdicts that never passed through the app's fill, such as carried verdicts, and audits the groups for consistency. The verdict update (`rebuild/tools/verdict_update.py`) runs it after the carry and merge, so blanks fill across cycles without a review session."""
 
 import argparse
 import collections
@@ -16,7 +16,7 @@ from rebuild.review import unit_index  # noqa: E402
 from rebuild.tools.review_docket import verdicts_agree  # noqa: E402
 from rebuild.tools.verdict_notes import cap_markers  # noqa: E402
 
-SURFACE = ROOT / "rebuild/out/review"
+CORPUS = ROOT / "rebuild/out/review"
 OUT = ROOT / "verdicts-echo-fill.json"
 
 
@@ -35,25 +35,25 @@ def echo_record(unit: Mapping[str, Any]) -> dict:
 
 
 def main(argv=None, *, units=None):
-    """Write the echo fills and print the conflicts. `units` is the verdict update's list of `echo_record` projections; without it, the human units are streamed from `--surface`. Only human units are read because the surface build requires every other unit to have a null echo."""
+    """Write the echo fills and print the conflicts. `units` is the verdict update's list of `echo_record` projections; without it, the human units are streamed from `--corpus`. Only human units are read because the corpus build requires every other unit to have a null echo."""
     parser = argparse.ArgumentParser(description=(__doc__ or "").split(".")[0] + ".")
     parser.add_argument("verdicts", help="the verdicts file to seed from (an export or the autosave)")
-    parser.add_argument("--surface", default=str(SURFACE))
+    parser.add_argument("--corpus", "--surface", default=str(CORPUS))
     parser.add_argument("--out", default=str(OUT))
     args = parser.parse_args(argv)
 
-    surface = pathlib.Path(args.surface)
-    manifest = json.loads((surface / "manifest.json").read_text())
+    corpus = pathlib.Path(args.corpus)
+    manifest = json.loads((corpus / "manifest.json").read_text())
     data = json.loads(pathlib.Path(args.verdicts).read_text())
     if data.get("manifest_generated_at") != manifest["generated_at"]:
         raise SystemExit(
-            f"{args.verdicts} is stamped {data.get('manifest_generated_at')} but the surface is "
+            f"{args.verdicts} is stamped {data.get('manifest_generated_at')} but the corpus is "
             f"{manifest['generated_at']}; unit ids must never be joined across manifests — carry it forward first"
         )
     records = latest_verdicts(pathlib.Path(args.verdicts))
 
     groups = collections.defaultdict(list)
-    for unit in unit_index.iter_human_units(surface) if units is None else units:
+    for unit in unit_index.iter_human_units(corpus) if units is None else units:
         if unit.get("echo"):
             groups[unit["echo"]].append(echo_record(unit))
 

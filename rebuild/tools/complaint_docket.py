@@ -1,8 +1,8 @@
-"""Group the open complaints (reject and neither verdicts) on the live review surface by the rune records that decided them, and list the blank units those records also decide as park candidates: each group becomes one entry in the fix worklist, and its park candidates can be set aside until the fix is committed.
+"""Group the open complaints (reject and neither verdicts) on the live review corpus by the rune records that decided them, and list the blank units those records also decide as park candidates: each group becomes one entry in the fix worklist, and its park candidates can be set aside until the fix is committed.
 
 A reject with a policy draft is grouped by the draft's fix site (file and keypath). A reject without a draft is grouped by its exact tuple of provenance pointers, and complaints with no pointers form one unattributed group. Neithers are collected by pointer tuple too, and each tuple joins the reject group whose pointers overlap it most, or forms its own group when none overlaps.
 
-Parking uses skip verdicts. A park file holds one skip verdict per park candidate, with `at` set to the manifest's `generated_at`, so any verdict the user records on this surface is newer and wins. The echo fill ignores skips, and the docket counts a skipped unit as blank but defers its echo group. The user imports the file through the app's Import dialog. The carry drops skip verdicts, so parked units return to the blank queue on the first cycle that rebuilds the surface.
+Parking uses skip verdicts. A park file holds one skip verdict per park candidate, with `at` set to the manifest's `generated_at`, so any verdict the user records on this corpus is newer and wins. The echo fill ignores skips, and the docket counts a skipped unit as blank but defers its echo group. The user imports the file through the app's Import dialog. The carry drops skip verdicts, so parked units return to the blank queue on the first cycle that rebuilds the corpus.
 
 Writes tmp/complaints-data.json. `--park g-XXXXXXXX` also writes a verdicts-park-*.json for that group.
 """
@@ -30,7 +30,7 @@ from rebuild.tools.review_docket import (  # noqa: E402
 from rebuild.review.unit_index import iter_human_units  # noqa: E402
 from rebuild.tools.verdict_notes import strip_markers  # noqa: E402
 
-SURFACE = ROOT / "rebuild/out/review"
+CORPUS = ROOT / "rebuild/out/review"
 AUTOSAVE = ROOT / "verdicts-autosave.json"
 DATA_OUT = ROOT / "tmp/complaints-data.json"
 COMPLAINT_KINDS = ("reject", "neither")
@@ -38,7 +38,7 @@ CHURN_KINDS = tuple(sorted(ACCEPTING_VERDICTS))
 
 
 def _triage_position(unit):
-    """Return the unit's position in the surface's triage index (the record's `order`), which orders lookalikes in the docket. A record without an order sorts last."""
+    """Return the unit's position in the corpus's triage index (the record's `order`), which orders lookalikes in the docket. A record without an order sorts last."""
     order = unit.get("order")
     return order if isinstance(order, int) else sys.maxsize
 
@@ -254,7 +254,7 @@ def emit_park(group, marker_target, *, stamp, park_dir, note_text):
 def main(argv=None, *, units: Iterable[Mapping[str, Any]] | None = None, unit_ids: set[str] | None = None):
     """Write the complaint docket data, and park files for any `--park` groups.
 
-    `units` and `unit_ids` are passed together or not at all: a single-pass stream of human unit records, and every surface id, machine units included, for the absent-unit warning. Only the complaint fields and small projections of the blank and churn units are kept from the stream.
+    `units` and `unit_ids` are passed together or not at all: a single-pass stream of human unit records, and every corpus id, machine units included, for the absent-unit warning. Only the complaint fields and small projections of the blank and churn units are kept from the stream.
     """
     parser = argparse.ArgumentParser(description=(__doc__ or "").split(":")[0] + ".")
     parser.add_argument(
@@ -263,7 +263,7 @@ def main(argv=None, *, units: Iterable[Mapping[str, Any]] | None = None, unit_id
         default=str(AUTOSAVE),
         help="the verdicts file to cluster (default: the live autosave)",
     )
-    parser.add_argument("--surface", default=str(SURFACE))
+    parser.add_argument("--corpus", "--surface", default=str(CORPUS))
     parser.add_argument("--data-out", default=str(DATA_OUT))
     parser.add_argument(
         "--since",
@@ -285,14 +285,14 @@ def main(argv=None, *, units: Iterable[Mapping[str, Any]] | None = None, unit_id
     if (units is None) != (unit_ids is None):
         parser.error("units and unit_ids are handed over together or not at all")
 
-    surface = pathlib.Path(args.surface)
-    manifest = json.loads((surface / "manifest.json").read_text())
+    corpus = pathlib.Path(args.corpus)
+    manifest = json.loads((corpus / "manifest.json").read_text())
     stamp = manifest["generated_at"]
     verdicts_path = pathlib.Path(args.verdicts)
     data = json.loads(verdicts_path.read_text())
     if data.get("manifest_generated_at") != stamp:
         print(
-            f"{args.verdicts} is stamped {data.get('manifest_generated_at')} but the surface is "
+            f"{args.verdicts} is stamped {data.get('manifest_generated_at')} but the corpus is "
             f"{stamp}; unit ids must never be joined across manifests — carry it forward first",
             file=sys.stderr,
         )
@@ -301,7 +301,7 @@ def main(argv=None, *, units: Iterable[Mapping[str, Any]] | None = None, unit_id
 
     if units is None or unit_ids is None:
         unit_ids = set()
-        units = iter_human_units(surface, unit_ids=unit_ids)
+        units = iter_human_units(corpus, unit_ids=unit_ids)
     complaints = []
     human = []
     for unit in units:
@@ -328,7 +328,7 @@ def main(argv=None, *, units: Iterable[Mapping[str, Any]] | None = None, unit_id
             )
     unknown = sum(1 for unit_id in records if unit_id not in unit_ids)
     if unknown:
-        print(f"warning: {unknown} verdict records name units absent from this surface", file=sys.stderr)
+        print(f"warning: {unknown} verdict records name units absent from this corpus", file=sys.stderr)
     ruled_ids = {
         entry["id"] for entry in manifest.get("classes", []) if entry.get("status") in RULED_STATUSES
     }

@@ -1,7 +1,7 @@
 import { formatCount } from './render.js';
 
-const FAIL_SCAN = ['surface', 'freshness', 'gates', 'verdict_store'];
-const WARN_SCAN = ['surface', 'freshness', 'gates', 'verdict_store', 'frontier'];
+const FAIL_SCAN = ['corpus', 'freshness', 'gates', 'verdict_store'];
+const WARN_SCAN = ['corpus', 'freshness', 'gates', 'verdict_store', 'frontier'];
 
 // A remedy is copyable only when the whole string is a shell command. Every command remedy status.py emits starts with `make` or `uv run`; the prose remedies ("reload the page", "Merge … into the autosave: uv run …") do not.
 export function remedyCommand(remedy) {
@@ -13,9 +13,9 @@ export function bannerModel(status, pageGeneratedAt) {
     const text = status && status.error ? `Status unavailable — ${status.error}` : 'Status unavailable';
     return { level: 'error', text, remedy: 'restart the review server (make review-serve)', command: 'make review-serve' };
   }
-  const surfaceStamp = status.surface?.generated_at;
-  if (surfaceStamp && pageGeneratedAt && surfaceStamp !== pageGeneratedAt) {
-    return { level: 'stale', text: 'Surface rebuilt since this page loaded', remedy: 'reload the page', command: null };
+  const corpusStamp = status.corpus?.generated_at;
+  if (corpusStamp && pageGeneratedAt && corpusStamp !== pageGeneratedAt) {
+    return { level: 'stale', text: 'Corpus rebuilt since this page loaded', remedy: 'reload the page', command: null };
   }
   const checks = status.checks;
   for (const name of FAIL_SCAN) {

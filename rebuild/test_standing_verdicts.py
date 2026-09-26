@@ -2910,23 +2910,23 @@ def test_main_fills_only_the_blank_matching_ink_gain_units(tmp_path, monkeypatch
     assert payload["verdicts"][0]["note"] == f"[standing: {GAIN_RULE['id']}] {GAIN_RULE['note']}"
 
 
-def _surface(tmp_path, units, fonts=None):
-    surface = tmp_path / "review"
-    (surface / "units").mkdir(parents=True)
-    (surface / "manifest.json").write_text(
+def _corpus(tmp_path, units, fonts=None):
+    corpus = tmp_path / "review"
+    (corpus / "units").mkdir(parents=True)
+    (corpus / "manifest.json").write_text(
         json.dumps({"generated_at": STAMP, "classes": [{"id": "all", "shards": ["units/all.json"]}]})
     )
-    (surface / "units" / "all.json").write_text(json.dumps(units))
+    (corpus / "units" / "all.json").write_text(json.dumps(units))
     if fonts is not None:
-        (surface / "fonts").mkdir()
+        (corpus / "fonts").mkdir()
         for side in ("before", "after"):
-            (surface / "fonts" / f"{side}.otf").write_bytes(pathlib.Path(fonts[side]).read_bytes())
-    return surface
+            (corpus / "fonts" / f"{side}.otf").write_bytes(pathlib.Path(fonts[side]).read_bytes())
+    return corpus
 
 
 def _invoke_main(tmp_path, monkeypatch, units, verdicts, rules_list=(RULE,), fonts=None, extra=()):
-    """Run the CLI over a fixture surface, rules file and verdicts file, and return its exit code and the fill file it wrote. `_run_main` returns only the fills."""
-    surface = _surface(tmp_path, units, fonts)
+    """Run the CLI over a fixture corpus, rules file and verdicts file, and return its exit code and the fill file it wrote. `_run_main` returns only the fills."""
+    corpus = _corpus(tmp_path, units, fonts)
     rules = _write_rules(tmp_path / "rules.yaml", list(rules_list))
     verdicts_path = tmp_path / "verdicts.json"
     verdicts_path.write_text(
@@ -2939,8 +2939,8 @@ def _invoke_main(tmp_path, monkeypatch, units, verdicts, rules_list=(RULE,), fon
         [
             "standing_verdicts.py",
             str(verdicts_path),
-            "--surface",
-            str(surface),
+            "--corpus",
+            str(corpus),
             "--rules",
             str(rules),
             "--out",
@@ -2959,7 +2959,7 @@ def _run_main(tmp_path, monkeypatch, units, verdicts, rules_list=(RULE,), fonts=
 
 def _target_main(tmp_path, monkeypatch, units, verdicts, flags, rules_list=(RULE,), fonts=None):
     """Run the CLI with `flags` and no --out, the form a targeted run takes, and return its exit code. It also asserts that the run wrote no fill file at the default `OUT` (redirected into tmp_path) or at tmp_path/out.json, and no `*.ndjson.gz` memo directly in tmp_path."""
-    surface = _surface(tmp_path, units, fonts)
+    corpus = _corpus(tmp_path, units, fonts)
     rules = _write_rules(tmp_path / "rules.yaml", list(rules_list))
     verdicts_path = tmp_path / "verdicts.json"
     verdicts_path.write_text(
@@ -2972,8 +2972,8 @@ def _target_main(tmp_path, monkeypatch, units, verdicts, flags, rules_list=(RULE
         [
             "standing_verdicts.py",
             str(verdicts_path),
-            "--surface",
-            str(surface),
+            "--corpus",
+            str(corpus),
             "--rules",
             str(rules),
             *flags,
@@ -3065,7 +3065,7 @@ def test_main_fills_all_three_shapes_from_one_rules_file(tmp_path, monkeypatch):
     assert by_unit["i-1"]["note"].startswith(f"[standing: {INK_RULE['id']}]")
 
 
-def test_main_refuses_a_surface_that_predates_the_ink_delta_field(tmp_path, monkeypatch):
+def test_main_refuses_a_corpus_that_predates_the_ink_delta_field(tmp_path, monkeypatch):
     with pytest.raises(
         SystemExit,
         match=(
@@ -3084,7 +3084,7 @@ def test_main_ignores_multi_render_group_units(tmp_path, monkeypatch):
 
 
 def test_main_refuses_a_stale_stamped_verdicts_file(tmp_path, monkeypatch):
-    surface = _surface(tmp_path, [canonical("u-1")])
+    corpus = _corpus(tmp_path, [canonical("u-1")])
     rules = tmp_path / "rules.yaml"
     rules.write_text(json.dumps({"format": sv.FORMAT, "rules": [RULE]}))
     verdicts_path = tmp_path / "verdicts.json"
@@ -3103,8 +3103,8 @@ def test_main_refuses_a_stale_stamped_verdicts_file(tmp_path, monkeypatch):
         [
             "standing_verdicts.py",
             str(verdicts_path),
-            "--surface",
-            str(surface),
+            "--corpus",
+            str(corpus),
             "--rules",
             str(rules),
             "--out",
@@ -3116,7 +3116,7 @@ def test_main_refuses_a_stale_stamped_verdicts_file(tmp_path, monkeypatch):
 
 
 def out_window(uid="o-1"):
-    """A two-letter window joining from ·Out that no rule in this file matches. The surface then has a window joining from the guarded family ·Out, but no guard is checked on it, so the rule's except_left holds nothing and is still in use."""
+    """A two-letter window joining from ·Out that no rule in this file matches. The corpus then has a window joining from the guarded family ·Out, but no guard is checked on it, so the rule's except_left holds nothing and is still in use."""
     return unit(
         uid,
         ["qsOut.ex-y5", "qsMay"],
@@ -3243,7 +3243,7 @@ def test_require_reach_prints_the_rollup_a_narrowed_run_would_have_dropped(tmp_p
 def test_require_reach_counts_a_rule_whose_windows_are_all_verdicted_as_reaching(
     tmp_path, monkeypatch, capsys
 ):
-    """Reach is measured over the surface, not over the blank units. A rule whose windows all have verdicts still reaches them, because reach is judged against a blank store. The narrowed run sees none of those units and writes nothing, so the refusal must not read it."""
+    """Reach is measured over the corpus, not over the blank units. A rule whose windows all have verdicts still reaches them, because reach is judged against a blank store. The narrowed run sees none of those units and writes nothing, so the refusal must not read it."""
     units = [canonical("u-1")]
     verdicts = [{"unit": "u-1", "verdict": "approve", "note": "", "at": "2026-07-11T00:00:00Z"}]
     code, payload = _invoke_main(
@@ -3257,7 +3257,7 @@ def test_require_reach_counts_a_rule_whose_windows_are_all_verdicted_as_reaching
 
 
 def test_require_reach_refuses_when_a_rule_reaches_nothing(tmp_path, monkeypatch, capsys):
-    """A rule matching no window on this surface makes the run exit 1, so the verdict-update step fails and `make verdict-ready` reports NOT READY. The fills from the rules that do reach are still written in full first, because they are correct and only the rules file is out of date."""
+    """A rule matching no window on this corpus makes the run exit 1, so the verdict-update step fails and `make verdict-ready` reports NOT READY. The fills from the rules that do reach are still written in full first, because they are correct and only the rules file is out of date."""
     units = [canonical("u-1"), canonical("u-2")]
     code, payload = _invoke_main(
         tmp_path,
@@ -3289,8 +3289,8 @@ def test_without_require_reach_a_dead_rule_is_only_reported(tmp_path, monkeypatc
     assert not any(line.startswith("  the verdict update refuses:") for line in lines)
 
 
-def test_open_only_reads_the_except_left_vocabulary_off_the_whole_surface(tmp_path, monkeypatch, capsys):
-    """The families the surface's windows join from are read from the whole surface, so `--open-only` must not read them from the blanks alone."""
+def test_open_only_reads_the_except_left_vocabulary_off_the_whole_corpus(tmp_path, monkeypatch, capsys):
+    """The families the corpus's windows join from are read from the whole corpus, so `--open-only` must not read them from the blanks alone."""
     verdicts = [
         {"unit": uid, "verdict": "approve", "note": "", "at": "2026-07-11T00:00:00Z"}
         for uid in ("u-1", "o-1")
@@ -3325,7 +3325,7 @@ def test_an_except_left_family_no_window_joins_from_is_named(tmp_path, monkeypat
     )
 
 
-def test_a_guarded_family_the_surface_carries_but_never_holds_says_nothing(tmp_path, monkeypatch, capsys):
+def test_a_guarded_family_the_corpus_carries_but_never_holds_says_nothing(tmp_path, monkeypatch, capsys):
     _run_main(tmp_path, monkeypatch, [canonical("u-1"), out_window("o-1")], [])
     lines = capsys.readouterr().out.splitlines()
     assert f"  {RULE['id']}: 1 filled, 0 already verdicted, 0 held for review by except_left" in lines
@@ -3549,7 +3549,7 @@ def test_the_composed_memo_never_serves_one_rule_sets_ids_to_another(slide_conte
     }
 
 
-def test_two_composable_rules_refuse_a_surface_that_predates_the_ink_delta_field(tmp_path, monkeypatch):
+def test_two_composable_rules_refuse_a_corpus_that_predates_the_ink_delta_field(tmp_path, monkeypatch):
     with pytest.raises(
         SystemExit,
         match=(
@@ -7126,7 +7126,7 @@ SOLO_WINDOWS = {
 def test_a_solo_rule_of_every_shape_fills_its_window_or_names_the_missing_fonts(
     tmp_path, monkeypatch, shape_name
 ):
-    """Runs one rule of each shape over one window it matches, on a surface with no font pair. A font-backed shape must exit naming the missing fonts, and every other shape must fill. The test is parametrized over `sv.SHAPES`, so a font-backed shape missing from `main`'s font check fails here: it would reach its own matcher with no context and raise mid-run instead of naming the surface. A new row with no `SOLO_WINDOWS` entry also fails here."""
+    """Runs one rule of each shape over one window it matches, on a corpus with no font pair. A font-backed shape must exit naming the missing fonts, and every other shape must fill. The test is parametrized over `sv.SHAPES`, so a font-backed shape missing from `main`'s font check fails here: it would reach its own matcher with no context and raise mid-run instead of naming the corpus. A new row with no `SOLO_WINDOWS` entry also fails here."""
     rule, window = SOLO_WINDOWS[shape_name]
     if sv.SHAPES[shape_name].font_backed:
         with pytest.raises(SystemExit, match="carries no fonts/before.otf"):
@@ -7281,10 +7281,10 @@ def test_the_memo_key_moves_with_the_stamp_the_deltas_and_the_families_the_windo
 
 def test_the_memo_stamp_is_blind_to_the_rules_file(tmp_path):
     """The whole-store stamp does not read the rules file. Rules reach the memo through the header's roster and each entry's relevant ids. The roster changes when a rule is appended or a rule's match, except_left, or verdict is edited. It stays the same when a note is reworded or a match's keys are reordered."""
-    surface = _surface(tmp_path, [canonical("u-1")])
-    stamp, digests = sv.memo_environment(surface)
+    corpus = _corpus(tmp_path, [canonical("u-1")])
+    stamp, digests = sv.memo_environment(corpus)
     assert digests == {}
-    assert sv.memo_environment(surface) == (stamp, {})
+    assert sv.memo_environment(corpus) == (stamp, {})
     reworded = dict(RULE, note=RULE["note"] + " (reworded)")
     roster = sv.rules_roster([RULE], False)
     assert sv.rules_roster([reworded], False) == roster
@@ -7308,8 +7308,8 @@ def test_the_memo_stamp_holds_still_across_a_docstring_edit(tmp_path):
         (root / relative).parent.mkdir(parents=True, exist_ok=True)
         (root / relative).write_text(f'"""{relative}"""\n\nMODULE = {relative!r}\n', encoding="utf-8")
     (root / "uv.lock").write_text("lock\n", encoding="utf-8")
-    surface = _surface(tmp_path, [canonical("u-1")])
-    stamp, digests = sv.memo_environment(surface, root)
+    corpus = _corpus(tmp_path, [canonical("u-1")])
+    stamp, digests = sv.memo_environment(corpus, root)
     assert digests == {}
     unit_index = root / "rebuild" / "review" / "unit_index.py"
     assert unit_index.is_file()
@@ -7317,15 +7317,15 @@ def test_the_memo_stamp_holds_still_across_a_docstring_edit(tmp_path):
         '"""The unit index, reworded."""\n\n\nMODULE = "rebuild/review/unit_index.py"  # noted\n',
         encoding="utf-8",
     )
-    assert sv.memo_environment(surface, root) == (stamp, {})
+    assert sv.memo_environment(corpus, root) == (stamp, {})
     unit_index.write_text('"""The unit index, reworded."""\n\nMODULE = "edited"\n', encoding="utf-8")
-    assert sv.memo_environment(surface, root) != (stamp, {})
+    assert sv.memo_environment(corpus, root) != (stamp, {})
 
 
-def test_the_memo_stamp_reads_the_fonts_when_the_surface_carries_them(tmp_path, slide_fonts):
-    """With fonts beside the surface, the stamp includes the before font's content digest and the after font's family-independent remainder, and the per-family digests the keys use are returned for every family the after font draws."""
-    bare = _surface(tmp_path / "bare", [founding_window()])
-    with_fonts = _surface(tmp_path / "fonts", [founding_window()], fonts=slide_fonts)
+def test_the_memo_stamp_reads_the_fonts_when_the_corpus_carries_them(tmp_path, slide_fonts):
+    """With fonts beside the corpus, the stamp includes the before font's content digest and the after font's family-independent remainder, and the per-family digests the keys use are returned for every family the after font draws."""
+    bare = _corpus(tmp_path / "bare", [founding_window()])
+    with_fonts = _corpus(tmp_path / "fonts", [founding_window()], fonts=slide_fonts)
     bare_stamp, bare_digests = sv.memo_environment(bare)
     font_stamp, font_digests = sv.memo_environment(with_fonts)
     assert bare_stamp != font_stamp
@@ -7438,8 +7438,8 @@ def test_a_decision_survives_the_memo_round_trip(tmp_path):
     assert list(reopened.stored.rules) == [SLIDE_RULE["id"], COMPOSED_EXT_RULE["id"], RULE["id"]]
 
 
-def test_the_memo_written_back_is_bounded_to_the_surface_and_keeps_what_it_did_not_read(tmp_path):
-    """The memo written back holds one entry per keyed unit on the surface the run was given. An entry for a unit no longer on the surface is dropped. An entry for a unit still on it that the run did not read is kept, because an `--open-only` run decides only the open units."""
+def test_the_memo_written_back_is_bounded_to_the_corpus_and_keeps_what_it_did_not_read(tmp_path):
+    """The memo written back holds one entry per keyed unit on the corpus the run was given. An entry for a unit no longer on the corpus is dropped. An entry for a unit still on it that the run did not read is kept, because an `--open-only` run decides only the open units."""
     path = tmp_path / "memo.ndjson.gz"
     stays, leaves = _keyed_unit("s-1", content_key="s" * 64), _keyed_unit("l-1", content_key="l" * 64)
     memo = sv.Memo(path, "env", {})
@@ -7471,7 +7471,7 @@ def test_fresh_memo_needs_a_memo(tmp_path, monkeypatch):
 
 
 def test_main_serves_the_second_run_from_the_memo_and_reports_it(tmp_path, monkeypatch, capsys):
-    """Runs the bare tool with `--memo` twice. The first run computes and stores, the second run over the same surface and rules serves every stamped unit, and both write the same fills and the same report apart from the `memo:` line."""
+    """Runs the bare tool with `--memo` twice. The first run computes and stores, the second run over the same corpus and rules serves every stamped unit, and both write the same fills and the same report apart from the `memo:` line."""
     units = [_keyed_unit("k-1"), _keyed_unit("k-2", content_key="e" * 64), canonical("u-3")]
     memo = tmp_path / "memo.ndjson.gz"
     cold = _run_main(tmp_path / "cold", monkeypatch, units, [], extra=("--memo", str(memo)))
@@ -7759,20 +7759,20 @@ def test_a_run_under_moved_rules_carries_no_entry_it_never_read(tmp_path):
     assert set(sv.Memo.open(path, "env", {}).entries) == {memo.key_for(asked)}
 
 
-def _human_units(surface):
+def _human_units(corpus):
     return [
         unit
-        for unit in sv.load_human_units(surface)[0]
+        for unit in sv.load_human_units(corpus)[0]
         if not unit.get("no_verdict") and unit.get("batch") is not None and unit.get("render_groups") == 1
     ]
 
 
-def _mini_rules(surface, path):
+def _mini_rules(corpus, path):
     """The checked-in rules, whose composed reading credits windows of the mini bundle, plus one ink-delta rule for the digest the bundle's human units carry most often, so the run also writes single-rule fills."""
     from collections import Counter
 
     digests = Counter(
-        digest for unit in _human_units(surface) for digest in (unit.get("ink_deltas") or {}).values()
+        digest for unit in _human_units(corpus) for digest in (unit.get("ink_deltas") or {}).values()
     )
     mini_rule = {
         "id": "mini-bundle-ink-delta",
@@ -7783,16 +7783,16 @@ def _mini_rules(surface, path):
     return _write_rules(path, sv.load_rules(sv.RULES) + [mini_rule])
 
 
-def _run_over_mini(tmp_path, monkeypatch, surface, rules, verdicts, extra, writes=True):
-    """Runs the CLI over the mini surface and returns its exit code and the fills file's bytes. With `writes` off (the targeted run's form), the run gets no --out, the test checks that it wrote nothing, and the bytes are None."""
-    stamp = json.loads((surface / "manifest.json").read_text())["generated_at"]
+def _run_over_mini(tmp_path, monkeypatch, corpus, rules, verdicts, extra, writes=True):
+    """Runs the CLI over the mini corpus and returns its exit code and the fills file's bytes. With `writes` off (the targeted run's form), the run gets no --out, the test checks that it wrote nothing, and the bytes are None."""
+    stamp = json.loads((corpus / "manifest.json").read_text())["generated_at"]
     tmp_path.mkdir(parents=True, exist_ok=True)
     verdicts_path = tmp_path / "verdicts.json"
     verdicts_path.write_text(
         json.dumps({"format": "ams-review-verdicts/1", "manifest_generated_at": stamp, "verdicts": verdicts})
     )
     out = tmp_path / "out.json"
-    argv = [str(verdicts_path), "--surface", str(surface), "--rules", str(rules), *extra]
+    argv = [str(verdicts_path), "--corpus", str(corpus), "--rules", str(rules), *extra]
     if writes:
         argv += ["--out", str(out)]
     monkeypatch.setattr(sys, "argv", ["standing_verdicts.py", *argv])
@@ -7804,11 +7804,11 @@ def _run_over_mini(tmp_path, monkeypatch, surface, rules, verdicts, extra, write
 
 
 def test_the_mini_bundle_reaches_a_composed_line_and_the_bundle_local_rule(
-    tmp_path, monkeypatch, capsys, mini_surface
+    tmp_path, monkeypatch, capsys, mini_corpus
 ):
     """Over a blank store, the mini-bundle run writes both kinds of fill: one credited by a composed reading and one written by a single rule's own line. The byte-identity tests below depend on this, because a memo that served either kind wrongly would then show a difference."""
-    rules = _mini_rules(mini_surface, tmp_path / "rules.yaml")
-    _code, fills = _run_over_mini(tmp_path, monkeypatch, mini_surface, rules, [], ())
+    rules = _mini_rules(mini_corpus, tmp_path / "rules.yaml")
+    _code, fills = _run_over_mini(tmp_path, monkeypatch, mini_corpus, rules, [], ())
     capsys.readouterr()
     assert fills is not None
     notes = [record["note"] for record in json.loads(fills)["verdicts"]]
@@ -7817,11 +7817,11 @@ def test_the_mini_bundle_reaches_a_composed_line_and_the_bundle_local_rule(
 
 
 @pytest.mark.parametrize("form", [(), ("--open-only", "--require-reach")])
-def test_the_memo_serves_the_mini_bundle_byte_for_byte(tmp_path, monkeypatch, capsys, mini_surface, form):
+def test_the_memo_serves_the_mini_bundle_byte_for_byte(tmp_path, monkeypatch, capsys, mini_corpus, form):
     """The memo changes only the run time. Over a real build of the frozen mini bundle, under the checked-in rules and one bundle-local ink-delta rule, with a store holding a reject and an approve, the fills file, the exit code, and every report line are byte-identical across four runs: no memo, a cold run that writes one, a warm run served entirely from it, and a `--fresh-memo` run that ignores and rewrites it. The warm run's `memo:` line shows it computed nothing. Both the bare form and the verdict update's `--open-only --require-reach` form are checked, and the latter's rollup reads the same decisions the narrowed pass made."""
-    rules = _mini_rules(mini_surface, tmp_path / "rules.yaml")
-    stamp = json.loads((mini_surface / "manifest.json").read_text())["generated_at"]
-    human = [unit["id"] for unit in _human_units(mini_surface)]
+    rules = _mini_rules(mini_corpus, tmp_path / "rules.yaml")
+    stamp = json.loads((mini_corpus / "manifest.json").read_text())["generated_at"]
+    human = [unit["id"] for unit in _human_units(mini_corpus)]
     verdicts = [
         {"unit": human[0], "verdict": "reject", "note": "", "at": stamp},
         {"unit": human[-1], "verdict": "approve", "note": "", "at": stamp},
@@ -7835,7 +7835,7 @@ def test_the_memo_serves_the_mini_bundle_byte_for_byte(tmp_path, monkeypatch, ca
         ("fresh", ("--memo", str(memo), "--fresh-memo")),
     ):
         code, fills = _run_over_mini(
-            tmp_path / label, monkeypatch, mini_surface, rules, verdicts, form + extra
+            tmp_path / label, monkeypatch, mini_corpus, rules, verdicts, form + extra
         )
         lines = capsys.readouterr().out.splitlines()
         report = tuple(line for line in lines if not line.startswith("  memo:"))
@@ -7854,11 +7854,11 @@ def test_the_memo_serves_the_mini_bundle_byte_for_byte(tmp_path, monkeypatch, ca
 
 @pytest.mark.parametrize("form", [(), ("--open-only", "--require-reach")])
 def test_a_rules_edit_recomputes_only_the_units_the_edit_can_reach(
-    tmp_path, monkeypatch, capsys, mini_surface, form
+    tmp_path, monkeypatch, capsys, mini_corpus, form
 ):
     """Over a real build of the frozen mini bundle, under the checked-in rules and the bundle-local ink-delta rule. With every note reworded, a warm run computes nothing and writes the same fills, exit code, and report lines as a run with no memo under the reworded rules, and every fill uses the new wording. With one composable rule appended, a warm run computes only the human units the appended rule has a candidate position in, and matches a run with no memo under the appended rules byte for byte. The appended rule is a copy of a checked-in rule that has candidates here, so the walk's refusal of two rules claiming one position changes the fills of every window it reaches. Both the bare form and the verdict update's form are checked."""
-    seeded = sv.load_rules(_mini_rules(mini_surface, tmp_path / "seed.yaml"))
-    human = _human_units(mini_surface)
+    seeded = sv.load_rules(_mini_rules(mini_corpus, tmp_path / "seed.yaml"))
+    human = _human_units(mini_corpus)
     reworded = [dict(rule, note=rule["note"] + " (reworded)") for rule in seeded]
     twin = next(
         json.loads(json.dumps(rule))
@@ -7886,7 +7886,7 @@ def test_a_rules_edit_recomputes_only_the_units_the_edit_can_reach(
         ("appended-bare", "appended", ()),
     ):
         code, fills = _run_over_mini(
-            tmp_path / label, monkeypatch, mini_surface, paths[rules], [], form + extra
+            tmp_path / label, monkeypatch, mini_corpus, paths[rules], [], form + extra
         )
         lines = capsys.readouterr().out.splitlines()
         report = tuple(line for line in lines if not line.startswith("  memo:"))
@@ -7910,11 +7910,11 @@ def test_a_rules_edit_recomputes_only_the_units_the_edit_can_reach(
 
 
 @pytest.mark.parametrize("form", [(), ("--open-only", "--require-reach")])
-def test_a_pooled_refill_is_the_serial_pass_byte_for_byte(tmp_path, monkeypatch, capsys, mini_surface, form):
+def test_a_pooled_refill_is_the_serial_pass_byte_for_byte(tmp_path, monkeypatch, capsys, mini_corpus, form):
     """The pool changes only the run time, checked the same way as the memo. Over the frozen mini bundle, a cold run that refills its memo across a spawn pool of two writes the same fills, prints the same report and `memo:` line, and leaves the same memo bytes as the cold serial run, in both the bare form and the verdict update's form. The test lowers the threshold so the bundle's misses start a pool, and shrinks the chunk so the pool gets many tasks. The parent's own `evaluate` fails for the pooled run, so every decision it counted came from a worker, whose spawned interpreter imports the module afresh without the patch. It is the only test in this file that starts a real multiprocessing pool, which the closure recorder marks unclosable, so it runs on every narrowed contracts-lane run."""
-    rules = _mini_rules(mini_surface, tmp_path / "rules.yaml")
-    stamp = json.loads((mini_surface / "manifest.json").read_text())["generated_at"]
-    human = [unit["id"] for unit in _human_units(mini_surface)]
+    rules = _mini_rules(mini_corpus, tmp_path / "rules.yaml")
+    stamp = json.loads((mini_corpus / "manifest.json").read_text())["generated_at"]
+    human = [unit["id"] for unit in _human_units(mini_corpus)]
     verdicts = [
         {"unit": human[0], "verdict": "reject", "note": "", "at": stamp},
         {"unit": human[-1], "verdict": "approve", "note": "", "at": stamp},
@@ -7929,7 +7929,7 @@ def test_a_pooled_refill_is_the_serial_pass_byte_for_byte(tmp_path, monkeypatch,
                 sv.Decider, "evaluate", lambda self, unit: pytest.fail(f"the parent evaluated {unit['id']}")
             )
         code, fills = _run_over_mini(
-            tmp_path / label, monkeypatch, mini_surface, rules, verdicts, form + ("--memo", str(memo), *extra)
+            tmp_path / label, monkeypatch, mini_corpus, rules, verdicts, form + ("--memo", str(memo), *extra)
         )
         runs[label] = (code, fills, tuple(capsys.readouterr().out.splitlines()), memo.read_bytes())
     assert runs["serial"] == runs["pooled"]
@@ -8139,12 +8139,12 @@ def test_the_alignment_cache_answers_per_unit_object_and_releases():
     assert sv._letter_for_letter(aligned) is True
 
 
-def test_a_rules_lines_never_name_a_unit_outside_its_name_grain_candidates(tmp_path, mini_surface):
+def test_a_rules_lines_never_name_a_unit_outside_its_name_grain_candidates(tmp_path, mini_corpus):
     """The targeted run depends on this. Over the frozen mini bundle, under the checked-in rules and the bundle-local ink-delta rule, every unit a rule's own matcher accepts or holds, and every unit a composed reading credits it at, is one `_reachable` admits for that rule. So a run over only the admitted units sees everything the whole domain would put on the rule's lines. The test also checks that the narrowing removes units: some rule with a reach admits fewer units than the domain holds."""
-    rules = sv.load_rules(_mini_rules(mini_surface, tmp_path / "rules.yaml"))
-    context = sv.SlideContext(mini_surface / "fonts" / "before.otf", mini_surface / "fonts" / "after.otf")
+    rules = sv.load_rules(_mini_rules(mini_corpus, tmp_path / "rules.yaml"))
+    context = sv.SlideContext(mini_corpus / "fonts" / "before.otf", mini_corpus / "fonts" / "after.otf")
     decide = sv.Decider(rules, context).decide
-    units = _human_units(mini_surface)
+    units = _human_units(mini_corpus)
     named = {rule["id"]: set() for rule in rules}
     for unit in units:
         decision = decide(unit)
@@ -8186,17 +8186,17 @@ def _lines_about(lines, rule_id):
 
 
 def test_a_targeted_run_prints_a_rules_lines_byte_identical_to_the_whole_domain(
-    tmp_path, monkeypatch, capsys, mini_surface
+    tmp_path, monkeypatch, capsys, mini_corpus
 ):
     """Over a real build of the frozen mini bundle, with a store holding a reject and an approve, each rule the whole-domain rollup shows reaching anything, and the first rule that reached nothing, gets a targeted run. Each targeted run exits cleanly, writes nothing, evaluates no more units than the domain holds (fewer for at least one rule), and prints the rule's own line, the composed lines crediting it, its rollup line, its reached-nothing line, its tripwire fragments, and its explain block as a whole-domain run with the same `--explain` prints them. `--explain` takes one rule, so the whole domain runs once per rule."""
-    rules = _mini_rules(mini_surface, tmp_path / "rules.yaml")
-    stamp = json.loads((mini_surface / "manifest.json").read_text())["generated_at"]
-    human = [unit["id"] for unit in _human_units(mini_surface)]
+    rules = _mini_rules(mini_corpus, tmp_path / "rules.yaml")
+    stamp = json.loads((mini_corpus / "manifest.json").read_text())["generated_at"]
+    human = [unit["id"] for unit in _human_units(mini_corpus)]
     verdicts = [
         {"unit": human[0], "verdict": "reject", "note": "", "at": stamp},
         {"unit": human[-1], "verdict": "approve", "note": "", "at": stamp},
     ]
-    code, _fills = _run_over_mini(tmp_path / "whole", monkeypatch, mini_surface, rules, verdicts, ())
+    code, _fills = _run_over_mini(tmp_path / "whole", monkeypatch, mini_corpus, rules, verdicts, ())
     whole = capsys.readouterr().out.splitlines()
     assert code == 0
     rollups = [ROLLUP_LINE.match(line) for line in whole]
@@ -8206,14 +8206,14 @@ def test_a_targeted_run_prints_a_rules_lines_byte_identical_to_the_whole_domain(
     narrowed = []
     for rule_id in [*reached, unreached[0]]:
         code, _fills = _run_over_mini(
-            tmp_path / "whole" / rule_id, monkeypatch, mini_surface, rules, verdicts, ("--explain", rule_id)
+            tmp_path / "whole" / rule_id, monkeypatch, mini_corpus, rules, verdicts, ("--explain", rule_id)
         )
         whole = capsys.readouterr().out.splitlines()
         assert code == 0
         code, fills = _run_over_mini(
             tmp_path / rule_id,
             monkeypatch,
-            mini_surface,
+            mini_corpus,
             rules,
             verdicts,
             ("--explain", rule_id, "--targeted"),
@@ -8279,7 +8279,7 @@ def test_a_listed_unit_gets_its_decision_line_and_moves_no_line_of_the_rules(tmp
         f"  listed u-1 (blank): a candidate of {rule_id}; matched by {rule_id}",
         f"  listed u-2 (blank): a candidate of {rule_id}; held by except_left {rule_id}",
         f"  listed u-4 (blank): not a candidate of {rule_id}; no rule speaks for it",
-        "  listed u-9: not a human unit on this surface",
+        "  listed u-9: not a human unit on this corpus",
     ]
     assert bare[0] == (
         f"  targeted at {rule_id}: 2 of 3 human units evaluated — the rule's name-grain candidates plus "
@@ -8338,10 +8338,10 @@ def test_the_memo_stamp_holds_still_across_a_version_bump(tmp_path, slide_fonts)
     from fontTools.ttLib import TTFont
 
     root = _stamp_root(tmp_path, _MEMO_LOCK)
-    surface = _surface(tmp_path / "surface", [founding_window()], fonts=slide_fonts)
-    stamp, digests = sv.memo_environment(surface, root)
+    corpus = _corpus(tmp_path / "corpus", [founding_window()], fonts=slide_fonts)
+    stamp, digests = sv.memo_environment(corpus, root)
     assert "qsSee" in digests
-    before = surface / "fonts" / "before.otf"
+    before = corpus / "fonts" / "before.otf"
     original = before.read_bytes()
 
     font = TTFont(str(before))
@@ -8353,12 +8353,12 @@ def test_the_memo_stamp_holds_still_across_a_version_bump(tmp_path, slide_fonts)
     (root / "uv.lock").write_text(
         _MEMO_LOCK.replace('version = "16.0.0"', 'version = "16.1.0"'), encoding="utf-8"
     )
-    assert sv.memo_environment(surface, root) == (stamp, digests)
+    assert sv.memo_environment(corpus, root) == (stamp, digests)
 
     (root / "uv.lock").write_text(
         _MEMO_LOCK.replace('version = "0.50.2"', 'version = "0.51.0"'), encoding="utf-8"
     )
-    assert sv.memo_environment(surface, root)[0] != stamp
+    assert sv.memo_environment(corpus, root)[0] != stamp
     (root / "uv.lock").write_text(_MEMO_LOCK, encoding="utf-8")
 
     font = TTFont(str(before))
@@ -8366,7 +8366,7 @@ def test_the_memo_stamp_holds_still_across_a_version_bump(tmp_path, slide_fonts)
     name = sorted(metrics)[0]
     metrics[name] = (metrics[name][0] + 10, metrics[name][1])
     font.save(str(before))
-    assert sv.memo_environment(surface, root)[0] != stamp
+    assert sv.memo_environment(corpus, root)[0] != stamp
 
 
 @pytest.mark.parametrize(
@@ -8374,7 +8374,7 @@ def test_the_memo_stamp_holds_still_across_a_version_bump(tmp_path, slide_fonts)
 )
 def test_one_shot_source_preserves_reports_fills_and_cold_warm_memos(tmp_path, monkeypatch, capsys, flags):
     units = _pile(6)
-    surface = _surface(tmp_path, units)
+    corpus = _corpus(tmp_path, units)
     rules = _write_rules(tmp_path / "rules.yaml", [RULE])
     verdicts = tmp_path / "verdicts.json"
     verdicts.write_text(
@@ -8387,11 +8387,11 @@ def test_one_shot_source_preserves_reports_fills_and_cold_warm_memos(tmp_path, m
     )
     out = tmp_path / "out.json"
     memo = tmp_path / "memo.ndjson.gz"
-    monkeypatch.setattr(sv, "memo_environment", lambda surface: ("fixture", {}))
+    monkeypatch.setattr(sv, "memo_environment", lambda corpus: ("fixture", {}))
     argv = [
         str(verdicts),
-        "--surface",
-        str(surface),
+        "--corpus",
+        str(corpus),
         "--rules",
         str(rules),
         "--out",
@@ -8449,18 +8449,18 @@ def test_prefill_releases_streamed_records_and_bounds_pool_waves(tmp_path, monke
 
 def test_missing_delta_stream_writes_neither_fills_nor_memo(tmp_path, monkeypatch):
     units = [tea_i("u-1")]
-    surface = _surface(tmp_path, units)
+    corpus = _corpus(tmp_path, units)
     rules = _write_rules(tmp_path / "rules.yaml", [EXT_RULE, COMPOSED_EXT_RULE])
     verdicts = tmp_path / "verdicts.json"
     verdicts.write_text(json.dumps({"manifest_generated_at": STAMP, "verdicts": []}))
     out, memo = tmp_path / "out.json", tmp_path / "memo.gz"
-    monkeypatch.setattr(sv, "memo_environment", lambda surface: ("fixture", {}))
+    monkeypatch.setattr(sv, "memo_environment", lambda corpus: ("fixture", {}))
     with pytest.raises(SystemExit, match="predates"):
         sv.main(
             [
                 str(verdicts),
-                "--surface",
-                str(surface),
+                "--corpus",
+                str(corpus),
                 "--rules",
                 str(rules),
                 "--out",

@@ -1,18 +1,18 @@
-"""Explain why a review-surface unit still needs a verdict, in the terms the standing approvals use, so the next standing rule is written from evidence: for each named unit, print both grains side by side. The recorded grain is the before glyphs and after cells with their seams. The rendered grain is each font's pieces with their placement, own-frame origin and cell count, and a one-line reading of the change: "same shape" with the placement move, "redrawn" with the cell counts, "inkless", or ink appearing or vanishing. Then print what each checked-in rule makes of the unit (matches, held by except_left, or nothing), whether the composed reading credits any rules and whether that credit reaches the two-event threshold, and how many human units have exactly this unit's ink-delta digests and how they were verdicted. That last tally often shows that the user has already decided the change.
+"""Explain why a review-corpus unit still needs a verdict, in the terms the standing approvals use, so the next standing rule is written from evidence: for each named unit, print both grains side by side. The recorded grain is the before glyphs and after cells with their seams. The rendered grain is each font's pieces with their placement, own-frame origin and cell count, and a one-line reading of the change: "same shape" with the placement move, "redrawn" with the cell counts, "inkless", or ink appearing or vanishing. Then print what each checked-in rule makes of the unit (matches, held by except_left, or nothing), whether the composed reading credits any rules and whether that credit reaches the two-event threshold, and how many human units have exactly this unit's ink-delta digests and how they were verdicted. That last tally often shows that the user has already decided the change.
 
 `--extension-cells PIVOT TOKEN SEAM` lists the pivot and follower cells a new extension-dropped rule has to name. It enumerates every window where a PIVOT glyph carrying TOKEN exits at SEAM on both sides and settles into a cell without the named extension or with a shorter one, or into a cell carrying the named contraction. TOKEN is an `ex-ext-N` on the before glyph, or an `ex-con-N` on the after cell whose before glyph carried no exit extension. Each row gives the pivot cell, the follower's family, the follower cell, and the verdict tally.
 
 `--retarget-cells PIVOT BEFORE_SEAM FOLLOWER AFTER_SEAM` is the same survey for a join-retargeted or join-created rule: every window where a PIVOT glyph's seam into FOLLOWER changes from BEFORE_SEAM to AFTER_SEAM.
 
-`--survey BEFORE_GLYPH` (or `--survey BEFORE_GLYPH AFTER_CELL`) is the enumeration needed before writing a rule in a form-naming shape (redrawn, ink-gain, entry-contracted, entry-extension-dropped, stub-dropped, slide) or in the join-dropped shape. It lists every human unit whose window has a before glyph under that prefix, grouped by the before form and the after cell it settles into, then by the family on its left with the seam change into it, the seam change out of it, and the follower's family and cell. Each group has its verdict tally. It reads the index only and shapes nothing, so it costs only the surface load. Windows whose sides do not line up letter for letter cannot be placed, and the survey prints how many there are.
+`--survey BEFORE_GLYPH` (or `--survey BEFORE_GLYPH AFTER_CELL`) is the enumeration needed before writing a rule in a form-naming shape (redrawn, ink-gain, entry-contracted, entry-extension-dropped, stub-dropped, slide) or in the join-dropped shape. It lists every human unit whose window has a before glyph under that prefix, grouped by the before form and the after cell it settles into, then by the family on its left with the seam change into it, the seam change out of it, and the follower's family and cell. Each group has its verdict tally. It reads the index only and shapes nothing, so it costs only the corpus load. Windows whose sides do not line up letter for letter cannot be placed, and the survey prints how many there are.
 
 `--coverage RULE_ID` reruns the enumeration for an existing rule's shape and reports what it reaches that the rule does not name, each value with its verdict tally. `COVERAGE_SHAPES` lists the shapes that have an enumeration. The cell-naming shapes use their pair enumeration, built from the rule's before-side fields with everything else the rule names dropped, except the before forms the rule declines, which belong to a companion rule's survey. The form-naming shapes use the survey over the rule's family, dropping each named list in turn while keeping the others, because nothing else on the before side limits a redraw at the name grain. The report lists pivot forms, follower families and follower cells, or before forms, after forms in the after font's naming (`_cell_glyph_name`) and, for entry-contracted, left families. The ligature shape names no forms and the ink-delta shape names digests, so neither has an enumeration, and the tool says so. The report is a list of candidates: a value is added to a rule only after its own recorded decision has been found.
 
 `--find TEXT` maps a notation back to unit ids. It is a plain substring match over every human unit's notation, blanks first, capped because one letter pair can match thousands of units. `--blank-only` and `--limit N` narrow it. The notation's grammar is defined by `parse_expect` in test/test_shaping.py, and this tool does not parse it.
 
-`--shapes` prints the symptom-to-shape menu, generated from the standing approvals' SHAPES table, so a new shape appears in the menu when it is added to the table. A run that describes no unit and lists nothing prints the menu too. Every list of pivot cells, followers or follower cells is printed in code-point order, the order the rules file and the skill are written in. The tool writes nothing to the surface or the store.
+`--shapes` prints the symptom-to-shape menu, generated from the standing approvals' SHAPES table, so a new shape appears in the menu when it is added to the table. A run that describes no unit and lists nothing prints the menu too. Every list of pivot cells, followers or follower cells is printed in code-point order, the order the rules file and the skill are written in. The tool writes nothing to the corpus or the store.
 
-`--daemon auto|always|never` and `--socket PATH` decide which process loads the surface. When a standing daemon answers at the socket and holds this surface, it runs this same `main` over the objects it holds, and the output is byte-identical to an in-process run. `rebuild/tools/standing_daemon.py` documents what the daemon holds and when it declines. Otherwise the surface loads in this process as the same projection the daemon holds: the human records streamed by `iter_human_units` and projected onto `standing_daemon.UNIT_FIELDS`, with no set of the surface's unit ids. `always` exits instead of loading, `never` does not ask the daemon, a bare `--shapes` never asks, and a caller that passes `main` its own `units` or `context` is never served.
+`--daemon auto|always|never` and `--socket PATH` decide which process loads the corpus. When a standing daemon answers at the socket and holds this corpus, it runs this same `main` over the objects it holds, and the output is byte-identical to an in-process run. `rebuild/tools/standing_daemon.py` documents what the daemon holds and when it declines. Otherwise the corpus loads in this process as the same projection the daemon holds: the human records streamed by `iter_human_units` and projected onto `standing_daemon.UNIT_FIELDS`, with no set of the corpus's unit ids. `always` exits instead of loading, `never` does not ask the daemon, a bare `--shapes` never asks, and a caller that passes `main` its own `units` or `context` is never served.
 """
 
 import argparse
@@ -36,7 +36,7 @@ from rebuild.tools import standing_verdicts as sv  # noqa: E402
 from rebuild.tools.review_docket import latest_verdicts  # noqa: E402
 from rebuild.validation.classify import PIXEL_SIZE  # noqa: E402
 
-SURFACE = ROOT / "rebuild/out/review"
+CORPUS = ROOT / "rebuild/out/review"
 VERDICTS = ROOT / "verdicts-autosave.json"
 PS_NAMES = ROOT / "postscript_glyph_names.yaml"
 UNNAMED_CODEPOINT = 0x110000
@@ -44,9 +44,9 @@ UNKNOWN_VERDICT = "UNKNOWN(stale-stamp)"
 FIND_LIMIT = 20
 EDGE = "—"
 NO_FONTS = (
-    "this surface carries no fonts/before.otf + fonts/after.otf, so nothing below is read at the rendered "
+    "this corpus carries no fonts/before.otf + fonts/after.otf, so nothing below is read at the rendered "
     "grain: no piece placements, no own-frame origins, no cell counts, no reading of what moved, and no "
-    "composed line — rebuild the surface (make review-cycle) to get them"
+    "composed line — rebuild the corpus (make review-cycle) to get them"
 )
 DOCKET_NOTE = (
     "  a docket, not an instruction to widen: each form, follower and cell above joins the rule only once "
@@ -69,7 +69,7 @@ def _codepoint_key(token):
 
 
 def _cell_glyph_name(cell):
-    """Return the after font's name for the glyph a review-surface cell settles into: rune, stance, `en-yN` and `ex-yN` for the entry and exit it carries, then its adjustments. A rule's `match.after.pivots` is written in these names. This applies the formula of `cell_label` in rebuild/pipeline/settle.py to the cell string, mapping heights through `HEIGHT_Y` so that no loaded spec is needed."""
+    """Return the after font's name for the glyph a review-corpus cell settles into: rune, stance, `en-yN` and `ex-yN` for the entry and exit it carries, then its adjustments. A rule's `match.after.pivots` is written in these names. This applies the formula of `cell_label` in rebuild/pipeline/settle.py to the cell string, mapping heights through `HEIGHT_Y` so that no loaded spec is needed."""
     rune, stance, entry, exit_, _adjustments = sv._cell_parts(cell)
     parts = [rune, stance]
     if entry != "None":
@@ -81,7 +81,7 @@ def _cell_glyph_name(cell):
 
 
 class Blankness(NamedTuple):
-    """What the verdicts file says about this surface: the latest record per unit, and whether the file is stamped for another manifest. A file stamped for another manifest says nothing about this surface, so every verdict reads as `UNKNOWN_VERDICT` instead of BLANK."""
+    """What the verdicts file says about this corpus: the latest record per unit, and whether the file is stamped for another manifest. A file stamped for another manifest says nothing about this corpus, so every verdict reads as `UNKNOWN_VERDICT` instead of BLANK."""
 
     records: dict
     stale: bool
@@ -202,7 +202,7 @@ def _describe(unit, rules, context, blankness, families):
     key = frozenset(deltas.values())
     if key:
         tally = collections.Counter(blankness.of(sibling["id"]) for sibling in families.get(key, []))
-        print(f"  same deltas across the surface: {sum(tally.values())} human units — {dict(tally)}")
+        print(f"  same deltas across the corpus: {sum(tally.values())} human units — {dict(tally)}")
     print()
 
 
@@ -551,7 +551,7 @@ def main(argv=None, *, units=None, context=None):
     parser = argparse.ArgumentParser(description=(__doc__ or "").split(":")[0] + ".")
     parser.add_argument("units", nargs="*", help="unit ids to explain (u-3mJ7kPq2Xw9)")
     parser.add_argument("--verdicts", default=str(VERDICTS), help="the verdicts file that defines blankness")
-    parser.add_argument("--surface", default=str(SURFACE))
+    parser.add_argument("--corpus", "--surface", default=str(CORPUS))
     parser.add_argument("--rules", default=str(sv.RULES))
     parser.add_argument(
         "--extension-cells",
@@ -599,13 +599,13 @@ def main(argv=None, *, units=None, context=None):
         _shapes()
         return 0
     if units is None and context is None:
-        served = standing_client.ask("probe", argv, args.surface, mode=args.daemon, socket_path=args.socket)
+        served = standing_client.ask("probe", argv, args.corpus, mode=args.daemon, socket_path=args.socket)
         if served is not None:
             return standing_client.relay(served)
     if args.shapes:
         _shapes()
-    surface = pathlib.Path(args.surface)
-    manifest = json.loads((surface / "manifest.json").read_text())
+    corpus = pathlib.Path(args.corpus)
+    manifest = json.loads((corpus / "manifest.json").read_text())
     verdicts = pathlib.Path(args.verdicts)
     records = {}
     stale = False
@@ -617,11 +617,11 @@ def main(argv=None, *, units=None, context=None):
             stale = True
             print(
                 f"{verdicts.name} is stamped for another manifest, so it can answer nothing about this "
-                f"surface: every verdict below reads {UNKNOWN_VERDICT} rather than BLANK"
+                f"corpus: every verdict below reads {UNKNOWN_VERDICT} rather than BLANK"
             )
     blankness = Blankness(records, stale)
     rules = sv.load_rules(pathlib.Path(args.rules))
-    human = _human(iter_human_units(surface, fields=standing_daemon.UNIT_FIELDS) if units is None else units)
+    human = _human(iter_human_units(corpus, fields=standing_daemon.UNIT_FIELDS) if units is None else units)
     listed = False
     if args.extension_cells:
         _extension_cells(human, blankness, *args.extension_cells)
@@ -640,7 +640,7 @@ def main(argv=None, *, units=None, context=None):
         listed = True
     described = 0
     if args.units:
-        fonts = surface / "fonts" / "before.otf", surface / "fonts" / "after.otf"
+        fonts = corpus / "fonts" / "before.otf", corpus / "fonts" / "after.otf"
         if context is None:
             if all(font.is_file() for font in fonts):
                 context = sv.SlideContext(*fonts)
@@ -658,7 +658,7 @@ def main(argv=None, *, units=None, context=None):
                 wanted.discard(unit["id"])
                 described += 1
         for missing in sorted(wanted):
-            print(f"{missing}: not a human unit on this surface (machine-approved, exempt, or unknown)")
+            print(f"{missing}: not a human unit on this corpus (machine-approved, exempt, or unknown)")
     if not args.shapes and not (described or listed):
         _shapes()
     return 0

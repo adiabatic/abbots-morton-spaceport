@@ -1,4 +1,4 @@
-"""Tests for rebuild/tools/probe.py, which settles windows through `explain_many` (the Rust-backed batch path the explain CLI and the review surface use) and reads baseline rows by scanning the subset table only as far as the last wanted window."""
+"""Tests for rebuild/tools/probe.py, which settles windows through `explain_many` (the Rust-backed batch path the explain CLI and the review corpus use) and reads baseline rows by scanning the subset table only as far as the last wanted window."""
 
 import gzip
 from pathlib import Path

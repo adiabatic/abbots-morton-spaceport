@@ -1,4 +1,4 @@
-"""Unit enrichment for the review surface (rebuild/REVIEW-PLAN.md §2.2): letter-name notation, old seams from the §13.1 baseline subsets, the settle and explain results (new seams, extensions, eliminations, explain text), divergent positions computed against the alias map, and highlight x-ranges in font units. The judged pair and the secondary seams are placed on positions whose ink differs when there are any, so a position that only renames a glyph stays in the divergent positions without moving them. The highlight x-ranges come from kern-neutral shaping of both fonts, matching the app's `font-kerning: none` rendering, because the baseline subset rows were extracted with the old font's kerning on."""
+"""Unit enrichment for the review corpus (rebuild/REVIEW-PLAN.md §2.2): letter-name notation, old seams from the §13.1 baseline subsets, the settle and explain results (new seams, extensions, eliminations, explain text), divergent positions computed against the alias map, and highlight x-ranges in font units. The judged pair and the secondary seams are placed on positions whose ink differs when there are any, so a position that only renames a glyph stays in the divergent positions without moving them. The highlight x-ranges come from kern-neutral shaping of both fonts, matching the app's `font-kerning: none` rendering, because the baseline subset rows were extracted with the old font's kerning on."""
 
 from __future__ import annotations
 
@@ -675,7 +675,7 @@ def _secondary_pairs(
 
 @dataclass(frozen=True)
 class SeamHomeUnit:
-    """The fields of an `EnrichedUnit` that the secondary-home search reads, as a small picklable record without the trace, the explain text, or the highlight rects. Surface workers return these to the parent, which runs the search over the whole corpus."""
+    """The fields of an `EnrichedUnit` that the secondary-home search reads, as a small picklable record without the trace, the explain text, or the highlight rects. Corpus workers return these to the parent, which runs the search over the whole corpus."""
 
     unit_id: str
     codepoint_values: tuple[int, ...]

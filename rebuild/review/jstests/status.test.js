@@ -4,7 +4,7 @@ import { bannerModel, remedyCommand } from '../static/status.js';
 
 function checks(overrides = {}) {
   return {
-    surface: { level: 'ok', detail: 'surface present', remedy: null },
+    corpus: { level: 'ok', detail: 'corpus present', remedy: null },
     freshness: { level: 'ok', detail: 'all components fresh', remedy: null, components: {} },
     gates: { level: 'ok', detail: 'gates green', remedy: null },
     verdict_store: { level: 'ok', detail: 'store readable', remedy: null },
@@ -17,7 +17,7 @@ function checks(overrides = {}) {
 function withChecks(checkOverrides = {}, top = {}) {
   return {
     ready: true,
-    surface: { dir: 'surface', generated_at: 'gen-1', repo_head: 'head-1' },
+    corpus: { dir: 'corpus', generated_at: 'gen-1', repo_head: 'head-1' },
     checks: checks(checkOverrides),
     ...top,
   };
@@ -43,26 +43,26 @@ test('an error field folds the server message into the text', () => {
 });
 
 test('a payload without checks is unavailable', () => {
-  const model = bannerModel({ ready: true, surface: { generated_at: 'gen-1' } }, 'gen-1');
+  const model = bannerModel({ ready: true, corpus: { generated_at: 'gen-1' } }, 'gen-1');
   assert.equal(model.level, 'error');
   assert.equal(model.text, 'Status unavailable');
 });
 
-test('a surface rebuilt since the page loaded is stale', () => {
-  const model = bannerModel(withChecks({}, { surface: { dir: 's', generated_at: 'gen-2', repo_head: 'h' } }), 'gen-1');
+test('a corpus rebuilt since the page loaded is stale', () => {
+  const model = bannerModel(withChecks({}, { corpus: { dir: 's', generated_at: 'gen-2', repo_head: 'h' } }), 'gen-1');
   assert.equal(model.level, 'stale');
-  assert.equal(model.text, 'Surface rebuilt since this page loaded');
+  assert.equal(model.text, 'Corpus rebuilt since this page loaded');
   assert.equal(model.remedy, 'reload the page');
   assert.equal(model.command, null);
 });
 
-test('a surface check failure is stale and carries its own detail and remedy', () => {
+test('a corpus check failure is stale and carries its own detail and remedy', () => {
   const model = bannerModel(
-    withChecks({ surface: { level: 'fail', detail: 'surface dir missing', remedy: 'run make review-build' } }),
+    withChecks({ corpus: { level: 'fail', detail: 'corpus dir missing', remedy: 'run make review-build' } }),
     'gen-1',
   );
   assert.equal(model.level, 'stale');
-  assert.equal(model.text, 'surface dir missing');
+  assert.equal(model.text, 'corpus dir missing');
   assert.equal(model.remedy, 'run make review-build');
 });
 
@@ -71,7 +71,7 @@ test('a command remedy is surfaced for copying; a prose remedy is not', () => {
     withChecks({
       freshness: {
         level: 'fail',
-        detail: 'The build inputs changed since the surface was generated: rune sources.',
+        detail: 'The build inputs changed since the corpus was generated: rune sources.',
         remedy: 'make artifact-cycle',
         components: {},
       },
@@ -159,7 +159,7 @@ test('a frontier warning is picked up after the four blocking checks pass', () =
   assert.equal(model.remedy, null);
 });
 
-test('an all-clear surface is ready with the blank count', () => {
+test('an all-clear corpus is ready with the blank count', () => {
   const model = bannerModel(withChecks({ blanks: { level: 'ok', detail: '484 blanks', count: 484 } }), 'gen-1');
   assert.equal(model.level, 'ready');
   assert.equal(model.text, 'Ready — 484 blanks left');
@@ -167,14 +167,14 @@ test('an all-clear surface is ready with the blank count', () => {
   assert.equal(model.command, null);
 });
 
-test('a ready surface with an unknown blank count omits the number', () => {
+test('a ready corpus with an unknown blank count omits the number', () => {
   const model = bannerModel(withChecks({ blanks: { level: 'ok', detail: 'blanks unknown', count: null } }), 'gen-1');
   assert.equal(model.level, 'ready');
   assert.equal(model.text, 'Ready');
   assert.equal(model.remedy, null);
 });
 
-test('with no page stamp to compare against, a fresh surface is still ready', () => {
+test('with no page stamp to compare against, a fresh corpus is still ready', () => {
   const model = bannerModel(withChecks(), undefined);
   assert.equal(model.level, 'ready');
   assert.equal(model.text, 'Ready — 3 blanks left');

@@ -2,9 +2,9 @@
 
 Several fan-out widths are the machine's memory divided by a measured per-unit peak, such as what one pytest worker or one kernel configuration holds. Each peak is a checked-in constant, and `UNITS` lists the ones this module checks. A memory saving or a heavier fixture can move a real peak away from its constant without failing any test. A constant that is too low shows up as a machine in swap, and one that is too high holds a pool to a fraction of the width it has room for. The measurements that catch this are already recorded on every run: each xdist controller's per-worker peaks, and the peak RSS the cycle records for every step it spawns. This module compares those measurements with the constants. It builds nothing and imports none of the code whose constants it checks.
 
-It reads measurements only from the cycle-timings journal. A `kind:"pool"` record gives one observation per worker, because the unit is one worker. A named `kind:"step"` record gives its `peak_rss_bytes`, which is the largest single process in the step's tree, because `peak_rss.reap_peak_rss_bytes` takes the max over the tree instead of the sum. That reading measures one unit only for some steps. For `run_m1` the widest process is the table-build child, which the kernel-build row checks, and for `surface-build` it is the parent, which the surface-parent row checks. It does not measure one unit for `gate:make-test`, whose tree also holds `make all` and `uv run pyright` beside the pool. Each `UNITS` entry states which sources count for it and why.
+It reads measurements only from the cycle-timings journal. A `kind:"pool"` record gives one observation per worker, because the unit is one worker. A named `kind:"step"` record gives its `peak_rss_bytes`, which is the largest single process in the step's tree, because `peak_rss.reap_peak_rss_bytes` takes the max over the tree instead of the sum. That reading measures one unit only for some steps. For `run_m1` the widest process is the table-build child, which the kernel-build row checks, and for `corpus-build` it is the parent, which the corpus-parent row checks. It does not measure one unit for `gate:make-test`, whose tree also holds `make all` and `uv run pyright` beside the pool. Each `UNITS` entry states which sources count for it and why.
 
-Constants are read from their source files with `ast`, never imported. pytest loads every conftest under the module name `conftest`, so from under `rebuild/` a plain `import conftest` gets the wrong file, and `import rebuild.conftest` would execute a second copy of a file pytest has already loaded and installed its lane-audit hook from. `ast` executes nothing, and it keeps this tool from importing pytest or inheriting that file's `sys.path` edits. The width clauses read their other inputs the same way, so each prints the width its pool actually takes: the surface rows read the jobs cap and each other's constant, and the conform-belt row reads its cap, the acceptance-configuration count, from the lengths of the configuration tuples in `rebuild/pipeline/conform.py` (`_acceptance_config_count`), along with the surface constants its second width needs. The kernel row's width is narrowed by the configuration count and the cores in `run_m1._table_build_threads`, which this module does not compute, so that clause prints the memory arithmetic and names the narrowing in words.
+Constants are read from their source files with `ast`, never imported. pytest loads every conftest under the module name `conftest`, so from under `rebuild/` a plain `import conftest` gets the wrong file, and `import rebuild.conftest` would execute a second copy of a file pytest has already loaded and installed its lane-audit hook from. `ast` executes nothing, and it keeps this tool from importing pytest or inheriting that file's `sys.path` edits. The width clauses read their other inputs the same way, so each prints the width its pool actually takes: the corpus rows read the jobs cap and each other's constant, and the conform-belt row reads its cap, the acceptance-configuration count, from the lengths of the configuration tuples in `rebuild/pipeline/conform.py` (`_acceptance_config_count`), along with the corpus constants its second width needs. The kernel row's width is narrowed by the configuration count and the cores in `run_m1._table_build_threads`, which this module does not compute, so that clause prints the memory arithmetic and names the narrowing in words.
 
 A peak above its constant means the constant is out of date. It does not mean an artifact is wrong: the cost is a pool of the wrong width, so the cycle does not fail on it. `--check` exits 1 for an overrun and 2 when the tool itself fails, because the artifact cycle reports an overrun on 1 and an informational line on any other nonzero code, and a crash reported as an overrun would report a measurement nobody took. After an overrun the cycle runs `--moved`, which compares each checked constant's value in the working tree with its value at `HEAD` and prints the ones that differ, so the cycle can say which constants have already been re-seeded. The fix is to re-seed the constant from the newer measurement; committing it accepts the new value, as committing `rebuild/review-census-pins.json` accepts the census. The tolerance defaults to zero because each constant is already rounded up above its measured peaks, as its comment says: an estimate that is too low puts the machine into swap, while one that is too high only narrows a pool. A peak that reaches the constant has used all of that headroom. `--tolerance` is for a survey with `--host all`, not for relaxing the default.
 
@@ -31,10 +31,10 @@ from rebuild.tools.peak_rss import format_gb
 
 ROOT = Path(__file__).resolve().parents[2]
 
-SURFACE_SOURCE = "rebuild/tools/artifact_cycle.py"
-SURFACE_CAP_NAME = "SURFACE_JOBS_CAP"
-SURFACE_PARENT_NAME = "SURFACE_PARENT_BYTES"
-SURFACE_WORKER_NAME = "SURFACE_WORKER_BYTES"
+CORPUS_SOURCE = "rebuild/tools/artifact_cycle.py"
+CORPUS_CAP_NAME = "CORPUS_JOBS_CAP"
+CORPUS_PARENT_NAME = "CORPUS_PARENT_BYTES"
+CORPUS_WORKER_NAME = "CORPUS_WORKER_BYTES"
 STANDING_FILL_PARENT_NAME = "STANDING_FILL_PARENT_BYTES"
 STANDING_FILL_WORKER_NAME = "STANDING_FILL_WORKER_BYTES"
 ORACLE_SHARD_NAME = "ORACLE_SHARD_BYTES"
@@ -77,7 +77,7 @@ UNITS: tuple[Unit, ...] = (
         pool_units=("rebuild-contracts",),
         step_names=(),
         step_caveat="",
-        note="The rebuild suite's width is a count of cores — a hand run takes every core this process may actually run on, and the cycle hands it the cores the surface build's parent and pool leave (`artifact_cycle.contracts_pool_width`) — and nothing divides the box by a per-worker cost to reach either: no test in it reads a live build artifact, so no worker holds a working set worth bounding, and there is nothing here to calibrate. The observations are collected and reported anyway, so that if the suite ever grows a memory-derived width the figure to seed it with is already on the record rather than a measurement someone still has to go and take.",
+        note="The rebuild suite's width is a count of cores — a hand run takes every core this process may actually run on, and the cycle hands it the cores the corpus build's parent and pool leave (`artifact_cycle.contracts_pool_width`) — and nothing divides the box by a per-worker cost to reach either: no test in it reads a live build artifact, so no worker holds a working set worth bounding, and there is nothing here to calibrate. The observations are collected and reported anyway, so that if the suite ever grows a memory-derived width the figure to seed it with is already on the record rather than a measurement someone still has to go and take.",
     ),
     Unit(
         name="kernel-build",
@@ -89,19 +89,19 @@ UNITS: tuple[Unit, ...] = (
         note="The direct measurement is one build-tables over every settlement configuration under /usr/bin/time -l with --cache-census, which is what to reach for before re-seeding either constant; this row is the cheap standing watch beside it rather than a replacement for it.",
     ),
     Unit(
-        name="surface-parent",
-        constant="SURFACE_PARENT_BYTES",
-        source=SURFACE_SOURCE,
+        name="corpus-parent",
+        constant="CORPUS_PARENT_BYTES",
+        source=CORPUS_SOURCE,
         pool_units=(),
-        step_names=("surface-build",),
-        step_caveat="reap_peak_rss_bytes maxes over the child's whole tree rather than summing it, and under this step that tree is one parent holding the whole corpus beside workers each holding one batch of it, so the max reads the parent — which is this unit exactly. What the same reading cannot see is the sum: parent plus every worker is the build's real footprint, and no step peak has ever been able to report it, which is why the divisor beside this row is measured by the surface pool records instead of here.",
-        note="A row whose constant is subtracted from the box rather than divided into it: the parent's pile moves with the width only through the one batch reply in flight per worker, so it is surface_job_budget's co-resident term. Phase 2 streams into the shards, so the pile is the workload table, the packed unit store, the checker's identity dict and the pre-merge snapshot rather than every fragment, but it is still corpus-shaped — every migrated letter moves it — so expect to re-seed it per batch. The constant's comment in rebuild/tools/artifact_cycle.py argues which phase holds the step's peak and which readings seeded it: the load boundary makes the mark on a full-fresh pass and on a served one alike, the row columns and both ink-signature tables standing beside the workload table there, and the served plan folds each store record as it is parsed, so the two kinds of pass read within a few hundredths of a gigabyte of each other. A cycle-driven pass of either kind files a row here, a hand build files pool records alone and its step peak is read off its `[t] review.build` lines, and the figure to re-seed from is whichever of a full-fresh and a served pass reads higher on a pair taken with nothing edited between them.",
+        step_names=("corpus-build",),
+        step_caveat="reap_peak_rss_bytes maxes over the child's whole tree rather than summing it, and under this step that tree is one parent holding the whole corpus beside workers each holding one batch of it, so the max reads the parent — which is this unit exactly. What the same reading cannot see is the sum: parent plus every worker is the build's real footprint, and no step peak has ever been able to report it, which is why the divisor beside this row is measured by the corpus pool records instead of here.",
+        note="A row whose constant is subtracted from the box rather than divided into it: the parent's pile moves with the width only through the one batch reply in flight per worker, so it is corpus_job_budget's co-resident term. Phase 2 streams into the shards, so the pile is the workload table, the packed unit store, the checker's identity dict and the pre-merge snapshot rather than every fragment, but it is still corpus-shaped — every migrated letter moves it — so expect to re-seed it per batch. The constant's comment in rebuild/tools/artifact_cycle.py argues which phase holds the step's peak and which readings seeded it: the load boundary makes the mark on a full-fresh pass and on a served one alike, the row columns and both ink-signature tables standing beside the workload table there, and the served plan folds each store record as it is parsed, so the two kinds of pass read within a few hundredths of a gigabyte of each other. A cycle-driven pass of either kind files a row here, a hand build files pool records alone and its step peak is read off its `[t] review.build` lines, and the figure to re-seed from is whichever of a full-fresh and a served pass reads higher on a pair taken with nothing edited between them.",
     ),
     Unit(
-        name="surface-worker",
-        constant="SURFACE_WORKER_BYTES",
-        source=SURFACE_SOURCE,
-        pool_units=("surface",),
+        name="corpus-worker",
+        constant="CORPUS_WORKER_BYTES",
+        source=CORPUS_SOURCE,
+        pool_units=("corpus",),
         step_names=(),
         step_caveat="",
         note="These pool records come from rebuild/review/build.py's own runner rather than from a pytest controller — cycle_timings.record_pool is deliberately not a pytest entry point — and each supplies one observation per worker that answered. The row is legitimately quiet on a box the arithmetic has already narrowed to a single worker, because a serial build starts no pool to measure; a deliberate `--jobs N` hand run is what puts an observation on the record there, and the row's unverified-here line is the honest reading until one does.",
@@ -113,12 +113,12 @@ UNITS: tuple[Unit, ...] = (
         pool_units=("signature",),
         step_names=(),
         step_caveat="",
-        note="The surface build's ink-signature pool is cores-bound rather than memory-bound — `artifact_cycle.signature_job_budget` hands it the box's cores, less gate:make-test's two under a gated cycle, and divides nothing — because a signature worker holds one comparator over the two fonts and a resident set flat in the pile it shapes, so no constant prices it and there is nothing here to calibrate. The observations are collected and reported anyway, one per worker per pooled pass, each the worker's own peak carried home on its last chunk's reply, so that a figure exists if a width ever needs one — the rebuild-contracts row's position. The surface-build step peak is deliberately not admitted: that max reads the parent, which the surface-parent row prices, and it would read a build's footprint as a comparator's.",
+        note="The corpus build's ink-signature pool is cores-bound rather than memory-bound — `artifact_cycle.signature_job_budget` hands it the box's cores, less gate:make-test's two under a gated cycle, and divides nothing — because a signature worker holds one comparator over the two fonts and a resident set flat in the pile it shapes, so no constant prices it and there is nothing here to calibrate. The observations are collected and reported anyway, one per worker per pooled pass, each the worker's own peak carried home on its last chunk's reply, so that a figure exists if a width ever needs one — the rebuild-contracts row's position. The corpus-build step peak is deliberately not admitted: that max reads the parent, which the corpus-parent row prices, and it would read a build's footprint as a comparator's.",
     ),
     Unit(
         name="oracle-shard",
         constant=ORACLE_SHARD_NAME,
-        source=SURFACE_SOURCE,
+        source=CORPUS_SOURCE,
         pool_units=("oracle-shard",),
         step_names=(),
         step_caveat="",
@@ -127,7 +127,7 @@ UNITS: tuple[Unit, ...] = (
     Unit(
         name="conform-belt",
         constant=CONFORM_BELT_NAME,
-        source=SURFACE_SOURCE,
+        source=CORPUS_SOURCE,
         pool_units=("conform-belt",),
         step_names=(),
         step_caveat="",
@@ -136,11 +136,11 @@ UNITS: tuple[Unit, ...] = (
     Unit(
         name="standing-fill-parent",
         constant=STANDING_FILL_PARENT_NAME,
-        source=SURFACE_SOURCE,
+        source=CORPUS_SOURCE,
         pool_units=(),
         step_names=("verdict-update",),
         step_caveat="reap_peak_rss_bytes maxes over the child's whole tree rather than summing it. Under this step the tree includes the verdict update and any standing-fill refill workers, so the reading is a conservative parent/worker maximum, not an isolated parent measurement. No row prices the workers separately: the fill files no pool record, because the module that would file it is in the memo's code stamp and a cost reading there would drop the memo on every edit to it, so STANDING_FILL_WORKER_BYTES is seeded by hand at the chunk width, as its docstring says.",
-        note="This constant is standing_fill_jobs's co-resident parent term, subtracted from the box before dividing by the worker cost. The verdict update retains every surface id and a human id/echo/notation projection. Normal standing fills stream the human records, retain primed keys, decisions and memo entries, and spool pool misses to temporary gzipped storage; submission holds at most one wave of records, bounded by width times _STANDING_POOL_CHUNK. The complaint docket retains compact grouping projections from a separate stream. The parent grows with ids and decisions without holding the full human corpus, so its budget still needs checking as the alphabet migrates. Every verdict-update row reads against this constant, including passes that start no pool; a serial memo-drop pass evaluates the whole domain in the parent and can read higher than a pooled pass. Targeted authoring retains full records only for explicitly requested unit ids; the daemon holds its own resident surface outside this budget.",
+        note="This constant is standing_fill_jobs's co-resident parent term, subtracted from the box before dividing by the worker cost. The verdict update retains every corpus id and a human id/echo/notation projection. Normal standing fills stream the human records, retain primed keys, decisions and memo entries, and spool pool misses to temporary gzipped storage; submission holds at most one wave of records, bounded by width times _STANDING_POOL_CHUNK. The complaint docket retains compact grouping projections from a separate stream. The parent grows with ids and decisions without holding the full human corpus, so its budget still needs checking as the alphabet migrates. Every verdict-update row reads against this constant, including passes that start no pool; a serial memo-drop pass evaluates the whole domain in the parent and can read higher than a pooled pass. Targeted authoring retains full records only for explicitly requested unit ids; the daemon holds its own resident corpus outside this budget.",
     ),
 )
 
@@ -488,7 +488,7 @@ def _sources_line(row: UnitRow) -> str | None:
 def _width_clause(unit: Unit, constant_bytes: int, *, total_bytes: int, cores: int, root: Path) -> str:
     """Return the width this constant implies on the given machine, computed the way the code that sizes that pool computes it.
 
-    The font suite's pool takes the cores without dividing by its constant, so the clause prints the cores and, beside them, the width memory would allow. The kernel's delta wave divides by `DELTA_PEAK_BYTES` after subtracting `DEFAULT_MEMO_BYTES`, and `run_m1._table_build_threads` then caps it at the configuration count and the cores, which the clause states in words. The surface build subtracts its parent constant and divides by its worker constant, so neither surface row is the whole width alone and each reads the other's constant. The standing fill's parent is subtracted the same way before dividing by `STANDING_FILL_WORKER_BYTES`. The conform belt divides by its own constant, capped at the acceptance-configuration count and the cores, and prints two widths: with the build lane idle, and beside a surface build at the surface build's width. None of these widths subtracts gate:make-test's pool; the surface-worker and standing-fill clauses say so. Caps and sibling constants are read from `root`, like the constants, so a test can supply both the machine and the tree.
+    The font suite's pool takes the cores without dividing by its constant, so the clause prints the cores and, beside them, the width memory would allow. The kernel's delta wave divides by `DELTA_PEAK_BYTES` after subtracting `DEFAULT_MEMO_BYTES`, and `run_m1._table_build_threads` then caps it at the configuration count and the cores, which the clause states in words. The corpus build subtracts its parent constant and divides by its worker constant, so neither corpus row is the whole width alone and each reads the other's constant. The standing fill's parent is subtracted the same way before dividing by `STANDING_FILL_WORKER_BYTES`. The conform belt divides by its own constant, capped at the acceptance-configuration count and the cores, and prints two widths: with the build lane idle, and beside a corpus build at the corpus build's width. None of these widths subtracts gate:make-test's pool; the corpus-worker and standing-fill clauses say so. Caps and sibling constants are read from `root`, like the constants, so a test can supply both the machine and the tree.
     """
     if unit.name == "font-suite":
         allowed = memory_budget.describe_fit(constant_bytes, total_bytes=total_bytes)
@@ -498,41 +498,41 @@ def _width_clause(unit: Unit, constant_bytes: int, *, total_bytes: int, cores: i
         memo = _int_constant(root / KERNEL_SOURCE, KERNEL_MEMO_NAME)
         fit = memory_budget.describe_fit(delta, coresident_bytes=memo, total_bytes=total_bytes)
         return f"the whole table build is watched here and divides nothing; its delta wave runs {fit} ({KERNEL_DELTA_NAME} divided in, {KERNEL_MEMO_NAME} taken off first for default's memo), which run_m1.build_tables then narrows by the configurations there are to answer and the cores there are to answer them with"
-    if unit.name == "surface-parent":
-        worker = _int_constant(root / SURFACE_SOURCE, SURFACE_WORKER_NAME)
-        cap = min(_int_constant(root / SURFACE_SOURCE, SURFACE_CAP_NAME), cores)
+    if unit.name == "corpus-parent":
+        worker = _int_constant(root / CORPUS_SOURCE, CORPUS_WORKER_NAME)
+        cap = min(_int_constant(root / CORPUS_SOURCE, CORPUS_CAP_NAME), cores)
         allowed = memory_budget.describe_fit(
             worker, coresident_bytes=constant_bytes, cap=cap, total_bytes=total_bytes
         )
-        return f"the surface build's parent is subtracted from the box rather than divided into it; with it off, {allowed}"
-    if unit.name == "surface-worker":
-        parent = _int_constant(root / SURFACE_SOURCE, SURFACE_PARENT_NAME)
-        cap = min(_int_constant(root / SURFACE_SOURCE, SURFACE_CAP_NAME), cores)
+        return f"the corpus build's parent is subtracted from the box rather than divided into it; with it off, {allowed}"
+    if unit.name == "corpus-worker":
+        parent = _int_constant(root / CORPUS_SOURCE, CORPUS_PARENT_NAME)
+        cap = min(_int_constant(root / CORPUS_SOURCE, CORPUS_CAP_NAME), cores)
         fit = memory_budget.describe_fit(
             constant_bytes, coresident_bytes=parent, cap=cap, total_bytes=total_bytes
         )
         return f"{fit}; under a gated cycle gate:make-test's pool comes off the box before this division too, and two cores off the cap"
     if unit.name == "standing-fill-parent":
-        worker = _int_constant(root / SURFACE_SOURCE, STANDING_FILL_WORKER_NAME)
+        worker = _int_constant(root / CORPUS_SOURCE, STANDING_FILL_WORKER_NAME)
         allowed = memory_budget.describe_fit(
             worker, coresident_bytes=constant_bytes, cap=cores, total_bytes=total_bytes
         )
         return f"the verdict update's process, the refill pool's parent, is subtracted from the box rather than divided into it; with it off, the refill pool runs {allowed} ({STANDING_FILL_WORKER_NAME}, seeded by hand); under a gated cycle gate:make-test's pool comes off the box before this division too, and two cores off the cap"
     if unit.name == "conform-belt":
         cap = min(_acceptance_config_count(root / CONFORM_SOURCE), cores)
-        parent = _int_constant(root / SURFACE_SOURCE, SURFACE_PARENT_NAME)
-        worker = _int_constant(root / SURFACE_SOURCE, SURFACE_WORKER_NAME)
-        surface_width = memory_budget.how_many_fit(
+        parent = _int_constant(root / CORPUS_SOURCE, CORPUS_PARENT_NAME)
+        worker = _int_constant(root / CORPUS_SOURCE, CORPUS_WORKER_NAME)
+        corpus_width = memory_budget.how_many_fit(
             worker,
             coresident_bytes=parent,
-            cap=min(_int_constant(root / SURFACE_SOURCE, SURFACE_CAP_NAME), cores),
+            cap=min(_int_constant(root / CORPUS_SOURCE, CORPUS_CAP_NAME), cores),
             total_bytes=total_bytes,
         )
         idle = memory_budget.describe_fit(constant_bytes, cap=cap, total_bytes=total_bytes)
         beside = memory_budget.describe_fit(
-            constant_bytes, coresident_bytes=parent + surface_width * worker, cap=cap, total_bytes=total_bytes
+            constant_bytes, coresident_bytes=parent + corpus_width * worker, cap=cap, total_bytes=total_bytes
         )
-        return f"the belt runs {idle} with the build lane idle, and {beside} beside a surface build of its parent and {surface_width} workers"
+        return f"the belt runs {idle} with the build lane idle, and {beside} beside a corpus build of its parent and {corpus_width} workers"
     return memory_budget.describe_fit(constant_bytes, total_bytes=total_bytes)
 
 

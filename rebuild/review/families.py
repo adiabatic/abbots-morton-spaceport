@@ -1,4 +1,4 @@
-"""Group the UNMATCHED windows (joins the rebuild makes that the old font did not) into verdict families, so each family gets its own class and shard on the review surface. The grouping is for presentation only: it reads each unit's settled seams, changes no shaping, and writes no ledger predicate, and the oracle stays dirty until the families are adjudicated. `assign_family` returns a family for every UNMATCHED unit, with `unmatched-misc` as the catch-all.
+"""Group the UNMATCHED windows (joins the rebuild makes that the old font did not) into verdict families, so each family gets its own class and shard on the review corpus. The grouping is for presentation only: it reads each unit's settled seams, changes no shaping, and writes no ledger predicate, and the oracle stays dirty until the families are adjudicated. `assign_family` returns a family for every UNMATCHED unit, with `unmatched-misc` as the catch-all.
 
 Two things decide a family:
 

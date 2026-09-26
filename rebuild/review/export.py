@@ -43,7 +43,7 @@ TRIAGE_KEYS = (
 def _triage_projection(unit: dict, shard: str, *, batch: int | None = None) -> dict:
     """Return one shard unit narrowed to `TRIAGE_KEYS`, exiting with the key's name when the shard lacks one.
 
-    A missing key means the surface was built by a version whose unit shape this reader does not know. Reading it with `.get` would put a null in the triage YAML that looks like a real absence. `TRIAGE_KEYS` must list the keys the export reads and no others: an extra key fails on a surface that omits it, and an unlisted key the export reads becomes that silent null.
+    A missing key means the corpus was built by a version whose unit shape this reader does not know. Reading it with `.get` would put a null in the triage YAML that looks like a real absence. `TRIAGE_KEYS` must list the keys the export reads and no others: an extra key fails on a corpus that omits it, and an unlisted key the export reads becomes that silent null.
 
     Two kinds of key do not come from the fragment. `batch` comes from the manifest's triage index (`unit_index.slot_reader`) and is passed in, because a fragment carries no batch. `drafts`, which a slim fragment (`audit.slim_fragment`) omits, is read as null there, because the export never drafts from a machine-approved or exempt unit and only counts its verdicts.
 
@@ -54,7 +54,7 @@ def _triage_projection(unit: dict, shard: str, *, batch: int | None = None) -> d
     if missing:
         raise SystemExit(
             f"{shard}: unit {unit.get('id')} carries no {', '.join(missing)}; "
-            "the triage export reads that field, so this surface was built by a version this reader does not understand"
+            "the triage export reads that field, so this corpus was built by a version this reader does not understand"
         )
     return {
         key: batch if key == "batch" else unit.get(key) if key in omitted else unit[key]
@@ -63,7 +63,7 @@ def _triage_projection(unit: dict, shard: str, *, batch: int | None = None) -> d
 
 
 def load_units(review_dir: Path) -> tuple[dict, dict[str, dict]]:
-    """Return the manifest and every unit on the surface narrowed to `TRIAGE_KEYS`, with each unit's batch read from the manifest's triage index.
+    """Return the manifest and every unit on the corpus narrowed to `TRIAGE_KEYS`, with each unit's batch read from the manifest's triage index.
 
     The shards run to gigabytes and the export reads under a third of that (`explain` alone is two fifths, and nothing here reads it), so each part is released before the next is parsed and only the projection is kept.
     """

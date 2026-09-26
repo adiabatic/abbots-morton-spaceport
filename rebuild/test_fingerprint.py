@@ -193,7 +193,7 @@ def test_baselines_value_tracks_digests_content(tmp_path):
 
 
 def test_review_code_excludes_the_non_build_modules(tmp_path):
-    """The modules in `REVIEW_NON_BUILD_MODULES` never run in the surface build, so editing one must not change `review_code`."""
+    """The modules in `REVIEW_NON_BUILD_MODULES` never run in the corpus build, so editing one must not change `review_code`."""
     root = _fake_repo(tmp_path)
     for name in sorted(fingerprint.REVIEW_NON_BUILD_MODULES):
         assert root / "rebuild" / "review" / name not in fingerprint.review_code_paths(root)
@@ -291,7 +291,7 @@ def _allow_after(root, text):
 
 
 def test_blessing_a_contact_signature_moves_the_run_key_alone(tmp_path):
-    """The contact allow-list is in no fingerprint component and only in the run_m1 skip key. The defect gate is its only reader, so a signature change must re-run that gate without restamping the surface or dropping the review unit cache or the oracle row cache, whose stamps (`unit_cache.environment_stamp`, `oracle_cache.stamped_data_paths`) are built from `data_paths`."""
+    """The contact allow-list is in no fingerprint component and only in the run_m1 skip key. The defect gate is its only reader, so a signature change must re-run that gate without restamping the corpus or dropping the review unit cache or the oracle row cache, whose stamps (`unit_cache.environment_stamp`, `oracle_cache.stamped_data_paths`) are built from `data_paths`."""
     root = _fake_repo(tmp_path)
     before = _allow_after(root, ALLOW_LIST)
     assert root / fingerprint.CONTACT_ALLOW_LABEL not in fingerprint.data_paths(root)
@@ -498,7 +498,7 @@ def test_pipeline_code_covers_validation_and_the_kernel_and_isolates_edits(tmp_p
 
 
 def test_a_font_compile_tool_edit_moves_the_run_key_and_the_tables_stamp(tmp_path):
-    """compile_font passes the mini font to tools/build_font.py, which runs the glyph compiler, the IR, and the FEA emitter, so an edit to that tools/ closure changes M1.otf. It must move `pipeline_code` (and with it the Stage A record and the surface's stamp), the run_m1 skip key, and `tables_value` (and with it the conform sweep's check). The review unit cache's stamps use their own code lists (`unit_cache.surface_code_paths`, `unit_cache.signature_code_paths`), which leave the font compile out because neither the surface build nor the comparator runs it. The unit store's stamp still sees a tools/ edit through its draft-harness line, which hashes every tools/*.py."""
+    """compile_font passes the mini font to tools/build_font.py, which runs the glyph compiler, the IR, and the FEA emitter, so an edit to that tools/ closure changes M1.otf. It must move `pipeline_code` (and with it the Stage A record and the corpus's stamp), the run_m1 skip key, and `tables_value` (and with it the conform sweep's check). The review unit cache's stamps use their own code lists (`unit_cache.corpus_code_paths`, `unit_cache.signature_code_paths`), which leave the font compile out because neither the corpus build nor the comparator runs it. The unit store's stamp still sees a tools/ edit through its draft-harness line, which hashes every tools/*.py."""
     root = _fake_repo(tmp_path)
     for name in ("build_font.py", "glyph_compiler.py"):
         assert root / "tools" / name in fingerprint.pipeline_code_paths(root)
@@ -619,7 +619,7 @@ def test_refuse_prose_lines_name_the_family_and_the_record(tmp_path):
 
 
 def test_explain_prose_is_the_one_component_a_refuse_why_moves(tmp_path):
-    """Rewording a refusal moves only `explain_prose`, so it restamps the surface and leaves `data`, `baselines`, and `pipeline_code` unchanged, and with `data` the run_m1 skip key. Stage A never includes it, because run_m1 reads no refuse prose. A bitmap edit moves only `data`."""
+    """Rewording a refusal moves only `explain_prose`, so it restamps the corpus and leaves `data`, `baselines`, and `pipeline_code` unchanged, and with `data` the run_m1 skip key. Stage A never includes it, because run_m1 reads no refuse prose. A bitmap edit moves only `data`."""
     root = _fake_repo(tmp_path)
     (root / "glyph_data" / "runes" / "qsPea.yaml").write_text(PROSE_RUNE)
     before = fingerprint.compute_all(root)
@@ -678,7 +678,7 @@ def test_the_divergence_ledger_line_carries_the_prose_insensitive_digest(tmp_pat
 
 
 def test_wording_a_divergence_class_moves_the_explain_component_alone(tmp_path):
-    """The review build copies a class's `why` into the manifest's `classes[].why`, so the `why` is hashed into `explain_prose` alongside the refuse `why`s. Rewording a class moves only that component: `data`, `tables_value`, and the run_m1 skip key, which is built from `data_lines`, stay. The surface rebuild it causes is served from the unit cache, because no shard carries the text."""
+    """The review build copies a class's `why` into the manifest's `classes[].why`, so the `why` is hashed into `explain_prose` alongside the refuse `why`s. Rewording a class moves only that component: `data`, `tables_value`, and the run_m1 skip key, which is built from `data_lines`, stay. The corpus rebuild it causes is served from the unit cache, because no shard carries the text."""
     root = _fake_repo(tmp_path)
     (root / "glyph_data" / "runes" / "qsPea.yaml").write_text(PROSE_RUNE)
     before = _ledger_components(root, LEDGER)
@@ -697,7 +697,7 @@ def test_wording_a_divergence_class_moves_the_explain_component_alone(tmp_path):
 
 
 def test_retriaging_a_divergence_class_moves_the_data_component_and_not_the_tables_stamp(tmp_path):
-    """Flipping `no_verdict` changes which units the surface asks for a verdict on and which rows the audit counts as adjudicated, so it moves `data` and the run_m1 skip key. The ledger is in `NON_TABLE_DATA_LABELS`, so `tables_value` and `explain_prose` stay, and the cycle re-runs the comparison over the tables and font on disk."""
+    """Flipping `no_verdict` changes which units the corpus asks for a verdict on and which rows the audit counts as adjudicated, so it moves `data` and the run_m1 skip key. The ledger is in `NON_TABLE_DATA_LABELS`, so `tables_value` and `explain_prose` stay, and the cycle re-runs the comparison over the tables and font on disk."""
     root = _fake_repo(tmp_path)
     before = _ledger_components(root, LEDGER)
     before_tables = fingerprint.tables_value(root)
@@ -728,7 +728,7 @@ def test_ledger_prose_lines_name_the_class(tmp_path):
 
 
 def test_the_standing_approvals_reach_no_fingerprint_component(tmp_path):
-    """No component includes the standing approvals, so neither a reworded note nor a changed rule changes `compute_all`, and neither can restamp the surface or drop the review unit cache. A rule change moves `standing_approvals_digest`, which the rebuild-lane closure uses. The verdict-update key hashes the file raw, so a changed note moves that key too."""
+    """No component includes the standing approvals, so neither a reworded note nor a changed rule changes `compute_all`, and neither can restamp the corpus or drop the review unit cache. A rule change moves `standing_approvals_digest`, which the rebuild-lane closure uses. The verdict-update key hashes the file raw, so a changed note moves that key too."""
     root = _fake_repo(tmp_path)
     rules = root / fingerprint.STANDING_APPROVALS_LABEL
     rules.write_text(STANDING)
@@ -917,18 +917,18 @@ def test_moved_note_expands_a_changed_label_through_its_sub_diff():
 
 def test_an_environment_stamp_hashes_its_lines_and_carries_its_detail_outside_them():
     """`value` and `labels` depend only on `lines`, so a store that starts recording `detail` keeps its recorded value. `detail_labels` returns a label's detail map, or an empty map for a label without one."""
-    lines = ("format\tf/1", "surface_code\tabc", "data\tddd")
+    lines = ("format\tf/1", "corpus_code\tabc", "data\tddd")
     bare = fingerprint.EnvironmentStamp(lines=lines)
     detailed = fingerprint.EnvironmentStamp(
-        lines=lines, detail=(("surface_code", ("rebuild/review/ink.py\t1", "rebuild/review/build.py\t2")),)
+        lines=lines, detail=(("corpus_code", ("rebuild/review/ink.py\t1", "rebuild/review/build.py\t2")),)
     )
     assert detailed.value == bare.value == hashlib.sha256("\n".join(lines).encode()).hexdigest()
-    assert detailed.labels == bare.labels == {"format": "f/1", "surface_code": "abc", "data": "ddd"}
-    assert detailed.detail_labels("surface_code") == {
+    assert detailed.labels == bare.labels == {"format": "f/1", "corpus_code": "abc", "data": "ddd"}
+    assert detailed.detail_labels("corpus_code") == {
         "rebuild/review/ink.py": "1",
         "rebuild/review/build.py": "2",
     }
-    assert detailed.detail_labels("data") == {} == bare.detail_labels("surface_code")
+    assert detailed.detail_labels("data") == {} == bare.detail_labels("corpus_code")
 
 
 def _code_keyed(root):

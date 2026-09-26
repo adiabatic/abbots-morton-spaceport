@@ -1,4 +1,4 @@
-"""Tests for `rebuild.review.status.compute_status` and its helpers, which build the readiness dict that the review server's /status handler and the `verdict_ready` CLI render. Fixtures build a fake repo tree (surface manifest and small shards, cycle summary, autosave, repo-root verdicts files) and stub the fingerprint recompute, so no real build inputs are read."""
+"""Tests for `rebuild.review.status.compute_status` and its helpers, which build the readiness dict that the review server's /status handler and the `verdict_ready` CLI render. Fixtures build a fake repo tree (corpus manifest and small shards, cycle summary, autosave, repo-root verdicts files) and stub the fingerprint recompute, so no real build inputs are read."""
 
 import hashlib
 import json
@@ -79,7 +79,7 @@ def verdicts_doc(stamp, records):
     }
 
 
-def write_surface(
+def write_corpus(
     review_dir: Path,
     *,
     generated_at: str = STAMP,
@@ -90,7 +90,7 @@ def write_surface(
     after_font: str = "present",
     sidecars: bool = True,
 ) -> None:
-    """`after_font` sets how the manifest's after-font record relates to the `M1.otf` written beside it: "present" records that font's sha256, "moved" records the sha256 of different bytes (as after a `run_m1` that ran after the surface build), and "omit" writes no `fonts` block. `sidecars` writes the per-unit index and both app sidecars stamped for the manifest, as a finished build leaves them; a test that needs one missing deletes it."""
+    """`after_font` sets how the manifest's after-font record relates to the `M1.otf` written beside it: "present" records that font's sha256, "moved" records the sha256 of different bytes (as after a `run_m1` that ran after the corpus build), and "omit" writes no `fonts` block. `sidecars` writes the per-unit index and both app sidecars stamped for the manifest, as a finished build leaves them; a test that needs one missing deletes it."""
     manifest: dict[str, object] = {
         "format": "ams-review-manifest/2",
         "generated_at": generated_at,
@@ -149,7 +149,7 @@ def write_summary(
             "exit": exit_,
             "gates": gate_map,
             "carry_out": carry_out,
-            "surface": {"dir": "rebuild/out/review", "generated_at": generated_at, "inputs_fingerprint": fp},
+            "corpus": {"dir": "rebuild/out/review", "generated_at": generated_at, "inputs_fingerprint": fp},
         },
     )
 
@@ -173,7 +173,7 @@ def call(repo, **kwargs):
 
 
 def setup_green(repo):
-    write_surface(repo / "rebuild" / "out" / "review")
+    write_corpus(repo / "rebuild" / "out" / "review")
     write_summary(repo)
     write_autosave(repo)
 
@@ -181,15 +181,15 @@ def setup_green(repo):
 def test_manifest_missing(tmp_path):
     write_summary(tmp_path)
     result = call(tmp_path)
-    assert result["checks"]["surface"]["level"] == "fail"
-    assert result["checks"]["surface"]["remedy"] == "uv run python -m rebuild.review.build"
+    assert result["checks"]["corpus"]["level"] == "fail"
+    assert result["checks"]["corpus"]["remedy"] == "uv run python -m rebuild.review.build"
     assert result["checks"]["freshness"]["level"] == "fail"
     assert set(result["checks"]["freshness"]["components"].values()) == {"unknown"}
     assert result["ready"] is False
 
 
 def test_pre_fingerprint_manifest_fails_all_unknown(tmp_path):
-    write_surface(tmp_path / "rebuild" / "out" / "review", inputs_fp="omit")
+    write_corpus(tmp_path / "rebuild" / "out" / "review", inputs_fp="omit")
     write_summary(tmp_path)
     write_autosave(tmp_path)
     freshness = call(tmp_path)["checks"]["freshness"]
@@ -199,7 +199,7 @@ def test_pre_fingerprint_manifest_fails_all_unknown(tmp_path):
 
 
 def test_data_stale_fails_with_artifact_cycle_remedy(tmp_path):
-    write_surface(tmp_path / "rebuild" / "out" / "review", inputs_fp={**FP, "data": "OLD"})
+    write_corpus(tmp_path / "rebuild" / "out" / "review", inputs_fp={**FP, "data": "OLD"})
     write_summary(tmp_path, inputs_fp={**FP, "data": "OLD"})
     write_autosave(tmp_path)
     freshness = call(tmp_path)["checks"]["freshness"]
@@ -211,8 +211,8 @@ def test_data_stale_fails_with_artifact_cycle_remedy(tmp_path):
 
 
 def test_explain_prose_stale_fails_like_any_other_hard_component(tmp_path):
-    """A stale `explain_prose` fails, as every component except `static` does. The surface shows the refuse records' `why` in its explain text and the ledger classes' `why` as class rationales, so a surface stamped before a rewording shows text the runes or the ledger no longer contain."""
-    write_surface(tmp_path / "rebuild" / "out" / "review", inputs_fp={**FP, "explain_prose": "OLD"})
+    """A stale `explain_prose` fails, as every component except `static` does. The corpus shows the refuse records' `why` in its explain text and the ledger classes' `why` as class rationales, so a corpus stamped before a rewording shows text the runes or the ledger no longer contain."""
+    write_corpus(tmp_path / "rebuild" / "out" / "review", inputs_fp={**FP, "explain_prose": "OLD"})
     write_summary(tmp_path, inputs_fp={**FP, "explain_prose": "OLD"})
     write_autosave(tmp_path)
     freshness = call(tmp_path)["checks"]["freshness"]
@@ -224,8 +224,8 @@ def test_explain_prose_stale_fails_like_any_other_hard_component(tmp_path):
 
 
 def test_static_only_stale_warns_and_points_at_the_cycle(tmp_path):
-    """`static` is the only component whose staleness warns instead of failing. The remedy is the cycle, which copies the new assets over the served surface and keeps the server running; `make review-build` would rebuild every unit and leave the recorded cycle stamped for a surface that no longer exists."""
-    write_surface(tmp_path / "rebuild" / "out" / "review", inputs_fp={**FP, "static": "OLD"})
+    """`static` is the only component whose staleness warns instead of failing. The remedy is the cycle, which copies the new assets over the served corpus and keeps the server running; `make review-build` would rebuild every unit and leave the recorded cycle stamped for a corpus that no longer exists."""
+    write_corpus(tmp_path / "rebuild" / "out" / "review", inputs_fp={**FP, "static": "OLD"})
     write_summary(tmp_path, inputs_fp={**FP, "static": "OLD"})
     write_autosave(tmp_path)
     freshness = call(tmp_path)["checks"]["freshness"]
@@ -235,7 +235,7 @@ def test_static_only_stale_warns_and_points_at_the_cycle(tmp_path):
 
 
 def test_freshness_fails_when_the_after_font_moved(tmp_path):
-    """The fingerprint hashes M1.otf's inputs and the two site fonts but not M1.otf itself, so a `run_m1` after the surface build leaves every component fresh while the surface serves the previous build's letters. The build checks the manifest's after-font sha256 against the bytes it copies, so comparing that sha256 with the font on disk catches the change."""
+    """The fingerprint hashes M1.otf's inputs and the two site fonts but not M1.otf itself, so a `run_m1` after the corpus build leaves every component fresh while the corpus serves the previous build's letters. The build checks the manifest's after-font sha256 against the bytes it copies, so comparing that sha256 with the font on disk catches the change."""
     setup_green(tmp_path)
     (tmp_path / "rebuild" / "out" / "m1" / "M1.otf").write_bytes(OTHER_FONT_BYTES)
     result = call(tmp_path)
@@ -248,7 +248,7 @@ def test_freshness_fails_when_the_after_font_moved(tmp_path):
 
 
 def test_freshness_fails_when_a_sidecar_is_missing(tmp_path):
-    """The per-unit index and both app sidecars are written after the manifest and are not part of it. A build killed between the two, or a manifest rewritten without them, leaves a surface whose fingerprint reads fresh while the app loads files that describe another surface."""
+    """The per-unit index and both app sidecars are written after the manifest and are not part of it. A build killed between the two, or a manifest rewritten without them, leaves a corpus whose fingerprint reads fresh while the app loads files that describe another corpus."""
     setup_green(tmp_path)
     review_dir = tmp_path / "rebuild" / "out" / "review"
     unit_index.index_path(review_dir).unlink()
@@ -261,8 +261,8 @@ def test_freshness_fails_when_a_sidecar_is_missing(tmp_path):
 
 
 def test_freshness_fails_when_the_font_record_is_absent(tmp_path):
-    """A surface that records no after-font sha256 cannot be checked, and a surface that cannot be checked is not ready."""
-    write_surface(tmp_path / "rebuild" / "out" / "review", after_font="omit")
+    """A corpus that records no after-font sha256 cannot be checked, and a corpus that cannot be checked is not ready."""
+    write_corpus(tmp_path / "rebuild" / "out" / "review", after_font="omit")
     write_summary(tmp_path)
     write_autosave(tmp_path)
     result = call(tmp_path)
@@ -273,31 +273,42 @@ def test_freshness_fails_when_the_font_record_is_absent(tmp_path):
 
 
 def test_gates_summary_missing(tmp_path):
-    write_surface(tmp_path / "rebuild" / "out" / "review")
+    write_corpus(tmp_path / "rebuild" / "out" / "review")
     write_autosave(tmp_path)
     gates = call(tmp_path)["checks"]["gates"]
     assert gates["level"] == "fail"
     assert "no recorded" in gates["detail"].lower()
 
 
+def test_gates_reads_an_older_summarys_surface_block(tmp_path):
+    """Older cycle summaries name the corpus block `surface`; the gates check reads it as the corpus block."""
+    write_corpus(tmp_path / "rebuild" / "out" / "review")
+    write_summary(tmp_path)
+    path = tmp_path / "rebuild" / "out" / "cycle_summary.json"
+    summary = json.loads(path.read_text(encoding="utf-8"))
+    summary["surface"] = summary.pop("corpus")
+    path.write_text(json.dumps(summary), encoding="utf-8")
+    assert call(tmp_path)["checks"]["gates"]["level"] == "ok"
+
+
 def test_gates_stamp_mismatch(tmp_path):
-    write_surface(tmp_path / "rebuild" / "out" / "review")
+    write_corpus(tmp_path / "rebuild" / "out" / "review")
     write_summary(tmp_path, generated_at=OTHER_STAMP)
     gates = call(tmp_path)["checks"]["gates"]
     assert gates["level"] == "fail"
-    assert "different surface" in gates["detail"]
+    assert "different corpus" in gates["detail"]
 
 
 def test_gates_fingerprint_mismatch(tmp_path):
-    write_surface(tmp_path / "rebuild" / "out" / "review")
+    write_corpus(tmp_path / "rebuild" / "out" / "review")
     write_summary(tmp_path, inputs_fp={**FP, "data": "X"})
     gates = call(tmp_path)["checks"]["gates"]
     assert gates["level"] == "fail"
-    assert "different surface" in gates["detail"]
+    assert "different corpus" in gates["detail"]
 
 
 def test_gates_exit_failed(tmp_path):
-    write_surface(tmp_path / "rebuild" / "out" / "review")
+    write_corpus(tmp_path / "rebuild" / "out" / "review")
     write_summary(
         tmp_path,
         exit_="failed",
@@ -323,7 +334,7 @@ def _gate_map(**overrides):
 
 
 def test_gates_forced_skip_fails(tmp_path):
-    write_surface(tmp_path / "rebuild" / "out" / "review")
+    write_corpus(tmp_path / "rebuild" / "out" / "review")
     write_summary(
         tmp_path,
         gates=_gate_map(conform={"status": "skipped (--skip-conform)", "green": False, "skip": "forced"}),
@@ -335,7 +346,7 @@ def test_gates_forced_skip_fails(tmp_path):
 
 
 def test_gates_not_run_fails_as_unverified(tmp_path):
-    write_surface(tmp_path / "rebuild" / "out" / "review")
+    write_corpus(tmp_path / "rebuild" / "out" / "review")
     write_summary(
         tmp_path,
         gates={name: {"status": "not run", "green": False, "skip": None} for name in GATE_NAMES},
@@ -347,7 +358,7 @@ def test_gates_not_run_fails_as_unverified(tmp_path):
 
 
 def test_gates_proved_skip_is_ready(tmp_path):
-    write_surface(tmp_path / "rebuild" / "out" / "review")
+    write_corpus(tmp_path / "rebuild" / "out" / "review")
     write_summary(
         tmp_path,
         gates=_gate_map(
@@ -360,7 +371,7 @@ def test_gates_proved_skip_is_ready(tmp_path):
 
 
 def test_gates_real_failure_named_as_failing_not_unverified(tmp_path):
-    write_surface(tmp_path / "rebuild" / "out" / "review")
+    write_corpus(tmp_path / "rebuild" / "out" / "review")
     write_summary(
         tmp_path,
         gates=_gate_map(
@@ -375,7 +386,7 @@ def test_gates_real_failure_named_as_failing_not_unverified(tmp_path):
 
 def test_gates_an_unverified_conform_blocks_readiness(tmp_path):
     """The readiness check reads each gate entry's fields without special-casing any gate, so conform is evaluated like the others: a skip that is not proved blocks as unverified, a failure blocks as failing, and only a pass or a proved skip is ready."""
-    write_surface(tmp_path / "rebuild" / "out" / "review")
+    write_corpus(tmp_path / "rebuild" / "out" / "review")
     write_summary(
         tmp_path,
         gates=_gate_map(
@@ -412,7 +423,7 @@ def test_gates_an_unverified_conform_blocks_readiness(tmp_path):
 
 def test_gates_a_legacy_deferred_skip_reads_as_unverified(tmp_path):
     """Older cycle summaries can record a gate as `deferred`. A deferred gate did not run, so it reads as unverified like any other skip that is not proved, with `make artifact-cycle` as the remedy."""
-    write_surface(tmp_path / "rebuild" / "out" / "review")
+    write_corpus(tmp_path / "rebuild" / "out" / "review")
     write_summary(
         tmp_path,
         gates=_gate_map(
@@ -433,7 +444,7 @@ def test_gates_a_legacy_deferred_skip_reads_as_unverified(tmp_path):
 
 
 def test_gates_legacy_summary_without_skip_key_keeps_its_old_outcome(tmp_path):
-    write_surface(tmp_path / "rebuild" / "out" / "review")
+    write_corpus(tmp_path / "rebuild" / "out" / "review")
     write_summary(
         tmp_path,
         gates={
@@ -456,7 +467,7 @@ def test_gates_all_green_ok(tmp_path):
 
 
 def test_verdict_store_missing_warns_naming_carry_out(tmp_path):
-    write_surface(tmp_path / "rebuild" / "out" / "review")
+    write_corpus(tmp_path / "rebuild" / "out" / "review")
     write_summary(tmp_path, carry_out="rebuild/evidence/carried.json")
     store = call(tmp_path)["checks"]["verdict_store"]
     assert store["level"] == "warn"
@@ -465,7 +476,7 @@ def test_verdict_store_missing_warns_naming_carry_out(tmp_path):
 
 
 def test_verdict_store_mismatch_fails_naming_carry_out(tmp_path):
-    write_surface(tmp_path / "rebuild" / "out" / "review")
+    write_corpus(tmp_path / "rebuild" / "out" / "review")
     write_summary(tmp_path, carry_out="rebuild/evidence/carried.json")
     write_autosave(tmp_path, stamp=OTHER_STAMP)
     store = call(tmp_path)["checks"]["verdict_store"]
@@ -474,7 +485,7 @@ def test_verdict_store_mismatch_fails_naming_carry_out(tmp_path):
 
 
 def test_verdict_store_aligned_ok_reports_count(tmp_path):
-    write_surface(tmp_path / "rebuild" / "out" / "review")
+    write_corpus(tmp_path / "rebuild" / "out" / "review")
     write_summary(tmp_path)
     write_autosave(tmp_path, records=[verdict("u-1"), verdict("u-2", "skip"), verdict("u-3")])
     store = call(tmp_path)["checks"]["verdict_store"]
@@ -503,7 +514,7 @@ def test_frontier_most_effective_wins(tmp_path):
 
 
 def test_frontier_excludes_the_autosave(tmp_path):
-    write_surface(tmp_path / "rebuild" / "out" / "review")
+    write_corpus(tmp_path / "rebuild" / "out" / "review")
     write_summary(tmp_path)
     write_autosave(tmp_path, records=[verdict("u-1"), verdict("u-2"), verdict("u-3")])
     _write(tmp_path / "verdicts-export.json", verdicts_doc(STAMP, [verdict("u-1")]))
@@ -525,7 +536,7 @@ def test_frontier_filters_stale_stamped_file(tmp_path):
 
 
 def test_blanks_skip_counts_as_blank(tmp_path):
-    write_surface(tmp_path / "rebuild" / "out" / "review")
+    write_corpus(tmp_path / "rebuild" / "out" / "review")
     write_summary(tmp_path)
     write_autosave(tmp_path, records=[verdict("u-1"), verdict("u-2", "skip"), verdict("u-3")])
     blanks = call(tmp_path, human_ids=HUMAN_IDS)["checks"]["blanks"]
@@ -535,7 +546,7 @@ def test_blanks_skip_counts_as_blank(tmp_path):
 
 
 def test_blanks_aligned_happy_count_reads_manifest_without_shards(tmp_path):
-    write_surface(tmp_path / "rebuild" / "out" / "review", shards=False)
+    write_corpus(tmp_path / "rebuild" / "out" / "review", shards=False)
     write_summary(tmp_path)
     write_autosave(tmp_path, records=[verdict("u-1")])
     blanks = call(tmp_path)["checks"]["blanks"]
@@ -543,7 +554,7 @@ def test_blanks_aligned_happy_count_reads_manifest_without_shards(tmp_path):
 
 
 def test_blanks_falls_back_to_shards_for_a_legacy_manifest(tmp_path):
-    write_surface(tmp_path / "rebuild" / "out" / "review", human_ids=None)
+    write_corpus(tmp_path / "rebuild" / "out" / "review", human_ids=None)
     write_summary(tmp_path)
     write_autosave(tmp_path, records=[verdict("u-1")])
     blanks = call(tmp_path)["checks"]["blanks"]
@@ -551,7 +562,7 @@ def test_blanks_falls_back_to_shards_for_a_legacy_manifest(tmp_path):
 
 
 def test_blanks_null_when_no_aligned_autosave(tmp_path):
-    write_surface(tmp_path / "rebuild" / "out" / "review")
+    write_corpus(tmp_path / "rebuild" / "out" / "review")
     write_summary(tmp_path)
     blanks = call(tmp_path)["checks"]["blanks"]
     assert blanks["level"] == "ok"
@@ -562,14 +573,14 @@ def test_ready_only_in_full_green(tmp_path):
     setup_green(tmp_path)
     result = call(tmp_path)
     assert result["ready"] is True
-    for name in ("surface", "freshness", "gates", "verdict_store"):
+    for name in ("corpus", "freshness", "gates", "verdict_store"):
         assert result["checks"][name]["level"] == "ok"
-    assert result["surface"]["repo_head"] == "abc1234"
-    assert result["surface"]["generated_at"] == STAMP
+    assert result["corpus"]["repo_head"] == "abc1234"
+    assert result["corpus"]["generated_at"] == STAMP
 
 
 def test_data_stale_makes_not_ready(tmp_path):
-    write_surface(tmp_path / "rebuild" / "out" / "review", inputs_fp={**FP, "data": "OLD"})
+    write_corpus(tmp_path / "rebuild" / "out" / "review", inputs_fp={**FP, "data": "OLD"})
     write_summary(tmp_path, inputs_fp={**FP, "data": "OLD"})
     write_autosave(tmp_path)
     assert call(tmp_path)["ready"] is False
@@ -579,7 +590,7 @@ def test_never_raises_on_empty_review_dir(tmp_path):
     (tmp_path / "rebuild" / "out" / "review").mkdir(parents=True)
     result = call(tmp_path)
     assert result["ready"] is False
-    assert result["checks"]["surface"]["level"] == "fail"
+    assert result["checks"]["corpus"]["level"] == "fail"
     assert result["checks"]["blanks"]["count"] is None
 
 
@@ -869,7 +880,7 @@ def _reference_resolve_carry_source(repo_root, manifest_stamp, autosave_path):
     return {"path": path, "stamp": stamp, "count": count, "aligned": aligned}
 
 
-def _write_corpus(root):
+def _write_verdict_files(root):
     """Write verdicts files covering the cases the head read must handle, and return every stamp they use. Each edge-case file has a stamp of its own, so wrongly skipping or wrongly keeping it changes the frontier for that stamp. The autosave under `rebuild/evidence/` has the newest stamp, so wrongly keeping it would also change `resolve_carry_source`'s fallback."""
     evidence = root / "rebuild" / "evidence"
     write_autosave(root, records=_records(4))
@@ -961,7 +972,7 @@ def _write_corpus(root):
     ]
 
 
-def test_pick_frontier_parses_no_candidate_stamped_for_another_surface(tmp_path, monkeypatch):
+def test_pick_frontier_parses_no_candidate_stamped_for_another_corpus(tmp_path, monkeypatch):
     aligned = tmp_path / "verdicts-a.json"
     stash = tmp_path / "verdicts-autosave-2026-07-10T00.00.00Z.json"
     _write(aligned, verdicts_doc(STAMP, _records(2)))
@@ -983,7 +994,7 @@ def test_pick_frontier_parses_no_candidate_stamped_for_another_surface(tmp_path,
     assert parsed == [_digest(aligned)]
 
 
-def test_a_candidate_stamped_for_another_surface_and_malformed_past_its_stamp_is_skipped(tmp_path):
+def test_a_candidate_stamped_for_another_corpus_and_malformed_past_its_stamp_is_skipped(tmp_path):
     text = json.dumps(verdicts_doc(OTHER_STAMP, _records(3)))
     _write_raw(tmp_path / "verdicts-a-broken.json", text[: len(text) - 20])
     _write(tmp_path / "verdicts-b.json", verdicts_doc(STAMP, _records(1)))
@@ -1070,7 +1081,7 @@ def test_resolve_carry_source_falls_back_to_the_newest_stamp_on_a_tree_pick_fron
 def test_the_frontier_and_the_carry_source_answer_as_a_whole_parse_of_every_file_does(
     tmp_path, monkeypatch, head_bytes
 ):
-    stamps = [*_write_corpus(tmp_path), None, "no-such-stamp", 0]
+    stamps = [*_write_verdict_files(tmp_path), None, "no-such-stamp", 0]
     autosave = tmp_path / "verdicts-autosave.json"
     monkeypatch.setattr(status, "_HEAD_BYTES", head_bytes)
     monkeypatch.setattr(status, "_SETTLE_NS", -(10**18))
@@ -1277,7 +1288,7 @@ def test_the_memo_holds_only_the_last_walks_candidates(tmp_path, monkeypatch):
 
 
 def test_mismatched_empty_autosave_remedy_names_the_frontier(tmp_path):
-    write_surface(tmp_path / "rebuild" / "out" / "review")
+    write_corpus(tmp_path / "rebuild" / "out" / "review")
     write_summary(tmp_path)
     write_autosave(tmp_path, stamp=OTHER_STAMP, records=[])
     _write(
@@ -1291,7 +1302,7 @@ def test_mismatched_empty_autosave_remedy_names_the_frontier(tmp_path):
 
 
 def test_partially_null_fingerprint_says_unverifiable_not_changed(tmp_path):
-    write_surface(
+    write_corpus(
         tmp_path / "rebuild" / "out" / "review",
         inputs_fp={**FP, "data": None, "baselines": None, "pipeline_code": None},
     )
@@ -1350,8 +1361,8 @@ def test_readiness_adds_the_server_row_and_gates_ready_on_it(tmp_path):
     assert lines[-1] == f"READY - adjudicate at {verdict_ready.DOCKET_URL}"
 
 
-def test_readiness_without_the_server_row_answers_for_the_surface_alone(tmp_path):
-    """Under `make review-cycle` the Makefile recipe handles the server after the cycle, so the cycle calls `readiness` with `with_server=False`. There is no server row, and READY depends on the surface alone."""
+def test_readiness_without_the_server_row_answers_for_the_corpus_alone(tmp_path):
+    """Under `make review-cycle` the Makefile recipe handles the server after the cycle, so the cycle calls `readiness` with `with_server=False`. There is no server row, and READY depends on the corpus alone."""
     setup_green(tmp_path)
     result, ready = _readiness(tmp_path, with_server=False, listening=lambda: False)
     assert ready is True

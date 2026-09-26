@@ -664,7 +664,7 @@ impl EliminationStage {
     }
 }
 
-/// One candidate that did not survive enumeration, `settle.Elimination`. The description is a formatted message for people; `explain` and the review surface's explain view show it. The provenance is the authored record that eliminated the candidate, where there is one.
+/// One candidate that did not survive enumeration, `settle.Elimination`. The description is a formatted message for people; `explain` and the review corpus's explain view show it. The provenance is the authored record that eliminated the candidate, where there is one.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Elimination {
     pub stage: EliminationStage,
@@ -750,7 +750,7 @@ impl DecidedStage {
     }
 }
 
-/// How a window was decided, as opposed to what it settled into. This is the explain part of `settle.TransitionTrace`: the ranking every survivor was scored into, every eliminated candidate with the message saying why, and the runner-up. Only the explain CLI, the probe, and the review surface's explain panel read it; building the font does not.
+/// How a window was decided, as opposed to what it settled into. This is the explain part of `settle.TransitionTrace`: the ranking every survivor was scored into, every eliminated candidate with the message saying why, and the runner-up. Only the explain CLI, the probe, and the review corpus's explain panel read it; building the font does not.
 ///
 /// It is a separate type, boxed where a trace carries one, because the table fixpoint settles millions of windows and reads none of this. Building a ladder there would be a large allocation that nothing uses.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -767,7 +767,7 @@ static NO_LADDER: TraceLadder = TraceLadder {
     runner_up: None,
 };
 
-/// The full settlement result, `settle.TransitionTrace`: what the window settled into, plus the details of how it was decided that the table build, the explain CLI, and the review surface read. Notes are formatted strings: YAML pointers and short messages such as `prefer applied: <pointer>` and `unlocked by <feature>`.
+/// The full settlement result, `settle.TransitionTrace`: what the window settled into, plus the details of how it was decided that the table build, the explain CLI, and the review corpus read. Notes are formatted strings: YAML pointers and short messages such as `prefer applied: <pointer>` and `unlocked by <feature>`.
 ///
 /// The explain part is in [`TransitionTrace::ladder`]. It is absent when the engine was built without [`crate::engine::EngineModes::explain_ladder`], as the table fixpoint and the string replay are.
 #[derive(Clone, Debug, PartialEq, Eq)]

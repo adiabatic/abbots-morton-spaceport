@@ -1,4 +1,4 @@
-"""Tests for the debug pile tally in rebuild/tools/pile_tally.py: it is off unless `AMS_SURFACE_PILE_TALLY` is exactly `1`, its estimates scale a sample by the count, and its lines match the formats the module docstring documents."""
+"""Tests for the debug pile tally in rebuild/tools/pile_tally.py: it is off unless `AMS_CORPUS_MEMORY_TALLY` is exactly `1`, its estimates scale a sample by the count, and its lines match the formats the module docstring documents."""
 
 import io
 import re
@@ -156,7 +156,7 @@ def test_the_tally_exists_only_when_the_variable_is_exactly_one():
     assert pile_tally.from_environment({pile_tally.TALLY_ENV: "0"}) is None
     assert pile_tally.from_environment({pile_tally.TALLY_ENV: ""}) is None
     assert isinstance(pile_tally.from_environment({pile_tally.TALLY_ENV: "1"}), pile_tally.PileTally)
-    assert pile_tally.TALLY_ENV == "AMS_SURFACE_PILE_TALLY"
+    assert pile_tally.TALLY_ENV == "AMS_CORPUS_MEMORY_TALLY"
 
 
 def test_deep_size_enters_slots_and_dicts_and_charges_a_shared_object_once():

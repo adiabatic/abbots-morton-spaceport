@@ -138,7 +138,7 @@ pub struct EngineModes {
     pub vote_slots: bool,
     /// Whether the engine memoizes whole windows and journals a fired delta per memoized evaluation. On only in the table fixpoint, the `settle-cases` and `liveness-cases` subcommands, and the string replay.
     pub trace_memo: bool,
-    /// Whether a trace carries its explain ladder: the ranking, the eliminations with their descriptions, and the runner-up. On wherever a person reads a trace (the explain report, the review surface, the probe). Off in the table fixpoint, whose rows read only the settled triple, the prospect, the joint floor and the notes, and in the string replay, which reads only the settled record. Formatting ladders nobody reads is the largest avoidable allocation in either.
+    /// Whether a trace carries its explain ladder: the ranking, the eliminations with their descriptions, and the runner-up. On wherever a person reads a trace (the explain report, the review corpus, the probe). Off in the table fixpoint, whose rows read only the settled triple, the prospect, the joint floor and the notes, and in the string replay, which reads only the settled record. Formatting ladders nobody reads is the largest avoidable allocation in either.
     pub explain_ladder: bool,
 }
 

@@ -1,6 +1,6 @@
 """Tests for the review-app build: the §7 contract checker over rebuild/review/fixtures/ (the same checker `build_m1` runs over its own output), the config-note badge text, the app shell and its scripts, the assets refresh, the shard writer and the fresh spool, the pool records and the pile tally, the shape-memo release, `_write_json`, the triage export, and the table-diff build.
 
-No test here reads the live surface. `build_m1` checks the per-unit and per-shard contracts over every unit it writes and fails the build on any violation, and what the manifest writer computes from its own inputs (the fingerprint, the feature descriptions, the sidebar order) needs no separate check. Two claims about a built surface are tested elsewhere. The sidecars' byte addressing is tested in `rebuild/test_app_index.py` over a mini build, and the staging in `app_index.write_app_artifacts` and the currency check in `artifact_cycle.surface_build_skippable` keep a shipped surface from carrying a sidecar built for other shards. The ink-duplicate merge rests on the checks in `census.derive_premerge` and on `InkComparator.signature` ignoring glyph names, which `rebuild/test_review_ink.py` tests on the marker font; a count in rebuild/review-census-pins.json records that the merge ran on the corpus. The shipped ink deltas are covered by the build's verification sample, which re-shapes `VERIFICATION_SAMPLE` served windows on every build.
+No test here reads the live corpus. `build_m1` checks the per-unit and per-shard contracts over every unit it writes and fails the build on any violation, and what the manifest writer computes from its own inputs (the fingerprint, the feature descriptions, the sidebar order) needs no separate check. Two claims about a built corpus are tested elsewhere. The sidecars' byte addressing is tested in `rebuild/test_app_index.py` over a mini build, and the staging in `app_index.write_app_artifacts` and the currency check in `artifact_cycle.corpus_build_skippable` keep a shipped corpus from carrying a sidecar built for other shards. The ink-duplicate merge rests on the checks in `census.derive_premerge` and on `InkComparator.signature` ignoring glyph names, which `rebuild/test_review_ink.py` tests on the marker font; a count in rebuild/review-census-pins.json records that the merge ran on the corpus. The shipped ink deltas are covered by the build's verification sample, which re-shapes `VERIFICATION_SAMPLE` served windows on every build.
 """
 
 import copy
@@ -423,14 +423,14 @@ def test_node_check_passes_on_every_shipped_script():
         assert result.returncode == 0, f"{script.name}: {result.stderr}"
 
 
-def _seed_refreshable_surface(surface: Path, inputs_fingerprint: dict, root: Path) -> dict:
-    """Build a surface holding only the files `_check_output_files` requires: an empty manifest, the per-unit index and both app sidecars stamped for that manifest, and the copied after font, whose bytes match both the sha the manifest records and the M1.otf under `root`. `refresh_assets` writes index.html itself from the static tree it copies. The font record names no `source`, so the check compares the copy with the manifest only and resolves no path inside the fixture tree."""
-    surface.mkdir(parents=True, exist_ok=True)
+def _seed_refreshable_corpus(corpus: Path, inputs_fingerprint: dict, root: Path) -> dict:
+    """Build a corpus holding only the files `_check_output_files` requires: an empty manifest, the per-unit index and both app sidecars stamped for that manifest, and the copied after font, whose bytes match both the sha the manifest records and the M1.otf under `root`. `refresh_assets` writes index.html itself from the static tree it copies. The font record names no `source`, so the check compares the copy with the manifest only and resolves no path inside the fixture tree."""
+    corpus.mkdir(parents=True, exist_ok=True)
     font_bytes = b"OTTO-fixture"
     (root / "rebuild" / "out" / "m1").mkdir(parents=True, exist_ok=True)
     (root / "rebuild" / "out" / "m1" / "M1.otf").write_bytes(font_bytes)
-    (surface / "fonts").mkdir(parents=True, exist_ok=True)
-    (surface / "fonts" / "after.otf").write_bytes(font_bytes)
+    (corpus / "fonts").mkdir(parents=True, exist_ok=True)
+    (corpus / "fonts" / "after.otf").write_bytes(font_bytes)
     manifest = {
         "generated_at": "2026-01-01T00:00:00Z",
         "repo_head": "0" * 40,
@@ -438,9 +438,9 @@ def _seed_refreshable_surface(surface: Path, inputs_fingerprint: dict, root: Pat
         "classes": [],
         "fonts": {"after": {"file": "fonts/after.otf", "sha256": hashlib.sha256(font_bytes).hexdigest()}},
     }
-    (surface / "manifest.json").write_text(json.dumps(manifest, indent=1) + "\n", encoding="utf-8")
-    unit_index.write_index(surface, [])
-    app_index.write_app_artifacts(surface, {}, {})
+    (corpus / "manifest.json").write_text(json.dumps(manifest, indent=1) + "\n", encoding="utf-8")
+    unit_index.write_index(corpus, [])
+    app_index.write_app_artifacts(corpus, {}, {})
     return manifest
 
 
@@ -453,8 +453,8 @@ def _fake_static_tree(root: Path) -> Path:
 
 
 def test_refresh_assets_restamps_only_the_static_component(tmp_path):
-    """Checks everything an assets refresh does: it copies the app shell onto the surface, rewrites the `static` fingerprint component in place, and changes nothing else. `generated_at` stays, so an open review session keeps its verdict store. The index and both sidecars stay current, because the manifest's identity excludes this component. A surface that `surface_build_skippable` reported as stale before the refresh reports as current after it, so the next pass skips the build."""
-    from rebuild.tools.artifact_cycle import surface_build_skippable
+    """Checks everything an assets refresh does: it copies the app shell onto the corpus, rewrites the `static` fingerprint component in place, and changes nothing else. `generated_at` stays, so an open review session keeps its verdict store. The index and both sidecars stay current, because the manifest's identity excludes this component. A corpus that `corpus_build_skippable` reported as stale before the refresh reports as current after it, so the next pass skips the build."""
+    from rebuild.tools.artifact_cycle import corpus_build_skippable
 
     root = tmp_path / "repo"
     static = _fake_static_tree(root)
@@ -464,16 +464,16 @@ def test_refresh_assets_restamps_only_the_static_component(tmp_path):
     (m1 / fingerprint.STAGE_A_FILENAME).write_text(json.dumps({"format": fingerprint.FORMAT, **stage_a}))
     before_font, junior_font = fingerprint.font_paths(root)
     stage_b = fingerprint.stage_b(root, before_font, junior_font)
-    surface = root / "rebuild" / "out" / "review"
-    before = _seed_refreshable_surface(surface, {**stage_a, **stage_b, "static": "OLD"}, root)
-    assert not surface_build_skippable(root, surface)
+    corpus = root / "rebuild" / "out" / "review"
+    before = _seed_refreshable_corpus(corpus, {**stage_a, **stage_b, "static": "OLD"}, root)
+    assert not corpus_build_skippable(root, corpus)
 
-    copied = review_build.refresh_assets(surface, root)
+    copied = review_build.refresh_assets(corpus, root)
 
     assert sorted(copied) == ["app.js", "index.html"]
-    assert (surface / "app.js").read_text() == (static / "app.js").read_text()
-    assert (surface / "index.html").read_text() == (static / "index.html").read_text()
-    manifest = json.loads((surface / "manifest.json").read_text(encoding="utf-8"))
+    assert (corpus / "app.js").read_text() == (static / "app.js").read_text()
+    assert (corpus / "index.html").read_text() == (static / "index.html").read_text()
+    manifest = json.loads((corpus / "manifest.json").read_text(encoding="utf-8"))
     recorded = manifest["inputs_fingerprint"]
     assert recorded["static"] == fingerprint.hash_paths(root, fingerprint.static_paths(root))
     assert recorded["static"] != "OLD"
@@ -481,51 +481,51 @@ def test_refresh_assets_restamps_only_the_static_component(tmp_path):
         name: value for name, value in before["inputs_fingerprint"].items() if name != "static"
     }
     assert manifest["generated_at"] == before["generated_at"]
-    assert unit_index.index_is_current(surface)
+    assert unit_index.index_is_current(corpus)
     for name, fmt in app_index.ARTIFACTS:
-        assert app_index.artifact_is_current(surface, name, fmt)
-    assert surface_build_skippable(root, surface)
+        assert app_index.artifact_is_current(corpus, name, fmt)
+    assert corpus_build_skippable(root, corpus)
 
 
-def test_refresh_assets_refuses_a_surface_it_cannot_restamp(tmp_path):
-    """A surface built before input fingerprinting has no component to rewrite, so the refresh exits instead of adding one; that surface needs a full rebuild."""
+def test_refresh_assets_refuses_a_corpus_it_cannot_restamp(tmp_path):
+    """A corpus built before input fingerprinting has no component to rewrite, so the refresh exits instead of adding one; that corpus needs a full rebuild."""
     root = tmp_path / "repo"
     _fake_static_tree(root)
-    surface = root / "rebuild" / "out" / "review"
-    surface.mkdir(parents=True)
+    corpus = root / "rebuild" / "out" / "review"
+    corpus.mkdir(parents=True)
     with pytest.raises(SystemExit):
-        review_build.refresh_assets(surface, root)
-    (surface / "manifest.json").write_text(json.dumps({"generated_at": "x", "classes": []}))
+        review_build.refresh_assets(corpus, root)
+    (corpus / "manifest.json").write_text(json.dumps({"generated_at": "x", "classes": []}))
     with pytest.raises(SystemExit):
-        review_build.refresh_assets(surface, root)
+        review_build.refresh_assets(corpus, root)
 
 
-def test_refresh_assets_puts_the_manifest_back_when_the_surface_is_broken(tmp_path):
-    """The restamp makes the surface read as current, so a failed contract check must undo it. A manifest left claiming freshness over sidecars that no longer match it would make the next cycle skip the rebuild, which is the only repair."""
+def test_refresh_assets_puts_the_manifest_back_when_the_corpus_is_broken(tmp_path):
+    """The restamp makes the corpus read as current, so a failed contract check must undo it. A manifest left claiming freshness over sidecars that no longer match it would make the next cycle skip the rebuild, which is the only repair."""
     root = tmp_path / "repo"
     _fake_static_tree(root)
-    surface = root / "rebuild" / "out" / "review"
-    _seed_refreshable_surface(surface, {"static": "OLD"}, root)
-    unit_index.index_path(surface).unlink()
+    corpus = root / "rebuild" / "out" / "review"
+    _seed_refreshable_corpus(corpus, {"static": "OLD"}, root)
+    unit_index.index_path(corpus).unlink()
     with pytest.raises(SystemExit):
-        review_build.refresh_assets(surface, root)
-    manifest = json.loads((surface / "manifest.json").read_text(encoding="utf-8"))
+        review_build.refresh_assets(corpus, root)
+    manifest = json.loads((corpus / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["inputs_fingerprint"]["static"] == "OLD"
 
 
 def test_the_refresh_assets_verb_copies_the_shipped_app(tmp_path):
-    """Runs the `refresh-assets` subcommand the artifact cycle calls, over the real rebuild/review/static/: the shipped shell is copied onto the surface, and the `static` component carries the value `fingerprint.stage_b` computes."""
-    surface = tmp_path / "surface"
-    _seed_refreshable_surface(surface, {"static": "OLD"}, tmp_path)
-    review_build.main(["refresh-assets", "--out", str(surface)])
-    manifest = json.loads((surface / "manifest.json").read_text(encoding="utf-8"))
+    """Runs the `refresh-assets` subcommand the artifact cycle calls, over the real rebuild/review/static/: the shipped shell is copied onto the corpus, and the `static` component carries the value `fingerprint.stage_b` computes."""
+    corpus = tmp_path / "corpus"
+    _seed_refreshable_corpus(corpus, {"static": "OLD"}, tmp_path)
+    review_build.main(["refresh-assets", "--out", str(corpus)])
+    manifest = json.loads((corpus / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["inputs_fingerprint"]["static"] == fingerprint.hash_paths(
         REPO_ROOT, fingerprint.static_paths(REPO_ROOT)
     )
-    assert (surface / "index.html").read_text(encoding="utf-8") == (STATIC_DIR / "index.html").read_text(
+    assert (corpus / "index.html").read_text(encoding="utf-8") == (STATIC_DIR / "index.html").read_text(
         encoding="utf-8"
     )
-    assert unit_index.index_is_current(surface)
+    assert unit_index.index_is_current(corpus)
 
 
 def _padded(count: int, filler: int = 0) -> list[dict]:
@@ -533,7 +533,7 @@ def _padded(count: int, filler: int = 0) -> list[dict]:
 
 
 def test_write_shard_keeps_a_class_under_the_cap_in_one_bare_file(tmp_path):
-    """A class under the size cap keeps one `units/<class-id>.json` file, the path the small classes, the checked-in fixtures, and archived surfaces already use, and its bytes match one `json.dumps` call."""
+    """A class under the size cap keeps one `units/<class-id>.json` file, the path the small classes, the checked-in fixtures, and archived corpora already use, and its bytes match one `json.dumps` call."""
     fragments = _padded(4, 40)
     assert _write_shard(tmp_path, "small", fragments)[0] == ["units/small.json"]
     path = tmp_path / "units" / "small.json"
@@ -583,8 +583,8 @@ def test_write_shard_leaves_no_staging_file_behind_when_serializing_fails(tmp_pa
     assert list((tmp_path / "units").iterdir()) == []
 
 
-def test_the_shard_writer_keeps_the_previous_surface_whole_until_commit(tmp_path):
-    """The m1 build reads served units out of the previous surface's shards by address while it writes the new ones, so a part replaces the old file only at `commit`, after every class has closed. Until then the old file stays on disk under its name, and `abort` deletes the staged parts without touching it."""
+def test_the_shard_writer_keeps_the_previous_corpus_whole_until_commit(tmp_path):
+    """The m1 build reads served units out of the previous corpus's shards by address while it writes the new ones, so a part replaces the old file only at `commit`, after every class has closed. Until then the old file stays on disk under its name, and `abort` deletes the staged parts without touching it."""
     _write_shard(tmp_path, "a", [{"id": "u-0000"}])
     units = tmp_path / "units"
     before = (units / "a.json").read_bytes()
@@ -611,7 +611,7 @@ def test_the_shard_writer_keeps_the_previous_surface_whole_until_commit(tmp_path
 
 
 def test_the_fresh_spool_reads_every_fragment_back_by_address(tmp_path):
-    """A fresh fragment is kept on disk between phase 1 and the write, and it is read back by the same reader that serves a prior fragment from the previous surface. The spool uses the shard format, and each address names its part in the numbered form of the class the spool was opened under, so `add` returns the final address at once, carrying the fragment's id and `content_key` (None for a fragment drafted without one), and the spool keeps nothing of the fragment in memory. Fragments are read by address, so the write can ask for them in any order (shard order interleaves the workers' batches). Reading under a stamp the fragment does not carry raises, as it does for a prior fragment that moved."""
+    """A fresh fragment is kept on disk between phase 1 and the write, and it is read back by the same reader that serves a prior fragment from the previous corpus. The spool uses the shard format, and each address names its part in the numbered form of the class the spool was opened under, so `add` returns the final address at once, carrying the fragment's id and `content_key` (None for a fragment drafted without one), and the spool keeps nothing of the fragment in memory. Fragments are read by address, so the write can ask for them in any order (shard order interleaves the workers' batches). Reading under a stamp the fragment does not carry raises, as it does for a prior fragment that moved."""
     spool = review_build._FragmentSpool(tmp_path, "w0")
     fragments = [{"id": f"u-{index:04d}", "content_key": None, "text": "x" * index} for index in range(5)]
     spooled = {fragment["id"]: spool.add(fragment) for fragment in fragments}
@@ -787,29 +787,29 @@ def test_prune_orphan_shards_no_units_dir_is_noop(tmp_path):
     assert _prune_orphan_shards(tmp_path, {"classes": []}) == []
 
 
-def test_a_pooled_surface_build_files_its_per_worker_peaks(tmp_path, monkeypatch):
-    """The surface build's fan-out width is its memory budget divided by `SURFACE_WORKER_BYTES`, and only a worker that ran can measure the peak that constant estimates: a step peak takes the maximum over the process tree rather than the sum, so it measures the parent and not the pool. A pooled build therefore writes the same kind:"pool" record an xdist controller writes, under its own unit name, and `make job-costs` reports it beside the constant. `record_pool` reads `JOURNAL` at call time, which lets this test redirect it."""
+def test_a_pooled_corpus_build_files_its_per_worker_peaks(tmp_path, monkeypatch):
+    """The corpus build's fan-out width is its memory budget divided by `CORPUS_WORKER_BYTES`, and only a worker that ran can measure the peak that constant estimates: a step peak takes the maximum over the process tree rather than the sum, so it measures the parent and not the pool. A pooled build therefore writes the same kind:"pool" record an xdist controller writes, under its own unit name, and `make job-costs` reports it beside the constant. `record_pool` reads `JOURNAL` at call time, which lets this test redirect it."""
     journal = tmp_path / "cycle-timings.ndjson"
     monkeypatch.setattr("rebuild.tools.cycle_timings.JOURNAL", journal)
-    review_build._record_surface_pool(2, {"w0": 1_000_000, "w1": 2_000_000})
+    review_build._record_corpus_pool(2, {"w0": 1_000_000, "w1": 2_000_000})
     lines = journal.read_text(encoding="utf-8").splitlines()
     assert len(lines) == 1
     record = json.loads(lines[0])
-    assert (record["kind"], record["unit"], record["width"]) == ("pool", "surface", 2)
+    assert (record["kind"], record["unit"], record["width"]) == ("pool", "corpus", 2)
     assert list(record["worker_peak_rss_bytes"]) == ["w0", "w1"]
     assert record["worker_peak_rss_bytes"]["w1"] == 2_000_000
 
 
-def test_a_serial_surface_build_files_no_pool_record(tmp_path, monkeypatch):
+def test_a_serial_corpus_build_files_no_pool_record(tmp_path, monkeypatch):
     """A build with no pool has no worker to measure, so nothing is written; a record of a zero-worker pool would be one `make job-costs` had to skip."""
     journal = tmp_path / "cycle-timings.ndjson"
     monkeypatch.setattr("rebuild.tools.cycle_timings.JOURNAL", journal)
-    review_build._record_surface_pool(0, {})
+    review_build._record_corpus_pool(0, {})
     assert not journal.exists()
 
 
 def test_a_pooled_signature_pass_files_its_per_worker_peaks(tmp_path, monkeypatch):
-    """No constant budgets the signature pool's workers, because cores limit that width, but the pool writes the same kind:"pool" record as the surface pool under its own unit name, so `make job-costs` can report what a comparator-only worker holds beside the surface worker's figure. Peaks are keyed by the labels the workers reported."""
+    """No constant budgets the signature pool's workers, because cores limit that width, but the pool writes the same kind:"pool" record as the corpus pool under its own unit name, so `make job-costs` can report what a comparator-only worker holds beside the corpus worker's figure. Peaks are keyed by the labels the workers reported."""
     journal = tmp_path / "cycle-timings.ndjson"
     monkeypatch.setattr("rebuild.tools.cycle_timings.JOURNAL", journal)
     review_build._record_signature_pool(2, {"SpawnPoolWorker-1": 60_000_000, "SpawnPoolWorker-2": 70_000_000})
@@ -834,10 +834,10 @@ def test_a_pooled_build_counts_its_units_and_closes_every_phase_it_opens(
 ):
     """Checks what someone watching a multi-minute build learns from it, on the one workload small enough to test: which phase it is in, and how many units its pool has finished. Every `[phase]` line the terminal opens is closed by the `[t] review.build <phase>` line the timings journal reads. The counter is a running sum over the workers' batch replies, one line per batch as it arrives, and the mini workload spreads into several batches across the two workers (`_handout_width`). The count must reach the manifest's unit total, so a batch left unread or a worker the parent stopped reading from fails here.
 
-    Every timing line also carries the parent's peak RSS as the `rss_gb=` token `parse_inner_timings` reads, before the phase's note, so `make cycle-timings ARGS='--inner'` can show which phase reached the step's peak memory. With `AMS_SURFACE_PILE_TALLY=1` in the environment the workers inherit, each worker tallies its own piles on stdout at every batch boundary: the projections it is about to return, each with its fragment's spool address and bounded by the hand-out width; the mapped subset pack; and the shape memo, with no enrichment among them. A spawned child's output bypasses the parent's `sys.stdout`, so this test captures at the file-descriptor level. At the parent's boundaries the returned projections are folded into the unit store, which holds a row per unit from the plan boundary on and reports in place of the per-unit piles it replaces, and no pile of enrichments exists.
+    Every timing line also carries the parent's peak RSS as the `rss_gb=` token `parse_inner_timings` reads, before the phase's note, so `make cycle-timings ARGS='--inner'` can show which phase reached the step's peak memory. With `AMS_CORPUS_MEMORY_TALLY=1` in the environment the workers inherit, each worker tallies its own piles on stdout at every batch boundary: the projections it is about to return, each with its fragment's spool address and bounded by the hand-out width; the mapped subset pack; and the shape memo, with no enrichment among them. A spawned child's output bypasses the parent's `sys.stdout`, so this test captures at the file-descriptor level. At the parent's boundaries the returned projections are folded into the unit store, which holds a row per unit from the plan boundary on and reports in place of the per-unit piles it replaces, and no pile of enrichments exists.
     """
     monkeypatch.setenv(pile_tally.TALLY_ENV, "1")
-    out = tmp_path / "surface"
+    out = tmp_path / "corpus"
     manifest = review_build.build_m1(
         out,
         audit_path=MINI / "audit.tsv",
@@ -952,7 +952,7 @@ def test_the_window_keyed_signatures_die_where_the_ink_duplicate_merge_returns(
     monkeypatch.setattr(review_build, "merge_ink_duplicate_units", watching_merge)
     monkeypatch.setattr(review_build, "release_rows", watching_release_rows)
     review_build.build_m1(
-        tmp_path / "surface",
+        tmp_path / "corpus",
         audit_path=MINI / "audit.tsv",
         ledger_path=mini_bundle.ledger,
         subset_dir=MINI,
@@ -1005,7 +1005,7 @@ def test_the_signature_store_records_die_where_the_store_is_written(tmp_path, mi
         monkeypatch.setattr(review_build._FreshRunner, "phase1", watching_phase1)
     monkeypatch.setattr(review_build._SignatureWrite, "join", watching_join)
     review_build.build_m1(
-        tmp_path / "surface",
+        tmp_path / "corpus",
         audit_path=MINI / "audit.tsv",
         ledger_path=mini_bundle.ledger,
         subset_dir=MINI,
@@ -1117,7 +1117,7 @@ def _packed_piles(text: str) -> dict[str, dict[str, int]]:
 def test_a_serial_build_tallies_its_piles_at_every_phase_boundary_and_writes_the_same_bytes(
     tmp_path, mini_bundle, capsys, monkeypatch
 ):
-    """The tally only reports and changes no output. With `AMS_SURFACE_PILE_TALLY=1` a serial build prints one boundary per phase on stdout, listing the piles the parent holds and their counts. The workload table has a row per unit at every boundary, its line is exact in the same way as the store's (packed columns and pools plus the string table), and it shrinks at the units boundary when the name tuples leave it. The audit's row columns are exact, full at load, and empty once the content keys have read them. The pre-merge snapshot has a row per pre-merge unit. The packed unit store has a row per unit from the plan boundary on, is exact, and prints in place of every per-unit pile it replaces. The checker's identity pile has an entry for every unit written. The cache boundary has no pile of store records, because the store is written record by record, and no boundary has a pile of enrichments. The shards and manifest are byte-identical to those the same build writes with the variable unset."""
+    """The tally only reports and changes no output. With `AMS_CORPUS_MEMORY_TALLY=1` a serial build prints one boundary per phase on stdout, listing the piles the parent holds and their counts. The workload table has a row per unit at every boundary, its line is exact in the same way as the store's (packed columns and pools plus the string table), and it shrinks at the units boundary when the name tuples leave it. The audit's row columns are exact, full at load, and empty once the content keys have read them. The pre-merge snapshot has a row per pre-merge unit. The packed unit store has a row per unit from the plan boundary on, is exact, and prints in place of every per-unit pile it replaces. The checker's identity pile has an entry for every unit written. The cache boundary has no pile of store records, because the store is written record by record, and no boundary has a pile of enrichments. The shards and manifest are byte-identical to those the same build writes with the variable unset."""
 
     def build(out: Path) -> dict:
         return review_build.build_m1(
@@ -1212,9 +1212,9 @@ def _served_build(out: Path, mini_bundle) -> dict:
     )
 
 
-def _strip_addresses(surface: Path) -> None:
+def _strip_addresses(corpus: Path) -> None:
     """Rewrite the store as if written before addresses were recorded: drop every record's `address` and keep the header."""
-    path = unit_cache.store_path(surface)
+    path = unit_cache.store_path(corpus)
     with gzip.open(path, "rt", encoding="utf-8") as stream:
         lines = stream.read().splitlines()
     edited = [lines[0]] + [
@@ -1228,14 +1228,14 @@ def _strip_addresses(surface: Path) -> None:
 def test_a_served_rebuild_holds_no_pile_of_the_records_the_cache_handed_it(
     tmp_path, mini_bundle, capsys, monkeypatch
 ):
-    """A rebuild over the first build's surface serves every unit from the store, and the plan boundary holds none of the served records, because each is folded into the unit store as the stream yields it. `unit_cache.named` never prints, and `unit_cache.unplaced` (records still waiting for the walk) is empty, since every record in a store this code wrote has an address. The unit store, filled row by row, reports exactly over the whole workload."""
+    """A rebuild over the first build's corpus serves every unit from the store, and the plan boundary holds none of the served records, because each is folded into the unit store as the stream yields it. `unit_cache.named` never prints, and `unit_cache.unplaced` (records still waiting for the walk) is empty, since every record in a store this code wrote has an address. The unit store, filled row by row, reports exactly over the whole workload."""
     monkeypatch.delenv(pile_tally.TALLY_ENV, raising=False)
-    surface = tmp_path / "surface"
-    _served_build(surface, mini_bundle)
+    corpus = tmp_path / "corpus"
+    _served_build(corpus, mini_bundle)
     capsys.readouterr()
 
     monkeypatch.setenv(pile_tally.TALLY_ENV, "1")
-    manifest = _served_build(surface, mini_bundle)
+    manifest = _served_build(corpus, mini_bundle)
     captured = capsys.readouterr()
     total = manifest["totals"]["units"]
     assert re.search(rf"served {total:,} of {total:,} units from cache", captured.err)
@@ -1254,13 +1254,13 @@ def test_a_served_rebuild_prices_the_records_the_walk_has_to_place(
 ):
     """The records a served plan buffers are measured whenever there are any. In a store written before addresses were recorded, every record waits for the walk, so the plan boundary estimates one record per unit under `unit_cache.unplaced`, by the declared shape and above zero, which shows the pile is estimated and not only declared. Every unit is still served."""
     monkeypatch.delenv(pile_tally.TALLY_ENV, raising=False)
-    surface = tmp_path / "surface"
-    _served_build(surface, mini_bundle)
-    _strip_addresses(surface)
+    corpus = tmp_path / "corpus"
+    _served_build(corpus, mini_bundle)
+    _strip_addresses(corpus)
     capsys.readouterr()
 
     monkeypatch.setenv(pile_tally.TALLY_ENV, "1")
-    manifest = _served_build(surface, mini_bundle)
+    manifest = _served_build(corpus, mini_bundle)
     captured = capsys.readouterr()
     total = manifest["totals"]["units"]
     assert re.search(rf"served {total:,} of {total:,} units from cache", captured.err)
@@ -1332,7 +1332,7 @@ def test_an_in_process_build_releases_the_shape_memo_behind_each_batch(mini_bund
     """The serial build's shape memo is bounded by a unit batch, not by the build. The shared shapers reach each boundary loaded, since the signature pass and phase 1 both shape through them, and every boundary empties them, so a finished build holds no shapes. The mini bundle fits in one batch, so this checks that the bound exists, not its size; `EXPLAIN_UNIT_BATCH_SIZE` sets the size."""
     seen = _spy_on_releases(monkeypatch)
     review_build.build_m1(
-        tmp_path / "surface",
+        tmp_path / "corpus",
         audit_path=MINI / "audit.tsv",
         ledger_path=mini_bundle.ledger,
         subset_dir=MINI,
@@ -1346,7 +1346,7 @@ def test_an_in_process_build_releases_the_shape_memo_behind_each_batch(mini_bund
 
 
 def _drive_worker_in_thread(mini_bundle, out_dir: Path, chunks: list[list]) -> list[tuple]:
-    """Run `_surface_worker` in a thread over a pipe, send `chunks` one `phase1` message at a time as the parent sends batches, then the end marker and the stop, and return every reply in order: one `batch` per chunk, the `ok`, and the `peak`. Running in a thread lets a test see the worker's process state: a spy on the build module's `release_shape_memos` is the one the worker's `_phase1_batches` calls, and the objects alive after the stop are the worker's."""
+    """Run `_corpus_worker` in a thread over a pipe, send `chunks` one `phase1` message at a time as the parent sends batches, then the end marker and the stop, and return every reply in order: one `batch` per chunk, the `ok`, and the `peak`. Running in a thread lets a test see the worker's process state: a spy on the build module's `release_shape_memos` is the one the worker's `_phase1_batches` calls, and the objects alive after the stop are the worker's."""
     init = {
         "before_font": review_build.SITE_BEFORE_FONT,
         "after_font": MINI / "M1.otf",
@@ -1358,7 +1358,7 @@ def _drive_worker_in_thread(mini_bundle, out_dir: Path, chunks: list[list]) -> l
         "out_dir": out_dir,
     }
     parent, child = multiprocessing.Pipe()
-    worker = threading.Thread(target=review_build._surface_worker, args=(child, init), daemon=True)
+    worker = threading.Thread(target=review_build._corpus_worker, args=(child, init), daemon=True)
     worker.start()
     replies: list[tuple] = []
     try:
@@ -1452,7 +1452,7 @@ def test_a_pool_worker_releases_the_shape_memo_behind_each_batch(mini_bundle, mo
 def test_a_pool_worker_holds_one_batch_of_projections_and_addresses(
     mini_bundle, monkeypatch, tmp_path, capfd
 ):
-    """Checks, on the fixture, the pile-tally reading behind `SURFACE_WORKER_BYTES`: with `AMS_SURFACE_PILE_TALLY=1` the worker tallies a `w0/phase1-<n>` boundary per batch, and at each one `worker.projections` counts only the batch it was given, because projections are released after the reply. The mapped subset pack and the shape memo appear beside it, and no enrichment appears."""
+    """Checks, on the fixture, the pile-tally reading behind `CORPUS_WORKER_BYTES`: with `AMS_CORPUS_MEMORY_TALLY=1` the worker tallies a `w0/phase1-<n>` boundary per batch, and at each one `worker.projections` counts only the batch it was given, because projections are released after the reply. The mapped subset pack and the shape memo appear beside it, and no enrichment appears."""
     monkeypatch.setenv(pile_tally.TALLY_ENV, "1")
     chunks = _two_chunks(mini_bundle)
     replies = _drive_worker_in_thread(mini_bundle, tmp_path, chunks)
@@ -1497,7 +1497,7 @@ def test_write_json_reproduces_the_checked_in_fixture_shards(tmp_path):
 
 
 def test_write_json_leaves_the_previous_file_alone_when_serializing_fails(tmp_path):
-    """Because `_write_json` writes element by element, the encoder can fail after the file is started, so the write goes to a staging file that is renamed into place. Nothing downstream tolerates a half-written surface file (`check_output_dir` and every manifest reader parse the files on disk, and the shards are written before the manifest that stamps them), so a failed write must leave the last good file in place and no staging file behind."""
+    """Because `_write_json` writes element by element, the encoder can fail after the file is started, so the write goes to a staging file that is renamed into place. Nothing downstream tolerates a half-written corpus file (`check_output_dir` and every manifest reader parse the files on disk, and the shards are written before the manifest that stamps them), so a failed write must leave the last good file in place and no staging file behind."""
     shard, manifest = tmp_path / "shard.json", tmp_path / "manifest.json"
     _write_json(shard, [{"id": "u-0000"}])
     _write_json(manifest, {"at": "old"})
@@ -1510,8 +1510,8 @@ def test_write_json_leaves_the_previous_file_alone_when_serializing_fails(tmp_pa
     assert sorted(path.name for path in tmp_path.iterdir()) == ["manifest.json", "shard.json"]
 
 
-def _export_surface():
-    """Build a stand-in for a built surface from the checked-in fixture units, so `build_triage` sees every unit shape it handles differently. The fixture's six units include no exempt unit and none without a policy draft, so three clones are added: a no-verdict unit whose verdict must be ignored, a reject with no mechanical draft, and one more plain approvable unit, which is also what gives `test_export_round_trip` the four ids it takes from `ids[3:]`. The manifest is the fixture's with its totals and human-id list recomputed over the larger set. The machine-approved block is unchanged, because the one machine-approved unit is unchanged and `machine_approved_section` recomputes its own copy from the units.
+def _export_corpus():
+    """Build a stand-in for a built corpus from the checked-in fixture units, so `build_triage` sees every unit shape it handles differently. The fixture's six units include no exempt unit and none without a policy draft, so three clones are added: a no-verdict unit whose verdict must be ignored, a reject with no mechanical draft, and one more plain approvable unit, which is also what gives `test_export_round_trip` the four ids it takes from `ids[3:]`. The manifest is the fixture's with its totals and human-id list recomputed over the larger set. The machine-approved block is unchanged, because the one machine-approved unit is unchanged and `machine_approved_section` recomputes its own copy from the units.
 
     The units are returned projected, because the CLI only ever passes `build_triage` the projection, and testing with whole fixture units would not show that the projection holds every field the export reads.
     """
@@ -1541,9 +1541,9 @@ def _export_surface():
     }
 
 
-def test_the_machine_approved_classes_are_listed_in_the_manifests_class_order(mini_surface):
+def test_the_machine_approved_classes_are_listed_in_the_manifests_class_order(mini_corpus):
     """`by_class` is keyed in order of first appearance among the machine-approved units in triage order, so its classes follow the manifest's `classes`: ledger classes in ledger order, then the promoted verdict families in `families.FAMILY_ORDER`. They must not follow the workload table's load order, where an UNMATCHED unit sits by its lead-family pair without a family term. `census.invariant_group` publishes this order as `machine_approved_classes` in the census pins, so a build that walked the table in row order would change the pins' invariant block for no reason a reviewer could judge."""
-    manifest = json.loads((mini_surface / "manifest.json").read_text(encoding="utf-8"))
+    manifest = json.loads((mini_corpus / "manifest.json").read_text(encoding="utf-8"))
     by_class = list(manifest["machine_approved"]["by_class"])
     classes = [meta["id"] for meta in manifest["classes"]]
     assert by_class and set(by_class) <= set(classes)
@@ -1553,7 +1553,7 @@ def test_the_machine_approved_classes_are_listed_in_the_manifests_class_order(mi
 
 def test_export_skips_verdicts_landing_on_picture_identical_units():
     """The picture-identical channel removes units from the human workload as the other two channels do, so a verdict on a unit it approved (one recorded before this channel approved the unit) is counted as inert history and drafts nothing."""
-    manifest, units = _export_surface()
+    manifest, units = _export_corpus()
     unit_id = manifest["human_unit_ids"][-1]
     unit = units[unit_id]
     unit.update(picture_identical=True, batch=None)
@@ -1607,7 +1607,7 @@ def test_load_units_keeps_exactly_the_fields_the_triage_export_reads():
 
 
 def test_load_units_refuses_a_shard_missing_a_field_the_export_reads(tmp_path):
-    """A field the triage export reads but the shard lacks means the surface was built by a version this reader does not know. Read through `.get`, it would appear in the YAML as a null the reviewer cannot tell from a real absence, so the loader names the field and exits."""
+    """A field the triage export reads but the shard lacks means the corpus was built by a version this reader does not know. Read through `.get`, it would appear in the YAML as a null the reviewer cannot tell from a real absence, so the loader names the field and exits."""
     shutil.copytree(FIXTURES / "units", tmp_path / "units")
     shutil.copy(FIXTURES / "manifest.json", tmp_path / "manifest.json")
     shard = tmp_path / "units" / "fixture-drift.json"
@@ -1621,7 +1621,7 @@ def test_load_units_refuses_a_shard_missing_a_field_the_export_reads(tmp_path):
 
 
 def test_export_round_trip(tmp_path):
-    manifest, units = _export_surface()
+    manifest, units = _export_corpus()
     ids = sorted(
         uid for uid, unit in units.items() if not unit["no_verdict"] and not machine_approved(units[uid])
     )
@@ -1778,7 +1778,7 @@ def test_export_rejects_bad_format(tmp_path):
 
 
 def test_table_diff_build(tmp_path):
-    """Runs table-diff mode end to end over the frozen tables in fixtures/mini/: a synthetic one-row edit produces a one-unit surface that passes the contract checker, with the edited row's pointer reaching the explain panel. The tables are inputs, not the subject, so they are frozen beside the font they were extracted with instead of read from the live build, which keeps this test in the contracts lane."""
+    """Runs table-diff mode end to end over the frozen tables in fixtures/mini/: a synthetic one-row edit produces a one-unit corpus that passes the contract checker, with the edited row's pointer reaching the explain panel. The tables are inputs, not the subject, so they are frozen beside the font they were extracted with instead of read from the live build, which keeps this test in the contracts lane."""
     old_dir = tmp_path / "old"
     new_dir = tmp_path / "new"
     old_dir.mkdir()

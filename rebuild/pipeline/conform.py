@@ -60,7 +60,7 @@ ZWNJ_SENTINEL = "<zwnj>"
 SETTLEMENT_CONFIGS = ("default", "ss03", "ss04", "ss05", "ss03+ss05")
 # The isolated-overlay taste configurations (`model.isolated_overlay_active`). Nothing settles under them, so they have no table. The belt sweeps them at `OVERLAY_HORIZON`, relying on read-back's isolation check, and the oracle compares them against the bare stream. `rebuild/test_conform.py` checks that this tuple matches the registry's `overlay: isolated` features.
 OVERLAY_CONFIGS = ("ss10",)
-# Every configuration the font is accepted under: what the belt shapes, the oracle compares and stores rows for, the Manual pins replay against, and the review surface lists.
+# Every configuration the font is accepted under: what the belt shapes, the oracle compares and stores rows for, the Manual pins replay against, and the review corpus lists.
 ACCEPTANCE_CONFIGS = SETTLEMENT_CONFIGS + OVERLAY_CONFIGS
 # How many texts of one length the belt walks at a time. Each length's texts are streamed instead of listed, because at horizon 5 the length-5 texts number in the millions, while one chunk's walk states cost tens of megabytes at any horizon.
 TEXT_CHUNK = 65536
@@ -2006,7 +2006,7 @@ def _verify_served_sample(
     store: "oracle_cache.RowStore",
     sample: "oracle_cache.VerificationSample",
 ) -> None:
-    """Re-derive the pass's stratified sample of served rows and check each against the record it was served from. Every family that served a row contributes rows, so a whole family of wrong records (which a rune edited during a run produces) is always caught, not just with the probability of the sample size over the rows served. The seed includes the pass ordinal, so each pass checks a different slice. The rows come from the sample itself, which keeps at most `VERIFICATION_SAMPLE_PER_FAMILY` per family, so nothing here re-reads the table. A mismatch raises `SystemExit` instead of being treated as a cache miss, because the store holds verdicts this build does not produce, and `divergence-audit.tsv` is a fingerprinted artifact the surface build's manifest is stamped against."""
+    """Re-derive the pass's stratified sample of served rows and check each against the record it was served from. Every family that served a row contributes rows, so a whole family of wrong records (which a rune edited during a run produces) is always caught, not just with the probability of the sample size over the rows served. The seed includes the pass ordinal, so each pass checks a different slice. The rows come from the sample itself, which keeps at most `VERIFICATION_SAMPLE_PER_FAMILY` per family, so nothing here re-reads the table. A mismatch raises `SystemExit` instead of being treated as a cache miss, because the store holds verdicts this build does not produce, and `divergence-audit.tsv` is a fingerprinted artifact the corpus build's manifest is stamped against."""
     picked = sample.sampled_rows()
     if not picked:
         return

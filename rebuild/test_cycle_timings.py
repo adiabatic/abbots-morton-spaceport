@@ -76,8 +76,8 @@ def test_parse_inner_timings_reads_a_trailing_rss_token():
     ]
 
 
-def test_parse_inner_timings_reads_the_surface_builds_phase_lines():
-    """The surface build's phase lines carry the peak token, then the current-RSS token when the platform reports one, then a tab-separated note. `--inner` reads each phase's peak and current RSS from this form."""
+def test_parse_inner_timings_reads_the_corpus_builds_phase_lines():
+    """The corpus build's phase lines carry the peak token, then the current-RSS token when the platform reports one, then a tab-separated note. `--inner` reads each phase's peak and current RSS from this form."""
     text = (
         "[t] review.build load 12.3s rss_gb=1.23 rss_now_gb=1.20\t(signatures: 40 cached, 2 shaped across 8 workers)\n"
         "[t] review.build units 900.0s rss_gb=15.40 rss_now_gb=9.75\t(jobs=1, fresh=1,000,000, verified=0 served)\n"
@@ -397,7 +397,7 @@ def _mixed_journal(path):
     )
     timings.record_step(_result(), ["uv", "run", "fake"])
     ct.record_pool(
-        "surface",
+        "corpus",
         width=4,
         worker_peaks={"gw0": 5_560_000_000, "gw1": 4_980_000_000},
         controller_peak_bytes=412_000_000,
@@ -410,7 +410,7 @@ def _mixed_journal(path):
 def test_record_pool_writes_one_pool_line(tmp_path):
     path = tmp_path / "j.ndjson"
     ct.record_pool(
-        "surface",
+        "corpus",
         width=3,
         worker_peaks={"gw10": 4_980_000_000, "gw2": 5_210_000_000, "gw0": 5_560_000_000},
         controller_peak_bytes=412_000_000,
@@ -419,7 +419,7 @@ def test_record_pool_writes_one_pool_line(tmp_path):
     (entry,) = _lines(path)
     assert entry["format"] == ct.FORMAT
     assert entry["kind"] == "pool"
-    assert entry["unit"] == "surface"
+    assert entry["unit"] == "corpus"
     assert entry["width"] == 3
     assert entry["controller_peak_rss_bytes"] == 412_000_000
     assert entry["worker_peak_rss_bytes"] == {
@@ -444,7 +444,7 @@ def test_record_pool_round_trips_through_load_pool_records(tmp_path):
     path = tmp_path / "j.ndjson"
     _mixed_journal(path)
     records = ct.load_pool_records(path)
-    assert [record["unit"] for record in records] == ["rebuild-contracts", "surface"]
+    assert [record["unit"] for record in records] == ["rebuild-contracts", "corpus"]
     assert records[0]["worker_peak_rss_bytes"] == {"gw0": 1_900_000_000}
     assert records[1]["worker_peak_rss_bytes"] == {"gw0": 5_560_000_000, "gw1": 4_980_000_000}
     assert (records[0]["width"], records[1]["width"]) == (8, 4)

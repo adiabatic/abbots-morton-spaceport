@@ -11,7 +11,7 @@ There are two readings:
 
 `signature` is built from the same two `run_ink` lists that `config_diff` and `ink_pieces` read, so equal signatures give equal deltas, equal ink flags, and equal delta digests without any sampling.
 
-All review-surface shaping is kern-neutral (`kern_neutral`). The rebuild has no kerning yet, so the old font's kern feature would only add noise to before-and-after comparisons, and it is disabled on both sides.
+All review-corpus shaping is kern-neutral (`kern_neutral`). The rebuild has no kerning yet, so the old font's kern feature would only add noise to before-and-after comparisons, and it is disabled on both sides.
 """
 
 from __future__ import annotations
@@ -75,12 +75,12 @@ IDENTITY_DIFF = ((), (), 0)
 
 
 def delta_digest(diff: tuple) -> str:
-    """Return the stored id of one `config_diff` result: `d-` plus the first twelve hex digits of the sha1 of the tuple's repr. The surface stores one digest per config whose delta is not `IDENTITY_DIFF` (the unit JSON's `ink_deltas`), so a standing-approval rule can approve a localized ink change once and match every window, in any batch, where exactly those pixels appear and disappear. The digests recorded in rebuild/standing-approvals.yaml depend on both this recipe and the delta's shape, as the cluster id depends on its repr recipe. Changing either invalidates every recorded digest, and the digests are then re-derived from the standing probe's family line, not edited by hand."""
+    """Return the stored id of one `config_diff` result: `d-` plus the first twelve hex digits of the sha1 of the tuple's repr. The corpus stores one digest per config whose delta is not `IDENTITY_DIFF` (the unit JSON's `ink_deltas`), so a standing-approval rule can approve a localized ink change once and match every window, in any batch, where exactly those pixels appear and disappear. The digests recorded in rebuild/standing-approvals.yaml depend on both this recipe and the delta's shape, as the cluster id depends on its repr recipe. Changing either invalidates every recorded digest, and the digests are then re-derived from the standing probe's family line, not edited by hand."""
     return "d-" + hashlib.sha1(repr(diff).encode()).hexdigest()[:12]
 
 
 def signature_digest(signature: tuple) -> str:
-    """Return the sha256 of the marshal version 2 bytes of one `InkComparator.signature` result. Version 2 predates marshal's back references by object identity, so equal nested tuples give equal bytes even when one shares an object the other rebuilds. The ink-duplicate merge only groups by the value, so digest equality can stand in for signature equality, and the surface build can serve signatures from the persisted store (rebuild/review/unit_cache.py) instead of reshaping every relabel-split window on each pass. Unlike `delta_digest`, these digests are recorded in nothing checked in: they are compared only within one build and stored in a cache that is discarded on any stamp mismatch, so changing the signature's form costs one store miss."""
+    """Return the sha256 of the marshal version 2 bytes of one `InkComparator.signature` result. Version 2 predates marshal's back references by object identity, so equal nested tuples give equal bytes even when one shares an object the other rebuilds. The ink-duplicate merge only groups by the value, so digest equality can stand in for signature equality, and the corpus build can serve signatures from the persisted store (rebuild/review/unit_cache.py) instead of reshaping every relabel-split window on each pass. Unlike `delta_digest`, these digests are recorded in nothing checked in: they are compared only within one build and stored in a cache that is discarded on any stamp mismatch, so changing the signature's form costs one store miss."""
     return hashlib.sha256(marshal.dumps(signature, 2)).hexdigest()
 
 
@@ -108,9 +108,9 @@ def _approx_entry_bytes(key: tuple, result: ShapeResult) -> int:
 
 
 class _MemoizedShaper(Shaper):
-    """A Shaper whose `shape` memoizes by (text, features). The surface build shapes the same (text, config) in `config_diff`, in `Enricher.enrich`, in the JuniorOracle, and in the Drafter's semantics replay, and the memo turns those four calls into one HarfBuzz call, because a fragment is drafted in the same batch that enriched it. Only the surface build uses it, through `shaper_for`.
+    """A Shaper whose `shape` memoizes by (text, features). The corpus build shapes the same (text, config) in `config_diff`, in `Enricher.enrich`, in the JuniorOracle, and in the Drafter's semantics replay, and the memo turns those four calls into one HarfBuzz call, because a fragment is drafted in the same batch that enriched it. Only the corpus build uses it, through `shaper_for`.
 
-    The memo holds one unit batch of shapes at a time. The surface build calls `release_shape_memos` after every unit batch (`_phase1_batches` and `_released_batches` in rebuild/review/build.py, in the pool worker and the in-process runner alike) and once after the parent's serial signature pass. The release is required. Measured on one tree one pass apart (issue #150): a serial build with the release peaked at 15.4 GB in the `surface-build` step and finished its units phase in about twenty minutes. The same build with `release` made a no-op held 6.9 million shapes, about 10.5 GB by `census`, when it was just past half the corpus. By then it had used most of the 32 GiB machine's swap at twice the elapsed time, and it was stopped there. The memo grows linearly with the units, at about 1.5 KB a shape, so without the release it outgrows every other collection a serial build holds, the retained EnrichedUnits included.
+    The memo holds one unit batch of shapes at a time. The corpus build calls `release_shape_memos` after every unit batch (`_phase1_batches` and `_released_batches` in rebuild/review/build.py, in the pool worker and the in-process runner alike) and once after the parent's serial signature pass. The release is required. Measured on one tree one pass apart (issue #150): a serial build with the release peaked at 15.4 GB in the `corpus-build` step and finished its units phase in about twenty minutes. The same build with `release` made a no-op held 6.9 million shapes, about 10.5 GB by `census`, when it was just past half the corpus. By then it had used most of the 32 GiB machine's swap at twice the elapsed time, and it was stopped there. The memo grows linearly with the units, at about 1.5 KB a shape, so without the release it outgrows every other collection a serial build holds, the retained EnrichedUnits included.
     """
 
     def __init__(self, font_path: Path | str) -> None:
@@ -138,7 +138,7 @@ _shaper_registry: dict[tuple[str, int, int], _MemoizedShaper] = {}
 
 
 def release_shape_memos() -> None:
-    """Release every memo `shaper_for` has handed out in this process. The surface build calls it at each unit batch boundary. The shapers stay registered, so their fonts are not loaded again."""
+    """Release every memo `shaper_for` has handed out in this process. The corpus build calls it at each unit batch boundary. The shapers stay registered, so their fonts are not loaded again."""
     for shaper in _shaper_registry.values():
         shaper.release()
 
@@ -154,7 +154,7 @@ def shape_memo_census() -> ShapeMemoCensus:
 
 
 def shaper_for(font_path: Path | str) -> Shaper:
-    """Return the surface build's shared memoized Shaper for one font, keyed by (resolved path, mtime, size) so that a font rewritten in place, such as a test building two surfaces over different mini fonts at one path, never gets stale shapes. Sharing one instance across the comparator, oracle, enricher, and drafter also loads each font once per process instead of four times."""
+    """Return the corpus build's shared memoized Shaper for one font, keyed by (resolved path, mtime, size) so that a font rewritten in place, such as a test building two corpora over different mini fonts at one path, never gets stale shapes. Sharing one instance across the comparator, oracle, enricher, and drafter also loads each font once per process instead of four times."""
     path = Path(font_path).resolve()
     stat = path.stat()
     key = (str(path), stat.st_mtime_ns, stat.st_size)
@@ -280,7 +280,7 @@ class OutlineCache:
 
 
 class InkComparator:
-    """One Shaper and one OutlineCache per font, the two caches sharing one `OutlineIntern` so pieces compare across fonts as (shape key, absolute x, absolute y) without building translated geometry. The surface build passes `shaper_factory=shaper_for` so its components share one memoized Shaper per font. The default is a plain private Shaper, because a memo only costs memory for a caller that does not shape the same text twice."""
+    """One Shaper and one OutlineCache per font, the two caches sharing one `OutlineIntern` so pieces compare across fonts as (shape key, absolute x, absolute y) without building translated geometry. The corpus build passes `shaper_factory=shaper_for` so its components share one memoized Shaper per font. The default is a plain private Shaper, because a memo only costs memory for a caller that does not shape the same text twice."""
 
     def __init__(
         self, before_font: Path | str, after_font: Path | str, shaper_factory: Callable = Shaper
@@ -389,7 +389,7 @@ class InkComparator:
 
         Followers that only slid are read at the same grain. The longest tail of glyphs whose after picture is the before picture displaced by a whole number of columns is moved back by that displacement before the subtraction, and the displacement is the shift. A tail that includes a pixel given up to a neighbor therefore still counts as slid, which keeps ·Fee·Tea·At·J'ai in the same group as every other window that shortens ·Fee the same way. The remaining cells are translated together so the delta's leftmost column is 0.
 
-        IDENTITY_DIFF (nothing lost, nothing gained, no shift) is the sentinel that `picture_identical`, the surface build's per-unit flag, and the standing approvals' empty-delta digest all read. A window whose pieces are already equal returns it without rasterizing. A window with no picture (a curved or off-grid outline, or an off-grid placement) falls back to the piece grain (`_piece_diff`), which never returns the sentinel for pieces that differ. Two units whose judged pair, class, config set, and per-config deltas all agree show the same pixels appearing and disappearing, whatever unchanged letters surround the change; that is the echo-group key.
+        IDENTITY_DIFF (nothing lost, nothing gained, no shift) is the sentinel that `picture_identical`, the corpus build's per-unit flag, and the standing approvals' empty-delta digest all read. A window whose pieces are already equal returns it without rasterizing. A window with no picture (a curved or off-grid outline, or an off-grid placement) falls back to the piece grain (`_piece_diff`), which never returns the sentinel for pieces that differ. Two units whose judged pair, class, config set, and per-config deltas all agree show the same pixels appearing and disappearing, whatever unchanged letters surround the change; that is the echo-group key.
         """
         features = features_for(config)
         before = self.run_ink("before", text, features)

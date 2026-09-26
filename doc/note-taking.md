@@ -32,7 +32,7 @@ It does not list the batch’s commits, because the commit that creates the file
 A count in prose names the artifact that reports it, not the number. The rebuild measures itself on every cycle, so a number written into a note is out of date after the next cycle. When a fact exists both in prose and in a machine-written file, the prose copy is the one that goes stale. That state is recorded in:
 
 - `rebuild/out/cycle_summary.json` for the last cycle’s record, and the per-gate summaries under `rebuild/out/m1/`
-- `rebuild/out/review/manifest.json` for surface totals
+- `rebuild/out/review/manifest.json` for corpus totals
 - `rebuild/review-census-pins.json` for the last accepted census
 - `make verdict-ready` for whether a review session can start
 

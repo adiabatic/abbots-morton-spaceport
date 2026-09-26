@@ -1,8 +1,8 @@
-"""Tests for the review surface's M1-mode unit assembly: TSV/ledger loading, the dedupe to per-config-class units (including the UNMATCHED verdict windows that carry a per-config class map), and deterministic triage ordering.
+"""Tests for the review corpus's M1-mode unit assembly: TSV/ledger loading, the dedupe to per-config-class units (including the UNMATCHED verdict windows that carry a per-config class map), and deterministic triage ordering.
 
-None of it reads the live audit. Ordering, batch slicing, config order, and the one-render-group invariant are properties of `build_units` and `assign_batches` over any input, so the tests use the frozen mini workload under rebuild/review/fixtures/mini/, which holds real windows. Every build also checks that the dedupe loses no rows: `_SurfaceCheck.finish` in rebuild/review/build.py compares the manifest's row total with the rows summed over its classes.
+None of it reads the live audit. Ordering, batch slicing, config order, and the one-render-group invariant are properties of `build_units` and `assign_batches` over any input, so the tests use the frozen mini workload under rebuild/review/fixtures/mini/, which holds real windows. Every build also checks that the dedupe loses no rows: `_CorpusCheck.finish` in rebuild/review/build.py compares the manifest's row total with the rows summed over its classes.
 
-The live counts change with every migrated letter, so they are not asserted here. The surface build's census reports them, and the artifact cycle diffs them into rebuild/review-census-pins.json.
+The live counts change with every migrated letter, so they are not asserted here. The corpus build's census reports them, and the artifact cycle diffs them into rebuild/review-census-pins.json.
 """
 
 import sys
@@ -301,7 +301,7 @@ def test_the_row_sort_key_ranks_a_config_outside_a_grown_acceptance_tuple(monkey
 
 
 def test_the_dedupe_loses_no_rows(mini):
-    """Every audit row ends up under exactly one unit, and the units' runs cover the columns without gaps or overlap. The census reports the counts, so only the totals are asserted, plus that both sides are nonempty, since an empty audit would pass the sum trivially. On the live corpus, `_SurfaceCheck.finish` checks the same row total on every build."""
+    """Every audit row ends up under exactly one unit, and the units' runs cover the columns without gaps or overlap. The census reports the counts, so only the totals are asserted, plus that both sides are nonempty, since an empty audit would pass the sum trivially. On the live corpus, `_CorpusCheck.finish` checks the same row total on every build."""
     units = mini.units()
     assert mini.row_count > 0
     assert len(units) == mini.table.n > 0
@@ -382,7 +382,7 @@ def test_assign_batches_indexes_the_human_workload_and_nulls_machine_units(mini)
 
 
 def test_sort_for_triage_orders_by_class_group_window_then_id():
-    """The manifest's index order, with the id as the last term, so sibling units of one window (same class, group and codepoints) get the same order on every surface instead of the audit's order. A shorter window sorts ahead of a longer one whatever its codepoints: the boundary-led `0020:E650:E652` window, whose group is the same two families, sorts after every two-cell window of that group and before `E650:E652:E650`, which is also three cells and compares higher cell by cell. The sort agrees with `triage_key` over the id strings."""
+    """The manifest's index order, with the id as the last term, so sibling units of one window (same class, group and codepoints) get the same order on every corpus instead of the audit's order. A shorter window sorts ahead of a longer one whatever its codepoints: the boundary-led `0020:E650:E652` window, whose group is the same two families, sorts after every two-cell window of that group and before `E650:E652:E650`, which is also three cells and compares higher cell by cell. The sort agrees with `triage_key` over the id strings."""
     rows = [
         AuditRow("default", "E650:E652", ("cell",), "class-b", ("a",), ("b",)),
         AuditRow("default", "E650:E652", ("cell",), "class-b", ("a",), ("c",)),

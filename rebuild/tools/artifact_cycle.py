@@ -1,6 +1,6 @@
 """Run the commit-time artifact cycle in one command.
 
-The cycle recompiles M1.otf and checks it, rebuilds the review surface in place, runs the verdict update over it, and refreshes the census pins from the surface's census sidecar, naming what moved in their invariant block since the last accepted census. The checked-in pins are that census, so committing the rewritten file accepts a new one. It then runs the gates. Once they have joined and their pytest controllers have written this pass's per-worker peaks to the timings journal, it compares the checked-in per-unit peaks with what this machine measured (`rebuild.tools.calibrate_budgets --check`). It always ends with a summary table, even on failure.
+The cycle recompiles M1.otf and checks it, rebuilds the review corpus in place, runs the verdict update over it, and refreshes the census pins from the corpus's census sidecar, naming what moved in their invariant block since the last accepted census. The checked-in pins are that census, so committing the rewritten file accepts a new one. It then runs the gates. Once they have joined and their pytest controllers have written this pass's per-worker peaks to the timings journal, it compares the checked-in per-unit peaks with what this machine measured (`rebuild.tools.calibrate_budgets --check`). It always ends with a summary table, even on failure.
 
 The terminal shows one banner per step with that step's description, the phases and counters its child prints, every warning, and a closing line. All child output is written under var/build-logs/<stamp>-<short sha>/: one log per step with stdout and stderr merged in arrival order, plan.txt, and a copy of the terminal output. var/build-logs/latest points at the newest run, and a failed step's log is replayed under its banner. rebuild.tools.console defines the line protocol children print and the renderer that reads it.
 
@@ -12,29 +12,29 @@ run_m1's exit status is its own gate's result, but this driver evaluates the thr
 
 This process, not its children, records each check's result in the timings journal. Every evaluated check (run_m1, conform, rebuild-contracts, make-test, js) appends one kind:"check" line tagged with this run, carrying the evaluator's outcome, not the process's exit code; `make cycle-timings ARGS='--by-outcome'` reads them. run_m1's CLI and make_test_gate record their own line when run by hand, so this driver sets its run id in the environment as AMS_CYCLE_RUN (cycle_timings.CYCLE_RUN_ENV), and those children record nothing when they inherit it. Each check invocation gets one line.
 
-gate:js and gate:make-test depend on no build artifact, so they start at t=0 in a small thread pool while the build steps run in sequence in the main thread. gate:conform (the exhaustive font-versus-settlement sweep at the per-edit horizon, `run_m1 --conform-only`) starts after the run_m1 gate passes, queued behind make-test by default. Its deeper form, `make conform-deep`, never runs in the cycle; the summary has one line saying whether the emitted lookup has a shape the last deep run did not shape. gate:rebuild-contracts runs every test under rebuild/, and none of them reads a live build artifact (rebuild/conftest.py's audit hook enforces this). A hand run uses every core. Under a cycle the suite is submitted with the conform lane, right after the run_m1 gate passes, and runs beside the surface build at `contracts_pool_width`: the cores less the build's parent and its `surface_job_budget` workers, set on that one child as PYTEST_XDIST_AUTO_NUM_WORKERS, so the pool and the build together run about one process per core. The suite reads nothing the build lane writes, the census pins included, so it waits for nothing downstream, and on a pass where every upstream stage skips it starts at t=0.
+gate:js and gate:make-test depend on no build artifact, so they start at t=0 in a small thread pool while the build steps run in sequence in the main thread. gate:conform (the exhaustive font-versus-settlement sweep at the per-edit horizon, `run_m1 --conform-only`) starts after the run_m1 gate passes, queued behind make-test by default. Its deeper form, `make conform-deep`, never runs in the cycle; the summary has one line saying whether the emitted lookup has a shape the last deep run did not shape. gate:rebuild-contracts runs every test under rebuild/, and none of them reads a live build artifact (rebuild/conftest.py's audit hook enforces this). A hand run uses every core. Under a cycle the suite is submitted with the conform lane, right after the run_m1 gate passes, and runs beside the corpus build at `contracts_pool_width`: the cores less the build's parent and its `corpus_job_budget` workers, set on that one child as PYTEST_XDIST_AUTO_NUM_WORKERS, so the pool and the build together run about one process per core. The suite reads nothing the build lane writes, the census pins included, so it waits for nothing downstream, and on a pass where every upstream stage skips it starts at t=0.
 
-Under the default queue policy the gates run make-test, then conform, then rebuild-contracts, so only one heavy gate pool runs at a time, and the build steps run beside whichever one it is. Each pool's width comes from its budget function: the oracle (`sweep_job_budget`) splits its tables into row ranges and uses the cores within the memory limit ORACLE_SHARD_BYTES sets; the belt (`conform_job_budget`) runs one process per acceptance configuration wherever CONFORM_BELT_BYTES fits that many beside the build lane; and the surface build (`surface_job_budget`) gets the machine less what make-test holds. Two heavy pools side by side oversubscribe the cores roughly 2:1, and that contention was measured to roughly triple the rebuild suite's wall-clock time (`_gate_conform_task`'s docstring, commit b5881022), which is worse than running the same work in sequence. `--rebuild-pool overlap` runs the pools side by side anyway. The suite's width then also subtracts gate:make-test's pool, so it is no wider than under the queue policy: one worker on a ten- or twelve-core machine beside a cap-width build.
+Under the default queue policy the gates run make-test, then conform, then rebuild-contracts, so only one heavy gate pool runs at a time, and the build steps run beside whichever one it is. Each pool's width comes from its budget function: the oracle (`sweep_job_budget`) splits its tables into row ranges and uses the cores within the memory limit ORACLE_SHARD_BYTES sets; the belt (`conform_job_budget`) runs one process per acceptance configuration wherever CONFORM_BELT_BYTES fits that many beside the build lane; and the corpus build (`corpus_job_budget`) gets the machine less what make-test holds. Two heavy pools side by side oversubscribe the cores roughly 2:1, and that contention was measured to roughly triple the rebuild suite's wall-clock time (`_gate_conform_task`'s docstring, commit b5881022), which is worse than running the same work in sequence. `--rebuild-pool overlap` runs the pools side by side anyway. The suite's width then also subtracts gate:make-test's pool, so it is no wider than under the queue policy: one worker on a ten- or twelve-core machine beside a cap-width build.
 
 The cycle runs no cross-language check, because the kernel crate is the only engine that enumerates and the only one that settles. gate:conform checks settlement empirically: it shapes the compiled font through HarfBuzz and compares the result, window by window, with a re-settlement of every swept text through the crate's `settle-cases` subcommand, with the memo keyed on the raw window so the sweep does not depend on the crate's enumeration and fold. `make kernel-gate` is the crate's own gate, to run around a kernel-semantics change; it takes seconds once the crate is built. The spec-ingest parity check is a contracts test (rebuild/test_kernel_io.py) and runs in gate:rebuild-contracts on every cycle.
 
-gate:make-test is skipped when its input closure is unchanged since its last green run. The closure is every tracked or untracked-unignored file that `make_test_exempt` does not exempt; that function's docstring argues each exemption from what the gate runs (make all, which runs build_font over glyph_data/*.yaml non-recursively, typst, pyright over tools/ test/ conftest.py, and pytest test/ site/). The Makefile itself is represented by what `make -n all` and `make -n test` print. Re-running the gate over an unchanged closure would cost about 15 CPU-minutes and check nothing. The last green fingerprint is in rebuild/out/make-test-green.json, written by rebuild.tools.make_test_gate (the `make test` entry point) on every green run, so interactive and cycle greens share one record and `make test` skips on the same test. cycle_summary.json also records the fingerprint the cycle ran or skipped against, for display only. The skip reads only the shared green record, so a green that make_test_gate deleted after a red run cannot come back from an older summary. The fingerprint covers file content only, so a system toolchain change such as a typst upgrade does not move it (pyright and pytest are pinned in uv.lock, which is in the closure). --force-make-test and --fresh spawn `make test FORCE=1` (`make_test_gate_argv`), because the wrapper decides its own skip with the predicate the plan uses (`make_test_skippable`), and a plain `make test` would skip on the closure the flag forced. The plan reserves the gate's cores and memory beside the surface build only when that predicate says the gate runs.
+gate:make-test is skipped when its input closure is unchanged since its last green run. The closure is every tracked or untracked-unignored file that `make_test_exempt` does not exempt; that function's docstring argues each exemption from what the gate runs (make all, which runs build_font over glyph_data/*.yaml non-recursively, typst, pyright over tools/ test/ conftest.py, and pytest test/ site/). The Makefile itself is represented by what `make -n all` and `make -n test` print. Re-running the gate over an unchanged closure would cost about 15 CPU-minutes and check nothing. The last green fingerprint is in rebuild/out/make-test-green.json, written by rebuild.tools.make_test_gate (the `make test` entry point) on every green run, so interactive and cycle greens share one record and `make test` skips on the same test. cycle_summary.json also records the fingerprint the cycle ran or skipped against, for display only. The skip reads only the shared green record, so a green that make_test_gate deleted after a red run cannot come back from an older summary. The fingerprint covers file content only, so a system toolchain change such as a typst upgrade does not move it (pyright and pytest are pinned in uv.lock, which is in the closure). --force-make-test and --fresh spawn `make test FORCE=1` (`make_test_gate_argv`), because the wrapper decides its own skip with the predicate the plan uses (`make_test_skippable`), and a plain `make test` would skip on the closure the flag forced. The plan reserves the gate's cores and memory beside the corpus build only when that predicate says the gate runs.
 
-The verdict update skips the same way, on rebuild/out/verdict-update-green.json. Each step of the verdict update is a pure function of the surface, the verdicts master, the live store, the checked-in standing approvals, and its own code, so the key covers the surface's inputs fingerprint and stamp, the master's path and bytes, the autosave's bytes, standing-approvals' bytes, and the verdict update's code (`verdict_update_code_paths` plus the review/ modules the verdict update runs). The master is in the key because the autosave's hash cannot see it: an export at the repo root can outrank the autosave in the auto-resolution and carry verdicts the store has never held. The code is in the key because no other fingerprint reads the verdict update's modules, and without it a fix to a fill's matcher or to the carry's join would be skipped. `verdict_update_code_paths` lists the verdict update's modules instead of all of rebuild/tools/, and rebuild/test_verdict_update_closure.py checks on every contracts run that the list covers the verdict update's import graph.
+The verdict update skips the same way, on rebuild/out/verdict-update-green.json. Each step of the verdict update is a pure function of the corpus, the verdicts master, the live store, the checked-in standing approvals, and its own code, so the key covers the corpus's inputs fingerprint and stamp, the master's path and bytes, the autosave's bytes, standing-approvals' bytes, and the verdict update's code (`verdict_update_code_paths` plus the review/ modules the verdict update runs). The master is in the key because the autosave's hash cannot see it: an export at the repo root can outrank the autosave in the auto-resolution and carry verdicts the store has never held. The code is in the key because no other fingerprint reads the verdict update's modules, and without it a fix to a fill's matcher or to the carry's join would be skipped. `verdict_update_code_paths` lists the verdict update's modules instead of all of rebuild/tools/, and rebuild/test_verdict_update_closure.py checks on every contracts run that the list covers the verdict update's import graph.
 
 The key is captured when the verdict update finishes, not at the end of the pass, so a store write during the census cannot be counted as part of a fixpoint nothing verified. The record is written later, after the complaint docket step has also succeeded. The fixpoint is claimed only when the verdict update has observed it. The carry's merge gives echo-fill new agreement to read, and echo-fill only removes blanks, so it never creates work for standing-fill. But standing-fill runs last, and a standing fill can make an echo group unanimous while a blank member remains. Refusing the green whenever the standing merge changed anything would cost another full pass. In one process another echo pass costs about a second, so the verdict update repeats it until a pass writes nothing, and the green is recorded only after that pass.
 
-The verdict-update skip also requires the surface build to skip, which is what makes the stamp known before the pass runs. A flag that names a carry output disables the skip, since skipping would write nothing to that output.
+The verdict-update skip also requires the corpus build to skip, which is what makes the stamp known before the pass runs. A flag that names a carry output disables the skip, since skipping would write nothing to that output.
 
 Every other heavy stage skips on the same principle: a content fingerprint over the stage's input closure, and a green record written only after that content passed.
 
 - run_m1 skips on rebuild/out/run-m1-green.json (the Stage A fingerprint components plus the contact allow-list, the oracle's subset tables and uv.lock's dependency pins) and re-evaluates its gate from the summary JSONs on disk.
 - gate:conform skips on conform-green.json, keyed on what the belt tests for, not on run_m1's closure: the emitted lookup's behavior classes, the font-compilation code and its tools/ closure, the uharfbuzz version, and the sweep horizon (`conform_skip_fingerprint`). A rune edit that creates no new rule shape leaves that key unchanged, because the crate's string replay inside run_m1 has already checked the new tables against the engine over every string.
 - The rebuild suite skips on rebuild-contracts-green.json, keyed by `rebuild_lane_fingerprint` over its closure: the repo files under rebuild/ and glyph_data/, the harness files in REBUILD_GATE_HARNESS_PATHS, conftest.py, pyproject.toml, uv.lock by its dependency pins, and the site fonts without their head and name tables. The closure contains no build artifact, so the suite can skip whether or not run_m1 rebuilt: an M1 rebuild writes only under rebuild/out, which the closure does not include. The record also stores each test's input closure, so a pass whose key changed runs only the tests whose closure the diff reaches; a rune edit reruns the tests that load the spec and nothing else. rebuild.tools.contracts_closure defines what a closure holds and when a test may be skipped, and runs the test whenever it cannot tell. rebuild.tools.rebuild_gate (`make test-rebuild`) writes the same record, so interactive and cycle greens share it.
-- surface-build skips when the manifest's recorded inputs fingerprint equals the one a build would stamp now. A rebuild would then be byte-identical, including `generated_at` (the latest input mtime, floored), so the autosave stays aligned. When the live surface does not match but a rehearsal's directory does (the last cycle summary's `plan.review_out`, or var/rehearsal-review), that directory is moved into rebuild/out/review with its stores instead (`surface-promote`; `promotable_surface` checks the preconditions). Every stamp inside a surface depends only on content relative to its manifest, and the move keeps the `generated_at` a rebuild would reset.
-- The census step has no key and never skips: it reads the surface build's census-facts.json sidecar and rewrites one small checked-in file in milliseconds.
+- corpus-build skips when the manifest's recorded inputs fingerprint equals the one a build would stamp now. A rebuild would then be byte-identical, including `generated_at` (the latest input mtime, floored), so the autosave stays aligned. When the live corpus does not match but a rehearsal's directory does (the last cycle summary's `plan.review_out`, or var/rehearsal-review), that directory is moved into rebuild/out/review with its stores instead (`corpus-promote`; `promotable_corpus` checks the preconditions). Every stamp inside a corpus depends only on content relative to its manifest, and the move keeps the `generated_at` a rebuild would reset.
+- The census step has no key and never skips: it reads the corpus build's census-facts.json sidecar and rewrites one small checked-in file in milliseconds.
 
-The surface skip applies only on passes where run_m1 skipped, and on a gates-only rerun when the Stage A record on disk already matches what that pass will write (`m1_stage_a_current`), because the surface reads nothing else the pass writes. That happens on a contact-allow bless, the only comparison-side edit outside every Stage A component.
+The corpus skip applies only on passes where run_m1 skipped, and on a gates-only rerun when the Stage A record on disk already matches what that pass will write (`m1_stage_a_current`), because the corpus reads nothing else the pass writes. That happens on a contact-allow bless, the only comparison-side edit outside every Stage A component.
 
 Conform's skip is decided after run_m1 finishes, from the key the artifacts it left carry. A mode that leaves the emitted lookup's shapes, the compile code and the shaper at the last green key skips the sweep, whether run_m1 skipped, reran only its gates, or rebuilt, and the skip is recorded as proved because a matching green covers this exact content. Computing the key only after run_m1 has finished also means an M1 rebuild cannot invalidate it during the cycle. The preflight can decide it before the pass only in the mode where run_m1 skipped, so nothing will change; that is the mode --dry-run can predict. On a gates-only rerun or a rebuild the printed plan shows the conform lane as undecided (`run?`), because only a finished run_m1 knows what the artifacts are, so a plan that shows the sweep may end in a pass that skips it.
 
@@ -42,17 +42,17 @@ Green records are written only when the key still matches after the work ran, an
 
 Between the run_m1 skip and a full rebuild there is a third mode, the gates-only rerun. When the per-file diff against the run_m1 green is confined to comparison-side inputs (the alias map, the divergence ledger, the contact allow-list, the kern sidecar, the oracle's two modules, and the baselines and their subsets, all outside the tables' stamp; `comparison_side_label` lists them and argues each), the tables on disk still carry that stamp, and all the artifacts are present, the cycle spawns `run_m1 --gates-only` instead of a build. It re-runs the defect gate, the Manual-pin gate and the oracle over the tables and font on disk, matches the oracle's rows against the ledgers again, and enumerates nothing. The green that pass records covers the new inputs, so the next cycle skips run_m1. `uv.lock` is not comparison-side, because a fontTools or uharfbuzz bump can change the font's bytes and what the shaper does with them, so a toolchain bump rebuilds.
 
-This module, not the caller, decides which passes stop the review server, because only the resolved plan knows. Two things a cycle writes belong to the running app: the surface it serves (livereload watches every shard, and a restamped manifest orphans the tab's store) and the verdict store, which merge_verdicts will not touch under a live server because an open tab would write its own copy back over the merge. A pass whose plan skips both writes neither, so a listening server is left alone and the open tab keeps working for the whole run. That is the pass with no artifact work, whose long verification would otherwise take the app down for its whole length.
+This module, not the caller, decides which passes stop the review server, because only the resolved plan knows. Two things a cycle writes belong to the running app: the corpus it serves (livereload watches every shard, and a restamped manifest orphans the tab's store) and the verdict store, which merge_verdicts will not touch under a live server because an open tab would write its own copy back over the merge. A pass whose plan skips both writes neither, so a listening server is left alone and the open tab keeps working for the whole run. That is the pass with no artifact work, whose long verification would otherwise take the app down for its whole length.
 
-A pass whose surface did not change but whose store did has its own mode, the direct merge. The carry there maps every unit id to itself and keeps each record's `at`, which the merge compares strictly, so the carry is skipped and the master is merged straight in; the master is the one input the store's own hash cannot see. That pass still writes the store, so it stops the review server. The direct merge needs the master stamped for the served surface, as the merge requires of every input. A master stamped for another surface, which a pass stopped between the surface build and the carry leaves behind, takes the full carry instead. The carry source's resolution says which of the two an auto-resolved master is, and `master_stamped_for_surface` says it for a --verdicts one.
+A pass whose corpus did not change but whose store did has its own mode, the direct merge. The carry there maps every unit id to itself and keeps each record's `at`, which the merge compares strictly, so the carry is skipped and the master is merged straight in; the master is the one input the store's own hash cannot see. That pass still writes the store, so it stops the review server. The direct merge needs the master stamped for the served corpus, as the merge requires of every input. A master stamped for another corpus, which a pass stopped between the corpus build and the carry leaves behind, takes the full carry instead. The carry source's resolution says which of the two an auto-resolved master is, and `master_stamped_for_corpus` says it for a --verdicts one.
 
-An edit confined to rebuild/review/static/ also has its own mode. The copied app assets are the one surface input no unit depends on, so the pass copies them over the served copy and restamps that one fingerprint component (`assets-refresh`). Every shard, both sidecars, the unit-cache store and `generated_at` stay as they were, so nothing the tab is keyed on changes, the review server keeps running, and livereload reloads the tab with the new assets.
+An edit confined to rebuild/review/static/ also has its own mode. The copied app assets are the one corpus input no unit depends on, so the pass copies them over the served copy and restamps that one fingerprint component (`assets-refresh`). Every shard, both sidecars, the unit-cache store and `generated_at` stay as they were, so nothing the tab is keyed on changes, the review server keeps running, and livereload reloads the tab with the new assets.
 
-A surface promotion is the opposite case under the same skip. The whole tree under the app is replaced by the rehearsal's and the stamp changes with it, so the pass stops the review server. Both the verdict-update skip and the direct merge are off, because both assume the surface did not change, and here the store's verdicts must be carried onto the promoted units by id.
+A corpus promotion is the opposite case under the same skip. The whole tree under the app is replaced by the rehearsal's and the stamp changes with it, so the pass stops the review server. Both the verdict-update skip and the direct merge are off, because both assume the corpus did not change, and here the store's verdicts must be carried onto the promoted units by id.
 
 A pass that writes under the app needs the review server stopped. --stop-server (which `make review-cycle` passes) lets it terminate the server and wait until the port is free; without it the pass stops and prints how to proceed. Retention also writes: the app appends to the journal as verdicts are recorded, and a compaction rewrites the file around a read, so while a server is up the journal and the stash sweep that depends on it are left for a later pass.
 
-A green finish ends with a retention pass over the cycle's own files, all of them regenerable or covered by the journal. Root verdicts-carried-*.json files not stamped for the live surface are deleted, since `status.pick_frontier` reads only files stamped for the live surface, and the tracked copy under rebuild/evidence/ is never touched. verdicts-autosave-* stashes not referenced by a journal event at or after the last base event are deleted. The journal, not the stashes, is the supported recovery path, and the check uses the journal's references because a stash's mtime predates the event that created it. The journal is compacted to the newest base event older than RETENTION_WINDOW_DAYS, keeping at least that many days of --restore-as-of history, and build-log run directories beyond the newest `cycle_paths.BUILD_LOGS_KEEP` are deleted. Failed, interrupted, first-run, and rehearsal cycles never prune, --keep-history turns retention off, and a retention error prints a warning and never turns a green cycle red.
+A green finish ends with a retention pass over the cycle's own files, all of them regenerable or covered by the journal. Root verdicts-carried-*.json files not stamped for the live corpus are deleted, since `status.pick_frontier` reads only files stamped for the live corpus, and the tracked copy under rebuild/evidence/ is never touched. verdicts-autosave-* stashes not referenced by a journal event at or after the last base event are deleted. The journal, not the stashes, is the supported recovery path, and the check uses the journal's references because a stash's mtime predates the event that created it. The journal is compacted to the newest base event older than RETENTION_WINDOW_DAYS, keeping at least that many days of --restore-as-of history, and build-log run directories beyond the newest `cycle_paths.BUILD_LOGS_KEEP` are deleted. Failed, interrupted, first-run, and rehearsal cycles never prune, --keep-history turns retention off, and a retention error prints a warning and never turns a green cycle red.
 
 Run as: uv run python rebuild/tools/artifact_cycle.py. The carry source is resolved from the autosave and the verdicts-*.json exports; pass --verdicts to name one.
 """
@@ -115,15 +115,15 @@ JSTEST_DIR = ROOT / "rebuild" / "review" / "jstests"
 
 POOL_POLICIES = ("queue", "overlap")
 REBUILD_POOL_POLICY_DEFAULT = "queue"
-VERDICT_UPDATE_SKIP_NOTE = "surface, verdicts master, live store, and standing approvals unchanged since the last complete verdict-update pass; --fresh overrides"
-DIRECT_MERGE_DECLINED_NOTE = "The surface build is skipped, but the verdicts master is not stamped for the served surface and the merge would refuse it, so the verdict update carries it onto the served surface by unit id rather than merging it straight in."
+VERDICT_UPDATE_SKIP_NOTE = "corpus, verdicts master, live store, and standing approvals unchanged since the last complete verdict-update pass; --fresh overrides"
+DIRECT_MERGE_DECLINED_NOTE = "The corpus build is skipped, but the verdicts master is not stamped for the served corpus and the merge would refuse it, so the verdict update carries it onto the served corpus by unit id rather than merging it straight in."
 CONFORM_SKIP_NOTE = "no new rule shape, compile code or shaper since its last green sweep; --fresh overrides"
 CONFORM_MAYBE_NOTE = "runs unless run_m1 leaves the emitted lookup's behavior classes, the compile code and the shaper under the key of its last green sweep, in which case it is re-skipped after run_m1"
 UNDECIDED_UNTIL_RUN_M1 = {
     "gate:conform": CONFORM_MAYBE_NOTE,
 }
-ASSETS_REFRESH_NOTE = "only the review UI assets moved since the surface was stamped; they are copied over the served copy and the manifest's static component restamped in place — no shard, sidecar or generated_at moves; --fresh overrides"
-SURFACE_PROMOTE_NOTE = "a rehearsal already built the surface these inputs produce, byte for byte, unit store and signature store beside it; that directory is moved into place instead of being rebuilt; --fresh overrides"
+ASSETS_REFRESH_NOTE = "only the review UI assets moved since the corpus was stamped; they are copied over the served copy and the manifest's static component restamped in place — no shard, sidecar or generated_at moves; --fresh overrides"
+CORPUS_PROMOTE_NOTE = "a rehearsal already built the corpus these inputs produce, byte for byte, unit store and signature store beside it; that directory is moved into place instead of being rebuilt; --fresh overrides"
 SERVER_KEEPS_RUNNING_NOTE = (
     "rewrites no unit shard, moves no manifest stamp, and leaves the verdict store alone"
 )
@@ -131,22 +131,22 @@ SERVER_STOP_PATTERN = r"rebuild\.review\.serve"
 SERVER_STOP_TIMEOUT = 15.0
 # The gate thread pool's worker count, sized to the tasks the chain submits, not to the cores. Under the queue policy a waiting task holds its worker for the whole wait (conform waits on make-test, and contracts on both), so every gate task needs a worker at the same time, with spare workers on top. With fewer workers a waiting task could sit behind an unrelated task's completion, and a width taken from the cores would cause that on a small machine. `test_the_gate_pool_seats_every_gate_task_at_once` in rebuild/test_artifact_cycle.py checks that this equals the gate task count plus two.
 _GATE_POOL_WORKERS = 6
-# The peak memory of one surface-build worker, the divisor of the build's width (`surface_job_budget`). A worker is a persistent spawn process that takes unit batches from the parent's hand-out queue (`_handout_width` in rebuild/review/build.py: the enricher's settlement batch, or a smaller spread of a small pile), enriches and drafts each unit, spools each fragment to disk as it is drafted so no EnrichedUnit outlives its batch (`_FragmentSpool`), and replies with the batch's projections and spool addresses. Nothing it holds grows with the corpus, the alphabet or the width. It holds its interpreter and shapers, whose shape memo is released at every batch boundary (`rebuild.review.ink.release_shape_memos`; `_MemoizedShaper`'s docstring records the measurement that showed an unreleased memo outgrowing everything else in a serial build). It holds one batch's units, projections and addresses, bounded by `PHASE1_HANDOUT_UNITS`, from the hand-out until the reply is pickled; the `SubsetRow`s for one batch's units; and the pages it touches of the baseline subset pack (rebuild/review/subset_pack.py), which the parent writes once before the pool starts and every worker maps read-only, so the page cache holds one copy per machine. The parent hands units out in configuration order (`_configuration_order` in rebuild/review/build.py), so a worker's touched pages are mostly one configuration's key range.
-# The seed is every width-eight pool on the mapped pack since the previous seed, on the 32 GiB machine and the 18-core 48 GiB machine (`doc/fleet.md`). On passes that draft units, workers peak at up to 0.52 GB on the 32 GiB machine over the qsYe corpus, and each pass's largest worker reads 0.42 to 0.48 GB on the 48 GiB machine. A served pass's workers read under 0.1 GB. For comparison, a width-six pool over the 32-letter corpus that held its subset tables in Python read 1.16 to 1.95 GB. The constant is the largest mapped-pack reading plus a quarter, rounded up to the hundredth, for the reason kernel_exec.DELTA_PEAK_BYTES rounds up: a cost that is too low pushes the machine into swap, while one that is too high only narrows the pool. A worker's peak depends on the batches it draws, not on the width, so a wider pool repeats the same reading. A new letter changes it only through what a batch holds (a window's rows and shapes), not through the tables, so every fleet machine stays at `SURFACE_JOBS_CAP` as letters are added (`test_the_shipped_surface_divisor_holds_the_32_gib_box_at_the_cap_by_division` in rebuild/test_memory_budget.py checks this for the 32 GiB machine, and `test_both_fleet_boxes_keep_a_pooled_build_under_a_gated_cycle` in rebuild/test_artifact_cycle.py for the 48 GiB one). On a ten-core machine the cap-width pool leaves gate:rebuild-contracts one worker (`contracts_pool_width` discusses this). The surface-worker row of `make job-costs` checks the constant against the kind:"pool" record rebuild/review/build.py writes for each pooled build. Every fleet machine runs the build pooled, so a machine with no rows has not been made serial by this width.
-SURFACE_WORKER_BYTES = 660_000_000
-# The peak memory of the surface build's parent while its pool runs, subtracted from the machine's memory before dividing by SURFACE_WORKER_BYTES. The parent holds the workload table (`audit.UnitTable` in rebuild/review/audit.py: each unit's class, group, family, echo and cluster as ids into one string table, its config set, kinds, render groups and per-config class map as ids into pools of a few dozen values, its window parsed once into a `u16` side column, its run of audit rows and its triage position, all as fixed-width `array` columns over the unit's ordinal, well under 100 bytes a unit); the packed unit store (rebuild/review/unit_store.py) over the same ordinal and string table; the checker's identity dict; the census's pre-merge snapshot (`census.PremergeSnapshot`, columns over the pre-fold rows at 18 bytes a row, 23 after `rebase`); one fragment or one materialized `audit.Unit`; one batch of materialized records while a hand-out is being sent; and one batch reply in flight per worker. The hand-out and the replies are the only terms the width changes. The parent never holds a list of unit records at any phase (`UnitTable.unit` materializes one for a reader that needs it, and `units` is for the census CLI and the tests).
-# The unit store holds every per-unit product of phase 1 from the plan boundary to the cache write (the machine flags and ink deltas, the diff and cluster digests, the seam-home projection with its spans, names and rects, the secondary-home assignments, the fragment's spool or prior address, the shard address the write returns, the content and input keys, the policy file and the config note) as fixed-width `array` columns plus one string table over the vocabulary, not the corpus (the `[tally] … unit_store` line measures the table beside the columns). It materializes one unit at a time for the reduce step or a store line. A slotted state record, a spool-address object and a dict keyed by id hold the same facts in about six to twenty times the bytes, pile by pile: the `[tally]` lines of a pass under `AMS_SURFACE_PILE_TALLY=1` show the walked and packed bytes of each pile side by side, and that comparison is why the store uses columns. The table's `[tally] … workload.units` line compares the same way against 645.6 bytes a unit for a list of records.
+# The peak memory of one corpus-build worker, the divisor of the build's width (`corpus_job_budget`). A worker is a persistent spawn process that takes unit batches from the parent's hand-out queue (`_handout_width` in rebuild/review/build.py: the enricher's settlement batch, or a smaller spread of a small pile), enriches and drafts each unit, spools each fragment to disk as it is drafted so no EnrichedUnit outlives its batch (`_FragmentSpool`), and replies with the batch's projections and spool addresses. Nothing it holds grows with the corpus, the alphabet or the width. It holds its interpreter and shapers, whose shape memo is released at every batch boundary (`rebuild.review.ink.release_shape_memos`; `_MemoizedShaper`'s docstring records the measurement that showed an unreleased memo outgrowing everything else in a serial build). It holds one batch's units, projections and addresses, bounded by `PHASE1_HANDOUT_UNITS`, from the hand-out until the reply is pickled; the `SubsetRow`s for one batch's units; and the pages it touches of the baseline subset pack (rebuild/review/subset_pack.py), which the parent writes once before the pool starts and every worker maps read-only, so the page cache holds one copy per machine. The parent hands units out in configuration order (`_configuration_order` in rebuild/review/build.py), so a worker's touched pages are mostly one configuration's key range.
+# The seed is every width-eight pool on the mapped pack since the previous seed, on the 32 GiB machine and the 18-core 48 GiB machine (`doc/fleet.md`). On passes that draft units, workers peak at up to 0.52 GB on the 32 GiB machine over the qsYe corpus, and each pass's largest worker reads 0.42 to 0.48 GB on the 48 GiB machine. A served pass's workers read under 0.1 GB. For comparison, a width-six pool over the 32-letter corpus that held its subset tables in Python read 1.16 to 1.95 GB. The constant is the largest mapped-pack reading plus a quarter, rounded up to the hundredth, for the reason kernel_exec.DELTA_PEAK_BYTES rounds up: a cost that is too low pushes the machine into swap, while one that is too high only narrows the pool. A worker's peak depends on the batches it draws, not on the width, so a wider pool repeats the same reading. A new letter changes it only through what a batch holds (a window's rows and shapes), not through the tables, so every fleet machine stays at `CORPUS_JOBS_CAP` as letters are added (`test_the_shipped_corpus_divisor_holds_the_32_gib_box_at_the_cap_by_division` in rebuild/test_memory_budget.py checks this for the 32 GiB machine, and `test_both_fleet_boxes_keep_a_pooled_build_under_a_gated_cycle` in rebuild/test_artifact_cycle.py for the 48 GiB one). On a ten-core machine the cap-width pool leaves gate:rebuild-contracts one worker (`contracts_pool_width` discusses this). The corpus-worker row of `make job-costs` checks the constant against the kind:"pool" record rebuild/review/build.py writes for each pooled build. Every fleet machine runs the build pooled, so a machine with no rows has not been made serial by this width.
+CORPUS_WORKER_BYTES = 660_000_000
+# The peak memory of the corpus build's parent while its pool runs, subtracted from the machine's memory before dividing by CORPUS_WORKER_BYTES. The parent holds the workload table (`audit.UnitTable` in rebuild/review/audit.py: each unit's class, group, family, echo and cluster as ids into one string table, its config set, kinds, render groups and per-config class map as ids into pools of a few dozen values, its window parsed once into a `u16` side column, its run of audit rows and its triage position, all as fixed-width `array` columns over the unit's ordinal, well under 100 bytes a unit); the packed unit store (rebuild/review/unit_store.py) over the same ordinal and string table; the checker's identity dict; the census's pre-merge snapshot (`census.PremergeSnapshot`, columns over the pre-fold rows at 18 bytes a row, 23 after `rebase`); one fragment or one materialized `audit.Unit`; one batch of materialized records while a hand-out is being sent; and one batch reply in flight per worker. The hand-out and the replies are the only terms the width changes. The parent never holds a list of unit records at any phase (`UnitTable.unit` materializes one for a reader that needs it, and `units` is for the census CLI and the tests).
+# The unit store holds every per-unit product of phase 1 from the plan boundary to the cache write (the machine flags and ink deltas, the diff and cluster digests, the seam-home projection with its spans, names and rects, the secondary-home assignments, the fragment's spool or prior address, the shard address the write returns, the content and input keys, the policy file and the config note) as fixed-width `array` columns plus one string table over the vocabulary, not the corpus (the `[tally] … unit_store` line measures the table beside the columns). It materializes one unit at a time for the reduce step or a store line. A slotted state record, a spool-address object and a dict keyed by id hold the same facts in about six to twenty times the bytes, pile by pile: the `[tally]` lines of a pass under `AMS_CORPUS_MEMORY_TALLY=1` show the walked and packed bytes of each pile side by side, and that comparison is why the store uses columns. The table's `[tally] … workload.units` line compares the same way against 645.6 bytes a unit for a list of records.
 # Neither ink-signature table is in the plateau. The window-keyed table the ink-duplicate merge reads (`signatures` in rebuild/review/build.py) is released when that merge returns, in the load phase. The store's records (`signature_entries`) are held through the plan phase and released when the store is written: inline as the units phase opens on a serial build, and a few seconds into the units phase on a pooled build, when the `_SignatureWrite` thread that `build_m1` starts at that boundary finishes. So the records overlap the pool only for the length of that write. The load boundary's `signatures` tally line includes the table's strings, and the digest strings are shared with the records, so the release frees less than the sum of the two lines.
-# This figure covers the whole surface-build step, not one phase. On a full-fresh pass the load phase holds the row columns (`audit.RowColumns`, five flat arrays over the audit's rows with their tuple pool, about 17 bytes a row), the table, the snapshot and both signature tables. The plateau holds the table, the store's columns, the identity dict and the snapshot, with the name tuples released at the units boundary (`UnitTable.release_names`). The `rss_now_gb=` token beside `rss_gb=` on each `[t] review.build` line gives a phase's own resident set, separate from the step's peak (`_phase_timing` in rebuild/review/build.py). On full-fresh and served passes alike the load boundary sets the peak: `rss_gb=` reaches the step's figure on the load line and does not rise after it, the load's `rss_now_gb=` is the pass's highest resident reading, and the plateau's boundaries read below it, by about 1.5 GB on a full-fresh pass and by more than 0.5 GB at the served units boundary. So the row columns and both signature tables beside the table set the step's peak, not the plateau's store.
-# A served pass's plan phase streams the store (`unit_cache.stream_store`) and folds each record into the columns as it is parsed. Beside the table and the store's columns, the plan holds the map from input key to ordinal (built from the store's key column and released at the plan's `del named`), one `unit_cache.ServedUnit`, whose projection tuples are pooled within the record (`unit_cache._served_unit`), and the addressless records: records the store returns without an address, buffered until one pass over the previous surface's shards places them (the `[tally] plan unit_cache.unplaced` line measures them). A store this code wrote has none, so a served pass reads at or below a full-fresh one, with its plan boundary well below its load. A store whose every record is addressless (every part resized under it) buffers every record, and that plan reads like a parse of the whole store; streaming limits the spike to that case but does not remove it. Fragments stream by address into the shards and are released after the checker and sidecar spools consume them. Before the workload loads, the same process packs the baseline subset tables (rebuild/review/subset_pack.py; `write_pack` holds every table's keys and row indices beside the pool of distinct rows), a transient well below the pool-time peak that this constant covers without a term of its own.
-# The peak grows with the alphabet. The surface-parent row of `make job-costs` measures it through the surface-build step's peak: `peak_rss.reap_peak_rss_bytes` takes the largest process peak in the tree, and the parent holds the corpus while each worker holds one batch. The seed is two untallied width-eight passes over the qsYe corpus on the 32 GiB machine (`doc/fleet.md`), with nothing edited between them, the workload held as the table's columns and the served plan folding each record as it is parsed. The full-fresh pass, run by `make artifact-cycle`, peaks at 4.01 GB, and the served pass, run by hand over the surface the first one wrote, peaks at 4.00 GB. Both peaks occur at the load boundary (the load's `rss_now_gb=` reads 3.79 and 3.78, and the served plan boundary's 2.90). The constant is the higher reading plus a quarter, rounded up to the next whole gigabyte, as STANDING_FILL_PARENT_BYTES is: a cost that is too low pushes the machine into swap, one that is too high only narrows the pool, and the peak grows with the corpus, so every new letter raises it before the row shows it.
+# This figure covers the whole corpus-build step, not one phase. On a full-fresh pass the load phase holds the row columns (`audit.RowColumns`, five flat arrays over the audit's rows with their tuple pool, about 17 bytes a row), the table, the snapshot and both signature tables. The plateau holds the table, the store's columns, the identity dict and the snapshot, with the name tuples released at the units boundary (`UnitTable.release_names`). The `rss_now_gb=` token beside `rss_gb=` on each `[t] review.build` line gives a phase's own resident set, separate from the step's peak (`_phase_timing` in rebuild/review/build.py). On full-fresh and served passes alike the load boundary sets the peak: `rss_gb=` reaches the step's figure on the load line and does not rise after it, the load's `rss_now_gb=` is the pass's highest resident reading, and the plateau's boundaries read below it, by about 1.5 GB on a full-fresh pass and by more than 0.5 GB at the served units boundary. So the row columns and both signature tables beside the table set the step's peak, not the plateau's store.
+# A served pass's plan phase streams the store (`unit_cache.stream_store`) and folds each record into the columns as it is parsed. Beside the table and the store's columns, the plan holds the map from input key to ordinal (built from the store's key column and released at the plan's `del named`), one `unit_cache.ServedUnit`, whose projection tuples are pooled within the record (`unit_cache._served_unit`), and the addressless records: records the store returns without an address, buffered until one pass over the previous corpus's shards places them (the `[tally] plan unit_cache.unplaced` line measures them). A store this code wrote has none, so a served pass reads at or below a full-fresh one, with its plan boundary well below its load. A store whose every record is addressless (every part resized under it) buffers every record, and that plan reads like a parse of the whole store; streaming limits the spike to that case but does not remove it. Fragments stream by address into the shards and are released after the checker and sidecar spools consume them. Before the workload loads, the same process packs the baseline subset tables (rebuild/review/subset_pack.py; `write_pack` holds every table's keys and row indices beside the pool of distinct rows), a transient well below the pool-time peak that this constant covers without a term of its own.
+# The peak grows with the alphabet. The corpus-parent row of `make job-costs` measures it through the corpus-build step's peak: `peak_rss.reap_peak_rss_bytes` takes the largest process peak in the tree, and the parent holds the corpus while each worker holds one batch. The seed is two untallied width-eight passes over the qsYe corpus on the 32 GiB machine (`doc/fleet.md`), with nothing edited between them, the workload held as the table's columns and the served plan folding each record as it is parsed. The full-fresh pass, run by `make artifact-cycle`, peaks at 4.01 GB, and the served pass, run by hand over the corpus the first one wrote, peaks at 4.00 GB. Both peaks occur at the load boundary (the load's `rss_now_gb=` reads 3.79 and 3.78, and the served plan boundary's 2.90). The constant is the higher reading plus a quarter, rounded up to the next whole gigabyte, as STANDING_FILL_PARENT_BYTES is: a cost that is too low pushes the machine into swap, one that is too high only narrows the pool, and the peak grows with the corpus, so every new letter raises it before the row shows it.
 # Beyond the columns, the plateau holds only the checker's identity dict as per-unit objects (the `[tally] … checker.identity` line: 214.8 bytes a unit walked against 9.2 packed on the qsYe corpus). The window is the one per-unit column held twice: the store's seam-home codepoint values and the table's `u16` side column. The one per-unit transient beside them is the triage sort's (`audit._triage_permutation`, run once at the load and once at the units boundary): one integer a row, with its class, group, window and id terms packed into it, a few dozen bytes each, in a list sorted in place and dropped when the permutation returns. No `[tally]` line measures it, and a units-boundary `rss_now_gb=` shows it only as memory the allocator has not yet returned. A tallied pass reads higher than the same pass untallied, because it rebuilds the plan's input-key map at every boundary and keeps the addressless records past the `del` that frees them, so re-seed from the row's step peak, never from a tally line. The row counts only measurements after the commit that sets the constant. A hand build writes pool records only, so read its step peak from its `[t] review.build` lines. Re-measure as the alphabet grows.
-SURFACE_PARENT_BYTES = 6_000_000_000
-# The surface build's limit other than memory. One parent process hands out the batches and merges every reply, and eight is the widest pool measured: on the 32 GiB machine the units phase's wall-clock time at width eight is its width-six time scaled by the ratio of the widths, over the same corpus (`make cycle-timings ARGS='--inner'` reports the `review.build units` phase), so the pool scales linearly up to the cap. Nothing past eight has been measured, so raising the cap needs a measurement first.
-SURFACE_JOBS_CAP = 8
-# The peak memory of one worker in the standing fill's refill pool, the divisor of that pool's width (`standing_fill_jobs`). A worker is a spawn process holding its interpreter, the rules, a `SlideContext` over the surface's font pair (two shapers), and one chunk of `_STANDING_POOL_CHUNK` units (rebuild/tools/standing_verdicts.py) with that chunk's shape and walk memos and its alignment cache. All three are emptied after every chunk, so the peak depends on the chunk, not on the pool's share of the units. The seed is three hand refills in the verdict update's form (`--open-only --require-reach`) with the memo dropped (`--fresh-memo`), each worker's resident set sampled every 0.1 s on the 18-core 48 GiB machine (`doc/fleet.md`). Two ran eighteen wide, and their thirty-six workers read 95 to 104 MB. One ran two wide, and its workers, which decided about fifty-eight chunks each, read 99 MB, so a worker's peak does not grow with the chunks it decides. The constant is more than three times the highest reading, because no journal row measures this worker: `make job-costs` has no standing-fill-worker row, since writing pool records from the fill would put cycle_timings and peak_rss into the memo's code stamp (`MEMO_CODE_MODULES`) and drop the memo on every width change. Re-measure by hand at the chunk width when the chunk size or what a decision holds changes. At this figure the cores, not memory, limit this pool on every fleet machine.
+CORPUS_PARENT_BYTES = 6_000_000_000
+# The corpus build's limit other than memory. One parent process hands out the batches and merges every reply, and eight is the widest pool measured: on the 32 GiB machine the units phase's wall-clock time at width eight is its width-six time scaled by the ratio of the widths, over the same corpus (`make cycle-timings ARGS='--inner'` reports the `review.build units` phase), so the pool scales linearly up to the cap. Nothing past eight has been measured, so raising the cap needs a measurement first.
+CORPUS_JOBS_CAP = 8
+# The peak memory of one worker in the standing fill's refill pool, the divisor of that pool's width (`standing_fill_jobs`). A worker is a spawn process holding its interpreter, the rules, a `SlideContext` over the corpus's font pair (two shapers), and one chunk of `_STANDING_POOL_CHUNK` units (rebuild/tools/standing_verdicts.py) with that chunk's shape and walk memos and its alignment cache. All three are emptied after every chunk, so the peak depends on the chunk, not on the pool's share of the units. The seed is three hand refills in the verdict update's form (`--open-only --require-reach`) with the memo dropped (`--fresh-memo`), each worker's resident set sampled every 0.1 s on the 18-core 48 GiB machine (`doc/fleet.md`). Two ran eighteen wide, and their thirty-six workers read 95 to 104 MB. One ran two wide, and its workers, which decided about fifty-eight chunks each, read 99 MB, so a worker's peak does not grow with the chunks it decides. The constant is more than three times the highest reading, because no journal row measures this worker: `make job-costs` has no standing-fill-worker row, since writing pool records from the fill would put cycle_timings and peak_rss into the memo's code stamp (`MEMO_CODE_MODULES`) and drop the memo on every width change. Re-measure by hand at the chunk width when the chunk size or what a decision holds changes. At this figure the cores, not memory, limit this pool on every fleet machine.
 STANDING_FILL_WORKER_BYTES = 350_000_000
-# The peak memory of the verdict update's process while the standing fill's pool runs, subtracted from the machine's memory before dividing by STANDING_FILL_WORKER_BYTES. The parent holds every surface id, the human id/echo/notation projection, and the fill's rules, primed keys, decisions and memo. Full human records stream through the verdict update's steps. Refill misses go to a temporary gzipped spool, with at most one pool round of records in memory, bounded by the width times `_STANDING_POOL_CHUNK` (rebuild/tools/standing_verdicts.py). The complaint docket keeps compact grouping projections. A serial refill, and the memo check `_prefill` runs on every served unit, hold one unit's `SlideContext` memos and alignment-cache entries at a time, because `Decider._release` empties both after each unit.
+# The peak memory of the verdict update's process while the standing fill's pool runs, subtracted from the machine's memory before dividing by STANDING_FILL_WORKER_BYTES. The parent holds every corpus id, the human id/echo/notation projection, and the fill's rules, primed keys, decisions and memo. Full human records stream through the verdict update's steps. Refill misses go to a temporary gzipped spool, with at most one pool round of records in memory, bounded by the width times `_STANDING_POOL_CHUNK` (rebuild/tools/standing_verdicts.py). The complaint docket keeps compact grouping projections. A serial refill, and the memo check `_prefill` runs on every served unit, hold one unit's `SlideContext` memos and alignment-cache entries at a time, because `Decider._release` empties both after each unit.
 # The standing-fill-parent row of `make job-costs` reads the whole verdict-update step through `peak_rss.reap_peak_rss_bytes`, and the verdict update reaches that peak after the fill, not during its pool: sampled every 0.1 s over two served passes that merge straight in on the 18-core 48 GiB machine (`doc/fleet.md`), the verdict update holds at most 2.06 GB during the standing fill and 2.74 GB in the complaint docket. A standalone fill over every unit puts the in-flight round at about 18 MB a worker: its parent reads 1.17 GB two wide and 1.45 GB eighteen wide. The seed is the highest step reading any fleet machine has recorded since the previous seed: 4.36 GB on the 32 GiB machine, over a carry across a rune edit (run 2ca8c2192122 at cb205186, with 709 verdicts orphaned and three echo rounds). The 18-core 48 GiB machine reads 3.10 to 3.11 GB on carried served passes, 2.74 GB on served passes that merge straight in (6444755ee9aa, 169f78e7d20d, 376f72a5e4e7), 3.28 GB on a rules commit whose 1,219 misses are decided serially below `_STANDING_POOL_THRESHOLD` (8a407a3d83f4, 08a24101190c), and 2.19 and 2.33 GB on memo-drop passes pooled eighteen wide (6ec8760f21c2) and sixteen wide (27aa6ac52892). The constant is the seed plus more than a quarter, rounded up to the next whole gigabyte. No fleet width changes at this figure: the cores limit the refill pool, and the belt stays at its configuration count. Ids and decisions grow with the alphabet, and no rune edit has run through the verdict update on that 48 GiB machine yet, so watch the row as letters are added.
 STANDING_FILL_PARENT_BYTES = 6_000_000_000
 # The peak memory of one oracle row-range worker, the divisor of the oracle's width (`sweep_job_budget`). A worker is a spawn process. It holds its interpreter, a HarfBuzz shaper over M1.otf, and the crate's formation surface. It holds the records of its own row range of its configuration's row store: one buffer of the range's record bytes with three packed arrays beside it (an offset and two ages a record), loaded without scanning the whole member (`oracle_cache.load_store`), so it holds its range's rows and not the configuration's. It maps its configuration's settle memo read-only on the first wave that reaches the crate, which every pass does, since the renewal slice re-derives one row in `oracle_cache.MAX_RECORD_AGE`. `conform._MemoStore` reads the file's own layout: the six id columns, the value column and the 2^k >= 2N-slot probe index are views over the mapping, 69.8 MB for a live memo of 2.6M windows (the `[t] settle_memo` lines count them). Those pages belong to the page cache, resident once per machine however many workers map the file, and count in a worker's resident set as its probes touch them: a store-warm walk probes the one row in twenty the store does not serve, and a store-cold walk probes nearly every row. On a pass after a family changed, the retirement fold reads the six id columns whole once (36.2 MB of the mapping, `conform._MemoStore.load` over `mask.moved`); the seed's passes ran on an unchanged tree, every `[t] settle_memo` line at stale=0, so that fold is outside the seed and inside the headroom. The worker's own heap holds the file's interned label and outcome tables, a dead byte and a reached byte a row, 0.005 GB at the load. Last, it holds the walk's state over the range: the chunk of rows in flight (`oracle.ORACLE_ROW_CHUNK`), the waves of windows the crate settles for it, and `windows`, the dict of entries the walk promotes from the mapping or settles fresh.
@@ -157,9 +157,9 @@ STANDING_FILL_PARENT_BYTES = 6_000_000_000
 # The seed is four `run_m1 --gates-only` passes on the 32 GiB machine (`doc/fleet.md`), store-cold (`--fresh-oracle-cache`) and store-warm, at `--jobs 10` over fifteen ranges and at a stated `--jobs 12` over seventeen, which is the plan the 12-core M4 Pro Mac mini (48 GiB) chooses. Every worker holds its own range's records beside its mapped memo, and the five absorbs are recorded beside the ranges. The highest readings are 0.55 GB store-cold and 0.53 GB store-warm at width twelve, and 0.67 GB store-cold and 0.56 GB store-warm at width ten (the pool records finished between 2026-09-16T09:17:38Z and 09:20:58Z, their logs under `var/keep/rung263-4/`). The constant is the highest reading plus a quarter, rounded up to the tenth, because a cost that is too low pushes the machine into swap, and because the walk's state grows with the alphabet. The oracle-shard row of `make job-costs` checks it: `run_m1.run_oracle` writes one kind:"pool" record per fan-out, one observation per row range that ran, and the cycle's job-costs step runs the check. The rebuild suite checks the constant only against the cores, which cannot catch a figure that is too low. At this figure the cores, not memory, limit this pool on every fleet machine.
 ORACLE_SHARD_BYTES = 900_000_000
 # The peak memory of one belt worker, the divisor of gate:conform's width (`conform_job_budget`). A worker is a spawn process running `conform.conformance_config_worker` for one acceptance configuration. It holds its interpreter, a HarfBuzz `Shaper` over M1.otf, the spec's alphabet, splitters, glyph names and anchors, the section 5.7 verdict surface the parent passes down, and its configuration's settle memo, mapped read-only (`conform._MemoStore`) and walked with `promote=False`. The mapping's columns and probe index are page-cache pages, resident once per machine and counted in a worker's resident set as its probes touch them, which over a belt is nearly all of them. The heap holds the file's label and outcome tables plus a dead byte and a reached byte a row. The worker also holds `windows`, the dict of windows the walk settles fresh: empty on a warm memo, every window on a cold one, and the term that grows. The `ss10` overlay worker maps no memo and reads under a tenth of the constant. The belt's controller reads under a quarter of the constant and is covered by the reserve, not by a term of its own.
-# The seed is the `conform-belt` pool records of two machines in `doc/fleet.md`. On the 10-core M1 Pro 32 GiB MacBook Pro, three width-six hand `run_m1 --conform-only` belts finished between 2026-09-20T08:45:15Z and 09:28:24Z, their logs under `var/keep/issue-273/`: warm settlement workers read 0.383 to 0.388 GB, cold ones (memo files moved aside, so every window settles fresh) 0.911 to 0.916 GB, the `ss10` worker 0.061 to 0.063 GB, and the controller 0.28 GB. On the 18-core M5 Pro 48 GiB MacBook Pro, a cycle's gate:conform beside a live surface build and four hand belts finished between 2026-09-23T01:18:26Z and 01:43:38Z, their logs under `var/keep/issue-273/m5pro-48gib/`. The cycle's settlement workers, whose walks pruned the windows the witness stage had added to each memo and rewrote the file, read 0.382 to 0.384 GB. Warm hand workers at widths six and two read 0.231 to 0.237 GB. Cold ones read 0.904 to 0.933 GB at width six and 0.904 to 0.913 GB at width two, where a reused worker runs three configurations and keeps what the earlier ones left, yet reads no higher than a fresh one. The `ss10` worker reads 0.060 to 0.063 GB at width six, and the controller 0.28 GB. The constant is the highest reading, 0.933 GB, plus a quarter, rounded up to the tenth, because a cost that is too low pushes the machine into swap, and because the fresh-window dict grows with the window count, which `rebuild/scaling-ladder.txt` fits against letters and runes, so each new letter raises the cold reading. The conform-belt row of `make job-costs` checks it: `run_m1.run_font_conformance` writes one kind:"pool" record per pooled belt at `conform.BELT_HORIZON`, one observation per configuration. The gate:conform step peak is not used, because `peak_rss.reap_peak_rss_bytes` takes the maximum over the tree and so reads one process. Beside the build lane's larger step (the surface build's parent and workers, or the verdict update's process and refill pool, `_conform_build_lane`), memory does not limit this pool on any fleet machine at this figure; the acceptance-configuration count does.
+# The seed is the `conform-belt` pool records of two machines in `doc/fleet.md`. On the 10-core M1 Pro 32 GiB MacBook Pro, three width-six hand `run_m1 --conform-only` belts finished between 2026-09-20T08:45:15Z and 09:28:24Z, their logs under `var/keep/issue-273/`: warm settlement workers read 0.383 to 0.388 GB, cold ones (memo files moved aside, so every window settles fresh) 0.911 to 0.916 GB, the `ss10` worker 0.061 to 0.063 GB, and the controller 0.28 GB. On the 18-core M5 Pro 48 GiB MacBook Pro, a cycle's gate:conform beside a live corpus build and four hand belts finished between 2026-09-23T01:18:26Z and 01:43:38Z, their logs under `var/keep/issue-273/m5pro-48gib/`. The cycle's settlement workers, whose walks pruned the windows the witness stage had added to each memo and rewrote the file, read 0.382 to 0.384 GB. Warm hand workers at widths six and two read 0.231 to 0.237 GB. Cold ones read 0.904 to 0.933 GB at width six and 0.904 to 0.913 GB at width two, where a reused worker runs three configurations and keeps what the earlier ones left, yet reads no higher than a fresh one. The `ss10` worker reads 0.060 to 0.063 GB at width six, and the controller 0.28 GB. The constant is the highest reading, 0.933 GB, plus a quarter, rounded up to the tenth, because a cost that is too low pushes the machine into swap, and because the fresh-window dict grows with the window count, which `rebuild/scaling-ladder.txt` fits against letters and runes, so each new letter raises the cold reading. The conform-belt row of `make job-costs` checks it: `run_m1.run_font_conformance` writes one kind:"pool" record per pooled belt at `conform.BELT_HORIZON`, one observation per configuration. The gate:conform step peak is not used, because `peak_rss.reap_peak_rss_bytes` takes the maximum over the tree and so reads one process. Beside the build lane's larger step (the corpus build's parent and workers, or the verdict update's process and refill pool, `_conform_build_lane`), memory does not limit this pool on any fleet machine at this figure; the acceptance-configuration count does.
 CONFORM_BELT_BYTES = 1_200_000_000
-# The width of gate:make-test's pytest pool under a cycle, which the cycle passes to that child and reserves for: `surface_job_budget` subtracts two cores and this pool's memory. Without it the pool runs at `-n auto`, which the root conftest.py resolves to every core, while the build beside it is sized as if the pool held only its reservation.
+# The width of gate:make-test's pytest pool under a cycle, which the cycle passes to that child and reserves for: `corpus_job_budget` subtracts two cores and this pool's memory. Without it the pool runs at `-n auto`, which the root conftest.py resolves to every core, while the build beside it is sized as if the pool held only its reservation.
 MAKE_TEST_POOL_WORKERS = 2
 CONFORM_HORIZON_DEFAULT = 4
 DEEP_SWEEP_HORIZON_DEFAULT = 5
@@ -181,7 +181,7 @@ def rebuild_lane_green(lane: str) -> Path:
 
 
 def rebuild_lane_argv(lane: str) -> list[str]:
-    """Return the argv for one rebuild-suite lane. `--lane` is the rebuild conftest's option and also sets the pool width: under the contracts lane `-n auto` resolves to the cores this process may run on, since no worker holds a live build artifact, and under a cycle the width the plan sets in the child's environment (`contracts_pool_width`) narrows it to the cores the surface build leaves. Every run prints its twenty-five slowest tests, so the lane's own log shows where its time went. The argv also names the two closure files beside the green record: the selection file the caller writes just before the spawn, naming the tests the record shows are unaffected, and the sidecar the suite writes at session end with every test's recorded closure. Both are resolved from `rebuild_lane_green` at call time, so a test that redirects the record redirects them too."""
+    """Return the argv for one rebuild-suite lane. `--lane` is the rebuild conftest's option and also sets the pool width: under the contracts lane `-n auto` resolves to the cores this process may run on, since no worker holds a live build artifact, and under a cycle the width the plan sets in the child's environment (`contracts_pool_width`) narrows it to the cores the corpus build leaves. Every run prints its twenty-five slowest tests, so the lane's own log shows where its time went. The argv also names the two closure files beside the green record: the selection file the caller writes just before the spawn, naming the tests the record shows are unaffected, and the sidecar the suite writes at session end with every test's recorded closure. Both are resolved from `rebuild_lane_green` at call time, so a test that redirects the record redirects them too."""
     argv = [
         "uv",
         "run",
@@ -351,7 +351,7 @@ def prior_make_test_fingerprint(green_path: Path | None = None) -> str | None:
 
 
 def make_test_skippable(fingerprint: str | None, recorded: str | None, *, force: bool) -> bool:
-    """Return whether `make test` would check nothing: the pass is not forced and the closure's fingerprint equals the one in the shared green record. A fingerprint of None (no git or no make) never skips. The cycle's plan and rebuild.tools.make_test_gate both use this predicate. The plan reserves gate:make-test's cores and memory beside the surface build only when it returns False, and its argv (`make_test_gate_argv`) passes the wrapper --force only when the plan was forced. So both decisions come from one fingerprint and one record, and no pass reserves cores for a gate that then skips."""
+    """Return whether `make test` would check nothing: the pass is not forced and the closure's fingerprint equals the one in the shared green record. A fingerprint of None (no git or no make) never skips. The cycle's plan and rebuild.tools.make_test_gate both use this predicate. The plan reserves gate:make-test's cores and memory beside the corpus build only when it returns False, and its argv (`make_test_gate_argv`) passes the wrapper --force only when the plan was forced. So both decisions come from one fingerprint and one record, and no pass reserves cores for a gate that then skips."""
     return not force and fingerprint is not None and fingerprint == recorded
 
 
@@ -397,7 +397,7 @@ REBUILD_GATE_HARNESS_PATHS = (
 
 
 def _closure_digest(root: Path, rel: str) -> str:
-    """Return one file's digest for the rebuild lane's closure. Rune YAMLs, the divergence ledger and the standing approvals get prose-insensitive hashes (`fingerprint.rune_file_digest`, `divergence_ledger_digest`, `standing_approvals_digest`), so a documentation edit does not re-run the gate. uv.lock is hashed by its dependency pins (`fingerprint.lock_digest`), so a version bump does not re-run it either while a changed pin does; no test reads the project's own block, and the pinned packages decide the interpreter the lane runs under. Leaving the prose out is safe because of what the tests read from those files. The contracts tests that load the live runes check structure, settlement outcomes and round-trip identity, and those that load the live ledgers read ids, `no_verdict`, `match` and the exemplar keys, never a `why` or a `note`. The only live readers of those fields are the surface's explain panel and the standing fill, and both are keyed elsewhere: the ledger's `why` in the Stage B `explain_prose` component, and the fill's copy of a rule's `note` in `verdict_update_skip_fingerprint`, which hashes the file raw for that reason."""
+    """Return one file's digest for the rebuild lane's closure. Rune YAMLs, the divergence ledger and the standing approvals get prose-insensitive hashes (`fingerprint.rune_file_digest`, `divergence_ledger_digest`, `standing_approvals_digest`), so a documentation edit does not re-run the gate. uv.lock is hashed by its dependency pins (`fingerprint.lock_digest`), so a version bump does not re-run it either while a changed pin does; no test reads the project's own block, and the pinned packages decide the interpreter the lane runs under. Leaving the prose out is safe because of what the tests read from those files. The contracts tests that load the live runes check structure, settlement outcomes and round-trip identity, and those that load the live ledgers read ids, `no_verdict`, `match` and the exemplar keys, never a `why` or a `note`. The only live readers of those fields are the corpus's explain panel and the standing fill, and both are keyed elsewhere: the ledger's `why` in the Stage B `explain_prose` component, and the fill's copy of a rule's `note` in `verdict_update_skip_fingerprint`, which hashes the file raw for that reason."""
     from rebuild.pipeline import fingerprint
 
     prose_insensitive = {
@@ -423,7 +423,7 @@ def _subset_tables(root: Path) -> list[Path]:
 def run_m1_skip_lines(root: Path = ROOT) -> list[str]:
     """Return the per-file `label\\tdigest` lines behind `run_m1_skip_fingerprint`: every data input and pipeline module individually (rune files and the divergence ledger by their prose-insensitive digests), the contact allow-list by its own prose-insensitive digest, the full baselines as one value, the oracle's subset tables, and uv.lock by its dependency pins (`fingerprint.lock_digest`, which ignores the project's own version block, so a version bump leaves the line unchanged and a fontTools or uharfbuzz bump changes it). The green record stores these lines, so a skip miss can name which input changed, and the pass can check whether every changed label is comparison-side (`comparison_side_label`) and rerun the gates over the artifacts on disk instead of rebuilding them.
 
-    The allow-list is here and in no fingerprint component. Only the defect gate reads it, so a bless must change this key and should not change the surface's stamp or drop the unit cache. A missing allow-list contributes no line, as `path_lines` drops a missing file.
+    The allow-list is here and in no fingerprint component. Only the defect gate reads it, so a bless must change this key and should not change the corpus's stamp or drop the unit cache. A missing allow-list contributes no line, as `path_lines` drops a missing file.
     """
     from rebuild.pipeline import fingerprint
 
@@ -550,7 +550,7 @@ def oracle_cache_note(moved: str | None, root: Path = ROOT) -> str | None:
 
 
 def m1_artifacts_present(root: Path = ROOT) -> bool:
-    """Return whether rebuild/out/m1 still holds everything a skipped run_m1 must leave: the three gate summaries and the artifacts the surface build reads."""
+    """Return whether rebuild/out/m1 still holds everything a skipped run_m1 must leave: the three gate summaries and the artifacts the corpus build reads."""
     m1 = root / "rebuild" / "out" / "m1"
     names = [path.name for path in cycle_paths.M1_SUMMARY_FILES.values()] + list(M1_ARTIFACT_NAMES)
     return all((m1 / name).exists() for name in names)
@@ -564,7 +564,7 @@ def m1_tables_stamped() -> bool:
 
 
 def m1_stage_a_current(root: Path = ROOT) -> bool:
-    """Return whether the Stage A record under rebuild/out/m1 already matches what a pass over the sources on disk would write. When run_m1 skips it always does. On a gates-only rerun it decides whether the surface can skip before the pass runs: that pass rewrites the record from the same sources, and the surface build reads nothing else the pass writes, since the audit and the subset tables change only when a Stage A component does."""
+    """Return whether the Stage A record under rebuild/out/m1 already matches what a pass over the sources on disk would write. When run_m1 skips it always does. On a gates-only rerun it decides whether the corpus can skip before the pass runs: that pass rewrites the record from the same sources, and the corpus build reads nothing else the pass writes, since the audit and the subset tables change only when a Stage A component does."""
     from rebuild.pipeline import fingerprint
 
     recorded = fingerprint.read_stage_a(root / "rebuild" / "out" / "m1")
@@ -722,9 +722,9 @@ def deep_sweep_status(root: Path = ROOT, horizon: int = DEEP_SWEEP_HORIZON_DEFAU
 
 
 def rebuild_gate_closure_files(root: Path) -> list[str] | None:
-    """Return every tracked or untracked-unignored repo file the rebuild pytest suite can read, the base of the suite's input closure. That is rebuild/ and glyph_data/ (without Markdown and the paths in `cycle_paths.REBUILD_GATE_EXEMPT_PREFIXES`: the carried-verdict evidence, the JS-only jstests, the census pins, and the contact allow-list), the root conftest.py, pyproject.toml and uv.lock, and the harness list REBUILD_GATE_HARNESS_PATHS. The harness list is what the suite reads outside those trees, and it is why the Markdown filter has an exception: the filter drops prose no test opens, but rebuild/test_review_enrich.py checks the surface's letter table against doc/glyph-names.md.
+    """Return every tracked or untracked-unignored repo file the rebuild pytest suite can read, the base of the suite's input closure. That is rebuild/ and glyph_data/ (without Markdown and the paths in `cycle_paths.REBUILD_GATE_EXEMPT_PREFIXES`: the carried-verdict evidence, the JS-only jstests, the census pins, and the contact allow-list), the root conftest.py, pyproject.toml and uv.lock, and the harness list REBUILD_GATE_HARNESS_PATHS. The harness list is what the suite reads outside those trees, and it is why the Markdown filter has an exception: the filter drops prose no test opens, but rebuild/test_review_enrich.py checks the corpus's letter table against doc/glyph-names.md.
 
-    The harness list comes from an audit of every file the suite opens over a green run, not from the tree, and every entry has a named reader. rebuild/validation/pins.py collects its pin runs from the three site corpora and puts test/ on sys.path to import test/test_shaping.py, which reads postscript_glyph_names.yaml at the repo root and imports the tools/ compile modules. rebuild/review/drafts.build_corpus_index reads the same three corpora. The unit-cache environment stamp hashes tools/*.py whole, which is why the list has every tools/*.py file and not only the compile modules. rebuild/test_review_build.py checks the review surface's feature descriptions against README.md's stylistic-set list.
+    The harness list comes from an audit of every file the suite opens over a green run, not from the tree, and every entry has a named reader. rebuild/validation/pins.py collects its pin runs from the three site corpora and puts test/ on sys.path to import test/test_shaping.py, which reads postscript_glyph_names.yaml at the repo root and imports the tools/ compile modules. rebuild/review/drafts.build_corpus_index reads the same three corpora. The unit-cache environment stamp hashes tools/*.py whole, which is why the list has every tools/*.py file and not only the compile modules. rebuild/test_review_build.py checks the review corpus's feature descriptions against README.md's stylistic-set list.
 
     The census pins are exempt because the suite does not read them and the census step rewrites them during the pass; including them would change the key of every pass that refreshes them. The allow-list is exempt because no test reads the live file (only a fake repo writes one), so a bless would re-run the whole suite for nothing. The divergence ledger and the standing approvals stay in, since tests read them, and `_closure_digest` gives them prose-insensitive hashes, so rewording a `why` or a `note` does not change the key while a structural edit does. None when git is unavailable, in which case the caller must run the gate.
     """
@@ -781,22 +781,22 @@ def rebuild_lane_closure(root: Path, lane: str) -> tuple[str | None, dict[str, s
     return _digest_lines([f"{label}\t{digest}" for label, digest in labels.items()]), labels
 
 
-def surface_build_skippable(
+def corpus_build_skippable(
     root: Path = ROOT, review_out: Path | None = None, ignore: tuple[str, ...] = ()
 ) -> bool:
-    """Return whether rebuilding the review surface would reproduce its content byte for byte, so the build can be skipped and the autosave stays aligned. True only when the manifest's recorded inputs fingerprint equals the one a build would stamp now (Stage A as run_m1 recorded it, Stage B recomputed) and every shard the manifest names is present. `generated_at` is derived from mtimes, so a rebuild after mtime-only changes (git checkout, touch) could restamp it with identical content. Skipping keeps the existing stamp, and with it the manifest's alignment with the autosave.
+    """Return whether rebuilding the review corpus would reproduce its content byte for byte, so the build can be skipped and the autosave stays aligned. True only when the manifest's recorded inputs fingerprint equals the one a build would stamp now (Stage A as run_m1 recorded it, Stage B recomputed) and every shard the manifest names is present. `generated_at` is derived from mtimes, so a rebuild after mtime-only changes (git checkout, touch) could restamp it with identical content. Skipping keeps the existing stamp, and with it the manifest's alignment with the autosave.
 
-    The three files the manifest does not name, the per-unit index and both app sidecars, must each be stamped for the manifest beside them, not merely present. They are written after the manifest and outside it, so a build interrupted between the two, or a manifest rewritten by something that does not rewrite them, leaves every shard present and sidecars that describe a surface that no longer exists. A skip on shard existence alone would then serve that surface indefinitely. `unit_index.index_is_current` and `app_index.artifact_is_current` check the stamps, so a skip means a rebuild would reproduce this surface's content in full.
+    The three files the manifest does not name, the per-unit index and both app sidecars, must each be stamped for the manifest beside them, not merely present. They are written after the manifest and outside it, so a build interrupted between the two, or a manifest rewritten by something that does not rewrite them, leaves every shard present and sidecars that describe a corpus that no longer exists. A skip on shard existence alone would then serve that corpus indefinitely. `unit_index.index_is_current` and `app_index.artifact_is_current` check the stamps, so a skip means a rebuild would reproduce this corpus's content in full.
 
-    The after font is compared with the file on disk because no fingerprint component covers it: the key hashes the font's inputs and the two site fonts, never rebuild/out/m1/M1.otf itself, so a run_m1 that finished after this surface was built changes nothing the comparison above sees, while the surface still ships the previous build's font. The build asserts at copy time that the font it ships is the font it hashed at load, so the manifest's after-font sha describes fonts/after.otf, and comparing that sha with the current M1.otf shows the skip is not passing over a newer font.
+    The after font is compared with the file on disk because no fingerprint component covers it: the key hashes the font's inputs and the two site fonts, never rebuild/out/m1/M1.otf itself, so a run_m1 that finished after this corpus was built changes nothing the comparison above sees, while the corpus still ships the previous build's font. The build asserts at copy time that the font it ships is the font it hashed at load, so the manifest's after-font sha describes fonts/after.otf, and comparing that sha with the current M1.otf shows the skip is not passing over a newer font.
 
-    `ignore` names fingerprint components left out of the comparison, for a caller asking a narrower question than byte identity, with the same hard/warn split `status._freshness_check` uses. The cycle asks three questions in turn. The strict one comes first, since a surface that reproduces byte for byte needs nothing done. When only an ASSET_COMPONENTS member differs, the cycle copies those assets over the served surface and restamps that one component (`assets-refresh`) instead of rebuilding units that cannot have changed. When the live surface fails both, `promotable_surface` asks the strict question of a rehearsal's directory, and the pass moves that directory into place when it matches (`surface-promote`). A component missing from either side still fails the comparison: only a component present in both the recorded and the expected set can be ignored.
+    `ignore` names fingerprint components left out of the comparison, for a caller asking a narrower question than byte identity, with the same hard/warn split `status._freshness_check` uses. The cycle asks three questions in turn. The strict one comes first, since a corpus that reproduces byte for byte needs nothing done. When only an ASSET_COMPONENTS member differs, the cycle copies those assets over the served corpus and restamps that one component (`assets-refresh`) instead of rebuilding units that cannot have changed. When the live corpus fails both, `promotable_corpus` asks the strict question of a rehearsal's directory, and the pass moves that directory into place when it matches (`corpus-promote`). A component missing from either side still fails the comparison: only a component present in both the recorded and the expected set can be ignored.
     """
     from rebuild.pipeline import fingerprint
 
-    surface = review_out if review_out is not None else REVIEW_OUT
+    corpus = review_out if review_out is not None else REVIEW_OUT
     try:
-        manifest = json.loads((surface / "manifest.json").read_text())
+        manifest = json.loads((corpus / "manifest.json").read_text())
     except OSError, ValueError:
         return False
     recorded = manifest.get("inputs_fingerprint")
@@ -816,7 +816,7 @@ def surface_build_skippable(
         shards = [part for meta in manifest["classes"] for part in unit_index.class_shards(meta)]
     except KeyError, TypeError, AttributeError:
         return False
-    if not all((surface / shard).exists() for shard in shards):
+    if not all((corpus / shard).exists() for shard in shards):
         return False
     try:
         after_sha = manifest["fonts"]["after"]["sha256"]
@@ -826,25 +826,25 @@ def surface_build_skippable(
         return False
     if after_sha != _sha256_path(root / "rebuild" / "out" / "m1" / "M1.otf"):
         return False
-    return unit_index.index_is_current(surface) and all(
-        app_index.artifact_is_current(surface, name, fmt) for name, fmt in app_index.ARTIFACTS
+    return unit_index.index_is_current(corpus) and all(
+        app_index.artifact_is_current(corpus, name, fmt) for name, fmt in app_index.ARTIFACTS
     )
 
 
-def _manifest_stamp_at(surface: Path) -> str | None:
+def _manifest_stamp_at(corpus: Path) -> str | None:
     try:
-        stamp = json.loads((surface / "manifest.json").read_text()).get("generated_at")
+        stamp = json.loads((corpus / "manifest.json").read_text()).get("generated_at")
     except OSError, ValueError, AttributeError:
         return None
     return stamp if isinstance(stamp, str) else None
 
 
-def promotable_surface(
+def promotable_corpus(
     root: Path = ROOT, summary_path: Path | None = None, live: Path | None = None
 ) -> Path | None:
-    """Return the rehearsal directory a live pass can move into rebuild/out/review instead of rebuilding, or None. A rehearsal (`--review-out`) writes a whole surface (shards, sidecars, unit store and signature store) where the live pass never reads, and the next live pass would otherwise rebuild the same bytes cold, because its own store is stamped for the pre-rehearsal environment. Candidates are checked in order: the `plan.review_out` the last cycle summary recorded (a repo-relative string, resolved against `root`), then `var/rehearsal-review` under `root`, the conventional directory (`--review-out` takes any path, but a rehearsal is expected to use that one). Every path derives from `root`, so a scratch repo never reads the live rehearsal.
+    """Return the rehearsal directory a live pass can move into rebuild/out/review instead of rebuilding, or None. A rehearsal (`--review-out`) writes a whole corpus (shards, sidecars, unit store and signature store) where the live pass never reads, and the next live pass would otherwise rebuild the same bytes cold, because its own store is stamped for the pre-rehearsal environment. Candidates are checked in order: the `plan.review_out` the last cycle summary recorded (a repo-relative string, resolved against `root`), then `var/rehearsal-review` under `root`, the conventional directory (`--review-out` takes any path, but a rehearsal is expected to use that one). Every path derives from `root`, so a scratch repo never reads the live rehearsal.
 
-    A candidate is promotable when it is a directory other than the live one, on the live directory's filesystem (`os.replace` cannot cross filesystems, and a plan must never print a move it cannot make), when `surface_build_skippable` returns True for it (that function defines "reproduces these inputs byte for byte", including the after font and the three stamped sidecars), and when its `generated_at` is not older than the live surface's. The byte-identity check cannot supply the stamp condition: `generated_at` is the latest input mtime, not a build time (`_generated_at` in rebuild/review/build.py), so a rehearsal can have a stamp older than the surface it would replace, and merge_verdicts refuses a store stamped newer than the surface it merges onto. A backwards promotion would fail the verdict-update step after the tree had already moved. An unreadable manifest rules the candidate out, which costs only a rebuild.
+    A candidate is promotable when it is a directory other than the live one, on the live directory's filesystem (`os.replace` cannot cross filesystems, and a plan must never print a move it cannot make), when `corpus_build_skippable` returns True for it (that function defines "reproduces these inputs byte for byte", including the after font and the three stamped sidecars), and when its `generated_at` is not older than the live corpus's. The byte-identity check cannot supply the stamp condition: `generated_at` is the latest input mtime, not a build time (`_generated_at` in rebuild/review/build.py), so a rehearsal can have a stamp older than the corpus it would replace, and merge_verdicts refuses a store stamped newer than the corpus it merges onto. A backwards promotion would fail the verdict-update step after the tree had already moved. An unreadable manifest rules the candidate out, which costs only a rebuild.
     """
     live_dir = live if live is not None else REVIEW_OUT
     summary = summary_path if summary_path is not None else root / "rebuild" / "out" / "cycle_summary.json"
@@ -872,15 +872,15 @@ def promotable_surface(
         stamp = _manifest_stamp_at(candidate)
         if stamp is None or stamp < live_stamp:
             continue
-        if surface_build_skippable(root, review_out=candidate):
+        if corpus_build_skippable(root, review_out=candidate):
             return candidate
     return None
 
 
-def promote_surface(source: Path, live: Path | None = None) -> None:
-    """Move a rehearsal's surface into place as the live one. It uses two renames instead of a removal and a move: the live tree is renamed to `.superseded`, the source takes its place, and only then is the old tree deleted. So a surface is on disk throughout the seconds a 3.5 GB rmtree takes, and if the second rename fails the live tree is put back. Deleting the old tree is best effort: once the second rename has returned, the promotion is done, so a tree that will not delete is left for `recover_superseded_surface` at the next real pass's start instead of being reported as a failed move. That function also handles a pass that died between the two renames, when the `.superseded` tree is the only surface on disk; the rmtree at the start here clears a leftover beside a live tree.
+def promote_corpus(source: Path, live: Path | None = None) -> None:
+    """Move a rehearsal's corpus into place as the live one. It uses two renames instead of a removal and a move: the live tree is renamed to `.superseded`, the source takes its place, and only then is the old tree deleted. So a corpus is on disk throughout the seconds a 3.5 GB rmtree takes, and if the second rename fails the live tree is put back. Deleting the old tree is best effort: once the second rename has returned, the promotion is done, so a tree that will not delete is left for `recover_superseded_corpus` at the next real pass's start instead of being reported as a failed move. That function also handles a pass that died between the two renames, when the `.superseded` tree is the only corpus on disk; the rmtree at the start here clears a leftover beside a live tree.
 
-    Moving is safe where reconstructing would not be. Every stamp inside a surface depends only on content, through `unit_index.manifest_sha256` (the per-unit index, both app sidecars, the unit store's header and the signature store's), the manifest records no output path, and a rebuild would restamp `generated_at`, which the autosave alignment depends on. So the promoted directory satisfies `surface_build_skippable` as it did where it was built, and both stores arrive warm. The one manifest field the move leaves stale is `repo_head`, the commit the rehearsal ran at: the app banner and `make verdict-ready` show it, and a commit outside every fingerprint component changes HEAD without changing whether the surface is promotable. Nothing the cycle keys on reads it.
+    Moving is safe where reconstructing would not be. Every stamp inside a corpus depends only on content, through `unit_index.manifest_sha256` (the per-unit index, both app sidecars, the unit store's header and the signature store's), the manifest records no output path, and a rebuild would restamp `generated_at`, which the autosave alignment depends on. So the promoted directory satisfies `corpus_build_skippable` as it did where it was built, and both stores arrive warm. The one manifest field the move leaves stale is `repo_head`, the commit the rehearsal ran at: the app banner and `make verdict-ready` show it, and a commit outside every fingerprint component changes HEAD without changing whether the corpus is promotable. Nothing the cycle keys on reads it.
     """
     live_dir = live if live is not None else REVIEW_OUT
     superseded = live_dir.with_name(f"{live_dir.name}.superseded")
@@ -894,22 +894,22 @@ def promote_surface(source: Path, live: Path | None = None) -> None:
     shutil.rmtree(superseded, ignore_errors=True)
 
 
-def recover_superseded_surface(live: Path | None = None, *, delete: bool = True) -> str | None:
-    """Handle whatever a promotion left under the `.superseded` name, before a pass checks whether it has a surface. Beside a live tree it is the old surface whose delete did not finish, and it is deleted. Alone, it is the live surface that a pass which died between the two renames had moved aside, and one rename puts it back, so the next pass reads the surface it had instead of starting as a first run. It runs at the start of every pass because the green-finish retention never runs on the failed or first-run passes that leave the tree behind. `delete=False` is the dry run's form: the delete cannot be undone and no plan question reads the tree it removes, so the tree stays for the next real pass, while the put-back still runs, because every plan question reads the live surface and a dry run's plan must be the one a real pass follows. Returns the line to print, or None when there was nothing to do."""
+def recover_superseded_corpus(live: Path | None = None, *, delete: bool = True) -> str | None:
+    """Handle whatever a promotion left under the `.superseded` name, before a pass checks whether it has a corpus. Beside a live tree it is the old corpus whose delete did not finish, and it is deleted. Alone, it is the live corpus that a pass which died between the two renames had moved aside, and one rename puts it back, so the next pass reads the corpus it had instead of starting as a first run. It runs at the start of every pass because the green-finish retention never runs on the failed or first-run passes that leave the tree behind. `delete=False` is the dry run's form: the delete cannot be undone and no plan question reads the tree it removes, so the tree stays for the next real pass, while the put-back still runs, because every plan question reads the live corpus and a dry run's plan must be the one a real pass follows. Returns the line to print, or None when there was nothing to do."""
     live_dir = live if live is not None else REVIEW_OUT
     superseded = live_dir.with_name(f"{live_dir.name}.superseded")
     if not superseded.exists():
         return None
     if live_dir.exists():
         if not delete:
-            return f"Left {superseded}, the surface a promotion replaced, for the next real pass to delete."
+            return f"Left {superseded}, the corpus a promotion replaced, for the next real pass to delete."
         shutil.rmtree(superseded, ignore_errors=True)
-        return f"Deleted {superseded}, the surface a promotion replaced."
+        return f"Deleted {superseded}, the corpus a promotion replaced."
     os.replace(superseded, live_dir)
-    return f"Put {superseded} back as the live surface; the promotion it stepped aside for did not finish."
+    return f"Put {superseded} back as the live corpus; the promotion it stepped aside for did not finish."
 
 
-# The verdict update's code, listed by module instead of all of rebuild/tools/: the import closure of rebuild.tools.verdict_update, which runs every step. rebuild/test_verdict_update_closure.py checks the list against the walked import graph on every contracts run. This driver is not an entry point, because every argument it passes the verdict update names an input the key already hashes (the surface, the master, the store), a flag that disables the skip, or a width (`--standing-fill-jobs`) that cannot change the verdict update's output, and the verdict update parses its own flags in verdict_update. The walk stops at the modules in `fingerprint.pipeline_code_paths`, because the key includes the pipeline_code component whole through its manifest line. The rebuild/tools/ modules the pipeline imports (memory_budget, peak_rss, lock_digest, site_fonts and others) are outside this list, which keeps fan-out widths and cost readings out of the verdict key.
+# The verdict update's code, listed by module instead of all of rebuild/tools/: the import closure of rebuild.tools.verdict_update, which runs every step. rebuild/test_verdict_update_closure.py checks the list against the walked import graph on every contracts run. This driver is not an entry point, because every argument it passes the verdict update names an input the key already hashes (the corpus, the master, the store), a flag that disables the skip, or a width (`--standing-fill-jobs`) that cannot change the verdict update's output, and the verdict update parses its own flags in verdict_update. The walk stops at the modules in `fingerprint.pipeline_code_paths`, because the key includes the pipeline_code component whole through its manifest line. The rebuild/tools/ modules the pipeline imports (memory_budget, peak_rss, lock_digest, site_fonts and others) are outside this list, which keeps fan-out widths and cost readings out of the verdict key.
 VERDICT_UPDATE_ENTRY_POINTS = ("rebuild.tools.verdict_update",)
 VERDICT_UPDATE_TOOL_MODULES = (
     "carry_verdicts",
@@ -931,14 +931,14 @@ def verdict_update_code_paths(root: Path = ROOT) -> list[Path]:
 
 
 def verdict_update_skip_fingerprint(
-    root: Path = ROOT, surface: Path | None = None, master: Path | None = None
+    root: Path = ROOT, corpus: Path | None = None, master: Path | None = None
 ) -> str | None:
-    """Return the content key over everything the verdict update reads: the surface it resolves unit ids against, the verdicts master it carries forward, the live store it merges into, the checked-in standing approvals, and the verdict update's own code. The standing approvals are hashed by raw bytes, unlike the prose-insensitive hash the rebuild lane uses: `standing_verdicts` copies each rule's `note` into the verdict note of every fill it writes, so rewording a note changes the verdict update's output and must re-run it. Carry, merge, both fills with their merges, and the complaint docket are pure functions of these inputs, and the verdict update is idempotent once it has run, so a key matching the record a complete verdict update left means re-running it would write nothing new. The master is in the key because the autosave's hash cannot see it: an export at the repo root can outrank the autosave in the auto-resolution and carry verdicts the store has never held. The code is in the key for the same reason every other key includes its stage's code: a fix to a fill's matcher or to the carry's join must run, not be skipped. It is the verdict update's import closure (`verdict_update_code_paths`, which a contracts test checks against the verdict update's import graph) plus the review/ modules the verdict update runs and the surface build does not: serve.py and verdict_store.py, through which merge_verdicts reads the store, and status.py and journal.py, which the merge and the readiness check run. review/'s build-side modules are covered by the manifest fingerprint's review_code. The manifest line leaves out `unit_index.ASSET_COMPONENTS`, because no step of the verdict update reads the copied app assets, and an assets refresh rewrites that field and must not re-run a verdict update whose real inputs are unchanged. None when the surface has no fingerprinted manifest or no master was resolved."""
+    """Return the content key over everything the verdict update reads: the corpus it resolves unit ids against, the verdicts master it carries forward, the live store it merges into, the checked-in standing approvals, and the verdict update's own code. The standing approvals are hashed by raw bytes, unlike the prose-insensitive hash the rebuild lane uses: `standing_verdicts` copies each rule's `note` into the verdict note of every fill it writes, so rewording a note changes the verdict update's output and must re-run it. Carry, merge, both fills with their merges, and the complaint docket are pure functions of these inputs, and the verdict update is idempotent once it has run, so a key matching the record a complete verdict update left means re-running it would write nothing new. The master is in the key because the autosave's hash cannot see it: an export at the repo root can outrank the autosave in the auto-resolution and carry verdicts the store has never held. The code is in the key for the same reason every other key includes its stage's code: a fix to a fill's matcher or to the carry's join must run, not be skipped. It is the verdict update's import closure (`verdict_update_code_paths`, which a contracts test checks against the verdict update's import graph) plus the review/ modules the verdict update runs and the corpus build does not: serve.py and verdict_store.py, through which merge_verdicts reads the store, and status.py and journal.py, which the merge and the readiness check run. review/'s build-side modules are covered by the manifest fingerprint's review_code. The manifest line leaves out `unit_index.ASSET_COMPONENTS`, because no step of the verdict update reads the copied app assets, and an assets refresh rewrites that field and must not re-run a verdict update whose real inputs are unchanged. None when the corpus has no fingerprinted manifest or no master was resolved."""
     if master is None:
         return None
-    surface_dir = surface if surface is not None else REVIEW_OUT
+    corpus_dir = corpus if corpus is not None else REVIEW_OUT
     try:
-        manifest = json.loads((surface_dir / "manifest.json").read_text())
+        manifest = json.loads((corpus_dir / "manifest.json").read_text())
     except OSError, ValueError:
         return None
     fp = manifest.get("inputs_fingerprint")
@@ -966,7 +966,7 @@ def verdict_update_skip_fingerprint(
 
 
 def evaluate_run_m1_gate(pipeline: dict, manual_pins: dict, oracle: dict) -> CheckResult:
-    """Decide whether the M1 build passed from its three summary JSONs: defect_errors, the Manual-pin gate, and multi_matched. UNMATCHED oracle rows are never a failure; they are expected during the migration and are judged on the review surface. The result carries no UNMATCHED or multi_matched counts, because both callers already hold the oracle summary. The pin gate is run_m1's own (`manual_pin_gate_failure`), including its scope, so a gate that replayed nothing cannot pass here either."""
+    """Decide whether the M1 build passed from its three summary JSONs: defect_errors, the Manual-pin gate, and multi_matched. UNMATCHED oracle rows are never a failure; they are expected during the migration and are judged on the review corpus. The result carries no UNMATCHED or multi_matched counts, because both callers already hold the oracle summary. The pin gate is run_m1's own (`manual_pin_gate_failure`), including its scope, so a gate that replayed nothing cannot pass here either."""
     from rebuild.pipeline.run_m1 import manual_pin_gate_failure
 
     failures: list[str] = []
@@ -1026,11 +1026,11 @@ def conform_gate_argv(jobs: int, horizon: int = CONFORM_HORIZON_DEFAULT) -> list
 STEP_DESCRIPTIONS = {
     "run_m1": "Builds the M1 tables for every settlement configuration in the Rust kernel (the ss10 overlay settles nothing and gets none), mints the glyphs, emits GSUB and GPOS, compiles the font, and reads it back. Then runs the defect gates, the Manual-pin gate, and the oracle over what it built.",
     "run_m1:gates-only": "Reruns the defect gates, the Manual-pin gate, and the oracle over the tables and font already on disk, rebuilding nothing. Taken when only comparison-side inputs moved since the last green build.",
-    "surface-build": "Rebuilds the review surface: every unit the tables reach is drafted, enriched, and checked, with cache-served units re-verified by content key. Writes the shards, manifest, and census sidecar that the app and the verdict update read.",
+    "corpus-build": "Rebuilds the review corpus: every unit the tables reach is drafted, enriched, and checked, with cache-served units re-verified by content key. Writes the shards, manifest, and census sidecar that the app and the verdict update read.",
     "assets-refresh": "Overwrites the served copy of the review app's JS, CSS, and HTML and restamps only the manifest's static component. No shard or sidecar moves, so the open tab's store stays aligned.",
-    "surface-promote": "Moves the surface a rehearsal already built for these exact inputs into rebuild/out/review, unit store and signature store with it, and deletes the surface it replaces. Two renames in this process; no unit is drafted, enriched, or checked.",
-    "verdict-update": "Carries the verdicts master onto the new surface by unit id, merges it into the store, and runs the echo and standing fills to their fixpoint. Ends by writing the complaint docket of what still needs a human.",
-    "census": "Rewrites rebuild/review-census-pins.json from the census sidecar the surface build emitted, names what moved in its invariant block against the last accepted census (diffing that block alone when it did), and holds the ledger's declarations against the classes the corpus reached. Committing the rewritten pins is how the census is accepted.",
+    "corpus-promote": "Moves the corpus a rehearsal already built for these exact inputs into rebuild/out/review, unit store and signature store with it, and deletes the corpus it replaces. Two renames in this process; no unit is drafted, enriched, or checked.",
+    "verdict-update": "Carries the verdicts master onto the new corpus by unit id, merges it into the store, and runs the echo and standing fills to their fixpoint. Ends by writing the complaint docket of what still needs a human.",
+    "census": "Rewrites rebuild/review-census-pins.json from the census sidecar the corpus build emitted, names what moved in its invariant block against the last accepted census (diffing that block alone when it did), and holds the ledger's declarations against the classes the corpus reached. Committing the rewritten pins is how the census is accepted.",
     "gates": "The four post-build gates, skipped together under --skip-gates.",
     "gate:js": "Runs the review app's node test suite over its JavaScript. Fast, and independent of every build artifact.",
     "gate:conform": "Shapes the compiled font with HarfBuzz over the swept texts and checks it against a fresh re-settlement window by window, the split-buffer check at horizon 4 included; the ss10 overlay takes its own two-letter arm against the bare rendering. The proof that HarfBuzz does what the tables say over every rule shape the lookup emits; that the tables are complete over the same texts is run_m1's string replay, on every build.",
@@ -1051,7 +1051,7 @@ SUBSTEP_PARENTS = {"invariant-diff": "census", "job-costs-diff": "job-costs"}
 
 @dataclass
 class Step:
-    """One row of the plan. `skipped` is set explicitly instead of derived from `argv`, because `argv is None` also describes the retention and surface-promote steps, which do real work in this process, and the `gates` placeholder, which stands for four steps. The run/skip column and the counts line use `skipped`, so a step that runs without spawning anything still shows as running.
+    """One row of the plan. `skipped` is set explicitly instead of derived from `argv`, because `argv is None` also describes the retention and corpus-promote steps, which do real work in this process, and the `gates` placeholder, which stands for four steps. The run/skip column and the counts line use `skipped`, so a step that runs without spawning anything still shows as running.
 
     The census's invariant diff, which the driver prints itself, and the job-costs diff it spawns are children of steps, not rows of the plan, and SUBSTEP_PARENTS names them. Registering one with the console writes its output to the parent's log, shows its lines under the parent's column, and keeps `_run_step` from opening a second banner for a step that is already open.
     """
@@ -1081,10 +1081,10 @@ class Plan:
     run_m1_note: str = ""
     run_m1_fingerprint: str | None = None
     fresh: bool = False
-    skip_surface: bool = False
+    skip_corpus: bool = False
     refresh_assets: bool = False
-    promote_surface: Path | None = None
-    surface_note: str = ""
+    promote_corpus: Path | None = None
+    corpus_note: str = ""
     skip_contracts: bool = False
     contracts_note: str = ""
     contracts_skip: list[str] = field(default_factory=list)
@@ -1096,8 +1096,8 @@ class Plan:
     verdict_update_direct_merge: bool = False
     record_greens: bool = False
     pool_policy: str = REBUILD_POOL_POLICY_DEFAULT
-    surface_jobs: int = 1
-    surface_reason: str = ""
+    corpus_jobs: int = 1
+    corpus_reason: str = ""
     signature_jobs: int = 1
     signature_reason: str = ""
     standing_fill_jobs: int = 1
@@ -1114,7 +1114,7 @@ class Plan:
     conform_reason: str = ""
     conform_horizon: int = CONFORM_HORIZON_DEFAULT
     review_out: Path | None = None
-    surface_dir: Path = REVIEW_OUT
+    corpus_dir: Path = REVIEW_OUT
     complaints_note: str = ""
     retention: bool = False
     recipe_serves: bool = False
@@ -1129,7 +1129,7 @@ class Plan:
         return None
 
     def describe(self, name: str) -> str:
-        """Return the named step's banner text, for the two steps (surface-promote and retention) that run in this process and never reach `_run_step`."""
+        """Return the named step's banner text, for the two steps (corpus-promote and retention) that run in this process and never reach `_run_step`."""
         step = self.step(name)
         return "" if step is None else step.describe
 
@@ -1249,7 +1249,7 @@ def replay_threads_derivation(
 
 
 def sweep_job_budget(ncores: int | None = None, total_bytes: int | None = None) -> int:
-    """Return the `--jobs` width for run_m1's oracle, whose unit is a row range of one configuration's table: memory, less the reserve, divided by one range worker's peak (ORACLE_SHARD_BYTES), capped at the usable cores. `make conform-deep` (rebuild/tools/deep_sweep.py) uses it as its default too. gate:conform's belt has its own budget, `conform_job_budget`, because its worker holds different data and runs beside the surface build. Nothing is subtracted for gate:make-test's pytest pool, which can still be running when the oracle starts on a non-rehearsal pass: at this divisor that pool fits inside the reserve on every fleet machine, and reserving for it would narrow this phase on every pass for a few seconds of overlap. Nothing is subtracted for run_m1's table-only branch either, whose witness stage and shipped-order walks can still be running when the pool starts (`doc/parallelism.md` describes this overlap), because what they hold is far below the reserve. run_m1's peak memory is in the table build, whose width is --kernel-threads, and these jobs never reach it. `ncores` and `total_bytes` are keywords so a test can compute the width for an invented machine."""
+    """Return the `--jobs` width for run_m1's oracle, whose unit is a row range of one configuration's table: memory, less the reserve, divided by one range worker's peak (ORACLE_SHARD_BYTES), capped at the usable cores. `make conform-deep` (rebuild/tools/deep_sweep.py) uses it as its default too. gate:conform's belt has its own budget, `conform_job_budget`, because its worker holds different data and runs beside the corpus build. Nothing is subtracted for gate:make-test's pytest pool, which can still be running when the oracle starts on a non-rehearsal pass: at this divisor that pool fits inside the reserve on every fleet machine, and reserving for it would narrow this phase on every pass for a few seconds of overlap. Nothing is subtracted for run_m1's table-only branch either, whose witness stage and shipped-order walks can still be running when the pool starts (`doc/parallelism.md` describes this overlap), because what they hold is far below the reserve. run_m1's peak memory is in the table build, whose width is --kernel-threads, and these jobs never reach it. `ncores` and `total_bytes` are keywords so a test can compute the width for an invented machine."""
     from rebuild.tools import memory_budget
 
     cores = ncores or memory_budget.usable_cores()
@@ -1264,59 +1264,59 @@ def sweep_job_derivation(ncores: int | None = None, total_bytes: int | None = No
     return memory_budget.describe_fit(ORACLE_SHARD_BYTES, cap=cores, total_bytes=total_bytes)
 
 
-def _surface_fit_terms(*, skip_gates: bool, skip_make_test: bool, ncores: int | None) -> tuple[int, int, int]:
-    """Return the three arguments of the surface build's width: the per-worker divisor, the co-resident bytes subtracted before the division, and the non-memory cap. `surface_job_budget` passes them to `how_many_fit` and `surface_job_derivation` to `describe_fit`, so the width and its explanation come from one derivation."""
+def _corpus_fit_terms(*, skip_gates: bool, skip_make_test: bool, ncores: int | None) -> tuple[int, int, int]:
+    """Return the three arguments of the corpus build's width: the per-worker divisor, the co-resident bytes subtracted before the division, and the non-memory cap. `corpus_job_budget` passes them to `how_many_fit` and `corpus_job_derivation` to `describe_fit`, so the width and its explanation come from one derivation."""
     from rebuild.tools import memory_budget
 
     cores = ncores or memory_budget.usable_cores()
-    coresident = SURFACE_PARENT_BYTES
+    coresident = CORPUS_PARENT_BYTES
     if not (skip_gates or skip_make_test):
         cores -= 2
         coresident += _font_suite_worker_bytes() * make_test_pool_width(ncores=ncores)
-    return SURFACE_WORKER_BYTES, coresident, min(cores, SURFACE_JOBS_CAP)
+    return CORPUS_WORKER_BYTES, coresident, min(cores, CORPUS_JOBS_CAP)
 
 
-def surface_job_budget(
+def corpus_job_budget(
     *,
     skip_gates: bool,
     skip_make_test: bool = False,
     ncores: int | None = None,
     total_bytes: int | None = None,
 ) -> int:
-    """Return the review-surface build's `--jobs` width: memory, less the reserve, less what the build's parent holds, divided by one worker's peak, capped at the usable cores and SURFACE_JOBS_CAP, and floored at one. The parent and the workers are separate constants because the parent's share is about as large as the pool's. SURFACE_PARENT_BYTES is the parent, which holds the workload table (`audit.UnitTable`) and the packed unit store (rebuild/review/unit_store.py) at any width, so it is subtracted before the division, as gate:make-test's pool is. SURFACE_WORKER_BYTES is the divisor. A worker's peak does not grow with the width, because the parent hands out one batch at a time, or with the alphabet, because the tables sit in the baseline subset pack it maps read-only (rebuild/review/subset_pack.py). The two constants' comments have the measurements. The ink-signature pool that `_resolve_signature_digests` starts before the units phase is not counted: each of its workers holds one comparator, about a tenth of a gigabyte, and the pool runs at `signature_job_budget`'s core-count width.
+    """Return the review-corpus build's `--jobs` width: memory, less the reserve, less what the build's parent holds, divided by one worker's peak, capped at the usable cores and CORPUS_JOBS_CAP, and floored at one. The parent and the workers are separate constants because the parent's share is about as large as the pool's. CORPUS_PARENT_BYTES is the parent, which holds the workload table (`audit.UnitTable`) and the packed unit store (rebuild/review/unit_store.py) at any width, so it is subtracted before the division, as gate:make-test's pool is. CORPUS_WORKER_BYTES is the divisor. A worker's peak does not grow with the width, because the parent hands out one batch at a time, or with the alphabet, because the tables sit in the baseline subset pack it maps read-only (rebuild/review/subset_pack.py). The two constants' comments have the measurements. The ink-signature pool that `_resolve_signature_digests` starts before the units phase is not counted: each of its workers holds one comparator, about a tenth of a gigabyte, and the pool runs at `signature_job_budget`'s core-count width.
 
-    A `surface-build` step peak does not measure this build's footprint. `peak_rss.reap_peak_rss_bytes` takes the largest single process in the child's tree, which here is the parent, so the step peak barely moves with the width (13.25 GB at ten jobs, 13.77 GB at two) and never includes the pool. The 2026-08-27 full-fresh pass read 17.76 GB at eight workers, while a per-term measurement of the same tree put parent and workers together at roughly twice a 34 GB machine.
+    A `corpus-build` step peak does not measure this build's footprint. `peak_rss.reap_peak_rss_bytes` takes the largest single process in the child's tree, which here is the parent, so the step peak barely moves with the width (13.25 GB at ten jobs, 13.77 GB at two) and never includes the pool. The 2026-08-27 full-fresh pass read 17.76 GB at eight workers, while a per-term measurement of the same tree put parent and workers together at roughly twice a 34 GB machine.
 
-    Err high on the divisor. One that is too low pushes the pool into the reserve; one that is too high only gives a large machine fewer workers than it has room for. A machine the pooled build does not fit gets a width of one, which is the serial build: there is no pool, and each fragment exists once instead of twice. What the parent holds grows per unit (one row of the workload table and one of the unit store), so shrinking SURFACE_PARENT_BYTES widens the pool on every machine. Issue #160, an on-disk workload, was closed as not needed at that size.
+    Err high on the divisor. One that is too low pushes the pool into the reserve; one that is too high only gives a large machine fewer workers than it has room for. A machine the pooled build does not fit gets a width of one, which is the serial build: there is no pool, and each fragment exists once instead of twice. What the parent holds grows per unit (one row of the workload table and one of the unit store), so shrinking CORPUS_PARENT_BYTES widens the pool on every machine. Issue #160, an on-disk workload, was closed as not needed at that size.
 
     Under a gated cycle gate:make-test's pytest pool runs from t=0, so it is subtracted twice: two cores from the cap, and FONT_SUITE_WORKER_BYTES for each of the `make_test_pool_width` workers the cycle passes that child, as in `kernel_threads_budget`. --skip-gates and the closure-unchanged skip of gate:make-test subtract neither. gate:js also runs from t=0, but it is one node process. `ncores` and `total_bytes` are keywords so a test can compute the width for an invented machine. The cores come from `memory_budget.usable_cores()`, so an affinity mask or a cgroup quota narrows this width as it narrows the others.
     """
     from rebuild.tools import memory_budget
 
-    per_unit, coresident, cap = _surface_fit_terms(
+    per_unit, coresident, cap = _corpus_fit_terms(
         skip_gates=skip_gates, skip_make_test=skip_make_test, ncores=ncores
     )
     return memory_budget.how_many_fit(per_unit, coresident_bytes=coresident, cap=cap, total_bytes=total_bytes)
 
 
-def surface_job_derivation(
+def corpus_job_derivation(
     *,
     skip_gates: bool,
     skip_make_test: bool = False,
     ncores: int | None = None,
     total_bytes: int | None = None,
 ) -> str:
-    """Return `surface_job_budget`'s width as a clause for the plan line and the surface build's `--jobs` help: `memory_budget.describe_fit` over the same terms, so a reader can check where the width came from."""
+    """Return `corpus_job_budget`'s width as a clause for the plan line and the corpus build's `--jobs` help: `memory_budget.describe_fit` over the same terms, so a reader can check where the width came from."""
     from rebuild.tools import memory_budget
 
-    per_unit, coresident, cap = _surface_fit_terms(
+    per_unit, coresident, cap = _corpus_fit_terms(
         skip_gates=skip_gates, skip_make_test=skip_make_test, ncores=ncores
     )
     return memory_budget.describe_fit(per_unit, coresident_bytes=coresident, cap=cap, total_bytes=total_bytes)
 
 
 def signature_job_budget(*, skip_gates: bool, skip_make_test: bool = False, ncores: int | None = None) -> int:
-    """Return the `--signature-jobs` width the cycle passes the surface build, for the pool that shapes the ink-signature store's misses. Memory does not limit it. A signature worker is a spawn process holding one `InkComparator` over the two fonts with plain shapers and nothing else (no subset pack, units, or projections), and its resident set stays about a tenth of a gigabyte however many signatures it shapes (the `signature` pool records in `rebuild/out/cycle-timings.ndjson`). The width is `memory_budget.usable_cores()`, less gate:make-test's two cores under a gated cycle, floored at one. The two cores are subtracted as in `_surface_fit_terms`, because a pass that skips run_m1 starts this phase at t=0 beside that pool. SURFACE_JOBS_CAP does not apply, since it is where the unit worker stops scaling, so a machine where the surface build falls to one worker still shapes its signatures on every core. Below `build._SIGNATURE_POOL_THRESHOLD` misses the phase runs serially at any width, so a warm store starts no pool."""
+    """Return the `--signature-jobs` width the cycle passes the corpus build, for the pool that shapes the ink-signature store's misses. Memory does not limit it. A signature worker is a spawn process holding one `InkComparator` over the two fonts with plain shapers and nothing else (no subset pack, units, or projections), and its resident set stays about a tenth of a gigabyte however many signatures it shapes (the `signature` pool records in `rebuild/out/cycle-timings.ndjson`). The width is `memory_budget.usable_cores()`, less gate:make-test's two cores under a gated cycle, floored at one. The two cores are subtracted as in `_corpus_fit_terms`, because a pass that skips run_m1 starts this phase at t=0 beside that pool. CORPUS_JOBS_CAP does not apply, since it is where the unit worker stops scaling, so a machine where the corpus build falls to one worker still shapes its signatures on every core. Below `build._SIGNATURE_POOL_THRESHOLD` misses the phase runs serially at any width, so a warm store starts no pool."""
     from rebuild.tools import memory_budget
 
     cores = ncores or memory_budget.usable_cores()
@@ -1343,20 +1343,20 @@ def _contracts_pool_terms(
     *,
     skip_gates: bool,
     skip_make_test: bool,
-    skip_surface: bool,
+    skip_corpus: bool,
     pool_policy: str,
     ncores: int | None,
     total_bytes: int | None,
 ) -> tuple[int, int, int]:
-    """Return the three terms `contracts_pool_width` and `contracts_pool_derivation` share: the usable cores; the surface build's process count (its parent plus `surface_job_budget`'s workers, or zero when the build does not run); and gate:make-test's pool width under the overlap policy. Under the queue policy the suite waits for gate:make-test to finish, so nothing is subtracted for that pool."""
+    """Return the three terms `contracts_pool_width` and `contracts_pool_derivation` share: the usable cores; the corpus build's process count (its parent plus `corpus_job_budget`'s workers, or zero when the build does not run); and gate:make-test's pool width under the overlap policy. Under the queue policy the suite waits for gate:make-test to finish, so nothing is subtracted for that pool."""
     from rebuild.tools import memory_budget
 
     cores = ncores or memory_budget.usable_cores()
-    surface = (
+    corpus = (
         0
-        if skip_surface
+        if skip_corpus
         else 1
-        + surface_job_budget(
+        + corpus_job_budget(
             skip_gates=skip_gates, skip_make_test=skip_make_test, ncores=ncores, total_bytes=total_bytes
         )
     )
@@ -1365,45 +1365,45 @@ def _contracts_pool_terms(
         if pool_policy == "overlap" and not (skip_gates or skip_make_test)
         else 0
     )
-    return cores, surface, make_test
+    return cores, corpus, make_test
 
 
 def contracts_pool_width(
     *,
     skip_gates: bool,
     skip_make_test: bool = False,
-    skip_surface: bool = False,
+    skip_corpus: bool = False,
     pool_policy: str = REBUILD_POOL_POLICY_DEFAULT,
     ncores: int | None = None,
     total_bytes: int | None = None,
 ) -> int:
-    """Return the width of gate:rebuild-contracts' pytest pool under a cycle, which the cycle sets on that child as PYTEST_XDIST_AUTO_NUM_WORKERS. Memory does not limit it: no contracts worker holds a live artifact, so no constant measures one, and the width is a count of cores. The suite runs beside the surface build, so the width is the usable cores, less the build's parent and its `surface_job_budget` workers, less gate:make-test's pool under the overlap policy (`_contracts_pool_terms`), floored at one. A pass whose surface build does not run (skipped, promoted, or assets-refreshed) gives the suite every core.
+    """Return the width of gate:rebuild-contracts' pytest pool under a cycle, which the cycle sets on that child as PYTEST_XDIST_AUTO_NUM_WORKERS. Memory does not limit it: no contracts worker holds a live artifact, so no constant measures one, and the width is a count of cores. The suite runs beside the corpus build, so the width is the usable cores, less the build's parent and its `corpus_job_budget` workers, less gate:make-test's pool under the overlap policy (`_contracts_pool_terms`), floored at one. A pass whose corpus build does not run (skipped, promoted, or assets-refreshed) gives the suite every core.
 
-    The cap keeps the process count near the core count. Two full-width pools side by side oversubscribe the cores roughly 2:1, which was measured to roughly triple the suite's wall-clock time (`_gate_conform_task`'s docstring, commit b5881022). The suite's controller is not subtracted: it idles while its workers run, and subtracting it would cost the suite a worker on every pass, so the process count exceeds the cores by that one process. The pool's memory comes out of `memory_budget`'s reserve, not out of `surface_job_budget`'s co-resident term, as `_standing_fill_terms` also assumes for this pool; subtracting it there would narrow the build on every pass for a worker no constant measures (`calibrate_budgets.UNITS`).
+    The cap keeps the process count near the core count. Two full-width pools side by side oversubscribe the cores roughly 2:1, which was measured to roughly triple the suite's wall-clock time (`_gate_conform_task`'s docstring, commit b5881022). The suite's controller is not subtracted: it idles while its workers run, and subtracting it would cost the suite a worker on every pass, so the process count exceeds the cores by that one process. The pool's memory comes out of `memory_budget`'s reserve, not out of `corpus_job_budget`'s co-resident term, as `_standing_fill_terms` also assumes for this pool; subtracting it there would narrow the build on every pass for a worker no constant measures (`calibrate_budgets.UNITS`).
 
-    On a ten-core machine beside a surface build at SURFACE_JOBS_CAP workers the width is one under either policy (ten cores less the parent and those workers), so the suite runs serially, and the plan line says so. The two cores the suite gives up go to the build's units phase, which is on the lane's critical path. The suite usually is not: under a cycle it runs only the closure-selected tests, and its one-worker `gate:rebuild-contracts` rows in `rebuild/out/cycle-timings.ndjson` end before their runs' `surface-build` rows. A pass that reruns the whole lane at one worker can outlast the build. That cost is accepted until a one-worker row ends after its run's `surface-build` row, which is the signal to revisit the floor.
+    On a ten-core machine beside a corpus build at CORPUS_JOBS_CAP workers the width is one under either policy (ten cores less the parent and those workers), so the suite runs serially, and the plan line says so. The two cores the suite gives up go to the build's units phase, which is on the lane's critical path. The suite usually is not: under a cycle it runs only the closure-selected tests, and its one-worker `gate:rebuild-contracts` rows in `rebuild/out/cycle-timings.ndjson` end before their runs' `corpus-build` rows. A pass that reruns the whole lane at one worker can outlast the build. That cost is accepted until a one-worker row ends after its run's `corpus-build` row, which is the signal to revisit the floor.
 
-    The overlap policy has no higher floor. On a twelve-core machine beside a cap-width build and gate:make-test's pool, the arithmetic gives one (twelve cores less the parent, SURFACE_JOBS_CAP workers, and that pool's two), and that one worker fills the machine. A floor of two would add a thirteenth process, and on the ten-core machine would make overlap wider than the queue policy, to shorten a step that is not on the critical path. PYTEST_XDIST_AUTO_NUM_WORKERS overrides all of this, because the child inherits this environment and will run at that width, as in `make_test_pool_width`. `ncores` and `total_bytes` are keywords so a test can compute the width for an invented machine.
+    The overlap policy has no higher floor. On a twelve-core machine beside a cap-width build and gate:make-test's pool, the arithmetic gives one (twelve cores less the parent, CORPUS_JOBS_CAP workers, and that pool's two), and that one worker fills the machine. A floor of two would add a thirteenth process, and on the ten-core machine would make overlap wider than the queue policy, to shorten a step that is not on the critical path. PYTEST_XDIST_AUTO_NUM_WORKERS overrides all of this, because the child inherits this environment and will run at that width, as in `make_test_pool_width`. `ncores` and `total_bytes` are keywords so a test can compute the width for an invented machine.
     """
     stated = os.environ.get("PYTEST_XDIST_AUTO_NUM_WORKERS")
     if stated:
         return max(1, int(stated))
-    cores, surface, make_test = _contracts_pool_terms(
+    cores, corpus, make_test = _contracts_pool_terms(
         skip_gates=skip_gates,
         skip_make_test=skip_make_test,
-        skip_surface=skip_surface,
+        skip_corpus=skip_corpus,
         pool_policy=pool_policy,
         ncores=ncores,
         total_bytes=total_bytes,
     )
-    return max(1, cores - surface - make_test)
+    return max(1, cores - corpus - make_test)
 
 
 def contracts_pool_derivation(
     *,
     skip_gates: bool,
     skip_make_test: bool = False,
-    skip_surface: bool = False,
+    skip_corpus: bool = False,
     pool_policy: str = REBUILD_POOL_POLICY_DEFAULT,
     ncores: int | None = None,
     total_bytes: int | None = None,
@@ -1412,10 +1412,10 @@ def contracts_pool_derivation(
     stated = os.environ.get("PYTEST_XDIST_AUTO_NUM_WORKERS")
     if stated:
         return f"PYTEST_XDIST_AUTO_NUM_WORKERS states {stated.strip()}"
-    cores, surface, make_test = _contracts_pool_terms(
+    cores, corpus, make_test = _contracts_pool_terms(
         skip_gates=skip_gates,
         skip_make_test=skip_make_test,
-        skip_surface=skip_surface,
+        skip_corpus=skip_corpus,
         pool_policy=pool_policy,
         ncores=ncores,
         total_bytes=total_bytes,
@@ -1423,45 +1423,45 @@ def contracts_pool_derivation(
     width = contracts_pool_width(
         skip_gates=skip_gates,
         skip_make_test=skip_make_test,
-        skip_surface=skip_surface,
+        skip_corpus=skip_corpus,
         pool_policy=pool_policy,
         ncores=ncores,
         total_bytes=total_bytes,
     )
-    if surface == 0:
+    if corpus == 0:
         box = "the box" if make_test else "the whole box"
-        clause = f"{width} of {cores} cores, {box} (no surface build to share it with)"
+        clause = f"{width} of {cores} cores, {box} (no corpus build to share it with)"
     else:
-        workers = f"{surface - 1} worker" + ("" if surface - 1 == 1 else "s")
-        clause = f"{width} of {cores} cores, less the surface build's parent and its {workers}"
+        workers = f"{corpus - 1} worker" + ("" if corpus - 1 == 1 else "s")
+        clause = f"{width} of {cores} cores, less the corpus build's parent and its {workers}"
     if make_test:
         clause += f", less gate:make-test's {make_test} (overlap policy)"
-    return clause if cores - surface - make_test >= 1 else clause + ", floored at one"
+    return clause if cores - corpus - make_test >= 1 else clause + ", floored at one"
 
 
-def contracts_submission_note(*, skip_surface: bool) -> str:
-    """Return where in the build lane the rebuild suite is submitted, for the plan's step note and lane line: beside the surface build when one runs, and otherwise at the same point, once the run_m1 gate has passed. The second wording keeps a pass whose surface-build row reads SKIPPED from claiming the suite runs beside it."""
-    if skip_surface:
-        return "submitted once the run_m1 gate passes (no surface build this pass)"
-    return "submitted beside the surface build"
+def contracts_submission_note(*, skip_corpus: bool) -> str:
+    """Return where in the build lane the rebuild suite is submitted, for the plan's step note and lane line: beside the corpus build when one runs, and otherwise at the same point, once the run_m1 gate has passed. The second wording keeps a pass whose corpus-build row reads SKIPPED from claiming the suite runs beside it."""
+    if skip_corpus:
+        return "submitted once the run_m1 gate passes (no corpus build this pass)"
+    return "submitted beside the corpus build"
 
 
 def _conform_build_lane(
     *,
     skip_gates: bool,
     skip_make_test: bool,
-    skip_surface: bool,
+    skip_corpus: bool,
     verdict_update_runs: bool,
     ncores: int | None,
     total_bytes: int | None,
 ) -> tuple[str, int]:
-    """Return the build-lane step the belt runs beside, by plan step name, and the memory that step holds. The candidates are the surface build (its parent plus `surface_job_budget`'s workers) and the verdict-update step (the verdict update's process plus `standing_fill_jobs`' refill pool). The one this pass runs that holds more is returned, the surface build on a tie, and `("", 0)` when the pass runs neither. Each figure comes from its own budget, so the belt's reservation matches the step's width. The belt can run beside either step: its lane is submitted when run_m1's gate passes, so it starts beside the surface build, and the verdict-update step follows the build in the same lane, so a belt still running then, or one the queue policy starts late behind make-test, runs beside the verdict-update step."""
+    """Return the build-lane step the belt runs beside, by plan step name, and the memory that step holds. The candidates are the corpus build (its parent plus `corpus_job_budget`'s workers) and the verdict-update step (the verdict update's process plus `standing_fill_jobs`' refill pool). The one this pass runs that holds more is returned, the corpus build on a tie, and `("", 0)` when the pass runs neither. Each figure comes from its own budget, so the belt's reservation matches the step's width. The belt can run beside either step: its lane is submitted when run_m1's gate passes, so it starts beside the corpus build, and the verdict-update step follows the build in the same lane, so a belt still running then, or one the queue policy starts late behind make-test, runs beside the verdict-update step."""
     steps: list[tuple[str, int]] = []
-    if not skip_surface:
-        surface_jobs = surface_job_budget(
+    if not skip_corpus:
+        corpus_jobs = corpus_job_budget(
             skip_gates=skip_gates, skip_make_test=skip_make_test, ncores=ncores, total_bytes=total_bytes
         )
-        steps.append(("surface-build", SURFACE_PARENT_BYTES + SURFACE_WORKER_BYTES * surface_jobs))
+        steps.append(("corpus-build", CORPUS_PARENT_BYTES + CORPUS_WORKER_BYTES * corpus_jobs))
     if verdict_update_runs:
         fill_jobs = standing_fill_jobs(
             skip_gates=skip_gates, skip_make_test=skip_make_test, ncores=ncores, total_bytes=total_bytes
@@ -1474,7 +1474,7 @@ def _conform_fit_terms(
     *,
     skip_gates: bool,
     skip_make_test: bool,
-    skip_surface: bool,
+    skip_corpus: bool,
     verdict_update_runs: bool,
     pool_policy: str,
     ncores: int | None,
@@ -1488,7 +1488,7 @@ def _conform_fit_terms(
     _step, build_lane = _conform_build_lane(
         skip_gates=skip_gates,
         skip_make_test=skip_make_test,
-        skip_surface=skip_surface,
+        skip_corpus=skip_corpus,
         verdict_update_runs=verdict_update_runs,
         ncores=ncores,
         total_bytes=total_bytes,
@@ -1505,22 +1505,22 @@ def conform_job_budget(
     *,
     skip_gates: bool = False,
     skip_make_test: bool = False,
-    skip_surface: bool = False,
+    skip_corpus: bool = False,
     verdict_update_runs: bool = False,
     pool_policy: str = REBUILD_POOL_POLICY_DEFAULT,
     ncores: int | None = None,
     total_bytes: int | None = None,
 ) -> int:
-    """Return the `--jobs` the cycle passes gate:conform: how many belt workers, one spawn process per acceptance configuration (`run_m1.run_font_conformance`), run at once. It is memory, less the reserve, less what runs beside the belt, divided by CONFORM_BELT_BYTES, capped at the acceptance configurations and the cores, and floored at one (`_conform_fit_terms`). What runs beside it is whichever of the surface build and the verdict-update step this pass runs that holds more (`_conform_build_lane`). The verdict-update step's own width leaves the belt out, because this subtraction accounts for that overlap. `verdict_update_runs` defaults to False because only the cycle's plan runs a verdict-update step. gate:make-test's pool is subtracted under the overlap policy only, since the queue policy makes the belt wait for make-test. Two things share the machine with no memory estimate, and their bytes come out of the reserve: gate:rebuild-contracts' pool under the overlap policy, which is limited by cores and measured by no constant (`calibrate_budgets.UNITS`), and the build lane's other steps.
+    """Return the `--jobs` the cycle passes gate:conform: how many belt workers, one spawn process per acceptance configuration (`run_m1.run_font_conformance`), run at once. It is memory, less the reserve, less what runs beside the belt, divided by CONFORM_BELT_BYTES, capped at the acceptance configurations and the cores, and floored at one (`_conform_fit_terms`). What runs beside it is whichever of the corpus build and the verdict-update step this pass runs that holds more (`_conform_build_lane`). The verdict-update step's own width leaves the belt out, because this subtraction accounts for that overlap. `verdict_update_runs` defaults to False because only the cycle's plan runs a verdict-update step. gate:make-test's pool is subtracted under the overlap policy only, since the queue policy makes the belt wait for make-test. Two things share the machine with no memory estimate, and their bytes come out of the reserve: gate:rebuild-contracts' pool under the overlap policy, which is limited by cores and measured by no constant (`calibrate_budgets.UNITS`), and the build lane's other steps.
 
-    CONFORM_BELT_BYTES is measured at the per-edit horizon (`conform.BELT_HORIZON`) only. A cycle run with a deeper `--conform-horizon` holds its windows in process and shares no memo, so the constant is not a measurement for it; deeper sweeps belong to `make conform-deep`. A hand `run_m1 --conform-only` uses the idle case (`skip_gates=True, skip_surface=True`, no verdict-update step). A width of one runs the serial belt (`conform.run_conformance`). `ncores` and `total_bytes` are keywords so a test can compute the width for an invented machine.
+    CONFORM_BELT_BYTES is measured at the per-edit horizon (`conform.BELT_HORIZON`) only. A cycle run with a deeper `--conform-horizon` holds its windows in process and shares no memo, so the constant is not a measurement for it; deeper sweeps belong to `make conform-deep`. A hand `run_m1 --conform-only` uses the idle case (`skip_gates=True, skip_corpus=True`, no verdict-update step). A width of one runs the serial belt (`conform.run_conformance`). `ncores` and `total_bytes` are keywords so a test can compute the width for an invented machine.
     """
     from rebuild.tools import memory_budget
 
     per_unit, coresident, cap = _conform_fit_terms(
         skip_gates=skip_gates,
         skip_make_test=skip_make_test,
-        skip_surface=skip_surface,
+        skip_corpus=skip_corpus,
         verdict_update_runs=verdict_update_runs,
         pool_policy=pool_policy,
         ncores=ncores,
@@ -1533,7 +1533,7 @@ def conform_job_derivation(
     *,
     skip_gates: bool = False,
     skip_make_test: bool = False,
-    skip_surface: bool = False,
+    skip_corpus: bool = False,
     verdict_update_runs: bool = False,
     pool_policy: str = REBUILD_POOL_POLICY_DEFAULT,
     ncores: int | None = None,
@@ -1545,7 +1545,7 @@ def conform_job_derivation(
     per_unit, coresident, cap = _conform_fit_terms(
         skip_gates=skip_gates,
         skip_make_test=skip_make_test,
-        skip_surface=skip_surface,
+        skip_corpus=skip_corpus,
         verdict_update_runs=verdict_update_runs,
         pool_policy=pool_policy,
         ncores=ncores,
@@ -1557,7 +1557,7 @@ def conform_job_derivation(
 def _standing_fill_terms(
     *, skip_gates: bool, skip_make_test: bool, ncores: int | None
 ) -> tuple[int, int, int]:
-    """Return the standing fill pool's three terms for `standing_fill_jobs` and `standing_fill_derivation`: STANDING_FILL_WORKER_BYTES is the divisor, STANDING_FILL_PARENT_BYTES is subtracted first, and the cap is the cores, because no width is known past which this pool stops getting faster. Under a gated cycle gate:make-test's pool is subtracted as it is for the surface build: its bytes from memory and two cores from the cap. The verdict-update step also starts beside gate:rebuild-contracts, whose pool no constant measures (`calibrate_budgets.UNITS`), so that pool is left out, and a pass that drops the standing-fill memo overuses memory for the pool's few tens of seconds. gate:conform's belt can also run beside this step. That overlap is subtracted on the belt's side (`_conform_build_lane`), so this width leaves the belt out."""
+    """Return the standing fill pool's three terms for `standing_fill_jobs` and `standing_fill_derivation`: STANDING_FILL_WORKER_BYTES is the divisor, STANDING_FILL_PARENT_BYTES is subtracted first, and the cap is the cores, because no width is known past which this pool stops getting faster. Under a gated cycle gate:make-test's pool is subtracted as it is for the corpus build: its bytes from memory and two cores from the cap. The verdict-update step also starts beside gate:rebuild-contracts, whose pool no constant measures (`calibrate_budgets.UNITS`), so that pool is left out, and a pass that drops the standing-fill memo overuses memory for the pool's few tens of seconds. gate:conform's belt can also run beside this step. That overlap is subtracted on the belt's side (`_conform_build_lane`), so this width leaves the belt out."""
     from rebuild.tools import memory_budget
 
     cores = ncores or memory_budget.usable_cores()
@@ -1624,10 +1624,10 @@ def build_plan(
     run_m1_note: str = "",
     run_m1_fingerprint: str | None = None,
     fresh: bool = False,
-    skip_surface: bool = False,
+    skip_corpus: bool = False,
     refresh_assets: bool = False,
-    promote_surface: Path | None = None,
-    surface_note: str = "",
+    promote_corpus: Path | None = None,
+    corpus_note: str = "",
     skip_contracts: bool = False,
     contracts_note: str = "",
     contracts_skip: list[str] | None = None,
@@ -1659,17 +1659,17 @@ def build_plan(
 
     no_make_test = skip_gates or skip_make_test
     make_test_workers = make_test_pool_width(ncores=ncores)
-    surface_jobs = surface_job_budget(
+    corpus_jobs = corpus_job_budget(
         skip_gates=skip_gates, skip_make_test=skip_make_test, ncores=ncores, total_bytes=total_bytes
     )
     workers = f"{make_test_workers} worker" + ("" if make_test_workers == 1 else "s")
     if skip_gates:
-        surface_head = "--skip-gates, so the surface build takes the whole box"
+        corpus_head = "--skip-gates, so the corpus build takes the whole box"
     elif skip_make_test:
-        surface_head = "gate:make-test skipped, so the surface build takes the whole box"
+        corpus_head = "gate:make-test skipped, so the corpus build takes the whole box"
     else:
-        surface_head = f"gate:make-test's pytest pool held to {workers} — its cores reserved here and its bytes off the box beside the build's own parent"
-    surface_reason = f"{surface_head}; " + surface_job_derivation(
+        corpus_head = f"gate:make-test's pytest pool held to {workers} — its cores reserved here and its bytes off the box beside the build's own parent"
+    corpus_reason = f"{corpus_head}; " + corpus_job_derivation(
         skip_gates=skip_gates, skip_make_test=skip_make_test, ncores=ncores, total_bytes=total_bytes
     )
     signature_jobs = signature_job_budget(skip_gates=skip_gates, skip_make_test=skip_make_test, ncores=ncores)
@@ -1691,7 +1691,7 @@ def build_plan(
     contracts_workers = contracts_pool_width(
         skip_gates=skip_gates,
         skip_make_test=skip_make_test,
-        skip_surface=skip_surface,
+        skip_corpus=skip_corpus,
         pool_policy=pool_policy,
         ncores=ncores,
         total_bytes=total_bytes,
@@ -1699,7 +1699,7 @@ def build_plan(
     contracts_reason = contracts_pool_derivation(
         skip_gates=skip_gates,
         skip_make_test=skip_make_test,
-        skip_surface=skip_surface,
+        skip_corpus=skip_corpus,
         pool_policy=pool_policy,
         ncores=ncores,
         total_bytes=total_bytes,
@@ -1709,7 +1709,7 @@ def build_plan(
     conform_jobs = conform_job_budget(
         skip_gates=skip_gates,
         skip_make_test=skip_make_test,
-        skip_surface=skip_surface,
+        skip_corpus=skip_corpus,
         verdict_update_runs=verdict_update_runs,
         pool_policy=pool_policy,
         ncores=ncores,
@@ -1718,31 +1718,31 @@ def build_plan(
     belt_beside, _lane_bytes = _conform_build_lane(
         skip_gates=skip_gates,
         skip_make_test=skip_make_test,
-        skip_surface=skip_surface,
+        skip_corpus=skip_corpus,
         verdict_update_runs=verdict_update_runs,
         ncores=ncores,
         total_bytes=total_bytes,
     )
     make_test_beside_belt = pool_policy == "overlap" and not no_make_test
-    if belt_beside == "surface-build":
-        surface_workers = f"{surface_jobs} worker" + ("" if surface_jobs == 1 else "s")
+    if belt_beside == "corpus-build":
+        corpus_workers = f"{corpus_jobs} worker" + ("" if corpus_jobs == 1 else "s")
         conform_head = (
-            f"CONFORM_BELT_BYTES a belt worker, beside the surface build's parent and its {surface_workers}"
+            f"CONFORM_BELT_BYTES a belt worker, beside the corpus build's parent and its {corpus_workers}"
         )
     elif belt_beside == "verdict-update":
         fill_workers = f"{fill_jobs} refill worker" + ("" if fill_jobs == 1 else "s")
         conform_head = (
             "CONFORM_BELT_BYTES a belt worker, "
             + (
-                "the surface build not running this pass, so "
-                if skip_surface
-                else "the verdict-update step outweighing the surface build, so "
+                "the corpus build not running this pass, so "
+                if skip_corpus
+                else "the verdict-update step outweighing the corpus build, so "
             )
             + f"beside the verdict update's process and its {fill_workers}"
         )
     else:
         conform_head = (
-            "CONFORM_BELT_BYTES a belt worker, neither the surface build nor the verdict-update step running this pass, so "
+            "CONFORM_BELT_BYTES a belt worker, neither the corpus build nor the verdict-update step running this pass, so "
             + ("only gate:make-test's pool co-resident" if make_test_beside_belt else "nothing co-resident")
         )
     if belt_beside and make_test_beside_belt:
@@ -1750,7 +1750,7 @@ def build_plan(
     conform_reason = f"{conform_head}; " + conform_job_derivation(
         skip_gates=skip_gates,
         skip_make_test=skip_make_test,
-        skip_surface=skip_surface,
+        skip_corpus=skip_corpus,
         verdict_update_runs=verdict_update_runs,
         pool_policy=pool_policy,
         ncores=ncores,
@@ -1765,7 +1765,7 @@ def build_plan(
     replay_reason = replay_threads_derivation(
         skip_make_test=no_make_test, ncores=ncores, total_bytes=total_bytes
     )
-    surface_dir = review_out if review_out is not None else REVIEW_OUT
+    corpus_dir = review_out if review_out is not None else REVIEW_OUT
     do_merge = (do_carry or direct_merge) and not no_merge and review_out is None
     do_retention = not keep_history and not first_run and review_out is None
 
@@ -1785,10 +1785,10 @@ def build_plan(
         run_m1_note=run_m1_note,
         run_m1_fingerprint=run_m1_fingerprint,
         fresh=fresh,
-        skip_surface=skip_surface,
+        skip_corpus=skip_corpus,
         refresh_assets=refresh_assets,
-        promote_surface=promote_surface,
-        surface_note=surface_note,
+        promote_corpus=promote_corpus,
+        corpus_note=corpus_note,
         skip_contracts=skip_contracts,
         contracts_note=contracts_note,
         contracts_skip=list(contracts_skip or []),
@@ -1802,8 +1802,8 @@ def build_plan(
         retention=do_retention,
         recipe_serves=recipe_serves,
         pool_policy=pool_policy,
-        surface_jobs=surface_jobs,
-        surface_reason=surface_reason,
+        corpus_jobs=corpus_jobs,
+        corpus_reason=corpus_reason,
         signature_jobs=signature_jobs,
         signature_reason=signature_reason,
         standing_fill_jobs=fill_jobs,
@@ -1820,7 +1820,7 @@ def build_plan(
         conform_reason=conform_reason,
         conform_horizon=conform_horizon,
         review_out=review_out,
-        surface_dir=surface_dir,
+        corpus_dir=corpus_dir,
     )
 
     if skip_run_m1:
@@ -1857,19 +1857,17 @@ def build_plan(
             run_m1_argv += ["--fresh-oracle-cache"]
         plan.steps.append(Step("run_m1", run_m1_argv, run_m1_note, lane="build"))
 
-    if skip_surface:
-        if promote_surface is not None:
+    if skip_corpus:
+        if promote_corpus is not None:
             plan.steps.append(
                 Step(
-                    "surface-promote",
+                    "corpus-promote",
                     None,
-                    f"moves {promote_surface} into rebuild/out/review and deletes the surface it replaces; the stores inside it arrive warm",
+                    f"moves {promote_corpus} into rebuild/out/review and deletes the corpus it replaces; the stores inside it arrive warm",
                     lane="build",
                 )
             )
-        plan.steps.append(
-            Step("surface-build", None, f"SKIPPED ({surface_note})", lane="build", skipped=True)
-        )
+        plan.steps.append(Step("corpus-build", None, f"SKIPPED ({corpus_note})", lane="build", skipped=True))
         if refresh_assets:
             plan.steps.append(
                 Step(
@@ -1880,22 +1878,22 @@ def build_plan(
                 )
             )
     else:
-        surface_argv = [
+        corpus_argv = [
             "uv",
             "run",
             "python",
             "-m",
             "rebuild.review.build",
             "--jobs",
-            str(surface_jobs),
+            str(corpus_jobs),
             "--signature-jobs",
             str(signature_jobs),
         ]
         if review_out is not None:
-            surface_argv += ["--out", str(review_out)]
+            corpus_argv += ["--out", str(review_out)]
         if fresh:
-            surface_argv += ["--fresh-unit-cache"]
-        plan.steps.append(Step("surface-build", surface_argv, lane="build"))
+            corpus_argv += ["--fresh-unit-cache"]
+        plan.steps.append(Step("corpus-build", corpus_argv, lane="build"))
 
     if review_out is not None:
         plan.complaints_note = "rehearsal: reads the live autosave"
@@ -1915,8 +1913,8 @@ def build_plan(
             "python",
             "-m",
             "rebuild.tools.verdict_update",
-            "--surface",
-            str(surface_dir),
+            "--corpus",
+            str(corpus_dir),
         ]
         if do_carry:
             assert resolved_carry_out is not None
@@ -1938,7 +1936,7 @@ def build_plan(
             )
         elif direct_merge:
             note = (
-                "the surface did not move, so the carry is the identity — merging the master straight in, "
+                "the corpus did not move, so the carry is the identity — merging the master straight in, "
                 "then the fills and the docket"
             )
         else:
@@ -1950,7 +1948,7 @@ def build_plan(
             Step(
                 "census",
                 None,
-                "SKIPPED (rehearsal: the checked-in pins track the live surface)",
+                "SKIPPED (rehearsal: the checked-in pins track the live corpus)",
                 lane="build",
                 skipped=True,
             )
@@ -1966,7 +1964,7 @@ def build_plan(
                     "-m",
                     "rebuild.review.census",
                     "--update",
-                    "--surface",
+                    "--corpus",
                     str(REVIEW_OUT),
                 ],
                 "then names what moved in the invariant block against the index copy, diffing that block alone — the pins are the last accepted census; commit them to accept this one",
@@ -2007,7 +2005,7 @@ def build_plan(
                 Step(
                     "gate:rebuild-contracts",
                     rebuild_lane_argv("contracts"),
-                    contracts_submission_note(skip_surface=skip_surface)
+                    contracts_submission_note(skip_corpus=skip_corpus)
                     + (f"; {contracts_note}" if contracts_note else ""),
                     lane="contracts",
                 )
@@ -2078,30 +2076,30 @@ def resolve_carry_source() -> dict | None:
 
 
 def describe_carry_source(resolved: dict, root: Path, *, promoting: bool = False) -> str:
-    """Return the line that names the master the carry resolved to. A master stamped for an older surface than the served one is named as older and carried anyway: a verdict names its unit by content id, so it reaches the unit with that id on the live surface or none, never the wrong window. On a promoting pass the aligned master is stamped for the surface the pass is about to replace, because the resolution reads the live manifest before the move, and the line says so."""
+    """Return the line that names the master the carry resolved to. A master stamped for an older corpus than the served one is named as older and carried anyway: a verdict names its unit by content id, so it reaches the unit with that id on the live corpus or none, never the wrong window. On a promoting pass the aligned master is stamped for the corpus the pass is about to replace, because the resolution reads the live manifest before the move, and the line says so."""
     try:
         shown = resolved["path"].relative_to(root)
     except ValueError:
         shown = resolved["path"]
     if resolved["aligned"]:
         stamped = (
-            "stamped for the surface this pass replaces; its verdicts land by unit id"
+            "stamped for the corpus this pass replaces; its verdicts land by unit id"
             if promoting
-            else "stamped for the served surface"
+            else "stamped for the served corpus"
         )
     else:
         replaced = "the one this pass replaces" if promoting else "the served one"
         stamped = (
-            f"stamped {resolved['stamp']}, an older surface than {replaced}; its verdicts land by unit id"
+            f"stamped {resolved['stamp']}, an older corpus than {replaced}; its verdicts land by unit id"
         )
     return f"Auto-resolved carry source: {shown} ({resolved['count']} effective verdicts, {stamped}). Pass --verdicts to override."
 
 
-def master_stamped_for_surface(master: Path, surface: Path) -> bool:
-    """Return whether the verdicts master carries the surface's own stamp, read as merge_verdicts reads both: the master parsed whole as an ams-review-verdicts/1 document, and the stamp from the manifest's `generated_at`. This is the direct merge's precondition, because the direct merge passes the master to the merge unchanged and the merge refuses any input stamped for another surface. `main` calls it for a master named by --verdicts. For an auto-resolved master the resolution's `aligned` already holds the answer, computed by `status.resolve_carry_source` from the same parse and stamp, so that master is not parsed twice. If a pass stops after the surface build writes a new surface and before the verdict update carries the store onto it, the store stays stamped for the previous surface and the next pass skips the build as unchanged. This returns False for that master, so the pass takes the full carry by unit id. An unreadable master also returns False, and the carry reports it."""
+def master_stamped_for_corpus(master: Path, corpus: Path) -> bool:
+    """Return whether the verdicts master carries the corpus's own stamp, read as merge_verdicts reads both: the master parsed whole as an ams-review-verdicts/1 document, and the stamp from the manifest's `generated_at`. This is the direct merge's precondition, because the direct merge passes the master to the merge unchanged and the merge refuses any input stamped for another corpus. `main` calls it for a master named by --verdicts. For an auto-resolved master the resolution's `aligned` already holds the answer, computed by `status.resolve_carry_source` from the same parse and stamp, so that master is not parsed twice. If a pass stops after the corpus build writes a new corpus and before the verdict update carries the store onto it, the store stays stamped for the previous corpus and the next pass skips the build as unchanged. This returns False for that master, so the pass takes the full carry by unit id. An unreadable master also returns False, and the carry reports it."""
     from rebuild.review.serve import parse_autosave_payload
 
-    stamp = _manifest_stamp_at(surface)
+    stamp = _manifest_stamp_at(corpus)
     try:
         payload = parse_autosave_payload(Path(master).read_bytes())
     except OSError:
@@ -2126,15 +2124,13 @@ def resolve_short_id() -> str:
     return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
 
-def server_can_keep_running(
-    *, skip_surface: bool, writes_store: bool, promotes_surface: bool = False
-) -> bool:
-    """Return whether a live review server can keep running through this pass. The app owns two things a cycle writes: the surface's units and stamp (livereload watches every shard, and a restamped manifest orphans the tab's store) and the verdict store (merge_verdicts refuses to write it under a live server, because an open tab would write its copy back over the merge). So the answer depends on the plan's writes, not on a skip flag. A pass that rewrites no units and merges nothing into the store (a --no-carry pass, a --no-merge carry over an unchanged surface, a pass with no artifact work) writes neither, so the review server keeps running and the open tab keeps working for the whole run. An assets refresh is such a pass: it rewrites no shard and leaves `generated_at` unchanged, so the tab's store stays aligned, and livereload reloads the tab onto the new app files. A surface promotion sets the same skip flag but replaces every shard and the stamp in one rename, so `promotes_surface` requires stopping the review server even when the store is untouched. Everything else the cycle writes is outside the served tree (the census pins, the m1 summaries, the carried file) or is read by the app only as status, which is meant to update during a pass."""
-    return skip_surface and not promotes_surface and not writes_store
+def server_can_keep_running(*, skip_corpus: bool, writes_store: bool, promotes_corpus: bool = False) -> bool:
+    """Return whether a live review server can keep running through this pass. The app owns two things a cycle writes: the corpus's units and stamp (livereload watches every shard, and a restamped manifest orphans the tab's store) and the verdict store (merge_verdicts refuses to write it under a live server, because an open tab would write its copy back over the merge). So the answer depends on the plan's writes, not on a skip flag. A pass that rewrites no units and merges nothing into the store (a --no-carry pass, a --no-merge carry over an unchanged corpus, a pass with no artifact work) writes neither, so the review server keeps running and the open tab keeps working for the whole run. An assets refresh is such a pass: it rewrites no shard and leaves `generated_at` unchanged, so the tab's store stays aligned, and livereload reloads the tab onto the new app files. A corpus promotion sets the same skip flag but replaces every shard and the stamp in one rename, so `promotes_corpus` requires stopping the review server even when the store is untouched. Everything else the cycle writes is outside the served tree (the census pins, the m1 summaries, the carried file) or is read by the app only as status, which is meant to update during a pass."""
+    return skip_corpus and not promotes_corpus and not writes_store
 
 
 def stop_review_server(timeout: float = SERVER_STOP_TIMEOUT) -> bool:
-    """Stop the review server and wait for port 7294 to come free, so the surface rewrite that follows cannot race a live reader. Returns False when something is still listening at the deadline (a server started another way, or one stuck in shutdown); the caller then reports it and does not build."""
+    """Stop the review server and wait for port 7294 to come free, so the corpus rewrite that follows cannot race a live reader. Returns False when something is still listening at the deadline (a server started another way, or one stuck in shutdown); the caller then reports it and does not build."""
     subprocess.run(["pkill", "-f", SERVER_STOP_PATTERN], check=False, capture_output=True)
     deadline = time.monotonic() + timeout
     while server_listening():
@@ -2149,14 +2145,14 @@ def _render_concurrency(plan: Plan) -> list[str]:
         return [
             "",
             "  Concurrency (--skip-gates):",
-            f"    Lane build only; no gates; run_m1 sweeps --jobs {plan.sweep_jobs} ({plan.sweep_reason}) at --kernel-threads {'not passed (gates-only rerun)' if plan.rerun_gates_only else plan.kernel_threads} and --replay-threads {'not passed (gates-only rerun)' if plan.rerun_gates_only else plan.replay_threads}, surface-build --jobs {plan.surface_jobs} ({plan.surface_reason}), surface-build --signature-jobs {plan.signature_jobs} ({plan.signature_reason}), verdict-update --standing-fill-jobs {plan.standing_fill_jobs} ({plan.standing_fill_reason})",
+            f"    Lane build only; no gates; run_m1 sweeps --jobs {plan.sweep_jobs} ({plan.sweep_reason}) at --kernel-threads {'not passed (gates-only rerun)' if plan.rerun_gates_only else plan.kernel_threads} and --replay-threads {'not passed (gates-only rerun)' if plan.rerun_gates_only else plan.replay_threads}, corpus-build --jobs {plan.corpus_jobs} ({plan.corpus_reason}), corpus-build --signature-jobs {plan.signature_jobs} ({plan.signature_reason}), verdict-update --standing-fill-jobs {plan.standing_fill_jobs} ({plan.standing_fill_reason})",
         ]
     t0_lane = "gate:js" if plan.skip_make_test else "gate:js, gate:make-test"
     lines = [
         "",
         f"  Concurrency (pool policy: {plan.pool_policy}):",
         f"    Lane t0   [from t=0, background]  : {t0_lane}",
-        "    Lane build[serial, main thread]  : run_m1 -> submit gate:rebuild-contracts -> surface-build -> verdict-update -> census",
+        "    Lane build[serial, main thread]  : run_m1 -> submit gate:rebuild-contracts -> corpus-build -> verdict-update -> census",
     ]
     if plan.skip_conform:
         lines.append(
@@ -2180,7 +2176,7 @@ def _render_concurrency(plan: Plan) -> list[str]:
         )
     else:
         lines.append(
-            f"    Lane rebuild-contracts           : {contracts_submission_note(skip_surface=plan.skip_surface)}, -n {plan.contracts_workers} ({plan.contracts_reason});"
+            f"    Lane rebuild-contracts           : {contracts_submission_note(skip_corpus=plan.skip_corpus)}, -n {plan.contracts_workers} ({plan.contracts_reason});"
         )
         if plan.pool_policy == "overlap":
             lines.append(
@@ -2217,8 +2213,8 @@ def _render_concurrency(plan: Plan) -> list[str]:
         lines.append(
             f"    run_m1 --replay-threads          : {plan.replay_threads}  (the string replay's own ceiling, {plan.replay_reason})"
         )
-    lines.append(f"    surface-build --jobs             : {plan.surface_jobs}  ({plan.surface_reason})")
-    lines.append(f"    surface-build --signature-jobs   : {plan.signature_jobs}  ({plan.signature_reason})")
+    lines.append(f"    corpus-build --jobs              : {plan.corpus_jobs}  ({plan.corpus_reason})")
+    lines.append(f"    corpus-build --signature-jobs    : {plan.signature_jobs}  ({plan.signature_reason})")
     lines.append(
         f"    verdict-update --standing-fill-jobs : {plan.standing_fill_jobs}  ({plan.standing_fill_reason})"
     )
@@ -2267,7 +2263,7 @@ def render_plan(plan: Plan) -> list[str]:
     lines.append(f"  carry output : {plan.carry_out if plan.carry_out is not None else '(no carry)'}")
     if plan.review_out is not None:
         lines.append(
-            f"  rehearsal    : surface writes redirected to {plan.review_out}; the live surface at rebuild/out/review is never written."
+            f"  rehearsal    : corpus writes redirected to {plan.review_out}; the live corpus at rebuild/out/review is never written."
         )
     lines.extend(_render_concurrency(plan))
     return lines
@@ -2283,9 +2279,9 @@ class CycleReport:
     unmatched: int | None = None
     multi_matched: int | None = None
     pins_pass: bool | None = None
-    surface_units: int | None = None
-    surface_rows: int | None = None
-    surface_batches: int | None = None
+    corpus_units: int | None = None
+    corpus_rows: int | None = None
+    corpus_batches: int | None = None
     echo_groups: int | None = None
     assets_status: str = "not run"
     promote_status: str = "not run"
@@ -2619,15 +2615,15 @@ def _run_m1_reasons(gate: CheckResult | None) -> list[str]:
     return list(gate.failures)
 
 
-def _read_surface_totals(report: CycleReport, surface_dir: Path) -> bool:
+def _read_corpus_totals(report: CycleReport, corpus_dir: Path) -> bool:
     try:
-        manifest = json.loads((surface_dir / "manifest.json").read_text())
+        manifest = json.loads((corpus_dir / "manifest.json").read_text())
     except OSError, ValueError:
         return False
     totals = manifest.get("totals") or {}
-    report.surface_units = totals.get("units")
-    report.surface_rows = totals.get("rows")
-    report.surface_batches = totals.get("batches")
+    report.corpus_units = totals.get("units")
+    report.corpus_rows = totals.get("rows")
+    report.corpus_batches = totals.get("batches")
     report.echo_groups = totals.get("echo_groups")
     return True
 
@@ -2635,7 +2631,7 @@ def _read_surface_totals(report: CycleReport, surface_dir: Path) -> bool:
 def _do_assets_refresh(
     report: CycleReport, *, spawn, emit: console.CycleConsole, registry: _ChildRegistry, plan: Plan
 ) -> bool:
-    """Copy the review app's static files over the served surface and restamp the manifest's `static` component, on a pass where that component is the only input that changed. It runs in place of the surface build, and later steps treat the pass as a surface skip: no unit, shard, sidecar or `generated_at` changes, so the carry is the identity and the review server keeps running. Livereload sees the copied files and reloads the open tab."""
+    """Copy the review app's static files over the served corpus and restamp the manifest's `static` component, on a pass where that component is the only input that changed. It runs in place of the corpus build, and later steps treat the pass as a corpus skip: no unit, shard, sidecar or `generated_at` changes, so the carry is the identity and the review server keeps running. Livereload sees the copied files and reloads the open tab."""
     result = spawn("assets-refresh", plan.argv("assets-refresh"), emit=emit, registry=registry, stream=False)
     if result.returncode != 0:
         emit.note("assets-refresh", f"ERROR: review.build refresh-assets exited {result.returncode}.")
@@ -2647,29 +2643,29 @@ def _do_assets_refresh(
     return True
 
 
-def _do_promote_surface(report: CycleReport, *, emit: console.CycleConsole, plan: Plan) -> bool:
-    """Move a rehearsal's surface into place, in this process, on a pass whose plan found one that reproduces these inputs byte for byte. It runs in place of the surface build, which then reports itself skipped over the promoted manifest. The move replaces every shard and the manifest stamp, so a promoting pass never keeps the review server running."""
-    assert plan.promote_surface is not None
-    emit.step_start("surface-promote", None, plan.describe("surface-promote"))
+def _do_promote_corpus(report: CycleReport, *, emit: console.CycleConsole, plan: Plan) -> bool:
+    """Move a rehearsal's corpus into place, in this process, on a pass whose plan found one that reproduces these inputs byte for byte. It runs in place of the corpus build, which then reports itself skipped over the promoted manifest. The move replaces every shard and the manifest stamp, so a promoting pass never keeps the review server running."""
+    assert plan.promote_corpus is not None
+    emit.step_start("corpus-promote", None, plan.describe("corpus-promote"))
     started = time.perf_counter()
     try:
-        promote_surface(plan.promote_surface, REVIEW_OUT)
+        promote_corpus(plan.promote_corpus, REVIEW_OUT)
     except Exception as exc:
-        report.step_seconds["surface-promote"] = time.perf_counter() - started
-        report.step_returncodes["surface-promote"] = 1
+        report.step_seconds["corpus-promote"] = time.perf_counter() - started
+        report.step_returncodes["corpus-promote"] = 1
         report.promote_status = f"FAILED ({exc!r})"
-        emit.note("surface-promote", f"ERROR: could not move {plan.promote_surface} into place: {exc!r}")
-        emit.step_end("surface-promote", None, "FAILED", "")
+        emit.note("corpus-promote", f"ERROR: could not move {plan.promote_corpus} into place: {exc!r}")
+        emit.step_end("corpus-promote", None, "FAILED", "")
         return False
-    report.step_seconds["surface-promote"] = time.perf_counter() - started
+    report.step_seconds["corpus-promote"] = time.perf_counter() - started
     report.promote_status = (
-        f"moved {plan.promote_surface} into place (stores warm, generated_at the rehearsal's)"
+        f"moved {plan.promote_corpus} into place (stores warm, generated_at the rehearsal's)"
     )
-    emit.step_end("surface-promote", None, "ok", report.promote_status)
+    emit.step_end("corpus-promote", None, "ok", report.promote_status)
     return True
 
 
-def _do_surface_build(
+def _do_corpus_build(
     report: CycleReport,
     *,
     spawn,
@@ -2680,27 +2676,27 @@ def _do_surface_build(
     skip: bool = False,
     skip_note: str = "",
 ) -> bool:
-    """Rebuild the review surface, or reuse it when `skip` is set. Both paths read the four totals from the surface's manifest.json, whose unit and row totals the build checks against the shards it wrote, so the summary reports what the surface on disk contains."""
-    surface_dir = review_out if review_out is not None else REVIEW_OUT
+    """Rebuild the review corpus, or reuse it when `skip` is set. Both paths read the four totals from the corpus's manifest.json, whose unit and row totals the build checks against the shards it wrote, so the summary reports what the corpus on disk contains."""
+    corpus_dir = review_out if review_out is not None else REVIEW_OUT
     if skip:
-        if not _read_surface_totals(report, surface_dir):
+        if not _read_corpus_totals(report, corpus_dir):
             emit.note(
-                "surface-build",
-                "ERROR: surface-build skip: the manifest vanished mid-cycle; rerun with --fresh.",
+                "corpus-build",
+                "ERROR: corpus-build skip: the manifest vanished mid-cycle; rerun with --fresh.",
             )
             return False
-        emit.step_skipped("surface-build", skip_note)
+        emit.step_skipped("corpus-build", skip_note)
         return True
-    result = spawn("surface-build", argv, emit=emit, registry=registry, stream=False)
+    result = spawn("corpus-build", argv, emit=emit, registry=registry, stream=False)
     if result.returncode != 0:
-        emit.note("surface-build", f"ERROR: review.build exited {result.returncode}.")
-        _close_step(emit, report, "surface-build", result)
+        emit.note("corpus-build", f"ERROR: review.build exited {result.returncode}.")
+        _close_step(emit, report, "corpus-build", result)
         return False
-    if not _read_surface_totals(report, surface_dir):
-        emit.note("surface-build", "ERROR: review.build exited 0 but left no readable manifest.json.")
-        _close_step(emit, report, "surface-build", result, "FAILED (no manifest)")
+    if not _read_corpus_totals(report, corpus_dir):
+        emit.note("corpus-build", "ERROR: review.build exited 0 but left no readable manifest.json.")
+        _close_step(emit, report, "corpus-build", result, "FAILED (no manifest)")
         return False
-    _close_step(emit, report, "surface-build", result)
+    _close_step(emit, report, "corpus-build", result)
     return True
 
 
@@ -2866,11 +2862,11 @@ def accepted_census() -> dict | None:
 def _do_census(
     report: CycleReport, *, spawn, emit: console.CycleConsole, registry: _ChildRegistry, plan: Plan
 ) -> None:
-    """Rewrite the census pins from the surface's census-facts.json sidecar and report what changed against the last accepted census (`accepted_census`). When only the volatile block changed, the status says the invariant is unchanged. When the invariant block changed, the status lists the changes (`census.invariant_delta`) and the invariant block's diff is printed under the banner without the volatile hunks. The volatile block changes with nearly every letter, so a full diff on every pass would teach a reader to ignore it.
+    """Rewrite the census pins from the corpus's census-facts.json sidecar and report what changed against the last accepted census (`accepted_census`). When only the volatile block changed, the status says the invariant is unchanged. When the invariant block changed, the status lists the changes (`census.invariant_delta`) and the invariant block's diff is printed under the banner without the volatile hunks. The volatile block changes with nearly every letter, so a full diff on every pass would teach a reader to ignore it.
 
     The step also reports reach: the ledger's `ink_identical` and `no_verdict` declarations compared with the classes the corpus reached and machine-approved. Neither the ledger nor the pins shows on its own that a declared class went unreached or that an undeclared class started approving units.
 
-    The step records no green and never fails the cycle. A failed refresh (for example over a surface built before the sidecar existed) is reported and left for the next pass that rebuilds the surface.
+    The step records no green and never fails the cycle. A failed refresh (for example over a corpus built before the sidecar existed) is reported and left for the next pass that rebuilds the corpus.
     """
     refresh = spawn("census", plan.argv("census"), emit=emit, registry=registry, stream=False)
     if refresh.returncode != 0:
@@ -2901,7 +2897,7 @@ def _do_census(
         )
     elif accepted.get("volatile") != current.get("volatile"):
         report.census_status = (
-            "invariant unchanged (only the volatile totals moved; cycle_summary.json carries the surface's)"
+            "invariant unchanged (only the volatile totals moved; cycle_summary.json carries the corpus's)"
         )
     else:
         report.census_status = "updated (matches the last accepted census)"
@@ -2952,7 +2948,7 @@ def _do_job_costs(
 
 
 def _skip_verdict_update(report: CycleReport, plan: Plan, emit: console.CycleConsole) -> None:
-    """Report the verdict-update step as skipped, marking each of its steps skipped. The carried file the last recorded pass wrote is still the stamp-aligned frontier, because the surface it was carried onto has not changed, so the report still names it."""
+    """Report the verdict-update step as skipped, marking each of its steps skipped. The carried file the last recorded pass wrote is still the stamp-aligned frontier, because the corpus it was carried onto has not changed, so the report still names it."""
     emit.step_skipped("verdict-update", plan.verdict_update_note)
     note = f"skipped ({plan.verdict_update_note})"
     report.carry_out = frontier_carry_out()
@@ -2992,7 +2988,7 @@ def _gate_make_test_task(
 
 
 def _spawn_with_env(spawn, env: dict[str, str]):
-    """Return a spawn callable that overlays `env` on one child's environment. Setting the variables in os.environ would pass them to every child this process spawns (run_m1, the surface build, the rebuild suite), so one gate's pytest width would also apply to the others' `-n auto` pools. The wrapper changes only the environment, never the argv, so the plan stays the only source of each child's command."""
+    """Return a spawn callable that overlays `env` on one child's environment. Setting the variables in os.environ would pass them to every child this process spawns (run_m1, the corpus build, the rebuild suite), so one gate's pytest width would also apply to the others' `-n auto` pools. The wrapper changes only the environment, never the argv, so the plan stays the only source of each child's command."""
 
     def spawn_with_env(name, argv, *, emit, registry, stream):
         return spawn(name, argv, emit=emit, registry=registry, stream=stream, env=env)
@@ -3052,7 +3048,7 @@ def _gate_contracts_task(
     registry: _ChildRegistry,
     argv: list[str],
 ) -> CheckResult:
-    """Run gate:rebuild-contracts, the rebuild suite (every test under rebuild/, none of which reads a live build artifact), and return its result. Because it reads no build output, it is submitted right after gate:conform, once the run_m1 gate has passed, and runs beside the surface build at the width `contracts_pool_width` sets on its environment: the cores the build's parent and workers leave free. Under the queue policy it also waits for gate:make-test and gate:conform, so only one heavy gate pool runs at a time."""
+    """Run gate:rebuild-contracts, the rebuild suite (every test under rebuild/, none of which reads a live build artifact), and return its result. Because it reads no build output, it is submitted right after gate:conform, once the run_m1 gate has passed, and runs beside the corpus build at the width `contracts_pool_width` sets on its environment: the cores the build's parent and workers leave free. Under the queue policy it also waits for gate:make-test and gate:conform, so only one heavy gate pool runs at a time."""
     if pool_policy == "queue":
         _await_gate_futures(conform_fut, make_fut)
     result = spawn("gate:rebuild-contracts", argv, emit=emit, registry=registry, stream=False)
@@ -3163,7 +3159,7 @@ def _verdict_update_settled(report: CycleReport) -> bool:
 def _record_gate_greens(
     report: CycleReport, plan: Plan, gate_keys: dict[str, str], emit: console.CycleConsole
 ) -> None:
-    """Write the green records of the gates that ran beside the build, after they joined. gate:conform's key is taken right after run_m1 finishes, where its skip is decided, and the rebuild suite's just before the surface build, where the suite is submitted. Later steps cannot change either key: the surface build writes only review output, which the suite's closure excludes, and the census pins are exempt from that closure. Each key is recomputed here before recording, so a source file edited while the gates ran is never recorded green. A red gate whose key matches its existing record deletes that record."""
+    """Write the green records of the gates that ran beside the build, after they joined. gate:conform's key is taken right after run_m1 finishes, where its skip is decided, and the rebuild suite's just before the corpus build, where the suite is submitted. Later steps cannot change either key: the corpus build writes only review output, which the suite's closure excludes, and the census pins are exempt from that closure. Each key is recomputed here before recording, so a source file edited while the gates ran is never recorded green. A red gate whose key matches its existing record deletes that record."""
     key = gate_keys.get("conform")
     if key:
         if report.gate_conform_green is True:
@@ -3353,8 +3349,8 @@ def _run_cycle(
                 plan.argv("gate:rebuild-contracts"),
             )
 
-        if plan.promote_surface is not None and not _do_promote_surface(report, emit=emit, plan=plan):
-            failures.append("surface promotion failed")
+        if plan.promote_corpus is not None and not _do_promote_corpus(report, emit=emit, plan=plan):
+            failures.append("corpus promotion failed")
             _join_gates(report, failures, js_fut, contracts_fut, conform_fut, make_fut, emit, timings)
             _record_gate_greens(report, plan, gate_keys, emit)
             return _finish(report, failures, plan, timings, emit)
@@ -3367,17 +3363,17 @@ def _run_cycle(
             _record_gate_greens(report, plan, gate_keys, emit)
             return _finish(report, failures, plan, timings, emit)
 
-        if not _do_surface_build(
+        if not _do_corpus_build(
             report,
             spawn=spawn,
             emit=emit,
             registry=registry,
             review_out=plan.review_out,
-            argv=None if plan.skip_surface else plan.argv("surface-build"),
-            skip=plan.skip_surface,
-            skip_note=plan.surface_note,
+            argv=None if plan.skip_corpus else plan.argv("corpus-build"),
+            skip=plan.skip_corpus,
+            skip_note=plan.corpus_note,
         ):
-            failures.append("surface rebuild failed")
+            failures.append("corpus rebuild failed")
             _join_gates(report, failures, js_fut, contracts_fut, conform_fut, make_fut, emit, timings)
             _record_gate_greens(report, plan, gate_keys, emit)
             return _finish(report, failures, plan, timings, emit)
@@ -3395,9 +3391,9 @@ def _run_cycle(
         if plan.complaints_note:
             report.complaints_status = f"skipped ({plan.complaints_note})"
         if plan.review_out is not None:
-            report.census_status = "skipped (rehearsal: the checked-in pins track the live surface)"
+            report.census_status = "skipped (rehearsal: the checked-in pins track the live corpus)"
             report.census_reach = "skipped (rehearsal)"
-            emit.step_skipped("census", "rehearsal: the checked-in pins track the live surface")
+            emit.step_skipped("census", "rehearsal: the checked-in pins track the live corpus")
         else:
             _do_census(report, spawn=spawn, emit=emit, registry=registry, plan=plan)
         if (
@@ -3448,7 +3444,7 @@ _CARRY_COUNTS = re.compile(r"^carry counts: human=(\d+) matched=(\d+) unmatched=
 
 
 def carry_counts(lines: list[str]) -> dict[str, int] | None:
-    """Parse the carry's `carry counts:` line: the human units on the new surface, how many a prior verdict matched, how many none matched, and how many prior verdicts matched no unit. The counts are written to the cycle summary and to the run line in the timings journal. Returns None when the carry printed no such line (a direct merge, a rehearsal, or a verdict update that failed before the carry)."""
+    """Parse the carry's `carry counts:` line: the human units on the new corpus, how many a prior verdict matched, how many none matched, and how many prior verdicts matched no unit. The counts are written to the cycle summary and to the run line in the timings journal. Returns None when the carry printed no such line (a direct merge, a rehearsal, or a verdict update that failed before the carry)."""
     for line in lines:
         match = _CARRY_COUNTS.match(line)
         if match is not None:
@@ -3457,7 +3453,7 @@ def carry_counts(lines: list[str]) -> dict[str, int] | None:
 
 
 def carry_detail(lines: list[str]) -> str:
-    """Summarize the carry from its two headline lines: how many verdicts it carried onto the new surface, and the human queue before and after. The verdict update runs as one child with the carry as a step inside it, so these counts reach this process only as printed lines. Returns the empty string when the carry printed neither line (a direct merge, a rehearsal, or a verdict update that failed before the carry)."""
+    """Summarize the carry from its two headline lines: how many verdicts it carried onto the new corpus, and the human queue before and after. The verdict update runs as one child with the carry as a step inside it, so these counts reach this process only as printed lines. Returns the empty string when the carry printed neither line (a direct merge, a rehearsal, or a verdict update that failed before the carry)."""
     carried = ""
     queue = ""
     for line in lines:
@@ -3498,16 +3494,16 @@ def step_detail(report: CycleReport, name: str) -> str:
         if report.pins_pass is not None:
             parts.append("pins pass" if report.pins_pass else "PINS FAILED")
         return ", ".join(part for part in parts if part)
-    if name == "surface-build":
+    if name == "corpus-build":
         parts = []
-        if report.surface_units is not None:
-            parts.append(f"{count(report.surface_units)} units")
-        if report.surface_rows is not None:
-            parts.append(f"{count(report.surface_rows)} rows")
+        if report.corpus_units is not None:
+            parts.append(f"{count(report.corpus_units)} units")
+        if report.corpus_rows is not None:
+            parts.append(f"{count(report.corpus_rows)} rows")
         return ", ".join(parts)
     if name == "assets-refresh":
         return prose(report.assets_status)
-    if name == "surface-promote":
+    if name == "corpus-promote":
         return prose(report.promote_status)
     if name == "verdict-update":
         head = carry_detail(report.carry_lines)
@@ -3599,7 +3595,7 @@ def _step_outcome(report: CycleReport, plan: Plan, step: Step, *, retention_ran:
 
 
 def summary_rows(report: CycleReport, plan: Plan, *, retention_ran: bool) -> list[console.SummaryRow]:
-    """Return one summary-table row per planned step. A step that did not run gets no detail, because the report can still hold the previous build's counts for it (a skipped run_m1's unmatched count, a skipped surface build's totals)."""
+    """Return one summary-table row per planned step. A step that did not run gets no detail, because the report can still hold the previous build's counts for it (a skipped run_m1's unmatched count, a skipped corpus build's totals)."""
     rows: list[console.SummaryRow] = []
     for step in plan.steps:
         outcome = _step_outcome(report, plan, step, retention_ran=retention_ran)
@@ -3679,10 +3675,10 @@ def _skip_kind(*, proved: bool, forced: bool = False) -> str | None:
     return None
 
 
-def _surface_block(surface_dir: Path) -> dict:
-    block: dict = {"dir": str(surface_dir), "generated_at": None, "inputs_fingerprint": None}
+def _corpus_block(corpus_dir: Path) -> dict:
+    block: dict = {"dir": str(corpus_dir), "generated_at": None, "inputs_fingerprint": None}
     try:
-        manifest = json.loads((surface_dir / "manifest.json").read_text())
+        manifest = json.loads((corpus_dir / "manifest.json").read_text())
         block["generated_at"] = manifest.get("generated_at")
         block["inputs_fingerprint"] = manifest.get("inputs_fingerprint")
     except Exception:
@@ -3724,9 +3720,9 @@ def cycle_summary_payload(report: CycleReport, failures: list[str], plan: Plan, 
         "unmatched": report.unmatched,
         "multi_matched": report.multi_matched,
         "pins_pass": report.pins_pass,
-        "surface_units": report.surface_units,
-        "surface_rows": report.surface_rows,
-        "surface_batches": report.surface_batches,
+        "corpus_units": report.corpus_units,
+        "corpus_rows": report.corpus_rows,
+        "corpus_batches": report.corpus_batches,
         "assets_status": report.assets_status,
         "promote_status": report.promote_status,
         "echo_groups": report.echo_groups,
@@ -3763,9 +3759,9 @@ def cycle_summary_payload(report: CycleReport, failures: list[str], plan: Plan, 
             "skip_conform": plan.skip_conform,
             "skip_run_m1": plan.skip_run_m1,
             "rerun_gates_only": plan.rerun_gates_only,
-            "skip_surface": plan.skip_surface,
+            "skip_corpus": plan.skip_corpus,
             "refresh_assets": plan.refresh_assets,
-            "promote_surface": _as_str(plan.promote_surface),
+            "promote_corpus": _as_str(plan.promote_corpus),
             "skip_contracts": plan.skip_contracts,
             "skip_verdict_update": plan.skip_verdict_update,
             "review_out": _as_str(plan.review_out),
@@ -3773,7 +3769,7 @@ def cycle_summary_payload(report: CycleReport, failures: list[str], plan: Plan, 
             "short_id": plan.short_id,
         },
         "argv": list(sys.argv),
-        "surface": _surface_block(plan.surface_dir),
+        "corpus": _corpus_block(plan.corpus_dir),
     }
 
 
@@ -3804,7 +3800,7 @@ def _emit_cycle_summary(
 def _preflight(args: argparse.Namespace, *, can_keep_running: bool = False) -> bool:
     if args.review_out is not None:
         print(
-            f"Rehearsal mode: surface writes redirected to {args.review_out}; the live surface at rebuild/out/review is never written."
+            f"Rehearsal mode: corpus writes redirected to {args.review_out}; the live corpus at rebuild/out/review is never written."
         )
         return True
     if not server_listening():
@@ -3813,7 +3809,7 @@ def _preflight(args: argparse.Namespace, *, can_keep_running: bool = False) -> b
         print(f"The review server keeps running: this pass {SERVER_KEEPS_RUNNING_NOTE}.")
         return True
     if args.stop_server:
-        print("Stopping the review server: this pass writes the surface or the verdict store under it.")
+        print("Stopping the review server: this pass writes the corpus or the verdict store under it.")
         if stop_review_server():
             return True
         print("=" * 68)
@@ -3827,7 +3823,7 @@ def _preflight(args: argparse.Namespace, *, can_keep_running: bool = False) -> b
     if args.yes:
         print("=" * 68)
         print("WARNING: a review server is listening on 127.0.0.1:7294.")
-        print("Proceeding with --yes. The in-place surface rebuild will restamp the")
+        print("Proceeding with --yes. The in-place corpus rebuild will restamp the")
         print("manifest and rewrite the shards under it, stranding the live verdicting")
         print("session. AFTER this cycle you MUST:")
         print("  1. restart the review server:  uv run python -m rebuild.review.serve")
@@ -3836,20 +3832,20 @@ def _preflight(args: argparse.Namespace, *, can_keep_running: bool = False) -> b
         return True
     print("=" * 68)
     print("REFUSING TO RUN: a review server is listening on 127.0.0.1:7294.")
-    print("The in-place surface rebuild would strand your live verdicting session")
+    print("The in-place corpus rebuild would strand your live verdicting session")
     print("(livereload rewrites the shards and the manifest restamp orphans the")
     print("autosave). Before re-running:")
     print("  1. in the review app, export or confirm the autosave of your verdicts")
     print(r"  2. stop the review server:  pkill -f 'rebuild\.review\.serve'")
     print("     (or pass --stop-server and let this command stop it for you)")
     print("  3. re-run this command (or pass --yes to override at your own risk)")
-    print("  (or pass --review-out <dir> to rehearse without touching the live surface)")
+    print("  (or pass --review-out <dir> to rehearse without touching the live corpus)")
     print("=" * 68)
     return False
 
 
 def prune_carried(root: Path, stamp: str | None, keep: Path | None) -> tuple[list[Path], list[Path]]:
-    """Delete the repo-root `verdicts-carried-*.json` files whose `manifest_generated_at` is not `stamp`, sparing `keep`. `status.pick_frontier` considers only files stamped for the live surface, and the tracked copy under `rebuild/evidence/` is outside this glob. Returns the deleted paths and the unreadable ones, which are kept. Deletes nothing when `stamp` is None."""
+    """Delete the repo-root `verdicts-carried-*.json` files whose `manifest_generated_at` is not `stamp`, sparing `keep`. `status.pick_frontier` considers only files stamped for the live corpus, and the tracked copy under `rebuild/evidence/` is outside this glob. Returns the deleted paths and the unreadable ones, which are kept. Deletes nothing when `stamp` is None."""
     removed: list[Path] = []
     unreadable: list[Path] = []
     if stamp is None:
@@ -3953,7 +3949,7 @@ def run_retention(plan: Plan) -> RetentionResult:
     except OSError, ValueError:
         stamp = None
     if stamp is None:
-        lines.append("  carried   : left intact (no surface manifest to align against)")
+        lines.append("  carried   : left intact (no corpus manifest to align against)")
         intact.append("carried files")
     else:
         removed, unreadable = prune_carried(ROOT, stamp, plan.carry_out)
@@ -4006,7 +4002,7 @@ def run_retention(plan: Plan) -> RetentionResult:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Drive the commit-time artifact cycle: run_m1, surface rebuild, carry, census pins, gates."
+        description="Drive the commit-time artifact cycle: run_m1, corpus rebuild, carry, census pins, gates."
     )
     parser.add_argument(
         "--verdicts",
@@ -4054,13 +4050,13 @@ def main(argv: list[str] | None = None) -> int:
         "--rebuild-pool",
         choices=POOL_POLICIES,
         default=REBUILD_POOL_POLICY_DEFAULT,
-        help="how the heavy gates share cores: 'queue' (one pool at a time — make-test, then conform, then the rebuild suite; default) or 'overlap' (co-resident, the rebuild suite narrowed by make-test's pool as well as the surface build's)",
+        help="how the heavy gates share cores: 'queue' (one pool at a time — make-test, then conform, then the rebuild suite; default) or 'overlap' (co-resident, the rebuild suite narrowed by make-test's pool as well as the corpus build's)",
     )
     parser.add_argument(
         "--review-out",
         type=Path,
         default=None,
-        help="rehearsal mode: redirect the surface write to this dir so the cycle can run while the live server is up; the next live pass moves this dir into rebuild/out/review and consumes it when it still reproduces the inputs byte for byte (promotable_surface)",
+        help="rehearsal mode: redirect the corpus write to this dir so the cycle can run while the live server is up; the next live pass moves this dir into rebuild/out/review and consumes it when it still reproduces the inputs byte for byte (promotable_corpus)",
     )
     parser.add_argument(
         "--keep-history",
@@ -4071,7 +4067,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--stop-server",
         action="store_true",
-        help="stop a listening review server instead of refusing, but only when this pass writes under it — the served surface's units or stamp, or the verdict store it holds. A pass that writes neither does not stop the server whether or not this is passed, so the review server keeps running and the open tab keeps working — an assets refresh is such a pass, since it moves no unit and no stamp and livereload simply reloads the tab onto the new shell; `make review-cycle` passes this, which is what makes a pass with no artifact work background verification rather than a lockout. It also says the recipe answers the server question after the pass, so the readiness checklist a green finish prints leaves the server row to it",
+        help="stop a listening review server instead of refusing, but only when this pass writes under it — the served corpus's units or stamp, or the verdict store it holds. A pass that writes neither does not stop the server whether or not this is passed, so the review server keeps running and the open tab keeps working — an assets refresh is such a pass, since it moves no unit and no stamp and livereload simply reloads the tab onto the new shell; `make review-cycle` passes this, which is what makes a pass with no artifact work background verification rather than a lockout. It also says the recipe answers the server question after the pass, so the readiness checklist a green finish prints leaves the server row to it",
     )
     parser.add_argument(
         "--dry-run",
@@ -4082,7 +4078,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.fresh:
         args.force_make_test = True
 
-    recovered = recover_superseded_surface(delete=not args.dry_run)
+    recovered = recover_superseded_corpus(delete=not args.dry_run)
     first_run = not (REVIEW_OUT / "manifest.json").exists()
 
     skip_make_test = False
@@ -4098,10 +4094,10 @@ def main(argv: list[str] | None = None) -> int:
     skip_run_m1 = False
     rerun_gates_only = False
     run_m1_note = ""
-    skip_surface = False
+    skip_corpus = False
     refresh_assets = False
     promote_from: Path | None = None
-    surface_note = ""
+    corpus_note = ""
     skip_contracts = False
     contracts_note = ""
     conform_note = ""
@@ -4144,18 +4140,18 @@ def main(argv: list[str] | None = None) -> int:
                         run_m1_note = f"{run_m1_note}; {cache_note}"
     if skip_run_m1 or (rerun_gates_only and m1_stage_a_current(ROOT)):
         if args.review_out is None and not first_run:
-            if surface_build_skippable(ROOT):
-                skip_surface = True
-                surface_note = "the surface already reflects these inputs byte for byte, stamp included; --fresh overrides"
-            elif surface_build_skippable(ROOT, ignore=unit_index.ASSET_COMPONENTS):
-                skip_surface = True
+            if corpus_build_skippable(ROOT):
+                skip_corpus = True
+                corpus_note = "the corpus already reflects these inputs byte for byte, stamp included; --fresh overrides"
+            elif corpus_build_skippable(ROOT, ignore=unit_index.ASSET_COMPONENTS):
+                skip_corpus = True
                 refresh_assets = True
-                surface_note = ASSETS_REFRESH_NOTE
+                corpus_note = ASSETS_REFRESH_NOTE
             else:
-                promote_from = promotable_surface(ROOT)
+                promote_from = promotable_corpus(ROOT)
                 if promote_from is not None:
-                    skip_surface = True
-                    surface_note = SURFACE_PROMOTE_NOTE
+                    skip_corpus = True
+                    corpus_note = CORPUS_PROMOTE_NOTE
     if skip_run_m1:
         if not args.skip_gates and not args.skip_conform:
             green = read_green_record(cycle_paths.CONFORM_GREEN)
@@ -4192,7 +4188,7 @@ def main(argv: list[str] | None = None) -> int:
     direct_merge = False
     verdict_update_note = ""
     if (
-        skip_surface
+        skip_corpus
         and promote_from is None
         and not args.fresh
         and not first_run
@@ -4212,10 +4208,10 @@ def main(argv: list[str] | None = None) -> int:
             verdict_update_note = VERDICT_UPDATE_SKIP_NOTE
         elif verdict_update_key is not None and args.verdicts is not None:
             if master_aligned is None:
-                master_aligned = master_stamped_for_surface(args.verdicts, REVIEW_OUT)
+                master_aligned = master_stamped_for_corpus(args.verdicts, REVIEW_OUT)
                 if not master_aligned:
                     announce(DIRECT_MERGE_DECLINED_NOTE)
-            # A master stamped for the served surface needs no carry: every unit id maps to itself, and the carry keeps each record's `at`, so the merge (which takes only a strictly newer `at`) would drop its re-prefixed notes. Merging the master directly into the store gives the same result.
+            # A master stamped for the served corpus needs no carry: every unit id maps to itself, and the carry keeps each record's `at`, so the merge (which takes only a strictly newer `at`) would drop its re-prefixed notes. Merging the master directly into the store gives the same result.
             direct_merge = master_aligned
 
     plan = build_plan(
@@ -4239,10 +4235,10 @@ def main(argv: list[str] | None = None) -> int:
         run_m1_note=run_m1_note,
         run_m1_fingerprint=run_m1_fp,
         fresh=args.fresh,
-        skip_surface=skip_surface,
+        skip_corpus=skip_corpus,
         refresh_assets=refresh_assets,
-        promote_surface=promote_from,
-        surface_note=surface_note,
+        promote_corpus=promote_from,
+        corpus_note=corpus_note,
         skip_contracts=skip_contracts,
         contracts_note=contracts_note,
         contracts_skip=contracts_skip,
@@ -4272,15 +4268,15 @@ def main(argv: list[str] | None = None) -> int:
         if not _preflight(
             args,
             can_keep_running=server_can_keep_running(
-                skip_surface=skip_surface,
+                skip_corpus=skip_corpus,
                 writes_store=plan.do_merge,
-                promotes_surface=plan.promote_surface is not None,
+                promotes_corpus=plan.promote_corpus is not None,
             ),
         ):
             return 2
 
         if first_run:
-            print("First-run mode: no existing surface at rebuild/out/review — skipping the carry.")
+            print("First-run mode: no existing corpus at rebuild/out/review — skipping the carry.")
 
         report = CycleReport()
         from rebuild.tools.cycle_timings import CycleTimings
@@ -4295,7 +4291,7 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def readiness_block(plan: Plan) -> list[str]:
-    """Return the checklist `make verdict-ready` prints, so a green pass ends with it. It reads the cycle summary, so it must run after `_emit_cycle_summary`. A rehearsal returns nothing, since its surface is not the served one. When `--stop-server` is passed (as `make review-cycle` does), the server row is left out, because the recipe starts the server after the pass, or reports that it left it stopped. The rebuild suite switches this off with `cycle_paths.READINESS_ENABLED`, because it reads the live surface."""
+    """Return the checklist `make verdict-ready` prints, so a green pass ends with it. It reads the cycle summary, so it must run after `_emit_cycle_summary`. A rehearsal returns nothing, since its corpus is not the served one. When `--stop-server` is passed (as `make review-cycle` does), the server row is left out, because the recipe starts the server after the pass, or reports that it left it stopped. The rebuild suite switches this off with `cycle_paths.READINESS_ENABLED`, because it reads the live corpus."""
     if plan.review_out is not None:
         return []
     from rebuild.tools import verdict_ready
@@ -4304,7 +4300,7 @@ def readiness_block(plan: Plan) -> list[str]:
         result, ready = verdict_ready.readiness(
             with_server=not plan.recipe_serves,
             repo_root=ROOT,
-            review_dir=plan.surface_dir,
+            review_dir=plan.corpus_dir,
             m1_out=cycle_paths.M1_OUT,
             autosave_path=AUTOSAVE,
             cycle_summary_path=cycle_paths.CYCLE_SUMMARY,

@@ -1,6 +1,6 @@
 """Run the cycle's verdict update in one process: carry, merge, echo fill, standing fill, their merges, an echo fixpoint, and the complaint docket.
 
-The first index walk keeps every surface id and, for human units, only the `echo_record` projection (id, echo group, notation). The carry reads that projection, and every echo round reuses it. The standing fill and the complaint docket each get a fresh stream of human index records, so full records stay in memory only for the step that reads them. Machine units' index lines contribute their ids without being parsed.
+The first index walk keeps every corpus id and, for human units, only the `echo_record` projection (id, echo group, notation). The carry reads that projection, and every echo round reuses it. The standing fill and the complaint docket each get a fresh stream of human index records, so full records stay in memory only for the step that reads them. Machine units' index lines contribute their ids without being parsed.
 
 The standing fill runs with `--open-only --require-reach`, its persistent memo, and the cycle's `--standing-fill-jobs` width. Each step opens with a `[phase]` line and closes with a `[t]` line; the failure and fixpoint lines use the `[verdict-update]` prefix. The echo rounds after the standing merge spread what the standing fill wrote, and the echo output file holds the union of the fills from every round.
 """
@@ -28,7 +28,7 @@ from rebuild.tools import (  # noqa: E402
     standing_verdicts,
 )
 
-SURFACE = ROOT / "rebuild/out/review"
+CORPUS = ROOT / "rebuild/out/review"
 AUTOSAVE = ROOT / "verdicts-autosave.json"
 ECHO_FILL = ROOT / "verdicts-echo-fill.json"
 STANDING_FILL = ROOT / "verdicts-standing-fill.json"
@@ -65,7 +65,7 @@ def _write_fills(path: pathlib.Path, stamp: str, fills: list[dict]) -> None:
 
 
 def _merge(
-    name: str, path: pathlib.Path, *, autosave: pathlib.Path, surface: pathlib.Path, journal: pathlib.Path
+    name: str, path: pathlib.Path, *, autosave: pathlib.Path, corpus: pathlib.Path, journal: pathlib.Path
 ) -> int:
     return _run(
         name,
@@ -74,8 +74,8 @@ def _merge(
                 str(path),
                 "--autosave",
                 str(autosave),
-                "--surface",
-                str(surface),
+                "--corpus",
+                str(corpus),
                 "--journal",
                 str(journal),
             ]
@@ -87,7 +87,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Run the artifact cycle's verdict update in one process over streamed human index records and a reusable echo projection."
     )
-    parser.add_argument("--surface", type=pathlib.Path, default=SURFACE)
+    parser.add_argument("--corpus", "--surface", type=pathlib.Path, default=CORPUS)
     parser.add_argument(
         "--verdicts",
         type=pathlib.Path,
@@ -100,7 +100,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--merge-master",
         type=pathlib.Path,
-        help="merge this verdicts master directly instead of carrying: the form for a pass whose surface did not move, where the carry is provably the identity and the master is the one input the autosave's hash cannot see",
+        help="merge this verdicts master directly instead of carrying: the form for a pass whose corpus did not move, where the carry is provably the identity and the master is the one input the autosave's hash cannot see",
     )
     parser.add_argument("--autosave", type=pathlib.Path, default=AUTOSAVE)
     parser.add_argument("--journal", type=pathlib.Path, default=merge_verdicts.JOURNAL)
@@ -110,7 +110,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--standing-memo",
         type=pathlib.Path,
-        help=f"where the standing fill keeps its per-unit decisions across passes; defaults to {standing_verdicts.MEMO_NAME} beside the surface directory, outside it, so a surface rebuild never clears it",
+        help=f"where the standing fill keeps its per-unit decisions across passes; defaults to {standing_verdicts.MEMO_NAME} beside the corpus directory, outside it, so a corpus rebuild never clears it",
     )
     parser.add_argument(
         "--fresh-standing-memo",
@@ -137,17 +137,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--complaints-out", type=pathlib.Path, default=complaint_docket.DATA_OUT)
     args = parser.parse_args(argv)
 
-    surface = args.surface
+    corpus = args.corpus
     started = time.perf_counter()
     unit_ids: set[str] = set()
     units = [
-        echo_verdicts.echo_record(unit) for unit in unit_index.iter_human_units(surface, unit_ids=unit_ids)
+        echo_verdicts.echo_record(unit) for unit in unit_index.iter_human_units(corpus, unit_ids=unit_ids)
     ]
     print(
         f"[t] index {time.perf_counter() - started:.1f}s\t({len(units)} human of {len(unit_ids)} units)",
         flush=True,
     )
-    stamp = json.loads((surface / "manifest.json").read_text())["generated_at"]
+    stamp = json.loads((corpus / "manifest.json").read_text())["generated_at"]
 
     if args.verdicts:
         if args.carry_out is None:
@@ -155,7 +155,7 @@ def main(argv: list[str] | None = None) -> int:
         carry_argv: list[str] = []
         for verdicts in args.verdicts:
             carry_argv += ["--verdicts", str(verdicts)]
-        carry_argv += ["--out", str(args.carry_out), "--current-surface", str(surface)]
+        carry_argv += ["--out", str(args.carry_out), "--current-corpus", str(corpus)]
         code = _run(
             "carry", lambda: carry_verdicts.main(carry_argv, current_units=units, current_ids=unit_ids)
         )
@@ -166,11 +166,11 @@ def main(argv: list[str] | None = None) -> int:
 
     to_merge = args.carry_out if args.verdicts else args.merge_master
     if to_merge is not None:
-        code = _merge("merge", to_merge, autosave=args.autosave, surface=surface, journal=args.journal)
+        code = _merge("merge", to_merge, autosave=args.autosave, corpus=corpus, journal=args.journal)
         if code:
             return code
 
-    echo_argv = [str(args.autosave), "--surface", str(surface), "--out", str(args.echo_out)]
+    echo_argv = [str(args.autosave), "--corpus", str(corpus), "--out", str(args.echo_out)]
     fills: list[dict] = []
     settled = False
     for round_ in range(MAX_ECHO_ROUNDS):
@@ -191,7 +191,7 @@ def main(argv: list[str] | None = None) -> int:
             "echo-merge" + suffix,
             args.echo_out,
             autosave=args.autosave,
-            surface=surface,
+            corpus=corpus,
             journal=args.journal,
         )
         if code:
@@ -199,8 +199,8 @@ def main(argv: list[str] | None = None) -> int:
         if round_ == 0:
             standing_argv = [
                 str(args.autosave),
-                "--surface",
-                str(surface),
+                "--corpus",
+                str(corpus),
                 "--rules",
                 str(args.rules),
                 "--out",
@@ -208,7 +208,7 @@ def main(argv: list[str] | None = None) -> int:
                 "--open-only",
                 "--require-reach",
                 "--memo",
-                str(args.standing_memo or surface.parent / standing_verdicts.MEMO_NAME),
+                str(args.standing_memo or corpus.parent / standing_verdicts.MEMO_NAME),
                 "--jobs",
                 str(args.standing_fill_jobs),
             ]
@@ -217,7 +217,7 @@ def main(argv: list[str] | None = None) -> int:
             code = _run(
                 "standing-fill",
                 lambda: standing_verdicts.main(
-                    standing_argv, unit_source=lambda: unit_index.iter_human_units(surface)
+                    standing_argv, unit_source=lambda: unit_index.iter_human_units(corpus)
                 ),
             )
             if code:
@@ -226,7 +226,7 @@ def main(argv: list[str] | None = None) -> int:
                 "standing-merge",
                 args.standing_out,
                 autosave=args.autosave,
-                surface=surface,
+                corpus=corpus,
                 journal=args.journal,
             )
             if code:
@@ -248,12 +248,12 @@ def main(argv: list[str] | None = None) -> int:
         lambda: complaint_docket.main(
             [
                 str(args.autosave),
-                "--surface",
-                str(surface),
+                "--corpus",
+                str(corpus),
                 "--data-out",
                 str(args.complaints_out),
             ],
-            units=unit_index.iter_human_units(surface),
+            units=unit_index.iter_human_units(corpus),
             unit_ids=unit_ids,
         ),
     )

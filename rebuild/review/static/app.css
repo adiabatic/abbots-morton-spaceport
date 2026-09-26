@@ -129,7 +129,7 @@ summary:focus-visible {
       margin-inline: 2ch;
     }
 
-    #surface-total {
+    #corpus-total {
       font: inherit;
       color: inherit;
       background: none;
@@ -164,7 +164,7 @@ summary:focus-visible {
   }
 }
 
-#surface-detail {
+#corpus-detail {
   position: fixed;
   inset: auto;
   top: 2.9rem;
@@ -235,13 +235,13 @@ summary:focus-visible {
   }
 }
 
-@supports (anchor-name: --surface-chip) {
-  .progress-strip .position #surface-total {
-    anchor-name: --surface-chip;
+@supports (anchor-name: --corpus-chip) {
+  .progress-strip .position #corpus-total {
+    anchor-name: --corpus-chip;
   }
 
-  #surface-detail {
-    position-anchor: --surface-chip;
+  #corpus-detail {
+    position-anchor: --corpus-chip;
     position-area: bottom span-right;
     inset: auto;
     margin-block-start: 0.35rem;

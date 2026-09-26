@@ -1,4 +1,4 @@
-"""Packed per-unit state that the surface build's parent holds from the plan boundary to the cache write. Every phase-1 product that the corpus-wide reduce steps and the store writer read is kept in fixed-width `array` columns indexed by the unit's ordinal, instead of as objects per unit.
+"""Packed per-unit state that the corpus build's parent holds from the plan boundary to the cache write. Every phase-1 product that the corpus-wide reduce steps and the store writer read is kept in fixed-width `array` columns indexed by the unit's ordinal, instead of as objects per unit.
 
 Columns avoid per-object overhead: a tuple header per span, a pointer per name, a dict per unit for the deltas, a string object per digest. The same state held as one slotted record per unit measured 1,192 bytes a unit against 171 packed (the `units states` tally line in `var/issue-299/stage1-cold.log`). A `UnitStore` is allocated once with the row count. Each fixed-width field is one `array` typed by width: flag bits in a byte, string ids as `u32`, the content and input keys as 32-byte slices of one `bytearray` each, and an address as a part id, a `u64` start and a `u32` length. Each variable-length field (the window's codepoints, the ink deltas, the after and before rows of the seam-home projection, the secondary seams with their rects and homes) is an offset and a count into a side array, so an empty field costs only its offsets and count. The mismatch lines are kept as objects in a dict keyed by ordinal. A shipping build has none, because the write fails when any exist, so a column for them would hold only empty offsets.
 
@@ -41,7 +41,7 @@ _ALPHABET_INDEX = {symbol: index for index, symbol in enumerate(unit_cache.BASE5
 
 
 class Flags(NamedTuple):
-    """One unit's flag byte, unpacked. The flag byte is the only place the three machine channels are stored; a materialized `audit.Unit` copies them from here. `slim` says the build writes the fragment in the slim shape: set when a machine channel approves the unit or the ledger exempts it (`audit.slim_fragment`), and for a served unit copied from the store record's `slim`. `served`, `exemplar`, `no_verdict` and `verbatim` are set only for a served unit: whether it was served from the previous surface, the exemplar and exemption flags its store record says the fragment was written with, and whether its address is the shard writer's own (`unit_cache.PriorFragment.verbatim`). They read False on a fresh unit."""
+    """One unit's flag byte, unpacked. The flag byte is the only place the three machine channels are stored; a materialized `audit.Unit` copies them from here. `slim` says the build writes the fragment in the slim shape: set when a machine channel approves the unit or the ledger exempts it (`audit.slim_fragment`), and for a served unit copied from the store record's `slim`. `served`, `exemplar`, `no_verdict` and `verbatim` are set only for a served unit: whether it was served from the previous corpus, the exemplar and exemption flags its store record says the fragment was written with, and whether its address is the shard writer's own (`unit_cache.PriorFragment.verbatim`). They read False on a fresh unit."""
 
     ink_identical: bool
     picture_identical: bool
@@ -589,7 +589,7 @@ class UnitStore:
         return list(self._mismatches.get(ordinal, ()))
 
     def source(self, ordinal: int) -> unit_cache.PriorFragment | None:
-        """Return where the unit's fragment is read from (the fresh spool's address for a fresh unit, the prior surface's for a served one) as a `PriorFragment` stamped with the row's id and content key. None for a row folded without an address."""
+        """Return where the unit's fragment is read from (the fresh spool's address for a fresh unit, the prior corpus's for a served one) as a `PriorFragment` stamped with the row's id and content key. None for a row folded without an address."""
         part = self._src_part[ordinal]
         if part == 0:
             return None

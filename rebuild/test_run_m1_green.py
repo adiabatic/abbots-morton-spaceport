@@ -268,7 +268,7 @@ def test_a_font_provenance_refusal_stops_the_run_before_the_alias_check(monkeypa
 
 
 def test_unmatched_oracle_rows_record_a_green_and_exit_zero(monkeypatch, tmp_path):
-    """Unmatched oracle rows are normal during the migration. They are judged on the review surface and never fail the build, so a run that has them records its green and exits zero."""
+    """Unmatched oracle rows are normal during the migration. They are judged on the review corpus and never fail the build, so a run that has them records its green and exits zero."""
     store = tmp_path / "run-m1-green.json"
     monkeypatch.setattr(cycle_paths, "RUN_M1_GREEN", store)
     monkeypatch.setattr(ac, "run_m1_skip_fingerprint", lambda root=None: "fp-live")
@@ -424,10 +424,10 @@ def test_the_conform_horizon_default_matches_the_cycle_driver(monkeypatch, tmp_p
 
 
 def test_a_hand_conform_only_run_defaults_to_the_belts_budget(monkeypatch, tmp_path):
-    """A hand `--conform-only` shares the machine with no surface build and no make-test pool, so its default is `conform_job_budget(skip_gates=True, skip_surface=True)`, not the oracle's `sweep_job_budget()`, which a bare run uses. A stated `--jobs`, including 1, overrides the default. The stub sets the oracle's budget one above the belt's, so a default taken from the wrong budget fails even on a machine where the two are equal."""
+    """A hand `--conform-only` shares the machine with no corpus build and no make-test pool, so its default is `conform_job_budget(skip_gates=True, skip_corpus=True)`, not the oracle's `sweep_job_budget()`, which a bare run uses. A stated `--jobs`, including 1, overrides the default. The stub sets the oracle's budget one above the belt's, so a default taken from the wrong budget fails even on a machine where the two are equal."""
     store = tmp_path / "conform-green.json"
     handed = []
-    belt = ac.conform_job_budget(skip_gates=True, skip_surface=True)
+    belt = ac.conform_job_budget(skip_gates=True, skip_corpus=True)
     monkeypatch.setattr(cycle_paths, "CONFORM_GREEN", store)
     monkeypatch.setattr(ac, "conform_skip_fingerprint", lambda root=None, horizon=4: "fp-conform")
     monkeypatch.setattr(ac, "conform_skip_files", lambda root=None, horizon=4: {})
@@ -466,7 +466,7 @@ class _InlinePool:
 
 
 class TestOracleFanIn:
-    """Each worker writes its own audit segment, so the order of `divergence-audit.tsv` comes from the parent's concatenation, not from the order the futures resolve. A run that fails partway must leave the previous audit in place: a short audit hashes differently, so the surface build would read it as a new, smaller audit instead of a stale one."""
+    """Each worker writes its own audit segment, so the order of `divergence-audit.tsv` comes from the parent's concatenation, not from the order the futures resolve. A run that fails partway must leave the previous audit in place: a short audit hashes differently, so the corpus build would read it as a new, smaller audit instead of a stale one."""
 
     def _pool(self, monkeypatch, worker, rows=None):
         """Stubs out every process in the fan-out: an inline pool, futures resolved in reverse, the worker, the crate's guard sweep, and the subset stamp's row counts, which are `rows` or, by default, none, giving one range per configuration."""

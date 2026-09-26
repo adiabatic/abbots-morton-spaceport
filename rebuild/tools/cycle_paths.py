@@ -4,7 +4,7 @@ The paths are the green records each keyed stage skips on, the cycle summary, th
 
 The module imports nothing from the repo because `closure_of` in `rebuild.tools.contracts_closure` adds both conftests' static import closures to every test's closure. A conftest that imported the cycle driver to patch these paths would put rebuild/pipeline/ and rebuild/review/ into every closure, and no pipeline edit could let a test be skipped. `rebuild/test_contracts_closure.py` checks the conftests' imports.
 
-`RETENTION_ENABLED` and `READINESS_ENABLED` switch off the two green-finish stages whose targets come from the live tree, not from a path here. The retention pass prunes the root's carried exports, autosave stashes, and verdict journal, and the readiness checklist reads the served surface and the root autosave. The rebuild suite sets both to False so a test that reaches a green finish leaves the live repo alone. `_finish` in `artifact_cycle` reads both at call time, so a test that checks either stage sets its switch back to True and patches the callable.
+`RETENTION_ENABLED` and `READINESS_ENABLED` switch off the two green-finish stages whose targets come from the live tree, not from a path here. The retention pass prunes the root's carried exports, autosave stashes, and verdict journal, and the readiness checklist reads the served corpus and the root autosave. The rebuild suite sets both to False so a test that reaches a green finish leaves the live repo alone. `_finish` in `artifact_cycle` reads both at call time, so a test that checks either stage sets its switch back to True and patches the callable.
 """
 
 from __future__ import annotations

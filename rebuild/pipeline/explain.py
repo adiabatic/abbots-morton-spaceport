@@ -4,7 +4,7 @@ Usage: uv run python -m rebuild.pipeline.explain E665:E670:E665 --features ss03
 
 Sequence positions are separated by colons. Each is a hex codepoint (E665, 0xE665, U+E665), a qs-name (qsMay), or a boundary token name (`space`, `zwnj`, `namer-dot`), in any mix. The CLI loads the rune files through spec_load, and if loading raises it prints a notice and uses the hand-built fixtures spec.
 
-`kernel_exec.settle_sequences` does the settling. This module tokenizes, forms the ligatures against the crate's formation guard, and renders the returned traces. `explain_many` takes a batch because the review surface explains thousands of units, and `settle_sequences` batches them into few kernel processes.
+`kernel_exec.settle_sequences` does the settling. This module tokenizes, forms the ligatures against the crate's formation guard, and renders the returned traces. `explain_many` takes a batch because the review corpus explains thousands of units, and `settle_sequences` batches them into few kernel processes.
 """
 
 from __future__ import annotations
@@ -114,7 +114,7 @@ def explain_many(
     requests: Sequence[tuple[Sequence[int], frozenset[str]]],
     guard_verdicts: FormationGuard | None = None,
 ) -> list[ExplainReport]:
-    """Settle a batch of sequences through the Rust kernel and return one report per request, in request order. Ligatures are formed here against `guard_verdicts`, which is fetched once with `kernel_exec.guard_sweep` when the caller passes none. `kernel_exec.settle_sequences` then settles the batch one position at a time, with one `settle-cases` call per feature configuration per position (split every `SETTLE_CASE_BATCH_SIZE` windows), so a surface build does not start one process per review unit. A request whose features turn on the isolated overlay (ss10) is not sent to the kernel, because nothing settles under it: its report is `settle.isolated_overlay_traces` over the raw, unformed tokens."""
+    """Settle a batch of sequences through the Rust kernel and return one report per request, in request order. Ligatures are formed here against `guard_verdicts`, which is fetched once with `kernel_exec.guard_sweep` when the caller passes none. `kernel_exec.settle_sequences` then settles the batch one position at a time, with one `settle-cases` call per feature configuration per position (split every `SETTLE_CASE_BATCH_SIZE` windows), so a corpus build does not start one process per review unit. A request whose features turn on the isolated overlay (ss10) is not sent to the kernel, because nothing settles under it: its report is `settle.isolated_overlay_traces` over the raw, unformed tokens."""
     if not requests:
         return []
     reports: list[ExplainReport | None] = [None] * len(requests)

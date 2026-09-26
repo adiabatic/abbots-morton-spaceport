@@ -4,7 +4,7 @@
 
 `peak_rss_self_bytes` is this process's own peak. `peak_rss_children_bytes` is the largest peak among the children this process has reaped. `process_peak_rss_bytes` is the larger of the two, which is the figure a `[t]` line for a stage that fans out should carry. A peak only rises, so the difference between two peak readings says nothing about what happened between them; `reap_peak_rss_bytes` gives a per-child figure. `current_rss_bytes` is the resident set at the moment of the call. A `[t]` line with both tokens (`rss_token`, `rss_now_token`) shows where in the step the peak was reached and what the phase that just ended leaves resident.
 
-The module imports only the standard library, so the pipeline, the surface build and `tools/build_font.py` (through `memory_budget`) can import it without adding any other module to their import closures.
+The module imports only the standard library, so the pipeline, the corpus build and `tools/build_font.py` (through `memory_budget`) can import it without adding any other module to their import closures.
 """
 
 from __future__ import annotations

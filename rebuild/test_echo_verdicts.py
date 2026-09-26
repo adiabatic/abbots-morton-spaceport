@@ -26,10 +26,10 @@ def v(unit_id, verdict, note="", at="2026-07-10T01:00:00Z"):
     return {"unit": unit_id, "verdict": verdict, "note": note, "at": at}
 
 
-def surface_with(tmp_path, units, classes=()):
-    surface = tmp_path / "surface"
-    (surface / "units").mkdir(parents=True)
-    (surface / "manifest.json").write_text(
+def corpus_with(tmp_path, units, classes=()):
+    corpus = tmp_path / "corpus"
+    (corpus / "units").mkdir(parents=True)
+    (corpus / "manifest.json").write_text(
         json.dumps(
             {
                 "generated_at": STAMP,
@@ -37,8 +37,8 @@ def surface_with(tmp_path, units, classes=()):
             }
         )
     )
-    (surface / "units" / "shard.json").write_text(json.dumps(units))
-    return surface
+    (corpus / "units" / "shard.json").write_text(json.dumps(units))
+    return corpus
 
 
 def verdicts_file(tmp_path, records, name="verdicts.json"):
@@ -65,7 +65,7 @@ def test_verdicts_agree_admits_only_unanimity_and_the_approve_identical_mix(kind
 
 
 def test_an_approve_identical_group_fills_its_blanks_from_the_newest_member(tmp_path, monkeypatch, capsys):
-    surface = surface_with(
+    corpus = corpus_with(
         tmp_path, [unit("u-0001", "e-0001"), unit("u-0002", "e-0001"), unit("u-0003", "e-0001")]
     )
     verdicts = verdicts_file(
@@ -78,7 +78,7 @@ def test_an_approve_identical_group_fills_its_blanks_from_the_newest_member(tmp_
     out = tmp_path / "fill.json"
     monkeypatch.setattr(
         "sys.argv",
-        ["echo_verdicts.py", str(verdicts), "--surface", str(surface), "--out", str(out)],
+        ["echo_verdicts.py", str(verdicts), "--corpus", str(corpus), "--out", str(out)],
     )
     ev.main()
 
@@ -90,7 +90,7 @@ def test_an_approve_identical_group_fills_its_blanks_from_the_newest_member(tmp_
 
 
 def test_a_real_split_still_reports_and_fills_nothing(tmp_path, monkeypatch, capsys):
-    surface = surface_with(
+    corpus = corpus_with(
         tmp_path, [unit("u-0001", "e-0001"), unit("u-0002", "e-0001"), unit("u-0003", "e-0001")]
     )
     verdicts = verdicts_file(
@@ -99,7 +99,7 @@ def test_a_real_split_still_reports_and_fills_nothing(tmp_path, monkeypatch, cap
     out = tmp_path / "fill.json"
     monkeypatch.setattr(
         "sys.argv",
-        ["echo_verdicts.py", str(verdicts), "--surface", str(surface), "--out", str(out)],
+        ["echo_verdicts.py", str(verdicts), "--corpus", str(corpus), "--out", str(out)],
     )
     ev.main()
 
@@ -111,16 +111,16 @@ def test_a_real_split_still_reports_and_fills_nothing(tmp_path, monkeypatch, cap
 
 def test_echo_projection_matches_streamed_fill_and_reports(tmp_path, monkeypatch, capsys):
     units = [unit("u-0001", "e-0001"), unit("u-0002", "e-0001")]
-    surface = surface_with(tmp_path, units)
+    corpus = corpus_with(tmp_path, units)
     verdicts = verdicts_file(tmp_path, [v("u-0001", "approve")])
     out = tmp_path / "fill.json"
-    argv = [str(verdicts), "--surface", str(surface), "--out", str(out)]
+    argv = [str(verdicts), "--corpus", str(corpus), "--out", str(out)]
     ev.main(argv)
     expected_bytes, expected_report = out.read_bytes(), capsys.readouterr().out
     projection = [ev.echo_record(record) for record in units]
     assert all(set(record) == {"id", "echo", "notation"} for record in projection)
 
-    def refuse_read(_surface):
+    def refuse_read(_corpus):
         raise AssertionError("a supplied echo projection must not reread the index")
 
     monkeypatch.setattr(ev.unit_index, "iter_human_units", refuse_read)
@@ -133,7 +133,7 @@ def test_echo_projection_matches_streamed_fill_and_reports(tmp_path, monkeypatch
 def test_the_baked_docket_lists_the_split_group_and_not_the_approve_identical_one(
     tmp_path, monkeypatch, capsys
 ):
-    surface = surface_with(
+    corpus = corpus_with(
         tmp_path,
         [
             unit("u-0001", "e-0001"),
@@ -154,7 +154,7 @@ def test_the_baked_docket_lists_the_split_group_and_not_the_approve_identical_on
     data_out = tmp_path / "docket-data.json"
     monkeypatch.setattr(
         "sys.argv",
-        ["review_docket.py", str(verdicts), "--surface", str(surface), "--data-out", str(data_out)],
+        ["review_docket.py", str(verdicts), "--corpus", str(corpus), "--data-out", str(data_out)],
     )
     rd.main()
 

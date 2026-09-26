@@ -1,4 +1,4 @@
-"""Print whether the review surface is ready to adjudicate now.
+"""Print whether the review corpus is ready to adjudicate now.
 
 It runs `rebuild.review.status.compute_status` over the production paths, adds a check that the review server is listening on port 7294, and prints a checklist, or the status dict as JSON under `--json`. It exits 0 only when every blocking check passes and the server is up, so it can serve as a Makefile guard. The artifact cycle calls `readiness` and `checklist` to print the same checklist at the end of every green pass that is not a rehearsal, so this CLI is for asking the question between passes.
 """
@@ -19,7 +19,7 @@ CYCLE_SUMMARY_PATH = ROOT / "rebuild" / "out" / "cycle_summary.json"
 AUTOSAVE_PATH = ROOT / "verdicts-autosave.json"
 DOCKET_URL = "http://localhost:7294/#view=docket"
 
-CHECK_ORDER = ("surface", "freshness", "gates", "verdict_store", "frontier", "blanks", "server")
+CHECK_ORDER = ("corpus", "freshness", "gates", "verdict_store", "frontier", "blanks", "server")
 
 
 def readiness(
@@ -53,10 +53,10 @@ def readiness(
 
 
 def checklist(result: dict, overall_ready: bool) -> list[str]:
-    surface = result["surface"]
+    corpus = result["corpus"]
     lines = [
-        f"Review surface: {surface['dir']}",
-        f"  generated_at: {surface['generated_at']}   repo_head: {surface['repo_head']}",
+        f"Review corpus: {corpus['dir']}",
+        f"  generated_at: {corpus['generated_at']}   repo_head: {corpus['repo_head']}",
         "",
     ]
     checks = result["checks"]

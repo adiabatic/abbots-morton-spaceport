@@ -1,4 +1,4 @@
-"""Tests that the surface cache keeps serving across a recompiled after font.
+"""Tests that the corpus cache keeps serving across a recompiled after font.
 
 A rune edit recompiles the after font: its GSUB lookup list changes whether or not any window's shaping does, and the edited letter's compiled glyphs change with it. The audit edits in rebuild/test_unit_cache.py do not cover this case.
 
@@ -75,14 +75,14 @@ def _tree(path: Path) -> dict[str, bytes]:
     }
 
 
-def _content_keys(surface: Path) -> dict[str, str]:
+def _content_keys(corpus: Path) -> dict[str, str]:
     import json
 
-    manifest = json.loads((surface / "manifest.json").read_text(encoding="utf-8"))
+    manifest = json.loads((corpus / "manifest.json").read_text(encoding="utf-8"))
     keys: dict[str, str] = {}
     for meta in manifest["classes"]:
         for part in unit_index.class_shards(meta):
-            for unit in json.loads((surface / part).read_text(encoding="utf-8")):
+            for unit in json.loads((corpus / part).read_text(encoding="utf-8")):
                 keys[unit["codepoints"]] = unit["content_key"]
     return keys
 
@@ -127,11 +127,11 @@ def test_a_widened_family_moves_that_family_key_and_leaves_the_environment(tmp_p
 
 
 def test_a_recompiled_font_serves_the_untouched_units_and_lands_on_a_from_scratch_build(
-    mini_surface, mini_bundle, tmp_path, capfd
+    mini_corpus, mini_bundle, tmp_path, capfd
 ):
-    """End to end at mini scale: rebuild the mini surface over a font recompiled the way a rune edit recompiles one. The store must serve the windows the widened family cannot reach (some units, not all and not none), and the tree it writes must be byte-identical to a from-scratch build of the same inputs. The content keys are compared first and separately, because they carry a recorded verdict across the cycle: a served fragment with a wrong key would orphan every verdict recorded against it, and `patch_fragment` rewrites a served fragment's scaffold fields without recomputing that key. The base copied here is conftest's `mini_surface`, built over the unmodified `MINI/M1.otf`; only the fonts passed to `_mini_build` are recompiled."""
-    incremental = tmp_path / "surface"
-    shutil.copytree(mini_surface, incremental)
+    """End to end at mini scale: rebuild the mini corpus over a font recompiled the way a rune edit recompiles one. The store must serve the windows the widened family cannot reach (some units, not all and not none), and the tree it writes must be byte-identical to a from-scratch build of the same inputs. The content keys are compared first and separately, because they carry a recorded verdict across the cycle: a served fragment with a wrong key would orphan every verdict recorded against it, and `patch_fragment` rewrites a served fragment's scaffold fields without recomputing that key. The base copied here is conftest's `mini_corpus`, built over the unmodified `MINI/M1.otf`; only the fonts passed to `_mini_build` are recompiled."""
+    incremental = tmp_path / "corpus"
+    shutil.copytree(mini_corpus, incremental)
     recompiled = _recompiled(MINI_FONT, tmp_path / "recompiled.otf")
 
     capfd.readouterr()

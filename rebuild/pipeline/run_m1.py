@@ -1786,13 +1786,13 @@ def main(argv: list[str] | None = None) -> None:
     from rebuild.tools.artifact_cycle import conform_job_budget, conform_job_derivation, sweep_job_budget
 
     sweep_jobs = sweep_job_budget()
-    belt_jobs = conform_job_budget(skip_gates=True, skip_surface=True)
+    belt_jobs = conform_job_budget(skip_gates=True, skip_corpus=True)
     parser = argparse.ArgumentParser(description="Run the M1 integration pipeline and its Phase-2 gates.")
     parser.add_argument(
         "--jobs",
         type=int,
         default=None,
-        help=f"worker budget for the oracle and the conformance sweep: the oracle cuts every configuration's table into row ranges and runs this many at once, while the conformance sweep runs one process per acceptance configuration and no more, since that is its unit. Each default is a budget the artifact cycle derives from the box rather than a checked-in width: a bare run takes the oracle's `sweep_job_budget()`, the width the cycle hands run_m1 — {sweep_jobs} on this box, the cores under the memory clamp that budget's own docstring argues from `ORACLE_SHARD_BYTES` — and --conform-only takes the belt's own `conform_job_budget()` at its idle arm, since a hand sweep shares the box with no surface build and no make-test pool — on this box {conform_job_derivation(skip_gates=True, skip_surface=True)}. `--jobs 1` is serial. The table build's own width is --kernel-threads.",
+        help=f"worker budget for the oracle and the conformance sweep: the oracle cuts every configuration's table into row ranges and runs this many at once, while the conformance sweep runs one process per acceptance configuration and no more, since that is its unit. Each default is a budget the artifact cycle derives from the box rather than a checked-in width: a bare run takes the oracle's `sweep_job_budget()`, the width the cycle hands run_m1 — {sweep_jobs} on this box, the cores under the memory clamp that budget's own docstring argues from `ORACLE_SHARD_BYTES` — and --conform-only takes the belt's own `conform_job_budget()` at its idle arm, since a hand sweep shares the box with no corpus build and no make-test pool — on this box {conform_job_derivation(skip_gates=True, skip_corpus=True)}. `--jobs 1` is serial. The table build's own width is --kernel-threads.",
     )
     parser.add_argument(
         "--conform-only",

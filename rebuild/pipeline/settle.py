@@ -204,7 +204,7 @@ def guard_blocks(verdicts: FormationGuard, liga: str, right1: RightToken, right2
     return verdicts[(liga, right1, right2)]
 
 
-# The modeled ligature runes' sequences in the order formation tries them (longest first), grouped by first component and cached per spec identity. Formation reads the order at every position of every text, and a sweep or a surface build forms many texts under one spec, so the sort runs once per spec and a position reads only the sequences its own rune can start. Each entry holds the spec itself so its id cannot be reused while cached. The cache clears when it reaches `_LIGATURE_ORDERS_CAP` specs.
+# The modeled ligature runes' sequences in the order formation tries them (longest first), grouped by first component and cached per spec identity. Formation reads the order at every position of every text, and a sweep or a corpus build forms many texts under one spec, so the sort runs once per spec and a position reads only the sequences its own rune can start. Each entry holds the spec itself so its id cannot be reused while cached. The cache clears when it reaches `_LIGATURE_ORDERS_CAP` specs.
 _LIGATURE_ORDERS: dict[int, tuple[ResolvedSpec, dict[str, list[tuple[Sequence[str], str]]]]] = {}
 _LIGATURE_ORDERS_CAP = 4
 

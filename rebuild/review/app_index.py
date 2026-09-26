@@ -28,7 +28,7 @@ LOCATOR_NAME = "app-locator.ndjson.gz"
 LOCATOR_FORMAT = "ams-review-app-locator/2"
 LOCATOR_ROWS_NAME = "app-locator-rows.ndjson.gz"
 ARTIFACTS = ((APP_INDEX_NAME, APP_INDEX_FORMAT), (LOCATOR_NAME, LOCATOR_FORMAT))
-# Rows per gzip member of the locator's rows file. The app fetches one member with one Range request and decompresses it on its own, for a fold's next window or a deep link's candidate in one class. A row is about 120 bytes uncompressed, and a full member is about 18 KB gzipped (measured on the live surface's locator). The table has one line per member.
+# Rows per gzip member of the locator's rows file. The app fetches one member with one Range request and decompresses it on its own, for a fold's next window or a deep link's candidate in one class. A row is about 120 bytes uncompressed, and a full member is about 18 KB gzipped (measured on the live corpus's locator). The table has one line per member.
 LOCATOR_BLOCK_ROWS = 1024
 # Level 6, where `unit_index` uses level 1: the app fetches these files on every page load (`Cache-Control: no-store`), while the verdict update reads its index from local disk.
 COMPRESS_LEVEL = 6
@@ -38,12 +38,12 @@ _SLIMMED_FLAGS = (*MACHINE_CHANNELS, "no_verdict")
 Span = tuple[int, int, int]
 
 
-def artifact_path(surface: Path, name: str) -> Path:
-    return Path(surface) / name
+def artifact_path(corpus: Path, name: str) -> Path:
+    return Path(corpus) / name
 
 
 def app_row(fragment: dict, part: int, start: int, length: int, *, order: int, batch: int) -> dict:
-    """Project one human unit's shard fragment onto the fields the app reads without fetching the record, plus the unit's place in the manifest's triage index and the fragment's address. Every key is always present, in a fixed order, so two builds of the same surface write the same bytes and every row shares one hidden class in the browser.
+    """Project one human unit's shard fragment onto the fields the app reads without fetching the record, plus the unit's place in the manifest's triage index and the fragment's address. Every key is always present, in a fixed order, so two builds of the same corpus write the same bytes and every row shares one hidden class in the browser.
 
     What a card draws from the record (`text_entities`, `highlight` and `after.cells`) is not here; the app Range-fetches the record for each card it renders. The three machine-channel flags and `no_verdict` are asserted false and left out: `audit.assign_batches` gives no triage-index place to a unit with any of them, and `build.check_shards` checks that the manifest's index holds only human units. A reader finds the flags absent, which it treats like the shard's `false`.
     """
@@ -100,13 +100,13 @@ def locator_block(class_id: str | None, start: int, length: int, first: str, las
     }
 
 
-def header(surface: Path, fmt: str) -> dict:
+def header(corpus: Path, fmt: str) -> dict:
     """The header line of the app index or the locator table. `manifest_sha256` is the stamp `unit_index` writes, which ties the file to the manifest beside it. `generated_at` is copied from the manifest so a browser can check the pairing without hashing anything."""
-    surface = Path(surface)
-    manifest = json.loads((surface / "manifest.json").read_text(encoding="utf-8"))
+    corpus = Path(corpus)
+    manifest = json.loads((corpus / "manifest.json").read_text(encoding="utf-8"))
     return {
         "format": fmt,
-        "manifest_sha256": unit_index.manifest_sha256(surface),
+        "manifest_sha256": unit_index.manifest_sha256(corpus),
         "generated_at": manifest.get("generated_at"),
     }
 
@@ -122,14 +122,14 @@ def locator_line(fragment: dict, part: int, start: int, length: int) -> bytes:
 def respool_app_line(
     line: bytes, *, unit_id: str, order: int, batch: int, part: int, start: int, length: int
 ) -> bytes:
-    """Rewrite a previous surface's app-index row for a unit served verbatim so it fits this surface. The id and queue place at the head and the address at the tail come from this build. The fields between them are the fragment's own and have not changed, so the result is byte for byte what `app_line` writes for the same fragment."""
+    """Rewrite a previous corpus's app-index row for a unit served verbatim so it fits this corpus. The id and queue place at the head and the address at the tail come from this build. The fields between them are the fragment's own and have not changed, so the result is byte for byte what `app_line` writes for the same fragment."""
     middle = line[line.index(b', "class": ') : line.rindex(b', "shard_part": ')]
     tail = json.dumps({"shard_part": part, "byte_start": start, "byte_length": length}).encode()[1:]
     return unit_index.line_head(unit_id, order, batch) + middle + b", " + tail + b"\n"
 
 
 def write_app_artifacts_lines(
-    surface: Path,
+    corpus: Path,
     index_lines: Iterable[bytes],
     locator_lines: Iterable[bytes],
     *,
@@ -138,16 +138,16 @@ def write_app_artifacts_lines(
 ) -> tuple[Path, Path]:
     """Write the three sidecars from already-projected lines, in the order they arrive: the app index's rows, then the locator's. The headers carry the manifest's stamp, so this runs after the manifest is written. `human` and `machine` are the row counts the two headers carry. Locator lines are cut into blocks as they arrive: a block closes at `LOCATOR_BLOCK_ROWS` rows or where the class changes, and is written to the rows file as its own gzip member. The table is written last, because its header states the rows file's total length. Gzip mtimes are pinned, so the same inputs write the same bytes.
 
-    Each file is written under a sibling `.partial` name and renamed only after all three have closed, as `build._write_shard` stages its parts. `app_row` asserts on a fragment with a machine flag, so the projection can fail partway through while the app is still serving the previous set. Written in place, that failure would leave a truncated sidecar whose header still matches the manifest, which `artifact_is_current` accepts. Staged, a failed write leaves the previous set in place and no `.partial` file. The three renames run back to back, since `artifact_cycle.surface_build_skippable` treats the three files being current as a statement about the whole surface.
+    Each file is written under a sibling `.partial` name and renamed only after all three have closed, as `build._write_shard` stages its parts. `app_row` asserts on a fragment with a machine flag, so the projection can fail partway through while the app is still serving the previous set. Written in place, that failure would leave a truncated sidecar whose header still matches the manifest, which `artifact_is_current` accepts. Staged, a failed write leaves the previous set in place and no `.partial` file. The three renames run back to back, since `artifact_cycle.corpus_build_skippable` treats the three files being current as a statement about the whole corpus.
     """
-    surface = Path(surface)
-    index_path = artifact_path(surface, APP_INDEX_NAME)
-    locator_path = artifact_path(surface, LOCATOR_NAME)
-    rows_path = artifact_path(surface, LOCATOR_ROWS_NAME)
+    corpus = Path(corpus)
+    index_path = artifact_path(corpus, APP_INDEX_NAME)
+    locator_path = artifact_path(corpus, LOCATOR_NAME)
+    rows_path = artifact_path(corpus, LOCATOR_ROWS_NAME)
     staged = tuple(path.with_name(path.name + ".partial") for path in (index_path, locator_path, rows_path))
     try:
         with gzip.GzipFile(staged[0], mode="wb", mtime=0, compresslevel=COMPRESS_LEVEL) as index:
-            index.write(_line({**header(surface, APP_INDEX_FORMAT), "units": human}))
+            index.write(_line({**header(corpus, APP_INDEX_FORMAT), "units": human}))
             for line in index_lines:
                 index.write(line)
         with open(staged[2], "wb") as rows:
@@ -157,7 +157,7 @@ def write_app_artifacts_lines(
             locator.write(
                 _line(
                     {
-                        **header(surface, LOCATOR_FORMAT),
+                        **header(corpus, LOCATOR_FORMAT),
                         "units": machine,
                         "blocks": len(blocks),
                         "block_rows": LOCATOR_BLOCK_ROWS,
@@ -212,13 +212,13 @@ def _write_locator_blocks(rows, lines: Iterable[bytes]) -> list[dict]:
 
 
 def write_app_artifacts(
-    surface: Path,
+    corpus: Path,
     shards: Mapping[str, list[dict]],
     spans: Mapping[str, Sequence[Span]],
 ) -> tuple[Path, Path]:
     """Write the sidecars from fragments and spans the caller holds in memory. Classes go in `unit_index.class_shard_key` order, as in `unit_index.write_index`. A fragment goes to the app index if the manifest's triage index holds its unit, and to the locator otherwise. The build spools the same projection one fragment at a time, in the same order, so both paths write the same bytes."""
     ordered = sorted(shards.items(), key=lambda item: unit_index.class_shard_key(item[0]))
-    slot = unit_index.slot_reader(surface)
+    slot = unit_index.slot_reader(corpus)
     human_rows: list[tuple[dict, Span, int, int]] = []
     machine_rows: list[tuple[dict, Span]] = []
     for class_id, fragments in ordered:
@@ -230,7 +230,7 @@ def write_app_artifacts(
             else:
                 human_rows.append((fragment, address, order, batch))
     return write_app_artifacts_lines(
-        surface,
+        corpus,
         (
             app_line(fragment, *address, order=order, batch=batch)
             for fragment, address, order, batch in human_rows
@@ -245,9 +245,9 @@ def _line(record: dict) -> bytes:
     return (json.dumps(record, ensure_ascii=False) + "\n").encode()
 
 
-def artifact_header(surface: Path, name: str) -> dict | None:
+def artifact_header(corpus: Path, name: str) -> dict | None:
     """One sidecar's header line, or None if it is missing or unreadable. `artifact_is_current` uses it to check a file's stamp without reading its rows."""
-    path = artifact_path(surface, name)
+    path = artifact_path(corpus, name)
     if not path.is_file():
         return None
     try:
@@ -258,24 +258,24 @@ def artifact_header(surface: Path, name: str) -> dict | None:
     return record if isinstance(record, dict) else None
 
 
-def artifact_is_current(surface: Path, name: str, fmt: str) -> bool:
+def artifact_is_current(corpus: Path, name: str, fmt: str) -> bool:
     """Whether the sidecar matches the manifest beside it: present, in format `fmt`, and stamped with the manifest's sha256. For the locator this also covers the rows file, which has no header. The rows file's size must equal the `rows_bytes` the table's header records; a file of any other size (missing, truncated, or from another build) means the table's spans address the wrong bytes."""
-    record = artifact_header(surface, name)
+    record = artifact_header(corpus, name)
     if record is None or record.get("format") != fmt:
         return False
     try:
-        if record.get("manifest_sha256") != unit_index.manifest_sha256(surface):
+        if record.get("manifest_sha256") != unit_index.manifest_sha256(corpus):
             return False
         if name == LOCATOR_NAME:
-            return artifact_path(surface, LOCATOR_ROWS_NAME).stat().st_size == record.get("rows_bytes")
+            return artifact_path(corpus, LOCATOR_ROWS_NAME).stat().st_size == record.get("rows_bytes")
         return True
     except OSError:
         return False
 
 
-def load_rows(surface: Path, name: str) -> list[dict[str, Any]] | None:
+def load_rows(corpus: Path, name: str) -> list[dict[str, Any]] | None:
     """Every line after the header of one sidecar (the app index's rows, or the locator's block table), or None if it is missing or unreadable. This is for tests and tools that want the whole list; the app reads the index line by line."""
-    path = artifact_path(surface, name)
+    path = artifact_path(corpus, name)
     if not path.is_file():
         return None
     try:
@@ -286,9 +286,9 @@ def load_rows(surface: Path, name: str) -> list[dict[str, Any]] | None:
         return None
 
 
-def load_locator_rows(surface: Path) -> list[dict[str, Any]] | None:
+def load_locator_rows(corpus: Path) -> list[dict[str, Any]] | None:
     """Every row of the locator's rows file in file order, or None if it is missing or unreadable. `gzip` reads the members back to back as one stream; the app instead fetches one member at a time by the table's spans."""
-    path = artifact_path(surface, LOCATOR_ROWS_NAME)
+    path = artifact_path(corpus, LOCATOR_ROWS_NAME)
     if not path.is_file():
         return None
     try:
@@ -298,8 +298,8 @@ def load_locator_rows(surface: Path) -> list[dict[str, Any]] | None:
         return None
 
 
-def locator_block_bytes(surface: Path, block: Mapping[str, Any]) -> bytes:
+def locator_block_bytes(corpus: Path, block: Mapping[str, Any]) -> bytes:
     """The bytes of one block as the app's Range request reads them: that slice of the rows file."""
-    with open(artifact_path(surface, LOCATOR_ROWS_NAME), "rb") as rows:
+    with open(artifact_path(corpus, LOCATOR_ROWS_NAME), "rb") as rows:
         rows.seek(block["byte_start"])
         return rows.read(block["byte_length"])

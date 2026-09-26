@@ -1,4 +1,4 @@
-"""Tests for the census-facts sidecar (`rebuild/review/census.py`): projecting a surface build's post-merge phase-1 products back onto the pre-merge grain the pins are defined over, the two in-memory functions that must match their shard- or font-reading counterparts, reading and writing the sidecar, and the CLI paths that read it.
+"""Tests for the census-facts sidecar (`rebuild/review/census.py`): projecting a corpus build's post-merge phase-1 products back onto the pre-merge grain the pins are defined over, the two in-memory functions that must match their shard- or font-reading counterparts, reading and writing the sidecar, and the CLI paths that read it.
 
 The tests use hand-built audit rows and hand-set ink verdicts and families, with no fonts, no shaping, and no live workload; the only live input is the checked-in divergence ledger. A failure here is a bug in the derivation, not a change in the corpus.
 """
@@ -279,7 +279,7 @@ def _example_table() -> tuple[UnitTable, dict[int, str | None], list[dict]]:
 
 
 def _write_shard(root: Path, records: list[dict]) -> dict:
-    """Write a minimal surface with only what the census reads: the three classes `manifest_group` looks up by name (`CLASS_UNIT_COUNT_KEYS`) with the no-verdict flags and machine-approved histogram `invariant_group` reads, one shard holding `records`, and the manifest fields the sidecar copies into its stamp."""
+    """Write a minimal corpus with only what the census reads: the three classes `manifest_group` looks up by name (`CLASS_UNIT_COUNT_KEYS`) with the no-verdict flags and machine-approved histogram `invariant_group` reads, one shard holding `records`, and the manifest fields the sidecar copies into its stamp."""
     (root / "units").mkdir(parents=True, exist_ok=True)
     ids = ["boundary-echo", "dangling-anchor-dropped", "bare-name-live-join"]
     for position, class_id in enumerate(ids):
@@ -315,7 +315,7 @@ def test_built_group_from_memory_mirrors_the_shard_walk(tmp_path):
 
 
 def test_built_group_reports_a_missing_worked_example_as_none(tmp_path):
-    """When the worked example is not a human unit, as on every mini surface a test builds, both functions report its echo-sibling count as None instead of failing. On the live corpus, the pins diff shows the loss as an accepted count replaced by null."""
+    """When the worked example is not a human unit, as on every mini corpus a test builds, both functions report its echo-sibling count as None instead of failing. On the live corpus, the pins diff shows the loss as an accepted count replaced by null."""
     table, config_notes, records = _example_table()
     example = next(
         ordinal for ordinal in range(table.n) if table.codepoints_text(ordinal) == WORKED_EXAMPLE_CODEPOINTS
@@ -352,7 +352,7 @@ def _facts(pins: dict, generated_at: str = "2026-01-01T00:00:00Z") -> dict:
     }
     return {
         "format": FACTS_FORMAT,
-        "surface": manifest,
+        "corpus": manifest,
         "pins": pins,
         "premerge": {"units": 0, "workload_digest": "", "ink_identical": "", "families": []},
     }
@@ -366,7 +366,7 @@ def test_facts_round_trip(tmp_path):
 
 
 def test_load_facts_refuses_a_missing_wrong_format_or_orphaned_sidecar(tmp_path):
-    """`load_facts` accepts only the surface's own sidecar. It raises on a missing file, an unknown format, or a `generated_at` that differs from the manifest's, since then the sidecar and the surface came from different builds."""
+    """`load_facts` accepts only the corpus's own sidecar. It raises on a missing file, an unknown format, or a `generated_at` that differs from the manifest's, since then the sidecar and the corpus came from different builds."""
     with pytest.raises(ValueError, match="rebuild.review.build"):
         load_facts(tmp_path, {"generated_at": "2026-01-01T00:00:00Z"})
 
@@ -421,7 +421,7 @@ def test_build_facts_reduces_its_own_premerge_records(tmp_path):
     )
     facts = build_facts(manifest, table, config_notes, capture, premerge, row_count=2)
     assert facts["format"] == FACTS_FORMAT
-    assert facts["surface"]["generated_at"] == manifest["generated_at"]
+    assert facts["corpus"]["generated_at"] == manifest["generated_at"]
     volatile = facts["pins"]["volatile"]
     assert volatile["audit"] == {"row_count": 2, "units": 2}
     assert volatile["built"] == built_group(tmp_path, manifest)
@@ -437,10 +437,10 @@ def test_build_facts_reduces_its_own_premerge_records(tmp_path):
     assert facts["premerge"]["workload_digest"] == workload_digest(capture.grains())
 
 
-def _cli_surface(tmp_path: Path, pins: dict) -> Path:
-    """Write a surface for the census CLI: a manifest whose class list and machine-approved histogram agree with the invariant block of `pins`, and a sidecar carrying `pins`."""
-    surface = tmp_path / "surface"
-    surface.mkdir()
+def _cli_corpus(tmp_path: Path, pins: dict) -> Path:
+    """Write a corpus for the census CLI: a manifest whose class list and machine-approved histogram agree with the invariant block of `pins`, and a sidecar carrying `pins`."""
+    corpus = tmp_path / "corpus"
+    corpus.mkdir()
     invariant = pins["invariant"]
     manifest = {
         "generated_at": "2026-01-01T00:00:00Z",
@@ -454,45 +454,45 @@ def _cli_surface(tmp_path: Path, pins: dict) -> Path:
             "by_class": {identifier: 1 for identifier in invariant["machine_approved_classes"]},
         },
     }
-    (surface / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
-    write_facts(surface, _facts(pins))
-    return surface
+    (corpus / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    write_facts(corpus, _facts(pins))
+    return corpus
 
 
 def test_check_reads_the_sidecar_and_reports_per_key_mismatches(tmp_path, monkeypatch, capsys):
-    """`--check --surface DIR` compares that surface's pins with the checked-in pins and prints one line per changed key. Both blocks are compared, so each key name starts with its block."""
+    """`--check --corpus DIR` compares that corpus's pins with the checked-in pins and prints one line per changed key. Both blocks are compared, so each key name starts with its block."""
     pins_path = tmp_path / "pins.json"
     monkeypatch.setattr(census, "PINS_PATH", pins_path)
-    surface = _cli_surface(tmp_path, _pins(row_count=2))
+    corpus = _cli_corpus(tmp_path, _pins(row_count=2))
 
     pins_path.write_text(json.dumps(_pins(row_count=2)), encoding="utf-8")
-    assert census.main(["--check", "--surface", str(surface)]) == 0
+    assert census.main(["--check", "--corpus", str(corpus)]) == 0
 
     pins_path.write_text(json.dumps(_pins(row_count=1)), encoding="utf-8")
-    assert census.main(["--check", "--surface", str(surface)]) == 1
+    assert census.main(["--check", "--corpus", str(corpus)]) == 1
     assert "  volatile.audit.row_count: pinned 1 != computed 2" in capsys.readouterr().err.splitlines()
 
 
 def test_update_copies_the_sidecars_volatile_block_and_reduces_the_invariant_again(tmp_path, monkeypatch):
-    """`--update` copies the sidecar's volatile block into the pins file unchanged and recomputes the invariant block from the surface's manifest and the sidecar's family census. The file gets the invariant block's current shape even when an older build wrote the sidecar with a different one."""
+    """`--update` copies the sidecar's volatile block into the pins file unchanged and recomputes the invariant block from the corpus's manifest and the sidecar's family census. The file gets the invariant block's current shape even when an older build wrote the sidecar with a different one."""
     pins_path = tmp_path / "pins.json"
     monkeypatch.setattr(census, "PINS_PATH", pins_path)
     monkeypatch.setattr(census, "REPO_ROOT", tmp_path)
     pins = _pins(row_count=2)
     stale = {"invariant": {"classes_count": 3}, "volatile": pins["volatile"]}
-    surface = _cli_surface(tmp_path, pins)
-    write_facts(surface, _facts(stale))
-    assert census.main(["--update", "--surface", str(surface)]) == 0
+    corpus = _cli_corpus(tmp_path, pins)
+    write_facts(corpus, _facts(stale))
+    assert census.main(["--update", "--corpus", str(corpus)]) == 0
     assert json.loads(pins_path.read_text(encoding="utf-8")) == pins
 
 
 def test_from_scratch_recomputes_from_sources_without_the_sidecar(tmp_path, monkeypatch):
     """`compute_pins(from_scratch=True)`, the `--from-scratch` path, recomputes the pre-merge groups from the source artifacts without reading census-facts.json, which this test makes unparsable. It returns the same two-block shape, with the invariant block's families taken from the recomputed families group."""
     _table, _config_notes, records = _example_table()
-    surface = tmp_path / "surface"
-    surface.mkdir()
-    manifest = _write_shard(surface, records)
-    (surface / census.FACTS_FILENAME).write_text("not json at all", encoding="utf-8")
+    corpus = tmp_path / "corpus"
+    corpus.mkdir()
+    manifest = _write_shard(corpus, records)
+    (corpus / census.FACTS_FILENAME).write_text("not json at all", encoding="utf-8")
     monkeypatch.setattr(census, "audit_group", lambda repo_root=REPO_ROOT: {"audit": "sentinel"})
     monkeypatch.setattr(census, "ink_group", lambda repo_root=REPO_ROOT: {"ink": "sentinel"})
     monkeypatch.setattr(
@@ -501,12 +501,12 @@ def test_from_scratch_recomputes_from_sources_without_the_sidecar(tmp_path, monk
         lambda repo_root=REPO_ROOT: {"census": {"seam-loss-withdrawal": 3}, "total": 3},
     )
 
-    pins = census.compute_pins(surface=surface, from_scratch=True)
+    pins = census.compute_pins(corpus=corpus, from_scratch=True)
     volatile = pins["volatile"]
     assert volatile["audit"] == {"audit": "sentinel"}
     assert volatile["ink"] == {"ink": "sentinel"}
     assert volatile["families"] == {"census": {"seam-loss-withdrawal": 3}, "total": 3}
-    assert volatile["built"] == built_group(surface, manifest)
+    assert volatile["built"] == built_group(corpus, manifest)
     assert pins["invariant"] == {
         "classes": [meta["id"] for meta in manifest["classes"]],
         "machine_approved_classes": ["bare-name-live-join", "boundary-echo"],
@@ -573,7 +573,7 @@ def test_invariant_diff_is_the_blocks_own_unified_diff():
     """The cycle prints this when the invariant block changed: the block's unified diff without the volatile block, formatted like the pins file so the lines match what `git diff` shows for those keys."""
     current = {**_ACCEPTED_INVARIANT, "families": ["no-chain-gains"]}
     lines = invariant_diff(_ACCEPTED_INVARIANT, current)
-    assert lines[:2] == ["--- invariant (accepted)", "+++ invariant (this surface)"]
+    assert lines[:2] == ["--- invariant (accepted)", "+++ invariant (this corpus)"]
     assert '-    "deferred-ss10"' in lines
     assert all("units" not in line for line in lines)
     assert invariant_diff(_ACCEPTED_INVARIANT, dict(_ACCEPTED_INVARIANT)) == []

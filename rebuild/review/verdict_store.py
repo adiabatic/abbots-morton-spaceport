@@ -1,6 +1,6 @@
 """The review server's in-memory copy of verdicts-autosave.json, and the two JSON formats it accepts and returns.
 
-The file is one ams-review-verdicts/1 document holding every verdict on the surface. Parsing and writing all of it for each saved verdict is too slow, so the server parses the file once, keeps the records in memory, and exchanges changes. A POST can be a delta (`sets` of whole records and `clears` of unit ids, under ams-review-verdicts-delta/1), which is applied in place and appended to the journal as set and clear lines. A GET with `since=<token>` returns the records changed after that token. A GET without a token, or with one `changes_since` cannot serve, returns the whole store with the current token. The token is a boot id and a change sequence. A token gets the whole store when it predates a server restart, a reload of the file, or a delta onto a new stamp, or when it is older than the retained changes (`CHANGE_LOG_CAP`).
+The file is one ams-review-verdicts/1 document holding every verdict on the corpus. Parsing and writing all of it for each saved verdict is too slow, so the server parses the file once, keeps the records in memory, and exchanges changes. A POST can be a delta (`sets` of whole records and `clears` of unit ids, under ams-review-verdicts-delta/1), which is applied in place and appended to the journal as set and clear lines. A GET with `since=<token>` returns the records changed after that token. A GET without a token, or with one `changes_since` cannot serve, returns the whole store with the current token. The token is a boot id and a change sequence. A token gets the whole store when it predates a server restart, a reload of the file, or a delta onto a new stamp, or when it is older than the retained changes (`CHANGE_LOG_CAP`).
 
 A full-store POST is also accepted. Its bytes are written to the file unchanged, and when its stamp differs from the store's, the old file is first moved aside (`stash_path_for`). Either kind of POST gets a 409 when its stamp is older than the store's, so a tab left open from before a rebuild cannot overwrite the newly merged store. When the store writes the file itself, it writes the same ams-review-verdicts/1 document with one record per line, which `parse_autosave_payload`, the merge tool, the status check and the carry all read.
 
@@ -238,7 +238,7 @@ class VerdictStore:
             return 409, {
                 "ok": False,
                 "error": (
-                    "stale session: the autosave on disk is stamped for a newer surface "
+                    "stale session: the autosave on disk is stamped for a newer corpus "
                     f"({self.stamp}); reload the app"
                 ),
             }
@@ -314,7 +314,7 @@ class VerdictStore:
         return {unit: record for unit, record in self.records.items() if unit not in touched}
 
     def _receive_delta_onto_new_stamp(self, delta: dict) -> tuple[int, dict]:
-        """Apply a delta stamped for a newer surface than the store's. The tab booted on a rebuilt surface while the file still holds the old one, so its `sets` are its whole store: they replace the store, and the old file is stashed as a full save would stash it."""
+        """Apply a delta stamped for a newer corpus than the store's. The tab booted on a rebuilt corpus while the file still holds the old one, so its `sets` are its whole store: they replace the store, and the old file is stashed as a full save would stash it."""
         stamp = delta["manifest_generated_at"]
         old_stamp = self.stamp
         old_verdicts = list(self.records.values())

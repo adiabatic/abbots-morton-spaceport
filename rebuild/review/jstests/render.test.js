@@ -30,10 +30,10 @@ import {
   noVerdictTotal,
   formatCount,
   machineChannels,
-  surfaceChipLabel,
-  surfaceAlphabetLabel,
-  surfaceStampLine,
-  surfaceDetailRows,
+  corpusChipLabel,
+  corpusAlphabetLabel,
+  corpusStampLine,
+  corpusDetailRows,
   machineTitle,
   classCountsLine,
   nextUnverdictedIndex,
@@ -316,7 +316,7 @@ test('every stylistic set the explain panel can mark has exactly one color, shar
   assert.equal(
     (css.match(/--ss-color:/gu) ?? []).length,
     colored.size,
-    'the per-set color map must be declared once and shared, not copied per surface',
+    'the per-set color map must be declared once and shared, not copied per UI element',
   );
   for (const sample of explainSamples) {
     for (const run of setRuns(explainRuns(sample.explain))) {
@@ -735,12 +735,12 @@ test('machineChannels splits the machine-approved total and treats a channel-les
   assert.deepEqual(machineChannels({}), { units: 0, inkIdentical: 0, pictureIdentical: 0, juniorEquivalent: 0 });
 });
 
-test('the collapsed chip carries the surface total and the popover breaks it down to the human workload', () => {
-  assert.equal(surfaceChipLabel(manifest), '6 units');
+test('the collapsed chip carries the corpus total and the popover breaks it down to the human workload', () => {
+  assert.equal(corpusChipLabel(manifest), '6 units');
   assert.deepEqual(
-    surfaceDetailRows(manifest).map((row) => [row.label, row.value]),
+    corpusDetailRows(manifest).map((row) => [row.label, row.value]),
     [
-      ['Surface', '6'],
+      ['Corpus', '6'],
       ['ink-identical machine-approved', '1'],
       ['for human review', '5'],
     ],
@@ -757,11 +757,11 @@ test('the collapsed chip carries the surface total and the popover breaks it dow
       { id: 'x', no_verdict: false, unit_count: 9704, machine_approved_count: 6986 },
     ],
   };
-  assert.equal(surfaceChipLabel(channelled), '15,960 units');
+  assert.equal(corpusChipLabel(channelled), '15,960 units');
   assert.deepEqual(
-    surfaceDetailRows(channelled).map((row) => [row.label, row.value, row.sub ?? false]),
+    corpusDetailRows(channelled).map((row) => [row.label, row.value, row.sub ?? false]),
     [
-      ['Surface', '15,960', false],
+      ['Corpus', '15,960', false],
       ['machine-approved', '11,926', false],
       ['ink-identical', '8,350', true],
       ['junior-equivalent', '3,576', true],
@@ -769,15 +769,15 @@ test('the collapsed chip carries the surface total and the popover breaks it dow
       ['for human review', '2,718', false],
     ],
   );
-  const rows = surfaceDetailRows({ totals: { units: 4 }, machine_approved: { units: 0 }, classes: [] });
+  const rows = corpusDetailRows({ totals: { units: 4 }, machine_approved: { units: 0 }, classes: [] });
   assert.deepEqual(
     rows.map((row) => row.label),
-    ['Surface', 'for human review'],
+    ['Corpus', 'for human review'],
   );
 });
 
 test('a third machine channel takes its own sub row, and a lone channel merges back into the total row', () => {
-  const surface = {
+  const corpus = {
     totals: { units: 15960 },
     classes: [
       { id: 'boundary-echo', no_verdict: true, unit_count: 6256, machine_approved_count: 4940 },
@@ -785,7 +785,7 @@ test('a third machine channel takes its own sub row, and a lone channel merges b
     ],
   };
   const threeWay = {
-    ...surface,
+    ...corpus,
     machine_approved: {
       units: 13126,
       method: 'Shaped in both fonts and compared.',
@@ -793,9 +793,9 @@ test('a third machine channel takes its own sub row, and a lone channel merges b
     },
   };
   assert.deepEqual(
-    surfaceDetailRows(threeWay).map((row) => [row.label, row.value, row.sub ?? false]),
+    corpusDetailRows(threeWay).map((row) => [row.label, row.value, row.sub ?? false]),
     [
-      ['Surface', '15,960', false],
+      ['Corpus', '15,960', false],
       ['machine-approved', '13,126', false],
       ['ink-identical', '8,350', true],
       ['picture-identical', '1,200', true],
@@ -805,7 +805,7 @@ test('a third machine channel takes its own sub row, and a lone channel merges b
     ],
   );
   const pictureOnly = {
-    ...surface,
+    ...corpus,
     machine_approved: {
       units: 3,
       method: 'Rasterized in both fonts and compared cell by cell.',
@@ -813,16 +813,16 @@ test('a third machine channel takes its own sub row, and a lone channel merges b
     },
   };
   assert.deepEqual(
-    surfaceDetailRows(pictureOnly).map((row) => [row.label, row.value, row.sub ?? false]),
+    corpusDetailRows(pictureOnly).map((row) => [row.label, row.value, row.sub ?? false]),
     [
-      ['Surface', '15,960', false],
+      ['Corpus', '15,960', false],
       ['picture-identical machine-approved', '3', false],
       ['in no-verdict classes', '1,316', false],
       ['for human review', '2,718', false],
     ],
   );
   const juniorOnly = {
-    ...surface,
+    ...corpus,
     machine_approved: {
       units: 3576,
       method: 'Compared against the Junior font.',
@@ -830,9 +830,9 @@ test('a third machine channel takes its own sub row, and a lone channel merges b
     },
   };
   assert.deepEqual(
-    surfaceDetailRows(juniorOnly).map((row) => [row.label, row.value, row.sub ?? false]),
+    corpusDetailRows(juniorOnly).map((row) => [row.label, row.value, row.sub ?? false]),
     [
-      ['Surface', '15,960', false],
+      ['Corpus', '15,960', false],
       ['junior-equivalent machine-approved', '3,576', false],
       ['in no-verdict classes', '1,316', false],
       ['for human review', '2,718', false],
@@ -842,17 +842,17 @@ test('a third machine channel takes its own sub row, and a lone channel merges b
 });
 
 test('the popover corner says how much of the alphabet has migrated', () => {
-  assert.equal(surfaceAlphabetLabel({ alphabet: { migrated: 16, total: 44 } }), '16 of 44 letters');
-  assert.equal(surfaceAlphabetLabel({}), null);
+  assert.equal(corpusAlphabetLabel({ alphabet: { migrated: 16, total: 44 } }), '16 of 44 letters');
+  assert.equal(corpusAlphabetLabel({}), null);
 });
 
 test('the popover stamp names the generation and the head it was generated at', () => {
   assert.equal(
-    surfaceStampLine({ generated_at: '2026-06-10T17:02:11Z', repo_head: 'abc1234' }),
+    corpusStampLine({ generated_at: '2026-06-10T17:02:11Z', repo_head: 'abc1234' }),
     'Generated 2026-06-10T17:02:11Z at abc1234',
   );
-  assert.equal(surfaceStampLine({ generated_at: '2026-06-10T17:02:11Z' }), 'Generated 2026-06-10T17:02:11Z');
-  assert.equal(surfaceStampLine({}), null);
+  assert.equal(corpusStampLine({ generated_at: '2026-06-10T17:02:11Z' }), 'Generated 2026-06-10T17:02:11Z');
+  assert.equal(corpusStampLine({}), null);
 });
 
 test('the machine-approved tooltip leads with the channel split, then the verification method', () => {

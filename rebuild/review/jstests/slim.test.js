@@ -88,7 +88,7 @@ test('finishLines releases a last line written without a trailing newline, and o
   assert.deepEqual(finishLines(state), []);
 });
 
-test('checkIndexHeader accepts a header stamped for the surface beside it', () => {
+test('checkIndexHeader accepts a header stamped for the corpus beside it', () => {
   const header = { format: APP_INDEX_FORMAT, generated_at: manifest.generated_at, units: 5 };
   assert.deepEqual(checkIndexHeader(header, manifest, APP_INDEX_FORMAT), { ok: true, reason: null });
 });

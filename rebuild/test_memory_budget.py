@@ -189,13 +189,11 @@ class TestTheWidthsAlreadyOnRecord:
         """`DEFAULT_MEMO_BYTES` covers `default`'s memo snapshots kept alive for the wave, stored as compact records with their pools, while `DELTA_PEAK_BYTES` covers a configuration enumerated from scratch and held through its memo write, so the memo term must be the smaller. Setting them equal would charge the wave a whole configuration for a snapshot."""
         assert 0 < DEFAULT_MEMO_BYTES < DELTA_PEAK_BYTES
 
-    def test_the_shipped_surface_divisor_holds_the_32_gib_box_at_the_cap_by_division(self):
-        """On the 10-core 32 GiB machine under a gated cycle, the surface build's width is `SURFACE_JOBS_CAP` because eight workers fit the memory budget, which is the claim the `SURFACE_WORKER_BYTES` comment makes for that machine. This is an upper bound on `SURFACE_WORKER_BYTES` and `SURFACE_PARENT_BYTES`: a change that makes eight workers exceed this machine's budget narrows the width below the cap and fails here. A width test cannot give a lower bound without an invented machine tuned to divide exactly, which every change to the constants would have to re-tune. A worker estimate below what a worker really holds is caught instead by the surface-worker row of `make job-costs`, against the pool records `rebuild/review/build.py` writes."""
+    def test_the_shipped_corpus_divisor_holds_the_32_gib_box_at_the_cap_by_division(self):
+        """On the 10-core 32 GiB machine under a gated cycle, the corpus build's width is `CORPUS_JOBS_CAP` because eight workers fit the memory budget, which is the claim the `CORPUS_WORKER_BYTES` comment makes for that machine. This is an upper bound on `CORPUS_WORKER_BYTES` and `CORPUS_PARENT_BYTES`: a change that makes eight workers exceed this machine's budget narrows the width below the cap and fails here. A width test cannot give a lower bound without an invented machine tuned to divide exactly, which every change to the constants would have to re-tune. A worker estimate below what a worker really holds is caught instead by the corpus-worker row of `make job-costs`, against the pool records `rebuild/review/build.py` writes."""
         import rebuild.tools.artifact_cycle as ac
 
-        assert (
-            ac.surface_job_budget(skip_gates=False, ncores=10, total_bytes=BOX_32_GIB) == ac.SURFACE_JOBS_CAP
-        )
+        assert ac.corpus_job_budget(skip_gates=False, ncores=10, total_bytes=BOX_32_GIB) == ac.CORPUS_JOBS_CAP
 
 
 class TestWhatDashNAutoResolvesTo:
@@ -288,18 +286,18 @@ class TestTheHandRunDefaults:
         run_m1.main(["--gates-only", "--conform-only"])
         assert handed == [sweep, sweep]
 
-    def test_the_surface_build_takes_the_unreserved_arm_of_its_own_budget(
+    def test_the_corpus_build_takes_the_unreserved_arm_of_its_own_budget(
         self, monkeypatch: pytest.MonkeyPatch
     ):
-        """A hand run has no co-resident `make test` pool to leave cores or memory to, so the default is `surface_job_budget` with `skip_gates=True`. Where memory holds the derived width below the cap, a checked-in width equal to it would pass the first equality. So the test moves the machine to 1 TB, where memory cannot bind, and checks that the width becomes the cores clamped at `SURFACE_JOBS_CAP`. On both fleet machines the width is already at the cap, so there the move changes nothing."""
+        """A hand run has no co-resident `make test` pool to leave cores or memory to, so the default is `corpus_job_budget` with `skip_gates=True`. Where memory holds the derived width below the cap, a checked-in width equal to it would pass the first equality. So the test moves the machine to 1 TB, where memory cannot bind, and checks that the width becomes the cores clamped at `CORPUS_JOBS_CAP`. On both fleet machines the width is already at the cap, so there the move changes nothing."""
         import rebuild.tools.artifact_cycle as ac
         from rebuild.review import build
 
-        assert _parser_built_by(build.main).parse_args([]).jobs == ac.surface_job_budget(skip_gates=True)
+        assert _parser_built_by(build.main).parse_args([]).jobs == ac.corpus_job_budget(skip_gates=True)
         monkeypatch.setenv("AMS_TOTAL_MEMORY_BYTES", str(BOX_1_TB))
         widened = _parser_built_by(build.main).parse_args([]).jobs
-        assert widened == ac.surface_job_budget(skip_gates=True)
-        assert widened == min(memory_budget.usable_cores(), ac.SURFACE_JOBS_CAP)
+        assert widened == ac.corpus_job_budget(skip_gates=True)
+        assert widened == min(memory_budget.usable_cores(), ac.CORPUS_JOBS_CAP)
 
     def test_the_signature_width_is_the_hand_runs_whole_box(self, monkeypatch: pytest.MonkeyPatch):
         """The signature width does not depend on memory: a signature worker is one comparator, so the hand run's default is the cores with `skip_gates=True`. Shrinking the machine until `--jobs` falls to one unit worker leaves the signature width unchanged, which a memory-derived width would not."""

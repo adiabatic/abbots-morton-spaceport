@@ -45,7 +45,7 @@ impl std::error::Error for IngestError {}
 
 /// The error settlement returns for a window that does not settle.
 ///
-/// [`crate::cases`] and [`crate::fiber`] read the variant through [`SettleError::kind`] and sort it into three outcomes: E-INCOMPARABLE, E-AMBIGUOUS, and unreachable, which covers both E-STRANDED and [`SettleError::Plain`]. `cases` writes these as the buckets `E-INCOMPARABLE`, `E-AMBIGUOUS`, and `E-UNREACHABLE`, which `settle.SettleError.bucket` carries on the Python side. Merging E-INCOMPARABLE with E-AMBIGUOUS, or either of them with the unreachable pair, would merge fibers that the review surface and the treaty fold tell apart. [`crate::liveness`] sorts the variants into two outcomes: a raise (E-INCOMPARABLE or E-AMBIGUOUS) and unreachable. Outside the tests, no reader distinguishes E-STRANDED from the plain error.
+/// [`crate::cases`] and [`crate::fiber`] read the variant through [`SettleError::kind`] and sort it into three outcomes: E-INCOMPARABLE, E-AMBIGUOUS, and unreachable, which covers both E-STRANDED and [`SettleError::Plain`]. `cases` writes these as the buckets `E-INCOMPARABLE`, `E-AMBIGUOUS`, and `E-UNREACHABLE`, which `settle.SettleError.bucket` carries on the Python side. Merging E-INCOMPARABLE with E-AMBIGUOUS, or either of them with the unreachable pair, would merge fibers that the review corpus and the treaty fold tell apart. [`crate::liveness`] sorts the variants into two outcomes: a raise (E-INCOMPARABLE or E-AMBIGUOUS) and unreachable. Outside the tests, no reader distinguishes E-STRANDED from the plain error.
 ///
 /// The variants share one type so a caller can catch all four in one arm, as the simulated prospect's fallback in [`crate::engine`] does.
 #[derive(Clone, Debug, PartialEq, Eq)]

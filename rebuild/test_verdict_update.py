@@ -37,10 +37,10 @@ IDS = frozenset({"u-1", "u-2", "u-machine"})
 
 
 def _run_verdict_update(tmp_path, monkeypatch, extra=(), complaints=False):
-    """Run `verdict_update.main` over a stub surface with every step stubbed. Return the exit code, the human index records, the standing fill's calls, the fill's `--out` path, the docket's calls (empty unless `complaints` is set), and the units each echo round received."""
-    surface = tmp_path / "review"
-    surface.mkdir()
-    (surface / "manifest.json").write_text(json.dumps({"generated_at": STAMP}))
+    """Run `verdict_update.main` over a stub corpus with every step stubbed. Return the exit code, the human index records, the standing fill's calls, the fill's `--out` path, the docket's calls (empty unless `complaints` is set), and the units each echo round received."""
+    corpus = tmp_path / "review"
+    corpus.mkdir()
+    (corpus / "manifest.json").write_text(json.dumps({"generated_at": STAMP}))
     master = tmp_path / "master.json"
     master.write_text(json.dumps(_payload()))
     index = [{"id": "u-1", "after": {"cells": [1]}}, {"id": "u-2"}]
@@ -48,7 +48,7 @@ def _run_verdict_update(tmp_path, monkeypatch, extra=(), complaints=False):
     dockets = []
     echoes = []
 
-    def stream(_surface, *, unit_ids=None):
+    def stream(_corpus, *, unit_ids=None):
         if unit_ids is not None:
             unit_ids.update(IDS)
         yield from (dict(unit) for unit in index)
@@ -82,8 +82,8 @@ def _run_verdict_update(tmp_path, monkeypatch, extra=(), complaints=False):
     standing_out = tmp_path / "verdicts-standing-fill.json"
     code = vu.main(
         [
-            "--surface",
-            str(surface),
+            "--corpus",
+            str(corpus),
             "--merge-master",
             str(master),
             "--autosave",
@@ -104,7 +104,7 @@ def _run_verdict_update(tmp_path, monkeypatch, extra=(), complaints=False):
 
 
 def test_the_verdict_update_runs_the_standing_fill_in_its_open_only_form(tmp_path, monkeypatch):
-    """The verdict update passes `--open-only --require-reach` and leaves the narrowing to the standing fill, so it still supplies fresh streams over all human records. The default memo sits beside the surface directory, outside it, so a surface rebuild does not delete it."""
+    """The verdict update passes `--open-only --require-reach` and leaves the narrowing to the standing fill, so it still supplies fresh streams over all human records. The default memo sits beside the corpus directory, outside it, so a corpus rebuild does not delete it."""
     code, index, calls, standing_out, dockets, _echoes = _run_verdict_update(tmp_path, monkeypatch)
     assert code == 0
     assert dockets == []
@@ -121,14 +121,14 @@ def test_the_verdict_update_runs_the_standing_fill_in_its_open_only_form(tmp_pat
 def test_the_echo_fill_takes_the_human_records_and_the_docket_takes_the_id_set_beside_them(
     tmp_path, monkeypatch
 ):
-    """Every echo round gets the same list of human echo records, because the echo fill reads nothing from machine records. The docket gets the human records and the set of every surface id, because its absent-unit warning checks verdicts against machine units too."""
+    """Every echo round gets the same list of human echo records, because the echo fill reads nothing from machine records. The docket gets the human records and the set of every corpus id, because its absent-unit warning checks verdicts against machine units too."""
     code, index, _calls, _out, dockets, echoes = _run_verdict_update(tmp_path, monkeypatch, complaints=True)
     assert code == 0
     assert len(echoes) >= 2
     assert all(units is echoes[0] for units in echoes)
     assert echoes[0] == [vu.echo_verdicts.echo_record(unit) for unit in index]
     [(argv, units, unit_ids)] = dockets
-    assert argv[argv.index("--surface") + 1] == str(tmp_path / "review")
+    assert argv[argv.index("--corpus") + 1] == str(tmp_path / "review")
     assert units == index
     assert unit_ids == IDS
 
@@ -157,16 +157,16 @@ def test_the_verdict_update_passes_a_named_memo_and_the_fresh_form_through(tmp_p
 
 def _carrying_verdict_update(tmp_path, monkeypatch, extra=()):
     """Run the verdict update with `--verdicts` and `--carry-out`, with every step stubbed. Return the exit code, the human index records, the carry's calls, and the merge's calls."""
-    surface = tmp_path / "review"
-    surface.mkdir()
-    (surface / "manifest.json").write_text(json.dumps({"generated_at": STAMP}))
+    corpus = tmp_path / "review"
+    corpus.mkdir()
+    (corpus / "manifest.json").write_text(json.dumps({"generated_at": STAMP}))
     verdicts = tmp_path / "verdicts.json"
     verdicts.write_text(json.dumps({**_payload(), "manifest_generated_at": "S0"}))
     index = [{"id": "u-DdcTojn1hba"}]
     carries = []
     merges = []
 
-    def stream(_surface, *, unit_ids=None):
+    def stream(_corpus, *, unit_ids=None):
         if unit_ids is not None:
             unit_ids.update(IDS)
         yield from (dict(unit) for unit in index)
@@ -183,8 +183,8 @@ def _carrying_verdict_update(tmp_path, monkeypatch, extra=()):
     monkeypatch.setattr(vu.standing_verdicts, "main", lambda argv, unit_source=None: _write_out(argv))
     code = vu.main(
         [
-            "--surface",
-            str(surface),
+            "--corpus",
+            str(corpus),
             "--verdicts",
             str(verdicts),
             "--carry-out",
@@ -207,13 +207,13 @@ def _carrying_verdict_update(tmp_path, monkeypatch, extra=()):
 
 
 def test_the_carry_step_hands_the_verdicts_file_and_the_loaded_index_to_the_carry(tmp_path, monkeypatch):
-    """The verdict update passes the carry the verdicts file, the human echo records, and every surface id, because the orphaned count also checks machine ids. It names only the live surface as `--current-surface`, then merges the carried file."""
+    """The verdict update passes the carry the verdicts file, the human echo records, and every corpus id, because the orphaned count also checks machine ids. It names only the live corpus as `--current-corpus`, then merges the carried file."""
     code, index, carries, merges = _carrying_verdict_update(tmp_path, monkeypatch)
     assert code == 0
     [(argv, units, unit_ids)] = carries
     assert argv[: argv.index("--out")] == ["--verdicts", str(tmp_path / "verdicts.json")]
     assert argv[argv.index("--out") + 1] == str(tmp_path / "carried.json")
-    assert argv[argv.index("--current-surface") + 1] == str(tmp_path / "review")
+    assert argv[argv.index("--current-corpus") + 1] == str(tmp_path / "review")
     assert units == [vu.echo_verdicts.echo_record(unit) for unit in index]
     assert unit_ids == IDS
     assert merges[0][0] == str(tmp_path / "carried.json")

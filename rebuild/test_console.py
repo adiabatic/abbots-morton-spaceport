@@ -32,7 +32,7 @@ class _Result:
 
 
 def _cycle_console(clock=None, **kwargs):
-    kwargs.setdefault("steps", ["snapshot", "run_m1", "surface-build", "gate:conform"])
+    kwargs.setdefault("steps", ["snapshot", "run_m1", "corpus-build", "gate:conform"])
     return console.CycleConsole(clock=clock or _Clock(), **kwargs)
 
 
@@ -252,9 +252,9 @@ def test_console_imports_nothing_else_in_this_tree():
 
 def _rows():
     return [
-        console.PlanRow(console.STATUS_RUN, "snapshot", "copies the served surface"),
+        console.PlanRow(console.STATUS_RUN, "snapshot", "copies the served corpus"),
         console.PlanRow(console.STATUS_RUN, "run_m1", argv="uv run python -m rebuild.pipeline.run_m1"),
-        console.PlanRow(console.STATUS_SKIP, "surface-build", "green record matches"),
+        console.PlanRow(console.STATUS_SKIP, "corpus-build", "green record matches"),
         console.PlanRow(console.STATUS_MAYBE, "gate:conform", "may re-skip after run_m1", "make conform"),
     ]
 
@@ -267,11 +267,11 @@ def test_the_counts_line_states_a_range_only_while_a_step_is_undecided():
 
 def test_plan_lines_carry_the_column_the_note_and_the_argv():
     lines = console.plan_lines(_rows())
-    assert lines[0] == "  run   snapshot       copies the served surface"
+    assert lines[0] == "  run   snapshot      copies the served corpus"
     assert lines[1] == "  run   run_m1"
     assert lines[2] == "        $ uv run python -m rebuild.pipeline.run_m1"
-    assert lines[3] == "  skip  surface-build  green record matches"
-    assert lines[4] == "  run?  gate:conform   may re-skip after run_m1"
+    assert lines[3] == "  skip  corpus-build  green record matches"
+    assert lines[4] == "  run?  gate:conform  may re-skip after run_m1"
 
 
 def test_the_step_banner_numbers_the_step_and_wraps_its_description(capsys):
@@ -299,11 +299,11 @@ def test_a_step_outside_the_plan_still_opens_a_banner(capsys):
 
 
 def test_execution_numbers_follow_concurrent_starts_and_match_logs_and_summary(tmp_path):
-    names = ["snapshot", "run_m1", "surface-build", "gate:conform"]
+    names = ["snapshot", "run_m1", "corpus-build", "gate:conform"]
     out = io.StringIO()
     cycle_console = _cycle_console(log_dir=tmp_path, out=out, aliases={"run_m1:gates-only": "run_m1"})
-    cycle_console.step_skipped("snapshot", "no surface")
-    cycle_console.step_not_run("surface-build", "not needed")
+    cycle_console.step_skipped("snapshot", "no corpus")
+    cycle_console.step_not_run("corpus-build", "not needed")
     cycle_console.note("run_m1", "waiting")
     cycle_console.step_start("gate:conform", None)
     cycle_console.step_end("gate:conform", None, "FAILED")
@@ -338,7 +338,7 @@ def test_execution_numbers_follow_concurrent_starts_and_match_logs_and_summary(t
             assert "late output" in log
     summary = rendered.split(console.SUMMARY_BANNER)[1]
     assert re.findall(r"^\s+(\d+)\s+(\S+)", summary, re.MULTILINE) == starts
-    assert re.findall(r"^\s+-\s+(\S+)", summary, re.MULTILINE) == ["snapshot", "surface-build"]
+    assert re.findall(r"^\s+-\s+(\S+)", summary, re.MULTILINE) == ["snapshot", "corpus-build"]
 
 
 def test_an_alias_reports_under_the_plan_row_it_stands_for(capsys):
@@ -353,11 +353,11 @@ def test_an_alias_reports_under_the_plan_row_it_stands_for(capsys):
 def test_every_surfaced_line_carries_the_step_and_both_clocks(capsys):
     clock = _Clock()
     cycle_console = _cycle_console(clock)
-    cycle_console.step_start("surface-build", ["true"], "")
+    cycle_console.step_start("corpus-build", ["true"], "")
     clock.advance(75)
-    cycle_console.child_line("surface-build", console.STDOUT, "[warn] cache miss")
+    cycle_console.child_line("corpus-build", console.STDOUT, "[warn] cache miss")
     (line,) = _surfaced(capsys.readouterr().out)
-    assert line == "  surface-build  step   1m15s  cycle   1m15s  warn cache miss"
+    assert line == "  corpus-build  step   1m15s  cycle   1m15s  warn cache miss"
 
 
 def test_a_phase_pairs_with_the_timing_of_the_same_label(capsys):
@@ -412,31 +412,31 @@ def test_a_warning_is_never_throttled(capsys):
 def test_the_heartbeat_surfaces_the_stored_counter_then_bare_silence(capsys):
     clock = _Clock()
     cycle_console = _cycle_console(clock, heartbeat_seconds=60)
-    cycle_console.step_start("surface-build", ["true"], "")
-    cycle_console.child_line("surface-build", console.STDERR, "[progress] 8192/15903 units")
+    cycle_console.step_start("corpus-build", ["true"], "")
+    cycle_console.child_line("corpus-build", console.STDERR, "[progress] 8192/15903 units")
     cycle_console._heartbeat_tick()
-    assert _bodies(capsys.readouterr().out, "surface-build") == []
+    assert _bodies(capsys.readouterr().out, "corpus-build") == []
     clock.advance(61)
     cycle_console._heartbeat_tick()
-    assert _bodies(capsys.readouterr().out, "surface-build") == ["progress 8,192/15,903 units"]
+    assert _bodies(capsys.readouterr().out, "corpus-build") == ["progress 8,192/15,903 units"]
     clock.advance(61)
     cycle_console._heartbeat_tick()
-    assert _bodies(capsys.readouterr().out, "surface-build") == ["heartbeat"]
+    assert _bodies(capsys.readouterr().out, "corpus-build") == ["heartbeat"]
 
 
 def test_a_counter_never_surfaces_under_a_phase_that_did_not_count_it(capsys):
     """A stored counter is dropped when its phase closes. Otherwise the next heartbeat would print the finished phase's count while a different phase runs, and the reader would take it at face value."""
     clock = _Clock()
     cycle_console = _cycle_console(clock, heartbeat_seconds=60)
-    cycle_console.step_start("surface-build", ["true"], "")
-    cycle_console.child_line("surface-build", console.STDERR, "[phase] review.build units")
-    cycle_console.child_line("surface-build", console.STDERR, "[progress] 15903/15903 units")
-    cycle_console.child_line("surface-build", console.STDERR, "[t] review.build units 12.0s")
-    cycle_console.child_line("surface-build", console.STDERR, "[phase] review.build manifest+check")
+    cycle_console.step_start("corpus-build", ["true"], "")
+    cycle_console.child_line("corpus-build", console.STDERR, "[phase] review.build units")
+    cycle_console.child_line("corpus-build", console.STDERR, "[progress] 15903/15903 units")
+    cycle_console.child_line("corpus-build", console.STDERR, "[t] review.build units 12.0s")
+    cycle_console.child_line("corpus-build", console.STDERR, "[phase] review.build manifest+check")
     capsys.readouterr()
     clock.advance(61)
     cycle_console._heartbeat_tick()
-    assert _bodies(capsys.readouterr().out, "surface-build") == ["heartbeat"]
+    assert _bodies(capsys.readouterr().out, "corpus-build") == ["heartbeat"]
 
 
 def test_a_counter_stored_under_an_opening_phase_is_dropped_with_it(capsys):
@@ -468,7 +468,7 @@ def test_the_closing_line_carries_the_outcome_the_detail_and_the_peak(capsys):
         "run_m1", _Result(elapsed=1988.0, peak_rss_bytes=19_600_000_000), "ok", "7 unmatched"
     )
     assert _surfaced(capsys.readouterr().out) == [
-        "  run_m1         step  33m08s  cycle    0.0s  ok  7 unmatched  rss 19.6G"
+        "  run_m1        step  33m08s  cycle    0.0s  ok  7 unmatched  rss 19.6G"
     ]
 
 
@@ -512,7 +512,7 @@ def test_closing_a_step_nobody_opened_still_says_so_and_writes_no_log(capsys, tm
 def test_skipped_and_not_run_steps_announce_with_their_note_verbatim(capsys):
     cycle_console = _cycle_console()
     cycle_console.step_skipped("gate:conform", "SKIPPED after run_m1 (green record matches)")
-    cycle_console.step_not_run("surface-build", "not run (run_m1 failed)")
+    cycle_console.step_not_run("corpus-build", "not run (run_m1 failed)")
     cycle_console.note("run_m1", "ERROR: run_m1 did not write all three summary files")
     out = capsys.readouterr().out
     assert "skipped  SKIPPED after run_m1 (green record matches)" in out
@@ -598,15 +598,15 @@ def test_the_summary_prints_the_table_the_cycle_lines_and_the_verdict(capsys):
     rows = [
         console.SummaryRow(1, "snapshot", "ok", "15,903 units", 0.4),
         console.SummaryRow(2, "run_m1", "ok", "7 unmatched", 1988.0),
-        console.SummaryRow(3, "surface-build", "skipped", "", None),
+        console.SummaryRow(3, "corpus-build", "skipped", "", None),
     ]
     cycle_console.summary(
         rows, ["census pins  : unchanged", "READY - adjudicate at the docket"], console.VERDICT_OK
     )
     out = capsys.readouterr().out
     assert console.SUMMARY_BANNER in out
-    assert "  1  snapshot       ok       15,903 units    0.4s" in out
-    assert "  -  surface-build  skipped" in out
+    assert "  1  snapshot      ok       15,903 units    0.4s" in out
+    assert "  -  corpus-build  skipped" in out
     assert "READY - adjudicate at the docket" in out
     assert out.rstrip().endswith("Cycle complete.")
 
@@ -704,10 +704,10 @@ def test_a_skip_says_the_word_once(capsys, tmp_path):
     )
 
     cycle_console = _cycle_console()
-    cycle_console.step_skipped("snapshot", "SKIPPED (the surface is not rewritten and no carry runs)")
+    cycle_console.step_skipped("snapshot", "SKIPPED (the corpus is not rewritten and no carry runs)")
     cycle_console.step_skipped("gate:conform", "--skip-conform")
     lines = _surfaced(capsys.readouterr().out)
-    assert lines[0].endswith("skipped  the surface is not rewritten and no carry runs")
+    assert lines[0].endswith("skipped  the corpus is not rewritten and no carry runs")
     assert lines[1].endswith("skipped  --skip-conform")
 
 

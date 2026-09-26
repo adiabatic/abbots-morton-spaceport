@@ -1,6 +1,6 @@
 """Labels shared by the modules that read a settled stream: the spec's alphabet, a configuration's feature set, a formed stream's labels after the configuration's marker renaming, the boundary glyph names, and the alias map from the old font's glyph names to cells.
 
-This module imports only `model`, `settle`, and `rowmodel` from the repository. That lets the review surface build use these labels without importing the conformance sweep or the other modules in `unit_cache.PIPELINE_NON_SURFACE_MODULES`, which are left out of the per-unit store stamps. `rebuild/test_review_code_closure.py` checks the import list.
+This module imports only `model`, `settle`, and `rowmodel` from the repository. That lets the review corpus build use these labels without importing the conformance sweep or the other modules in `unit_cache.PIPELINE_NON_CORPUS_MODULES`, which are left out of the per-unit store stamps. `rebuild/test_review_code_closure.py` checks the import list.
 """
 
 from __future__ import annotations

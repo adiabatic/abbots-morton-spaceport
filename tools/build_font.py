@@ -162,7 +162,7 @@ def _extract_feature_lookup_names(fea_code: str | None, feature_tag: str) -> lis
 
 
 def _write_if_changed(path: Path, data: bytes) -> bool:
-    # The build is byte-deterministic, so rewriting an identical output would only change its mtime, and the review surface's fixture cache, which keys on mtimes, would treat it as a new build and discard its work. The existing file is hashed in chunks so the comparison does not hold a second copy of the output in memory.
+    # The build is byte-deterministic, so rewriting an identical output would only change its mtime, and the review corpus's fixture cache, which keys on mtimes, would treat it as a new build and discard its work. The existing file is hashed in chunks so the comparison does not hold a second copy of the output in memory.
     try:
         with path.open("rb") as existing:
             if hashlib.file_digest(existing, "sha256").digest() == hashlib.sha256(data).digest():

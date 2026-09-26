@@ -1,4 +1,4 @@
-"""Assemble the machine-readable docket data for the live surface: cluster the blank human units by the build's `cluster` signature (the echo key without the judged pair; see `_cluster_id` in rebuild/review/build.py), collect evidence from judged units with the same signature, list the ledger classes ruled intended, reviewed-approved or reviewed-rejected that still have blank units, and list the echo groups whose recorded verdicts disagree (`verdicts_agree` decides, and counts an approve/identical mix as agreement). The review app's `#view=docket` computes the same clustering live from the in-memory verdict store. This tool writes tmp/docket-data.json instead of a page: a fixed snapshot for writing bulk proposals, which need the blank membership fixed against one verdicts file."""
+"""Assemble the machine-readable docket data for the live corpus: cluster the blank human units by the build's `cluster` signature (the echo key without the judged pair; see `_cluster_id` in rebuild/review/build.py), collect evidence from judged units with the same signature, list the ledger classes ruled intended, reviewed-approved or reviewed-rejected that still have blank units, and list the echo groups whose recorded verdicts disagree (`verdicts_agree` decides, and counts an approve/identical mix as agreement). The review app's `#view=docket` computes the same clustering live from the in-memory verdict store. This tool writes tmp/docket-data.json instead of a page: a fixed snapshot for writing bulk proposals, which need the blank membership fixed against one verdicts file."""
 
 import argparse
 import collections
@@ -14,7 +14,7 @@ if str(ROOT) not in sys.path:
 
 from rebuild.review import unit_index  # noqa: E402
 
-SURFACE = ROOT / "rebuild/out/review"
+CORPUS = ROOT / "rebuild/out/review"
 DATA_OUT = ROOT / "tmp/docket-data.json"
 RULED_STATUSES = ("intended", "reviewed-approved", "reviewed-rejected")
 TRANCHE_SIZE = 25
@@ -29,14 +29,14 @@ def verdicts_agree(verdicts):
 
 
 def triage_position(unit):
-    """Return a sort key for the unit's place in the surface's triage index (the index record's `order`). A record without an `order` sorts after every ordered record, by id, so the order is total."""
+    """Return a sort key for the unit's place in the corpus's triage index (the index record's `order`). A record without an `order` sorts after every ordered record, by id, so the order is total."""
     order = unit.get("order")
     return (order is None, order if isinstance(order, int) else 0, unit["id"])
 
 
-def load_human_units(surface, *, fields: Iterable[str] | None = None):
-    """Return the surface's human units in the slim index shape and the id of every unit on the surface. `rebuild.review.unit_index.load_human_units` does the projection, the classification and the fallback to the shards."""
-    return unit_index.load_human_units(surface, fields=fields)
+def load_human_units(corpus, *, fields: Iterable[str] | None = None):
+    """Return the corpus's human units in the slim index shape and the id of every unit on the corpus. `rebuild.review.unit_index.load_human_units` does the projection, the classification and the fallback to the shards."""
+    return unit_index.load_human_units(corpus, fields=fields)
 
 
 def latest_verdicts(path):
@@ -49,33 +49,33 @@ def latest_verdicts(path):
 
 
 def main(argv=None, *, units: Iterable[Mapping[str, Any]] | None = None):
-    """Write the docket data. `units` lets a caller that already holds the surface's index records pass them instead of having this tool read them again. Only human records (`batch` not None) enter the docket either way."""
+    """Write the docket data. `units` lets a caller that already holds the corpus's index records pass them instead of having this tool read them again. Only human records (`batch` not None) enter the docket either way."""
     parser = argparse.ArgumentParser(description=(__doc__ or "").split(":")[0] + ".")
     parser.add_argument(
         "verdicts", help="the verdicts file for the current frontier (an export or the autosave)"
     )
-    parser.add_argument("--surface", default=str(SURFACE))
+    parser.add_argument("--corpus", "--surface", default=str(CORPUS))
     parser.add_argument("--data-out", default=str(DATA_OUT))
     args = parser.parse_args(argv)
 
-    surface = pathlib.Path(args.surface)
-    manifest = json.loads((surface / "manifest.json").read_text())
+    corpus = pathlib.Path(args.corpus)
+    manifest = json.loads((corpus / "manifest.json").read_text())
     verdicts_path = pathlib.Path(args.verdicts)
     data = json.loads(verdicts_path.read_text())
     if data.get("manifest_generated_at") != manifest["generated_at"]:
         raise SystemExit(
-            f"{args.verdicts} is stamped {data.get('manifest_generated_at')} but the surface is "
+            f"{args.verdicts} is stamped {data.get('manifest_generated_at')} but the corpus is "
             f"{manifest['generated_at']}; unit ids must never be joined across manifests — carry it forward first"
         )
     records = latest_verdicts(verdicts_path)
 
-    units = load_human_units(surface)[0] if units is None else units
+    units = load_human_units(corpus)[0] if units is None else units
     # Sorted by the index record's `order`, the order the app pages through and docket.js reads, so each cluster's exemplar and evidence samples are its earliest units in that order.
     human = sorted((unit for unit in units if unit["batch"] is not None), key=triage_position)
     unclustered = [unit["id"] for unit in human if not unit.get("cluster")]
     if unclustered:
         raise SystemExit(
-            f"{len(unclustered)} human units carry no cluster signature — this surface predates the emission; "
+            f"{len(unclustered)} human units carry no cluster signature — this corpus predates the emission; "
             f"rebuild it with uv run python -m rebuild.review.build"
         )
     blanks = [unit for unit in human if unit["id"] not in records or records[unit["id"]]["verdict"] == "skip"]
@@ -189,7 +189,7 @@ def main(argv=None, *, units: Iterable[Mapping[str, Any]] | None = None):
     data_out.parent.mkdir(parents=True, exist_ok=True)
     data_out.write_text(json.dumps(docket_data, ensure_ascii=False, indent=1) + "\n")
 
-    stale_page = surface / "docket.html"
+    stale_page = corpus / "docket.html"
     if stale_page.exists():
         stale_page.unlink()
         print(f"removed {stale_page} — the docket is now the app's #view=docket")

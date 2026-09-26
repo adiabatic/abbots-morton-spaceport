@@ -1,4 +1,4 @@
-"""Merge stamp-aligned ams-review-verdicts/1 files into verdicts-autosave.json without a browser, as the review app's Import dialog does: per unit, the record with the strictly newer `at` wins. The artifact cycle uses it to merge carried verdicts, and the app reads the result on boot or focus. The existing aligned autosave is always part of the union, so a merge never drops a verdict. An autosave stamped for another surface is moved aside first (`stash_path_for`, as the review server's verdict store does). An input stamped for another surface is refused; `carry_verdicts.py` moves verdicts between surfaces, and there is no override. A merge that would write fails while the review server is listening, because an open tab would write its own store back over the result on its next focus; stop the server or pass --yes. `--restore-as-of --apply` has the same check. Every write is appended to verdicts-journal.ndjson (`rebuild.review.journal`), and `--restore-as-of` replays that journal to recover the store as of any recorded time.
+"""Merge stamp-aligned ams-review-verdicts/1 files into verdicts-autosave.json without a browser, as the review app's Import dialog does: per unit, the record with the strictly newer `at` wins. The artifact cycle uses it to merge carried verdicts, and the app reads the result on boot or focus. The existing aligned autosave is always part of the union, so a merge never drops a verdict. An autosave stamped for another corpus is moved aside first (`stash_path_for`, as the review server's verdict store does). An input stamped for another corpus is refused; `carry_verdicts.py` moves verdicts between corpora, and there is no override. A merge that would write fails while the review server is listening, because an open tab would write its own store back over the result on its next focus; stop the server or pass --yes. `--restore-as-of --apply` has the same check. Every write is appended to verdicts-journal.ndjson (`rebuild.review.journal`), and `--restore-as-of` replays that journal to recover the store as of any recorded time.
 
 Usage:
   uv run python -m rebuild.tools.merge_verdicts [FILES ...]     # no FILES: merge the frontier file verdict-ready names
@@ -24,7 +24,7 @@ from rebuild.review.serve import parse_autosave_payload, stash_path_for  # noqa:
 from rebuild.tools.review_server import server_listening as _server_listening  # noqa: E402
 
 AUTOSAVE = ROOT / "verdicts-autosave.json"
-SURFACE = ROOT / "rebuild" / "out" / "review"
+CORPUS = ROOT / "rebuild" / "out" / "review"
 JOURNAL = ROOT / journal.JOURNAL_NAME
 VERDICT_KINDS = frozenset({"approve", "reject", "either", "identical", "neither", "skip"})
 
@@ -78,22 +78,20 @@ def _write_store(autosave: Path, payload: dict) -> None:
     os.replace(tmp, autosave)
 
 
-def _surface_stamp(surface: Path) -> str | None:
+def _corpus_stamp(corpus: Path) -> str | None:
     try:
-        stamp = json.loads((surface / "manifest.json").read_text()).get("generated_at")
+        stamp = json.loads((corpus / "manifest.json").read_text()).get("generated_at")
     except OSError, ValueError:
         return None
     return stamp if isinstance(stamp, str) else None
 
 
 def run_merge(
-    files: list[Path], *, autosave: Path, surface: Path, journal_path: Path, dry_run: bool, yes: bool = False
+    files: list[Path], *, autosave: Path, corpus: Path, journal_path: Path, dry_run: bool, yes: bool = False
 ) -> int:
-    stamp = _surface_stamp(surface)
+    stamp = _corpus_stamp(corpus)
     if stamp is None:
-        print(
-            f"ERROR: {surface} has no readable manifest.json; build the surface first (make artifact-cycle)."
-        )
+        print(f"ERROR: {corpus} has no readable manifest.json; build the corpus first (make artifact-cycle).")
         return 1
 
     inputs = list(files)
@@ -109,13 +107,13 @@ def run_merge(
             base_records = journal.latest_by_unit(aligned["verdicts"])
             print(
                 f"nothing to merge: no stamp-aligned verdicts file, and the autosave already holds "
-                f"{_effective(base_records)} effective verdicts for this surface"
+                f"{_effective(base_records)} effective verdicts for this corpus"
             )
             return 0
         else:
             print(
                 "ERROR: nothing to merge — no stamp-aligned verdicts file at the repo root or under "
-                "rebuild/evidence, and the autosave is not aligned with this surface. Run make artifact-cycle "
+                "rebuild/evidence, and the autosave is not aligned with this corpus. Run make artifact-cycle "
                 "(or rebuild/tools/carry_verdicts.py) to produce a carried file first."
             )
             return 1
@@ -128,8 +126,8 @@ def run_merge(
             return 1
         if data["manifest_generated_at"] != stamp:
             print(
-                f"ERROR: {_rel(path)} is stamped {data['manifest_generated_at']}, not the served surface "
-                f"({stamp}). Refusing to merge a file stamped for another surface — carry it onto this one with "
+                f"ERROR: {_rel(path)} is stamped {data['manifest_generated_at']}, not the served corpus "
+                f"({stamp}). Refusing to merge a file stamped for another corpus — carry it onto this one with "
                 "rebuild/tools/carry_verdicts.py first."
             )
             return 1
@@ -137,8 +135,8 @@ def run_merge(
 
     if existing is not None and aligned is None and existing["manifest_generated_at"] > stamp:
         print(
-            f"ERROR: the autosave is stamped {existing['manifest_generated_at']}, newer than the surface at "
-            f"{_rel(surface)} ({stamp}). Refusing to merge onto an outdated surface."
+            f"ERROR: the autosave is stamped {existing['manifest_generated_at']}, newer than the corpus at "
+            f"{_rel(corpus)} ({stamp}). Refusing to merge onto an outdated corpus."
         )
         return 1
 
@@ -308,7 +306,7 @@ def main(argv: list[str] | None = None) -> int:
         "--autosave", type=Path, default=AUTOSAVE, help="the live store (default: %(default)s)"
     )
     parser.add_argument(
-        "--surface", type=Path, default=SURFACE, help="the served surface (default: %(default)s)"
+        "--corpus", "--surface", type=Path, default=CORPUS, help="the served corpus (default: %(default)s)"
     )
     parser.add_argument(
         "--journal", type=Path, default=JOURNAL, help="the journal file (default: %(default)s)"
@@ -329,7 +327,7 @@ def main(argv: list[str] | None = None) -> int:
     return run_merge(
         args.files,
         autosave=args.autosave,
-        surface=args.surface,
+        corpus=args.corpus,
         journal_path=args.journal,
         dry_run=args.dry_run,
         yes=args.yes,

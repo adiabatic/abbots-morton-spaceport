@@ -1,4 +1,4 @@
-"""Tests for the review surface's ink comparison.
+"""Tests for the review corpus's ink comparison.
 
 `ink_identical` (the sorted placed pieces are equal) reproduces the worked readings: the ◊ZWNJ ·May·Oy·Pea window is ink-identical only because kerning is off, ␣·Pea·Pea is ink-identical outright, a real one-pixel change is not picture-identical, and two comparators give the same result. `config_diff` (the cells only one font paints over the whole window, with the shifted tail pulled back) ignores a tuck that leaves the union of painted cells unchanged. When one glyph stops painting a pixel that a neighbor still paints, the delta is the empty sentinel if nothing else changed. Beside a real change, the tuck leaves that change's digest as it is, so the window shares a key with its tuck-free siblings. The same change at a seam the neighbor no longer reaches stays in the delta as the hole it leaves.
 
@@ -139,7 +139,7 @@ MARKER_CMAP = {0xE001: "qsA", 0xE002: "qsB", 0xE003: "qsC", 0x20: "space"}
 
 
 def _build_font(path, glyphs=MARKER_GLYPHS, cmap=MARKER_CMAP):
-    """Build a small TTF from `glyphs` and `cmap`. The default marker set has two inked rectangles, one inset in its own frame so its origin_x is not zero, a copy of the first under another name, and an outline-less `space` that stands in for the surface's inkless markers. Each glyph's left sidebearing is set to its own leftmost point. This is required: fontTools' TrueType glyph set translates an outline by `lsb - xMin` when reading it, and would otherwise move the inset glyph back to x=0 and remove the origin under test."""
+    """Build a small TTF from `glyphs` and `cmap`. The default marker set has two inked rectangles, one inset in its own frame so its origin_x is not zero, a copy of the first under another name, and an outline-less `space` that stands in for the corpus's inkless markers. Each glyph's left sidebearing is set to its own leftmost point. This is required: fontTools' TrueType glyph set translates an outline by `lsb - xMin` when reading it, and would otherwise move the inset glyph back to x=0 and remove the origin under test."""
     from fontTools.fontBuilder import FontBuilder
     from fontTools.pens.ttGlyphPen import TTGlyphPen
 
@@ -420,7 +420,7 @@ def test_shaper_for_shares_one_memoized_shaper_per_font():
 
 
 def test_shaper_for_rekeys_when_the_font_changes_on_disk(tmp_path):
-    """A font rewritten in place, as when a test builds surfaces over different mini fonts at one path, must not get stale shapes, so the registry keys on the path, mtime, and size."""
+    """A font rewritten in place, as when a test builds corpora over different mini fonts at one path, must not get stale shapes, so the registry keys on the path, mtime, and size."""
     target = tmp_path / "font.otf"
     shutil.copyfile(BEFORE_FONT, target)
     first = shaper_for(target)

@@ -54,9 +54,9 @@ def v(unit_id, verdict, note="", at=OLD):
 
 @pytest.fixture
 def repo(tmp_path):
-    surface = tmp_path / "surface"
-    (surface / "units").mkdir(parents=True)
-    (surface / "manifest.json").write_text(
+    corpus = tmp_path / "corpus"
+    (corpus / "units").mkdir(parents=True)
+    (corpus / "manifest.json").write_text(
         json.dumps(
             {
                 "generated_at": STAMP,
@@ -69,24 +69,24 @@ def repo(tmp_path):
     )
     return {
         "root": tmp_path,
-        "surface": surface,
+        "corpus": corpus,
         "verdicts": tmp_path / "verdicts.json",
         "data_out": tmp_path / "complaints-data.json",
     }
 
 
-def write_surface(repo, units):
-    """Write one shard per manifest class, as a real surface does, so the tools find the units through the manifest."""
-    surface = repo["surface"]
-    manifest = json.loads((surface / "manifest.json").read_text())
+def write_corpus(repo, units):
+    """Write one shard per manifest class, as a real corpus does, so the tools find the units through the manifest."""
+    corpus = repo["corpus"]
+    manifest = json.loads((corpus / "manifest.json").read_text())
     by_class = {}
     for record in units:
         by_class.setdefault(record["class"], []).append(record)
     for entry in manifest["classes"]:
         shard = f"units/{entry['id']}.json"
-        (surface / shard).write_text(json.dumps(by_class.get(entry["id"], [])))
+        (corpus / shard).write_text(json.dumps(by_class.get(entry["id"], [])))
         entry["shards"] = [shard]
-    (surface / "manifest.json").write_text(json.dumps(manifest))
+    (corpus / "manifest.json").write_text(json.dumps(manifest))
 
 
 def write_verdicts(repo, verdicts, stamp=STAMP):
@@ -106,8 +106,8 @@ def run(repo, *args, **held):
     return cd.main(
         [
             str(repo["verdicts"]),
-            "--surface",
-            str(repo["surface"]),
+            "--corpus",
+            str(repo["corpus"]),
             "--data-out",
             str(repo["data_out"]),
             "--park-dir",
@@ -123,7 +123,7 @@ def data(repo):
 
 
 def test_rejects_sharing_a_policy_target_form_one_group_with_a_union_basis(repo):
-    write_surface(
+    write_corpus(
         repo,
         [
             unit("u-0001", [P_EXTEND_1], policy=policy_draft()),
@@ -144,7 +144,7 @@ def test_rejects_sharing_a_policy_target_form_one_group_with_a_union_basis(repo)
 
 
 def test_draftless_rejects_group_by_their_exact_provenance_tuple(repo):
-    write_surface(
+    write_corpus(
         repo,
         [
             unit("u-0001", [P_EXTEND_1, P_EXTEND_2]),
@@ -163,7 +163,7 @@ def test_draftless_rejects_group_by_their_exact_provenance_tuple(repo):
 
 
 def test_a_neither_strand_attaches_to_the_pointer_sharing_reject_group(repo):
-    write_surface(
+    write_corpus(
         repo,
         [
             unit("u-0001", [P_EXTEND_1], policy=policy_draft()),
@@ -187,7 +187,7 @@ def test_a_neither_strand_attaches_to_the_pointer_sharing_reject_group(repo):
 
 
 def test_fresh_and_standing_split_on_the_manifest_stamp_and_since_overrides(repo):
-    write_surface(repo, [unit("u-0001", [P_EXTEND_1]), unit("u-0002", [P_EXTEND_1])])
+    write_corpus(repo, [unit("u-0001", [P_EXTEND_1]), unit("u-0002", [P_EXTEND_1])])
     write_verdicts(repo, [v("u-0001", "reject", at=FRESH), v("u-0002", "reject", at=OLD)])
     assert run(repo) == 0
     totals = data(repo)["totals"]
@@ -199,7 +199,7 @@ def test_fresh_and_standing_split_on_the_manifest_stamp_and_since_overrides(repo
 
 
 def test_park_candidates_are_the_blank_sharers_and_judged_sharers_forecast_churn(repo):
-    write_surface(
+    write_corpus(
         repo,
         [
             unit("u-0001", [P_EXTEND_1], policy=policy_draft()),
@@ -229,7 +229,7 @@ def test_park_candidates_are_the_blank_sharers_and_judged_sharers_forecast_churn
 
 
 def test_ruled_class_blanks_are_counted_but_not_parked(repo):
-    write_surface(
+    write_corpus(
         repo,
         [
             unit("u-0001", [P_EXTEND_1]),
@@ -245,7 +245,7 @@ def test_ruled_class_blanks_are_counted_but_not_parked(repo):
 
 
 def test_park_emits_skip_verdicts_at_the_manifest_stamp_covering_exact_blanks(repo):
-    write_surface(
+    write_corpus(
         repo,
         [
             unit("u-0001", [P_EXTEND_1], policy=policy_draft()),
@@ -271,7 +271,7 @@ def test_park_emits_skip_verdicts_at_the_manifest_stamp_covering_exact_blanks(re
 
 
 def test_park_refuses_unknown_ids_and_empty_candidate_sets(repo):
-    write_surface(repo, [unit("u-0001", [P_EXTEND_1])])
+    write_corpus(repo, [unit("u-0001", [P_EXTEND_1])])
     write_verdicts(repo, [v("u-0001", "reject")])
     assert run(repo, "--park", "g-00000000") == 1
     payload = data(repo)
@@ -279,7 +279,7 @@ def test_park_refuses_unknown_ids_and_empty_candidate_sets(repo):
 
 
 def test_refuses_a_verdicts_file_from_another_manifest(repo, capsys):
-    write_surface(repo, [unit("u-0001", [P_EXTEND_1])])
+    write_corpus(repo, [unit("u-0001", [P_EXTEND_1])])
     write_verdicts(repo, [v("u-0001", "reject")], stamp="2026-07-01T00:00:00Z")
     assert run(repo) == 1
     assert "carry it forward first" in capsys.readouterr().err
@@ -287,7 +287,7 @@ def test_refuses_a_verdicts_file_from_another_manifest(repo, capsys):
 
 
 def test_exempt_units_never_complain_and_never_park(repo):
-    write_surface(
+    write_corpus(
         repo,
         [
             unit("u-0001", [P_EXTEND_1]),
@@ -303,20 +303,20 @@ def test_exempt_units_never_complain_and_never_park(repo):
     assert payload["groups"][0]["park_candidates"]["unit_ids"] == []
 
 
-def test_the_absent_unit_warning_counts_against_every_id_on_the_surface(repo, capsys):
-    """A verdict on a unit outside the human workload names a unit that is on the surface, so it is not absent; only an id missing from the whole surface is. The fixture surface has shards but no index, so the tool goes through the loader's shard fallback."""
-    write_surface(repo, [unit("u-0001", [P_EXTEND_1]), unit("u-0002", [P_EXTEND_1], batch=None)])
+def test_the_absent_unit_warning_counts_against_every_id_on_the_corpus(repo, capsys):
+    """A verdict on a unit outside the human workload names a unit that is on the corpus, so it is not absent; only an id missing from the whole corpus is. The fixture corpus has shards but no index, so the tool goes through the loader's shard fallback."""
+    write_corpus(repo, [unit("u-0001", [P_EXTEND_1]), unit("u-0002", [P_EXTEND_1], batch=None)])
     write_verdicts(repo, [v("u-0001", "reject"), v("u-0002", "reject")])
     assert run(repo) == 0
-    assert "absent from this surface" not in capsys.readouterr().err
+    assert "absent from this corpus" not in capsys.readouterr().err
     write_verdicts(repo, [v("u-0001", "reject"), v("u-0002", "reject"), v("u-0009", "reject")])
     assert run(repo) == 0
-    assert "warning: 1 verdict records name units absent from this surface" in capsys.readouterr().err
+    assert "warning: 1 verdict records name units absent from this corpus" in capsys.readouterr().err
 
 
 def test_the_human_records_without_the_id_set_are_refused(repo):
-    """`main` exits when passed `units` without `unit_ids`, or the reverse. The absent-unit warning needs every surface id, and the human records alone would count every verdict on a machine unit as absent."""
-    write_surface(repo, [unit("u-0001", [P_EXTEND_1])])
+    """`main` exits when passed `units` without `unit_ids`, or the reverse. The absent-unit warning needs every corpus id, and the human records alone would count every verdict on a machine unit as absent."""
+    write_corpus(repo, [unit("u-0001", [P_EXTEND_1])])
     write_verdicts(repo, [v("u-0001", "reject")])
     with pytest.raises(SystemExit):
         run(repo, units=[unit("u-0001", [P_EXTEND_1])])
@@ -325,7 +325,7 @@ def test_the_human_records_without_the_id_set_are_refused(repo):
 
 
 def test_streamed_records_preserve_docket_and_park_bytes_without_retaining_records(repo, capsys):
-    write_surface(
+    write_corpus(
         repo,
         [
             unit("u-0003", [P_EXTEND_1]),
@@ -348,7 +348,7 @@ def test_streamed_records_preserve_docket_and_park_bytes_without_retaining_recor
             v("u-0009", "reject"),
         ],
     )
-    units, unit_ids = load_human_units(repo["surface"])
+    units, unit_ids = load_human_units(repo["corpus"])
     assert run(repo, units=units, unit_ids=unit_ids) == 0
     group = data(repo)["groups"][0]
     assert run(repo, "--park", group["id"], units=units, unit_ids=unit_ids) == 0
@@ -374,11 +374,11 @@ def test_streamed_records_preserve_docket_and_park_bytes_without_retaining_recor
     assert repo["data_out"].read_bytes() == expected
     assert park_path.read_bytes() == expected_park
     assert all(reference() is None for reference in references)
-    assert capsys.readouterr().err == "warning: 1 verdict records name units absent from this surface\n"
+    assert capsys.readouterr().err == "warning: 1 verdict records name units absent from this corpus\n"
 
 
 def test_conflicting_mechanical_drafts_on_one_fix_site_are_flagged(repo):
-    write_surface(
+    write_corpus(
         repo,
         [
             unit("u-0001", [P_EXTEND_1], policy=policy_draft(when="{left: {family: [qsTea]}}")),
@@ -393,7 +393,7 @@ def test_conflicting_mechanical_drafts_on_one_fix_site_are_flagged(repo):
 
 
 def test_complaints_with_no_provenance_land_in_a_terminal_unattributed_group(repo):
-    write_surface(repo, [unit("u-0001", []), unit("u-0002", [P_EXTEND_1])])
+    write_corpus(repo, [unit("u-0001", []), unit("u-0002", [P_EXTEND_1])])
     write_verdicts(repo, [v("u-0001", "reject", at=FRESH), v("u-0002", "reject")])
     assert run(repo) == 0
     payload = data(repo)
@@ -404,7 +404,7 @@ def test_complaints_with_no_provenance_land_in_a_terminal_unattributed_group(rep
 
 
 def test_no_open_complaints_still_writes_a_valid_empty_feed(repo, capsys):
-    write_surface(repo, [unit("u-0001", [P_EXTEND_1])])
+    write_corpus(repo, [unit("u-0001", [P_EXTEND_1])])
     write_verdicts(repo, [])
     assert run(repo) == 0
     assert "no open complaints" in capsys.readouterr().out

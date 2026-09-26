@@ -164,7 +164,7 @@ def test_a_report_renders_every_line_the_panel_reads():
 
 
 def test_explain_many_batches_same_config_sequences_by_position(monkeypatch):
-    """`kernel_exec.settle_sequences` makes one `settle_cases` call per feature configuration per position, not one per sequence, which keeps the surface build's explain step affordable."""
+    """`kernel_exec.settle_sequences` makes one `settle_cases` call per feature configuration per position, not one per sequence, which keeps the corpus build's explain step affordable."""
     calls: list[tuple[frozenset[str], int]] = []
     original = kernel_exec.settle_cases
 

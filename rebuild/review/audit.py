@@ -1,4 +1,4 @@
-"""M1-mode unit assembly for the review surface (rebuild/REVIEW-PLAN.md §1.1, §2.1). It loads rebuild/out/m1/divergence-audit.tsv and rebuild/m1-divergences.yaml, dedupes the audit rows to (codepoints, baseline, new) units, and orders them for triage (`triage_key`): ledger class in ledger file order, then the lead family-pair group in code-point order, then the window's length and codepoints, then the unit's id. `assign_batches` assigns fixed batch slices over that order.
+"""M1-mode unit assembly for the review corpus (rebuild/REVIEW-PLAN.md §1.1, §2.1). It loads rebuild/out/m1/divergence-audit.tsv and rebuild/m1-divergences.yaml, dedupes the audit rows to (codepoints, baseline, new) units, and orders them for triage (`triage_key`): ledger class in ledger file order, then the lead family-pair group in code-point order, then the window's length and codepoints, then the unit's id. `assign_batches` assigns fixed batch slices over that order.
 
 This module does not assign unit ids. A unit's id is `unit_cache.unit_id_for` over the content key the build stamps once the unit is enriched, so it depends on what the reviewer judges and not on where the unit sits in the order.
 
@@ -82,7 +82,7 @@ def slim_fragment(fragment) -> bool:
     return machine_approved(fragment) or fragment.get("no_verdict") is True
 
 
-# A plain dict, not a mappingproxy, because a Unit is pickled to every surface worker and a mappingproxy cannot be pickled. The field's `Mapping` type is what rules out an in-place write.
+# A plain dict, not a mappingproxy, because a Unit is pickled to every corpus worker and a mappingproxy cannot be pickled. The field's `Mapping` type is what rules out an in-place write.
 NO_DELTAS: Mapping[str, str] = {}
 
 
@@ -973,7 +973,7 @@ def triage_key(
     unit_id: str,
     family_rank: Mapping[str, int],
 ) -> tuple:
-    """The sort key for the order a surface pages its human units in (the manifest's `human_unit_ids`): the class's index in the manifest's class list, the group's families by code point, the window's length and codepoints, and last the unit's id. The id breaks ties between sibling units of one window by content instead of by audit order. Every term depends only on the unit and the ledger, so the same units sort the same way on every surface. `build.check_shards` checks every manifest's index against this key."""
+    """The sort key for the order a corpus pages its human units in (the manifest's `human_unit_ids`): the class's index in the manifest's class list, the group's families by code point, the window's length and codepoints, and last the unit's id. The id breaks ties between sibling units of one window by content instead of by audit order. Every term depends only on the unit and the ledger, so the same units sort the same way on every corpus. `build.check_shards` checks every manifest's index against this key."""
     return (
         class_index,
         tuple(family_rank.get(name, 10**6) for name in group.split(":")),

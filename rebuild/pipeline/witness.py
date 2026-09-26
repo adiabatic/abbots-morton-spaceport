@@ -2,7 +2,7 @@
 
 The replay imports the emitter's rule renaming (`emit_gsub._renamed`, with `_FoldedRule` as the type of a renamed rule), so it lives here and not in conform.py. `oracle_cache.ORACLE_ROW_CODE_PATHS` must list every module reachable from conform.py, which defines the comparison's entry points `_compare_row` and `_SettledWindowWalk`. rebuild/test_oracle_code_closure.py checks this by walking imports at module grain from `ORACLE_ENTRY_MODULES`, `if TYPE_CHECKING:` imports included. An edit to any listed module drops every stored row verdict, so keeping the replay here keeps emit_gsub.py off that list. What this module uses from conform.py (raw-label formation, the window slots, the settle walk, the memo file, and the report) is inside that closure anyway.
 
-`fingerprint.COMPARISON_CODE_MODULES` names only oracle.py and oracle_positions.py, so witness.py is part of `table_code_paths`, as conform.py is. `unit_cache.PIPELINE_NON_SURFACE_MODULES` leaves it out of the review unit cache's stamp, because the surface build never imports it. The belt, `run_conformance` and its configuration workers, is in conform.py.
+`fingerprint.COMPARISON_CODE_MODULES` names only oracle.py and oracle_positions.py, so witness.py is part of `table_code_paths`, as conform.py is. `unit_cache.PIPELINE_NON_CORPUS_MODULES` leaves it out of the review unit cache's stamp, because the corpus build never imports it. The belt, `run_conformance` and its configuration workers, is in conform.py.
 """
 
 from __future__ import annotations

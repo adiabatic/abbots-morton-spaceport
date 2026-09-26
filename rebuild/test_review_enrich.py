@@ -1,4 +1,4 @@
-"""Tests for the review surface's enrichment: the notation map against doc/glyph-names.md, divergent positions and pair selection on known units, highlight x-ranges against hand-computed hmtx sums, and the secondary-seam home resolver over hand-built stubs.
+"""Tests for the review corpus's enrichment: the notation map against doc/glyph-names.md, divergent positions and pair selection on known units, highlight x-ranges against hand-computed hmtx sums, and the secondary-seam home resolver over hand-built stubs.
 
 Each test names its units by codepoints and takes them from `example_units`, a filtered load of the frozen mini bundle's audit settled under the spec that `mini_bundle` materializes, so no test reads the live corpus. If a named window disappears, regenerating the bundle fails and names it. The build checks three claims over every shipped unit instead: that re-settlement agrees with the audit, that the two before-seam derivations agree, and the shape of the summary.
 """

@@ -312,17 +312,17 @@ function machineChannelSplit(manifest) {
   return split;
 }
 
-export function surfaceChipLabel(manifest) {
+export function corpusChipLabel(manifest) {
   return `${formatCount(manifest.totals.units)} units`;
 }
 
-export function surfaceAlphabetLabel(manifest) {
+export function corpusAlphabetLabel(manifest) {
   const alphabet = manifest.alphabet;
   if (!alphabet) return null;
   return `${formatCount(alphabet.migrated)} of ${formatCount(alphabet.total)} letters`;
 }
 
-export function surfaceStampLine(manifest) {
+export function corpusStampLine(manifest) {
   if (!manifest.generated_at) return null;
   return manifest.repo_head
     ? `Generated ${manifest.generated_at} at ${manifest.repo_head}`
@@ -332,8 +332,8 @@ export function surfaceStampLine(manifest) {
 const NO_VERDICT_DETAIL_TITLE =
   'Units in a no-verdict ledger class are adjudicated wholesale by a ratified rule and never need individual verdicts; hover the class in the sidebar for its rationale.';
 
-export function surfaceDetailRows(manifest) {
-  const rows = [{ label: 'Surface', value: formatCount(manifest.totals.units) }];
+export function corpusDetailRows(manifest) {
+  const rows = [{ label: 'Corpus', value: formatCount(manifest.totals.units) }];
   const { units } = machineChannels(manifest);
   if (units > 0) {
     const split = machineChannelSplit(manifest);
@@ -347,7 +347,7 @@ export function surfaceDetailRows(manifest) {
   }
   const exempt = noVerdictTotal(manifest);
   if (exempt > 0) rows.push({ label: 'in no-verdict classes', value: formatCount(exempt), title: NO_VERDICT_DETAIL_TITLE });
-  rows.push({ label: 'for human review', value: formatCount(humanTotal(manifest)), title: 'The Overall denominator: everything the surface leaves to a person.' });
+  rows.push({ label: 'for human review', value: formatCount(humanTotal(manifest)), title: 'The Overall denominator: everything the corpus leaves to a person.' });
   return rows;
 }
 

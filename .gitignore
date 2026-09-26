@@ -24,10 +24,10 @@ wheels/
 # Scratch files, wiped freely between change sets
 tmp/
 
-# Kept output: cycle build logs, review-surface snapshots, hand-kept archives, and the standing daemon's socket, lock file and log
+# Kept output: cycle build logs, review-corpus snapshots, hand-kept archives, and the standing daemon's socket, lock file and log
 /var/
 
-# Rebuild output: baseline extraction, the M1 build, the review surface, green records, and the cycle-timings journal
+# Rebuild output: baseline extraction, the M1 build, the review corpus, green records, and the cycle-timings journal
 rebuild/out/
 
 # Claude Code local state

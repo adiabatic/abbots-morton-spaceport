@@ -1,4 +1,4 @@
-"""Diff two directories of settlement and treaty tables for the review surface's table-diff mode (rebuild/REVIEW-PLAN.md §2.3, design §8). Rows are matched by key, removals and additions that share an input are paired into one regrouped entry, and settlement changes that move only provenance go to the low-priority `provenance-only` bucket, which sorts last. `WitnessIndex` finds a witness string for each entry by settling every short sequence, and `write_snapshot` writes the baseline a later diff compares against."""
+"""Diff two directories of settlement and treaty tables for the review corpus's table-diff mode (rebuild/REVIEW-PLAN.md §2.3, design §8). Rows are matched by key, removals and additions that share an input are paired into one regrouped entry, and settlement changes that move only provenance go to the low-priority `provenance-only` bucket, which sorts last. `WitnessIndex` finds a witness string for each entry by settling every short sequence, and `write_snapshot` writes the baseline a later diff compares against."""
 
 from __future__ import annotations
 

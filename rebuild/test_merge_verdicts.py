@@ -1,4 +1,4 @@
-"""Tests for `rebuild/tools/merge_verdicts.py`, which merges verdict files into the autosave outside the browser: the review app's union in which the newer `at` wins, the stamp checks (only inputs stamped for the current surface, a stale autosave stashed, no merge onto an outdated surface), the refusal while the review server is listening, idempotence, and the restore from the journal."""
+"""Tests for `rebuild/tools/merge_verdicts.py`, which merges verdict files into the autosave outside the browser: the review app's union in which the newer `at` wins, the stamp checks (only inputs stamped for the current corpus, a stale autosave stashed, no merge onto an outdated corpus), the refusal while the review server is listening, idempotence, and the restore from the journal."""
 
 import json
 
@@ -29,12 +29,12 @@ def write_doc(path, stamp, verdicts):
 @pytest.fixture
 def repo(tmp_path, monkeypatch):
     monkeypatch.setattr(mv, "_server_listening", lambda: False)
-    surface = tmp_path / "surface"
-    surface.mkdir()
-    (surface / "manifest.json").write_text(json.dumps({"generated_at": "S2"}))
+    corpus = tmp_path / "corpus"
+    corpus.mkdir()
+    (corpus / "manifest.json").write_text(json.dumps({"generated_at": "S2"}))
     return {
         "root": tmp_path,
-        "surface": surface,
+        "corpus": corpus,
         "autosave": tmp_path / "verdicts-autosave.json",
         "journal": tmp_path / "verdicts-journal.ndjson",
     }
@@ -46,8 +46,8 @@ def run(repo, *args):
             *args,
             "--autosave",
             str(repo["autosave"]),
-            "--surface",
-            str(repo["surface"]),
+            "--corpus",
+            str(repo["corpus"]),
             "--journal",
             str(repo["journal"]),
         ]
@@ -114,11 +114,11 @@ def test_stashes_a_stale_autosave_and_starts_from_the_carried_file(repo, tmp_pat
     assert events[-1]["stashed"] == "verdicts-autosave-S1.json"
 
 
-def test_refuses_to_merge_onto_an_outdated_surface(repo, tmp_path, capsys):
+def test_refuses_to_merge_onto_an_outdated_corpus(repo, tmp_path, capsys):
     write_doc(repo["autosave"], "S3", [v("u-1")])
     incoming = write_doc(tmp_path / "incoming.json", "S2", [v("u-2")])
     assert run(repo, str(incoming)) == 1
-    assert "outdated surface" in capsys.readouterr().out
+    assert "outdated corpus" in capsys.readouterr().out
     assert not repo["journal"].exists()
 
 

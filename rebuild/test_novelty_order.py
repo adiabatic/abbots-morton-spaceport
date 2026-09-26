@@ -105,16 +105,16 @@ def test_distance_is_zero_for_identical_features_and_grows_with_difference():
 
 @pytest.fixture
 def repo(tmp_path):
-    surface = tmp_path / "surface"
-    (surface / "units").mkdir(parents=True)
-    (surface / "manifest.json").write_text(
+    corpus = tmp_path / "corpus"
+    (corpus / "units").mkdir(parents=True)
+    (corpus / "manifest.json").write_text(
         json.dumps({"generated_at": STAMP, "classes": [{"id": "all", "shards": ["units/all.json"]}]})
     )
-    return {"surface": surface, "verdicts": tmp_path / "verdicts.json"}
+    return {"corpus": corpus, "verdicts": tmp_path / "verdicts.json"}
 
 
-def write_surface(repo, units):
-    (repo["surface"] / "units" / "all.json").write_text(json.dumps(units))
+def write_corpus(repo, units):
+    (repo["corpus"] / "units" / "all.json").write_text(json.dumps(units))
 
 
 def write_verdicts(repo, verdicts, stamp=STAMP):
@@ -124,7 +124,7 @@ def write_verdicts(repo, verdicts, stamp=STAMP):
 def run_main(repo, monkeypatch, capsys, *extra):
     monkeypatch.setattr(
         "sys.argv",
-        ["novelty_order.py", str(repo["verdicts"]), "--surface", str(repo["surface"]), *extra],
+        ["novelty_order.py", str(repo["verdicts"]), "--corpus", str(repo["corpus"]), *extra],
     )
     no.main(clipboard_write=lambda _url: None)
     return capsys.readouterr().out
@@ -135,7 +135,7 @@ def worklist_url(out):
 
 
 def test_main_prints_the_order_given_worklist_url(repo, monkeypatch, capsys):
-    write_surface(
+    write_corpus(
         repo,
         [
             unit("u-0001", cls="alpha"),
@@ -152,12 +152,12 @@ def test_main_prints_the_order_given_worklist_url(repo, monkeypatch, capsys):
 
 
 def test_main_routes_the_worklist_url_through_the_clipboard_hook(repo, monkeypatch, capsys):
-    write_surface(repo, [unit("u-0001")])
+    write_corpus(repo, [unit("u-0001")])
     write_verdicts(repo, [])
     copied = []
     monkeypatch.setattr(
         "sys.argv",
-        ["novelty_order.py", str(repo["verdicts"]), "--surface", str(repo["surface"])],
+        ["novelty_order.py", str(repo["verdicts"]), "--corpus", str(repo["corpus"])],
     )
     no.main(clipboard_write=copied.append)
     out = capsys.readouterr().out
@@ -165,7 +165,7 @@ def test_main_routes_the_worklist_url_through_the_clipboard_hook(repo, monkeypat
 
 
 def test_main_limit_emits_a_prefix(repo, monkeypatch, capsys):
-    write_surface(
+    write_corpus(
         repo,
         [
             unit("u-0001", cls="alpha"),
@@ -180,7 +180,7 @@ def test_main_limit_emits_a_prefix(repo, monkeypatch, capsys):
 
 
 def test_main_defaults_to_a_forty_unit_worklist(repo, monkeypatch, capsys):
-    write_surface(repo, [unit(f"u-{number:04d}") for number in range(1, 46)])
+    write_corpus(repo, [unit(f"u-{number:04d}") for number in range(1, 46)])
     write_verdicts(repo, [])
     out = run_main(repo, monkeypatch, capsys)
     assert "emitting the first 40 reps" in out
@@ -188,7 +188,7 @@ def test_main_defaults_to_a_forty_unit_worklist(repo, monkeypatch, capsys):
 
 
 def test_main_limit_zero_emits_the_whole_queue(repo, monkeypatch, capsys):
-    write_surface(repo, [unit(f"u-{number:04d}") for number in range(1, 46)])
+    write_corpus(repo, [unit(f"u-{number:04d}") for number in range(1, 46)])
     write_verdicts(repo, [])
     out = run_main(repo, monkeypatch, capsys, "--limit", "0")
     assert "echo-fills the rest" in out
@@ -196,14 +196,14 @@ def test_main_limit_zero_emits_the_whole_queue(repo, monkeypatch, capsys):
 
 
 def test_main_refuses_a_verdicts_file_for_another_manifest(repo, monkeypatch, capsys):
-    write_surface(repo, [unit("u-0001")])
+    write_corpus(repo, [unit("u-0001")])
     write_verdicts(repo, [], stamp="2026-07-01T00:00:00Z")
     with pytest.raises(SystemExit, match="never be joined across manifests"):
         run_main(repo, monkeypatch, capsys)
 
 
 def test_main_reports_an_empty_queue(repo, monkeypatch, capsys):
-    write_surface(repo, [unit("u-0001")])
+    write_corpus(repo, [unit("u-0001")])
     write_verdicts(repo, [v("u-0001", "approve")])
     out = run_main(repo, monkeypatch, capsys)
     assert "nothing to order" in out

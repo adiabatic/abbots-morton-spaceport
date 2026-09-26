@@ -1,6 +1,6 @@
-"""Tests for the review surface build's contract checks, each run against a surface that breaks one predicate, and for the drafters and packers that raise instead of producing a bad value.
+"""Tests for the review corpus build's contract checks, each run against a corpus that breaks one predicate, and for the drafters and packers that raise instead of producing a bad value.
 
-`build_m1` runs `check_unit` over every unit it computes and runs the cross-unit predicates of `check_shards` through `_SurfaceCheck`, so a violation fails the build that produced it. A cache-served unit skips `check_unit` and is covered instead by the `content_key` stamp that its shard and its store record must agree on; the cross-unit predicates run over both kinds. The manifest-shape predicates (`check_manifest`) and the file predicates (`_check_output_files`) do not run in `build_m1`, because a build writes every field they read from its own inputs; `check_output_dir` runs them over a real m1 build of the frozen mini bundle in `rebuild/test_app_index.py`. A violation appears only as one line in a `contract check failed` list, not as a named failing test, so this module tests the checker itself. It runs `check_manifest` and `check_shards` over the checked-in fixture surface, which passes as shipped and carries no fonts, index page, or sidecars, and then with one field broken at a time. It runs the file predicates over small surfaces under tmp_path with one file missing or wrong. The drafter tests run over the frozen mini bundle; the highlight and subset-pack tests use small synthetic inputs, plus one check over the mini bundle's real tables.
+`build_m1` runs `check_unit` over every unit it computes and runs the cross-unit predicates of `check_shards` through `_CorpusCheck`, so a violation fails the build that produced it. A cache-served unit skips `check_unit` and is covered instead by the `content_key` stamp that its shard and its store record must agree on; the cross-unit predicates run over both kinds. The manifest-shape predicates (`check_manifest`) and the file predicates (`_check_output_files`) do not run in `build_m1`, because a build writes every field they read from its own inputs; `check_output_dir` runs them over a real m1 build of the frozen mini bundle in `rebuild/test_app_index.py`. A violation appears only as one line in a `contract check failed` list, not as a named failing test, so this module tests the checker itself. It runs `check_manifest` and `check_shards` over the checked-in fixture corpus, which passes as shipped and carries no fonts, index page, or sidecars, and then with one field broken at a time. It runs the file predicates over small corpora under tmp_path with one file missing or wrong. The drafter tests run over the frozen mini bundle; the highlight and subset-pack tests use small synthetic inputs, plus one check over the mini bundle's real tables.
 """
 
 import copy
@@ -63,7 +63,7 @@ ECHO_MATE = "u-8nacGTcgMRS"
 THIRD_UNIT = "u-2WvdGAWe6bX"
 
 
-def _surface() -> tuple[dict, dict[str, list[dict]]]:
+def _corpus() -> tuple[dict, dict[str, list[dict]]]:
     manifest = json.loads((FIXTURES / "manifest.json").read_text(encoding="utf-8"))
     shards = {
         meta["id"]: [
@@ -81,7 +81,7 @@ def _unit(shards: dict[str, list[dict]], unit_id: str) -> dict:
 
 
 def _one(unit_id: str = PLAIN_UNIT) -> dict:
-    _manifest, shards = _surface()
+    _manifest, shards = _corpus()
     return _unit(shards, unit_id)
 
 
@@ -89,15 +89,15 @@ def _complaint(errors: list[str], needle: str) -> None:
     assert any(needle in error for error in errors), errors
 
 
-def _sidecars(surface: Path) -> None:
+def _sidecars(corpus: Path) -> None:
     """Writes the stamped sidecars the output check requires beside a manifest (the verdict update's unit index and the files in `app_index.ARTIFACTS`), so a test about one missing file does not also fail on the others."""
-    unit_index.write_index(surface, [])
-    app_index.write_app_artifacts(surface, {}, {})
+    unit_index.write_index(corpus, [])
+    app_index.write_app_artifacts(corpus, {}, {})
 
 
-def test_the_fixture_surface_passes_every_predicate():
-    """The checked-in fixture surface passes every predicate as shipped, so each failure in the tests below comes from the field that test breaks."""
-    manifest, shards = _surface()
+def test_the_fixture_corpus_passes_every_predicate():
+    """The checked-in fixture corpus passes every predicate as shipped, so each failure in the tests below comes from the field that test breaks."""
+    manifest, shards = _corpus()
     assert check_manifest(manifest) == []
     assert check_shards(manifest, shards, REPO_ROOT) == []
 
@@ -175,7 +175,7 @@ def test_an_any_of_candidate_that_does_not_parse_is_never_drafted(monkeypatch, m
 
 
 def test_a_policy_draft_naming_a_file_that_is_not_in_the_repo_fails_the_build():
-    manifest, shards = _surface()
+    manifest, shards = _corpus()
     _unit(shards, PLAIN_UNIT)["drafts"]["policy"]["file"] = "glyph_data/runes/qsNotAletter.yaml"
     _complaint(check_shards(manifest, shards, REPO_ROOT), "which is not a file in the repo")
 
@@ -261,7 +261,7 @@ def test_a_secondary_seam_rect_reaching_past_the_run_fails_the_build():
 
 
 def test_a_gate_clause_the_manifest_does_not_gloss_fails_the_build():
-    manifest, shards = _surface()
+    manifest, shards = _corpus()
     _unit(shards, PLAIN_UNIT)["config_gate"][0]["feature"] = "ss99"
     _complaint(check_shards(manifest, shards), "feature_descriptions does not gloss")
 
@@ -270,13 +270,13 @@ def test_a_gate_clause_the_manifest_does_not_gloss_fails_the_build():
 
 
 def test_an_echo_group_spanning_two_config_sets_fails_the_build():
-    manifest, shards = _surface()
+    manifest, shards = _corpus()
     _unit(shards, ECHO_MATE)["echo"] = _unit(shards, PLAIN_UNIT)["echo"]
     _complaint(check_shards(manifest, shards), "one group spans")
 
 
 def test_an_echo_group_spanning_two_clusters_fails_the_build():
-    manifest, shards = _surface()
+    manifest, shards = _corpus()
     left, right = _unit(shards, ECHO_MATE), _unit(shards, THIRD_UNIT)
     right["echo"] = left["echo"]
     right["cluster"] = "c-0badc0de"
@@ -284,26 +284,26 @@ def test_an_echo_group_spanning_two_clusters_fails_the_build():
 
 
 def test_a_cluster_spanning_two_classes_fails_the_build():
-    manifest, shards = _surface()
+    manifest, shards = _corpus()
     _unit(shards, SEAM_BEARER)["cluster"] = _unit(shards, ECHO_MATE)["cluster"]
     _complaint(check_shards(manifest, shards), "one signature spans")
 
 
 def test_human_unit_ids_out_of_triage_order_fails_the_build():
     """`human_unit_ids` lists the human units in triage order (class, group, window, id). A fragment carries no position, so the checker derives the order from the fragments with `triage_key` and compares the manifest with it."""
-    manifest, shards = _surface()
+    manifest, shards = _corpus()
     manifest["human_unit_ids"] = list(reversed(manifest["human_unit_ids"]))
     _complaint(check_shards(manifest, shards), "not the triage-ordered sequence")
 
 
 def test_a_class_claiming_a_batch_its_units_do_not_occupy_fails_the_build():
-    manifest, shards = _surface()
+    manifest, shards = _corpus()
     manifest["classes"][0]["batches"] = [0, 4]
     _complaint(check_shards(manifest, shards), "are not the slices")
 
 
 def test_a_batch_count_the_index_does_not_bear_out_fails_the_build():
-    manifest, shards = _surface()
+    manifest, shards = _corpus()
     manifest["totals"]["batches"] = 7
     _complaint(check_shards(manifest, shards), "totals.batches does not count")
 
@@ -325,7 +325,7 @@ def test_an_id_that_is_not_its_stamps_fails_the_build():
 
 
 def test_a_no_verdict_class_carrying_batches_fails_the_build():
-    manifest, shards = _surface()
+    manifest, shards = _corpus()
     manifest["classes"][0]["no_verdict"] = True
     _complaint(check_shards(manifest, shards), "no-verdict class must carry no batches")
 
@@ -333,9 +333,9 @@ def test_a_no_verdict_class_carrying_batches_fails_the_build():
 # --- the secondary-seam home relation -----------------------------------------------------------
 
 
-def _homed_surface() -> tuple[dict, dict[str, list[dict]]]:
+def _homed_corpus() -> tuple[dict, dict[str, list[dict]]]:
     """Returns the fixture with its one homed seam made to look like the resolver's output: a `secondary_seams` census in the manifest, which marks the homes as resolver-assigned, a home window that is a substring of the bearer's window, and a primary pair on the home. The fixture ships without a census because its seam is placed by hand."""
-    manifest, shards = _surface()
+    manifest, shards = _corpus()
     manifest["secondary_seams"] = {
         "units_with_markers": 1,
         "seams_homed": 1,
@@ -350,18 +350,18 @@ def _homed_surface() -> tuple[dict, dict[str, list[dict]]]:
 
 
 def test_a_resolver_shaped_home_passes():
-    manifest, shards = _homed_surface()
+    manifest, shards = _homed_corpus()
     assert check_shards(manifest, shards) == []
 
 
 def test_a_home_that_is_not_a_substring_window_fails_the_build():
-    manifest, shards = _homed_surface()
+    manifest, shards = _homed_corpus()
     _unit(shards, SEAM_HOME)["codepoints"] = "E652:E670"
     _complaint(check_shards(manifest, shards), "is not a substring window")
 
 
 def test_a_home_with_no_primary_pair_fails_the_build():
-    manifest, shards = _homed_surface()
+    manifest, shards = _homed_corpus()
     home = _unit(shards, SEAM_HOME)
     home["pair"] = None
     home["pair_codepoints"] = None
@@ -370,7 +370,7 @@ def test_a_home_with_no_primary_pair_fails_the_build():
 
 def test_a_home_with_nothing_to_see_fails_the_build():
     """The resolver counts a seam whose home is ink-identical in `seams_suppressed_invisible` instead of shipping it. A shipped seam with such a home means that suppression did not happen."""
-    manifest, shards = _homed_surface()
+    manifest, shards = _homed_corpus()
     home = _unit(shards, SEAM_HOME)
     home["ink_identical"] = True
     home["ink_deltas"] = {}
@@ -382,7 +382,7 @@ def test_a_home_with_nothing_to_see_fails_the_build():
 
 def test_a_picture_identical_home_fails_the_build_the_same_way():
     """A picture-identical home also shows no visible change: its delta is empty under every config, so the resolver should have suppressed the seam."""
-    manifest, shards = _homed_surface()
+    manifest, shards = _homed_corpus()
     home = _unit(shards, SEAM_HOME)
     home["picture_identical"] = True
     home["ink_deltas"] = {}
@@ -396,7 +396,7 @@ def test_a_picture_identical_home_fails_the_build_the_same_way():
 
 
 def test_a_missing_unit_index_fails_the_build(tmp_path):
-    """The verdict update reads the unit index, not the shards. A surface without an index, or with one stamped for another manifest, would make the next carry read stale data."""
+    """The verdict update reads the unit index, not the shards. A corpus without an index, or with one stamped for another manifest, would make the next carry read stale data."""
     manifest = {"classes": [], "fonts": {}}
     (tmp_path / "index.html").write_text("")
     (tmp_path / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
@@ -417,18 +417,18 @@ def test_a_missing_or_empty_shard_fails_the_build(tmp_path):
     _complaint(_check_output_files(tmp_path, manifest), "is empty")
 
 
-def _split_first_class(surface: Path) -> None:
-    """Rewrite the surface's first class as two numbered parts, which is the layout a class past the byte cap ships in."""
-    manifest = json.loads((surface / "manifest.json").read_text(encoding="utf-8"))
+def _split_first_class(corpus: Path) -> None:
+    """Rewrite the corpus's first class as two numbered parts, which is the layout a class past the byte cap ships in."""
+    manifest = json.loads((corpus / "manifest.json").read_text(encoding="utf-8"))
     meta = manifest["classes"][0]
     (whole,) = unit_index.class_shards(meta)
-    units = json.loads((surface / whole).read_text(encoding="utf-8"))
+    units = json.loads((corpus / whole).read_text(encoding="utf-8"))
     chunks = (units[:1], units[1:])
     meta["shards"] = [f"units/{meta['id']}.{index:03d}.json" for index in range(len(chunks))]
     for part, chunk in zip(meta["shards"], chunks, strict=True):
-        _write_json(surface / part, chunk)
-    (surface / whole).unlink()
-    _write_json(surface / "manifest.json", manifest)
+        _write_json(corpus / part, chunk)
+    (corpus / whole).unlink()
+    _write_json(corpus / "manifest.json", manifest)
 
 
 def test_a_class_written_as_parts_reads_back_as_the_same_class(tmp_path):
@@ -489,7 +489,7 @@ def test_a_font_copy_that_is_not_its_source_fails_the_build(tmp_path):
 def test_a_build_without_its_baseline_subset_tables_refuses_before_it_starts(tmp_path):
     with pytest.raises(SystemExit) as raised:
         build_m1(
-            tmp_path / "surface",
+            tmp_path / "corpus",
             audit_path=FIXTURES / "fixture-audit.tsv",
             ledger_path=FIXTURES / "fixture-ledger.yaml",
             subset_dir=tmp_path / "no-tables",
@@ -503,7 +503,7 @@ def test_an_empty_audit_refuses_before_any_unit_is_built(tmp_path, mini_bundle):
     audit_path.write_text("\t".join(AUDIT_HEADER) + "\n", encoding="utf-8")
     with pytest.raises(SystemExit) as raised:
         build_m1(
-            tmp_path / "surface",
+            tmp_path / "corpus",
             audit_path=audit_path,
             ledger_path=mini_bundle.ledger,
             subset_dir=MINI,
@@ -549,7 +549,7 @@ def test_a_font_that_moved_since_load_fails_the_copy(tmp_path):
 
 def test_a_manifest_with_no_classes_draws_no_complaint():
     """`check_manifest` accepts an empty `classes` list. The build exits before it would write one (see the tests above), and a checker that failed on it would fail on the rebuild's intended end state."""
-    manifest, _shards = _surface()
+    manifest, _shards = _corpus()
     manifest["classes"] = []
     assert not [error for error in check_manifest(manifest) if "classes" in error]
 
@@ -770,7 +770,7 @@ def test_a_pack_is_written_once_and_rewritten_only_when_a_table_moves(tmp_path, 
 
 def test_a_served_unit_skips_check_unit_but_not_the_cross_unit_grain():
     """`served_ids` skips `check_unit` for a served fragment, whose stamp already covers the per-unit predicates. The predicates that relate a unit to its shard and to other units still run over every unit, served or not."""
-    manifest, shards = _surface()
+    manifest, shards = _corpus()
     _unit(shards, PLAIN_UNIT)["drafts"]["pin"]["syntax"] = "fail: Expected glyph token at pos 0"
     _complaint(check_shards(manifest, shards, REPO_ROOT), "drafts.pin.syntax")
     assert check_shards(manifest, shards, REPO_ROOT, served_ids={PLAIN_UNIT}) == []
@@ -809,7 +809,7 @@ def test_the_premerge_projection_answers_one_ink_flag_per_captured_unit():
 
 
 def _fixture_units() -> list[dict]:
-    _manifest, shards = _surface()
+    _manifest, shards = _corpus()
     return [unit for shard in shards.values() for unit in shard]
 
 
@@ -878,7 +878,7 @@ def test_a_fragment_the_worker_drafts_wrong_fails_the_build(mini_bundle, monkeyp
 
     monkeypatch.setattr(review_build, "unit_to_json", refuted)
     with pytest.raises(SystemExit) as raised:
-        _build_mini(tmp_path / "surface", mini_bundle)
+        _build_mini(tmp_path / "corpus", mini_bundle)
     assert "contract check failed" in str(raised.value)
     assert "drafts.pin.syntax is 'fail: refuted for the test'" in str(raised.value)
 
@@ -887,6 +887,6 @@ def test_an_echo_the_parent_nulls_still_fails_the_build(mini_bundle, monkeypatch
     """Tests the write-time subset through the same serial build. A null echo on every human unit, a field the parent assigns after drafting, is caught by `PATCHED` at the write and fails the build with the predicate's message."""
     monkeypatch.setattr(review_build.unit_cache, "echo_id_for", lambda key: None)
     with pytest.raises(SystemExit) as raised:
-        _build_mini(tmp_path / "surface", mini_bundle)
+        _build_mini(tmp_path / "corpus", mini_bundle)
     assert "contract check failed" in str(raised.value)
     assert "human-workload units must carry an echo group id" in str(raised.value)

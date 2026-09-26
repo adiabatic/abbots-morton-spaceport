@@ -43,7 +43,7 @@ So the rebuild is mainly about the cost of _trusting_ a change, not the difficul
 
 One outcome would make the rewrite a failure: **the finished font is still about as unreliable, and still needs a lot of manual searching to _notice_ ugly joins and forbid them.** Most of the cost is in the **noticing**. Forbidding an ugly join once it is found is cheap. _Searching_ the corpus for it is slow.
 
-So the success metric is: **the machine does the noticing, and the human only judges what is shown to them.** The defect detector finds every broken join, and the review surface shows every relevant change. The author should never have to search for something that got worse without notice. Every other decision in this document serves this goal. A choice that does not reduce manual noticing is not justified.
+So the success metric is: **the machine does the noticing, and the human only judges what is shown to them.** The defect detector finds every broken join, and the review app shows every relevant change. The author should never have to search for something that got worse without notice. Every other decision in this document serves this goal. A choice that does not reduce manual noticing is not justified.
 
 ## The OpenType ceiling is a hard wall
 
@@ -213,7 +213,7 @@ An extension amount is **too short** (a _hard_ error: usually still an off-ancho
 This reconciles asking the author with an automated loop. The loop can stop at **OK**, or tolerably at _longer than needed_, but never at _too short_. The range lets it reach a stable, shippable state without the author choosing exact pixels. The workflow the author wants:
 
 - **Extension amounts are chosen by a fully automated loop** that aims for the OK range. It acts first and is reviewed afterward. It does not stop to ask during the loop.
-- **A review surface shows every resulting change** for a quick **approve or reject**. The loop runs unattended, and the author reviews _every_ change it makes afterward.
+- **A review app shows every resulting change** for a quick **approve or reject**. The loop runs unattended, and the author reviews _every_ change it makes afterward.
 
 So the review workflow’s verdicts need at least approve or reject for each change shown, plus “don’t join” as a verdict when no extension amount works.
 
@@ -281,7 +281,7 @@ It applies to joined and unjoined pairs. It must also be aware of _resolved stan
 
 These two facts seem to conflict. Stance-aware kerning seems to need the full rule machinery, but kerning is in a **separate flat file** (`glyph_data/senior_quikscript_kerning.yaml`). The separation is **only a tooling accommodation**, not part of the model. The author doesn’t trust a dependency-free, “vibe-coded” JavaScript editor to modify a deeply nested, well-commented YAML file safely, but a flat YAML file with `---`-separated entries is “boringly reliable” for such a tool. (This is the one allowed exception to two-place locality, described above.)
 
-**This is the same tooling choice as for the review surface (see “This is a real application”).** There are two kinds of editor: a simple `<textarea>` copy-and-paste tool, which is safe only for flat data, and a **full web app with its own server that edits the nested YAML source on disk directly.** If that app exists, the _tooling_ reason for keeping kerning in a separate flat file is weaker, because the app could safely edit nested source. The separate flat file suits the current simple tool. It says nothing about the kerning model.
+**This is the same tooling choice as for the review app (see “This is a real application”).** There are two kinds of editor: a simple `<textarea>` copy-and-paste tool, which is safe only for flat data, and a **full web app with its own server that edits the nested YAML source on disk directly.** If that app exists, the _tooling_ reason for keeping kerning in a separate flat file is weaker, because the app could safely edit nested source. The separate flat file suits the current simple tool. It says nothing about the kerning model.
 
 **The reconciliation: key kerning by _resolved-stance pairs_.** This follows from how OpenType is staged: _all_ substitution (GSUB: `calt`, `liga`, `ssXX`, and the extension substitutions) finishes before _any_ positioning (GPOS: cursive attachment and `kern`) begins. So when kerning runs, every rune has resolved to its final glyph, and the kern lookup sees only that final sequence. A table keyed by post-shaping glyph identities (for example `qsNo.alt qsTea.half`) is therefore both **flat** (a plain two-glyph table that a simple web app can edit) _and_ **context-aware** (a resolved stance already encodes the context that selected it). Two views of the same point:
 
@@ -325,7 +325,7 @@ This is the hardest part. After a change rebuilds the font, the results fall int
 
 ### The review workflow: fast, keyboard-driven, opinion-stamping
 
-Level 4 is shown by default, not hidden, because hiding it would lose the _moment of discovery_ when a don’t-care pair turns out to matter. The author has had good results with **keyboard-driven web apps that record many opinions quickly**, so the review surface is one: every change is shown, and the author marks each with a **verdict from a small, mostly standard vocabulary**. The vocabulary has two requirements:
+Level 4 is shown by default, not hidden, because hiding it would lose the _moment of discovery_ when a don’t-care pair turns out to matter. The author has had good results with **keyboard-driven web apps that record many opinions quickly**, so the review app is one: every change is shown, and the author marks each with a **verdict from a small, mostly standard vocabulary**. The vocabulary has two requirements:
 
 - Verdicts **can be copied into to-do lists** that drive the next round of agent edits.
 - Verdicts eventually **become pinned assertions**, concretely `data-expect` assertions that fix the behavior. Generating the right assertion is easy in simple cases and hard in complicated ones, and the tooling should do as much of it as possible.
@@ -334,7 +334,7 @@ So the loop is: change, render everything, record verdicts quickly, and turn the
 
 #### This is a real application, not a textarea
 
-The rest of the design depends on the review and editing surface. It must let the author judge **moderately large batches, up to hundreds of decisions (not thousands)**, on whether a change, a stance, or a join is good. Two kinds of tooling, by data shape:
+The rest of the design depends on the review and editing tools. It must let the author judge **moderately large batches, up to hundreds of decisions (not thousands)**, on whether a change, a stance, or a join is good. Two kinds of tooling, by data shape:
 
 - **Flat data** (kerning) can be copied into a `<textarea>` and edited by a simple, dependency-free web app. This is “boringly reliable.”
 - **Nested structures** (the main spec) can’t be edited safely that way. For those, the author expects to write a **real program with its own web server that edits files on disk directly**. This tool makes reviewing and editing hundreds of items at a time practical, and building it is part of the work.

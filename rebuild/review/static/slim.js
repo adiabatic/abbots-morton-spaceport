@@ -31,7 +31,7 @@ export function finishLines(state) {
   return tail ? [tail] : [];
 }
 
-// Whether bytes start with the gzip magic number. A server that declares Content-Encoding: gzip has already decoded the sidecar, so the bytes are NDJSON. A plain static file server sends the file as stored, and the app decompresses it, so an archived surface can be read without rebuild.review.serve.
+// Whether bytes start with the gzip magic number. A server that declares Content-Encoding: gzip has already decoded the sidecar, so the bytes are NDJSON. A plain static file server sends the file as stored, and the app decompresses it, so an archived corpus can be read without rebuild.review.serve.
 export function looksGzipped(bytes) {
   return Boolean(bytes) && bytes.length >= 2 && bytes[0] === 0x1f && bytes[1] === 0x8b;
 }
@@ -44,7 +44,7 @@ export function checkIndexHeader(header, manifest, format) {
   if (header.generated_at !== manifest?.generated_at) {
     return {
       ok: false,
-      reason: `it is stamped ${header.generated_at ?? 'nothing'} but this surface was generated ${manifest?.generated_at}`,
+      reason: `it is stamped ${header.generated_at ?? 'nothing'} but this corpus was generated ${manifest?.generated_at}`,
     };
   }
   return { ok: true, reason: null };

@@ -1,6 +1,6 @@
 # Baseline extraction plan (§13.1)
 
-This plan specifies the baseline that `doc/rebuild-design.md` §13 (item 1) calls for. The extractor shapes every string in the depth-2 basis through the built Senior Sans font (`site/AbbotsMortonSpaceportSansSenior-Regular.otf`), treating the font as a black box, and records each string's outcome as a diff-stable table under `rebuild/out/`. The M1 oracle and the review surface read these tables as the old font's behavior. Related design sections: `doc/rebuild-design.md` §3.4, §6.1, §10, and §13.
+This plan specifies the baseline that `doc/rebuild-design.md` §13 (item 1) calls for. The extractor shapes every string in the depth-2 basis through the built Senior Sans font (`site/AbbotsMortonSpaceportSansSenior-Regular.otf`), treating the font as a black box, and records each string's outcome as a diff-stable table under `rebuild/out/`. The M1 oracle and the review corpus read these tables as the old font's behavior. Related design sections: `doc/rebuild-design.md` §3.4, §6.1, §10, and §13.
 
 The tables' headers record this provenance. The exception is the `ss03+ss05` table, extracted later, whose header records repo SHA `0cd71c4`:
 

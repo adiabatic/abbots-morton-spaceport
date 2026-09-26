@@ -1,6 +1,6 @@
 """Tests for the review server's logic.
 
-The /autosave receiver: payload validation, atomic overwrite, and the journal event appended on every accepted save. An existing autosave stamped for an older manifest is moved aside to a stash file, because it may be the only copy of unexported work from before a surface rebuild and its unit ids must not be mixed into the new surface. A save stamped older than the store is refused with 409, so a stale tab cannot overwrite a newer store.
+The /autosave receiver: payload validation, atomic overwrite, and the journal event appended on every accepted save. An existing autosave stamped for an older manifest is moved aside to a stash file, because it may be the only copy of unexported work from before a corpus rebuild and its unit ids must not be mixed into the new corpus. A save stamped older than the store is refused with 409, so a stale tab cannot overwrite a newer store.
 
 The resident store behind it (`rebuild.review.verdict_store`): the delta POST the app sends, the change token a sync GET returns, and the reload after an external rewrite of the file.
 

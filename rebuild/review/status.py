@@ -1,4 +1,4 @@
-"""Compute the review surface's readiness: whether the served surface exists, whether it matches the runes and code on disk (its after font is the M1 font on disk, and its per-unit index and both app sidecars are stamped for its manifest), whether a green artifact cycle produced it, and whether the verdict store (the autosave) is stamped for it. The serve.py /status handler and the verdict_ready CLI both render the dict `compute_status` returns, so a change to its shape changes theirs.
+"""Compute the review corpus's readiness: whether the served corpus exists, whether it matches the runes and code on disk (its after font is the M1 font on disk, and its per-unit index and both app sidecars are stamped for its manifest), whether a green artifact cycle produced it, and whether the verdict store (the autosave) is stamped for it. The serve.py /status handler and the verdict_ready CLI both render the dict `compute_status` returns, so a change to its shape changes theirs.
 
 An effective verdict is a unit's latest verdict when that verdict is not skip. The only state kept between calls is `_MEMO`, keyed on each verdicts file's stat. It records the file's stamp and, once the file has been parsed, its effective count, so a long-lived server checks an unchanged file with one stat.
 """
@@ -18,7 +18,7 @@ from rebuild.review import app_index, unit_index
 from rebuild.review.audit import slim_fragment
 from rebuild.review.serve import parse_autosave_payload
 
-SURFACE_REMEDY = "uv run python -m rebuild.review.build"
+CORPUS_REMEDY = "uv run python -m rebuild.review.build"
 CARRY_TOOL = "rebuild/tools/carry_verdicts.py"
 MERGE_TOOL = "uv run python -m rebuild.tools.merge_verdicts"
 
@@ -206,7 +206,7 @@ def pick_frontier(repo_root, manifest_stamp) -> tuple[Path, int] | None:
 def resolve_carry_source(repo_root, manifest_stamp, autosave_path) -> dict | None:
     """Return the verdicts file the artifact cycle carries forward when the caller names none, as a dict of `path`, `stamp`, `count`, and `aligned`, or None when no candidate has an effective verdict.
 
-    The candidates are the live autosave and every verdicts-*.json at the repo root and under rebuild/evidence. Among those stamped manifest_stamp, the one with the most effective verdicts wins, and the autosave wins a tie because it is the live store. When none is stamped manifest_stamp, the candidates with the newest stamp compete the same way and `aligned` is False. That happens when the served surface was restamped outside a recorded cycle, or when a pass stopped between its surface build and its carry. The cycle uses `aligned` in the line that names the master and to choose between the direct merge and the full carry: an aligned master can be merged straight into the store when the surface build is skipped, and an unaligned one is always carried by unit id. A verdict names its unit by content id, so a carried verdict reaches the unit with that id on the live surface or none.
+    The candidates are the live autosave and every verdicts-*.json at the repo root and under rebuild/evidence. Among those stamped manifest_stamp, the one with the most effective verdicts wins, and the autosave wins a tie because it is the live store. When none is stamped manifest_stamp, the candidates with the newest stamp compete the same way and `aligned` is False. That happens when the served corpus was restamped outside a recorded cycle, or when a pass stopped between its corpus build and its carry. The cycle uses `aligned` in the line that names the master and to choose between the direct merge and the full carry: an aligned master can be merged straight into the store when the corpus build is skipped, and an unaligned one is always carried by unit id. A verdict names its unit by content id, so a carried verdict reaches the unit with that id on the live corpus or none.
 
     Every export is counted whatever its stamp, through the memo shared with pick_frontier, so a file pick_frontier read by its head alone is parsed whole here. The autosave is read whole on every call and is not memoized.
     """
@@ -281,14 +281,14 @@ def _carry_forward_remedy(carry_out) -> str:
     return f"Carry the autosave forward with {CARRY_TOOL}, then merge it with {MERGE_TOOL}."
 
 
-def _surface_check(manifest) -> dict:
+def _corpus_check(manifest) -> dict:
     if manifest is None:
         return {
             "level": "fail",
-            "detail": "The review surface has no readable manifest.json.",
-            "remedy": SURFACE_REMEDY,
+            "detail": "The review corpus has no readable manifest.json.",
+            "remedy": CORPUS_REMEDY,
         }
-    return {"level": "ok", "detail": "The review surface manifest is present and readable.", "remedy": None}
+    return {"level": "ok", "detail": "The review corpus manifest is present and readable.", "remedy": None}
 
 
 def _freshness_check(
@@ -298,14 +298,14 @@ def _freshness_check(
     if manifest is None:
         return {
             "level": "fail",
-            "detail": "The surface manifest is missing, so its build inputs cannot be checked.",
+            "detail": "The corpus manifest is missing, so its build inputs cannot be checked.",
             "remedy": artifact_cycle_remedy,
             "components": unknown,
         }
     if not isinstance(manifest_fp, dict):
         return {
             "level": "fail",
-            "detail": "This surface predates input fingerprinting, so its freshness cannot be verified.",
+            "detail": "This corpus predates input fingerprinting, so its freshness cannot be verified.",
             "remedy": artifact_cycle_remedy,
             "components": unknown,
         }
@@ -314,7 +314,7 @@ def _freshness_check(
     except Exception:
         return {
             "level": "fail",
-            "detail": "The current build inputs could not be recomputed, so the surface freshness is unknown.",
+            "detail": "The current build inputs could not be recomputed, so the corpus freshness is unknown.",
             "remedy": artifact_cycle_remedy,
             "components": unknown,
         }
@@ -335,7 +335,7 @@ def _freshness_check(
     if hard:
         stale = [name for name in hard if components[name] == "stale"]
         if stale:
-            detail = f"The build inputs changed since the surface was generated: {', '.join(stale)}."
+            detail = f"The build inputs changed since the corpus was generated: {', '.join(stale)}."
         else:
             detail = f"These components cannot be verified until the next M1 build records them: {', '.join(hard)}."
         return {
@@ -351,7 +351,7 @@ def _freshness_check(
     if not isinstance(recorded_sha, str):
         return {
             "level": "fail",
-            "detail": "The surface records no after-font hash, so it cannot be checked against rebuild/out/m1/M1.otf.",
+            "detail": "The corpus records no after-font hash, so it cannot be checked against rebuild/out/m1/M1.otf.",
             "remedy": artifact_cycle_remedy,
             "components": components,
         }
@@ -362,7 +362,7 @@ def _freshness_check(
     if on_disk != recorded_sha:
         return {
             "level": "fail",
-            "detail": "The surface's after font is not the M1 font on disk: rebuild/out/m1/M1.otf is missing or has moved on since this surface was built, so the review app is serving last build's font.",
+            "detail": "The corpus's after font is not the M1 font on disk: rebuild/out/m1/M1.otf is missing or has moved on since this corpus was built, so the review app is serving last build's font.",
             "remedy": artifact_cycle_remedy,
             "components": components,
         }
@@ -373,38 +373,38 @@ def _freshness_check(
     if missing:
         return {
             "level": "fail",
-            "detail": f"These files are missing or stamped for another manifest: {', '.join(missing)}. Either the build that wrote this surface did not finish, or the manifest was rewritten without them.",
+            "detail": f"These files are missing or stamped for another manifest: {', '.join(missing)}. Either the build that wrote this corpus did not finish, or the manifest was rewritten without them.",
             "remedy": artifact_cycle_remedy,
             "components": components,
         }
     if any(components[name] != "fresh" for name in unit_index.ASSET_COMPONENTS):
         return {
             "level": "warn",
-            "detail": "Only the review UI assets changed since the surface was generated; the units are unchanged, and the cycle refreshes the served copy in place.",
+            "detail": "Only the review UI assets changed since the corpus was generated; the units are unchanged, and the cycle refreshes the served copy in place.",
             "remedy": artifact_cycle_remedy,
             "components": components,
         }
     return {
         "level": "ok",
-        "detail": "The surface reflects the current build inputs.",
+        "detail": "The corpus reflects the current build inputs.",
         "remedy": None,
         "components": components,
     }
 
 
 def _gates_check(summary, generated_at, manifest_fp, artifact_cycle_remedy) -> dict:
-    """Check the recorded cycle's gates by each gate entry's `skip` field. A "proved" skip means a matching green record showed that this content already passed, so it counts toward readiness. Every other non-green gate blocks a review session: a "forced" skip or a gate that did not run is reported as unverified, and anything else as failing. The status string cannot make this distinction, because every skip kind's status starts with "skipped (", so reading it would let a `--skip-conform` pass report READY. A summary with a non-green entry that has no `skip` key predates the field, and is evaluated by its status strings so that its result does not change: all skipped is a warning, and anything else fails."""
+    """Check the recorded cycle's gates by each gate entry's `skip` field. A "proved" skip means a matching green record showed that this content already passed, so it counts toward readiness. Every other non-green gate blocks a review session: a "forced" skip or a gate that did not run is reported as unverified, and anything else as failing. The status string cannot make this distinction, because every skip kind's status starts with "skipped (", so reading it would let a `--skip-conform` pass report READY. A summary with a non-green entry that has no `skip` key predates the field, and is evaluated by its status strings so that its result does not change: all skipped is a warning, and anything else fails. Older summaries name the corpus block `surface`, and it is read the same way."""
     if summary is None:
         return {
             "level": "fail",
-            "detail": "There is no recorded artifact cycle for this surface.",
+            "detail": "There is no recorded artifact cycle for this corpus.",
             "remedy": artifact_cycle_remedy,
         }
-    surface = summary.get("surface") or {}
-    if surface.get("generated_at") != generated_at or surface.get("inputs_fingerprint") != manifest_fp:
+    corpus = summary.get("corpus") or summary.get("surface") or {}
+    if corpus.get("generated_at") != generated_at or corpus.get("inputs_fingerprint") != manifest_fp:
         return {
             "level": "fail",
-            "detail": "The recorded cycle is for a different surface than the one being served.",
+            "detail": "The recorded cycle is for a different corpus than the one being served.",
             "remedy": artifact_cycle_remedy,
         }
     gates = summary.get("gates") or {}
@@ -493,7 +493,7 @@ def _verdict_store_check(
         return {
             "level": "fail",
             "detail": (
-                f"The autosave is stamped for a different surface ({autosave['manifest_generated_at']}) "
+                f"The autosave is stamped for a different corpus ({autosave['manifest_generated_at']}) "
                 "than the one being served."
             ),
             "remedy": remedy,
@@ -506,12 +506,12 @@ def _verdict_store_check(
     if effective == 0 and frontier_hit and frontier_hit[1] > 0:
         return {
             "level": "warn",
-            "detail": "The autosave is aligned with this surface but empty; the frontier verdicts are not yet merged in.",
+            "detail": "The autosave is aligned with this corpus but empty; the frontier verdicts are not yet merged in.",
             "remedy": f"Merge {frontier_rel} into the autosave ({MERGE_TOOL}) — carried verdicts first, then any echo fill.",
         }, records
     return {
         "level": "ok",
-        "detail": f"The autosave is aligned with this surface and holds {effective} effective verdicts.",
+        "detail": f"The autosave is aligned with this corpus and holds {effective} effective verdicts.",
         "remedy": None,
     }, records
 
@@ -539,7 +539,7 @@ def _blanks_check(aligned_records, review_dir, human_ids) -> dict:
     if aligned_records is None:
         return {
             "level": "ok",
-            "detail": "The blank count needs an autosave aligned with this surface.",
+            "detail": "The blank count needs an autosave aligned with this corpus.",
             "count": None,
         }
     if human_ids is None:
@@ -589,7 +589,7 @@ def compute_status(
         autosave_path, generated_at, carry_out, frontier_hit, frontier_rel, autosave
     )
     checks = {
-        "surface": _surface_check(manifest),
+        "corpus": _corpus_check(manifest),
         "freshness": _freshness_check(
             manifest, manifest_fp, repo_root, recompute, artifact_cycle_remedy, review_dir, m1_out
         ),
@@ -598,11 +598,9 @@ def compute_status(
         "frontier": _frontier_check(frontier_hit, frontier_rel),
         "blanks": _blanks_check(aligned_records, review_dir, human_ids),
     }
-    ready = all(
-        checks[name]["level"] != "fail" for name in ("surface", "freshness", "gates", "verdict_store")
-    )
+    ready = all(checks[name]["level"] != "fail" for name in ("corpus", "freshness", "gates", "verdict_store"))
     return {
         "ready": ready,
-        "surface": {"dir": str(review_dir), "generated_at": generated_at, "repo_head": repo_head},
+        "corpus": {"dir": str(review_dir), "generated_at": generated_at, "repo_head": repo_head},
         "checks": checks,
     }

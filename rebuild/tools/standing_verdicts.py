@@ -1,14 +1,14 @@
-"""Apply the checked-in standing approvals (rebuild/standing-approvals.yaml) to the live review surface: for every rule, find the blank human units whose before-to-after change matches the rule, and write fill records for them to an importable verdicts file.
+"""Apply the checked-in standing approvals (rebuild/standing-approvals.yaml) to the live review corpus: for every rule, find the blank human units whose before-to-after change matches the rule, and write fill records for them to an importable verdicts file.
 
 A rule declares one shape, a row in `SHAPES`, by the field its `match.after` carries. Each matcher's docstring states what its shape checks, and no shape checks anything about the window beyond that. The shapes are:
 
 - `ligature` (declared by `ligature`): the pivot and its follower become the named ligature, and the seams on either side of that change are unchanged. It does not check that the unit's judged pair is this pivot's (see `_matches_ligature`).
 
-- `extension-dropped` (declared by `follower_cells`): the pivot gives up a named stretch of exit. That is a whole `ex-ext-N` the before glyph carried, the columns down to a shorter extension its after cell keeps, or a named `ex-con-N` on an after cell whose before glyph carried no exit extension. The two sides must line up letter for letter over identical seams, the follower must be in a family the rule names, and the pivot and follower must settle into cells the rule names in full (rune, stance, entry, exit, and the whole adjustment set), which fixes how much of the stretch went. The unit's primary judged pair must be that pivot and follower, with no secondary seam anywhere in the window. That last condition is required because identical seams do not mean identical ink: a window can keep every seam and still be about a different letter's stroke, and only the surface's judgment fields say which letter the unit is about. This shape reads names only.
+- `extension-dropped` (declared by `follower_cells`): the pivot gives up a named stretch of exit. That is a whole `ex-ext-N` the before glyph carried, the columns down to a shorter extension its after cell keeps, or a named `ex-con-N` on an after cell whose before glyph carried no exit extension. The two sides must line up letter for letter over identical seams, the follower must be in a family the rule names, and the pivot and follower must settle into cells the rule names in full (rune, stance, entry, exit, and the whole adjustment set), which fixes how much of the stretch went. The unit's primary judged pair must be that pivot and follower, with no secondary seam anywhere in the window. That last condition is required because identical seams do not mean identical ink: a window can keep every seam and still be about a different letter's stroke, and only the corpus's judgment fields say which letter the unit is about. This shape reads names only.
 
 - `ink-delta` (declared by `ink_deltas`): the unit's persisted per-config ink-delta digests (`delta_digest` over `InkComparator.config_diff` in rebuild/review/ink.py) must all be among the rule's digests. The match is pixel-exact. A name-only difference paints no different pixel, so it is part of the same digest, and any other visible ink change under any config fails the match.
 
-- `slide` (declared by `slide`): the window is re-shaped in the surface's font pair, and its whole visible change must be the named pivot and everything after it moving by the declared column count, whatever the two fonts name the glyphs.
+- `slide` (declared by `slide`): the window is re-shaped in the corpus's font pair, and its whole visible change must be the named pivot and everything after it moving by the declared column count, whatever the two fonts name the glyphs.
 
 - `ink-gain` (declared by `gained`): the pivot's new form is its old picture plus a named set of own-frame cells, and everything after the pivot moves by the declared count: zero when the fuller form keeps its advance, positive when the added ink lengthens it. ·Roe keeping the baseline bar the old shortened-bottom form dropped matches at zero, and ·Gay's extra exit cell moving ·No one column right matches at one.
 
@@ -32,7 +32,7 @@ Only shapes whose `SHAPES` row sets `composable` take part. Each names a local c
 
 Each composable rule's candidate positions come from the index record without shaping (`_candidates`), and a window with fewer than two candidate positions in total is never shaped.
 
-The walk (`_composed_walk`) re-shapes the window in the surface's font pair and carries a running column displacement from left to right. At each event:
+The walk (`_composed_walk`) re-shapes the window in the corpus's font pair and carries a running column displacement from left to right. At each event:
 
 - slide: the pivot leads the next span, and the displacement grows by the declared slide.
 - extension: the pivot sits at the running displacement and loses, on the row its `seam_out` height names, the tail the rule names (the named extension less any shorter one its after cell keeps, or the named contraction). The displacement shrinks by that width. The follower leads the next span, which must be a translation, the same picture compacted left by the follower's dropped entry extension, or, when the follower redrew inside its named cell, a translation of the span without the follower.
@@ -63,13 +63,13 @@ A rule's except_left guard refuses the whole unit, never one position, so a guar
 
 Standing fills complement echo_verdicts.py. The echo fill copies the user's verdicts to units whose change is pixel-identical, while a standing rule applies a recorded decision to units the user has never seen, such as windows with new left letters created by later migrations, so those units never queue.
 
-Each fill record's `at` is the manifest's generated_at, so a human verdict recorded on this surface is newer and wins on merge. A parked unit carries a skip verdict, so it is not blank and is never filled. The verdict update (rebuild/tools/verdict_update.py) runs this after the echo fill and merges its file with merge_verdicts. The report also gives each rule's total reach, its own line plus its composed credit; the totals do not sum across rules, because a window two rules explain counts toward both.
+Each fill record's `at` is the manifest's generated_at, so a human verdict recorded on this corpus is newer and wins on merge. A parked unit carries a skip verdict, so it is not blank and is never filled. The verdict update (rebuild/tools/verdict_update.py) runs this after the echo fill and merges its file with merge_verdicts. The report also gives each rule's total reach, its own line plus its composed credit; the totals do not sum across rules, because a window two rules explain counts toward both.
 
 Every decision depends only on the unit's index record, the two fonts' rendering of its window, and the rules file; the verdict store only decides which decisions become fills. `Decider.decide` computes the decision and `_decision_reach` aggregates a run from the decisions. The memo (`Memo`, the `--memo` flag, which the verdict update passes) keeps decisions across passes, so a pass evaluates only the units whose key is new and the units a changed rule can reach. `unit_key`, `memo_environment`, `rules_roster`, and `Decider._serve` define the unit keys, the memo stamp, and when a stored decision is served. A stored decision holds rule ids and no note text, so a reworded note re-evaluates nothing and every fill quotes the new wording. When the misses reach `_STANDING_POOL_THRESHOLD`, `_prefill` decides them across a spawn pool at the width `--jobs` gives. The tool derives no width of its own; the verdict update forwards the artifact cycle's. The fills and the report are byte-identical served or computed, pooled or serial, and rebuild/test_standing_verdicts.py checks this over the frozen mini bundle. The `--require-reach` rollup reads the same decisions, so its pass over the whole domain costs no second evaluation.
 
 A `--targeted` run is the form for authoring a rule. It takes the rule from `--explain` and extra units from `--unit`, evaluates only the rule's name-grain candidates (`_reachable`) plus the listed units, prints that rule's lines byte-identical to the whole-domain run's plus one line per listed unit (`targeted_report`), and writes neither a fill file nor the memo. The whole-domain run is the final pass and the cycle's form.
 
-With `--daemon auto|always|never` and `--socket PATH`, either form can be served by the standing daemon (rebuild/tools/standing_daemon.py, the authority on what it holds and when it declines), which runs this same `main` over the surface it holds and returns the streams and exit code byte-identical to an in-process run; rebuild/test_standing_daemon.py checks this over the mini bundle. The verdict update calls `main` in process with a `unit_source` and is never served. A fill reads its unit source once, keeps only unit ids and decisions for the report, and spools pool misses to a temporary gzipped NDJSON file.
+With `--daemon auto|always|never` and `--socket PATH`, either form can be served by the standing daemon (rebuild/tools/standing_daemon.py, the authority on what it holds and when it declines), which runs this same `main` over the corpus it holds and returns the streams and exit code byte-identical to an in-process run; rebuild/test_standing_daemon.py checks this over the mini bundle. The verdict update calls `main` in process with a `unit_source` and is never served. A fill reads its unit source once, keeps only unit ids and decisions for the report, and spools pool misses to a temporary gzipped NDJSON file.
 """
 
 import argparse
@@ -97,7 +97,7 @@ from rebuild.review.unit_index import iter_human_units  # noqa: E402
 from rebuild.tools import standing_client  # noqa: E402
 from rebuild.tools.review_docket import ACCEPTING_VERDICTS, latest_verdicts, load_human_units  # noqa: E402
 
-SURFACE = ROOT / "rebuild/out/review"
+CORPUS = ROOT / "rebuild/out/review"
 RULES = ROOT / "rebuild/standing-approvals.yaml"
 OUT = ROOT / "verdicts-standing-fill.json"
 FORMAT = "ams-standing-approvals/1"
@@ -149,7 +149,7 @@ def _is_pivot(glyph_name, pivot):
 
 
 def _cell_parts(token):
-    """Split a review-surface cell string into its slash-separated fields: rune, stance, entry, exit, and the +-joined adjustments, which are often empty."""
+    """Split a review-corpus cell string into its slash-separated fields: rune, stance, entry, exit, and the +-joined adjustments, which are often empty."""
     return token.split("/")
 
 
@@ -173,7 +173,7 @@ def _extension_columns(token):
 
 
 def _kept_extension(cell):
-    """Return the exit extension a review-surface cell carries, as a column count, or zero when its adjustment set names none."""
+    """Return the exit extension a review-corpus cell carries, as a column count, or zero when its adjustment set names none."""
     return max(
         (_extension_columns(token) for token in _cell_adjustments(cell) if EXIT_EXTENSION.fullmatch(token)),
         default=0,
@@ -181,7 +181,7 @@ def _kept_extension(cell):
 
 
 def _cell_contraction(cell):
-    """Return the exit contraction a review-surface cell carries, as a column count, or zero when its adjustment set names none."""
+    """Return the exit contraction a review-corpus cell carries, as a column count, or zero when its adjustment set names none."""
     return max(
         (_extension_columns(token) for token in _cell_adjustments(cell) if EXIT_CONTRACTION.fullmatch(token)),
         default=0,
@@ -243,7 +243,7 @@ def release_alignment_cache() -> None:
 
 
 def _letter_for_letter(unit):
-    """Whether each before-glyph index and after-cell index name the same letters along the whole window, which the pivot and follower comparisons and the surface's after-indexed `pair` rely on. The sides line up when they merge the same codepoints at the same positions. Requiring each side's components to sum to the window's codepoint count makes the check fail if a name ever covers codepoints some other way than as a ligature. The matchers and the composed walk ask this of a unit several times, so the answer is cached per unit object. The entry is keyed on the unit's `id()` and holds the unit itself beside the answer, so no other object can reuse that address while the entry exists."""
+    """Whether each before-glyph index and after-cell index name the same letters along the whole window, which the pivot and follower comparisons and the corpus's after-indexed `pair` rely on. The sides line up when they merge the same codepoints at the same positions. Requiring each side's components to sum to the window's codepoint count makes the check fail if a name ever covers codepoints some other way than as a ligature. The matchers and the composed walk ask this of a unit several times, so the answer is cached per unit object. The entry is keyed on the unit's `id()` and holds the unit itself beside the answer, so no other object can reuse that address while the entry exists."""
     cached = _alignment_cache.get(id(unit))
     if cached is not None:
         return cached[1]
@@ -312,7 +312,7 @@ def _matches_extension(match, unit, excluded, context=None):
 
 
 def _matches_ink_delta(match, unit, excluded, context=None):
-    """A window whose entire before→after ink change is one the user has approved: the unit's persisted `ink_deltas`, one digest per config with a visible change (InkComparator.config_diff, computed by the surface build), must all be among the rule's named digests. A digest records the pixels that appear and disappear across the window's rendered union, localized to the changed region and with the shift of what follows taken out, so every other difference the unit carries is a name-only one (such as a stroke handed to a neighbor that still paints it), and a window with any unlisted pixel under any config fails. No judged-pair check is needed, because the digest covers the whole window's pixel change. There is no pivot position, so except_left reads the whole window: an excluded family joining anywhere in it refuses the unit."""
+    """A window whose entire before→after ink change is one the user has approved: the unit's persisted `ink_deltas`, one digest per config with a visible change (InkComparator.config_diff, computed by the corpus build), must all be among the rule's named digests. A digest records the pixels that appear and disappear across the window's rendered union, localized to the changed region and with the shift of what follows taken out, so every other difference the unit carries is a name-only one (such as a stroke handed to a neighbor that still paints it), and a window with any unlisted pixel under any config fails. No judged-pair check is needed, because the digest covers the whole window's pixel change. There is no pivot position, so except_left reads the whole window: an excluded family joining anywhere in it refuses the unit."""
     deltas = unit.get("ink_deltas")
     if not isinstance(deltas, dict) or not deltas:
         return False
@@ -484,7 +484,7 @@ def _matches_slide(match, unit, excluded, context=None):
     if not any(_named_pivot(name, match["before"]["pivots"]) for name in unit["before"]["glyphs"]):
         return False
     if context is None:
-        raise ValueError("the slide shape re-shapes windows in the surface's fonts and needs a SlideContext")
+        raise ValueError("the slide shape re-shapes windows in the corpus's fonts and needs a SlideContext")
     key = (
         "slide",
         tuple(match["before"]["pivots"]),
@@ -592,7 +592,7 @@ def _matches_ink_gain(match, unit, excluded, context=None):
         return False
     if context is None:
         raise ValueError(
-            "the ink-gain shape re-shapes windows in the surface's fonts and needs a SlideContext"
+            "the ink-gain shape re-shapes windows in the corpus's fonts and needs a SlideContext"
         )
     key = (
         tuple(match["before"]["pivots"]),
@@ -744,7 +744,7 @@ def _matches_join_dropped(match, unit, excluded, context=None):
         return False
     if context is None:
         raise ValueError(
-            "the join-dropped shape re-shapes windows in the surface's fonts and needs a SlideContext"
+            "the join-dropped shape re-shapes windows in the corpus's fonts and needs a SlideContext"
         )
     key = (
         match["before"]["pivot"],
@@ -963,7 +963,7 @@ def _matches_entry_drop(match, unit, excluded, context=None):
         return False
     if context is None:
         raise ValueError(
-            "the entry-extension-dropped shape re-shapes windows in the surface's fonts and needs a SlideContext"
+            "the entry-extension-dropped shape re-shapes windows in the corpus's fonts and needs a SlideContext"
         )
     key = (
         "entry-extension-dropped",
@@ -1009,7 +1009,7 @@ def _matches_entry_contracted(match, unit, excluded, context=None):
         return False
     if context is None:
         raise ValueError(
-            "the entry-contracted shape re-shapes windows in the surface's fonts and needs a SlideContext"
+            "the entry-contracted shape re-shapes windows in the corpus's fonts and needs a SlideContext"
         )
     key = (
         tuple(_families(match["before"]["left"])),
@@ -1092,7 +1092,7 @@ def _matches_stub_drop(match, unit, excluded, context=None):
         return False
     if context is None:
         raise ValueError(
-            "the stub-dropped shape re-shapes windows in the surface's fonts and needs a SlideContext"
+            "the stub-dropped shape re-shapes windows in the corpus's fonts and needs a SlideContext"
         )
     key = (
         "stub-dropped",
@@ -1295,9 +1295,7 @@ def _matches_redrawn(match, unit, excluded, context=None):
     if not any(_named_pivot(name, match["before"]["pivots"]) for name in unit["before"]["glyphs"]):
         return False
     if context is None:
-        raise ValueError(
-            "the redrawn shape re-shapes windows in the surface's fonts and needs a SlideContext"
-        )
+        raise ValueError("the redrawn shape re-shapes windows in the corpus's fonts and needs a SlideContext")
     key = (
         tuple(match["before"]["pivots"]),
         tuple(match["after"]["pivots"]),
@@ -1448,7 +1446,7 @@ def _matches_join_retarget(match, unit, excluded, context=None):
         return False
     if context is None:
         raise ValueError(
-            "the join-retargeted shape re-shapes windows in the surface's fonts and needs a SlideContext"
+            "the join-retargeted shape re-shapes windows in the corpus's fonts and needs a SlideContext"
         )
     key = (
         match["before"]["pivot"],
@@ -1482,7 +1480,7 @@ def _matches_join_created(match, unit, excluded, context=None):
         return False
     if context is None:
         raise ValueError(
-            "the join-created shape re-shapes windows in the surface's fonts and needs a SlideContext"
+            "the join-created shape re-shapes windows in the corpus's fonts and needs a SlideContext"
         )
     key = (
         "join-created",
@@ -2273,7 +2271,7 @@ def _composed_verdict(rules, unit, events, context):
 
 
 class SlideContext:
-    """The font-backed state for the shapes that re-shape windows and for the composed walk. `comparator` is an InkComparator over the surface's before and after fonts, and `fonts` keeps that pair so `_prefill` can build each pool worker's context over the same fonts (`_standing_pool_init`). `memo` caches each font-backed matcher's geometric result per shape, rule parameters, and unit, so the guarded and unguarded passes over one rule shape a window once. `composed` caches each composed walk per rules digest and unit. Every key names one unit, so `Decider._release` empties both after each unit it decides or serves, and a pool worker empties them after each chunk (`_standing_pool_chunk`), which keeps a worker's peak memory to one chunk's windows."""
+    """The font-backed state for the shapes that re-shape windows and for the composed walk. `comparator` is an InkComparator over the corpus's before and after fonts, and `fonts` keeps that pair so `_prefill` can build each pool worker's context over the same fonts (`_standing_pool_init`). `memo` caches each font-backed matcher's geometric result per shape, rule parameters, and unit, so the guarded and unguarded passes over one rule shape a window once. `composed` caches each composed walk per rules digest and unit. Every key names one unit, so `Decider._release` empties both after each unit it decides or serves, and a pool worker empties them after each chunk (`_standing_pool_chunk`), which keeps a worker's peak memory to one chunk's windows."""
 
     def __init__(self, before_font, after_font) -> None:
         self.fonts = (before_font, after_font)
@@ -2283,7 +2281,7 @@ class SlideContext:
 
 
 class Shape(NamedTuple):
-    """One row of SHAPES: a delta shape a rule can declare. `keyed_by` is the `match.after` field that declares it. `before` and `after` are the fields `match.before` and `match.after` must carry, and an empty `before` means that block must be absent; `optional` and `before_optional` are fields they may also carry. `cell_lists`, `digest_lists`, `name_lists`, `int_fields`, `family_fields`, and `point_lists` tell `load_rules` how to check a field's type: a list of cell strings, a list of ink-delta digests, a list of glyph-name prefixes, an integer column count, a family name or list of them, or a list of [column, row] cells. Any other field must be a nonempty string. `matcher` reads a unit and `validate` checks the rule at load. `composable` says whether a composed walk may credit the shape, `font_backed` whether its matcher re-shapes windows in the surface's fonts, and `needs_ink_deltas` whether it reads the units' persisted ink deltas. `guard_scope` is where a composed reading reads the rule's except_left guard: `window`, `left-neighbor`, or None for a shape that never composes."""
+    """One row of SHAPES: a delta shape a rule can declare. `keyed_by` is the `match.after` field that declares it. `before` and `after` are the fields `match.before` and `match.after` must carry, and an empty `before` means that block must be absent; `optional` and `before_optional` are fields they may also carry. `cell_lists`, `digest_lists`, `name_lists`, `int_fields`, `family_fields`, and `point_lists` tell `load_rules` how to check a field's type: a list of cell strings, a list of ink-delta digests, a list of glyph-name prefixes, an integer column count, a family name or list of them, or a list of [column, row] cells. Any other field must be a nonempty string. `matcher` reads a unit and `validate` checks the rule at load. `composable` says whether a composed walk may credit the shape, `font_backed` whether its matcher re-shapes windows in the corpus's fonts, and `needs_ink_deltas` whether it reads the units' persisted ink deltas. `guard_scope` is where a composed reading reads the rule's except_left guard: `window`, `left-neighbor`, or None for a shape that never composes."""
 
     keyed_by: str
     before: tuple[str, ...]
@@ -2618,7 +2616,7 @@ class Reach(NamedTuple):
 
 
 class Run(NamedTuple):
-    """One pass of the standing approvals over a surface: the fill records to write, the composed pass's [filled, already verdicted, held] counts per credited-id tuple in rules-file order, and each rule's Reach by id."""
+    """One pass of the standing approvals over a corpus: the fill records to write, the composed pass's [filled, already verdicted, held] counts per credited-id tuple in rules-file order, and each rule's Reach by id."""
 
     fills: list[dict]
     composed_counts: dict[tuple[str, ...], list[int]]
@@ -2665,10 +2663,10 @@ def memo_code_paths(root=ROOT) -> list[pathlib.Path]:
     return [pathlib.Path(root) / relative for relative in MEMO_CODE_MODULES]
 
 
-def memo_environment(surface, root=ROOT) -> tuple[str, dict[str, str]]:
-    """Return the memo's stamp and the after font's per-family digests that `unit_key` uses. The stamp hashes the memo format; the deciding code (`memo_code_paths`); the before font without its `head` and `name` tables (`fingerprint.font_content_digest`, so the `make all` of a version bump leaves it unchanged while any outline, advance, anchor, or layout change moves it); the after font's family-independent remainder (helper glyphs, cmap, and GPOS wiring); and `uv.lock`'s dependency pins (`fingerprint.lock_digest`), which fix the HarfBuzz version the shaper uses. A change to any of these drops the whole memo. The rules file is not in the stamp. The `Roster` in the header and each entry's `relevant` ids track it per entry, so a rules commit drops only the entries the changed rules can reach, and a reworded note drops none. A surface without fonts gets `-` for both font lines; no rule can shape a window on such a surface."""
-    before_font = pathlib.Path(surface) / "fonts" / "before.otf"
-    after_font = pathlib.Path(surface) / "fonts" / "after.otf"
+def memo_environment(corpus, root=ROOT) -> tuple[str, dict[str, str]]:
+    """Return the memo's stamp and the after font's per-family digests that `unit_key` uses. The stamp hashes the memo format; the deciding code (`memo_code_paths`); the before font without its `head` and `name` tables (`fingerprint.font_content_digest`, so the `make all` of a version bump leaves it unchanged while any outline, advance, anchor, or layout change moves it); the after font's family-independent remainder (helper glyphs, cmap, and GPOS wiring); and `uv.lock`'s dependency pins (`fingerprint.lock_digest`), which fix the HarfBuzz version the shaper uses. A change to any of these drops the whole memo. The rules file is not in the stamp. The `Roster` in the header and each entry's `relevant` ids track it per entry, so a rules commit drops only the entries the changed rules can reach, and a reworded note drops none. A corpus without fonts gets `-` for both font lines; no rule can shape a window on such a corpus."""
+    before_font = pathlib.Path(corpus) / "fonts" / "before.otf"
+    after_font = pathlib.Path(corpus) / "fonts" / "after.otf"
     family_digests: dict[str, str] = {}
     helpers = "-"
     if after_font.is_file():
@@ -2756,7 +2754,7 @@ class Memo:
 
     A memo with another stamp, or one that cannot be read, opens empty; a miss only costs the evaluation the memo would have saved. A header without a readable roster means every rule has changed, and `Decider` serves nothing from it.
 
-    `write` keeps only the entries whose key belongs to a unit on the surface it was given, whether served, freshly computed, or carried unread from the file, so the file stays bounded by the human domain. It writes the roster the run used into the header. An unread entry is carried only when that roster equals the stored one. A narrowed run never checks a closed unit's entry against changed rules, and writing that entry under the live roster would let the next pass serve it as if it had been checked, so a run under a changed roster keeps only what it computed or served. The gzip mtime is pinned and the level is 1, as in the unit store, because the file is written once and read once per pass.
+    `write` keeps only the entries whose key belongs to a unit on the corpus it was given, whether served, freshly computed, or carried unread from the file, so the file stays bounded by the human domain. It writes the roster the run used into the header. An unread entry is carried only when that roster equals the stored one. A narrowed run never checks a closed unit's entry against changed rules, and writing that entry under the live roster would let the next pass serve it as if it had been checked, so a run under a changed roster keeps only what it computed or served. The gzip mtime is pinned and the level is 1, as in the unit store, because the file is written once and read once per pass.
     """
 
     def __init__(self, path, environment, family_digests, entries=None, stored: Roster | None = None) -> None:
@@ -3083,7 +3081,7 @@ def rule_reach(rules, units, records, stamp, context=None, decide=None) -> Run:
 
 
 def _decision_reach(rules, decisions, records, stamp) -> Run:
-    """Aggregate `(unit id, decision)` pairs, in surface order, into a `Run` without keeping unit records. The fills and the per-rule tallies come from the same decisions, so the records a run writes and the report it prints agree."""
+    """Aggregate `(unit id, decision)` pairs, in corpus order, into a `Run` without keeping unit records. The fills and the per-rule tallies come from the same decisions, so the records a run writes and the report it prints agree."""
     order = {rule["id"]: index for index, rule in enumerate(rules)}
     by_id = {rule["id"]: rule for rule in rules}
     fills = []
@@ -3194,7 +3192,7 @@ def _rollup_lines(rules, reaches):
             continue
         lines.append(
             f"  REACHED NOTHING: {rule['id']} matched no window on its own and no composed line credited "
-            "it. A narrow rule aimed at a form this surface does not carry yet reads exactly like this, so "
+            "it. A narrow rule aimed at a form this corpus does not carry yet reads exactly like this, so "
             "it lands as it stands; if the form is already migrated, the rule wants another look."
         )
     return lines
@@ -3218,7 +3216,7 @@ def _tripwire_lines(reaches, records):
 
 
 def _vocabulary_lines(rules, units):
-    """Report each except_left family that no window on this surface joins from, a typo the REACHED NOTHING line cannot catch. The rule still matches what it always did and only its guard is inactive, so the line is informational and nothing fails. A guard that names a family the surface carries but holds nothing on this pass is not reported."""
+    """Report each except_left family that no window on this corpus joins from, a typo the REACHED NOTHING line cannot catch. The rule still matches what it always did and only its guard is inactive, so the line is informational and nothing fails. A guard that names a family the corpus carries but holds nothing on this pass is not reported."""
     joining = {
         _joining_family(name) for unit in units for name in (unit.get("before") or {}).get("glyphs") or ()
     }
@@ -3227,7 +3225,7 @@ def _vocabulary_lines(rules, units):
 
 def _joining_vocabulary_lines(rules, joining):
     return [
-        f"  except_left vocabulary: {rule['id']} guards against {family}, which no window on this surface "
+        f"  except_left vocabulary: {rule['id']} guards against {family}, which no window on this corpus "
         "joins from — the rule matches exactly what it always did, and its guard simply has nothing here "
         "to hold."
         for rule in rules
@@ -3274,7 +3272,7 @@ def _listed_lines(rules, rule, listed, records, decide):
 
 
 def targeted_report(rules, rule, units, listed_ids, records, stamp, decide):
-    """The report of a `--targeted` run: the lines of the whole-domain report that concern one rule, computed over only the units the rule could match at the name grain (`_reachable`) plus the listed ids. Units stay in surface order, because `Reach` and the explain block list ids in iteration order and the lines must match the whole-domain run's. The subset contains every unit the whole-domain run would put on this rule's lines, and every decision depends only on its own unit, so the rule's own line, the composed lines crediting it, its rollup line, its tripwire, and its explain block are byte-identical to the whole-domain run's. Other rules' lines are left out, because over this subset they would be partial and the rollup would report every other rule as reaching nothing. The vocabulary line still reads the whole surface, since it uses glyph names and no decisions, and each listed unit gets its own line (`_listed_lines`)."""
+    """The report of a `--targeted` run: the lines of the whole-domain report that concern one rule, computed over only the units the rule could match at the name grain (`_reachable`) plus the listed ids. Units stay in corpus order, because `Reach` and the explain block list ids in iteration order and the lines must match the whole-domain run's. The subset contains every unit the whole-domain run would put on this rule's lines, and every decision depends only on its own unit, so the rule's own line, the composed lines crediting it, its rollup line, its tripwire, and its explain block are byte-identical to the whole-domain run's. Other rules' lines are left out, because over this subset they would be partial and the rollup would report every other rule as reaching nothing. The vocabulary line still reads the whole corpus, since it uses glyph names and no decisions, and each listed unit gets its own line (`_listed_lines`)."""
     listed = list(dict.fromkeys(listed_ids))
     wanted = set(listed)
     match = rule["match"]
@@ -3303,7 +3301,7 @@ def targeted_report(rules, rule, units, listed_ids, records, stamp, decide):
         rules, rule, [by_id[unit_id] for unit_id in listed if unit_id in by_id], records, decide
     )
     lines += [
-        f"  listed {unit_id}: not a human unit on this surface" for unit_id in listed if unit_id not in by_id
+        f"  listed {unit_id}: not a human unit on this corpus" for unit_id in listed if unit_id not in by_id
     ]
     crediting = {ids: counts for ids, counts in run.composed_counts.items() if rule_id in ids}
     lines += _tally_lines([rule], Run(run.fills, crediting, run.reaches), False)
@@ -3326,7 +3324,7 @@ def main(
     parser.add_argument(
         "verdicts", help="the verdicts file that defines blankness (an export or the autosave)"
     )
-    parser.add_argument("--surface", default=str(SURFACE))
+    parser.add_argument("--corpus", "--surface", default=str(CORPUS))
     parser.add_argument("--rules", default=str(RULES))
     parser.add_argument("--out", default=None, help=f"where the fill file goes (default {OUT.name})")
     parser.add_argument(
@@ -3337,7 +3335,7 @@ def main(
     parser.add_argument(
         "--targeted",
         action="store_true",
-        help="evaluate only the --explain rule's name-grain candidates plus any --unit ids, print that rule's lines — own line, composed lines crediting it, rollup, tripwire and explain block, byte-identical to the whole-domain run's — and one decision line per listed unit; writes no fill file and never touches the memo. The authoring loop's form: a surface load rather than a domain evaluation. The whole-domain run stays the final pass and the cycle's form.",
+        help="evaluate only the --explain rule's name-grain candidates plus any --unit ids, print that rule's lines — own line, composed lines crediting it, rollup, tripwire and explain block, byte-identical to the whole-domain run's — and one decision line per listed unit; writes no fill file and never touches the memo. The authoring loop's form: a corpus load rather than a domain evaluation. The whole-domain run stays the final pass and the cycle's form.",
     )
     parser.add_argument(
         "--unit",
@@ -3354,7 +3352,7 @@ def main(
     parser.add_argument(
         "--require-reach",
         action="store_true",
-        help="after writing the fills, fail when any checked-in rule reaches no window of this surface — judged over the whole human domain with a blank store, so a rule whose every window a human has already judged still counts as reaching. The artifact cycle's form: a rule whose swath a rune change dissolved turns the verdict-update step red, and `make verdict-ready` reads NOT READY, until the rule is deleted from the rules file or the form it waits for migrates.",
+        help="after writing the fills, fail when any checked-in rule reaches no window of this corpus — judged over the whole human domain with a blank store, so a rule whose every window a human has already judged still counts as reaching. The artifact cycle's form: a rule whose swath a rune change dissolved turns the verdict-update step red, and `make verdict-ready` reads NOT READY, until the rule is deleted from the rules file or the form it waits for migrates.",
     )
     parser.add_argument(
         "--memo",
@@ -3390,16 +3388,16 @@ def main(
     if args.unit and not args.targeted:
         parser.error("--unit needs --targeted")
     if units is None and context is None and unit_source is None:
-        served = standing_client.ask("fill", argv, args.surface, mode=args.daemon, socket_path=args.socket)
+        served = standing_client.ask("fill", argv, args.corpus, mode=args.daemon, socket_path=args.socket)
         if served is not None:
             return standing_client.relay(served)
 
-    surface = pathlib.Path(args.surface)
-    manifest = json.loads((surface / "manifest.json").read_text())
+    corpus = pathlib.Path(args.corpus)
+    manifest = json.loads((corpus / "manifest.json").read_text())
     data = json.loads(pathlib.Path(args.verdicts).read_text())
     if data.get("manifest_generated_at") != manifest["generated_at"]:
         raise SystemExit(
-            f"{args.verdicts} is stamped {data.get('manifest_generated_at')} but the surface is "
+            f"{args.verdicts} is stamped {data.get('manifest_generated_at')} but the corpus is "
             f"{manifest['generated_at']}; unit ids must never be joined across manifests — carry it forward first"
         )
     rules = load_rules(pathlib.Path(args.rules))
@@ -3407,7 +3405,7 @@ def main(
         raise SystemExit(f"--explain names {args.explain!r}, which is not a rule id in {args.rules}")
     records = latest_verdicts(pathlib.Path(args.verdicts))
     source = (
-        unit_source() if unit_source is not None else (iter_human_units(surface) if units is None else units)
+        unit_source() if unit_source is not None else (iter_human_units(corpus) if units is None else units)
     )
     eligible = (
         unit
@@ -3421,20 +3419,20 @@ def main(
     if not (any(shape.font_backed for shape in declared) or len(composable) > 1):
         context = None
     elif context is None:
-        before_font, after_font = surface / "fonts" / "before.otf", surface / "fonts" / "after.otf"
+        before_font, after_font = corpus / "fonts" / "before.otf", corpus / "fonts" / "after.otf"
         if not (before_font.is_file() and after_font.is_file()):
             context_error = (
                 f"a {_shape_names(lambda shape: shape.font_backed, 'or')} rule, and any composed reading "
                 "two or more composable rules could earn, re-shape their candidate windows in the "
-                "surface's own font pair, and this surface carries no fonts/before.otf + fonts/after.otf "
-                "— rebuild the surface (make review-cycle) first"
+                "corpus's own font pair, and this corpus carries no fonts/before.otf + fonts/after.otf "
+                "— rebuild the corpus (make review-cycle) first"
             )
         else:
             context = SlideContext(before_font, after_font)
 
     memo = None
     if args.memo is not None:
-        environment, family_digests = memo_environment(surface)
+        environment, family_digests = memo_environment(corpus)
         memo = Memo.open(args.memo, environment, family_digests, fresh=args.fresh_memo)
     decider = Decider(rules, context, memo)
 
@@ -3472,9 +3470,9 @@ def main(
         _prefill(decider, asked_units(), args.jobs)
     if wants_deltas and not has_deltas:
         raise SystemExit(
-            "the surface carries no ink_deltas fields, so it predates the "
+            "the corpus carries no ink_deltas fields, so it predates the "
             f"{_shape_names(lambda shape: shape.needs_ink_deltas, 'and')} shapes; such a rule cannot "
-            "match anything on it — rebuild the surface (make review-cycle) first"
+            "match anything on it — rebuild the corpus (make review-cycle) first"
         )
     if context_error is not None:
         raise SystemExit(context_error)
@@ -3535,7 +3533,7 @@ def main(
         ]
         if unreached:
             print(
-                f"  the verdict update refuses: {', '.join(unreached)} reached no window of this surface. There "
+                f"  the verdict update refuses: {', '.join(unreached)} reached no window of this corpus. There "
                 "is no retired marker and no allowance for a rule that has run out of windows — delete it "
                 f"from {args.rules}, or leave it and this stays red until the form it waits for migrates."
             )

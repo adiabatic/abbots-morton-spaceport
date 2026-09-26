@@ -1,17 +1,17 @@
-"""The review-surface census: the counts and structural facts a surface build reduces its state to, and the regenerator that writes them to rebuild/review-census-pins.json, the last accepted census. Every non-rehearsal artifact-cycle pass rewrites that file from the surface's census-facts.json sidecar and names what moved in its invariant block. Committing the rewritten file accepts the census. No gate checks the checked-in numbers, so a changed count is something to read, not a failure.
+"""The review-corpus census: the counts and structural facts a corpus build reduces its state to, and the regenerator that writes them to rebuild/review-census-pins.json, the last accepted census. Every non-rehearsal artifact-cycle pass rewrites that file from the corpus's census-facts.json sidecar and names what moved in its invariant block. Committing the rewritten file accepts the census. No gate checks the checked-in numbers, so a changed count is something to read, not a failure.
 
-The file has two blocks so the cycle can say what kind of change a pass made. `volatile` holds the manifest, built, audit, ink, and families groups, which change with every migrated letter. `invariant` holds the structural facts a person should review when they change: which classes the surface ships, which classes the build machine-approves, which are exempt from individual verdicts, and which verdict families the corpus reaches. The invariant block repeats structure that the volatile groups' keys already carry. Both blocks come from one emission, so they cannot disagree, and the separate block lets `invariant_delta` name a new class or a new no-verdict exemption in one summary line and lets the cycle print a diff of that block alone. `rebuild/out/cycle_summary.json` also records the surface's totals. The machine-approved and family lists are recorded nowhere else, because both are emergent: a class is machine-approved when the build approved at least one of its units through any channel, whatever the ledger declares. `reach` compares the ledger's declarations with them.
+The file has two blocks so the cycle can say what kind of change a pass made. `volatile` holds the manifest, built, audit, ink, and families groups, which change with every migrated letter. `invariant` holds the structural facts a person should review when they change: which classes the corpus ships, which classes the build machine-approves, which are exempt from individual verdicts, and which verdict families the corpus reaches. The invariant block repeats structure that the volatile groups' keys already carry. Both blocks come from one emission, so they cannot disagree, and the separate block lets `invariant_delta` name a new class or a new no-verdict exemption in one summary line and lets the cycle print a diff of that block alone. `rebuild/out/cycle_summary.json` also records the corpus's totals. The machine-approved and family lists are recorded nowhere else, because both are emergent: a class is machine-approved when the build approved at least one of its units through any channel, whatever the ledger declares. `reach` compares the ledger's declarations with them.
 
 No test reads this file, since a build asserting the numbers it just wrote would check nothing. The tests check internal consistency (the deduplicated units account for every audit row), invariants derived from the sources (the manifest's own totals, the ledger's no-verdict classes), and that each in-memory reduction matches the shard walk or shaping it replaces.
 
-The manifest and built groups are post-merge: they are read from a built surface after the ink-duplicate fold. The audit, ink, and families groups count pre-merge units, the (codepoints, baseline, new) triples before the fold, which no surface shard reports, so their class counts can differ from the manifest's. `audit.row_count` counts raw audit rows.
+The manifest and built groups are post-merge: they are read from a built corpus after the ink-duplicate fold. The audit, ink, and families groups count pre-merge units, the (codepoints, baseline, new) triples before the fold, which no corpus shard reports, so their class counts can differ from the manifest's. `audit.row_count` counts raw audit rows.
 
 The pre-merge groups come from the census-facts.json sidecar, which `build_m1` writes. It derives them from the pre-merge state it captured just before the fold and the phase-1 products it computes anyway (each post-merge unit's ink verdict and each UNMATCHED unit's verdict family), instead of shaping and enriching the whole corpus a second time. The census is then less independent of the build, but it takes milliseconds instead of minutes. `--from-scratch` recomputes the groups from the source inputs (TSV, ledger, fonts, spec) when an independent comparison is wanted. `derive_premerge` checks the derivation's assumptions: it fails on a default-novel UNMATCHED unit that was folded away and on an UNMATCHED unit with no family, and it writes one ink flag per captured unit.
 
 Usage:
-    uv run python -m rebuild.review.census --update --surface rebuild/out/review  # what every non-rehearsal artifact-cycle pass runs
-    uv run python -m rebuild.review.census --check --surface rebuild/out/review   # the manual comparison
-    uv run python -m rebuild.review.census            # --check, building a fresh temporary surface first
+    uv run python -m rebuild.review.census --update --corpus rebuild/out/review  # what every non-rehearsal artifact-cycle pass runs
+    uv run python -m rebuild.review.census --check --corpus rebuild/out/review   # the manual comparison
+    uv run python -m rebuild.review.census            # --check, building a fresh temporary corpus first
     uv run python -m rebuild.review.census --check --from-scratch
 """
 
@@ -62,8 +62,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 PINS_PATH = REPO_ROOT / "rebuild" / "review-census-pins.json"
 
 FACTS_FILENAME = "census-facts.json"
-FACTS_FORMAT = "ams-census-facts/2"
-FACTS_REMEDY = "rebuild the surface with: uv run python -m rebuild.review.build"
+FACTS_FORMAT = "ams-census-facts/3"
+FACTS_REMEDY = "rebuild the corpus with: uv run python -m rebuild.review.build"
 
 AUDIT_PATH = REPO_ROOT / "rebuild" / "out" / "m1" / "divergence-audit.tsv"
 LEDGER_PATH = REPO_ROOT / "rebuild" / "m1-divergences.yaml"
@@ -82,7 +82,7 @@ def _text(unit) -> str:
 
 
 def manifest_group(manifest: dict) -> dict:
-    """The post-merge facts read straight from the built surface's manifest.json."""
+    """The post-merge facts read straight from the built corpus's manifest.json."""
     by_id = {meta["id"]: meta for meta in manifest["classes"]}
     return {
         "totals": dict(manifest["totals"]),
@@ -96,7 +96,7 @@ def manifest_group(manifest: dict) -> dict:
 
 
 def invariant_group(manifest: dict, families_census: dict[str, int]) -> dict:
-    """The invariant block: which classes the surface ships, which the build machine-approves, which are exempt from individual verdicts, and which verdict families the corpus reaches, each in its source's order. The classes are listed, not counted, so `invariant_delta` can say which class appeared or went."""
+    """The invariant block: which classes the corpus ships, which the build machine-approves, which are exempt from individual verdicts, and which verdict families the corpus reaches, each in its source's order. The classes are listed, not counted, so `invariant_delta` can say which class appeared or went."""
     return {
         "classes": [meta["id"] for meta in manifest["classes"]],
         "machine_approved_classes": list(manifest["machine_approved"]["by_class"]),
@@ -152,7 +152,7 @@ def invariant_diff(accepted: Mapping, current: Mapping) -> list[str]:
             json.dumps(accepted, indent=2).splitlines(),
             json.dumps(current, indent=2).splitlines(),
             fromfile="invariant (accepted)",
-            tofile="invariant (this surface)",
+            tofile="invariant (this corpus)",
             lineterm="",
         )
     )
@@ -160,7 +160,7 @@ def invariant_diff(accepted: Mapping, current: Mapping) -> list[str]:
 
 @dataclass(frozen=True)
 class Reach:
-    """The ledger's declarations compared with what the corpus reached, from the ledger the surface was built over and the invariant block. `unreached` lists the ledger entries no unit matched, so the surface ships no class for them. `machine_approved` is emergent (a class is in it when the build approved at least one of its units through any channel) and is compared with the ledger's `ink_identical` declarations both ways: `ink_declared_unapproved` lists declared classes with no machine-approved unit, and `machine_approved_undeclared` lists approving classes the ledger never declared. `no_verdict` is declared in the ledger and copied onto each class the surface ships, so its only possible disagreement is a declared class the corpus never reached. `describe` puts all of this on one line."""
+    """The ledger's declarations compared with what the corpus reached, from the ledger the corpus was built over and the invariant block. `unreached` lists the ledger entries no unit matched, so the corpus ships no class for them. `machine_approved` is emergent (a class is in it when the build approved at least one of its units through any channel) and is compared with the ledger's `ink_identical` declarations both ways: `ink_declared_unapproved` lists declared classes with no machine-approved unit, and `machine_approved_undeclared` lists approving classes the ledger never declared. `no_verdict` is declared in the ledger and copied onto each class the corpus ships, so its only possible disagreement is a declared class the corpus never reached. `describe` puts all of this on one line."""
 
     ledger: tuple[str, ...]
     unreached: tuple[str, ...]
@@ -239,7 +239,7 @@ def _shard_units(out_dir: Path, meta: dict) -> Iterable[dict]:
 
 
 def built_group(out_dir: Path, manifest: dict) -> dict:
-    """The post-merge facts that need a walk of the surface's unit shards: the human-workload size, the config-note histogram, and the worked example's echo-sibling count (the distinct windows one ·It·Day·Tea·No verdict covers). The echo-sibling count is None when the worked example is not in the human workload. Every build writes the sidecar, including the unit-cache tests' small surfaces, so only the live corpus is required to contain the example, and the pins diff shows a missing one as an accepted count replaced by None."""
+    """The post-merge facts that need a walk of the corpus's unit shards: the human-workload size, the config-note histogram, and the worked example's echo-sibling count (the distinct windows one ·It·Day·Tea·No verdict covers). The echo-sibling count is None when the worked example is not in the human workload. Every build writes the sidecar, including the unit-cache tests' small corpora, so only the live corpus is required to contain the example, and the pins diff shows a missing one as an accepted count replaced by None."""
     out_dir = Path(out_dir)
     human_units = 0
     distribution: dict[str | None, int] = {}
@@ -608,11 +608,11 @@ def build_facts(
     premerge: PremergeFacts,
     row_count: int,
 ) -> dict:
-    """The sidecar payload: the finished pins the regenerator copies into the checked-in file, the pre-merge records they were reduced from, and the identity of the surface that owns them. The pre-merge records let a reader re-reduce the pre-merge groups. Only rebuild/test_census_facts.py reads them."""
+    """The sidecar payload: the finished pins the regenerator copies into the checked-in file, the pre-merge records they were reduced from, and the identity of the corpus that owns them. The pre-merge records let a reader re-reduce the pre-merge groups. Only rebuild/test_census_facts.py reads them."""
     families = families_group_from([family for _index, family in premerge.families])
     return {
         "format": FACTS_FORMAT,
-        "surface": {
+        "corpus": {
             "generated_at": manifest["generated_at"],
             "repo_head": manifest["repo_head"],
             "inputs_fingerprint": manifest["inputs_fingerprint"],
@@ -643,7 +643,7 @@ def write_facts(out_dir: Path, facts: dict) -> None:
 
 
 def load_facts(out_dir: Path, manifest: dict) -> dict:
-    """The sidecar of a built surface. Raises ValueError when the file is missing or in another format (the surface predates the sidecar), or when its generated_at differs from the manifest's (the two came from different builds)."""
+    """The sidecar of a built corpus. Raises ValueError when the file is missing or in another format (the corpus predates the sidecar), or when its generated_at differs from the manifest's (the two came from different builds)."""
     path = Path(out_dir) / FACTS_FILENAME
     try:
         facts = json.loads(path.read_text(encoding="utf-8"))
@@ -651,19 +651,19 @@ def load_facts(out_dir: Path, manifest: dict) -> dict:
         raise ValueError(f"{path} is missing — {FACTS_REMEDY}") from None
     if facts.get("format") != FACTS_FORMAT:
         raise ValueError(f"{path} is not {FACTS_FORMAT} — {FACTS_REMEDY}")
-    if facts["surface"]["generated_at"] != manifest["generated_at"]:
+    if facts["corpus"]["generated_at"] != manifest["generated_at"]:
         raise ValueError(
-            f"{path} was written for surface {facts['surface']['generated_at']},"
+            f"{path} was written for corpus {facts['corpus']['generated_at']},"
             f" not {manifest['generated_at']} — {FACTS_REMEDY}"
         )
     return facts
 
 
 @contextlib.contextmanager
-def _build_or_load_surface(surface: Path | None):
-    """Yield (out_dir, manifest). With --surface, read that built surface without writing to it. Otherwise build a fresh surface into a temporary directory under the project tmp/, which is deleted afterward, so the pins never describe a stale surface."""
-    if surface is not None:
-        out_dir = Path(surface)
+def _build_or_load_corpus(corpus: Path | None):
+    """Yield (out_dir, manifest). With --corpus, read that built corpus without writing to it. Otherwise build a fresh corpus into a temporary directory under the project tmp/, which is deleted afterward, so the pins never describe a stale corpus."""
+    if corpus is not None:
+        out_dir = Path(corpus)
         manifest = json.loads((out_dir / "manifest.json").read_text(encoding="utf-8"))
         yield out_dir, manifest
         return
@@ -671,18 +671,16 @@ def _build_or_load_surface(surface: Path | None):
 
     scratch = REPO_ROOT / "tmp"
     scratch.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix="ams-census-surface-", dir=scratch) as temp:
+    with tempfile.TemporaryDirectory(prefix="ams-census-corpus-", dir=scratch) as temp:
         out_dir = Path(temp)
         manifest = build_m1(out_dir)
         yield out_dir, manifest
 
 
-def compute_pins(
-    surface: Path | None = None, repo_root: Path = REPO_ROOT, from_scratch: bool = False
-) -> dict:
-    """Both blocks of the pins. By default the volatile block is read from the surface's census-facts.json sidecar, and the invariant block is reduced again from the surface's manifest and the sidecar's family census, the same sources the build used, so the checked-in file has the block's current shape whichever build wrote the sidecar. With `from_scratch`, all five volatile groups are recomputed from the source artifacts, which shapes and enriches the corpus again."""
+def compute_pins(corpus: Path | None = None, repo_root: Path = REPO_ROOT, from_scratch: bool = False) -> dict:
+    """Both blocks of the pins. By default the volatile block is read from the corpus's census-facts.json sidecar, and the invariant block is reduced again from the corpus's manifest and the sidecar's family census, the same sources the build used, so the checked-in file has the block's current shape whichever build wrote the sidecar. With `from_scratch`, all five volatile groups are recomputed from the source artifacts, which shapes and enriches the corpus again."""
     if from_scratch:
-        with _build_or_load_surface(surface) as (out_dir, manifest):
+        with _build_or_load_corpus(corpus) as (out_dir, manifest):
             families = families_group(repo_root)
             return {
                 "invariant": invariant_group(manifest, families["census"]),
@@ -694,7 +692,7 @@ def compute_pins(
                     "families": families,
                 },
             }
-    with _build_or_load_surface(surface) as (out_dir, manifest):
+    with _build_or_load_corpus(corpus) as (out_dir, manifest):
         volatile = load_facts(out_dir, manifest)["pins"]["volatile"]
         return {
             "invariant": invariant_group(manifest, volatile["families"]["census"]),
@@ -734,19 +732,20 @@ def main(argv: list[str] | None = None) -> int:
     )
     action.add_argument("--update", action="store_true", help="recompute and rewrite the pins file")
     parser.add_argument(
+        "--corpus",
         "--surface",
         type=Path,
         default=None,
-        help="reuse an existing built surface directory (read-only); default builds a fresh one in a temp directory",
+        help="reuse an existing built corpus directory (read-only); default builds a fresh one in a temp directory",
     )
     parser.add_argument(
         "--from-scratch",
         action="store_true",
-        help="recompute the audit/ink/families groups from sources instead of reading the surface's census-facts.json sidecar — the slow, independent re-derivation",
+        help="recompute the audit/ink/families groups from sources instead of reading the corpus's census-facts.json sidecar — the slow, independent re-derivation",
     )
     args = parser.parse_args(argv)
 
-    new = compute_pins(args.surface, from_scratch=args.from_scratch)
+    new = compute_pins(args.corpus, from_scratch=args.from_scratch)
     if args.update:
         PINS_PATH.write_text(_dumps(new), encoding="utf-8")
         print(f"Wrote {PINS_PATH.relative_to(REPO_ROOT)}", file=sys.stderr)

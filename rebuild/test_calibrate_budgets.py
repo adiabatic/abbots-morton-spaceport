@@ -91,13 +91,13 @@ def test_the_controllers_own_peak_is_never_one_of_the_workers_observations():
     assert [item.peak_bytes for item in observed] == [1_000_000]
 
 
-def test_a_surface_pool_record_prices_the_worker_constant():
-    """The surface build writes its own pool records under the unit `surface`, and only the surface-worker row reads them. The surface-parent row reads the `surface-build` step peak, so the two surface rows never share an observation."""
-    record = _pool("surface", [6_000_000_000, 7_000_000_000])
-    observed, _, _ = cb.observations(_unit("surface-worker"), [record], {}, host=HOST, recent=20)
+def test_a_corpus_pool_record_prices_the_worker_constant():
+    """The corpus build writes its own pool records under the unit `corpus`, and only the corpus-worker row reads them. The corpus-parent row reads the `corpus-build` step peak, so the two corpus rows never share an observation."""
+    record = _pool("corpus", [6_000_000_000, 7_000_000_000])
+    observed, _, _ = cb.observations(_unit("corpus-worker"), [record], {}, host=HOST, recent=20)
     assert [item.peak_bytes for item in observed] == [6_000_000_000, 7_000_000_000]
     assert {item.source for item in observed} == {"pool"}
-    parent, _, _ = cb.observations(_unit("surface-parent"), [record], {}, host=HOST, recent=20)
+    parent, _, _ = cb.observations(_unit("corpus-parent"), [record], {}, host=HOST, recent=20)
     assert parent == []
 
 
@@ -161,6 +161,28 @@ def test_the_standing_fill_parent_also_reads_the_journals_plumbing_rows(tmp_path
         (8_000_000_000, "step:verdict-update"),
         (9_000_000_000, "step:verdict-update"),
     ]
+
+
+def test_the_corpus_rows_also_read_the_journals_surface_records(tmp_path):
+    """Older journal lines name the corpus-build step `surface-build` and its pool `surface`. `load_journal` and `load_pool_records` read them under the current names, so both corpus rows keep their measured history."""
+    path = _journal(
+        tmp_path,
+        [
+            _step("surface-build", 8_000_000_000, run="r1"),
+            _step("corpus-build", 9_000_000_000, run="r2"),
+            _pool("surface", [6_000_000_000]),
+            _pool("corpus", [7_000_000_000]),
+        ],
+    )
+    _, steps, _ = cb.load_journal(path)
+    pools = cb.load_pool_records(path)
+    parent, _, _ = cb.observations(_unit("corpus-parent"), pools, steps, host=HOST, recent=20)
+    assert sorted((item.peak_bytes, item.source) for item in parent) == [
+        (8_000_000_000, "step:corpus-build"),
+        (9_000_000_000, "step:corpus-build"),
+    ]
+    worker, _, _ = cb.observations(_unit("corpus-worker"), pools, steps, host=HOST, recent=20)
+    assert sorted(item.peak_bytes for item in worker) == [6_000_000_000, 7_000_000_000]
 
 
 def test_a_named_step_peak_supplies_an_observation():
@@ -437,7 +459,7 @@ def test_the_unmeasured_lane_is_reported_and_never_checked(tmp_path, capsys):
 
 
 def test_a_signature_pool_record_lands_on_the_cores_bound_row(tmp_path, capsys):
-    """The surface build's signature pool writes records under the unit `signature`, and only the `signature-worker` row reads them. A signature worker holds only a comparator, so reading its peak as a surface worker's would understate the surface worker's peak. The row has no constant, so `--check` passes at any peak and the row only reports the figure."""
+    """The corpus build's signature pool writes records under the unit `signature`, and only the `signature-worker` row reads them. A signature worker holds only a comparator, so reading its peak as a corpus worker's would understate the corpus worker's peak. The row has no constant, so `--check` passes at any peak and the row only reports the figure."""
     assert _unit("signature-worker").constant is None
     readers = [unit.name for unit in cb.UNITS if "signature" in unit.pool_units]
     assert readers == ["signature-worker"]
@@ -447,8 +469,8 @@ def test_a_signature_pool_record_lands_on_the_cores_bound_row(tmp_path, capsys):
     assert "signature-worker  (no constant — deliberately unmeasured)" in out
     assert _unit("signature-worker").note in out
     assert "40.00 GB" in out
-    surface_block = out.split("surface-worker")[1].split("\n\n")[0]
-    assert "40.00 GB" not in surface_block
+    corpus_block = out.split("corpus-worker")[1].split("\n\n")[0]
+    assert "40.00 GB" not in corpus_block
 
 
 def test_tolerance_admits_a_peak_that_only_just_exceeds_the_constant(tmp_path, capsys):
@@ -477,7 +499,7 @@ def test_the_width_clauses_answer_for_the_box_and_the_tree_they_are_given(tmp_pa
     tree = tmp_path / "tree"
     (tree / "rebuild" / "tools").mkdir(parents=True)
     (tree / "rebuild" / "tools" / "artifact_cycle.py").write_text(
-        f"{cb.SURFACE_CAP_NAME} = 3\n{cb.SURFACE_PARENT_NAME} = 10_000_000_000\n{cb.SURFACE_WORKER_NAME} = 5_000_000_000\n"
+        f"{cb.CORPUS_CAP_NAME} = 3\n{cb.CORPUS_PARENT_NAME} = 10_000_000_000\n{cb.CORPUS_WORKER_NAME} = 5_000_000_000\n"
         f"{cb.STANDING_FILL_PARENT_NAME} = 12_000_000_000\n{cb.STANDING_FILL_WORKER_NAME} = 2_000_000_000\n",
         encoding="utf-8",
     )
@@ -497,14 +519,14 @@ def test_the_width_clauses_answer_for_the_box_and_the_tree_they_are_given(tmp_pa
         in out
     )
     assert "the font suite takes the cores this process may run on (12), not the division" in out
-    assert "the surface build's parent is subtracted from the box rather than divided into it" in out
+    assert "the corpus build's parent is subtracted from the box rather than divided into it" in out
     assert "the refill pool runs 12 at 2.00 GB each out of 48.00 GB total" in out
     belt_block = out.split("\nconform-belt  ")[1].split("\n\n")[0]
     belt_width = next(line for line in belt_block.splitlines() if line.startswith("  width here: "))
     assert "capped at 4" in belt_width
     assert "with the build lane idle" in belt_width
     assert "less 25.00 GB co-resident" in belt_width
-    assert "beside a surface build of its parent and 3 workers" in belt_width
+    assert "beside a corpus build of its parent and 3 workers" in belt_width
 
 
 def test_a_check_that_cannot_run_exits_apart_from_one_that_tripped(tmp_path, capsys, monkeypatch):

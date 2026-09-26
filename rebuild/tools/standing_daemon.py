@@ -1,8 +1,8 @@
-"""Hold the review surface in one process so the standing probe and the standing dry run stop reloading it: `serve` loads the surface's human index records once (`standing_probe._human` over `unit_index.iter_human_units` projected onto `UNIT_FIELDS`, the same filter both tools apply) and opens one `standing_verdicts.SlideContext` over the surface's font pair. It then answers `probe` and `fill` requests over a Unix-domain socket. For each request it runs the tool's own `main` over the held objects, in the client's working directory, with stdout and stderr captured, and replies with the exit code and both streams. The client writes them unchanged; `rebuild/tools/standing_client.py` defines the protocol. Because the daemon runs the same code, a served run prints the same bytes as an in-process run. `rebuild/test_standing_daemon.py` checks this over the frozen mini bundle for the probe's unit, find, survey and coverage modes and both dry-run forms.
+"""Hold the review corpus in one process so the standing probe and the standing dry run stop reloading it: `serve` loads the corpus's human index records once (`standing_probe._human` over `unit_index.iter_human_units` projected onto `UNIT_FIELDS`, the same filter both tools apply) and opens one `standing_verdicts.SlideContext` over the corpus's font pair. It then answers `probe` and `fill` requests over a Unix-domain socket. For each request it runs the tool's own `main` over the held objects, in the client's working directory, with stdout and stderr captured, and replies with the exit code and both streams. The client writes them unchanged; `rebuild/tools/standing_client.py` defines the protocol. Because the daemon runs the same code, a served run prints the same bytes as an in-process run. `rebuild/test_standing_daemon.py` checks this over the frozen mini bundle for the probe's unit, find, survey and coverage modes and both dry-run forms.
 
-Only one daemon should run, because a second would hold a second copy of the surface. `serve` exits 1 when another `serve` holds its lock or a daemon already answers at its socket. The daemon handles one request at a time on a single thread, and the listen backlog queues the rest, because the held objects are not safe to share across requests. It exists to save memory and fan-out width, not per-request latency. After every request the `SlideContext` memos and the fill's alignment cache are emptied, so each request shapes the same windows a fresh process would and memory stays bounded. The rules file and the verdicts file are not held. Each request's tool reads the paths its argv names, so a scratch `--rules` works as well as the checked-in one.
+Only one daemon should run, because a second would hold a second copy of the corpus. `serve` exits 1 when another `serve` holds its lock or a daemon already answers at its socket. The daemon handles one request at a time on a single thread, and the listen backlog queues the rest, because the held objects are not safe to share across requests. It exists to save memory and fan-out width, not per-request latency. After every request the `SlideContext` memos and the fill's alignment cache are emptied, so each request shapes the same windows a fresh process would and memory stays bounded. The rules file and the verdicts file are not held. Each request's tool reads the paths its argv names, so a scratch `--rules` works as well as the checked-in one.
 
-`stamp_of` records what a served answer depends on besides the request: the surface manifest's `generated_at`, the repo code loaded in this process (`loaded_repo_files`, read from `sys.modules`), both fonts' bytes (the surface's own copies, which change only when the surface is rebuilt), and `uv.lock`'s dependency pins (`fingerprint.lock_digest`, so a bump of the project's own version does not move it). The daemon checks the stamp before every request and every `IDLE_CHECK_SECONDS` while idle. When any field has changed, it declines the request and exits, because code cannot be reloaded into a running process and a daemon that can serve nothing should not keep holding memory. A request for a different surface is declined without exiting.
+`stamp_of` records what a served answer depends on besides the request: the corpus manifest's `generated_at`, the repo code loaded in this process (`loaded_repo_files`, read from `sys.modules`), both fonts' bytes (the corpus's own copies, which change only when the corpus is rebuilt), and `uv.lock`'s dependency pins (`fingerprint.lock_digest`, so a bump of the project's own version does not move it). The daemon checks the stamp before every request and every `IDLE_CHECK_SECONDS` while idle. When any field has changed, it declines the request and exits, because code cannot be reloaded into a running process and a daemon that can serve nothing should not keep holding memory. A request for a different corpus is declined without exiting.
 
 Before anything else, `serve` takes an exclusive, non-blocking `flock` on a lock file beside the socket (`lock_path`: `var/standing-daemon.lock` for the default socket), writes its pid there, and holds the lock for its lifetime. A second `serve` that cannot take the lock exits 1 naming that pid, so two `serve` runs started in the same instant cannot both reach the socket. Only a lock holder deletes a leftover socket file, and while it holds the lock only a dead daemon can have left one. The socket is bound before the load. A client that connects during the load waits for the reply. The daemon records the socket file's device and inode right after binding. On exit it removes the socket file only when it is still that file, and while idle it exits when the file at the socket path is gone or is another file, because no client can reach it any more. SIGTERM, SIGINT and the `stop` subcommand all remove the socket on exit.
 
@@ -31,9 +31,9 @@ sys.path.insert(0, str(ROOT))
 from rebuild.pipeline import fingerprint  # noqa: E402
 from rebuild.review.unit_index import iter_human_units  # noqa: E402
 from rebuild.tools import memory_budget, peak_rss, standing_client  # noqa: E402
-from rebuild.tools.review_docket import SURFACE  # noqa: E402
+from rebuild.tools.review_docket import CORPUS  # noqa: E402
 
-# Peak memory budget for the daemon process. It covers the held human index records (`iter_human_units` projected onto `UNIT_FIELDS`, sharing repeated values within the read and keeping no set of all surface ids), the comparator over the font pair, transient allocations while loading, allocator retention, and one whole-domain request's evaluation. It is the process's peak, which is larger than its idle resident set. The figure comes from the `peak rss` line the daemon prints at exit: 1.52 GB on the 32 GiB machine in doc/fleet.md, after a probe and a whole-domain dry run with no memo at the cycle-derived refill width, then rounded up to leave at least 25% headroom. That line measures the daemon process only; STANDING_FILL_WORKER_BYTES budgets the refill workers separately. `serve` prints `describe_fit(…, cap=1)` once, and the width of one is enforced by refusing to start beside a live daemon. No cycle width is computed from this constant or subtracts it: `surface_job_budget` and `kernel_threads_budget` assume no daemon is running, so stop the daemon before a cycle pass. The daemon also exits by itself once its surface is rebuilt. Re-measure the figure as the surface grows, as with SURFACE_PARENT_BYTES. The surface-holding cap in the dont-bug-me-about-this-ever-again skill uses the same figure.
+# Peak memory budget for the daemon process. It covers the held human index records (`iter_human_units` projected onto `UNIT_FIELDS`, sharing repeated values within the read and keeping no set of all corpus ids), the comparator over the font pair, transient allocations while loading, allocator retention, and one whole-domain request's evaluation. It is the process's peak, which is larger than its idle resident set. The figure comes from the `peak rss` line the daemon prints at exit: 1.52 GB on the 32 GiB machine in doc/fleet.md, after a probe and a whole-domain dry run with no memo at the cycle-derived refill width, then rounded up to leave at least 25% headroom. That line measures the daemon process only; STANDING_FILL_WORKER_BYTES budgets the refill workers separately. `serve` prints `describe_fit(…, cap=1)` once, and the width of one is enforced by refusing to start beside a live daemon. No cycle width is computed from this constant or subtracts it: `corpus_job_budget` and `kernel_threads_budget` assume no daemon is running, so stop the daemon before a cycle pass. The daemon also exits by itself once its corpus is rebuilt. Re-measure the figure as the corpus grows, as with CORPUS_PARENT_BYTES. The corpus-holding cap in the dont-bug-me-about-this-ever-again skill uses the same figure.
 STANDING_DAEMON_BYTES = 2_000_000_000
 IDLE_CHECK_SECONDS = 30
 REQUEST_READ_SECONDS = 30
@@ -62,7 +62,7 @@ UNIT_FIELDS = frozenset(
 
 
 class Stamp(NamedTuple):
-    """The inputs a served answer depends on besides the request: the surface manifest's stamp, the loaded code, the font pair, and `uv.lock`'s dependency pins."""
+    """The inputs a served answer depends on besides the request: the corpus manifest's stamp, the loaded code, the font pair, and `uv.lock`'s dependency pins."""
 
     generated_at: str
     code: str
@@ -96,23 +96,23 @@ def _digest(path: pathlib.Path, digest: Callable[[pathlib.Path], str] = fingerpr
         return "-"
 
 
-def stamp_of(surface: pathlib.Path) -> Stamp:
+def stamp_of(corpus: pathlib.Path) -> Stamp:
     """Return the stamp as the files stand now. An unreadable manifest or font stamps as `-`, which differs from any value read at load."""
     try:
-        generated_at = str(json.loads((surface / "manifest.json").read_text())["generated_at"])
+        generated_at = str(json.loads((corpus / "manifest.json").read_text())["generated_at"])
     except OSError, ValueError, KeyError, TypeError:
         generated_at = "-"
     return Stamp(
         generated_at,
         fingerprint.hash_paths(ROOT, loaded_repo_files()),
-        ":".join(_digest(surface / "fonts" / name) for name in FONT_NAMES),
+        ":".join(_digest(corpus / "fonts" / name) for name in FONT_NAMES),
         _digest(ROOT / "uv.lock", fingerprint.lock_digest),
     )
 
 
 def _moved(held: Stamp, fresh: Stamp) -> str:
     names = {
-        "generated_at": "the surface manifest's generated_at",
+        "generated_at": "the corpus manifest's generated_at",
         "code": "the loaded code",
         "fonts": "the font pair",
         "lock": "uv.lock",
@@ -191,23 +191,23 @@ def _identity(path: str) -> tuple[int, int] | None:
 def _already_answers(socket_path: pathlib.Path, pid: object) -> int:
     print(
         f"a standing daemon already answers at {socket_path} (pid {pid}); "
-        "one process holds the surface by design"
+        "one process holds the corpus by design"
     )
     return 1
 
 
-def serve(surface=SURFACE, socket_path=None) -> int:
-    """Load the surface once, then serve requests until stopped, signaled, stale, or unreachable. Return 1 without loading when another `serve` holds the lock or a daemon already answers at the socket."""
+def serve(corpus=CORPUS, socket_path=None) -> int:
+    """Load the corpus once, then serve requests until stopped, signaled, stale, or unreachable. Return 1 without loading when another `serve` holds the lock or a daemon already answers at the socket."""
     socket_path = pathlib.Path(standing_client.SOCKET if socket_path is None else socket_path)
     socket_path.parent.mkdir(parents=True, exist_ok=True)
     lock = os.open(lock_path(socket_path), os.O_RDWR | os.O_CREAT, 0o644)
     try:
-        return _serve_locked(pathlib.Path(surface), socket_path, lock)
+        return _serve_locked(pathlib.Path(corpus), socket_path, lock)
     finally:
         os.close(lock)
 
 
-def _serve_locked(surface: pathlib.Path, socket_path: pathlib.Path, lock: int) -> int:
+def _serve_locked(corpus: pathlib.Path, socket_path: pathlib.Path, lock: int) -> int:
     try:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except BlockingIOError:
@@ -232,15 +232,15 @@ def _serve_locked(surface: pathlib.Path, socket_path: pathlib.Path, lock: int) -
         print(f"standing daemon: {memory_budget.describe_fit(STANDING_DAEMON_BYTES, cap=1)}", flush=True)
         from rebuild.tools import standing_probe, standing_verdicts
 
-        surface = pathlib.Path(surface).resolve()
+        corpus = pathlib.Path(corpus).resolve()
         started = time.monotonic()
-        manifest = json.loads((surface / "manifest.json").read_text())
-        units = standing_probe._human(iter_human_units(surface, fields=UNIT_FIELDS))
-        fonts = [surface / "fonts" / name for name in FONT_NAMES]
+        manifest = json.loads((corpus / "manifest.json").read_text())
+        units = standing_probe._human(iter_human_units(corpus, fields=UNIT_FIELDS))
+        fonts = [corpus / "fonts" / name for name in FONT_NAMES]
         context = standing_verdicts.SlideContext(*fonts) if all(font.is_file() for font in fonts) else None
-        held = stamp_of(surface)
+        held = stamp_of(corpus)
         print(
-            f"standing daemon: holding {surface} (generated {manifest['generated_at']}, {len(units)} human "
+            f"standing daemon: holding {corpus} (generated {manifest['generated_at']}, {len(units)} human "
             f"units, {'a font pair' if context is not None else 'no fonts'}) loaded in "
             f"{time.monotonic() - started:.1f} s; listening at {absolute} (pid {os.getpid()})",
             flush=True,
@@ -253,7 +253,7 @@ def _serve_locked(surface: pathlib.Path, socket_path: pathlib.Path, lock: int) -
                 if _identity(absolute) != bound:
                     print(f"standing daemon: {absolute} is no longer its socket; exiting", flush=True)
                     break
-                fresh = stamp_of(surface)
+                fresh = stamp_of(corpus)
                 if fresh != held:
                     print(f"standing daemon: {_moved(held, fresh)} since it loaded; exiting", flush=True)
                     break
@@ -272,7 +272,7 @@ def _serve_locked(surface: pathlib.Path, socket_path: pathlib.Path, lock: int) -
                         conn,
                         {
                             "ok": True,
-                            "surface": str(surface),
+                            "corpus": str(corpus),
                             "generated_at": manifest["generated_at"],
                             "pid": os.getpid(),
                             "units": len(units),
@@ -288,11 +288,11 @@ def _serve_locked(surface: pathlib.Path, socket_path: pathlib.Path, lock: int) -
                 if tool not in standing_client.TOOLS:
                     _reply(conn, {"ok": False, "reason": f"unknown tool {tool!r}"})
                     continue
-                asked = pathlib.Path(str(request.get("surface", "")))
-                if asked != surface:
-                    _reply(conn, {"ok": False, "reason": f"it holds {surface}, not {asked}"})
+                asked = pathlib.Path(str(request.get("corpus", "")))
+                if asked != corpus:
+                    _reply(conn, {"ok": False, "reason": f"it holds {corpus}, not {asked}"})
                     continue
-                fresh = stamp_of(surface)
+                fresh = stamp_of(corpus)
                 if fresh != held:
                     reason = f"stale: {_moved(held, fresh)} since it loaded"
                     _reply(
@@ -329,9 +329,9 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=(__doc__ or "").split(":")[0] + ".")
     verbs = parser.add_subparsers(dest="verb", required=True)
     serve_parser = verbs.add_parser(
-        "serve", help="load the surface and answer until stopped, signaled, stale, or unreachable"
+        "serve", help="load the corpus and answer until stopped, signaled, stale, or unreachable"
     )
-    serve_parser.add_argument("--surface", default=str(SURFACE))
+    serve_parser.add_argument("--corpus", "--surface", default=str(CORPUS))
     serve_parser.add_argument("--socket", default=str(standing_client.SOCKET))
     status_parser = verbs.add_parser("status", help="say what the daemon holds; exit 1 when none answers")
     status_parser.add_argument("--socket", default=str(standing_client.SOCKET))
@@ -341,7 +341,7 @@ def main(argv=None) -> int:
     stop_parser.add_argument("--socket", default=str(standing_client.SOCKET))
     args = parser.parse_args(argv)
     if args.verb == "serve":
-        return serve(args.surface, args.socket)
+        return serve(args.corpus, args.socket)
     reply = standing_client.exchange(args.socket, {"tool": args.verb})
     answered = reply is not None and bool(reply.get("ok"))
     if args.verb == "status":
@@ -349,7 +349,7 @@ def main(argv=None) -> int:
             print(f"no standing daemon answers at {args.socket}")
             return 1
         print(
-            f"standing daemon pid {reply['pid']} holds {reply['surface']} (generated {reply['generated_at']}, "
+            f"standing daemon pid {reply['pid']} holds {reply['corpus']} (generated {reply['generated_at']}, "
             f"{reply['units']} human units); {reply['served']} requests served since {reply['since']}"
         )
         return 0

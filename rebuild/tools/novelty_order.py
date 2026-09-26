@@ -14,13 +14,13 @@ sys.path.insert(0, str(ROOT))
 from rebuild.review.serve import PORT  # noqa: E402
 from rebuild.tools.review_docket import latest_verdicts, load_human_units  # noqa: E402
 
-SURFACE = ROOT / "rebuild/out/review"
+CORPUS = ROOT / "rebuild/out/review"
 AUTOSAVE = ROOT / "verdicts-autosave.json"
 RECENT_WINDOW = 3
 
 
 def _triage_position(unit):
-    """Return the unit's position in the surface's triage index (the index record's `order`), which decides the rep chosen from each group and breaks the walk's remaining ties."""
+    """Return the unit's position in the corpus's triage index (the index record's `order`), which decides the rep chosen from each group and breaks the walk's remaining ties."""
     order = unit.get("order")
     return order if isinstance(order, int) else sys.maxsize
 
@@ -124,7 +124,7 @@ def main(clipboard_write: Callable[[str], None] | None = None, *, units=None):
         default=str(AUTOSAVE),
         help="the verdicts file for the current frontier (default: the live autosave)",
     )
-    parser.add_argument("--surface", default=str(SURFACE))
+    parser.add_argument("--corpus", "--surface", default=str(CORPUS))
     parser.add_argument(
         "--limit",
         type=int,
@@ -133,18 +133,18 @@ def main(clipboard_write: Callable[[str], None] | None = None, *, units=None):
     )
     args = parser.parse_args()
 
-    surface = pathlib.Path(args.surface)
-    manifest = json.loads((surface / "manifest.json").read_text())
+    corpus = pathlib.Path(args.corpus)
+    manifest = json.loads((corpus / "manifest.json").read_text())
     verdicts_path = pathlib.Path(args.verdicts)
     data = json.loads(verdicts_path.read_text())
     if data.get("manifest_generated_at") != manifest["generated_at"]:
         raise SystemExit(
-            f"{args.verdicts} is stamped {data.get('manifest_generated_at')} but the surface is "
+            f"{args.verdicts} is stamped {data.get('manifest_generated_at')} but the corpus is "
             f"{manifest['generated_at']}; unit ids must never be joined across manifests — carry it forward first"
         )
     records = latest_verdicts(verdicts_path)
 
-    reps, blank_count = blank_reps(units if units is not None else load_human_units(surface)[0], records)
+    reps, blank_count = blank_reps(units if units is not None else load_human_units(corpus)[0], records)
     if not reps:
         print("No blank units — nothing to order.")
         return

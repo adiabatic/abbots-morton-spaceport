@@ -45,10 +45,10 @@ import {
   noVerdictTotal,
   NO_VERDICT_BADGE,
   formatCount,
-  surfaceChipLabel,
-  surfaceAlphabetLabel,
-  surfaceStampLine,
-  surfaceDetailRows,
+  corpusChipLabel,
+  corpusAlphabetLabel,
+  corpusStampLine,
+  corpusDetailRows,
   classCountsLine,
   nextUnverdictedIndex,
   stepIndex,
@@ -256,7 +256,7 @@ async function* streamNdjson(name) {
   const source = response.body.getReader();
   const { value: first } = await source.read();
   let body = restream(source, first);
-  // rebuild.review.serve declares Content-Encoding: gzip, so the browser has already decoded the sidecar. A plain static file server serving an archived surface sends the gzip bytes as stored. The magic number tells the two cases apart.
+  // rebuild.review.serve declares Content-Encoding: gzip, so the browser has already decoded the sidecar. A plain static file server serving an archived corpus sends the gzip bytes as stored. The magic number tells the two cases apart.
   if (looksGzipped(first) && typeof DecompressionStream === 'function') {
     body = body.pipeThrough(new DecompressionStream('gzip'));
   }
@@ -386,7 +386,7 @@ async function fetchLocatorBlock(block) {
   }
   // The table and the rows file are written together, so a block that does not start where the table says belongs to a different build.
   if (rows.length !== block.units || rows[0]?.id !== block.first) {
-    toast(`The ${block.class} locator rows are not where this page was told they would be — the surface was rebuilt; reload.`);
+    toast(`The ${block.class} locator rows are not where this page was told they would be — the corpus was rebuilt; reload.`);
     return null;
   }
   locatorBlocks.set(key, rows);
@@ -452,7 +452,7 @@ async function fetchRecordsBySpans(rows) {
         }
         // A rebuild rewrites the shards, so a stale span can land on a neighboring record instead of failing. Comparing the id detects that.
         if (!record || record.id !== row.id) {
-          toast(`${row.id} is not where this page was told it would be — the surface was rebuilt; reload.`);
+          toast(`${row.id} is not where this page was told it would be — the corpus was rebuilt; reload.`);
           continue;
         }
         fullRecords.set(record.id, record);
@@ -1351,7 +1351,7 @@ function worklistHref(unitIds) {
   return `#units=${unitIds.join(',')}`;
 }
 
-// Docket worklists carry `docket=1`, which makes finishing the worklist advance to the next docket decision; `decision`, the key the worklist records as shown (see decisionKey); and the surface stamp, which lets a resumed tab detect that its ids came from an earlier build (see docketResumeAction). Conflict stacks use plain worklists, because resolving a conflict changes existing verdicts instead of filling blanks.
+// Docket worklists carry `docket=1`, which makes finishing the worklist advance to the next docket decision; `decision`, the key the worklist records as shown (see decisionKey); and the corpus stamp, which lets a resumed tab detect that its ids came from an earlier build (see docketResumeAction). Conflict stacks use plain worklists, because resolving a conflict changes existing verdicts instead of filling blanks.
 function docketWorklistHref(unitIds, decision) {
   return `${worklistHref(unitIds)}&docket=1&decision=${encodeURIComponent(decision)}&stamp=${encodeURIComponent(manifest.generated_at)}`;
 }
@@ -1527,7 +1527,7 @@ function renderDocket({ anchor = null } = {}) {
       el(
         'p',
         'docket-note',
-        `This surface predates cluster signatures — rebuild it with ${manifest.build_command ?? 'uv run python -m rebuild.review.build'} to use the docket view.`,
+        `This corpus predates cluster signatures — rebuild it with ${manifest.build_command ?? 'uv run python -m rebuild.review.build'} to use the docket view.`,
       ),
     );
     return;
@@ -1647,7 +1647,7 @@ async function applyHashState(resume = false) {
     updateSidebarHighlights();
     return;
   }
-  // On boot and hashchange (`resume`), a docket worklist that is stamped for another surface or already finished is not rendered; advanceDocket stacks the next decision from the live queue instead, because a rebuild gives every changed unit a new id, so an old hash's worklist was stacked from a queue that no longer exists. The check runs only on resume, so a cursor move, Shift+Enter, or an undo never replaces a worklist the reviewer is looking at.
+  // On boot and hashchange (`resume`), a docket worklist that is stamped for another corpus or already finished is not rendered; advanceDocket stacks the next decision from the live queue instead, because a rebuild gives every changed unit a new id, so an old hash's worklist was stacked from a queue that no longer exists. The check runs only on resume, so a cursor move, Shift+Enter, or an undo never replaces a worklist the reviewer is looking at.
   if (resume && state.units && state.docket) {
     const action = docketResumeAction({
       stamp: state.stamp,
@@ -1810,7 +1810,7 @@ async function advanceDocket({ stale = false } = {}) {
   await indexReady;
   const recordOf = (id) => store.records.get(id);
   const decision = nextDocketDecision(humanList, recordOf, ruledClassIds(manifest.classes), docketShown);
-  const lead = stale ? 'That worklist was stacked for an earlier surface' : 'Decision done';
+  const lead = stale ? 'That worklist was stacked for an earlier corpus' : 'Decision done';
   if (!decision) {
     toast(`${stale ? `${lead}, and the` : 'The'} docket queue is clear`);
     setState({ units: null, order: null, docket: null, decision: null, stamp: null, unit: null, view: 'docket' });
@@ -2171,7 +2171,7 @@ function exportPayload() {
   return JSON.stringify(assembleExport(store, manifest.generated_at), null, 2);
 }
 
-// The autosave sends changes, not the store. A flush POSTs a set or a clear for each unit in store.dirty, so its size follows what the reader just did, not the store, which holds every carried and filled verdict on the surface. The server keeps the store in memory, applies the delta, and returns a sync token. syncVerdictsFromServer sends the token back and receives only the changes since, so the focus re-merge and the docket poll get an empty delta while nothing changes. Flushes run one at a time, because two deltas in flight could arrive out of order and a clear could lose to the set it undid.
+// The autosave sends changes, not the store. A flush POSTs a set or a clear for each unit in store.dirty, so its size follows what the reader just did, not the store, which holds every carried and filled verdict on the corpus. The server keeps the store in memory, applies the delta, and returns a sync token. syncVerdictsFromServer sends the token back and receives only the changes since, so the focus re-merge and the docket poll get an empty delta while nothing changes. Flushes run one at a time, because two deltas in flight could arrive out of order and a clear could lose to the set it undid.
 const AUTOSAVE_DEBOUNCE_MS = 800;
 const AUTOSAVE_CHUNK = 20000;
 let autosaveTimer = null;
@@ -2226,7 +2226,7 @@ async function flushAutosave() {
       }
       if (response.status === 409) {
         restoreDirty(ids.slice(start));
-        if (!autosaveFailed) toast('Autosave refused: this tab is from an older surface — reload to continue');
+        if (!autosaveFailed) toast('Autosave refused: this tab is from an older corpus — reload to continue');
         autosaveFailed = true;
         updateProgress();
         return;
@@ -2275,7 +2275,7 @@ async function restoreAutosave() {
   if (!result.ok) {
     if (result.mismatch) {
       toast(
-        `Found an autosave from a different surface build (${data.verdicts.length} verdicts) — not restored; it'll be stashed aside on your next verdict`,
+        `Found an autosave from a different corpus build (${data.verdicts.length} verdicts) — not restored; it'll be stashed aside on your next verdict`,
       );
     }
     return;
@@ -2918,23 +2918,23 @@ function renderChrome() {
   document.getElementById('serve-command').textContent = manifest.serve_command ?? '';
   const machine = manifest.machine_approved;
   const exempt = noVerdictTotal(manifest);
-  document.getElementById('surface-total').textContent = surfaceChipLabel(manifest);
+  document.getElementById('corpus-total').textContent = corpusChipLabel(manifest);
   document.getElementById('manifest-meta').textContent =
     `Mode ${manifest.mode}, generated ${manifest.generated_at} at ${manifest.repo_head}; ` +
-    `${formatCount(manifest.totals.units)} units on the surface — ` +
+    `${formatCount(manifest.totals.units)} units on the corpus — ` +
     `${formatCount(machine?.units ?? 0)} machine-approved` +
     `${exempt ? `, ${formatCount(exempt)} in no-verdict classes` : ''}, and ` +
     `${formatCount(humanTotal(manifest))} human-workload in ${manifest.totals.batches} batches — ` +
     `covering ${formatCount(manifest.totals.rows)} rows.`;
-  const stamp = document.getElementById('surface-stamp');
-  const stampText = surfaceStampLine(manifest);
+  const stamp = document.getElementById('corpus-stamp');
+  const stampText = corpusStampLine(manifest);
   stamp.textContent = stampText ?? '';
   stamp.hidden = stampText === null;
-  const alphabetLabel = surfaceAlphabetLabel(manifest);
+  const alphabetLabel = corpusAlphabetLabel(manifest);
   const alphabet = document.createElement('td');
   if (alphabetLabel !== null) {
     alphabet.textContent = alphabetLabel;
-    alphabet.title = 'Letters migrated to the rebuild engine, against the whole Quikscript alphabet — the surface is built over the migrated ones.';
+    alphabet.title = 'Letters migrated to the rebuild engine, against the whole Quikscript alphabet — the corpus is built over the migrated ones.';
   }
   const unitsHeading = document.createElement('th');
   unitsHeading.scope = 'col';
@@ -2944,7 +2944,7 @@ function renderChrome() {
   const head = document.createElement('thead');
   head.append(headRow);
   const body = document.createElement('tbody');
-  for (const row of surfaceDetailRows(manifest)) {
+  for (const row of corpusDetailRows(manifest)) {
     const line = document.createElement('tr');
     const term = document.createElement('th');
     const value = document.createElement('td');
@@ -2956,7 +2956,7 @@ function renderChrome() {
     line.append(term, value);
     body.append(line);
   }
-  document.getElementById('surface-detail-rows').replaceChildren(head, body);
+  document.getElementById('corpus-detail-rows').replaceChildren(head, body);
 }
 
 renderChrome();

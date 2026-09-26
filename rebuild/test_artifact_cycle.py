@@ -36,7 +36,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 BOX_44_GB = 44_000_000_000
 BOX_38_GB = 38_000_000_000
 BOX_36_GB = 36_000_000_000
-# The fleet's two machines (`doc/fleet.md`), for the surface width's assertions. On both, the surface build reaches its cap whether or not the pytest pool's bytes are subtracted, so no total separates the gated and solo cases; the reservation arithmetic is asserted through `_surface_fit_terms`, which takes no total.
+# The fleet's two machines (`doc/fleet.md`), for the corpus width's assertions. On both, the corpus build reaches its cap whether or not the pytest pool's bytes are subtracted, so no total separates the gated and solo cases; the reservation arithmetic is asserted through `_corpus_fit_terms`, which takes no total.
 BOX_48_GIB = 51_539_607_552
 BOX_32_GIB = 34_359_738_368
 
@@ -51,7 +51,7 @@ def _no_stated_widths(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _redirect_contracts_lane_reads(monkeypatch, tmp_path):
-    """Make this module see the live review surface and build artifacts as absent. The conftest's `_redirect_cycle_writes` redirects writes only, but the cycle also resolves its read paths from the live repo at call time, so a test driving `_run_cycle` over mocked stages would otherwise read whatever surface and behavior-class sidecar sit in rebuild/out. Every test here is in the contracts lane, so no live read needs to be kept, and the lane's audit guard fails any read this misses.
+    """Make this module see the live review corpus and build artifacts as absent. The conftest's `_redirect_cycle_writes` redirects writes only, but the cycle also resolves its read paths from the live repo at call time, so a test driving `_run_cycle` over mocked stages would otherwise read whatever corpus and behavior-class sidecar sit in rebuild/out. Every test here is in the contracts lane, so no live read needs to be kept, and the lane's audit guard fails any read this misses.
 
     `REVIEW_OUT` and the deep replay's green record are constants and are redirected directly. The behavior-class sidecar is not: `deep_sweep_skip_lines` re-roots `BEHAVIOR_CLASSES` against the root it is given, so redirecting the constant outside ROOT would break the tests that pass their own root, and the function is patched for the default root only. The gates' `*_skip_lines(ROOT)` also read through two globs over rebuild/out (`baselines_value`, `_subset_tables`) and the per-file digest `_sha256_path`, which returns "absent" for a live path. Each patch changes the result only for the live root or a live path, so a test that passes its own root runs the real function.
     """
@@ -268,14 +268,14 @@ def test_dry_run_plan_default():
         "--replay-threads",
         str(plan.replay_threads),
     ]
-    assert by_name["surface-build"].argv == [
+    assert by_name["corpus-build"].argv == [
         "uv",
         "run",
         "python",
         "-m",
         "rebuild.review.build",
         "--jobs",
-        str(plan.surface_jobs),
+        str(plan.corpus_jobs),
         "--signature-jobs",
         str(plan.signature_jobs),
     ]
@@ -293,7 +293,7 @@ def test_dry_run_plan_default():
         "-m",
         "rebuild.review.census",
         "--update",
-        "--surface",
+        "--corpus",
         str(ac.REVIEW_OUT),
     ]
     contracts_record = ac.rebuild_lane_green("contracts")
@@ -331,7 +331,7 @@ def test_dry_run_plan_default():
 
 
 def test_dry_run_plan_conform_jobs_cap():
-    """gate:conform gets the conform sweep's own width, capped at the acceptance configurations and the cores. The argv states it at every value, including one, because an omitted `--jobs` would give run_m1 its own default instead of the width this plan budgeted beside the surface build."""
+    """gate:conform gets the conform sweep's own width, capped at the acceptance configurations and the cores. The argv states it at every value, including one, because an omitted `--jobs` would give run_m1 its own default instead of the width this plan budgeted beside the corpus build."""
     from rebuild.pipeline.conform import ACCEPTANCE_CONFIGS
 
     plan = _plan(ncores=12)
@@ -341,7 +341,7 @@ def test_dry_run_plan_conform_jobs_cap():
         == ac.conform_job_budget(
             skip_gates=plan.skip_gates,
             skip_make_test=plan.skip_make_test,
-            skip_surface=plan.skip_surface,
+            skip_corpus=plan.skip_corpus,
             verdict_update_runs=plan.runs("verdict-update"),
             pool_policy=plan.pool_policy,
             ncores=12,
@@ -360,11 +360,11 @@ def test_dry_run_plan_conform_jobs_cap():
     assert _argv(single_by_name["gate:conform"])[-2:] == ["--jobs", "1"]
 
 
-def test_dry_run_plan_states_a_surface_width_of_one_in_the_argv():
+def test_dry_run_plan_states_a_corpus_width_of_one_in_the_argv():
     plan = _plan(ncores=2)
     by_name = {step.name: step for step in plan.steps}
-    assert _argv(by_name["surface-build"])[-4:-2] == ["--jobs", "1"]
-    assert plan.surface_jobs == 1
+    assert _argv(by_name["corpus-build"])[-4:-2] == ["--jobs", "1"]
+    assert plan.corpus_jobs == 1
 
 
 def test_dry_run_plan_conform_horizon():
@@ -390,7 +390,7 @@ def test_dry_run_plan_skip_conform():
 def test_dry_run_plan_runs_the_whole_verdict_update_as_one_step():
     plan = _plan(short_id="abc1234")
     names = [step.name for step in plan.steps]
-    assert names.index("verdict-update") == names.index("surface-build") + 1
+    assert names.index("verdict-update") == names.index("corpus-build") + 1
     assert names.index("census") == names.index("verdict-update") + 1
     argv = {step.name: step for step in plan.steps}["verdict-update"].argv
     assert argv is not None
@@ -400,7 +400,7 @@ def test_dry_run_plan_runs_the_whole_verdict_update_as_one_step():
         "python",
         "-m",
         "rebuild.tools.verdict_update",
-        "--surface",
+        "--corpus",
         str(ac.REVIEW_OUT),
         "--verdicts",
         "v.json",
@@ -427,7 +427,7 @@ def test_dry_run_plan_rehearsal_never_touches_the_autosave(tmp_path):
     assert step.argv is not None
     assert "--no-merge" in step.argv
     assert "--no-complaints" in step.argv
-    assert step.argv[step.argv.index("--surface") + 1] == str(tmp_path / "reh")
+    assert step.argv[step.argv.index("--corpus") + 1] == str(tmp_path / "reh")
     assert "rehearsal" in step.note
     assert plan.do_merge is False
 
@@ -551,7 +551,7 @@ def test_the_verdict_update_row_counts_the_carry_and_the_summary_quotes_what_the
 
 
 def test_the_verdict_update_row_falls_back_to_the_merge_when_no_carry_ran(tmp_path, monkeypatch):
-    """A direct merge runs no carry, because the surface did not change, so there is no carry count. The row reports the merge instead of staying blank."""
+    """A direct merge runs no carry, because the corpus did not change, so there is no carry count. The row reports the merge instead of staying blank."""
     autosave = tmp_path / "verdicts-autosave.json"
     autosave.write_text("{}")
     monkeypatch.setattr(ac, "AUTOSAVE", autosave)
@@ -658,9 +658,9 @@ def test_every_plan_step_says_what_it_is_for():
         _plan(skip_gates=True),
         _plan(rerun_gates_only=True, run_m1_note="comparison-side"),
         _plan(
-            skip_surface=True,
-            promote_surface=Path("var/rehearsal-review"),
-            surface_note=ac.SURFACE_PROMOTE_NOTE,
+            skip_corpus=True,
+            promote_corpus=Path("var/rehearsal-review"),
+            corpus_note=ac.CORPUS_PROMOTE_NOTE,
         ),
     ):
         for step in plan.steps:
@@ -723,7 +723,7 @@ def test_the_plan_block_counts_its_steps_and_leaves_the_sweep_undecided():
     certain_rows = ac.plan_rows(certain)
     certain_by_name = {row.name: row for row in certain_rows}
     assert certain_by_name["gate:conform"].status == console.STATUS_RUN
-    assert certain_by_name["gate:rebuild-contracts"].note == "submitted beside the surface build"
+    assert certain_by_name["gate:rebuild-contracts"].note == "submitted beside the corpus build"
     assert "–" not in console.counts_line(certain_rows)
 
     fresh = _plan(fresh=True)
@@ -752,26 +752,26 @@ def test_the_plan_block_leads_with_its_arithmetic_and_puts_the_paths_after_the_r
     assert [line for line in lines if line.startswith("  carry output ")]
 
 
-def _built_surface(tmp_path, **totals):
-    surface = tmp_path / "review"
-    surface.mkdir()
-    (surface / "manifest.json").write_text(json.dumps({"totals": totals}))
-    return surface
+def _built_corpus(tmp_path, **totals):
+    corpus = tmp_path / "review"
+    corpus.mkdir()
+    (corpus / "manifest.json").write_text(json.dumps({"totals": totals}))
+    return corpus
 
 
-def test_do_surface_build_takes_its_totals_from_the_manifest_the_build_wrote(tmp_path):
-    surface = _built_surface(tmp_path, units=15897, rows=81867, batches=16, echo_groups=402)
+def test_do_corpus_build_takes_its_totals_from_the_manifest_the_build_wrote(tmp_path):
+    corpus = _built_corpus(tmp_path, units=15897, rows=81867, batches=16, echo_groups=402)
     report = ac.CycleReport()
-    ok = ac._do_surface_build(
+    ok = ac._do_corpus_build(
         report,
         spawn=lambda name, argv, **k: _step(name, 0),
         emit=ac._Emitter(),
         registry=ac._ChildRegistry(),
-        review_out=surface,
+        review_out=corpus,
         argv=["uv", "run", "python", "-m", "rebuild.review.build"],
     )
     assert ok
-    assert (report.surface_units, report.surface_rows, report.surface_batches, report.echo_groups) == (
+    assert (report.corpus_units, report.corpus_rows, report.corpus_batches, report.echo_groups) == (
         15897,
         81867,
         16,
@@ -779,38 +779,38 @@ def test_do_surface_build_takes_its_totals_from_the_manifest_the_build_wrote(tmp
     )
 
 
-def test_do_surface_build_fails_when_a_clean_build_left_no_manifest(tmp_path, capsys):
-    surface = tmp_path / "review"
-    surface.mkdir()
+def test_do_corpus_build_fails_when_a_clean_build_left_no_manifest(tmp_path, capsys):
+    corpus = tmp_path / "review"
+    corpus.mkdir()
     report = ac.CycleReport()
-    ok = ac._do_surface_build(
+    ok = ac._do_corpus_build(
         report,
         spawn=lambda name, argv, **k: _step(name, 0),
         emit=ac._Emitter(),
         registry=ac._ChildRegistry(),
-        review_out=surface,
+        review_out=corpus,
         argv=["uv", "run", "python", "-m", "rebuild.review.build"],
     )
     assert not ok
     assert "review.build exited 0 but left no readable manifest.json" in capsys.readouterr().out
-    assert report.surface_units is None
+    assert report.corpus_units is None
 
 
-def test_do_surface_build_reads_no_totals_from_a_failed_build(tmp_path, capsys):
-    """After a nonzero exit, the manifest in the surface directory is the previous pass's, so the step fails before reading any totals from it."""
-    surface = _built_surface(tmp_path, units=1, rows=2, batches=3, echo_groups=4)
+def test_do_corpus_build_reads_no_totals_from_a_failed_build(tmp_path, capsys):
+    """After a nonzero exit, the manifest in the corpus directory is the previous pass's, so the step fails before reading any totals from it."""
+    corpus = _built_corpus(tmp_path, units=1, rows=2, batches=3, echo_groups=4)
     report = ac.CycleReport()
-    ok = ac._do_surface_build(
+    ok = ac._do_corpus_build(
         report,
         spawn=lambda name, argv, **k: _step(name, 3),
         emit=ac._Emitter(),
         registry=ac._ChildRegistry(),
-        review_out=surface,
+        review_out=corpus,
         argv=["uv", "run", "python", "-m", "rebuild.review.build"],
     )
     assert not ok
     assert "review.build exited 3" in capsys.readouterr().out
-    assert (report.surface_units, report.surface_rows, report.surface_batches, report.echo_groups) == (
+    assert (report.corpus_units, report.corpus_rows, report.corpus_batches, report.echo_groups) == (
         None,
         None,
         None,
@@ -882,8 +882,8 @@ def _pass_run_m1(report, *, spawn, emit, registry, **_):
     return _run_m1_green()
 
 
-def _surface_ok(report, *, spawn, emit, registry, review_out, **_):
-    report.surface_units = 1
+def _corpus_ok(report, *, spawn, emit, registry, review_out, **_):
+    report.corpus_units = 1
     return True
 
 
@@ -1018,7 +1018,7 @@ def _patch_gate_fingerprints(monkeypatch):
 
 
 def _patch_build_chain(monkeypatch):
-    monkeypatch.setattr(ac, "_do_surface_build", _surface_ok)
+    monkeypatch.setattr(ac, "_do_corpus_build", _corpus_ok)
     monkeypatch.setattr(ac, "_do_verdict_update", _verdict_update_ok)
     monkeypatch.setattr(ac, "_do_census", _census_clean)
     monkeypatch.setattr(ac, "_do_job_costs", _job_costs_clean)
@@ -1030,7 +1030,7 @@ def test_a_failing_merge_fails_the_cycle(monkeypatch, capsys):
         return ["verdict merge failed"]
 
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
-    monkeypatch.setattr(ac, "_do_surface_build", _surface_ok)
+    monkeypatch.setattr(ac, "_do_corpus_build", _corpus_ok)
     monkeypatch.setattr(ac, "_do_verdict_update", failing)
     monkeypatch.setattr(ac, "_do_census", _census_clean)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
@@ -1191,7 +1191,7 @@ def test_standing_fill_news_keeps_rules_and_drops_steady_state_composed_pairs():
         "REACHED NOTHING: quiet-rule matched no window on its own and no composed line credited it."
     )
     assert not news(
-        "except_left vocabulary: quiet-rule guards against qsOut, which no window on this surface joins from."
+        "except_left vocabulary: quiet-rule guards against qsOut, which no window on this corpus joins from."
     )
     assert not news("per-rule reach (3 rules):")
 
@@ -1550,12 +1550,12 @@ def test_summary_exact_under_out_of_order_completion(monkeypatch, capsys):
         report.pins_pass = True
         return _run_m1_green()
 
-    def fake_surface(report, *, spawn, emit, registry, review_out, **_):
-        report.surface_units = 15903
-        report.surface_rows = 81894
-        report.surface_batches = 16
+    def fake_corpus(report, *, spawn, emit, registry, review_out, **_):
+        report.corpus_units = 15903
+        report.corpus_rows = 81894
+        report.corpus_batches = 16
         report.echo_groups = 42
-        report.step_seconds["surface-build"] = 61.0
+        report.step_seconds["corpus-build"] = 61.0
         return True
 
     def fake_js(argv, spawn, emit, registry):
@@ -1571,7 +1571,7 @@ def test_summary_exact_under_out_of_order_completion(monkeypatch, capsys):
         return _lane_result("rebuild-contracts", "green (annotated)")
 
     monkeypatch.setattr(ac, "_do_run_m1", fake_run_m1)
-    monkeypatch.setattr(ac, "_do_surface_build", fake_surface)
+    monkeypatch.setattr(ac, "_do_corpus_build", fake_corpus)
     monkeypatch.setattr(ac, "_do_verdict_update", _verdict_update_ok)
     monkeypatch.setattr(ac, "_do_census", _census_clean)
     monkeypatch.setattr(ac, "_gate_js_task", fake_js)
@@ -1594,9 +1594,9 @@ def test_summary_exact_under_out_of_order_completion(monkeypatch, capsys):
     ev_js.set()
     t.join()
 
-    assert report.surface_units == 15903
-    assert report.surface_rows == 81894
-    assert report.surface_batches == 16
+    assert report.corpus_units == 15903
+    assert report.corpus_rows == 81894
+    assert report.corpus_batches == 16
     assert report.echo_groups == 42
     assert report.unmatched == 7777
     assert report.gate_js == "green"
@@ -1818,15 +1818,15 @@ def test_classify_rebuild_reads_colored_pytest_output():
 
 
 def test_failure_funnels_from_concurrent_branch(monkeypatch, capsys):
-    def fake_surface(report, *, spawn, emit, registry, review_out, **_):
-        report.surface_units = 100
+    def fake_corpus(report, *, spawn, emit, registry, review_out, **_):
+        report.corpus_units = 100
         return True
 
     def fake_make(argv, spawn, emit, registry):
         return _step("gate:make-test", 1)
 
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
-    monkeypatch.setattr(ac, "_do_surface_build", fake_surface)
+    monkeypatch.setattr(ac, "_do_corpus_build", fake_corpus)
     monkeypatch.setattr(ac, "_do_verdict_update", _verdict_update_ok)
     monkeypatch.setattr(ac, "_do_census", _census_clean)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
@@ -1841,7 +1841,7 @@ def test_failure_funnels_from_concurrent_branch(monkeypatch, capsys):
     assert rc == 1
     assert report.gate_make_test == "FAILED (exit 1)"
     assert report.gate_js == "green"
-    assert report.surface_units == 100
+    assert report.corpus_units == 100
     assert "make test failed" in capsys.readouterr().out
 
 
@@ -2174,57 +2174,57 @@ def test_the_plan_prints_the_sweep_width_with_its_derivation():
     assert _argv(by_name["gate:conform"])[-2:] == ["--jobs", str(plan.conform_jobs)]
 
 
-class TestTheSurfaceBuildWidth:
+class TestTheCorpusBuildWidth:
     """Both bounds are checked, because which one limits the width matters: the cap stops the pool where widening stops helping on a machine with memory to spare, and the division protects a machine with none."""
 
     def test_the_cap_binds_where_the_box_has_room_to_spare(self):
-        """A machine with memory for dozens of workers gets `SURFACE_JOBS_CAP`. The limit is not memory: one parent process hands out the batches and merges the replies, and eight is the widest pool measured (the comment on `SURFACE_JOBS_CAP` in rebuild/tools/artifact_cycle.py)."""
+        """A machine with memory for dozens of workers gets `CORPUS_JOBS_CAP`. The limit is not memory: one parent process hands out the batches and merges the replies, and eight is the widest pool measured (the comment on `CORPUS_JOBS_CAP` in rebuild/tools/artifact_cycle.py)."""
         assert (
-            ac.surface_job_budget(skip_gates=True, ncores=12, total_bytes=1_000_000_000_000)
-            == ac.SURFACE_JOBS_CAP
+            ac.corpus_job_budget(skip_gates=True, ncores=12, total_bytes=1_000_000_000_000)
+            == ac.CORPUS_JOBS_CAP
         )
 
     def test_a_box_with_fewer_cores_than_the_cap_gets_its_cores(self):
         """The cap and the core count are one `min()` because neither is a memory limit, and gate:make-test's two cores are subtracted from the core count before the `min()`: a five-core machine runs five workers alone and three beside that pool, with memory to spare in both cases."""
-        assert ac.surface_job_budget(skip_gates=True, ncores=5, total_bytes=1_000_000_000_000) == 5
-        assert ac.surface_job_budget(skip_gates=False, ncores=5, total_bytes=1_000_000_000_000) == 3
+        assert ac.corpus_job_budget(skip_gates=True, ncores=5, total_bytes=1_000_000_000_000) == 5
+        assert ac.corpus_job_budget(skip_gates=False, ncores=5, total_bytes=1_000_000_000_000) == 3
 
     def test_both_fleet_boxes_keep_a_pooled_build_under_a_gated_cycle(self):
-        """On both fleet machines (`doc/fleet.md`) the build runs a pool: beside gate:make-test's pool the 48 GiB machine runs it at the cap, and the 32 GiB machine runs more than one worker both gated and alone. The lower bound is what a change to the worker constant must not cross, because a width of one is the serial build. For the 32 GiB machine this test requires only more than one worker, so it still passes if a change to the constant narrows that machine's width below the cap. `test_the_shipped_surface_divisor_holds_the_32_gib_box_at_the_cap_by_division` in rebuild/test_memory_budget.py checks that the gated width there is the cap. The derivation is checked too, because the plan line quotes it."""
-        roomy = ac.surface_job_budget(skip_gates=False, ncores=12, total_bytes=BOX_48_GIB)
-        assert roomy == ac.SURFACE_JOBS_CAP
-        assert ac.surface_job_derivation(skip_gates=False, ncores=12, total_bytes=BOX_48_GIB).startswith(
-            f"{ac.SURFACE_JOBS_CAP} at "
+        """On both fleet machines (`doc/fleet.md`) the build runs a pool: beside gate:make-test's pool the 48 GiB machine runs it at the cap, and the 32 GiB machine runs more than one worker both gated and alone. The lower bound is what a change to the worker constant must not cross, because a width of one is the serial build. For the 32 GiB machine this test requires only more than one worker, so it still passes if a change to the constant narrows that machine's width below the cap. `test_the_shipped_corpus_divisor_holds_the_32_gib_box_at_the_cap_by_division` in rebuild/test_memory_budget.py checks that the gated width there is the cap. The derivation is checked too, because the plan line quotes it."""
+        roomy = ac.corpus_job_budget(skip_gates=False, ncores=12, total_bytes=BOX_48_GIB)
+        assert roomy == ac.CORPUS_JOBS_CAP
+        assert ac.corpus_job_derivation(skip_gates=False, ncores=12, total_bytes=BOX_48_GIB).startswith(
+            f"{ac.CORPUS_JOBS_CAP} at "
         )
-        narrow = ac.surface_job_budget(skip_gates=False, ncores=10, total_bytes=BOX_32_GIB)
-        assert 1 < narrow <= ac.SURFACE_JOBS_CAP
-        assert ac.surface_job_derivation(skip_gates=False, ncores=10, total_bytes=BOX_32_GIB).startswith(
+        narrow = ac.corpus_job_budget(skip_gates=False, ncores=10, total_bytes=BOX_32_GIB)
+        assert 1 < narrow <= ac.CORPUS_JOBS_CAP
+        assert ac.corpus_job_derivation(skip_gates=False, ncores=10, total_bytes=BOX_32_GIB).startswith(
             f"{narrow} at "
         )
-        alone = ac.surface_job_budget(skip_gates=True, ncores=10, total_bytes=BOX_32_GIB)
-        assert 1 < alone <= ac.SURFACE_JOBS_CAP
+        alone = ac.corpus_job_budget(skip_gates=True, ncores=10, total_bytes=BOX_32_GIB)
+        assert 1 < alone <= ac.CORPUS_JOBS_CAP
 
     def test_the_pytest_pool_comes_off_the_box_before_the_division(self):
         """A cycle runs this build beside gate:make-test's pool, so the pool's bytes are added to the co-resident term and its two cores come off the cap before the division. The test checks the fit terms directly, because on the fleet machines the subtraction does not change the resulting width, and a machine size chosen to sit where it would is a number every change to the constants would have to retune."""
-        solo = ac._surface_fit_terms(skip_gates=True, skip_make_test=False, ncores=9)
-        beside = ac._surface_fit_terms(skip_gates=False, skip_make_test=False, ncores=9)
-        assert solo == (ac.SURFACE_WORKER_BYTES, ac.SURFACE_PARENT_BYTES, ac.SURFACE_JOBS_CAP)
+        solo = ac._corpus_fit_terms(skip_gates=True, skip_make_test=False, ncores=9)
+        beside = ac._corpus_fit_terms(skip_gates=False, skip_make_test=False, ncores=9)
+        assert solo == (ac.CORPUS_WORKER_BYTES, ac.CORPUS_PARENT_BYTES, ac.CORPUS_JOBS_CAP)
         assert beside == (
-            ac.SURFACE_WORKER_BYTES,
-            ac.SURFACE_PARENT_BYTES + ac._font_suite_worker_bytes() * ac.make_test_pool_width(ncores=9),
-            ac.SURFACE_JOBS_CAP - 1,
+            ac.CORPUS_WORKER_BYTES,
+            ac.CORPUS_PARENT_BYTES + ac._font_suite_worker_bytes() * ac.make_test_pool_width(ncores=9),
+            ac.CORPUS_JOBS_CAP - 1,
         )
 
     def test_the_floor_answers_one_on_a_box_that_cannot_hold_a_worker(self):
         """A machine with no memory left after its reserve floors at one in both cases. Width one is the serial build: there is no pool, and every fragment exists once instead of twice."""
-        assert ac.surface_job_budget(skip_gates=True, ncores=12, total_bytes=8_000_000_000) == 1
-        assert ac.surface_job_budget(skip_gates=False, ncores=12, total_bytes=8_000_000_000) == 1
+        assert ac.corpus_job_budget(skip_gates=True, ncores=12, total_bytes=8_000_000_000) == 1
+        assert ac.corpus_job_budget(skip_gates=False, ncores=12, total_bytes=8_000_000_000) == 1
 
     def test_the_printed_derivation_is_the_one_that_produced_the_width(self):
         """The plan line and the `--jobs` help quote the derivation, and it and the width come from the same three terms, so the clause starts with the width it explains."""
         for skip_gates in (False, True):
-            width = ac.surface_job_budget(skip_gates=skip_gates, ncores=10, total_bytes=BOX_48_GIB)
-            derivation = ac.surface_job_derivation(skip_gates=skip_gates, ncores=10, total_bytes=BOX_48_GIB)
+            width = ac.corpus_job_budget(skip_gates=skip_gates, ncores=10, total_bytes=BOX_48_GIB)
+            derivation = ac.corpus_job_derivation(skip_gates=skip_gates, ncores=10, total_bytes=BOX_48_GIB)
             assert derivation.startswith(f"{width} at ")
 
 
@@ -2259,7 +2259,7 @@ class TestTheStandingFillWidth:
         assert f"less {format_gb(ac.STANDING_FILL_PARENT_BYTES)} GB co-resident" in solo
 
     def test_the_plan_states_the_width_on_the_verdict_updates_argv_and_in_its_text(self):
-        """Every width is stated on the command line, including one, and the plan block gives its derivation as it does for the surface build."""
+        """Every width is stated on the command line, including one, and the plan block gives its derivation as it does for the corpus build."""
         for skip_gates in (False, True):
             plan = _plan(skip_gates=skip_gates, ncores=10, total_bytes=BOX_32_GIB)
             width = ac.standing_fill_jobs(skip_gates=skip_gates, ncores=10, total_bytes=BOX_32_GIB)
@@ -2290,7 +2290,7 @@ def _plan_conform_derivation(plan: ac.Plan, *, ncores: int, total_bytes: int) ->
     return ac.conform_job_derivation(
         skip_gates=plan.skip_gates,
         skip_make_test=plan.skip_make_test,
-        skip_surface=plan.skip_surface,
+        skip_corpus=plan.skip_corpus,
         verdict_update_runs=plan.runs("verdict-update"),
         pool_policy=plan.pool_policy,
         ncores=ncores,
@@ -2299,14 +2299,14 @@ def _plan_conform_derivation(plan: ac.Plan, *, ncores: int, total_bytes: int) ->
 
 
 class TestTheConformBeltWidth:
-    """The cycle sizes gate:conform's belt: one spawn process per acceptance configuration, each holding `CONFORM_BELT_BYTES`. The belt is submitted when run_m1's gate passes, so it runs beside the build lane's surface build or the verdict-update step after it, and the larger of the two that the pass runs is subtracted from memory before the division."""
+    """The cycle sizes gate:conform's belt: one spawn process per acceptance configuration, each holding `CONFORM_BELT_BYTES`. The belt is submitted when run_m1's gate passes, so it runs beside the build lane's corpus build or the verdict-update step after it, and the larger of the two that the pass runs is subtracted from memory before the division."""
 
-    def test_the_surface_build_comes_off_the_box_before_the_division(self):
-        """Checked at the fit terms, where no machine size enters, for the same reason as the surface build's reservation: on no fleet machine does the subtraction change the belt's width. The surface term is the build's parent plus the workers `surface_job_budget` gives the same pass. A pass that runs the verdict-update step without the build subtracts the verdict update's process and the refill pool `standing_fill_jobs` gives instead. gate:make-test's pool is added under the overlap policy only, because the queue policy makes the belt wait for make-test."""
+    def test_the_corpus_build_comes_off_the_box_before_the_division(self):
+        """Checked at the fit terms, where no machine size enters, for the same reason as the corpus build's reservation: on no fleet machine does the subtraction change the belt's width. The corpus term is the build's parent plus the workers `corpus_job_budget` gives the same pass. A pass that runs the verdict-update step without the build subtracts the verdict update's process and the refill pool `standing_fill_jobs` gives instead. gate:make-test's pool is added under the overlap policy only, because the queue policy makes the belt wait for make-test."""
         from rebuild.pipeline.conform import ACCEPTANCE_CONFIGS
 
-        def surface(skip_make_test):
-            return ac.SURFACE_PARENT_BYTES + ac.SURFACE_WORKER_BYTES * ac.surface_job_budget(
+        def corpus(skip_make_test):
+            return ac.CORPUS_PARENT_BYTES + ac.CORPUS_WORKER_BYTES * ac.corpus_job_budget(
                 skip_gates=False, skip_make_test=skip_make_test, ncores=9, total_bytes=BOX_48_GIB
             )
 
@@ -2315,13 +2315,11 @@ class TestTheConformBeltWidth:
                 skip_gates=False, skip_make_test=skip_make_test, ncores=9, total_bytes=BOX_48_GIB
             )
 
-        def terms(
-            *, skip_make_test=False, skip_surface=False, verdict_update_runs=False, pool_policy="queue"
-        ):
+        def terms(*, skip_make_test=False, skip_corpus=False, verdict_update_runs=False, pool_policy="queue"):
             return ac._conform_fit_terms(
                 skip_gates=False,
                 skip_make_test=skip_make_test,
-                skip_surface=skip_surface,
+                skip_corpus=skip_corpus,
                 verdict_update_runs=verdict_update_runs,
                 pool_policy=pool_policy,
                 ncores=9,
@@ -2329,79 +2327,76 @@ class TestTheConformBeltWidth:
             )
 
         configs = len(ACCEPTANCE_CONFIGS)
-        assert terms() == (ac.CONFORM_BELT_BYTES, surface(False), configs)
-        assert terms(skip_surface=True) == (ac.CONFORM_BELT_BYTES, 0, configs)
+        assert terms() == (ac.CONFORM_BELT_BYTES, corpus(False), configs)
+        assert terms(skip_corpus=True) == (ac.CONFORM_BELT_BYTES, 0, configs)
         make_test = ac._make_test_pool_bytes(skip_make_test=False, ncores=9)
         assert make_test > 0
-        assert terms(pool_policy="overlap") == (ac.CONFORM_BELT_BYTES, surface(False) + make_test, configs)
-        assert terms(pool_policy="overlap", skip_surface=True) == (ac.CONFORM_BELT_BYTES, make_test, configs)
+        assert terms(pool_policy="overlap") == (ac.CONFORM_BELT_BYTES, corpus(False) + make_test, configs)
+        assert terms(pool_policy="overlap", skip_corpus=True) == (ac.CONFORM_BELT_BYTES, make_test, configs)
         assert terms(pool_policy="overlap", skip_make_test=True) == (
             ac.CONFORM_BELT_BYTES,
-            surface(True),
+            corpus(True),
             configs,
         )
-        assert terms(skip_make_test=True) == (ac.CONFORM_BELT_BYTES, surface(True), configs)
+        assert terms(skip_make_test=True) == (ac.CONFORM_BELT_BYTES, corpus(True), configs)
 
-        assert 0 < verdict_update(False) < surface(False)
-        assert terms(verdict_update_runs=True) == (ac.CONFORM_BELT_BYTES, surface(False), configs)
-        assert terms(skip_surface=True, verdict_update_runs=True) == (
+        assert 0 < verdict_update(False) < corpus(False)
+        assert terms(verdict_update_runs=True) == (ac.CONFORM_BELT_BYTES, corpus(False), configs)
+        assert terms(skip_corpus=True, verdict_update_runs=True) == (
             ac.CONFORM_BELT_BYTES,
             verdict_update(False),
             configs,
         )
-        assert terms(skip_surface=True, verdict_update_runs=True, pool_policy="overlap") == (
+        assert terms(skip_corpus=True, verdict_update_runs=True, pool_policy="overlap") == (
             ac.CONFORM_BELT_BYTES,
             verdict_update(False) + make_test,
             configs,
         )
-        assert terms(skip_surface=True, verdict_update_runs=True, skip_make_test=True) == (
+        assert terms(skip_corpus=True, verdict_update_runs=True, skip_make_test=True) == (
             ac.CONFORM_BELT_BYTES,
             verdict_update(True),
             configs,
         )
 
     def test_the_larger_build_lane_step_is_the_one_that_comes_off(self):
-        """The belt starts beside the surface build, and a belt still running when the build finishes, or one the queue policy starts late, runs beside the verdict-update step, so a pass that runs both subtracts the larger. The surface build stops at `SURFACE_JOBS_CAP` while the standing fill takes all the cores, so on a machine with enough cores the verdict-update step is the larger and is the one subtracted."""
+        """The belt starts beside the corpus build, and a belt still running when the build finishes, or one the queue policy starts late, runs beside the verdict-update step, so a pass that runs both subtracts the larger. The corpus build stops at `CORPUS_JOBS_CAP` while the standing fill takes all the cores, so on a machine with enough cores the verdict-update step is the larger and is the one subtracted."""
         box: dict[str, Any] = dict(skip_gates=False, skip_make_test=False, total_bytes=BOX_48_GIB)
         wide: dict[str, Any] = dict(box, ncores=40)
-        surface = ac.SURFACE_PARENT_BYTES + ac.SURFACE_WORKER_BYTES * ac.surface_job_budget(**wide)
+        corpus = ac.CORPUS_PARENT_BYTES + ac.CORPUS_WORKER_BYTES * ac.corpus_job_budget(**wide)
         verdict_update = (
             ac.STANDING_FILL_PARENT_BYTES + ac.STANDING_FILL_WORKER_BYTES * ac.standing_fill_jobs(**wide)
         )
-        assert verdict_update > surface
-        assert ac._conform_build_lane(**wide, skip_surface=False, verdict_update_runs=True) == (
+        assert verdict_update > corpus
+        assert ac._conform_build_lane(**wide, skip_corpus=False, verdict_update_runs=True) == (
             "verdict-update",
             verdict_update,
         )
-        assert ac._conform_build_lane(**wide, skip_surface=False, verdict_update_runs=False) == (
-            "surface-build",
-            surface,
+        assert ac._conform_build_lane(**wide, skip_corpus=False, verdict_update_runs=False) == (
+            "corpus-build",
+            corpus,
         )
         assert (
-            ac._conform_fit_terms(**wide, skip_surface=False, verdict_update_runs=True, pool_policy="queue")[
-                1
-            ]
+            ac._conform_fit_terms(**wide, skip_corpus=False, verdict_update_runs=True, pool_policy="queue")[1]
             == verdict_update
         )
         narrow: dict[str, Any] = dict(box, ncores=9)
         assert (
-            ac._conform_build_lane(**narrow, skip_surface=False, verdict_update_runs=True)[0]
-            == "surface-build"
+            ac._conform_build_lane(**narrow, skip_corpus=False, verdict_update_runs=True)[0] == "corpus-build"
         )
-        assert ac._conform_build_lane(**narrow, skip_surface=True, verdict_update_runs=False) == ("", 0)
+        assert ac._conform_build_lane(**narrow, skip_corpus=True, verdict_update_runs=False) == ("", 0)
 
     def test_both_fleet_boxes_run_the_belt_at_the_configuration_count(self):
-        """On the fleet machines (`doc/fleet.md`), the 48 GiB machines at twelve and eighteen cores and the 32 GiB machine at ten, the belt runs one worker per acceptance configuration beside a gated build lane (the surface build and the verdict-update step) and beside the verdict-update step alone, and the division never limits the width before the cap does. The capped budget cannot distinguish the cap from a division that equals it, so the uncapped division is also checked, and a change to the constant that narrows a fleet machine fails here. The suite does not catch a constant that is too low: only the conform-belt row of `make job-costs` compares it with the workers that ran."""
+        """On the fleet machines (`doc/fleet.md`), the 48 GiB machines at twelve and eighteen cores and the 32 GiB machine at ten, the belt runs one worker per acceptance configuration beside a gated build lane (the corpus build and the verdict-update step) and beside the verdict-update step alone, and the division never limits the width before the cap does. The capped budget cannot distinguish the cap from a division that equals it, so the uncapped division is also checked, and a change to the constant that narrows a fleet machine fails here. The suite does not catch a constant that is too low: only the conform-belt row of `make job-costs` compares it with the workers that ran."""
         from rebuild.pipeline.conform import ACCEPTANCE_CONFIGS
         from rebuild.tools import memory_budget
 
         configs = len(ACCEPTANCE_CONFIGS)
         for ncores, total_bytes in ((12, BOX_48_GIB), (18, BOX_48_GIB), (10, BOX_32_GIB)):
-            for skip_surface in (False, True):
+            for skip_corpus in (False, True):
                 gated: dict[str, Any] = dict(
                     skip_gates=False,
                     skip_make_test=False,
-                    skip_surface=skip_surface,
+                    skip_corpus=skip_corpus,
                     verdict_update_runs=True,
                     pool_policy="queue",
                     ncores=ncores,
@@ -2424,11 +2419,11 @@ class TestTheConformBeltWidth:
 
         for ncores in (1, 2, 4, 6, 10, 12, 18):
             assert ac.conform_job_budget(
-                skip_surface=True, ncores=ncores, total_bytes=1_000_000_000_000
+                skip_corpus=True, ncores=ncores, total_bytes=1_000_000_000_000
             ) == min(ncores, len(ACCEPTANCE_CONFIGS))
 
     def test_a_belt_width_of_one_is_stated_on_the_argv(self, monkeypatch):
-        """A machine where the pooled belt does not fit beside the surface build floors at one, the serial belt, and the argv states that width like any other; without it run_m1 would use its own default, a width this plan did not budget. The oracle's width is a separate budget and stays above one."""
+        """A machine where the pooled belt does not fit beside the corpus build floors at one, the serial belt, and the argv states that width like any other; without it run_m1 would use its own default, a width this plan did not budget. The oracle's width is a separate budget and stays above one."""
         monkeypatch.setattr(ac, "CONFORM_BELT_BYTES", 10**12)
         plan = _plan(ncores=12)
         by_name = {step.name: step for step in plan.steps}
@@ -2438,7 +2433,7 @@ class TestTheConformBeltWidth:
         assert _argv(by_name["run_m1"])[5:7] == ["--jobs", str(plan.sweep_jobs)]
 
     def test_the_plan_prints_the_belt_width_with_its_derivation(self):
-        """Every Lane conform line that runs the belt quotes its width, the constant it divides by, and the derivation over the flags the plan resolved. The co-resident term is the larger build-lane step, plus gate:make-test's pool under the overlap policy: the surface build when it runs and holds more than the verdict-update step, the verdict-update step when the build does not run or the step holds more. For a pass that runs neither, the line says so and prints no co-resident term unless gate:make-test's pool runs beside the belt."""
+        """Every Lane conform line that runs the belt quotes its width, the constant it divides by, and the derivation over the flags the plan resolved. The co-resident term is the larger build-lane step, plus gate:make-test's pool under the overlap policy: the corpus build when it runs and holds more than the verdict-update step, the verdict-update step when the build does not run or the step holds more. For a pass that runs neither, the line says so and prints no co-resident term unless gate:make-test's pool runs beside the belt."""
         box: dict[str, Any] = dict(ncores=10, total_bytes=BOX_32_GIB)
         arms = {
             "queued": _plan(**box),
@@ -2453,7 +2448,7 @@ class TestTheConformBeltWidth:
             line = _lane_conform_line(plan)
             derivation = _plan_conform_derivation(plan, **box)
             assert (
-                f"(--jobs {plan.conform_jobs}; CONFORM_BELT_BYTES a belt worker, beside the surface build's parent and its {plan.surface_jobs} workers"
+                f"(--jobs {plan.conform_jobs}; CONFORM_BELT_BYTES a belt worker, beside the corpus build's parent and its {plan.corpus_jobs} workers"
                 in line
             )
             assert line.endswith(f"; {derivation})")
@@ -2465,22 +2460,22 @@ class TestTheConformBeltWidth:
         _per_unit, coresident, _cap = ac._conform_fit_terms(
             skip_gates=False,
             skip_make_test=False,
-            skip_surface=False,
+            skip_corpus=False,
             verdict_update_runs=True,
             pool_policy="overlap",
             ncores=10,
             total_bytes=BOX_32_GIB,
         )
-        assert coresident > ac.SURFACE_PARENT_BYTES + ac.SURFACE_WORKER_BYTES * overlap.surface_jobs
+        assert coresident > ac.CORPUS_PARENT_BYTES + ac.CORPUS_WORKER_BYTES * overlap.corpus_jobs
         assert f"less {format_gb(coresident)} GB co-resident" in _plan_conform_derivation(overlap, **box)
         assert "gate:make-test's pool" not in _lane_conform_line(arms["queued"])
 
-        beside_verdict_update = _plan(skip_surface=True, surface_note="inputs unchanged", **box)
+        beside_verdict_update = _plan(skip_corpus=True, corpus_note="inputs unchanged", **box)
         line = _lane_conform_line(beside_verdict_update)
         derivation = _plan_conform_derivation(beside_verdict_update, **box)
         workers = beside_verdict_update.standing_fill_jobs
         assert (
-            f"(--jobs {beside_verdict_update.conform_jobs}; CONFORM_BELT_BYTES a belt worker, the surface build not running this pass, so beside the verdict update's process and its {workers} refill workers; "
+            f"(--jobs {beside_verdict_update.conform_jobs}; CONFORM_BELT_BYTES a belt worker, the corpus build not running this pass, so beside the verdict update's process and its {workers} refill workers; "
             in line
         )
         assert line.endswith(f"; {derivation})")
@@ -2488,8 +2483,8 @@ class TestTheConformBeltWidth:
         assert f"less {format_gb(verdict_update)} GB co-resident" in derivation
 
         idle = {
-            "skip_surface": True,
-            "surface_note": "inputs unchanged",
+            "skip_corpus": True,
+            "corpus_note": "inputs unchanged",
             "skip_verdict_update": True,
             "verdict_update_note": "nothing moved",
         }
@@ -2498,7 +2493,7 @@ class TestTheConformBeltWidth:
         line = _lane_conform_line(alone)
         derivation = _plan_conform_derivation(alone, **box)
         assert (
-            f"(--jobs {alone.conform_jobs}; CONFORM_BELT_BYTES a belt worker, neither the surface build nor the verdict-update step running this pass, so nothing co-resident; "
+            f"(--jobs {alone.conform_jobs}; CONFORM_BELT_BYTES a belt worker, neither the corpus build nor the verdict-update step running this pass, so nothing co-resident; "
             in line
         )
         assert line.endswith(f"; {derivation})")
@@ -2513,7 +2508,7 @@ class TestTheConformBeltWidth:
         outweighed = _plan(**wide)
         line = _lane_conform_line(outweighed)
         assert (
-            f"CONFORM_BELT_BYTES a belt worker, the verdict-update step outweighing the surface build, so beside the verdict update's process and its {outweighed.standing_fill_jobs} refill workers; "
+            f"CONFORM_BELT_BYTES a belt worker, the verdict-update step outweighing the corpus build, so beside the verdict update's process and its {outweighed.standing_fill_jobs} refill workers; "
             in line
         )
         assert line.endswith(f"; {_plan_conform_derivation(outweighed, **wide)})")
@@ -2522,12 +2517,12 @@ class TestTheConformBeltWidth:
         """The plan line quotes the derivation, and it and the width come from the same three terms, so in every case the clause starts with the width it explains."""
         for total_bytes in (BOX_32_GIB, 20_000_000_000):
             for skip_make_test in (False, True):
-                for skip_surface, verdict_update_runs in itertools.product((False, True), repeat=2):
+                for skip_corpus, verdict_update_runs in itertools.product((False, True), repeat=2):
                     for pool_policy in ac.POOL_POLICIES:
                         kw: dict[str, Any] = dict(
                             skip_gates=False,
                             skip_make_test=skip_make_test,
-                            skip_surface=skip_surface,
+                            skip_corpus=skip_corpus,
                             verdict_update_runs=verdict_update_runs,
                             pool_policy=pool_policy,
                             ncores=10,
@@ -2538,7 +2533,7 @@ class TestTheConformBeltWidth:
 
 
 def test_the_job_budgets_answer_the_cgroup_allowance_rather_than_the_hosts_core_count(monkeypatch):
-    """A CPU quota is invisible to `os.cpu_count()`, so the oracle, belt and surface budgets read their cores through `memory_budget.usable_cores`. The test runs the real probe over a fixture cgroup root that allows two cores, which is below both `len(ACCEPTANCE_CONFIGS)` and `SURFACE_JOBS_CAP`, so each budget returns the allowance. Each call passes a terabyte of memory so that only the core count limits the width. An explicit `ncores` still takes precedence over the probe."""
+    """A CPU quota is invisible to `os.cpu_count()`, so the oracle, belt and corpus budgets read their cores through `memory_budget.usable_cores`. The test runs the real probe over a fixture cgroup root that allows two cores, which is below both `len(ACCEPTANCE_CONFIGS)` and `CORPUS_JOBS_CAP`, so each budget returns the allowance. Each call passes a terabyte of memory so that only the core count limits the width. An explicit `ncores` still takes precedence over the probe."""
     from rebuild.pipeline.conform import ACCEPTANCE_CONFIGS
     from rebuild.tools import memory_budget
 
@@ -2547,18 +2542,17 @@ def test_the_job_budgets_answer_the_cgroup_allowance_rather_than_the_hosts_core_
     root = REPO_ROOT / "rebuild" / "fixtures" / "memory_budget" / "container-v2"
     allowed = probe(root)
     monkeypatch.setattr(memory_budget, "usable_cores", functools.partial(probe, root))
-    assert allowed == min(host, 2) < min(len(ACCEPTANCE_CONFIGS), ac.SURFACE_JOBS_CAP)
+    assert allowed == min(host, 2) < min(len(ACCEPTANCE_CONFIGS), ac.CORPUS_JOBS_CAP)
     assert ac.sweep_job_budget(total_bytes=1_000_000_000_000) == allowed
-    assert ac.surface_job_budget(skip_gates=True, total_bytes=1_000_000_000_000) == allowed
-    assert ac.conform_job_budget(skip_gates=True, skip_surface=True, total_bytes=1_000_000_000_000) == allowed
+    assert ac.corpus_job_budget(skip_gates=True, total_bytes=1_000_000_000_000) == allowed
+    assert ac.conform_job_budget(skip_gates=True, skip_corpus=True, total_bytes=1_000_000_000_000) == allowed
     assert ac.sweep_job_budget(12, total_bytes=1_000_000_000_000) == 12
     assert (
-        ac.surface_job_budget(skip_gates=True, ncores=12, total_bytes=1_000_000_000_000)
-        == ac.SURFACE_JOBS_CAP
+        ac.corpus_job_budget(skip_gates=True, ncores=12, total_bytes=1_000_000_000_000) == ac.CORPUS_JOBS_CAP
     )
 
 
-def test_make_test_pool_width_is_the_width_the_surface_budget_leaves_it():
+def test_make_test_pool_width_is_the_width_the_corpus_budget_leaves_it():
     """gate:make-test's pool starts at the width the budgets reserve for: `MAKE_TEST_POOL_WORKERS`, capped at the core count and floored at one."""
     assert ac.make_test_pool_width(ncores=12) == ac.MAKE_TEST_POOL_WORKERS
     assert ac.make_test_pool_width(ncores=6) == ac.MAKE_TEST_POOL_WORKERS
@@ -2714,10 +2708,10 @@ def test_dry_run_renders_concurrency():
     assert "Lane rebuild-contracts" in text
     assert "Lane conform" in text
     assert "Lane kernel" not in text
-    assert "run_m1 -> submit gate:rebuild-contracts -> surface-build -> verdict-update -> census" in text
+    assert "run_m1 -> submit gate:rebuild-contracts -> corpus-build -> verdict-update -> census" in text
     assert "QUEUED behind gate:make-test (queue policy — one heavy pool at a time)" in text
     assert (
-        f"Lane rebuild-contracts           : submitted beside the surface build, -n {plan.contracts_workers} ({plan.contracts_reason});"
+        f"Lane rebuild-contracts           : submitted beside the corpus build, -n {plan.contracts_workers} ({plan.contracts_reason});"
         in text
     )
     assert "QUEUED behind gate:conform (queue policy — one heavy pool at a time)" in text
@@ -2734,15 +2728,15 @@ def test_dry_run_renders_concurrency():
     assert "Lane conform                     : SKIPPED (--skip-conform)" in _plan_text(
         _plan(skip_conform=True)
     )
-    surface_width = ac.surface_job_budget(skip_gates=False, ncores=12, total_bytes=BOX_44_GB)
-    assert f"surface-build --jobs             : {surface_width}" in text
-    _per_unit, coresident, _cap = ac._surface_fit_terms(skip_gates=False, skip_make_test=False, ncores=12)
+    corpus_width = ac.corpus_job_budget(skip_gates=False, ncores=12, total_bytes=BOX_44_GB)
+    assert f"corpus-build --jobs              : {corpus_width}" in text
+    _per_unit, coresident, _cap = ac._corpus_fit_terms(skip_gates=False, skip_make_test=False, ncores=12)
     assert f"less {format_gb(coresident)} GB co-resident" in text
 
     by_name = {step.name: step for step in plan.steps}
     assert _argv(by_name["run_m1"])[1:6] == ["run", "python", "-m", "rebuild.pipeline.run_m1", "--jobs"]
     # Every width is passed on the command line, including a width of one. Without the flag the child would use its own default, which does not subtract the pytest pool and can differ from the planned width.
-    assert _argv(by_name["surface-build"])[-4:-2] == ["--jobs", str(surface_width)]
+    assert _argv(by_name["corpus-build"])[-4:-2] == ["--jobs", str(corpus_width)]
 
 
 def test_dry_run_skip_gates_appends_jobs_budgets():
@@ -2757,12 +2751,12 @@ def test_dry_run_skip_gates_appends_jobs_budgets():
         total_bytes=BOX_44_GB,
     )
     by_name = {step.name: step for step in plan.steps}
-    solo_width = ac.surface_job_budget(skip_gates=True, ncores=12, total_bytes=BOX_44_GB)
+    solo_width = ac.corpus_job_budget(skip_gates=True, ncores=12, total_bytes=BOX_44_GB)
     assert plan.sweep_jobs == ac.sweep_job_budget(12, total_bytes=BOX_44_GB)
     assert _argv(by_name["run_m1"])[5:7] == ["--jobs", str(plan.sweep_jobs)]
-    assert _argv(by_name["surface-build"])[-4:-2] == ["--jobs", str(solo_width)]
+    assert _argv(by_name["corpus-build"])[-4:-2] == ["--jobs", str(solo_width)]
     assert f"run_m1 sweeps --jobs {plan.sweep_jobs}" in _plan_text(plan)
-    assert f"surface-build --jobs {solo_width}" in _plan_text(plan)
+    assert f"corpus-build --jobs {solo_width}" in _plan_text(plan)
 
     default_plan = ac.build_plan(
         verdicts=Path("v.json"),
@@ -2775,10 +2769,10 @@ def test_dry_run_skip_gates_appends_jobs_budgets():
         total_bytes=BOX_44_GB,
     )
     default_by_name = {step.name: step for step in default_plan.steps}
-    gated_width = ac.surface_job_budget(skip_gates=False, ncores=12, total_bytes=BOX_44_GB)
+    gated_width = ac.corpus_job_budget(skip_gates=False, ncores=12, total_bytes=BOX_44_GB)
     assert _argv(default_by_name["run_m1"])[5:7] == ["--jobs", str(default_plan.sweep_jobs)]
     assert default_plan.sweep_jobs == plan.sweep_jobs
-    assert _argv(default_by_name["surface-build"])[-4:-2] == ["--jobs", str(gated_width)]
+    assert _argv(default_by_name["corpus-build"])[-4:-2] == ["--jobs", str(gated_width)]
 
 
 def test_review_out_rehearsal_plan(monkeypatch, tmp_path):
@@ -2793,12 +2787,12 @@ def test_review_out_rehearsal_plan(monkeypatch, tmp_path):
         review_out=rehearsal_out,
     )
     by_name = {step.name: step for step in plan.steps}
-    assert _argv(by_name["surface-build"])[-2:] == ["--out", str(rehearsal_out)]
+    assert _argv(by_name["corpus-build"])[-2:] == ["--out", str(rehearsal_out)]
     assert by_name["census"].argv is None
-    assert by_name["census"].note == "SKIPPED (rehearsal: the checked-in pins track the live surface)"
+    assert by_name["census"].note == "SKIPPED (rehearsal: the checked-in pins track the live corpus)"
     argv = _argv(by_name["verdict-update"])
-    assert argv[argv.index("--surface") + 1] == str(rehearsal_out)
-    assert plan.surface_dir == rehearsal_out
+    assert argv[argv.index("--corpus") + 1] == str(rehearsal_out)
+    assert plan.corpus_dir == rehearsal_out
     assert plan.review_out == rehearsal_out
 
     monkeypatch.setattr(ac, "server_listening", lambda *a, **k: True)
@@ -2911,9 +2905,9 @@ def test_cycle_summary_payload_plan_block_and_argv():
         "skip_conform": False,
         "skip_run_m1": False,
         "rerun_gates_only": False,
-        "skip_surface": False,
+        "skip_corpus": False,
         "refresh_assets": False,
-        "promote_surface": None,
+        "promote_corpus": None,
         "skip_contracts": False,
         "skip_verdict_update": False,
         "review_out": None,
@@ -2926,10 +2920,10 @@ def test_cycle_summary_payload_plan_block_and_argv():
 
 
 def test_cycle_summary_payload_records_an_assets_refresh():
-    """The summary records the assets refresh as its own step, so a pass that skipped the surface build can be told apart from one that copied new app assets over the served surface."""
+    """The summary records the assets refresh as its own step, so a pass that skipped the corpus build can be told apart from one that copied new app assets over the served corpus."""
     report = _green_report()
     report.assets_status = "refreshed in place (units, sidecars and generated_at unmoved)"
-    payload = ac.cycle_summary_payload(report, [], _plan(skip_surface=True, refresh_assets=True), "ok")
+    payload = ac.cycle_summary_payload(report, [], _plan(skip_corpus=True, refresh_assets=True), "ok")
     assert payload["plan"]["refresh_assets"] is True
     assert payload["assets_status"].startswith("refreshed in place")
 
@@ -2952,10 +2946,10 @@ def test_write_cycle_summary_reads_module_attr_at_call_time(monkeypatch, tmp_pat
     assert not list(target.parent.glob("*.tmp"))
 
 
-def test_cycle_writes_green_summary_with_surface(monkeypatch, tmp_path):
-    surface_dir = tmp_path / "surface"
-    surface_dir.mkdir()
-    (surface_dir / "manifest.json").write_text(
+def test_cycle_writes_green_summary_with_corpus(monkeypatch, tmp_path):
+    corpus_dir = tmp_path / "corpus"
+    corpus_dir.mkdir()
+    (corpus_dir / "manifest.json").write_text(
         json.dumps({"generated_at": "2026-07-17T12:00:00Z", "inputs_fingerprint": {"runes": "abc123"}})
     )
 
@@ -2966,7 +2960,7 @@ def test_cycle_writes_green_summary_with_surface(monkeypatch, tmp_path):
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
     _patch_build_chain(monkeypatch)
 
-    plan = _plan(review_out=surface_dir)
+    plan = _plan(review_out=corpus_dir)
     report = ac.CycleReport()
     rc = ac._run_cycle(plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=lambda *a, **k: _step())
 
@@ -2975,9 +2969,9 @@ def test_cycle_writes_green_summary_with_surface(monkeypatch, tmp_path):
     assert summary["format"] == "ams-cycle-summary/1"
     assert summary["exit"] == "ok"
     assert all(gate["green"] is True for gate in summary["gates"].values())
-    assert summary["surface"]["dir"] == str(surface_dir)
-    assert summary["surface"]["generated_at"] == "2026-07-17T12:00:00Z"
-    assert summary["surface"]["inputs_fingerprint"] == {"runes": "abc123"}
+    assert summary["corpus"]["dir"] == str(corpus_dir)
+    assert summary["corpus"]["generated_at"] == "2026-07-17T12:00:00Z"
+    assert summary["corpus"]["inputs_fingerprint"] == {"runes": "abc123"}
 
 
 def test_cycle_writes_failed_summary_on_run_m1_failure(monkeypatch, tmp_path):
@@ -2990,7 +2984,7 @@ def test_cycle_writes_failed_summary_on_run_m1_failure(monkeypatch, tmp_path):
     monkeypatch.setattr(ac, "_gate_contracts_task", _contracts_green)
     _patch_build_chain(monkeypatch)
 
-    plan = _plan(review_out=tmp_path / "surface")
+    plan = _plan(review_out=tmp_path / "corpus")
     report = ac.CycleReport()
     rc = ac._run_cycle(plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=lambda *a, **k: _step())
 
@@ -3006,7 +3000,7 @@ def test_cycle_writes_interrupted_summary(monkeypatch, tmp_path):
 
     monkeypatch.setattr(ac, "_do_run_m1", boom)
 
-    plan = _plan(skip_gates=True, review_out=tmp_path / "surface")
+    plan = _plan(skip_gates=True, review_out=tmp_path / "corpus")
     report = ac.CycleReport()
     rc = ac._run_cycle(plan, report, ac._Emitter(), ac._ChildRegistry())
 
@@ -3016,9 +3010,9 @@ def test_cycle_writes_interrupted_summary(monkeypatch, tmp_path):
     assert summary["interrupted"] is True
 
 
-def test_cycle_summary_surface_nulls_when_manifest_missing(monkeypatch, tmp_path):
-    surface_dir = tmp_path / "surface"
-    surface_dir.mkdir()
+def test_cycle_summary_corpus_nulls_when_manifest_missing(monkeypatch, tmp_path):
+    corpus_dir = tmp_path / "corpus"
+    corpus_dir.mkdir()
 
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
@@ -3027,15 +3021,15 @@ def test_cycle_summary_surface_nulls_when_manifest_missing(monkeypatch, tmp_path
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
     _patch_build_chain(monkeypatch)
 
-    plan = _plan(review_out=surface_dir)
+    plan = _plan(review_out=corpus_dir)
     report = ac.CycleReport()
     rc = ac._run_cycle(plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=lambda *a, **k: _step())
 
     assert rc == 0
     summary = json.loads(cycle_paths.CYCLE_SUMMARY.read_text())
-    assert summary["surface"]["dir"] == str(surface_dir)
-    assert summary["surface"]["generated_at"] is None
-    assert summary["surface"]["inputs_fingerprint"] is None
+    assert summary["corpus"]["dir"] == str(corpus_dir)
+    assert summary["corpus"]["generated_at"] is None
+    assert summary["corpus"]["inputs_fingerprint"] is None
 
 
 def _verdicts_doc(stamp, units):
@@ -3072,12 +3066,12 @@ def test_dry_run_auto_resolves_the_carry_source(tmp_path, monkeypatch, capsys):
     assert ac.main(["--dry-run"]) == 0
     out = capsys.readouterr().out
     assert "Auto-resolved carry source: verdicts-autosave.json (2 effective verdicts" in out
-    assert "stamped for the served surface" in out
+    assert "stamped for the served corpus" in out
     assert str(tmp_path / "verdicts-autosave.json") in out
 
 
 def test_auto_resolution_carries_a_mismatched_stamp_by_unit_id(tmp_path, monkeypatch, capsys):
-    """When no candidate is stamped for the served surface, the file with the newest stamp is still carried, and the line names it as stamped for an older surface. A verdict names its unit by content id, so it reaches the unit with that id or none, and a stale stamp cannot put it on the wrong window."""
+    """When no candidate is stamped for the served corpus, the file with the newest stamp is still carried, and the line names it as stamped for an older corpus. A verdict names its unit by content id, so it reaches the unit with that id or none, and a stale stamp cannot put it on the wrong window."""
     _seed_auto_repo(tmp_path, monkeypatch)
     (tmp_path / "verdicts-carried-old.json").write_text(
         json.dumps(_verdicts_doc("2026-07-10T00:00:00Z", ["u-1"]))
@@ -3085,7 +3079,7 @@ def test_auto_resolution_carries_a_mismatched_stamp_by_unit_id(tmp_path, monkeyp
     assert ac.main(["--dry-run"]) == 0
     out = capsys.readouterr().out
     assert (
-        "Auto-resolved carry source: verdicts-carried-old.json (1 effective verdicts, stamped 2026-07-10T00:00:00Z, an older surface"
+        "Auto-resolved carry source: verdicts-carried-old.json (1 effective verdicts, stamped 2026-07-10T00:00:00Z, an older corpus"
         in out
     )
     assert "land by unit id" in out
@@ -3420,7 +3414,7 @@ def test_a_forced_pass_hands_the_make_test_wrapper_force(tmp_path, monkeypatch, 
 def test_the_plan_reserves_make_tests_pool_exactly_when_the_wrapper_runs_it(
     tmp_path, monkeypatch, flags, recorded
 ):
-    """The plan sets the surface build's widths before `make test` decides anything, so the reservation is correct only if the plan and the wrapper make the same skip decision. Cores and memory reserved for a gate that then skips on its own green record are lost to the build. Every combination of forcing flag and green record ends one of two ways. Either the plan skips the gate, the wrapper would also skip over the same fingerprint and record, and the build gets the whole machine. Or the plan runs the gate, the argv the live Makefile passes to the wrapper runs the suite, and its pool is subtracted from the build's widths."""
+    """The plan sets the corpus build's widths before `make test` decides anything, so the reservation is correct only if the plan and the wrapper make the same skip decision. Cores and memory reserved for a gate that then skips on its own green record are lost to the build. Every combination of forcing flag and green record ends one of two ways. Either the plan skips the gate, the wrapper would also skip over the same fingerprint and record, and the build gets the whole machine. Or the plan runs the gate, the argv the live Makefile passes to the wrapper runs the suite, and its pool is subtracted from the build's widths."""
     _unsettled_repo(tmp_path, monkeypatch)
     monkeypatch.setattr(ac, "make_test_closure_fingerprint", lambda root=None: "fp")
     if recorded is not None:
@@ -3436,54 +3430,54 @@ def test_the_plan_reserves_make_tests_pool_exactly_when_the_wrapper_runs_it(
     assert mtg.main(wrapper) == 0
     assert spawned == ([mtg.PYTEST_ARGV] if runs else [])
 
-    assert plan.surface_jobs == ac.surface_job_budget(skip_gates=False, skip_make_test=not runs)
+    assert plan.corpus_jobs == ac.corpus_job_budget(skip_gates=False, skip_make_test=not runs)
     assert plan.signature_jobs == ac.signature_job_budget(skip_gates=False, skip_make_test=not runs)
     assert plan.kernel_threads == ac.kernel_threads_budget(skip_make_test=not runs)
     rendered = _plan_text(plan)
     assert ("gate:make-test's pytest pool held to" in rendered) is runs
-    assert ("gate:make-test skipped, so the surface build takes the whole box" in rendered) is not runs
+    assert ("gate:make-test skipped, so the corpus build takes the whole box" in rendered) is not runs
 
 
-def test_the_signature_pool_takes_the_cores_the_surface_width_cannot():
-    """The ink-signature width is the one fan-out in the plan that memory does not derive: a signature worker holds one comparator, and no `*_BYTES` constant covers it. On a ten-core machine the gated width is the cores less gate:make-test's two, and the skipped-gate width is all ten. It is never below the surface width, which memory derives and `SURFACE_JOBS_CAP` caps. On a machine with a quarter of the memory, the reserve and the parent's co-resident memory exceed the total, so the surface width floors at one while the signature width stays at eight. With gate:make-test skipped the signature width is ten, above `SURFACE_JOBS_CAP`, because that cap applies only to the surface build's unit workers. The argv passes the width after `--jobs`, and the plan shows it on its own row with its derivation."""
+def test_the_signature_pool_takes_the_cores_the_corpus_width_cannot():
+    """The ink-signature width is the one fan-out in the plan that memory does not derive: a signature worker holds one comparator, and no `*_BYTES` constant covers it. On a ten-core machine the gated width is the cores less gate:make-test's two, and the skipped-gate width is all ten. It is never below the corpus width, which memory derives and `CORPUS_JOBS_CAP` caps. On a machine with a quarter of the memory, the reserve and the parent's co-resident memory exceed the total, so the corpus width floors at one while the signature width stays at eight. With gate:make-test skipped the signature width is ten, above `CORPUS_JOBS_CAP`, because that cap applies only to the corpus build's unit workers. The argv passes the width after `--jobs`, and the plan shows it on its own row with its derivation."""
     gated = _plan(skip_make_test=False, ncores=10, total_bytes=BOX_32_GIB)
     assert gated.signature_jobs == ac.signature_job_budget(skip_gates=False, ncores=10) == 8
-    assert gated.signature_jobs >= gated.surface_jobs == ac.SURFACE_JOBS_CAP
+    assert gated.signature_jobs >= gated.corpus_jobs == ac.CORPUS_JOBS_CAP
     narrow = _plan(skip_make_test=False, ncores=10, total_bytes=BOX_32_GIB // 4)
-    assert narrow.signature_jobs == 8 > narrow.surface_jobs == 1
+    assert narrow.signature_jobs == 8 > narrow.corpus_jobs == 1
     gated_by_name = {step.name: step for step in gated.steps}
-    assert _argv(gated_by_name["surface-build"])[-4:] == [
+    assert _argv(gated_by_name["corpus-build"])[-4:] == [
         "--jobs",
-        str(gated.surface_jobs),
+        str(gated.corpus_jobs),
         "--signature-jobs",
         "8",
     ]
     rendered = _plan_text(gated)
-    assert "    surface-build --signature-jobs   : 8  (" in rendered
+    assert "    corpus-build --signature-jobs    : 8  (" in rendered
     assert "8 of 10 cores, less gate:make-test's two" in rendered
 
     solo = _plan(skip_make_test=True, make_test_note="closure unchanged", ncores=10, total_bytes=BOX_32_GIB)
     assert (
         solo.signature_jobs == ac.signature_job_budget(skip_gates=False, skip_make_test=True, ncores=10) == 10
     )
-    assert solo.signature_jobs > ac.SURFACE_JOBS_CAP >= solo.surface_jobs
-    assert _argv({step.name: step for step in solo.steps}["surface-build"])[-2:] == ["--signature-jobs", "10"]
+    assert solo.signature_jobs > ac.CORPUS_JOBS_CAP >= solo.corpus_jobs
+    assert _argv({step.name: step for step in solo.steps}["corpus-build"])[-2:] == ["--signature-jobs", "10"]
     assert "10 of 10 cores, the whole box" in _plan_text(solo)
 
     skipped = _plan(skip_gates=True, ncores=10, total_bytes=BOX_32_GIB)
     assert skipped.signature_jobs == 10
-    assert "surface-build --signature-jobs 10 (" in _plan_text(skipped)
+    assert "corpus-build --signature-jobs 10 (" in _plan_text(skipped)
 
     assert ac.signature_job_budget(skip_gates=False, ncores=2) == 1
     assert ac.signature_job_derivation(skip_gates=False, ncores=2).endswith("floored at one")
 
 
-def test_the_contracts_pool_is_the_cores_the_surface_build_leaves():
-    """The rebuild suite's width under a cycle is the second fan-out that memory does not derive. It runs beside the surface build, so it gets the cores less the build's parent and its `surface_job_budget` workers. Under the overlap policy it also loses gate:make-test's pool. Under the queue policy the suite waits until that pool finishes, so nothing is subtracted for it. With no surface build it gets every core, and it never drops below one. Widths that depend on the surface constants are computed from the budget functions, so re-measuring those constants does not require editing this test."""
-    surface = ac.surface_job_budget(skip_gates=False, ncores=10, total_bytes=BOX_32_GIB)
+def test_the_contracts_pool_is_the_cores_the_corpus_build_leaves():
+    """The rebuild suite's width under a cycle is the second fan-out that memory does not derive. It runs beside the corpus build, so it gets the cores less the build's parent and its `corpus_job_budget` workers. Under the overlap policy it also loses gate:make-test's pool. Under the queue policy the suite waits until that pool finishes, so nothing is subtracted for it. With no corpus build it gets every core, and it never drops below one. Widths that depend on the corpus constants are computed from the budget functions, so re-measuring those constants does not require editing this test."""
+    corpus = ac.corpus_job_budget(skip_gates=False, ncores=10, total_bytes=BOX_32_GIB)
     queue = ac.contracts_pool_width(skip_gates=False, ncores=10, total_bytes=BOX_32_GIB)
-    assert queue == 10 - 1 - surface >= 1
-    assert f"{queue} of 10 cores, less the surface build's parent and its {surface} workers" == (
+    assert queue == 10 - 1 - corpus >= 1
+    assert f"{queue} of 10 cores, less the corpus build's parent and its {corpus} workers" == (
         ac.contracts_pool_derivation(skip_gates=False, ncores=10, total_bytes=BOX_32_GIB)
     )
 
@@ -3499,25 +3493,25 @@ def test_the_contracts_pool_is_the_cores_the_surface_build_leaves():
     )
 
     solo = ac.contracts_pool_width(skip_gates=False, skip_make_test=True, ncores=10, total_bytes=BOX_32_GIB)
-    assert solo == 10 - 1 - ac.surface_job_budget(
+    assert solo == 10 - 1 - ac.corpus_job_budget(
         skip_gates=False, skip_make_test=True, ncores=10, total_bytes=BOX_32_GIB
     )
 
     assert (
-        ac.contracts_pool_width(skip_gates=False, skip_surface=True, ncores=10, total_bytes=BOX_32_GIB) == 10
+        ac.contracts_pool_width(skip_gates=False, skip_corpus=True, ncores=10, total_bytes=BOX_32_GIB) == 10
     )
     assert (
-        ac.contracts_pool_derivation(skip_gates=False, skip_surface=True, ncores=10, total_bytes=BOX_32_GIB)
-        == "10 of 10 cores, the whole box (no surface build to share it with)"
+        ac.contracts_pool_derivation(skip_gates=False, skip_corpus=True, ncores=10, total_bytes=BOX_32_GIB)
+        == "10 of 10 cores, the whole box (no corpus build to share it with)"
     )
     solo_overlap = ac.contracts_pool_width(
-        skip_gates=False, skip_surface=True, pool_policy="overlap", ncores=10, total_bytes=BOX_32_GIB
+        skip_gates=False, skip_corpus=True, pool_policy="overlap", ncores=10, total_bytes=BOX_32_GIB
     )
     assert solo_overlap == 10 - ac.make_test_pool_width(ncores=10)
     assert ac.contracts_pool_derivation(
-        skip_gates=False, skip_surface=True, pool_policy="overlap", ncores=10, total_bytes=BOX_32_GIB
+        skip_gates=False, skip_corpus=True, pool_policy="overlap", ncores=10, total_bytes=BOX_32_GIB
     ) == (
-        f"{solo_overlap} of 10 cores, the box (no surface build to share it with), "
+        f"{solo_overlap} of 10 cores, the box (no corpus build to share it with), "
         f"less gate:make-test's {ac.make_test_pool_width(ncores=10)} (overlap policy)"
     )
 
@@ -3540,22 +3534,22 @@ def test_a_stated_contracts_width_is_the_width_the_cycle_hands_the_child(monkeyp
 
 
 def test_the_plan_states_the_contracts_pool_width_on_its_lane_line():
-    """The lane line shows the suite's width and its derivation, and the build lane line shows the suite submitted before the surface build. On a ten-core machine beside a surface build at `SURFACE_JOBS_CAP` workers, the suite gets one worker under either policy. On a twelve-core machine the overlap policy reaches one worker from the arithmetic alone, without the floor, which is narrower than the queue policy's width, and the plan prints it. When the surface build is skipped, the plan says the suite is submitted once the run_m1 gate passes, not that it runs beside a build the plan shows as SKIPPED."""
+    """The lane line shows the suite's width and its derivation, and the build lane line shows the suite submitted before the corpus build. On a ten-core machine beside a corpus build at `CORPUS_JOBS_CAP` workers, the suite gets one worker under either policy. On a twelve-core machine the overlap policy reaches one worker from the arithmetic alone, without the floor, which is narrower than the queue policy's width, and the plan prints it. When the corpus build is skipped, the plan says the suite is submitted once the run_m1 gate passes, not that it runs beside a build the plan shows as SKIPPED."""
     gated = _plan(ncores=10, total_bytes=BOX_32_GIB)
     text = _plan_text(gated)
     assert (
-        "Lane build[serial, main thread]  : run_m1 -> submit gate:rebuild-contracts -> surface-build -> verdict-update -> census"
+        "Lane build[serial, main thread]  : run_m1 -> submit gate:rebuild-contracts -> corpus-build -> verdict-update -> census"
         in text
     )
     assert (
-        f"Lane rebuild-contracts           : submitted beside the surface build, -n {gated.contracts_workers} ({gated.contracts_reason});"
+        f"Lane rebuild-contracts           : submitted beside the corpus build, -n {gated.contracts_workers} ({gated.contracts_reason});"
         in text
     )
     assert gated.contracts_workers == ac.contracts_pool_width(
         skip_gates=False, ncores=10, total_bytes=BOX_32_GIB
     )
     assert {step.name: step for step in gated.steps}["gate:rebuild-contracts"].note == (
-        "submitted beside the surface build"
+        "submitted beside the corpus build"
     )
 
     overlap = _plan(pool_policy="overlap", ncores=10, total_bytes=BOX_32_GIB)
@@ -3568,16 +3562,16 @@ def test_the_plan_states_the_contracts_pool_width_on_its_lane_line():
     assert "floored" not in roomy_overlap.contracts_reason
     assert f"-n {roomy_overlap.contracts_workers} (" in _plan_text(roomy_overlap)
 
-    solo = _plan(skip_surface=True, surface_note="unchanged", ncores=10, total_bytes=BOX_32_GIB)
+    solo = _plan(skip_corpus=True, corpus_note="unchanged", ncores=10, total_bytes=BOX_32_GIB)
     solo_text = _plan_text(solo)
     assert solo.contracts_workers == 10
     assert (
-        f"Lane rebuild-contracts           : submitted once the run_m1 gate passes (no surface build this pass), -n 10 ({solo.contracts_reason});"
+        f"Lane rebuild-contracts           : submitted once the run_m1 gate passes (no corpus build this pass), -n 10 ({solo.contracts_reason});"
         in solo_text
     )
-    assert "submitted beside the surface build" not in solo_text
+    assert "submitted beside the corpus build" not in solo_text
     assert {step.name: step for step in solo.steps}["gate:rebuild-contracts"].note == (
-        "submitted once the run_m1 gate passes (no surface build this pass)"
+        "submitted once the run_m1 gate passes (no corpus build this pass)"
     )
 
     assert "Lane rebuild-contracts" not in _plan_text(
@@ -3585,38 +3579,38 @@ def test_the_plan_states_the_contracts_pool_width_on_its_lane_line():
     )
 
 
-def test_skip_make_test_frees_the_surface_build_budget():
-    """gate:make-test does not affect the oracle sweep width, but the surface build gets cores and memory back when the pytest pool is not running. On the 48 GiB machine both cases reach `SURFACE_JOBS_CAP`, so the widths are equal; `test_the_pytest_pool_comes_off_the_box_before_the_division` checks that their terms differ. This test checks that the plan uses each case's own terms and that its reason line says which: the gated derivation includes the pool's memory in its co-resident amount, and the skipped-gate line says the build takes the whole machine. The widths are computed from the budget functions, so re-measuring either surface constant does not require editing this test."""
+def test_skip_make_test_frees_the_corpus_build_budget():
+    """gate:make-test does not affect the oracle sweep width, but the corpus build gets cores and memory back when the pytest pool is not running. On the 48 GiB machine both cases reach `CORPUS_JOBS_CAP`, so the widths are equal; `test_the_pytest_pool_comes_off_the_box_before_the_division` checks that their terms differ. This test checks that the plan uses each case's own terms and that its reason line says which: the gated derivation includes the pool's memory in its co-resident amount, and the skipped-gate line says the build takes the whole machine. The widths are computed from the budget functions, so re-measuring either corpus constant does not require editing this test."""
     plan = _plan(
         skip_make_test=True,
         make_test_note="closure unchanged since its last green run",
         ncores=10,
         total_bytes=BOX_48_GIB,
     )
-    solo_width = ac.surface_job_budget(
+    solo_width = ac.corpus_job_budget(
         skip_gates=False, skip_make_test=True, ncores=10, total_bytes=BOX_48_GIB
     )
-    assert plan.surface_jobs == solo_width
+    assert plan.corpus_jobs == solo_width
     assert plan.sweep_jobs == ac.sweep_job_budget(10, total_bytes=BOX_48_GIB)
     by_name = {step.name: step for step in plan.steps}
-    assert _argv(by_name["surface-build"])[-4:-2] == ["--jobs", str(solo_width)]
+    assert _argv(by_name["corpus-build"])[-4:-2] == ["--jobs", str(solo_width)]
     rendered = _plan_text(plan)
-    assert f"surface-build --jobs             : {solo_width}" in rendered
-    assert f"less {format_gb(ac.SURFACE_PARENT_BYTES)} GB co-resident" in rendered
-    assert "gate:make-test skipped, so the surface build takes the whole box" in rendered
+    assert f"corpus-build --jobs              : {solo_width}" in rendered
+    assert f"less {format_gb(ac.CORPUS_PARENT_BYTES)} GB co-resident" in rendered
+    assert "gate:make-test skipped, so the corpus build takes the whole box" in rendered
 
     gated = _plan(skip_make_test=False, ncores=10, total_bytes=BOX_48_GIB)
-    gated_width = ac.surface_job_budget(skip_gates=False, ncores=10, total_bytes=BOX_48_GIB)
-    assert gated.surface_jobs == gated_width
+    gated_width = ac.corpus_job_budget(skip_gates=False, ncores=10, total_bytes=BOX_48_GIB)
+    assert gated.corpus_jobs == gated_width
     assert gated.sweep_jobs == ac.sweep_job_budget(10, total_bytes=BOX_48_GIB)
     gated_by_name = {step.name: step for step in gated.steps}
-    assert _argv(gated_by_name["surface-build"])[-4:-2] == ["--jobs", str(gated_width)]
-    _per_unit, gated_coresident, _cap = ac._surface_fit_terms(
+    assert _argv(gated_by_name["corpus-build"])[-4:-2] == ["--jobs", str(gated_width)]
+    _per_unit, gated_coresident, _cap = ac._corpus_fit_terms(
         skip_gates=False, skip_make_test=False, ncores=10
     )
     assert (
-        f"surface-build --jobs             : {gated_width}  (gate:make-test's pytest pool held to 2 workers — its cores reserved here and its bytes off the box beside the build's own parent; "
-        f"{gated_width} at {format_gb(ac.SURFACE_WORKER_BYTES)} GB each out of 51.54 GB total, less a reserve of 8.00 GB, less {format_gb(gated_coresident)} GB co-resident, capped at 8)"
+        f"corpus-build --jobs              : {gated_width}  (gate:make-test's pytest pool held to 2 workers — its cores reserved here and its bytes off the box beside the build's own parent; "
+        f"{gated_width} at {format_gb(ac.CORPUS_WORKER_BYTES)} GB each out of 51.54 GB total, less a reserve of 8.00 GB, less {format_gb(gated_coresident)} GB co-resident, capped at 8)"
         in _plan_text(gated)
     )
 
@@ -3676,7 +3670,7 @@ def test_run_cycle_never_spawns_make_test_when_skipped(monkeypatch):
 
 
 def test_the_pool_width_is_handed_to_the_make_test_child_and_to_no_other(monkeypatch):
-    """The planned pool width is passed only to gate:make-test's child, in that child's environment. run_m1, the surface build and the rebuild suite are spawned from the same process, so setting the width on `os.environ` would also fix their `-n auto` pools. The test checks that gate:js gets no extra environment and that `os.environ` stays clean."""
+    """The planned pool width is passed only to gate:make-test's child, in that child's environment. run_m1, the corpus build and the rebuild suite are spawned from the same process, so setting the width on `os.environ` would also fix their `-n auto` pools. The test checks that gate:js gets no extra environment and that `os.environ` stays clean."""
     seen: dict[str, dict[str, str] | None] = {}
 
     def fake_spawn(name, argv, *, emit, registry, stream, env=None):
@@ -3699,7 +3693,7 @@ def test_the_pool_width_is_handed_to_the_make_test_child_and_to_no_other(monkeyp
 
 
 def test_the_rebuild_suite_names_its_pool_to_its_own_child(monkeypatch):
-    """The suite's pytest controller records its per-worker peaks in the timings journal under the pool name in `AMS_POOL_UNIT`, and `make job-costs` reports the suite's measurements under that name. The cycle runs the suite as plain pytest, not through `rebuild_gate.py`, so the cycle sets the name itself. It sets it on the suite's child only, because on `os.environ` every other child would inherit it and record its measurements under the wrong pool. The same child also gets its width, the cores the surface build leaves, which the pool record's `width` then reports."""
+    """The suite's pytest controller records its per-worker peaks in the timings journal under the pool name in `AMS_POOL_UNIT`, and `make job-costs` reports the suite's measurements under that name. The cycle runs the suite as plain pytest, not through `rebuild_gate.py`, so the cycle sets the name itself. It sets it on the suite's child only, because on `os.environ` every other child would inherit it and record its measurements under the wrong pool. The same child also gets its width, the cores the corpus build leaves, which the pool record's `width` then reports."""
     # When the cycle's contracts gate runs this suite, AMS_POOL_UNIT is already set in this process. Clear it so the `os.environ` check below starts from a known absence.
     monkeypatch.delenv("AMS_POOL_UNIT", raising=False)
     seen: dict[str, dict[str, str] | None] = {}
@@ -3918,7 +3912,7 @@ def test_the_allow_list_line_ignores_prose(tmp_path):
 
 
 def test_the_divergence_ledger_line_ignores_prose(tmp_path):
-    """Reclassifying a divergence class must change this key, because the oracle reads the ledger to classify rows. Rewording a class's `why` must not, because no classifier reads it. The review build copies the `why` into the manifest and the Stage B `explain_prose` component hashes it, so a reword costs a surface rebuild served from the unit cache and no gates-only rerun."""
+    """Reclassifying a divergence class must change this key, because the oracle reads the ledger to classify rows. Rewording a class's `why` must not, because no classifier reads it. The review build copies the `why` into the manifest and the Stage B `explain_prose` component hashes it, so a reword costs a corpus rebuild served from the unit cache and no gates-only rerun."""
     from rebuild.pipeline import fingerprint
 
     root = _fake_run_m1_root(tmp_path)
@@ -4341,22 +4335,22 @@ def test_both_lane_fingerprints_are_none_outside_git(tmp_path):
         assert ac.rebuild_lane_fingerprint(tmp_path, lane) is None
 
 
-def test_surface_build_skippable_matches_manifest(tmp_path):
-    """A skip means a rebuild would reproduce this surface byte for byte, so the test checks each thing that must match: the inputs fingerprint (and the `ignore` exemption), every shard the manifest names, the per-unit index and both app sidecars, and the after font. The index and sidecars are written after the manifest and outside it, so each must be stamped for the current manifest, not merely present. No fingerprint component covers M1.otf, so only the manifest's recorded after-font sha compared with M1.otf on disk shows whether run_m1 has rebuilt it since."""
+def test_corpus_build_skippable_matches_manifest(tmp_path):
+    """A skip means a rebuild would reproduce this corpus byte for byte, so the test checks each thing that must match: the inputs fingerprint (and the `ignore` exemption), every shard the manifest names, the per-unit index and both app sidecars, and the after font. The index and sidecars are written after the manifest and outside it, so each must be stamped for the current manifest, not merely present. No fingerprint component covers M1.otf, so only the manifest's recorded after-font sha compared with M1.otf on disk shows whether run_m1 has rebuilt it since."""
     from rebuild.pipeline import fingerprint
     from rebuild.review import app_index, unit_index
 
     m1 = tmp_path / "rebuild" / "out" / "m1"
     m1.mkdir(parents=True)
-    surface = tmp_path / "rebuild" / "out" / "review"
-    surface.mkdir(parents=True)
+    corpus = tmp_path / "rebuild" / "out" / "review"
+    corpus.mkdir(parents=True)
     stage_a = {"data": "d", "baselines": "b", "pipeline_code": "p"}
     (m1 / fingerprint.STAGE_A_FILENAME).write_text(json.dumps({"format": fingerprint.FORMAT, **stage_a}))
     font = m1 / "M1.otf"
     font.write_bytes(b"OTTO")
     before_font, junior_font = fingerprint.font_paths(tmp_path)
     expected = {**stage_a, **fingerprint.stage_b(tmp_path, before_font, junior_font)}
-    shard = surface / "units-000.json"
+    shard = corpus / "units-000.json"
     shard.write_text("[]")
     manifest = {
         "generated_at": "2026-01-01T00:00:00Z",
@@ -4366,64 +4360,64 @@ def test_surface_build_skippable_matches_manifest(tmp_path):
     }
 
     def restamp():
-        (surface / "manifest.json").write_text(json.dumps(manifest))
-        unit_index.write_index(surface, [])
-        app_index.write_app_artifacts(surface, {}, {})
+        (corpus / "manifest.json").write_text(json.dumps(manifest))
+        unit_index.write_index(corpus, [])
+        app_index.write_app_artifacts(corpus, {}, {})
 
     restamp()
-    assert ac.surface_build_skippable(tmp_path, surface)
+    assert ac.corpus_build_skippable(tmp_path, corpus)
     shard.unlink()
-    assert not ac.surface_build_skippable(tmp_path, surface)
+    assert not ac.corpus_build_skippable(tmp_path, corpus)
     shard.write_text("[]")
     manifest["inputs_fingerprint"] = {**expected, "data": "changed"}
     restamp()
-    assert not ac.surface_build_skippable(tmp_path, surface)
+    assert not ac.corpus_build_skippable(tmp_path, corpus)
 
     manifest["inputs_fingerprint"] = {**expected, "static": "moved"}
     restamp()
-    assert not ac.surface_build_skippable(tmp_path, surface)
-    assert ac.surface_build_skippable(tmp_path, surface, ignore=("static",))
+    assert not ac.corpus_build_skippable(tmp_path, corpus)
+    assert ac.corpus_build_skippable(tmp_path, corpus, ignore=("static",))
     del manifest["inputs_fingerprint"]["static"]
     restamp()
-    assert not ac.surface_build_skippable(tmp_path, surface, ignore=("static",))
+    assert not ac.corpus_build_skippable(tmp_path, corpus, ignore=("static",))
 
     manifest["inputs_fingerprint"] = expected
     restamp()
-    assert ac.surface_build_skippable(tmp_path, surface)
+    assert ac.corpus_build_skippable(tmp_path, corpus)
 
     fonts = manifest["fonts"]
     font.write_bytes(b"OTTO-newer")
-    assert not ac.surface_build_skippable(tmp_path, surface)
+    assert not ac.corpus_build_skippable(tmp_path, corpus)
     font.write_bytes(b"OTTO")
-    assert ac.surface_build_skippable(tmp_path, surface)
+    assert ac.corpus_build_skippable(tmp_path, corpus)
     del manifest["fonts"]
     restamp()
-    assert not ac.surface_build_skippable(tmp_path, surface)
+    assert not ac.corpus_build_skippable(tmp_path, corpus)
     manifest["fonts"] = fonts
     restamp()
-    assert ac.surface_build_skippable(tmp_path, surface)
+    assert ac.corpus_build_skippable(tmp_path, corpus)
 
     for name, _fmt in app_index.ARTIFACTS:
-        kept = app_index.artifact_path(surface, name)
+        kept = app_index.artifact_path(corpus, name)
         raw = kept.read_bytes()
         kept.unlink()
-        assert not ac.surface_build_skippable(tmp_path, surface)
+        assert not ac.corpus_build_skippable(tmp_path, corpus)
         kept.write_bytes(raw)
-    assert ac.surface_build_skippable(tmp_path, surface)
-    unit_index.index_path(surface).unlink()
-    assert not ac.surface_build_skippable(tmp_path, surface)
+    assert ac.corpus_build_skippable(tmp_path, corpus)
+    unit_index.index_path(corpus).unlink()
+    assert not ac.corpus_build_skippable(tmp_path, corpus)
 
     # Rewrite the manifest without rewriting the index and sidecars. Every shard is present and the fingerprint matches, so only the stale stamps on those three files show the mismatch.
-    unit_index.write_index(surface, [])
+    unit_index.write_index(corpus, [])
     manifest["generated_at"] = "2026-02-02T00:00:00Z"
-    (surface / "manifest.json").write_text(json.dumps(manifest))
-    assert not ac.surface_build_skippable(tmp_path, surface)
+    (corpus / "manifest.json").write_text(json.dumps(manifest))
+    assert not ac.corpus_build_skippable(tmp_path, corpus)
     restamp()
-    assert ac.surface_build_skippable(tmp_path, surface)
+    assert ac.corpus_build_skippable(tmp_path, corpus)
 
 
 def _promotion_root(root):
-    """Write a Stage A record and M1.otf under `root`, and return the inputs fingerprint a surface must record to be skippable against them."""
+    """Write a Stage A record and M1.otf under `root`, and return the inputs fingerprint a corpus must record to be skippable against them."""
     from rebuild.pipeline import fingerprint
 
     m1 = root / "rebuild" / "out" / "m1"
@@ -4435,13 +4429,13 @@ def _promotion_root(root):
     return {**stage_a, **fingerprint.stage_b(root, before_font, junior_font)}
 
 
-def _write_surface(surface, recorded, stamp):
-    """Write a synthetic surface like the one in `test_surface_build_skippable_matches_manifest`: one shard, a manifest with `recorded` as its inputs fingerprint and `stamp` as its generated_at, and the per-unit index and app sidecars stamped for that manifest."""
+def _write_corpus(corpus, recorded, stamp):
+    """Write a synthetic corpus like the one in `test_corpus_build_skippable_matches_manifest`: one shard, a manifest with `recorded` as its inputs fingerprint and `stamp` as its generated_at, and the per-unit index and app sidecars stamped for that manifest."""
     from rebuild.review import app_index, unit_index
 
-    surface.mkdir(parents=True, exist_ok=True)
-    (surface / "units-000.json").write_text("[]")
-    (surface / "manifest.json").write_text(
+    corpus.mkdir(parents=True, exist_ok=True)
+    (corpus / "units-000.json").write_text("[]")
+    (corpus / "manifest.json").write_text(
         json.dumps(
             {
                 "generated_at": stamp,
@@ -4454,64 +4448,64 @@ def _write_surface(surface, recorded, stamp):
             }
         )
     )
-    unit_index.write_index(surface, [])
-    app_index.write_app_artifacts(surface, {}, {})
+    unit_index.write_index(corpus, [])
+    app_index.write_app_artifacts(corpus, {}, {})
 
 
-def test_promotable_surface_names_a_current_rehearsal_and_refuses_the_rest(tmp_path):
-    """`promotable_surface` returns a directory a live pass may move into place, so each precondition must reject on its own: a missing directory, the live directory itself, a rehearsal whose fingerprint no longer matches, one stamped older than the live surface, and an unreadable manifest on either side. `surface_build_skippable` cannot detect the stamp case, because `generated_at` is the newest input mtime, not a build time. Rejecting it prevents `merge_verdicts` from refusing the store after the move."""
+def test_promotable_corpus_names_a_current_rehearsal_and_refuses_the_rest(tmp_path):
+    """`promotable_corpus` returns a directory a live pass may move into place, so each precondition must reject on its own: a missing directory, the live directory itself, a rehearsal whose fingerprint no longer matches, one stamped older than the live corpus, and an unreadable manifest on either side. `corpus_build_skippable` cannot detect the stamp case, because `generated_at` is the newest input mtime, not a build time. Rejecting it prevents `merge_verdicts` from refusing the store after the move."""
     expected = _promotion_root(tmp_path)
     live = tmp_path / "rebuild" / "out" / "review"
     rehearsal = tmp_path / "var" / "rehearsal-review"
     summary = tmp_path / "rebuild" / "out" / "cycle_summary.json"
-    _write_surface(live, expected, "2026-01-01T00:00:00Z")
+    _write_corpus(live, expected, "2026-01-01T00:00:00Z")
     summary.parent.mkdir(parents=True, exist_ok=True)
     summary.write_text(json.dumps({"plan": {"review_out": "rebuild/out/review"}}))
-    assert ac.promotable_surface(tmp_path, summary, live) is None
+    assert ac.promotable_corpus(tmp_path, summary, live) is None
     summary.unlink()
-    _write_surface(live, {**expected, "data": "stale"}, "2026-01-01T00:00:00Z")
-    assert ac.promotable_surface(tmp_path, summary, live) is None
+    _write_corpus(live, {**expected, "data": "stale"}, "2026-01-01T00:00:00Z")
+    assert ac.promotable_corpus(tmp_path, summary, live) is None
 
-    _write_surface(rehearsal, expected, "2026-01-02T00:00:00Z")
-    assert ac.promotable_surface(tmp_path, summary, live) == rehearsal
+    _write_corpus(rehearsal, expected, "2026-01-02T00:00:00Z")
+    assert ac.promotable_corpus(tmp_path, summary, live) == rehearsal
 
-    _write_surface(rehearsal, {**expected, "review_code": "moved"}, "2026-01-02T00:00:00Z")
-    assert ac.promotable_surface(tmp_path, summary, live) is None
+    _write_corpus(rehearsal, {**expected, "review_code": "moved"}, "2026-01-02T00:00:00Z")
+    assert ac.promotable_corpus(tmp_path, summary, live) is None
 
-    _write_surface(rehearsal, expected, "2025-12-31T00:00:00Z")
-    assert ac.promotable_surface(tmp_path, summary, live) is None
-    _write_surface(rehearsal, expected, "2026-01-01T00:00:00Z")
-    assert ac.promotable_surface(tmp_path, summary, live) == rehearsal
+    _write_corpus(rehearsal, expected, "2025-12-31T00:00:00Z")
+    assert ac.promotable_corpus(tmp_path, summary, live) is None
+    _write_corpus(rehearsal, expected, "2026-01-01T00:00:00Z")
+    assert ac.promotable_corpus(tmp_path, summary, live) == rehearsal
 
     (rehearsal / "manifest.json").write_text("{ not json")
-    assert ac.promotable_surface(tmp_path, summary, live) is None
-    _write_surface(rehearsal, expected, "2026-01-02T00:00:00Z")
+    assert ac.promotable_corpus(tmp_path, summary, live) is None
+    _write_corpus(rehearsal, expected, "2026-01-02T00:00:00Z")
     (live / "manifest.json").write_text("{ not json")
-    assert ac.promotable_surface(tmp_path, summary, live) is None
+    assert ac.promotable_corpus(tmp_path, summary, live) is None
 
 
-def test_promotable_surface_reads_the_recorded_pointer_before_the_convention(tmp_path):
+def test_promotable_corpus_reads_the_recorded_pointer_before_the_convention(tmp_path):
     """`--review-out` accepts any path, so the directory recorded in the last cycle summary is tried first, resolved against the root because the summary stores it repo-relative. A summary with no pointer, one that does not parse, or one naming a missing directory falls back to `var/rehearsal-review` without raising."""
     expected = _promotion_root(tmp_path)
     live = tmp_path / "rebuild" / "out" / "review"
-    _write_surface(live, {**expected, "data": "stale"}, "2026-01-01T00:00:00Z")
+    _write_corpus(live, {**expected, "data": "stale"}, "2026-01-01T00:00:00Z")
     conventional = tmp_path / "var" / "rehearsal-review"
     recorded = tmp_path / "var" / "elsewhere"
-    _write_surface(conventional, expected, "2026-01-02T00:00:00Z")
-    _write_surface(recorded, expected, "2026-01-02T00:00:00Z")
+    _write_corpus(conventional, expected, "2026-01-02T00:00:00Z")
+    _write_corpus(recorded, expected, "2026-01-02T00:00:00Z")
     summary = tmp_path / "rebuild" / "out" / "cycle_summary.json"
 
     summary.write_text(json.dumps({"plan": {"review_out": "var/elsewhere"}}))
-    assert ac.promotable_surface(tmp_path, summary, live) == recorded
+    assert ac.promotable_corpus(tmp_path, summary, live) == recorded
     summary.write_text(json.dumps({"plan": {"review_out": None}}))
-    assert ac.promotable_surface(tmp_path, summary, live) == conventional
+    assert ac.promotable_corpus(tmp_path, summary, live) == conventional
     summary.write_text("{ not json")
-    assert ac.promotable_surface(tmp_path, summary, live) == conventional
+    assert ac.promotable_corpus(tmp_path, summary, live) == conventional
     summary.write_text(json.dumps({"plan": {"review_out": "var/vanished"}}))
-    assert ac.promotable_surface(tmp_path, summary, live) == conventional
+    assert ac.promotable_corpus(tmp_path, summary, live) == conventional
 
 
-def test_promote_surface_swaps_the_trees_and_leaves_no_leftover(tmp_path, monkeypatch):
+def test_promote_corpus_swaps_the_trees_and_leaves_no_leftover(tmp_path, monkeypatch):
     """After the move the live path holds the source's files, the source is gone, and no `.superseded` directory remains. A leftover `.superseded` tree from an interrupted pass is removed first. When the second rename fails, the live tree is restored, which a removal followed by a move could not do."""
     live = tmp_path / "review"
     source = tmp_path / "rehearsal"
@@ -4523,7 +4517,7 @@ def test_promote_surface_swaps_the_trees_and_leaves_no_leftover(tmp_path, monkey
     superseded.mkdir()
     (superseded / "crashed.txt").write_text("leftover")
 
-    ac.promote_surface(source, live)
+    ac.promote_corpus(source, live)
     assert (live / "new.txt").read_text() == "new"
     assert not (live / "old.txt").exists()
     assert not source.exists()
@@ -4542,7 +4536,7 @@ def test_promote_surface_swaps_the_trees_and_leaves_no_leftover(tmp_path, monkey
 
     monkeypatch.setattr(ac.os, "replace", failing_second)
     with pytest.raises(OSError, match="simulated"):
-        ac.promote_surface(source, live)
+        ac.promote_corpus(source, live)
     assert (live / "new.txt").read_text() == "new"
     assert (source / "newer.txt").read_text() == "newer"
     assert not superseded.exists()
@@ -4565,27 +4559,27 @@ def test_a_promotion_whose_outgoing_tree_will_not_delete_still_counts(tmp_path, 
         return real_rmtree(path, ignore_errors=ignore_errors, **kwargs)
 
     monkeypatch.setattr(ac.shutil, "rmtree", undeletable)
-    ac.promote_surface(source, live)
+    ac.promote_corpus(source, live)
     assert (live / "new.txt").read_text() == "new"
     assert (superseded / "old.txt").read_text() == "old"
     assert not source.exists()
 
 
-def test_recover_superseded_surface_settles_the_leftover_before_the_first_run_question(
+def test_recover_superseded_corpus_settles_the_leftover_before_the_first_run_question(
     tmp_path, monkeypatch, capsys
 ):
-    """A `.superseded` tree beside a live tree is the surface a promotion replaced, so it is deleted. A `.superseded` tree with no live tree beside it is the live surface an interrupted promotion moved aside, so it is moved back. `main` does this before checking whether a surface exists, so an interrupted promotion is not treated as a first run. A dry run still moves a lone tree back, so its plan matches what a real pass would do, but leaves a tree that sits beside a live one for the next real pass to delete."""
+    """A `.superseded` tree beside a live tree is the corpus a promotion replaced, so it is deleted. A `.superseded` tree with no live tree beside it is the live corpus an interrupted promotion moved aside, so it is moved back. `main` does this before checking whether a corpus exists, so an interrupted promotion is not treated as a first run. A dry run still moves a lone tree back, so its plan matches what a real pass would do, but leaves a tree that sits beside a live one for the next real pass to delete."""
     live = tmp_path / "review"
     superseded = tmp_path / "review.superseded"
-    assert ac.recover_superseded_surface(live) is None
+    assert ac.recover_superseded_corpus(live) is None
     superseded.mkdir()
     (superseded / "manifest.json").write_text("{}")
-    note = ac.recover_superseded_surface(live)
+    note = ac.recover_superseded_corpus(live)
     assert note is not None and note.startswith("Put ")
     assert (live / "manifest.json").exists()
     assert not superseded.exists()
     superseded.mkdir()
-    note = ac.recover_superseded_surface(live)
+    note = ac.recover_superseded_corpus(live)
     assert note is not None and note.startswith("Deleted ")
     assert (live / "manifest.json").exists()
     assert not superseded.exists()
@@ -4607,12 +4601,12 @@ def test_recover_superseded_surface_settles_the_leftover_before_the_first_run_qu
     assert (leftover / "manifest.json").exists()
 
 
-def test_a_promoted_surface_still_answers_for_itself(tmp_path, mini_surface):
-    """Every stamp inside a surface depends only on its manifest's content, so a real surface moved to another path still passes the skip's checks (the per-unit index and both app sidecars), and both stores load under the environment recorded in their headers."""
+def test_a_promoted_corpus_still_answers_for_itself(tmp_path, mini_corpus):
+    """Every stamp inside a corpus depends only on its manifest's content, so a real corpus moved to another path still passes the skip's checks (the per-unit index and both app sidecars), and both stores load under the environment recorded in their headers."""
     from rebuild.review import app_index, unit_cache, unit_index
 
     source = tmp_path / "rehearsal"
-    shutil.copytree(mini_surface, source)
+    shutil.copytree(mini_corpus, source)
     live = tmp_path / "review"
     live.mkdir()
     (live / "stale.txt").write_text("outgoing")
@@ -4624,7 +4618,7 @@ def test_a_promoted_surface_still_answers_for_itself(tmp_path, mini_surface):
     environment = header_environment(unit_cache.store_path(source))
     signature_environment = header_environment(unit_cache.signature_store_path(source))
 
-    ac.promote_surface(source, live)
+    ac.promote_corpus(source, live)
 
     assert not source.exists()
     assert not (live / "stale.txt").exists()
@@ -4640,19 +4634,19 @@ def test_a_promoted_surface_still_answers_for_itself(tmp_path, mini_surface):
 REFUSE_RUNE = "rune: qsX\npolicy:\n  refuse:\n  - {exit: baseline, why: two verticals render thick}\n"
 
 
-def _stamped_surface(root):
-    """Write a review surface stamped for the current inputs under `root`, so `surface_build_skippable` is true right after. After a prose edit, a failed skip shows the edit reached the surface's stamp, and a passing skip shows it did not."""
+def _stamped_corpus(root):
+    """Write a review corpus stamped for the current inputs under `root`, so `corpus_build_skippable` is true right after. After a prose edit, a failed skip shows the edit reached the corpus's stamp, and a passing skip shows it did not."""
     from rebuild.pipeline import fingerprint
     from rebuild.review import app_index, unit_index
 
     stage_a = fingerprint.stage_a(root)
     m1 = root / "rebuild" / "out" / "m1"
     (m1 / fingerprint.STAGE_A_FILENAME).write_text(json.dumps({"format": fingerprint.FORMAT, **stage_a}))
-    surface = root / "rebuild" / "out" / "review"
-    surface.mkdir(parents=True)
-    (surface / "units-000.json").write_text("[]")
+    corpus = root / "rebuild" / "out" / "review"
+    corpus.mkdir(parents=True)
+    (corpus / "units-000.json").write_text("[]")
     before_font, junior_font = fingerprint.font_paths(root)
-    (surface / "manifest.json").write_text(
+    (corpus / "manifest.json").write_text(
         json.dumps(
             {
                 "generated_at": "2026-01-01T00:00:00Z",
@@ -4667,9 +4661,9 @@ def _stamped_surface(root):
             }
         )
     )
-    unit_index.write_index(surface, [])
-    app_index.write_app_artifacts(surface, {}, {})
-    return surface
+    unit_index.write_index(corpus, [])
+    app_index.write_app_artifacts(corpus, {}, {})
+    return corpus
 
 
 def _upstream_keys(root):
@@ -4684,38 +4678,38 @@ def _upstream_keys(root):
     }
 
 
-def test_a_refuse_why_edit_restamps_the_surface_and_nothing_upstream(tmp_path):
-    """A refusal's `why` is quoted into the explain text the surface serves, so the surface must notice a rewording. Nothing that builds an artifact reads it, so the run_m1 key, the conform key, the tables' stamp, the Stage A record and the lane key all stay unchanged, and the pass after such an edit rebuilds only the surface."""
+def test_a_refuse_why_edit_restamps_the_corpus_and_nothing_upstream(tmp_path):
+    """A refusal's `why` is quoted into the explain text the corpus serves, so the corpus must notice a rewording. Nothing that builds an artifact reads it, so the run_m1 key, the conform key, the tables' stamp, the Stage A record and the lane key all stay unchanged, and the pass after such an edit rebuilds only the corpus."""
     root = _fake_run_m1_root(tmp_path)
     subprocess.run(["git", "init", "-q"], cwd=root, check=True)
     (root / ".gitignore").write_text("rebuild/out/\n")
     rune = root / "glyph_data" / "runes" / "qsX.yaml"
     rune.write_text(REFUSE_RUNE)
-    surface = _stamped_surface(root)
-    assert ac.surface_build_skippable(root, surface)
+    corpus = _stamped_corpus(root)
+    assert ac.corpus_build_skippable(root, corpus)
     upstream = _upstream_keys(root)
     assert all(value is not None for value in upstream.values())
 
     rune.write_text(REFUSE_RUNE.replace("render thick", "render thin"))
-    assert not ac.surface_build_skippable(root, surface)
+    assert not ac.corpus_build_skippable(root, corpus)
     assert _upstream_keys(root) == upstream
 
 
-def test_a_ledger_why_edit_restamps_the_surface_and_nothing_upstream(tmp_path):
-    """The review build copies each divergence class's `why` into the manifest, so the surface must notice a rewording. The oracle does not read the `why`, so the run_m1 key, the conform key, the tables' stamp, the Stage A record and the lane key stay unchanged. Reclassifying the class must change the run_m1 key, the Stage A record and the lane key."""
+def test_a_ledger_why_edit_restamps_the_corpus_and_nothing_upstream(tmp_path):
+    """The review build copies each divergence class's `why` into the manifest, so the corpus must notice a rewording. The oracle does not read the `why`, so the run_m1 key, the conform key, the tables' stamp, the Stage A record and the lane key stay unchanged. Reclassifying the class must change the run_m1 key, the Stage A record and the lane key."""
     from rebuild.pipeline import fingerprint
 
     root = _fake_run_m1_root(tmp_path)
     subprocess.run(["git", "init", "-q"], cwd=root, check=True)
     (root / ".gitignore").write_text("rebuild/out/\n")
     ledger = root / fingerprint.DIVERGENCE_LEDGER_LABEL
-    surface = _stamped_surface(root)
-    assert ac.surface_build_skippable(root, surface)
+    corpus = _stamped_corpus(root)
+    assert ac.corpus_build_skippable(root, corpus)
     upstream = _upstream_keys(root)
     assert all(value is not None for value in upstream.values())
 
     ledger.write_text("- id: x\n  status: intended\n  why: one, said at greater length\n")
-    assert not ac.surface_build_skippable(root, surface)
+    assert not ac.corpus_build_skippable(root, corpus)
     assert _upstream_keys(root) == upstream
 
     ledger.write_text("- id: x\n  status: reviewed-approved\n  why: one, said at greater length\n")
@@ -4727,7 +4721,7 @@ def test_a_ledger_why_edit_restamps_the_surface_and_nothing_upstream(tmp_path):
 
 
 def test_a_standing_note_reword_moves_the_verdict_update_key_and_nothing_else(tmp_path):
-    """The standing fill quotes a rule's `note` into every verdict note it writes, so rewording a note must change the verdict-update key. The surface and every build key stay unchanged, and so does the lane key, because the tests read each rule's `match` and not its prose. Changing a rule's verdict must change the lane key and leave the run_m1 key unchanged."""
+    """The standing fill quotes a rule's `note` into every verdict note it writes, so rewording a note must change the verdict-update key. The corpus and every build key stay unchanged, and so does the lane key, because the tests read each rule's `match` and not its prose. Changing a rule's verdict must change the lane key and leave the run_m1 key unchanged."""
     root = _fake_run_m1_root(tmp_path)
     subprocess.run(["git", "init", "-q"], cwd=root, check=True)
     (root / ".gitignore").write_text("rebuild/out/\n")
@@ -4737,17 +4731,17 @@ def test_a_standing_note_reword_moves_the_verdict_update_key_and_nothing_else(tm
     )
     master = root / "verdicts-autosave.json"
     master.write_text("{}")
-    surface = _stamped_surface(root)
-    assert ac.surface_build_skippable(root, surface)
+    corpus = _stamped_corpus(root)
+    assert ac.corpus_build_skippable(root, corpus)
     upstream = _upstream_keys(root)
-    verdict_update_key = ac.verdict_update_skip_fingerprint(root, surface, master)
+    verdict_update_key = ac.verdict_update_skip_fingerprint(root, corpus, master)
     assert verdict_update_key is not None
 
     standing.write_text(
         "format: ams-standing-approvals/1\nrules:\n  - id: r1\n    verdict: approve\n    note: one, said at greater length\n"
     )
-    assert ac.verdict_update_skip_fingerprint(root, surface, master) != verdict_update_key
-    assert ac.surface_build_skippable(root, surface)
+    assert ac.verdict_update_skip_fingerprint(root, corpus, master) != verdict_update_key
+    assert ac.corpus_build_skippable(root, corpus)
     assert _upstream_keys(root) == upstream
 
     standing.write_text(
@@ -4773,19 +4767,19 @@ def test_the_census_pins_are_outside_the_rebuild_closure(tmp_path):
         assert ac.rebuild_lane_fingerprint(tmp_path, lane) == before[lane]
 
 
-def test_dry_run_plan_skip_run_m1_and_surface_still_runs_the_census():
+def test_dry_run_plan_skip_run_m1_and_corpus_still_runs_the_census():
     """A pass with nothing to rebuild still runs the census step. The pins are the cycle's output, not a keyed stage, and refreshing them from the sidecar takes milliseconds."""
     plan = _plan(
         skip_run_m1=True,
         run_m1_note="build inputs unchanged since the last green M1 build; --fresh overrides",
-        skip_surface=True,
-        surface_note="the surface already reflects these inputs byte for byte, stamp included; --fresh overrides",
+        skip_corpus=True,
+        corpus_note="the corpus already reflects these inputs byte for byte, stamp included; --fresh overrides",
     )
     by_name = {step.name: step for step in plan.steps}
     assert by_name["run_m1"].argv is None
     assert "SKIPPED (build inputs unchanged" in by_name["run_m1"].note
-    assert by_name["surface-build"].argv is None
-    assert _argv(by_name["census"])[-3:] == ["--update", "--surface", str(ac.REVIEW_OUT)]
+    assert by_name["corpus-build"].argv is None
+    assert _argv(by_name["census"])[-3:] == ["--update", "--corpus", str(ac.REVIEW_OUT)]
     assert by_name["verdict-update"].argv is not None
     assert by_name["gate:rebuild-contracts"].argv is not None
 
@@ -4864,7 +4858,7 @@ def test_a_green_finish_closes_on_the_readiness_checklist_instead_of_naming_the_
 
     def block(plan):
         seen.append(plan)
-        return ["Review surface: here", "  ✓ gates: green", "", "READY - adjudicate at the docket"]
+        return ["Review corpus: here", "  ✓ gates: green", "", "READY - adjudicate at the docket"]
 
     monkeypatch.setattr(cycle_paths, "READINESS_ENABLED", True)
     monkeypatch.setattr(ac, "readiness_block", block)
@@ -4890,7 +4884,7 @@ def test_the_readiness_block_leaves_the_server_row_to_the_recipe_that_serves(mon
 
     def fake_readiness(*, with_server, **kwargs):
         asked.append(with_server)
-        return {"surface": {"dir": "d", "generated_at": "g", "repo_head": "h"}, "checks": {}}, True
+        return {"corpus": {"dir": "d", "generated_at": "g", "repo_head": "h"}, "checks": {}}, True
 
     monkeypatch.setattr(verdict_ready, "readiness", fake_readiness)
 
@@ -4913,7 +4907,7 @@ def test_the_readiness_block_reports_a_checklist_it_could_not_compute(monkeypatc
 
 
 def _unsettled_repo(tmp_path, monkeypatch, stamp="2026-07-17T20:24:44Z"):
-    """Set up a repo where no keyed stage can skip: run_m1's key matches no record, the make-test fingerprint is None, and the rebuild lane's key matches no record. `_settled_repo` is the counterpart in which run_m1 and the surface build both skip."""
+    """Set up a repo where no keyed stage can skip: run_m1's key matches no record, the make-test fingerprint is None, and the rebuild lane's key matches no record. `_settled_repo` is the counterpart in which run_m1 and the corpus build both skip."""
     _seed_auto_repo(tmp_path, monkeypatch, stamp=stamp)
     (tmp_path / "var").mkdir()
     (tmp_path / "verdicts-autosave.json").write_text(json.dumps(_verdicts_doc(stamp, ["u-1"])))
@@ -5011,23 +5005,23 @@ def test_a_plan_that_skips_run_m1_never_also_reruns_its_gates():
     assert "--replay-threads" not in rerun.argv("run_m1")
 
 
-def test_main_skips_the_surface_on_a_gates_only_rerun_only_when_stage_a_already_stands(
+def test_main_skips_the_corpus_on_a_gates_only_rerun_only_when_stage_a_already_stands(
     tmp_path, monkeypatch, capsys
 ):
-    """On a gates-only rerun the surface build is skipped only when `m1_stage_a_current` says the Stage A record on disk matches the live sources. A contact allow-list edit is outside every Stage A component, so the record the gates-only pass rewrites is the one already on disk and the surface cannot change. A divergence-ledger edit moves Stage A's data component, so the record on disk is stale until the pass rewrites it. The skip can trust the record because nothing moved at all."""
+    """On a gates-only rerun the corpus build is skipped only when `m1_stage_a_current` says the Stage A record on disk matches the live sources. A contact allow-list edit is outside every Stage A component, so the record the gates-only pass rewrites is the one already on disk and the corpus cannot change. A divergence-ledger edit moves Stage A's data component, so the record on disk is stale until the pass rewrites it. The skip can trust the record because nothing moved at all."""
     _comparison_side_drift(tmp_path, monkeypatch, moved="rebuild/m1-contact-allow.yaml")
-    monkeypatch.setattr(ac, "surface_build_skippable", lambda root=None: True)
+    monkeypatch.setattr(ac, "corpus_build_skippable", lambda root=None: True)
     monkeypatch.setattr(ac, "m1_stage_a_current", lambda root=None: True)
     assert ac.main(["--dry-run"]) == 0
     out = capsys.readouterr().out
     assert "--gates-only" in _step_lines(out, "run_m1")
-    assert "SKIPPED (the surface already reflects these inputs" in _step_lines(out, "surface-build")
+    assert "SKIPPED (the corpus already reflects these inputs" in _step_lines(out, "corpus-build")
 
     monkeypatch.setattr(ac, "m1_stage_a_current", lambda root=None: False)
     assert ac.main(["--dry-run"]) == 0
     out = capsys.readouterr().out
     assert "--gates-only" in _step_lines(out, "run_m1")
-    assert "uv run python -m rebuild.review.build" in _step_lines(out, "surface-build")
+    assert "uv run python -m rebuild.review.build" in _step_lines(out, "corpus-build")
 
 
 def test_m1_stage_a_current_compares_the_record_against_the_live_sources(tmp_path, monkeypatch):
@@ -5083,7 +5077,7 @@ def test_main_takes_neither_mode_under_fresh(tmp_path, monkeypatch, capsys):
 def test_run_cycle_skips_the_sweep_after_run_m1_on_the_key_the_finished_artifacts_carry(
     monkeypatch, tmp_path, capsys
 ):
-    """The conform skip is decided after run_m1, not in the plan, because only a finished build knows what the font came out as. All three run_m1 modes (skipped, gates-only, rebuilt) end on this same key. A skip over the artifacts the pass leaves behind is recorded as "proved", which is what `review/status.py` needs to call a surface ready for review."""
+    """The conform skip is decided after run_m1, not in the plan, because only a finished build knows what the font came out as. All three run_m1 modes (skipped, gates-only, rebuilt) end on this same key. A skip over the artifacts the pass leaves behind is recorded as "proved", which is what `review/status.py` needs to call a corpus ready for review."""
     monkeypatch.setattr(cycle_paths, "CONFORM_GREEN", tmp_path / "conform-green.json")
     monkeypatch.setattr(ac, "conform_skip_fingerprint", lambda root=None, horizon=None: "cfp")
     monkeypatch.setattr(ac, "rebuild_lane_fingerprint", lambda root, lane: f"rfp-{lane}")
@@ -5331,19 +5325,19 @@ def test_do_run_m1_red_deletes_matching_green(monkeypatch, tmp_path):
     assert ac.read_green_record(green) is None
 
 
-def test_do_surface_build_skip_reads_manifest_totals(monkeypatch, tmp_path):
-    surface = tmp_path / "review"
-    surface.mkdir()
-    (surface / "manifest.json").write_text(
+def test_do_corpus_build_skip_reads_manifest_totals(monkeypatch, tmp_path):
+    corpus = tmp_path / "review"
+    corpus.mkdir()
+    (corpus / "manifest.json").write_text(
         json.dumps({"totals": {"units": 5, "rows": 9, "batches": 2, "echo_groups": 3}})
     )
-    monkeypatch.setattr(ac, "REVIEW_OUT", surface)
+    monkeypatch.setattr(ac, "REVIEW_OUT", corpus)
 
     def no_spawn(*a, **k):
         raise AssertionError("skip path must not spawn")
 
     report = ac.CycleReport()
-    ok = ac._do_surface_build(
+    ok = ac._do_corpus_build(
         report,
         spawn=no_spawn,
         emit=ac._Emitter(),
@@ -5353,7 +5347,7 @@ def test_do_surface_build_skip_reads_manifest_totals(monkeypatch, tmp_path):
         skip_note="test",
     )
     assert ok
-    assert (report.surface_units, report.surface_rows, report.surface_batches, report.echo_groups) == (
+    assert (report.corpus_units, report.corpus_rows, report.corpus_batches, report.echo_groups) == (
         5,
         9,
         2,
@@ -5493,20 +5487,20 @@ def test_the_summary_table_carries_each_steps_detail_and_what_it_cost():
     report = ac.CycleReport()
     report.unmatched = 8423
     report.pins_pass = True
-    report.surface_units = 15903
-    report.surface_rows = 81894
+    report.corpus_units = 15903
+    report.corpus_rows = 81894
     report.gate_conform = f"skipped ({ac.CONFORM_SKIP_NOTE})"
     report.gate_contracts = "FAILED (3 unexplained)"
     report.gate_contracts_green = False
     report.retention_detail = "removed 1 carried, 0 build logs, 0 stashes; journal intact"
-    report.step_seconds = {"run_m1": 1988.0, "surface-build": 61.0, "gate:rebuild-contracts": 92.0}
-    report.step_returncodes = {"run_m1": 0, "surface-build": 0, "gate:rebuild-contracts": 1}
+    report.step_seconds = {"run_m1": 1988.0, "corpus-build": 61.0, "gate:rebuild-contracts": 92.0}
+    report.step_returncodes = {"run_m1": 0, "corpus-build": 0, "gate:rebuild-contracts": 1}
 
     rows = {row.name: row for row in ac.summary_rows(report, plan, retention_ran=False)}
     assert rows["run_m1"].detail == "8,423 unmatched, pins pass"
     assert rows["run_m1"].outcome == "ok"
     assert rows["run_m1"].seconds == 1988.0
-    assert rows["surface-build"].detail == "15,903 units, 81,894 rows"
+    assert rows["corpus-build"].detail == "15,903 units, 81,894 rows"
     assert rows["gate:conform"].outcome == "skipped"
     assert rows["gate:conform"].detail == ""
     assert rows["gate:rebuild-contracts"].outcome == "FAILED"
@@ -5547,7 +5541,7 @@ def test_the_summary_table_carries_each_steps_detail_and_what_it_cost():
 
 
 def test_a_step_that_came_back_nonzero_never_reads_as_an_ok_row():
-    """The outcome column comes from each step's result (its exit status, or for run_m1 its gate result), not from whether the step took any time. Filled from seconds, it would read `ok` for every step that ran, including a run_m1 whose Manual pins failed and a surface build whose child died. The two informational steps, census and job-costs, are the exception: neither gates anything, and each reports its failure in its own detail."""
+    """The outcome column comes from each step's result (its exit status, or for run_m1 its gate result), not from whether the step took any time. Filled from seconds, it would read `ok` for every step that ran, including a run_m1 whose Manual pins failed and a corpus build whose child died. The two informational steps, census and job-costs, are the exception: neither gates anything, and each reports its failure in its own detail."""
     plan = _plan()
     report = ac.CycleReport()
     report.unmatched = 5
@@ -5555,20 +5549,20 @@ def test_a_step_that_came_back_nonzero_never_reads_as_an_ok_row():
     report.run_m1_failed = True
     report.census_status = "update FAILED (exit 2) — informational"
     report.job_costs_status = "OVERRUN (a measured peak outruns its checked-in constant)"
-    report.step_seconds = {"run_m1": 9.0, "surface-build": 3.0, "census": 1.0, "job-costs": 1.0}
-    report.step_returncodes = {"run_m1": 0, "surface-build": 1, "census": 2, "job-costs": 1}
+    report.step_seconds = {"run_m1": 9.0, "corpus-build": 3.0, "census": 1.0, "job-costs": 1.0}
+    report.step_returncodes = {"run_m1": 0, "corpus-build": 1, "census": 2, "job-costs": 1}
 
     rows = {row.name: row for row in ac.summary_rows(report, plan, retention_ran=False)}
     assert rows["run_m1"].outcome == "FAILED"
     assert rows["run_m1"].detail == "5 unmatched, PINS FAILED"
-    assert rows["surface-build"].outcome == "FAILED"
+    assert rows["corpus-build"].outcome == "FAILED"
     assert rows["census"].outcome == "ok"
     assert rows["job-costs"].outcome == "ok"
 
 
 def test_every_spawned_step_closes_with_its_own_detail_and_peak(capsys, tmp_path):
-    """Each spawned step's closing line carries the detail its summary row will show and its peak memory. No stage knows its detail when its child exits (run_m1 reads three summaries, the surface build opens a manifest, the verdict update splits its sections), so the closing line is written by the stage that reads them."""
-    surface = _built_surface(tmp_path, units=15903, rows=81894, batches=16, echo_groups=402)
+    """Each spawned step's closing line carries the detail its summary row will show and its peak memory. No stage knows its detail when its child exits (run_m1 reads three summaries, the corpus build opens a manifest, the verdict update splits its sections), so the closing line is written by the stage that reads them."""
+    corpus = _built_corpus(tmp_path, units=15903, rows=81894, batches=16, echo_groups=402)
 
     def spawn(name, argv, *, emit, registry, stream, **passthrough):
         if name == "run_m1":
@@ -5577,7 +5571,7 @@ def test_every_spawned_step_closes_with_its_own_detail_and_peak(capsys, tmp_path
             return ac._StepResult(name, 0, "", "", 1988.0, 19_600_000_000)
         return ac._StepResult(name, 0, "", "", 1.0, 1_000_000_000)
 
-    plan = _plan(skip_gates=True, review_out=surface)
+    plan = _plan(skip_gates=True, review_out=corpus)
     report = ac.CycleReport()
     cycle_console = console.CycleConsole(steps=[step.name for step in plan.steps])
     assert ac._run_cycle(plan, report, cycle_console, ac._ChildRegistry(), spawn=spawn) == 0
@@ -5633,7 +5627,7 @@ def test_do_census_says_the_invariant_is_unchanged_when_only_the_volatile_block_
         plan=_plan(),
     )
     assert report.census_status == (
-        "invariant unchanged (only the volatile totals moved; cycle_summary.json carries the surface's)"
+        "invariant unchanged (only the volatile totals moved; cycle_summary.json carries the corpus's)"
     )
     assert not any(line.startswith(("---", "+++", "@@")) for line in printed)
     assert report.census_reach.startswith("machine-approved: ")
@@ -5676,7 +5670,7 @@ def test_do_census_says_when_there_is_no_accepted_census_to_hold_the_pins_agains
 
 
 def test_do_census_reports_a_failed_refresh_and_compares_nothing():
-    """A refresh can fail on a surface built before the census sidecar existed. The step is informational, so a failure compares and records nothing; the next pass that rebuilds the surface writes the sidecar."""
+    """A refresh can fail on a corpus built before the census sidecar existed. The step is informational, so a failure compares and records nothing; the next pass that rebuilds the corpus writes the sidecar."""
     calls: list[str] = []
 
     def spawn(name, argv, *, emit, registry, stream):
@@ -5712,7 +5706,7 @@ def test_a_failed_census_refresh_never_fails_the_cycle(monkeypatch):
 
 
 def test_a_rehearsal_never_runs_the_census(monkeypatch, tmp_path):
-    """The checked-in pins describe the live surface. A rehearsal builds elsewhere, so refreshing the pins from it would replace the accepted census with the census of a surface nobody serves."""
+    """The checked-in pins describe the live corpus. A rehearsal builds elsewhere, so refreshing the pins from it would replace the accepted census with the census of a corpus nobody serves."""
 
     def census_must_not_run(*args, **kwargs):
         raise AssertionError("a rehearsal must not run the census")
@@ -5730,7 +5724,7 @@ def test_a_rehearsal_never_runs_the_census(monkeypatch, tmp_path):
     rc = ac._run_cycle(plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=lambda *a, **k: _step())
 
     assert rc == 0
-    assert report.census_status == "skipped (rehearsal: the checked-in pins track the live surface)"
+    assert report.census_status == "skipped (rehearsal: the checked-in pins track the live corpus)"
     assert report.census_reach == "skipped (rehearsal)"
 
 
@@ -5841,7 +5835,7 @@ def test_a_tripped_job_costs_check_never_fails_the_cycle(monkeypatch):
 
 
 def test_the_job_costs_check_runs_in_a_rehearsal_too(monkeypatch, tmp_path):
-    """The job-costs check runs in a rehearsal, unlike the census. The pins track the live surface, which a rehearsal never writes, but every pass appends to the timings journal, and a rehearsal's pool measurements are as valid as any."""
+    """The job-costs check runs in a rehearsal, unlike the census. The pins track the live corpus, which a rehearsal never writes, but every pass appends to the timings journal, and a rehearsal's pool measurements are as valid as any."""
     ran: list[str] = []
 
     def job_costs_ran(report, *, spawn, emit, registry, plan):
@@ -5891,8 +5885,8 @@ def test_the_plan_checks_job_costs_even_when_the_gates_are_skipped():
     assert _plan(skip_gates=True).runs("job-costs") is True
 
 
-def test_the_contracts_suite_is_submitted_before_the_surface_build_starts(monkeypatch):
-    """The contracts suite is submitted after the run_m1 gate passes and before the surface build starts, so it runs beside the build. The surface fake waits until the suite's task has been invoked, which a submission after the build could never satisfy. The suite waits for nothing else, because the surface, the carry, the merge and the census are not inputs to it; `test_the_rebuild_suite_is_skipped_when_run_m1_fails` checks the other bound."""
+def test_the_contracts_suite_is_submitted_before_the_corpus_build_starts(monkeypatch):
+    """The contracts suite is submitted after the run_m1 gate passes and before the corpus build starts, so it runs beside the build. The corpus fake waits until the suite's task has been invoked, which a submission after the build could never satisfy. The suite waits for nothing else, because the corpus, the carry, the merge and the census are not inputs to it; `test_the_rebuild_suite_is_skipped_when_run_m1_fails` checks the other bound."""
     contracts_invoked = threading.Event()
     order: list[str] = []
 
@@ -5906,10 +5900,10 @@ def test_the_contracts_suite_is_submitted_before_the_surface_build_starts(monkey
         contracts_invoked.set()
         return _lane_result("rebuild-contracts")
 
-    def surface_after(report, *, spawn, emit, registry, review_out, **_):
+    def corpus_after(report, *, spawn, emit, registry, review_out, **_):
         assert contracts_invoked.wait(timeout=30)
-        order.append("surface")
-        report.surface_units = 1
+        order.append("corpus")
+        report.corpus_units = 1
         return True
 
     monkeypatch.setattr(ac, "_do_run_m1", fake_run_m1)
@@ -5918,30 +5912,30 @@ def test_the_contracts_suite_is_submitted_before_the_surface_build_starts(monkey
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
     _patch_build_chain(monkeypatch)
-    monkeypatch.setattr(ac, "_do_surface_build", surface_after)
+    monkeypatch.setattr(ac, "_do_corpus_build", corpus_after)
 
     plan = _plan(pool_policy="overlap")
     report = ac.CycleReport()
     rc = ac._run_cycle(plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=lambda *a, **k: _step())
 
     assert rc == 0
-    assert order == ["run_m1", "contracts", "surface"]
+    assert order == ["run_m1", "contracts", "corpus"]
     assert report.gate_contracts == "green"
 
 
-def test_surface_build_failure_still_joins_the_rebuild_suite_it_started(monkeypatch, capsys):
-    """A failed surface build stops the build lane, but the suite was already submitted and is running on a pool worker. The pass joins it and reports its real result; reporting it as not run would be false and would leave the worker unjoined."""
+def test_corpus_build_failure_still_joins_the_rebuild_suite_it_started(monkeypatch, capsys):
+    """A failed corpus build stops the build lane, but the suite was already submitted and is running on a pool worker. The pass joins it and reports its real result; reporting it as not run would be false and would leave the worker unjoined."""
     calls = {"contracts": 0}
 
     def fake_contracts(pool_policy, conform_fut, make_fut, spawn, emit, registry, argv):
         calls["contracts"] += 1
         return _lane_result("rebuild-contracts")
 
-    def failing_surface(report, *, spawn, emit, registry, review_out, **_):
+    def failing_corpus(report, *, spawn, emit, registry, review_out, **_):
         return False
 
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
-    monkeypatch.setattr(ac, "_do_surface_build", failing_surface)
+    monkeypatch.setattr(ac, "_do_corpus_build", failing_corpus)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
     monkeypatch.setattr(ac, "_gate_contracts_task", fake_contracts)
@@ -5954,7 +5948,7 @@ def test_surface_build_failure_still_joins_the_rebuild_suite_it_started(monkeypa
     assert rc == 1
     assert calls == {"contracts": 1}
     assert report.gate_contracts == "green"
-    assert "surface rebuild failed" in capsys.readouterr().out
+    assert "corpus rebuild failed" in capsys.readouterr().out
 
 
 def test_run_m1_failure_still_leaves_the_rebuild_suite_not_run(monkeypatch, capsys):
@@ -5983,9 +5977,9 @@ def test_run_m1_failure_still_leaves_the_rebuild_suite_not_run(monkeypatch, caps
 
 def test_verdict_update_skip_fingerprint_moves_with_every_input(tmp_path):
     """The verdict-update key moves with every input. The standing approvals are hashed by raw bytes here, although the rebuild lanes give them a prose-insensitive hash: the fill copies each rule's `note` into the verdict note it writes, so a reworded note changes what the verdict update writes and must re-run it."""
-    surface = tmp_path / "review"
-    surface.mkdir()
-    (surface / "manifest.json").write_text(
+    corpus = tmp_path / "review"
+    corpus.mkdir()
+    (corpus / "manifest.json").write_text(
         json.dumps({"generated_at": "2026-07-17T20:24:44Z", "inputs_fingerprint": {"runes": "aaa"}})
     )
     master = tmp_path / "verdicts-autosave.json"
@@ -5993,34 +5987,34 @@ def test_verdict_update_skip_fingerprint_moves_with_every_input(tmp_path):
     (tmp_path / "rebuild").mkdir()
     (tmp_path / "rebuild" / "standing-approvals.yaml").write_text("rules: []\n")
 
-    base = ac.verdict_update_skip_fingerprint(tmp_path, surface, master)
+    base = ac.verdict_update_skip_fingerprint(tmp_path, corpus, master)
     assert base is not None
-    assert ac.verdict_update_skip_fingerprint(tmp_path, surface, master) == base
-    assert ac.verdict_update_skip_fingerprint(tmp_path, surface, None) is None
+    assert ac.verdict_update_skip_fingerprint(tmp_path, corpus, master) == base
+    assert ac.verdict_update_skip_fingerprint(tmp_path, corpus, None) is None
 
     master.write_text('{"verdicts": []}')
-    assert ac.verdict_update_skip_fingerprint(tmp_path, surface, master) != base
+    assert ac.verdict_update_skip_fingerprint(tmp_path, corpus, master) != base
 
     master.write_text("{}")
     (tmp_path / "rebuild" / "standing-approvals.yaml").write_text("rules: [{}]\n")
-    assert ac.verdict_update_skip_fingerprint(tmp_path, surface, master) != base
+    assert ac.verdict_update_skip_fingerprint(tmp_path, corpus, master) != base
 
     (tmp_path / "rebuild" / "standing-approvals.yaml").write_text(
         "rules:\n  - id: r1\n    verdict: approve\n    note: one\n"
     )
-    noted = ac.verdict_update_skip_fingerprint(tmp_path, surface, master)
+    noted = ac.verdict_update_skip_fingerprint(tmp_path, corpus, master)
     (tmp_path / "rebuild" / "standing-approvals.yaml").write_text(
         "rules:\n  - id: r1\n    verdict: approve\n    note: two, at greater length\n"
     )
-    assert ac.verdict_update_skip_fingerprint(tmp_path, surface, master) != noted
+    assert ac.verdict_update_skip_fingerprint(tmp_path, corpus, master) != noted
 
     (tmp_path / "rebuild" / "standing-approvals.yaml").write_text("rules: []\n")
-    (surface / "manifest.json").write_text(
+    (corpus / "manifest.json").write_text(
         json.dumps({"generated_at": "2026-07-18T00:00:00Z", "inputs_fingerprint": {"runes": "aaa"}})
     )
-    assert ac.verdict_update_skip_fingerprint(tmp_path, surface, master) != base
+    assert ac.verdict_update_skip_fingerprint(tmp_path, corpus, master) != base
 
-    (surface / "manifest.json").write_text(
+    (corpus / "manifest.json").write_text(
         json.dumps(
             {
                 "generated_at": "2026-07-17T20:24:44Z",
@@ -6028,17 +6022,17 @@ def test_verdict_update_skip_fingerprint_moves_with_every_input(tmp_path):
             }
         )
     )
-    assert ac.verdict_update_skip_fingerprint(tmp_path, surface, master) == base
+    assert ac.verdict_update_skip_fingerprint(tmp_path, corpus, master) == base
 
-    (surface / "manifest.json").write_text(json.dumps({"generated_at": "2026-07-17T20:24:44Z"}))
-    assert ac.verdict_update_skip_fingerprint(tmp_path, surface, master) is None
+    (corpus / "manifest.json").write_text(json.dumps({"generated_at": "2026-07-17T20:24:44Z"}))
+    assert ac.verdict_update_skip_fingerprint(tmp_path, corpus, master) is None
 
 
 def test_verdict_update_skip_fingerprint_covers_its_own_code(tmp_path):
     """The verdict-update key covers the verdict update's own code, which lives in rebuild/tools/, where no other fingerprint reads it. Without it, a fix to a fill's matcher would be skipped as already proven. artifact_cycle.py, cycle_timings.py, memory_budget.py and peak_rss.py share that directory but run no step of the verdict update, so editing one leaves the key unchanged; serve.py and review_server.py, which the verdict update imports, move it."""
-    surface = tmp_path / "review"
-    surface.mkdir()
-    (surface / "manifest.json").write_text(
+    corpus = tmp_path / "review"
+    corpus.mkdir()
+    (corpus / "manifest.json").write_text(
         json.dumps({"generated_at": "2026-07-17T20:24:44Z", "inputs_fingerprint": {"runes": "aaa"}})
     )
     master = tmp_path / "verdicts-autosave.json"
@@ -6051,46 +6045,46 @@ def test_verdict_update_skip_fingerprint_covers_its_own_code(tmp_path):
         (tools / name).write_text("x = 1\n")
     (tmp_path / "rebuild" / "review" / "serve.py").write_text("y = 1\n")
 
-    base = ac.verdict_update_skip_fingerprint(tmp_path, surface, master)
+    base = ac.verdict_update_skip_fingerprint(tmp_path, corpus, master)
     assert base is not None
     for edited in (tools / "echo_verdicts.py", tools / "standing_verdicts.py", tools / "carry_verdicts.py"):
         original = edited.read_text()
         edited.write_text("x = 2\n")
-        assert ac.verdict_update_skip_fingerprint(tmp_path, surface, master) != base, edited.name
+        assert ac.verdict_update_skip_fingerprint(tmp_path, corpus, master) != base, edited.name
         edited.write_text(original)
-    assert ac.verdict_update_skip_fingerprint(tmp_path, surface, master) == base
+    assert ac.verdict_update_skip_fingerprint(tmp_path, corpus, master) == base
 
     (tmp_path / "rebuild" / "review" / "serve.py").write_text("y = 2\n")
-    assert ac.verdict_update_skip_fingerprint(tmp_path, surface, master) != base
+    assert ac.verdict_update_skip_fingerprint(tmp_path, corpus, master) != base
 
     outside = ("artifact_cycle.py", "cycle_timings.py", "memory_budget.py", "peak_rss.py")
     for name in outside:
         (tools / name).write_text("x = 1\n")
-    unmoved = ac.verdict_update_skip_fingerprint(tmp_path, surface, master)
+    unmoved = ac.verdict_update_skip_fingerprint(tmp_path, corpus, master)
     for name in outside:
         (tools / name).write_text("x = 2\n")
-        assert ac.verdict_update_skip_fingerprint(tmp_path, surface, master) == unmoved, name
+        assert ac.verdict_update_skip_fingerprint(tmp_path, corpus, master) == unmoved, name
         (tools / name).write_text("x = 1\n")
 
     (tools / "review_server.py").write_text("x = 1\n")
-    probed = ac.verdict_update_skip_fingerprint(tmp_path, surface, master)
+    probed = ac.verdict_update_skip_fingerprint(tmp_path, corpus, master)
     (tools / "review_server.py").write_text("x = 2\n")
-    assert ac.verdict_update_skip_fingerprint(tmp_path, surface, master) != probed
+    assert ac.verdict_update_skip_fingerprint(tmp_path, corpus, master) != probed
 
 
 def test_verdict_update_skip_fingerprint_sees_a_master_that_is_not_the_autosave(tmp_path):
     """The master is in the key because the autosave's hash cannot see it: an export at the repo root can outrank the store in the auto-resolution and hold verdicts the store has never had."""
-    surface = tmp_path / "review"
-    surface.mkdir()
-    (surface / "manifest.json").write_text(
+    corpus = tmp_path / "review"
+    corpus.mkdir()
+    (corpus / "manifest.json").write_text(
         json.dumps({"generated_at": "2026-07-17T20:24:44Z", "inputs_fingerprint": {"runes": "aaa"}})
     )
     (tmp_path / "verdicts-autosave.json").write_text("{}")
     export = tmp_path / "verdicts-export.json"
     export.write_text('{"verdicts": [1]}')
-    before = ac.verdict_update_skip_fingerprint(tmp_path, surface, export)
+    before = ac.verdict_update_skip_fingerprint(tmp_path, corpus, export)
     export.write_text('{"verdicts": [1, 2]}')
-    assert ac.verdict_update_skip_fingerprint(tmp_path, surface, export) != before
+    assert ac.verdict_update_skip_fingerprint(tmp_path, corpus, export) != before
 
 
 def test_dry_run_plan_skip_verdict_update_replaces_the_whole_step():
@@ -6104,7 +6098,7 @@ def test_dry_run_plan_skip_verdict_update_replaces_the_whole_step():
 
 
 def test_dry_run_plan_direct_merge_merges_the_master():
-    """When the surface did not move, the carry would map every unit onto itself, and its re-prefixed notes could never outrank the store. So the verdict update merges the master directly: it is the one input the store's own hash cannot see."""
+    """When the corpus did not move, the carry would map every unit onto itself, and its re-prefixed notes could never outrank the store. So the verdict update merges the master directly: it is the one input the store's own hash cannot see."""
     plan = _plan(direct_merge=True)
     by_name = {step.name: step for step in plan.steps}
     assert plan.carry_out is None
@@ -6208,7 +6202,7 @@ def test_run_cycle_records_the_verdict_update_green_only_after_a_complete_run(mo
     green = tmp_path / "verdict-update-green.json"
     monkeypatch.setattr(cycle_paths, "VERDICT_UPDATE_GREEN", green)
     monkeypatch.setattr(
-        ac, "verdict_update_skip_fingerprint", lambda root=None, surface=None, master=None: "plu"
+        ac, "verdict_update_skip_fingerprint", lambda root=None, corpus=None, master=None: "plu"
     )
 
     plan = _plan(record_greens=True)
@@ -6272,7 +6266,7 @@ def test_run_cycle_records_no_verdict_update_green_until_it_reaches_its_fixpoint
     _patch_build_chain(monkeypatch)
     _patch_gate_fingerprints(monkeypatch)
     monkeypatch.setattr(
-        ac, "verdict_update_skip_fingerprint", lambda root=None, surface=None, master=None: "plu"
+        ac, "verdict_update_skip_fingerprint", lambda root=None, corpus=None, master=None: "plu"
     )
     green = tmp_path / "verdict-update-green.json"
     monkeypatch.setattr(cycle_paths, "VERDICT_UPDATE_GREEN", green)
@@ -6312,17 +6306,17 @@ def test_verdict_update_settled_reads_its_own_fixpoint_line():
 
 
 def _settled_repo(tmp_path, monkeypatch):
-    """A repo whose run_m1 and surface build both auto-skip: the converged pass, the only case the verdict-update skip is offered on."""
+    """A repo whose run_m1 and corpus build both auto-skip: the converged pass, the only case the verdict-update skip is offered on."""
     _unsettled_repo(tmp_path, monkeypatch)
     ac.record_green(cycle_paths.RUN_M1_GREEN, "key")
     monkeypatch.setattr(ac, "m1_artifacts_present", lambda root=None: True)
-    monkeypatch.setattr(ac, "surface_build_skippable", lambda root=None: True)
+    monkeypatch.setattr(ac, "corpus_build_skippable", lambda root=None: True)
     monkeypatch.setattr(ac, "conform_skip_fingerprint", lambda root=None, horizon=None: "no-match")
     monkeypatch.setattr(
         cycle_paths, "VERDICT_UPDATE_GREEN", tmp_path / "rebuild" / "out" / "verdict-update-green.json"
     )
     monkeypatch.setattr(
-        ac, "verdict_update_skip_fingerprint", lambda root=None, surface=None, master=None: "plu"
+        ac, "verdict_update_skip_fingerprint", lambda root=None, corpus=None, master=None: "plu"
     )
 
 
@@ -6351,14 +6345,14 @@ def test_main_runs_the_census_on_the_pass_that_skips_the_verdict_update(tmp_path
     assert "uv run python -m rebuild.review.census --update" in _step_lines(out, "census")
 
 
-def test_main_never_skips_the_verdict_update_on_a_pass_that_writes_the_surface(tmp_path, monkeypatch, capsys):
-    """The verdict-update skip is offered only when the surface build is skipped, because only then is the manifest stamp the verdict update keys on known not to change during the pass."""
+def test_main_never_skips_the_verdict_update_on_a_pass_that_writes_the_corpus(tmp_path, monkeypatch, capsys):
+    """The verdict-update skip is offered only when the corpus build is skipped, because only then is the manifest stamp the verdict update keys on known not to change during the pass."""
     _unsettled_repo(tmp_path, monkeypatch)
     monkeypatch.setattr(
         cycle_paths, "VERDICT_UPDATE_GREEN", tmp_path / "rebuild" / "out" / "verdict-update-green.json"
     )
     monkeypatch.setattr(
-        ac, "verdict_update_skip_fingerprint", lambda root=None, surface=None, master=None: "plu"
+        ac, "verdict_update_skip_fingerprint", lambda root=None, corpus=None, master=None: "plu"
     )
     ac.record_verdict_update_green("plu")
     assert ac.main(["--dry-run"]) == 0
@@ -6380,10 +6374,10 @@ def test_main_never_skips_the_verdict_update_under_fresh_or_a_partial_run(tmp_pa
         assert ac.VERDICT_UPDATE_SKIP_NOTE not in capsys.readouterr().out
 
 
-def test_main_carries_a_master_stamped_for_another_surface_instead_of_merging_it(
+def test_main_carries_a_master_stamped_for_another_corpus_instead_of_merging_it(
     tmp_path, monkeypatch, capsys
 ):
-    """The direct merge passes the master to the merge unchanged, and the merge refuses any input stamped for another surface, so the direct merge is planned only for a master stamped for the served surface. A pass stopped after the surface build and before the carry leaves the autosave stamped for the previous surface, and the next pass skips the build as unchanged; that pass plans the full carry, as does a pass given such a master by --verdicts. For the auto-resolved master, alignment comes from the resolution, whose line already names the older stamp, so the master is not parsed again and the direct-merge decline note is not printed. A --verdicts master is checked with `master_stamped_for_surface`, and the note says why its carry runs. Once the autosave is restamped for the served surface, the direct merge is planned again."""
+    """The direct merge passes the master to the merge unchanged, and the merge refuses any input stamped for another corpus, so the direct merge is planned only for a master stamped for the served corpus. A pass stopped after the corpus build and before the carry leaves the autosave stamped for the previous corpus, and the next pass skips the build as unchanged; that pass plans the full carry, as does a pass given such a master by --verdicts. For the auto-resolved master, alignment comes from the resolution, whose line already names the older stamp, so the master is not parsed again and the direct-merge decline note is not printed. A --verdicts master is checked with `master_stamped_for_corpus`, and the note says why its carry runs. Once the autosave is restamped for the served corpus, the direct merge is planned again."""
     _settled_repo(tmp_path, monkeypatch)
     ac.record_verdict_update_green("moved")
     served = "2026-07-17T20:24:44Z"
@@ -6393,14 +6387,14 @@ def test_main_carries_a_master_stamped_for_another_surface_instead_of_merging_it
     export = tmp_path / "masters" / "verdicts-export.json"
     export.parent.mkdir()
     export.write_text(json.dumps(_verdicts_doc(older, ["u-2"])))
-    stamped_for_surface = ac.master_stamped_for_surface
+    stamped_for_corpus = ac.master_stamped_for_corpus
     asked: list[Path] = []
 
-    def asking(master, surface):
+    def asking(master, corpus):
         asked.append(Path(master))
-        return stamped_for_surface(master, surface)
+        return stamped_for_corpus(master, corpus)
 
-    monkeypatch.setattr(ac, "master_stamped_for_surface", asking)
+    monkeypatch.setattr(ac, "master_stamped_for_corpus", asking)
 
     outs = []
     for argv in (["--dry-run"], ["--dry-run", "--verdicts", str(export)]):
@@ -6411,7 +6405,7 @@ def test_main_carries_a_master_stamped_for_another_surface_instead_of_merging_it
         assert "--merge-master" not in row
         outs.append(out)
     resolved, named = outs
-    assert f"stamped {older}, an older surface than the served one" in resolved
+    assert f"stamped {older}, an older corpus than the served one" in resolved
     assert ac.DIRECT_MERGE_DECLINED_NOTE not in resolved
     assert ac.DIRECT_MERGE_DECLINED_NOTE in named
     assert asked == [export]
@@ -6423,27 +6417,27 @@ def test_main_carries_a_master_stamped_for_another_surface_instead_of_merging_it
     assert ac.DIRECT_MERGE_DECLINED_NOTE not in out
     assert asked == [export]
 
-    surface = tmp_path / "rebuild" / "out" / "review"
-    assert stamped_for_surface(autosave, surface)
-    assert not stamped_for_surface(export, surface)
-    assert not stamped_for_surface(tmp_path / "absent.json", surface)
+    corpus = tmp_path / "rebuild" / "out" / "review"
+    assert stamped_for_corpus(autosave, corpus)
+    assert not stamped_for_corpus(export, corpus)
+    assert not stamped_for_corpus(tmp_path / "absent.json", corpus)
 
 
 def _assets_only_repo(tmp_path, monkeypatch):
     """A settled repo whose only moved input is the copied review UI assets: the byte-identity check fails and the check that exempts the assets passes, which is the condition for the refresh step."""
     _settled_repo(tmp_path, monkeypatch)
     monkeypatch.setattr(
-        ac, "surface_build_skippable", lambda root=None, review_out=None, ignore=(): bool(ignore)
+        ac, "corpus_build_skippable", lambda root=None, review_out=None, ignore=(): bool(ignore)
     )
 
 
 def test_main_refreshes_the_assets_when_only_the_static_component_moved(tmp_path, monkeypatch, capsys):
-    """An app JS/CSS/HTML edit plans a copy and a restamp, not a surface build. Downstream steps treat the pass as a skip: with a matching verdict-update record the verdict update is skipped too, because the manifest line in the verdict-update key leaves out the component the refresh rewrites."""
+    """An app JS/CSS/HTML edit plans a copy and a restamp, not a corpus build. Downstream steps treat the pass as a skip: with a matching verdict-update record the verdict update is skipped too, because the manifest line in the verdict-update key leaves out the component the refresh rewrites."""
     _assets_only_repo(tmp_path, monkeypatch)
     ac.record_verdict_update_green("plu")
     assert ac.main(["--dry-run"]) == 0
     out = capsys.readouterr().out
-    assert "SKIPPED (only the review UI assets moved" in _step_lines(out, "surface-build")
+    assert "SKIPPED (only the review UI assets moved" in _step_lines(out, "corpus-build")
     assert "uv run python -m rebuild.review.build refresh-assets" in _step_lines(out, "assets-refresh")
     assert f"SKIPPED ({ac.VERDICT_UPDATE_SKIP_NOTE})" in _step_lines(out, "verdict-update")
 
@@ -6454,29 +6448,29 @@ def test_main_refreshes_the_assets_when_only_the_static_component_moved(tmp_path
     assert "--merge-master" in _step_lines(out, "verdict-update")
 
 
-def test_main_plans_no_assets_refresh_when_the_surface_already_matches(tmp_path, monkeypatch, capsys):
-    """The byte-identity check comes first, so a surface that already matches has nothing copied over it. --fresh bypasses both checks and runs a real build."""
+def test_main_plans_no_assets_refresh_when_the_corpus_already_matches(tmp_path, monkeypatch, capsys):
+    """The byte-identity check comes first, so a corpus that already matches has nothing copied over it. --fresh bypasses both checks and runs a real build."""
     _settled_repo(tmp_path, monkeypatch)
     assert ac.main(["--dry-run"]) == 0
     out = capsys.readouterr().out
     assert "assets-refresh" not in out
-    assert "the surface already reflects these inputs byte for byte" in _step_lines(out, "surface-build")
+    assert "the corpus already reflects these inputs byte for byte" in _step_lines(out, "corpus-build")
 
     monkeypatch.setattr(
-        ac, "surface_build_skippable", lambda root=None, review_out=None, ignore=(): bool(ignore)
+        ac, "corpus_build_skippable", lambda root=None, review_out=None, ignore=(): bool(ignore)
     )
     assert ac.main(["--dry-run", "--fresh"]) == 0
     out = capsys.readouterr().out
     assert "assets-refresh" not in out
-    assert "uv run python -m rebuild.review.build" in _step_lines(out, "surface-build")
+    assert "uv run python -m rebuild.review.build" in _step_lines(out, "corpus-build")
 
 
 def test_server_can_keep_running_only_when_the_pass_writes_neither_of_the_apps_files():
-    """The predicate depends on what the plan writes. A --no-carry pass, or a --no-merge carry over an unmoved surface, keeps the review server running; any pass that writes the store (a direct merge included) or rewrites the surface stops the review server."""
-    assert ac.server_can_keep_running(skip_surface=True, writes_store=False) is True
-    assert ac.server_can_keep_running(skip_surface=True, writes_store=True) is False
-    assert ac.server_can_keep_running(skip_surface=False, writes_store=False) is False
-    assert ac.server_can_keep_running(skip_surface=False, writes_store=True) is False
+    """The predicate depends on what the plan writes. A --no-carry pass, or a --no-merge carry over an unmoved corpus, keeps the review server running; any pass that writes the store (a direct merge included) or rewrites the corpus stops the review server."""
+    assert ac.server_can_keep_running(skip_corpus=True, writes_store=False) is True
+    assert ac.server_can_keep_running(skip_corpus=True, writes_store=True) is False
+    assert ac.server_can_keep_running(skip_corpus=False, writes_store=False) is False
+    assert ac.server_can_keep_running(skip_corpus=False, writes_store=True) is False
 
 
 def _preflight_args(**overrides):
@@ -6488,7 +6482,7 @@ def _preflight_args(**overrides):
 def test_preflight_keeps_a_listening_review_server_running_for_a_pass_that_writes_nothing_under_it(
     monkeypatch, capsys
 ):
-    """A pass that writes neither the surface nor the store keeps a listening review server running for the whole run. This holds with or without --stop-server, which permits stopping a server but does not require it."""
+    """A pass that writes neither the corpus nor the store keeps a listening review server running for the whole run. This holds with or without --stop-server, which permits stopping a server but does not require it."""
     stops: list[int] = []
     monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: True)
     monkeypatch.setattr(ac, "stop_review_server", lambda timeout=0.0: stops.append(1) or True)
@@ -6516,7 +6510,7 @@ def test_preflight_stops_the_server_for_a_writing_pass_only_when_allowed(monkeyp
 
 
 def test_preflight_refuses_when_the_stop_leaves_the_port_held(monkeypatch, capsys):
-    """If the port is still held after the stop (something else serves 7294, or the server hung during shutdown), the pass refuses rather than write the surface under a live reader."""
+    """If the port is still held after the stop (something else serves 7294, or the server hung during shutdown), the pass refuses rather than write the corpus under a live reader."""
     monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: True)
     monkeypatch.setattr(ac, "stop_review_server", lambda timeout=ac.SERVER_STOP_TIMEOUT: False)
     assert ac._preflight(_preflight_args(stop_server=True), can_keep_running=False) is False
@@ -6524,7 +6518,7 @@ def test_preflight_refuses_when_the_stop_leaves_the_port_held(monkeypatch, capsy
 
 
 def test_stop_review_server_waits_for_the_port_to_come_free(monkeypatch):
-    """`stop_review_server` waits for the port to be free: pkill returns once the signal is delivered, and a surface build must not start while the socket is still open."""
+    """`stop_review_server` waits for the port to be free: pkill returns once the signal is delivered, and a corpus build must not start while the socket is still open."""
     killed: list[list[str]] = []
     monkeypatch.setattr(
         ac.subprocess, "run", lambda argv, **kw: killed.append(argv) or subprocess.CompletedProcess(argv, 0)
@@ -6543,7 +6537,7 @@ def test_stop_review_server_waits_for_the_port_to_come_free(monkeypatch):
 
 
 def test_main_keeps_the_review_server_running_on_the_settled_pass(tmp_path, monkeypatch, capsys):
-    """End to end through `main`: the pass that skips the surface and the verdict update keeps the review server running and never stops it."""
+    """End to end through `main`: the pass that skips the corpus and the verdict update keeps the review server running and never stops it."""
     _settled_repo(tmp_path, monkeypatch)
     ac.record_verdict_update_green("plu")
     monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: True)
@@ -6555,7 +6549,7 @@ def test_main_keeps_the_review_server_running_on_the_settled_pass(tmp_path, monk
     assert ac.SERVER_KEEPS_RUNNING_NOTE in capsys.readouterr().out
 
 
-def test_main_stops_the_server_when_the_pass_rebuilds_the_surface(tmp_path, monkeypatch, capsys):
+def test_main_stops_the_server_when_the_pass_rebuilds_the_corpus(tmp_path, monkeypatch, capsys):
     _unsettled_repo(tmp_path, monkeypatch)
     monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: True)
     stops: list[int] = []
@@ -6586,32 +6580,32 @@ def test_main_keeps_the_review_server_running_for_an_assets_refresh_pass(tmp_pat
 
 
 def _rehearsal_repo(tmp_path, monkeypatch):
-    """A settled repo whose live surface fails both the byte-identity check and the assets-exempt check, while a rehearsal directory passes the byte-identity check. This is the third check `main` makes, and the condition for the promotion step."""
+    """A settled repo whose live corpus fails both the byte-identity check and the assets-exempt check, while a rehearsal directory passes the byte-identity check. This is the third check `main` makes, and the condition for the promotion step."""
     _settled_repo(tmp_path, monkeypatch)
     rehearsal = tmp_path / "var" / "rehearsal-review"
     rehearsal.mkdir(parents=True)
     monkeypatch.setattr(
         ac,
-        "surface_build_skippable",
+        "corpus_build_skippable",
         lambda root=None, review_out=None, ignore=(): review_out is not None,
     )
-    monkeypatch.setattr(ac, "promotable_surface", lambda root=None, summary_path=None, live=None: rehearsal)
+    monkeypatch.setattr(ac, "promotable_corpus", lambda root=None, summary_path=None, live=None: rehearsal)
     return rehearsal
 
 
 def test_main_promotes_a_current_rehearsal_instead_of_rebuilding(tmp_path, monkeypatch, capsys):
-    """A live pass after a rehearsal plans a move, not a build: the promotion step names the directory it moves, the surface build reads as skipped under the promotion note, and no review.build command appears in the plan."""
+    """A live pass after a rehearsal plans a move, not a build: the promotion step names the directory it moves, the corpus build reads as skipped under the promotion note, and no review.build command appears in the plan."""
     rehearsal = _rehearsal_repo(tmp_path, monkeypatch)
     assert ac.main(["--dry-run"]) == 0
     out = capsys.readouterr().out
-    assert str(rehearsal) in _step_lines(out, "surface-promote")
-    assert f"SKIPPED ({ac.SURFACE_PROMOTE_NOTE})" in _step_lines(out, "surface-build")
+    assert str(rehearsal) in _step_lines(out, "corpus-promote")
+    assert f"SKIPPED ({ac.CORPUS_PROMOTE_NOTE})" in _step_lines(out, "corpus-build")
     assert "rebuild.review.build" not in out
     assert "assets-refresh" not in out
 
 
 def test_a_promoting_pass_runs_the_whole_verdict_update(tmp_path, monkeypatch, capsys):
-    """A promoting pass runs the full verdict update. The verdict-update skip and the direct merge both require an unmoved surface, and a promotion moves it and gives it a new stamp. So even with a matching verdict-update record the verdict update runs the full carry, which puts the store's verdicts onto the promoted units by id, and the carry-source line says the master is stamped for the surface this pass replaces."""
+    """A promoting pass runs the full verdict update. The verdict-update skip and the direct merge both require an unmoved corpus, and a promotion moves it and gives it a new stamp. So even with a matching verdict-update record the verdict update runs the full carry, which puts the store's verdicts onto the promoted units by id, and the carry-source line says the master is stamped for the corpus this pass replaces."""
     _rehearsal_repo(tmp_path, monkeypatch)
     ac.record_verdict_update_green("plu")
     assert ac.main(["--dry-run"]) == 0
@@ -6621,16 +6615,16 @@ def test_a_promoting_pass_runs_the_whole_verdict_update(tmp_path, monkeypatch, c
     assert "--verdicts" in row and "--carry-out" in row
     assert "--merge-master" not in row
     assert "SKIPPED" not in row
-    assert "stamped for the surface this pass replaces; its verdicts land by unit id" in out
-    assert "stamped for the served surface" not in out
+    assert "stamped for the corpus this pass replaces; its verdicts land by unit id" in out
+    assert "stamped for the served corpus" not in out
 
 
 def test_a_promoting_pass_stops_the_review_server(tmp_path, monkeypatch, capsys):
-    """A promotion replaces every shard and the stamp under the app in one rename, so it counts as a surface write whatever the skip flag says. The predicate returns False for it, and its other three answers are unchanged. End to end, a listening server makes the pass refuse without --stop-server (a --no-merge pass too, since the surface moves, not the store) and is stopped with it."""
-    assert ac.server_can_keep_running(skip_surface=True, writes_store=False, promotes_surface=True) is False
-    assert ac.server_can_keep_running(skip_surface=True, writes_store=False) is True
-    assert ac.server_can_keep_running(skip_surface=True, writes_store=True) is False
-    assert ac.server_can_keep_running(skip_surface=False, writes_store=False) is False
+    """A promotion replaces every shard and the stamp under the app in one rename, so it counts as a corpus write whatever the skip flag says. The predicate returns False for it, and its other three answers are unchanged. End to end, a listening server makes the pass refuse without --stop-server (a --no-merge pass too, since the corpus moves, not the store) and is stopped with it."""
+    assert ac.server_can_keep_running(skip_corpus=True, writes_store=False, promotes_corpus=True) is False
+    assert ac.server_can_keep_running(skip_corpus=True, writes_store=False) is True
+    assert ac.server_can_keep_running(skip_corpus=True, writes_store=True) is False
+    assert ac.server_can_keep_running(skip_corpus=False, writes_store=False) is False
 
     _rehearsal_repo(tmp_path, monkeypatch)
     monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: True)
@@ -6820,7 +6814,7 @@ def test_build_plan_retention_off_on_rehearsal(tmp_path):
 
 
 def test_retention_never_runs_for_real_during_the_suite(monkeypatch):
-    """Checks the autouse switches that keep retention and readiness from running for real in the suite. Retention resolves its targets from ac.ROOT at call time, which no fixture redirects, so a real run from a test would delete the live repo's carried exports and compact its verdict journal; any test reaching a green finish with record_greens set would trigger it. The readiness checklist reads the served surface and the root autosave, so it is switched off too."""
+    """Checks the autouse switches that keep retention and readiness from running for real in the suite. Retention resolves its targets from ac.ROOT at call time, which no fixture redirects, so a real run from a test would delete the live repo's carried exports and compact its verdict journal; any test reaching a green finish with record_greens set would trigger it. The readiness checklist reads the served corpus and the root autosave, so it is switched off too."""
     assert cycle_paths.RETENTION_ENABLED is False
     assert cycle_paths.READINESS_ENABLED is False
     calls = {"retention": 0, "readiness": 0}
@@ -6870,7 +6864,7 @@ def test_finish_honors_the_two_green_finish_switches(monkeypatch, capsys):
 
 
 def test_the_gate_summaries_a_pass_clears_are_never_the_live_ones(tmp_path, live_deletion_targets):
-    """Checks the redirect for the other stages that delete before they rebuild. run_m1 unlinks every file in `cycle_paths.M1_SUMMARY_FILES` and gate:conform unlinks its own summary, all before spawning and all from paths under the live rebuild/out/m1. A test that drove one of those stages unstubbed would empty the directory the surface build reads and the auto-skip keys on, and a full rebuild would be needed to restore it. No test would fail, because missing summaries read as a failed gate, which most such tests assert anyway."""
+    """Checks the redirect for the other stages that delete before they rebuild. run_m1 unlinks every file in `cycle_paths.M1_SUMMARY_FILES` and gate:conform unlinks its own summary, all before spawning and all from paths under the live rebuild/out/m1. A test that drove one of those stages unstubbed would empty the directory the corpus build reads and the auto-skip keys on, and a full rebuild would be needed to restore it. No test would fail, because missing summaries read as a failed gate, which most such tests assert anyway."""
     redirected = [
         *cycle_paths.M1_SUMMARY_FILES.values(),
         cycle_paths.CONFORM_SUMMARY,
@@ -7015,15 +7009,15 @@ def _spawning_run_m1(report, *, spawn, emit, registry, **_):
     return _run_m1_green()
 
 
-def _spawning_surface(report, *, spawn, emit, registry, review_out, **_):
-    spawn("surface", ["uv", "run", "fake-surface"], emit=emit, registry=registry, stream=False)
-    report.surface_units = 1
+def _spawning_corpus(report, *, spawn, emit, registry, review_out, **_):
+    spawn("corpus", ["uv", "run", "fake-corpus"], emit=emit, registry=registry, stream=False)
+    report.corpus_units = 1
     return True
 
 
 def _patch_timing_cycle(monkeypatch):
     monkeypatch.setattr(ac, "_do_run_m1", _spawning_run_m1)
-    monkeypatch.setattr(ac, "_do_surface_build", _spawning_surface)
+    monkeypatch.setattr(ac, "_do_corpus_build", _spawning_corpus)
     monkeypatch.setattr(ac, "_do_verdict_update", _verdict_update_ok)
     monkeypatch.setattr(ac, "_do_census", _census_clean)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
@@ -7052,7 +7046,7 @@ def test_green_cycle_journals_steps_then_one_run_line(monkeypatch, tmp_path):
     entries = [json.loads(line) for line in journal_path.read_text(encoding="utf-8").splitlines()]
     steps = [entry for entry in entries if entry["kind"] == "step"]
     runs = [entry for entry in entries if entry["kind"] == "run"]
-    assert [entry["name"] for entry in steps] == ["run_m1", "surface", "job-costs"]
+    assert [entry["name"] for entry in steps] == ["run_m1", "corpus", "job-costs"]
     assert len(runs) == 1
     assert entries[-1]["kind"] == "run"
     assert entries[-1]["exit"] == "ok"
@@ -7061,13 +7055,13 @@ def test_green_cycle_journals_steps_then_one_run_line(monkeypatch, tmp_path):
 
 
 def test_an_assets_refresh_journals_under_its_own_name(monkeypatch, tmp_path):
-    """The assets refresh spawns a child in place of the surface build, so `wrap_spawn` times it under its own step name. That keeps `calibrate_budgets`' sample of "surface-build" limited to real builds."""
+    """The assets refresh spawns a child in place of the corpus build, so `wrap_spawn` times it under its own step name. That keeps `calibrate_budgets`' sample of "corpus-build" limited to real builds."""
     _patch_timing_cycle(monkeypatch)
 
     journal_path = tmp_path / "timings.ndjson"
     report = ac.CycleReport()
     rc = ac._run_cycle(
-        _plan(skip_surface=True, refresh_assets=True, surface_note=ac.ASSETS_REFRESH_NOTE),
+        _plan(skip_corpus=True, refresh_assets=True, corpus_note=ac.ASSETS_REFRESH_NOTE),
         report,
         ac._Emitter(),
         ac._ChildRegistry(),
@@ -7080,7 +7074,7 @@ def test_an_assets_refresh_journals_under_its_own_name(monkeypatch, tmp_path):
     assert [entry["name"] for entry in entries if entry["kind"] == "step"] == [
         "run_m1",
         "assets-refresh",
-        "surface",
+        "corpus",
         "job-costs",
     ]
     assert report.assets_status.startswith("refreshed in place")
@@ -7092,7 +7086,7 @@ def test_a_failed_assets_refresh_stops_the_pass_and_joins_the_suite_it_started(m
 
     report = ac.CycleReport()
     rc = ac._run_cycle(
-        _plan(skip_surface=True, refresh_assets=True, surface_note=ac.ASSETS_REFRESH_NOTE),
+        _plan(skip_corpus=True, refresh_assets=True, corpus_note=ac.ASSETS_REFRESH_NOTE),
         report,
         ac._Emitter(),
         ac._ChildRegistry(),
@@ -7105,8 +7099,8 @@ def test_a_failed_assets_refresh_stops_the_pass_and_joins_the_suite_it_started(m
     assert "assets refresh failed" in capsys.readouterr().out
 
 
-def test_run_cycle_promotes_before_it_reports_the_surface_skipped(monkeypatch, tmp_path):
-    """The promotion replaces the surface build: nothing spawns under surface-build, the reported totals come from the promoted manifest, and the step's seconds are on the report so its row reads `ok`, not `not run`."""
+def test_run_cycle_promotes_before_it_reports_the_corpus_skipped(monkeypatch, tmp_path):
+    """The promotion replaces the corpus build: nothing spawns under corpus-build, the reported totals come from the promoted manifest, and the step's seconds are on the report so its row reads `ok`, not `not run`."""
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
     monkeypatch.setattr(ac, "_do_verdict_update", _verdict_update_ok)
     monkeypatch.setattr(ac, "_do_census", _census_clean)
@@ -7129,20 +7123,20 @@ def test_run_cycle_promotes_before_it_reports_the_surface_skipped(monkeypatch, t
         spawned.append(name)
         return _step(name)
 
-    plan = _plan(skip_surface=True, promote_surface=source, surface_note=ac.SURFACE_PROMOTE_NOTE)
+    plan = _plan(skip_corpus=True, promote_corpus=source, corpus_note=ac.CORPUS_PROMOTE_NOTE)
     report = ac.CycleReport()
     rc = ac._run_cycle(plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=spawn)
 
     assert rc == 0
-    assert "surface-build" not in spawned
-    assert report.surface_units == 7 and report.surface_rows == 9
+    assert "corpus-build" not in spawned
+    assert report.corpus_units == 7 and report.corpus_rows == 9
     assert not source.exists()
     assert json.loads((live / "manifest.json").read_text())["totals"]["units"] == 7
-    assert "surface-promote" in report.step_seconds
+    assert "corpus-promote" in report.step_seconds
     assert report.promote_status.startswith("moved ")
     outcomes = {row.name: row.outcome for row in ac.summary_rows(report, plan, retention_ran=False)}
-    assert outcomes["surface-promote"] == "ok"
-    assert outcomes["surface-build"] == "skipped"
+    assert outcomes["corpus-promote"] == "ok"
+    assert outcomes["corpus-build"] == "skipped"
 
 
 def test_a_failed_promotion_stops_the_pass_and_joins_the_suite_it_started(monkeypatch, capsys):
@@ -7152,9 +7146,9 @@ def test_a_failed_promotion_stops_the_pass_and_joins_the_suite_it_started(monkey
     def refuse(source, live=None):
         raise OSError("cross-device link")
 
-    monkeypatch.setattr(ac, "promote_surface", refuse)
+    monkeypatch.setattr(ac, "promote_corpus", refuse)
     plan = _plan(
-        skip_surface=True, promote_surface=Path("var/rehearsal-review"), surface_note=ac.SURFACE_PROMOTE_NOTE
+        skip_corpus=True, promote_corpus=Path("var/rehearsal-review"), corpus_note=ac.CORPUS_PROMOTE_NOTE
     )
     report = ac.CycleReport()
     rc = ac._run_cycle(
@@ -7165,22 +7159,22 @@ def test_a_failed_promotion_stops_the_pass_and_joins_the_suite_it_started(monkey
     assert report.promote_status.startswith("FAILED")
     assert report.gate_contracts == "green"
     outcomes = {row.name: row.outcome for row in ac.summary_rows(report, plan, retention_ran=False)}
-    assert outcomes["surface-promote"] == "FAILED"
-    assert "surface promotion failed" in capsys.readouterr().out
+    assert outcomes["corpus-promote"] == "FAILED"
+    assert "corpus promotion failed" in capsys.readouterr().out
 
 
-def test_a_promoting_pass_journals_no_surface_build_line(monkeypatch, tmp_path):
-    """The move spawns nothing, so the journal has no surface-build step line for it, which keeps the surface-build row of `make cycle-timings ARGS='--by-step'` limited to real builds. The run line's plan block names the promoted directory, so promoting passes can be counted later."""
+def test_a_promoting_pass_journals_no_corpus_build_line(monkeypatch, tmp_path):
+    """The move spawns nothing, so the journal has no corpus-build step line for it, which keeps the corpus-build row of `make cycle-timings ARGS='--by-step'` limited to real builds. The run line's plan block names the promoted directory, so promoting passes can be counted later."""
     _patch_timing_cycle(monkeypatch)
-    monkeypatch.setattr(ac, "_do_surface_build", _surface_ok)
+    monkeypatch.setattr(ac, "_do_corpus_build", _corpus_ok)
     moved: list[Path] = []
-    monkeypatch.setattr(ac, "promote_surface", lambda source, live=None: moved.append(source))
+    monkeypatch.setattr(ac, "promote_corpus", lambda source, live=None: moved.append(source))
 
     journal_path = tmp_path / "timings.ndjson"
     source = tmp_path / "var" / "rehearsal-review"
     report = ac.CycleReport()
     rc = ac._run_cycle(
-        _plan(skip_surface=True, promote_surface=source, surface_note=ac.SURFACE_PROMOTE_NOTE),
+        _plan(skip_corpus=True, promote_corpus=source, corpus_note=ac.CORPUS_PROMOTE_NOTE),
         report,
         ac._Emitter(),
         ac._ChildRegistry(),
@@ -7194,8 +7188,8 @@ def test_a_promoting_pass_journals_no_surface_build_line(monkeypatch, tmp_path):
     assert [entry["name"] for entry in entries if entry["kind"] == "step"] == ["run_m1", "job-costs"]
     run = entries[-1]
     assert run["kind"] == "run"
-    assert run["plan"]["skip_surface"] is True
-    assert run["plan"]["promote_surface"] == str(source)
+    assert run["plan"]["skip_corpus"] is True
+    assert run["plan"]["promote_corpus"] == str(source)
 
 
 def test_green_cycle_files_one_check_line_per_gate_it_evaluated(monkeypatch, tmp_path):
