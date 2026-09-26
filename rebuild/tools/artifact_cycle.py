@@ -1043,10 +1043,10 @@ STEP_DESCRIPTIONS = {
     "review-facts": "Rewrites rebuild/review-facts-pins.json from the review-facts sidecar the corpus build emitted, names what moved in its invariant block against the last accepted review facts (diffing that block alone when it did), and holds the ledger's declarations against the classes the corpus reached. Committing the rewritten pins is how the review facts are accepted.",
     "gates": "The four post-build gates, skipped together under --skip-gates.",
     "gate:js": "Runs the review app's node test suite over its JavaScript. Fast, and independent of every build artifact.",
-    "gate:conform": "Shapes the compiled font with HarfBuzz over the swept texts and checks it against a fresh re-settlement window by window, the split-buffer check at maximum length 4 included; the ss10 overlay takes its own two-letter arm against the bare rendering. The check that HarfBuzz does what the tables say over every rule shape the lookup emits; that the tables are complete over the same texts is run_m1's string replay, on every build.",
+    "gate:conform": "Shapes the compiled font with HarfBuzz over the swept texts and checks it against a fresh re-settlement window by window, the split-buffer check at maximum length 4 included; the ss10 overlay runs its own two-letter case against the bare rendering. The check that HarfBuzz does what the tables say over every rule shape the lookup emits; that the tables are complete over the same texts is run_m1's string replay, on every build.",
     "gate:rebuild-contracts": "Runs the rebuild suite: every test whose subject is the code, over checked-in fixtures and the hermetic mini bundle. Reads no live build artifact.",
     "gate:make-test": "Runs the main font suite and pyright over the whole tree, the same make test you run by hand. Skips when its input closure is unchanged since its last green run.",
-    "job-costs": "Checks the recorded per-worker peaks against the memory-budget constants that size every fan-out. A drift here means a width somewhere is priced on stale numbers.",
+    "job-costs": "Checks the recorded per-worker peaks against the memory-budget constants that size every fan-out. A drift here means a width somewhere is derived from stale numbers.",
     "retention": "Prunes the regenerable files a green cycle leaves behind: stale carried files, stashes the journal already replays, the journal past its 7-day floor, and build logs beyond the last 10.",
 }
 
@@ -1177,7 +1177,7 @@ def _font_suite_worker_bytes() -> int:
         ):
             return int(ast.literal_eval(node.value))
     raise RuntimeError(
-        "the root conftest.py defines no FONT_SUITE_WORKER_BYTES: the cycle prices gate:make-test's pytest pool from that constant, and it cannot reserve for a pool it cannot cost."
+        "the root conftest.py defines no FONT_SUITE_WORKER_BYTES: the cycle estimates the peak memory of gate:make-test's pytest pool from that constant, and it cannot reserve memory for a pool whose peak it cannot estimate."
     )
 
 
@@ -1344,7 +1344,7 @@ def signature_job_derivation(
     cores = ncores or memory_budget.usable_cores()
     width = signature_job_budget(skip_gates=skip_gates, skip_make_test=skip_make_test, ncores=cores)
     if skip_gates or skip_make_test:
-        return f"{width} of {cores} cores, the whole box"
+        return f"{width} of {cores} cores, the whole machine"
     clause = f"{width} of {cores} cores, less gate:make-test's two"
     return clause if cores - 2 >= 1 else clause + ", floored at one"
 
@@ -1439,8 +1439,8 @@ def contracts_pool_derivation(
         total_bytes=total_bytes,
     )
     if corpus == 0:
-        box = "the box" if make_test else "the whole box"
-        clause = f"{width} of {cores} cores, {box} (no corpus build to share it with)"
+        machine = "the machine" if make_test else "the whole machine"
+        clause = f"{width} of {cores} cores, {machine} (no corpus build to share it with)"
     else:
         workers = f"{corpus - 1} worker" + ("" if corpus - 1 == 1 else "s")
         clause = f"{width} of {cores} cores, less the corpus build's parent and its {workers}"
@@ -1674,17 +1674,17 @@ def build_plan(
     )
     workers = f"{make_test_workers} worker" + ("" if make_test_workers == 1 else "s")
     if skip_gates:
-        corpus_head = "--skip-gates, so the corpus build takes the whole box"
+        corpus_head = "--skip-gates, so the corpus build takes the whole machine"
     elif skip_make_test:
-        corpus_head = "gate:make-test skipped, so the corpus build takes the whole box"
+        corpus_head = "gate:make-test skipped, so the corpus build takes the whole machine"
     else:
-        corpus_head = f"gate:make-test's pytest pool held to {workers} — its cores reserved here and its bytes off the box beside the build's own parent"
+        corpus_head = f"gate:make-test's pytest pool held to {workers} — its cores reserved here and its bytes subtracted from the machine's memory beside the build's own parent"
     corpus_reason = f"{corpus_head}; " + corpus_job_derivation(
         skip_gates=skip_gates, skip_make_test=skip_make_test, ncores=ncores, total_bytes=total_bytes
     )
     signature_jobs = signature_job_budget(skip_gates=skip_gates, skip_make_test=skip_make_test, ncores=ncores)
     signature_reason = (
-        "the ink-signature phase's shaping pool, cores-bound since a signature worker holds one comparator and nothing memory prices; "
+        "the ink-signature phase's shaping pool, cores-bound since a signature worker holds one comparator and no memory constant sizes it; "
         + signature_job_derivation(skip_gates=skip_gates, skip_make_test=skip_make_test, ncores=ncores)
     )
     fill_jobs = standing_fill_jobs(
@@ -2040,7 +2040,7 @@ def build_plan(
         Step(
             "job-costs",
             ["uv", "run", "python", "-m", "rebuild.tools.calibrate_budgets", "--check"],
-            "the checked-in per-unit peaks against what this box measured, once the gates have joined and this pass's own pool records are in the journal — a file read; committing a re-measured constant is the acceptance, exactly as the review-facts pins work",
+            "the checked-in per-unit peaks against what this machine measured, once the gates have joined and this pass's own pool records are in the journal — a file read; committing a re-measured constant is the acceptance, exactly as the review-facts pins work",
         )
     )
 

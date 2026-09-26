@@ -1521,7 +1521,7 @@ class _SettledWindowWalk:
     def load_only_asked_by(self, texts: Sequence[str]) -> set[_Ask]:
         """Restrict the memo load to the windows `texts` can ask for, and return that ask set. It holds, for every letter position of every text, the window's input and right slots (`_Ask`, the five settlement-independent slots of a `_Window`), computed through the same `_state` and `_window_rights` path `_window` uses. So it covers everything `prefill` and `walk` over these texts can reach: the left slot is the only one settlement decides, and a boundary position never reaches the memo. A row outside the set is dropped at load (`_load_memo`). A dropped row then looks the same as a window no text reaches, so a restricted walk writes a part instead of the file (`save_memo`), and its memo must name a `write_path`. Call this before the first wave loads the file."""
         assert not self._memo_loaded, "the memo is already loaded"
-        assert self.memo is None or self.memo.writes_part, "a restricted walk files a part, never the file"
+        assert self.memo is None or self.memo.writes_part, "a restricted walk writes a part, never the file"
         asks: set[_Ask] = set()
         for text in texts:
             state = self._state(text)

@@ -1552,7 +1552,7 @@ def test_the_machine_approved_classes_are_listed_in_the_manifests_class_order(mi
 
 
 def test_export_skips_verdicts_landing_on_picture_identical_units():
-    """The picture-identical channel takes units out of the set of human units as the other two channels do, so a verdict on a unit it approved (one recorded before this channel approved the unit) is counted as inert history and drafts nothing."""
+    """The picture-identical channel takes units out of the set of human units as the other two channels do, so a verdict on a unit it approved (one recorded before this channel approved the unit) is counted as an ignored verdict and drafts nothing."""
     manifest, units = _export_corpus()
     unit_id = manifest["human_unit_ids"][-1]
     unit = units[unit_id]
@@ -1638,7 +1638,7 @@ def test_export_round_trip(tmp_path):
         "exported_at": "2026-06-10T18:40:02Z",
         "verdicts": [
             {"unit": ids[0], "verdict": "approve", "note": "", "at": "2026-06-10T18:21:09Z"},
-            # A verdict on a no-verdict unit (from a stale master, or a misclick on a revealed exempt row) is inert history: skipped, counted, and never drafted.
+            # A verdict on a no-verdict unit (from a stale master, or a misclick on a revealed exempt row) is an ignored verdict: skipped, counted, and never drafted.
             {"unit": exempt_unit, "verdict": "reject", "note": "", "at": "2026-06-10T18:21:10Z"},
             {
                 "unit": drafted_reject,
@@ -1656,7 +1656,7 @@ def test_export_round_trip(tmp_path):
             },
             {"unit": ids[2], "verdict": "either", "note": "", "at": "2026-06-10T18:22:00Z"},
             {"unit": human_skip, "verdict": "skip", "note": "", "at": "2026-06-10T18:22:10Z"},
-            # A verdict on a machine-approved unit is the same inert history as one on a no-verdict unit: skipped, counted under its own key, never drafted.
+            # A verdict on a machine-approved unit is ignored the same way as one on a no-verdict unit: skipped, counted under its own key, never drafted.
             {"unit": machine_unit, "verdict": "skip", "note": "", "at": "2026-06-10T18:22:11Z"},
             {
                 "unit": ids[1],

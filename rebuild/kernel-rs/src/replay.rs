@@ -705,7 +705,7 @@ impl<'i> Replay<'i> {
     ) -> Result<(), String> {
         if self.releases > 0 {
             return Err(format!(
-                "{}: the walk released its memo {} time(s) under its ceiling, so the memo holds only the windows settled since the last release; a walk that files its memo walks with no ceiling",
+                "{}: the walk released its memo {} time(s) under its ceiling, so the memo holds only the windows settled since the last release; a walk that writes its memo walks with no ceiling",
                 path.display(),
                 self.releases
             ));
@@ -1246,7 +1246,7 @@ mod tests {
     }
 
     fn read_memo(path: &Path) -> FiledMemo {
-        let bytes = std::fs::read(path).expect("the memo was filed");
+        let bytes = std::fs::read(path).expect("the memo was written");
         let mut at = 0;
         let mut line = || {
             let end = bytes[at..]

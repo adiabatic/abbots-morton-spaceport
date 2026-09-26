@@ -237,14 +237,14 @@ def test_a_unit_with_no_rows_from_this_host_says_the_constant_is_unverified_here
     code, out = _run(capsys, path)
     assert code == 0
     assert "UNVERIFIED HERE" in out
-    assert "never which box a constant was sized on" in out
+    assert "never which machine a constant was sized on" in out
 
 
 def test_a_committed_unit_this_host_never_ran_keeps_the_never_ran_wording(tmp_path, capsys):
     path = _journal(tmp_path, [_pool("font-suite", [CONSTANTS["font-suite"] // 2], host=OTHER)])
     assert _main(path, "--host", HOST, constant_commit_times={"font-suite": "2026-09-01T00:00:00Z"}) == 0
     block = next(block for block in capsys.readouterr().out.split("\n\n") if block.startswith("font-suite"))
-    assert "never which box a constant was sized on" in block
+    assert "never which machine a constant was sized on" in block
     assert "measured since the commit that set the constant" not in block
 
 
@@ -319,7 +319,7 @@ def test_the_full_history_run_reads_past_the_constants_commit(tmp_path, capsys):
         "no record from this host for this unit has been measured since the commit that set the constant"
         in block
     )
-    assert "never which box a constant was sized on" not in block
+    assert "never which machine a constant was sized on" not in block
     assert _main(path, "--host", HOST, "--check", "--recent", "0", constant_commit_times=committed) == 1
 
 
@@ -524,7 +524,9 @@ def test_the_width_clauses_answer_for_the_box_and_the_tree_they_are_given(tmp_pa
         in out
     )
     assert "the font suite takes the cores this process may run on (12), not the division" in out
-    assert "the corpus build's parent is subtracted from the box rather than divided into it" in out
+    assert (
+        "the corpus build's parent is subtracted from the machine's memory rather than divided into it" in out
+    )
     assert "the refill pool runs 12 at 2.00 GB each out of 48.00 GB total" in out
     belt_block = out.split("\nconform-belt  ")[1].split("\n\n")[0]
     belt_width = next(line for line in belt_block.splitlines() if line.startswith("  width here: "))

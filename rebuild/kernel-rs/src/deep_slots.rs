@@ -426,7 +426,7 @@ mod tests {
         assert_eq!(
             filter.matters(&mut engine, None, may, tea, may),
             Ok(false),
-            "an input outside the rune set has no chains to consult and is never live on this arm"
+            "an input outside the rune set has no chains to consult and is never live on this branch"
         );
     }
 

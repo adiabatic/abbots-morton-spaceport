@@ -104,7 +104,7 @@ def scan(hexcp: str, alphabet_hex: frozenset[str]) -> tuple[
     )
     if not tables:
         sys.exit(
-            f"no baseline-*.tsv.gz under {BASELINE_DIR} — the baseline extraction has not run on this box"
+            f"no baseline-*.tsv.gz under {BASELINE_DIR} — the baseline extraction has not run on this machine"
         )
     pairs: dict[tuple[str, str], dict[str, tuple[str, str]]] = defaultdict(dict)
     variants: dict[str, tuple[int, str, str]] = {}

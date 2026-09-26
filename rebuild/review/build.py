@@ -3574,13 +3574,13 @@ def main(argv: list[str] | None = None) -> None:
         "--jobs",
         type=int,
         default=corpus_jobs,
-        help=f"per-unit worker budget for the corpus build; the default is the same `corpus_job_budget()` width the artifact cycle passes rather than a checked-in one, taken at its unreserved arm because a hand run has no co-resident `make test` pool to leave cores or bytes to — on this box {corpus_job_derivation(skip_gates=True)}, where the per-unit figure is one worker's own peak and the co-resident one is the parent that holds the whole corpus beside it. `--jobs 1` is serial, and it is what a box floors at when the pooled shape does not fit; a deliberate `--jobs N` is also how a wider run gets measured, since a pooled build files its per-worker peaks for `make job-costs`.",
+        help=f"per-unit worker budget for the corpus build; the default is the same `corpus_job_budget()` width the artifact cycle passes rather than a checked-in one, with no memory set aside for a gate pool because a hand run has no co-resident `make test` pool to leave cores or bytes to — on this machine {corpus_job_derivation(skip_gates=True)}, where the per-unit figure is one worker's own peak and the co-resident one is the parent that holds the whole corpus beside it. `--jobs 1` is serial, and it is the width a machine gets when the pooled shape does not fit; a deliberate `--jobs N` is also how a wider run gets measured, since a pooled build records its per-worker peaks for `make job-costs`.",
     )
     parser.add_argument(
         "--signature-jobs",
         type=int,
         default=signature_jobs,
-        help=f"the width the ink-signature phase shapes its store misses at, independent of `--jobs`: a signature worker is one comparator over the two fonts, flat in the number of signature misses and pure CPU, so cores bind it where memory binds the unit worker, and `--jobs 1` on a small box still shapes signatures across the cores. The default is `signature_job_budget()` at its unreserved arm, a hand run having no co-resident `make test` pool to leave cores to — on this box {signature_job_derivation(skip_gates=True)}. Signature misses under the pool's threshold shape serially at any width, and a pooled pass files its per-worker peaks for `make job-costs`.",
+        help=f"the width the ink-signature phase shapes its store misses at, independent of `--jobs`: a signature worker is one comparator over the two fonts, flat in the number of signature misses and pure CPU, so cores bind it where memory binds the unit worker, and `--jobs 1` on a small machine still shapes signatures across the cores. The default is `signature_job_budget()` with no cores set aside for a gate pool, a hand run having no co-resident `make test` pool to leave cores to — on this machine {signature_job_derivation(skip_gates=True)}. Signature misses under the pool's threshold shape serially at any width, and a pooled pass records its per-worker peaks for `make job-costs`.",
     )
     parser.add_argument(
         "--recompute-all-units",

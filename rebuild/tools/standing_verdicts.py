@@ -3206,7 +3206,7 @@ def _rollup_lines(rules, reaches):
         lines.append(
             f"  REACHED NOTHING: {rule['id']} matched no window on its own and was counted in no "
             "combined match. A narrow rule aimed at a form this corpus does not carry yet reads exactly like this, so "
-            "it lands as it stands; if the form is already migrated, the rule wants another look."
+            "it takes effect as written; if the form is already migrated, the rule needs another look."
         )
     return lines
 
@@ -3366,7 +3366,7 @@ def main(
     parser.add_argument(
         "--require-reach",
         action="store_true",
-        help="after writing the fills, fail when any checked-in rule reaches no window of this corpus — judged over the whole human domain with a blank store, so a rule whose every window a human has already judged still counts as reaching. The artifact cycle's form: a rule whose swath a rune change dissolved turns the verdict-update step red, and `make verdict-ready` reads NOT READY, until the rule is deleted from the rules file or the form it waits for migrates.",
+        help="after writing the fills, fail when any checked-in rule reaches no window of this corpus — judged over the whole human domain with a blank store, so a rule whose every window a human has already judged still counts as reaching. The artifact cycle's form: a rule that a rune change left matching no window turns the verdict-update step red, and `make verdict-ready` reads NOT READY, until the rule is deleted from the rules file or the form it targets is migrated.",
     )
     parser.add_argument(
         "--memo",
@@ -3382,7 +3382,7 @@ def main(
         "--jobs",
         type=int,
         default=1,
-        help="how many worker processes decide the units the memo cannot serve, once that pile is deep enough to pay for a pool's startup; 1 is the serial pass. This tool derives no width of its own: the verdict update forwards the artifact cycle's, priced there beside the gates the verdict-update step shares the box with, and a hand run over the whole domain states the width the cycle's plan prints for the box (`make artifact-cycle ARGS='--dry-run'`, its `verdict-update --standing-fill-jobs` line), served by the daemon or not. The fills, the memo and the report are byte-identical at any width.",
+        help="how many worker processes decide the units the memo cannot serve, once there are enough of them to justify a pool's startup; 1 is the serial pass. This tool derives no width of its own: the verdict update forwards the artifact cycle's, which estimates the peak memory of the pool beside the gates the verdict-update step shares the machine with, and a hand run over the whole domain states the width the cycle's plan prints for the machine (`make artifact-cycle ARGS='--dry-run'`, its `verdict-update --standing-fill-jobs` line), served by the daemon or not. The fills, the memo and the report are byte-identical at any width.",
     )
     standing_client.add_arguments(parser)
     args = parser.parse_args(argv)

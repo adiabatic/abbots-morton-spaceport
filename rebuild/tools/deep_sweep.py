@@ -82,7 +82,7 @@ def main(argv: list[str] | None = None) -> int:
         "--jobs",
         type=int,
         default=sweep_job_budget(),
-        help="worker budget, defaulting to the oracle's sweep_job_budget() for this box; the sweep runs one process per acceptance configuration and no more, since a configuration is its unit, so a wider number is narrowed to that count",
+        help="worker budget, defaulting to the oracle's sweep_job_budget() for this machine; the sweep runs one process per acceptance configuration and no more, since a configuration is its unit, so a wider number is narrowed to that count",
     )
     parser.add_argument(
         "--status",
@@ -105,7 +105,7 @@ def main(argv: list[str] | None = None) -> int:
     belt_key = conform_skip_fingerprint(ROOT, CONFORM_MAX_LENGTH_DEFAULT)
     jobs = max(1, min(args.jobs, len(conform.ACCEPTANCE_CONFIGS)))
     print(
-        f"deep sweep: maximum length {args.max_length} over every settlement configuration at {jobs} jobs, one process per acceptance configuration at most (the ss10 overlay's arm stays at its own maximum length)",
+        f"deep sweep: maximum length {args.max_length} over every settlement configuration at {jobs} jobs, one process per acceptance configuration at most (the ss10 overlay keeps its own maximum length)",
         flush=True,
     )
     summary = run_m1.run_font_conformance(max_length=args.max_length, jobs=jobs, summary_name=SUMMARY_NAME)

@@ -122,7 +122,7 @@ def main(argv: list[str] | None = None) -> int:
         type=int,
         default=1,
         metavar="N",
-        help="how many worker processes the standing fill refills the units its memo cannot serve across (its --jobs); 1 is the serial fill. The artifact cycle states it from its own box arithmetic (standing_fill_jobs in rebuild/tools/artifact_cycle.py)",
+        help="how many worker processes the standing fill refills the units its memo cannot serve across (its --jobs); 1 is the serial fill. The artifact cycle states it from this machine's cores and memory (standing_fill_jobs in rebuild/tools/artifact_cycle.py)",
     )
     parser.add_argument(
         "--no-merge",

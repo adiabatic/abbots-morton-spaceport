@@ -655,7 +655,7 @@ class TestDeepClasses:
                 checked4 += 1
         assert checked3
         if expect_r4:
-            assert checked4, "the fixture stopped minting r4 classes, so the r4 arm never ran"
+            assert checked4, "the fixture stopped minting r4 classes, so the r4 branch never ran"
 
 
 REFUSE_WHY_MARKER = "Two adjacent verticals"

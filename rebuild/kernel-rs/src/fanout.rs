@@ -1115,10 +1115,10 @@ mod tests {
                 }
                 let (plain_digests, plain_files) = unstamped
                     .get(width)
-                    .expect("the unstamped arm files every width before the stamped one runs");
+                    .expect("the unstamped case writes every width before the stamped one runs");
                 assert_eq!(
                     &digests, plain_digests,
-                    "stamped at {workers} workers: the digests the unstamped arm filed"
+                    "stamped at {workers} workers: the digests the unstamped case wrote"
                 );
                 let tables: Vec<Vec<(String, Vec<u8>)>> = files
                     .iter()
@@ -1134,7 +1134,7 @@ mod tests {
                     &tables,
                     plain_files,
                     &format!("stamped at {workers} workers"),
-                    "the unstamped arm",
+                    "the unstamped case",
                 );
             }
         }

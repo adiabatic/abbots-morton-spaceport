@@ -941,7 +941,8 @@ class TestConformFanIn:
     def test_the_priced_worker_pickles_for_spawn(self):
         """The inline pool never pickles what it runs, but a spawn pool pickles every submission by module and name, so a nested wrapper would pass every other test here and fail only on the first real pooled belt."""
         assert (
-            pickle.loads(pickle.dumps(run_m1._priced_conformance_config)) is run_m1._priced_conformance_config
+            pickle.loads(pickle.dumps(run_m1._estimated_conformance_config))
+            is run_m1._estimated_conformance_config
         )
 
 

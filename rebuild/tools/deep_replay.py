@@ -121,7 +121,7 @@ def main(argv: list[str] | None = None) -> int:
         "--threads",
         type=int,
         default=None,
-        help="how many settlement configurations walk at once (default: what this box's memory fits, AMS_DEEP_REPLAY_THREADS to state one)",
+        help="how many settlement configurations walk at once (default: what this machine's memory fits, AMS_DEEP_REPLAY_THREADS to state one)",
     )
     parser.add_argument(
         "--status",

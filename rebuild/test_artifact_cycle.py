@@ -3439,7 +3439,7 @@ def test_the_plan_reserves_make_tests_pool_exactly_when_the_wrapper_runs_it(
     assert plan.kernel_threads == ac.kernel_threads_budget(skip_make_test=not runs)
     rendered = _plan_text(plan)
     assert ("gate:make-test's pytest pool held to" in rendered) is runs
-    assert ("gate:make-test skipped, so the corpus build takes the whole box" in rendered) is not runs
+    assert ("gate:make-test skipped, so the corpus build takes the whole machine" in rendered) is not runs
 
 
 def test_the_signature_pool_takes_the_cores_the_corpus_width_cannot():
@@ -3466,7 +3466,7 @@ def test_the_signature_pool_takes_the_cores_the_corpus_width_cannot():
     )
     assert solo.signature_jobs > ac.CORPUS_JOBS_CAP >= solo.corpus_jobs
     assert _argv({step.name: step for step in solo.steps}["corpus-build"])[-2:] == ["--signature-jobs", "10"]
-    assert "10 of 10 cores, the whole box" in _plan_text(solo)
+    assert "10 of 10 cores, the whole machine" in _plan_text(solo)
 
     skipped = _plan(skip_gates=True, ncores=10, total_bytes=BOX_32_GIB)
     assert skipped.signature_jobs == 10
@@ -3506,7 +3506,7 @@ def test_the_contracts_pool_is_the_cores_the_corpus_build_leaves():
     )
     assert (
         ac.contracts_pool_derivation(skip_gates=False, skip_corpus=True, ncores=10, total_bytes=BOX_32_GIB)
-        == "10 of 10 cores, the whole box (no corpus build to share it with)"
+        == "10 of 10 cores, the whole machine (no corpus build to share it with)"
     )
     solo_overlap = ac.contracts_pool_width(
         skip_gates=False, skip_corpus=True, pool_policy="overlap", ncores=10, total_bytes=BOX_32_GIB
@@ -3515,7 +3515,7 @@ def test_the_contracts_pool_is_the_cores_the_corpus_build_leaves():
     assert ac.contracts_pool_derivation(
         skip_gates=False, skip_corpus=True, pool_policy="overlap", ncores=10, total_bytes=BOX_32_GIB
     ) == (
-        f"{solo_overlap} of 10 cores, the box (no corpus build to share it with), "
+        f"{solo_overlap} of 10 cores, the machine (no corpus build to share it with), "
         f"less gate:make-test's {ac.make_test_pool_width(ncores=10)} (overlap policy)"
     )
 
@@ -3601,7 +3601,7 @@ def test_skip_make_test_frees_the_corpus_build_budget():
     rendered = _plan_text(plan)
     assert f"corpus-build --jobs              : {solo_width}" in rendered
     assert f"less {format_gb(ac.CORPUS_PARENT_BYTES)} GB co-resident" in rendered
-    assert "gate:make-test skipped, so the corpus build takes the whole box" in rendered
+    assert "gate:make-test skipped, so the corpus build takes the whole machine" in rendered
 
     gated = _plan(skip_make_test=False, ncores=10, total_bytes=BOX_48_GIB)
     gated_width = ac.corpus_job_budget(skip_gates=False, ncores=10, total_bytes=BOX_48_GIB)
@@ -3613,7 +3613,7 @@ def test_skip_make_test_frees_the_corpus_build_budget():
         skip_gates=False, skip_make_test=False, ncores=10
     )
     assert (
-        f"corpus-build --jobs              : {gated_width}  (gate:make-test's pytest pool held to 2 workers — its cores reserved here and its bytes off the box beside the build's own parent; "
+        f"corpus-build --jobs              : {gated_width}  (gate:make-test's pytest pool held to 2 workers — its cores reserved here and its bytes subtracted from the machine's memory beside the build's own parent; "
         f"{gated_width} at {format_gb(ac.CORPUS_WORKER_BYTES)} GB each out of 51.54 GB total, less a reserve of 8.00 GB, less {format_gb(gated_coresident)} GB co-resident, capped at 8)"
         in _plan_text(gated)
     )

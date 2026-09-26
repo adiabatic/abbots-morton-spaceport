@@ -260,12 +260,12 @@ def build_triage(manifest: dict, units: dict[str, dict], verdicts: dict) -> dict
         print(f"warning: {len(missing)} verdicts reference unknown units: {missing[:5]}", file=sys.stderr)
     if exempt:
         print(
-            f"warning: {len(exempt)} verdicts land on no-verdict units and are inert history: {exempt[:5]}",
+            f"warning: {len(exempt)} ignored verdicts on no-verdict units: {exempt[:5]}",
             file=sys.stderr,
         )
     if machine_exempt:
         print(
-            f"warning: {len(machine_exempt)} verdicts land on machine-approved units and are inert history: "
+            f"warning: {len(machine_exempt)} ignored verdicts on machine-approved units: "
             f"{machine_exempt[:5]}",
             file=sys.stderr,
         )

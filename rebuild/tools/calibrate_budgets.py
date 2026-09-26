@@ -77,7 +77,7 @@ UNITS: tuple[Unit, ...] = (
         pool_units=("rebuild-contracts",),
         step_names=(),
         step_caveat="",
-        note="The rebuild suite's width is a count of cores — a hand run takes every core this process may actually run on, and the cycle hands it the cores the corpus build's parent and pool leave (`artifact_cycle.contracts_pool_width`) — and nothing divides the box by a per-worker cost to reach either: no test in it reads a live build artifact, so no worker holds a working set worth bounding, and there is nothing here to calibrate. The observations are collected and reported anyway, so that if the suite ever grows a memory-derived width the figure to set it from is already on the record rather than a measurement someone still has to go and take.",
+        note="The rebuild suite's width is a count of cores — a hand run takes every core this process may actually run on, and the cycle hands it the cores the corpus build's parent and pool leave (`artifact_cycle.contracts_pool_width`) — and nothing divides the machine's memory by a per-worker cost to reach either: no test in it reads a live build artifact, so no worker holds a working set worth bounding, and there is nothing here to calibrate. The observations are collected and reported anyway, so that if the suite ever grows a memory-derived width the figure to set it from is already on the record rather than a measurement someone still has to go and take.",
     ),
     Unit(
         name="kernel-build",
@@ -85,7 +85,7 @@ UNITS: tuple[Unit, ...] = (
         source=KERNEL_SOURCE,
         pool_units=(),
         step_names=("run_m1",),
-        step_caveat="run_m1's peak is the widest single process in its tree, the max over its children, and on both fleet boxes that is the one build-tables child holding every settlement configuration — default's retained memo beside every seat in flight, default's own fold at one of them — so the step peak reads the whole table build at whatever width the cycle handed it, never one configuration. The other candidate is the string replay's child, which seats every settlement configuration in one wave (REPLAY_PEAK_BYTES apiece, `--replay-threads`) and peaks at about a third of the build on the shipped alphabet (6.10 GB maxrss for the five-configuration wave under `/usr/bin/time -l`, its footprint level with it, against this row's 19.50 GB maximum for the table build, both maxrss readings on the 18-core M5 Pro 48 GiB MacBook Pro); should a replay ever outrun the build, this row reads the replay, and the constant to re-measure is then that one rather than this one. DELTA_PEAK_BYTES, the per-delta figure the width is divided out of, and DEFAULT_MEMO_BYTES, the memo taken off the box first, are not measured by any step here: their reading is the direct whole-wave measurement under --cache-stats, and the bound they state is that this unit's peak stays under the memo plus one delta per seat of the width.",
+        step_caveat="run_m1's peak is the widest single process in its tree, the max over its children, and on both fleet machines that is the one build-tables child holding every settlement configuration — default's retained memo beside every delta build in flight, default's own fold at one of them — so the step peak reads the whole table build at whatever width the cycle handed it, never one configuration. The other candidate is the string replay's child, which runs every settlement configuration at once in one wave (REPLAY_PEAK_BYTES apiece, `--replay-threads`) and peaks at about a third of the build on the shipped alphabet (6.10 GB maxrss for the five-configuration wave under `/usr/bin/time -l`, its footprint level with it, against this row's 19.50 GB maximum for the table build, both maxrss readings on the 18-core M5 Pro 48 GiB MacBook Pro); should a replay ever outrun the build, this row reads the replay, and the constant to re-measure is then that one rather than this one. DELTA_PEAK_BYTES, the per-delta figure the width is divided out of, and DEFAULT_MEMO_BYTES, the memo subtracted from the machine's memory first, are not measured by any step here: their reading is the direct whole-wave measurement under --cache-stats, and the bound they state is that this unit's peak stays under the memo plus one delta per worker slot of the width.",
         note="The direct measurement is one build-tables over every settlement configuration under /usr/bin/time -l with --cache-stats, which is what to reach for before re-measuring either constant; this row is the cheap standing watch beside it rather than a replacement for it.",
     ),
     Unit(
@@ -95,7 +95,7 @@ UNITS: tuple[Unit, ...] = (
         pool_units=(),
         step_names=("corpus-build",),
         step_caveat="reap_peak_rss_bytes maxes over the child's whole tree rather than summing it, and under this step that tree is one parent holding the whole corpus beside workers each holding one batch of it, so the max reads the parent — which is this unit exactly. What the same reading cannot see is the sum: parent plus every worker is the build's real footprint, and no step peak has ever been able to report it, which is why the divisor beside this row is measured by the corpus pool records instead of here.",
-        note="A row whose constant is subtracted from the box rather than divided into it: the parent's collections move with the width only through the one batch reply in flight per worker, so it is corpus_job_budget's co-resident term. Phase 2 streams into the shards, so the collections are the workload table, the packed unit store, the checker's identity dict and the pre-merge snapshot rather than every fragment, but they are still corpus-shaped — every migrated letter moves them — so expect to re-measure it per batch. The constant's comment in rebuild/tools/artifact_cycle.py argues which phase holds the step's peak and which readings make up its measurement set: the load boundary makes the mark on a fully recomputed pass and on a cached one alike, the row columns and both ink-signature tables standing beside the workload table there, and the cached plan loads each store record as it is parsed, so the two kinds of pass read within a few hundredths of a gigabyte of each other. A cycle-driven pass of either kind files a row here, a hand build files pool records alone and its step peak is read off its `[t] review.build` lines, and the figure a re-measure sets it from is whichever of a fully recomputed and a cached pass reads higher on a pair taken with nothing edited between them.",
+        note="A row whose constant is subtracted from the machine's memory rather than divided into it: the parent's collections move with the width only through the one batch reply in flight per worker, so it is corpus_job_budget's co-resident term. Phase 2 streams into the shards, so the collections are the workload table, the packed unit store, the checker's identity dict and the pre-merge snapshot rather than every fragment, but they are still corpus-shaped — every migrated letter moves them — so expect to re-measure it per batch. The constant's comment in rebuild/tools/artifact_cycle.py argues which phase holds the step's peak and which readings make up its measurement set: the load boundary makes the mark on a fully recomputed pass and on a cached one alike, the row columns and both ink-signature tables standing beside the workload table there, and the cached plan loads each store record as it is parsed, so the two kinds of pass read within a few hundredths of a gigabyte of each other. A cycle-driven pass of either kind writes a row here, a hand build writes pool records alone and its step peak is read off its `[t] review.build` lines, and the figure a re-measure sets it from is whichever of a fully recomputed and a cached pass reads higher on a pair taken with nothing edited between them.",
     ),
     Unit(
         name="corpus-worker",
@@ -104,7 +104,7 @@ UNITS: tuple[Unit, ...] = (
         pool_units=("corpus",),
         step_names=(),
         step_caveat="",
-        note="These pool records come from rebuild/review/build.py's own runner rather than from a pytest controller — cycle_timings.record_pool is deliberately not a pytest entry point — and each supplies one observation per worker that answered. The row is legitimately quiet on a box the arithmetic has already narrowed to a single worker, because a serial build starts no pool to measure; a deliberate `--jobs N` hand run is what puts an observation on the record there, and the row's unverified-here line is the honest reading until one does.",
+        note="These pool records come from rebuild/review/build.py's own runner rather than from a pytest controller — cycle_timings.record_pool is deliberately not a pytest entry point — and each supplies one observation per worker that answered. The row is legitimately quiet on a machine the arithmetic has already narrowed to a single worker, because a serial build starts no pool to measure; a deliberate `--jobs N` hand run is what puts an observation on the record there, and the row's unverified-here line is the honest reading until one does.",
     ),
     Unit(
         name="signature-worker",
@@ -113,7 +113,7 @@ UNITS: tuple[Unit, ...] = (
         pool_units=("signature",),
         step_names=(),
         step_caveat="",
-        note="The corpus build's ink-signature pool is cores-bound rather than memory-bound — `artifact_cycle.signature_job_budget` hands it the box's cores, less gate:make-test's two under a gated cycle, and divides nothing — because a signature worker holds one comparator over the two fonts and a resident set flat in the number of signature misses it shapes, so no constant prices it and there is nothing here to calibrate. The observations are collected and reported anyway, one per worker per pooled pass, each the worker's own peak carried home on its last chunk's reply, so that a figure exists if a width ever needs one — the rebuild-contracts row's position. The corpus-build step peak is deliberately not admitted: that max reads the parent, which the corpus-parent row prices, and it would read a build's footprint as a comparator's.",
+        note="The corpus build's ink-signature pool is cores-bound rather than memory-bound — `artifact_cycle.signature_job_budget` hands it the machine's cores, less gate:make-test's two under a gated cycle, and divides nothing — because a signature worker holds one comparator over the two fonts and a resident set flat in the number of signature misses it shapes, so no constant estimates its peak memory and there is nothing here to calibrate. The observations are collected and reported anyway, one per worker per pooled pass, each the worker's own peak returned to the parent process on its last chunk's reply, so that a figure exists if a width ever needs one — the rebuild-contracts row's position. The corpus-build step peak is deliberately not admitted: that max reads the parent, which the corpus-parent row measures, and it would read a build's footprint as a comparator's.",
     ),
     Unit(
         name="oracle-shard",
@@ -122,7 +122,7 @@ UNITS: tuple[Unit, ...] = (
         pool_units=("oracle-shard",),
         step_names=(),
         step_caveat="",
-        note="These pool records come from `run_m1.run_oracle`'s own fan-in rather than from a pytest controller: one record per oracle fan-out, one observation per row range that ran, each the range's worker's own peak as it reported it home. The run_m1 step peak is deliberately not admitted: that step's widest process is the table build's child, which the kernel-build row prices, and it would read a build's footprint as a shard's. The row is quiet on a box the arithmetic narrows to `--jobs 1`, since the serial oracle starts no pool; a hand `run_m1 --gates-only` at any wider width puts an observation on the record.",
+        note="These pool records come from `run_m1.run_oracle`'s own fan-in rather than from a pytest controller: one record per oracle fan-out, one observation per row range that ran, each the range's worker's own peak as it returned it to the parent process. The run_m1 step peak is deliberately not admitted: that step's widest process is the table build's child, which the kernel-build row measures, and it would read a build's footprint as a shard's. The row is quiet on a machine the arithmetic narrows to `--jobs 1`, since the serial oracle starts no pool; a hand `run_m1 --gates-only` at any wider width puts an observation on the record.",
     ),
     Unit(
         name="conform-belt",
@@ -131,7 +131,7 @@ UNITS: tuple[Unit, ...] = (
         pool_units=("conform-belt",),
         step_names=(),
         step_caveat="",
-        note="These pool records come from `run_m1.run_font_conformance`'s own fan-in rather than from a pytest controller: one record per pooled belt at `conform.SWEEP_MAX_LENGTH`, one observation per acceptance configuration, each the configuration's worker's own peak as `run_m1._priced_conformance_config` carried it home beside the result. A deeper sweep (`make conform-deep`, or a `--conform-max-length` past the belt's) runs the same pooled arm and files nothing here, since its worker builds a memo over every text up to its maximum length in process and holds a different collection from the belt's. A reading is the worker process's high-water mark and `run_m1._spawn_pool` sets no `maxtasksperchild`, so below the acceptance-configuration count a configuration that runs second in a reused worker reads at or above the mark the one before it left, and the record prices the pool's shape rather than one configuration's cost. The gate:conform step peak is deliberately not admitted: `reap_peak_rss_bytes` maxes over the child's tree rather than summing it, so that step's peak reads one process and never the pool. The row is quiet on a pass whose gate:conform skips on its green, and at `--jobs 1`, since the serial belt starts no pool; a hand `run_m1 --conform-only` at any wider width puts observations on the record. The row prices `CONFORM_BELT_BYTES`, the divisor `artifact_cycle.conform_job_budget` divides the box by once the build lane's larger step is off it.",
+        note="These pool records come from `run_m1.run_font_conformance`'s own fan-in rather than from a pytest controller: one record per pooled belt at `conform.SWEEP_MAX_LENGTH`, one observation per acceptance configuration, each the configuration's worker's own peak as `run_m1._estimated_conformance_config` returned it to the parent process beside the result. A deeper sweep (`make conform-deep`, or a `--conform-max-length` past the belt's) runs the same pooled branch and writes nothing here, since its worker builds a memo over every text up to its maximum length in process and holds a different collection from the belt's. A reading is the worker process's high-water mark and `run_m1._spawn_pool` sets no `maxtasksperchild`, so below the acceptance-configuration count a configuration that runs second in a reused worker reads at or above the mark the one before it left, and the record measures the pool's shape rather than one configuration's cost. The gate:conform step peak is deliberately not admitted: `reap_peak_rss_bytes` maxes over the child's tree rather than summing it, so that step's peak reads one process and never the pool. The row is quiet on a pass whose gate:conform skips on its green, and at `--jobs 1`, since the serial belt starts no pool; a hand `run_m1 --conform-only` at any wider width puts observations on the record. The row checks `CONFORM_BELT_BYTES`, the divisor `artifact_cycle.conform_job_budget` divides the machine's memory by once the build lane's larger step is off it.",
     ),
     Unit(
         name="standing-fill-parent",
@@ -139,8 +139,8 @@ UNITS: tuple[Unit, ...] = (
         source=CORPUS_SOURCE,
         pool_units=(),
         step_names=("verdict-update",),
-        step_caveat="reap_peak_rss_bytes maxes over the child's whole tree rather than summing it. Under this step the tree includes the verdict update and any standing-fill refill workers, so the reading is a conservative parent/worker maximum, not an isolated parent measurement. No row prices the workers separately: the fill files no pool record, because the module that would file it is in the memo's code stamp and a cost reading there would drop the memo on every edit to it, so STANDING_FILL_WORKER_BYTES is measured by hand at the chunk width, as its docstring says.",
-        note="This constant is standing_fill_jobs's co-resident parent term, subtracted from the box before dividing by the worker cost. The verdict update retains every corpus id and a human id/echo/notation projection. Normal standing fills stream the human records, retain primed keys, decisions and memo entries, and spool pool misses to temporary gzipped storage; submission holds at most one wave of records, bounded by width times _STANDING_POOL_CHUNK. The complaint list retains compact grouping projections from a separate stream. The parent grows with ids and decisions without holding the full human corpus, so its budget still needs checking as the alphabet migrates. Every verdict-update row reads against this constant, including passes that start no pool; a serial memo-drop pass evaluates the whole domain in the parent and can read higher than a pooled pass. Targeted authoring retains full records only for explicitly requested unit ids; the daemon holds its own resident corpus outside this budget.",
+        step_caveat="reap_peak_rss_bytes maxes over the child's whole tree rather than summing it. Under this step the tree includes the verdict update and any standing-fill refill workers, so the reading is a conservative parent/worker maximum, not an isolated parent measurement. No row measures the workers separately: the fill writes no pool record, because the module that would write it is in the memo's code stamp and a cost reading there would drop the memo on every edit to it, so STANDING_FILL_WORKER_BYTES is measured by hand at the chunk width, as its docstring says.",
+        note="This constant is standing_fill_jobs's co-resident parent term, subtracted from the machine's memory before dividing by the worker cost. The verdict update retains every corpus id and a human id/echo/notation projection. Normal standing fills stream the human records, retain primed keys, decisions and memo entries, and spool pool misses to temporary gzipped storage; submission holds at most one wave of records, bounded by width times _STANDING_POOL_CHUNK. The complaint list retains compact grouping projections from a separate stream. The parent grows with ids and decisions without holding the full human corpus, so its budget still needs checking as the alphabet migrates. Every verdict-update row reads against this constant, including passes that start no pool; a serial memo-drop pass evaluates the whole domain in the parent and can read higher than a pooled pass. Targeted authoring retains full records only for explicitly requested unit ids; the daemon holds its own resident corpus outside this budget.",
     ),
 )
 
@@ -162,7 +162,7 @@ def _constant_assignment(path: Path, name: str) -> tuple[int, int]:
     if found is not None:
         return found
     raise RuntimeError(
-        f"{path} defines no {name}: make job-costs prices a measured peak against that constant, and a constant it cannot find is a width nothing is watching. Move the name in the UNITS registry beside whatever moved it there."
+        f"{path} defines no {name}: make job-costs checks a measured peak against that constant, and a constant it cannot find is a width nothing is watching. Move the name in the UNITS registry beside whatever moved it there."
     )
 
 
@@ -502,20 +502,20 @@ def _width_clause(unit: Unit, constant_bytes: int, *, total_bytes: int, cores: i
         allowed = memory_budget.describe_fit(
             worker, coresident_bytes=constant_bytes, cap=cap, total_bytes=total_bytes
         )
-        return f"the corpus build's parent is subtracted from the box rather than divided into it; with it off, {allowed}"
+        return f"the corpus build's parent is subtracted from the machine's memory rather than divided into it; with it off, {allowed}"
     if unit.name == "corpus-worker":
         parent = _int_constant(root / CORPUS_SOURCE, CORPUS_PARENT_NAME)
         cap = min(_int_constant(root / CORPUS_SOURCE, CORPUS_CAP_NAME), cores)
         fit = memory_budget.describe_fit(
             constant_bytes, coresident_bytes=parent, cap=cap, total_bytes=total_bytes
         )
-        return f"{fit}; under a gated cycle gate:make-test's pool comes off the box before this division too, and two cores off the cap"
+        return f"{fit}; under a gated cycle gate:make-test's pool is subtracted from the machine's memory before this division too, and two cores off the cap"
     if unit.name == "standing-fill-parent":
         worker = _int_constant(root / CORPUS_SOURCE, STANDING_FILL_WORKER_NAME)
         allowed = memory_budget.describe_fit(
             worker, coresident_bytes=constant_bytes, cap=cores, total_bytes=total_bytes
         )
-        return f"the verdict update's process, the refill pool's parent, is subtracted from the box rather than divided into it; with it off, the refill pool runs {allowed} ({STANDING_FILL_WORKER_NAME}, measured by hand); under a gated cycle gate:make-test's pool comes off the box before this division too, and two cores off the cap"
+        return f"the verdict update's process, the refill pool's parent, is subtracted from the machine's memory rather than divided into it; with it off, the refill pool runs {allowed} ({STANDING_FILL_WORKER_NAME}, measured by hand); under a gated cycle gate:make-test's pool is subtracted from the machine's memory before this division too, and two cores off the cap"
     if unit.name == "conform-belt":
         cap = min(_acceptance_config_count(root / CONFORM_SOURCE), cores)
         parent = _int_constant(root / CORPUS_SOURCE, CORPUS_PARENT_NAME)
@@ -569,12 +569,12 @@ def render_rows(
         if row.unverified_here and row.dropped_older:
             lines.append(
                 "  UNVERIFIED HERE: no record from this host for this unit has been measured since the commit that set the constant,"
-                " so its current value is unproven on this box until the next pass that runs this unit."
+                " so its current value is unproven on this machine until the next pass that runs this unit."
             )
         elif row.unverified_here:
             lines.append(
-                "  UNVERIFIED HERE: no rows from this host for this unit, so the constant's headroom is unproven on this box."
-                " The journal records which box measured a peak, never which box a constant was sized on."
+                "  UNVERIFIED HERE: no rows from this host for this unit, so the constant's headroom is unproven on this machine."
+                " The journal records which machine measured a peak, never which machine a constant was sized on."
             )
         sources = _sources_line(row)
         if sources is not None:
@@ -638,7 +638,7 @@ def main(argv: list[str] | None = None, *, constant_commit_times: Mapping[str, s
     `_constant_assignment` raises when a constant has been renamed, so that the constant does not go unchecked. An uncaught exception would exit 1, and the artifact cycle reads 1 as an overrun: it writes OVERRUN into the cycle summary, pointing a reader at a re-measure nothing asked for. So `main` catches every failure and returns 2, which the cycle reports as informational.
     """
     parser = argparse.ArgumentParser(
-        description="Hold the checked-in per-unit memory peaks against what this box measured, and state the width each one implies here."
+        description="Hold the checked-in per-unit memory peaks against what this machine measured, and state the width each one implies here."
     )
     parser.add_argument(
         "--journal",
@@ -649,19 +649,19 @@ def main(argv: list[str] | None = None, *, constant_commit_times: Mapping[str, s
     parser.add_argument(
         "--host",
         default=socket.gethostname(),
-        help='which machine\'s measurements to check (default: this host); the literal "all" reads every host in the journal, which is for surveying a fleet rather than for deciding whether this box is in trouble',
+        help='which machine\'s measurements to check (default: this host); the literal "all" reads every host in the journal, which is for surveying a fleet rather than for deciding whether this machine is in trouble',
     )
     parser.add_argument(
         "--recent",
         type=int,
         default=20,
-        help="how many of the most recent source records to keep per unit and host, counted from the commit that set each constant to its current value — older records are never held against it (default: 20, a handful of cycles on a working box — long enough that one anomalous run cannot hide a regression by itself, short enough that a genuine improvement is believed within a day's work). 0 reads every record regardless of that commit, for a deliberate full-history run.",
+        help="how many of the most recent source records to keep per unit and host, counted from the commit that set each constant to its current value — older records are never held against it (default: 20, a handful of cycles on a working machine — long enough that one anomalous run cannot hide a regression by itself, short enough that a genuine improvement is believed within a day's work). 0 reads every record regardless of that commit, for a deliberate full-history run.",
     )
     parser.add_argument(
         "--tolerance",
         type=float,
         default=0.0,
-        help="fraction of its constant an observation may exceed before it counts as an overrun (default: 0.0). These constants are already headroom — each rounds up past the top of its measured range because erring low puts a box into swap — so a peak that reaches one has eaten all the deliberate slack, and that is the news. The knob is for a fleet survey, not for softening the default.",
+        help="fraction of its constant an observation may exceed before it counts as an overrun (default: 0.0). These constants are already headroom — each rounds up past the top of its measured range because erring low puts a machine into swap — so a peak that reaches one has eaten all the deliberate slack, and that is the news. The knob is for a fleet survey, not for softening the default.",
     )
     parser.add_argument(
         "--check",

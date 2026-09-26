@@ -2046,7 +2046,7 @@ mod tests {
             !bench
                 .index
                 .is_entry_bearing(fixtures::sym(&bench.index, "qsIt")),
-            "the fixture stopped being the one this arm needs"
+            "the fixture stopped being the one this case needs"
         );
         let folded =
             fold_product(&bench.index, chokepoint(&bench, "qsIt")).expect("the product folds");
@@ -2086,7 +2086,7 @@ mod tests {
             bench
                 .index
                 .is_entry_bearing(fixtures::sym(&bench.index, "qsPea")),
-            "the fixture stopped being the one this arm needs"
+            "the fixture stopped being the one this case needs"
         );
         let locked =
             fold_product(&bench.index, chokepoint(&bench, "qsPea")).expect("the product folds");
@@ -2110,7 +2110,7 @@ mod tests {
         assert_eq!(
             locked.decision.rules.len() + guards,
             never_locked.decision.rules.len(),
-            "the two arms differ by the guards and nothing else"
+            "the two cases differ by the guards and nothing else"
         );
     }
 

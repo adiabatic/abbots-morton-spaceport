@@ -1240,7 +1240,7 @@ pub(crate) mod tests {
         assert_eq!(
             filter.matters(&mut engine, None, pea, tea, may),
             Ok(false),
-            "no record on qsPea chains anywhere near the third slot, so the chain arm alone reads the window dead"
+            "no record on qsPea chains anywhere near the third slot, so the chain branch alone reads the window dead"
         );
 
         for (prospect, follower_prefers, expected) in [
@@ -1254,7 +1254,7 @@ pub(crate) mod tests {
             assert_eq!(
                 liveness.third_live(&mut engine, pea, tea, may),
                 Ok(expected),
-                "the prospect arm is what opens this window, so it opens exactly where the simulated prospect is scored"
+                "the prospect branch is what opens this window, so it opens exactly where the simulated prospect is scored"
             );
         }
     }
@@ -1278,7 +1278,7 @@ pub(crate) mod tests {
             assert_eq!(
                 liveness.third_live(&mut engine, pea, tea, may),
                 Ok(expected),
-                "the follower prefer arm is the only channel this fixture's third token has"
+                "the follower prefer branch is the only channel this fixture's third token has"
             );
         }
 
@@ -1289,12 +1289,12 @@ pub(crate) mod tests {
         assert_eq!(
             liveness.prospect_varies_third(&mut engine, pea, tea, may, r1tok, r2tok),
             Ok(false),
-            "stage one's prospect arm sees nothing here"
+            "stage one's prospect branch sees nothing here"
         );
         assert_eq!(
             liveness.follower_prefer_varies_third(&mut engine, pea, tea, may, r1tok, r2tok),
             Ok(true),
-            "and its follower prefer arm is what fires"
+            "and its follower prefer branch is what fires"
         );
     }
 
@@ -1311,11 +1311,11 @@ pub(crate) mod tests {
         assert_eq!(liveness.third_live(&mut engine, pea, tea, may), Ok(true));
         assert!(
             !liveness.prospect3.is_empty(),
-            "the prospect arm is what fired here"
+            "the prospect branch is what fired here"
         );
         assert!(
             liveness.follower_prefer3.is_empty(),
-            "and the follower prefer arm was never reached, though this follower carries a prefer record it would have probed"
+            "and the follower prefer branch was never reached, though this follower carries a prefer record it would have probed"
         );
         assert!(
             !liveness.follower_prefer_records(tea).is_empty(),

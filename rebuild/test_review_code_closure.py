@@ -128,8 +128,9 @@ def test_every_review_module_the_build_reaches_is_stamped():
     stamped = set(fingerprint.review_code_paths(REPO_ROOT))
     unstamped = _relative(_reached_files_under(REVIEW_DIR) - stamped)
     assert unstamped == [], (
-        "these modules run in the corpus build but review_code does not hash them, so the corpus would "
-        "go stale-blind to their edits — remove them from REVIEW_NON_BUILD_MODULES: " + ", ".join(unstamped)
+        "these modules run in the corpus build but review_code does not hash them, so an edit "
+        "to them would leave the corpus stale — remove them from REVIEW_NON_BUILD_MODULES: "
+        + ", ".join(unstamped)
     )
 
 

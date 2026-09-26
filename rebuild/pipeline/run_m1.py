@@ -984,7 +984,7 @@ def _absorb_replay_memo(
     dump = kernel_exec.replay_memo_dump(out_dir, config)
     started = time.perf_counter()
     if not dump.is_file():
-        return None, 0.0, f"settle memo: the replay filed no window memo for {config} at {dump}"
+        return None, 0.0, f"settle memo: the replay wrote no window memo for {config} at {dump}"
     try:
         entries = conform.absorb_replay_memo(dump, memo, spec, config)
     except (kernel_exec.KernelRunError, OSError) as error:
@@ -1152,7 +1152,7 @@ def run_font_conformance(
 
     At the per-edit maximum length, each configuration's walk shares its settle memo with the string replay that fills it and with the oracle's walk over the same texts, through a file under `out_dir` keyed per family as the oracle row cache is (`conform.settle_memo_files`, from `settle_memo_inputs` taken before the spec loads). The replay writes what it settled, each later phase loads it and writes back what it added, and a rune edit invalidates only the entries whose windows name an edited family. A deeper sweep shares nothing: its memo is a multiple of the belt's, and a file that size would cost the next belt and oracle workers more to decode than they save.
 
-    A pooled belt at `conform.SWEEP_MAX_LENGTH` records every configuration's worker peak (`_priced_conformance_config`) as one observation of the `conform-belt` pool (`cycle_timings.record_pool`), which `make job-costs` reports. The serial path starts no pool, and a deeper sweep's worker has a different peak, so neither records one.
+    A pooled belt at `conform.SWEEP_MAX_LENGTH` records every configuration's worker peak (`_estimated_conformance_config`) as one observation of the `conform-belt` pool (`cycle_timings.record_pool`), which `make job-costs` reports. The serial path starts no pool, and a deeper sweep's worker has a different peak, so neither records one.
     """
     inputs = tables_inputs()
     memo_inputs = settle_memo_inputs()
@@ -1179,7 +1179,7 @@ def run_font_conformance(
         with _spawn_pool(jobs, len(conform.ACCEPTANCE_CONFIGS)) as pool:
             futures = {
                 pool.submit(
-                    _priced_conformance_config,
+                    _estimated_conformance_config,
                     spec,
                     out_dir / "M1.otf",
                     config,
@@ -1376,7 +1376,7 @@ def _report_oracle_cache(
         console.warn(f"oracle position store: re-shaping the rows that reach {moved_position_keys}")
 
 
-def _priced_conformance_config(
+def _estimated_conformance_config(
     spec: ResolvedSpec,
     font_path: Path,
     config: str,
@@ -1794,7 +1794,7 @@ def main(argv: list[str] | None = None) -> None:
         "--jobs",
         type=int,
         default=None,
-        help=f"worker budget for the oracle and the conformance sweep: the oracle cuts every configuration's table into row ranges and runs this many at once, while the conformance sweep runs one process per acceptance configuration and no more, since that is its unit. Each default is a budget the artifact cycle derives from the box rather than a checked-in width: a bare run takes the oracle's `sweep_job_budget()`, the width the cycle hands run_m1 — {sweep_jobs} on this box, the cores under the memory clamp that budget's own docstring argues from `ORACLE_SHARD_BYTES` — and --conform-only takes the belt's own `conform_job_budget()` at its idle arm, since a hand sweep shares the box with no corpus build and no make-test pool — on this box {conform_job_derivation(skip_gates=True, skip_corpus=True)}. `--jobs 1` is serial. The table build's own width is --kernel-threads.",
+        help=f"worker budget for the oracle and the conformance sweep: the oracle cuts every configuration's table into row ranges and runs this many at once, while the conformance sweep runs one process per acceptance configuration and no more, since that is its unit. Each default is a budget the artifact cycle derives from the machine rather than a checked-in width: a bare run takes the oracle's `sweep_job_budget()`, the width the cycle hands run_m1 — {sweep_jobs} on this machine, the cores under the memory clamp that budget's own docstring argues from `ORACLE_SHARD_BYTES` — and --conform-only takes the belt's own `conform_job_budget()` with the build lane idle, since a hand sweep shares the machine with no corpus build and no make-test pool — on this machine {conform_job_derivation(skip_gates=True, skip_corpus=True)}. `--jobs 1` is serial. The table build's own width is --kernel-threads.",
     )
     parser.add_argument(
         "--conform-only",
@@ -1816,14 +1816,14 @@ def main(argv: list[str] | None = None) -> None:
         "--conform-horizon",
         type=int,
         default=4,
-        help="exhaustive sweep length for --conform-only (the per-edit belt over the settlement configurations; the overlay configuration's arm stays at its own maximum length); `make conform-deep` runs the same sweep deeper on demand",
+        help="exhaustive sweep length for --conform-only (the per-edit belt over the settlement configurations; the overlay configuration keeps its own maximum length); `make conform-deep` runs the same sweep deeper on demand",
     )
     parser.add_argument(
         "--kernel-threads",
         type=int,
         default=None,
         help=(
-            "how many delta configurations the kernel enumerates and folds at once beside default's memo, capped at the configuration count and the cores this process may actually run on; the ceiling is memory rather than CPU, so the default is derived from the box in hand rather than checked in — on this one "
+            "how many delta configurations the kernel enumerates and folds at once beside default's memo, capped at the configuration count and the cores this process may actually run on; the ceiling is memory rather than CPU, so the default is derived from this machine rather than checked in — on this one "
             f"{describe_fit(kernel_exec.DELTA_PEAK_BYTES, coresident_bytes=kernel_exec.DEFAULT_MEMO_BYTES)}, the co-resident term being default's retained memo — which AMS_KERNEL_THREADS short-circuits and this flag beats in turn; the string replay after the build has its own width, --replay-threads"
         ),
     )
@@ -1832,7 +1832,7 @@ def main(argv: list[str] | None = None) -> None:
         type=int,
         default=None,
         help=(
-            "how many settlement configurations the string replay after the build walks at once in its one crate process, capped at the configuration count and the cores this process may actually run on; a replay's engine is priced on its own rather than at the table build's width, so the default is derived from the box in hand — on this one "
+            "how many settlement configurations the string replay after the build walks at once in its one crate process, capped at the configuration count and the cores this process may actually run on; a replay engine's peak memory is estimated on its own rather than at the table build's width, so the default is derived from this machine — on this one "
             f"{describe_fit(kernel_exec.REPLAY_PEAK_BYTES, cap=len(conform.SETTLEMENT_CONFIGS))}, nothing co-resident since the build's process has exited — which AMS_REPLAY_THREADS short-circuits and this flag beats in turn"
         ),
     )

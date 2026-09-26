@@ -69,7 +69,7 @@ def kernel_threads_default(*, coresident_bytes: float = 0, total_bytes: int | No
             return max(1, int(stated))
         except ValueError:
             raise RuntimeError(
-                f"AMS_KERNEL_THREADS={stated!r} is not a width: it takes a bare decimal count of configurations to hold in flight, and leaving it unset is what asks for the width this box's own memory derives."
+                f"AMS_KERNEL_THREADS={stated!r} is not a width: it takes a bare decimal count of configurations to hold in flight, and leaving it unset is what asks for the width this machine's own memory derives."
             ) from None
     return memory_budget.how_many_fit(
         DELTA_PEAK_BYTES, coresident_bytes=DEFAULT_MEMO_BYTES + coresident_bytes, total_bytes=total_bytes
@@ -87,7 +87,7 @@ def replay_threads_default(*, coresident_bytes: float = 0, total_bytes: int | No
             return max(1, int(stated))
         except ValueError:
             raise RuntimeError(
-                f"AMS_REPLAY_THREADS={stated!r} is not a width: it takes a bare decimal count of settlement configurations to replay at once, and leaving it unset is what asks for the width this box's own memory derives."
+                f"AMS_REPLAY_THREADS={stated!r} is not a width: it takes a bare decimal count of settlement configurations to replay at once, and leaving it unset is what asks for the width this machine's own memory derives."
             ) from None
     return memory_budget.how_many_fit(
         REPLAY_PEAK_BYTES, coresident_bytes=coresident_bytes, total_bytes=total_bytes
@@ -479,7 +479,7 @@ def replay_strings(
         raise ValueError(f"replay_strings takes a memo ceiling of at least one window, not {memo_windows}")
     if memo_windows is not None and memo_dir is not None:
         raise ValueError(
-            "replay_strings takes a memo directory or a memo ceiling, not both: a walk that files its memo walks with no ceiling, since a released memo holds only the windows settled since the release"
+            "replay_strings takes a memo directory or a memo ceiling, not both: a walk that writes its memo walks with no ceiling, since a released memo holds only the windows settled since the release"
         )
     spec_path = _spec_dump(spec)
     ensure_built()

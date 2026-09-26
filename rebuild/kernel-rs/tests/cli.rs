@@ -417,7 +417,7 @@ fn a_table_build_sharing_defaults_memo_files_the_bytes_a_from_scratch_one_files(
         for family in ["settlement", "treaties", "windows"] {
             let name = format!("{family}-{token}.tsv");
             assert_eq!(
-                std::fs::read(shared.join(&name)).expect("the memo-sharing build filed it"),
+                std::fs::read(shared.join(&name)).expect("the memo-sharing build wrote it"),
                 std::fs::read(scratch_built.join(&name)).expect("and so did the other"),
                 "{name}"
             );
@@ -491,7 +491,7 @@ fn a_build_reading_the_previous_memos_files_the_bytes_a_from_scratch_one_files()
             let name = format!("{family}-{token}.tsv");
             assert_eq!(
                 std::fs::read(reusing.join(&name))
-                    .expect("the build reading previous memos filed it"),
+                    .expect("the build reading previous memos wrote it"),
                 std::fs::read(scratch_built.join(&name)).expect("and so did the other"),
                 "{name}"
             );
@@ -529,8 +529,8 @@ fn a_build_reading_the_previous_memos_files_the_bytes_a_from_scratch_one_files()
                 let name = format!("{family}-{token}.tsv");
                 assert_eq!(
                     std::fs::read(outdir.join(&name))
-                        .expect("the build reading previous memos filed it"),
-                    std::fs::read(scratch_built.join(&name)).expect("the scratch build filed it"),
+                        .expect("the build reading previous memos wrote it"),
+                    std::fs::read(scratch_built.join(&name)).expect("the scratch build wrote it"),
                     "{arm}: {name}"
                 );
             }
@@ -808,7 +808,7 @@ fn a_replay_with_a_memo_directory_files_one_window_memo_per_configuration() {
                 .file_name()
                 .to_string_lossy()
                 .starts_with("replay-windows-")),
-        "a walk without the flag files no memo"
+        "a walk without the flag writes no memo"
     );
     let memos = root.join("memos");
     std::fs::create_dir_all(&memos).expect("the memo directory is makeable");
@@ -826,7 +826,7 @@ fn a_replay_with_a_memo_directory_files_one_window_memo_per_configuration() {
     assert_eq!(filed.stdout, bare.stdout, "the answer lines are unchanged");
     for (token, _) in CONFIGS {
         let path = memos.join(format!("replay-windows-{token}.bin"));
-        let bytes = std::fs::read(&path).expect("each configuration's memo is filed");
+        let bytes = std::fs::read(&path).expect("each configuration's memo is written");
         let head = bytes
             .split(|byte| *byte == b'\n')
             .next()
@@ -1084,6 +1084,6 @@ fn a_replay_with_a_memo_ceiling_answers_the_texts_an_uncapped_walk_answers() {
             .expect("the memo directory lists")
             .next()
             .is_none(),
-        "a refused command line files nothing"
+        "a refused command line writes nothing"
     );
 }

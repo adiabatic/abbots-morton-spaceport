@@ -180,7 +180,7 @@ class TestIsolatedOverlay:
         """At any belt maximum length, the overlay branch shapes every text of one or two alphabet symbols and nothing longer, and it never forms, settles, memoizes or calls the crate."""
 
         def unreachable(*args, **kwargs):
-            raise AssertionError("the overlay arm reached the crate")
+            raise AssertionError("the overlay case reached the crate")
 
         for name in ("settle_windows", "settle_cases", "guard_sweep", "settle_sequences"):
             monkeypatch.setattr(kernel_exec, name, unreachable)
@@ -2880,7 +2880,7 @@ class TestDeepTokenIndex:
         assert checked
         assert (
             bare_renamed_r3_under_class_r4
-        ), "no row exercises the renamed-bare-r3 + class-r4 shape this arm exists for"
+        ), "no row exercises the renamed-bare-r3 + class-r4 shape this case exists for"
 
 
 class TestSettleMemoFile:

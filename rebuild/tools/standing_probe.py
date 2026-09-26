@@ -477,7 +477,7 @@ def _pair_coverage(units, blankness, rule_id, shape, match):
     axes.append(("follower families", 1, set(sv._families(match["before"]["follower"]))))
     if follower_field in match["after"]:
         axes.append(("follower cells", 2, set(match["after"][follower_field])))
-    header = f"coverage for rule {rule_id!r} ({shape} shape), enumerated relaxed of everything it names:"
+    header = f"coverage for rule {rule_id!r} ({shape} shape), enumerated without the rule's own filters:"
     return header, [
         (label, [(value, tally) for value, tally in _tallied(pairs, position) if value not in listed])
         for label, position, listed in axes
@@ -580,7 +580,7 @@ def main(argv=None, *, units=None, context=None):
     parser.add_argument(
         "--coverage",
         metavar="RULE_ID",
-        help="re-run a checked-in rule's own survey relaxed of everything it names, and report what it reaches that the rule does not",
+        help="re-run a checked-in rule's own survey without the rule's own filters, and report what it reaches that the rule does not",
     )
     parser.add_argument(
         "--find",

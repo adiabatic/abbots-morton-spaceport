@@ -335,7 +335,9 @@ def packed_estimate(collection: Collection, shape: Shape, *, sample_size: int = 
 
 def _refuse_nested_packed(nested: bool, packed: Shape | None) -> None:
     if nested and packed is not None:
-        raise ValueError("a nested collection counts the rows of its tables, which a packed row cannot price")
+        raise ValueError(
+            "a nested collection counts the rows of its tables, whose memory a packed row cannot estimate"
+        )
 
 
 @dataclass(frozen=True)

@@ -5955,7 +5955,7 @@ mod tests {
         assert_eq!(
             follower_prefer(&mut shifted, Slots::pair(tea_token, may_token)),
             Some(true),
-            "where the window really does end, the shifted reading is unknown-optimistic too"
+            "where the window really does end, the shifted reading also treats an unknown slot as a match"
         );
     }
 

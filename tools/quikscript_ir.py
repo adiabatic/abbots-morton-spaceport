@@ -2663,8 +2663,8 @@ def _generate_extended_variants(
             suffix_word = _EXTENSION_SUFFIX.get(count)
             if suffix_word is None:
                 raise ValueError(
-                    f"by: {count} exceeds the supported extension ladder "
-                    f"(max: {max(_EXTENSION_SUFFIX)}); add a new rung to "
+                    f"by: {count} exceeds the supported extension amounts "
+                    f"(max: {max(_EXTENSION_SUFFIX)}); add a new amount to "
                     f"_EXTENSION_SUFFIX (and the matching tables in "
                     f"tools/quikscript_fea.py and .vscode/quikscript.schema.json) "
                     f"if a larger reach is needed."
@@ -2954,8 +2954,8 @@ def _generate_contracted_variants(
         suffix_word = _CONTRACTION_SUFFIX.get(count)
         if suffix_word is None:
             raise ValueError(
-                f"by: {count} exceeds the supported contraction ladder "
-                f"(max: {max(_CONTRACTION_SUFFIX)}); add a new rung to "
+                f"by: {count} exceeds the supported contraction amounts "
+                f"(max: {max(_CONTRACTION_SUFFIX)}); add a new amount to "
                 f"_CONTRACTION_SUFFIX (and the matching tables in "
                 f"tools/quikscript_fea.py and .vscode/quikscript.schema.json) "
                 f"if a larger reach is needed."
@@ -3640,7 +3640,7 @@ def _inherit_ligature_entries_from_lead(
             warnings.warn(
                 f"{name}: declares entry {_format_anchors(glyph.entry)}; "
                 f"lead {lead} has no auto-inheritable entry-bearing stance. "
-                f"The explicit declaration is therefore load-bearing; "
+                f"The explicit declaration is therefore required; "
                 f"consider adding an en-y5 stance on {lead} or "
                 f"documenting why this ligature is special.",
                 LigatureEntryInheritanceWarning,
@@ -3657,7 +3657,7 @@ def _inherit_ligature_entries_from_lead(
                 f"{_format_anchors(inherited_entries)} from {source_glyph.name}, "
                 f"but the ligature's bitmap at y={entry_y} doesn't align with "
                 f"the lead's. The explicit declaration is therefore "
-                f"load-bearing; review whether the bitmap or the entry is "
+                f"required; review whether the bitmap or the entry is "
                 f"correct.",
                 LigatureEntryInheritanceWarning,
                 stacklevel=2,
