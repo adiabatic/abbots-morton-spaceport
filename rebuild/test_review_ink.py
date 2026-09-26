@@ -6,7 +6,7 @@ Nothing here reads the live corpus. The windows come from the frozen mini bundle
 
 Also here: `delta_digest`, the stored identity of one config's localized delta. `check_unit` checks its shape, and its recipe must stay byte-identical because rebuild/standing-approvals.yaml records digests made with it.
 
-And, on inputs this file builds itself, the two pixel-grain readings the standing approvals' slide shape uses: `rectilinear_cells`, which rasterizes one grid-rectilinear outline under nonzero winding (a hole stays empty, two overlapping same-direction contours fill their union, and a curve or an off-grid coordinate returns None), and `named_run`, the shaped run with its glyph names attached, which keeps the inkless markers its pieces drop and whose projection without names is `run_ink`.
+And, on inputs this file builds itself, the two pixel-level readings the standing approvals' slide shape uses: `rectilinear_cells`, which rasterizes one grid-rectilinear outline under nonzero winding (a hole stays empty, two overlapping same-direction contours fill their union, and a curve or an off-grid coordinate returns None), and `named_run`, the shaped run with its glyph names attached, which keeps the inkless markers its pieces drop and whose projection without names is `run_ink`.
 """
 
 import hashlib
@@ -229,7 +229,7 @@ def overlap_comparator(tmp_path_factory):
 
 
 def test_picture_identity_sees_through_an_overlap_removal(overlap_comparator):
-    """The piece-grain reading sees a changed qsB, but both fonts paint the same nine cells, so the delta is the empty sentinel and the picture channel approves. The column qsB gives up is one qsA still paints, and the delta is read over the window's union, not over the pieces that changed."""
+    """The outline-level reading sees a changed qsB, but both fonts paint the same nine cells, so the delta is the empty sentinel and the picture channel approves. The column qsB gives up is one qsA still paints, and the delta is read over the window's union, not over the pieces that changed."""
     assert overlap_comparator.ink_identical(OVERLAP_TEXT, ("default",)) is False
     assert overlap_comparator.pieces_identical(OVERLAP_TEXT, "default") is False
     assert overlap_comparator.config_diff(OVERLAP_TEXT, "default") == IDENTITY_DIFF
@@ -240,7 +240,7 @@ def test_picture_identity_sees_through_an_overlap_removal(overlap_comparator):
 
 
 def test_picture_identity_fails_closed_off_the_grid(tmp_path):
-    """A placement or outline off the PIXEL_SIZE grid has no cell reading, so the picture channel does not approve it. An off-grid advance and an off-grid edge each leave the window to a human, and the delta falls back to the piece grain (translated outlines, with the shift in font units), which is never the sentinel for pieces that differ."""
+    """A placement or outline off the PIXEL_SIZE grid has no cell reading, so the picture channel does not approve it. An off-grid advance and an off-grid edge each leave the window to a human, and the delta falls back to the outline level (translated outlines, with the shift in font units), which is never the sentinel for pieces that differ."""
     before = _build_font(tmp_path / "before.ttf", OVERLAP_BEFORE, OVERLAP_CMAP)
     slid = _build_font(tmp_path / "slid.ttf", {"qsA": (COLUMN, 75), "qsB": (HALF_COLUMN, 100)}, OVERLAP_CMAP)
     comparator = InkComparator(before, slid)

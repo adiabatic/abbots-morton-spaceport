@@ -1,6 +1,6 @@
 # Per-signature force-benign allowlist for the shaping-leak classifier (a symmetric completion of decision 11 of doc/definitions/shaping-leakage.md).
 #
-# Some human-accepted standalone-variant swaps (e.g. qsNo -> qsNo.alt.en-y0.ex-y0) gain a break-facing anchor and so trip the additive-dangle modifier test in tools/leak_classify.py, yet carry no before-/after- cosmetic modifier, so the per-form cosmetic opt-out does not rescue them. Each entry here demotes one exact swap to benign without weakening the modifier test in other contexts. Force-bad outranks this.
+# Some human-accepted standalone-variant swaps (e.g. qsNo -> qsNo.alt.en-y0.ex-y0) gain a break-facing anchor and so trip the additive-dangle modifier test in tools/leak_classify.py, yet carry no before-/after- cosmetic modifier, so the per-form cosmetic opt-out does not exempt them. Each entry here demotes one exact swap to benign without weakening the modifier test in other contexts. Force-bad outranks this.
 #
 # Each signature is [isolated_left, left_chosen, isolated_right, right_chosen] — the same 4-tuple the snapshot keys on.
 signatures:

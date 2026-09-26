@@ -451,7 +451,7 @@ fn window_at(
 enum Verdict {
     /// Every formation constraint the stream raises is satisfied within it.
     Closed,
-    /// A constraint is violated by tokens already in the stream, so no append can rescue it.
+    /// A constraint is violated by tokens already in the stream, so no appended token can satisfy it.
     Dead,
     /// A constraint reads one slot past the end, and these are the tokens that would satisfy it there, in the order to try them.
     Needs(Vec<RightToken>),

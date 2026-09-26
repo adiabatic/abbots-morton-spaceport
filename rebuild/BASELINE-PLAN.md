@@ -1,6 +1,6 @@
 # Baseline extraction plan (§13.1)
 
-This plan specifies the baseline that `doc/rebuild-design.md` §13 (item 1) calls for. The extractor shapes every string in the depth-2 basis through the built Senior Sans font (`site/AbbotsMortonSpaceportSansSenior-Regular.otf`), treating the font as a black box, and records each string's outcome as a diff-stable table under `rebuild/out/`. The M1 oracle and the review corpus read these tables as the old font's behavior. Related design sections: `doc/rebuild-design.md` §3.4, §6.1, §10, and §13.
+This plan specifies the baseline that `doc/rebuild-design.md` §13 (item 1) calls for. The extractor shapes every input string up to length 4 through the built Senior Sans font (`site/AbbotsMortonSpaceportSansSenior-Regular.otf`), treating the font as a black box, and records each string's outcome as a diff-stable table under `rebuild/out/`. The M1 oracle and the review corpus read these tables as the old font's behavior. Related design sections: `doc/rebuild-design.md` §3.4, §6.1, §10, and §13.
 
 The tables' headers record this provenance. The exception is the `ss03+ss05` table, extracted later, whose header records repo SHA `0cd71c4`:
 
@@ -40,7 +40,7 @@ Across the §5 configurations: **4,985,760 × |`rowmodel.CONFIGS`| rows**.
 
 A settlement window is the resolved left neighbor, the letter itself, and up to four raw letters to its right (`doc/rebuild-design.md` §10). Black-box extraction cannot set the resolved left state directly, so the string prefix induces it. In a length-4 string, the letter at position 2 has a resolved left induced by a one-symbol prefix (every state reachable in one step from a run edge) and two raw-right symbols. Position 1 of every string gives every run-initial window (resolved left = edge) with up to three raw-right symbols. Strings with a space or ZWNJ inside give word-final and word-initial windows mid-string: `qsMay space qsTea qsKey` gives word-final ·May and word-initial ·Tea with lookahead in one row. Every position of every string is recorded, aligned by cluster, so later positions also contribute windows, with fewer raw-right symbols.
 
-### What depth-2 cannot capture, accepted by design
+### What strings up to length 4 cannot capture, accepted by design
 
 - **Resolved left states that need two or more settled joins, with full lookahead.** Such a state first appears at position 3, where a length-4 string leaves at most one raw-right symbol. The basis supplies a third raw-right symbol only at position 1 and never a fourth. The baseline makes no completeness claim for these windows. For M1, the witness stage settles a certificate text of any length for every emitted rule, and the deep sweep and the deep replay check texts of length 5 and more (`doc/rebuild-design.md` §10).
 - **Longer-range emergent effects**, such as the depth-5-only regressions the archive documents (`doc/rebuild-design.md` §15, item 11). The deep sweep (`make conform-deep`) checks depth 5 and beyond.

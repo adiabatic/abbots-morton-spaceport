@@ -116,7 +116,7 @@ b. **`kern` (kerning)** — brief mention that the font also kerns some Latin pa
 ### 7. Padding and spacing refinements
 
 a. **`extend_entry_after`** — explain how certain glyph pairs need a little extra space when joined. In the source model this lives under a stance’s `derive` block, and the build script generates the shifted entry variants at compile time. Walk through an example (e.g., ·Ye followed by ·Roe).
-b. **`.noentry` variants and ZWNJ** — explain that the Senior font auto-generates variants without entry anchors so that inserting a Zero Width Non-Joiner (U+200C) between two letters breaks the cursive chain. This is the “escape hatch” for when automatic joining is wrong.
+b. **`.noentry` variants and ZWNJ** — explain that the Senior font auto-generates variants without entry anchors so that inserting a Zero Width Non-Joiner (U+200C) between two letters breaks the cursive chain. This is how a writer breaks a join when automatic joining is wrong.
 
 ### 8. The three font variants
 

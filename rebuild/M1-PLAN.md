@@ -406,7 +406,7 @@ Authoring rule from the prototype’s probed corrections (deviation 6): where th
 3. A divergent row that matches two or more ledger entries fails the gate (overlapping predicates; `multi_matched` in `oracle_summary.json`). A divergent row that matches none is unmatched; unmatched rows wait on verdicts on the review corpus and do not fail the gate. Per-entry counts are written to `rebuild/out/m1/divergence-audit.tsv`.
 4. The font-side comparison, the conformance sweep of HarfBuzz against settlement, must be exact. The ledger applies only to the settlement-vs-baseline diff. A font-vs-settlement difference is a compiler defect by definition (§1).
 
-### Ledger format — `rebuild/m1-divergences.yaml` (committed-shape, human-reviewed)
+### Ledger format — `rebuild/m1-divergences.yaml` (checked-in, human-reviewed)
 
 One entry per divergence **class**, with a matching predicate, the observed count, example rows, and a required `why:`:
 

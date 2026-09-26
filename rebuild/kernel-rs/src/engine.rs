@@ -1804,7 +1804,7 @@ impl<'i> Engine<'i> {
         Ok(out)
     }
 
-    /// The left a follower would settle against if this candidate won: the candidate's cell with no adjustments and no extension, which is everything the follower's enumeration reads. It is built on every call, not memoized: construction moves two arguments, creates an empty `Vec` without allocating, and reuses the candidate's ordinals, so a memo lookup on this hot path would cost more than it saves.
+    /// The left a follower would settle against if this candidate won: the candidate's cell with no adjustments and no extension, which is everything the follower's enumeration reads. It is built on every call, not memoized: construction moves two arguments, creates an empty `Vec` without allocating, and reuses the candidate's ordinals, so a memo lookup on code that runs this often would cost more than it saves.
     fn synthetic_left(rune_name: Sym, candidate: Candidate) -> LeftContext {
         LeftContext::seated(
             Settled {

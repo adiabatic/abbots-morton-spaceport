@@ -32,11 +32,11 @@ from rebuild.tools.peak_rss import format_gb
 from rebuild.tools.cycle_timings import CycleTimings
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-# Width assertions use stated machine sizes, not the host running the suite. With DELTA_PEAK_BYTES at 6.3 GB and DEFAULT_MEMO_BYTES at 2.5 GB, 36 GB fits four deltas alone and three beside the default pytest pool, 38 GB leaves room to test larger stated pool widths, and 44 GB is `_plan`'s default machine, which the plan and width tests share. Changing either constant changes these expectations and can require a different size to keep the pool's reservation visible in a width.
+# Width assertions use stated machine sizes, not the host running the suite. With DELTA_PEAK_BYTES at 6.3 GB and DEFAULT_MEMO_BYTES at 2.5 GB, 36 GB fits four deltas alone and three beside the default pytest pool, 38 GB leaves room to test larger stated pool widths, and 44 GB is `_plan`'s default machine, which the plan and width tests share. Changing either constant changes these expectations and can require a different size to keep the memory set aside for the pool visible in a width.
 MACHINE_44_GB = 44_000_000_000
 MACHINE_38_GB = 38_000_000_000
 MACHINE_36_GB = 36_000_000_000
-# The fleet's two machines (`doc/fleet.md`), for the corpus width's assertions. On both, the corpus build reaches its cap whether or not the pytest pool's bytes are subtracted, so no total separates the gated and solo cases; the reservation arithmetic is asserted through `_corpus_fit_terms`, which takes no total.
+# The fleet's two machines (`doc/fleet.md`), for the corpus width's assertions. On both, the corpus build reaches its cap whether or not the pytest pool's bytes are subtracted, so no total separates the gated and solo cases; the arithmetic of the memory set aside for the pool is asserted through `_corpus_fit_terms`, which takes no total.
 MACHINE_48_GIB = 51_539_607_552
 MACHINE_32_GIB = 34_359_738_368
 
@@ -2311,7 +2311,7 @@ class TestTheConformBeltWidth:
     """The cycle sizes gate:conform's belt: one spawn process per acceptance configuration, each holding `CONFORM_BELT_BYTES`. The belt is submitted when run_m1's gate passes, so it runs beside the build lane's corpus build or the verdict-update step after it, and the larger of the two that the pass runs is subtracted from memory before the division."""
 
     def test_the_corpus_build_comes_off_the_machine_before_the_division(self):
-        """Checked at the fit terms, where no machine size enters, for the same reason as the corpus build's reservation: on no fleet machine does the subtraction change the belt's width. The corpus term is the build's parent plus the workers `corpus_job_budget` gives the same pass. A pass that runs the verdict-update step without the build subtracts the verdict update's process and the refill pool `standing_fill_jobs` gives instead. gate:make-test's pool is added under the overlap policy only, because the queue policy makes the belt wait for make-test."""
+        """Checked at the fit terms, where no machine size enters, for the same reason as the memory set aside beside the corpus build: on no fleet machine does the subtraction change the belt's width. The corpus term is the build's parent plus the workers `corpus_job_budget` gives the same pass. A pass that runs the verdict-update step without the build subtracts the verdict update's process and the refill pool `standing_fill_jobs` gives instead. gate:make-test's pool is added under the overlap policy only, because the queue policy makes the belt wait for make-test."""
         from rebuild.pipeline.conform import ACCEPTANCE_CONFIGS
 
         def corpus(skip_make_test):
@@ -2569,7 +2569,7 @@ def test_make_test_pool_width_is_the_width_the_corpus_budget_leaves_it():
 
 
 def test_a_stated_pool_width_is_the_width_the_cycle_reserves_by(monkeypatch):
-    """The make-test child inherits this process's environment, so a width already set in PYTEST_XDIST_AUTO_NUM_WORKERS is the width its pool takes. The cycle reserves memory for that width, so the reservation matches the pool that runs."""
+    """The make-test child inherits this process's environment, so a width already set in PYTEST_XDIST_AUTO_NUM_WORKERS is the width its pool takes. The cycle reserves memory for that width, so the memory set aside for the pool matches the pool that runs."""
     monkeypatch.setenv("PYTEST_XDIST_AUTO_NUM_WORKERS", "9")
     assert ac.make_test_pool_width(ncores=1) == 9
     assert ac.kernel_threads_budget(ncores=12, total_bytes=MACHINE_38_GB) == 3
@@ -2578,7 +2578,7 @@ def test_a_stated_pool_width_is_the_width_the_cycle_reserves_by(monkeypatch):
 
 
 def test_kernel_threads_budget_takes_the_pytest_pool_off_the_machine_first():
-    """The kernel width subtracts the pytest pool along with default's retained memo before dividing. With the 6.3 GB per-delta bound and the 2.5 GB memo snapshot, a 36 GB machine fits four deltas alone, and subtracting the 0.6 GB pytest pool leaves room for three. At this boundary a missing reservation changes the answer."""
+    """The kernel width subtracts the pytest pool along with default's retained memo before dividing. With the 6.3 GB per-delta bound and the 2.5 GB memo snapshot, a 36 GB machine fits four deltas alone, and subtracting the 0.6 GB pytest pool leaves room for three. At this boundary forgetting the memory set aside for the pool changes the answer."""
     solo = ac.kernel_threads_budget(skip_make_test=True, ncores=8, total_bytes=MACHINE_36_GB)
     beside = ac.kernel_threads_budget(ncores=8, total_bytes=MACHINE_36_GB)
     assert (solo, beside) == (4, 3)
@@ -2663,7 +2663,7 @@ def test_the_replay_plan_line_explains_the_width_it_prints_on_every_route(monkey
 
 
 def test_kernel_threads_budget_never_narrows_a_stated_kernel_width(monkeypatch):
-    """`AMS_KERNEL_THREADS` is set to keep a build out of swap, so it overrides every derivation here, including the pytest pool reservation. The budget still caps it at the configuration count and the cores, as `run_m1._table_build_threads` does, so a stated width at or below that cap passes through unchanged."""
+    """`AMS_KERNEL_THREADS` is set to keep a build out of swap, so it overrides every derivation here, including the memory set aside for the pytest pool. The budget still caps it at the configuration count and the cores, as `run_m1._table_build_threads` does, so a stated width at or below that cap passes through unchanged."""
     monkeypatch.setenv("AMS_KERNEL_THREADS", "5")
     assert ac.kernel_threads_budget(ncores=8, total_bytes=MACHINE_44_GB) == 5
     assert ac.kernel_threads_budget(skip_make_test=True, ncores=8, total_bytes=MACHINE_44_GB) == 5
@@ -3425,7 +3425,7 @@ def test_a_forced_pass_hands_the_make_test_wrapper_force(tmp_path, monkeypatch, 
 def test_the_plan_reserves_make_tests_pool_exactly_when_the_wrapper_runs_it(
     tmp_path, monkeypatch, flags, recorded
 ):
-    """The plan sets the corpus build's widths before `make test` decides anything, so the reservation is correct only if the plan and the wrapper make the same skip decision. Cores and memory reserved for a gate that then skips on its own green record are lost to the build. Every combination of forcing flag and green record ends one of two ways. Either the plan skips the gate, the wrapper would also skip over the same fingerprint and record, and the build gets the whole machine. Or the plan runs the gate, the argv the live Makefile passes to the wrapper runs the suite, and its pool is subtracted from the build's widths."""
+    """The plan sets the corpus build's widths before `make test` decides anything, so the memory set aside for `make test` is correct only if the plan and the wrapper make the same skip decision. Cores and memory reserved for a gate that then skips on its own green record are lost to the build. Every combination of forcing flag and green record ends one of two ways. Either the plan skips the gate, the wrapper would also skip over the same fingerprint and record, and the build gets the whole machine. Or the plan runs the gate, the argv the live Makefile passes to the wrapper runs the suite, and its pool is subtracted from the build's widths."""
     _unsettled_repo(tmp_path, monkeypatch)
     monkeypatch.setattr(ac, "make_test_closure_fingerprint", lambda root=None: "fp")
     if recorded is not None:

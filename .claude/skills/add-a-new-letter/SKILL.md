@@ -4,7 +4,7 @@ description: Migrate one letter into the M1 rebuild alphabet as a single "Add ·
 argument-hint: "[letter]"
 ---
 
-The user wants one more letter in the rebuild's alphabet. A letter addition is one batch landing as one commit titled `Add ·X` (`git log --oneline --grep='^Add ·'`); its record is the commit plus the rune's `why:` fields, never a report. Before writing anything, read the two or three most recent `Add ·X` commits end to end — they are the living template, and each batch refined the idiom. The binding law lives in `doc/rebuild-design.md` (§4 the five-step record rubric, §13 step 3 the record conversion) and `rebuild/M1-PLAN.md` (§3 the rune-file template, §8 the ductus protocol); don't re-derive or restate what they already say.
+The user wants one more letter in the rebuild's alphabet. A letter addition is one batch landing as one commit titled `Add ·X` (`git log --oneline --grep='^Add ·'`); its record is the commit plus the rune's `why:` fields, never a report. Before writing anything, read the two or three most recent `Add ·X` commits end to end — they are the living template, and each batch refined the pattern. The binding rules live in `doc/rebuild-design.md` (§4 the five-step record rubric, §13 step 3 the record conversion) and `rebuild/M1-PLAN.md` (§3 the rune-file template, §8 the ductus protocol); don't re-derive or restate what they already say.
 
 The design calls are the user's. Where the old record forks — which bitmaps become stances, which joins yield, whether an old exit tuck is really the receiver's entry contraction — present the evidence and ask, then record each ruling under "Recorded design overrides" in the batch progress file.
 
@@ -43,7 +43,7 @@ Add the codepoint to `M1_ALPHABET` in `rebuild/pipeline/baseline_subset.py`. Not
 
 - Neighbor runes: every migrated family the old font joins into or out of this letter widens its own `toward:`/`from:` list — the evidence tool's two pair sections are exactly this worklist, one side each.
 - ss10: the old font draws the letter under ss10 as its anchor-free `qsX.ss10` twin, so `rebuild/m1-aliases.yaml` gets a `qsX.ss10` entry that copies the bare family's entry (the file's conventions header says a `.ss10` name denotes what the bare name denotes), placed after that family's last entry. `classify_divergence` grows an arm only for a genuinely new kind of change; most letters add no ledger class, and ss10 needs none, since the classifier gives no ss10 row off a boundary a class.
-- `rebuild/m1-contact-allow.yaml`: each off-anchor-contact error on a corner the old font already draws gets a signature plus an agent-written `why:` in the surrounding idiom.
+- `rebuild/m1-contact-allow.yaml`: each off-anchor-contact error on a corner the old font already draws gets a signature plus an agent-written `why:` in the pattern of the surrounding entries.
 - `rebuild/pipeline/smoke_sequences_m1.txt`: add the codepoint to the header list, then a block modeled on the latest letter's — isolation, every joining left, every joining right, the breaks, ligature seams both ways, the yield chains, the ZWNJ locked twin, an exit severed by ZWNJ, the namer dot.
 - `rebuild/test_review_enrich.py::test_subset_tables_iterate` checks containment over the frozen mini bundle, so a migration needs no test-count edit. The evidence tool's printed subset growth is evidence about the live tables; `baseline_subset.ensure_fresh` owns their refresh.
 
@@ -66,7 +66,7 @@ make verdict-ready
 ```
 
 - `--jobs` defaults to the `sweep_job_budget()` width the artifact cycle already passes, so a bare run sizes itself to the box. Detach `make artifact-cycle`.
-- The probe battery is one invocation carrying every window: every joining pair in both directions, the yield chains, and must-not-move neighbors, printed as one block per window in argument order — every divergence from the old font must be one the user designed.
+- The probe run is one invocation carrying a set of windows: every joining pair in both directions, the yield chains, and must-not-move neighbors, printed as one block per window in argument order — every divergence from the old font must be one the user designed.
 - Green looks like: defects 0/0, conform exact, read-back clean with its GSUB headroom inside the floor, Manual pins clean; the oracle-unmatched delta is the score — new rows either disappear with your records or land under existing ledger classes as designed divergences.
 - `make prettier` after any Python edit. Review `git diff -- rebuild/review-facts-pins.json` at commit time — anything moving in its `invariant` block wants real attention.
 - Re-run the scaling series (`uv run python -m rebuild.tools.scaling_sweep | tee rebuild/scaling-series.txt`, which refreshes the checked-in record) and read the whole-series fit against the threshold in `scaling_sweep.py`'s docstring — a tripped threshold goes to the speed-up tracker, not this batch.

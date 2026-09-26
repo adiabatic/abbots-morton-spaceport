@@ -78,7 +78,7 @@ impl Interner {
     }
 }
 
-/// An insertion-ordered mapping from interned key to value, used for every JSON object whose key order the dump preserves. It has no keyed lookup, because a linear scan would be slow in a hot loop; code that needs lookup builds its own index, as [`crate::index::SpecIndex`] does.
+/// An insertion-ordered mapping from interned key to value, used for every JSON object whose key order the dump preserves. It has no keyed lookup, because a linear scan would be slow in a frequently run loop; code that needs lookup builds its own index, as [`crate::index::SpecIndex`] does.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Table<T>(Vec<(Sym, T)>);
 

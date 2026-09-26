@@ -949,7 +949,7 @@ class TestTheMemoryDerivedThreadDefault:
             == 6
         )
 
-    def test_a_stated_width_outranks_a_coresident_reservation_too(self, monkeypatch):
+    def test_a_stated_width_outranks_coresident_memory_too(self, monkeypatch):
         """A stated `AMS_KERNEL_THREADS` is used as given even when `coresident_bytes` would narrow the derived width."""
         monkeypatch.setenv("AMS_KERNEL_THREADS", "4")
         assert (

@@ -1,4 +1,4 @@
-# Applying a verdict round: the laws round 1 taught
+# Applying a verdict round: the rules round 1 taught
 
 Round 1 is closed. Its edits are in the runes, its per-class rationale in the `why:` fields of `rebuild/m1-divergences.yaml`, and its gate inventory in the gates section of `M1-PLAN.md`. This file keeps the design rules the round produced: which record shapes a reject can take, two ways the audit misleads, and two invariants a round must not break.
 

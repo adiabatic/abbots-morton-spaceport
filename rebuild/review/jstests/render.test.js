@@ -157,7 +157,7 @@ test('every configFilterOptions value is a config token the unit filter understa
   assert.ok(matched > 0, 'the fixtures must have units the config filter selects');
 });
 
-test('pinStylisticSetScope names the sets in the ssNN idiom and echoes the attribute the pin will be written as', () => {
+test('pinStylisticSetScope names the sets in ssNN notation and echoes the attribute the pin will be written as', () => {
   const scope = pinStylisticSetScope('03', manifest.feature_descriptions);
   assert.deepEqual(scope.sets, ['ss03']);
   assert.equal(scope.label, 'ss03');

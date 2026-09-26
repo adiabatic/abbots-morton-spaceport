@@ -7,7 +7,7 @@ Placed outlines are compared without being built. `OutlineIntern` interns each o
 There are two readings:
 
 - `ink_identical` compares both fonts' sorted placed pieces (`ink_pieces`) under every config. `ink_histogram` in `rebuild/review/facts.py` flags units with it.
-- `config_diff` returns the picture-grain delta that every deduplication channel keys on: the cells only one font paints, read over each font's whole rasterized window and not piece by piece. A change that paints no different pixel (an overlap removed at a seam, a stroke passed to a neighbor) does not appear in it, so a window containing such a change has the same digest as its siblings without it. Its sentinel `IDENTITY_DIFF` (no cell lost or gained, no follower shift) is the only implementation of `picture_identical`, the machine channel the build checks for every unit that is not ink-identical. Piece identity implies the sentinel, because `config_diff` returns it before rasterizing anything. `rebuild/test_review_ink.py` checks over the frozen windows that the sentinel agrees with the reference picture comparison, `picture_equal` over `run_cells`.
+- `config_diff` returns the pixel-level delta that every deduplication channel keys on: the cells only one font paints, read over each font's whole rasterized window and not piece by piece. A change that paints no different pixel (an overlap removed at a seam, a stroke passed to a neighbor) does not appear in it, so a window containing such a change has the same digest as its siblings without it. Its sentinel `IDENTITY_DIFF` (no cell lost or gained, no follower shift) is the only implementation of `picture_identical`, the machine channel the build checks for every unit that is not ink-identical. Piece identity implies the sentinel, because `config_diff` returns it before rasterizing anything. `rebuild/test_review_ink.py` checks over the frozen windows that the sentinel agrees with the reference picture comparison, `picture_equal` over `run_cells`.
 
 `signature` is built from the same two `run_ink` lists that `config_diff` and `ink_pieces` read, so equal signatures give equal deltas, equal ink flags, and equal delta digests without any sampling.
 
@@ -80,7 +80,7 @@ def delta_digest(diff: tuple) -> str:
 
 
 def signature_digest(signature: tuple) -> str:
-    """Return the sha256 of the marshal version 2 bytes of one `InkComparator.signature` result. Version 2 predates marshal's back references by object identity, so equal nested tuples give equal bytes even when one shares an object the other rebuilds. The ink-duplicate merge only groups by the value, so digest equality can stand in for signature equality, and the corpus build can reuse signatures from the persisted store (rebuild/review/unit_cache.py) instead of reshaping every relabel-split window on each pass. Unlike `delta_digest`, these digests are recorded in nothing checked in: they are compared only within one build and stored in a cache that is discarded on any stamp mismatch, so changing the signature's form costs one store miss."""
+    """Return the sha256 of the marshal version 2 bytes of one `InkComparator.signature` result. Version 2 predates marshal's back references by object identity, so equal nested tuples give equal bytes even when one shares an object the other rebuilds. The ink-duplicate merge only groups by the value, so digest equality can stand in for signature equality, and the corpus build can reuse signatures from the persisted store (rebuild/review/unit_cache.py) instead of reshaping every window split only by glyph names on each pass. Unlike `delta_digest`, these digests are recorded in nothing checked in: they are compared only within one build and stored in a cache that is discarded on any stamp mismatch, so changing the signature's form costs one store miss."""
     return hashlib.sha256(marshal.dumps(signature, 2)).hexdigest()
 
 
@@ -383,13 +383,13 @@ class InkComparator:
         return all(self.config_diff(text, config) == IDENTITY_DIFF for config in configs)
 
     def config_diff(self, text: str, config: str) -> tuple:
-        """Return the before-to-after ink delta under one config at the picture grain, localized to the changed region: (cells only the before font paints, cells only the after font paints, follower shift in columns).
+        """Return the before-to-after ink delta under one config at the pixel level, localized to the changed region: (cells only the before font paints, cells only the after font paints, follower shift in columns).
 
         Each run is rasterized onto the PIXEL_SIZE grid and unioned per font over the whole window. A pixel one glyph gives up but a neighbor still paints is no change. For example, ·J'ai drops its crown pixel under an ·At that paints that pixel anyway, and the change adds nothing to any window's delta. The same change at a seam the neighbor no longer reaches leaves a real hole and stays in the delta, because the comparison is over the rendered union of this window and not over a list of allowed names.
 
         Followers that only slid are read at the same grain. The longest tail of glyphs whose after picture is the before picture displaced by a whole number of columns is moved back by that displacement before the subtraction, and the displacement is the shift. A tail that includes a pixel given up to a neighbor therefore still counts as slid, which keeps ·Fee·Tea·At·J'ai in the same group as every other window that shortens ·Fee the same way. The remaining cells are translated together so the delta's leftmost column is 0.
 
-        IDENTITY_DIFF (nothing lost, nothing gained, no shift) is the sentinel that `picture_identical`, the corpus build's per-unit flag, and the standing approvals' empty-delta digest all read. A window whose pieces are already equal returns it without rasterizing. A window with no picture (a curved or off-grid outline, or an off-grid placement) falls back to the piece grain (`_piece_diff`), which never returns the sentinel for pieces that differ. Two units whose judged pair, class, config set, and per-config deltas all agree show the same pixels appearing and disappearing, whatever unchanged letters surround the change; that is the echo-group key.
+        IDENTITY_DIFF (nothing lost, nothing gained, no shift) is the sentinel that `picture_identical`, the corpus build's per-unit flag, and the standing approvals' empty-delta digest all read. A window whose pieces are already equal returns it without rasterizing. A window with no picture (a curved or off-grid outline, or an off-grid placement) falls back to the outline level (`_piece_diff`), which never returns the sentinel for pieces that differ. Two units whose judged pair, class, config set, and per-config deltas all agree show the same pixels appearing and disappearing, whatever unchanged letters surround the change; that is the echo-group key.
         """
         features = features_for(config)
         before = self.run_ink("before", text, features)
@@ -403,7 +403,7 @@ class InkComparator:
         return _picture_diff(before_pictures, after_pictures)
 
     def _piece_diff(self, before: list, after: list) -> tuple:
-        """Return the piece-grain delta for a window with no picture. The two runs are aligned from both ends: the common prefix (same ink at the same position) and the common suffix (same ink shifted by one uniform dx) are stripped, the remaining middles are multiset-subtracted, and the result is translated so the delta's leftmost point is at x=0. Returns (outlines only the before font draws, outlines only the after font draws, suffix shift in font units). It returns IDENTITY_DIFF only when the middles cancel with no shift, which does not happen for pieces that differ."""
+        """Return the outline-level delta for a window with no picture. The two runs are aligned from both ends: the common prefix (same ink at the same position) and the common suffix (same ink shifted by one uniform dx) are stripped, the remaining middles are multiset-subtracted, and the result is translated so the delta's leftmost point is at x=0. Returns (outlines only the before font draws, outlines only the after font draws, suffix shift in font units). It returns IDENTITY_DIFF only when the middles cancel with no shift, which does not happen for pieces that differ."""
         start = 0
         while start < len(before) and start < len(after) and before[start] == after[start]:
             start += 1
@@ -442,7 +442,7 @@ class InkComparator:
 
 
 def _picture_diff(before: list[frozenset[tuple[int, int]]], after: list[frozenset[tuple[int, int]]]) -> tuple:
-    """`config_diff`'s picture-grain arithmetic over two runs' per-piece pictures: find the longest tail of pieces whose after union is the before union displaced by a whole number of columns, move that tail back by the displacement, and subtract the whole-window unions both ways. A tail with no ink yet on either side is skipped, and a tail with ink on only one side matches nothing."""
+    """`config_diff`'s pixel-level arithmetic over two runs' per-piece pictures: find the longest tail of pieces whose after union is the before union displaced by a whole number of columns, move that tail back by the displacement, and subtract the whole-window unions both ways. A tail with no ink yet on either side is skipped, and a tail with ink on only one side matches nothing."""
     tail = shift = 0
     before_tail: set[tuple[int, int]] = set()
     after_tail: set[tuple[int, int]] = set()

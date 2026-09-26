@@ -291,7 +291,7 @@ class TestTheHandRunDefaults:
         run_m1.main(["--gates-only", "--conform-only"])
         assert handed == [sweep, sweep]
 
-    def test_the_corpus_build_takes_its_own_budget_with_no_gate_reservation(
+    def test_the_corpus_build_takes_its_own_budget_with_no_memory_set_aside_for_gates(
         self, monkeypatch: pytest.MonkeyPatch
     ):
         """A hand run has no co-resident `make test` pool to leave cores or memory to, so the default is `corpus_job_budget` with `skip_gates=True`. Where memory holds the derived width below the cap, a checked-in width equal to it would pass the first equality. So the test moves the machine to 1 TB, where memory cannot bind, and checks that the width becomes the cores clamped at `CORPUS_JOBS_CAP`. On both fleet machines the width is already at the cap, so there the move changes nothing."""

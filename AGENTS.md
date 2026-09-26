@@ -26,7 +26,7 @@ Git holds the history, so a checked-in note earns its place only by recording th
 - Never write a `why:` in `glyph_data/runes/qs*.yaml`.
   - There, `why:` is the user's rationale in the user's voice, and its durable home: other files may point at a `why:` but never re-narrate it.
   - The rule is scoped exactly that narrowly: the `why:` fields in `rebuild/m1-contact-allow.yaml` and `rebuild/m1-divergences.yaml` are agent-written.
-    - Draft them yourself in the surrounding idiom; "Human-reviewed" there means the user decides whether the entry belongs, not who drafts the sentence.
+    - Draft them yourself in the pattern of the surrounding entries; "Human-reviewed" there means the user decides whether the entry belongs, not who drafts the sentence.
   - Both ledgers' hashes ignore prose, so rewording a `why:` re-runs no gate.
 - When a request names a letter ("after ·Pea") and the family has several variants (half/full, alt, `en-y6`, `ex-y0`, …), don't default to a bare `{family: qsX}` selector: enumerate the variants from `glyph_data/quikscript.yaml` and ask which subset is meant.
 - A join change is pair-wide: the two letters that bound the space decide it, never the letter's word position. Never author word-initial, word-final, or isolated special treatment (`word:`, a `self:` guard that only a word edge satisfies, a follower-scoped carve-out) unless The Manual mandates it. A mechanical constraint that happens to exclude a cell (a `bind:` that cannot coexist with an onward exit) is not a treatment, but say so in the commit message.
