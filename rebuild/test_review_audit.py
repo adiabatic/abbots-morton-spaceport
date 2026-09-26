@@ -556,20 +556,20 @@ def test_ink_duplicate_merge_respects_matched_classes_and_exemptions(mini_bundle
 
     mixed, columns = load_table(
         [
-            AuditRow("default", "E650:E665", ("cell",), "boundary-echo", ("a",), ("b",)),
+            AuditRow("default", "E650:E665", ("cell",), "boundary-window", ("a",), ("b",)),
             AuditRow("ss04", "E650:E665", ("cell",), "UNMATCHED", ("a2",), ("b",)),
         ],
         load_ledger(mini_bundle.ledger),
         dict(LETTERS),
     )
     for ordinal in range(mixed.n):
-        mixed.set_no_verdict(ordinal, mixed.class_id(ordinal) == "boundary-echo")
-    merge_ink_duplicate_units(mixed, columns, lambda text, config: text, exempt_classes={"boundary-echo"})
+        mixed.set_no_verdict(ordinal, mixed.class_id(ordinal) == "boundary-window")
+    merge_ink_duplicate_units(mixed, columns, lambda text, config: text, exempt_classes={"boundary-window"})
     mixed.compact()
     (merged,) = mixed.units()
     assert merged.class_id == "UNMATCHED"
     assert merged.no_verdict is False
-    assert merged.config_classes == {"default": "boundary-echo", "ss04": "UNMATCHED"}
+    assert merged.config_classes == {"default": "boundary-window", "ss04": "UNMATCHED"}
 
 
 def test_units_whose_configs_render_differently_never_merge(mini_bundle):

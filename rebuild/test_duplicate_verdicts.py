@@ -1,21 +1,21 @@
-"""Tests for the echo-group agreement rule, `review_queue.verdicts_agree`, and the two tools that use it: the echo fill and disagreement audit in echo_verdicts.py, and the conflicts list review_queue.py writes into the queue snapshot."""
+"""Tests for the duplicate-group agreement rule, `review_queue.verdicts_agree`, and the two tools that use it: the duplicate fill and disagreement audit in duplicate_verdicts.py, and the conflicts list review_queue.py writes into the queue snapshot."""
 
 import json
 
 import pytest
 
-from rebuild.tools import echo_verdicts as ev
+from rebuild.tools import duplicate_verdicts as dv
 from rebuild.tools import review_queue as rq
 
 STAMP = "2026-07-10T00:00:00Z"
 
 
-def unit(uid, echo, cls="live-class"):
+def unit(uid, duplicate_group, cls="live-class"):
     return {
         "id": uid,
         "batch": 1,
-        "echo": echo,
-        "cluster": f"c-{echo[2:]}",
+        "duplicate_group": duplicate_group,
+        "cluster": f"c-{duplicate_group[2:]}",
         "class": cls,
         "configs": ["default"],
         "notation": "·Pea·Tea",
@@ -78,15 +78,15 @@ def test_an_approve_identical_group_fills_its_blanks_from_the_newest_member(tmp_
     out = tmp_path / "fill.json"
     monkeypatch.setattr(
         "sys.argv",
-        ["echo_verdicts.py", str(verdicts), "--corpus", str(corpus), "--out", str(out)],
+        ["duplicate_verdicts.py", str(verdicts), "--corpus", str(corpus), "--out", str(out)],
     )
-    ev.main()
+    dv.main()
 
     fills = json.loads(out.read_text())["verdicts"]
     assert [record["unit"] for record in fills] == ["u-0003"]
     assert fills[0]["verdict"] == "identical"
-    assert fills[0]["note"] == "[echo-fill from u-0002] no visible change"
-    assert "no echo group holds disagreeing verdicts" in capsys.readouterr().out
+    assert fills[0]["note"] == "[duplicate-fill from u-0002] no visible change"
+    assert "no duplicate group holds disagreeing verdicts" in capsys.readouterr().out
 
 
 def test_a_real_split_still_reports_and_fills_nothing(tmp_path, monkeypatch, capsys):
@@ -99,33 +99,33 @@ def test_a_real_split_still_reports_and_fills_nothing(tmp_path, monkeypatch, cap
     out = tmp_path / "fill.json"
     monkeypatch.setattr(
         "sys.argv",
-        ["echo_verdicts.py", str(verdicts), "--corpus", str(corpus), "--out", str(out)],
+        ["duplicate_verdicts.py", str(verdicts), "--corpus", str(corpus), "--out", str(out)],
     )
-    ev.main()
+    dv.main()
 
     assert json.loads(out.read_text())["verdicts"] == []
     printed = capsys.readouterr().out
-    assert "[warn] 1 echo groups hold disagreeing verdicts" in printed
+    assert "[warn] 1 duplicate groups hold disagreeing verdicts" in printed
     assert "e-0001  #units=u-0001,u-0002,u-0003" in printed
 
 
-def test_echo_projection_matches_streamed_fill_and_reports(tmp_path, monkeypatch, capsys):
+def test_duplicate_projection_matches_streamed_fill_and_reports(tmp_path, monkeypatch, capsys):
     units = [unit("u-0001", "e-0001"), unit("u-0002", "e-0001")]
     corpus = corpus_with(tmp_path, units)
     verdicts = verdicts_file(tmp_path, [v("u-0001", "approve")])
     out = tmp_path / "fill.json"
     argv = [str(verdicts), "--corpus", str(corpus), "--out", str(out)]
-    ev.main(argv)
+    dv.main(argv)
     expected_bytes, expected_report = out.read_bytes(), capsys.readouterr().out
-    projection = [ev.echo_record(record) for record in units]
-    assert all(set(record) == {"id", "echo", "notation"} for record in projection)
+    projection = [dv.duplicate_record(record) for record in units]
+    assert all(set(record) == {"id", "duplicate_group", "notation"} for record in projection)
 
     def refuse_read(_corpus):
-        raise AssertionError("a supplied echo projection must not reread the index")
+        raise AssertionError("a supplied duplicate projection must not reread the index")
 
-    monkeypatch.setattr(ev.unit_index, "iter_human_units", refuse_read)
+    monkeypatch.setattr(dv.unit_index, "iter_human_units", refuse_read)
     for _round in range(2):
-        ev.main(argv, units=projection)
+        dv.main(argv, units=projection)
         assert out.read_bytes() == expected_bytes
         assert capsys.readouterr().out == expected_report
 
@@ -159,6 +159,6 @@ def test_the_queue_snapshot_lists_the_split_group_and_not_the_approve_identical_
     rq.main()
 
     conflicts = json.loads(data_out.read_text())["conflicts"]
-    assert [entry["echo"] for entry in conflicts] == ["e-0002"]
+    assert [entry["duplicate_group"] for entry in conflicts] == ["e-0002"]
     assert conflicts[0]["verdicts"] == {"u-0003": "approve", "u-0004": "neither"}
-    assert "1 echo groups disagree" in capsys.readouterr().out
+    assert "1 duplicate groups disagree" in capsys.readouterr().out

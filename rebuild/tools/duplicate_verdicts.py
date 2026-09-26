@@ -1,4 +1,4 @@
-"""Seed and audit echo-group verdicts on the live review corpus. An echo group (the unit JSON's `echo` field) is a set of human units whose localized before-to-after ink change is pixel-identical, with the same judged pair, class, configurations and follower shift. Unchanged letters around the change, including followers that only moved by the advance change, are not compared (`InkComparator.config_diff`). For every group with more than one member, this tool reads a verdicts file and does one of two things. When the recorded verdicts agree (`review_queue.verdicts_agree`: all the same, or a mix of approve and identical) and some members are blank, it writes fill records for the blanks, copied from the most recently recorded member, to an importable verdicts file. When the recorded verdicts disagree, it prints the group for a person to re-check. Skip verdicts count toward neither agreement nor blanks, so a skipped member is never filled. The app fills echo members as verdicts are recorded. This tool handles verdicts that never passed through the app's fill, such as carried verdicts, and audits the groups for consistency. The verdict update (`rebuild/tools/verdict_update.py`) runs it after the carry and merge, so blanks fill across cycles without a review session."""
+"""Seed and audit duplicate-group verdicts on the live review corpus. A duplicate group (the unit JSON's `duplicate_group` field) is a set of human units whose localized before-to-after ink change is pixel-identical, with the same judged pair, class, configurations and follower shift. Unchanged letters around the change, including followers that only moved by the advance change, are not compared (`InkComparator.config_diff`). For every group with more than one member, this tool reads a verdicts file and does one of two things. When the recorded verdicts agree (`review_queue.verdicts_agree`: all the same, or a mix of approve and identical) and some members are blank, it writes fill records for the blanks, copied from the most recently recorded member, to an importable verdicts file. When the recorded verdicts disagree, it prints the group for a person to re-check. Skip verdicts count toward neither agreement nor blanks, so a skipped member is never filled. The app fills duplicate-group members as verdicts are recorded. This tool handles verdicts that never passed through the app's fill, such as carried verdicts, and audits the groups for consistency. The verdict update (`rebuild/tools/verdict_update.py`) runs it after the carry and merge, so blanks fill across cycles without a review session."""
 
 import argparse
 import collections
@@ -17,7 +17,7 @@ from rebuild.tools.review_queue import verdicts_agree  # noqa: E402
 from rebuild.tools.verdict_notes import cap_markers  # noqa: E402
 
 CORPUS = ROOT / "rebuild/out/review"
-OUT = ROOT / "verdicts-echo-fill.json"
+OUT = ROOT / "verdicts-duplicate-fill.json"
 
 
 def latest_verdicts(path):
@@ -29,13 +29,17 @@ def latest_verdicts(path):
     return best
 
 
-def echo_record(unit: Mapping[str, Any]) -> dict:
-    """Return the fields echo fill keeps for a human unit: its id, echo group and notation (for the conflict report)."""
-    return {"id": unit["id"], "echo": unit.get("echo"), "notation": unit.get("notation")}
+def duplicate_record(unit: Mapping[str, Any]) -> dict:
+    """Return the fields the duplicate fill keeps for a human unit: its id, duplicate group and notation (for the conflict report)."""
+    return {
+        "id": unit["id"],
+        "duplicate_group": unit.get("duplicate_group"),
+        "notation": unit.get("notation"),
+    }
 
 
 def main(argv=None, *, units=None):
-    """Write the echo fills and print the conflicts. `units` is the verdict update's list of `echo_record` projections; without it, the human units are streamed from `--corpus`. Only human units are read because the corpus build requires every other unit to have a null echo."""
+    """Write the duplicate fills and print the conflicts. `units` is the verdict update's list of `duplicate_record` projections; without it, the human units are streamed from `--corpus`. Only human units are read because the corpus build requires every other unit to have a null duplicate group."""
     parser = argparse.ArgumentParser(description=(__doc__ or "").split(".")[0] + ".")
     parser.add_argument("verdicts", help="the verdicts file to seed from (an export or the autosave)")
     parser.add_argument("--corpus", "--surface", default=str(CORPUS))
@@ -54,12 +58,12 @@ def main(argv=None, *, units=None):
 
     groups = collections.defaultdict(list)
     for unit in unit_index.iter_human_units(corpus) if units is None else units:
-        if unit.get("echo"):
-            groups[unit["echo"]].append(echo_record(unit))
+        if unit.get("duplicate_group"):
+            groups[unit["duplicate_group"]].append(duplicate_record(unit))
 
     fills = []
     conflicts = []
-    for echo_id, members in sorted(groups.items()):
+    for group_id, members in sorted(groups.items()):
         if len(members) < 2:
             continue
         judged = [(unit, records[unit["id"]]) for unit in members if unit["id"] in records]
@@ -67,11 +71,11 @@ def main(argv=None, *, units=None):
         blanks = [unit for unit in members if unit["id"] not in records]
         kinds = {record["verdict"] for _unit, record in judged}
         if not verdicts_agree(kinds):
-            conflicts.append((echo_id, members, judged))
+            conflicts.append((group_id, members, judged))
             continue
         if kinds and blanks:
             source_unit, source = max(judged, key=lambda pair: pair[1]["at"])
-            note = cap_markers(f"[echo-fill from {source_unit['id']}] {source['note']}".strip())
+            note = cap_markers(f"[duplicate-fill from {source_unit['id']}] {source['note']}".strip())
             for unit in blanks:
                 fills.append(
                     {"unit": unit["id"], "verdict": source["verdict"], "note": note, "at": source["at"]}
@@ -86,16 +90,16 @@ def main(argv=None, *, units=None):
     }
     out = pathlib.Path(args.out)
     out.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
-    print(f"wrote {out.name}: {len(fills)} echo-fill verdicts onto manifest {manifest['generated_at']}")
+    print(f"wrote {out.name}: {len(fills)} duplicate-fill verdicts onto manifest {manifest['generated_at']}")
 
     if conflicts:
         print()
         console.warn(
-            f"{len(conflicts)} echo groups hold disagreeing verdicts — the same change judged differently; worth a re-check:"
+            f"{len(conflicts)} duplicate groups hold disagreeing verdicts — the same change judged differently; worth a re-check:"
         )
-        for echo_id, members, judged in conflicts:
+        for group_id, members, judged in conflicts:
             ids = ",".join(unit["id"] for unit in members)
-            print(f"  {echo_id}  #units={ids}")
+            print(f"  {group_id}  #units={ids}")
             verdicted_ids = {unit["id"] for unit, _record in judged}
             for unit, record in judged:
                 print(
@@ -105,7 +109,7 @@ def main(argv=None, *, units=None):
                 if unit["id"] not in verdicted_ids:
                     print(f"    {unit['id']:9s} {unit['notation']:30s} (blank)")
     else:
-        print("no echo group holds disagreeing verdicts")
+        print("no duplicate group holds disagreeing verdicts")
     return 0
 
 

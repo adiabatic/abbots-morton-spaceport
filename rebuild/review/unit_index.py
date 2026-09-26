@@ -1,6 +1,6 @@
 """Writes and reads the corpus's per-unit index, `units-index.ndjson.gz`: one record per unit with the fields the verdict update reads, written beside the manifest.
 
-The shards are the authority, and this file is a projection of them. It exists because the verdict-update tools (carry, echo fill, standing fill, the complaint list) and the review-session preparation tools (the review queue snapshot, the novelty order) each read a few fields per unit. Reading those from the shards would mean parsing gigabytes of JSON once per tool per cycle, much of it `explain` and `drafts`, of which the index keeps only the policy draft's file, key path, and suggested record. `index_record` defines the projection. rebuild/test_unit_index.py checks it against the fixture shards field for field and pins the field set. A field a tool needs must be added here: `UnitRecord.get` returns the default for a name outside `INDEX_FIELDS`, so a missing field would silently read as absent.
+The shards are the authority, and this file is a projection of them. It exists because the verdict-update tools (carry, duplicate fill, standing fill, the complaint list) and the review-session preparation tools (the review queue snapshot, the novelty order) each read a few fields per unit. Reading those from the shards would mean parsing gigabytes of JSON once per tool per cycle, much of it `explain` and `drafts`, of which the index keeps only the policy draft's file, key path, and suggested record. `index_record` defines the projection. rebuild/test_unit_index.py checks it against the fixture shards field for field and pins the field set. A field a tool needs must be added here: `UnitRecord.get` returns the default for a name outside `INDEX_FIELDS`, so a missing field would silently read as absent.
 
 Two fields are counts, because counting is all any reader does with them: `render_groups` is the number of render groups (standing fill requires exactly one) and `secondary_seams` the number of secondary seams (standing fill requires none). Two fields come from the manifest instead of the shard: `order` is the unit's position in the manifest's triage index (`human_unit_ids`), and `batch` is the `batch_size` slice that position falls in. Both are null for a unit outside the index. A fragment carries neither, because a unit's place in the queue is not a property of the unit, and every reader derives them through `human_positions`. Every other field is the shard's own value.
 
@@ -70,7 +70,7 @@ def index_record(fragment: dict, *, order: int | None = None, batch: int | None 
         "batch": batch,
         "class": fragment.get("class"),
         "cluster": fragment.get("cluster"),
-        "echo": fragment.get("echo"),
+        "duplicate_group": fragment.get("duplicate_group"),
         "group": fragment.get("group"),
         "notation": fragment.get("notation"),
         "notation_tokens": fragment.get("notation_tokens") or [],

@@ -1,7 +1,7 @@
 {
   "invariant": {
     "classes": [
-      "boundary-echo",
+      "boundary-window",
       "zwnj-word-initial-unification",
       "marker-staging-ligature-formation",
       "pre-ligature-cleanup-regularized",
@@ -35,7 +35,7 @@
       "deferred-ss03"
     ],
     "machine_approved_classes": [
-      "boundary-echo",
+      "boundary-window",
       "zwnj-word-initial-unification",
       "halves-entry-extension-restored",
       "same-seam-extension-non-summing",
@@ -49,7 +49,7 @@
       "deferred-ss03"
     ],
     "no_verdict_classes": [
-      "boundary-echo",
+      "boundary-window",
       "vie-baseline-entry-extension-dropped",
       "no-xheight-entry-extension-dropped",
       "may-ligature-seam-loosened",
@@ -73,12 +73,12 @@
         "units": 1398458,
         "rows": 6745952,
         "batches": 777,
-        "echo_groups": 9814
+        "duplicate_groups": 9814
       },
       "machine_approved": {
         "units": 1123265,
         "by_class": {
-          "boundary-echo": 171505,
+          "boundary-window": 171505,
           "zwnj-word-initial-unification": 136,
           "halves-entry-extension-restored": 330,
           "same-seam-extension-non-summing": 2030,
@@ -93,7 +93,7 @@
         }
       },
       "class_unit_count": {
-        "boundary-echo": 200577,
+        "boundary-window": 200577,
         "dangling-anchor-dropped": 362928,
         "bare-name-live-join": 611125
       },
@@ -106,7 +106,7 @@
     },
     "built": {
       "human_units": 233083,
-      "reference_window_echo_siblings": 846,
+      "reference_window_duplicate_siblings": 846,
       "config_note_distribution": [
         [
           null,
@@ -170,13 +170,13 @@
       "machine_total": 1084754,
       "non_identical": 320226,
       "by_class": {
-        "boundary-echo": 168058,
+        "boundary-window": 168058,
         "zwnj-word-initial-unification": 136,
         "dangling-anchor-dropped": 329695,
         "bare-name-live-join": 585584,
         "zoo-entry-contraction-respelled": 1281
       },
-      "boundary_echo_exempt": 47274,
+      "boundary_window_exempt": 47274,
       "human_units": 272952,
       "batches": 910
     },

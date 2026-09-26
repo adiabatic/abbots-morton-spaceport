@@ -112,7 +112,7 @@ def test_refuse_drafts_never_target_seam_identical_units(drafter, enricher, exam
 
 def test_policy_draft_pins_baseline_cell_on_name_grain_divergence(drafter, enricher, example_units):
     unit = example_units[("E650:200C:E650:E665", "default")]
-    assert unit.class_id == "boundary-echo"
+    assert unit.class_id == "boundary-window"
     policy = drafter.draft_policy(enricher.enrich(unit))
     assert policy is not None
     assert policy.keypath == "policy.prefer[+]"
@@ -124,7 +124,7 @@ def test_policy_draft_pins_baseline_cell_on_name_grain_divergence(drafter, enric
 
 def test_policy_draft_declines_unexpressible_name_grain_divergence(drafter, enricher, example_units):
     unit = example_units[("E650:200C:E650:E670", "default")]
-    assert unit.class_id == "boundary-echo"
+    assert unit.class_id == "boundary-window"
     assert drafter.draft_policy(enricher.enrich(unit)) is None
 
 

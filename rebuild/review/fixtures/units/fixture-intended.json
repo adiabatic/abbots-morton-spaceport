@@ -14,7 +14,7 @@
    "ss02+ss03+ss05": "d-e77325b1df50"
   },
   "no_verdict": false,
-  "echo": "e-0003",
+  "duplicate_group": "e-0003",
   "cluster": "c-f1a70012",
   "class": "fixture-intended",
   "group": "qsTea:qsIt",
@@ -149,7 +149,7 @@
    "ss02+ss03+ss05": "d-e77325b1df50"
   },
   "no_verdict": false,
-  "echo": "e-0002",
+  "duplicate_group": "e-0002",
   "cluster": "c-f1a70012",
   "class": "fixture-intended",
   "group": "qsIt:qsIt",
@@ -277,7 +277,7 @@
    "ss02+ss03+ss05": "d-389ebea7ccc7"
   },
   "no_verdict": false,
-  "echo": "e-0001",
+  "duplicate_group": "e-0001",
   "cluster": "c-f1a70001",
   "class": "fixture-intended",
   "group": "qsTea:qsOy",
@@ -408,7 +408,7 @@
   "junior_equivalent": false,
   "ink_deltas": {},
   "no_verdict": false,
-  "echo": null,
+  "duplicate_group": null,
   "cluster": null,
   "class": "fixture-intended",
   "group": "qsPea:qsMay",

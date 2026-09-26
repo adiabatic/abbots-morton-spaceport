@@ -66,7 +66,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 PINS_PATH = REPO_ROOT / "rebuild" / "review-facts-pins.json"
 
 FACTS_FILENAME = "review-facts.json"
-FACTS_FORMAT = "ams-review-facts/5"
+FACTS_FORMAT = "ams-review-facts/6"
 FACTS_REMEDY = "rebuild the corpus with: uv run python -m rebuild.review.build"
 
 AUDIT_PATH = REPO_ROOT / "rebuild" / "out" / "m1" / "divergence-audit.tsv"
@@ -75,7 +75,7 @@ SUBSET_DIR = REPO_ROOT / "rebuild" / "out" / "m1"
 AFTER_FONT = REPO_ROOT / "rebuild" / "out" / "m1" / "M1.otf"
 BEFORE_FONT = REPO_ROOT / "site" / "AbbotsMortonSpaceportSansSenior-Regular.otf"
 
-CLASS_UNIT_COUNT_KEYS = ("boundary-echo", "dangling-anchor-dropped", "bare-name-live-join")
+CLASS_UNIT_COUNT_KEYS = ("boundary-window", "dangling-anchor-dropped", "bare-name-live-join")
 
 REFERENCE_WINDOW_CODEPOINTS = "E670:E653:E652:E666"
 _REFERENCE_WINDOW = parse_codepoints(REFERENCE_WINDOW_CODEPOINTS)
@@ -243,25 +243,25 @@ def _shard_units(out_dir: Path, meta: dict) -> Iterable[dict]:
 
 
 def built_group(out_dir: Path, manifest: dict) -> dict:
-    """The post-merge facts that need a walk of the corpus's unit shards: the human-unit count, the config-note histogram, and the reference window's echo-sibling count (the distinct windows one ·It·Day·Tea·No verdict covers). The echo-sibling count is None when the reference window is not a human unit. Every build writes the sidecar, including the unit-cache tests' small corpora, so only the live corpus is required to contain the reference window, and the pins diff shows a missing one as an accepted count replaced by None."""
+    """The post-merge facts that need a walk of the corpus's unit shards: the human-unit count, the config-note histogram, and the reference window's duplicate-sibling count (the distinct windows one ·It·Day·Tea·No verdict covers). The duplicate-sibling count is None when the reference window is not a human unit. Every build writes the sidecar, including the unit-cache tests' small corpora, so only the live corpus is required to contain the reference window, and the pins diff shows a missing one as an accepted count replaced by None."""
     out_dir = Path(out_dir)
     human_units = 0
     distribution: dict[str | None, int] = {}
-    reference_echo: str | None = None
-    codepoints_by_echo: dict[str, set[str]] = {}
+    reference_group: str | None = None
+    codepoints_by_group: dict[str, set[str]] = {}
     for meta in manifest["classes"]:
         for unit in _shard_units(out_dir, meta):
             if not slim_fragment(unit):
                 human_units += 1
-                codepoints_by_echo.setdefault(unit["echo"], set()).add(unit["codepoints"])
+                codepoints_by_group.setdefault(unit["duplicate_group"], set()).add(unit["codepoints"])
                 if unit["codepoints"] == REFERENCE_WINDOW_CODEPOINTS:
-                    reference_echo = unit["echo"]
+                    reference_group = unit["duplicate_group"]
             note = unit["config_note"]
             distribution[note] = distribution.get(note, 0) + 1
     return {
         "human_units": human_units,
-        "reference_window_echo_siblings": (
-            len(codepoints_by_echo[reference_echo]) if reference_echo is not None else None
+        "reference_window_duplicate_siblings": (
+            len(codepoints_by_group[reference_group]) if reference_group is not None else None
         ),
         "config_note_distribution": _encode_note_distribution(distribution),
     }
@@ -282,7 +282,7 @@ def audit_group(repo_root: Path = REPO_ROOT) -> dict:
 
 
 def ink_histogram(workload: Workload, comparator) -> dict:
-    """The ink group over the pre-merge workload, computed by shaping: flag every unit whose placed ink is identical in both fonts under every config in its set, count the machine-approved units per class, and count the boundary-echo no-verdict exemptions, the human units, and their batches. It counts as `ink_group_from_flags` does: the ink verdict alone decides, and the batches are the human units cut into `BATCH_SIZE` slices. `workload.units()` materializes new records, and the flags are set on those."""
+    """The ink group over the pre-merge workload, computed by shaping: flag every unit whose placed ink is identical in both fonts under every config in its set, count the machine-approved units per class, and count the boundary-window no-verdict exemptions, the human units, and their batches. It counts as `ink_group_from_flags` does: the ink verdict alone decides, and the batches are the human units cut into `BATCH_SIZE` slices. `workload.units()` materializes new records, and the flags are set on those."""
     units = workload.units()
     machine_by_class: dict[str, int] = {}
     for unit in units:
@@ -296,7 +296,7 @@ def ink_histogram(workload: Workload, comparator) -> dict:
         "machine_total": machine_total,
         "non_identical": len(units) - machine_total,
         "by_class": machine_by_class,
-        "boundary_echo_exempt": exempt,
+        "boundary_window_exempt": exempt,
         "human_units": human,
         "batches": (human + BATCH_SIZE - 1) // BATCH_SIZE,
     }
@@ -566,7 +566,7 @@ def ink_group_from_flags(class_rows: Iterable[tuple[str, bool]], flags: str) -> 
         "machine_total": machine_total,
         "non_identical": total - machine_total,
         "by_class": machine_by_class,
-        "boundary_echo_exempt": exempt,
+        "boundary_window_exempt": exempt,
         "human_units": human,
         "batches": (human + BATCH_SIZE - 1) // BATCH_SIZE,
     }
@@ -582,23 +582,23 @@ def built_group_from_memory(table: UnitTable, config_notes: Mapping[int, str | N
     """`built_group` computed from the build's in-memory state instead of the shards it wrote: the same three facts by the same rules, including None for a missing reference window, without parsing the shards again. The units are the table's rows; `config_notes` maps each unit's ordinal to its `config_note`, the one fragment field this group reads."""
     human_units = 0
     distribution: dict[str | None, int] = {}
-    reference_echo: str | None = None
-    windows_by_echo: dict[str, set[tuple[int, ...]]] = {}
+    reference_group: str | None = None
+    windows_by_group: dict[str, set[tuple[int, ...]]] = {}
     for ordinal in range(table.n):
         if table.batch(ordinal) is not None:
-            echo = table.echo(ordinal)
-            assert echo is not None
+            duplicate_group = table.duplicate_group(ordinal)
+            assert duplicate_group is not None
             human_units += 1
             window = table.codepoints(ordinal)
-            windows_by_echo.setdefault(echo, set()).add(window)
+            windows_by_group.setdefault(duplicate_group, set()).add(window)
             if window == _REFERENCE_WINDOW:
-                reference_echo = echo
+                reference_group = duplicate_group
         note = config_notes[ordinal]
         distribution[note] = distribution.get(note, 0) + 1
     return {
         "human_units": human_units,
-        "reference_window_echo_siblings": (
-            len(windows_by_echo[reference_echo]) if reference_echo is not None else None
+        "reference_window_duplicate_siblings": (
+            len(windows_by_group[reference_group]) if reference_group is not None else None
         ),
         "config_note_distribution": _encode_note_distribution(distribution),
     }

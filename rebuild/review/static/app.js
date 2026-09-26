@@ -5,7 +5,7 @@ import { bannerModel } from './status.js';
 import {
   createStore,
   recordVerdict,
-  recordVerdictWithEchoes,
+  recordVerdictWithDuplicates,
   updateNote,
   groupApprove,
   undo,
@@ -31,8 +31,8 @@ import {
   seamChip,
   onlyHereSeamSpans,
   tokenMarkRuns,
-  echoChip,
-  echoFillTargets,
+  duplicateChip,
+  duplicateFillTargets,
   needsNoVerdict,
   familiesOfGroup,
   unitMatchesFilters,
@@ -57,7 +57,7 @@ import {
   copyPreamble,
   tokenSeparators,
   searchUnits,
-  echoGroupOfQuery,
+  duplicateGroupOfQuery,
 } from './render.js';
 import {
   APP_INDEX_FORMAT,
@@ -90,7 +90,7 @@ import {
   SINGLETON_DECISION,
   buildClusters,
   decisionKey,
-  echoConflicts,
+  duplicateConflicts,
   nextQueueDecision,
   partitionClusters,
   queueCounts,
@@ -130,7 +130,7 @@ const store = createStore();
 const humanRows = new Map();
 const humanList = [];
 const rowsByClass = new Map();
-const echoIndex = new Map();
+const duplicateIndex = new Map();
 const fullRecords = createRecordCache();
 const foldRecords = new Map();
 const locatorBlocks = createRecordCache(BLOCK_CACHE_CAP);
@@ -282,7 +282,7 @@ function parseHeaderLine(line) {
   }
 }
 
-// Loads the app index in one streaming pass, parsing a line at a time so the tab never holds the source text and the rows at once. The queue view, search, worklists, progress, filters and echo chips read only these rows.
+// Loads the app index in one streaming pass, parsing a line at a time so the tab never holds the source text and the rows at once. The queue view, search, worklists, progress, filters and duplicate chips read only these rows.
 async function loadHumanIndex() {
   const families = new Set();
   try {
@@ -299,9 +299,9 @@ async function loadHumanIndex() {
       humanList.push(row);
       if (!rowsByClass.has(row.class)) rowsByClass.set(row.class, []);
       rowsByClass.get(row.class).push(row);
-      if (row.echo) {
-        if (!echoIndex.has(row.echo)) echoIndex.set(row.echo, []);
-        echoIndex.get(row.echo).push(row.id);
+      if (row.duplicate_group) {
+        if (!duplicateIndex.has(row.duplicate_group)) duplicateIndex.set(row.duplicate_group, []);
+        duplicateIndex.get(row.duplicate_group).push(row.id);
       }
       for (const family of familiesOfGroup(row.group)) families.add(family);
     }
@@ -678,12 +678,12 @@ function buildRow(unit) {
     const badge = el('span', 'config-class-note', unit.config_class_note);
     meta.append(badge);
   }
-  const echo = echoChip(unit, echoIndex.get(unit.echo) ?? []);
-  if (echo) {
-    const chip = el('a', 'echo-chip', echo.label);
-    chip.href = echo.href;
-    chip.title = echo.title;
-    chip.dataset.echo = unit.echo;
+  const duplicate = duplicateChip(unit, duplicateIndex.get(unit.duplicate_group) ?? []);
+  if (duplicate) {
+    const chip = el('a', 'duplicate-chip', duplicate.label);
+    chip.href = duplicate.href;
+    chip.title = duplicate.title;
+    chip.dataset.duplicateGroup = unit.duplicate_group;
     meta.append(chip);
   }
   label.append(meta);
@@ -854,7 +854,7 @@ function buildQueueContext(units) {
       line.append(el('strong', null, 'Queue decision'));
       line.append(
         document.createTextNode(
-          ` — one verdict per echo group covers all ${formatCount(cluster.size)} lookalike units of `,
+          ` — one verdict per duplicate group covers all ${formatCount(cluster.size)} lookalike units of `,
         ),
       );
       line.append(el('span', 'chip', cluster.class));
@@ -1378,7 +1378,7 @@ function buildClusterCard(cluster, position) {
   card.dataset.cluster = cluster.id;
   const header = el('header');
   header.append(el('span', 'size', `${position}. ${formatCount(cluster.size)} unit${cluster.size === 1 ? '' : 's'}`));
-  header.append(el('span', null, `in ${cluster.echoGroups.length} echo group${cluster.echoGroups.length === 1 ? '' : 's'}`));
+  header.append(el('span', null, `in ${cluster.duplicateGroups.length} duplicate group${cluster.duplicateGroups.length === 1 ? '' : 's'}`));
   header.append(el('span', 'chip', cluster.class));
   appendConfigGate(header, cluster.exemplar, { detail: false });
   header.append(el('span', 'configs', cluster.id));
@@ -1397,7 +1397,7 @@ function buildClusterCard(cluster, position) {
     appButton(queueWorklistHref(cluster.representatives, cluster.id), `Judge ${cluster.representatives.length} representative${cluster.representatives.length === 1 ? '' : 's'}`),
   );
   representatives.append(
-    el('span', 'note', ` — one per echo group; each verdict echo-fills its group, covering all ${cluster.size} units.`),
+    el('span', 'note', ` — one per duplicate group; each verdict duplicate-fills its group, covering all ${cluster.size} units.`),
   );
   card.append(representatives);
   card.append(buildEvidenceLine(cluster.evidence));
@@ -1475,14 +1475,14 @@ function buildSingletonSection(singletons) {
 
 function buildConflictSection(conflicts) {
   const section = el('section', 'queue-conflicts');
-  section.append(el('h2', null, `Echo groups with disagreeing verdicts (${conflicts.length})`));
+  section.append(el('h2', null, `Duplicate groups with disagreeing verdicts (${conflicts.length})`));
   section.append(
     el('p', 'queue-note', 'The same visual change judged differently across contexts — worth a re-check when convenient.'),
   );
   for (const conflict of conflicts) {
     const card = el('article', 'conflict');
     const header = el('header');
-    header.append(el('span', 'chip', conflict.echo));
+    header.append(el('span', 'chip', conflict.duplicateGroup));
     header.append(el('span', 'chip', conflict.class));
     header.append(appButton(worklistHref(conflict.unitIds), 'View stacked'));
     card.append(header);
@@ -1536,7 +1536,7 @@ function renderQueue({ anchor = null } = {}) {
   const clusters = buildClusters(humanList, recordOf);
   const ruledIds = ruledClassIds(manifest.classes);
   const { top, later, singletons, ruledBlankUnits } = partitionClusters(clusters, ruledIds);
-  const conflicts = echoConflicts(echoIndex, humanRows, recordOf);
+  const conflicts = duplicateConflicts(duplicateIndex, humanRows, recordOf);
   // The headline counts leave out ledger-ruled classes; the note below reports their blank units.
   const totals = queueTotals(clusters.filter((cluster) => !ruledIds.has(cluster.class)));
 
@@ -1546,7 +1546,7 @@ function renderQueue({ anchor = null } = {}) {
     el(
       'p',
       'queue-provenance',
-      `${formatCount(totals.blankUnits)} blank units in ${formatCount(totals.echoGroups)} echo groups → ` +
+      `${formatCount(totals.blankUnits)} blank units in ${formatCount(totals.duplicateGroups)} duplicate groups → ` +
         `${formatCount(totals.clusters)} clusters (${formatCount(totals.multiClusters)} multi-unit, ` +
         `${formatCount(totals.singletonClusters)} singleton), live against the current verdicts.`,
     ),
@@ -1565,7 +1565,7 @@ function renderQueue({ anchor = null } = {}) {
     el(
       'p',
       'queue-note',
-      'Every button stacks a decision as a worklist — judge there with the keyboard flow; echo-fill multiplies each verdict, and this queue recomputes as verdicts land.',
+      'Every button stacks a decision as a worklist — judge there with the keyboard flow; duplicate-fill multiplies each verdict, and this queue recomputes as verdicts land.',
     ),
   );
   container.append(header);
@@ -1749,16 +1749,16 @@ function applyVerdict(unitId, verdict, { toggle = true, note = null } = {}) {
   if (toggle && existing && existing.verdict === verdict) {
     recordVerdict(store, unitId, null);
   } else {
-    // A verdict also goes to the unverdicted members of the unit's echo group, which show the same change on the same judged pair. Skip is a per-unit deferral and is never copied, and members that already have a record, a skip included, are not overwritten.
+    // A verdict also goes to the unverdicted members of the unit's duplicate group, which show the same change on the same judged pair. Skip is a per-unit deferral and is never copied, and members that already have a record, a skip included, are not overwritten.
     const unit = unitFor(unitId);
-    const echoes =
+    const duplicates =
       verdict === 'skip' || !unit
         ? []
-        : echoFillTargets(unit, echoIndex.get(unit.echo) ?? [], (id) => store.records.has(id));
-    const applied = recordVerdictWithEchoes(store, unitId, verdict, echoes, { note: noteValue });
+        : duplicateFillTargets(unit, duplicateIndex.get(unit.duplicate_group) ?? [], (id) => store.records.has(id));
+    const applied = recordVerdictWithDuplicates(store, unitId, verdict, duplicates, { note: noteValue });
     for (const id of applied) syncRowVerdict(id);
     if (applied.length > 1) {
-      toast(`Echoed to ${applied.length - 1} matching window${applied.length === 2 ? '' : 's'} (u to undo all)`);
+      toast(`Copied to ${applied.length - 1} duplicate window${applied.length === 2 ? '' : 's'} (u to undo all)`);
     }
     lastVerdictedUnitId = unitId;
   }
@@ -2094,11 +2094,11 @@ function approveGroupOf(unitId) {
   for (const candidate of visibleUnits) {
     if (candidate.group === unit.group && !store.records.has(candidate.id)) ids.push(candidate.id);
   }
-  // Each approval is also copied to the rest of its echo group, including members in other batches. groupApprove skips units that already have a record, so duplicate ids in the list are harmless.
+  // Each approval is also copied to the rest of its duplicate group, including members in other batches. groupApprove skips units that already have a record, so duplicate ids in the list are harmless.
   const expanded = [...ids];
   for (const id of ids) {
     const member = humanRows.get(id);
-    if (member?.echo) expanded.push(...(echoIndex.get(member.echo) ?? []));
+    if (member?.duplicate_group) expanded.push(...(duplicateIndex.get(member.duplicate_group) ?? []));
   }
   const applied = groupApprove(store, expanded);
   for (const id of applied) syncRowVerdict(id);
@@ -2106,8 +2106,8 @@ function approveGroupOf(unitId) {
   updateProgress();
   scheduleAutosave();
   const inGroup = applied.filter((id) => ids.includes(id)).length;
-  const echoed = applied.length - inGroup;
-  toast(`Approved ${inGroup} remaining in ${unit.group}${echoed > 0 ? ` + ${echoed} echoes elsewhere` : ''}`);
+  const copied = applied.length - inGroup;
+  toast(`Approved ${inGroup} remaining in ${unit.group}${copied > 0 ? ` + ${copied} duplicates elsewhere` : ''}`);
   advanceFrom(unitId);
 }
 
@@ -2210,7 +2210,7 @@ async function flushAutosave() {
   const ids = takeDirty();
   autosaveInFlight = true;
   try {
-    // A normal flush is one decision and its echoes, but an Import can dirty every record in a file, so the ids go out in chunks of AUTOSAVE_CHUNK and no body reaches the server's request-size limit.
+    // A normal flush is one decision and its duplicate fills, but an Import can dirty every record in a file, so the ids go out in chunks of AUTOSAVE_CHUNK and no body reaches the server's request-size limit.
     for (let start = 0; start < ids.length; start += AUTOSAVE_CHUNK) {
       const chunk = ids.slice(start, start + AUTOSAVE_CHUNK);
       let response;
@@ -2466,7 +2466,7 @@ function selectSearchRow(row) {
   if (row.dataset.units) {
     closeSearch();
     document.getElementById('unit-search').blur();
-    // The hash lists the echo group's unit ids as a worklist, the same form as the echo chip, so the group renders stacked.
+    // The hash lists the duplicate group's unit ids as a worklist, the same form as the duplicate chip, so the group renders stacked.
     location.hash = `units=${row.dataset.units}`;
     return;
   }
@@ -2497,7 +2497,7 @@ function renderSearchResults(query) {
   input.setAttribute('aria-expanded', 'true');
   input.removeAttribute('aria-activedescendant');
   searchActive = -1;
-  const group = echoGroupOfQuery(query, echoIndex);
+  const group = duplicateGroupOfQuery(query, duplicateIndex);
   if (group) {
     const { id: groupId, members } = group;
     const row = el('button', 'search-result search-group');
@@ -2507,7 +2507,7 @@ function renderSearchResults(query) {
     row.setAttribute('role', 'option');
     row.setAttribute('aria-selected', 'false');
     row.append(el('span', 'search-id', groupId));
-    row.append(el('span', 'search-notation', `echo group — stack all ${members.length} members as a worklist`));
+    row.append(el('span', 'search-notation', `duplicate group — stack all ${members.length} members as a worklist`));
     results.append(row);
   }
   if (matches.length === 0 && !results.querySelector('.search-result')) {
@@ -2730,11 +2730,11 @@ function wireEvents() {
       if (chip.dataset.home) location.hash = `unit=${chip.dataset.home}`;
       return;
     }
-    const echoLink = event.target.closest('.echo-chip');
-    if (echoLink) {
+    const duplicateLink = event.target.closest('.duplicate-chip');
+    if (duplicateLink) {
       event.preventDefault();
       // The hash lists the group's unit ids as a worklist, which renders those units stacked and grouped.
-      location.hash = echoLink.getAttribute('href').replace(/^#/, '');
+      location.hash = duplicateLink.getAttribute('href').replace(/^#/, '');
       return;
     }
     const row = event.target.closest('.row');

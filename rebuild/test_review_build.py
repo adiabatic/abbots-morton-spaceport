@@ -101,13 +101,13 @@ def test_fixture_units_exercise_the_contract_branches():
     ), "a fixture unit must exercise the homed secondary-seam branch"
     assert any(isinstance(unit["cluster"], str) for unit in units)
     assert any(unit["cluster"] is None for unit in units)
-    echoes_by_cluster = {}
+    groups_by_cluster = {}
     for unit in units:
         if unit["cluster"]:
-            echoes_by_cluster.setdefault(unit["cluster"], set()).add(unit["echo"])
+            groups_by_cluster.setdefault(unit["cluster"], set()).add(unit["duplicate_group"])
     assert any(
-        len(echoes) > 1 for echoes in echoes_by_cluster.values()
-    ), "a fixture cluster must span echo groups"
+        len(groups) > 1 for groups in groups_by_cluster.values()
+    ), "a fixture cluster must span duplicate groups"
     assert any(unit["ink_deltas"] for unit in units)
     assert any(unit["ink_deltas"] == {} for unit in units)
     assert any(
@@ -219,11 +219,11 @@ def test_check_unit_admits_one_machine_check_at_most():
 
 
 def test_check_unit_takes_picture_identical_units_out_of_the_human_units():
-    """A picture-identical unit stops being a human unit as an ink-identical one does: no echo, no cluster, the slim fragment shape, and empty `ink_deltas`, because the deltas are read at picture granularity and the flag means they are empty under every config."""
+    """A picture-identical unit stops being a human unit as an ink-identical one does: no duplicate group, no cluster, the slim fragment shape, and empty `ink_deltas`, because the deltas are read at picture granularity and the flag means they are empty under every config."""
     unit = _fixture_unit(ink_identical=False)
     unit["picture_identical"] = True
-    assert any("echo null" in error for error in check_unit(unit, "m1-audit"))
-    unit["echo"] = None
+    assert any("duplicate_group null" in error for error in check_unit(unit, "m1-audit"))
+    unit["duplicate_group"] = None
     unit["cluster"] = None
     unit["secondary_seams"] = None
     assert any("omit drafts" in error for error in check_unit(unit, "m1-audit"))
@@ -692,7 +692,7 @@ def test_the_serial_runner_spools_every_fragment_and_keeps_no_enrichment(tmp_pat
             fragment = runner.fragment(source)
             assert fragment["id"] == unit.unit_id == unit_cache.unit_id_for(fragment["content_key"])
             assert fragment["content_key"] == unit_cache.carry_content_hash(fragment)
-            assert "batch" not in fragment and fragment["echo"] is None
+            assert "batch" not in fragment and fragment["duplicate_group"] is None
             slim = unit.slim_fragment
             assert slim == (unit.machine_approved or unit.no_verdict)
             assert [key in fragment for key in SLIM_OMITTED_KEYS] == [not slim] * len(
@@ -735,7 +735,7 @@ def test_the_stamped_scaffold_keys_are_the_projections_share_of_the_scaffold(min
 
 @pytest.mark.parametrize("key", review_build._SCAFFOLD_HEAD + review_build._SCAFFOLD_TAIL)
 def test_check_scaffold_raises_exactly_when_the_parent_moves_a_checked_field(key):
-    """Over plain dicts: a fragment and a scaffold that agree pass. One that differs at a checked key (`_CHECKED_SCAFFOLD_KEYS`) raises a `SystemExit` naming the unit and the key and saying whether the key is inside the carry projection (the stamp describes other content) or outside it (the drafting-time check passed other bytes). One that differs only at `echo` or `cluster` passes, since the patch assigns those after drafting and the write-time check covers them."""
+    """Over plain dicts: a fragment and a scaffold that agree pass. One that differs at a checked key (`_CHECKED_SCAFFOLD_KEYS`) raises a `SystemExit` naming the unit and the key and saying whether the key is inside the carry projection (the stamp describes other content) or outside it (the drafting-time check passed other bytes). One that differs only at `duplicate_group` or `cluster` passes, since the patch assigns those after drafting and the write-time check covers them."""
     fragment = {
         "id": "u-3mJ7kPq2Xw9",
         **{name: f"value of {name}" for name in review_build._STAMPED_SCAFFOLD_KEYS},
@@ -749,7 +749,7 @@ def test_check_scaffold_raises_exactly_when_the_parent_moves_a_checked_field(key
     review_build.check_scaffold(fragment, dict(fragment))
     scaffold = {**fragment, key: "moved"}
     if key not in review_build._CHECKED_SCAFFOLD_KEYS:
-        assert key in ("echo", "cluster")
+        assert key in ("duplicate_group", "cluster")
         review_build.check_scaffold(fragment, scaffold)
         return
     with pytest.raises(SystemExit) as caught:

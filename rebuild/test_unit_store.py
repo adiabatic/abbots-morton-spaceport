@@ -173,7 +173,7 @@ def test_a_recomputed_projection_reads_back_what_the_load_was_handed():
     assert store.seam_home_record(0) == _record(projection.seam_home)
     assert store.written_address(0) is None
     assert store.policy_file(0) is None and store.config_note(0) is None
-    assert store.cached_class(0) is None and store.cached_echo(0) is None
+    assert store.cached_class(0) is None and store.cached_duplicate_group(0) is None
     assert store.cached_homes(0) == [[None, False]]
     assert store.homes(0) == ((None, False),)
     assert list(store.windows()) == [(0, _WINDOW)]
@@ -221,7 +221,7 @@ def _cached_record(
     return unit_cache.CachedUnit(
         key=_key(f"input:{label}"),
         prior_id=unit_cache.unit_id_for(content_key),
-        prior_class="boundary-echo",
+        prior_class="boundary-window",
         content_key=content_key,
         slim=False,
         address=address,
@@ -250,7 +250,7 @@ def _cached_record(
             }
         ],
         mismatches=[],
-        echo="e-2WvdGAWe6bX",
+        duplicate_group="e-2WvdGAWe6bX",
         exemplar=False,
         no_verdict=False,
         homes=homes,
@@ -271,7 +271,7 @@ def _load(tmp_path: Path, records: list[unit_cache.CachedUnit]) -> dict[str, uni
 
 
 def test_a_cached_record_reads_back_and_its_cached_unit_is_the_store_line(tmp_path):
-    """A store record that is written, parsed as a `ParsedCachedUnit`, and loaded reads back through `cached_unit` as the same store line after its homes are set by id and its written address is recorded. `home_ordinals` resolves a home id to its ordinal through the index. The cached-only columns hold the record's class, echo, flags, and homes, which are what `cached_as_is` compares."""
+    """A store record that is written, parsed as a `ParsedCachedUnit`, and loaded reads back through `cached_unit` as the same store line after its homes are set by id and its written address is recorded. `home_ordinals` resolves a home id to its ordinal through the index. The cached-only columns hold the record's class, duplicate group, flags, and homes, which are what `cached_as_is` compares."""
     home = _cached_record("home", [[None, False]], ("units/small.json", 1, 5))
     homed = _cached_record("homed", [[home.prior_id, False]], ("units/small.json", 7, 5))
     loaded = _load(tmp_path, [home, homed])
@@ -303,8 +303,8 @@ def test_a_cached_record_reads_back_and_its_cached_unit_is_the_store_line(tmp_pa
     source = store.source(0)
     assert source == homed_cached.located() and source is not None and source.byte_copied
     assert store.flags(0).cached and store.flags(0).byte_copied and not store.flags(0).slim
-    assert store.cached_class(0) == "boundary-echo"
-    assert store.cached_echo(0) == "e-2WvdGAWe6bX"
+    assert store.cached_class(0) == "boundary-window"
+    assert store.cached_duplicate_group(0) == "e-2WvdGAWe6bX"
     assert store.policy_file(0) == homed.policy_file
     assert store.cached_homes(0) == homed.homes
     assert store.cached_homes(1) == home.homes == [[None, False]]
@@ -316,9 +316,13 @@ def test_a_cached_record_reads_back_and_its_cached_unit_is_the_store_line(tmp_pa
     assert store.home_ordinals(0) == ((1, False),)
     assert store.homes_record(0) == homed.homes
 
-    def held(ordinal: int, echo: str | None = "e-2WvdGAWe6bX", no_verdict: bool = False) -> bool:
+    def held(ordinal: int, duplicate_group: str | None = "e-2WvdGAWe6bX", no_verdict: bool = False) -> bool:
         return store.cached_as_is(
-            ordinal, class_id="boundary-echo", echo=echo, exemplar=False, no_verdict=no_verdict
+            ordinal,
+            class_id="boundary-window",
+            duplicate_group=duplicate_group,
+            exemplar=False,
+            no_verdict=no_verdict,
         )
 
     assert held(0) and held(1)
@@ -327,12 +331,18 @@ def test_a_cached_record_reads_back_and_its_cached_unit_is_the_store_line(tmp_pa
         store.set_written_address(ordinal, record.address)
         assert store.written_address(ordinal) == record.address
         cached_unit = store.cached_unit(
-            ordinal, class_id="boundary-echo", echo="e-2WvdGAWe6bX", exemplar=False, no_verdict=False
+            ordinal,
+            class_id="boundary-window",
+            duplicate_group="e-2WvdGAWe6bX",
+            exemplar=False,
+            no_verdict=False,
         )
         assert unit_cache.record_line(cached_unit) == unit_cache.record_line(record)
-    assert not held(0, echo="e-other")
+    assert not held(0, duplicate_group="e-other")
     assert not held(0, no_verdict=True)
-    assert store.cached_unit(0, class_id="boundary-echo", echo=None, exemplar=False, no_verdict=True).slim
+    assert store.cached_unit(
+        0, class_id="boundary-window", duplicate_group=None, exemplar=False, no_verdict=True
+    ).slim
     store.set_homes(0, [(1, True)])
     assert not held(0)
     store.set_homes(0, [(None, False)])
@@ -358,7 +368,7 @@ def test_a_cached_record_is_loaded_with_the_fragment_the_plan_located(tmp_path):
     store.load_cached(0, cached, codepoints=_WINDOW, found=walked)
     assert store.source(0) == walked and not store.flags(0).byte_copied
     assert not store.cached_as_is(
-        0, class_id="boundary-echo", echo="e-2WvdGAWe6bX", exemplar=False, no_verdict=False
+        0, class_id="boundary-window", duplicate_group="e-2WvdGAWe6bX", exemplar=False, no_verdict=False
     )
 
 
@@ -523,10 +533,10 @@ def test_the_sizes_are_the_arrays_bytes_and_empty_homes_and_mismatches_cost_none
 def test_the_written_address_policy_file_and_config_note_round_trip():
     store = UnitStore(1)
     store.load_projection(_projection("write"), no_verdict=False, ordinal=0)
-    store.set_written_address(0, ("units/boundary-echo.000.json", 1234, 5678))
+    store.set_written_address(0, ("units/boundary-window.000.json", 1234, 5678))
     store.set_policy_file(0, "glyph_data/runes/qsTea.yaml")
     store.set_config_note(0, "ss03 only")
-    assert store.written_address(0) == ("units/boundary-echo.000.json", 1234, 5678)
+    assert store.written_address(0) == ("units/boundary-window.000.json", 1234, 5678)
     assert store.policy_file(0) == "glyph_data/runes/qsTea.yaml"
     assert store.config_note(0) == "ss03 only"
     store.set_policy_file(0, None)

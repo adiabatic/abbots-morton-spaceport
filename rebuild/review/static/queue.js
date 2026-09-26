@@ -1,4 +1,4 @@
-// The in-app review queue as pure functions over the in-memory store. They follow rebuild/tools/review_queue.py's clustering, so the view agrees with a snapshot of the same verdicts. A blank unit is unverdicted or skipped. Clusters group blank human units by the build's `cluster` signature, which is the echo key without the judged pair, so every echo group falls inside one cluster. Evidence comes from judged units with the same signature.
+// The in-app review queue as pure functions over the in-memory store. They follow rebuild/tools/review_queue.py's clustering, so the view agrees with a snapshot of the same verdicts. A blank unit is unverdicted or skipped. Clusters group blank human units by the build's `cluster` signature, which is the duplicate-group key without the judged pair, so every duplicate group falls inside one cluster. Evidence comes from judged units with the same signature.
 
 export const TOP_CLUSTER_COUNT = 25;
 export const SINGLETON_CHUNK = 40;
@@ -44,13 +44,13 @@ export function buildClusters(units, recordOf) {
   for (const [id, members] of membersByCluster) {
     const groups = new Map();
     for (const unit of members) {
-      const echo = unit.echo || unit.id;
-      if (!groups.has(echo)) groups.set(echo, []);
-      groups.get(echo).push(unit);
+      const duplicateGroup = unit.duplicate_group || unit.id;
+      if (!groups.has(duplicateGroup)) groups.set(duplicateGroup, []);
+      groups.get(duplicateGroup).push(unit);
     }
-    const echoGroups = [...groups.entries()]
+    const duplicateGroups = [...groups.entries()]
       .sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))
-      .map(([echo, group]) => ({ echo, unitIds: group.map((unit) => unit.id) }));
+      .map(([duplicateGroup, group]) => ({ duplicateGroup, unitIds: group.map((unit) => unit.id) }));
     const judged = judgedByCluster.get(id) ?? [];
     const tallies = new Map();
     for (const { record } of judged) tallies.set(record.verdict, (tallies.get(record.verdict) ?? 0) + 1);
@@ -62,8 +62,8 @@ export function buildClusters(units, recordOf) {
       class: members[0].class,
       configs: [...members[0].configs],
       size: members.length,
-      echoGroups,
-      representatives: echoGroups.map((group) => group.unitIds[0]),
+      duplicateGroups,
+      representatives: duplicateGroups.map((group) => group.unitIds[0]),
       exemplar: members[0],
       memberIds: members.map((unit) => unit.id),
       evidence: {
@@ -107,17 +107,17 @@ export function partitionClusters(clusters, ruledIds) {
 
 const ACCEPTING_MIX = ['approve', 'identical'];
 
-// Whether the recorded verdicts on one echo group agree: they are all the same, or they mix only approve and identical, which both accept the new rendering. Mirrors verdicts_agree in rebuild/tools/review_queue.py.
+// Whether the recorded verdicts on one duplicate group agree: they are all the same, or they mix only approve and identical, which both accept the new rendering. Mirrors verdicts_agree in rebuild/tools/review_queue.py.
 export function verdictsAgree(verdicts) {
   if (verdicts.size <= 1) return true;
   return verdicts.size === ACCEPTING_MIX.length && ACCEPTING_MIX.every((verdict) => verdicts.has(verdict));
 }
 
-export function echoConflicts(echoIndex, unitsById, recordOf) {
+export function duplicateConflicts(duplicateIndex, unitsById, recordOf) {
   const conflicts = [];
-  for (const echo of [...echoIndex.keys()].sort()) {
-    const unitIds = echoIndex
-      .get(echo)
+  for (const duplicateGroup of [...duplicateIndex.keys()].sort()) {
+    const unitIds = duplicateIndex
+      .get(duplicateGroup)
       .map((id) => ({ id, order: triageOrder(unitsById.get(id)) }))
       .sort(byTriageOrder)
       .map((entry) => entry.id);
@@ -129,7 +129,7 @@ export function echoConflicts(echoIndex, unitsById, recordOf) {
     const verdicts = new Set();
     for (const record of records.values()) verdicts.add(record.verdict);
     if (!verdictsAgree(verdicts)) {
-      conflicts.push({ echo, class: unitsById.get(unitIds[0])?.class ?? '', unitIds, records });
+      conflicts.push({ duplicateGroup, class: unitsById.get(unitIds[0])?.class ?? '', unitIds, records });
     }
   }
   return conflicts;
@@ -184,14 +184,14 @@ export function decisionKey(units, stacked = null) {
   return signatures.size === 1 ? [...signatures][0] : SINGLETON_DECISION;
 }
 
-// The next decision to show the reviewer. Open decisions are in queue order: the largest cluster first, with one representative per echo group that has no record, then the singletons. A record on a blank member can only be a skip, so any recorded member defers its whole echo group. `shown` holds the decision keys stacked for this corpus, least recently stacked first (the app keeps it in localStorage). The first open decision not in `shown` is returned, so leaving a cluster postpones it. When every open decision has been shown, the one shown longest ago is returned with `revisit` set. The returned decision carries its `key`, which the worklist stacked from it records in `shown`. Returns null when every blank unit is in a deferred group.
+// The next decision to show the reviewer. Open decisions are in queue order: the largest cluster first, with one representative per duplicate group that has no record, then the singletons. A record on a blank member can only be a skip, so any recorded member defers its whole duplicate group. `shown` holds the decision keys stacked for this corpus, least recently stacked first (the app keeps it in localStorage). The first open decision not in `shown` is returned, so leaving a cluster postpones it. When every open decision has been shown, the one shown longest ago is returned with `revisit` set. The returned decision carries its `key`, which the worklist stacked from it records in `shown`. Returns null when every blank unit is in a deferred group.
 export function nextQueueDecision(units, recordOf, ruledIds, shown = new Set()) {
   const clusters = buildClusters(units, recordOf);
   const { top, later, singletons } = partitionClusters(clusters, ruledIds);
   const open = [];
   for (const cluster of [...top, ...later]) {
     const representatives = [];
-    for (const group of cluster.echoGroups) {
+    for (const group of cluster.duplicateGroups) {
       if (group.unitIds.some((id) => recordOf(id))) continue;
       representatives.push(group.unitIds[0]);
     }
@@ -229,16 +229,16 @@ export function queueResumeAction({ stamp, manifestStamp, unitIds, recordOf }) {
 
 export function queueTotals(clusters) {
   let blankUnits = 0;
-  let echoGroups = 0;
+  let duplicateGroups = 0;
   let multiClusters = 0;
   for (const cluster of clusters) {
     blankUnits += cluster.size;
-    echoGroups += cluster.echoGroups.length;
+    duplicateGroups += cluster.duplicateGroups.length;
     if (cluster.size > 1) multiClusters += 1;
   }
   return {
     blankUnits,
-    echoGroups,
+    duplicateGroups,
     clusters: clusters.length,
     multiClusters,
     singletonClusters: clusters.length - multiClusters,

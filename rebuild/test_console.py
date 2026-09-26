@@ -85,13 +85,13 @@ def test_parse_line_reads_back_every_writer():
     console.phase("enrich", file=sink)
     console.progress(3, 6, "configurations", file=sink)
     console.progress(8192, None, "units", file=sink)
-    console.warn("2 echo groups hold disagreeing verdicts", file=sink)
+    console.warn("2 duplicate groups hold disagreeing verdicts", file=sink)
     console.timing("enrich", 12.5, "(4 shards)", file=sink)
     assert [console.parse_line(line) for line in sink.getvalue().splitlines()] == [
         console.Phase("enrich"),
         console.Progress(done=3, total=6, unit="configurations"),
         console.Progress(done=8192, total=None, unit="units"),
-        console.Warn("2 echo groups hold disagreeing verdicts"),
+        console.Warn("2 duplicate groups hold disagreeing verdicts"),
         console.Timing("enrich", 12.5, "(4 shards)"),
     ]
 

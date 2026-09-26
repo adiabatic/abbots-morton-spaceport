@@ -6,7 +6,7 @@ The terminal shows one banner per step with that step's description, the phases 
 
 The job-costs step never fails the pass, for the same reason the review-facts pins are not a gate: a stale constant makes a pool the wrong width, which costs time but makes no artifact wrong. It is reported, and committing the re-measured constant accepts it. When the check reports an overrun, the driver asks `calibrate_budgets --moved` which of those constants differ from their values at `HEAD`, so a constant already re-measured shows up by name.
 
-The verdict update is one step run by one child process, rebuild.tools.verdict_update. It carries prior verdicts forward onto the fresh manifest, merges the carried file into the live autosave (--no-merge opts out), writes echo-fill verdicts for the blanks in unanimously judged echo groups, writes standing-approval verdicts from the rules in rebuild/standing-approvals.yaml, merges each fill as it is written, repeats the echo pass until it writes nothing, and clusters the open complaints. The verdict update reads the build's per-unit index sidecar, and its one process holds one copy of it. Each of the verdict update's steps opens with a `[phase] <step>` line and closes with `[t] <step>`. The cycle console pairs the two into one line per step, and the cycle-timings journal reads the step's cost from the `[t]` line. The `[verdict-update] fixpoint:` and `[verdict-update] failed:` lines are results, not phases: `verdict_update_sections` starts a section at each `[phase]` line and closes it at either `[verdict-update]` line.
+The verdict update is one step run by one child process, rebuild.tools.verdict_update. It carries prior verdicts forward onto the fresh manifest, merges the carried file into the live autosave (--no-merge opts out), writes duplicate-fill verdicts for the blanks in unanimously judged duplicate groups, writes standing-approval verdicts from the rules in rebuild/standing-approvals.yaml, merges each fill as it is written, repeats the duplicate-fill pass until it writes nothing, and clusters the open complaints. The verdict update reads the build's per-unit index sidecar, and its one process holds one copy of it. Each of the verdict update's steps opens with a `[phase] <step>` line and closes with `[t] <step>`. The cycle console pairs the two into one line per step, and the cycle-timings journal reads the step's cost from the `[t]` line. The `[verdict-update] fixpoint:` and `[verdict-update] failed:` lines are results, not phases: `verdict_update_sections` starts a section at each `[phase]` line and closes it at either `[verdict-update]` line.
 
 run_m1's exit status is its own gate's result, but this driver evaluates the three summary JSONs it writes, so a build that died before its evaluator is reported by what it left behind. The gates are defect_errors, the Manual-pin gate (including its scope, so a gate that replayed nothing cannot pass), and multi_matched == 0.
 
@@ -22,7 +22,7 @@ gate:make-test is skipped when its input closure is unchanged since its last gre
 
 The verdict update skips the same way, on rebuild/out/verdict-update-green.json. Each step of the verdict update is a pure function of the corpus, the verdicts master, the live store, the checked-in standing approvals, and its own code, so the key covers the corpus's inputs fingerprint and stamp, the master's path and bytes, the autosave's bytes, standing-approvals' bytes, and the verdict update's code (`verdict_update_code_paths` plus the review/ modules the verdict update runs). The master is in the key because the autosave's hash cannot see it: an export at the repo root can outrank the autosave in the auto-resolution and carry verdicts the store has never held. The code is in the key because no other fingerprint reads the verdict update's modules, and without it a fix to a fill's matcher or to the carry's join would be skipped. `verdict_update_code_paths` lists the verdict update's modules instead of all of rebuild/tools/, and rebuild/test_verdict_update_closure.py checks on every contracts run that the list covers the verdict update's import graph.
 
-The key is captured when the verdict update finishes, not at the end of the pass, so a store write during the review-facts step cannot be counted as part of a fixpoint nothing verified. The record is written later, after the complaint list step has also succeeded. The fixpoint is claimed only when the verdict update has observed it. The carry's merge gives echo-fill new agreement to read, and echo-fill only removes blanks, so it never creates work for standing-fill. But standing-fill runs last, and a standing fill can make an echo group unanimous while a blank member remains. Refusing the green whenever the standing merge changed anything would cost another full pass. In one process another echo pass costs about a second, so the verdict update repeats it until a pass writes nothing, and the green is recorded only after that pass.
+The key is captured when the verdict update finishes, not at the end of the pass, so a store write during the review-facts step cannot be counted as part of a fixpoint nothing verified. The record is written later, after the complaint list step has also succeeded. The fixpoint is claimed only when the verdict update has observed it. The carry's merge gives duplicate-fill new agreement to read, and duplicate-fill only removes blanks, so it never creates work for standing-fill. But standing-fill runs last, and a standing fill can make a duplicate group unanimous while a blank member remains. Refusing the green whenever the standing merge changed anything would cost another full pass. In one process another duplicate-fill pass costs about a second, so the verdict update repeats it until a pass writes nothing, and the green is recorded only after that pass.
 
 The verdict-update skip also requires the corpus build to skip, which is what makes the stamp known before the pass runs. A flag that names a carry output disables the skip, since skipping would write nothing to that output.
 
@@ -105,7 +105,7 @@ if TYPE_CHECKING:
     from rebuild.tools.cycle_timings import CycleTimings
 REVIEW_OUT = ROOT / "rebuild" / "out" / "review"
 AUTOSAVE = ROOT / "verdicts-autosave.json"
-ECHO_FILL = ROOT / "verdicts-echo-fill.json"
+DUPLICATE_FILL = ROOT / "verdicts-duplicate-fill.json"
 STANDING_FILL = ROOT / "verdicts-standing-fill.json"
 FACTS_PINS = ROOT / "rebuild" / "review-facts-pins.json"
 DIVERGENCE_LEDGER = ROOT / "rebuild" / "m1-divergences.yaml"
@@ -134,7 +134,7 @@ _GATE_POOL_WORKERS = 6
 # The peak memory of one corpus-build worker, the divisor of the build's width (`corpus_job_budget`). A worker is a persistent spawn process that takes unit batches from the parent's hand-out queue (`_handout_width` in rebuild/review/build.py: the enricher's settlement batch, or a smaller spread of few recomputed units), enriches and drafts each unit, spools each fragment to disk as it is drafted so no EnrichedUnit outlives its batch (`_FragmentSpool`), and replies with the batch's projections and spool addresses. Nothing it holds grows with the corpus, the alphabet or the width. It holds its interpreter and shapers, whose shape memo is released at every batch boundary (`rebuild.review.ink.release_shape_memos`; `_MemoizedShaper`'s docstring records the measurement that showed an unreleased memo outgrowing everything else in a serial build). It holds one batch's units, projections and addresses, bounded by `PHASE1_HANDOUT_UNITS`, from the hand-out until the reply is pickled; the `SubsetRow`s for one batch's units; and the pages it touches of the baseline subset pack (rebuild/review/subset_pack.py), which the parent writes once before the pool starts and every worker maps read-only, so the page cache holds one copy per machine. The parent hands units out in configuration order (`_configuration_order` in rebuild/review/build.py), so a worker's touched pages are mostly one configuration's key range.
 # The measurement set is every width-eight pool on the mapped pack since the previous measurement set, on the 32 GiB machine and the 18-core 48 GiB machine (`doc/fleet.md`). On passes that draft units, workers peak at up to 0.52 GB on the 32 GiB machine over the qsYe corpus, and each pass's largest worker reads 0.42 to 0.48 GB on the 48 GiB machine. A cached pass's workers read under 0.1 GB. For comparison, a width-six pool over the 32-letter corpus that held its subset tables in Python read 1.16 to 1.95 GB. The constant is the largest mapped-pack reading plus a quarter, rounded up to the hundredth, for the reason kernel_exec.DELTA_PEAK_BYTES rounds up: a cost that is too low pushes the machine into swap, while one that is too high only narrows the pool. A worker's peak depends on the batches it draws, not on the width, so a wider pool repeats the same reading. A new letter changes it only through what a batch holds (a window's rows and shapes), not through the tables, so every fleet machine stays at `CORPUS_JOBS_CAP` as letters are added (`test_the_shipped_corpus_divisor_holds_the_32_gib_machine_at_the_cap_by_division` in rebuild/test_memory_budget.py checks this for the 32 GiB machine, and `test_both_fleet_machines_keep_a_pooled_build_under_a_gated_cycle` in rebuild/test_artifact_cycle.py for the 48 GiB one). On a ten-core machine the cap-width pool leaves gate:rebuild-contracts one worker (`contracts_pool_width` discusses this). The corpus-worker row of `make job-costs` checks the constant against the kind:"pool" record rebuild/review/build.py writes for each pooled build. Every fleet machine runs the build pooled, so a machine with no rows has not been made serial by this width.
 CORPUS_WORKER_BYTES = 660_000_000
-# The peak memory of the corpus build's parent while its pool runs, subtracted from the machine's memory before dividing by CORPUS_WORKER_BYTES. The parent holds the workload table (`audit.UnitTable` in rebuild/review/audit.py: each unit's class, group, unmatched group, echo and cluster as ids into one string table, its config set, kinds, render groups and per-config class map as ids into pools of a few dozen values, its window parsed once into a `u16` side column, its run of audit rows and its triage position, all as fixed-width `array` columns over the unit's ordinal, well under 100 bytes a unit); the packed unit store (rebuild/review/unit_store.py) over the same ordinal and string table; the checker's identity dict; the review facts' pre-merge snapshot (`facts.PremergeSnapshot`, columns over the pre-merge rows at 18 bytes a row, 23 after `rebase`); one fragment or one materialized `audit.Unit`; one batch of materialized records while a hand-out is being sent; and one batch reply in flight per worker. The hand-out and the replies are the only terms the width changes. The parent never holds a list of unit records at any phase (`UnitTable.unit` materializes one for a reader that needs it, and `units` is for the review-facts CLI and the tests).
+# The peak memory of the corpus build's parent while its pool runs, subtracted from the machine's memory before dividing by CORPUS_WORKER_BYTES. The parent holds the workload table (`audit.UnitTable` in rebuild/review/audit.py: each unit's class, group, unmatched group, duplicate group and cluster as ids into one string table, its config set, kinds, render groups and per-config class map as ids into pools of a few dozen values, its window parsed once into a `u16` side column, its run of audit rows and its triage position, all as fixed-width `array` columns over the unit's ordinal, well under 100 bytes a unit); the packed unit store (rebuild/review/unit_store.py) over the same ordinal and string table; the checker's identity dict; the review facts' pre-merge snapshot (`facts.PremergeSnapshot`, columns over the pre-merge rows at 18 bytes a row, 23 after `rebase`); one fragment or one materialized `audit.Unit`; one batch of materialized records while a hand-out is being sent; and one batch reply in flight per worker. The hand-out and the replies are the only terms the width changes. The parent never holds a list of unit records at any phase (`UnitTable.unit` materializes one for a reader that needs it, and `units` is for the review-facts CLI and the tests).
 # The unit store holds every per-unit product of phase 1 from the plan boundary to the cache write (the machine flags and ink deltas, the diff and cluster digests, the seam-home projection with its spans, names and rects, the secondary-home assignments, the fragment's spool or prior address, the shard address the write returns, the content and input keys, the policy file and the config note) as fixed-width `array` columns plus one string table over the vocabulary, not the corpus (the `[tally] … unit_store` line measures the table beside the columns). It materializes one unit at a time for a whole-corpus pass or a store line. A slotted state record, a spool-address object and a dict keyed by id hold the same facts in about six to twenty times the bytes, collection by collection: the `[tally]` lines of a pass under `AMS_CORPUS_MEMORY_TALLY=1` show the walked and packed bytes of each collection side by side, and that comparison is why the store uses columns. The table's `[tally] … workload.units` line compares the same way against 645.6 bytes a unit for a list of records.
 # Neither ink-signature table is in the steady-state memory after the load phase. The window-keyed table the ink-duplicate merge reads (`signatures` in rebuild/review/build.py) is released when that merge returns, in the load phase. The store's records (`signature_entries`) are held through the plan phase and released when the store is written: inline as the units phase opens on a serial build, and a few seconds into the units phase on a pooled build, when the `_SignatureWrite` thread that `build_m1` starts at that boundary finishes. So the records overlap the pool only for the length of that write. The load boundary's `signatures` tally line includes the table's strings, and the digest strings are shared with the records, so the release frees less than the sum of the two lines.
 # This figure covers the whole corpus-build step, not one phase. On a fully recomputed pass the load phase holds the row columns (`audit.RowColumns`, five flat arrays over the audit's rows with their tuple pool, about 17 bytes a row), the table, the snapshot and both signature tables. The steady-state memory after the load phase holds the table, the store's columns, the identity dict and the snapshot, with the name tuples released at the units boundary (`UnitTable.release_names`). The `rss_now_gb=` token beside `rss_gb=` on each `[t] review.build` line gives a phase's own resident set, separate from the step's peak (`_phase_timing` in rebuild/review/build.py). On fully recomputed and cached passes alike the load boundary sets the peak: `rss_gb=` reaches the step's figure on the load line and does not rise after it, the load's `rss_now_gb=` is the pass's highest resident reading, and the boundaries after the load phase read below it, by about 1.5 GB on a fully recomputed pass and by more than 0.5 GB at the cached pass's units boundary. So the row columns and both signature tables beside the table set the step's peak, not the store the build holds after the load phase.
@@ -146,8 +146,8 @@ CORPUS_PARENT_BYTES = 6_000_000_000
 CORPUS_JOBS_CAP = 8
 # The peak memory of one worker in the standing fill's refill pool, the divisor of that pool's width (`standing_fill_jobs`). A worker is a spawn process holding its interpreter, the rules, a `SlideContext` over the corpus's font pair (two shapers), and one chunk of `_STANDING_POOL_CHUNK` units (rebuild/tools/standing_verdicts.py) with that chunk's shape and walk memos and its alignment cache. All three are emptied after every chunk, so the peak depends on the chunk, not on the pool's share of the units. The measurement set is three hand refills in the verdict update's form (`--open-only --require-reach`) with the memo dropped (`--fresh-memo`), each worker's resident set sampled every 0.1 s on the 18-core 48 GiB machine (`doc/fleet.md`). Two ran eighteen wide, and their thirty-six workers read 95 to 104 MB. One ran two wide, and its workers, which decided about fifty-eight chunks each, read 99 MB, so a worker's peak does not grow with the chunks it decides. The constant is more than three times the highest reading, because no journal row measures this worker: `make job-costs` has no standing-fill-worker row, since writing pool records from the fill would put cycle_timings and peak_rss into the memo's code stamp (`MEMO_CODE_MODULES`) and drop the memo on every width change. Re-measure by hand at the chunk width when the chunk size or what a decision holds changes. At this figure the cores, not memory, limit this pool on every fleet machine.
 STANDING_FILL_WORKER_BYTES = 350_000_000
-# The peak memory of the verdict update's process while the standing fill's pool runs, subtracted from the machine's memory before dividing by STANDING_FILL_WORKER_BYTES. The parent holds every corpus id, the human id/echo/notation projection, and the fill's rules, primed keys, decisions and memo. Full human records stream through the verdict update's steps. Refill misses go to a temporary gzipped spool, with at most one pool round of records in memory, bounded by the width times `_STANDING_POOL_CHUNK` (rebuild/tools/standing_verdicts.py). The complaint list keeps compact grouping projections. A serial refill, and the memo check `_prefill` runs on every served unit, hold one unit's `SlideContext` memos and alignment-cache entries at a time, because `Decider._release` empties both after each unit.
-# The standing-fill-parent row of `make job-costs` reads the whole verdict-update step through `peak_rss.reap_peak_rss_bytes`, and the verdict update reaches that peak after the fill, not during its pool: sampled every 0.1 s over two served passes that merge straight in on the 18-core 48 GiB machine (`doc/fleet.md`), the verdict update holds at most 2.06 GB during the standing fill and 2.74 GB in the complaint list. A standalone fill over every unit puts the in-flight round at about 18 MB a worker: its parent reads 1.17 GB two wide and 1.45 GB eighteen wide. The measurement set is the highest step reading any fleet machine has recorded since the previous measurement set: 4.36 GB on the 32 GiB machine, over a carry across a rune edit (run 2ca8c2192122 at cb205186, with 709 verdicts orphaned and three echo rounds). The 18-core 48 GiB machine reads 3.10 to 3.11 GB on carried served passes, 2.74 GB on served passes that merge straight in (6444755ee9aa, 169f78e7d20d, 376f72a5e4e7), 3.28 GB on a rules commit whose 1,219 misses are decided serially below `_STANDING_POOL_THRESHOLD` (8a407a3d83f4, 08a24101190c), and 2.19 and 2.33 GB on memo-drop passes pooled eighteen wide (6ec8760f21c2) and sixteen wide (27aa6ac52892). The constant is that reading plus more than a quarter, rounded up to the next whole gigabyte. No fleet width changes at this figure: the cores limit the refill pool, and the belt stays at its configuration count. Ids and decisions grow with the alphabet, and no rune edit has run through the verdict update on that 48 GiB machine yet, so watch the row as letters are added.
+# The peak memory of the verdict update's process while the standing fill's pool runs, subtracted from the machine's memory before dividing by STANDING_FILL_WORKER_BYTES. The parent holds every corpus id, the human id/duplicate-group/notation projection, and the fill's rules, primed keys, decisions and memo. Full human records stream through the verdict update's steps. Refill misses go to a temporary gzipped spool, with at most one pool round of records in memory, bounded by the width times `_STANDING_POOL_CHUNK` (rebuild/tools/standing_verdicts.py). The complaint list keeps compact grouping projections. A serial refill, and the memo check `_prefill` runs on every served unit, hold one unit's `SlideContext` memos and alignment-cache entries at a time, because `Decider._release` empties both after each unit.
+# The standing-fill-parent row of `make job-costs` reads the whole verdict-update step through `peak_rss.reap_peak_rss_bytes`, and the verdict update reaches that peak after the fill, not during its pool: sampled every 0.1 s over two served passes that merge straight in on the 18-core 48 GiB machine (`doc/fleet.md`), the verdict update holds at most 2.06 GB during the standing fill and 2.74 GB in the complaint list. A standalone fill over every unit puts the in-flight round at about 18 MB a worker: its parent reads 1.17 GB two wide and 1.45 GB eighteen wide. The measurement set is the highest step reading any fleet machine has recorded since the previous measurement set: 4.36 GB on the 32 GiB machine, over a carry across a rune edit (run 2ca8c2192122 at cb205186, with 709 verdicts orphaned and three duplicate-fill rounds). The 18-core 48 GiB machine reads 3.10 to 3.11 GB on carried served passes, 2.74 GB on served passes that merge straight in (6444755ee9aa, 169f78e7d20d, 376f72a5e4e7), 3.28 GB on a rules commit whose 1,219 misses are decided serially below `_STANDING_POOL_THRESHOLD` (8a407a3d83f4, 08a24101190c), and 2.19 and 2.33 GB on memo-drop passes pooled eighteen wide (6ec8760f21c2) and sixteen wide (27aa6ac52892). The constant is that reading plus more than a quarter, rounded up to the next whole gigabyte. No fleet width changes at this figure: the cores limit the refill pool, and the belt stays at its configuration count. Ids and decisions grow with the alphabet, and no rune edit has run through the verdict update on that 48 GiB machine yet, so watch the row as letters are added.
 STANDING_FILL_PARENT_BYTES = 6_000_000_000
 # The peak memory of one oracle row-range worker, the divisor of the oracle's width (`sweep_job_budget`). A worker is a spawn process. It holds its interpreter, a HarfBuzz shaper over M1.otf, and the crate's guard verdict map. It holds the records of its own row range of its configuration's row store: one buffer of the range's record bytes with three packed arrays beside it (an offset and two ages a record), loaded without scanning the whole member (`oracle_cache.load_store`), so it holds its range's rows and not the configuration's. It maps its configuration's settle memo read-only on the first wave that reaches the crate, which every pass does, since the scheduled re-derivation covers one row in `oracle_cache.MAX_RECORD_AGE`. `conform._MemoStore` reads the file's own layout: the six id columns, the value column and the 2^k >= 2N-slot probe index are views over the mapping, 69.8 MB for a live memo of 2.6M windows (the `[t] settle_memo` lines count them). Those pages belong to the page cache, resident once per machine however many workers map the file, and count in a worker's resident set as its probes touch them: a walk with the row cache filled probes the one row in twenty the cache does not serve, and a walk with the row cache dropped probes nearly every row. On a pass after a family changed, the retirement fold reads the six id columns whole once (36.2 MB of the mapping, `conform._MemoStore.load` over `mask.moved`); the measurement set's passes ran on an unchanged tree, every `[t] settle_memo` line at stale=0, so that fold is outside the measurement set and inside the headroom. The worker's own heap holds the file's interned label and outcome tables, a dead byte and a reached byte a row, 0.005 GB at the load. Last, it holds the walk's state over the range: the chunk of rows in flight (`oracle.ORACLE_ROW_CHUNK`), the waves of windows the crate settles for it, and `windows`, the dict of entries the walk promotes from the mapping or settles fresh.
 # No range writes the memo file. Every range, whether or not its configuration is split, writes the windows it settled fresh as a part (`run_m1._shard_settle_memo`). The parent's absorb, one task per settlement configuration on this same pool, runs once every range has finished and the witness stage has returned (`run_m1.run_oracle`'s `memo_ready`). It holds the existing rows, the parts, the existing index and the writer's folded copies at once (`conform._write_settle_memo`), roughly the file's size plus the columns'. Its reading is recorded in the pool record beside the ranges' as `<config> absorb`. It is a process peak like the rest, so it reads at or above the range its worker ran before it. In every record of the measurement set, each of which has an absorb for every settlement configuration, it reads at a range's peak and never above the record's highest range.
@@ -925,7 +925,7 @@ VERDICT_UPDATE_TOOL_MODULES = (
     "carry_verdicts",
     "complaint_list",
     "console",
-    "echo_verdicts",
+    "duplicate_verdicts",
     "merge_verdicts",
     "review_queue",
     "review_server",
@@ -1039,7 +1039,7 @@ STEP_DESCRIPTIONS = {
     "corpus-build": "Rebuilds the review corpus: every unit the tables reach is drafted, enriched, and checked, with cached units re-verified by content key. Writes the shards, manifest, and review-facts sidecar that the app and the verdict update read.",
     "assets-refresh": "Overwrites the served copy of the review app's JS, CSS, and HTML and restamps only the manifest's static component. No shard or sidecar moves, so the open tab's store stays aligned.",
     "corpus-promote": "Moves the corpus a staging pass already built for these exact inputs into rebuild/out/review, unit store and signature store with it, and deletes the corpus it replaces. Two renames in this process; no unit is drafted, enriched, or checked.",
-    "verdict-update": "Carries the verdicts master onto the new corpus by unit id, merges it into the store, and runs the echo and standing fills to their fixpoint. Ends by writing the complaint list of what still needs a human.",
+    "verdict-update": "Carries the verdicts master onto the new corpus by unit id, merges it into the store, and runs the duplicate and standing fills to their fixpoint. Ends by writing the complaint list of what still needs a human.",
     "review-facts": "Rewrites rebuild/review-facts-pins.json from the review-facts sidecar the corpus build emitted, names what moved in its invariant block against the last accepted review facts (diffing that block alone when it did), and holds the ledger's declarations against the classes the corpus reached. Committing the rewritten pins is how the review facts are accepted.",
     "gates": "The four post-build gates, skipped together under --skip-gates.",
     "gate:js": "Runs the review app's node test suite over its JavaScript. Fast, and independent of every build artifact.",
@@ -1950,7 +1950,7 @@ def build_plan(
                 "then the fills and the complaint list"
             )
         else:
-            note = "carry -> merge -> echo fill -> standing fill -> the fills' fixpoint -> complaint list, in one process"
+            note = "carry -> merge -> duplicate fill -> standing fill -> the fills' fixpoint -> complaint list, in one process"
         plan.steps.append(Step("verdict-update", verdict_update_argv, note, lane="build"))
 
     if review_out is not None:
@@ -2292,7 +2292,7 @@ class CycleReport:
     corpus_units: int | None = None
     corpus_rows: int | None = None
     corpus_batches: int | None = None
-    echo_groups: int | None = None
+    duplicate_groups: int | None = None
     assets_status: str = "not run"
     promote_status: str = "not run"
     carry_out: Path | None = None
@@ -2300,10 +2300,10 @@ class CycleReport:
     carry_counts: dict[str, int] | None = None
     merge_status: str = "not run"
     merge_lines: list[str] = field(default_factory=list)
-    echo_fill_status: str = "not run"
-    echo_fill_lines: list[str] = field(default_factory=list)
-    echo_merge_status: str = "not run"
-    echo_merge_lines: list[str] = field(default_factory=list)
+    duplicate_fill_status: str = "not run"
+    duplicate_fill_lines: list[str] = field(default_factory=list)
+    duplicate_merge_status: str = "not run"
+    duplicate_merge_lines: list[str] = field(default_factory=list)
     standing_fill_status: str = "not run"
     standing_fill_lines: list[str] = field(default_factory=list)
     standing_merge_status: str = "not run"
@@ -2634,7 +2634,7 @@ def _read_corpus_totals(report: CycleReport, corpus_dir: Path) -> bool:
     report.corpus_units = totals.get("units")
     report.corpus_rows = totals.get("rows")
     report.corpus_batches = totals.get("batches")
-    report.echo_groups = totals.get("echo_groups")
+    report.duplicate_groups = totals.get("duplicate_groups")
     return True
 
 
@@ -2713,15 +2713,15 @@ def _do_corpus_build(
 _VERDICT_UPDATE_FAILURES = {
     "carry": "carry_verdicts failed",
     "merge": "verdict merge failed",
-    "echo-fill": "echo-fill failed",
-    "echo-merge": "echo-merge failed",
+    "duplicate-fill": "duplicate-fill failed",
+    "duplicate-merge": "duplicate-merge failed",
     "standing-fill": "standing-fill failed",
     "standing-merge": "standing-merge failed",
 }
 
 
 def verdict_update_sections(text: str) -> dict[str, list[str]]:
-    """Split the verdict update's output into sections at the `[phase] <step>` line each step starts with, so the summary can report each of the verdict update's steps although one subprocess runs them all. Its `[verdict-update] fixpoint:` and `[verdict-update] failed:` result lines close the open section without opening one, which keeps a `failed:` line out of the complaints section. Later echo rounds (`echo-fill-2` and so on) are merged into the first round's section."""
+    """Split the verdict update's output into sections at the `[phase] <step>` line each step starts with, so the summary can report each of the verdict update's steps although one subprocess runs them all. Its `[verdict-update] fixpoint:` and `[verdict-update] failed:` result lines close the open section without opening one, which keeps a `failed:` line out of the complaints section. Later duplicate-fill rounds (`duplicate-fill-2` and so on) are merged into the first round's section."""
     sections: dict[str, list[str]] = {}
     current: str | None = None
     for line in text.splitlines():
@@ -2761,7 +2761,7 @@ def _do_verdict_update(
 ) -> list[str]:
     """Run the verdict update as one child and fill the per-step report from its output. Return the failure messages for the cycle's failure list, one per failed step.
 
-    A failure in a later echo round (`echo-fill-2`, `echo-merge-3`, and so on) comes after the whole first round, standing fill and merge included, has run. Those steps keep their done words, and the failing step's status adds the round, as in `filled, round 2 FAILED (exit 1)`. Only a first-round failure marks the steps after it as not run.
+    A failure in a later duplicate-fill round (`duplicate-fill-2`, `duplicate-merge-3`, and so on) comes after the whole first round, standing fill and merge included, has run. Those steps keep their done words, and the failing step's status adds the round, as in `filled, round 2 FAILED (exit 1)`. Only a first-round failure marks the steps after it as not run.
     """
     result = spawn("verdict-update", plan.argv("verdict-update"), emit=emit, registry=registry, stream=False)
     report.carry_out = plan.carry_out if plan.carry_out is not None else fullest_verdicts_carry_out()
@@ -2784,7 +2784,7 @@ def _do_verdict_update(
         lambda line: any(word in line for word in ("carried", "kinds", "queue", "fallback", "carry counts")),
     )
     report.carry_counts = carry_counts(report.carry_lines)
-    for name in ("merge", "echo-merge", "standing-merge"):
+    for name in ("merge", "duplicate-merge", "standing-merge"):
         setattr(
             report,
             name.replace("-", "_") + "_lines",
@@ -2793,17 +2793,17 @@ def _do_verdict_update(
                 lambda line: line.startswith(("merged ", "nothing changed", "stashed ")),
             ),
         )
-    report.echo_fill_lines = _scrape(
-        sections.get("echo-fill", []),
-        lambda line: line.startswith("wrote ") and "echo-fill verdicts" in line,
+    report.duplicate_fill_lines = _scrape(
+        sections.get("duplicate-fill", []),
+        lambda line: line.startswith("wrote ") and "duplicate-fill verdicts" in line,
     )
     report.standing_fill_lines = _scrape(sections.get("standing-fill", []), _standing_fill_news)
 
     # After a first-round failure, the steps after the failed one never ran. Steps before it ran and report what they did.
     done = (
         ("merge", "merged"),
-        ("echo-fill", "filled"),
-        ("echo-merge", "merged"),
+        ("duplicate-fill", "filled"),
+        ("duplicate-merge", "merged"),
         ("standing-fill", "filled"),
         ("standing-merge", "merged"),
     )
@@ -2963,8 +2963,8 @@ def _skip_verdict_update(report: CycleReport, plan: Plan, emit: console.CycleCon
     note = f"skipped ({plan.verdict_update_note})"
     report.carry_out = fullest_verdicts_carry_out()
     report.merge_status = note
-    report.echo_fill_status = note
-    report.echo_merge_status = note
+    report.duplicate_fill_status = note
+    report.duplicate_merge_status = note
     report.standing_fill_status = note
     report.standing_merge_status = note
 
@@ -3162,7 +3162,7 @@ def _join_gates(
 
 
 def _verdict_update_settled(report: CycleReport) -> bool:
-    """Return whether the verdict update reached a fixpoint, which the verdict-update green record claims. The verdict update prints its `fixpoint: reached` line only after an echo round writes nothing new. A standing merge that writes nothing would not be enough: a standing fill on one unit can make its echo group unanimous and leave a blank member that only another echo fill would fill."""
+    """Return whether the verdict update reached a fixpoint, which the verdict-update green record claims. The verdict update prints its `fixpoint: reached` line only after a duplicate-fill round writes nothing new. A standing merge that writes nothing would not be enough: a standing fill on one unit can make its duplicate group unanimous and leave a blank member that only another duplicate fill would fill."""
     return report.verdict_update_fixpoint
 
 
@@ -3639,11 +3639,11 @@ def summary_cycle_lines(report: CycleReport, plan: Plan, retention_lines: list[s
     lines = [
         f"  carry output     : {show(report.carry_out)}",
         *news(report.carry_lines),
-        f"  verdict update   : merge {report.merge_status}; echo-fill {report.echo_fill_status}; echo-merge {report.echo_merge_status}; standing-fill {report.standing_fill_status}; standing-merge {report.standing_merge_status}",
+        f"  verdict update   : merge {report.merge_status}; duplicate-fill {report.duplicate_fill_status}; duplicate-merge {report.duplicate_merge_status}; standing-fill {report.standing_fill_status}; standing-merge {report.standing_merge_status}",
         *news(
             report.merge_lines
-            + report.echo_fill_lines
-            + report.echo_merge_lines
+            + report.duplicate_fill_lines
+            + report.duplicate_merge_lines
             + report.standing_fill_lines
             + report.standing_merge_lines
         ),
@@ -3735,16 +3735,16 @@ def cycle_summary_payload(report: CycleReport, failures: list[str], plan: Plan, 
         "corpus_batches": report.corpus_batches,
         "assets_status": report.assets_status,
         "promote_status": report.promote_status,
-        "echo_groups": report.echo_groups,
+        "duplicate_groups": report.duplicate_groups,
         "carry_out": _as_str(report.carry_out),
         "carry_lines": list(report.carry_lines),
         "carry": report.carry_counts,
         "merge_status": report.merge_status,
         "merge_lines": list(report.merge_lines),
-        "echo_fill_status": report.echo_fill_status,
-        "echo_fill_lines": list(report.echo_fill_lines),
-        "echo_merge_status": report.echo_merge_status,
-        "echo_merge_lines": list(report.echo_merge_lines),
+        "duplicate_fill_status": report.duplicate_fill_status,
+        "duplicate_fill_lines": list(report.duplicate_fill_lines),
+        "duplicate_merge_status": report.duplicate_merge_status,
+        "duplicate_merge_lines": list(report.duplicate_merge_lines),
         "standing_fill_status": report.standing_fill_status,
         "standing_fill_lines": list(report.standing_fill_lines),
         "standing_merge_status": report.standing_merge_status,

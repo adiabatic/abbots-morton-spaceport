@@ -27,7 +27,7 @@ APP_ROW_KEYS = {
     "batch",
     "class",
     "group",
-    "echo",
+    "duplicate_group",
     "cluster",
     "notation",
     "notation_tokens",

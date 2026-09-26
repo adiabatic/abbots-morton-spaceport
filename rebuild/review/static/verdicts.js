@@ -27,18 +27,18 @@ export function recordVerdict(store, unitId, verdict, { note = '', at = new Date
   return store.records.get(unitId) ?? null;
 }
 
-export function recordVerdictWithEchoes(
+export function recordVerdictWithDuplicates(
   store,
   unitId,
   verdict,
-  echoIds = [],
+  duplicateIds = [],
   { note = '', at = new Date().toISOString() } = {},
 ) {
   if (!VERDICT_KINDS.includes(verdict)) throw new Error(`unknown verdict: ${verdict}`);
   const entries = [{ unit: unitId, prev: store.records.get(unitId) ?? null }];
   store.records.set(unitId, { unit: unitId, verdict, note, at });
   touch(store, unitId);
-  for (const id of echoIds) {
+  for (const id of duplicateIds) {
     if (id === unitId || store.records.has(id)) continue;
     entries.push({ unit: id, prev: null });
     store.records.set(id, { unit: id, verdict, note, at });
@@ -153,7 +153,7 @@ export function importVerdicts(store, data, manifestGeneratedAt, { force = false
   return { ok: true, mismatch, added, replaced, keptNewer, invalid, units };
 }
 
-const CARRIED_PROVENANCE_PREFIX = /^(?:\s*\[(?:carried|echo-fill|echo-harmonize|bulk|deferred|parked|standing)\b[^\]]*\])+\s*/;
+const CARRIED_PROVENANCE_PREFIX = /^(?:\s*\[(?:carried|duplicate-fill|duplicate-harmonize|echo-fill|echo-harmonize|bulk|deferred|parked|standing)\b[^\]]*\])+\s*/;
 
 export function stripCarriedProvenance(note) {
   return note.replace(CARRIED_PROVENANCE_PREFIX, '');

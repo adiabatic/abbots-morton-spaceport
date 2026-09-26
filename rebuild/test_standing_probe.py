@@ -124,7 +124,7 @@ def unit(uid, glyphs, seams, cells, after_seams, *, codepoints, notation="·X ~b
         "no_verdict": False,
         "render_groups": [{"configs": ["default"]}],
         "class": "c-1",
-        "echo": None,
+        "duplicate_group": None,
         "notation": notation,
         "codepoints": codepoints,
         "configs": ["default"],

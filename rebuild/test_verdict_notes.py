@@ -1,26 +1,26 @@
-"""Tests for `rebuild.tools.verdict_notes`: `cap_markers`, which the carry and the echo fill use to keep only the newest provenance markers at the head of a note while keeping its human prose, and `strip_markers`, which returns the prose alone for the complaint list."""
+"""Tests for `rebuild.tools.verdict_notes`: `cap_markers`, which the carry and the duplicate fill use to keep only the newest provenance markers at the head of a note while keeping its human prose, and `strip_markers`, which returns the prose alone for the complaint list."""
 
 from rebuild.tools.verdict_notes import cap_markers, strip_markers
 
 CARRIED_A = "[carried u-1@review-pre-aaa, verdicted 2026-07-18]"
 CARRIED_B = "[carried u-2@review-pre-bbb, verdicted 2026-07-17]"
 CARRIED_C = "[carried u-3@review-pre-ccc, verdicted 2026-07-16]"
-ECHO = "[echo-fill from u-9]"
+DUPLICATE = "[duplicate-fill from u-9]"
 
 
 def test_keeps_the_two_newest_markers_of_any_kind():
-    note = f"{CARRIED_A} {CARRIED_B} {ECHO} {CARRIED_C}"
+    note = f"{CARRIED_A} {CARRIED_B} {DUPLICATE} {CARRIED_C}"
     assert cap_markers(note) == f"{CARRIED_A} {CARRIED_B}"
 
 
-def test_drops_an_interior_echo_fill_behind_two_carries():
-    note = f"{CARRIED_A} {CARRIED_B} {ECHO}"
+def test_drops_an_interior_duplicate_fill_behind_two_carries():
+    note = f"{CARRIED_A} {CARRIED_B} {DUPLICATE}"
     assert cap_markers(note) == f"{CARRIED_A} {CARRIED_B}"
 
 
-def test_keeps_an_echo_fill_when_it_is_among_the_two_newest():
-    note = f"{ECHO} {CARRIED_A} {CARRIED_B}"
-    assert cap_markers(note) == f"{ECHO} {CARRIED_A}"
+def test_keeps_a_duplicate_fill_when_it_is_among_the_two_newest():
+    note = f"{DUPLICATE} {CARRIED_A} {CARRIED_B}"
+    assert cap_markers(note) == f"{DUPLICATE} {CARRIED_A}"
 
 
 def test_preserves_trailing_human_prose():
@@ -50,11 +50,20 @@ def test_a_pure_marker_note_collapses_to_its_two_newest():
     assert cap_markers(note) == f"{CARRIED_A} {CARRIED_B}"
 
 
-def test_recognizes_echo_harmonize_and_bulk_markers():
-    harmonize = "[echo-harmonize e-1007 — docket 2026-07-18T00:00:00Z]"
+def test_recognizes_duplicate_harmonize_and_bulk_markers():
+    harmonize = "[duplicate-harmonize e-1007 — review queue 2026-07-18T00:00:00Z]"
     bulk = "[bulk: qsNo baseline — docket 2026-07-18T00:00:00Z]"
     note = f"{harmonize} {bulk} {CARRIED_A} keep me"
     assert cap_markers(note) == f"{harmonize} {bulk} keep me"
+
+
+def test_recognizes_the_echo_fill_and_echo_harmonize_kinds_older_notes_carry():
+    fill = "[echo-fill from u-9]"
+    harmonize = "[echo-harmonize e-1007 — docket 2026-07-18T00:00:00Z]"
+    for marker in (fill, harmonize):
+        note = f"{marker} {CARRIED_A} {CARRIED_B} keep me"
+        assert cap_markers(note) == f"{marker} {CARRIED_A} keep me"
+        assert strip_markers(note) == "keep me"
 
 
 def test_keep_parameter_is_honored():

@@ -325,7 +325,7 @@ _SCAFFOLD_HEAD = (
     "junior_equivalent",
     "ink_deltas",
     "no_verdict",
-    "echo",
+    "duplicate_group",
     "cluster",
     "class",
     "group",
@@ -344,7 +344,7 @@ _SCAFFOLD_TAIL = (
 _STAMPED_SCAFFOLD_KEYS = tuple(
     key for key in _SCAFFOLD_HEAD + _SCAFFOLD_TAIL if key not in unit_cache.CARRY_PRESENTATION_KEYS
 )
-# The scaffold keys `check_scaffold` compares between the worker's drafting and the parent's patch: the stamped keys, whose equality means the content key still holds, plus the keys outside the carry projection that the parent writes back unchanged. The remaining scaffold keys, `echo` and `cluster`, are assigned by the parent's whole-corpus passes after drafting, and `check_unit`'s write-time subset (`PATCHED`) checks them.
+# The scaffold keys `check_scaffold` compares between the worker's drafting and the parent's patch: the stamped keys, whose equality means the content key still holds, plus the keys outside the carry projection that the parent writes back unchanged. The remaining scaffold keys, `duplicate_group` and `cluster`, are assigned by the parent's whole-corpus passes after drafting, and `check_unit`'s write-time subset (`PATCHED`) checks them.
 _CHECKED_SCAFFOLD_KEYS = _STAMPED_SCAFFOLD_KEYS + (
     "id",
     "no_verdict",
@@ -366,7 +366,7 @@ def unit_scaffold(
         "junior_equivalent": unit.junior_equivalent,
         "ink_deltas": dict(unit.ink_deltas if ink_deltas is None else ink_deltas),
         "no_verdict": unit.no_verdict,
-        "echo": unit.echo,
+        "duplicate_group": unit.duplicate_group,
         "cluster": unit.cluster,
         "class": unit.class_id,
         "group": unit.group,
@@ -459,7 +459,7 @@ def unit_to_json(
 ) -> dict:
     """Return the shard fragment for one enriched unit as phase 1 drafts it, while its batch's shapes are still in the shape memo. The fragment is first built without drafts, with `final_class` (the unmatched group an UNMATCHED unit is promoted to) as its class and `ink_deltas` as the comparator found them. It is then stamped: `content_key` is the hash of its carry projection, and the unit's id is `unit_cache.unit_id_for` of that key, written onto both the unit and the fragment so the seam-home projection carries the final id. The drafts are added after the stamp.
 
-    The echo, the cluster and the secondary-seam homes are placeholders here: `patch_fragment` overwrites them at the write, and all of them are outside the carry projection. The scaffold keys inside the projection (`_STAMPED_SCAFFOLD_KEYS`) already carry the parent's values, which `check_scaffold` checks at the write. Together these keep the stamp taken here valid for the written fragment. Nothing the drafter or the enricher produces may depend on the placeholders.
+    The duplicate group, the cluster and the secondary-seam homes are placeholders here: `patch_fragment` overwrites them at the write, and all of them are outside the carry projection. The scaffold keys inside the projection (`_STAMPED_SCAFFOLD_KEYS`) already carry the parent's values, which `check_scaffold` checks at the write. Together these keep the stamp taken here valid for the written fragment. Nothing the drafter or the enricher produces may depend on the placeholders.
 
     A slim unit (`audit.slim_fragment`: machine-approved or verdict-exempt) skips the drafter, whose pin draft replays a shaping per unit, and its fragment omits the `SLIM_OMITTED_KEYS` entirely (absent, not null), since no reviewer sees them. The machine flags and the exemption that decide slimness are both set before this runs: the flags by the comparator and oracle earlier in phase 1, the exemption by the ledger at load.
     """
@@ -840,13 +840,13 @@ def _cluster_id_from_repr(configs, class_id, diffs_repr: bytes) -> str:
 
 
 def _cluster_id(configs, class_id, diffs) -> str:
-    """Return the cluster id the in-app review queue groups blank units by: the echo key without the judged pair, so every echo group falls inside one cluster. The repr recipe must not change, so that recorded `c-` ids keep resolving."""
+    """Return the cluster id the in-app review queue groups blank units by: the duplicate-group key without the judged pair, so every duplicate group falls inside one cluster. The repr recipe must not change, so that recorded `c-` ids keep resolving."""
     return _cluster_id_from_repr(configs, class_id, repr(diffs).encode())
 
 
 @dataclass(frozen=True, slots=True)
 class _UnitProjection:
-    """The picklable phase-1 result a corpus worker returns per unit: what the parent's serial whole-corpus passes read and what the unit cache persists. It never includes the EnrichedUnit, which is freed when its batch ends; the fragment is drafted and spooled in the same step, and its spool address (`part`, `start`, `length`) is included here. `ordinal` is the unit's row in the parent's unit store (`audit.Unit.ordinal`), so the parent loads the projection in without a lookup. `input_key` is the unit's cache key over its inputs, which the store records so the next build can reuse the unit by it. `unit_id` and `content_key` are the drafting's stamp. The ink diffs are sent only as two digests of their repr: `diffs_digest` is the echo key's diff component, and `cluster` is the blank-queue cluster id. The cluster is computed here because everything it depends on is known once the unmatched group is assigned: the configs, the diffs, and the final class (the unmatched group for an UNMATCHED unit, else the ledger class). It is computed for machine-approved units too, because the store carries it forward and a cached unit can become a human unit through a ledger edit alone (its `no_verdict` flipping). Sending digests keeps the parent from holding each unit's diffs repr, which is as long as the diffs, through the units phase."""
+    """The picklable phase-1 result a corpus worker returns per unit: what the parent's serial whole-corpus passes read and what the unit cache persists. It never includes the EnrichedUnit, which is freed when its batch ends; the fragment is drafted and spooled in the same step, and its spool address (`part`, `start`, `length`) is included here. `ordinal` is the unit's row in the parent's unit store (`audit.Unit.ordinal`), so the parent loads the projection in without a lookup. `input_key` is the unit's cache key over its inputs, which the store records so the next build can reuse the unit by it. `unit_id` and `content_key` are the drafting's stamp. The ink diffs are sent only as two digests of their repr: `diffs_digest` is the duplicate-group key's diff component, and `cluster` is the blank-queue cluster id. The cluster is computed here because everything it depends on is known once the unmatched group is assigned: the configs, the diffs, and the final class (the unmatched group for an UNMATCHED unit, else the ledger class). It is computed for machine-approved units too, because the store carries it forward and a cached unit can become a human unit through a ledger edit alone (its `no_verdict` flipping). Sending digests keeps the parent from holding each unit's diffs repr, which is as long as the diffs, through the units phase."""
 
     unit_id: str
     input_key: str
@@ -923,9 +923,9 @@ def _seam_records(seam_rects) -> list[dict]:
 def _recompute_fragment(
     unit, injection, comparator, oracle, enricher, drafter: Drafter, report
 ) -> tuple[str, tuple[tuple[str, str], ...]]:
-    """Recompute one sampled cached unit from nothing and patch it as the write patches a recomputed fragment. The parent's global fields (echo, cluster, promoted class, seam homes) are injected onto the unit copy first, because the copy was taken before the whole-corpus passes ran. `report` is the unit's result from its chunk's single `Enricher.explain_units` pass (`_released_batches`), settled from the unit's own codepoints and configuration and not read from the cache. Passing it in avoids settling each sampled unit on its own, which would cost one `settle-cases` process per position. Returns the recomputed content key and ink deltas, which the caller compares with what the cache supplied; the id follows from the key."""
+    """Recompute one sampled cached unit from nothing and patch it as the write patches a recomputed fragment. The parent's global fields (duplicate group, cluster, promoted class, seam homes) are injected onto the unit copy first, because the copy was taken before the whole-corpus passes ran. `report` is the unit's result from its chunk's single `Enricher.explain_units` pass (`_released_batches`), settled from the unit's own codepoints and configuration and not read from the cache. Passing it in avoids settling each sampled unit on its own, which would cost one `settle-cases` process per position. Returns the recomputed content key and ink deltas, which the caller compares with what the cache supplied; the id follows from the key."""
     projection, fragment, _complaints = _phase1_unit(unit, comparator, oracle, enricher, drafter, report)
-    unit.echo, unit.cluster, unit.class_id, seam_assign = injection
+    unit.duplicate_group, unit.cluster, unit.class_id, seam_assign = injection
     check_stamp(
         patch_fragment(
             fragment,
@@ -1208,7 +1208,7 @@ def _phase_timing(label: str, started: float, note: str = "") -> None:
 
 
 class _RecomputeRunner:
-    """Run phase 1 over the units the cache could not supply: in-process when `jobs` is 1, across persistent spawn workers otherwise, with the same per-unit work either way, so serial and parallel builds share every whole-corpus pass and are byte-identical. The parent keeps the triage order and every order-sensitive whole-corpus pass (the index and its batches, unmatched-group promotion, echo grouping, secondary-home resolution) and takes each recomputed unit's id from the projection its drafting stamped. The runner enriches, drafts and runs the drafting-time contract check (`_phase1_unit`). It spools each fragment as it is drafted (`_FragmentSpool`, under `out_dir`) so no EnrichedUnit outlives its batch on either path, loads each projection into the parent's unit store as it arrives (`phase1`), keeps the check's complaints in `contract_errors` for the write, and returns fragments one at a time through `fragment`, read from the spool at the address the store holds, as a cached fragment is read from the previous corpus.
+    """Run phase 1 over the units the cache could not supply: in-process when `jobs` is 1, across persistent spawn workers otherwise, with the same per-unit work either way, so serial and parallel builds share every whole-corpus pass and are byte-identical. The parent keeps the triage order and every order-sensitive whole-corpus pass (the index and its batches, unmatched-group promotion, duplicate grouping, secondary-home resolution) and takes each recomputed unit's id from the projection its drafting stamped. The runner enriches, drafts and runs the drafting-time contract check (`_phase1_unit`). It spools each fragment as it is drafted (`_FragmentSpool`, under `out_dir`) so no EnrichedUnit outlives its batch on either path, loads each projection into the parent's unit store as it arrives (`phase1`), keeps the check's complaints in `contract_errors` for the write, and returns fragments one at a time through `fragment`, read from the spool at the address the store holds, as a cached fragment is read from the previous corpus.
 
     Pooled, every worker draws batches from one queue (`_handout_width` units at a time, one batch in flight per worker) instead of owning a fixed share, so which worker drafts which unit depends on timing and changes no output byte: `OutlineIntern` keys by shape, not by first-seen order, the parent loads each projection into its ordinal's row, and every order-dependent whole-corpus pass runs in the parent over the whole store. The queue is in configuration order (`_configuration_order`), so a worker's consecutive batches share a configuration. Its baseline rows come from the subset pack the parent writes before the pool starts (`subset_pack`, mapped read-only by every worker and shared through the page cache), its lookups mostly stay in one configuration's key range, and most batches settle under one configuration. The verification sample is split into contiguous slices of the same order for the same reason. A worker holds its interpreter and shapers, one batch's units, projections and addresses, the rows materialized for that batch, and the pages of the mapping it has touched; `CORPUS_WORKER_BYTES` in rebuild/tools/artifact_cycle.py estimates that peak. `close` deletes the spool however the build ends.
     """
@@ -1603,7 +1603,7 @@ def _write_corpus(
     store: UnitStore,
     cached_count: int,
     secondary_seam_counts: dict,
-    echo_count: int,
+    duplicate_group_count: int,
     total_batches: int,
     batch_size: int,
     audit_path: Path,
@@ -1736,7 +1736,7 @@ def _write_corpus(
                 "units": table.n,
                 "rows": row_total,
                 "batches": total_batches,
-                "echo_groups": echo_count,
+                "duplicate_groups": duplicate_group_count,
             },
             "machine_approved": _machine_approved_meta(machine_units, junior_font, repo_root),
             "secondary_seams": secondary_seam_counts,
@@ -1791,7 +1791,7 @@ def premerge_sizes(snapshot: facts.PremergeSnapshot) -> memory_tally.Measure:
 def _packed_shape(collection: str) -> memory_tally.Shape:
     """Return the packed row the debug tally measures one member of the named collection against (`memory_tally.hold(..., packed=)`; the memory_tally module docstring defines the terms). Each shape matches the record the parent holds, field for field: `unit_cache.ParsedCachedUnit` under `unit_cache.unplaced`, the input-key-to-id map under `unit_cache.keys`, and the checker's identity triple under `checker.identity`. The rest of the per-unit state is columns, measured exactly elsewhere: the workload table under `workload.units` (`unit_table_sizes`), the unit store under `unit_store`, the audit's row columns under `workload.rows`, and the pre-merge snapshot under `facts.premerge`.
 
-    The widths are the unit store's own. Each flag is a bit of one flag byte. A window is a count byte and a `u16` per codepoint, measured from the value since a window is two to four cells. A pair's two cell indices take two bytes. A span is two `u16`, and a seam-rect edge three `i32`. Every interned name (the class, the configs, the glyph and cell names, the seam tokens, the diff and delta digests, the cluster, the echo, a shard part's name, a policy file) is a `u32` id into one string table. A sha256 content or input key is its 32 raw bytes, and a content id the 8 raw bytes it is cut from (`unit_cache.unit_id_for`). Every variable-length field (names, deltas, seam rects, homes) is an offset and count into a side column, so an empty one costs the pair. The shape measures `mismatches` the same way, although the store keeps those lines as tuples in a dict keyed by ordinal.
+    The widths are the unit store's own. Each flag is a bit of one flag byte. A window is a count byte and a `u16` per codepoint, measured from the value since a window is two to four cells. A pair's two cell indices take two bytes. A span is two `u16`, and a seam-rect edge three `i32`. Every interned name (the class, the configs, the glyph and cell names, the seam tokens, the diff and delta digests, the cluster, the duplicate group, a shard part's name, a policy file) is a `u32` id into one string table. A sha256 content or input key is its 32 raw bytes, and a content id the 8 raw bytes it is cut from (`unit_cache.unit_id_for`). Every variable-length field (names, deltas, seam rects, homes) is an offset and count into a side column, so an empty one costs the pair. The shape measures `mismatches` the same way, although the store keeps those lines as tuples in a dict keyed by ordinal.
 
     A unit's own id costs nothing where the collection is keyed by it, because a packed store indexes by ordinal; that applies to the checker's identity. `unit_cache.keys` does count its key, since it maps the input key to the id and the plan's key map needs an index for that lookup. `unit_cache.unplaced` holds the records a cached plan received without an address, buffered whole until the walk over the previous shards places them (none, on a store this code wrote), and each carries its `key` as a digest column because the plan finds the record's unit through it. The shapes are constant and requested at every boundary a collection is held at, so one is built per collection name and cached.
     """
@@ -1826,7 +1826,7 @@ def _packed_shape(collection: str) -> memory_tally.Shape:
             "cluster": name,
             "unmatched_group": name,
             "pair_codepoints": pair,
-            "echo": name,
+            "duplicate_group": name,
             "exemplar": flag,
             "no_verdict": flag,
             "homes": memory_tally.Many(memory_tally.Positional((content_id, flag))),
@@ -1875,7 +1875,7 @@ def _cached_identity(table: UnitTable, store: UnitStore, ordinal: int, seam_assi
         "picture_identical": picture_identical,
         "junior_equivalent": junior_equivalent,
         "no_verdict": table.no_verdict(ordinal),
-        "echo": table.echo(ordinal),
+        "duplicate_group": table.duplicate_group(ordinal),
         "cluster": table.cluster(ordinal),
         "class": table.class_id(ordinal),
         "group": table.group(ordinal),
@@ -2056,7 +2056,7 @@ def build_m1(
             del located
         del named
     recomputed = array("I", (ordinal for ordinal in range(table.n) if not store.loaded(ordinal)))
-    # The sample is drawn from the cached units' id words in ascending order, which is the ids' own order. The sampled units are materialized once, as copies the recomputation may write to: its phase 1 writes the ink flags, and the verification patch writes the injected echo and class. The whole-corpus passes read the table and the store, not these copies.
+    # The sample is drawn from the cached units' id words in ascending order, which is the ids' own order. The sampled units are materialized once, as copies the recomputation may write to: its phase 1 writes the ink flags, and the verification patch writes the injected duplicate group and class. The whole-corpus passes read the table and the store, not these copies.
     sampled = set(
         _verification_sample(
             sorted(store.id_word(ordinal) for ordinal in range(table.n) if store.loaded(ordinal)),
@@ -2140,8 +2140,8 @@ def build_m1(
         )
         total_batches = assign_batches(table, store, order, batch_size)
 
-        # Echo groups: human units whose config set, judged pair, class and ink diffs (`diffs_digest`) all agree show the same change in different surroundings, so one verdict covers all of them. They are keyed after unmatched-group promotion so the class is final. The id is a digest of the key (`unit_cache.echo_id_for`), so a group keeps its id on every corpus it appears on. The table's string table stores each id once, however many units carry it.
-        echo_groups: set[str] = set()
+        # Duplicate groups: human units whose config set, judged pair, class and ink diffs (`diffs_digest`) all agree show the same change in different surroundings, so one verdict covers all of them. They are keyed after unmatched-group promotion so the class is final. The id is a digest of the key (`unit_cache.duplicate_group_id_for`), so a group keeps its id on every corpus it appears on. The table's string table stores each id once, however many units carry it.
+        duplicate_groups: set[str] = set()
         for ordinal in range(table.n):
             if table.batch(ordinal) is None:
                 continue
@@ -2151,19 +2151,19 @@ def build_m1(
                 values = table.codepoints(ordinal)
                 pair = (values[pair_codepoints[0]], values[pair_codepoints[1]])
             key = (table.configs(ordinal), pair, table.class_id(ordinal), store.diffs_digest(ordinal))
-            echo = unit_cache.echo_id_for(repr(key))
-            echo_groups.add(echo)
-            table.set_echo(ordinal, echo)
+            duplicate_group = unit_cache.duplicate_group_id_for(repr(key))
+            duplicate_groups.add(duplicate_group)
+            table.set_duplicate_group(ordinal, duplicate_group)
             table.set_cluster(ordinal, store.cluster(ordinal))
 
         by_class = table.rows_by_class(order)
         # The home-resolution pass reads the corpus through the store and writes each unit's homes back into it. The returned dict is filled only on the list path, so it is empty here.
         _assignments, secondary_seam_counts = resolve_home_assignments(store)
 
-        # The sampled records were materialized before the whole-corpus passes ran, so the fields the whole-corpus passes assign (echo, cluster, class, homes) are passed to the recomputation explicitly.
+        # The sampled records were materialized before the whole-corpus passes ran, so the fields the whole-corpus passes assign (duplicate group, cluster, class, homes) are passed to the recomputation explicitly.
         injections = {
             store.unit_id(ordinal): (
-                table.echo(ordinal),
+                table.duplicate_group(ordinal),
                 table.cluster(ordinal),
                 table.class_id(ordinal),
                 store.homes(ordinal),
@@ -2184,8 +2184,8 @@ def build_m1(
                 f"ink deltas do not match a recomputation: {', '.join(stale[:10])}"
             )
         mismatches = [line for ordinal in range(table.n) for line in store.mismatches(ordinal)]
-        echo_count = len(echo_groups)
-        del echo_groups
+        duplicate_group_count = len(duplicate_groups)
+        del duplicate_groups
         if tally:
             tally.hold("verified", verified)
             runner.hold_collections(tally)
@@ -2213,7 +2213,7 @@ def build_m1(
                     elif store.cached_as_is(
                         ordinal,
                         class_id=table.class_id(ordinal),
-                        echo=table.echo(ordinal),
+                        duplicate_group=table.duplicate_group(ordinal),
                         exemplar=table.exemplar(ordinal),
                         no_verdict=table.no_verdict(ordinal),
                     ):
@@ -2257,7 +2257,7 @@ def build_m1(
                 store,
                 cached_count,
                 secondary_seam_counts,
-                echo_count,
+                duplicate_group_count,
                 total_batches,
                 batch_size,
                 audit_path,
@@ -2315,7 +2315,7 @@ def build_m1(
         tally.boundary("review-facts")
     _phase_timing("review.build review-facts", phase)
 
-    # The store is written as a merge over the previous one. A unit whose fragment was byte-copied to an unchanged address has the same record as in the previous store, so its line is copied from that store through a cursor that reads it in step. Every other unit's record (recomputed, re-patched or moved) is built from the unit store's columns and the table's class, echo and ledger flags (`UnitStore.cached_unit`, no record materialized). Both stores list units in triage order, and every term of `audit.triage_key` is content-derived, so the cursor only reads forward.
+    # The store is written as a merge over the previous one. A unit whose fragment was byte-copied to an unchanged address has the same record as in the previous store, so its line is copied from that store through a cursor that reads it in step. Every other unit's record (recomputed, re-patched or moved) is built from the unit store's columns and the table's class, duplicate group and ledger flags (`UnitStore.cached_unit`, no record materialized). Both stores list units in triage order, and every term of `audit.triage_key` is content-derived, so the cursor only reads forward.
     console.phase("review.build cache", file=sys.stderr)
     phase = time.perf_counter()
     prior_store = unit_cache.StoreCursor(out_dir) if cached_count else None
@@ -2325,11 +2325,15 @@ def build_m1(
         nonlocal carried
         for ordinal in order:
             class_id = table.class_id(ordinal)
-            echo = table.echo(ordinal)
+            duplicate_group = table.duplicate_group(ordinal)
             exemplar = table.exemplar(ordinal)
             no_verdict = table.no_verdict(ordinal)
             if prior_store is not None and store.cached_as_is(
-                ordinal, class_id=class_id, echo=echo, exemplar=exemplar, no_verdict=no_verdict
+                ordinal,
+                class_id=class_id,
+                duplicate_group=duplicate_group,
+                exemplar=exemplar,
+                no_verdict=no_verdict,
             ):
                 source = store.source(ordinal)
                 assert source is not None, ordinal
@@ -2340,7 +2344,11 @@ def build_m1(
                         yield line
                         continue
             yield store.cached_unit(
-                ordinal, class_id=class_id, echo=echo, exemplar=exemplar, no_verdict=no_verdict
+                ordinal,
+                class_id=class_id,
+                duplicate_group=duplicate_group,
+                exemplar=exemplar,
+                no_verdict=no_verdict,
             )
 
     try:
@@ -2434,7 +2442,7 @@ def _table_diff_unit_json(
         "picture_identical": picture_identical,
         "junior_equivalent": False,
         "no_verdict": False,
-        "echo": None,
+        "duplicate_group": None,
         "cluster": None,
         "class": entry.bucket,
         "group": f"{entry.table}:{getattr(entry.key, 'input', getattr(entry.key, 'left', ''))}",
@@ -2690,7 +2698,9 @@ def check_manifest(manifest: dict) -> list[str]:
         for key in ("units", "rows", "batches"):
             need(isinstance(totals.get(key), int), f"totals.{key} must be an integer")
         if manifest.get("mode") == "m1-audit":
-            need(isinstance(totals.get("echo_groups"), int), "totals.echo_groups must be an integer")
+            need(
+                isinstance(totals.get("duplicate_groups"), int), "totals.duplicate_groups must be an integer"
+            )
     machine = manifest.get("machine_approved")
     need(isinstance(machine, dict), "machine_approved must be a mapping")
     if isinstance(machine, dict):
@@ -2793,7 +2803,7 @@ CONTRACT_ERRORS_SHOWN = 20
 
 
 def check_unit(unit: dict, mode: str = "m1-audit", *, at: tuple[str, ...] = CHECKED_AT) -> list[str]:
-    """The per-unit half of the §7 contract check. `at` selects which of its two subsets run. `DRAFTED` covers every field settled when `unit_to_json` builds the fragment: the identity and its stamp, the machine flags and `ink_deltas`, the class and group, the window, the seams, the highlight, the notation, the summary and explain, the config badge, and the drafts. `PATCHED` covers the fields `patch_fragment` assigns after the parent's whole-corpus passes: `echo`, `cluster`, and the secondary seams with their homes.
+    """The per-unit half of the §7 contract check. `at` selects which of its two subsets run. `DRAFTED` covers every field settled when `unit_to_json` builds the fragment: the identity and its stamp, the machine flags and `ink_deltas`, the class and group, the window, the seams, the highlight, the notation, the summary and explain, the config badge, and the drafts. `PATCHED` covers the fields `patch_fragment` assigns after the parent's whole-corpus passes: `duplicate_group`, `cluster`, and the secondary seams with their homes.
 
     The m1 build runs `DRAFTED` in the process that drafts the fragment (`_phase1_unit`) and `PATCHED` in the parent's write (`_write_corpus`). This is sound because `check_scaffold` checks at the write that every scaffold field outside `PATCHED` (`_CHECKED_SCAFFOLD_KEYS`) still has the value the drafting-time check read, and because only the scaffold and the secondary seams are written after drafting. Either subset may read a checked field, but only `PATCHED` may read an unchecked one. A new fragment field must be assigned to one subset here. `rebuild/test_corpus_checks.py` checks that every scaffold key is either checked by `check_scaffold` or one of the keys `PATCHED` checks, and that `DRAFTED` and `PATCHED` together equal the full check. `check_shards` and `check_output_dir` run both subsets, so a corpus read back from disk gets every predicate.
     """
@@ -3124,17 +3134,21 @@ def check_unit(unit: dict, mode: str = "m1-audit", *, at: tuple[str, ...] = CHEC
                                 need(False, f"drafts.any_of candidate {candidate!r} does not parse: {error}")
 
     if PATCHED in at:
-        need("echo" in unit, "echo must be present")
-        echo = unit.get("echo")
+        need("duplicate_group" in unit, "duplicate_group must be present")
+        duplicate_group = unit.get("duplicate_group")
         need(
-            echo is None or (isinstance(echo, str) and echo.startswith("e-")),
-            "echo must be null or an e- group id",
+            duplicate_group is None
+            or (isinstance(duplicate_group, str) and duplicate_group.startswith("e-")),
+            "duplicate_group must be null or an e- group id",
         )
         if mode == "m1-audit":
             if human:
-                need(isinstance(echo, str), "human units must carry an echo group id")
+                need(isinstance(duplicate_group, str), "human units must carry a duplicate group id")
             else:
-                need(echo is None, "machine-approved and no-verdict units must carry echo null")
+                need(
+                    duplicate_group is None,
+                    "machine-approved and no-verdict units must carry duplicate_group null",
+                )
         need("cluster" in unit, "cluster must be present")
         cluster = unit.get("cluster")
         need(
@@ -3211,9 +3225,9 @@ class _CorpusCheck:
         self._seam_units = 0
         self._seams_homed = 0
         self._seams_homeless = 0
-        self._echo_keys: dict[str | None, set[tuple]] = {}
+        self._duplicate_group_keys: dict[str | None, set[tuple]] = {}
         self._cluster_keys: dict[str | None, set[tuple]] = {}
-        self._echo_cluster: dict[str | None, str | None] = {}
+        self._duplicate_group_cluster: dict[str | None, str | None] = {}
         self._human_units: dict[str, tuple[str, str, str]] = {}
         self._identity: dict[str | None, tuple] = {}
         self._policy_files: set[str] = set()
@@ -3256,13 +3270,17 @@ class _CorpusCheck:
                     "feature_descriptions does not gloss"
                 )
         human = not slim_fragment(unit)
-        # Echo and cluster exist only in m1-audit. A table-diff unit has null for both, and treating null as a group id would put all its units in one group.
+        # The duplicate group and cluster exist only in m1-audit. A table-diff unit has null for both, and treating null as a group id would put all its units in one group.
         if mode == "m1-audit" and human and isinstance(unit_id, str):
             key = (unit.get("class"), tuple(unit.get("configs") or ()))
-            self._echo_keys.setdefault(unit.get("echo"), set()).add(key)
+            self._duplicate_group_keys.setdefault(unit.get("duplicate_group"), set()).add(key)
             self._cluster_keys.setdefault(unit.get("cluster"), set()).add(key)
-            if self._echo_cluster.setdefault(unit.get("echo"), unit.get("cluster")) != unit.get("cluster"):
-                errors.append(f"unit {unit_id}: echo {unit.get('echo')} spans two clusters")
+            if self._duplicate_group_cluster.setdefault(
+                unit.get("duplicate_group"), unit.get("cluster")
+            ) != unit.get("cluster"):
+                errors.append(
+                    f"unit {unit_id}: duplicate group {unit.get('duplicate_group')} spans two clusters"
+                )
         if unit.get("class") != meta.get("id"):
             errors.append(f"unit {unit.get('id')}: class {unit.get('class')} in shard {meta.get('id')}")
         if unit.get("id") in self._seen_ids:
@@ -3348,9 +3366,9 @@ class _CorpusCheck:
             key: value for key, value in (machine.get("by_class") or {}).items()
         }:
             errors.append("machine_approved.by_class does not match the shards' machine-approved counts")
-        for echo, keys in self._echo_keys.items():
+        for duplicate_group, keys in self._duplicate_group_keys.items():
             if len(keys) > 1:
-                errors.append(f"echo {echo}: one group spans {sorted(keys)[:2]}")
+                errors.append(f"duplicate group {duplicate_group}: one group spans {sorted(keys)[:2]}")
         for cluster, keys in self._cluster_keys.items():
             if len(keys) > 1:
                 errors.append(f"cluster {cluster}: one signature spans {sorted(keys)[:2]}")
@@ -3437,9 +3455,9 @@ def check_shards(
 ) -> list[str]:
     """Run the per-unit and cross-unit §7 checks over shard payloads held in memory, keyed by class id. The table-diff build passes the dicts it serialized and `check_output_dir` passes the shards it re-parsed from disk; the m1 build runs the same predicates through `_CorpusCheck` one fragment at a time as it writes. A class missing from the mapping is skipped here and reported by the caller. When `repo_root` is given, each distinct policy-draft file is checked to exist; every other predicate reads only the payload.
 
-    The cross-unit predicates check what no single fragment can: each echo group and each cluster holds one class and one config set, every echo group lies inside one cluster, the manifest's `human_unit_ids` lists the human units in `audit.triage_key` order, every class's `batches` are the slices its units occupy in it, and each secondary seam's home is a unit whose window this unit's window contains and which has a primary pair and a visible change.
+    The cross-unit predicates check what no single fragment can: each duplicate group and each cluster holds one class and one config set, every duplicate group lies inside one cluster, the manifest's `human_unit_ids` lists the human units in `audit.triage_key` order, every class's `batches` are the slices its units occupy in it, and each secondary seam's home is a unit whose window this unit's window contains and which has a primary pair and a visible change.
 
-    Apart from the policy-draft files, the cross-unit predicates read only fields that slim and full fragments both carry (the machine flags, the window, the pair, the class, group, configs, echo and cluster), so the manifest's counts are checked over both kinds. `check_unit` checks that a slim fragment (`audit.slim_fragment`) omits `SLIM_OMITTED_KEYS` and a full one carries them.
+    Apart from the policy-draft files, the cross-unit predicates read only fields that slim and full fragments both carry (the machine flags, the window, the pair, the class, group, configs, duplicate group and cluster), so the manifest's counts are checked over both kinds. `check_unit` checks that a slim fragment (`audit.slim_fragment`) omits `SLIM_OMITTED_KEYS` and a full one carries them.
 
     `check_unit` is skipped for the units in `cached_ids`. A cached fragment passed `check_unit` in the build that drafted it, and the build reuses it only when the stamp on the shard equals its store record's. The fields a later build re-patches onto a cached fragment (the scaffold and secondary seams) are not re-checked per unit; the cross-unit predicates still run over every unit. A caller re-reading a finished corpus passes no `cached_ids` and so checks everything.
     """

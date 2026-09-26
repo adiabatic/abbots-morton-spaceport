@@ -331,10 +331,10 @@ def test_contact_allow_digest_ignores_prose_and_falls_back_to_bytes(tmp_path):
 
 LEDGER = textwrap.dedent("""\
     # The M1 divergence ledger: one entry per reviewed divergence class.
-    - id: boundary-echo
+    - id: boundary-window
       status: intended
       no_verdict: true
-      match: {predicate: boundary_echo, configs: all}
+      match: {predicate: boundary_window, configs: all}
       count: 12
       exemplars:
         - {config: default, codepoints: "0020:E650", baseline: "space|qsPea", new: "space|qsPea.half"}
@@ -394,7 +394,7 @@ def test_divergence_ledger_digest_ignores_prose_and_falls_back_to_bytes(tmp_path
         _ledger_digest(path, LEDGER.replace('new: "space|qsPea.half"', 'new: "space|qsPea.full"')) != parsed
     )
     assert _ledger_digest(path, LEDGER + "- id: added\n  status: intended\n  count: 0\n") != parsed
-    broken = "- id: boundary-echo\n  match: {predicate: unclosed\n"
+    broken = "- id: boundary-window\n  match: {predicate: unclosed\n"
     broken_digest = _ledger_digest(path, broken)
     assert broken_digest == hashlib.sha256(broken.encode()).hexdigest()
     assert _ledger_digest(path, broken.replace("unclosed", "still unclosed")) not in (parsed, broken_digest)
@@ -716,12 +716,12 @@ def test_ledger_prose_lines_name_the_class(tmp_path):
     ledger = root / fingerprint.DIVERGENCE_LEDGER_LABEL
     ledger.write_text(LEDGER)
     assert fingerprint.ledger_prose_lines(root) == [
-        "ledger\tboundary-echo\tA window holding a run-splitting boundary never needs its own verdict.\n",
+        "ledger\tboundary-window\tA window holding a run-splitting boundary never needs its own verdict.\n",
         "ledger\tseam-moved\tThe old shadow stance joined at the x-height where word-initial settlement lands at the baseline.\n",
     ]
     combined = sorted(fingerprint.refuse_prose_lines(root) + fingerprint.ledger_prose_lines(root))
     assert fingerprint.explain_prose_value(root) == hashlib.sha256("\n".join(combined).encode()).hexdigest()
-    broken = "- id: boundary-echo\n  match: {predicate: unclosed\n"
+    broken = "- id: boundary-window\n  match: {predicate: unclosed\n"
     ledger.write_text(broken)
     assert fingerprint.ledger_prose_lines(root) == [
         f"ledger\t-\t{hashlib.sha256(broken.encode()).hexdigest()}"

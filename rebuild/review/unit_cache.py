@@ -8,9 +8,9 @@ The whole-store stamp (`environment_stamp`) covers everything that can change a 
 
 Three inputs are outside the whole-store stamp. The after font's GSUB wiring is outside every stamp; `fingerprint.after_font_glyph_digests` explains why a window's glyph selection is covered without it. The divergence ledger reaches the shards only through the audit's `matched_entry` column, which is in the rows, and through fields the build recomputes and patches on every pass (`no_verdict`, `exemplar`, class promotion), so a ledger edit invalidates only the units whose rows it changed. The refuse `why` text the explain panel quotes is in the family keys instead, so rewording one re-enriches only the windows that contain that family.
 
-A store record holds the address of the previous build's fragment: the shard part, byte offset, and length the shard writer returned when it wrote the fragment, so the plan does not parse the previous corpus to find it. The record also holds what the parent's whole-corpus passes need: the machine flags and ink deltas, the unmatched group, the judged pair, the ink-diff digest for echo grouping, the seam-home projection and per-seam rects, and the unit's mismatch lines. It records whether the fragment was written slim, because the shape depends on the exemption, a ledger fact outside the key. It also records the values the fragment was written with that come from outside the key: its echo group, its class after unmatched-group promotion, the ledger's exemplar and exemption flags, its secondary-seam homes, and the rune file its policy draft names. So a unit that becomes a human unit on a ledger edit (`no_verdict` changes) is a miss and is re-enriched in full instead of reused as the slim fragment it had before, and a unit that moves the other way is a miss too. This keeps a cached corpus byte-identical to a from-scratch one.
+A store record holds the address of the previous build's fragment: the shard part, byte offset, and length the shard writer returned when it wrote the fragment, so the plan does not parse the previous corpus to find it. The record also holds what the parent's whole-corpus passes need: the machine flags and ink deltas, the unmatched group, the judged pair, the ink-diff digest for duplicate grouping, the seam-home projection and per-seam rects, and the unit's mismatch lines. It records whether the fragment was written slim, because the shape depends on the exemption, a ledger fact outside the key. It also records the values the fragment was written with that come from outside the key: its duplicate group, its class after unmatched-group promotion, the ledger's exemplar and exemption flags, its secondary-seam homes, and the rune file its policy draft names. So a unit that becomes a human unit on a ledger edit (`no_verdict` changes) is a miss and is re-enriched in full instead of reused as the slim fragment it had before, and a unit that moves the other way is a miss too. This keeps a cached corpus byte-identical to a from-scratch one.
 
-Every field derived from the ledger or the whole-corpus passes (echo, class, `no_verdict`, `exemplar`, the secondary-seam homes) is recomputed over all units on every build, and a unit's id depends only on its content key. A cached fragment whose recomputed fields all equal the values its record says it was written with is copied into the new corpus by address as bytes, without parsing (`unit_store.UnitStore.cached_as_is`; `PriorFragmentReader.read_bytes` checks the record's id and stamp as substrings of the bytes). The shard writer leaves a part in place when every fragment in it is copied this way. A cached fragment with a changed field is parsed once, patched, and serialized again, the same way a recomputed fragment is read from the build's own spool, so a cache hit never keeps a stale global field. The cluster id is the one global field taken from the cached record, because its inputs (configs, final class, ink diffs) are all covered by the key.
+Every field derived from the ledger or the whole-corpus passes (duplicate group, class, `no_verdict`, `exemplar`, the secondary-seam homes) is recomputed over all units on every build, and a unit's id depends only on its content key. A cached fragment whose recomputed fields all equal the values its record says it was written with is copied into the new corpus by address as bytes, without parsing (`unit_store.UnitStore.cached_as_is`; `PriorFragmentReader.read_bytes` checks the record's id and stamp as substrings of the bytes). The shard writer leaves a part in place when every fragment in it is copied this way. A cached fragment with a changed field is parsed once, patched, and serialized again, the same way a recomputed fragment is read from the build's own spool, so a cache hit never keeps a stale global field. The cluster id is the one global field taken from the cached record, because its inputs (configs, final class, ink diffs) are all covered by the key.
 
 `stream_store` parses a store line only if the workload names its key, into a `ParsedCachedUnit`, and yields the records one at a time in store order. The plan loads each into the packed unit store (`rebuild/review/unit_store.py`) and releases it, so for the rest of the build the parent holds a cached unit only as columns there. If the store stops reading after some records were yielded, the stream raises `StoreUnreadable`, and the plan discards what it loaded and runs a full build. An error the load itself raises propagates unchanged. `load_store` collects the same stream into a dict.
 
@@ -40,12 +40,12 @@ from rebuild.review import unit_index
 from rebuild.review.audit import ACCEPTANCE_CONFIGS, RowColumns, UnitTable, parse_codepoints
 from rebuild.review.drafts import CORPUS_FILES
 
-STORE_FORMAT = "ams-review-unit-cache/6"
+STORE_FORMAT = "ams-review-unit-cache/7"
 STORE_NAME = "unit-cache.ndjson.gz"
 SIGNATURE_STORE_FORMAT = "ams-review-ink-signatures/2"
 SIGNATURE_STORE_NAME = "ink-signatures.tsv.gz"
 
-# The fields the carry projection leaves out; rebuild/test_carry_verdicts.py checks them. `no_verdict`, `exemplar`, `echo`, and `cluster` come from the ledger or the whole-corpus passes. `id` is the projection's own digest and `content_key` is the stamp of this projection, so neither can be an input to it. `batch` is excluded so a fragment from an older corpus that still carries one hashes the same. `explain`, `drafts`, `provenance`, and `secondary_seams` are derived presentation, whose content is already covered by the window and both fonts' glyphs, cells, and seams. `ink_deltas` is the same delta identity stored per config. `picture_identical` follows from the window and both fonts' placed glyphs, which the projection already covers, so excluding it changes nothing the key distinguishes, and including it would change the id of every unit whose flag changed and orphan their verdicts. `ink_identical` and `junior_equivalent` are derived flags inside the projection. Every fragment carries both, so removing either would change every unit id. The projection includes `highlight`, which a slim fragment (`audit.slim_fragment`) omits, so a slim fragment's stamp differs from the one its full fragment would have. That orphans nothing, because slim units take no verdicts.
+# The fields the carry projection leaves out; rebuild/test_carry_verdicts.py checks them. `no_verdict`, `exemplar`, `duplicate_group`, and `cluster` come from the ledger or the whole-corpus passes. `id` is the projection's own digest and `content_key` is the stamp of this projection, so neither can be an input to it. `batch` is excluded so a fragment from an older corpus that still carries one hashes the same. `explain`, `drafts`, `provenance`, and `secondary_seams` are derived presentation, whose content is already covered by the window and both fonts' glyphs, cells, and seams. `ink_deltas` is the same delta identity stored per config. `picture_identical` follows from the window and both fonts' placed glyphs, which the projection already covers, so excluding it changes nothing the key distinguishes, and including it would change the id of every unit whose flag changed and orphan their verdicts. `ink_identical` and `junior_equivalent` are derived flags inside the projection. Every fragment carries both, so removing either would change every unit id. The projection includes `highlight`, which a slim fragment (`audit.slim_fragment`) omits, so a slim fragment's stamp differs from the one its full fragment would have. That orphans nothing, because slim units take no verdicts.
 CARRY_PRESENTATION_KEYS = frozenset(
     {
         "id",
@@ -56,7 +56,7 @@ CARRY_PRESENTATION_KEYS = frozenset(
         "drafts",
         "provenance",
         "secondary_seams",
-        "echo",
+        "duplicate_group",
         "cluster",
         "ink_deltas",
         "picture_identical",
@@ -99,13 +99,13 @@ def unit_id_for(content_key: str) -> str:
     return "u-" + base58_64(content_key)
 
 
-def echo_id_for(key_repr: str) -> str:
-    """Return an echo group's id: `e-` followed by the same encoding of the sha256 of the group's key (the configs, the judged pair's codepoints, the final class, and the ink-diff digest, as `repr` renders them). A group has the same id on every corpus it appears on, whatever other groups exist."""
+def duplicate_group_id_for(key_repr: str) -> str:
+    """Return a duplicate group's id: `e-` followed by the same encoding of the sha256 of the group's key (the configs, the judged pair's codepoints, the final class, and the ink-diff digest, as `repr` renders them). A group has the same id on every corpus it appears on, whatever other groups exist."""
     return "e-" + base58_64(hashlib.sha256(key_repr.encode()).hexdigest())
 
 
 def is_content_id(value: object) -> bool:
-    """Return whether `value` is a unit or echo id: the prefix, then exactly `ID_SYMBOLS` base58 symbols."""
+    """Return whether `value` is a unit or duplicate-group id: the prefix, then exactly `ID_SYMBOLS` base58 symbols."""
     return isinstance(value, str) and _ID_PATTERN.match(value) is not None
 
 
@@ -333,7 +333,7 @@ class CachedUnit:
 
     `address` is the shard part (as the manifest names it), byte offset, and length the shard writer returned when it wrote the fragment, the same `(part, start, length)` the app's sidecars use for a Range fetch. It is never a copy of the stamp: `PriorFragmentReader` checks the bytes at the address against the stamp when the write reads them back. A record with no address, from an older store or in a part whose size `stream_store` found changed, is located by `locate_prior_fragments`, which reads the address off the part's text.
 
-    `echo`, `exemplar`, `no_verdict`, and `homes` are the values `build.patch_fragment` wrote into the fragment from the whole-corpus passes and the ledger, and `policy_file` is the one drafts field the cross-unit check reads. `unit_store.UnitStore.cached_as_is` compares the first four and the class with this build's values. When all are equal, the fragment's bytes on disk are already what this build would write, and it is copied by address; a shard part made up only of such fragments is left in place. Otherwise the fragment is read, patched, and serialized again.
+    `duplicate_group`, `exemplar`, `no_verdict`, and `homes` are the values `build.patch_fragment` wrote into the fragment from the whole-corpus passes and the ledger, and `policy_file` is the one drafts field the cross-unit check reads. `unit_store.UnitStore.cached_as_is` compares the first four and the class with this build's values. When all are equal, the fragment's bytes on disk are already what this build would write, and it is copied by address; a shard part made up only of such fragments is left in place. Otherwise the fragment is read, patched, and serialized again.
     """
 
     key: str
@@ -353,7 +353,7 @@ class CachedUnit:
     proj: dict
     seams: list[dict]
     mismatches: list[str]
-    echo: str | None
+    duplicate_group: str | None
     exemplar: bool
     no_verdict: bool
     homes: list[list]
@@ -377,7 +377,7 @@ class CachedUnit:
             "proj": self.proj,
             "seams": self.seams,
             "mismatches": self.mismatches,
-            "echo": self.echo,
+            "duplicate_group": self.duplicate_group,
             "exemplar": self.exemplar,
             "no_verdict": self.no_verdict,
             "homes": self.homes,
@@ -404,7 +404,7 @@ class ParsedCachedUnit:
     cluster: str
     unmatched_group: str
     pair_codepoints: tuple[int, int] | None
-    echo: str | None
+    duplicate_group: str | None
     exemplar: bool
     no_verdict: bool
     homes: list[list]
@@ -468,7 +468,7 @@ def _parsed_cached_unit(record: dict, trusted: Container[str], pool: dict, whole
         cluster=sys.intern(record["cluster"]),
         unmatched_group=sys.intern(record["unmatched_group"]),
         pair_codepoints=(pair[0], pair[1]) if pair else None,
-        echo=record["echo"],
+        duplicate_group=record["duplicate_group"],
         exemplar=record["exemplar"],
         no_verdict=record["no_verdict"],
         homes=[[home, bool(suppressed)] for home, suppressed in record["homes"]],

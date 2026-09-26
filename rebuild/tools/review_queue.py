@@ -1,4 +1,4 @@
-"""Write a machine-readable snapshot of the review queue for the live corpus: cluster the blank human units by the build's `cluster` signature (the echo key without the judged pair; see `_cluster_id` in rebuild/review/build.py), collect evidence from judged units with the same signature, list the ledger classes ruled intended, reviewed-approved or reviewed-rejected that still have blank units, and list the echo groups whose recorded verdicts disagree (`verdicts_agree` decides, and counts an approve/identical mix as agreement). The review app's `#view=queue` computes the same clustering live from the in-memory verdict store. This tool writes tmp/queue-data.json instead of a page: a fixed snapshot for writing bulk proposals, which need the blank membership fixed against one verdicts file."""
+"""Write a machine-readable snapshot of the review queue for the live corpus: cluster the blank human units by the build's `cluster` signature (the duplicate-group key without the judged pair; see `_cluster_id` in rebuild/review/build.py), collect evidence from judged units with the same signature, list the ledger classes ruled intended, reviewed-approved or reviewed-rejected that still have blank units, and list the duplicate groups whose recorded verdicts disagree (`verdicts_agree` decides, and counts an approve/identical mix as agreement). The review app's `#view=queue` computes the same clustering live from the in-memory verdict store. This tool writes tmp/queue-data.json instead of a page: a fixed snapshot for writing bulk proposals, which need the blank membership fixed against one verdicts file."""
 
 import argparse
 import collections
@@ -23,7 +23,7 @@ ACCEPTING_MIX = frozenset({"approve", "identical"})
 
 
 def verdicts_agree(verdicts):
-    """Return whether the recorded verdicts on one echo group agree. They agree when they are all the same, or when they mix approve and identical: both accept the new rendering, and identical only adds that the highlighted part looks unchanged. `verdictsAgree` in rebuild/review/static/queue.js applies the same rule."""
+    """Return whether the recorded verdicts on one duplicate group agree. They agree when they are all the same, or when they mix approve and identical: both accept the new rendering, and identical only adds that the highlighted part looks unchanged. `verdictsAgree` in rebuild/review/static/queue.js applies the same rule."""
     kinds = set(verdicts)
     return len(kinds) <= 1 or kinds == ACCEPTING_MIX
 
@@ -95,14 +95,14 @@ def main(argv=None, *, units: Iterable[Mapping[str, Any]] | None = None):
     for cluster_id, members in clusters_by_id.items():
         groups = collections.defaultdict(list)
         for unit in members:
-            groups[unit.get("echo") or unit["id"]].append(unit)
-        echo_groups = [
+            groups[unit.get("duplicate_group") or unit["id"]].append(unit)
+        duplicate_groups = [
             {
-                "echo": echo,
+                "duplicate_group": duplicate_group,
                 "unit_ids": [unit["id"] for unit in group],
                 "notations": [unit["notation"] for unit in group],
             }
-            for echo, group in sorted(groups.items())
+            for duplicate_group, group in sorted(groups.items())
         ]
         judged = evidence_by_id.get(cluster_id, [])
         counts = collections.Counter(record["verdict"] for _unit, record in judged)
@@ -117,7 +117,7 @@ def main(argv=None, *, units: Iterable[Mapping[str, Any]] | None = None):
                 "class": exemplar["class"],
                 "configs": list(exemplar["configs"]),
                 "size": len(members),
-                "echo_groups": echo_groups,
+                "duplicate_groups": duplicate_groups,
                 "exemplar": {
                     "id": exemplar["id"],
                     "notation": exemplar["notation"],
@@ -138,18 +138,20 @@ def main(argv=None, *, units: Iterable[Mapping[str, Any]] | None = None):
                     "id": entry["id"],
                     "status": entry["status"],
                     "blank_count": len(class_blanks),
-                    "echo_group_count": len({unit.get("echo") or unit["id"] for unit in class_blanks}),
+                    "duplicate_group_count": len(
+                        {unit.get("duplicate_group") or unit["id"] for unit in class_blanks}
+                    ),
                     "exemplar_ids": [unit["id"] for unit in class_blanks[:3]],
                 }
             )
     ruled.sort(key=lambda entry: -entry["blank_count"])
 
-    echo_members = collections.defaultdict(list)
+    duplicate_members = collections.defaultdict(list)
     for unit in human:
-        if unit.get("echo"):
-            echo_members[unit["echo"]].append(unit)
+        if unit.get("duplicate_group"):
+            duplicate_members[unit["duplicate_group"]].append(unit)
     conflicts = []
-    for echo, members in sorted(echo_members.items()):
+    for duplicate_group, members in sorted(duplicate_members.items()):
         judged = {
             unit["id"]: records[unit["id"]]
             for unit in members
@@ -158,7 +160,7 @@ def main(argv=None, *, units: Iterable[Mapping[str, Any]] | None = None):
         if not verdicts_agree(record["verdict"] for record in judged.values()):
             conflicts.append(
                 {
-                    "echo": echo,
+                    "duplicate_group": duplicate_group,
                     "class": members[0]["class"],
                     "unit_ids": [unit["id"] for unit in members],
                     "verdicts": {unit_id: record["verdict"] for unit_id, record in judged.items()},
@@ -174,7 +176,7 @@ def main(argv=None, *, units: Iterable[Mapping[str, Any]] | None = None):
         "verdicts_file": verdicts_path.name,
         "totals": {
             "blank_units": len(blanks),
-            "echo_groups": len({unit.get("echo") or unit["id"] for unit in blanks}),
+            "duplicate_groups": len({unit.get("duplicate_group") or unit["id"] for unit in blanks}),
             "clusters": len(clusters),
             "multi_clusters": sum(1 for cluster in clusters if cluster["size"] > 1),
             "singleton_clusters": sum(1 for cluster in clusters if cluster["size"] == 1),
@@ -197,11 +199,11 @@ def main(argv=None, *, units: Iterable[Mapping[str, Any]] | None = None):
 
     totals = queue_data["totals"]
     print(
-        f"wrote {data_out}: {totals['blank_units']} blank units in {totals['echo_groups']} echo groups → "
+        f"wrote {data_out}: {totals['blank_units']} blank units in {totals['duplicate_groups']} duplicate groups → "
         f"{len(ruled)} class rulings ({totals['ruled_units']} units) + {len(top)} top clusters "
         f"({totals['top_units']} units) + {len(multi) - len(top)} smaller clusters + "
         f"{sum(1 for cluster in clusters if cluster['size'] == 1 and cluster['class'] not in ruled_ids)} singletons; "
-        f"{len(conflicts)} echo groups disagree — adjudicate at #view=queue in the app"
+        f"{len(conflicts)} duplicate groups disagree — adjudicate at #view=queue in the app"
     )
 
 

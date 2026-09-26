@@ -1,6 +1,6 @@
 """The sidecar files the review app boots from: `app-units.ndjson.gz`, one row per human unit, and the locator pair, `app-locator.ndjson.gz`, a block table, over `app-locator-rows.ndjson.gz`, one address per machine-approved or no-verdict unit.
 
-The app reads these instead of the class shards so that a tab's memory grows with the review queue, not with the corpus. Loading the shards would hold every record, including `explain` and `drafts`, the two largest fields of a full fragment, which only the explain panel reads. An app-index row carries only the fields that the row label, the queue view, search, echo groups, filters and progress read. `rebuild/test_app_index.py` checks `app_row` against the shards field by field, as `rebuild/test_unit_index.py` does for the verdict update's index.
+The app reads these instead of the class shards so that a tab's memory grows with the review queue, not with the corpus. Loading the shards would hold every record, including `explain` and `drafts`, the two largest fields of a full fragment, which only the explain panel reads. An app-index row carries only the fields that the row label, the queue view, search, duplicate groups, filters and progress read. `rebuild/test_app_index.py` checks `app_row` against the shards field by field, as `rebuild/test_unit_index.py` does for the verdict update's index.
 
 In place of the dropped fields, each row carries the address of its own record in its class shard: the part index, byte offset and byte length, captured as `build._write_shard` wrote the shard. A card fetches its record with an HTTP Range request against the static file, with no server-side endpoint: the sample text, the pair band and the settled cells when the card is drawn, and the explain table when its panel opens. So `_write_shard`'s framing must keep every fragment addressable by byte offset: each fragment's bytes are a standalone JSON element, and they are pure ASCII, so a character offset is a byte offset.
 
@@ -54,7 +54,7 @@ def app_row(fragment: dict, part: int, start: int, length: int, *, order: int, b
         "batch": batch,
         "class": fragment.get("class"),
         "group": fragment.get("group"),
-        "echo": fragment.get("echo"),
+        "duplicate_group": fragment.get("duplicate_group"),
         "cluster": fragment.get("cluster"),
         "notation": fragment.get("notation"),
         "notation_tokens": fragment.get("notation_tokens") or [],

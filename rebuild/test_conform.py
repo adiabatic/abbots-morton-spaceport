@@ -254,8 +254,8 @@ class TestAliasAndLedger:
         )
         ledger = [
             {
-                "id": "boundary-echo",
-                "match": {"predicate": "boundary_echo", "configs": "all"},
+                "id": "boundary-window",
+                "match": {"predicate": "boundary_window", "configs": "all"},
             },
             {
                 "id": "zwnj-word-initial-unification",
@@ -266,7 +266,7 @@ class TestAliasAndLedger:
                 "match": {"predicate": "dangling_anchor_dropped", "configs": "all"},
             },
         ]
-        assert oracle._match_ledger(ledger, row) == ["boundary-echo"]
+        assert oracle._match_ledger(ledger, row) == ["boundary-window"]
         namer_dot_row = conform.DivergentRow(
             config="default",
             codepoints="00B7:E652:E670",
@@ -334,7 +334,7 @@ class TestAliasAndLedger:
                 divergence_tags=divergence_tags,
             )
 
-        boundary_echo = row("default", "200C:E652:E670", ("cell",), ("+locked", "old-noentry"))
+        boundary_window = row("default", "200C:E652:E670", ("cell",), ("+locked", "old-noentry"))
         ss10_seam_loss = row(
             "ss10",
             "E650:E659",
@@ -351,10 +351,10 @@ class TestAliasAndLedger:
         unclassified = row("default", "E650:E652", ("cell",), ("+ex-bind-1",))
         scoped_out = row("ss05", "E650:E665:E652", ("cell",), ("exit-dropped",))
         seamed_scoped = row("ss03", "E652:E679", ("cell", "seam"), ("seam-gain:qsTea",))
-        return [boundary_echo, ss10_seam_loss, position_kern, unclassified, scoped_out, seamed_scoped]
+        return [boundary_window, ss10_seam_loss, position_kern, unclassified, scoped_out, seamed_scoped]
 
     _LEDGER_FOR_EVERY_CASE = [
-        {"id": "boundary-echo", "match": {"predicate": "boundary_echo", "configs": "all"}},
+        {"id": "boundary-window", "match": {"predicate": "boundary_window", "configs": "all"}},
         {"id": "kern-out-of-scope", "match": {"predicate": "kern_out_of_scope", "configs": "all"}},
         {"id": "kern-on-ss04", "match": {"predicate": "kern_out_of_scope", "configs": ["ss04"]}},
         {"id": "dangling-on-ss04", "match": {"predicate": "dangling_anchor_dropped", "configs": ["ss04"]}},
@@ -380,7 +380,7 @@ class TestAliasAndLedger:
             assert oracle._match_ledger(ledger, row) == expected, row
             answers[(row.config, row.codepoints)] = expected
         assert answers == {
-            ("default", "200C:E652:E670"): ["boundary-echo", "everything"],
+            ("default", "200C:E652:E670"): ["boundary-window", "everything"],
             ("ss10", "E650:E659"): ["everything", "seams-only"],
             ("ss04", "E650:E652"): ["kern-out-of-scope", "kern-on-ss04", "everything"],
             ("default", "E650:E652"): ["everything"],
@@ -438,7 +438,9 @@ class TestAliasAndLedger:
         assert scoped_out.config == "ss05"
         assert oracle._match_compiled(compiled, scoped_out) == ["bare"]
         with pytest.raises(TypeError):
-            oracle.compile_ledger([{"id": "null", "match": {"predicate": "boundary_echo", "configs": None}}])
+            oracle.compile_ledger(
+                [{"id": "null", "match": {"predicate": "boundary_window", "configs": None}}]
+            )
 
     def test_classifier_assigns_each_divergence_tag_set_one_class(self):
         base = conform.DivergentRow(
@@ -477,7 +479,7 @@ class TestAliasAndLedger:
             assert oracle.classify_divergence(row) == expected, divergence_tags
 
     def test_boundary_blanket_takes_every_nonposition_row(self):
-        """The boundary-equals-word-boundary rule: in a window that contains a run-splitting boundary (space or ZWNJ), a cell or seam divergence classifies as `boundary-echo` ahead of every other class, whatever its divergence tags. A position-only row gets no class here; it goes to the kern-attribution predicate."""
+        """The boundary-equals-word-boundary rule: in a window that contains a run-splitting boundary (space or ZWNJ), a cell or seam divergence classifies as `boundary-window` ahead of every other class, whatever its divergence tags. A position-only row gets no class here; it goes to the kern-attribution predicate."""
         for codepoints in ["200C:E670:E670", "0020:E670:E670"]:
             base = conform.DivergentRow(
                 config="default",
@@ -498,7 +500,7 @@ class TestAliasAndLedger:
                 ("ligation",),
             ]:
                 row = replace(base, divergence_tags=divergence_tags)
-                assert oracle.classify_divergence(row) == "boundary-echo", (codepoints, divergence_tags)
+                assert oracle.classify_divergence(row) == "boundary-window", (codepoints, divergence_tags)
             position_row = replace(base, kinds=("position",), divergence_tags=("position-kern-attributable",))
             assert oracle.classify_divergence(position_row) is None
 
@@ -752,7 +754,7 @@ class TestClassifierRouting:
 
     def test_ss10_ligation_boundary_rows_stay_on_the_blanket(self):
         row = self._row("ss10", ("ligation",), codepoints="200C:E653:E67A")
-        assert oracle.classify_divergence(row) == "boundary-echo"
+        assert oracle.classify_divergence(row) == "boundary-window"
 
     def test_ss10_rows_off_a_boundary_take_no_class(self):
         for codepoints, divergence_tags in (

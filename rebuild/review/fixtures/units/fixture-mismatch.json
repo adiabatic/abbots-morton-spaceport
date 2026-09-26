@@ -9,7 +9,7 @@
    "ss10": "d-5281ac12b1b3"
   },
   "no_verdict": false,
-  "echo": "e-0004",
+  "duplicate_group": "e-0004",
   "cluster": "c-0d41f7a5",
   "class": "fixture-mismatch",
   "group": "qsTea:qsOy",
@@ -122,7 +122,7 @@
    "ss05": "d-59e0b8b8cf37"
   },
   "no_verdict": false,
-  "echo": "e-0000",
+  "duplicate_group": "e-0000",
   "cluster": "c-0d41f7a0",
   "class": "fixture-mismatch",
   "group": "qsOy:qsTea",

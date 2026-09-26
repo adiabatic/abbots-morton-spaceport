@@ -829,7 +829,7 @@ details.group {
 
       .exemplar,
       .config-class-note,
-      .echo-chip {
+      .duplicate-chip {
         border: 1px solid var(--hairline);
         border-radius: 8px;
         padding: 0 0.45em;
@@ -840,7 +840,7 @@ details.group {
         border-color: var(--hot);
       }
 
-      .echo-chip {
+      .duplicate-chip {
         color: var(--muted);
         text-decoration: none;
 

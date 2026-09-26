@@ -67,7 +67,7 @@
   "units": 6,
   "rows": 27,
   "batches": 1,
-  "echo_groups": 5
+  "duplicate_groups": 5
  },
  "machine_approved": {
   "units": 1,

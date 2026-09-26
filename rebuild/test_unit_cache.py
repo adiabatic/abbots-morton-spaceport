@@ -116,7 +116,7 @@ RETAG_CLASS = "dangling-anchor-dropped"
 
 
 def _edited_audit(tmp_path: Path) -> Path:
-    """Return the mini audit with one window dropped and one moved to another ledger class. Dropping a window shifts the triage positions, and so the batches, of the units after it. Retagging a window changes its class and so its echo key. An incremental rebuild must recompute both, not only patch units in place.
+    """Return the mini audit with one window dropped and one moved to another ledger class. Dropping a window shifts the triage positions, and so the batches, of the units after it. Retagging a window changes its class and so its duplicate-group key. An incremental rebuild must recompute both, not only patch units in place.
 
     The retag uses a matched class rather than UNMATCHED for a data reason: `derive_premerge` refuses an ink-identical window that claims an unmatched group, which is true of the live corpus (every UNMATCHED window is a real new join under review) but not of a window a test declares UNMATCHED by editing a TSV. Every row of the window moves together, since two matched classes on one triple is a classification bug the loader raises on.
     """
@@ -1347,7 +1347,7 @@ def test_cluster_id_from_repr_matches_the_tuple_recipe():
     piece = ((("moveTo", ((0, 0),)), ("lineTo", ((5, 0),))),)
     for configs, class_id, diffs in (
         (("default",), "seam-loss-withdrawal", ((), (), 0)),
-        (("default", "ss03"), "boundary-echo", ((piece, (), 3), ((), piece, -2))),
+        (("default", "ss03"), "boundary-window", ((piece, (), 3), ((), piece, -2))),
         (("ss10",), "ss10-isolation-completed", ((piece, piece, 0),)),
     ):
         expected = "c-" + hashlib.sha1(repr((tuple(configs), class_id, diffs)).encode()).hexdigest()[:8]
@@ -1386,7 +1386,7 @@ def test_the_store_parse_interns_and_pools_what_repeats_across_records(tmp_path)
     loaded = unit_cache.load_store(tmp_path, "env-a", pool=pool)
     assert loaded is not None
     first, second = loaded["k1"], loaded["k2"]
-    assert first.prior_class is second.prior_class is sys.intern("boundary-echo")
+    assert first.prior_class is second.prior_class is sys.intern("boundary-window")
     assert first.cluster is second.cluster
     assert first.diffs_digest is second.diffs_digest
     assert first.unmatched_group is second.unmatched_group
@@ -1493,7 +1493,7 @@ def test_the_store_parse_reproduces_the_projection_it_was_written_from(tmp_path)
     unit_cache.write_store(tmp_path, "env-a", [written])
     loaded = unit_cache.load_store(tmp_path, "env-a")
     assert loaded is not None
-    walked = unit_cache.PriorFragment("units/boundary-echo.json", 1, 5, prior_id, written.content_key)
+    walked = unit_cache.PriorFragment("units/boundary-window.json", 1, 5, prior_id, written.content_key)
     store = UnitStore(1)
     store.load_cached(0, loaded[written.key], codepoints=(1, 2), found=walked)
     home = store.seam_home(0)
@@ -1520,7 +1520,7 @@ def _round_trip_unit() -> unit_cache.CachedUnit:
     return unit_cache.CachedUnit(
         key="k1",
         prior_id="u-0001",
-        prior_class="boundary-echo",
+        prior_class="boundary-window",
         content_key="f" * 64,
         slim=False,
         address=None,
@@ -1549,7 +1549,7 @@ def _round_trip_unit() -> unit_cache.CachedUnit:
             }
         ],
         mismatches=[],
-        echo="e-2WvdGAWe6bX",
+        duplicate_group="e-2WvdGAWe6bX",
         exemplar=False,
         no_verdict=False,
         homes=[["u-DdcTojn1hba", False]],
@@ -1562,7 +1562,7 @@ def _round_trip_cached() -> unit_cache.ParsedCachedUnit:
     return unit_cache.ParsedCachedUnit(
         key="k1",
         prior_id="u-0001",
-        prior_class="boundary-echo",
+        prior_class="boundary-window",
         content_key="f" * 64,
         slim=False,
         address=None,
@@ -1574,7 +1574,7 @@ def _round_trip_cached() -> unit_cache.ParsedCachedUnit:
         cluster="c-12345678",
         unmatched_group="",
         pair_codepoints=(1, 2),
-        echo="e-2WvdGAWe6bX",
+        duplicate_group="e-2WvdGAWe6bX",
         exemplar=False,
         no_verdict=False,
         homes=[["u-DdcTojn1hba", False]],
@@ -1769,14 +1769,18 @@ def test_base58_64_spells_the_first_64_bits_in_eleven_fixed_symbols():
     assert unit_cache.base58_64(digest) != unit_cache.base58_64("0" * 16 + digest[16:])
 
 
-def test_unit_and_echo_ids_carry_the_prefix_and_the_shape():
+def test_unit_and_duplicate_group_ids_carry_the_prefix_and_the_shape():
     key = hashlib.sha256(b"a window").hexdigest()
     unit_id = unit_cache.unit_id_for(key)
     assert unit_id == "u-" + unit_cache.base58_64(key)
     assert unit_cache.is_content_id(unit_id)
-    echo = unit_cache.echo_id_for(repr((("default",), (0xE650, 0xE652), "a-class", "deadbeef")))
-    assert echo.startswith("e-") and unit_cache.is_content_id(echo)
-    assert echo != unit_cache.echo_id_for(repr((("default",), (0xE650, 0xE652), "a-class", "deadbeee")))
+    duplicate_group = unit_cache.duplicate_group_id_for(
+        repr((("default",), (0xE650, 0xE652), "a-class", "deadbeef"))
+    )
+    assert duplicate_group.startswith("e-") and unit_cache.is_content_id(duplicate_group)
+    assert duplicate_group != unit_cache.duplicate_group_id_for(
+        repr((("default",), (0xE650, 0xE652), "a-class", "deadbeee"))
+    )
     for bad in ("u-0000", "u-3mJ7kPq2Xw", "u-3mJ7kPq2Xw9Z", "u-0O0O0O0O0O0", "3mJ7kPq2Xw9", None, 7):
         assert not unit_cache.is_content_id(bad), bad
 

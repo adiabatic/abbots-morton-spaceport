@@ -2,7 +2,7 @@
 
 A reject with a policy draft is grouped by its draft target (file and keypath). A reject without a draft is grouped by its exact tuple of provenance pointers, and complaints with no pointers form one unattributed group. Neithers are collected by pointer tuple too, and each tuple joins the reject group whose pointers overlap it most, or forms its own group when none overlaps.
 
-Deferring uses skip verdicts. A defer file holds one skip verdict per defer candidate, with `at` set to the manifest's `generated_at`, so any verdict the user records on this corpus is newer and wins. The echo fill ignores skips, and the review queue counts a skipped unit as blank but defers its echo group. The user imports the file through the app's Import dialog. The carry drops skip verdicts, so deferred units return to the blank queue on the first cycle that rebuilds the corpus.
+Deferring uses skip verdicts. A defer file holds one skip verdict per defer candidate, with `at` set to the manifest's `generated_at`, so any verdict the user records on this corpus is newer and wins. The duplicate fill ignores skips, and the review queue counts a skipped unit as blank but defers its duplicate group. The user imports the file through the app's Import dialog. The carry drops skip verdicts, so deferred units return to the blank queue on the first cycle that rebuilds the corpus.
 
 Writes tmp/complaints-data.json. `--defer g-XXXXXXXX` also writes a verdicts-deferred-*.json for that group.
 """
@@ -208,7 +208,9 @@ def finalize_groups(groups, *, threshold, human, records, ruled_ids):
                 "defer_candidates": {
                     "count": len(candidates),
                     "unit_ids": [unit["id"] for unit in candidates],
-                    "echo_groups": len({unit.get("echo") or unit["id"] for unit in candidates}),
+                    "duplicate_groups": len(
+                        {unit.get("duplicate_group") or unit["id"] for unit in candidates}
+                    ),
                     "by_class": dict(collections.Counter(unit["class"] for unit in candidates)),
                 },
                 "ruled_class_blanks": {
@@ -328,7 +330,7 @@ def main(argv=None, *, units: Iterable[Mapping[str, Any]] | None = None, unit_id
                     "id": unit["id"],
                     "class": unit["class"],
                     "order": unit.get("order"),
-                    "echo": unit.get("echo"),
+                    "duplicate_group": unit.get("duplicate_group"),
                     "provenance": frozenset(unit.get("provenance") or []),
                 }
             )

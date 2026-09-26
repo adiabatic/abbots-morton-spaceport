@@ -4,7 +4,7 @@ Columns avoid per-object overhead: a tuple header per span, a pointer per name, 
 
 The ordinal is the unit's row in the workload table (`audit.UnitTable`) after the ink-duplicate merge compacts it, and the store is allocated over the same count, so one index reads both tables. The two tables share one string table, passed in as `strings`. The plan's keyer loop writes every input key (`set_input_key`) before any row is loaded, and a load that carries an input key must match the one already written. The unit id is not stored. `unit_cache.unit_id_for` writes the first 64 bits of the content key as eleven base58 symbols over an ASCII-ordered alphabet, so the id is the key's first eight bytes read big-endian (`id_word`), and ids sort as strings in the same order as those integers. The home-resolution pass breaks ties on the integer. Readers that hold an id string (the checker's cached-id lookup, the verification sample, `set_homes` given a string) go through `ordinal_of`, a bisect over the sorted words, built once after the load. That build fails on a repeated id, because two windows with one 64-bit prefix would share a fragment address.
 
-Every string (a digest, a cluster, an unmatched group, a config name, a glyph or cell name, a seam token, a part name, a class, an echo id, a policy file, a config note) is an id into one `columns.StringTable`, which interns through `sys.intern` and assigns ids in first-seen order as the load runs. In a pooled build that order depends on timing, but no output byte depends on it, because every accessor returns the string. Id 0 is the empty string, which the accessors read as `""` for a required field and as `None` for an optional one.
+Every string (a digest, a cluster, an unmatched group, a config name, a glyph or cell name, a seam token, a part name, a class, a duplicate-group id, a policy file, a config note) is an id into one `columns.StringTable`, which interns through `sys.intern` and assigns ids in first-seen order as the load runs. In a pooled build that order depends on timing, but no output byte depends on it, because every accessor returns the string. Id 0 is the empty string, which the accessors read as `""` for a required field and as `None` for an optional one.
 
 The accessors build one unit's values on demand, in the shapes the build writes: `seam_home` is the `enrich.SeamHomeUnit` the home-resolution pass compares, `seam_home_record` the `proj` dict of a store record, `seam_rects` the `[{"pair", "before", "after"}]` list `patch_fragment` reads, `homes_record` the `[[home, suppressed]]` list, `cached_unit` the `unit_cache.CachedUnit` for `record_line`, and `source` the `unit_cache.PriorFragment` the fragment is read back through. JSON key order is part of the shipped bytes, so each accessor builds its dicts in the order the writer reads them, and the load raises on input it could not rebuild byte for byte: rect dicts whose keys are not `x_min`, `x_max`, `advance_total` in that order, and rows whose spans, names and seams disagree in length. The store is also the home-resolution pass's `enrich.SeamHomeSource` (`windows`, `seam_count`, `projection`, `id_word`, `invisible` and `set_homes`), so `enrich.resolve_home_assignments` skips units with no secondary seam without building anything and writes its result straight into the seam side column.
 
@@ -150,7 +150,7 @@ class UnitStore:
         self._out_start = array("Q", [0]) * n
         self._out_len = array("I", [0]) * n
         self._prior_class = array("I", [0]) * n
-        self._echo = array("I", [0]) * n
+        self._duplicate_group = array("I", [0]) * n
         self._policy_file = array("I", [0]) * n
         self._config_note = array("I", [0]) * n
         self._codepoints_start = array("I", [0]) * n
@@ -391,7 +391,7 @@ class UnitStore:
         codepoints: tuple[int, ...],
         found: unit_cache.PriorFragment | None = None,
     ) -> int:
-        """Load one cached unit's store record into its row and return the ordinal. `found` is the prior fragment the plan located for the record, by default the record's own address (`ParsedCachedUnit.located`), and becomes the row's source. It must carry the record's id and content key, because the plan reuses a unit only when they match. `codepoints` is the unit's window, which the workload table has and the record does not. The record's class, echo, exemplar and exemption flags, homes and policy file are stored as the record holds them, and `cached_as_is` compares them with this build's values."""
+        """Load one cached unit's store record into its row and return the ordinal. `found` is the prior fragment the plan located for the record, by default the record's own address (`ParsedCachedUnit.located`), and becomes the row's source. It must carry the record's id and content key, because the plan reuses a unit only when they match. `codepoints` is the unit's window, which the workload table has and the record does not. The record's class, duplicate group, exemplar and exemption flags, homes and policy file are stored as the record holds them, and `cached_as_is` compares them with this build's values."""
         if found is None:
             found = cached.located()
         if found is None:
@@ -417,7 +417,7 @@ class UnitStore:
         if cached.pair_codepoints is not None:
             self._pair_l[ordinal], self._pair_r[ordinal] = cached.pair_codepoints
         self._prior_class[ordinal] = self._table.id(cached.prior_class)
-        self._echo[ordinal] = self._table.optional(cached.echo)
+        self._duplicate_group[ordinal] = self._table.optional(cached.duplicate_group)
         self._policy_file[ordinal] = self._table.optional(cached.policy_file)
         self._load_deltas(ordinal, cached.ink_deltas.items())
         self._load_projection_rows(
@@ -552,8 +552,8 @@ class UnitStore:
         """Return the class the cached fragment was written under, from its store record; None for a recomputed unit."""
         return self._optional(self._prior_class[ordinal])
 
-    def cached_echo(self, ordinal: int) -> str | None:
-        return self._optional(self._echo[ordinal])
+    def cached_duplicate_group(self, ordinal: int) -> str | None:
+        return self._optional(self._duplicate_group[ordinal])
 
     def policy_file(self, ordinal: int) -> str | None:
         """Return the rune file the unit's policy draft names. For a cached unit it is the store record's value until the write sets this build's, which is the same for a fragment copied unchanged."""
@@ -736,15 +736,15 @@ class UnitStore:
         ]
 
     def cached_as_is(
-        self, ordinal: int, *, class_id: str, echo: str | None, exemplar: bool, no_verdict: bool
+        self, ordinal: int, *, class_id: str, duplicate_group: str | None, exemplar: bool, no_verdict: bool
     ) -> bool:
-        """Whether the cached fragment's bytes on disk already equal what this build writes for the unit. That holds when its address is the shard writer's own and the class, echo, exemplar and exemption flags and homes in its store record equal this build's values, which the caller passes from the workload table."""
+        """Whether the cached fragment's bytes on disk already equal what this build writes for the unit. That holds when its address is the shard writer's own and the class, duplicate group, exemplar and exemption flags and homes in its store record equal this build's values, which the caller passes from the workload table."""
         flags = self.flags(ordinal)
         return (
             flags.cached
             and flags.byte_copied
             and self.cached_class(ordinal) == class_id
-            and self.cached_echo(ordinal) == echo
+            and self.cached_duplicate_group(ordinal) == duplicate_group
             and flags.exemplar == exemplar
             and flags.no_verdict == no_verdict
             and self.cached_homes(ordinal) == self.homes_record(ordinal)
@@ -760,9 +760,9 @@ class UnitStore:
         return self._seam_home(ordinal, "")
 
     def cached_unit(
-        self, ordinal: int, *, class_id: str, echo: str | None, exemplar: bool, no_verdict: bool
+        self, ordinal: int, *, class_id: str, duplicate_group: str | None, exemplar: bool, no_verdict: bool
     ) -> unit_cache.CachedUnit:
-        """Return the unit's store record for this build. The keys, flags, deltas, digests, projection and seams come from the columns, and `slim` from the flag column and `no_verdict`. The class, echo, exemplar and exemption are the workload table's values, passed by the caller. The address, homes and policy file are what the write and the home-resolution pass set."""
+        """Return the unit's store record for this build. The keys, flags, deltas, digests, projection and seams come from the columns, and `slim` from the flag column and `no_verdict`. The class, duplicate group, exemplar and exemption are the workload table's values, passed by the caller. The address, homes and policy file are what the write and the home-resolution pass set."""
         flags = self.flags(ordinal)
         return unit_cache.CachedUnit(
             key=self.input_key_hex(ordinal),
@@ -782,7 +782,7 @@ class UnitStore:
             proj=self.seam_home_record(ordinal),
             seams=self.seam_rects(ordinal),
             mismatches=self.mismatches(ordinal),
-            echo=echo,
+            duplicate_group=duplicate_group,
             exemplar=exemplar,
             no_verdict=no_verdict,
             homes=self.homes_record(ordinal),

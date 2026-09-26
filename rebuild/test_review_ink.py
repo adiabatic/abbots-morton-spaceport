@@ -291,7 +291,7 @@ def test_a_union_invisible_tuck_is_the_empty_sentinel_on_its_own(tuck_comparator
 
 
 def test_a_tuck_beside_a_real_change_keeps_the_real_changes_digest(tuck_comparator):
-    """·Fee shortens by a column, and the ·At·J'ai tuck is in the tail after it. The after tail is the before tail shifted one column left with no pixel different, so it is pulled back and removed, and what remains is the shortened ·Fee. That is the same delta and digest as the tuck-free window, so both windows share one echo key and one blessed digest fills both."""
+    """·Fee shortens by a column, and the ·At·J'ai tuck is in the tail after it. The after tail is the before tail shifted one column left with no pixel different, so it is pulled back and removed, and what remains is the shortened ·Fee. That is the same delta and digest as the tuck-free window, so both windows share one duplicate-group key and one blessed digest fills both."""
     tucked = tuck_comparator.config_diff(TUCKED_WINDOW, "default")
     plain = tuck_comparator.config_diff(PLAIN_WINDOW, "default")
     assert tucked == plain == FEE_SHORTENED
@@ -337,7 +337,7 @@ def test_verdicts_are_deterministic_across_two_comparators(mini_units, comparato
 
 
 def test_config_diff_localizes_the_delta_to_the_changed_region(comparator):
-    """In the may-baseline-entry-extension-dropped class, ·Pea·May drops ·May's one-pixel baseline entry extension. Followers after the judged pair add no cell to the delta: ·Low and ·Low·Fee paint the same picture shifted left by the dropped column, so the localized delta is the same across the follower contexts and they share one echo key. Only the recorded shift distinguishes a window with followers from the bare pair, whose shift is 0."""
+    """In the may-baseline-entry-extension-dropped class, ·Pea·May drops ·May's one-pixel baseline entry extension. Followers after the judged pair add no cell to the delta: ·Low and ·Low·Fee paint the same picture shifted left by the dropped column, so the localized delta is the same across the follower contexts and they share one duplicate-group key. Only the recorded shift distinguishes a window with followers from the bare pair, whose shift is 0."""
     pair = "".join(chr(value) for value in (0xE650, 0xE665))
     one_follower = "".join(chr(value) for value in (0xE650, 0xE665, 0xE667))
     two_followers = "".join(chr(value) for value in (0xE650, 0xE665, 0xE667, 0xE658))

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   createStore,
   recordVerdict,
-  recordVerdictWithEchoes,
+  recordVerdictWithDuplicates,
   updateNote,
   groupApprove,
   undo,
@@ -81,10 +81,10 @@ test('groupApprove with nothing to do pushes no undo action', () => {
   assert.equal(store.undoStack.length, 1);
 });
 
-test('recordVerdictWithEchoes fills unverdicted echo siblings as one undo step', () => {
+test('recordVerdictWithDuplicates fills unverdicted duplicate siblings as one undo step', () => {
   const store = createStore();
   recordVerdict(store, 'u-0003', 'reject', { at: 't0' });
-  const applied = recordVerdictWithEchoes(store, 'u-0001', 'approve', ['u-0002', 'u-0003', 'u-0001'], {
+  const applied = recordVerdictWithDuplicates(store, 'u-0001', 'approve', ['u-0002', 'u-0003', 'u-0001'], {
     note: 'same change',
     at: 't1',
   });
@@ -99,20 +99,20 @@ test('recordVerdictWithEchoes fills unverdicted echo siblings as one undo step',
   assert.equal(store.records.get('u-0003').verdict, 'reject');
 });
 
-test('recordVerdictWithEchoes without echoes behaves exactly like recordVerdict', () => {
+test('recordVerdictWithDuplicates without duplicates behaves exactly like recordVerdict', () => {
   const store = createStore();
   recordVerdict(store, 'u-0001', 'approve', { at: 't1' });
-  const applied = recordVerdictWithEchoes(store, 'u-0001', 'reject', [], { at: 't2' });
+  const applied = recordVerdictWithDuplicates(store, 'u-0001', 'reject', [], { at: 't2' });
   assert.deepEqual(applied, ['u-0001']);
   const result = undo(store);
   assert.deepEqual(result, { units: ['u-0001'], cursor: 'u-0001' });
   assert.equal(store.records.get('u-0001').verdict, 'approve');
-  assert.throws(() => recordVerdictWithEchoes(store, 'u-0001', 'maybe', []));
+  assert.throws(() => recordVerdictWithDuplicates(store, 'u-0001', 'maybe', []));
 });
 
-test('an echo-filled record is individually overridable and clearable without touching its siblings', () => {
+test('a duplicate-filled record is individually overridable and clearable without touching its siblings', () => {
   const store = createStore();
-  recordVerdictWithEchoes(store, 'u-0001', 'approve', ['u-0002'], { at: 't1' });
+  recordVerdictWithDuplicates(store, 'u-0001', 'approve', ['u-0002'], { at: 't1' });
   recordVerdict(store, 'u-0002', 'reject', { at: 't2' });
   assert.equal(store.records.get('u-0001').verdict, 'approve');
   assert.equal(store.records.get('u-0002').verdict, 'reject');
@@ -360,7 +360,20 @@ test('recentNotes leaves a carried mention after real text untouched', () => {
   ]);
 });
 
-test('recentNotes strips leading echo-fill and echo-harmonize markers ahead of the note', () => {
+test('recentNotes strips leading duplicate-fill and duplicate-harmonize markers ahead of the note', () => {
+  const store = createStore();
+  recordVerdict(store, 'u-0001', 'reject', {
+    note: '[duplicate-fill from u-0282] [carried u-0100@review-pre-abc1234, verdicted 2026-07-01] the seam overshoots',
+    at: '2026-06-10T09:00:00Z',
+  });
+  recordVerdict(store, 'u-0002', 'reject', {
+    note: '[duplicate-harmonize e-1007 — review queue 2026-07-18T00:00:00Z] harmonize to approve',
+    at: '2026-06-10T10:00:00Z',
+  });
+  assert.deepEqual(recentNotes(store), ['harmonize to approve', 'the seam overshoots']);
+});
+
+test('recentNotes strips the echo-fill and echo-harmonize markers older notes carry', () => {
   const store = createStore();
   recordVerdict(store, 'u-0001', 'reject', {
     note: '[echo-fill from u-0282] [carried u-0100@review-pre-abc1234, verdicted 2026-07-01] the seam overshoots',
@@ -410,10 +423,10 @@ test('recentNotes merges a standing-filled note with its hand-typed twin', () =>
   assert.deepEqual(recentNotes(store), ['the ligature break is fine here']);
 });
 
-test('recentNotes drops a note that is nothing but echo-fill provenance', () => {
+test('recentNotes drops a note that is nothing but duplicate-fill provenance', () => {
   const store = createStore();
   recordVerdict(store, 'u-0001', 'reject', {
-    note: '[echo-fill from u-0282] [carried u-0100@review-pre-abc1234, verdicted 2026-07-01]',
+    note: '[duplicate-fill from u-0282] [carried u-0100@review-pre-abc1234, verdicted 2026-07-01]',
     at: '2026-06-10T09:00:00Z',
   });
   recordVerdict(store, 'u-0002', 'reject', { note: 'real note', at: '2026-06-10T10:00:00Z' });
@@ -423,7 +436,7 @@ test('recentNotes drops a note that is nothing but echo-fill provenance', () => 
 test('every mutation marks its units dirty for the next autosave', () => {
   const store = createStore();
   recordVerdict(store, 'u-1', 'approve');
-  recordVerdictWithEchoes(store, 'u-2', 'reject', ['u-3']);
+  recordVerdictWithDuplicates(store, 'u-2', 'reject', ['u-3']);
   groupApprove(store, ['u-4']);
   updateNote(store, 'u-1', 'note');
   assert.deepEqual([...store.dirty].sort(), ['u-1', 'u-2', 'u-3', 'u-4']);

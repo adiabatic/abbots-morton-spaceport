@@ -1,4 +1,4 @@
-"""Order the blank review queue for novelty, so consecutive units in a review session differ as much as possible instead of following the shard order's near-identical neighbors. It takes one representative per echo group among the human units with no record, since the app copies a verdict on the representative to the group's members that have no record. A unit whose latest verdict is a skip is blank too, but the echo fill never reaches it, so each skipped unit is its own representative. The distance between two representatives is a weighted sum over `DIMENSIONS`: divergence class, left and right family, letter set, settled stances, changed seams, configuration set, unit kinds, deciding provenance and window length. The walk starts at a representative of the rarest class and then picks, each time, the representative whose smallest distance to the last `RECENT_WINDOW` shown is largest, breaking ties toward rarer classes and then earlier triage position, so one-off questions are not buried behind the large classes. It prints the worklist URL to paste into the review app, `#units=…&order=given`, which the app keeps in the given order instead of sorting by family pair."""
+"""Order the blank review queue for novelty, so consecutive units in a review session differ as much as possible instead of following the shard order's near-identical neighbors. It takes one representative per duplicate group among the human units with no record, since the app copies a verdict on the representative to the group's members that have no record. A unit whose latest verdict is a skip is blank too, but the duplicate fill never reaches it, so each skipped unit is its own representative. The distance between two representatives is a weighted sum over `DIMENSIONS`: divergence class, left and right family, letter set, settled stances, changed seams, configuration set, unit kinds, deciding provenance and window length. The walk starts at a representative of the rarest class and then picks, each time, the representative whose smallest distance to the last `RECENT_WINDOW` shown is largest, breaking ties toward rarer classes and then earlier triage position, so one-off questions are not buried behind the large classes. It prints the worklist URL to paste into the review app, `#units=…&order=given`, which the app keeps in the given order instead of sorting by family pair."""
 
 import argparse
 import collections
@@ -30,7 +30,9 @@ def blank_representatives(units, records):
     blanks = [unit for unit in human if unit["id"] not in records or records[unit["id"]]["verdict"] == "skip"]
     groups = collections.defaultdict(list)
     for unit in blanks:
-        groups[unit["id"] if unit["id"] in records else unit.get("echo") or unit["id"]].append(unit)
+        groups[unit["id"] if unit["id"] in records else unit.get("duplicate_group") or unit["id"]].append(
+            unit
+        )
     representatives = [min(members, key=_triage_position) for members in groups.values()]
     representatives.sort(key=_triage_position)
     return representatives, len(blanks)
@@ -154,14 +156,14 @@ def main(clipboard_write: Callable[[str], None] | None = None, *, units=None):
     if args.limit > 0 and args.limit < len(order):
         emitted = order[: args.limit]
         print(
-            f"{blank_count} blank units collapse to {len(order)} echo groups; "
+            f"{blank_count} blank units collapse to {len(order)} duplicate groups; "
             f"emitting the first {len(emitted)} representatives of the novelty order."
         )
     else:
         emitted = order
         print(
-            f"{blank_count} blank units collapse to {len(order)} echo groups; "
-            f"verdicting the worklist representatives echo-fills the rest."
+            f"{blank_count} blank units collapse to {len(order)} duplicate groups; "
+            f"verdicting the worklist representatives duplicate-fills the rest."
         )
     url = f"http://localhost:{PORT}/#units={','.join(emitted)}&order=given"
     print(url)

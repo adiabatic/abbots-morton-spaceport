@@ -1,8 +1,8 @@
-"""Run the cycle's verdict update in one process: carry, merge, echo fill, standing fill, their merges, an echo fixpoint, and the complaint list.
+"""Run the cycle's verdict update in one process: carry, merge, duplicate fill, standing fill, their merges, a duplicate-fill fixpoint, and the complaint list.
 
-The first index walk keeps every corpus id and, for human units, only the `echo_record` projection (id, echo group, notation). The carry reads that projection, and every echo round reuses it. The standing fill and the complaint list each get a fresh stream of human index records, so full records stay in memory only for the step that reads them. Machine units' index lines contribute their ids without being parsed.
+The first index walk keeps every corpus id and, for human units, only the `duplicate_record` projection (id, duplicate group, notation). The carry reads that projection, and every duplicate-fill round reuses it. The standing fill and the complaint list each get a fresh stream of human index records, so full records stay in memory only for the step that reads them. Machine units' index lines contribute their ids without being parsed.
 
-The standing fill runs with `--open-only --require-reach`, its persistent memo, and the cycle's `--standing-fill-jobs` width. Each step opens with a `[phase]` line and closes with a `[t]` line; the failure and fixpoint lines use the `[verdict-update]` prefix. The echo rounds after the standing merge spread what the standing fill wrote, and the echo output file holds the union of the fills from every round.
+The standing fill runs with `--open-only --require-reach`, its persistent memo, and the cycle's `--standing-fill-jobs` width. Each step opens with a `[phase]` line and closes with a `[t]` line; the failure and fixpoint lines use the `[verdict-update]` prefix. The duplicate-fill rounds after the standing merge spread what the standing fill wrote, and the duplicate-fill output file holds the union of the fills from every round.
 """
 
 from __future__ import annotations
@@ -23,21 +23,21 @@ from rebuild.tools import (  # noqa: E402
     carry_verdicts,
     complaint_list,
     console,
-    echo_verdicts,
+    duplicate_verdicts,
     merge_verdicts,
     standing_verdicts,
 )
 
 CORPUS = ROOT / "rebuild/out/review"
 AUTOSAVE = ROOT / "verdicts-autosave.json"
-ECHO_FILL = ROOT / "verdicts-echo-fill.json"
+DUPLICATE_FILL = ROOT / "verdicts-duplicate-fill.json"
 STANDING_FILL = ROOT / "verdicts-standing-fill.json"
-# Two echo rounds should write every fill, because the standing fill runs once and can only feed echo, and an echo fill only removes blanks. When the second round writes something, the third checks that nothing is left. A fourth runs only if that argument is wrong.
-MAX_ECHO_ROUNDS = 4
+# Two duplicate-fill rounds should write every fill, because the standing fill runs once and can only feed the duplicate fill, and a duplicate fill only removes blanks. When the second round writes something, the third checks that nothing is left. A fourth runs only if that argument is wrong.
+MAX_DUPLICATE_ROUNDS = 4
 
 
 def _run(name: str, call: Callable[[], int | None]) -> int:
-    """Run one step as a timed phase and return its exit code. A `SystemExit` (the echo fill's stamp check and the rules-file validation raise one) is converted to a code and its message printed, so the verdict update still prints its `[verdict-update] failed:` line and the cycle can report the later steps as not run."""
+    """Run one step as a timed phase and return its exit code. A `SystemExit` (the duplicate fill's stamp check and the rules-file validation raise one) is converted to a code and its message printed, so the verdict update still prints its `[verdict-update] failed:` line and the cycle can report the later steps as not run."""
     console.phase(name)
     started = time.perf_counter()
     try:
@@ -85,7 +85,7 @@ def _merge(
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Run the artifact cycle's verdict update in one process over streamed human index records and a reusable echo projection."
+        description="Run the artifact cycle's verdict update in one process over streamed human index records and a reusable duplicate projection."
     )
     parser.add_argument("--corpus", "--surface", type=pathlib.Path, default=CORPUS)
     parser.add_argument(
@@ -104,7 +104,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--autosave", type=pathlib.Path, default=AUTOSAVE)
     parser.add_argument("--journal", type=pathlib.Path, default=merge_verdicts.JOURNAL)
-    parser.add_argument("--echo-out", type=pathlib.Path, default=ECHO_FILL)
+    parser.add_argument("--duplicate-out", type=pathlib.Path, default=DUPLICATE_FILL)
     parser.add_argument("--standing-out", type=pathlib.Path, default=STANDING_FILL)
     parser.add_argument("--rules", type=pathlib.Path, default=standing_verdicts.RULES)
     parser.add_argument(
@@ -141,7 +141,8 @@ def main(argv: list[str] | None = None) -> int:
     started = time.perf_counter()
     unit_ids: set[str] = set()
     units = [
-        echo_verdicts.echo_record(unit) for unit in unit_index.iter_human_units(corpus, unit_ids=unit_ids)
+        duplicate_verdicts.duplicate_record(unit)
+        for unit in unit_index.iter_human_units(corpus, unit_ids=unit_ids)
     ]
     print(
         f"[t] index {time.perf_counter() - started:.1f}s\t({len(units)} human of {len(unit_ids)} units)",
@@ -170,26 +171,26 @@ def main(argv: list[str] | None = None) -> int:
         if code:
             return code
 
-    echo_argv = [str(args.autosave), "--corpus", str(corpus), "--out", str(args.echo_out)]
+    duplicate_argv = [str(args.autosave), "--corpus", str(corpus), "--out", str(args.duplicate_out)]
     fills: list[dict] = []
     settled = False
-    for round_ in range(MAX_ECHO_ROUNDS):
+    for round_ in range(MAX_DUPLICATE_ROUNDS):
         suffix = "" if round_ == 0 else f"-{round_ + 1}"
-        code = _run("echo-fill" + suffix, lambda: echo_verdicts.main(echo_argv, units=units))
+        code = _run("duplicate-fill" + suffix, lambda: duplicate_verdicts.main(duplicate_argv, units=units))
         if code:
             return code
         known = {record["unit"] for record in fills}
-        landed = json.loads(args.echo_out.read_text())["verdicts"]
+        landed = json.loads(args.duplicate_out.read_text())["verdicts"]
         fresh = [record for record in landed if record["unit"] not in known]
         fills += fresh
-        # Each echo fill overwrites the file with only the units still blank when it ran, so the file is rewritten with the union of every round's fills.
-        _write_fills(args.echo_out, stamp, fills)
+        # Each duplicate fill overwrites the file with only the units still blank when it ran, so the file is rewritten with the union of every round's fills.
+        _write_fills(args.duplicate_out, stamp, fills)
         if round_ and not fresh:
             settled = True
             break
         code = _merge(
-            "echo-merge" + suffix,
-            args.echo_out,
+            "duplicate-merge" + suffix,
+            args.duplicate_out,
             autosave=args.autosave,
             corpus=corpus,
             journal=args.journal,
@@ -236,7 +237,7 @@ def main(argv: list[str] | None = None) -> int:
         + (
             "reached — a rerun of the fills writes nothing"
             if settled
-            else f"not reached after {MAX_ECHO_ROUNDS} echo rounds"
+            else f"not reached after {MAX_DUPLICATE_ROUNDS} duplicate-fill rounds"
         ),
         flush=True,
     )

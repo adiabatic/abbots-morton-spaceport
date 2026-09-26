@@ -507,7 +507,7 @@ def _verdict_store_check(
         return {
             "level": "warn",
             "detail": "The autosave is aligned with this corpus but empty; the verdicts in the fullest verdicts file are not yet merged in.",
-            "remedy": f"Merge {fullest_rel} into the autosave ({MERGE_TOOL}) — carried verdicts first, then any echo fill.",
+            "remedy": f"Merge {fullest_rel} into the autosave ({MERGE_TOOL}) — carried verdicts first, then any duplicate fill.",
         }, records
     return {
         "level": "ok",

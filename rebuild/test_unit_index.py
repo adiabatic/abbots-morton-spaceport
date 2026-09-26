@@ -127,7 +127,7 @@ def test_the_index_covers_every_field_the_verdict_update_reads(tmp_path):
         "batch",
         "class",
         "cluster",
-        "echo",
+        "duplicate_group",
         "group",
         "notation",
         "notation_tokens",
@@ -557,7 +557,7 @@ def test_standing_projection_covers_the_fields_read_by_both_consumers(tmp_path):
         "id",
         "batch",
         "class",
-        "echo",
+        "duplicate_group",
         "notation",
         "codepoints",
         "configs",
@@ -573,7 +573,10 @@ def test_standing_projection_covers_the_fields_read_by_both_consumers(tmp_path):
     derived = set()
     for name in ("standing_probe.py", "standing_verdicts.py"):
         derived.update(_standing_unit_fields((REPO_ROOT / "rebuild" / "tools" / name).read_text()))
-    assert _standing_unit_fields("print(f\"{unit['class']} {unit.get('echo')}\")") == {"class", "echo"}
+    assert _standing_unit_fields("print(f\"{unit['class']} {unit.get('duplicate_group')}\")") == {
+        "class",
+        "duplicate_group",
+    }
     assert derived == expected == standing_daemon.UNIT_FIELDS
     corpus, full = _reader_corpus(tmp_path, "current")
     assert unit_index.load_units(corpus, fields=standing_daemon.UNIT_FIELDS) == [

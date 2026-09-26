@@ -527,8 +527,8 @@ def test_the_verdict_update_row_counts_the_carry_and_the_summary_quotes_what_the
                 ],
             ),
             ("merge", ["merged 15903 verdicts into verdicts-autosave.json"]),
-            ("echo-fill", ["wrote tmp/echo-fill.json: 4 echo-fill verdicts"]),
-            ("echo-merge", ["nothing changed: the autosave already holds all 4 verdicts"]),
+            ("duplicate-fill", ["wrote tmp/duplicate-fill.json: 4 duplicate-fill verdicts"]),
+            ("duplicate-merge", ["nothing changed: the autosave already holds all 4 verdicts"]),
             ("standing-fill", ["wrote tmp/standing.json: 7 standing-approval verdicts"]),
             ("standing-merge", ["merged 7 verdicts into verdicts-autosave.json"]),
             ("complaints", ["wrote /x/tmp/complaints-data.json: 3 open complaints in 2 groups"]),
@@ -543,7 +543,7 @@ def test_the_verdict_update_row_counts_the_carry_and_the_summary_quotes_what_the
     block = ac.summary_cycle_lines(report, plan, [])
     assert "      human queue: 81 -> 12 still needing fresh verdicts" in block
     assert "      wrote tmp/standing.json: 7 standing-approval verdicts" in block
-    assert "      wrote tmp/echo-fill.json: 4 echo-fill verdicts" in block
+    assert "      wrote tmp/duplicate-fill.json: 4 duplicate-fill verdicts" in block
     assert "      merged 15903 verdicts into verdicts-autosave.json" in block
     carry = block.index("  carry output     : " + str(report.carry_out))
     verdict_update = next(index for index, line in enumerate(block) if line.startswith("  verdict update"))
@@ -760,7 +760,7 @@ def _built_corpus(tmp_path, **totals):
 
 
 def test_do_corpus_build_takes_its_totals_from_the_manifest_the_build_wrote(tmp_path):
-    corpus = _built_corpus(tmp_path, units=15897, rows=81867, batches=16, echo_groups=402)
+    corpus = _built_corpus(tmp_path, units=15897, rows=81867, batches=16, duplicate_groups=402)
     report = ac.CycleReport()
     ok = ac._do_corpus_build(
         report,
@@ -771,7 +771,7 @@ def test_do_corpus_build_takes_its_totals_from_the_manifest_the_build_wrote(tmp_
         argv=["uv", "run", "python", "-m", "rebuild.review.build"],
     )
     assert ok
-    assert (report.corpus_units, report.corpus_rows, report.corpus_batches, report.echo_groups) == (
+    assert (report.corpus_units, report.corpus_rows, report.corpus_batches, report.duplicate_groups) == (
         15897,
         81867,
         16,
@@ -798,7 +798,7 @@ def test_do_corpus_build_fails_when_a_clean_build_left_no_manifest(tmp_path, cap
 
 def test_do_corpus_build_reads_no_totals_from_a_failed_build(tmp_path, capsys):
     """After a nonzero exit, the manifest in the corpus directory is the previous pass's, so the step fails before reading any totals from it."""
-    corpus = _built_corpus(tmp_path, units=1, rows=2, batches=3, echo_groups=4)
+    corpus = _built_corpus(tmp_path, units=1, rows=2, batches=3, duplicate_groups=4)
     report = ac.CycleReport()
     ok = ac._do_corpus_build(
         report,
@@ -810,7 +810,7 @@ def test_do_corpus_build_reads_no_totals_from_a_failed_build(tmp_path, capsys):
     )
     assert not ok
     assert "review.build exited 3" in capsys.readouterr().out
-    assert (report.corpus_units, report.corpus_rows, report.corpus_batches, report.echo_groups) == (
+    assert (report.corpus_units, report.corpus_rows, report.corpus_batches, report.duplicate_groups) == (
         None,
         None,
         None,
@@ -920,14 +920,14 @@ _FULL_VERDICT_UPDATE = (
         ],
     ),
     (
-        "echo-fill",
+        "duplicate-fill",
         [
-            "wrote verdicts-echo-fill.json: 37 echo-fill verdicts onto manifest S1",
-            "no echo group holds disagreeing verdicts",
+            "wrote verdicts-duplicate-fill.json: 37 duplicate-fill verdicts onto manifest S1",
+            "no duplicate group holds disagreeing verdicts",
         ],
     ),
     (
-        "echo-merge",
+        "duplicate-merge",
         [
             "merged 1 file(s) into verdicts-autosave.json: 12 added, 0 replaced, 3 kept newer; "
             "store holds 40 verdicts (40 effective) on manifest S1"
@@ -947,7 +947,7 @@ _FULL_VERDICT_UPDATE = (
         "standing-merge",
         ["nothing changed: the autosave already holds all 65 verdicts (65 effective)."],
     ),
-    ("echo-fill-2", ["wrote verdicts-echo-fill.json: 0 echo-fill verdicts onto manifest S1"]),
+    ("duplicate-fill-2", ["wrote verdicts-duplicate-fill.json: 0 duplicate-fill verdicts onto manifest S1"]),
     ("complaints", ["no open complaints"]),
 )
 
@@ -971,8 +971,8 @@ def _run_verdict_update(plan, stdout, returncode=0, spy=None):
 
 def _verdict_update_ok(report, *, spawn, emit, registry, plan):
     report.merge_status = "merged"
-    report.echo_fill_status = "filled"
-    report.echo_merge_status = "merged"
+    report.duplicate_fill_status = "filled"
+    report.duplicate_merge_status = "merged"
     report.standing_fill_status = "filled"
     report.standing_merge_status = "merged"
     report.standing_merge_lines = ["nothing changed: the autosave already holds all 3 verdicts"]
@@ -1056,35 +1056,39 @@ def test_nothing_runs_after_the_carry_fails():
     )
     assert failures == ["carry_verdicts failed"]
     assert report.merge_status == "not run (carry failed)"
-    assert report.echo_fill_status == "not run (carry failed)"
+    assert report.duplicate_fill_status == "not run (carry failed)"
     assert report.standing_merge_status == "not run (carry failed)"
 
 
-def test_a_failing_echo_fill_stops_the_cascade():
+def test_a_failing_duplicate_fill_stops_the_cascade():
     report, failures = _run_verdict_update(
         _plan(),
-        _verdict_update_stdout(*_FULL_VERDICT_UPDATE[:2], ("echo-fill", ["boom"]), failed="echo-fill"),
+        _verdict_update_stdout(
+            *_FULL_VERDICT_UPDATE[:2], ("duplicate-fill", ["boom"]), failed="duplicate-fill"
+        ),
         returncode=1,
     )
-    assert failures == ["echo-fill failed"]
+    assert failures == ["duplicate-fill failed"]
     assert report.merge_status == "merged"
-    assert report.echo_fill_status == "FAILED (exit 1)"
-    assert report.echo_merge_status == "not run (echo-fill failed)"
-    assert report.standing_fill_status == "not run (echo-fill failed)"
-    assert report.standing_merge_status == "not run (echo-fill failed)"
+    assert report.duplicate_fill_status == "FAILED (exit 1)"
+    assert report.duplicate_merge_status == "not run (duplicate-fill failed)"
+    assert report.standing_fill_status == "not run (duplicate-fill failed)"
+    assert report.standing_merge_status == "not run (duplicate-fill failed)"
 
 
-def test_a_failing_echo_merge_stops_the_cascade():
+def test_a_failing_duplicate_merge_stops_the_cascade():
     report, failures = _run_verdict_update(
         _plan(),
-        _verdict_update_stdout(*_FULL_VERDICT_UPDATE[:3], ("echo-merge", ["boom"]), failed="echo-merge"),
+        _verdict_update_stdout(
+            *_FULL_VERDICT_UPDATE[:3], ("duplicate-merge", ["boom"]), failed="duplicate-merge"
+        ),
         returncode=1,
     )
-    assert failures == ["echo-merge failed"]
-    assert report.echo_fill_status == "filled"
-    assert report.echo_merge_status == "FAILED (exit 1)"
-    assert report.standing_fill_status == "not run (echo-merge failed)"
-    assert report.standing_merge_status == "not run (echo-merge failed)"
+    assert failures == ["duplicate-merge failed"]
+    assert report.duplicate_fill_status == "filled"
+    assert report.duplicate_merge_status == "FAILED (exit 1)"
+    assert report.standing_fill_status == "not run (duplicate-merge failed)"
+    assert report.standing_merge_status == "not run (duplicate-merge failed)"
 
 
 def test_a_failing_standing_fill_stops_the_cascade():
@@ -1103,11 +1107,15 @@ def test_a_failing_standing_fill_stops_the_cascade():
 @pytest.mark.parametrize(
     ("rounds", "failed", "status"),
     [
-        ([("echo-fill-2", ["boom"])], "echo-fill", "echo_fill_status"),
-        ([_FULL_VERDICT_UPDATE[6], ("echo-merge-2", ["boom"])], "echo-merge", "echo_merge_status"),
+        ([("duplicate-fill-2", ["boom"])], "duplicate-fill", "duplicate_fill_status"),
+        (
+            [_FULL_VERDICT_UPDATE[6], ("duplicate-merge-2", ["boom"])],
+            "duplicate-merge",
+            "duplicate_merge_status",
+        ),
     ],
 )
-def test_a_later_echo_round_failure_leaves_the_first_round_reported_as_run(rounds, failed, status):
+def test_a_later_duplicate_fill_round_failure_leaves_the_first_round_reported_as_run(rounds, failed, status):
     """The verdict update runs the standing fill and merge in the first round, so a failure in round 2 reports them as done and names the round that failed."""
     report, failures = _run_verdict_update(
         _plan(),
@@ -1117,8 +1125,8 @@ def test_a_later_echo_round_failure_leaves_the_first_round_reported_as_run(round
     assert failures == [f"{failed} round 2 failed"]
     statuses = {
         "merge_status": "merged",
-        "echo_fill_status": "filled",
-        "echo_merge_status": "merged",
+        "duplicate_fill_status": "filled",
+        "duplicate_merge_status": "merged",
         "standing_fill_status": "filled",
         "standing_merge_status": "merged",
     }
@@ -1133,8 +1141,8 @@ def test_a_carry_only_verdict_update_reports_the_fills_as_never_run():
     )
     assert failures == []
     assert report.merge_status == "not run"
-    assert report.echo_fill_status == "not run"
-    assert report.echo_merge_status == "not run"
+    assert report.duplicate_fill_status == "not run"
+    assert report.duplicate_merge_status == "not run"
     assert report.standing_fill_status == "not run"
     assert report.standing_merge_status == "not run"
 
@@ -1148,13 +1156,13 @@ def test_the_driver_reads_a_line_per_step_out_of_one_child(capsys):
 
     assert report.merge_status == "merged"
     assert any(line.startswith("merged 1 file(s)") for line in report.merge_lines)
-    assert report.echo_fill_status == "filled"
+    assert report.duplicate_fill_status == "filled"
     assert any(
-        line.startswith("wrote verdicts-echo-fill.json: 37 echo-fill verdicts")
-        for line in report.echo_fill_lines
+        line.startswith("wrote verdicts-duplicate-fill.json: 37 duplicate-fill verdicts")
+        for line in report.duplicate_fill_lines
     )
-    assert report.echo_merge_status == "merged"
-    assert any(line.startswith("merged 1 file(s)") for line in report.echo_merge_lines)
+    assert report.duplicate_merge_status == "merged"
+    assert any(line.startswith("merged 1 file(s)") for line in report.duplicate_merge_lines)
     assert report.standing_fill_status == "filled"
     assert any(
         line.startswith("wrote verdicts-standing-fill.json: 25 standing-approval verdicts")
@@ -1200,25 +1208,30 @@ def test_standing_fill_news_keeps_rules_and_drops_steady_state_combined_matches(
     assert not news("per-rule reach (3 rules):")
 
 
-def test_a_later_echo_round_folds_into_the_first_rounds_lines():
-    """The second echo round runs the same step again, so its lines are reported under the first round's name."""
+def test_a_later_duplicate_fill_round_folds_into_the_first_rounds_lines():
+    """The second duplicate-fill round runs the same step again, so its lines are reported under the first round's name."""
     stdout = _verdict_update_stdout(
         *_FULL_VERDICT_UPDATE[:6],
-        ("echo-fill-2", ["wrote verdicts-echo-fill.json: 3 echo-fill verdicts onto manifest S1"]),
+        (
+            "duplicate-fill-2",
+            ["wrote verdicts-duplicate-fill.json: 3 duplicate-fill verdicts onto manifest S1"],
+        ),
     )
     report, _failures = _run_verdict_update(_plan(), stdout)
-    assert len(report.echo_fill_lines) == 2
-    assert report.echo_fill_lines[-1].startswith("wrote verdicts-echo-fill.json: 3 echo-fill verdicts")
+    assert len(report.duplicate_fill_lines) == 2
+    assert report.duplicate_fill_lines[-1].startswith(
+        "wrote verdicts-duplicate-fill.json: 3 duplicate-fill verdicts"
+    )
 
 
 def test_the_disagreement_audit_reaches_the_console(capsys):
     stdout = _verdict_update_stdout(
         (
-            "echo-fill",
+            "duplicate-fill",
             [
-                "wrote verdicts-echo-fill.json: 0 echo-fill verdicts onto manifest S1",
+                "wrote verdicts-duplicate-fill.json: 0 duplicate-fill verdicts onto manifest S1",
                 "",
-                console.WARN + "2 echo groups hold disagreeing verdicts — the same change judged "
+                console.WARN + "2 duplicate groups hold disagreeing verdicts — the same change judged "
                 "differently; worth a re-check:",
                 "  e-123  #units=u-1,u-2",
                 "    u-1       ·Day ~b~ ·Tea                approve   looks right",
@@ -1228,7 +1241,7 @@ def test_the_disagreement_audit_reaches_the_console(capsys):
     )
     _run_verdict_update(_plan(), stdout)
     out = capsys.readouterr().out
-    assert "warn 2 echo groups hold disagreeing verdicts" in out
+    assert "warn 2 duplicate groups hold disagreeing verdicts" in out
     # The per-group listing stays in the step's log; the terminal shows only that a disagreement exists.
     assert "e-123  #units=u-1,u-2" not in out
 
@@ -1558,7 +1571,7 @@ def test_summary_exact_under_out_of_order_completion(monkeypatch, capsys):
         report.corpus_units = 15903
         report.corpus_rows = 81894
         report.corpus_batches = 16
-        report.echo_groups = 42
+        report.duplicate_groups = 42
         report.step_seconds["corpus-build"] = 61.0
         return True
 
@@ -1601,7 +1614,7 @@ def test_summary_exact_under_out_of_order_completion(monkeypatch, capsys):
     assert report.corpus_units == 15903
     assert report.corpus_rows == 81894
     assert report.corpus_batches == 16
-    assert report.echo_groups == 42
+    assert report.duplicate_groups == 42
     assert report.unmatched == 7777
     assert report.gate_js == "green"
     assert report.gate_make_test == "green"
@@ -4478,7 +4491,7 @@ def _write_corpus(corpus, recorded, stamp):
                 "fonts": {
                     "after": {"file": "fonts/after.otf", "sha256": hashlib.sha256(b"OTTO").hexdigest()}
                 },
-                "totals": {"units": 1, "rows": 1, "batches": 1, "echo_groups": 0},
+                "totals": {"units": 1, "rows": 1, "batches": 1, "duplicate_groups": 0},
             }
         )
     )
@@ -5363,7 +5376,7 @@ def test_do_corpus_build_skip_reads_manifest_totals(monkeypatch, tmp_path):
     corpus = tmp_path / "review"
     corpus.mkdir()
     (corpus / "manifest.json").write_text(
-        json.dumps({"totals": {"units": 5, "rows": 9, "batches": 2, "echo_groups": 3}})
+        json.dumps({"totals": {"units": 5, "rows": 9, "batches": 2, "duplicate_groups": 3}})
     )
     monkeypatch.setattr(ac, "REVIEW_OUT", corpus)
 
@@ -5381,7 +5394,7 @@ def test_do_corpus_build_skip_reads_manifest_totals(monkeypatch, tmp_path):
         skip_note="test",
     )
     assert ok
-    assert (report.corpus_units, report.corpus_rows, report.corpus_batches, report.echo_groups) == (
+    assert (report.corpus_units, report.corpus_rows, report.corpus_batches, report.duplicate_groups) == (
         5,
         9,
         2,
@@ -5449,15 +5462,15 @@ def test_classify_rebuild_recordable_whenever_it_is_green():
 
 _ACCEPTED_PINS = {
     "invariant": {
-        "classes": ["boundary-echo", "bare-name-live-join"],
-        "machine_approved_classes": ["boundary-echo", "bare-name-live-join"],
-        "no_verdict_classes": ["boundary-echo"],
+        "classes": ["boundary-window", "bare-name-live-join"],
+        "machine_approved_classes": ["boundary-window", "bare-name-live-join"],
+        "no_verdict_classes": ["boundary-window"],
         "unmatched_groups": ["no-chain-gains"],
     },
     "volatile": {"audit": {"row_count": 10, "units": 4}},
 }
 
-_LEDGER_YAML = """- id: boundary-echo
+_LEDGER_YAML = """- id: boundary-window
   no_verdict: true
 - id: bare-name-live-join
   ink_identical: true
@@ -5480,9 +5493,9 @@ def _review_facts_fixture(monkeypatch, tmp_path, *, accepted, current):
 def _moved_invariant() -> dict:
     return {
         "invariant": {
-            "classes": ["boundary-echo", "bare-name-live-join", "vie-baseline-entry-extension-dropped"],
-            "machine_approved_classes": ["boundary-echo", "bare-name-live-join"],
-            "no_verdict_classes": ["boundary-echo", "vie-baseline-entry-extension-dropped"],
+            "classes": ["boundary-window", "bare-name-live-join", "vie-baseline-entry-extension-dropped"],
+            "machine_approved_classes": ["boundary-window", "bare-name-live-join"],
+            "no_verdict_classes": ["boundary-window", "vie-baseline-entry-extension-dropped"],
             "unmatched_groups": ["no-chain-gains", "deferred-ss10"],
         },
         "volatile": {"audit": {"row_count": 12, "units": 5}},
@@ -5596,7 +5609,7 @@ def test_a_step_that_came_back_nonzero_never_reads_as_an_ok_row():
 
 def test_every_spawned_step_closes_with_its_own_detail_and_peak(capsys, tmp_path):
     """Each spawned step's closing line carries the detail its summary row will show and its peak memory. No stage knows its detail when its child exits (run_m1 reads three summaries, the corpus build opens a manifest, the verdict update splits its sections), so the closing line is written by the stage that reads them."""
-    corpus = _built_corpus(tmp_path, units=15903, rows=81894, batches=16, echo_groups=402)
+    corpus = _built_corpus(tmp_path, units=15903, rows=81894, batches=16, duplicate_groups=402)
 
     def spawn(name, argv, *, emit, registry, stream, **passthrough):
         if name == "run_m1":
@@ -5637,7 +5650,7 @@ def test_do_review_facts_names_the_invariant_movement_and_reports_ledger_coverag
         " no-verdict: 2 of 2 declared reached; ledger: 3 of 3 classes reached"
     )
     assert report.ledger_coverage_sets is not None
-    assert report.ledger_coverage_sets["machine_approved_undeclared"] == ["boundary-echo"]
+    assert report.ledger_coverage_sets["machine_approved_undeclared"] == ["boundary-window"]
     payload = ac.cycle_summary_payload(report, [], _plan(), "ok")
     assert payload["facts_status"] == report.facts_status
     assert payload["ledger_coverage"] == report.ledger_coverage
@@ -6079,13 +6092,17 @@ def test_verdict_update_skip_fingerprint_covers_its_own_code(tmp_path):
     tools.mkdir(parents=True)
     (tmp_path / "rebuild" / "review").mkdir()
     (tmp_path / "rebuild" / "standing-approvals.yaml").write_text("rules: []\n")
-    for name in ("echo_verdicts.py", "standing_verdicts.py", "carry_verdicts.py"):
+    for name in ("duplicate_verdicts.py", "standing_verdicts.py", "carry_verdicts.py"):
         (tools / name).write_text("x = 1\n")
     (tmp_path / "rebuild" / "review" / "serve.py").write_text("y = 1\n")
 
     base = ac.verdict_update_skip_fingerprint(tmp_path, corpus, master)
     assert base is not None
-    for edited in (tools / "echo_verdicts.py", tools / "standing_verdicts.py", tools / "carry_verdicts.py"):
+    for edited in (
+        tools / "duplicate_verdicts.py",
+        tools / "standing_verdicts.py",
+        tools / "carry_verdicts.py",
+    ):
         original = edited.read_text()
         edited.write_text("x = 2\n")
         assert ac.verdict_update_skip_fingerprint(tmp_path, corpus, master) != base, edited.name
@@ -6224,7 +6241,7 @@ def test_run_cycle_never_spawns_the_verdict_update_when_skipped(monkeypatch, tmp
     assert rc == 0
     note = f"skipped ({ac.VERDICT_UPDATE_SKIP_NOTE})"
     assert report.merge_status == note
-    assert report.echo_fill_status == note
+    assert report.duplicate_fill_status == note
     assert report.standing_merge_status == note
     assert report.complaints_status == note
     assert report.carry_out == carried
@@ -6291,7 +6308,7 @@ def test_run_cycle_records_the_verdict_update_green_only_after_a_complete_run(mo
 
 
 def test_run_cycle_records_no_verdict_update_green_until_it_reaches_its_fixpoint(monkeypatch, tmp_path):
-    """The verdict-update green is recorded only when the verdict update reports a fixpoint. The verdict update runs the echo pass again after the standing merge and reports whether that pass would have written anything; if the verdict update stopped short of that, the next pass runs it again."""
+    """The verdict-update green is recorded only when the verdict update reports a fixpoint. The verdict update runs the duplicate-fill pass again after the standing merge and reports whether that pass would have written anything; if the verdict update stopped short of that, the next pass runs it again."""
 
     def unsettled(report, *, spawn, emit, registry, plan):
         _verdict_update_ok(report, spawn=spawn, emit=emit, registry=registry, plan=plan)

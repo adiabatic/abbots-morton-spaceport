@@ -53,7 +53,7 @@ def main(
 ):
     """Write the carried verdicts file for the current corpus.
 
-    `current_units` and `current_ids` are passed together or not at all. `current_units` is a single-pass stream of human unit records that need only an `id`, and `current_ids` holds every corpus id, machine units included, for the orphaned count. The verdict update passes its echo records; a standalone run streams the human index and collects the ids in the same pass.
+    `current_units` and `current_ids` are passed together or not at all. `current_units` is a single-pass stream of human unit records that need only an `id`, and `current_ids` holds every corpus id, machine units included, for the orphaned count. The verdict update passes its duplicate records; a standalone run streams the human index and collects the ids in the same pass.
     """
     parser = argparse.ArgumentParser(
         description="Carry prior verdicts onto the live corpus, landing each on the unit of the id it names."

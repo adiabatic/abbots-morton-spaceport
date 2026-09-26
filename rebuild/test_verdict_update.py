@@ -1,4 +1,4 @@
-"""Tests for `rebuild/tools/verdict_update.py`: the verdict update keeps only unit ids and echo records, reuses the echo records across steps, and gives the standing fill and the complaint list fresh streams of human index records."""
+"""Tests for `rebuild/tools/verdict_update.py`: the verdict update keeps only unit ids and duplicate records, reuses the duplicate records across steps, and gives the standing fill and the complaint list fresh streams of human index records."""
 
 import json
 import pathlib
@@ -37,7 +37,7 @@ IDS = frozenset({"u-1", "u-2", "u-machine"})
 
 
 def _run_verdict_update(tmp_path, monkeypatch, extra=(), complaints=False):
-    """Run `verdict_update.main` over a stub corpus with every step stubbed. Return the exit code, the human index records, the standing fill's calls, the fill's `--out` path, the complaint list's calls (empty unless `complaints` is set), and the units each echo round received."""
+    """Run `verdict_update.main` over a stub corpus with every step stubbed. Return the exit code, the human index records, the standing fill's calls, the fill's `--out` path, the complaint list's calls (empty unless `complaints` is set), and the units each duplicate-fill round received."""
     corpus = tmp_path / "review"
     corpus.mkdir()
     (corpus / "manifest.json").write_text(json.dumps({"generated_at": STAMP}))
@@ -46,7 +46,7 @@ def _run_verdict_update(tmp_path, monkeypatch, extra=(), complaints=False):
     index = [{"id": "u-1", "after": {"cells": [1]}}, {"id": "u-2"}]
     calls = []
     complaint_list_calls = []
-    echoes = []
+    duplicate_calls = []
 
     def stream(_corpus, *, unit_ids=None):
         if unit_ids is not None:
@@ -56,11 +56,11 @@ def _run_verdict_update(tmp_path, monkeypatch, extra=(), complaints=False):
     monkeypatch.setattr(vu.unit_index, "iter_human_units", stream)
     monkeypatch.setattr(vu.merge_verdicts, "main", lambda _argv: 0)
 
-    def echo(argv, units=None):
-        echoes.append(units)
+    def duplicate_fill(argv, units=None):
+        duplicate_calls.append(units)
         return _write_out(argv)
 
-    monkeypatch.setattr(vu.echo_verdicts, "main", echo)
+    monkeypatch.setattr(vu.duplicate_verdicts, "main", duplicate_fill)
 
     def standing(argv, unit_source=None):
         assert unit_source is not None
@@ -90,8 +90,8 @@ def _run_verdict_update(tmp_path, monkeypatch, extra=(), complaints=False):
             str(tmp_path / "verdicts-autosave.json"),
             "--journal",
             str(tmp_path / "verdicts-journal.ndjson"),
-            "--echo-out",
-            str(tmp_path / "verdicts-echo-fill.json"),
+            "--duplicate-out",
+            str(tmp_path / "verdicts-duplicate-fill.json"),
             "--standing-out",
             str(standing_out),
             "--rules",
@@ -100,12 +100,12 @@ def _run_verdict_update(tmp_path, monkeypatch, extra=(), complaints=False):
             *extra,
         ]
     )
-    return code, index, calls, standing_out, complaint_list_calls, echoes
+    return code, index, calls, standing_out, complaint_list_calls, duplicate_calls
 
 
 def test_the_verdict_update_runs_the_standing_fill_in_its_open_only_form(tmp_path, monkeypatch):
     """The verdict update passes `--open-only --require-reach` and leaves the narrowing to the standing fill, so it still supplies fresh streams over all human records. The default memo sits beside the corpus directory, outside it, so a corpus rebuild does not delete it."""
-    code, index, calls, standing_out, complaint_list_calls, _echoes = _run_verdict_update(
+    code, index, calls, standing_out, complaint_list_calls, _duplicate_calls = _run_verdict_update(
         tmp_path, monkeypatch
     )
     assert code == 0
@@ -120,17 +120,17 @@ def test_the_verdict_update_runs_the_standing_fill_in_its_open_only_form(tmp_pat
     assert list(units()) == index
 
 
-def test_the_echo_fill_takes_the_human_records_and_the_complaint_list_takes_the_id_set_beside_them(
+def test_the_duplicate_fill_takes_the_human_records_and_the_complaint_list_takes_the_id_set_beside_them(
     tmp_path, monkeypatch
 ):
-    """Every echo round gets the same list of human echo records, because the echo fill reads nothing from machine records. The complaint list gets the human records and the set of every corpus id, because its absent-unit warning checks verdicts against machine units too."""
-    code, index, _calls, _out, complaint_list_calls, echoes = _run_verdict_update(
+    """Every duplicate-fill round gets the same list of human duplicate records, because the duplicate fill reads nothing from machine records. The complaint list gets the human records and the set of every corpus id, because its absent-unit warning checks verdicts against machine units too."""
+    code, index, _calls, _out, complaint_list_calls, duplicate_calls = _run_verdict_update(
         tmp_path, monkeypatch, complaints=True
     )
     assert code == 0
-    assert len(echoes) >= 2
-    assert all(units is echoes[0] for units in echoes)
-    assert echoes[0] == [vu.echo_verdicts.echo_record(unit) for unit in index]
+    assert len(duplicate_calls) >= 2
+    assert all(units is duplicate_calls[0] for units in duplicate_calls)
+    assert duplicate_calls[0] == [vu.duplicate_verdicts.duplicate_record(unit) for unit in index]
     [(argv, units, unit_ids)] = complaint_list_calls
     assert argv[argv.index("--corpus") + 1] == str(tmp_path / "review")
     assert units == index
@@ -139,7 +139,7 @@ def test_the_echo_fill_takes_the_human_records_and_the_complaint_list_takes_the_
 
 def test_the_verdict_update_forwards_the_cycles_standing_fill_width(tmp_path, monkeypatch):
     """The verdict update passes `--standing-fill-jobs` to the standing fill as `--jobs` and computes no width of its own."""
-    code, _index, calls, _out, _complaint_list_calls, _echoes = _run_verdict_update(
+    code, _index, calls, _out, _complaint_list_calls, _duplicate_calls = _run_verdict_update(
         tmp_path, monkeypatch, ("--standing-fill-jobs", "6")
     )
     assert code == 0
@@ -150,7 +150,7 @@ def test_the_verdict_update_forwards_the_cycles_standing_fill_width(tmp_path, mo
 def test_the_verdict_update_passes_a_named_memo_and_the_fresh_form_through(tmp_path, monkeypatch):
     """The verdict update passes `--standing-memo` to the fill as `--memo`, and `--fresh-standing-memo` (which the cycle sets under `--fresh`) as `--fresh-memo`."""
     memo = tmp_path / "elsewhere" / "memo.ndjson.gz"
-    code, _index, calls, _out, _complaint_list_calls, _echoes = _run_verdict_update(
+    code, _index, calls, _out, _complaint_list_calls, _duplicate_calls = _run_verdict_update(
         tmp_path, monkeypatch, ("--standing-memo", str(memo), "--fresh-standing-memo")
     )
     assert code == 0
@@ -183,7 +183,7 @@ def _carrying_verdict_update(tmp_path, monkeypatch, extra=()):
         or 0,
     )
     monkeypatch.setattr(vu.merge_verdicts, "main", lambda argv: merges.append(argv) or 0)
-    monkeypatch.setattr(vu.echo_verdicts, "main", lambda argv, units=None: _write_out(argv))
+    monkeypatch.setattr(vu.duplicate_verdicts, "main", lambda argv, units=None: _write_out(argv))
     monkeypatch.setattr(vu.standing_verdicts, "main", lambda argv, unit_source=None: _write_out(argv))
     code = vu.main(
         [
@@ -197,8 +197,8 @@ def _carrying_verdict_update(tmp_path, monkeypatch, extra=()):
             str(tmp_path / "verdicts-autosave.json"),
             "--journal",
             str(tmp_path / "verdicts-journal.ndjson"),
-            "--echo-out",
-            str(tmp_path / "verdicts-echo-fill.json"),
+            "--duplicate-out",
+            str(tmp_path / "verdicts-duplicate-fill.json"),
             "--standing-out",
             str(tmp_path / "verdicts-standing-fill.json"),
             "--rules",
@@ -211,14 +211,14 @@ def _carrying_verdict_update(tmp_path, monkeypatch, extra=()):
 
 
 def test_the_carry_step_hands_the_verdicts_file_and_the_loaded_index_to_the_carry(tmp_path, monkeypatch):
-    """The verdict update passes the carry the verdicts file, the human echo records, and every corpus id, because the orphaned count also checks machine ids. It names only the live corpus as `--current-corpus`, then merges the carried file."""
+    """The verdict update passes the carry the verdicts file, the human duplicate records, and every corpus id, because the orphaned count also checks machine ids. It names only the live corpus as `--current-corpus`, then merges the carried file."""
     code, index, carries, merges = _carrying_verdict_update(tmp_path, monkeypatch)
     assert code == 0
     [(argv, units, unit_ids)] = carries
     assert argv[: argv.index("--out")] == ["--verdicts", str(tmp_path / "verdicts.json")]
     assert argv[argv.index("--out") + 1] == str(tmp_path / "carried.json")
     assert argv[argv.index("--current-corpus") + 1] == str(tmp_path / "review")
-    assert units == [vu.echo_verdicts.echo_record(unit) for unit in index]
+    assert units == [vu.duplicate_verdicts.duplicate_record(unit) for unit in index]
     assert unit_ids == IDS
     assert merges[0][0] == str(tmp_path / "carried.json")
 

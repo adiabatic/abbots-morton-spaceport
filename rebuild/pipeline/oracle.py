@@ -231,7 +231,7 @@ def classify_divergence(row: DivergentRow) -> str | None:
         return None
     if {"0020", "200C"} & set(row.codepoints.split(":")):
         # Design section 3.4: the new font renders each segment of a window split by a space or ZWNJ the same as that segment alone, and the belt's split-buffer check verifies this on every build. So a boundary row can diverge from the baseline only where the old font was inconsistent across the boundary, and every divergence inside a segment also appears on that segment's own row. Boundary rows need no review of their own and take this class ahead of every other.
-        return "boundary-echo"
+        return "boundary-window"
     if row.config in OVERLAY_CONFIGS:
         # Under ss10 both fonts render every letter isolated, with no join and no ligature (the old font through its anchor-free `.ss10` twins, the rebuild through its pre-empt), so any other ss10 divergence is a regression and waits for review. Without this, a namer-dot ss10 row that ligates would take marker-staging-ligature-formation.
         return None
@@ -350,7 +350,7 @@ def _class_predicate(class_id: str) -> Callable[[DivergentRow], bool]:
 CLASS_PREDICATE_IDS: dict[str, str] = {}
 
 for _class_id in (
-    "boundary-echo",
+    "boundary-window",
     "ss03-out-tea-ligature-kept",
     "marker-staging-ligature-formation",
     "regrouped-chain",

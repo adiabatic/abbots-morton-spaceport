@@ -36,7 +36,7 @@ def unit(uid, provenance=(), policy=None, batch: int | None = 1, no_verdict=Fals
         "order": None if no_verdict or batch is None else int(number),
         "batch": None if no_verdict else batch,
         "no_verdict": no_verdict,
-        "echo": f"e-{number}",
+        "duplicate_group": f"e-{number}",
         "cluster": f"c-{number}",
         "class": cls,
         "group": "qsPea:qsTea",

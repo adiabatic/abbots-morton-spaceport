@@ -627,7 +627,7 @@ def test_pick_fullest_verdicts_includes_evidence_carried_masters(tmp_path):
         tmp_path / "rebuild" / "evidence" / "verdicts-carried-abc1234.json",
         verdicts_doc(STAMP, [verdict("u-1"), verdict("u-2")]),
     )
-    _write(tmp_path / "verdicts-echo-fill.json", verdicts_doc(STAMP, [verdict("u-3")]))
+    _write(tmp_path / "verdicts-duplicate-fill.json", verdicts_doc(STAMP, [verdict("u-3")]))
     hit = pick_fullest_verdicts(tmp_path, STAMP)
     assert hit is not None
     assert hit[0].name == "verdicts-carried-abc1234.json"

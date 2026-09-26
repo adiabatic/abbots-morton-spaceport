@@ -173,20 +173,20 @@ export function triageOrder(unit) {
   return typeof unit?.order === 'number' ? unit.order : Number.POSITIVE_INFINITY;
 }
 
-export function echoChip(unit, memberIds) {
-  if (!unit.echo || !Array.isArray(memberIds) || memberIds.length < 2) return null;
+export function duplicateChip(unit, memberIds) {
+  if (!unit.duplicate_group || !Array.isArray(memberIds) || memberIds.length < 2) return null;
   return {
-    label: `echo ×${memberIds.length}`,
+    label: `duplicate ×${memberIds.length}`,
     href: `#units=${memberIds.join(',')}`,
     title:
       `The before→after change here is pixel-identical in ${memberIds.length} ${unit.class} windows with the same judged pair and configs — ` +
       'the surrounding letters differ but the change is the same picture. A verdict on any of them fills the unverdicted rest ' +
-      '(each can still be overridden or cleared individually). Click to view the whole echo group stacked.',
+      '(each can still be overridden or cleared individually). Click to view the whole duplicate group stacked.',
   };
 }
 
-export function echoFillTargets(unit, memberIds, hasVerdict) {
-  if (!unit || !unit.echo || !Array.isArray(memberIds)) return [];
+export function duplicateFillTargets(unit, memberIds, hasVerdict) {
+  if (!unit || !unit.duplicate_group || !Array.isArray(memberIds)) return [];
   return memberIds.filter((id) => id !== unit.id && !hasVerdict(id));
 }
 
@@ -433,7 +433,7 @@ export function searchHaystack(unit) {
     codepoints.replaceAll(':', ''),
     unit.class,
     unit.group,
-    unit.echo ?? '',
+    unit.duplicate_group ?? '',
     unit.cluster ?? '',
     ...(unit.kinds ?? []),
   ];
@@ -465,10 +465,10 @@ export function searchUnits(units, query, limit = 50) {
   return { matches: ranked.slice(0, limit).map((entry) => entry.unit), total: ranked.length };
 }
 
-export function echoGroupOfQuery(query, echoIndex) {
-  // Echo ids are content-addressed base58, where case is significant, so the lookup keeps the query's case.
+export function duplicateGroupOfQuery(query, duplicateIndex) {
+  // Duplicate-group ids are content-addressed base58, where case is significant, so the lookup keeps the query's case.
   const id = (query ?? '').trim();
-  const members = echoIndex.get(id);
+  const members = duplicateIndex.get(id);
   return members ? { id, members } : null;
 }
 

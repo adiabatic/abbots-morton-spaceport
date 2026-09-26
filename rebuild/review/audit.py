@@ -131,7 +131,7 @@ class Unit:
     no_verdict: bool = False
     config_classes: Mapping[str, str] = field(default_factory=dict)
     unmatched_group: str = ""
-    echo: str | None = None
+    duplicate_group: str | None = None
     cluster: str | None = None
 
     @property
@@ -386,7 +386,7 @@ class Compaction(NamedTuple):
 
 
 class UnitTable:
-    """The workload as columns over the unit's ordinal. The build's parent holds this from the load to the cache write instead of a list of `Unit` records, in the style of `unit_store.UnitStore`. The loader allocates one row per unit, and each field is a fixed-width `array`. Every name is an id into one `columns.StringTable`, the instance the row columns and the unit store share, so a class from the audit, an unmatched group from a worker and an echo id from a whole-corpus pass are in one vocabulary. Each tuple or mapping field is an id into a pool, and a read returns the pooled instance, so units with equal values share one object. `configs` and `kinds` are ids into `tuples`, and `render_groups` into `groups`. `baseline` and `new` are ids into `names`, the tuple pool the row columns share, until `release_names` drops both columns and the pool. `config_classes` are ids into `mappings`, a `columns.MappingPool` keyed on each mapping's insertion order (the order the audit states the unit's configs in, which appears in the fragment's bytes); a read returns the pooled mapping typed read-only. The window is parsed once at load into `(start, count)` over a `u16` side column. The ledger's two flags and the merge's `LIVE` bit share one byte. `order` and `batch` are `u32`, with `NONE` for a unit outside the triage index. `rows_start` and `row_count` address the unit's run of the row columns. `survivor` is set by the ink-duplicate merge for a row it removes.
+    """The workload as columns over the unit's ordinal. The build's parent holds this from the load to the cache write instead of a list of `Unit` records, in the style of `unit_store.UnitStore`. The loader allocates one row per unit, and each field is a fixed-width `array`. Every name is an id into one `columns.StringTable`, the instance the row columns and the unit store share, so a class from the audit, an unmatched group from a worker and a duplicate-group id from a whole-corpus pass are in one vocabulary. Each tuple or mapping field is an id into a pool, and a read returns the pooled instance, so units with equal values share one object. `configs` and `kinds` are ids into `tuples`, and `render_groups` into `groups`. `baseline` and `new` are ids into `names`, the tuple pool the row columns share, until `release_names` drops both columns and the pool. `config_classes` are ids into `mappings`, a `columns.MappingPool` keyed on each mapping's insertion order (the order the audit states the unit's configs in, which appears in the fragment's bytes); a read returns the pooled mapping typed read-only. The window is parsed once at load into `(start, count)` over a `u16` side column. The ledger's two flags and the merge's `LIVE` bit share one byte. `order` and `batch` are `u32`, with `NONE` for a unit outside the triage index. `rows_start` and `row_count` address the unit's run of the row columns. `survivor` is set by the ink-duplicate merge for a row it removes.
 
     The row index is the ordinal. The loader writes the rows in load order (ledger class, group, window, with the UNMATCHED units after every ledger class). The merge marks the rows it removes (`merge_into`), and `compact` drops them and renumbers the rest in place. After that every row is live, and the unit store is allocated over the same count, so one index reads both tables for the rest of the build. The manifest's triage order is a permutation over the rows (`sort_for_triage`) and does not reorder them. The machine flags and the unit id are stored only in the unit store. `unit` materializes a `Unit` from both tables, as `UnitStore.cached_unit` does for a store record, and `units` materializes the whole list for the review-facts CLI and the tests. The debug tally measures the table through `build.unit_table_sizes` over `columns` and `pools`; the tally is not imported here, for the reason `RowColumns` gives.
     """
@@ -401,7 +401,7 @@ class UnitTable:
         "_class",
         "_group",
         "_unmatched_group",
-        "_echo",
+        "_duplicate_group",
         "_cluster",
         "_configs",
         "_kinds",
@@ -431,7 +431,7 @@ class UnitTable:
         self._class = array("I", [0]) * n
         self._group = array("I", [0]) * n
         self._unmatched_group = array("I", [0]) * n
-        self._echo = array("I", [0]) * n
+        self._duplicate_group = array("I", [0]) * n
         self._cluster = array("I", [0]) * n
         self._configs = array("I", [0]) * n
         self._kinds = array("I", [0]) * n
@@ -482,8 +482,8 @@ class UnitTable:
     def unmatched_group(self, ordinal: int) -> str:
         return self.strings[self._unmatched_group[ordinal]]
 
-    def echo(self, ordinal: int) -> str | None:
-        index = self._echo[ordinal]
+    def duplicate_group(self, ordinal: int) -> str | None:
+        index = self._duplicate_group[ordinal]
         return None if index == 0 else self.strings[index]
 
     def cluster(self, ordinal: int) -> str | None:
@@ -559,8 +559,8 @@ class UnitTable:
     def set_unmatched_group(self, ordinal: int, group_id: str) -> None:
         self._unmatched_group[ordinal] = self.strings.id(group_id)
 
-    def set_echo(self, ordinal: int, echo: str | None) -> None:
-        self._echo[ordinal] = self.strings.optional(echo)
+    def set_duplicate_group(self, ordinal: int, duplicate_group: str | None) -> None:
+        self._duplicate_group[ordinal] = self.strings.optional(duplicate_group)
 
     def set_cluster(self, ordinal: int, cluster: str | None) -> None:
         self._cluster[ordinal] = self.strings.optional(cluster)
@@ -622,7 +622,7 @@ class UnitTable:
             self._class = array("I", map(self._class.__getitem__, kept))
             self._group = array("I", map(self._group.__getitem__, kept))
             self._unmatched_group = array("I", map(self._unmatched_group.__getitem__, kept))
-            self._echo = array("I", map(self._echo.__getitem__, kept))
+            self._duplicate_group = array("I", map(self._duplicate_group.__getitem__, kept))
             self._cluster = array("I", map(self._cluster.__getitem__, kept))
             self._configs = array("I", map(self._configs.__getitem__, kept))
             self._kinds = array("I", map(self._kinds.__getitem__, kept))
@@ -691,7 +691,7 @@ class UnitTable:
         yield self._class
         yield self._group
         yield self._unmatched_group
-        yield self._echo
+        yield self._duplicate_group
         yield self._cluster
         yield self._configs
         yield self._kinds
@@ -754,7 +754,7 @@ class UnitTable:
             no_verdict=bool(flags & NO_VERDICT),
             config_classes=self.config_classes(ordinal),
             unmatched_group=self.unmatched_group(ordinal),
-            echo=self.echo(ordinal),
+            duplicate_group=self.duplicate_group(ordinal),
             cluster=self.cluster(ordinal),
         )
 
@@ -928,7 +928,7 @@ def _permute(table: UnitTable, permutation: Sequence[int]) -> None:
         "_class",
         "_group",
         "_unmatched_group",
-        "_echo",
+        "_duplicate_group",
         "_cluster",
         "_configs",
         "_kinds",

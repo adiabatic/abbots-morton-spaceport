@@ -425,11 +425,11 @@ One entry per divergence **class**, with a matching predicate, the observed coun
 
 `rebuild/m1-divergences.yaml` holds the reviewed classes. The nine classes drafted with this plan are listed here, and the ledger’s `why:` fields cite them by number:
 
-1. **zwnj-word-initial-unification** — the `.noentry` deletion. `oracle.classify_divergence` assigns it to rows with a `+locked` or `old-noentry` token; `boundary-echo` takes every row that contains a ZWNJ first.
+1. **zwnj-word-initial-unification** — the `.noentry` deletion. `oracle.classify_divergence` assigns it to rows with a `+locked` or `old-noentry` token; `boundary-window` takes every row that contains a ZWNJ first.
 2. **space-vs-edge-guard-unification** — the same shape for the boundary-guard asymmetry. Not in the ledger: a class with no rows is not kept.
 3. **unaccepted-exit-withdrawal** — `E-UNACCEPTED-EXIT` and lookahead-closure semantics: ·It·It loses the old font’s harmless dangling ex-y5, and an entered ·It before an entryless follower settles with its exit withdrawn (prototype divergences 1–2, generalized). In the ledger as **dangling-anchor-dropped**.
 4. **same-seam-extension-non-summing** — the right seam of ·May·It·May matches that of ·Tea·It·May (prototype divergence 3).
-5. **ss03-zwnj-leak-fixed** — `qsMay ZWNJ qsTea` under ss03 does not join (prototype divergence 4; cross-shaper finding 1). Not in the ledger: the baseline seam was already a break, and every such row contains a ZWNJ, so the `boundary-echo` class covers it.
+5. **ss03-zwnj-leak-fixed** — `qsMay ZWNJ qsTea` under ss03 does not join (prototype divergence 4; cross-shaper finding 1). Not in the ledger: the baseline seam was already a break, and every such row contains a ZWNJ, so the `boundary-window` class covers it.
 6. **marker-staging-ligature-formation** — `qsMay qsTea qsOy` under ss03 and `ZWNJ qsTea qsOy` form the ligature (markers staged after formation; prototype divergence 5 and deviation 5).
 7. **ss03-chain-join-gains** — ·It·May·Tea and ·Tea·May·Tea under ss03 gain the second join under window join count (prototype deviation 3).
 8. **structural-floor-mismatches** — the remaining greedy-vs-old differences in unpinned windows per §15.4, the catch-all that must stay small and itemized; every member row is listed in the audit TSV and checked by eye. Implemented as the narrower **regrouped-chain** (rows with both a gain and a loss).

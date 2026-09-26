@@ -121,7 +121,7 @@ The corpus declares no multi-set combination.
 
 §3.4 defines `word: initial` as a left context that is an edge, a space, or a ZWNJ. Post-ZWNJ and post-space positions are therefore word-initial by definition, and positions before a boundary are word-final. The old font maintains these equivalences by hand and incompletely: it fires `.noentry` rules against literal `uni200C`, and `qsExcite` guards on space, ZWNJ, and the namer dot.
 
-The equivalence triage is a one-time comparison of each basis string `w` with the same string beside a boundary. Its code is not in the tree. Its outcome is the `boundary-echo` class in `rebuild/m1-divergences.yaml`, whose `why:` states the boundary-equals-word-boundary rule. On every build, gate:conform's split-buffer check (`conform.check_split_buffer`) checks the same equivalence over the M1 font. `rebuild/M1-PLAN.md` refers to the four checks by name:
+The equivalence triage is a one-time comparison of each basis string `w` with the same string beside a boundary. Its code is not in the tree. Its outcome is the `boundary-window` class in `rebuild/m1-divergences.yaml`, whose `why:` states the boundary-equals-word-boundary rule. On every build, gate:conform's split-buffer check (`conform.check_split_buffer`) checks the same equivalence over the M1 font. `rebuild/M1-PLAN.md` refers to the four checks by name:
 
 | Check           | Eligible `w`                | Comparison                                                                                           |
 | --------------- | --------------------------- | ---------------------------------------------------------------------------------------------------- |

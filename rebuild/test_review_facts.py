@@ -93,7 +93,7 @@ def _merged_fixture():
         _row("ss04", MERGE_WINDOW, "UNMATCHED", ("qsPea.ss04", "qsMay")),
         _row("ss03", DEFERRED_WINDOW, "UNMATCHED", ("qsBay", "qsMay")),
         _row("ss04", DEFERRED_WINDOW, "UNMATCHED", ("qsBay.ss04", "qsMay")),
-        _row("default", MIXED_WINDOW, "boundary-echo", ("qsTea", "qsMay")),
+        _row("default", MIXED_WINDOW, "boundary-window", ("qsTea", "qsMay")),
         _row("ss04", MIXED_WINDOW, "UNMATCHED", ("qsTea.ss04", "qsMay")),
         _row("default", STANDALONE_UNMATCHED, "UNMATCHED", ("qsDay", "qsDay")),
         _row("default", STANDALONE_MATCHED, "dangling-anchor-dropped", ("qsKey", "qsKey")),
@@ -192,7 +192,7 @@ class _Comparator:
 
 def test_ink_group_from_flags_mirrors_the_histogram():
     """`ink_group_from_flags` and `ink_histogram` must agree on keys, counts, and the insertion order of `by_class`. The first writes the pins, and the second is the only independent computation of them."""
-    classes = ["boundary-echo", "dangling-anchor-dropped", "UNMATCHED"]
+    classes = ["boundary-window", "dangling-anchor-dropped", "UNMATCHED"]
     identical = [True, True, False, False, True, False, False, True, False, False]
     rows = [
         _row("default", f"E65{index:X}:E665", classes[index % 3], (f"q{index}",))
@@ -235,7 +235,7 @@ def test_the_snapshots_grains_digest_as_the_materialized_units_do():
         [
             _row("default", MERGE_WINDOW, "UNMATCHED", ("qsPea", "qsMay")),
             _row("ss03", MERGE_WINDOW, "UNMATCHED", ("qsPea", "qsMay")),
-            _row("default", STANDALONE_MATCHED, "boundary-echo", ("qsKey", "qsKey")),
+            _row("default", STANDALONE_MATCHED, "boundary-window", ("qsKey", "qsKey")),
         ],
         load_ledger(LEDGER_PATH),
         dict(LETTERS),
@@ -247,7 +247,7 @@ def test_the_snapshots_grains_digest_as_the_materialized_units_do():
 
 
 def _example_table() -> tuple[UnitTable, dict[int, str | None], list[dict]]:
-    """A table of four windows with order, batch, and echo set as the whole-corpus passes set them: three human units in two echo groups, the reference window among them, and one machine-approved unit outside the index. Returns the table, each unit's config note by ordinal, and the shard records the same units would be written as."""
+    """A table of four windows with order, batch, and duplicate group set as the whole-corpus passes set them: three human units in two duplicate groups, the reference window among them, and one machine-approved unit outside the index. Returns the table, each unit's config note by ordinal, and the shard records the same units would be written as."""
     windows = {
         REFERENCE_WINDOW_CODEPOINTS: (0, "e-0000", None),
         "E670:E653:E652:E650": (0, "e-0000", None),
@@ -255,16 +255,16 @@ def _example_table() -> tuple[UnitTable, dict[int, str | None], list[dict]]:
         "E650:E651": (None, None, "only when ss03 is on"),
     }
     table, _rows = load_table(
-        [_row("default", codepoints, "boundary-echo", ("q",)) for codepoints in windows],
+        [_row("default", codepoints, "boundary-window", ("q",)) for codepoints in windows],
         load_ledger(LEDGER_PATH),
         dict(LETTERS),
     )
     config_notes: dict[int, str | None] = {}
     records: list[dict] = []
     for ordinal in range(table.n):
-        batch, echo, note = windows[table.codepoints_text(ordinal)]
+        batch, duplicate_group, note = windows[table.codepoints_text(ordinal)]
         table.set_order_batch(ordinal, None if batch is None else ordinal, batch)
-        table.set_echo(ordinal, echo)
+        table.set_duplicate_group(ordinal, duplicate_group)
         config_notes[ordinal] = note
         records.append(
             {
@@ -272,7 +272,7 @@ def _example_table() -> tuple[UnitTable, dict[int, str | None], list[dict]]:
                 "picture_identical": False,
                 "junior_equivalent": False,
                 "no_verdict": False,
-                "echo": echo,
+                "duplicate_group": duplicate_group,
                 "codepoints": table.codepoints_text(ordinal),
                 "config_note": note,
             }
@@ -283,7 +283,7 @@ def _example_table() -> tuple[UnitTable, dict[int, str | None], list[dict]]:
 def _write_shard(root: Path, records: list[dict]) -> dict:
     """Write a minimal corpus with only what the review-facts reduction reads: the three classes `manifest_group` looks up by name (`CLASS_UNIT_COUNT_KEYS`) with the no-verdict flags and machine-approved histogram `invariant_group` reads, one shard holding `records`, and the manifest fields the sidecar copies into its stamp."""
     (root / "units").mkdir(parents=True, exist_ok=True)
-    ids = ["boundary-echo", "dangling-anchor-dropped", "bare-name-live-join"]
+    ids = ["boundary-window", "dangling-anchor-dropped", "bare-name-live-join"]
     for position, class_id in enumerate(ids):
         payload = records if position == 0 else []
         (root / "units" / f"{class_id}.json").write_text(json.dumps(payload), encoding="utf-8")
@@ -291,17 +291,17 @@ def _write_shard(root: Path, records: list[dict]) -> dict:
         "generated_at": "2026-01-01T00:00:00Z",
         "repo_head": "0000000",
         "inputs_fingerprint": {"data": "x"},
-        "totals": {"units": len(records), "rows": len(records), "batches": 1, "echo_groups": 1},
+        "totals": {"units": len(records), "rows": len(records), "batches": 1, "duplicate_groups": 1},
         "classes": [
             {
                 "id": class_id,
                 "shards": [f"units/{class_id}.json"],
                 "unit_count": len(records) if position == 0 else 0,
-                "no_verdict": class_id == "boundary-echo",
+                "no_verdict": class_id == "boundary-window",
             }
             for position, class_id in enumerate(ids)
         ],
-        "machine_approved": {"units": 3, "by_class": {"bare-name-live-join": 2, "boundary-echo": 1}},
+        "machine_approved": {"units": 3, "by_class": {"bare-name-live-join": 2, "boundary-window": 1}},
         "secondary_seams": {"units_with_markers": 0, "seams_homed": 0},
     }
     (root / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
@@ -309,15 +309,15 @@ def _write_shard(root: Path, records: list[dict]) -> dict:
 
 
 def test_built_group_from_memory_mirrors_the_shard_walk(tmp_path):
-    """`built_group_from_memory` over the table and config notes must equal `built_group` over the shards written from them: the same human unit count, echo-sibling count for the reference window, and encoded config-note histogram."""
+    """`built_group_from_memory` over the table and config notes must equal `built_group` over the shards written from them: the same human unit count, duplicate-sibling count for the reference window, and encoded config-note histogram."""
     table, config_notes, records = _example_table()
     manifest = _write_shard(tmp_path, records)
     assert built_group_from_memory(table, config_notes) == built_group(tmp_path, manifest)
-    assert built_group_from_memory(table, config_notes)["reference_window_echo_siblings"] == 2
+    assert built_group_from_memory(table, config_notes)["reference_window_duplicate_siblings"] == 2
 
 
 def test_built_group_reports_a_missing_reference_window_as_none(tmp_path):
-    """When the reference window is not a human unit, as on every mini corpus a test builds, both functions report its echo-sibling count as None instead of failing. On the live corpus, the pins diff shows the loss as an accepted count replaced by null."""
+    """When the reference window is not a human unit, as on every mini corpus a test builds, both functions report its duplicate-sibling count as None instead of failing. On the live corpus, the pins diff shows the loss as an accepted count replaced by null."""
     table, config_notes, records = _example_table()
     reference = next(
         ordinal for ordinal in range(table.n) if table.codepoints_text(ordinal) == REFERENCE_WINDOW_CODEPOINTS
@@ -326,7 +326,7 @@ def test_built_group_reports_a_missing_reference_window_as_none(tmp_path):
     records[reference]["ink_identical"] = True
     manifest = _write_shard(tmp_path, records)
     from_memory = built_group_from_memory(table, config_notes)
-    assert from_memory["reference_window_echo_siblings"] is None
+    assert from_memory["reference_window_duplicate_siblings"] is None
     assert from_memory == built_group(tmp_path, manifest)
 
 
@@ -334,9 +334,9 @@ def _pins(row_count: int) -> dict:
     """A small pin set in the checked-in file's two-block shape: an invariant block over three classes, and two volatile groups."""
     return {
         "invariant": {
-            "classes": ["boundary-echo", "a", "b"],
+            "classes": ["boundary-window", "a", "b"],
             "machine_approved_classes": ["a"],
-            "no_verdict_classes": ["boundary-echo"],
+            "no_verdict_classes": ["boundary-window"],
             "unmatched_groups": ["no-chain-gains"],
         },
         "volatile": {
@@ -387,16 +387,16 @@ def test_invariant_group_keeps_each_sources_own_order():
     """The invariant block keeps each source's order: the classes and the no-verdict classes in manifest class order, the machine-approved classes in the order of the manifest's `by_class` histogram, and the unmatched groups in the order `unmatched_group_counts` emits them (`UNMATCHED_GROUP_ORDER`). A block whose order changed on every pass would make `invariant_delta` report reorders that mean nothing."""
     manifest = {
         "classes": [
-            {"id": "boundary-echo", "no_verdict": True},
+            {"id": "boundary-window", "no_verdict": True},
             {"id": "bare-name-live-join", "no_verdict": False},
             {"id": "halves-entry-extension-restored", "no_verdict": True},
         ],
-        "machine_approved": {"units": 5, "by_class": {"bare-name-live-join": 3, "boundary-echo": 2}},
+        "machine_approved": {"units": 5, "by_class": {"bare-name-live-join": 3, "boundary-window": 2}},
     }
     assert invariant_group(manifest, {"no-chain-gains": 8, "deferred-ss03": 1}) == {
-        "classes": ["boundary-echo", "bare-name-live-join", "halves-entry-extension-restored"],
-        "machine_approved_classes": ["bare-name-live-join", "boundary-echo"],
-        "no_verdict_classes": ["boundary-echo", "halves-entry-extension-restored"],
+        "classes": ["boundary-window", "bare-name-live-join", "halves-entry-extension-restored"],
+        "machine_approved_classes": ["bare-name-live-join", "boundary-window"],
+        "no_verdict_classes": ["boundary-window", "halves-entry-extension-restored"],
         "unmatched_groups": ["no-chain-gains", "deferred-ss03"],
     }
 
@@ -409,7 +409,7 @@ def test_build_facts_reduces_its_own_premerge_records(tmp_path):
         load_table(
             [
                 _row("default", MERGE_WINDOW, "UNMATCHED", ("qsPea", "qsMay")),
-                _row("default", STANDALONE_MATCHED, "boundary-echo", ("qsKey", "qsKey")),
+                _row("default", STANDALONE_MATCHED, "boundary-window", ("qsKey", "qsKey")),
             ],
             load_ledger(LEDGER_PATH),
             dict(LETTERS),
@@ -431,8 +431,8 @@ def test_build_facts_reduces_its_own_premerge_records(tmp_path):
     assert volatile["ink"] == ink_group_from_flags(capture.class_rows(), "10")
     assert built["pins"]["invariant"] == {
         "classes": [meta["id"] for meta in manifest["classes"]],
-        "machine_approved_classes": ["bare-name-live-join", "boundary-echo"],
-        "no_verdict_classes": ["boundary-echo"],
+        "machine_approved_classes": ["bare-name-live-join", "boundary-window"],
+        "no_verdict_classes": ["boundary-window"],
         "unmatched_groups": ["no-chain-gains"],
     }
     assert built["premerge"]["ink_identical"] == "10"
@@ -511,8 +511,8 @@ def test_from_scratch_recomputes_from_sources_without_the_sidecar(tmp_path, monk
     assert volatile["built"] == built_group(corpus, manifest)
     assert pins["invariant"] == {
         "classes": [meta["id"] for meta in manifest["classes"]],
-        "machine_approved_classes": ["bare-name-live-join", "boundary-echo"],
-        "no_verdict_classes": ["boundary-echo"],
+        "machine_approved_classes": ["bare-name-live-join", "boundary-window"],
+        "no_verdict_classes": ["boundary-window"],
         "unmatched_groups": ["seam-loss-withdrawal"],
     }
 
@@ -530,9 +530,9 @@ def _ledger_entry(identifier: str, *, ink_identical: bool = False, no_verdict: b
 
 
 _ACCEPTED_INVARIANT = {
-    "classes": ["boundary-echo", "bare-name-live-join", "deferred-ss10"],
-    "machine_approved_classes": ["boundary-echo", "bare-name-live-join"],
-    "no_verdict_classes": ["boundary-echo"],
+    "classes": ["boundary-window", "bare-name-live-join", "deferred-ss10"],
+    "machine_approved_classes": ["boundary-window", "bare-name-live-join"],
+    "no_verdict_classes": ["boundary-window"],
     "unmatched_groups": ["no-chain-gains", "deferred-ss10"],
 }
 
@@ -544,9 +544,9 @@ def test_invariant_delta_is_empty_exactly_when_nothing_moved():
 def test_invariant_delta_names_what_appeared_and_what_went_in_the_blocks_own_order():
     """`invariant_delta` names the ids that were added to or removed from each list (classes, machine-approved classes, no-verdict classes, unmatched groups), each in the block's own order, so the cycle log can be searched the same way on every pass."""
     current = {
-        "classes": ["boundary-echo", "bare-name-live-join", "see-out-fused", "deferred-ss04"],
-        "machine_approved_classes": ["boundary-echo", "bare-name-live-join", "see-out-fused"],
-        "no_verdict_classes": ["boundary-echo", "see-out-fused"],
+        "classes": ["boundary-window", "bare-name-live-join", "see-out-fused", "deferred-ss04"],
+        "machine_approved_classes": ["boundary-window", "bare-name-live-join", "see-out-fused"],
+        "no_verdict_classes": ["boundary-window", "see-out-fused"],
         "unmatched_groups": ["no-chain-gains", "deferred-ss04"],
     }
     assert invariant_delta(_ACCEPTED_INVARIANT, current) == [
@@ -561,7 +561,10 @@ def test_invariant_delta_names_what_appeared_and_what_went_in_the_blocks_own_ord
 
 def test_invariant_delta_tells_a_reorder_and_a_shape_change_from_a_corpus_change():
     """A ledger reorder changes a list's order but not its members, and a key that changes shape (a count replaced by a list) is a change to the block, not to the corpus. Neither may be reported as classes appearing."""
-    reordered = {**_ACCEPTED_INVARIANT, "classes": ["bare-name-live-join", "boundary-echo", "deferred-ss10"]}
+    reordered = {
+        **_ACCEPTED_INVARIANT,
+        "classes": ["bare-name-live-join", "boundary-window", "deferred-ss10"],
+    }
     assert invariant_delta(_ACCEPTED_INVARIANT, reordered) == ["classes reordered"]
     counted = {**_ACCEPTED_INVARIANT}
     counted["classes_count"] = counted.pop("classes")
@@ -584,24 +587,24 @@ def test_invariant_diff_is_the_blocks_own_unified_diff():
 def test_ledger_coverage_holds_the_ledgers_declarations_against_what_the_corpus_reached():
     """A class is machine-approved when the build approved any of its units, so the ledger's ink-identical declarations and the machine-approved classes can disagree in both directions. A no-verdict declaration or a ledger entry is unreached when no unit in the corpus matches it. `ledger_coverage` compares the ledger's declarations with the invariant block."""
     ledger = [
-        _ledger_entry("boundary-echo", no_verdict=True),
+        _ledger_entry("boundary-window", no_verdict=True),
         _ledger_entry("bare-name-live-join", ink_identical=True),
         _ledger_entry("see-out-fused", ink_identical=True),
         _ledger_entry("vie-baseline-entry-extension-dropped", no_verdict=True),
     ]
     invariant = {
-        "classes": ["boundary-echo", "bare-name-live-join", "see-out-fused", "deferred-ss10"],
-        "machine_approved_classes": ["boundary-echo", "bare-name-live-join", "deferred-ss10"],
-        "no_verdict_classes": ["boundary-echo"],
+        "classes": ["boundary-window", "bare-name-live-join", "see-out-fused", "deferred-ss10"],
+        "machine_approved_classes": ["boundary-window", "bare-name-live-join", "deferred-ss10"],
+        "no_verdict_classes": ["boundary-window"],
         "unmatched_groups": ["deferred-ss10"],
     }
     coverage = ledger_coverage(ledger, invariant)
     assert coverage.unreached == ("vie-baseline-entry-extension-dropped",)
     assert coverage.ink_declared == ("bare-name-live-join", "see-out-fused")
     assert coverage.ink_declared_unapproved == ("see-out-fused",)
-    assert coverage.machine_approved_undeclared == ("boundary-echo", "deferred-ss10")
-    assert coverage.no_verdict_declared == ("boundary-echo", "vie-baseline-entry-extension-dropped")
-    assert coverage.no_verdict_reached == ("boundary-echo",)
+    assert coverage.machine_approved_undeclared == ("boundary-window", "deferred-ss10")
+    assert coverage.no_verdict_declared == ("boundary-window", "vie-baseline-entry-extension-dropped")
+    assert coverage.no_verdict_reached == ("boundary-window",)
     assert coverage.no_verdict_unreached == ("vie-baseline-entry-extension-dropped",)
     assert coverage.describe() == (
         "machine-approved: 3 classes approve units, 2 undeclared;"
@@ -614,7 +617,7 @@ def test_ledger_coverage_holds_the_ledgers_declarations_against_what_the_corpus_
 
 def test_ledger_coverage_reads_clean_when_the_ledger_and_the_corpus_agree():
     ledger = [
-        _ledger_entry("boundary-echo", no_verdict=True),
+        _ledger_entry("boundary-window", no_verdict=True),
         _ledger_entry("bare-name-live-join", ink_identical=True),
     ]
     coverage = ledger_coverage(ledger, _ACCEPTED_INVARIANT)

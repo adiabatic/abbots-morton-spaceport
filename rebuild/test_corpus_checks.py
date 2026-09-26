@@ -59,7 +59,7 @@ MINI_SLICE = 64
 SEAM_BEARER = "u-KtPjucTyfbt"
 SEAM_HOME = "u-HZub95WTHju"
 PLAIN_UNIT = "u-DdcTojn1hba"
-ECHO_MATE = "u-8nacGTcgMRS"
+DUPLICATE_MATE = "u-8nacGTcgMRS"
 THIRD_UNIT = "u-2WvdGAWe6bX"
 
 
@@ -269,23 +269,23 @@ def test_a_gate_clause_the_manifest_does_not_gloss_fails_the_build():
 # --- the grains that only exist across units ----------------------------------------------------
 
 
-def test_an_echo_group_spanning_two_config_sets_fails_the_build():
+def test_a_duplicate_group_spanning_two_config_sets_fails_the_build():
     manifest, shards = _corpus()
-    _unit(shards, ECHO_MATE)["echo"] = _unit(shards, PLAIN_UNIT)["echo"]
+    _unit(shards, DUPLICATE_MATE)["duplicate_group"] = _unit(shards, PLAIN_UNIT)["duplicate_group"]
     _complaint(check_shards(manifest, shards), "one group spans")
 
 
-def test_an_echo_group_spanning_two_clusters_fails_the_build():
+def test_a_duplicate_group_spanning_two_clusters_fails_the_build():
     manifest, shards = _corpus()
-    left, right = _unit(shards, ECHO_MATE), _unit(shards, THIRD_UNIT)
-    right["echo"] = left["echo"]
+    left, right = _unit(shards, DUPLICATE_MATE), _unit(shards, THIRD_UNIT)
+    right["duplicate_group"] = left["duplicate_group"]
     right["cluster"] = "c-0badc0de"
     _complaint(check_shards(manifest, shards), "spans two clusters")
 
 
 def test_a_cluster_spanning_two_classes_fails_the_build():
     manifest, shards = _corpus()
-    _unit(shards, SEAM_BEARER)["cluster"] = _unit(shards, ECHO_MATE)["cluster"]
+    _unit(shards, SEAM_BEARER)["cluster"] = _unit(shards, DUPLICATE_MATE)["cluster"]
     _complaint(check_shards(manifest, shards), "one signature spans")
 
 
@@ -318,7 +318,7 @@ def test_a_fragment_carrying_a_batch_fails_the_build():
 def test_an_id_that_is_not_its_stamps_fails_the_build():
     """The id is the content key's first 64 bits in base58. The check fails a fragment whose id belongs to different content than its stamp, and an id of any other form."""
     unit = _one()
-    unit["id"] = _one(ECHO_MATE)["id"]
+    unit["id"] = _one(DUPLICATE_MATE)["id"]
     _complaint(check_unit(unit), "must be the content key's own")
     unit["id"] = "u-0000"
     _complaint(check_unit(unit), "base58")
@@ -374,7 +374,7 @@ def test_a_home_with_nothing_to_see_fails_the_build():
     home = _unit(shards, SEAM_HOME)
     home["ink_identical"] = True
     home["ink_deltas"] = {}
-    home["echo"] = None
+    home["duplicate_group"] = None
     home["cluster"] = None
     manifest["human_unit_ids"] = [uid for uid in manifest["human_unit_ids"] if uid != SEAM_HOME]
     _complaint(check_shards(manifest, shards), "shows no visible change")
@@ -386,7 +386,7 @@ def test_a_picture_identical_home_fails_the_build_the_same_way():
     home = _unit(shards, SEAM_HOME)
     home["picture_identical"] = True
     home["ink_deltas"] = {}
-    home["echo"] = None
+    home["duplicate_group"] = None
     home["cluster"] = None
     manifest["human_unit_ids"] = [uid for uid in manifest["human_unit_ids"] if uid != SEAM_HOME]
     _complaint(check_shards(manifest, shards), "shows no visible change")
@@ -836,9 +836,9 @@ def test_the_two_check_moments_partition_the_whole_contract(mode):
 
 
 def test_every_scaffold_key_is_either_compared_by_check_scaffold_or_checked_by_patched():
-    """Every key `unit_scaffold` writes is either checked by `check_scaffold` at the write (`_CHECKED_SCAFFOLD_KEYS`, so the drafting-time check read the same value that ships) or is one of the two keys the parent's whole-corpus passes assign after drafting, `echo` and `cluster`, and no key is both. Deleting or corrupting `echo`, `cluster`, or `secondary_seams` (which the patch also writes) draws no complaint from `DRAFTED`. A wrong value in any of them draws one from `PATCHED`, and so does a missing `echo` or `cluster`. A key added to the scaffold fails this test until it is assigned to one side."""
+    """Every key `unit_scaffold` writes is either checked by `check_scaffold` at the write (`_CHECKED_SCAFFOLD_KEYS`, so the drafting-time check read the same value that ships) or is one of the two keys the parent's whole-corpus passes assign after drafting, `duplicate_group` and `cluster`, and no key is both. Deleting or corrupting `duplicate_group`, `cluster`, or `secondary_seams` (which the patch also writes) draws no complaint from `DRAFTED`. A wrong value in any of them draws one from `PATCHED`, and so does a missing `duplicate_group` or `cluster`. A key added to the scaffold fails this test until it is assigned to one side."""
     scaffold_keys = _SCAFFOLD_HEAD + _SCAFFOLD_TAIL
-    patched_only = {"echo", "cluster"}
+    patched_only = {"duplicate_group", "cluster"}
     assert set(_CHECKED_SCAFFOLD_KEYS) | patched_only == set(scaffold_keys)
     assert not set(_CHECKED_SCAFFOLD_KEYS) & patched_only
     assert len(set(_CHECKED_SCAFFOLD_KEYS)) == len(_CHECKED_SCAFFOLD_KEYS)
@@ -883,10 +883,10 @@ def test_a_fragment_the_worker_drafts_wrong_fails_the_build(mini_bundle, monkeyp
     assert "drafts.pin.syntax is 'fail: refuted for the test'" in str(raised.value)
 
 
-def test_an_echo_the_parent_nulls_still_fails_the_build(mini_bundle, monkeypatch, tmp_path):
-    """Tests the write-time subset through the same serial build. A null echo on every human unit, a field the parent assigns after drafting, is caught by `PATCHED` at the write and fails the build with the predicate's message."""
-    monkeypatch.setattr(review_build.unit_cache, "echo_id_for", lambda key: None)
+def test_a_duplicate_group_the_parent_nulls_still_fails_the_build(mini_bundle, monkeypatch, tmp_path):
+    """Tests the write-time subset through the same serial build. A null duplicate group on every human unit, a field the parent assigns after drafting, is caught by `PATCHED` at the write and fails the build with the predicate's message."""
+    monkeypatch.setattr(review_build.unit_cache, "duplicate_group_id_for", lambda key: None)
     with pytest.raises(SystemExit) as raised:
         _build_mini(tmp_path / "corpus", mini_bundle)
     assert "contract check failed" in str(raised.value)
-    assert "human units must carry an echo group id" in str(raised.value)
+    assert "human units must carry a duplicate group id" in str(raised.value)

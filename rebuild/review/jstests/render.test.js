@@ -45,9 +45,9 @@ import {
   tokenSeparators,
   searchHaystack,
   searchUnits,
-  echoGroupOfQuery,
-  echoChip,
-  echoFillTargets,
+  duplicateGroupOfQuery,
+  duplicateChip,
+  duplicateFillTargets,
 } from '../static/render.js';
 
 const fixtureDir = new URL('./fixtures/', import.meta.url);
@@ -353,39 +353,39 @@ test('renderGroupsOf collapses a single-group unit and tolerates missing render_
   ]);
 });
 
-test('echoChip appears only for multi-member echo groups and deep-links the worklist', () => {
-  const unit = { id: 'u-JSRuJ51yvVj', echo: 'e-0000', class: 'dangling-anchor-dropped' };
-  assert.equal(echoChip(unit, ['u-JSRuJ51yvVj']), null);
-  assert.equal(echoChip({ ...unit, echo: null }, ['u-JSRuJ51yvVj', 'u-CKS1rpqQsLb']), null);
-  const chip = echoChip(unit, ['u-JSRuJ51yvVj', 'u-CKS1rpqQsLb', 'u-0007']);
-  assert.equal(chip.label, 'echo ×3');
+test('duplicateChip appears only for multi-member duplicate groups and deep-links the worklist', () => {
+  const unit = { id: 'u-JSRuJ51yvVj', duplicate_group: 'e-0000', class: 'dangling-anchor-dropped' };
+  assert.equal(duplicateChip(unit, ['u-JSRuJ51yvVj']), null);
+  assert.equal(duplicateChip({ ...unit, duplicate_group: null }, ['u-JSRuJ51yvVj', 'u-CKS1rpqQsLb']), null);
+  const chip = duplicateChip(unit, ['u-JSRuJ51yvVj', 'u-CKS1rpqQsLb', 'u-0007']);
+  assert.equal(chip.label, 'duplicate ×3');
   assert.equal(chip.href, '#units=u-JSRuJ51yvVj,u-CKS1rpqQsLb,u-0007');
   assert.ok(chip.title.includes('dangling-anchor-dropped'));
 });
 
-test('echoFillTargets excludes the unit itself and anything already verdicted', () => {
-  const unit = { id: 'u-JSRuJ51yvVj', echo: 'e-0000' };
+test('duplicateFillTargets excludes the unit itself and anything already verdicted', () => {
+  const unit = { id: 'u-JSRuJ51yvVj', duplicate_group: 'e-0000' };
   const verdicted = new Set(['u-0007']);
   assert.deepEqual(
-    echoFillTargets(unit, ['u-JSRuJ51yvVj', 'u-CKS1rpqQsLb', 'u-0007'], (id) => verdicted.has(id)),
+    duplicateFillTargets(unit, ['u-JSRuJ51yvVj', 'u-CKS1rpqQsLb', 'u-0007'], (id) => verdicted.has(id)),
     ['u-CKS1rpqQsLb'],
   );
-  assert.deepEqual(echoFillTargets({ id: 'u-JSRuJ51yvVj', echo: null }, ['u-JSRuJ51yvVj', 'u-CKS1rpqQsLb'], () => false), []);
-  assert.deepEqual(echoFillTargets(undefined, ['u-JSRuJ51yvVj'], () => false), []);
+  assert.deepEqual(duplicateFillTargets({ id: 'u-JSRuJ51yvVj', duplicate_group: null }, ['u-JSRuJ51yvVj', 'u-CKS1rpqQsLb'], () => false), []);
+  assert.deepEqual(duplicateFillTargets(undefined, ['u-JSRuJ51yvVj'], () => false), []);
 });
 
-test('fixture echo ids group only within a shard and singletons carry their own id', () => {
+test('fixture duplicate-group ids group only within a shard and singletons carry their own id', () => {
   const members = new Map();
   for (const unit of [...shardA, ...shardB]) {
-    if (unit.echo === null) {
+    if (unit.duplicate_group === null) {
       assert.equal(needsNoVerdict(unit), true, unit.id);
       continue;
     }
-    if (!members.has(unit.echo)) members.set(unit.echo, []);
-    members.get(unit.echo).push(unit);
+    if (!members.has(unit.duplicate_group)) members.set(unit.duplicate_group, []);
+    members.get(unit.duplicate_group).push(unit);
   }
   const grouped = [...members.values()].find((units) => units.length > 1);
-  assert.ok(grouped, 'fixtures must exercise a multi-member echo group');
+  assert.ok(grouped, 'fixtures must exercise a multi-member duplicate group');
   assert.equal(new Set(grouped.map((unit) => unit.class)).size, 1);
 });
 
@@ -702,7 +702,7 @@ test('machineFoldCheck falls back to the no-verdict badge for a class carrying n
 });
 
 test('a no-verdict class contributes nothing to the human units and everything non-identical to the exempt total', () => {
-  const exemptClass = { id: 'boundary-echo', no_verdict: true, unit_count: 6344, machine_approved_count: 4465 };
+  const exemptClass = { id: 'boundary-window', no_verdict: true, unit_count: 6344, machine_approved_count: 4465 };
   assert.equal(humanClassCount(exemptClass), 0);
   const synthetic = { totals: { units: 6350 }, classes: [exemptClass, { id: 'x', no_verdict: false, unit_count: 6, machine_approved_count: 1 }] };
   assert.equal(humanTotal(synthetic), 5);
@@ -753,7 +753,7 @@ test('the collapsed chip carries the corpus total and the popover breaks it down
       checks: { ink_identical: { units: 8350 }, junior_equivalent: { units: 3576 } },
     },
     classes: [
-      { id: 'boundary-echo', no_verdict: true, unit_count: 6256, machine_approved_count: 4940 },
+      { id: 'boundary-window', no_verdict: true, unit_count: 6256, machine_approved_count: 4940 },
       { id: 'x', no_verdict: false, unit_count: 9704, machine_approved_count: 6986 },
     ],
   };
@@ -780,7 +780,7 @@ test('a third machine check takes its own sub row, and a lone check merges back 
   const corpus = {
     totals: { units: 15960 },
     classes: [
-      { id: 'boundary-echo', no_verdict: true, unit_count: 6256, machine_approved_count: 4940 },
+      { id: 'boundary-window', no_verdict: true, unit_count: 6256, machine_approved_count: 4940 },
       { id: 'x', no_verdict: false, unit_count: 9704, machine_approved_count: 6986 },
     ],
   };
@@ -937,10 +937,10 @@ test('classesInBatch names the classes with units in a batch, batchless classes 
     ['dangling-anchor-dropped', 'marker-staging-ligature-formation'],
   );
   assert.deepEqual([...classesInBatch(manifest, 1)], ['dangling-anchor-dropped']);
-  const withExempt = { classes: [...manifest.classes, { id: 'boundary-echo', batches: [], no_verdict: true }] };
+  const withExempt = { classes: [...manifest.classes, { id: 'boundary-window', batches: [], no_verdict: true }] };
   assert.deepEqual(
     [...classesInBatch(withExempt, 0)].sort(),
-    ['boundary-echo', 'dangling-anchor-dropped', 'marker-staging-ligature-formation'],
+    ['boundary-window', 'dangling-anchor-dropped', 'marker-staging-ligature-formation'],
   );
   assert.deepEqual([...classesInBatch(withExempt, 1)], ['dangling-anchor-dropped']);
   assert.deepEqual(
@@ -1165,7 +1165,7 @@ test('fixture units satisfy the contract fields the frontend relies on', () => {
   );
 });
 
-test('searchHaystack folds id, notation, codepoints, class, group, echo, cluster, and kinds into one lowercase string', () => {
+test('searchHaystack folds id, notation, codepoints, class, group, duplicate group, cluster, and kinds into one lowercase string', () => {
   const haystack = searchHaystack(shardA.find((unit) => unit.id === 'u-5vrBNy2RYrJ'));
   assert.ok(haystack.includes('u-5vrbny2ryrj'), 'the id, folded to lowercase like everything else');
   assert.ok(haystack.includes('·tea·oy'));
@@ -1175,7 +1175,7 @@ test('searchHaystack folds id, notation, codepoints, class, group, echo, cluster
   assert.ok(haystack.includes('marker-staging-ligature-formation'));
   assert.ok(haystack.includes('qstea:qsoy'));
   assert.ok(haystack.includes('ligation'));
-  assert.ok(haystack.includes('e-0001'), 'the echo group id is searchable');
+  assert.ok(haystack.includes('e-0001'), 'the duplicate group id is searchable');
   assert.ok(haystack.includes('c-3a570001'), 'the cluster signature id is searchable');
 });
 
@@ -1190,7 +1190,7 @@ test('searchHaystack is memoized per unit, so a keystroke folds each row at most
   assert.ok(searchHaystack(twin).includes('·nope'));
 });
 
-test('searchUnits finds units by echo group id and by cluster id', () => {
+test('searchUnits finds units by duplicate group id and by cluster id', () => {
   assert.deepEqual(
     searchUnits(allUnits, 'e-0000').matches.map((unit) => unit.id).sort(),
     ['u-CKS1rpqQsLb', 'u-JSRuJ51yvVj'],
@@ -1201,14 +1201,14 @@ test('searchUnits finds units by echo group id and by cluster id', () => {
   );
 });
 
-test('echoGroupOfQuery offers the echo group for a content-addressed id, keeping its case', () => {
-  const echoIndex = new Map([['e-3mJ7kPq2Xw9', ['u-CKS1rpqQsLb', 'u-JSRuJ51yvVj']]]);
-  assert.deepEqual(echoGroupOfQuery('  e-3mJ7kPq2Xw9 ', echoIndex), {
+test('duplicateGroupOfQuery offers the duplicate group for a content-addressed id, keeping its case', () => {
+  const duplicateIndex = new Map([['e-3mJ7kPq2Xw9', ['u-CKS1rpqQsLb', 'u-JSRuJ51yvVj']]]);
+  assert.deepEqual(duplicateGroupOfQuery('  e-3mJ7kPq2Xw9 ', duplicateIndex), {
     id: 'e-3mJ7kPq2Xw9',
     members: ['u-CKS1rpqQsLb', 'u-JSRuJ51yvVj'],
   });
-  assert.equal(echoGroupOfQuery('e-3mj7kpq2xw9', echoIndex), null, 'base58 ids are case-significant');
-  assert.equal(echoGroupOfQuery('e-3mJ7', echoIndex), null);
+  assert.equal(duplicateGroupOfQuery('e-3mj7kpq2xw9', duplicateIndex), null, 'base58 ids are case-significant');
+  assert.equal(duplicateGroupOfQuery('e-3mJ7', duplicateIndex), null);
 });
 
 test('searchUnits finds a unit by its exact id across every shard', () => {

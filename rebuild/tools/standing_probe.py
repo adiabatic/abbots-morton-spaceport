@@ -146,7 +146,9 @@ def _describe(unit, rules, context, blankness, families):
     deltas = unit.get("ink_deltas") or {}
     pair = unit.get("pair")
     pair_text = f"{pair['left']}–{pair['right']}" if pair else "none"
-    print(f"{unit['id']}  {unit['class']}  echo {unit.get('echo')}  {unit['notation']}  {unit['codepoints']}")
+    print(
+        f"{unit['id']}  {unit['class']}  duplicate {unit.get('duplicate_group')}  {unit['notation']}  {unit['codepoints']}"
+    )
     print(
         f"  configs {', '.join(unit['configs'])}   deltas {', '.join(sorted(set(deltas.values()))) or 'none'}"
         f"   pair {pair_text}   secondary seams {unit.get('secondary_seams')}"

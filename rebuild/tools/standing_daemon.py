@@ -45,7 +45,7 @@ UNIT_FIELDS = frozenset(
         "id",
         "batch",
         "class",
-        "echo",
+        "duplicate_group",
         "notation",
         "codepoints",
         "configs",

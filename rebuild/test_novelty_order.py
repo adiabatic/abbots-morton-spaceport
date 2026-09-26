@@ -1,4 +1,4 @@
-"""Tests for `rebuild/tools/novelty_order.py`: representative selection (one representative per echo group among the blank human units, the member earliest in triage order, a skip counting as blank and forming its own group), the greedy max-min walk (consecutive representatives change class where id order would repeat it, the rarest class comes first, the same input gives the same order), and the printed worklist URL in its `order=given` form, with the check that the verdicts file is stamped for the same manifest."""
+"""Tests for `rebuild/tools/novelty_order.py`: representative selection (one representative per duplicate group among the blank human units, the member earliest in triage order, a skip counting as blank and forming its own group), the greedy max-min walk (consecutive representatives change class where id order would repeat it, the rarest class comes first, the same input gives the same order), and the printed worklist URL in its `order=given` form, with the check that the verdicts file is stamped for the same manifest."""
 
 import json
 
@@ -14,7 +14,7 @@ def unit(
     cls="alpha",
     group="qsPea:qsTea",
     tokens=("·Pea", "·Tea"),
-    echo=None,
+    duplicate_group=None,
     batch: int | None = 1,
     seams_before=("break",),
     seams_after=("y0",),
@@ -27,7 +27,7 @@ def unit(
         "id": uid,
         "order": None if batch is None else int(uid.split("-")[1]),
         "batch": batch,
-        "echo": echo,
+        "duplicate_group": duplicate_group,
         "class": cls,
         "group": group,
         "notation_tokens": list(tokens),
@@ -43,12 +43,12 @@ def v(unit_id, verdict, at=STAMP):
     return {"unit": unit_id, "verdict": verdict, "note": "", "at": at}
 
 
-def test_blank_representatives_takes_the_lowest_blank_member_per_echo_group():
+def test_blank_representatives_takes_the_lowest_blank_member_per_duplicate_group():
     units = [
-        unit("u-0001", echo="e-1"),
-        unit("u-0002", echo="e-1"),
-        unit("u-0003", echo="e-2"),
-        unit("u-0004", echo=None),
+        unit("u-0001", duplicate_group="e-1"),
+        unit("u-0002", duplicate_group="e-1"),
+        unit("u-0003", duplicate_group="e-2"),
+        unit("u-0004", duplicate_group=None),
         unit("u-0005", batch=None),
     ]
     records = {"u-0001": v("u-0001", "approve")}
@@ -58,14 +58,18 @@ def test_blank_representatives_takes_the_lowest_blank_member_per_echo_group():
 
 
 def test_blank_representatives_counts_a_skip_as_blank():
-    units = [unit("u-0001", echo="e-1")]
+    units = [unit("u-0001", duplicate_group="e-1")]
     representatives, blank_count = no.blank_representatives(units, {"u-0001": v("u-0001", "skip")})
     assert [u["id"] for u in representatives] == ["u-0001"]
     assert blank_count == 1
 
 
-def test_blank_representatives_makes_each_skipped_echo_member_its_own_representative():
-    units = [unit("u-0001", echo="e-1"), unit("u-0002", echo="e-1"), unit("u-0003", echo="e-1")]
+def test_blank_representatives_makes_each_skipped_duplicate_member_its_own_representative():
+    units = [
+        unit("u-0001", duplicate_group="e-1"),
+        unit("u-0002", duplicate_group="e-1"),
+        unit("u-0003", duplicate_group="e-1"),
+    ]
     records = {"u-0002": v("u-0002", "skip"), "u-0003": v("u-0003", "skip")}
     representatives, blank_count = no.blank_representatives(units, records)
     assert [u["id"] for u in representatives] == ["u-0001", "u-0002", "u-0003"]
@@ -144,7 +148,7 @@ def test_main_prints_the_order_given_worklist_url(repo, monkeypatch, capsys):
     )
     write_verdicts(repo, [])
     out = run_main(repo, monkeypatch, capsys)
-    assert "2 blank units collapse to 2 echo groups" in out
+    assert "2 blank units collapse to 2 duplicate groups" in out
     url = worklist_url(out)
     assert url.startswith("http://localhost:")
     assert url.endswith("&order=given")
@@ -191,7 +195,7 @@ def test_main_limit_zero_emits_the_whole_queue(repo, monkeypatch, capsys):
     write_corpus(repo, [unit(f"u-{number:04d}") for number in range(1, 46)])
     write_verdicts(repo, [])
     out = run_main(repo, monkeypatch, capsys, "--limit", "0")
-    assert "echo-fills the rest" in out
+    assert "duplicate-fills the rest" in out
     assert len(worklist_url(out).split("#units=")[1].split("&")[0].split(",")) == 45
 
 
