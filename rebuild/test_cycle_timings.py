@@ -80,7 +80,7 @@ def test_parse_inner_timings_reads_the_corpus_builds_phase_lines():
     """The corpus build's phase lines carry the peak token, then the current-RSS token when the platform reports one, then a tab-separated note. `--inner` reads each phase's peak and current RSS from this form."""
     text = (
         "[t] review.build load 12.3s rss_gb=1.23 rss_now_gb=1.20\t(signatures: 40 cached, 2 shaped across 8 workers)\n"
-        "[t] review.build units 900.0s rss_gb=15.40 rss_now_gb=9.75\t(jobs=1, fresh=1,000,000, verified=0 served)\n"
+        "[t] review.build units 900.0s rss_gb=15.40 rss_now_gb=9.75\t(jobs=1, recomputed=1,000,000, verified=0 cached)\n"
         "[t] review.build manifest+check 300.5s rss_gb=17.10\n"
     )
     assert ct.parse_inner_timings(text) == [

@@ -119,10 +119,10 @@ def locator_line(fragment: dict, part: int, start: int, length: int) -> bytes:
     return _line(locator_row(fragment, part, start, length))
 
 
-def respool_app_line(
+def copy_forward_app_line(
     line: bytes, *, unit_id: str, order: int, batch: int, part: int, start: int, length: int
 ) -> bytes:
-    """Rewrite a previous corpus's app-index row for a unit served verbatim so it fits this corpus. The id and queue place at the head and the address at the tail come from this build. The fields between them are the fragment's own and have not changed, so the result is byte for byte what `app_line` writes for the same fragment."""
+    """Rewrite a previous corpus's app-index row for a byte-copied unit so it fits this corpus. The id and queue place at the head and the address at the tail come from this build. The fields between them are the fragment's own and have not changed, so the result is byte for byte what `app_line` writes for the same fragment."""
     middle = line[line.index(b', "class": ') : line.rindex(b', "shard_part": ')]
     tail = json.dumps({"shard_part": part, "byte_start": start, "byte_length": length}).encode()[1:]
     return unit_index.line_head(unit_id, order, batch) + middle + b", " + tail + b"\n"

@@ -385,7 +385,7 @@ def test_the_identity_diff_digests_to_a_pinned_constant():
 
 
 def test_signature_digest_is_determined_by_the_tuple_alone(comparator):
-    """Equal signatures get equal digests across comparators and processes, which lets the persisted ink-signature store serve a digest recorded by an earlier build, and different placed ink gets a different digest."""
+    """Equal signatures get equal digests across comparators and processes, which lets the persisted ink-signature store supply a digest recorded by an earlier build, and different placed ink gets a different digest."""
     pair = "".join(chr(value) for value in (0xE650, 0xE665))
     digest = signature_digest(comparator.signature(pair, "default"))
     again = InkComparator(BEFORE_FONT, MINI_FONT)

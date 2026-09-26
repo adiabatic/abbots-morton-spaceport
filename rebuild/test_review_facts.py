@@ -247,7 +247,7 @@ def test_the_snapshots_grains_digest_as_the_materialized_units_do():
 
 
 def _example_table() -> tuple[UnitTable, dict[int, str | None], list[dict]]:
-    """A table of four windows with order, batch, and echo set as the reduce sets them: three human units in two echo groups, the reference window among them, and one machine-approved unit outside the index. Returns the table, each unit's config note by ordinal, and the shard records the same units would be written as."""
+    """A table of four windows with order, batch, and echo set as the whole-corpus passes set them: three human units in two echo groups, the reference window among them, and one machine-approved unit outside the index. Returns the table, each unit's config note by ordinal, and the shard records the same units would be written as."""
     windows = {
         REFERENCE_WINDOW_CODEPOINTS: (0, "e-0000", None),
         "E670:E653:E652:E650": (0, "e-0000", None),

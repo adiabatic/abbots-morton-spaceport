@@ -80,7 +80,7 @@ def delta_digest(diff: tuple) -> str:
 
 
 def signature_digest(signature: tuple) -> str:
-    """Return the sha256 of the marshal version 2 bytes of one `InkComparator.signature` result. Version 2 predates marshal's back references by object identity, so equal nested tuples give equal bytes even when one shares an object the other rebuilds. The ink-duplicate merge only groups by the value, so digest equality can stand in for signature equality, and the corpus build can serve signatures from the persisted store (rebuild/review/unit_cache.py) instead of reshaping every relabel-split window on each pass. Unlike `delta_digest`, these digests are recorded in nothing checked in: they are compared only within one build and stored in a cache that is discarded on any stamp mismatch, so changing the signature's form costs one store miss."""
+    """Return the sha256 of the marshal version 2 bytes of one `InkComparator.signature` result. Version 2 predates marshal's back references by object identity, so equal nested tuples give equal bytes even when one shares an object the other rebuilds. The ink-duplicate merge only groups by the value, so digest equality can stand in for signature equality, and the corpus build can reuse signatures from the persisted store (rebuild/review/unit_cache.py) instead of reshaping every relabel-split window on each pass. Unlike `delta_digest`, these digests are recorded in nothing checked in: they are compared only within one build and stored in a cache that is discarded on any stamp mismatch, so changing the signature's form costs one store miss."""
     return hashlib.sha256(marshal.dumps(signature, 2)).hexdigest()
 
 

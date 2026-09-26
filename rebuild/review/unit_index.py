@@ -60,7 +60,7 @@ def human_unit_slot(
 
 
 def index_record(fragment: dict, *, order: int | None = None, batch: int | None = None) -> dict:
-    """Project one shard fragment onto the fields the verdict update reads, with the unit's place in the manifest's triage index passed in. The key order is fixed so that two builds of the same corpus write the same bytes, and so that every line starts with `id`, `order`, and `batch` at the delimiters `ID_OPEN`, `ORDER_SEAM`, and `CLASS_SEAM`. `respool_index_line` joins a new head onto a line there, and `load_human_units` reads the id and the unit's place in the queue from the head without parsing the line. rebuild/test_unit_index.py checks this opening."""
+    """Project one shard fragment onto the fields the verdict update reads, with the unit's place in the manifest's triage index passed in. The key order is fixed so that two builds of the same corpus write the same bytes, and so that every line starts with `id`, `order`, and `batch` at the delimiters `ID_OPEN`, `ORDER_SEAM`, and `CLASS_SEAM`. `copy_forward_index_line` joins a new head onto a line there, and `load_human_units` reads the id and the unit's place in the queue from the head without parsing the line. rebuild/test_unit_index.py checks this opening."""
     before = fragment.get("before") or {}
     after = fragment.get("after") or {}
     policy = (fragment.get("drafts") or {}).get("policy")
@@ -208,17 +208,17 @@ def index_line(fragment: dict, *, order: int | None = None, batch: int | None = 
 
 
 def line_head(unit_id: str, order: int | None, batch: int | None) -> bytes:
-    """Return the start of an index or app-index line, the id and the unit's place in the queue, as `json.dumps` writes it, without the closing brace. A line whose other fields did not change can be respooled by joining this to its tail."""
+    """Return the start of an index or app-index line, the id and the unit's place in the queue, as `json.dumps` writes it, without the closing brace. A line whose other fields did not change can be copied forward by joining this to its tail."""
     return json.dumps({"id": unit_id, "order": order, "batch": batch}, ensure_ascii=False).encode()[:-1]
 
 
-def respool_index_line(line: bytes, *, unit_id: str, order: int | None, batch: int | None) -> bytes:
-    """Return a previous corpus's index line for a served unit, with this corpus's `order` and `batch`. Every field after those two is the fragment's own, and a unit served verbatim has an unchanged fragment, so the result is the id and the new place joined to the old tail, byte for byte what `index_line` writes for the same fragment."""
+def copy_forward_index_line(line: bytes, *, unit_id: str, order: int | None, batch: int | None) -> bytes:
+    """Return a previous corpus's index line for a cached unit, with this corpus's `order` and `batch`. Every field after those two is the fragment's own, and a byte-copied unit has an unchanged fragment, so the result is the id and the new place joined to the old tail, byte for byte what `index_line` writes for the same fragment."""
     return line_head(unit_id, order, batch) + line[line.index(CLASS_SEAM) :]
 
 
 class LineCursor:
-    """A forward-only reader over one of a corpus's gzipped NDJSON files (a sidecar or the unit store) that returns the line whose leading `field` has a requested value, skipping every line before it. Each of these files is written in an order whose terms are all content-derived (shard order for the sidecars, triage order for the store), so a served unit keeps its relative place from one corpus to the next, and the build reads the previous file once, in step with what it writes, without holding it. A skipped line belongs to a unit this build projects again. Once a requested value is not found, as with a file from another build or no file at all, the cursor returns None for every later request, and the caller projects the unit itself."""
+    """A forward-only reader over one of a corpus's gzipped NDJSON files (a sidecar or the unit store) that returns the line whose leading `field` has a requested value, skipping every line before it. Each of these files is written in an order whose terms are all content-derived (shard order for the sidecars, triage order for the store), so a cached unit keeps its relative place from one corpus to the next, and the build reads the previous file once, in step with what it writes, without holding it. A skipped line belongs to a unit this build projects again. Once a requested value is not found, as with a file from another build or no file at all, the cursor returns None for every later request, and the caller projects the unit itself."""
 
     def __init__(self, path: Path, field: str = "id") -> None:
         self._field = field

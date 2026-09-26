@@ -1,4 +1,4 @@
-"""Tests that the corpus cache keeps serving across a recompiled after font.
+"""Tests that the corpus cache keeps reusing units across a recompiled after font.
 
 A rune edit recompiles the after font: its GSUB lookup list changes whether or not any window's shaping does, and the edited letter's compiled glyphs change with it. The audit edits in rebuild/test_unit_cache.py do not cover this case.
 
@@ -49,7 +49,7 @@ def _with_extra_gsub_lookup(source: Path, target: Path) -> Path:
 
 
 def _with_a_widened_family(source: Path, target: Path) -> Path:
-    """Copy the font with every glyph of `MOVED_FAMILY` given a wider advance. The family's compiled-glyph digest changes, so every window that can reach that letter must be recomputed, and every window that cannot must still be served."""
+    """Copy the font with every glyph of `MOVED_FAMILY` given a wider advance. The family's compiled-glyph digest changes, so every window that can reach that letter must be recomputed, and every window that cannot must still be reused."""
     font = TTFont(str(source))
     metrics = font["hmtx"].metrics  # pyright: ignore[reportAttributeAccessIssue]
     widened = 0
@@ -87,8 +87,8 @@ def _content_keys(corpus: Path) -> dict[str, str]:
     return keys
 
 
-def _served(capfd) -> tuple[int, int]:
-    match = re.search(r"served (\d[\d,]*) of (\d[\d,]*) units from cache", capfd.readouterr().err)
+def _cached(capfd) -> tuple[int, int]:
+    match = re.search(r"reused (\d[\d,]*) of (\d[\d,]*) units from the cache", capfd.readouterr().err)
     assert match, "the build did not report its cache plan"
     return int(match.group(1).replace(",", "")), int(match.group(2).replace(",", ""))
 
@@ -126,21 +126,21 @@ def test_a_widened_family_moves_that_family_key_and_leaves_the_environment(tmp_p
     assert all(MOVED_FAMILY in name.split("_") for name in moved), moved
 
 
-def test_a_recompiled_font_serves_the_untouched_units_and_lands_on_a_from_scratch_build(
+def test_a_recompiled_font_reuses_the_untouched_units_and_lands_on_a_from_scratch_build(
     mini_corpus, mini_bundle, tmp_path, capfd
 ):
-    """End to end at mini scale: rebuild the mini corpus over a font recompiled the way a rune edit recompiles one. The store must serve the windows the widened family cannot reach (some units, not all and not none), and the tree it writes must be byte-identical to a from-scratch build of the same inputs. The content keys are compared first and separately, because they carry a recorded verdict across the cycle: a served fragment with a wrong key would orphan every verdict recorded against it, and `patch_fragment` rewrites a served fragment's scaffold fields without recomputing that key. The base copied here is conftest's `mini_corpus`, built over the unmodified `MINI/M1.otf`; only the fonts passed to `_mini_build` are recompiled."""
+    """End to end at mini scale: rebuild the mini corpus over a font recompiled the way a rune edit recompiles one. The store must supply the windows the widened family cannot reach (some units, not all and not none), and the tree it writes must be byte-identical to a from-scratch build of the same inputs. The content keys are compared first and separately, because they carry a recorded verdict across the cycle: a cached fragment with a wrong key would orphan every verdict recorded against it, and `patch_fragment` rewrites a cached fragment's scaffold fields without recomputing that key. The base copied here is conftest's `mini_corpus`, built over the unmodified `MINI/M1.otf`; only the fonts passed to `_mini_build` are recompiled."""
     incremental = tmp_path / "corpus"
     shutil.copytree(mini_corpus, incremental)
     recompiled = _recompiled(MINI_FONT, tmp_path / "recompiled.otf")
 
     capfd.readouterr()
     _mini_build(incremental, recompiled, mini_bundle)
-    served, total = _served(capfd)
-    assert 0 < served < total, f"served {served} of {total}"
+    cached, total = _cached(capfd)
+    assert 0 < cached < total, f"reused {cached} of {total}"
 
     scratch = tmp_path / "scratch"
-    _mini_build(scratch, recompiled, mini_bundle, fresh_unit_cache=True)
+    _mini_build(scratch, recompiled, mini_bundle, recompute_all_units=True)
 
     assert _content_keys(incremental) == _content_keys(scratch)
     assert _tree(incremental) == _tree(scratch)
@@ -158,7 +158,7 @@ def _with_a_version_bump(source: Path, target: Path) -> Path:
 
 
 def test_a_version_bump_of_the_before_font_leaves_both_whole_store_stamps(tmp_path, spec, mini_bundle):
-    """Both stamps hash the site fonts table by table, leaving out `head` and `name`, so the fonts a version bump's `make all` rewrites leave the unit store and the ink-signature store serving, while widening a glyph advance in the same font changes both stamps. The bumped font's bytes differ from the fixture's, so a digest over the whole file would have changed."""
+    """Both stamps hash the site fonts table by table, leaving out `head` and `name`, so the fonts a version bump's `make all` rewrites leave the unit store and the ink-signature store valid, while widening a glyph advance in the same font changes both stamps. The bumped font's bytes differ from the fixture's, so a digest over the whole file would have changed."""
     root = mini_bundle.spec_root
     _families, helpers = unit_cache.family_content_keys(root, spec, MINI_FONT)
     bumped = _with_a_version_bump(MINI_FONT, tmp_path / "bumped.otf")

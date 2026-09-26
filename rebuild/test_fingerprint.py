@@ -678,7 +678,7 @@ def test_the_divergence_ledger_line_carries_the_prose_insensitive_digest(tmp_pat
 
 
 def test_wording_a_divergence_class_moves_the_explain_component_alone(tmp_path):
-    """The review build copies a class's `why` into the manifest's `classes[].why`, so the `why` is hashed into `explain_prose` alongside the refuse `why`s. Rewording a class moves only that component: `data`, `tables_value`, and the run_m1 skip key, which is built from `data_lines`, stay. The corpus rebuild it causes is served from the unit cache, because no shard carries the text."""
+    """The review build copies a class's `why` into the manifest's `classes[].why`, so the `why` is hashed into `explain_prose` alongside the refuse `why`s. Rewording a class moves only that component: `data`, `tables_value`, and the run_m1 skip key, which is built from `data_lines`, stay. The corpus rebuild it causes reuses every cached unit, because no shard carries the text."""
     root = _fake_repo(tmp_path)
     (root / "glyph_data" / "runes" / "qsPea.yaml").write_text(PROSE_RUNE)
     before = _ledger_components(root, LEDGER)

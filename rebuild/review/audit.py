@@ -78,7 +78,7 @@ SLIM_OMITTED_KEYS = ("highlight", "explain", "drafts")
 
 
 def slim_fragment(fragment) -> bool:
-    """Whether a unit's JSON fragment is written slim: true for every machine-approved or verdict-exempt unit, and no other. It reads the fragment's flags, not which keys are missing, so the checker can check a fragment against the shape its flags require. The unit cache's store record keeps the same value as its `slim` flag, because the exemption comes from the ledger, which the content key does not cover, and a served fragment must have the shape this build would write."""
+    """Whether a unit's JSON fragment is written slim: true for every machine-approved or verdict-exempt unit, and no other. It reads the fragment's flags, not which keys are missing, so the checker can check a fragment against the shape its flags require. The unit cache's store record keeps the same value as its `slim` flag, because the exemption comes from the ledger, which the content key does not cover, and a cached fragment must have the shape this build would write."""
     return machine_approved(fragment) or fragment.get("no_verdict") is True
 
 
@@ -90,7 +90,7 @@ class UnitStoreView(Protocol):
     """The per-unit store methods this module calls, each by ordinal: the columns `UnitTable.unit` copies onto a materialized record, the id word `sort_for_triage` orders by, and the machine-approval bit `assign_batches` skips on. `unit_store.UnitStore` is the only implementation. This is a Protocol so that this module does not import `unit_store`, which imports this module and the debug tally (`memory_tally`). The verdict update reaches this module through `status`, and rebuild/test_verdict_update_closure.py follows `if TYPE_CHECKING:` imports too, so importing `unit_store` here, even for types, would put the tally in the verdict update's closure."""
 
     def input_key_hex(self, ordinal: int) -> str: ...
-    def folded(self, ordinal: int) -> bool: ...
+    def loaded(self, ordinal: int) -> bool: ...
     def unit_id(self, ordinal: int) -> str: ...
     def machine_flags(self, ordinal: int) -> tuple[bool, bool, bool]: ...
     def id_word(self, ordinal: int) -> int: ...
@@ -103,7 +103,7 @@ class Unit:
 
     `rows_start` and `row_count` address the unit's run of the row columns (`RowColumns`): its audit rows in config order, in file order within a config. The ink-signature keys and the build's content key read the run. After that, `release_rows` drops the columns and only `row_count` remains. `row_count` has no default, because the manifest's row totals are summed from it and a missing count must not read as zero.
 
-    `ordinal` is the unit's row in the workload table and in the build's unit store (`unit_store.UnitStore`), which share one index from the plan boundary on. It is -1 on a unit built outside a table. `input_key` is the unit cache's content key over the unit's inputs (`unit_cache.UnitKeyer.key`), which the plan serves the unit by; it is copied from the store's column when a store is given. `unit_id` and the three machine flags also come from the store, and are empty or False on a unit the store has not folded. The worker's phase 1 sets them on its own copy and returns them on the projection.
+    `ordinal` is the unit's row in the workload table and in the build's unit store (`unit_store.UnitStore`), which share one index from the plan boundary on. It is -1 on a unit built outside a table. `input_key` is the unit cache's content key over the unit's inputs (`unit_cache.UnitKeyer.key`), which the plan reuses the unit by; it is copied from the store's column when a store is given. `unit_id` and the three machine flags also come from the store, and are empty or False on a unit the store has not loaded. The worker's phase 1 sets them on its own copy and returns them on the projection.
 
     `ink_deltas` is always the shared empty mapping `NO_DELTAS` on a unit the build materializes: the store holds the per-config deltas, and drafting takes them as an argument. `ink_deltas` and `config_classes` (the table's pooled mapping) are typed `Mapping`, so a write through either is a type error at that line instead of a change every unit sharing the instance would see. `order` and `batch` are the unit's position in the manifest's triage index and the batch that position falls in, and None for a unit that takes no verdict. Neither is written into the fragment.
     """
@@ -386,7 +386,7 @@ class Compaction(NamedTuple):
 
 
 class UnitTable:
-    """The workload as columns over the unit's ordinal. The build's parent holds this from the load to the cache write instead of a list of `Unit` records, in the style of `unit_store.UnitStore`. The loader allocates one row per unit, and each field is a fixed-width `array`. Every name is an id into one `columns.StringTable`, the instance the row columns and the unit store share, so a class from the audit, an unmatched group from a worker and an echo id from a reduce are in one vocabulary. Each tuple or mapping field is an id into a pool, and a read returns the pooled instance, so units with equal values share one object. `configs` and `kinds` are ids into `tuples`, and `render_groups` into `groups`. `baseline` and `new` are ids into `names`, the tuple pool the row columns share, until `release_names` drops both columns and the pool. `config_classes` are ids into `mappings`, a `columns.MappingPool` keyed on each mapping's insertion order (the order the audit states the unit's configs in, which appears in the fragment's bytes); a read returns the pooled mapping typed read-only. The window is parsed once at load into `(start, count)` over a `u16` side column. The ledger's two flags and the merge's `LIVE` bit share one byte. `order` and `batch` are `u32`, with `NONE` for a unit outside the triage index. `rows_start` and `row_count` address the unit's run of the row columns. `survivor` is set by the ink-duplicate merge for a row it removes.
+    """The workload as columns over the unit's ordinal. The build's parent holds this from the load to the cache write instead of a list of `Unit` records, in the style of `unit_store.UnitStore`. The loader allocates one row per unit, and each field is a fixed-width `array`. Every name is an id into one `columns.StringTable`, the instance the row columns and the unit store share, so a class from the audit, an unmatched group from a worker and an echo id from a whole-corpus pass are in one vocabulary. Each tuple or mapping field is an id into a pool, and a read returns the pooled instance, so units with equal values share one object. `configs` and `kinds` are ids into `tuples`, and `render_groups` into `groups`. `baseline` and `new` are ids into `names`, the tuple pool the row columns share, until `release_names` drops both columns and the pool. `config_classes` are ids into `mappings`, a `columns.MappingPool` keyed on each mapping's insertion order (the order the audit states the unit's configs in, which appears in the fragment's bytes); a read returns the pooled mapping typed read-only. The window is parsed once at load into `(start, count)` over a `u16` side column. The ledger's two flags and the merge's `LIVE` bit share one byte. `order` and `batch` are `u32`, with `NONE` for a unit outside the triage index. `rows_start` and `row_count` address the unit's run of the row columns. `survivor` is set by the ink-duplicate merge for a row it removes.
 
     The row index is the ordinal. The loader writes the rows in load order (ledger class, group, window, with the UNMATCHED units after every ledger class). The merge marks the rows it removes (`fold_into`), and `compact` drops them and renumbers the rest in place. After that every row is live, and the unit store is allocated over the same count, so one index reads both tables for the rest of the build. The manifest's triage order is a permutation over the rows (`sort_for_triage`) and does not reorder them. The machine flags and the unit id are stored only in the unit store. `unit` materializes a `Unit` from both tables, as `UnitStore.cached_unit` does for a store record, and `units` materializes the whole list for the review-facts CLI and the tests. The debug tally measures the table through `build.unit_table_sizes` over `columns` and `pools`; the tally is not imported here, for the reason `RowColumns` gives.
     """
@@ -551,7 +551,7 @@ class UnitTable:
         value = self._batch[ordinal]
         return None if value == NONE else value
 
-    # --- the writers the build's reduces go through ------------------------------------------
+    # --- the writers the build's whole-corpus passes go through ------------------------------------------
 
     def set_class(self, ordinal: int, class_id: str) -> None:
         self._class[ordinal] = self.strings.id(class_id)
@@ -721,14 +721,14 @@ class UnitTable:
     # --- materialization ----------------------------------------------------------------------
 
     def unit(self, ordinal: int, store: UnitStoreView | None = None) -> Unit:
-        """Materialize the unit at `ordinal` as a `Unit`. With a store, the input key comes from the store, and the id and the three machine flags come from it too once the store has folded the unit; everything else comes from this table. Each `phase1` message sends a worker one batch of these, the write materializes one at a time, and the parent never holds a list of them."""
+        """Materialize the unit at `ordinal` as a `Unit`. With a store, the input key comes from the store, and the id and the three machine flags come from it too once the store has loaded the unit; everything else comes from this table. Each `phase1` message sends a worker one batch of these, the write materializes one at a time, and the parent never holds a list of them."""
         flags = self._flags[ordinal]
         unit_id = ""
         input_key = ""
         ink_identical = picture_identical = junior_equivalent = False
         if store is not None:
             input_key = store.input_key_hex(ordinal)
-            if store.folded(ordinal):
+            if store.loaded(ordinal):
                 unit_id = store.unit_id(ordinal)
                 ink_identical, picture_identical, junior_equivalent = store.machine_flags(ordinal)
         return Unit(

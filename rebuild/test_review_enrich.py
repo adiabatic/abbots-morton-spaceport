@@ -483,7 +483,7 @@ def test_secondary_seam_without_any_home_is_emitted_with_home_none():
 
 
 class _ColumnarSeamHomes:
-    """A `SeamHomeSource` shaped like the packed unit store, which this file must not import: projections held as parallel column lists, a `SeamHomeUnit` rebuilt on every lookup, ids ranked as integers, and homes written back as ordinals into a side map. It shares no code with `_ListSource`, so when the two give the same result, the reduce is reading only through the protocol."""
+    """A `SeamHomeSource` shaped like the packed unit store, which this file must not import: projections held as parallel column lists, a `SeamHomeUnit` rebuilt on every lookup, ids ranked as integers, and homes written back as ordinals into a side map. It shares no code with `_ListSource`, so when the two give the same result, the home-resolution pass is reading only through the protocol."""
 
     def __init__(self, projections):
         self.ids = [item.unit_id for item in projections]
@@ -555,7 +555,7 @@ class _ColumnarSeamHomes:
 
 
 def _home_fixtures():
-    """Return the resolver tests' corpora as projections for the reduce: one corpus per outcome (a shortest-substring home, a rejected outcome, a candidate that judges the seam as a secondary seam itself, an ink- or picture-identical home, no home), plus a corpus in which no unit has a secondary seam."""
+    """Return the resolver tests' corpora as projections for the home-resolution pass: one corpus per outcome (a shortest-substring home, a rejected outcome, a candidate that judges the seam as a secondary seam itself, an ink- or picture-identical home, no home), plus a corpus in which no unit has a secondary seam."""
     item = _stub_enriched(
         "u-0001",
         (0xE650, 0xE665, 0xE652, 0xE670),
@@ -604,7 +604,7 @@ def test_a_columnar_source_and_the_list_adapter_resolve_the_same_homes(name):
 
 
 def test_the_list_adapter_hands_back_the_assignment_dict_its_readers_index():
-    """`apply_home_assignments` indexes the list path's result by unit id and reads (home id, suppressed) pairs from it, so the list adapter must return ids instead of the ordinals the reduce works with."""
+    """`apply_home_assignments` indexes the list path's result by unit id and reads (home id, suppressed) pairs from it, so the list adapter must return ids instead of the ordinals the home-resolution pass works with."""
     assignments, _ = resolve_home_assignments(_home_fixtures()["shortest_substring_wins"])
     assert assignments == {"u-0001": [("u-0002", False)]}
 
@@ -626,7 +626,7 @@ def test_a_seamless_projection_gets_no_assignment_entry():
 
 
 def test_a_unit_ids_string_order_is_the_integer_order_of_the_word_it_encodes():
-    """The reduce breaks a tie between homes on `id_word`, so that integer order must match the order of the `unit_id` strings, or a tie could resolve to a different home. `unit_cache.base58_64` writes a fixed `ID_SYMBOLS` symbols from an alphabet in ascending ASCII order, so the base58 form of a 64-bit word sorts as the word does. With the constant `u-` prefix and that fixed width, the whole id string also sorts as its bytes read as a big-endian integer, which is the value `_ListSource.id_word` returns."""
+    """The home-resolution pass breaks a tie between homes on `id_word`, so that integer order must match the order of the `unit_id` strings, or a tie could resolve to a different home. `unit_cache.base58_64` writes a fixed `ID_SYMBOLS` symbols from an alphabet in ascending ASCII order, so the base58 form of a 64-bit word sorts as the word does. With the constant `u-` prefix and that fixed width, the whole id string also sorts as its bytes read as a big-endian integer, which is the value `_ListSource.id_word` returns."""
     draws = random.Random(299)
     words = sorted({0, 1, 2**63, 2**64 - 1} | {draws.getrandbits(64) for _ in range(200)})
     ids = [unit_id_for(f"{word:016x}") for word in words]

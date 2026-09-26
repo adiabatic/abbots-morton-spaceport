@@ -517,7 +517,7 @@ def test_a_build_satisfies_the_whole_corpus_contract(mini_corpus):
 
 
 def test_a_builds_class_records_count_the_machine_channels_it_shipped(mini_corpus):
-    """The app renders a machine fold's count and badge before it has any of the fold's units, so the split must be in the manifest and agree with the shards. The shard predicates check this on every build (through `check_shards`, or `_CorpusCheck` in the m1 write), over every unit written, served ones included."""
+    """The app renders a machine fold's count and badge before it has any of the fold's units, so the split must be in the manifest and agree with the shards. The shard predicates check this on every build (through `check_shards`, or `_CorpusCheck` in the m1 write), over every unit written, cached ones included."""
     manifest, shards = _corpus_shards(mini_corpus)
     for meta in manifest["classes"]:
         observed = {

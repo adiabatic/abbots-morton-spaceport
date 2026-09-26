@@ -1,6 +1,6 @@
 """Tests for the review corpus build's contract checks, each run against a corpus that breaks one predicate, and for the drafters and packers that raise instead of producing a bad value.
 
-`build_m1` runs `check_unit` over every unit it computes and runs the cross-unit predicates of `check_shards` through `_CorpusCheck`, so a violation fails the build that produced it. A cache-served unit skips `check_unit` and is covered instead by the `content_key` stamp that its shard and its store record must agree on; the cross-unit predicates run over both kinds. The manifest-shape predicates (`check_manifest`) and the file predicates (`_check_output_files`) do not run in `build_m1`, because a build writes every field they read from its own inputs; `check_output_dir` runs them over a real m1 build of the frozen mini bundle in `rebuild/test_app_index.py`. A violation appears only as one line in a `contract check failed` list, not as a named failing test, so this module tests the checker itself. It runs `check_manifest` and `check_shards` over the checked-in fixture corpus, which passes as shipped and carries no fonts, index page, or sidecars, and then with one field broken at a time. It runs the file predicates over small corpora under tmp_path with one file missing or wrong. The drafter tests run over the frozen mini bundle; the highlight and subset-pack tests use small synthetic inputs, plus one check over the mini bundle's real tables.
+`build_m1` runs `check_unit` over every unit it computes and runs the cross-unit predicates of `check_shards` through `_CorpusCheck`, so a violation fails the build that produced it. A cached unit skips `check_unit` and is covered instead by the `content_key` stamp that its shard and its store record must agree on; the cross-unit predicates run over both kinds. The manifest-shape predicates (`check_manifest`) and the file predicates (`_check_output_files`) do not run in `build_m1`, because a build writes every field they read from its own inputs; `check_output_dir` runs them over a real m1 build of the frozen mini bundle in `rebuild/test_app_index.py`. A violation appears only as one line in a `contract check failed` list, not as a named failing test, so this module tests the checker itself. It runs `check_manifest` and `check_shards` over the checked-in fixture corpus, which passes as shipped and carries no fonts, index page, or sidecars, and then with one field broken at a time. It runs the file predicates over small corpora under tmp_path with one file missing or wrong. The drafter tests run over the frozen mini bundle; the highlight and subset-pack tests use small synthetic inputs, plus one check over the mini bundle's real tables.
 """
 
 import copy
@@ -26,7 +26,7 @@ from rebuild.review.audit import (
     load_workload,
 )
 from rebuild.review.build import (
-    _HELD_SCAFFOLD_KEYS,
+    _CHECKED_SCAFFOLD_KEYS,
     _SCAFFOLD_HEAD,
     _SCAFFOLD_TAIL,
     DRAFTED,
@@ -309,7 +309,7 @@ def test_a_batch_count_the_index_does_not_bear_out_fails_the_build():
 
 
 def test_a_fragment_carrying_a_batch_fails_the_build():
-    """A fragment's bytes depend only on its content and the ledger, which is what lets a served fragment be copied unchanged. A batch is a position in the queue, so it is recorded in the manifest's index."""
+    """A fragment's bytes depend only on its content and the ledger, which is what lets a cached fragment be copied unchanged. A batch is a position in the queue, so it is recorded in the manifest's index."""
     unit = _one()
     unit["batch"] = 0
     _complaint(check_unit(unit), "carries no batch")
@@ -554,18 +554,18 @@ def test_a_manifest_with_no_classes_draws_no_complaint():
     assert not [error for error in check_manifest(manifest) if "classes" in error]
 
 
-# --- the served-vs-recomputed sample ------------------------------------------------------------
+# --- the cached-vs-recomputed sample ------------------------------------------------------------
 
 
 def test_the_verification_sample_is_reproducible_and_bounded():
-    served = list(range(1000))
-    first = _verification_sample(served, "an-environment-stamp", 200)
+    cached = list(range(1000))
+    first = _verification_sample(cached, "an-environment-stamp", 200)
     assert len(first) == 200
-    assert set(first) <= set(served)
-    assert first == _verification_sample(served, "an-environment-stamp", 200)
-    assert first != _verification_sample(served, "a-different-stamp", 200)
+    assert set(first) <= set(cached)
+    assert first == _verification_sample(cached, "an-environment-stamp", 200)
+    assert first != _verification_sample(cached, "a-different-stamp", 200)
     assert _verification_sample([], "an-environment-stamp") == []
-    assert sorted(_verification_sample(served[:5], "an-environment-stamp", 200)) == served[:5]
+    assert sorted(_verification_sample(cached[:5], "an-environment-stamp", 200)) == cached[:5]
 
 
 # --- what the emitters refuse to produce --------------------------------------------------------
@@ -768,14 +768,14 @@ def test_a_pack_is_written_once_and_rewritten_only_when_a_table_moves(tmp_path, 
     module.SubsetPack.open(first, table_digests(tmp_path, ("default",))).close()
 
 
-def test_a_served_unit_skips_check_unit_but_not_the_cross_unit_grain():
-    """`served_ids` skips `check_unit` for a served fragment, whose stamp already covers the per-unit predicates. The predicates that relate a unit to its shard and to other units still run over every unit, served or not."""
+def test_a_cached_unit_skips_check_unit_but_not_the_cross_unit_grain():
+    """`cached_ids` skips `check_unit` for a cached fragment, whose stamp already covers the per-unit predicates. The predicates that relate a unit to its shard and to other units still run over every unit, cached or not."""
     manifest, shards = _corpus()
     _unit(shards, PLAIN_UNIT)["drafts"]["pin"]["syntax"] = "fail: Expected glyph token at pos 0"
     _complaint(check_shards(manifest, shards, REPO_ROOT), "drafts.pin.syntax")
-    assert check_shards(manifest, shards, REPO_ROOT, served_ids={PLAIN_UNIT}) == []
+    assert check_shards(manifest, shards, REPO_ROOT, cached_ids={PLAIN_UNIT}) == []
     _unit(shards, PLAIN_UNIT)["class"] = "a-class-of-its-own"
-    _complaint(check_shards(manifest, shards, REPO_ROOT, served_ids={PLAIN_UNIT}), "in shard")
+    _complaint(check_shards(manifest, shards, REPO_ROOT, cached_ids={PLAIN_UNIT}), "in shard")
 
 
 # --- the review-facts projection ----------------------------------------------------------------
@@ -805,7 +805,7 @@ def test_the_premerge_projection_answers_one_ink_flag_per_captured_unit():
     assert [index for index, _group in premerge.unmatched_groups] == [0, 1]
 
 
-# --- the two moments a build checks a fresh fragment at ----------------------------------------
+# --- the two moments a build checks a recomputed fragment at ----------------------------------------
 
 
 def _fixture_units() -> list[dict]:
@@ -835,21 +835,21 @@ def test_the_two_check_moments_partition_the_whole_contract(mode):
             assert not set(drafted) & set(patched)
 
 
-def test_every_scaffold_key_is_either_held_at_the_write_or_checked_there():
-    """Every key `unit_scaffold` writes is either checked by `hold_scaffold` at the write (`_HELD_SCAFFOLD_KEYS`, so the drafting-time check read the same value that ships) or is one of the two keys the parent's reduces assign after drafting, `echo` and `cluster`, and no key is both. Deleting or corrupting `echo`, `cluster`, or `secondary_seams` (which the patch also writes) draws no complaint from `DRAFTED`. A wrong value in any of them draws one from `PATCHED`, and so does a missing `echo` or `cluster`. A key added to the scaffold fails this test until it is assigned to one side."""
+def test_every_scaffold_key_is_either_compared_by_check_scaffold_or_checked_by_patched():
+    """Every key `unit_scaffold` writes is either checked by `check_scaffold` at the write (`_CHECKED_SCAFFOLD_KEYS`, so the drafting-time check read the same value that ships) or is one of the two keys the parent's whole-corpus passes assign after drafting, `echo` and `cluster`, and no key is both. Deleting or corrupting `echo`, `cluster`, or `secondary_seams` (which the patch also writes) draws no complaint from `DRAFTED`. A wrong value in any of them draws one from `PATCHED`, and so does a missing `echo` or `cluster`. A key added to the scaffold fails this test until it is assigned to one side."""
     scaffold_keys = _SCAFFOLD_HEAD + _SCAFFOLD_TAIL
-    unheld = {"echo", "cluster"}
-    assert set(_HELD_SCAFFOLD_KEYS) | unheld == set(scaffold_keys)
-    assert not set(_HELD_SCAFFOLD_KEYS) & unheld
-    assert len(set(_HELD_SCAFFOLD_KEYS)) == len(_HELD_SCAFFOLD_KEYS)
+    patched_only = {"echo", "cluster"}
+    assert set(_CHECKED_SCAFFOLD_KEYS) | patched_only == set(scaffold_keys)
+    assert not set(_CHECKED_SCAFFOLD_KEYS) & patched_only
+    assert len(set(_CHECKED_SCAFFOLD_KEYS)) == len(_CHECKED_SCAFFOLD_KEYS)
     for unit in _fixture_units():
         assert check_unit(unit) == []
-        for key in sorted(unheld | {"secondary_seams"}):
+        for key in sorted(patched_only | {"secondary_seams"}):
             without, wrong = _broken(unit, key)
             assert check_unit(without, at=(DRAFTED,)) == []
             assert check_unit(wrong, at=(DRAFTED,)) == []
             _complaint(check_unit(wrong, at=(PATCHED,)), key)
-            if key in unheld:
+            if key in patched_only:
                 _complaint(check_unit(without, at=(PATCHED,)), f"{key} must be present")
 
 

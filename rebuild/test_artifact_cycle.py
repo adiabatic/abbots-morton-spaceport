@@ -3916,7 +3916,7 @@ def test_the_allow_list_line_ignores_prose(tmp_path):
 
 
 def test_the_divergence_ledger_line_ignores_prose(tmp_path):
-    """Reclassifying a divergence class must change this key, because the oracle reads the ledger to classify rows. Rewording a class's `why` must not, because no classifier reads it. The review build copies the `why` into the manifest and the Stage B `explain_prose` component hashes it, so a reword costs a corpus rebuild served from the unit cache and no gates-only rerun."""
+    """Reclassifying a divergence class must change this key, because the oracle reads the ledger to classify rows. Rewording a class's `why` must not, because no classifier reads it. The review build copies the `why` into the manifest and the Stage B `explain_prose` component hashes it, so a reword costs a corpus rebuild that reuses every cached unit and no gates-only rerun."""
     from rebuild.pipeline import fingerprint
 
     root = _fake_run_m1_root(tmp_path)

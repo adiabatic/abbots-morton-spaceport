@@ -1,6 +1,6 @@
-"""Tests for the review-app build: the §7 contract checker over rebuild/review/fixtures/ (the same checker `build_m1` runs over its own output), the config-note badge text, the app shell and its scripts, the assets refresh, the shard writer and the fresh spool, the pool records and the memory tally, the shape-memo release, `_write_json`, the triage export, and the table-diff build.
+"""Tests for the review-app build: the §7 contract checker over rebuild/review/fixtures/ (the same checker `build_m1` runs over its own output), the config-note badge text, the app shell and its scripts, the assets refresh, the shard writer and the recomputed spool, the pool records and the memory tally, the shape-memo release, `_write_json`, the triage export, and the table-diff build.
 
-No test here reads the live corpus. `build_m1` checks the per-unit and per-shard contracts over every unit it writes and fails the build on any violation, and what the manifest writer computes from its own inputs (the fingerprint, the feature descriptions, the sidebar order) needs no separate check. Two claims about a built corpus are tested elsewhere. The sidecars' byte addressing is tested in `rebuild/test_app_index.py` over a mini build, and the staging in `app_index.write_app_artifacts` and the currency check in `artifact_cycle.corpus_build_skippable` keep a shipped corpus from carrying a sidecar built for other shards. The ink-duplicate merge rests on the checks in `facts.derive_premerge` and on `InkComparator.signature` ignoring glyph names, which `rebuild/test_review_ink.py` tests on the marker font; a count in rebuild/review-facts-pins.json records that the merge ran on the corpus. The shipped ink deltas are covered by the build's verification sample, which re-shapes `VERIFICATION_SAMPLE` served windows on every build.
+No test here reads the live corpus. `build_m1` checks the per-unit and per-shard contracts over every unit it writes and fails the build on any violation, and what the manifest writer computes from its own inputs (the fingerprint, the feature descriptions, the sidebar order) needs no separate check. Two claims about a built corpus are tested elsewhere. The sidecars' byte addressing is tested in `rebuild/test_app_index.py` over a mini build, and the staging in `app_index.write_app_artifacts` and the currency check in `artifact_cycle.corpus_build_skippable` keep a shipped corpus from carrying a sidecar built for other shards. The ink-duplicate merge rests on the checks in `facts.derive_premerge` and on `InkComparator.signature` ignoring glyph names, which `rebuild/test_review_ink.py` tests on the marker font; a count in rebuild/review-facts-pins.json records that the merge ran on the corpus. The shipped ink deltas are covered by the build's verification sample, which re-shapes `VERIFICATION_SAMPLE` cached windows on every build.
 """
 
 import copy
@@ -584,7 +584,7 @@ def test_write_shard_leaves_no_staging_file_behind_when_serializing_fails(tmp_pa
 
 
 def test_the_shard_writer_keeps_the_previous_corpus_whole_until_commit(tmp_path):
-    """The m1 build reads served units out of the previous corpus's shards by address while it writes the new ones, so a part replaces the old file only at `commit`, after every class has closed. Until then the old file stays on disk under its name, and `abort` deletes the staged parts without touching it."""
+    """The m1 build reads cached units out of the previous corpus's shards by address while it writes the new ones, so a part replaces the old file only at `commit`, after every class has closed. Until then the old file stays on disk under its name, and `abort` deletes the staged parts without touching it."""
     _write_shard(tmp_path, "a", [{"id": "u-0000"}])
     units = tmp_path / "units"
     before = (units / "a.json").read_bytes()
@@ -610,19 +610,19 @@ def test_the_shard_writer_keeps_the_previous_corpus_whole_until_commit(tmp_path)
     assert sorted(entry.name for entry in units.iterdir()) == ["a.json", "b.json"]
 
 
-def test_the_fresh_spool_reads_every_fragment_back_by_address(tmp_path):
-    """A fresh fragment is kept on disk between phase 1 and the write, and it is read back by the same reader that serves a prior fragment from the previous corpus. The spool uses the shard format, and each address names its part in the numbered form of the class the spool was opened under, so `add` returns the final address at once, carrying the fragment's id and `content_key` (None for a fragment drafted without one), and the spool keeps nothing of the fragment in memory. Fragments are read by address, so the write can ask for them in any order (shard order interleaves the workers' batches). Reading under a stamp the fragment does not carry raises, as it does for a prior fragment that moved."""
+def test_the_recomputed_spool_reads_every_fragment_back_by_address(tmp_path):
+    """A recomputed fragment is kept on disk between phase 1 and the write, and it is read back by the same reader that reads a prior fragment from the previous corpus. The spool uses the shard format, and each address names its part in the numbered form of the class the spool was opened under, so `add` returns the final address at once, carrying the fragment's id and `content_key` (None for a fragment drafted without one), and the spool keeps nothing of the fragment in memory. Fragments are read by address, so the write can ask for them in any order (shard order interleaves the workers' batches). Reading under a stamp the fragment does not carry raises, as it does for a prior fragment that moved."""
     spool = review_build._FragmentSpool(tmp_path, "w0")
     fragments = [{"id": f"u-{index:04d}", "content_key": None, "text": "x" * index} for index in range(5)]
     spooled = {fragment["id"]: spool.add(fragment) for fragment in fragments}
     assert spool.close() is None
     assert all(located.unit_id == unit_id for unit_id, located in spooled.items())
     assert {located.part for located in spooled.values()} == {"units/w0.000.json"}
-    assert sorted(path.name for path in (tmp_path / review_build.FRESH_SPOOL_NAME / "units").iterdir()) == [
-        "w0.000.json"
-    ]
+    assert sorted(
+        path.name for path in (tmp_path / review_build.RECOMPUTED_SPOOL_NAME / "units").iterdir()
+    ) == ["w0.000.json"]
     assert all(located.content_key is None for located in spooled.values())
-    with unit_cache.PriorFragmentReader(tmp_path / review_build.FRESH_SPOOL_NAME) as reader:
+    with unit_cache.PriorFragmentReader(tmp_path / review_build.RECOMPUTED_SPOOL_NAME) as reader:
         for fragment in reversed(fragments):
             assert reader.read(spooled[fragment["id"]]) == fragment
         with pytest.raises(ValueError):
@@ -635,7 +635,7 @@ def _live_enriched_units() -> int:
 
 
 def test_the_serial_runner_spools_every_fragment_and_keeps_no_enrichment(tmp_path, mini_bundle, monkeypatch):
-    """No EnrichedUnit outlives the batch that produced it. After phase 1 the unit store holds a spool address for each fresh unit, the runner holds nothing enriched, each address reads back as that unit's drafted fragment, and closing the runner deletes the spool. Fragments come in two shapes: a unit the build machine-approves or the ledger exempts is spooled slim, without the explain, the drafts, or the highlight, and is never drafted; every human unit is whole and drafted. Phase 1 leaves every unit it is given holding the shared empty `NO_DELTAS`, and the per-config deltas it finds go to the store, which holds some for the mini workload."""
+    """No EnrichedUnit outlives the batch that produced it. After phase 1 the unit store holds a spool address for each recomputed unit, the runner holds nothing enriched, each address reads back as that unit's drafted fragment, and closing the runner deletes the spool. Fragments come in two shapes: a unit the build machine-approves or the ledger exempts is spooled slim, without the explain, the drafts, or the highlight, and is never drafted; every human unit is whole and drafted. Phase 1 leaves every unit it is given holding the shared empty `NO_DELTAS`, and the per-config deltas it finds go to the store, which holds some for the mini workload."""
     drafted: set[str] = set()
     draft_pin = review_build.Drafter.draft_pin
 
@@ -657,7 +657,7 @@ def test_the_serial_runner_spools_every_fragment_and_keeps_no_enrichment(tmp_pat
     store = UnitStore(table.n, strings=table.strings)
     for ordinal in range(table.n):
         store.set_input_key(ordinal, hashlib.sha256(f"k{ordinal}".encode()).hexdigest())
-    runner = review_build._FreshRunner(
+    runner = review_build._RecomputeRunner(
         range(table.n),
         1,
         MINI,
@@ -673,12 +673,12 @@ def test_the_serial_runner_spools_every_fragment_and_keeps_no_enrichment(tmp_pat
     try:
         assert runner.phase1(store) is None
         assert _live_enriched_units() == 0
-        assert all(store.folded(ordinal) for ordinal in range(table.n))
+        assert all(store.loaded(ordinal) for ordinal in range(table.n))
         assert sorted(ordinal for ordinal, _ in handed) == list(range(table.n))
         assert all(shared for _, shared in handed)
         assert not NO_DELTAS
         assert any(store.ink_deltas(ordinal) for ordinal in range(table.n))
-        assert (tmp_path / review_build.FRESH_SPOOL_NAME).is_dir()
+        assert (tmp_path / review_build.RECOMPUTED_SPOOL_NAME).is_dir()
         shapes = {True: 0, False: 0}
         for unit in table.units(store):
             assert store.unit_id(unit.ordinal) == unit.unit_id
@@ -703,11 +703,11 @@ def test_the_serial_runner_spools_every_fragment_and_keeps_no_enrichment(tmp_pat
         assert shapes[True] and shapes[False], "the mini workload must hold both fragment shapes"
     finally:
         runner.close()
-    assert not (tmp_path / review_build.FRESH_SPOOL_NAME).exists()
+    assert not (tmp_path / review_build.RECOMPUTED_SPOOL_NAME).exists()
 
 
 def test_the_stamped_scaffold_keys_are_the_projections_share_of_the_scaffold(mini_bundle):
-    """`hold_scaffold` checks a fresh fragment's stamp by comparing the scaffold keys inside the carry projection instead of re-hashing the fragment. That is as strong as the hash only if it compares every scaffold key in the projection. This test checks that every key `unit_scaffold` writes is in `_SCAFFOLD_HEAD` or `_SCAFFOLD_TAIL`, that `_STAMPED_SCAFFOLD_KEYS` is that set minus `CARRY_PRESENTATION_KEYS`, and that changing a scaffold key changes `carry_content_hash` if and only if the key is stamped. A scaffold key added to either tuple fails here until the projection includes it."""
+    """`check_scaffold` checks a recomputed fragment's stamp by comparing the scaffold keys inside the carry projection instead of re-hashing the fragment. That is as strong as the hash only if it compares every scaffold key in the projection. This test checks that every key `unit_scaffold` writes is in `_SCAFFOLD_HEAD` or `_SCAFFOLD_TAIL`, that `_STAMPED_SCAFFOLD_KEYS` is that set minus `CARRY_PRESENTATION_KEYS`, and that changing a scaffold key changes `carry_content_hash` if and only if the key is stamped. A scaffold key added to either tuple fails here until the projection includes it."""
     unit = load_workload(MINI / "audit.tsv", mini_bundle.ledger, dict(LETTERS)).table.unit(0)
     scaffold_keys = review_build._SCAFFOLD_HEAD + review_build._SCAFFOLD_TAIL
     scaffold = review_build.unit_scaffold(unit)
@@ -734,8 +734,8 @@ def test_the_stamped_scaffold_keys_are_the_projections_share_of_the_scaffold(min
 
 
 @pytest.mark.parametrize("key", review_build._SCAFFOLD_HEAD + review_build._SCAFFOLD_TAIL)
-def test_hold_scaffold_raises_exactly_when_the_parent_moves_a_held_field(key):
-    """Over plain dicts: a fragment and a scaffold that agree pass. One that differs at a held key (`_HELD_SCAFFOLD_KEYS`) raises a `SystemExit` naming the unit and the key and saying whether the key is inside the carry projection (the stamp describes other content) or outside it (the drafting-time check passed other bytes). One that differs only at `echo` or `cluster` passes, since the patch assigns those after drafting and the write-time check covers them."""
+def test_check_scaffold_raises_exactly_when_the_parent_moves_a_checked_field(key):
+    """Over plain dicts: a fragment and a scaffold that agree pass. One that differs at a checked key (`_CHECKED_SCAFFOLD_KEYS`) raises a `SystemExit` naming the unit and the key and saying whether the key is inside the carry projection (the stamp describes other content) or outside it (the drafting-time check passed other bytes). One that differs only at `echo` or `cluster` passes, since the patch assigns those after drafting and the write-time check covers them."""
     fragment = {
         "id": "u-3mJ7kPq2Xw9",
         **{name: f"value of {name}" for name in review_build._STAMPED_SCAFFOLD_KEYS},
@@ -746,14 +746,14 @@ def test_hold_scaffold_raises_exactly_when_the_parent_moves_a_held_field(key):
     fragment.update(
         {name: f"value of {name}" for name in review_build._SCAFFOLD_TAIL if name not in fragment}
     )
-    review_build.hold_scaffold(fragment, dict(fragment))
+    review_build.check_scaffold(fragment, dict(fragment))
     scaffold = {**fragment, key: "moved"}
-    if key not in review_build._HELD_SCAFFOLD_KEYS:
+    if key not in review_build._CHECKED_SCAFFOLD_KEYS:
         assert key in ("echo", "cluster")
-        review_build.hold_scaffold(fragment, scaffold)
+        review_build.check_scaffold(fragment, scaffold)
         return
     with pytest.raises(SystemExit) as caught:
-        review_build.hold_scaffold(fragment, scaffold)
+        review_build.check_scaffold(fragment, scaffold)
     assert f"unit {fragment['id']}:" in str(caught.value)
     assert f"other values of {key} than" in str(caught.value)
     inside = key in review_build._STAMPED_SCAFFOLD_KEYS
@@ -834,7 +834,7 @@ def test_a_pooled_build_counts_its_units_and_closes_every_phase_it_opens(
 ):
     """Checks what someone watching a multi-minute build learns from it, on the one workload small enough to test: which phase it is in, and how many units its pool has finished. Every `[phase]` line the terminal opens is closed by the `[t] review.build <phase>` line the timings journal reads. The counter is a running sum over the workers' batch replies, one line per batch as it arrives, and the mini workload spreads into several batches across the two workers (`_handout_width`). The count must reach the manifest's unit total, so a batch left unread or a worker the parent stopped reading from fails here.
 
-    Every timing line also carries the parent's peak RSS as the `rss_gb=` token `parse_inner_timings` reads, before the phase's note, so `make cycle-timings ARGS='--inner'` can show which phase reached the step's peak memory. With `AMS_CORPUS_MEMORY_TALLY=1` in the environment the workers inherit, each worker tallies its own collections on stdout at every batch boundary: the projections it is about to return, each with its fragment's spool address and bounded by the hand-out width; the mapped subset pack; and the shape memo, with no enrichment among them. A spawned child's output bypasses the parent's `sys.stdout`, so this test captures at the file-descriptor level. At the parent's boundaries the returned projections are folded into the unit store, which holds a row per unit from the plan boundary on and reports in place of the per-unit collections it replaces, and no collection of enrichments exists.
+    Every timing line also carries the parent's peak RSS as the `rss_gb=` token `parse_inner_timings` reads, before the phase's note, so `make cycle-timings ARGS='--inner'` can show which phase reached the step's peak memory. With `AMS_CORPUS_MEMORY_TALLY=1` in the environment the workers inherit, each worker tallies its own collections on stdout at every batch boundary: the projections it is about to return, each with its fragment's spool address and bounded by the hand-out width; the mapped subset pack; and the shape memo, with no enrichment among them. A spawned child's output bypasses the parent's `sys.stdout`, so this test captures at the file-descriptor level. At the parent's boundaries the returned projections are loaded into the unit store, which holds a row per unit from the plan boundary on and reports in place of the per-unit collections it replaces, and no collection of enrichments exists.
     """
     monkeypatch.setenv(memory_tally.TALLY_ENV, "1")
     out = tmp_path / "corpus"
@@ -868,7 +868,7 @@ def test_a_pooled_build_counts_its_units_and_closes_every_phase_it_opens(
     assert all(
         item.startswith("rss_now_gb=") and float(item.removeprefix("rss_now_gb=")) > 0 for item in current
     )
-    assert note == f"(jobs=2, fresh={total:,}, verified=0 served)"
+    assert note == f"(jobs=2, recomputed={total:,}, verified=0 cached)"
     _tokens, note = timings["review.build load"].tail.split("\t")
     assert re.fullmatch(_SIGNATURE_NOTE, note), note
     inner = {entry["label"]: entry for entry in parse_inner_timings(captured.err)}
@@ -905,8 +905,8 @@ def test_a_pooled_build_counts_its_units_and_closes_every_phase_it_opens(
     assert not _subsumed_collections(parent_only)
 
 
-def test_the_pool_is_handed_the_pile_in_configuration_order(mini_bundle):
-    """The workers' queue is the fresh units sorted by the configuration each unit settles under, so consecutive batches read one configuration's key range of the mapped subset pack. Over the mini workload, whose units lead with four of the six acceptance configurations (`default` and `ss10` for many units, `ss03` and `ss04` for one each), `_configuration_order` returns every unit once, with `audit._config_index` never decreasing, and keeps the incoming order within each configuration (a stable sort). The within-configuration check therefore has depth only for `default` and `ss10`. The order belongs to the parent's hand-out, not to any worker."""
+def test_the_pool_is_handed_the_recomputed_units_in_configuration_order(mini_bundle):
+    """The workers' queue is the recomputed units sorted by the configuration each unit settles under, so consecutive batches read one configuration's key range of the mapped subset pack. Over the mini workload, whose units lead with four of the six acceptance configurations (`default` and `ss10` for many units, `ss03` and `ss04` for one each), `_configuration_order` returns every unit once, with `audit._config_index` never decreasing, and keeps the incoming order within each configuration (a stable sort). The within-configuration check therefore has depth only for `default` and `ss10`. The order belongs to the parent's hand-out, not to any worker."""
     table = load_workload(MINI / "audit.tsv", mini_bundle.ledger, dict(LETTERS)).table
     ordered = review_build._configuration_order(range(table.n), table)
     assert len(ordered) == table.n > 1
@@ -959,18 +959,18 @@ def test_the_window_keyed_signatures_die_where_the_ink_duplicate_merge_returns(
         after_font=MINI / "M1.otf",
         spec_root=mini_bundle.spec_root,
         subset_pack=mini_bundle.subset_pack,
-        fresh_unit_cache=True,
+        recompute_all_units=True,
     )
     assert alive == {"merge": True, "plan": False}
 
 
 @pytest.mark.parametrize("jobs", [1, 2])
 def test_the_signature_store_records_die_where_the_store_is_written(tmp_path, mini_bundle, monkeypatch, jobs):
-    """The store records `_resolve_signature_digests` returns are held through the plan phase and released by the store write that opens the units phase. A serial build writes inline and has released them before `_FreshRunner.phase1` drafts a unit; a pooled build's `_SignatureWrite` thread has released them by the time its `join` returns. The test watches a weakref to the returned dict, not a `_SignatureWrite` attribute, so it fails if `build_m1` keeps its own reference on either path or if the tally holds them; the tally is on for that reason, as in the test above."""
+    """The store records `_resolve_signature_digests` returns are held through the plan phase and released by the store write that opens the units phase. A serial build writes inline and has released them before `_RecomputeRunner.phase1` drafts a unit; a pooled build's `_SignatureWrite` thread has released them by the time its `join` returns. The test watches a weakref to the returned dict, not a `_SignatureWrite` attribute, so it fails if `build_m1` keeps its own reference on either path or if the tally holds them; the tally is on for that reason, as in the test above."""
     monkeypatch.setenv(memory_tally.TALLY_ENV, "1")
     resolve = review_build._resolve_signature_digests
     release = review_build.release_rows
-    phase1 = review_build._FreshRunner.phase1
+    phase1 = review_build._RecomputeRunner.phase1
     join = review_build._SignatureWrite.join
     table: list[weakref.ref] = []
     alive: dict[str, bool] = {}
@@ -1002,7 +1002,7 @@ def test_the_signature_store_records_die_where_the_store_is_written(tmp_path, mi
     monkeypatch.setattr(review_build, "_resolve_signature_digests", tracking_resolve)
     monkeypatch.setattr(review_build, "release_rows", watching_release_rows)
     if jobs == 1:
-        monkeypatch.setattr(review_build._FreshRunner, "phase1", watching_phase1)
+        monkeypatch.setattr(review_build._RecomputeRunner, "phase1", watching_phase1)
     monkeypatch.setattr(review_build._SignatureWrite, "join", watching_join)
     review_build.build_m1(
         tmp_path / "corpus",
@@ -1013,7 +1013,7 @@ def test_the_signature_store_records_die_where_the_store_is_written(tmp_path, mi
         spec_root=mini_bundle.spec_root,
         subset_pack=mini_bundle.subset_pack,
         jobs=jobs,
-        fresh_unit_cache=True,
+        recompute_all_units=True,
     )
     assert alive == ({"load": True, "units": False} if jobs == 1 else {"load": True, "cache": False})
 
@@ -1042,7 +1042,7 @@ _SUBSUMED_COLLECTIONS = frozenset(
         "states",
         "runner.spooled",
         "worker.spooled",
-        "unit_cache.served",
+        "unit_cache.cached",
         "unit_cache.located",
         "unit_cache.named",
         "written.config_notes",
@@ -1128,7 +1128,7 @@ def test_a_serial_build_tallies_its_collections_at_every_phase_boundary_and_writ
             after_font=MINI / "M1.otf",
             spec_root=mini_bundle.spec_root,
             subset_pack=mini_bundle.subset_pack,
-            fresh_unit_cache=True,
+            recompute_all_units=True,
         )
 
     monkeypatch.delenv(memory_tally.TALLY_ENV, raising=False)
@@ -1200,7 +1200,7 @@ def test_a_serial_build_tallies_its_collections_at_every_phase_boundary_and_writ
         assert (silent / relative).read_bytes() == (tallied / relative).read_bytes(), relative
 
 
-def _served_build(out: Path, mini_bundle) -> dict:
+def _cached_build(out: Path, mini_bundle) -> dict:
     return review_build.build_m1(
         out,
         audit_path=MINI / "audit.tsv",
@@ -1225,20 +1225,20 @@ def _strip_addresses(corpus: Path) -> None:
         stream.write("\n".join(edited) + "\n")
 
 
-def test_a_served_rebuild_holds_no_collection_of_the_records_the_cache_handed_it(
+def test_a_cached_rebuild_holds_no_collection_of_the_records_the_cache_handed_it(
     tmp_path, mini_bundle, capsys, monkeypatch
 ):
-    """A rebuild over the first build's corpus serves every unit from the store, and the plan boundary holds none of the served records, because each is folded into the unit store as the stream yields it. `unit_cache.named` never prints, and `unit_cache.unplaced` (records still waiting for the walk) is empty, since every record in a store this code wrote has an address. The unit store, filled row by row, reports exactly over the whole workload."""
+    """A rebuild over the first build's corpus reuses every unit from the store, and the plan boundary holds none of the cached records, because each is loaded into the unit store as the stream yields it. `unit_cache.named` never prints, and `unit_cache.unplaced` (records still waiting for the walk) is empty, since every record in a store this code wrote has an address. The unit store, filled row by row, reports exactly over the whole workload."""
     monkeypatch.delenv(memory_tally.TALLY_ENV, raising=False)
     corpus = tmp_path / "corpus"
-    _served_build(corpus, mini_bundle)
+    _cached_build(corpus, mini_bundle)
     capsys.readouterr()
 
     monkeypatch.setenv(memory_tally.TALLY_ENV, "1")
-    manifest = _served_build(corpus, mini_bundle)
+    manifest = _cached_build(corpus, mini_bundle)
     captured = capsys.readouterr()
     total = manifest["totals"]["units"]
-    assert re.search(rf"served {total:,} of {total:,} units from cache", captured.err)
+    assert re.search(rf"reused {total:,} of {total:,} units from the cache", captured.err)
     tallies = _tally_lines(captured.out)
     assert tallies["plan"]["unit_cache.unplaced"] == 0
     assert tallies["plan"]["unit_store"] == total
@@ -1249,21 +1249,21 @@ def test_a_served_rebuild_holds_no_collection_of_the_records_the_cache_handed_it
     assert _store_lines_are_exact(captured.out)["plan"]
 
 
-def test_a_served_rebuild_prices_the_records_the_walk_has_to_place(
+def test_a_cached_rebuild_prices_the_records_the_walk_has_to_place(
     tmp_path, mini_bundle, capsys, monkeypatch
 ):
-    """The records a served plan buffers are measured whenever there are any. In a store written before addresses were recorded, every record waits for the walk, so the plan boundary estimates one record per unit under `unit_cache.unplaced`, by the declared shape and above zero, which shows the collection is estimated and not only declared. Every unit is still served."""
+    """The records a cached plan buffers are measured whenever there are any. In a store written before addresses were recorded, every record waits for the walk, so the plan boundary estimates one record per unit under `unit_cache.unplaced`, by the declared shape and above zero, which shows the collection is estimated and not only declared. Every unit is still reused."""
     monkeypatch.delenv(memory_tally.TALLY_ENV, raising=False)
     corpus = tmp_path / "corpus"
-    _served_build(corpus, mini_bundle)
+    _cached_build(corpus, mini_bundle)
     _strip_addresses(corpus)
     capsys.readouterr()
 
     monkeypatch.setenv(memory_tally.TALLY_ENV, "1")
-    manifest = _served_build(corpus, mini_bundle)
+    manifest = _cached_build(corpus, mini_bundle)
     captured = capsys.readouterr()
     total = manifest["totals"]["units"]
-    assert re.search(rf"served {total:,} of {total:,} units from cache", captured.err)
+    assert re.search(rf"reused {total:,} of {total:,} units from the cache", captured.err)
     tallies = _tally_lines(captured.out)
     assert tallies["plan"]["unit_cache.unplaced"] == total
     assert tallies["plan"]["unit_store"] == total
@@ -1287,7 +1287,7 @@ def test_close_finds_the_peak_behind_an_unconsumed_phase_reply(tmp_path, monkeyp
         def is_alive(self) -> bool:
             return False
 
-    runner = review_build._FreshRunner(
+    runner = review_build._RecomputeRunner(
         [],
         1,
         tmp_path,

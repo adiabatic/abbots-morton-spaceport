@@ -1,4 +1,4 @@
-"""The review corpus build's persisted per-unit cache. It keys each unit's phase-1 and phase-2 products by a content key over the unit's inputs, so after an edit the build re-enriches only the windows the edit can affect and serves every other unit from the previous corpus's shards.
+"""The review corpus build's persisted per-unit cache. It keys each unit's phase-1 and phase-2 products by a content key over the unit's inputs, so after an edit the build re-enriches only the windows the edit can affect and reuses every other unit from the previous corpus's shards.
 
 A unit's products are its ink diffs and machine-approval flags, its enrichment (cells, seams, highlights, explain, provenance), and its three drafts. A machine-approved or verdict-exempt unit is written as a slim fragment (`audit.slim_fragment`), which omits the highlight, the explain, and the drafts. The products are a pure function of the unit's inputs, and the cache is correct only if the content key covers all of those inputs.
 
@@ -8,19 +8,19 @@ The whole-store stamp (`environment_stamp`) covers everything that can change a 
 
 Three inputs are outside the whole-store stamp. The after font's GSUB wiring is outside every stamp; `fingerprint.after_font_glyph_digests` explains why a window's glyph selection is covered without it. The divergence ledger reaches the shards only through the audit's `matched_entry` column, which is in the rows, and through fields the build recomputes and patches on every pass (`no_verdict`, `exemplar`, class promotion), so a ledger edit invalidates only the units whose rows it changed. The refuse `why` text the explain panel quotes is in the family keys instead, so rewording one re-enriches only the windows that contain that family.
 
-A store record holds the address of the previous build's fragment: the shard part, byte offset, and length the shard writer returned when it wrote the fragment, so the plan does not parse the previous corpus to find it. The record also holds what the parent's global reduces need: the machine flags and ink deltas, the unmatched group, the judged pair, the ink-diff digest for echo grouping, the seam-home projection and per-seam rects, and the unit's mismatch lines. It records whether the fragment was written slim, because the shape depends on the exemption, a ledger fact outside the key. It also records the values the fragment was written with that come from outside the key: its echo group, its class after unmatched-group promotion, the ledger's exemplar and exemption flags, its secondary-seam homes, and the rune file its policy draft names. So a unit that becomes a human unit on a ledger edit (`no_verdict` changes) is a miss and is re-enriched in full instead of served as the slim fragment it had before, and a unit that moves the other way is a miss too. This keeps a served corpus byte-identical to a from-scratch one.
+A store record holds the address of the previous build's fragment: the shard part, byte offset, and length the shard writer returned when it wrote the fragment, so the plan does not parse the previous corpus to find it. The record also holds what the parent's whole-corpus passes need: the machine flags and ink deltas, the unmatched group, the judged pair, the ink-diff digest for echo grouping, the seam-home projection and per-seam rects, and the unit's mismatch lines. It records whether the fragment was written slim, because the shape depends on the exemption, a ledger fact outside the key. It also records the values the fragment was written with that come from outside the key: its echo group, its class after unmatched-group promotion, the ledger's exemplar and exemption flags, its secondary-seam homes, and the rune file its policy draft names. So a unit that becomes a human unit on a ledger edit (`no_verdict` changes) is a miss and is re-enriched in full instead of reused as the slim fragment it had before, and a unit that moves the other way is a miss too. This keeps a cached corpus byte-identical to a from-scratch one.
 
-Every field derived from the ledger or the reduces (echo, class, `no_verdict`, `exemplar`, the secondary-seam homes) is recomputed over all units on every build, and a unit's id depends only on its content key. A served fragment whose recomputed fields all equal the values its record says it was written with is copied into the new corpus by address as bytes, without parsing (`unit_store.UnitStore.served_as_is`; `PriorFragmentReader.read_bytes` checks the record's id and stamp as substrings of the bytes). The shard writer leaves a part in place when every fragment in it is copied this way. A served fragment with a changed field is parsed once, patched, and serialized again, the same way a fresh fragment is read from the build's own spool, so a cache hit never keeps a stale global field. The cluster id is the one global field taken from the served record, because its inputs (configs, final class, ink diffs) are all covered by the key.
+Every field derived from the ledger or the whole-corpus passes (echo, class, `no_verdict`, `exemplar`, the secondary-seam homes) is recomputed over all units on every build, and a unit's id depends only on its content key. A cached fragment whose recomputed fields all equal the values its record says it was written with is copied into the new corpus by address as bytes, without parsing (`unit_store.UnitStore.cached_as_is`; `PriorFragmentReader.read_bytes` checks the record's id and stamp as substrings of the bytes). The shard writer leaves a part in place when every fragment in it is copied this way. A cached fragment with a changed field is parsed once, patched, and serialized again, the same way a recomputed fragment is read from the build's own spool, so a cache hit never keeps a stale global field. The cluster id is the one global field taken from the cached record, because its inputs (configs, final class, ink diffs) are all covered by the key.
 
-`stream_store` parses a store line only if the workload names its key, into a `ServedUnit`, and yields the records one at a time in store order. The plan folds each into the packed unit store (`rebuild/review/unit_store.py`) and releases it, so for the rest of the build the parent holds a served unit only as columns there. If the store stops reading after some records were yielded, the stream raises `StoreUnreadable`, and the plan discards what it folded and runs a full build. An error the fold itself raises propagates unchanged. `load_store` collects the same stream into a dict.
+`stream_store` parses a store line only if the workload names its key, into a `ParsedCachedUnit`, and yields the records one at a time in store order. The plan loads each into the packed unit store (`rebuild/review/unit_store.py`) and releases it, so for the rest of the build the parent holds a cached unit only as columns there. If the store stops reading after some records were yielded, the stream raises `StoreUnreadable`, and the plan discards what it loaded and runs a full build. An error the load itself raises propagates unchanged. `load_store` collects the same stream into a dict.
 
-rebuild/test_unit_cache.py::test_incremental_rebuild_matches_a_from_scratch_build_after_an_edit checks that an incrementally rebuilt corpus matches a from-scratch build byte for byte, and `test_no_change_rebuild_serves_every_unit_and_is_byte_stable` checks that the served path rewrites no shard part.
+rebuild/test_unit_cache.py::test_incremental_rebuild_matches_a_from_scratch_build_after_an_edit checks that an incrementally rebuilt corpus matches a from-scratch build byte for byte, and `test_no_change_rebuild_reuses_every_unit_and_is_byte_stable` checks that the cached path rewrites no shard part.
 
 Both stores record their whole-store stamp in two forms: the hex digest that `stream_store` and `load_signature_store` compare, and the `fingerprint.EnvironmentStamp` lines the digest is computed from, with the code label's per-file lines beside them. When a load rejects a store, `store_miss_note` and `signature_miss_note` use these to report which of four causes applied: no store, a store that does not read, a manifest that changed, or a stamp line that changed. For a code line they name the changed file inside the closure (`corpus_code: rebuild/review/ink.py (changed)`) instead of the closure's digest. The note is only as specific as the lines: `after_helpers` is one digest over the after font's non-family glyphs, cmap, and layout wiring, so a change there is not narrowed further. A staging pass writes its corpus to another directory, so a live pass after one compares against the last live store's lines and reports everything that changed since that store was written, code changes included.
 
 This module also defines the carry content key (`carry_projection`, `carry_content_hash`), so the build and the carry share one definition. The build stamps each fragment's `content_key` with it when it drafts the fragment, and the unit's id is derived from that stamp (`unit_id_for`), so rebuild/tools/carry_verdicts.py moves each prior verdict to the unit with the same id. The stamp is excluded from the projection it hashes.
 
-Beside the per-unit store is the ink-signature store, which does for the ink-duplicate merge what the unit store does for enrichment. The merge needs one rendered-outcome signature per (window, config) over every relabel-split window. It runs before the set of units exists, so the unit store cannot serve these signatures. Each entry's key (`UnitKeyer.signature_key`) follows the same two-level argument as the unit key: the audit row fixes the window, the config, the before font's rendered names, and the settled cells the after font is compiled to reproduce, and the per-family digests fix the after font's outlines, advances, and cursive anchors for every family the window can touch. The whole-store stamp (`signature_environment`) covers what signatures depend on beyond that: the comparator's code (`signature_code_paths`: rebuild/review/ink.py and the three rebuild/validation modules it reaches, which rebuild/test_review_code_closure.py checks by walking the import graph from `rebuild.review.ink` in both directions), the before font outside its `head` and `name` tables, and the after font's non-family glyphs, cmap, and GPOS wiring. The rest of `corpus_code_paths` is left out (the build driver, this module, the enricher, the drafts, the kernel interface, the crate), because computing a signature runs none of it. The ledger, the subset tables, the Junior font, the corpus, and the draft harness are left out because signatures read none of them. So this store stays valid through edits that invalidate the unit store, and a build that re-enriches every unit can still skip re-shaping for the merge.
+Beside the per-unit store is the ink-signature store, which does for the ink-duplicate merge what the unit store does for enrichment. The merge needs one rendered-outcome signature per (window, config) over every relabel-split window. It runs before the set of units exists, so the unit store cannot supply these signatures. Each entry's key (`UnitKeyer.signature_key`) follows the same two-level argument as the unit key: the audit row fixes the window, the config, the before font's rendered names, and the settled cells the after font is compiled to reproduce, and the per-family digests fix the after font's outlines, advances, and cursive anchors for every family the window can touch. The whole-store stamp (`signature_environment`) covers what signatures depend on beyond that: the comparator's code (`signature_code_paths`: rebuild/review/ink.py and the three rebuild/validation modules it reaches, which rebuild/test_review_code_closure.py checks by walking the import graph from `rebuild.review.ink` in both directions), the before font outside its `head` and `name` tables, and the after font's non-family glyphs, cmap, and GPOS wiring. The rest of `corpus_code_paths` is left out (the build driver, this module, the enricher, the drafts, the kernel interface, the crate), because computing a signature runs none of it. The ledger, the subset tables, the Junior font, the corpus, and the draft harness are left out because signatures read none of them. So this store stays valid through edits that invalidate the unit store, and a build that re-enriches every unit can still skip re-shaping for the merge.
 """
 
 from __future__ import annotations
@@ -45,7 +45,7 @@ STORE_NAME = "unit-cache.ndjson.gz"
 SIGNATURE_STORE_FORMAT = "ams-review-ink-signatures/2"
 SIGNATURE_STORE_NAME = "ink-signatures.tsv.gz"
 
-# The fields the carry projection leaves out; rebuild/test_carry_verdicts.py checks them. `no_verdict`, `exemplar`, `echo`, and `cluster` come from the ledger or the reduces. `id` is the projection's own digest and `content_key` is the stamp of this projection, so neither can be an input to it. `batch` is excluded so a fragment from an older corpus that still carries one hashes the same. `explain`, `drafts`, `provenance`, and `secondary_seams` are derived presentation, whose content is already covered by the window and both fonts' glyphs, cells, and seams. `ink_deltas` is the same delta identity stored per config. `picture_identical` follows from the window and both fonts' placed glyphs, which the projection already covers, so excluding it changes nothing the key distinguishes, and including it would change the id of every unit whose flag changed and orphan their verdicts. `ink_identical` and `junior_equivalent` are derived flags inside the projection. Every fragment carries both, so removing either would change every unit id. The projection includes `highlight`, which a slim fragment (`audit.slim_fragment`) omits, so a slim fragment's stamp differs from the one its full fragment would have. That orphans nothing, because slim units take no verdicts.
+# The fields the carry projection leaves out; rebuild/test_carry_verdicts.py checks them. `no_verdict`, `exemplar`, `echo`, and `cluster` come from the ledger or the whole-corpus passes. `id` is the projection's own digest and `content_key` is the stamp of this projection, so neither can be an input to it. `batch` is excluded so a fragment from an older corpus that still carries one hashes the same. `explain`, `drafts`, `provenance`, and `secondary_seams` are derived presentation, whose content is already covered by the window and both fonts' glyphs, cells, and seams. `ink_deltas` is the same delta identity stored per config. `picture_identical` follows from the window and both fonts' placed glyphs, which the projection already covers, so excluding it changes nothing the key distinguishes, and including it would change the id of every unit whose flag changed and orphan their verdicts. `ink_identical` and `junior_equivalent` are derived flags inside the projection. Every fragment carries both, so removing either would change every unit id. The projection includes `highlight`, which a slim fragment (`audit.slim_fragment`) omits, so a slim fragment's stamp differs from the one its full fragment would have. That orphans nothing, because slim units take no verdicts.
 CARRY_PRESENTATION_KEYS = frozenset(
     {
         "id",
@@ -95,7 +95,7 @@ def base58_64(digest_hex: str) -> str:
 
 
 def unit_id_for(content_key: str) -> str:
-    """Return a unit's id: `u-` followed by the first 64 bits of its carry content key in base58, for example `u-3mJ7kPq2Xw9`. The content key is the sha256 of `carry_projection`, the stamp every m1-audit fragment carries. Two units with the same projection have the same id. The id does not depend on the unit's position in the queue or on which other units exist, so a served fragment keeps its bytes across builds and a verdict follows its unit across corpora."""
+    """Return a unit's id: `u-` followed by the first 64 bits of its carry content key in base58, for example `u-3mJ7kPq2Xw9`. The content key is the sha256 of `carry_projection`, the stamp every m1-audit fragment carries. Two units with the same projection have the same id. The id does not depend on the unit's position in the queue or on which other units exist, so a cached fragment keeps its bytes across builds and a verdict follows its unit across corpora."""
     return "u-" + base58_64(content_key)
 
 
@@ -183,7 +183,7 @@ KERNEL_NON_CORPUS_MODULES = frozenset(
 def corpus_code_paths(repo_root: Path) -> list[Path]:
     """Return the code whose edit invalidates the per-unit store: the code the corpus build runs. The review side is `fingerprint.review_code_paths`, which is checked against build.py's import graph. The pipeline side is rebuild/pipeline minus `PIPELINE_NON_CORPUS_MODULES`, plus all of rebuild/validation, which the build reaches. The crate side is rebuild/kernel-rs/src minus `KERNEL_NON_CORPUS_MODULES`, plus Cargo.toml and Cargo.lock, since the crate's dependencies and build profile affect every subcommand. The ink-signature store uses the narrower `signature_code_paths`, so an edit here outside the comparator's closure re-enriches units and re-shapes nothing.
 
-    The lists work at module granularity, which over-invalidates in the safe direction: a module imported for something the build never calls is still hashed. The served-versus-recomputed sample in every build checks that a served fragment equals a fresh computation. Two sets of modules are left out. The fan-out width and telemetry modules under rebuild/tools cannot change a unit's products: rebuild/test_unit_cache.py's serial-versus-parallel byte identity covers the width, and rebuild/test_review_code_closure.py checks that these are the only modules the build reaches outside the three trees. The font-compile tools are never run by the build, and the draft harness line hashes tools/*.py anyway.
+    The lists work at module granularity, which over-invalidates in the safe direction: a module imported for something the build never calls is still hashed. The cached-versus-recomputed sample in every build checks that a cached fragment equals a recomputation. Two sets of modules are left out. The fan-out width and telemetry modules under rebuild/tools cannot change a unit's products: rebuild/test_unit_cache.py's serial-versus-parallel byte identity covers the width, and rebuild/test_review_code_closure.py checks that these are the only modules the build reaches outside the three trees. The font-compile tools are never run by the build, and the draft harness line hashes tools/*.py anyway.
     """
     root = Path(repo_root)
     kernel = root / "rebuild" / "kernel-rs"
@@ -211,7 +211,7 @@ SIGNATURE_CODE_MODULES = (
 def signature_code_paths(repo_root: Path) -> list[Path]:
     """Return the code whose edit invalidates the ink-signature store: the comparator's import closure (`SIGNATURE_CODE_MODULES`), a subset of `corpus_code_paths`. A signature is `InkComparator.signature` over a `Shaper` and the fontTools outline pens, and nothing else the corpus build runs can change one, so an edit elsewhere re-enriches units and re-shapes nothing. The row model is included because the shaper imports it, although no signature reads a row.
 
-    Some inputs are outside this hash. `build.signature_text` turns a window's codepoints into the text a signature is taken over, in two steps. Its parse, `audit.parse_codepoints`, round-trips with `audit.format_codepoints` (rebuild/test_review_audit.py::test_parse_codepoints), and a mismatch between them makes the build's `ink_sig` raise KeyError on its first lookup. Its `chr` join defines what text a signature covers, so a change to it changes what a signature means. The join is versioned by `SIGNATURE_STORE_FORMAT`, as are this module's `signature_key` layout and the store's file format. A change to the key layout alone cannot serve a wrong digest, because every row gets a new key and misses. A change to the join without a format bump would, so rebuild/test_review_audit.py::test_the_signature_text_is_pinned_beside_the_store_format checks `build.signature_text`'s output and the format as one literal pair, and fails on a join change until the format changes too. The uharfbuzz and fontTools versions are in no stamp, for this store or the unit store.
+    Some inputs are outside this hash. `build.signature_text` turns a window's codepoints into the text a signature is taken over, in two steps. Its parse, `audit.parse_codepoints`, round-trips with `audit.format_codepoints` (rebuild/test_review_audit.py::test_parse_codepoints), and a mismatch between them makes the build's `ink_sig` raise KeyError on its first lookup. Its `chr` join defines what text a signature covers, so a change to it changes what a signature means. The join is versioned by `SIGNATURE_STORE_FORMAT`, as are this module's `signature_key` layout and the store's file format. A change to the key layout alone cannot supply a wrong digest, because every row gets a new key and misses. A change to the join without a format bump would, so rebuild/test_review_audit.py::test_the_signature_text_is_pinned_beside_the_store_format checks `build.signature_text`'s output and the format as one literal pair, and fails on a join change until the format changes too. The uharfbuzz and fontTools versions are in no stamp, for this store or the unit store.
     """
     root = Path(repo_root)
     return [root.joinpath(*relative.split("/")) for relative in SIGNATURE_CODE_MODULES]
@@ -329,11 +329,11 @@ class UnitKeyer:
 
 @dataclass
 class CachedUnit:
-    """One store record as `write_store` serializes it; `ServedUnit` is the same record as `stream_store` parses it. It holds what the build needs to fetch the unit's previous fragment from the prior shards, plus the projection the parent's global reduces read. `content_key` is the fragment's own stamp, which differs from `key`, the content key over the unit's inputs. A prior fragment is served only when the stamp on disk equals `content_key`, which shows the fetched bytes are the ones this record describes. `slim` records the fragment's shape (`audit.slim_fragment`), and the build serves the fragment only when that is the shape it would write for the unit now.
+    """One store record as `write_store` serializes it; `ParsedCachedUnit` is the same record as `stream_store` parses it. It holds what the build needs to fetch the unit's previous fragment from the prior shards, plus the projection the parent's whole-corpus passes read. `content_key` is the fragment's own stamp, which differs from `key`, the content key over the unit's inputs. A prior fragment is reused only when the stamp on disk equals `content_key`, which shows the fetched bytes are the ones this record describes. `slim` records the fragment's shape (`audit.slim_fragment`), and the build reuses the fragment only when that is the shape it would write for the unit now.
 
     `address` is the shard part (as the manifest names it), byte offset, and length the shard writer returned when it wrote the fragment, the same `(part, start, length)` the app's sidecars use for a Range fetch. It is never a copy of the stamp: `PriorFragmentReader` checks the bytes at the address against the stamp when the write reads them back. A record with no address, from an older store or in a part whose size `stream_store` found changed, is located by `locate_prior_fragments`, which reads the address off the part's text.
 
-    `echo`, `exemplar`, `no_verdict`, and `homes` are the values `build.patch_fragment` wrote into the fragment from the reduces and the ledger, and `policy_file` is the one drafts field the cross-unit check reads. `unit_store.UnitStore.served_as_is` compares the first four and the class with this build's values. When all are equal, the fragment's bytes on disk are already what this build would write, and it is copied by address; a shard part made up only of such fragments is left in place. Otherwise the fragment is read, patched, and serialized again.
+    `echo`, `exemplar`, `no_verdict`, and `homes` are the values `build.patch_fragment` wrote into the fragment from the whole-corpus passes and the ledger, and `policy_file` is the one drafts field the cross-unit check reads. `unit_store.UnitStore.cached_as_is` compares the first four and the class with this build's values. When all are equal, the fragment's bytes on disk are already what this build would write, and it is copied by address; a shard part made up only of such fragments is left in place. Otherwise the fragment is read, patched, and serialized again.
     """
 
     key: str
@@ -387,8 +387,8 @@ class CachedUnit:
 
 
 @dataclass(frozen=True, slots=True)
-class ServedUnit:
-    """One store record as `stream_store` parses it. The plan folds each record into the packed unit store (`unit_store.UnitStore.fold_served`) as the stream yields it and then releases it, so the parent holds one at a time; only a record without an address is buffered until the walk places it. The projection the secondary-home reduce reads is stored as tuples (`pair`, the two span tuples, the three name tuples, and `seam_pairs`), which `_served_unit` pools so that records held together share one instance per distinct value. `seam_rects` is `CachedUnit.seams` unchanged, in the shape `patch_fragment` reads. The class uses slots because a caller holding the whole store holds one instance per line."""
+class ParsedCachedUnit:
+    """One store record as `stream_store` parses it. The plan loads each record into the packed unit store (`unit_store.UnitStore.load_cached`) as the stream yields it and then releases it, so the parent holds one at a time; only a record without an address is buffered until the walk places it. The projection the home-resolution pass reads is stored as tuples (`pair`, the two span tuples, the three name tuples, and `seam_pairs`), which `_parsed_cached_unit` pools so that records held together share one instance per distinct value. `seam_rects` is `CachedUnit.seams` unchanged, in the shape `patch_fragment` reads. The class uses slots because a caller holding the whole store holds one instance per line."""
 
     key: str
     prior_id: str
@@ -421,18 +421,18 @@ class ServedUnit:
     seam_pairs: tuple[tuple[int, int], ...]
 
     def located(self) -> "PriorFragment | None":
-        """Return the record's address as a `PriorFragment` stamped with the record's `content_key` and marked verbatim, meaning the shard writer wrote those bytes and they may be copied unchanged, or None when the walk has to locate the record."""
+        """Return the record's address as a `PriorFragment` stamped with the record's `content_key` and marked byte-copied, meaning the shard writer wrote those bytes and they may be copied unchanged, or None when the walk has to locate the record."""
         if self.address is None:
             return None
         part, start, length = self.address
-        return PriorFragment(part, start, length, self.prior_id, self.content_key, verbatim=True)
+        return PriorFragment(part, start, length, self.prior_id, self.content_key, byte_copied=True)
 
 
 _KEY_PREFIX = b'{"key": "'
 
 
-def _served_unit(record: dict, trusted: Container[str], pool: dict, whole: bool) -> ServedUnit:
-    """Build the `ServedUnit` for one parsed store line. Strings that repeat across units (the class, the cluster and diff digests, the config names and delta digests, the address's part, and the projection's glyph names, cell names, and seam tokens) are interned with `sys.intern`, the table `audit.load_audit` describes. The projection's tuples are pooled through `pool` when `whole` is true (the caller holds the whole store) or when the record has no address (a streaming caller buffers those for the walk). An addressed record in a stream is folded and released before the next line is parsed, so it pools only within itself, and a table shared across the stream holds nothing for the records already yielded. The address is kept only when its part is in `trusted`."""
+def _parsed_cached_unit(record: dict, trusted: Container[str], pool: dict, whole: bool) -> ParsedCachedUnit:
+    """Build the `ParsedCachedUnit` for one parsed store line. Strings that repeat across units (the class, the cluster and diff digests, the config names and delta digests, the address's part, and the projection's glyph names, cell names, and seam tokens) are interned with `sys.intern`, the table `audit.load_audit` describes. The projection's tuples are pooled through `pool` when `whole` is true (the caller holds the whole store) or when the record has no address (a streaming caller buffers those for the walk). An addressed record in a stream is loaded and released before the next line is parsed, so it pools only within itself, and a table shared across the stream holds nothing for the records already yielded. The address is kept only when its part is in `trusted`."""
     address = record.get("address")
     address = (
         (sys.intern(address[0]), int(address[1]), int(address[2]))
@@ -453,7 +453,7 @@ def _served_unit(record: dict, trusted: Container[str], pool: dict, whole: bool)
     pair = record["pair_codepoints"]
     proj = record["proj"]
     seams = record["seams"]
-    return ServedUnit(
+    return ParsedCachedUnit(
         key=record["key"],
         prior_id=record["id"],
         prior_class=sys.intern(record["class"]),
@@ -555,7 +555,7 @@ def write_store(
 
 
 class StoreUnreadable(Exception):
-    """Raised by the generator `stream_store` returns when the store stops reading after its header did: a truncated or corrupt gzip member, a line that does not parse, or a record missing a field. The records already yielded came from a store that can no longer be trusted, so a caller that folded them as they came must discard what it folded. `load_store` catches it and returns None."""
+    """Raised by the generator `stream_store` returns when the store stops reading after its header did: a truncated or corrupt gzip member, a line that does not parse, or a record missing a field. The records already yielded came from a store that can no longer be trusted, so a caller that loaded them as they came must discard what it loaded. `load_store` catches it and returns None."""
 
 
 def stream_store(
@@ -563,12 +563,12 @@ def stream_store(
     environment: fingerprint.EnvironmentStamp | str,
     wanted: Container[str] | None = None,
     pool: dict | None = None,
-) -> Iterator[ServedUnit] | None:
-    """Return the prior build's records one at a time in store order, or None when there is no usable store: absent, unreadable at the header, a different format or environment stamp, or stamped for a manifest other than the one on disk. A None costs a full build, which is the safe direction. The header is read before returning, so None is decided before any record is parsed. The body is a generator over the same file handle, which it closes after the last record or when a read fails. A body that fails after some records raises `StoreUnreadable` from the generator, and a caller that folded each record as it came must then discard what it folded. An error the caller's own fold raises is raised in the caller's frame and is never treated as a store failure.
+) -> Iterator[ParsedCachedUnit] | None:
+    """Return the prior build's records one at a time in store order, or None when there is no usable store: absent, unreadable at the header, a different format or environment stamp, or stamped for a manifest other than the one on disk. A None costs a full build, which is the safe direction. The header is read before returning, so None is decided before any record is parsed. The body is a generator over the same file handle, which it closes after the last record or when a read fails. A body that fails after some records raises `StoreUnreadable` from the generator, and a caller that loaded each record as it came must then discard what it loaded. An error the caller's own load raises is raised in the caller's frame and is never treated as a store failure.
 
     Each line's key is sliced from the start of the raw line before the line is parsed: `to_record` writes the key first, and a copied line keeps that order. A line whose key cannot be sliced is skipped, with or without `wanted`, which is the same safe direction. With `wanted`, only records whose key it contains are parsed, so a line the workload does not name costs a prefix comparison and no parse.
 
-    Each record is a `ServedUnit` with its strings interned and its projection tuples pooled (`_served_unit`). Passing `pool` means the caller holds the records together, so every record pools through it. Without it, only the records that have no address share a table, since a streaming caller buffers those for the walk; an addressed record is folded and released before the next is parsed and pools only within itself, so nothing in the stream grows with the records already yielded. A record keeps its address only while its part has the size the header recorded. A record whose part changed size, or that has no address, comes with `address` None and is placed by the walk, so a shard rewritten under the store is still served instead of failing at the write.
+    Each record is a `ParsedCachedUnit` with its strings interned and its projection tuples pooled (`_parsed_cached_unit`). Passing `pool` means the caller holds the records together, so every record pools through it. Without it, only the records that have no address share a table, since a streaming caller buffers those for the walk; an addressed record is loaded and released before the next is parsed and pools only within itself, so nothing in the stream grows with the records already yielded. A record keeps its address only while its part has the size the header recorded. A record whose part changed size, or that has no address, comes with `address` None and is placed by the walk, so a shard rewritten under the store is still reused instead of failing at the write.
     """
     path = store_path(out_dir)
     if not path.is_file():
@@ -599,7 +599,7 @@ def stream_store(
 
 def _records(
     stream: gzip.GzipFile, trusted: Container[str], wanted: Container[str] | None, pool: dict | None
-) -> Iterator[ServedUnit]:
+) -> Iterator[ParsedCachedUnit]:
     whole = pool is not None
     table: dict = {} if pool is None else pool
     start = len(_KEY_PREFIX)
@@ -613,7 +613,7 @@ def _records(
                     continue
                 if wanted is not None and line[start:end].decode() not in wanted:
                     continue
-                yield _served_unit(json.loads(line), trusted, table, whole)
+                yield _parsed_cached_unit(json.loads(line), trusted, table, whole)
     except (OSError, EOFError, ValueError, KeyError, TypeError, StopIteration) as exc:
         raise StoreUnreadable(f"the store stopped reading: {exc!r}") from exc
 
@@ -623,7 +623,7 @@ def load_store(
     environment: fingerprint.EnvironmentStamp | str,
     wanted: Container[str] | None = None,
     pool: dict | None = None,
-) -> dict[str, ServedUnit] | None:
+) -> dict[str, ParsedCachedUnit] | None:
     """Return the prior build's records keyed by input key, or None when there is no usable store. It is `stream_store` collected into a dict, except that a body that fails partway also returns None. The key-slice, `wanted`, interning, and part-size rules are `stream_store`'s. The records are held together here, so all of them pool through `pool`, or through a table made for the call. The build's plan reads the stream directly; this function is for callers, such as tests, that want the records in hand."""
     records = stream_store(out_dir, environment, wanted=wanted, pool={} if pool is None else pool)
     if records is None:
@@ -768,14 +768,14 @@ def signature_miss_note(out_dir: Path, environment: fingerprint.EnvironmentStamp
 
 @dataclass(frozen=True, slots=True)
 class PriorFragment:
-    """The location and stamp of one of the prior corpus's fragments: the shard part it was written to (as the manifest names it), the byte offset and length of its JSON element there, its unit id, and its `content_key`. The address is the same `(part, start, length)` the app's sidecars use for a Range fetch. It comes either from the store record (`ServedUnit.located`), which recorded what the shard writer returned, or from `locate_prior_fragments`, which reads it off the part's text for a record without one and so stays correct for a hand-edited shard as long as the part is still ASCII. `verbatim` marks the first case: bytes at a store address have the shard writer's framing and may be copied into the next corpus unchanged, while bytes the walk found may be any JSON and are parsed, patched, and serialized again."""
+    """The location and stamp of one of the prior corpus's fragments: the shard part it was written to (as the manifest names it), the byte offset and length of its JSON element there, its unit id, and its `content_key`. The address is the same `(part, start, length)` the app's sidecars use for a Range fetch. It comes either from the store record (`ParsedCachedUnit.located`), which recorded what the shard writer returned, or from `locate_prior_fragments`, which reads it off the part's text for a record without one and so stays correct for a hand-edited shard as long as the part is still ASCII. `byte_copied` marks the first case: bytes at a store address have the shard writer's framing and may be copied into the next corpus unchanged, while bytes the walk found may be any JSON and are parsed, patched, and serialized again."""
 
     part: str
     start: int
     length: int
     unit_id: str
     content_key: str | None
-    verbatim: bool = False
+    byte_copied: bool = False
 
 
 _JSON_WHITESPACE = re.compile(r"[ \t\n\r]*")
@@ -802,7 +802,7 @@ def _walk_elements(text: str):
 
 
 def locate_prior_fragments(out_dir: Path, wanted: Mapping[str, set[str]]) -> dict[str, PriorFragment]:
-    """Return where the prior shards hold the given prior unit ids (`wanted` maps class id to ids), keyed by prior id, with the stamp each fragment carries. It reads only the parts the prior manifest lists for those classes, parsing one fragment at a time and keeping only its address, so the build never holds the previous corpus's units. The plan uses this only as a fallback: a store record carries the address the shard writer returned, and the walk is needed only for the records `stream_store` yielded without one, from an older store or in a part whose size changed. On a corpus this code wrote there are none. The manifest is needed because a class split into several parts has no single file name to guess. A missing or unreadable manifest or part contributes nothing, and its units are computed fresh. So does a part that is not pure ASCII: the address is a character offset read back as a byte offset, which are equal only under `ensure_ascii`, and every part this build writes is ASCII."""
+    """Return where the prior shards hold the given prior unit ids (`wanted` maps class id to ids), keyed by prior id, with the stamp each fragment carries. It reads only the parts the prior manifest lists for those classes, parsing one fragment at a time and keeping only its address, so the build never holds the previous corpus's units. The plan uses this only as a fallback: a store record carries the address the shard writer returned, and the walk is needed only for the records `stream_store` yielded without one, from an older store or in a part whose size changed. On a corpus this code wrote there are none. The manifest is needed because a class split into several parts has no single file name to guess. A missing or unreadable manifest or part contributes nothing, and its units are recomputed. So does a part that is not pure ASCII: the address is a character offset read back as a byte offset, which are equal only under `ensure_ascii`, and every part this build writes is ASCII."""
     out_dir = Path(out_dir)
     try:
         manifest = json.loads((out_dir / "manifest.json").read_text(encoding="utf-8"))
@@ -837,7 +837,7 @@ def locate_prior_fragments(out_dir: Path, wanted: Mapping[str, set[str]]) -> dic
 
 
 class PriorFragmentReader:
-    """Reads served fragments from the prior shards by address, from the store record or from the walk, keeping one part open at a time. The build reads them in shard order, so the file handle changes once per part, not once per unit. Each read is checked against the address it came from: the element must still be the unit with the stamp the plan served it under. Otherwise the file changed under this build, and the read raises ValueError. For a store-addressed fragment, this is the only time its bytes are checked against its record."""
+    """Reads cached fragments from the prior shards by address, from the store record or from the walk, keeping one part open at a time. The build reads them in shard order, so the file handle changes once per part, not once per unit. Each read is checked against the address it came from: the element must still be the unit with the stamp the plan reused it under. Otherwise the file changed under this build, and the read raises ValueError. For a store-addressed fragment, this is the only time its bytes are checked against its record."""
 
     def __init__(self, out_dir: Path) -> None:
         self._out_dir = Path(out_dir)
@@ -869,9 +869,9 @@ class PriorFragmentReader:
         return fragment
 
     def read_bytes(self, located: PriorFragment) -> bytes:
-        """Return the fragment's bytes without parsing them, checked against the address. The shard writer's framing puts each field on its own line as `"key": value`, so the id and stamp the address was recorded with are found as substrings. This catches a fragment edited in place at its address, which the part-size check cannot see, as `read` does. Only a verbatim address is checked this way, because only the shard writer's framing is known; a walked address is read with `read`."""
+        """Return the fragment's bytes without parsing them, checked against the address. The shard writer's framing puts each field on its own line as `"key": value`, so the id and stamp the address was recorded with are found as substrings. This catches a fragment edited in place at its address, which the part-size check cannot see, as `read` does. Only a byte-copied address is checked this way, because only the shard writer's framing is known; a walked address is read with `read`."""
         body = self._bytes(located)
-        if located.verbatim and (
+        if located.byte_copied and (
             f'"id": {json.dumps(located.unit_id)}'.encode() not in body
             or f'"content_key": {json.dumps(located.content_key)}'.encode() not in body
         ):

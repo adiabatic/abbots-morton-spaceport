@@ -154,7 +154,7 @@ def test_the_table_pools_the_per_unit_tuples_and_interns_the_group(mini):
 
 
 def test_two_units_stating_the_same_class_map_share_one_pooled_instance(mini_bundle):
-    """The class maps pool to one instance per distinct mapping, keyed on the mapping's insertion order. Two units whose maps differ only in key order get two entries, and each materializes in its own order, which is the order the shipped fragment carries. The pooled instance is typed read-only, and a whole-build test in `rebuild/test_unit_cache.py` checks that no build, cold or served, writes through it."""
+    """The class maps pool to one instance per distinct mapping, keyed on the mapping's insertion order. Two units whose maps differ only in key order get two entries, and each materializes in its own order, which is the order the shipped fragment carries. The pooled instance is typed read-only, and a whole-build test in `rebuild/test_unit_cache.py` checks that no build, cold or cached, writes through it."""
     rows = [
         AuditRow("default", "E650:E665", ("cell",), "UNMATCHED", ("a",), ("b",)),
         AuditRow("ss03", "E650:E665", ("cell",), "ss03-chain-join-gains", ("a",), ("b",)),
@@ -482,7 +482,7 @@ def test_parse_codepoints():
 
 
 def test_the_signature_text_is_pinned_beside_the_store_format():
-    """Pins the text `build.signature_text` returns for a window together with `SIGNATURE_STORE_FORMAT`. A store written for one text keeps serving its digests to a build that shapes another until the format changes, so an edit that changes a result here must bump the format and update both literals together."""
+    """Pins the text `build.signature_text` returns for a window together with `SIGNATURE_STORE_FORMAT`. A store written for one text keeps supplying its digests to a build that shapes another until the format changes, so an edit that changes a result here must bump the format and update both literals together."""
     assert unit_cache.SIGNATURE_STORE_FORMAT == "ams-review-ink-signatures/2"
     assert signature_text("200C:E652:E679") == "\u200c\ue652\ue679"
     assert signature_text("0020:E650:00B7") == " \ue650\u00b7"
