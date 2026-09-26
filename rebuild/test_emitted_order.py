@@ -105,7 +105,7 @@ def test_an_order_that_answers_a_row_differently_is_refused_naming_the_row(spec,
     assert ": row (" in complaint
 
 
-def test_the_seam_refuses_a_missing_enumeration(spec, built, tmp_path):
+def test_the_kernel_interface_refuses_a_missing_enumeration(spec, built, tmp_path):
     out_dir, tables = built
     decision, _treaty = tables["default"]
     order = tmp_path / "order.tsv"

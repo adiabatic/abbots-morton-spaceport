@@ -1,4 +1,4 @@
-"""Serialization at the boundary between the Python pipeline and the Rust kernel (`rebuild/kernel-rs/`): the resolved-spec dump the kernel reads and the transition stream it writes.
+"""Serialization at the kernel interface between the Python pipeline and the Rust kernel (`rebuild/kernel-rs/`): the resolved-spec dump the kernel reads and the transition stream it writes.
 
 The resolved-spec dump (`spec_json` / `spec_of` and the file wrappers `write_spec` / `read_spec`) carries a whole `model.ResolvedSpec` through canonical JSON and back. The transition stream (`write_transitions` / `read_transitions`) carries a whole `table.FixpointProduct`. The windows artifact that `table.read_windows` reads is a separate format.
 

@@ -1,4 +1,4 @@
-"""The Python side of the Rust kernel boundary. It builds the binary, runs the table build and the stream fan-out, reads the section 5.7 guard verdicts, settles batched windows for explain, review, conform and the tests, runs the string and shipped-order replays, and returns single-configuration products and tables to callers other than `run_m1`. It lives in the pipeline because the pipeline calls it. The `rebuild/tools/kernel_*.py` scripts are separate measurement harnesses.
+"""The kernel interface: the Python side of the Rust kernel. It builds the binary, runs the table build and the stream fan-out, reads the section 5.7 guard verdicts, settles batched windows for explain, review, conform and the tests, runs the string and shipped-order replays, and returns single-configuration products and tables to callers other than `run_m1`. It lives in the pipeline because the pipeline calls it. The `rebuild/tools/kernel_*.py` scripts are separate measurement harnesses.
 
 The semantics defaults live here beside the flags that pass them to the kernel. `SIMULATED_PROSPECT_DEFAULT` and `FOLLOWER_PREFER_SLOTS_DEFAULT` control settlement, and `DEEP_CLASSES_DEFAULT` controls enumeration. Each is a module attribute read at call time, so a process sets them through the environment and a test can monkeypatch them. A caller that wants a different world builds a `SettlementModes` and passes it to `settle_cases`, `settle_windows` or `settle_sequences`.
 
@@ -16,7 +16,7 @@ The table build's width is limited by memory, because a live configuration holds
 
 The settlement and replay functions share the memoized spec dump. `replay_strings` is the enumeration-completeness check `run_m1.run_replay_strings` runs after every table build. One `replay-strings` process reads the settlement TSVs the build wrote and walks every text up to the maximum length, or only the texts naming the families the caller says changed, checking each window against the crate's own settlement. A disagreement raises `ReplayDisagreement` with the crate's message, which names the configuration, the window and the text. `settle_cases` is the raw form. It writes one tab-separated case line per independent window (`case_line` writes one) and returns the full Rust trace for each. It checks the case result count and that each output line starts with its case line verbatim, and decodes each distinct result once however many windows returned it. `settle_windows` asks the crate for the settled record alone (seven tab-separated fields under `--settled-only`) and decodes each straight to a `Settled`. The conform walker and the ligature outgoing check use it because they need only outcomes, not traces. Like `settle_sequences`, it takes an `on_error` argument, so a caller prefilling windows it may never read can get `None` for a refused window and keep the rest of the batch, and its `tolerate` argument gives `None` for only the refusal buckets it names. `settle_sequences` is what explain, the probe and the review corpus call. The subcommand takes independent windows, but a sequence's next left context is the previous window's result, so a batch of sequences advances in waves: every sequence's first position, then every second position using the first wave's results. Boundary positions are settled locally because their results are model constants. `settle_codepoints` settles one text. The CLI writes boundary tokens as `edge`, `space`, `zwnj`, `namer-dot` and `unknown`. The guard parser converts them to the `RightToken` constants in `settle`, so consumers never confuse these model tokens with glyph names such as `uni200C` or `periodcentered`.
 
-The codecs between the transport lines and the pipeline's model types live here too, because every settlement caller needs them: `case_line` for case lines, and `trace_of` and `_settled_of_fields` for case results. A window the crate refuses returns `{raise, message}`. That becomes a `settle.SettleError` carrying the crate's error code as its bucket and its message verbatim, so a caller can sort refusals without parsing text. Any other malformed case result means the boundary itself is wrong and raises `KernelRunError`.
+The codecs between the transport lines and the pipeline's model types live here too, because every settlement caller needs them: `case_line` for case lines, and `trace_of` and `_settled_of_fields` for case results. A window the crate refuses returns `{raise, message}`. That becomes a `settle.SettleError` carrying the crate's error code as its bucket and its message verbatim, so a caller can sort refusals without parsing text. Any other malformed case result means the kernel interface itself is wrong and raises `KernelRunError`.
 
 Every invocation's result is checked strictly against the CLI contract. Exit 2 is a usage error, which for a well-formed invocation means the subcommand is missing or the flag sets on the two sides have diverged. Any other nonzero exit is the kernel rejecting its inputs. Output on stderr after a clean exit is a failure unless timings were requested. In that case every `[t]` line is copied to this process's stderr verbatim, so the cycle journal records the kernel's per-configuration wall-clock times the same way it records Python's, and any other stderr line is still a failure. Enumeration writes its results to files, so any stdout output there is a failure. `build-tables` also writes files but reports its digests on stdout, one JSON object per line, and the configurations they name are checked against the ones requested. `guard-sweep` writes every verdict to stdout as TSV, which is parsed strictly.
 """
@@ -443,7 +443,7 @@ def read_memo_head(path: Path) -> MemoHead | None:
 
 
 class ReplayDisagreement(KernelRunError):
-    """`replay-strings` found a window its rules and its engine settle differently, or one the engine refuses. The message is the crate's, naming the configuration, the window and the text it was reached in. A separate class lets a build tell this finding, a failed build naming a text, from a boundary failure."""
+    """`replay-strings` found a window its rules and its engine settle differently, or one the engine refuses. The message is the crate's, naming the configuration, the window and the text it was reached in. A separate class lets a build tell this finding, a failed build naming a text, from a kernel interface failure."""
 
 
 # The head token of the window memo `replay-strings` writes per configuration under `--memo-dir` (`rebuild/kernel-rs/src/replay.rs`'s `MEMO_FORMAT`); `conform.absorb_replay_memo` rejects a file with any other token.
@@ -535,7 +535,7 @@ def replay_strings(
 
 
 class EmittedOrderDisagreement(KernelRunError):
-    """`replay-emitted` found a row the shipped settlement order settles differently from its configuration's table. The message is the crate's, naming the configuration, the row, the emitted rule that fired and the table's own rule. A separate class lets a build tell this finding from a boundary failure."""
+    """`replay-emitted` found a row the shipped settlement order settles differently from its configuration's table. The message is the crate's, naming the configuration, the row, the emitted rule that fired and the table's own rule. A separate class lets a build tell this finding from a kernel interface failure."""
 
 
 def replay_emitted(
@@ -577,7 +577,7 @@ def replay_emitted(
     unreadable: list[OSError] = []
 
     def pump() -> None:
-        # The subcommand stops reading after its disagreement limit, so a pipe closed under the writer means the walk has already finished, not a boundary failure. The sink is opened first so that a payload that cannot be opened still closes the subcommand's standard input.
+        # The subcommand stops reading after its disagreement limit, so a pipe closed under the writer means the walk has already finished, not a kernel interface failure. The sink is opened first so that a payload that cannot be opened still closes the subcommand's standard input.
         try:
             with os.fdopen(write_end, "wb", buffering=1 << 20) as sink:
                 try:
@@ -784,7 +784,7 @@ def case_line(left: settle.LeftContext, token: settle.RightToken, rights: Sequen
 
 
 def _refusal(result: Mapping) -> None:
-    """Raise the crate's refusal result as `settle.SettleError`. A well-formed refusal is `{raise, message}` and nothing else: the raise identity becomes the error's bucket and the crate's message becomes the error message verbatim, so nothing downstream has to parse text to tell refusals apart. Anything else with a `raise` key means the boundary is wrong, not the window, and raises `KernelRunError`."""
+    """Raise the crate's refusal result as `settle.SettleError`. A well-formed refusal is `{raise, message}` and nothing else: the raise identity becomes the error's bucket and the crate's message becomes the error message verbatim, so nothing downstream has to parse text to tell refusals apart. Anything else with a `raise` key means the kernel interface is wrong, not the window, and raises `KernelRunError`."""
     if "raise" not in result:
         return
     bucket = result.get("raise")
@@ -956,7 +956,7 @@ def trace_of(result) -> settle.TransitionTrace:
 
 
 def _tolerated_settled_fields(text: str, buckets: frozenset[str] | None = None) -> Settled | None:
-    """`_settled_of_fields`, returning `None` for a refusal instead of raising: any refusal when `buckets` is `None`, otherwise only a refusal whose bucket `buckets` names, with any other refusal still raised. Only the crate's own refusal is caught: a malformed case result still raises `KernelRunError`, because it means the boundary is wrong, not the window."""
+    """`_settled_of_fields`, returning `None` for a refusal instead of raising: any refusal when `buckets` is `None`, otherwise only a refusal whose bucket `buckets` names, with any other refusal still raised. Only the crate's own refusal is caught: a malformed case result still raises `KernelRunError`, because it means the kernel interface is wrong, not the window."""
     try:
         return _settled_of_fields(text)
     except settle.SettleError as error:
@@ -984,7 +984,7 @@ def settle_windows(
 ) -> list[Settled | None]:
     """One `Settled` per case, in the order the cases were given, decoded directly from each output line. The conform walker and the ligature outgoing check use this: they keep only each window's outcome, so it asks the crate for the settled record alone (`--settled-only`, seven tab-separated fields) instead of a trace whose ranking nothing reads. `batch` limits how many windows one invocation takes.
 
-    `on_error="raise"` raises a refusal from the batch that met it, with the crate's message naming the left and the input, except that a refusal whose bucket `tolerate` names gives `None`. The ligature outgoing check tolerates `E-UNREACHABLE` this way, because a window no candidate can settle is a missing capability to it, while any other refusal is a fault it must report. `on_error="drop"` puts `None` in the slot of every refused case and decodes every other line as usual. A caller that settles windows it did not choose (the witness stage, which prefills every candidate string it might read) wants the other results, and wants a refusal to surface only where something reads that window. A malformed case result means the boundary is wrong, not the window, and raises `KernelRunError` in either mode.
+    `on_error="raise"` raises a refusal from the batch that met it, with the crate's message naming the left and the input, except that a refusal whose bucket `tolerate` names gives `None`. The ligature outgoing check tolerates `E-UNREACHABLE` this way, because a window no candidate can settle is a missing capability to it, while any other refusal is a fault it must report. `on_error="drop"` puts `None` in the slot of every refused case and decodes every other line as usual. A caller that settles windows it did not choose (the witness stage, which prefills every candidate string it might read) wants the other results, and wants a refusal to surface only where something reads that window. A malformed case result means the kernel interface is wrong, not the window, and raises `KernelRunError` in either mode.
     """
     if on_error == "drop":
         decode = _tolerated_settled_fields
@@ -1076,7 +1076,7 @@ def settle_codepoints(
 
 
 def _guard_verdicts(spec: ResolvedSpec, spec_path: Path, config: str | None = None) -> FormationGuard:
-    """Run `guard-sweep` over one already-dumped spec and parse its complete output. Without `config` the verdicts quantify over the powerset; with one they are that configuration's, named as `conform.ACCEPTANCE_CONFIGS` names it so the no-feature configuration can be named. Completeness and uniqueness are checked here instead of left to a consumer's lookup miss, because a clean kernel exit that omitted or duplicated a row is a boundary failure, not an emitter error."""
+    """Run `guard-sweep` over one already-dumped spec and parse its complete output. Without `config` the verdicts quantify over the powerset; with one they are that configuration's, named as `conform.ACCEPTANCE_CONFIGS` names it so the no-feature configuration can be named. Completeness and uniqueness are checked here instead of left to a consumer's lookup miss, because a clean kernel exit that omitted or duplicated a row is a kernel interface failure, not an emitter error."""
     arguments = [str(BINARY), "guard-sweep", str(spec_path)]
     if config is not None:
         arguments.append(f"--config={config}")

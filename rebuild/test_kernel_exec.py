@@ -1,4 +1,4 @@
-"""Tests for `rebuild/pipeline/kernel_exec.py`, the Python side of the kernel boundary, and for the `run_m1` code that calls it: the mode flags passed to the crate, the product and tables it returns, the previous memos, the thread widths, the CLI, and the string replay. Every table is built on the mini fixture, which is enough to check the shape of the results; enumerating the live alphabet is the build's job.
+"""Tests for `rebuild/pipeline/kernel_exec.py`, the kernel interface, and for the `run_m1` code that calls it: the mode flags passed to the crate, the product and tables it returns, the previous memos, the thread widths, the CLI, and the string replay. Every table is built on the mini fixture, which is enough to check the shape of the results; enumerating the live alphabet is the build's job.
 
 No test skips. On a machine without `cargo` these tests fail with the remedy `KernelBuildError` carries, because the M1 build cannot run there either.
 """
@@ -48,7 +48,7 @@ def products():
     return {name: kernel_exec.enumerate_transitions(SPEC, features) for name, features in CONFIGS.items()}
 
 
-class TestTheInvocationSeam:
+class TestTheInvocationInterface:
     def test_the_world_flags_reflect_the_python_side_defaults(self, monkeypatch):
         for _flag, module, attribute in kernel_exec.WORLD_FLAGS:
             monkeypatch.setattr(module, attribute, True)
@@ -195,7 +195,7 @@ class TestTheInvocationSeam:
         assert calls[1][4:] == []
 
     def test_a_refused_window_carries_the_crates_bucket_and_sentence(self, monkeypatch):
-        """A crate refusal is `{raise, message}`. The caller gets a `SettleError` whose bucket is the `raise` value and whose message is the crate's message verbatim. It is not a `KernelRunError`, which is reserved for a failure of the boundary itself."""
+        """A crate refusal is `{raise, message}`. The caller gets a `SettleError` whose bucket is the `raise` value and whose message is the crate's message verbatim. It is not a `KernelRunError`, which is reserved for a failure of the kernel interface itself."""
         case = kernel_exec.case_line(LeftContext("edge"), RightToken("letter", "qsMay"), (EDGE,) * 4)
         message = (
             "E-UNACCEPTED-EXIT: qsPea.half.ex-y5 committed an exit at x-height but qsTea has no acceptor cell"

@@ -1,4 +1,4 @@
-"""Tests for the two serializations at the kernel boundary in `rebuild/pipeline/kernel_io.py`.
+"""Tests for the two serializations at the kernel interface in `rebuild/pipeline/kernel_io.py`.
 
 The resolved-spec dump is how the Rust kernel reads a spec. These tests cover the value round trip, canonical form, the collection order the dump preserves, and the errors that stop a wrong dump from parsing as a partial one. They run on the mini fixture, widened by `_reaching_mini` so the encoder meets every shape it meets on the live alphabet, which `TestTheMiniReachesEveryShapeTheLiveDumpDoes` checks. The live alphabet is used there and in `TestTheCrateEchoesTheDumpByteForByte`, where the dump goes through the crate's `spec-echo` and must come back byte for byte; that is where a Rust model lagging a `model.py` change shows up.
 

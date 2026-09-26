@@ -1,4 +1,4 @@
-//! The `ams-m1-kernel` library: every module the binary is built from. `main.rs` describes what the binary does and which Python modules define its boundaries.
+//! The `ams-m1-kernel` library: every module the binary is built from. `main.rs` describes what the binary does and which Python modules define its interface.
 //!
 //! `parse::parse_spec` reads an `ams-m1-spec/1` dump into the interned model, and `emit` writes the model back out in canonical form. Outside tests, `parse` holds the crate's only `serde_json::Value`, and it is dropped inside `parse_spec`, which returns the model. `emit` therefore has only the model to write from, so a byte-identical `spec-echo` shows the packing lost nothing.
 
