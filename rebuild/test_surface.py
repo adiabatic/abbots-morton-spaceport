@@ -34,7 +34,7 @@ def test_qsit_default_cells(spec):
     }
 
 
-def test_qsit_ss04_unlock_grants_pass_through(spec):
+def test_qsit_ss04_unlock_grants_the_both_sides_baseline_cell(spec):
     default = cells_as_tuples(spec, "qsIt")
     with_ss04 = cells_as_tuples(spec, "qsIt", frozenset({"ss04"}))
     assert with_ss04 - default == {("hapax", "baseline", "baseline")}

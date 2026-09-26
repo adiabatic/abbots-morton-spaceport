@@ -183,7 +183,7 @@ E653 E652 E672            # Day Tea Et (the Day-Tea-X family window)
 200C E672                 # ZWNJ Et (locked twin)
 E672 200C E652            # Et ZWNJ Tea (exit severed)
 #
-# qsSee windows: the tall serpentine — entered at the baseline foot, exiting at the top, at the Short letters' top, or (grounded, entryless) at the baseline.
+# qsSee windows: the tall serpentine — entered at the baseline foot, exiting at the top, at the Short letters' top, or (entryless) at the baseline.
 E65A                      # See in isolation
 E650 E65A                 # Pea See (baseline join onto the foot)
 E652 E65A                 # Tea See (baseline join onto the foot)
@@ -203,8 +203,8 @@ E65A E652                 # See Tea (the top join)
 E65A E658                 # See Fee (the top join into the loop's stub)
 E65A E650                 # See Pea (the curled exit into half-Pea's top)
 E65A E650 E650            # See Pea Pea (the y6 chain)
-E65A E667                 # See Low (the grounded exit, extended by 2, into Low's extended entry)
-E650 E65A E667            # Pea See Low (the left join yields so the grounded See serves Low)
+E65A E667                 # See Low (the baseline exit, extended by 2, into Low's extended entry)
+E650 E65A E667            # Pea See Low (the left join yields so the baseline-exit See serves Low)
 E670 E65A E667            # It See Low (It keeps its join and Low is left unjoined)
 E65A E652 E653            # See Tea Day (the top entry leaves Tea's baseline slot for Day)
 E672 E652 E65A            # Et Tea See (Tea spends its slot backward and leaves See unjoined; ss05 chains on)
@@ -234,7 +234,7 @@ E672 E659                 # Et Vie (baseline join)
 E679 E659                 # Oy Vie (baseline join)
 E67A E659                 # Utter Vie (alt-Utter's baseline exit onto the bar)
 E658 E659                 # Fee Vie (break: Fee never reaches the baseline)
-E65A E659                 # See Vie (break: Vie is not in the grounded exit's scope)
+E65A E659                 # See Vie (break: Vie is not in the baseline exit's scope)
 E667 E659                 # Low Vie (break)
 E675 E659                 # I Vie (break)
 E676 E659                 # Ah Vie (break)
@@ -245,7 +245,7 @@ E659 E668                 # Vie Roe (the swept exit into the lower tip)
 E659 E652                 # Vie Tea (break: Tea is not in the exit's scope)
 E659 E665                 # Vie May (break)
 E670 E659 E666            # It Vie No (entered and exiting, the extended entry live)
-E653 E670 E659            # Day It Vie (ss04: the entered It's baseline pass-through into Vie)
+E653 E670 E659            # Day It Vie (ss04: the entered It joins at the baseline on both sides, into Vie)
 E653 E652 E659            # Day Tea Vie (the Day-Tea-X family window)
 E672 E652 E659            # Et Tea Vie (Tea spends its slot backward and leaves Vie unjoined; ss05 chains on)
 E665 E652 E659            # May Tea Vie (ss03: half-Tea takes the left join and Vie breaks)
@@ -267,7 +267,7 @@ E67B                      # Out in isolation
 E650 E67B                 # Pea Out (baseline join)
 E652 E67B                 # Tea Out (baseline join)
 E653 E67B                 # Day Out (baseline join)
-E65A E67B                 # See Out (the contracted grounded exit; Out takes the trimmed diagonal leg)
+E65A E67B                 # See Out (the contracted baseline exit; Out takes the trimmed diagonal leg)
 E665 E67B                 # May Out (baseline join)
 E666 E67B                 # No Out (the flipped No's baseline exit)
 E670 E67B                 # It Out (baseline join)
@@ -650,7 +650,7 @@ E67E E659                 # Ooze Vie (the baseline exit)
 E67E E659 E67A            # Ooze Vie+Utter (the exit into the ligature)
 E67E E65A                 # Ooze See (the baseline exit)
 E67E E665                 # Ooze May (the exit into the loop)
-E67E E665 E67E            # Ooze May Ooze (the loop takes the entry and refuses the grounded exit)
+E67E E665 E67E            # Ooze May Ooze (the loop takes the entry and refuses the baseline exit)
 E67E E666                 # Ooze No (the exit into the flipped No)
 E67E E666 E67A E665       # Ooze No Utter May (No spends its exit on Utter, as after every baseline enterer)
 E67E E667                 # Ooze Low (the baseline exit)
@@ -829,7 +829,7 @@ E654 E67A E665            # Key Utter May (Key's join yields; the alternate Utte
 E654 E67A E652 E653       # Key Utter Tea Day (the bare Utter breaks, and Tea keeps Day)
 E654 E67A E659            # Key Utter Vie (Key's join yields; the alternate Utter serves Vie)
 E654 E67A E65A            # Key Utter See (Key's join yields; the alternate Utter serves See)
-E654 E67A E65A E674       # Key Utter See At (Key keeps its join; See grounds forward to At)
+E654 E67A E65A E674       # Key Utter See At (Key keeps its join; See exits at the baseline into At)
 E654 E67B                 # Key Out (the exit into the arch)
 E654 E67B E652            # Key Out+Tea (the exit into the ligature)
 E654 E67E                 # Key Ooze (the baseline exit)
@@ -983,8 +983,8 @@ E67A E670 E656            # Utter It Thaw (entered It rides through, exit extend
 E653 E67A E656            # Day Utter Thaw (the ligature yields; the alternate Utter serves Thaw)
 E659 E67A E656            # Vie Utter Thaw (the ligature yields; the alternate Utter serves Thaw)
 E670 E67A E656            # It Utter Thaw (the hand-off: the alternate Utter takes the window)
-E67A E665 E656            # Utter May Thaw (entered May refuses the grounded exit)
-E655 E665 E656            # Gay May Thaw (entered May refuses the grounded exit)
+E67A E665 E656            # Utter May Thaw (entered May refuses the baseline exit)
+E655 E665 E656            # Gay May Thaw (entered May refuses the baseline exit)
 E651 E666 E656            # Bay No Thaw (the flipped No carries both baseline joins)
 E650 E666 E656            # Pea No Thaw (No entered at the x-height breaks to Thaw)
 E651 E668 E656            # Bay Roe Thaw (entered Roe keeps the backward join)
@@ -1546,8 +1546,8 @@ E665 E65F                # ·May's one-pixel exit extension into ·Jay
 E651 E665 E65F           # Entered ·May keeps the one-pixel reach into ·Jay
 E65F E652                # The extended ·Tea baseline entry after ·Jay
 E65F E668                # ·Roe's extended baseline entry after ·Jay
-E65F E670 E653           # ·It after ·Jay breaks at default; ss04 passes through at the baseline
-E65F E670 E67A           # ·It after ·Jay before ·Utter: break at default, ss04 pass-through
+E65F E670 E653           # ·It after ·Jay breaks at default; under ss04 it joins at the baseline on both sides
+E65F E670 E67A           # ·It after ·Jay before ·Utter: break at default; under ss04 it joins at the baseline on both sides
 E65F E670 E667           # ·It after ·Jay before ·Low
 E65F E67A E656           # ·Jay·Utter un-forms: alternate ·Utter takes the baseline join into ·Thaw
 E65F E67A E659           # ·Jay·Utter un-forms before ·Vie
@@ -1691,7 +1691,7 @@ E665 E660 E653           # The climbing loop: entered at the x-height, exiting a
 E655 E660 E653           # ·Gay's x-height exit into the climbing loop
 E658 E660 E653           # ·Fee's x-height exit into the climbing loop
 E655 E670 E660           # Entered ·It exits at the x-height into ·Ye
-E651 E670 E660           # ·Bay·It·Ye: the same pass-through from a baseline enterer
+E651 E670 E660           # ·Bay·It·Ye: ·It entered at the baseline exits at the x-height into ·Ye
 E660 E675                # ·Ye's exit extends by one into ·I
 E665 E660 E675           # The climbing loop's exit extends by one into ·I
 E660 E65A E650           # ·Ye joins the curled-over ·See before ·Pea

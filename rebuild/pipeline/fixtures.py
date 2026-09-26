@@ -214,7 +214,7 @@ def _it() -> Rune:
             ),
         ),
         groups={
-            "utter-pass-through-vetoes": frozenset({"qsDay", "qsZoo", "qsShe", "qsYe", "qsOwe"}),
+            "utter-both-sides-baseline-vetoes": frozenset({"qsDay", "qsZoo", "qsShe", "qsYe", "qsOwe"}),
         },
     )
     return Rune(
@@ -563,7 +563,7 @@ def _may() -> Rune:
                         )
                     )
                 ),
-                why="These never receive ·May's grounded baseline exit.",
+                why="These never receive ·May's baseline exit.",
                 provenance=_prov(_MAY_FILE, "policy.refuse[0]"),
             ),
         ),
@@ -1100,7 +1100,7 @@ def _registry() -> ScriptRegistry:
         features={
             "ss02": FeatureInfo("capability", "·Tea x-height entry after ·I"),
             "ss03": FeatureInfo("capability", "x-height exiters reach half-·Tea"),
-            "ss04": FeatureInfo("capability", "·It same-height baseline pass-through"),
+            "ss04": FeatureInfo("capability", "·It joins at the baseline on both sides after ·Day"),
             "ss05": FeatureInfo("capability", "·Tea both-baseline after ·Et"),
             "ss10": FeatureInfo("taste", "isolated forms overlay", overlay="isolated"),
         },

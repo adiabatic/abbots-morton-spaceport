@@ -81,7 +81,7 @@ ROWS = (
     ("qsMay qsIt", (), ("qsMay.loop.ex-y5.ex-ext-1", "qsIt.hapax.en-y5")),
     ("qsMay qsMay", (), ("qsMay.grounded-loop.ex-y0", "qsMay.loop.en-y0")),
     ("qsTea qsMay", (), ("qsTea.full.ex-y0", "qsMay.loop.en-y0.en-ext-1")),
-    # qsMay's grounded baseline exit refuses qsTea (the old font breaks ·May·Tea while ·May·May joins, and the loop top touching the bar is an off-anchor contact), so ·May does not join and renders its pulled-back unjoined drawing.
+    # qsMay's baseline exit refuses qsTea (the old font breaks ·May·Tea while ·May·May joins, and the loop top touching the bar is an off-anchor contact), so ·May does not join and renders its pulled-back unjoined drawing.
     ("qsMay qsTea", (), ("qsMay.loop.ex-bind-pulled-back", "qsTea.full")),
     # Under ss03 the x-height path scores equal and the declared order: (loop before grounded-loop) decides.
     ("qsMay qsTea", ("ss03",), ("qsMay.loop.ex-y5.ex-ext-1", "qsTea.half.en-y5")),
@@ -299,7 +299,7 @@ def test_simulated_prospect_bottoms_out_at_the_window_edge(prospect_settled):
     assert prospect_settled[("A B", False)] == prospect_settled[("A B", True)]
 
 
-# Round-1 verdict pins over the loaded rune YAML, which carries the round-1 verdict records the mini spec does not. They check the greedy ·May·May pairing of the round-1 verdict (u-0341, "the old way seems nicer to write out by hand"): a chain of ·May joins in pairs at the baseline with a break between pairs, as the shipped font does at every length. The four-letter chain is the verdicted window. The five- and six-letter chains are the only check on qsMay's chain-interior prefer (policy.prefer[2], scoped on an unjoined ·May to its left): the acceptance oracle's windows stop at four letters, where the word-start prefer alone gives every result, and without the chain-interior prefer, chains of five or more fall back to the rejected grouping that defers to the tail.
+# Round-1 verdict pins over the loaded rune YAML, which carries the round-1 verdict records the mini spec does not. They check the greedy ·May·May pairing of the round-1 verdict (u-0341, "the old way seems nicer to write out by hand"): a chain of ·May joins in pairs at the baseline with a break between pairs, as the old font does at every length. The four-letter chain is the verdicted window. The five- and six-letter chains are the only check on qsMay's chain-interior prefer (policy.prefer[2], scoped on an unjoined ·May to its left): the acceptance oracle's windows stop at four letters, where the word-start prefer alone gives every result, and without the chain-interior prefer, chains of five or more fall back to the rejected grouping that defers to the tail.
 
 
 @pytest.fixture(scope="module")

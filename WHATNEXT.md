@@ -2,7 +2,7 @@
 
 ## The main thread — M1 rune migration
 
-The rebuild migrates the cursive-join engine rune by rune and checks each batch against the old shipped font through the oracle.
+The rebuild migrates the cursive-join engine rune by rune and checks each batch against the old font through the oracle.
 
 **Next step: the qsYe batch builds green and awaits its review session.** `rebuild/M1-BATCH27-PROGRESS.md` holds the parked questions, the recorded design overrides, and the verification recipe. `make verdict-ready` is the readiness check, `glyph_data/runes/` lists the migrated runes, and `make novelty-order` orders the remaining blanks.
 

@@ -50,7 +50,7 @@ rules:
       except_left: []
   - id: see-grounded-left-column-dropped
     verdict: approve
-    note: "The grounded ·See sits a column closer to whatever precedes it — one blank column on its left where the old font left two, the same tail on its right — and everything after it only slides over; ruled at the ·At review session, where the ·See→·At placement delta was the parked question"
+    note: "The baseline-exit ·See sits a column closer to whatever precedes it — one blank column on its left where the old font left two, the same tail on its right — and everything after it only slides over; ruled at the ·At review session, where the ·See→·At placement delta was the parked question"
     match:
       before:
         pivots: [qsSee.ex-y0]
@@ -866,7 +866,7 @@ rules:
       except_left: []
   - id: may-ah-baseline-join-created
     verdict: approve
-    note: "·May joins ·Ah at the baseline where the old font left a break, and ·Ah closes two columns onto it — qsAh's baseline entry has carried qsMay on its from-list since the letter landed in “Add ·Ah”, and qsMay's grounded-loop stance exits at the baseline with nothing on its refuse list standing between the two, so the junction settles on join-count rank with no policy record involved. What puts ·May in that grounded stance settles the same way, and the user's own ·Utter policy anticipates it — the mono x-height reach into a pulled-back ·May “wins only when it buys a better join”, written at “Make ·Utter·May·May chain through a pulled-back-grounded ·May” — where here the better join is this one. no-ah-baseline-join-created is the same new baseline join into ·Ah one pivot over, closing one column rather than two, and may-entry-stub-dropped and may-entry-extension-dropped are ·May's other standing changes on this corpus; every window that reached a review session approved this join or called it either"
+    note: "·May joins ·Ah at the baseline where the old font left a break, and ·Ah closes two columns onto it — qsAh's baseline entry has carried qsMay on its from-list since the letter landed in “Add ·Ah”, and qsMay's grounded-loop stance exits at the baseline with nothing on its refuse list standing between the two, so the junction settles on join-count rank with no policy record involved. What puts ·May in that grounded-loop stance settles the same way, and the user's own ·Utter policy anticipates it — the mono x-height reach into a pulled-back ·May “wins only when it buys a better join”, written at “Make ·Utter·May·May chain through a pulled-back-grounded ·May” — where here the better join is this one. no-ah-baseline-join-created is the same new baseline join into ·Ah one pivot over, closing one column rather than two, and may-entry-stub-dropped and may-entry-extension-dropped are ·May's other standing changes on this corpus; every window that reached a review session approved this join or called it either"
     match:
       before:
         pivot: qsMay

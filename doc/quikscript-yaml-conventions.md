@@ -1,6 +1,6 @@
-# Conventions for the shipped font’s YAML
+# Conventions for the old font’s YAML
 
-`glyph_data/quikscript.yaml` is the source of the shipped font, compiled by the Python engine under `tools/` (`tools/quikscript_ir.py` builds the IR, `tools/quikscript_fea.py` emits the feature code). The rebuild’s rune files under `glyph_data/runes/` use a different format, described in `doc/rebuild-design.md`. `AGENTS.md` has the rules an agent needs before editing either file. This document explains the mechanism behind the old engine’s rules and gives the recipe that shows an edit is a pure cleanup.
+`glyph_data/quikscript.yaml` is the source of the old font, compiled by the Python engine under `tools/` (`tools/quikscript_ir.py` builds the IR, `tools/quikscript_fea.py` emits the feature code). The rebuild’s rune files under `glyph_data/runes/` use a different format, described in `doc/rebuild-design.md`. `AGENTS.md` has the rules an agent needs before editing either file. This document explains the mechanism behind the old engine’s rules and gives the recipe that shows an edit is a pure cleanup.
 
 ## Selectors
 

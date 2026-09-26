@@ -112,7 +112,7 @@ SLIDE_DELTA = "d-aaaaaaaaaaaa"
 SLIDE_RULE = {
     "id": "fixture-slide",
     "verdict": "approve",
-    "note": "the grounded ·See sits a column closer to what precedes it and everything after it slides over",
+    "note": "the baseline-exit ·See sits a column closer to what precedes it and everything after it slides over",
     "match": {
         "before": {"pivots": ["qsSee.ex-y0"]},
         "after": {"pivots": ["qsSee.straighter"], "slide": -1},
@@ -1765,7 +1765,7 @@ def _rect(x0, y0, x1, y1):
 
 
 TWO_COLUMNS = (_rect(0, 0, 100, 150),)
-GROUNDED_SEE = (_rect(100, 0, 200, 150),)
+BASELINE_EXIT_SEE = (_rect(100, 0, 200, 150),)
 STRAIGHTER_SEE = (_rect(50, 0, 150, 150),)
 TUCKED_FOLLOWER = (_rect(50, 0, 100, 150),)
 TWO_COLUMNS_AND_A_PIXEL = (((0, 0), (100, 0), (100, 150), (50, 150), (50, 200), (0, 200)),)
@@ -1836,8 +1836,8 @@ def spell(*codepoints):
 
 
 register_glyph("before", "qsL", TWO_COLUMNS, 100)
-register_glyph("before", "qsSee.ex-y0", GROUNDED_SEE, 250)
-register_glyph("before", "qsSee.ex-y0.spare", GROUNDED_SEE, 250)
+register_glyph("before", "qsSee.ex-y0", BASELINE_EXIT_SEE, 250)
+register_glyph("before", "qsSee.ex-y0.spare", BASELINE_EXIT_SEE, 250)
 register_glyph("before", "qsSee.ex-y0.blank", (), 50)
 register_glyph("before", "qsF1", TWO_COLUMNS, 50)
 register_glyph("before", "qsF2", TWO_COLUMNS, 100)
@@ -1886,7 +1886,7 @@ register_glyph("before", "space", (), 50)
 register_glyph("after", "qsL", TWO_COLUMNS, 100)
 register_glyph("after", "qsSee.straighter", STRAIGHTER_SEE, 200)
 register_glyph("after", "qsSee.straighter.blank", (), 50)
-register_glyph("after", "qsSee.spare", GROUNDED_SEE, 250)
+register_glyph("after", "qsSee.spare", BASELINE_EXIT_SEE, 250)
 register_glyph("after", "qsSee.wandered", TWO_COLUMNS, 250)
 register_glyph("after", "qsF1", TWO_COLUMNS, 50)
 register_glyph("after", "qsF2", TUCKED_FOLLOWER, 100)
@@ -1938,7 +1938,7 @@ register_glyph("before", "qsBay.stub-lead", TWO_COLUMNS, 100)
 register_glyph("after", "qsBay.stub-lead", TWO_COLUMNS, 150)
 register_glyph("before", "qsTea.half.ex-y5.reach-fixture", (_rect(50, 100, 150, 150),), 100)
 register_glyph("after", "qsTea.reaching", TWO_COLUMNS, 100)
-register_glyph("before", "qsSee.ex-y0.stub-fixture", GROUNDED_SEE, 250)
+register_glyph("before", "qsSee.ex-y0.stub-fixture", BASELINE_EXIT_SEE, 250)
 register_glyph("after", "qsSee.straighter.stub-fixture", STRAIGHTER_SEE, 250)
 register_glyph("before", "qsTea.half.en-y5.after-xheight-exit.gain-join-fixture", HALF_TEA_BAR, 100)
 register_glyph("after", "qsTea.full.en-y5.gain-join-fixture", FULL_TEA_BAR, 50)
@@ -2054,7 +2054,10 @@ SLIDE_FONTS = {
     ),
     "after-join-unmoved": ({**AFTER_GLYPHS, "qsAt": (TWO_COLUMNS, 100)}, AFTER_CMAP),
     "after-join-redrawn-pivot": ({**AFTER_GLYPHS, "qsAt": (TUCKED_FOLLOWER, 150)}, AFTER_CMAP),
-    "after-join-pivot-moved-origin": ({**AFTER_GLYPHS, "qsNo.gap-fixture": (GROUNDED_SEE, 150)}, AFTER_CMAP),
+    "after-join-pivot-moved-origin": (
+        {**AFTER_GLYPHS, "qsNo.gap-fixture": (BASELINE_EXIT_SEE, 150)},
+        AFTER_CMAP,
+    ),
     "after-join-pivot-keeping-its-advance": (
         {**AFTER_GLYPHS, "qsNo.gap-fixture": (TRIMMED_PIVOT, 100)},
         AFTER_CMAP,
@@ -2081,7 +2084,7 @@ SLIDE_FONTS = {
     ),
     "after-retarget-unmoved": ({**AFTER_GLYPHS, "qsNo": (TWO_COLUMNS, 100)}, AFTER_CMAP),
     "after-retarget-moved-origin": (
-        {**AFTER_GLYPHS, "qsTea": (GROUNDED_SEE, 100)},
+        {**AFTER_GLYPHS, "qsTea": (BASELINE_EXIT_SEE, 100)},
         AFTER_CMAP,
     ),
     "after-created-join-unmoved": (
@@ -2385,7 +2388,7 @@ def test_a_slide_rule_loads(tmp_path):
         lambda rule: rule["match"]["before"].update(pivots=[]),
         lambda rule: rule["match"]["before"].update(pivots="qsSee.ex-y0"),
         lambda rule: rule["match"]["before"].update(pivots=[""]),
-        lambda rule: rule["match"]["before"].update(pivots=["qsSee/grounded/None/baseline/"]),
+        lambda rule: rule["match"]["before"].update(pivots=["qsSee/baseline-exit/None/baseline/"]),
         lambda rule: rule["match"]["before"].update(pivot="qsSee.ex-y0"),
         lambda rule: rule["match"]["after"].update(pivots=[]),
         lambda rule: rule["match"]["after"].update(pivots=["qsSee/straighter/None/baseline/"]),
@@ -3433,7 +3436,7 @@ class _RefusingContext:
 
 
 def twice_slid_window(uid="c-twice"):
-    """One rule's change at two positions in one window: two grounded ·See letters, each moving everything after it a column closer."""
+    """One rule's change at two positions in one window: two baseline-exit ·See letters, each moving everything after it a column closer."""
     return slide_unit(
         uid,
         ["qsL", "qsSee.ex-y0", "qsF1", "qsSee.ex-y0", "qsF1"],

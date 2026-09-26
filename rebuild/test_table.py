@@ -164,14 +164,14 @@ def test_boundary_rows_lead_their_groups(default_tables):
             assert fallback_positions[-1] == len(rules) - 1
 
 
-def test_ss04_opens_the_it_pass_through_after_day(default_tables):
-    """·It's ss04 unlock of the baseline/baseline pairing requires `left: qsDay`, so it takes effect only in a spec that has ·Day, which the fixture spec does. The test reads `expanded_transitions`, so it compares window rows however deep classes group them. With ss04 on, every row whose outcome changes is an ·It row after a ·Day cell and changes to the same-height pass-through, every row the table gains has the pass-through as its left, no row or outcome is lost, and the deep classes are unchanged."""
+def test_ss04_joins_it_at_the_baseline_on_both_sides_after_day(default_tables):
+    """·It's ss04 unlock of the baseline/baseline pairing requires `left: qsDay`, so it takes effect only in a spec that has ·Day, which the fixture spec does. The test reads `expanded_transitions`, so it compares window rows however deep classes group them. With ss04 on, every row whose outcome changes is an ·It row after a ·Day cell and changes to the ·It joined at the baseline on both sides, every row the table gains has that ·It as its left, no row or outcome is lost, and the deep classes are unchanged."""
     decision, _treaty = default_tables
     ss04_decision, _ss04_treaty = build_tables(SPEC, frozenset({"ss04"}))
     replay(ss04_decision)
-    pass_through = "qsIt.hapax.en-y0.ex-y0.ex-ext-1"
+    both_sides_baseline = "qsIt.hapax.en-y0.ex-y0.ex-ext-1"
     default_outcomes = {row.outcome for row in decision.transitions}
-    assert {row.outcome for row in ss04_decision.transitions} - default_outcomes == {pass_through}
+    assert {row.outcome for row in ss04_decision.transitions} - default_outcomes == {both_sides_baseline}
     assert not default_outcomes - {row.outcome for row in ss04_decision.transitions}
     base = {row.key: row.outcome for row in decision.expanded_transitions()}
     rows = list(ss04_decision.expanded_transitions())
@@ -180,8 +180,8 @@ def test_ss04_opens_the_it_pass_through_after_day(default_tables):
     assert moved and gained
     assert {row.input_glyph for row in moved} == {"qsIt"}
     assert all(row.left.startswith("qsDay.") for row in moved)
-    assert {row.outcome for row in moved} == {pass_through}
-    assert {row.left for row in gained} == {pass_through}
+    assert {row.outcome for row in moved} == {both_sides_baseline}
+    assert {row.left for row in gained} == {both_sides_baseline}
     assert not set(base) - {row.key for row in rows}
     assert ss04_decision.deep_classes == decision.deep_classes
 

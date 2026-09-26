@@ -87,7 +87,7 @@ stances:
     - " "  #
     surface:
       entries:
-        # The default from-scope is the baseline-effective trigger set per the migration's allowlist-polarity rule (section 13.3): only the halves reach this row without ss03, even though today's YAML row is formally unscoped.
+        # The default from-scope is the baseline-effective trigger set per the migration's allowlist-polarity rule (section 13.3): only the halves reach this row without ss03, even though the old font's YAML row is formally unscoped.
         x-height:
           x: 0
           stroke: vertical

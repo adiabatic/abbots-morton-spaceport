@@ -76,7 +76,7 @@ This principle underlies all the specifics. **Much of this project is _discoveri
 - **unpinned → pinned:** when the author looks at a pair he never considered, he finds that he cares about it.
 - **one-off tiebreak → grouped resolve:** a conflict resolved by hand recurs, and the author turns the pattern into one named rule.
 - **ugly-with-a-signature → broken invariant:** a recurring ugliness turns out to have a structural sign, and the author adds it to the machine-checked set.
-- **broken → declared-OK:** a join the detector rejects looks fine, and the author records the exception.
+- **broken → accepted:** a join the detector rejects looks fine, and the author records the exception.
 
 This is a confirmed design decision, not a side effect of an unfinished font. The system is a tool for _finding_ the right rules. Its defaults are permissive _where that is safe_ (the selection level: pairs start unpinned, and more joins are better) and opt-in where they must be (the capability level: nothing joins until a stance declares that it can). Its boundaries can move, and “I couldn’t have known that in advance” is a supported workflow. Read every “default”, “veto”, “pin”, and “forbid” below with this in mind.
 
@@ -408,7 +408,7 @@ The balance of work has also changed. Ugly joins were very numerous mainly becau
 
 Two further points define the system’s approach:
 
-- **Broken is rejected by default, and the author can override it.** If a join the detector calls broken looks fine, it can be **declared OK** as an explicit, recorded exception. In the rebuild, `rebuild/m1-contact-allow.yaml` is the list of these exceptions.
+- **Broken is rejected by default, and the author can override it.** If a join the detector calls broken looks fine, it can be **accepted** as an explicit, recorded exception. In the rebuild, `rebuild/m1-contact-allow.yaml` is the list of these exceptions.
 - **The line between broken and ugly is structure versus taste.** _Broken_ asks “does it connect correctly?” _Ugly_ asks “does it look and feel right?”, even when it connects. So **orientation mismatch (the ·No horizontal-versus-vertical case) is _ugly_, not broken**: the machine only _flags_ it, and the author decides. Keeping broken purely structural is what lets its detection be complete and its fixing automatic.
 
 ### Some “ugly” has machine signatures

@@ -1046,7 +1046,10 @@ pub mod fixtures {
                             &policy(&[(
                                 "groups",
                                 &map(&[
-                                    ("utter-pass-through-vetoes", &names(&["qsMay", "qsPea"])),
+                                    (
+                                        "utter-both-sides-baseline-vetoes",
+                                        &names(&["qsMay", "qsPea"]),
+                                    ),
                                     ("halves-that-exit-at-x-height", &names(&["qsMay"])),
                                 ]),
                             )]),
@@ -1204,7 +1207,7 @@ mod tests {
     fn a_class_resolves_registry_first_then_the_owner_then_any_rune() {
         let index = fixtures::mini();
         let halves = fixtures::sym(&index, "halves-that-exit-at-x-height");
-        let vetoes = fixtures::sym(&index, "utter-pass-through-vetoes");
+        let vetoes = fixtures::sym(&index, "utter-both-sides-baseline-vetoes");
         let it = fixtures::sym(&index, "qsIt");
         let tea = fixtures::sym(&index, "qsTea");
         let pea = fixtures::sym(&index, "qsPea");

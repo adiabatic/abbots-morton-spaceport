@@ -36,7 +36,7 @@ A count in prose names the artifact that reports it, not the number. The rebuild
 - `rebuild/review-facts-pins.json` for the last accepted review facts
 - `make verdict-ready` for whether a review session can start
 
-Prefer a qualitative description (“the sweep is exact”, “the unmatched rows wait on verdicts and do not fail the gate”) to a figure. Definitional numbers are not counts and may stay: Tall/Deep/Short as 9/9/6 rows, the depth-4 chain cap, the dev-server ports, a hash that must stay byte-identical, and a fixed fact about the old shipped font. Write a commit-stamped filename with its placeholder, such as `verdicts-carried-<sha>.json`, not with the current cycle’s hash.
+Prefer a qualitative description (“the sweep is exact”, “the unmatched rows wait on verdicts and do not fail the gate”) to a figure. Definitional numbers are not counts and may stay: Tall/Deep/Short as 9/9/6 rows, the depth-4 chain cap, the dev-server ports, a hash that must stay byte-identical, and a fixed fact about the old font. Write a commit-stamped filename with its placeholder, such as `verdicts-carried-<sha>.json`, not with the current cycle’s hash.
 
 ## Executable authorities
 

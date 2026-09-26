@@ -1,62 +1,62 @@
 # Reviewed signatures of defect-gate findings that are accepted as correct (doc/rebuild-design.md §9). `run_m1` loads the `signature` of every entry, and rebuild/pipeline/defects.py reports a finding whose signature is listed here as blessed instead of as an error. Each signature has the form defects.py builds for its gate: `contact:<left glyph>:<right glyph>:y<row>` or `:overlap` (E-CONTACT), `dangle:` (E-DANGLE), `unrealized:` (E-UNREALIZED), `anchor:` (E-ANCHOR), or `band:` (E-EXTENSION-BAND).
-# Most entries are E-CONTACT off-anchor contacts that the shipped font also draws, on a join the old-font baseline shows. The gate reports every off-junction row where a pair's ink sits side by side as its own `contact:…:y<row>` finding, whether or not the pair also overlaps, so a pair that touches at several rows needs one signature for each. The file is human-reviewed like rebuild/m1-divergences.yaml, and no pipeline step writes it. Nothing reports an entry whose finding no longer occurs.
+# Most entries are E-CONTACT off-anchor contacts that the old font also draws, on a join the old-font baseline shows. The gate reports every off-junction row where a pair's ink sits side by side as its own `contact:…:y<row>` finding, whether or not the pair also overlaps, so a pair that touches at several rows needs one signature for each. The file is human-reviewed like rebuild/m1-divergences.yaml, and no pipeline step writes it. Nothing reports an entry whose finding no longer occurs.
 # Agents write the `why:` fields in this file; the rule that only the user writes `why:` covers glyph_data/runes/qs*.yaml alone. Match the wording of the neighboring entries. The user reviews whether a signature belongs, not who wrote its `why:`.
 
 - signature: contact:qsOy.hapax.ex-y0:qsIt.hapax.en-y0:y1
-  why: ·Oy·It joins at the baseline in the shipped font (baseline row E679:E670, junction y0). ·Oy's tail at y1 is one column left of ·It's bar, the same corner the shipped font draws.
+  why: ·Oy·It joins at the baseline in the old font (baseline row E679:E670, junction y0). ·Oy's tail at y1 is one column left of ·It's bar, the same off-junction contact the old font draws.
 
 - signature: contact:qsOy.hapax.ex-y0:qsTea.full.en-y0:y1
-  why: ·Oy·Tea joins at the baseline in the shipped font (baseline row E679:E652); the same tail-against-bar corner as ·Oy·It.
+  why: ·Oy·Tea joins at the baseline in the old font (baseline row E679:E652); the same tail beside a vertical stroke as ·Oy·It.
 
 - signature: contact:qsOy.hapax.ex-y0.locked:qsIt.hapax.en-y0:y1
-  why: The ZWNJ-locked twin of the blessed ·Oy·It corner; the drawing is identical to the bare cell's.
+  why: The ZWNJ-locked twin of the blessed ·Oy·It off-junction contact; the drawing is identical to the bare cell's.
 
 - signature: contact:qsOy.hapax.ex-y0.locked:qsTea.full.en-y0:y1
-  why: The ZWNJ-locked twin of the blessed ·Oy·Tea corner.
+  why: The ZWNJ-locked twin of the blessed ·Oy·Tea off-junction contact.
 
 - signature: contact:qsOy.hapax.en-y5.ex-y0:qsIt.hapax.en-y0:y1
-  why: The entered variant (·May·Oy·It, baseline row E665:E679:E670) of the blessed ·Oy·It corner; the open-on-the-left bitmap does not move the tail.
+  why: The entered variant (·May·Oy·It, baseline row E665:E679:E670) of the blessed ·Oy·It off-junction contact; the open-on-the-left bitmap does not move the tail.
 - signature: contact:qsOy.hapax.en-y5.ex-y0:qsIt.hapax.en-y0:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 
 - signature: contact:qsOy.hapax.en-y5.ex-y0:qsTea.full.en-y0:y1
-  why: The entered variant of the blessed ·Oy·Tea corner.
+  why: The entered variant of the blessed ·Oy·Tea off-junction contact.
 - signature: contact:qsOy.hapax.en-y5.ex-y0:qsTea.full.en-y0:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 
 - signature: contact:qsTea_qsOy.hapax.ex-y0:qsIt.hapax.en-y0:y1
-  why: ·Tea·Oy ligature into ·It joins at the baseline in the shipped font (baseline row E652:E679:E670); the ligature's tail is ·Oy's, so the corner is the same blessed one.
+  why: ·Tea·Oy ligature into ·It joins at the baseline in the old font (baseline row E652:E679:E670); the ligature's tail is ·Oy's, so the off-junction contact is the same blessed one.
 - signature: contact:qsTea_qsOy.hapax.ex-y0:qsIt.hapax.en-y0:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 
 - signature: contact:qsOy.hapax.ex-y0:qsIt.hapax.en-y0.ex-y5.ex-ext-1:y1
-  why: The blessed ·Oy·It corner with ·It's x-height exit extended toward a following ·J'ai (baseline row E679:E670:E65D); the extension adds ink at y5 only, so the tail-against-bar corner is unchanged.
+  why: The blessed ·Oy·It off-junction contact with ·It's x-height exit extended toward a following ·J'ai (baseline row E679:E670:E65D); the extension adds ink at y5 only, so the tail beside a vertical stroke is unchanged.
 - signature: contact:qsOy.hapax.ex-y0.locked:qsIt.hapax.en-y0.ex-y5.ex-ext-1:y1
-  why: The ZWNJ-locked twin of the extended-before-·J'ai ·Oy·It corner; identical drawing.
+  why: The ZWNJ-locked twin of the extended-before-·J'ai ·Oy·It off-junction contact; identical drawing.
 - signature: contact:qsOy.hapax.en-y5.ex-y0:qsIt.hapax.en-y0.ex-y5.ex-ext-1:y1
-  why: The entered variant of the extended-before-·J'ai ·Oy·It corner.
+  why: The entered variant of the extended-before-·J'ai ·Oy·It off-junction contact.
 - signature: contact:qsOy.hapax.en-y5.ex-y0:qsIt.hapax.en-y0.ex-y5.ex-ext-1:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 - signature: contact:qsTea_qsOy.hapax.ex-y0:qsIt.hapax.en-y0.ex-y5.ex-ext-1:y1
-  why: ·Tea·Oy ligature into ·It with the exit extended toward a following ·J'ai (baseline row E652:E679:E670:E65D); the same blessed tail-against-bar corner.
+  why: ·Tea·Oy ligature into ·It with the exit extended toward a following ·J'ai (baseline row E652:E679:E670:E65D); the same blessed tail beside a vertical stroke.
 - signature: contact:qsTea_qsOy.hapax.ex-y0:qsIt.hapax.en-y0.ex-y5.ex-ext-1:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 
 - signature: contact:qsTea_qsOy.hapax.ex-y0:qsTea.full.en-y0:y1
-  why: ·Tea·Oy ligature into ·Tea (baseline row E652:E679:E652); same tail-against-bar corner.
+  why: ·Tea·Oy ligature into ·Tea (baseline row E652:E679:E652); same tail beside a vertical stroke.
 - signature: contact:qsTea_qsOy.hapax.ex-y0:qsTea.full.en-y0:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 
 - signature: contact:qsPea.half.ex-y6:qsPea.full.en-y6:y7
-  why: The ·Pea·Pea chain joins at y6 in the shipped font (baseline row E650:E650, junction y6). The half's right downstroke at y7 is one column left of the next ·Pea's left upstroke, the corner the shipped font draws.
+  why: The ·Pea·Pea chain joins at y6 in the old font (baseline row E650:E650, junction y6). The half's right downstroke at y7 is one column left of the next ·Pea's left upstroke, the off-junction contact the old font draws.
 - signature: contact:qsPea.half.ex-y6:qsPea.full.en-y6.ex-y0:y7
-  why: The same ·Pea·Pea y6 corner with the second ·Pea exiting onward at the baseline (·Pea·Pea·May and similar windows).
+  why: The same ·Pea·Pea y6 off-junction contact with the second ·Pea exiting onward at the baseline (·Pea·Pea·May and similar windows).
 - signature: contact:qsPea.half.ex-y6:qsPea.half.en-y6.ex-y5:y7
-  why: The same y6 corner with the second ·Pea in the half motion exiting at the x-height mid-chain.
+  why: The same y6 off-junction contact with the second ·Pea in the half motion exiting at the x-height mid-chain.
 - signature: contact:qsPea.half.ex-y6:qsPea.half.en-y6.ex-y6:y7
-  why: The same y6 corner continuing the ·Pea·Pea·Pea chain.
+  why: The same y6 off-junction contact continuing the ·Pea·Pea·Pea chain.
 - signature: contact:qsPea.half.en-y5.ex-y6:qsPea.full.en-y6:y7
-  why: The blessed ·Pea·Pea y6 corner with the left ·Pea entered at the x-height (·May·Pea·Pea and similar windows).
+  why: The blessed ·Pea·Pea y6 off-junction contact with the left ·Pea entered at the x-height (·May·Pea·Pea and similar windows).
 - signature: contact:qsPea.half.en-y5.ex-y6:qsPea.full.en-y6.ex-y0:y7
   why: The x-height-entered variant; right ·Pea carries the baseline exit onward.
 - signature: contact:qsPea.half.en-y5.ex-y6:qsPea.half.en-y6.ex-y5:y7
@@ -64,15 +64,15 @@
 - signature: contact:qsPea.half.en-y5.ex-y6:qsPea.half.en-y6.ex-y6:y7
   why: The x-height-entered variant; the chain continues.
 - signature: contact:qsPea.half.en-y5.ex-y6.en-ext-1:qsPea.full.en-y6:y7
-  why: The extended-entry twin of the x-height-entered ·Pea·Pea y6 corner.
+  why: The extended-entry variant of the x-height-entered ·Pea·Pea y6 off-junction contact.
 - signature: contact:qsPea.half.en-y5.ex-y6.en-ext-1:qsPea.full.en-y6.ex-y0:y7
-  why: The extended-entry twin; right ·Pea carries the baseline exit onward.
+  why: The extended-entry variant; right ·Pea carries the baseline exit onward.
 - signature: contact:qsPea.half.en-y5.ex-y6.en-ext-1:qsPea.half.en-y6.ex-y5:y7
-  why: The extended-entry twin; right half ·Pea exits at the x-height.
+  why: The extended-entry variant; right half ·Pea exits at the x-height.
 - signature: contact:qsPea.half.en-y5.ex-y6.en-ext-1:qsPea.half.en-y6.ex-y6:y7
-  why: The extended-entry twin; the chain continues.
+  why: The extended-entry variant; the chain continues.
 - signature: contact:qsPea.half.en-y6.ex-y6:qsPea.full.en-y6:y7
-  why: Mid-chain variant of the blessed ·Pea·Pea y6 corner (left ·Pea itself entered at y6).
+  why: Mid-chain variant of the blessed ·Pea·Pea y6 off-junction contact (left ·Pea itself entered at y6).
 - signature: contact:qsPea.half.en-y6.ex-y6:qsPea.full.en-y6.ex-y0:y7
   why: Mid-chain variant; right ·Pea carries the baseline exit onward.
 - signature: contact:qsPea.half.en-y6.ex-y6:qsPea.half.en-y6.ex-y5:y7
@@ -80,7 +80,7 @@
 - signature: contact:qsPea.half.en-y6.ex-y6:qsPea.half.en-y6.ex-y6:y7
   why: Mid-chain variant; the chain continues.
 - signature: contact:qsPea.half.ex-y6.locked:qsPea.full.en-y6:y7
-  why: ZWNJ-locked twin of the blessed ·Pea·Pea y6 corner.
+  why: ZWNJ-locked twin of the blessed ·Pea·Pea y6 off-junction contact.
 - signature: contact:qsPea.half.ex-y6.locked:qsPea.full.en-y6.ex-y0:y7
   why: ZWNJ-locked twin; right ·Pea carries the baseline exit onward.
 - signature: contact:qsPea.half.ex-y6.locked:qsPea.half.en-y6.ex-y5:y7
@@ -88,7 +88,7 @@
 - signature: contact:qsPea.half.ex-y6.locked:qsPea.half.en-y6.ex-y6:y7
   why: ZWNJ-locked twin; the chain continues.
 
-# The shipped font joins ·It·(Day+Utter) at the baseline, into the half ligature (baseline row E670:E653:E67A, junctions y0,lig). These signatures are for an x-height join into the full ligature, where ·It's bar runs beside the ligature's ·Day downstroke on every row from y0 to y4. qsIt refuses its x-height exit before ·Day and ·Day+Utter, so the rebuild does not make this join either, and these entries match no current finding.
+# The old font joins ·It·(Day+Utter) at the baseline, into the half ligature (baseline row E670:E653:E67A, junctions y0,lig). These signatures are for an x-height join into the full ligature, where ·It's bar runs beside the ligature's ·Day downstroke on every row from y0 to y4. qsIt refuses its x-height exit before ·Day and ·Day+Utter, so the rebuild does not make this join either, and these entries match no current finding.
 - signature: contact:qsIt.hapax.en-y0.ex-y5:qsDay_qsUtter.full.en-y5.ex-bind-pulled-back:y1
 - signature: contact:qsIt.hapax.en-y0.ex-y5:qsDay_qsUtter.full.en-y5.ex-y5.ex-ext-1:y1
 - signature: contact:qsIt.hapax.en-y0.ex-y5:qsDay_qsUtter.full.en-y5.ex-y5.ex-ext-1:y0
@@ -118,7 +118,7 @@
 - signature: contact:qsIt.hapax.en-y0.ex-y5:qsDay_qsUtter.full.en-y5:y4
   why: The pair in the `:y1` signature above also touches at y4, off the junction row.
 
-# ·It·Utter joins at the baseline in the shipped font (baseline row E670:E67A, junction y0, glyph qsIt.ex-y0.before-utter). ·It's bar touches ·Utter's left downstroke at y1, one row above the junction.
+# ·It·Utter joins at the baseline in the old font (baseline row E670:E67A, junction y0, glyph qsIt.ex-y0.before-utter). ·It's bar touches ·Utter's left downstroke at y1, one row above the junction.
 - signature: contact:qsIt.hapax.ex-y0.locked:qsUtter.mono.en-y0.ex-bind-pulled-back:y1
 - signature: contact:qsIt.hapax.ex-y0.locked:qsUtter.mono.en-y0.ex-y5.ex-ext-1:y1
 - signature: contact:qsIt.hapax.ex-y0.locked:qsUtter.mono.en-y0.ex-y5:y1
@@ -127,12 +127,12 @@
 - signature: contact:qsIt.hapax.ex-y0:qsUtter.mono.en-y0.ex-y5.ex-ext-1:y1
 - signature: contact:qsIt.hapax.ex-y0:qsUtter.mono.en-y0.ex-y5:y1
 - signature: contact:qsIt.hapax.ex-y0:qsUtter.mono.en-y0:y1
-# ·It entered at the x-height and exiting at the baseline with no exit extension meets ·Utter's left downstroke at y1, like the bare ·It·Utter corner.
+# ·It entered at the x-height and exiting at the baseline with no exit extension meets ·Utter's left downstroke at y1, like the bare ·It·Utter off-junction contact.
 - signature: contact:qsIt.hapax.en-y5.ex-y0:qsUtter.mono.en-y0.ex-y5.ex-ext-1:y1
 - signature: contact:qsIt.hapax.en-y5.ex-y0:qsUtter.mono.en-y0.ex-y5:y1
 - signature: contact:qsIt.hapax.en-y5.ex-y0:qsUtter.mono.en-y0:y1
 
-# The rebuild joins grounded-loop ·May to the half ·Day·Utter ligature at the baseline, a join the shipped font does not make (it joins ·May·(Day+Utter) at the x-height, as in the next block). ·May's descender and the ligature's ·Day descender sit side by side below the baseline.
+# The rebuild joins grounded-loop ·May to the half ·Day·Utter ligature at the baseline, a join the old font does not make (it joins ·May·(Day+Utter) at the x-height, as in the next block). ·May's descender and the ligature's ·Day descender sit side by side below the baseline.
 - signature: contact:qsMay.grounded-loop.en-y5.ex-y0.en-ext-1:qsDay_qsUtter.half.en-y0.ex-bind-pulled-back:y-2
 - signature: contact:qsMay.grounded-loop.en-y5.ex-y0.en-ext-1:qsDay_qsUtter.half.en-y0.ex-y5.ex-ext-1:y-2
 - signature: contact:qsMay.grounded-loop.en-y5.ex-y0.en-ext-1:qsDay_qsUtter.half.en-y0.ex-y5.ex-ext-1:y-1
@@ -153,7 +153,7 @@
 - signature: contact:qsMay.grounded-loop.en-y5.ex-y0:qsDay_qsUtter.half.en-y0:y-1
 - signature: contact:qsMay.grounded-loop.en-y5.ex-y0:qsDay_qsUtter.half.en-y0:y-2
   why: The pair in the `:y-1` signature above also touches at y-2, off the junction row.
-# ·May·(Day+Utter) joins at the x-height in the shipped font (baseline row E665:E653:E67A, junctions y5,lig); the two descenders touch below the baseline.
+# ·May·(Day+Utter) joins at the x-height in the old font (baseline row E665:E653:E67A, junctions y5,lig); the two descenders touch below the baseline.
 - signature: contact:qsMay.loop.ex-y5.locked:qsDay_qsUtter.full.en-y5.ex-bind-pulled-back:y-2
 - signature: contact:qsMay.loop.ex-y5.locked:qsDay_qsUtter.full.en-y5.ex-y5.ex-ext-1:y-2
 - signature: contact:qsMay.loop.ex-y5.locked:qsDay_qsUtter.full.en-y5.ex-y5.ex-ext-1:y-1
@@ -187,7 +187,7 @@
 - signature: contact:qsOy.hapax.ex-y0:qsIt.hapax.en-y0.ex-y0.ex-ext-1:y1
 - signature: contact:qsOy.hapax.ex-y0:qsIt.hapax.en-y0.ex-y5:y1
 
-# ·Oy·Utter joins at the baseline in the shipped font (baseline row E679:E67A, junction y0). ·Oy's tail touches ·Utter's left downstroke at y1, the same corner as the blessed ·Oy·It.
+# ·Oy·Utter joins at the baseline in the old font (baseline row E679:E67A, junction y0). ·Oy's tail touches ·Utter's left downstroke at y1, the same off-junction contact as the blessed ·Oy·It.
 - signature: contact:qsOy.hapax.en-y5.ex-y0:qsUtter.mono.en-y0.ex-bind-pulled-back:y1
 - signature: contact:qsOy.hapax.en-y5.ex-y0:qsUtter.mono.en-y0.ex-y5.ex-ext-1:y1
 - signature: contact:qsOy.hapax.en-y5.ex-y0:qsUtter.mono.en-y0.ex-y5:y1
@@ -201,7 +201,7 @@
 - signature: contact:qsOy.hapax.ex-y0:qsUtter.mono.en-y0.ex-y5:y1
 - signature: contact:qsOy.hapax.ex-y0:qsUtter.mono.en-y0:y1
 
-# ·Pea·Utter joins at the baseline in the shipped font (baseline row E650:E67A, junction y0). ·Pea's right downstroke touches ·Utter's left downstroke at y1.
+# ·Pea·Utter joins at the baseline in the old font (baseline row E650:E67A, junction y0). ·Pea's right downstroke touches ·Utter's left downstroke at y1.
 - signature: contact:qsPea.full.en-y5.ex-y0:qsUtter.mono.en-y0.ex-bind-pulled-back:y1
 - signature: contact:qsPea.full.en-y5.ex-y0:qsUtter.mono.en-y0.ex-y5.ex-ext-1:y1
 - signature: contact:qsPea.full.en-y5.ex-y0:qsUtter.mono.en-y0.ex-y5:y1
@@ -214,7 +214,7 @@
 - signature: contact:qsPea.full.ex-y0:qsUtter.mono.en-y0.ex-y5.ex-ext-1:y1
 - signature: contact:qsPea.full.ex-y0:qsUtter.mono.en-y0.ex-y5:y1
 - signature: contact:qsPea.full.ex-y0:qsUtter.mono.en-y0:y1
-# ·Pea entered at y6 keeps its baseline exit into ·Utter at the user's request; the shipped font breaks there (baseline row E650:E650:E67A). ·Pea's right downstroke touches ·Utter's left downstroke at y1, the same corner as the x-height-entered ·Pea.
+# ·Pea entered at y6 keeps its baseline exit into ·Utter at the user's request; the old font breaks there (baseline row E650:E650:E67A). ·Pea's right downstroke touches ·Utter's left downstroke at y1, the same off-junction contact as the x-height-entered ·Pea.
 - signature: contact:qsPea.full.en-y6.ex-y0:qsUtter.mono.en-y0:y1
 - signature: contact:qsPea.full.en-y6.ex-y0:qsUtter.mono.en-y0.ex-y5.ex-ext-1:y1
 - signature: contact:qsPea.full.en-y6.ex-y0:qsUtter.mono.en-y0.ex-y5:y1
@@ -223,7 +223,7 @@
 - signature: contact:qsTea.full.en-y5.ex-y0:qsUtter.mono.en-y0.ex-y5.ex-ext-1:y1
 - signature: contact:qsTea.full.en-y5.ex-y0:qsUtter.mono.en-y0.ex-y5:y1
 - signature: contact:qsTea.full.en-y5.ex-y0:qsUtter.mono.en-y0:y1
-# ·Tea·Utter joins at the baseline in the shipped font (baseline row E652:E67A, junction y0, glyph qsTea.ex-y0). The ·Tea bar touches ·Utter's left downstroke at y1.
+# ·Tea·Utter joins at the baseline in the old font (baseline row E652:E67A, junction y0, glyph qsTea.ex-y0). The ·Tea bar touches ·Utter's left downstroke at y1.
 - signature: contact:qsTea.full.ex-y0.locked:qsUtter.mono.en-y0.ex-bind-pulled-back:y1
 - signature: contact:qsTea.full.ex-y0.locked:qsUtter.mono.en-y0.ex-y5.ex-ext-1:y1
 - signature: contact:qsTea.full.ex-y0.locked:qsUtter.mono.en-y0.ex-y5:y1
@@ -233,7 +233,7 @@
 - signature: contact:qsTea.full.ex-y0:qsUtter.mono.en-y0.ex-y5:y1
 - signature: contact:qsTea.full.ex-y0:qsUtter.mono.en-y0:y1
 
-# The ·Tea·Oy ligature joins ·It and ·Utter at the baseline in the shipped font (baseline rows E652:E679:E670 and E652:E679:E67A, junction y0). The ligature's ·Oy tail touches ·It's bar at y1 and y2 and ·Utter's left downstroke at y1, the same corners as the blessed ·Tea·Oy·It.
+# The ·Tea·Oy ligature joins ·It and ·Utter at the baseline in the old font (baseline rows E652:E679:E670 and E652:E679:E67A, junction y0). The ligature's ·Oy tail touches ·It's bar at y1 and y2 and ·Utter's left downstroke at y1, the same off-junction contacts as the blessed ·Tea·Oy·It.
 - signature: contact:qsTea_qsOy.hapax.ex-y0:qsIt.hapax.en-y0.ex-y0.ex-ext-1:y1
 - signature: contact:qsTea_qsOy.hapax.ex-y0:qsIt.hapax.en-y0.ex-y0.ex-ext-1:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
@@ -245,7 +245,7 @@
 - signature: contact:qsTea_qsOy.hapax.ex-y0:qsUtter.mono.en-y0.ex-y5:y1
 - signature: contact:qsTea_qsOy.hapax.ex-y0:qsUtter.mono.en-y0:y1
 
-# ·Oy·It joins at the baseline in the shipped font (baseline row E679:E670, junction y0). ·Oy's tail is one column left of ·It's bar at y1 whatever ·It's exit, the same corner as the bare ·Oy·It, and the entered or entry-extended ·Oy's tail touches the bar at y2 as well.
+# ·Oy·It joins at the baseline in the old font (baseline row E679:E670, junction y0). ·Oy's tail is one column left of ·It's bar at y1 whatever ·It's exit, the same off-junction contact as the bare ·Oy·It, and the entered or entry-extended ·Oy's tail touches the bar at y2 as well.
 - signature: contact:qsOy.hapax.en-y5.ex-y0.en-ext-1:qsIt.hapax.en-y0:y1
 - signature: contact:qsOy.hapax.en-y5.ex-y0.en-ext-1:qsIt.hapax.en-y0:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
@@ -262,17 +262,17 @@
 - signature: contact:qsOy.hapax.ex-y0.locked:qsIt.hapax.en-y0.ex-y0:y1
 
 - signature: contact:qsOy.hapax.en-y5.ex-y0.en-ext-1:qsTea.full.en-y0:y1
-  why: ·Oy·Tea joins at the baseline in the shipped font (baseline row E679:E652, junction y0). The entered, entry-extended ·Oy has the same tail-against-bar corner as the blessed ·Oy·It.
+  why: ·Oy·Tea joins at the baseline in the old font (baseline row E679:E652, junction y0). The entered, entry-extended ·Oy has the same tail beside a vertical stroke as the blessed ·Oy·It.
 - signature: contact:qsOy.hapax.en-y5.ex-y0.en-ext-1:qsTea.full.en-y0:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 
-# ·Oy·Utter joins at the baseline in the shipped font (baseline row E679:E67A, junction y0). The entered, entry-extended ·Oy's tail touches ·Utter's baseline-entry stroke at y1.
+# ·Oy·Utter joins at the baseline in the old font (baseline row E679:E67A, junction y0). The entered, entry-extended ·Oy's tail touches ·Utter's baseline-entry stroke at y1.
 - signature: contact:qsOy.hapax.en-y5.ex-y0.en-ext-1:qsUtter.mono.en-y0:y1
 - signature: contact:qsOy.hapax.en-y5.ex-y0.en-ext-1:qsUtter.mono.en-y0.ex-bind-pulled-back:y1
 - signature: contact:qsOy.hapax.en-y5.ex-y0.en-ext-1:qsUtter.mono.en-y0.ex-y5:y1
 - signature: contact:qsOy.hapax.en-y5.ex-y0.en-ext-1:qsUtter.mono.en-y0.ex-y5.ex-ext-1:y1
 
-# ·Pea·Utter joins at the baseline in the shipped font (baseline row E650:E67A, junction y0). The entered, entry-extended full ·Pea touches ·Utter at y1.
+# ·Pea·Utter joins at the baseline in the old font (baseline row E650:E67A, junction y0). The entered, entry-extended full ·Pea touches ·Utter at y1.
 - signature: contact:qsPea.full.en-y5.ex-y0.en-ext-1:qsUtter.mono.en-y0:y1
 - signature: contact:qsPea.full.en-y5.ex-y0.en-ext-1:qsUtter.mono.en-y0.ex-bind-pulled-back:y1
 - signature: contact:qsPea.full.en-y5.ex-y0.en-ext-1:qsUtter.mono.en-y0.ex-y5:y1
@@ -298,18 +298,18 @@
 - signature: contact:qsIt.hapax.en-y0.ex-y0:qsIt.hapax.en-y0.ex-y0:y5
   why: The pair in the `:y1` signature above also touches at y5, off the junction row.
 
-# ·It entered at the baseline joins ·Utter at the baseline under ss04, as the shipped font does (ss04 baseline row E666:E670:E67A, junctions y0,y0). The ·It with no exit extension touches ·Utter's left downstroke at y1 whatever ·Utter's exit. The ex-y5.ex-ext-1 follower is the ·Utter that reaches toward a following ·Fee (baseline row E666:E670:E67A:E658); its extension lengthens the x-height connector and leaves the y1 corner alone. The block also holds the ·Tea·Oy ligature before that same ss04 ·It, whose tail touches ·It's bar at y1 and y2, as it does before the ·It with no exit.
+# ·It entered at the baseline joins ·Utter at the baseline under ss04, as the old font does (ss04 baseline row E666:E670:E67A, junctions y0,y0). The ·It with no exit extension touches ·Utter's left downstroke at y1 whatever ·Utter's exit. The ex-y5.ex-ext-1 follower is the ·Utter that reaches toward a following ·Fee (baseline row E666:E670:E67A:E658); its extension lengthens the x-height connector and leaves the y1 off-junction contact alone. The block also holds the ·Tea·Oy ligature before that same ss04 ·It, whose tail touches ·It's bar at y1 and y2, as it does before the ·It with no exit.
 - signature: contact:qsIt.hapax.en-y0.ex-y0:qsUtter.mono.en-y0:y1
 - signature: contact:qsIt.hapax.en-y0.ex-y0:qsUtter.mono.en-y0.ex-bind-pulled-back:y1
 - signature: contact:qsIt.hapax.en-y0.ex-y0:qsUtter.mono.en-y0.ex-y5:y1
 - signature: contact:qsIt.hapax.en-y0.ex-y0:qsUtter.mono.en-y0.ex-y5.ex-ext-1:y1
 
 - signature: contact:qsTea_qsOy.hapax.ex-y0:qsIt.hapax.en-y0.ex-y0:y1
-  why: ·Tea·Oy ligature into ·It joins at the baseline in the shipped font (baseline row E652:E679:E670, junction y0). The ligature's ·Oy tail against ·It's bar is the blessed ·Tea·Oy·It corner, here with ·It also exiting at the baseline under ss04.
+  why: ·Tea·Oy ligature into ·It joins at the baseline in the old font (baseline row E652:E679:E670, junction y0). The ligature's ·Oy tail against ·It's bar is the blessed ·Tea·Oy·It off-junction contact, here with ·It also exiting at the baseline under ss04.
 - signature: contact:qsTea_qsOy.hapax.ex-y0:qsIt.hapax.en-y0.ex-y0:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 
-# ·Low's x-height exit against a follower whose x-height entry starts a downstroke. ·Low·Day, ·Low·Day·Utter, and ·Low·It join at the x-height in the shipped font (baseline rows E667:E653, E667:E653:E67A, and E667:E670, junction y5), and ·Low's riser at y4 is one column left of the follower's downstroke. There is one signature per ·Low variant (bare, entered, ZWNJ-locked) and follower variant; the follower's exits and exit extensions do not move its entry column.
+# ·Low's x-height exit against a follower whose x-height entry starts a downstroke. ·Low·Day, ·Low·Day·Utter, and ·Low·It join at the x-height in the old font (baseline rows E667:E653, E667:E653:E67A, and E667:E670, junction y5), and ·Low's riser at y4 is one column left of the follower's downstroke. There is one signature per ·Low variant (bare, entered, ZWNJ-locked) and follower variant; the follower's exits and exit extensions do not move its entry column.
 - signature: contact:qsLow.hapax.ex-y5:qsDay.full.en-y5:y4
 - signature: contact:qsLow.hapax.ex-y5:qsDay.full.en-y5.ex-y0:y4
 - signature: contact:qsLow.hapax.en-y0.ex-y5:qsDay.full.en-y5:y4
@@ -335,16 +335,16 @@
 - signature: contact:qsLow.hapax.ex-y5.locked:qsIt.hapax.en-y5.ex-y0:y4
 - signature: contact:qsLow.hapax.ex-y5.locked:qsIt.hapax.en-y5.ex-y0.ex-ext-1:y4
 
-# Declined-exit terminals for ·Utter, ·I, ·No, ·Day, ·Day·Utter, ·May, and ·Ah (E-DANGLE, "declined side has reaching ink and no unjoined binding"). The shipped font draws each of these exit terminals whether or not the exit joins, glyph_data/quikscript.yaml has no exit-side unjoined shape for them, and their runes declare no exit `unjoined:`. The terminal pixel has no ink directly above or below it, so `geometry.verify_unjoined_safe` does not accept it. These entries record the terminal as part of the letter. There is one signature per stance, entry, lock, and extension variant because the gate checks each cell separately; all show the same terminal.
+# Declined-exit terminals for ·Utter, ·I, ·No, ·Day, ·Day·Utter, ·May, and ·Ah (E-DANGLE, "declined side has reaching ink and no unjoined binding"). The old font draws each of these exit terminals whether or not the exit joins, glyph_data/quikscript.yaml has no exit-side unjoined shape for them, and their runes declare no exit `unjoined:`. The terminal pixel has no ink directly above or below it, so `geometry.verify_unjoined_safe` does not accept it. These entries record the terminal as part of the letter. There is one signature per stance, entry, lock, and extension variant because the gate checks each cell separately; all show the same terminal.
 - signature: dangle:qsUtter.mono:exit:x-height
-  why: ·Utter's mono x-height terminal (top-right nub at y5), drawn unconditionally in the shipped font; the declined exit keeps it.
+  why: ·Utter's mono x-height terminal (top-right nub at y5), drawn unconditionally in the old font; the declined exit keeps it.
 - signature: dangle:qsUtter.mono.en-y0:exit:x-height
   why: ·Utter entered at the baseline keeps the same mono x-height terminal on a declined exit.
 - signature: dangle:qsUtter.mono.locked:exit:x-height
   why: The ZWNJ-locked twin of ·Utter's mono x-height terminal; identical drawing.
 
 - signature: dangle:qsI.loop:exit:x-height
-  why: ·I's loop x-height terminal (the top-right flick at y5, reached diagonally from the loop's right side), drawn in every context by the shipped font, which has no unjoined form of ·I; the declined exit keeps it.
+  why: ·I's loop x-height terminal (the top-right flick at y5, reached diagonally from the loop's right side), drawn in every context by the old font, which has no unjoined form of ·I; the declined exit keeps it.
 - signature: dangle:qsI.loop.en-y0:exit:x-height
   why: ·I entered at the baseline keeps the same loop x-height terminal on a declined exit.
 - signature: dangle:qsI.loop.locked:exit:x-height
@@ -352,9 +352,9 @@
 - signature: dangle:qsI.smaller-loop.en-y0:exit:x-height
   why: The smaller loop that ·I uses after some baseline joins (qsI's `prefer` records name the letters) has the same x-height terminal; the smaller loop leaves the flick where it is.
 
-# ·J'ai's baseline bar and the ·J'ai·Utter ligature's crown are part of the letter whether or not the exit joins. The shipped font draws bare qsJai and qsJai_qsUtter with the full bar and crown at every word edge and before every non-joining follower, and quikscript.yaml has no unjoined form of either. The last pixel of the bar, and of the crown, has no ink directly above or below it, so neither passes the `unjoined: safe` check. There is one signature per entry, contraction, and lock variant; all show the same terminal.
+# ·J'ai's baseline bar and the ·J'ai·Utter ligature's crown are part of the letter whether or not the exit joins. The old font draws bare qsJai and qsJai_qsUtter with the full bar and crown at every word edge and before every non-joining follower, and quikscript.yaml has no unjoined form of either. The last pixel of the bar, and of the crown, has no ink directly above or below it, so neither passes the `unjoined: safe` check. There is one signature per entry, contraction, and lock variant; all show the same terminal.
 - signature: dangle:qsJai.hapax:exit:baseline
-  why: ·J'ai's baseline bar terminal, drawn unconditionally in the shipped font; the declined exit keeps it.
+  why: ·J'ai's baseline bar terminal, drawn unconditionally in the old font; the declined exit keeps it.
 - signature: dangle:qsJai.hapax.en-y5:exit:baseline
   why: ·J'ai entered at the crown keeps the same bar terminal on a declined exit.
 - signature: dangle:qsJai.hapax.en-y5.en-con-1:exit:baseline
@@ -364,7 +364,7 @@
 - signature: dangle:qsJai.hapax.locked:exit:baseline
   why: The ZWNJ-locked twin of ·J'ai's bar terminal; identical drawing.
 - signature: dangle:qsJai_qsUtter.hapax:exit:x-height
-  why: The ·J'ai·Utter ligature's crown terminal (·Utter's nub at y5), drawn unconditionally in the shipped font; the declined exit keeps it.
+  why: The ·J'ai·Utter ligature's crown terminal (·Utter's nub at y5), drawn unconditionally in the old font; the declined exit keeps it.
 - signature: dangle:qsJai_qsUtter.hapax.en-y5:exit:x-height
   why: The ligature entered at the crown keeps the same terminal on a declined exit.
 - signature: dangle:qsJai_qsUtter.hapax.en-y5.en-con-1:exit:x-height
@@ -374,9 +374,9 @@
 - signature: dangle:qsJai_qsUtter.hapax.locked:exit:x-height
   why: The ZWNJ-locked twin of the ligature's crown terminal; identical drawing.
 
-# ·Awe's baseline tail is part of the letter whether or not the exit joins. The shipped font draws bare qsAwe with the full tail at every word edge and before every non-joining follower, and quikscript.yaml has no unjoined form. The tail's last pixel has no ink directly above or below it, so it does not pass the `unjoined: safe` check. There is one signature per entry, extension, and lock variant; all show the same terminal.
+# ·Awe's baseline tail is part of the letter whether or not the exit joins. The old font draws bare qsAwe with the full tail at every word edge and before every non-joining follower, and quikscript.yaml has no unjoined form. The tail's last pixel has no ink directly above or below it, so it does not pass the `unjoined: safe` check. There is one signature per entry, extension, and lock variant; all show the same terminal.
 - signature: dangle:qsAwe.hapax:exit:baseline
-  why: ·Awe's baseline tail terminal, drawn unconditionally in the shipped font; the declined exit keeps it.
+  why: ·Awe's baseline tail terminal, drawn unconditionally in the old font; the declined exit keeps it.
 - signature: dangle:qsAwe.hapax.en-y5:exit:baseline
   why: ·Awe entered at the x-height keeps the same tail terminal on a declined exit.
 - signature: dangle:qsAwe.hapax.en-y5.en-ext-1:exit:baseline
@@ -384,9 +384,9 @@
 - signature: dangle:qsAwe.hapax.locked:exit:baseline
   why: The ZWNJ-locked twin of ·Awe's tail terminal; identical drawing.
 
-# ·Eight's diagonal tail terminal is part of the letter, as ·Awe's is. The shipped font draws bare qsEight with the full tail at every word edge and before every non-joining follower, and quikscript.yaml has no unjoined form. The tail's last pixel is reached diagonally and has no ink directly above or below it, so it does not pass the `unjoined: safe` check. There is one signature per entry, extension, and lock variant; all show the same terminal.
+# ·Eight's diagonal tail terminal is part of the letter, as ·Awe's is. The old font draws bare qsEight with the full tail at every word edge and before every non-joining follower, and quikscript.yaml has no unjoined form. The tail's last pixel is reached diagonally and has no ink directly above or below it, so it does not pass the `unjoined: safe` check. There is one signature per entry, extension, and lock variant; all show the same terminal.
 - signature: dangle:qsEight.normal-sized-loop:exit:baseline
-  why: ·Eight's diagonal tail terminal, drawn unconditionally in the shipped font; the declined exit keeps it.
+  why: ·Eight's diagonal tail terminal, drawn unconditionally in the old font; the declined exit keeps it.
 - signature: dangle:qsEight.normal-sized-loop.en-y5:exit:baseline
   why: ·Eight entered at the x-height keeps the same tail terminal on a declined exit.
 - signature: dangle:qsEight.normal-sized-loop.en-y5.en-ext-1:exit:baseline
@@ -394,143 +394,143 @@
 - signature: dangle:qsEight.normal-sized-loop.locked:exit:baseline
   why: The ZWNJ-locked twin of ·Eight's tail terminal; identical drawing.
 
-# ·Eight's bowl closes one column left of ·I's loop. On the ·Eight·I baseline join (baseline row E673:E675, junction y0) the bowl's right side at y4 touches the loop's left side, as in the shipped font. There is one signature per ·Eight exit variant and ·I onward-exit variant; the corner is the same in all of them.
+# ·Eight's bowl closes one column left of ·I's loop. On the ·Eight·I baseline join (baseline row E673:E675, junction y0) the bowl's right side at y4 touches the loop's left side, as in the old font. There is one signature per ·Eight exit variant and ·I onward-exit variant; the off-junction contact is the same in all of them.
 # The bare exit cell against each ·I variant.
 - signature: contact:qsEight.normal-sized-loop.ex-y0:qsI.loop.en-y0:y4
-  why: ·Eight·I joins at the baseline in the shipped font (baseline row E673:E675, junction y0); ·Eight's bowl at y4 is one column left of ·I's loop, the corner the shipped font draws.
+  why: ·Eight·I joins at the baseline in the old font (baseline row E673:E675, junction y0); ·Eight's bowl at y4 is one column left of ·I's loop, the off-junction contact the old font draws.
 - signature: contact:qsEight.normal-sized-loop.ex-y0:qsI.loop.en-y0.ex-y5:y4
-  why: The same corner with ·I carrying its x-height exit onward; the exit is on the loop's right and leaves the left side alone.
+  why: The same off-junction contact with ·I carrying its x-height exit onward; the exit is on the loop's right and leaves the left side alone.
 - signature: contact:qsEight.normal-sized-loop.ex-y0:qsI.loop.en-y0.ex-y5.ex-ext-1:y4
-  why: The same corner with ·I's onward exit extended by one; the extension lengthens the y5 connector, not the loop's left side.
+  why: The same off-junction contact with ·I's onward exit extended by one; the extension lengthens the y5 connector, not the loop's left side.
 # The ZWNJ-locked twins; the locked cell draws what the bare one draws.
 - signature: contact:qsEight.normal-sized-loop.ex-y0.locked:qsI.loop.en-y0:y4
-  why: The ZWNJ-locked twin of the blessed bare ·Eight·I corner; identical drawing.
+  why: The ZWNJ-locked twin of the blessed bare ·Eight·I off-junction contact; identical drawing.
 - signature: contact:qsEight.normal-sized-loop.ex-y0.locked:qsI.loop.en-y0.ex-y5:y4
-  why: The locked twin with ·I exiting onward; identical drawing at the corner.
+  why: The locked twin with ·I exiting onward; identical drawing at the off-junction contact.
 - signature: contact:qsEight.normal-sized-loop.ex-y0.locked:qsI.loop.en-y0.ex-y5.ex-ext-1:y4
-  why: The locked twin with ·I's onward exit extended; identical drawing at the corner.
+  why: The locked twin with ·I's onward exit extended; identical drawing at the off-junction contact.
 # The entered variants (·May·Eight·I, baseline row E665:E673:E675); the x-height entry touches the entry bar and leaves the bowl's right side alone.
 - signature: contact:qsEight.normal-sized-loop.en-y5.ex-y0:qsI.loop.en-y0:y4
-  why: The entered variant of the blessed ·Eight·I corner.
+  why: The entered variant of the blessed ·Eight·I off-junction contact.
 - signature: contact:qsEight.normal-sized-loop.en-y5.ex-y0:qsI.loop.en-y0.ex-y5:y4
-  why: The entered variant with ·I exiting onward; the corner is unchanged.
+  why: The entered variant with ·I exiting onward; the off-junction contact is unchanged.
 - signature: contact:qsEight.normal-sized-loop.en-y5.ex-y0:qsI.loop.en-y0.ex-y5.ex-ext-1:y4
-  why: The entered variant with ·I's onward exit extended; the corner is unchanged.
+  why: The entered variant with ·I's onward exit extended; the off-junction contact is unchanged.
 # The entry-extended variants (after ·Pea, ·Tea, or ·He, as in baseline row E652:E673:E675); the extension lengthens the entry bar and nothing else.
 - signature: contact:qsEight.normal-sized-loop.en-y5.ex-y0.en-ext-1:qsI.loop.en-y0:y4
-  why: The entry-extended variant of the blessed ·Eight·I corner.
+  why: The entry-extended variant of the blessed ·Eight·I off-junction contact.
 - signature: contact:qsEight.normal-sized-loop.en-y5.ex-y0.en-ext-1:qsI.loop.en-y0.ex-y5:y4
-  why: The entry-extended variant with ·I exiting onward; the corner is unchanged.
+  why: The entry-extended variant with ·I exiting onward; the off-junction contact is unchanged.
 - signature: contact:qsEight.normal-sized-loop.en-y5.ex-y0.en-ext-1:qsI.loop.en-y0.ex-y5.ex-ext-1:y4
-  why: The entry-extended variant with ·I's onward exit extended; the corner is unchanged.
+  why: The entry-extended variant with ·I's onward exit extended; the off-junction contact is unchanged.
 
-# ·Ox's vertical tail drops from y1 to the baseline one column left of each baseline follower's left downstroke. This is the tail-against-bar corner blessed for ·Oy above, and the shipped font draws it on every ·Ox baseline join (E678:E652, E678:E670, E678:E67A, and E678:E67B all have junction y0).
+# ·Ox's vertical tail drops from y1 to the baseline one column left of each baseline follower's left downstroke. This is the tail beside a vertical stroke blessed for ·Oy above, and the old font draws it on every ·Ox baseline join (E678:E652, E678:E670, E678:E67A, and E678:E67B all have junction y0).
 # The bare exit cell against each baseline follower.
 - signature: contact:qsOx.hapax.ex-y0:qsTea.full.en-y0:y1
-  why: ·Ox·Tea joins at the baseline in the shipped font (baseline row E678:E652, junction y0); ·Ox's vertical tail at y1 is one column left of ·Tea's bar, the corner the shipped font draws.
+  why: ·Ox·Tea joins at the baseline in the old font (baseline row E678:E652, junction y0); ·Ox's vertical tail at y1 is one column left of ·Tea's bar, the off-junction contact the old font draws.
 - signature: contact:qsOx.hapax.ex-y0:qsIt.hapax.en-y0:y1
-  why: ·Ox·It joins at the baseline in the shipped font (baseline row E678:E670); the same tail-against-bar corner as ·Ox·Tea.
+  why: ·Ox·It joins at the baseline in the old font (baseline row E678:E670); the same tail beside a vertical stroke as ·Ox·Tea.
 - signature: contact:qsOx.hapax.ex-y0:qsIt.hapax.en-y0.ex-y0:y1
-  why: The blessed ·Ox·It corner with ·It carrying its own baseline exit onward; the exit side leaves the bar at y1 where it is.
+  why: The blessed ·Ox·It off-junction contact with ·It carrying its own baseline exit onward; the exit side leaves the bar at y1 where it is.
 - signature: contact:qsOx.hapax.ex-y0:qsIt.hapax.en-y0.ex-y5:y1
-  why: The blessed ·Ox·It corner with ·It exiting at the x-height instead; the exit adds ink at y5 only.
+  why: The blessed ·Ox·It off-junction contact with ·It exiting at the x-height instead; the exit adds ink at y5 only.
 - signature: contact:qsOx.hapax.ex-y0:qsIt.hapax.en-y0.ex-y5.ex-ext-1:y1
-  why: The blessed ·Ox·It corner with ·It's x-height exit extended toward a following ·J'ai (baseline row E678:E670:E65D); the extension adds ink at y5 only, so the corner is unchanged.
+  why: The blessed ·Ox·It off-junction contact with ·It's x-height exit extended toward a following ·J'ai (baseline row E678:E670:E65D); the extension adds ink at y5 only, so the off-junction contact is unchanged.
 - signature: contact:qsOx.hapax.ex-y0:qsUtter.mono.en-y0:y1
-  why: ·Ox·Utter joins at the baseline in the shipped font (baseline row E678:E67A); ·Ox's tail touches ·Utter's left downstroke at y1, the same corner as the blessed ·Ox·It.
+  why: ·Ox·Utter joins at the baseline in the old font (baseline row E678:E67A); ·Ox's tail touches ·Utter's left downstroke at y1, the same off-junction contact as the blessed ·Ox·It.
 - signature: contact:qsOx.hapax.ex-y0:qsUtter.mono.en-y0.ex-y5:y1
-  why: The blessed ·Ox·Utter corner with ·Utter exiting at the x-height; the crown's exit does not move its left downstroke.
+  why: The blessed ·Ox·Utter off-junction contact with ·Utter exiting at the x-height; the crown's exit does not move its left downstroke.
 - signature: contact:qsOx.hapax.ex-y0:qsUtter.mono.en-y0.ex-y5.ex-ext-1:y1
-  why: The blessed ·Ox·Utter corner with ·Utter's x-height exit extended by one; the extension touches the crown only.
+  why: The blessed ·Ox·Utter off-junction contact with ·Utter's x-height exit extended by one; the extension touches the crown only.
 - signature: contact:qsOx.hapax.ex-y0:qsOut.normal.en-y0:y1
-  why: ·Ox·Out joins at the baseline in the shipped font (baseline row E678:E67B); ·Ox's tail touches ·Out's left upstroke at y1, the same corner as the blessed ·Ox·Utter.
+  why: ·Ox·Out joins at the baseline in the old font (baseline row E678:E67B); ·Ox's tail touches ·Out's left upstroke at y1, the same off-junction contact as the blessed ·Ox·Utter.
 - signature: contact:qsOx.hapax.ex-y0:qsOut.swept-up.en-y0.ex-y5:y1
-  why: The blessed ·Ox·Out corner on the swept-up stance that carries an x-height exit; the sweep leaves the left upstroke where it is.
+  why: The blessed ·Ox·Out off-junction contact on the swept-up stance that carries an x-height exit; the sweep leaves the left upstroke where it is.
 - signature: contact:qsOx.hapax.ex-y0:qsOut.swept-up.en-y0.ex-y5.ex-ext-1:y1
-  why: The swept-up ·Ox·Out corner with its x-height exit extended by one; the extension touches the sweep only.
+  why: The swept-up ·Ox·Out off-junction contact with its x-height exit extended by one; the extension touches the sweep only.
 - signature: contact:qsOx.hapax.ex-y0:qsOut_qsTea.hapax.en-y0:y1
-  why: ·Ox into the ·Out·Tea ligature joins at the baseline in the shipped font (baseline row E678:E67B:E652); the ligature's entry is ·Out's, so the corner is the blessed ·Ox·Out one.
+  why: ·Ox into the ·Out·Tea ligature joins at the baseline in the old font (baseline row E678:E67B:E652); the ligature's entry is ·Out's, so the off-junction contact is the blessed ·Ox·Out one.
 
 # The ZWNJ-locked twins; the locked cell draws what the bare one draws.
 - signature: contact:qsOx.hapax.ex-y0.locked:qsTea.full.en-y0:y1
-  why: The ZWNJ-locked twin of the blessed ·Ox·Tea corner; the drawing is identical to the bare cell's.
+  why: The ZWNJ-locked twin of the blessed ·Ox·Tea off-junction contact; the drawing is identical to the bare cell's.
 - signature: contact:qsOx.hapax.ex-y0.locked:qsIt.hapax.en-y0:y1
-  why: The ZWNJ-locked twin of the blessed ·Ox·It corner; the drawing is identical to the bare cell's.
+  why: The ZWNJ-locked twin of the blessed ·Ox·It off-junction contact; the drawing is identical to the bare cell's.
 - signature: contact:qsOx.hapax.ex-y0.locked:qsIt.hapax.en-y0.ex-y0:y1
-  why: The ZWNJ-locked twin of the blessed ·Ox·It corner; the drawing is identical to the bare cell's.
+  why: The ZWNJ-locked twin of the blessed ·Ox·It off-junction contact; the drawing is identical to the bare cell's.
 - signature: contact:qsOx.hapax.ex-y0.locked:qsIt.hapax.en-y0.ex-y5:y1
-  why: The ZWNJ-locked twin of the blessed ·Ox·It corner; the drawing is identical to the bare cell's.
+  why: The ZWNJ-locked twin of the blessed ·Ox·It off-junction contact; the drawing is identical to the bare cell's.
 - signature: contact:qsOx.hapax.ex-y0.locked:qsIt.hapax.en-y0.ex-y5.ex-ext-1:y1
-  why: The ZWNJ-locked twin of the blessed ·Ox·It corner; the drawing is identical to the bare cell's.
+  why: The ZWNJ-locked twin of the blessed ·Ox·It off-junction contact; the drawing is identical to the bare cell's.
 - signature: contact:qsOx.hapax.ex-y0.locked:qsUtter.mono.en-y0:y1
-  why: The ZWNJ-locked twin of the blessed ·Ox·Utter corner; the drawing is identical to the bare cell's.
+  why: The ZWNJ-locked twin of the blessed ·Ox·Utter off-junction contact; the drawing is identical to the bare cell's.
 - signature: contact:qsOx.hapax.ex-y0.locked:qsUtter.mono.en-y0.ex-y5:y1
-  why: The ZWNJ-locked twin of the blessed ·Ox·Utter corner; the drawing is identical to the bare cell's.
+  why: The ZWNJ-locked twin of the blessed ·Ox·Utter off-junction contact; the drawing is identical to the bare cell's.
 - signature: contact:qsOx.hapax.ex-y0.locked:qsUtter.mono.en-y0.ex-y5.ex-ext-1:y1
-  why: The ZWNJ-locked twin of the blessed ·Ox·Utter corner; the drawing is identical to the bare cell's.
+  why: The ZWNJ-locked twin of the blessed ·Ox·Utter off-junction contact; the drawing is identical to the bare cell's.
 - signature: contact:qsOx.hapax.ex-y0.locked:qsOut.normal.en-y0:y1
-  why: The ZWNJ-locked twin of the blessed ·Ox·Out corner; the drawing is identical to the bare cell's.
+  why: The ZWNJ-locked twin of the blessed ·Ox·Out off-junction contact; the drawing is identical to the bare cell's.
 - signature: contact:qsOx.hapax.ex-y0.locked:qsOut.swept-up.en-y0.ex-y5:y1
-  why: The ZWNJ-locked twin of the blessed ·Ox·Out corner; the drawing is identical to the bare cell's.
+  why: The ZWNJ-locked twin of the blessed ·Ox·Out off-junction contact; the drawing is identical to the bare cell's.
 - signature: contact:qsOx.hapax.ex-y0.locked:qsOut.swept-up.en-y0.ex-y5.ex-ext-1:y1
-  why: The ZWNJ-locked twin of the blessed ·Ox·Out corner; the drawing is identical to the bare cell's.
+  why: The ZWNJ-locked twin of the blessed ·Ox·Out off-junction contact; the drawing is identical to the bare cell's.
 - signature: contact:qsOx.hapax.ex-y0.locked:qsOut_qsTea.hapax.en-y0:y1
-  why: The ZWNJ-locked twin of the blessed ·Ox·Out·Tea corner; the drawing is identical to the bare cell's.
+  why: The ZWNJ-locked twin of the blessed ·Ox·Out·Tea off-junction contact; the drawing is identical to the bare cell's.
 
 # The entered variants (·May·Ox, baseline row E665:E678, junction y5); the x-height entry leaves the tail alone.
 - signature: contact:qsOx.hapax.en-y5.ex-y0:qsTea.full.en-y0:y1
-  why: The entered variant of the blessed ·Ox·Tea corner; the x-height entry does not move the tail.
+  why: The entered variant of the blessed ·Ox·Tea off-junction contact; the x-height entry does not move the tail.
 - signature: contact:qsOx.hapax.en-y5.ex-y0:qsIt.hapax.en-y0:y1
-  why: The entered variant of the blessed ·Ox·It corner; the x-height entry does not move the tail.
+  why: The entered variant of the blessed ·Ox·It off-junction contact; the x-height entry does not move the tail.
 - signature: contact:qsOx.hapax.en-y5.ex-y0:qsIt.hapax.en-y0.ex-y0:y1
-  why: The entered variant of the blessed ·Ox·It corner; the x-height entry does not move the tail.
+  why: The entered variant of the blessed ·Ox·It off-junction contact; the x-height entry does not move the tail.
 - signature: contact:qsOx.hapax.en-y5.ex-y0:qsIt.hapax.en-y0.ex-y5:y1
-  why: The entered variant of the blessed ·Ox·It corner; the x-height entry does not move the tail.
+  why: The entered variant of the blessed ·Ox·It off-junction contact; the x-height entry does not move the tail.
 - signature: contact:qsOx.hapax.en-y5.ex-y0:qsIt.hapax.en-y0.ex-y5.ex-ext-1:y1
-  why: The entered variant of the blessed ·Ox·It corner; the x-height entry does not move the tail.
+  why: The entered variant of the blessed ·Ox·It off-junction contact; the x-height entry does not move the tail.
 - signature: contact:qsOx.hapax.en-y5.ex-y0:qsUtter.mono.en-y0:y1
-  why: The entered variant of the blessed ·Ox·Utter corner; the x-height entry does not move the tail.
+  why: The entered variant of the blessed ·Ox·Utter off-junction contact; the x-height entry does not move the tail.
 - signature: contact:qsOx.hapax.en-y5.ex-y0:qsUtter.mono.en-y0.ex-y5:y1
-  why: The entered variant of the blessed ·Ox·Utter corner; the x-height entry does not move the tail.
+  why: The entered variant of the blessed ·Ox·Utter off-junction contact; the x-height entry does not move the tail.
 - signature: contact:qsOx.hapax.en-y5.ex-y0:qsUtter.mono.en-y0.ex-y5.ex-ext-1:y1
-  why: The entered variant of the blessed ·Ox·Utter corner; the x-height entry does not move the tail.
+  why: The entered variant of the blessed ·Ox·Utter off-junction contact; the x-height entry does not move the tail.
 - signature: contact:qsOx.hapax.en-y5.ex-y0:qsOut.normal.en-y0:y1
-  why: The entered variant of the blessed ·Ox·Out corner; the x-height entry does not move the tail.
+  why: The entered variant of the blessed ·Ox·Out off-junction contact; the x-height entry does not move the tail.
 - signature: contact:qsOx.hapax.en-y5.ex-y0:qsOut.swept-up.en-y0.ex-y5:y1
-  why: The entered variant of the blessed ·Ox·Out corner; the x-height entry does not move the tail.
+  why: The entered variant of the blessed ·Ox·Out off-junction contact; the x-height entry does not move the tail.
 - signature: contact:qsOx.hapax.en-y5.ex-y0:qsOut.swept-up.en-y0.ex-y5.ex-ext-1:y1
-  why: The entered variant of the blessed ·Ox·Out corner; the x-height entry does not move the tail.
+  why: The entered variant of the blessed ·Ox·Out off-junction contact; the x-height entry does not move the tail.
 - signature: contact:qsOx.hapax.en-y5.ex-y0:qsOut_qsTea.hapax.en-y0:y1
-  why: The entered variant of the blessed ·Ox·Out·Tea corner; the x-height entry does not move the tail.
+  why: The entered variant of the blessed ·Ox·Out·Tea off-junction contact; the x-height entry does not move the tail.
 
 # The entry-extended variants (after ·Tea or ·He, as in baseline row E652:E678); the extension lengthens the entry bar and nothing else.
 - signature: contact:qsOx.hapax.en-y5.ex-y0.en-ext-1:qsTea.full.en-y0:y1
-  why: The entry-extended-by-one variant of the blessed ·Ox·Tea corner; the extension touches the entry bar only.
+  why: The entry-extended-by-one variant of the blessed ·Ox·Tea off-junction contact; the extension touches the entry bar only.
 - signature: contact:qsOx.hapax.en-y5.ex-y0.en-ext-1:qsIt.hapax.en-y0:y1
-  why: The entry-extended-by-one variant of the blessed ·Ox·It corner; the extension touches the entry bar only.
+  why: The entry-extended-by-one variant of the blessed ·Ox·It off-junction contact; the extension touches the entry bar only.
 - signature: contact:qsOx.hapax.en-y5.ex-y0.en-ext-1:qsIt.hapax.en-y0.ex-y0:y1
-  why: The entry-extended-by-one variant of the blessed ·Ox·It corner; the extension touches the entry bar only.
+  why: The entry-extended-by-one variant of the blessed ·Ox·It off-junction contact; the extension touches the entry bar only.
 - signature: contact:qsOx.hapax.en-y5.ex-y0.en-ext-1:qsIt.hapax.en-y0.ex-y5:y1
-  why: The entry-extended-by-one variant of the blessed ·Ox·It corner; the extension touches the entry bar only.
+  why: The entry-extended-by-one variant of the blessed ·Ox·It off-junction contact; the extension touches the entry bar only.
 - signature: contact:qsOx.hapax.en-y5.ex-y0.en-ext-1:qsIt.hapax.en-y0.ex-y5.ex-ext-1:y1
-  why: The entry-extended-by-one variant of the blessed ·Ox·It corner; the extension touches the entry bar only.
+  why: The entry-extended-by-one variant of the blessed ·Ox·It off-junction contact; the extension touches the entry bar only.
 - signature: contact:qsOx.hapax.en-y5.ex-y0.en-ext-1:qsUtter.mono.en-y0:y1
-  why: The entry-extended-by-one variant of the blessed ·Ox·Utter corner; the extension touches the entry bar only.
+  why: The entry-extended-by-one variant of the blessed ·Ox·Utter off-junction contact; the extension touches the entry bar only.
 - signature: contact:qsOx.hapax.en-y5.ex-y0.en-ext-1:qsUtter.mono.en-y0.ex-y5:y1
-  why: The entry-extended-by-one variant of the blessed ·Ox·Utter corner; the extension touches the entry bar only.
+  why: The entry-extended-by-one variant of the blessed ·Ox·Utter off-junction contact; the extension touches the entry bar only.
 - signature: contact:qsOx.hapax.en-y5.ex-y0.en-ext-1:qsUtter.mono.en-y0.ex-y5.ex-ext-1:y1
-  why: The entry-extended-by-one variant of the blessed ·Ox·Utter corner; the extension touches the entry bar only.
+  why: The entry-extended-by-one variant of the blessed ·Ox·Utter off-junction contact; the extension touches the entry bar only.
 - signature: contact:qsOx.hapax.en-y5.ex-y0.en-ext-1:qsOut.normal.en-y0:y1
-  why: The entry-extended-by-one variant of the blessed ·Ox·Out corner; the extension touches the entry bar only.
+  why: The entry-extended-by-one variant of the blessed ·Ox·Out off-junction contact; the extension touches the entry bar only.
 - signature: contact:qsOx.hapax.en-y5.ex-y0.en-ext-1:qsOut.swept-up.en-y0.ex-y5:y1
-  why: The entry-extended-by-one variant of the blessed ·Ox·Out corner; the extension touches the entry bar only.
+  why: The entry-extended-by-one variant of the blessed ·Ox·Out off-junction contact; the extension touches the entry bar only.
 - signature: contact:qsOx.hapax.en-y5.ex-y0.en-ext-1:qsOut.swept-up.en-y0.ex-y5.ex-ext-1:y1
-  why: The entry-extended-by-one variant of the blessed ·Ox·Out corner; the extension touches the entry bar only.
+  why: The entry-extended-by-one variant of the blessed ·Ox·Out off-junction contact; the extension touches the entry bar only.
 - signature: contact:qsOx.hapax.en-y5.ex-y0.en-ext-1:qsOut_qsTea.hapax.en-y0:y1
-  why: The entry-extended-by-one variant of the blessed ·Ox·Out·Tea corner; the extension touches the entry bar only.
+  why: The entry-extended-by-one variant of the blessed ·Ox·Out·Tea off-junction contact; the extension touches the entry bar only.
 
 - signature: dangle:qsNo.loop:exit:x-height
-  why: ·No's loop x-height terminal (top-right nub at y5), drawn unconditionally in the shipped font; the declined exit keeps it.
+  why: ·No's loop x-height terminal (top-right nub at y5), drawn unconditionally in the old font; the declined exit keeps it.
 - signature: dangle:qsNo.loop.en-y5:exit:x-height
   why: ·No entered at the x-height keeps the same loop x-height terminal on a declined exit.
 - signature: dangle:qsNo.loop.en-y5.en-ext-1:exit:x-height
@@ -538,12 +538,12 @@
 - signature: dangle:qsNo.loop.locked:exit:x-height
   why: The ZWNJ-locked twin of ·No's loop x-height terminal; identical drawing.
 - signature: dangle:qsNo.flipped:exit:baseline
-  why: ·No's flipped baseline terminal (bottom-right nub at y0), drawn unconditionally in the shipped font; the declined exit keeps it.
+  why: ·No's flipped baseline terminal (bottom-right nub at y0), drawn unconditionally in the old font; the declined exit keeps it.
 - signature: dangle:qsNo.flipped.en-y0:exit:baseline
   why: ·No flipped entered at the baseline keeps the same baseline terminal on a declined exit.
 
 - signature: dangle:qsDay.full:exit:baseline
-  why: ·Day's full foot-hook terminal (kick-up nub at y0), drawn unconditionally in the shipped font; the declined exit keeps it.
+  why: ·Day's full foot-hook terminal (kick-up nub at y0), drawn unconditionally in the old font; the declined exit keeps it.
 - signature: dangle:qsDay.full.en-y5:exit:baseline
   why: ·Day full entered at the x-height keeps the same foot-hook terminal on a declined exit.
 - signature: dangle:qsDay.full.en-y5.en-ext-1:exit:baseline
@@ -551,12 +551,12 @@
 - signature: dangle:qsDay.full.locked:exit:baseline
   why: The ZWNJ-locked twin of ·Day's full foot-hook terminal; identical drawing.
 - signature: dangle:qsDay.half.en-y0:exit:baseline
-  why: ·Day's half foot-hook terminal (kick-up nub at y0) entered at the baseline, drawn unconditionally in the shipped font; the declined exit keeps it.
+  why: ·Day's half foot-hook terminal (kick-up nub at y0) entered at the baseline, drawn unconditionally in the old font; the declined exit keeps it.
 - signature: dangle:qsDay.half.en-y0.en-ext-1:exit:baseline
   why: The extended-entry variant of ·Day's half foot-hook terminal; the entry extension does not move the exit nub.
 
 - signature: dangle:qsDay_qsUtter.full:exit:x-height
-  why: The ·Day·Utter ligature's full x-height terminal (rising-stroke nub at y5), drawn unconditionally in the shipped font; the declined exit keeps it.
+  why: The ·Day·Utter ligature's full x-height terminal (rising-stroke nub at y5), drawn unconditionally in the old font; the declined exit keeps it.
 - signature: dangle:qsDay_qsUtter.full.en-y5:exit:x-height
   why: ·Day·Utter full entered at the x-height keeps the same x-height terminal on a declined exit.
 - signature: dangle:qsDay_qsUtter.full.en-y5.en-ext-1:exit:x-height
@@ -564,12 +564,12 @@
 - signature: dangle:qsDay_qsUtter.full.locked:exit:x-height
   why: The ZWNJ-locked twin of ·Day·Utter's full x-height terminal; identical drawing.
 - signature: dangle:qsDay_qsUtter.half.en-y0:exit:x-height
-  why: The ·Day·Utter half ligature's x-height terminal (rising-stroke nub at y5) entered at the baseline, drawn unconditionally in the shipped font; the declined exit keeps it.
+  why: The ·Day·Utter half ligature's x-height terminal (rising-stroke nub at y5) entered at the baseline, drawn unconditionally in the old font; the declined exit keeps it.
 - signature: dangle:qsDay_qsUtter.half.en-y0.en-ext-1:exit:x-height
   why: The extended-entry variant of ·Day·Utter's half x-height terminal; the entry extension does not move the exit nub.
 
 - signature: dangle:qsMay.loop:exit:x-height
-  why: ·May's loop x-height terminal (top-right nub at y5), drawn unconditionally in the shipped font; the declined exit keeps it. (Joined at the x-height, the loop's entry side still switches to the `pulled-back-stubless` bitmap.)
+  why: ·May's loop x-height terminal (top-right nub at y5), drawn unconditionally in the old font; the declined exit keeps it. (Joined at the x-height, the loop's entry side still switches to the `pulled-back-stubless` bitmap.)
 - signature: dangle:qsMay.loop.en-y0:exit:x-height
   why: ·May entered at the baseline keeps the same loop x-height terminal on a declined exit.
 - signature: dangle:qsMay.loop.en-y0.en-con-1:exit:x-height
@@ -584,7 +584,7 @@
   why: The ZWNJ-locked twin of ·May's loop x-height terminal; identical drawing.
 
 - signature: dangle:qsAh.hapax:exit:x-height
-  why: ·Ah's x-height terminal (top-right nub at y5), drawn unconditionally in the shipped font; the declined exit keeps it.
+  why: ·Ah's x-height terminal (top-right nub at y5), drawn unconditionally in the old font; the declined exit keeps it.
 - signature: dangle:qsAh.hapax.en-y0:exit:x-height
   why: ·Ah entered at the baseline keeps the same x-height terminal on a declined exit.
 - signature: dangle:qsAh.hapax.en-y0.en-con-1:exit:x-height
@@ -593,7 +593,7 @@
   why: The ZWNJ-locked twin of ·Ah's x-height terminal; identical drawing.
 
 - signature: dangle:qsRoe.hapax:exit:baseline
-  why: ·Roe is one stroke whose two arms both end on the left. The rightmost ink on each arm's row is where the arm meets the bowl, three or four columns short of that row's exit anchor, and the bowl continues from it diagonally. That pixel has no ink directly above or below it, so `verify_unjoined_safe` reports it as reaching ink. The arms are part of the letter, and the shipped font has no unjoined form of ·Roe. Every `dangle:qsRoe.*` signature here is one of these two arms on a different cell.
+  why: ·Roe is one stroke whose two arms both end on the left. The rightmost ink on each arm's row is where the arm meets the bowl, three or four columns short of that row's exit anchor, and the bowl continues from it diagonally. That pixel has no ink directly above or below it, so `verify_unjoined_safe` reports it as reaching ink. The arms are part of the letter, and the old font has no unjoined form of ·Roe. Every `dangle:qsRoe.*` signature here is one of these two arms on a different cell.
 - signature: dangle:qsRoe.hapax:exit:x-height
   why: The upper arm on the isolated drawing.
 - signature: dangle:qsRoe.hapax.en-y0:exit:baseline
@@ -656,11 +656,11 @@
   why: The upper arm on the locked twin.
 
 - signature: contact:qsTea.full.en-y5.ex-y0:qsRoe.hapax.en-y0:y5
-  why: Under ss03 an x-height exiter carries ·Tea's full bar down past the x-height and on into ·Roe at the baseline (ss03 baseline row E658:E652:E668, junctions y5,y0). ·Roe's upper arm starts in the column beside the bar at y5, the corner the shipped font draws there.
+  why: Under ss03 an x-height exiter carries ·Tea's full bar down past the x-height and on into ·Roe at the baseline (ss03 baseline row E658:E652:E668, junctions y5,y0). ·Roe's upper arm starts in the column beside the bar at y5, the off-junction contact the old font draws there.
 - signature: contact:qsTea.full.en-y0.ex-y0:qsRoe.hapax.en-y0:y5
-  why: The ss05 counterpart of the corner above (·Et·Tea·Roe, both baseline joins unlocked); the baseline-entered full bar has the same ink at y5. ·Roe's baseline entry contraction applies only when ·Roe exits onward, so a ·Roe with no exit is not contracted onto the bar. In the rebuild, a ·Roe with no exit after ·Tea takes qsRoe's one-pixel baseline entry extension instead, which leaves a blank column between the bar and the upper arm, so neither of these two entries matches a current finding.
+  why: The ss05 counterpart of the off-junction contact above (·Et·Tea·Roe, both baseline joins unlocked); the baseline-entered full bar has the same ink at y5. ·Roe's baseline entry contraction applies only when ·Roe exits onward, so a ·Roe with no exit is not contracted onto the bar. In the rebuild, a ·Roe with no exit after ·Tea takes qsRoe's one-pixel baseline entry extension instead, which leaves a blank column between the bar and the upper arm, so neither of these two entries matches a current finding.
 
-# ·It·Et and ·Low·Et join at the x-height in the shipped font (baseline rows E670:E672 and E667:E672, junction y5). The exiter's riser at y4 is one column left of ·Et's descending left edge, the same corner as the ·Low·Day and ·Low·It block above with ·Et as the follower. ·It's riser is a straight bar, so it touches ·Et at y3 as well. There is one signature per exiter variant (bare, entered, ZWNJ-locked), per ·Et exit variant, and per touching row; the onward baseline exit does not move the entry column. The entry-extended ·Et never follows these exiters, because qsEt extends its entry only after ·Pea, ·Tea, and ·He. qsIt refuses its x-height exit before ·Et, so the rebuild makes no ·It·Et join and the ·It entries match no current finding.
+# ·It·Et and ·Low·Et join at the x-height in the old font (baseline rows E670:E672 and E667:E672, junction y5). The exiter's riser at y4 is one column left of ·Et's descending left edge, the same off-junction contact as the ·Low·Day and ·Low·It block above with ·Et as the follower. ·It's riser is a straight bar, so it touches ·Et at y3 as well. There is one signature per exiter variant (bare, entered, ZWNJ-locked), per ·Et exit variant, and per touching row; the onward baseline exit does not move the entry column. The entry-extended ·Et never follows these exiters, because qsEt extends its entry only after ·Pea, ·Tea, and ·He. qsIt refuses its x-height exit before ·Et, so the rebuild makes no ·It·Et join and the ·It entries match no current finding.
 - signature: contact:qsIt.hapax.ex-y5:qsEt.hapax.en-y5:y4
 - signature: contact:qsIt.hapax.ex-y5:qsEt.hapax.en-y5:y3
   why: The pair in the `:y4` signature above also touches at y3, off the junction row.
@@ -685,7 +685,7 @@
 - signature: contact:qsLow.hapax.en-y0.ex-y5:qsEt.hapax.en-y5.ex-y0:y4
 - signature: contact:qsLow.hapax.ex-y5.locked:qsEt.hapax.en-y5:y4
 - signature: contact:qsLow.hapax.ex-y5.locked:qsEt.hapax.en-y5.ex-y0:y4
-# ·Et's exit contraction before ·May removes the last pixel of ·Et's tail at the exit, so the entry column and this corner do not change. Only the ·Low exiters are listed, because qsIt refuses its x-height exit before ·Et.
+# ·Et's exit contraction before ·May removes the last pixel of ·Et's tail at the exit, so the entry column and this off-junction contact do not change. Only the ·Low exiters are listed, because qsIt refuses its x-height exit before ·Et.
 - signature: contact:qsLow.hapax.ex-y5:qsEt.hapax.en-y5.ex-y0.ex-con-1:y4
 - signature: contact:qsLow.hapax.en-y0.ex-y5:qsEt.hapax.en-y5.ex-y0.ex-con-1:y4
 - signature: contact:qsLow.hapax.ex-y5.locked:qsEt.hapax.en-y5.ex-y0.ex-con-1:y4
@@ -695,7 +695,7 @@
 - signature: contact:qsTea.full.en-y0.ex-y0:qsUtter.mono.en-y0.ex-y5:y1
 - signature: contact:qsTea.full.en-y0.ex-y0:qsUtter.mono.en-y0.ex-y5.ex-ext-1:y1
 
-# ·Et's declined-exit terminal (E-DANGLE). The shipped font draws ·Et's two-pixel rightward baseline tail in every context (isolated, word-final, and before a non-joining follower) and has no unjoined form of ·Et. The tail ends horizontally, so it does not pass the `unjoined: safe` check; these entries record it as part of the letter.
+# ·Et's declined-exit terminal (E-DANGLE). The old font draws ·Et's two-pixel rightward baseline tail in every context (isolated, word-final, and before a non-joining follower) and has no unjoined form of ·Et. The tail ends horizontally, so it does not pass the `unjoined: safe` check; these entries record it as part of the letter.
 - signature: dangle:qsEt.hapax:exit:baseline
   why: ·Et's baseline terminal on the isolated drawing; the declined exit keeps it.
 - signature: dangle:qsEt.hapax.en-y5:exit:baseline
@@ -705,7 +705,7 @@
 - signature: dangle:qsEt.hapax.locked:exit:baseline
   why: The ZWNJ-locked twin of ·Et's baseline terminal; identical drawing.
 
-# ·See's declined-exit crest (E-DANGLE). The shipped font draws the crest's two-pixel rightward top bar in every context (isolated, word-final, and before a non-joining follower) and has no unjoined form of ·See. The bar ends horizontally, so it does not pass the `unjoined: safe` check; like ·Et's and ·Roe's terminals, it is part of the letter. The ·See·Utter ligature's x-height bar has the same shape.
+# ·See's declined-exit crest (E-DANGLE). The old font draws the crest's two-pixel rightward top bar in every context (isolated, word-final, and before a non-joining follower) and has no unjoined form of ·See. The bar ends horizontally, so it does not pass the `unjoined: safe` check; like ·Et's and ·Roe's terminals, it is part of the letter. The ·See·Utter ligature's x-height bar has the same shape.
 - signature: dangle:qsSee.normal:exit:top
   why: ·See's top crest on the isolated drawing; the declined exit keeps it.
 - signature: dangle:qsSee.normal.en-y0:exit:top
@@ -713,9 +713,9 @@
 - signature: dangle:qsSee.normal.locked:exit:top
   why: The ZWNJ-locked twin of ·See's crest; identical drawing.
 - signature: dangle:qsSee_qsUtter.hapax:exit:x-height
-  why: The ligature's x-height bar is drawn in every context, and the shipped font has no unjoined form of ·See·Utter, so a declined exit keeps it.
+  why: The ligature's x-height bar is drawn in every context, and the old font has no unjoined form of ·See·Utter, so a declined exit keeps it.
 
-# ·See·Pea joins at y6 in the shipped font (baseline row E65A:E650, junction y6). The curled-over crest's hook at y7, one row above the junction, is one column left of ·Pea's left side, a corner the shipped font also draws. There is one signature per curled-over variant (bare, entered, ZWNJ-locked) and ·Pea follower (full and half, with and without their onward exits).
+# ·See·Pea joins at y6 in the old font (baseline row E65A:E650, junction y6). The curled-over crest's hook at y7, one row above the junction, is one column left of ·Pea's left side, an off-junction contact the old font also draws. There is one signature per curled-over variant (bare, entered, ZWNJ-locked) and ·Pea follower (full and half, with and without their onward exits).
 - signature: contact:qsSee.curled-over.en-y0.ex-y6:qsPea.full.en-y6:y7
 - signature: contact:qsSee.curled-over.en-y0.ex-y6:qsPea.full.en-y6.ex-y0:y7
 - signature: contact:qsSee.curled-over.en-y0.ex-y6:qsPea.half.en-y6.ex-y5:y7
@@ -734,7 +734,7 @@
 - signature: contact:qsTea.full.en-y8.ex-y0:qsUtter.mono.en-y0.ex-y5:y1
 - signature: contact:qsTea.full.en-y8.ex-y0:qsUtter.mono.en-y0.ex-y5.ex-ext-1:y1
 
-# The ·Vie·Utter ligature's declined-exit arm (E-DANGLE). The shipped font draws the ligature's ·Utter arm up to the x-height in every context (isolated, word-final, and before a non-joining follower; the default ·Vie·Utter·Tea window keeps the full drawing) and has no unjoined form of ·Vie·Utter. The arm ends horizontally, so it does not pass the `unjoined: safe` check; like ·Et's and ·Roe's terminals, it is part of the letter, and it has the same shape as the ·See·Utter bar. There is one signature per entry and lock variant; all show the same arm.
+# The ·Vie·Utter ligature's declined-exit arm (E-DANGLE). The old font draws the ligature's ·Utter arm up to the x-height in every context (isolated, word-final, and before a non-joining follower; the default ·Vie·Utter·Tea window keeps the full drawing) and has no unjoined form of ·Vie·Utter. The arm ends horizontally, so it does not pass the `unjoined: safe` check; like ·Et's and ·Roe's terminals, it is part of the letter, and it has the same shape as the ·See·Utter bar. There is one signature per entry and lock variant; all show the same arm.
 - signature: dangle:qsVie_qsUtter.hapax:exit:x-height
   why: The ligature's x-height arm on the isolated drawing; the declined exit keeps it.
 - signature: dangle:qsVie_qsUtter.hapax.en-y0:exit:x-height
@@ -744,7 +744,7 @@
 - signature: dangle:qsVie_qsUtter.hapax.locked:exit:x-height
   why: The ZWNJ-locked twin of the ligature's arm; identical drawing.
 
-# Every baseline join into ·Out, and into the ·Out+Tea ligature, whose entry is the same ·Out foot. The entering stroke meets the (0,0) anchor while ·Out's foot rises from the junction, so the left letter's ink and the foot touch at y1, one row above the junction. The normal ·Out's foot leans away above y1, so that is its only touching row. The swept-up ·Out's foot and the ligature's foot stay upright through y2, so a left letter whose last column is also upright there touches them at y2 as well: ·It's bar, ·Pea's right downstroke, ·Tea's bar, the entered ·Oy's tail, and the ·Tea·Oy ligature's tail. The tail of the ·Oy with no entry turns left above y1, so it touches every ·Out form at y1 only. The shipped font draws these corners on these joins, as it does for ·Oy·It. There is one signature per pair of left and right variants and per touching row.
+# Every baseline join into ·Out, and into the ·Out+Tea ligature, whose entry is the same ·Out foot. The entering stroke meets the (0,0) anchor while ·Out's foot rises from the junction, so the left letter's ink and the foot touch at y1, one row above the junction. The normal ·Out's foot leans away above y1, so that is its only touching row. The swept-up ·Out's foot and the ligature's foot stay upright through y2, so a left letter whose last column is also upright there touches them at y2 as well: ·It's bar, ·Pea's right downstroke, ·Tea's bar, the entered ·Oy's tail, and the ·Tea·Oy ligature's tail. The tail of the ·Oy with no entry turns left above y1, so it touches every ·Out form at y1 only. The old font draws these off-junction contacts on these joins, as it does for ·Oy·It. There is one signature per pair of left and right variants and per touching row.
 - signature: contact:qsIt.hapax.en-y0.ex-y0:qsOut.normal.en-y0:y1
 - signature: contact:qsIt.hapax.en-y0.ex-y0:qsOut.swept-up.en-y0.ex-y5.ex-ext-1:y1
 - signature: contact:qsIt.hapax.en-y0.ex-y0:qsOut.swept-up.en-y0.ex-y5.ex-ext-1:y2
@@ -928,192 +928,192 @@
 - signature: unrealized:qsSee.straighter.ex-y0.locked:qsOut.swept-up.en-y0.ex-y5.en-bind-raked.en-trim-1.ex-ext-1:baseline
 - signature: unrealized:qsSee.straighter.ex-y0.locked:qsOut_qsTea.hapax.en-y0.en-bind-raked.en-trim-1:baseline
 
-# ·At's vertical cap runs beside the follower's left stroke at y4 and y3, the two rows below the y5 junction, on these x-height joins that the old font also makes. Entry, lock, and onward-exit adjustments do not move the corner.
+# ·At's vertical cap runs beside the follower's left stroke at y4 and y3, the two rows below the y5 junction, on these x-height joins that the old font also makes. Entry, lock, and onward-exit adjustments do not move the off-junction contact.
 - signature: contact:qsAt.rising.en-y0.ex-y5:qsDay.full.en-y5:y4
-  why: ·At·Day pair (baseline row E674:E653) joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+  why: ·At·Day pair (baseline row E674:E653) joins at the x-height in the old font; this signature's adjustments do not move the y4 contact between the cap and the stroke.
 - signature: contact:qsAt.rising.en-y0.ex-y5:qsDay.full.en-y5:y3
   why: The pair in the `:y4` signature above also touches at y3, off the junction row.
 - signature: contact:qsAt.rising.en-y0.ex-y5:qsDay.full.en-y5.ex-y0:y4
-  why: ·At·Day pair with ·Day exiting onward (baseline rows beginning E674:E653) joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+  why: ·At·Day pair with ·Day exiting onward (baseline rows beginning E674:E653) joins at the x-height in the old font; this signature's adjustments do not move the y4 contact between the cap and the stroke.
 - signature: contact:qsAt.rising.en-y0.ex-y5:qsDay.full.en-y5.ex-y0:y3
   why: The pair in the `:y4` signature above also touches at y3, off the junction row.
 - signature: contact:qsAt.rising.en-y0.ex-y5:qsDay_qsUtter.full.en-y5:y4
-  why: ·At·Day+Utter pair (baseline row E674:E653:E67A) joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+  why: ·At·Day+Utter pair (baseline row E674:E653:E67A) joins at the x-height in the old font; this signature's adjustments do not move the y4 contact between the cap and the stroke.
 - signature: contact:qsAt.rising.en-y0.ex-y5:qsDay_qsUtter.full.en-y5:y3
   why: The pair in the `:y4` signature above also touches at y3, off the junction row.
 - signature: contact:qsAt.rising.en-y0.ex-y5:qsDay_qsUtter.full.en-y5.ex-y5:y4
-  why: ·At·Day+Utter pair with the ligature exiting onward joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+  why: ·At·Day+Utter pair with the ligature exiting onward joins at the x-height in the old font; this signature's adjustments do not move the y4 contact between the cap and the stroke.
 - signature: contact:qsAt.rising.en-y0.ex-y5:qsDay_qsUtter.full.en-y5.ex-y5:y3
   why: The pair in the `:y4` signature above also touches at y3, off the junction row.
 - signature: contact:qsAt.rising.en-y0.ex-y5:qsDay_qsUtter.full.en-y5.ex-y5.ex-ext-1:y4
-  why: ·At·Day+Utter pair with the ligature's onward exit extended joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+  why: ·At·Day+Utter pair with the ligature's onward exit extended joins at the x-height in the old font; this signature's adjustments do not move the y4 contact between the cap and the stroke.
 - signature: contact:qsAt.rising.en-y0.ex-y5:qsDay_qsUtter.full.en-y5.ex-y5.ex-ext-1:y3
   why: The pair in the `:y4` signature above also touches at y3, off the junction row.
 - signature: contact:qsAt.rising.en-y0.ex-y5:qsEt.hapax.en-y5:y4
-  why: ·At·Et pair (baseline row E674:E672) joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+  why: ·At·Et pair (baseline row E674:E672) joins at the x-height in the old font; this signature's adjustments do not move the y4 contact between the cap and the stroke.
 - signature: contact:qsAt.rising.en-y0.ex-y5:qsEt.hapax.en-y5:y3
   why: The pair in the `:y4` signature above also touches at y3, off the junction row.
 - signature: contact:qsAt.rising.en-y0.ex-y5:qsEt.hapax.en-y5.ex-y0:y4
-  why: ·At·Et pair with ·Et exiting onward joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+  why: ·At·Et pair with ·Et exiting onward joins at the x-height in the old font; this signature's adjustments do not move the y4 contact between the cap and the stroke.
 - signature: contact:qsAt.rising.en-y0.ex-y5:qsEt.hapax.en-y5.ex-y0:y3
   why: The pair in the `:y4` signature above also touches at y3, off the junction row.
 - signature: contact:qsAt.rising.en-y0.ex-y5:qsEt.hapax.en-y5.ex-y0.ex-con-1:y4
-  why: ·At·Et pair with ·Et's onward exit contracted joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+  why: ·At·Et pair with ·Et's onward exit contracted joins at the x-height in the old font; this signature's adjustments do not move the y4 contact between the cap and the stroke.
 - signature: contact:qsAt.rising.en-y0.ex-y5:qsEt.hapax.en-y5.ex-y0.ex-con-1:y3
   why: The pair in the `:y4` signature above also touches at y3, off the junction row.
 - signature: contact:qsAt.rising.en-y0.ex-y5:qsIt.hapax.en-y5:y4
-  why: ·At·It pair (baseline row E674:E670) joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+  why: ·At·It pair (baseline row E674:E670) joins at the x-height in the old font; this signature's adjustments do not move the y4 contact between the cap and the stroke.
 - signature: contact:qsAt.rising.en-y0.ex-y5:qsIt.hapax.en-y5:y3
   why: The pair in the `:y4` signature above also touches at y3, off the junction row.
 - signature: contact:qsAt.rising.en-y0.ex-y5:qsIt.hapax.en-y5.ex-y0:y4
-  why: ·At·It pair with ·It exiting onward joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+  why: ·At·It pair with ·It exiting onward joins at the x-height in the old font; this signature's adjustments do not move the y4 contact between the cap and the stroke.
 - signature: contact:qsAt.rising.en-y0.ex-y5:qsIt.hapax.en-y5.ex-y0:y3
   why: The pair in the `:y4` signature above also touches at y3, off the junction row.
 - signature: contact:qsAt.rising.en-y0.ex-y5:qsIt.hapax.en-y5.ex-y0.ex-ext-1:y4
-  why: ·At·It pair with ·It's onward exit extended joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+  why: ·At·It pair with ·It's onward exit extended joins at the x-height in the old font; this signature's adjustments do not move the y4 contact between the cap and the stroke.
 - signature: contact:qsAt.rising.en-y0.ex-y5:qsIt.hapax.en-y5.ex-y0.ex-ext-1:y3
   why: The pair in the `:y4` signature above also touches at y3, off the junction row.
 - signature: contact:qsAt.rising.en-y0.ex-y5.en-ext-1:qsDay.full.en-y5:y4
-  why: ·At·Day pair (baseline row E674:E653) joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+  why: ·At·Day pair (baseline row E674:E653) joins at the x-height in the old font; this signature's adjustments do not move the y4 contact between the cap and the stroke.
 - signature: contact:qsAt.rising.en-y0.ex-y5.en-ext-1:qsDay.full.en-y5:y3
   why: The pair in the `:y4` signature above also touches at y3, off the junction row.
 - signature: contact:qsAt.rising.en-y0.ex-y5.en-ext-1:qsDay.full.en-y5.ex-y0:y4
-  why: ·At·Day pair with ·Day exiting onward (baseline rows beginning E674:E653) joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+  why: ·At·Day pair with ·Day exiting onward (baseline rows beginning E674:E653) joins at the x-height in the old font; this signature's adjustments do not move the y4 contact between the cap and the stroke.
 - signature: contact:qsAt.rising.en-y0.ex-y5.en-ext-1:qsDay.full.en-y5.ex-y0:y3
   why: The pair in the `:y4` signature above also touches at y3, off the junction row.
 - signature: contact:qsAt.rising.en-y0.ex-y5.en-ext-1:qsDay_qsUtter.full.en-y5:y4
-  why: ·At·Day+Utter pair (baseline row E674:E653:E67A) joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+  why: ·At·Day+Utter pair (baseline row E674:E653:E67A) joins at the x-height in the old font; this signature's adjustments do not move the y4 contact between the cap and the stroke.
 - signature: contact:qsAt.rising.en-y0.ex-y5.en-ext-1:qsDay_qsUtter.full.en-y5:y3
   why: The pair in the `:y4` signature above also touches at y3, off the junction row.
 - signature: contact:qsAt.rising.en-y0.ex-y5.en-ext-1:qsDay_qsUtter.full.en-y5.ex-y5:y4
-  why: ·At·Day+Utter pair with the ligature exiting onward joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+  why: ·At·Day+Utter pair with the ligature exiting onward joins at the x-height in the old font; this signature's adjustments do not move the y4 contact between the cap and the stroke.
 - signature: contact:qsAt.rising.en-y0.ex-y5.en-ext-1:qsDay_qsUtter.full.en-y5.ex-y5:y3
   why: The pair in the `:y4` signature above also touches at y3, off the junction row.
 - signature: contact:qsAt.rising.en-y0.ex-y5.en-ext-1:qsDay_qsUtter.full.en-y5.ex-y5.ex-ext-1:y4
-  why: ·At·Day+Utter pair with the ligature's onward exit extended joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+  why: ·At·Day+Utter pair with the ligature's onward exit extended joins at the x-height in the old font; this signature's adjustments do not move the y4 contact between the cap and the stroke.
 - signature: contact:qsAt.rising.en-y0.ex-y5.en-ext-1:qsDay_qsUtter.full.en-y5.ex-y5.ex-ext-1:y3
   why: The pair in the `:y4` signature above also touches at y3, off the junction row.
 - signature: contact:qsAt.rising.en-y0.ex-y5.en-ext-1:qsEt.hapax.en-y5:y4
-  why: ·At·Et pair (baseline row E674:E672) joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+  why: ·At·Et pair (baseline row E674:E672) joins at the x-height in the old font; this signature's adjustments do not move the y4 contact between the cap and the stroke.
 - signature: contact:qsAt.rising.en-y0.ex-y5.en-ext-1:qsEt.hapax.en-y5:y3
   why: The pair in the `:y4` signature above also touches at y3, off the junction row.
 - signature: contact:qsAt.rising.en-y0.ex-y5.en-ext-1:qsEt.hapax.en-y5.ex-y0:y4
-  why: ·At·Et pair with ·Et exiting onward joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+  why: ·At·Et pair with ·Et exiting onward joins at the x-height in the old font; this signature's adjustments do not move the y4 contact between the cap and the stroke.
 - signature: contact:qsAt.rising.en-y0.ex-y5.en-ext-1:qsEt.hapax.en-y5.ex-y0:y3
   why: The pair in the `:y4` signature above also touches at y3, off the junction row.
 - signature: contact:qsAt.rising.en-y0.ex-y5.en-ext-1:qsEt.hapax.en-y5.ex-y0.ex-con-1:y4
-  why: ·At·Et pair with ·Et's onward exit contracted joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+  why: ·At·Et pair with ·Et's onward exit contracted joins at the x-height in the old font; this signature's adjustments do not move the y4 contact between the cap and the stroke.
 - signature: contact:qsAt.rising.en-y0.ex-y5.en-ext-1:qsEt.hapax.en-y5.ex-y0.ex-con-1:y3
   why: The pair in the `:y4` signature above also touches at y3, off the junction row.
 - signature: contact:qsAt.rising.en-y0.ex-y5.en-ext-1:qsIt.hapax.en-y5:y4
-  why: ·At·It pair (baseline row E674:E670) joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+  why: ·At·It pair (baseline row E674:E670) joins at the x-height in the old font; this signature's adjustments do not move the y4 contact between the cap and the stroke.
 - signature: contact:qsAt.rising.en-y0.ex-y5.en-ext-1:qsIt.hapax.en-y5:y3
   why: The pair in the `:y4` signature above also touches at y3, off the junction row.
 - signature: contact:qsAt.rising.en-y0.ex-y5.en-ext-1:qsIt.hapax.en-y5.ex-y0:y4
-  why: ·At·It pair with ·It exiting onward joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+  why: ·At·It pair with ·It exiting onward joins at the x-height in the old font; this signature's adjustments do not move the y4 contact between the cap and the stroke.
 - signature: contact:qsAt.rising.en-y0.ex-y5.en-ext-1:qsIt.hapax.en-y5.ex-y0:y3
   why: The pair in the `:y4` signature above also touches at y3, off the junction row.
 - signature: contact:qsAt.rising.en-y0.ex-y5.en-ext-1:qsIt.hapax.en-y5.ex-y0.ex-ext-1:y4
-  why: ·At·It pair with ·It's onward exit extended joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+  why: ·At·It pair with ·It's onward exit extended joins at the x-height in the old font; this signature's adjustments do not move the y4 contact between the cap and the stroke.
 - signature: contact:qsAt.rising.en-y0.ex-y5.en-ext-1:qsIt.hapax.en-y5.ex-y0.ex-ext-1:y3
   why: The pair in the `:y4` signature above also touches at y3, off the junction row.
 - signature: contact:qsAt.rising.ex-y5:qsDay.full.en-y5:y4
-  why: ·At·Day pair (baseline row E674:E653) joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+  why: ·At·Day pair (baseline row E674:E653) joins at the x-height in the old font; this signature's adjustments do not move the y4 contact between the cap and the stroke.
 - signature: contact:qsAt.rising.ex-y5:qsDay.full.en-y5:y3
   why: The pair in the `:y4` signature above also touches at y3, off the junction row.
 - signature: contact:qsAt.rising.ex-y5:qsDay.full.en-y5.ex-y0:y4
-  why: ·At·Day pair with ·Day exiting onward (baseline rows beginning E674:E653) joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+  why: ·At·Day pair with ·Day exiting onward (baseline rows beginning E674:E653) joins at the x-height in the old font; this signature's adjustments do not move the y4 contact between the cap and the stroke.
 - signature: contact:qsAt.rising.ex-y5:qsDay.full.en-y5.ex-y0:y3
   why: The pair in the `:y4` signature above also touches at y3, off the junction row.
 - signature: contact:qsAt.rising.ex-y5:qsDay_qsUtter.full.en-y5:y4
-  why: ·At·Day+Utter pair (baseline row E674:E653:E67A) joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+  why: ·At·Day+Utter pair (baseline row E674:E653:E67A) joins at the x-height in the old font; this signature's adjustments do not move the y4 contact between the cap and the stroke.
 - signature: contact:qsAt.rising.ex-y5:qsDay_qsUtter.full.en-y5:y3
   why: The pair in the `:y4` signature above also touches at y3, off the junction row.
 - signature: contact:qsAt.rising.ex-y5:qsDay_qsUtter.full.en-y5.ex-y5:y4
-  why: ·At·Day+Utter pair with the ligature exiting onward joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+  why: ·At·Day+Utter pair with the ligature exiting onward joins at the x-height in the old font; this signature's adjustments do not move the y4 contact between the cap and the stroke.
 - signature: contact:qsAt.rising.ex-y5:qsDay_qsUtter.full.en-y5.ex-y5:y3
   why: The pair in the `:y4` signature above also touches at y3, off the junction row.
 - signature: contact:qsAt.rising.ex-y5:qsDay_qsUtter.full.en-y5.ex-y5.ex-ext-1:y4
-  why: ·At·Day+Utter pair with the ligature's onward exit extended joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+  why: ·At·Day+Utter pair with the ligature's onward exit extended joins at the x-height in the old font; this signature's adjustments do not move the y4 contact between the cap and the stroke.
 - signature: contact:qsAt.rising.ex-y5:qsDay_qsUtter.full.en-y5.ex-y5.ex-ext-1:y3
   why: The pair in the `:y4` signature above also touches at y3, off the junction row.
 - signature: contact:qsAt.rising.ex-y5:qsEt.hapax.en-y5:y4
-  why: ·At·Et pair (baseline row E674:E672) joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+  why: ·At·Et pair (baseline row E674:E672) joins at the x-height in the old font; this signature's adjustments do not move the y4 contact between the cap and the stroke.
 - signature: contact:qsAt.rising.ex-y5:qsEt.hapax.en-y5:y3
   why: The pair in the `:y4` signature above also touches at y3, off the junction row.
 - signature: contact:qsAt.rising.ex-y5:qsEt.hapax.en-y5.ex-y0:y4
-  why: ·At·Et pair with ·Et exiting onward joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+  why: ·At·Et pair with ·Et exiting onward joins at the x-height in the old font; this signature's adjustments do not move the y4 contact between the cap and the stroke.
 - signature: contact:qsAt.rising.ex-y5:qsEt.hapax.en-y5.ex-y0:y3
   why: The pair in the `:y4` signature above also touches at y3, off the junction row.
 - signature: contact:qsAt.rising.ex-y5:qsEt.hapax.en-y5.ex-y0.ex-con-1:y4
-  why: ·At·Et pair with ·Et's onward exit contracted joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+  why: ·At·Et pair with ·Et's onward exit contracted joins at the x-height in the old font; this signature's adjustments do not move the y4 contact between the cap and the stroke.
 - signature: contact:qsAt.rising.ex-y5:qsEt.hapax.en-y5.ex-y0.ex-con-1:y3
   why: The pair in the `:y4` signature above also touches at y3, off the junction row.
 - signature: contact:qsAt.rising.ex-y5:qsIt.hapax.en-y5:y4
-  why: ·At·It pair (baseline row E674:E670) joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+  why: ·At·It pair (baseline row E674:E670) joins at the x-height in the old font; this signature's adjustments do not move the y4 contact between the cap and the stroke.
 - signature: contact:qsAt.rising.ex-y5:qsIt.hapax.en-y5:y3
   why: The pair in the `:y4` signature above also touches at y3, off the junction row.
 - signature: contact:qsAt.rising.ex-y5:qsIt.hapax.en-y5.ex-y0:y4
-  why: ·At·It pair with ·It exiting onward joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+  why: ·At·It pair with ·It exiting onward joins at the x-height in the old font; this signature's adjustments do not move the y4 contact between the cap and the stroke.
 - signature: contact:qsAt.rising.ex-y5:qsIt.hapax.en-y5.ex-y0:y3
   why: The pair in the `:y4` signature above also touches at y3, off the junction row.
 - signature: contact:qsAt.rising.ex-y5:qsIt.hapax.en-y5.ex-y0.ex-ext-1:y4
-  why: ·At·It pair with ·It's onward exit extended joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+  why: ·At·It pair with ·It's onward exit extended joins at the x-height in the old font; this signature's adjustments do not move the y4 contact between the cap and the stroke.
 - signature: contact:qsAt.rising.ex-y5:qsIt.hapax.en-y5.ex-y0.ex-ext-1:y3
   why: The pair in the `:y4` signature above also touches at y3, off the junction row.
 - signature: contact:qsAt.rising.ex-y5.locked:qsDay.full.en-y5:y4
-  why: ·At·Day pair (baseline row E674:E653) joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+  why: ·At·Day pair (baseline row E674:E653) joins at the x-height in the old font; this signature's adjustments do not move the y4 contact between the cap and the stroke.
 - signature: contact:qsAt.rising.ex-y5.locked:qsDay.full.en-y5:y3
   why: The pair in the `:y4` signature above also touches at y3, off the junction row.
 - signature: contact:qsAt.rising.ex-y5.locked:qsDay.full.en-y5.ex-y0:y4
-  why: ·At·Day pair with ·Day exiting onward (baseline rows beginning E674:E653) joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+  why: ·At·Day pair with ·Day exiting onward (baseline rows beginning E674:E653) joins at the x-height in the old font; this signature's adjustments do not move the y4 contact between the cap and the stroke.
 - signature: contact:qsAt.rising.ex-y5.locked:qsDay.full.en-y5.ex-y0:y3
   why: The pair in the `:y4` signature above also touches at y3, off the junction row.
 - signature: contact:qsAt.rising.ex-y5.locked:qsDay_qsUtter.full.en-y5:y4
-  why: ·At·Day+Utter pair (baseline row E674:E653:E67A) joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+  why: ·At·Day+Utter pair (baseline row E674:E653:E67A) joins at the x-height in the old font; this signature's adjustments do not move the y4 contact between the cap and the stroke.
 - signature: contact:qsAt.rising.ex-y5.locked:qsDay_qsUtter.full.en-y5:y3
   why: The pair in the `:y4` signature above also touches at y3, off the junction row.
 - signature: contact:qsAt.rising.ex-y5.locked:qsDay_qsUtter.full.en-y5.ex-y5:y4
-  why: ·At·Day+Utter pair with the ligature exiting onward joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+  why: ·At·Day+Utter pair with the ligature exiting onward joins at the x-height in the old font; this signature's adjustments do not move the y4 contact between the cap and the stroke.
 - signature: contact:qsAt.rising.ex-y5.locked:qsDay_qsUtter.full.en-y5.ex-y5:y3
   why: The pair in the `:y4` signature above also touches at y3, off the junction row.
 - signature: contact:qsAt.rising.ex-y5.locked:qsDay_qsUtter.full.en-y5.ex-y5.ex-ext-1:y4
-  why: ·At·Day+Utter pair with the ligature's onward exit extended joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+  why: ·At·Day+Utter pair with the ligature's onward exit extended joins at the x-height in the old font; this signature's adjustments do not move the y4 contact between the cap and the stroke.
 - signature: contact:qsAt.rising.ex-y5.locked:qsDay_qsUtter.full.en-y5.ex-y5.ex-ext-1:y3
   why: The pair in the `:y4` signature above also touches at y3, off the junction row.
 - signature: contact:qsAt.rising.ex-y5.locked:qsEt.hapax.en-y5:y4
-  why: ·At·Et pair (baseline row E674:E672) joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+  why: ·At·Et pair (baseline row E674:E672) joins at the x-height in the old font; this signature's adjustments do not move the y4 contact between the cap and the stroke.
 - signature: contact:qsAt.rising.ex-y5.locked:qsEt.hapax.en-y5:y3
   why: The pair in the `:y4` signature above also touches at y3, off the junction row.
 - signature: contact:qsAt.rising.ex-y5.locked:qsEt.hapax.en-y5.ex-y0:y4
-  why: ·At·Et pair with ·Et exiting onward joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+  why: ·At·Et pair with ·Et exiting onward joins at the x-height in the old font; this signature's adjustments do not move the y4 contact between the cap and the stroke.
 - signature: contact:qsAt.rising.ex-y5.locked:qsEt.hapax.en-y5.ex-y0:y3
   why: The pair in the `:y4` signature above also touches at y3, off the junction row.
 - signature: contact:qsAt.rising.ex-y5.locked:qsEt.hapax.en-y5.ex-y0.ex-con-1:y4
-  why: ·At·Et pair with ·Et's onward exit contracted joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+  why: ·At·Et pair with ·Et's onward exit contracted joins at the x-height in the old font; this signature's adjustments do not move the y4 contact between the cap and the stroke.
 - signature: contact:qsAt.rising.ex-y5.locked:qsEt.hapax.en-y5.ex-y0.ex-con-1:y3
   why: The pair in the `:y4` signature above also touches at y3, off the junction row.
 - signature: contact:qsAt.rising.ex-y5.locked:qsIt.hapax.en-y5:y4
-  why: ·At·It pair (baseline row E674:E670) joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+  why: ·At·It pair (baseline row E674:E670) joins at the x-height in the old font; this signature's adjustments do not move the y4 contact between the cap and the stroke.
 - signature: contact:qsAt.rising.ex-y5.locked:qsIt.hapax.en-y5:y3
   why: The pair in the `:y4` signature above also touches at y3, off the junction row.
 - signature: contact:qsAt.rising.ex-y5.locked:qsIt.hapax.en-y5.ex-y0:y4
-  why: ·At·It pair with ·It exiting onward joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+  why: ·At·It pair with ·It exiting onward joins at the x-height in the old font; this signature's adjustments do not move the y4 contact between the cap and the stroke.
 - signature: contact:qsAt.rising.ex-y5.locked:qsIt.hapax.en-y5.ex-y0:y3
   why: The pair in the `:y4` signature above also touches at y3, off the junction row.
 - signature: contact:qsAt.rising.ex-y5.locked:qsIt.hapax.en-y5.ex-y0.ex-ext-1:y4
-  why: ·At·It pair with ·It's onward exit extended joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+  why: ·At·It pair with ·It's onward exit extended joins at the x-height in the old font; this signature's adjustments do not move the y4 contact between the cap and the stroke.
 - signature: contact:qsAt.rising.ex-y5.locked:qsIt.hapax.en-y5.ex-y0.ex-ext-1:y3
   why: The pair in the `:y4` signature above also touches at y3, off the junction row.
 
-# ·Ooze's two legs are verticals rising from the baseline at its outer columns, so every baseline ·Ooze join that the old font makes puts a leg one column from the neighbor's own vertical or tail. On the entry side, the predecessor's terminal stands beside the left leg (the ·Oy·It tail-against-bar corner, with the leg as the bar). On the exit side, the right leg stands beside the follower's left stroke (the ·Ox·Tea corner, with the leg as the tail). The old font draws all of them: baseline rows E650:E67E, E652:E67E, E670:E67E, E678:E67E, E679:E67E, E65A:E67E, E67E:E652, E67E:E670, E67E:E67A, E67E:E67B, and E67E:E67E all have a y0 junction.
+# ·Ooze's two legs are verticals rising from the baseline at its outer columns, so every baseline ·Ooze join that the old font makes puts a leg one column from the neighbor's own vertical or tail. On the entry side, the predecessor's terminal stands beside the left leg (the ·Oy·It tail beside a vertical stroke, with the leg as the bar). On the exit side, the right leg stands beside the follower's left stroke (the ·Ox·Tea off-junction contact, with the leg as the tail). The old font draws all of them: baseline rows E650:E67E, E652:E67E, E670:E67E, E678:E67E, E679:E67E, E65A:E67E, E67E:E652, E67E:E670, E67E:E67A, E67E:E67B, and E67E:E67E all have a y0 junction.
 # The entry side: each blessed predecessor terminal against ·Ooze's left leg, once against the bare entry cell and once against the cell that also exits at the baseline.
 - signature: contact:qsIt.hapax.en-y0.ex-y0:qsOoze.hapax.en-y0.ex-y0:y1
-  why: The baseline-entered ·It·Ooze corner with ·Ooze carrying its own baseline exit onward; the left leg does not move.
+  why: The baseline-entered ·It·Ooze off-junction contact with ·Ooze carrying its own baseline exit onward; the left leg does not move.
 - signature: contact:qsIt.hapax.en-y0.ex-y0:qsOoze.hapax.en-y0.ex-y0:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 - signature: contact:qsIt.hapax.en-y0.ex-y0:qsOoze.hapax.en-y0:y1
-  why: The baseline-entered variant of the blessed ·It·Ooze corner (·Day·It·Ooze under ss04, baseline rows E653:E670:E67E); the entry side leaves the bar where it is.
+  why: The baseline-entered variant of the blessed ·It·Ooze off-junction contact (·Day·It·Ooze under ss04, baseline rows E653:E670:E67E); the entry side leaves the bar where it is.
 - signature: contact:qsIt.hapax.en-y0.ex-y0:qsOoze.hapax.en-y0:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 - signature: contact:qsIt.hapax.ex-y0.locked:qsOoze.hapax.en-y0.ex-y0:y1
@@ -1121,63 +1121,63 @@
 - signature: contact:qsIt.hapax.ex-y0.locked:qsOoze.hapax.en-y0.ex-y0:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 - signature: contact:qsIt.hapax.ex-y0.locked:qsOoze.hapax.en-y0:y1
-  why: The ZWNJ-locked twin of the blessed ·It·Ooze corner; identical drawing.
+  why: The ZWNJ-locked twin of the blessed ·It·Ooze off-junction contact; identical drawing.
 - signature: contact:qsIt.hapax.ex-y0.locked:qsOoze.hapax.en-y0:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 - signature: contact:qsIt.hapax.ex-y0:qsOoze.hapax.en-y0.ex-y0:y1
-  why: The ·It·Ooze corner with ·Ooze carrying its own baseline exit onward; the left leg does not move.
+  why: The ·It·Ooze off-junction contact with ·Ooze carrying its own baseline exit onward; the left leg does not move.
 - signature: contact:qsIt.hapax.ex-y0:qsOoze.hapax.en-y0.ex-y0:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 - signature: contact:qsIt.hapax.ex-y0:qsOoze.hapax.en-y0:y1
-  why: ·It·Ooze joins at the baseline in the shipped font (baseline row E670:E67E, junction y0); ·It's bar at y1 is one column left of ·Ooze's left leg, the same two-verticals corner as ·Tea·Ooze.
+  why: ·It·Ooze joins at the baseline in the old font (baseline row E670:E67E, junction y0); ·It's bar at y1 is one column left of ·Ooze's left leg, the same two vertical strokes side by side as ·Tea·Ooze.
 - signature: contact:qsIt.hapax.ex-y0:qsOoze.hapax.en-y0:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 - signature: contact:qsOx.hapax.en-y5.ex-y0.en-ext-1:qsOoze.hapax.en-y0.ex-y0:y1
-  why: The entry-extended ·Ox·Ooze corner with ·Ooze carrying its own baseline exit onward; the left leg does not move.
+  why: The entry-extended ·Ox·Ooze off-junction contact with ·Ooze carrying its own baseline exit onward; the left leg does not move.
 - signature: contact:qsOx.hapax.en-y5.ex-y0.en-ext-1:qsOoze.hapax.en-y0:y1
-  why: The entry-extended variant of the blessed ·Ox·Ooze corner (·Tea·Ox·Ooze, baseline rows E652:E678:E67E); the extension adds ink at y5 only.
+  why: The entry-extended variant of the blessed ·Ox·Ooze off-junction contact (·Tea·Ox·Ooze, baseline rows E652:E678:E67E); the extension adds ink at y5 only.
 - signature: contact:qsOx.hapax.en-y5.ex-y0:qsOoze.hapax.en-y0.ex-y0:y1
-  why: The x-height-entered ·Ox·Ooze corner with ·Ooze carrying its own baseline exit onward; the left leg does not move.
+  why: The x-height-entered ·Ox·Ooze off-junction contact with ·Ooze carrying its own baseline exit onward; the left leg does not move.
 - signature: contact:qsOx.hapax.en-y5.ex-y0:qsOoze.hapax.en-y0:y1
-  why: The x-height-entered variant of the blessed ·Ox·Ooze corner (·May·Ox·Ooze, baseline rows E665:E678:E67E); the tail is unchanged.
+  why: The x-height-entered variant of the blessed ·Ox·Ooze off-junction contact (·May·Ox·Ooze, baseline rows E665:E678:E67E); the tail is unchanged.
 - signature: contact:qsOx.hapax.ex-y0.locked:qsOoze.hapax.en-y0.ex-y0:y1
   why: The ZWNJ-locked ·Ox·Ooze twin against the exiting ·Ooze cell; identical drawing.
 - signature: contact:qsOx.hapax.ex-y0.locked:qsOoze.hapax.en-y0:y1
-  why: The ZWNJ-locked twin of the blessed ·Ox·Ooze corner; identical drawing.
+  why: The ZWNJ-locked twin of the blessed ·Ox·Ooze off-junction contact; identical drawing.
 - signature: contact:qsOx.hapax.ex-y0:qsOoze.hapax.en-y0.ex-y0:y1
-  why: The ·Ox·Ooze corner with ·Ooze carrying its own baseline exit onward; the left leg does not move.
+  why: The ·Ox·Ooze off-junction contact with ·Ooze carrying its own baseline exit onward; the left leg does not move.
 - signature: contact:qsOx.hapax.ex-y0:qsOoze.hapax.en-y0:y1
-  why: ·Ox·Ooze joins at the baseline in the shipped font (baseline row E678:E67E, junction y0); ·Ox's vertical tail at y1 is one column left of ·Ooze's left leg, the blessed ·Ox·It corner with ·Ooze's leg as the bar.
+  why: ·Ox·Ooze joins at the baseline in the old font (baseline row E678:E67E, junction y0); ·Ox's vertical tail at y1 is one column left of ·Ooze's left leg, the blessed ·Ox·It off-junction contact with ·Ooze's leg as the bar.
 - signature: contact:qsOy.hapax.en-y5.ex-y0:qsOoze.hapax.en-y0.ex-y0:y1
-  why: The x-height-entered ·Oy·Ooze corner with ·Ooze carrying its own baseline exit onward; the left leg does not move.
+  why: The x-height-entered ·Oy·Ooze off-junction contact with ·Ooze carrying its own baseline exit onward; the left leg does not move.
 - signature: contact:qsOy.hapax.en-y5.ex-y0:qsOoze.hapax.en-y0.ex-y0:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 - signature: contact:qsOy.hapax.en-y5.ex-y0:qsOoze.hapax.en-y0:y1
-  why: The x-height-entered variant of the blessed ·Oy·Ooze corner (·May·Oy·Ooze, baseline rows E665:E679:E67E); the open-on-the-left binding does not move the tail.
+  why: The x-height-entered variant of the blessed ·Oy·Ooze off-junction contact (·May·Oy·Ooze, baseline rows E665:E679:E67E); the open-on-the-left binding does not move the tail.
 - signature: contact:qsOy.hapax.en-y5.ex-y0:qsOoze.hapax.en-y0:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 - signature: contact:qsOy.hapax.ex-y0.locked:qsOoze.hapax.en-y0.ex-y0:y1
   why: The ZWNJ-locked ·Oy·Ooze twin against the exiting ·Ooze cell; identical drawing.
 - signature: contact:qsOy.hapax.ex-y0.locked:qsOoze.hapax.en-y0:y1
-  why: The ZWNJ-locked twin of the blessed ·Oy·Ooze corner; identical drawing.
+  why: The ZWNJ-locked twin of the blessed ·Oy·Ooze off-junction contact; identical drawing.
 - signature: contact:qsOy.hapax.ex-y0:qsOoze.hapax.en-y0.ex-y0:y1
-  why: The ·Oy·Ooze corner with ·Ooze carrying its own baseline exit onward; the left leg does not move.
+  why: The ·Oy·Ooze off-junction contact with ·Ooze carrying its own baseline exit onward; the left leg does not move.
 - signature: contact:qsOy.hapax.ex-y0:qsOoze.hapax.en-y0:y1
-  why: ·Oy·Ooze joins at the baseline in the shipped font (baseline row E679:E67E, junction y0); ·Oy's diagonal tail at y1 is one column left of ·Ooze's left leg, the blessed ·Oy·It corner with ·Ooze's leg as the bar.
+  why: ·Oy·Ooze joins at the baseline in the old font (baseline row E679:E67E, junction y0); ·Oy's diagonal tail at y1 is one column left of ·Ooze's left leg, the blessed ·Oy·It off-junction contact with ·Ooze's leg as the bar.
 - signature: contact:qsPea.full.en-y5.ex-y0:qsOoze.hapax.en-y0.ex-y0:y1
-  why: The x-height-entered ·Pea·Ooze corner with ·Ooze carrying its own baseline exit onward; the left leg does not move.
+  why: The x-height-entered ·Pea·Ooze off-junction contact with ·Ooze carrying its own baseline exit onward; the left leg does not move.
 - signature: contact:qsPea.full.en-y5.ex-y0:qsOoze.hapax.en-y0.ex-y0:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 - signature: contact:qsPea.full.en-y5.ex-y0:qsOoze.hapax.en-y0:y1
-  why: The x-height-entered variant of the blessed ·Pea·Ooze corner (·May·Pea·Ooze, baseline rows E665:E650:E67E); the entry side does not move the downstroke.
+  why: The x-height-entered variant of the blessed ·Pea·Ooze off-junction contact (·May·Pea·Ooze, baseline rows E665:E650:E67E); the entry side does not move the downstroke.
 - signature: contact:qsPea.full.en-y5.ex-y0:qsOoze.hapax.en-y0:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 - signature: contact:qsPea.full.en-y6.ex-y0:qsOoze.hapax.en-y0.ex-y0:y1
-  why: The y6-entered ·Pea·Ooze corner with ·Ooze carrying its own baseline exit onward; the left leg does not move.
+  why: The y6-entered ·Pea·Ooze off-junction contact with ·Ooze carrying its own baseline exit onward; the left leg does not move.
 - signature: contact:qsPea.full.en-y6.ex-y0:qsOoze.hapax.en-y0.ex-y0:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 - signature: contact:qsPea.full.en-y6.ex-y0:qsOoze.hapax.en-y0:y1
-  why: The y6-entered variant of the blessed ·Pea·Ooze corner (the ·Pea·Pea·Ooze chain, baseline rows E650:E650:E67E); the downstroke is unchanged.
+  why: The y6-entered variant of the blessed ·Pea·Ooze off-junction contact (the ·Pea·Pea·Ooze chain, baseline rows E650:E650:E67E); the downstroke is unchanged.
 - signature: contact:qsPea.full.en-y6.ex-y0:qsOoze.hapax.en-y0:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 - signature: contact:qsPea.full.ex-y0.locked:qsOoze.hapax.en-y0.ex-y0:y1
@@ -1185,15 +1185,15 @@
 - signature: contact:qsPea.full.ex-y0.locked:qsOoze.hapax.en-y0.ex-y0:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 - signature: contact:qsPea.full.ex-y0.locked:qsOoze.hapax.en-y0:y1
-  why: The ZWNJ-locked twin of the blessed ·Pea·Ooze corner; identical drawing.
+  why: The ZWNJ-locked twin of the blessed ·Pea·Ooze off-junction contact; identical drawing.
 - signature: contact:qsPea.full.ex-y0.locked:qsOoze.hapax.en-y0:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 - signature: contact:qsPea.full.ex-y0:qsOoze.hapax.en-y0.ex-y0:y1
-  why: The ·Pea·Ooze corner with ·Ooze carrying its own baseline exit onward; the left leg does not move.
+  why: The ·Pea·Ooze off-junction contact with ·Ooze carrying its own baseline exit onward; the left leg does not move.
 - signature: contact:qsPea.full.ex-y0:qsOoze.hapax.en-y0.ex-y0:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 - signature: contact:qsPea.full.ex-y0:qsOoze.hapax.en-y0:y1
-  why: ·Pea·Ooze joins at the baseline in the shipped font (baseline row E650:E67E, junction y0); ·Pea's right downstroke at y1 is one column left of ·Ooze's left leg, the tail-against-bar corner blessed for ·Oy·It, with ·Ooze's leg as the bar.
+  why: ·Pea·Ooze joins at the baseline in the old font (baseline row E650:E67E, junction y0); ·Pea's right downstroke at y1 is one column left of ·Ooze's left leg, the tail beside a vertical stroke blessed for ·Oy·It, with ·Ooze's leg as the bar.
 - signature: contact:qsPea.full.ex-y0:qsOoze.hapax.en-y0:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 - signature: contact:qsSee.straightest.ex-y0.locked:qsOoze.hapax.en-y0.ex-y0:y1
@@ -1201,39 +1201,39 @@
 - signature: contact:qsSee.straightest.ex-y0.locked:qsOoze.hapax.en-y0.ex-y0:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 - signature: contact:qsSee.straightest.ex-y0.locked:qsOoze.hapax.en-y0:y1
-  why: The ZWNJ-locked twin of the blessed ·See·Ooze corner; identical drawing.
+  why: The ZWNJ-locked twin of the blessed ·See·Ooze off-junction contact; identical drawing.
 - signature: contact:qsSee.straightest.ex-y0.locked:qsOoze.hapax.en-y0:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 - signature: contact:qsSee.straightest.ex-y0:qsOoze.hapax.en-y0.ex-y0:y1
-  why: The ·See·Ooze corner with ·Ooze carrying its own baseline exit onward; the left leg does not move.
+  why: The ·See·Ooze off-junction contact with ·Ooze carrying its own baseline exit onward; the left leg does not move.
 - signature: contact:qsSee.straightest.ex-y0:qsOoze.hapax.en-y0.ex-y0:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 - signature: contact:qsSee.straightest.ex-y0:qsOoze.hapax.en-y0:y1
-  why: ·See·Ooze joins at the baseline in the shipped font (baseline row E65A:E67E, junction y0, old-font glyph `qsSee.ex-y0.ex-y0-right`); the straightest tail's final vertical at y1 is one column left of ·Ooze's left leg, the same two-verticals corner as ·Tea·Ooze.
+  why: ·See·Ooze joins at the baseline in the old font (baseline row E65A:E67E, junction y0, old-font glyph `qsSee.ex-y0.ex-y0-right`); the straightest tail's final vertical at y1 is one column left of ·Ooze's left leg, the same two vertical strokes side by side as ·Tea·Ooze.
 - signature: contact:qsSee.straightest.ex-y0:qsOoze.hapax.en-y0:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 - signature: contact:qsTea.full.en-y0.ex-y0:qsOoze.hapax.en-y0.ex-y0:y1
-  why: The baseline-entered ·Tea·Ooze corner with ·Ooze carrying its own baseline exit onward; the left leg does not move.
+  why: The baseline-entered ·Tea·Ooze off-junction contact with ·Ooze carrying its own baseline exit onward; the left leg does not move.
 - signature: contact:qsTea.full.en-y0.ex-y0:qsOoze.hapax.en-y0.ex-y0:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 - signature: contact:qsTea.full.en-y0.ex-y0:qsOoze.hapax.en-y0:y1
-  why: The baseline-entered variant of the blessed ·Tea·Ooze corner (·Et·Tea·Ooze under ss05, baseline row E672:E652:E67E); the entry side leaves the bar where it is.
+  why: The baseline-entered variant of the blessed ·Tea·Ooze off-junction contact (·Et·Tea·Ooze under ss05, baseline row E672:E652:E67E); the entry side leaves the bar where it is.
 - signature: contact:qsTea.full.en-y0.ex-y0:qsOoze.hapax.en-y0:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 - signature: contact:qsTea.full.en-y5.ex-y0:qsOoze.hapax.en-y0.ex-y0:y1
-  why: The x-height-entered ·Tea·Ooze corner with ·Ooze carrying its own baseline exit onward; the left leg does not move.
+  why: The x-height-entered ·Tea·Ooze off-junction contact with ·Ooze carrying its own baseline exit onward; the left leg does not move.
 - signature: contact:qsTea.full.en-y5.ex-y0:qsOoze.hapax.en-y0.ex-y0:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 - signature: contact:qsTea.full.en-y5.ex-y0:qsOoze.hapax.en-y0:y1
-  why: The x-height-entered variant of the blessed ·Tea·Ooze corner (·I·Tea·Ooze under ss02, baseline row E675:E652:E67E); the bar is unchanged.
+  why: The x-height-entered variant of the blessed ·Tea·Ooze off-junction contact (·I·Tea·Ooze under ss02, baseline row E675:E652:E67E); the bar is unchanged.
 - signature: contact:qsTea.full.en-y5.ex-y0:qsOoze.hapax.en-y0:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 - signature: contact:qsTea.full.en-y8.ex-y0:qsOoze.hapax.en-y0.ex-y0:y1
-  why: The top-entered ·Tea·Ooze corner with ·Ooze carrying its own baseline exit onward; the left leg does not move.
+  why: The top-entered ·Tea·Ooze off-junction contact with ·Ooze carrying its own baseline exit onward; the left leg does not move.
 - signature: contact:qsTea.full.en-y8.ex-y0:qsOoze.hapax.en-y0.ex-y0:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 - signature: contact:qsTea.full.en-y8.ex-y0:qsOoze.hapax.en-y0:y1
-  why: The top-entered variant of the blessed ·Tea·Ooze corner (·See·Tea·Ooze, baseline rows E65A:E652:E67E); the bar is unchanged.
+  why: The top-entered variant of the blessed ·Tea·Ooze off-junction contact (·See·Tea·Ooze, baseline rows E65A:E652:E67E); the bar is unchanged.
 - signature: contact:qsTea.full.en-y8.ex-y0:qsOoze.hapax.en-y0:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 - signature: contact:qsTea.full.ex-y0.locked:qsOoze.hapax.en-y0.ex-y0:y1
@@ -1241,204 +1241,204 @@
 - signature: contact:qsTea.full.ex-y0.locked:qsOoze.hapax.en-y0.ex-y0:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 - signature: contact:qsTea.full.ex-y0.locked:qsOoze.hapax.en-y0:y1
-  why: The ZWNJ-locked twin of the blessed ·Tea·Ooze corner; identical drawing.
+  why: The ZWNJ-locked twin of the blessed ·Tea·Ooze off-junction contact; identical drawing.
 - signature: contact:qsTea.full.ex-y0.locked:qsOoze.hapax.en-y0:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 - signature: contact:qsTea.full.ex-y0:qsOoze.hapax.en-y0.ex-y0:y1
-  why: The ·Tea·Ooze corner with ·Ooze carrying its own baseline exit onward; the left leg does not move.
+  why: The ·Tea·Ooze off-junction contact with ·Ooze carrying its own baseline exit onward; the left leg does not move.
 - signature: contact:qsTea.full.ex-y0:qsOoze.hapax.en-y0.ex-y0:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 - signature: contact:qsTea.full.ex-y0:qsOoze.hapax.en-y0:y1
-  why: ·Tea·Ooze joins at the baseline in the shipped font (baseline row E652:E67E, junction y0); ·Tea's bar at y1 is one column left of ·Ooze's left leg, two verticals side by side.
+  why: ·Tea·Ooze joins at the baseline in the old font (baseline row E652:E67E, junction y0); ·Tea's bar at y1 is one column left of ·Ooze's left leg, two vertical strokes side by side.
 - signature: contact:qsTea.full.ex-y0:qsOoze.hapax.en-y0:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 - signature: contact:qsTea_qsOy.hapax.ex-y0:qsOoze.hapax.en-y0.ex-y0:y1
-  why: The ·Tea·Oy ligature's ·Ooze corner with ·Ooze carrying its own baseline exit onward; the left leg does not move.
+  why: The ·Tea·Oy ligature's ·Ooze off-junction contact with ·Ooze carrying its own baseline exit onward; the left leg does not move.
 - signature: contact:qsTea_qsOy.hapax.ex-y0:qsOoze.hapax.en-y0.ex-y0:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 - signature: contact:qsTea_qsOy.hapax.ex-y0:qsOoze.hapax.en-y0:y1
-  why: ·Tea·Oy ligature into ·Ooze joins at the baseline in the shipped font (baseline row E652:E679:E67E); the ligature's tail is ·Oy's, so the corner is the blessed ·Oy·Ooze one.
+  why: ·Tea·Oy ligature into ·Ooze joins at the baseline in the old font (baseline row E652:E679:E67E); the ligature's tail is ·Oy's, so the off-junction contact is the blessed ·Oy·Ooze one.
 - signature: contact:qsTea_qsOy.hapax.ex-y0:qsOoze.hapax.en-y0:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 # The exit side: ·Ooze's right leg against each blessed follower, from the bare exit cell, the entered cell, and the ZWNJ-locked twin.
 - signature: contact:qsOoze.hapax.en-y0.ex-y0:qsIt.hapax.en-y0.ex-y0:y1
-  why: The blessed ·Ooze·It corner with ·It carrying its own baseline exit onward; the exit side leaves the bar at y1 where it is. The entered ·Ooze (·X·Ooze·Y, entered at the baseline) draws the same right leg.
+  why: The blessed ·Ooze·It off-junction contact with ·It carrying its own baseline exit onward; the exit side leaves the bar at y1 where it is. The entered ·Ooze (·X·Ooze·Y, entered at the baseline) draws the same right leg.
 - signature: contact:qsOoze.hapax.en-y0.ex-y0:qsIt.hapax.en-y0.ex-y0:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 - signature: contact:qsOoze.hapax.en-y0.ex-y0:qsIt.hapax.en-y0.ex-y5.ex-ext-1:y1
-  why: The blessed ·Ooze·It corner with ·It's x-height exit extended toward a following ·J'ai (baseline row E67E:E670:E65D); the extension adds ink at y5 only, so the corner is unchanged. The entered ·Ooze (·X·Ooze·Y, entered at the baseline) draws the same right leg.
+  why: The blessed ·Ooze·It off-junction contact with ·It's x-height exit extended toward a following ·J'ai (baseline row E67E:E670:E65D); the extension adds ink at y5 only, so the off-junction contact is unchanged. The entered ·Ooze (·X·Ooze·Y, entered at the baseline) draws the same right leg.
 - signature: contact:qsOoze.hapax.en-y0.ex-y0:qsIt.hapax.en-y0.ex-y5.ex-ext-1:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 - signature: contact:qsOoze.hapax.en-y0.ex-y0:qsIt.hapax.en-y0.ex-y5:y1
-  why: The blessed ·Ooze·It corner with ·It exiting at the x-height instead; the exit adds ink at y5 only. The entered ·Ooze (·X·Ooze·Y, entered at the baseline) draws the same right leg.
+  why: The blessed ·Ooze·It off-junction contact with ·It exiting at the x-height instead; the exit adds ink at y5 only. The entered ·Ooze (·X·Ooze·Y, entered at the baseline) draws the same right leg.
 - signature: contact:qsOoze.hapax.en-y0.ex-y0:qsIt.hapax.en-y0.ex-y5:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 - signature: contact:qsOoze.hapax.en-y0.ex-y0:qsIt.hapax.en-y0:y1
-  why: ·Ooze·It joins at the baseline in the shipped font (baseline row E67E:E670); ·Ooze's right leg abuts ·It's bar at y1, the same corner as the blessed ·Ooze·Tea. The entered ·Ooze (·X·Ooze·Y, entered at the baseline) draws the same right leg.
+  why: ·Ooze·It joins at the baseline in the old font (baseline row E67E:E670); ·Ooze's right leg abuts ·It's bar at y1, the same off-junction contact as the blessed ·Ooze·Tea. The entered ·Ooze (·X·Ooze·Y, entered at the baseline) draws the same right leg.
 - signature: contact:qsOoze.hapax.en-y0.ex-y0:qsIt.hapax.en-y0:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 - signature: contact:qsOoze.hapax.en-y0.ex-y0:qsOoze.hapax.en-y0.ex-y0:y1
-  why: The blessed ·Ooze·Ooze corner with the second ·Ooze carrying its own baseline exit onward; its left leg does not move. The entered ·Ooze (·X·Ooze·Y, entered at the baseline) draws the same right leg.
+  why: The blessed ·Ooze·Ooze off-junction contact with the second ·Ooze carrying its own baseline exit onward; its left leg does not move. The entered ·Ooze (·X·Ooze·Y, entered at the baseline) draws the same right leg.
 - signature: contact:qsOoze.hapax.en-y0.ex-y0:qsOoze.hapax.en-y0.ex-y0:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 - signature: contact:qsOoze.hapax.en-y0.ex-y0:qsOoze.hapax.en-y0:y1
-  why: ·Ooze·Ooze joins at the baseline in the shipped font (baseline row E67E:E67E, junction y0); the first ·Ooze's right leg abuts the second's left leg at y1, the same two-verticals corner as the blessed ·Ooze·Tea. The entered ·Ooze (·X·Ooze·Y, entered at the baseline) draws the same right leg.
+  why: ·Ooze·Ooze joins at the baseline in the old font (baseline row E67E:E67E, junction y0); the first ·Ooze's right leg abuts the second's left leg at y1, the same two vertical strokes side by side as the blessed ·Ooze·Tea. The entered ·Ooze (·X·Ooze·Y, entered at the baseline) draws the same right leg.
 - signature: contact:qsOoze.hapax.en-y0.ex-y0:qsOoze.hapax.en-y0:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 - signature: contact:qsOoze.hapax.en-y0.ex-y0:qsOut.normal.en-y0:y1
-  why: ·Ooze·Out joins at the baseline in the shipped font (baseline row E67E:E67B); ·Ooze's right leg abuts ·Out's left upstroke at y1, the same corner as the blessed ·Ooze·Utter. The entered ·Ooze (·X·Ooze·Y, entered at the baseline) draws the same right leg.
+  why: ·Ooze·Out joins at the baseline in the old font (baseline row E67E:E67B); ·Ooze's right leg abuts ·Out's left upstroke at y1, the same off-junction contact as the blessed ·Ooze·Utter. The entered ·Ooze (·X·Ooze·Y, entered at the baseline) draws the same right leg.
 - signature: contact:qsOoze.hapax.en-y0.ex-y0:qsOut.swept-up.en-y0.ex-y5.ex-ext-1:y1
-  why: The blessed ·Ooze·Out corner with the swept-up exit extended by one toward a following ·Fee; the extension adds ink at y5 only. The entered ·Ooze (·X·Ooze·Y, entered at the baseline) draws the same right leg.
+  why: The blessed ·Ooze·Out off-junction contact with the swept-up exit extended by one toward a following ·Fee; the extension adds ink at y5 only. The entered ·Ooze (·X·Ooze·Y, entered at the baseline) draws the same right leg.
 - signature: contact:qsOoze.hapax.en-y0.ex-y0:qsOut.swept-up.en-y0.ex-y5.ex-ext-1:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 - signature: contact:qsOoze.hapax.en-y0.ex-y0:qsOut.swept-up.en-y0.ex-y5:y1
-  why: The blessed ·Ooze·Out corner with ·Out in the swept-up motion exiting at the x-height (·Ooze·Out·Day and similar windows); the sweep changes the right side only. The entered ·Ooze (·X·Ooze·Y, entered at the baseline) draws the same right leg.
+  why: The blessed ·Ooze·Out off-junction contact with ·Out in the swept-up motion exiting at the x-height (·Ooze·Out·Day and similar windows); the sweep changes the right side only. The entered ·Ooze (·X·Ooze·Y, entered at the baseline) draws the same right leg.
 - signature: contact:qsOoze.hapax.en-y0.ex-y0:qsOut.swept-up.en-y0.ex-y5:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 - signature: contact:qsOoze.hapax.en-y0.ex-y0:qsOut_qsTea.hapax.en-y0:y1
-  why: ·Ooze into the ·Out·Tea ligature joins at the baseline in the shipped font (baseline row E67E:E67B:E652); the ligature's left upstroke is ·Out's, so the corner is the blessed ·Ooze·Out one. The entered ·Ooze (·X·Ooze·Y, entered at the baseline) draws the same right leg.
+  why: ·Ooze into the ·Out·Tea ligature joins at the baseline in the old font (baseline row E67E:E67B:E652); the ligature's left upstroke is ·Out's, so the off-junction contact is the blessed ·Ooze·Out one. The entered ·Ooze (·X·Ooze·Y, entered at the baseline) draws the same right leg.
 - signature: contact:qsOoze.hapax.en-y0.ex-y0:qsOut_qsTea.hapax.en-y0:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 - signature: contact:qsOoze.hapax.en-y0.ex-y0:qsTea.full.en-y0:y1
-  why: ·Ooze·Tea joins at the baseline in the shipped font (baseline row E67E:E652, junction y0); ·Ooze's right leg at y1 is one column left of ·Tea's bar, the tail-against-bar corner blessed for ·Ox·Tea, with ·Ooze's leg as the tail. The entered ·Ooze (·X·Ooze·Y, entered at the baseline) draws the same right leg.
+  why: ·Ooze·Tea joins at the baseline in the old font (baseline row E67E:E652, junction y0); ·Ooze's right leg at y1 is one column left of ·Tea's bar, the tail beside a vertical stroke blessed for ·Ox·Tea, with ·Ooze's leg as the tail. The entered ·Ooze (·X·Ooze·Y, entered at the baseline) draws the same right leg.
 - signature: contact:qsOoze.hapax.en-y0.ex-y0:qsTea.full.en-y0:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 - signature: contact:qsOoze.hapax.en-y0.ex-y0:qsUtter.mono.en-y0.ex-y5.ex-ext-1:y1
-  why: The blessed ·Ooze·Utter corner with ·Utter's x-height exit extended by one; the extension touches the crown only. The entered ·Ooze (·X·Ooze·Y, entered at the baseline) draws the same right leg.
+  why: The blessed ·Ooze·Utter off-junction contact with ·Utter's x-height exit extended by one; the extension touches the crown only. The entered ·Ooze (·X·Ooze·Y, entered at the baseline) draws the same right leg.
 - signature: contact:qsOoze.hapax.en-y0.ex-y0:qsUtter.mono.en-y0.ex-y5:y1
-  why: The blessed ·Ooze·Utter corner with ·Utter exiting at the x-height; the crown's exit does not move its left downstroke. The entered ·Ooze (·X·Ooze·Y, entered at the baseline) draws the same right leg.
+  why: The blessed ·Ooze·Utter off-junction contact with ·Utter exiting at the x-height; the crown's exit does not move its left downstroke. The entered ·Ooze (·X·Ooze·Y, entered at the baseline) draws the same right leg.
 - signature: contact:qsOoze.hapax.en-y0.ex-y0:qsUtter.mono.en-y0:y1
-  why: ·Ooze·Utter joins at the baseline in the shipped font (baseline row E67E:E67A); ·Ooze's right leg abuts ·Utter's left downstroke at y1, the same corner as the blessed ·Ooze·It. The entered ·Ooze (·X·Ooze·Y, entered at the baseline) draws the same right leg.
+  why: ·Ooze·Utter joins at the baseline in the old font (baseline row E67E:E67A); ·Ooze's right leg abuts ·Utter's left downstroke at y1, the same off-junction contact as the blessed ·Ooze·It. The entered ·Ooze (·X·Ooze·Y, entered at the baseline) draws the same right leg.
 - signature: contact:qsOoze.hapax.ex-y0.locked:qsIt.hapax.en-y0.ex-y0:y1
-  why: The blessed ·Ooze·It corner with ·It carrying its own baseline exit onward; the exit side leaves the bar at y1 where it is. The ZWNJ-locked ·Ooze draws the same right leg.
+  why: The blessed ·Ooze·It off-junction contact with ·It carrying its own baseline exit onward; the exit side leaves the bar at y1 where it is. The ZWNJ-locked ·Ooze draws the same right leg.
 - signature: contact:qsOoze.hapax.ex-y0.locked:qsIt.hapax.en-y0.ex-y0:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 - signature: contact:qsOoze.hapax.ex-y0.locked:qsIt.hapax.en-y0.ex-y5.ex-ext-1:y1
-  why: The blessed ·Ooze·It corner with ·It's x-height exit extended toward a following ·J'ai (baseline row E67E:E670:E65D); the extension adds ink at y5 only, so the corner is unchanged. The ZWNJ-locked ·Ooze draws the same right leg.
+  why: The blessed ·Ooze·It off-junction contact with ·It's x-height exit extended toward a following ·J'ai (baseline row E67E:E670:E65D); the extension adds ink at y5 only, so the off-junction contact is unchanged. The ZWNJ-locked ·Ooze draws the same right leg.
 - signature: contact:qsOoze.hapax.ex-y0.locked:qsIt.hapax.en-y0.ex-y5.ex-ext-1:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 - signature: contact:qsOoze.hapax.ex-y0.locked:qsIt.hapax.en-y0.ex-y5:y1
-  why: The blessed ·Ooze·It corner with ·It exiting at the x-height instead; the exit adds ink at y5 only. The ZWNJ-locked ·Ooze draws the same right leg.
+  why: The blessed ·Ooze·It off-junction contact with ·It exiting at the x-height instead; the exit adds ink at y5 only. The ZWNJ-locked ·Ooze draws the same right leg.
 - signature: contact:qsOoze.hapax.ex-y0.locked:qsIt.hapax.en-y0.ex-y5:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 - signature: contact:qsOoze.hapax.ex-y0.locked:qsIt.hapax.en-y0:y1
-  why: ·Ooze·It joins at the baseline in the shipped font (baseline row E67E:E670); ·Ooze's right leg abuts ·It's bar at y1, the same corner as the blessed ·Ooze·Tea. The ZWNJ-locked ·Ooze draws the same right leg.
+  why: ·Ooze·It joins at the baseline in the old font (baseline row E67E:E670); ·Ooze's right leg abuts ·It's bar at y1, the same off-junction contact as the blessed ·Ooze·Tea. The ZWNJ-locked ·Ooze draws the same right leg.
 - signature: contact:qsOoze.hapax.ex-y0.locked:qsIt.hapax.en-y0:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 - signature: contact:qsOoze.hapax.ex-y0.locked:qsOoze.hapax.en-y0.ex-y0:y1
-  why: The blessed ·Ooze·Ooze corner with the second ·Ooze carrying its own baseline exit onward; its left leg does not move. The ZWNJ-locked ·Ooze draws the same right leg.
+  why: The blessed ·Ooze·Ooze off-junction contact with the second ·Ooze carrying its own baseline exit onward; its left leg does not move. The ZWNJ-locked ·Ooze draws the same right leg.
 - signature: contact:qsOoze.hapax.ex-y0.locked:qsOoze.hapax.en-y0.ex-y0:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 - signature: contact:qsOoze.hapax.ex-y0.locked:qsOoze.hapax.en-y0:y1
-  why: ·Ooze·Ooze joins at the baseline in the shipped font (baseline row E67E:E67E, junction y0); the first ·Ooze's right leg abuts the second's left leg at y1, the same two-verticals corner as the blessed ·Ooze·Tea. The ZWNJ-locked ·Ooze draws the same right leg.
+  why: ·Ooze·Ooze joins at the baseline in the old font (baseline row E67E:E67E, junction y0); the first ·Ooze's right leg abuts the second's left leg at y1, the same two vertical strokes side by side as the blessed ·Ooze·Tea. The ZWNJ-locked ·Ooze draws the same right leg.
 - signature: contact:qsOoze.hapax.ex-y0.locked:qsOoze.hapax.en-y0:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 - signature: contact:qsOoze.hapax.ex-y0.locked:qsOut.normal.en-y0:y1
-  why: ·Ooze·Out joins at the baseline in the shipped font (baseline row E67E:E67B); ·Ooze's right leg abuts ·Out's left upstroke at y1, the same corner as the blessed ·Ooze·Utter. The ZWNJ-locked ·Ooze draws the same right leg.
+  why: ·Ooze·Out joins at the baseline in the old font (baseline row E67E:E67B); ·Ooze's right leg abuts ·Out's left upstroke at y1, the same off-junction contact as the blessed ·Ooze·Utter. The ZWNJ-locked ·Ooze draws the same right leg.
 - signature: contact:qsOoze.hapax.ex-y0.locked:qsOut.swept-up.en-y0.ex-y5.ex-ext-1:y1
-  why: The blessed ·Ooze·Out corner with the swept-up exit extended by one toward a following ·Fee; the extension adds ink at y5 only. The ZWNJ-locked ·Ooze draws the same right leg.
+  why: The blessed ·Ooze·Out off-junction contact with the swept-up exit extended by one toward a following ·Fee; the extension adds ink at y5 only. The ZWNJ-locked ·Ooze draws the same right leg.
 - signature: contact:qsOoze.hapax.ex-y0.locked:qsOut.swept-up.en-y0.ex-y5.ex-ext-1:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 - signature: contact:qsOoze.hapax.ex-y0.locked:qsOut.swept-up.en-y0.ex-y5:y1
-  why: The blessed ·Ooze·Out corner with ·Out in the swept-up motion exiting at the x-height (·Ooze·Out·Day and similar windows); the sweep changes the right side only. The ZWNJ-locked ·Ooze draws the same right leg.
+  why: The blessed ·Ooze·Out off-junction contact with ·Out in the swept-up motion exiting at the x-height (·Ooze·Out·Day and similar windows); the sweep changes the right side only. The ZWNJ-locked ·Ooze draws the same right leg.
 - signature: contact:qsOoze.hapax.ex-y0.locked:qsOut.swept-up.en-y0.ex-y5:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 - signature: contact:qsOoze.hapax.ex-y0.locked:qsOut_qsTea.hapax.en-y0:y1
-  why: ·Ooze into the ·Out·Tea ligature joins at the baseline in the shipped font (baseline row E67E:E67B:E652); the ligature's left upstroke is ·Out's, so the corner is the blessed ·Ooze·Out one. The ZWNJ-locked ·Ooze draws the same right leg.
+  why: ·Ooze into the ·Out·Tea ligature joins at the baseline in the old font (baseline row E67E:E67B:E652); the ligature's left upstroke is ·Out's, so the off-junction contact is the blessed ·Ooze·Out one. The ZWNJ-locked ·Ooze draws the same right leg.
 - signature: contact:qsOoze.hapax.ex-y0.locked:qsOut_qsTea.hapax.en-y0:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 - signature: contact:qsOoze.hapax.ex-y0.locked:qsTea.full.en-y0:y1
-  why: ·Ooze·Tea joins at the baseline in the shipped font (baseline row E67E:E652, junction y0); ·Ooze's right leg at y1 is one column left of ·Tea's bar, the tail-against-bar corner blessed for ·Ox·Tea, with ·Ooze's leg as the tail. The ZWNJ-locked ·Ooze draws the same right leg.
+  why: ·Ooze·Tea joins at the baseline in the old font (baseline row E67E:E652, junction y0); ·Ooze's right leg at y1 is one column left of ·Tea's bar, the tail beside a vertical stroke blessed for ·Ox·Tea, with ·Ooze's leg as the tail. The ZWNJ-locked ·Ooze draws the same right leg.
 - signature: contact:qsOoze.hapax.ex-y0.locked:qsTea.full.en-y0:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 - signature: contact:qsOoze.hapax.ex-y0.locked:qsUtter.mono.en-y0.ex-y5.ex-ext-1:y1
-  why: The blessed ·Ooze·Utter corner with ·Utter's x-height exit extended by one; the extension touches the crown only. The ZWNJ-locked ·Ooze draws the same right leg.
+  why: The blessed ·Ooze·Utter off-junction contact with ·Utter's x-height exit extended by one; the extension touches the crown only. The ZWNJ-locked ·Ooze draws the same right leg.
 - signature: contact:qsOoze.hapax.ex-y0.locked:qsUtter.mono.en-y0.ex-y5:y1
-  why: The blessed ·Ooze·Utter corner with ·Utter exiting at the x-height; the crown's exit does not move its left downstroke. The ZWNJ-locked ·Ooze draws the same right leg.
+  why: The blessed ·Ooze·Utter off-junction contact with ·Utter exiting at the x-height; the crown's exit does not move its left downstroke. The ZWNJ-locked ·Ooze draws the same right leg.
 - signature: contact:qsOoze.hapax.ex-y0.locked:qsUtter.mono.en-y0:y1
-  why: ·Ooze·Utter joins at the baseline in the shipped font (baseline row E67E:E67A); ·Ooze's right leg abuts ·Utter's left downstroke at y1, the same corner as the blessed ·Ooze·It. The ZWNJ-locked ·Ooze draws the same right leg.
+  why: ·Ooze·Utter joins at the baseline in the old font (baseline row E67E:E67A); ·Ooze's right leg abuts ·Utter's left downstroke at y1, the same off-junction contact as the blessed ·Ooze·It. The ZWNJ-locked ·Ooze draws the same right leg.
 - signature: contact:qsOoze.hapax.ex-y0:qsIt.hapax.en-y0.ex-y0:y1
-  why: The blessed ·Ooze·It corner with ·It carrying its own baseline exit onward; the exit side leaves the bar at y1 where it is.
+  why: The blessed ·Ooze·It off-junction contact with ·It carrying its own baseline exit onward; the exit side leaves the bar at y1 where it is.
 - signature: contact:qsOoze.hapax.ex-y0:qsIt.hapax.en-y0.ex-y0:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 - signature: contact:qsOoze.hapax.ex-y0:qsIt.hapax.en-y0.ex-y5.ex-ext-1:y1
-  why: The blessed ·Ooze·It corner with ·It's x-height exit extended toward a following ·J'ai (baseline row E67E:E670:E65D); the extension adds ink at y5 only, so the corner is unchanged.
+  why: The blessed ·Ooze·It off-junction contact with ·It's x-height exit extended toward a following ·J'ai (baseline row E67E:E670:E65D); the extension adds ink at y5 only, so the off-junction contact is unchanged.
 - signature: contact:qsOoze.hapax.ex-y0:qsIt.hapax.en-y0.ex-y5.ex-ext-1:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 - signature: contact:qsOoze.hapax.ex-y0:qsIt.hapax.en-y0.ex-y5:y1
-  why: The blessed ·Ooze·It corner with ·It exiting at the x-height instead; the exit adds ink at y5 only.
+  why: The blessed ·Ooze·It off-junction contact with ·It exiting at the x-height instead; the exit adds ink at y5 only.
 - signature: contact:qsOoze.hapax.ex-y0:qsIt.hapax.en-y0.ex-y5:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 - signature: contact:qsOoze.hapax.ex-y0:qsIt.hapax.en-y0:y1
-  why: ·Ooze·It joins at the baseline in the shipped font (baseline row E67E:E670); ·Ooze's right leg abuts ·It's bar at y1, the same corner as the blessed ·Ooze·Tea.
+  why: ·Ooze·It joins at the baseline in the old font (baseline row E67E:E670); ·Ooze's right leg abuts ·It's bar at y1, the same off-junction contact as the blessed ·Ooze·Tea.
 - signature: contact:qsOoze.hapax.ex-y0:qsIt.hapax.en-y0:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 - signature: contact:qsOoze.hapax.ex-y0:qsOoze.hapax.en-y0.ex-y0:y1
-  why: The blessed ·Ooze·Ooze corner with the second ·Ooze carrying its own baseline exit onward; its left leg does not move.
+  why: The blessed ·Ooze·Ooze off-junction contact with the second ·Ooze carrying its own baseline exit onward; its left leg does not move.
 - signature: contact:qsOoze.hapax.ex-y0:qsOoze.hapax.en-y0.ex-y0:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 - signature: contact:qsOoze.hapax.ex-y0:qsOoze.hapax.en-y0:y1
-  why: ·Ooze·Ooze joins at the baseline in the shipped font (baseline row E67E:E67E, junction y0); the first ·Ooze's right leg abuts the second's left leg at y1, the same two-verticals corner as the blessed ·Ooze·Tea.
+  why: ·Ooze·Ooze joins at the baseline in the old font (baseline row E67E:E67E, junction y0); the first ·Ooze's right leg abuts the second's left leg at y1, the same two vertical strokes side by side as the blessed ·Ooze·Tea.
 - signature: contact:qsOoze.hapax.ex-y0:qsOoze.hapax.en-y0:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 - signature: contact:qsOoze.hapax.ex-y0:qsOut.normal.en-y0:y1
-  why: ·Ooze·Out joins at the baseline in the shipped font (baseline row E67E:E67B); ·Ooze's right leg abuts ·Out's left upstroke at y1, the same corner as the blessed ·Ooze·Utter.
+  why: ·Ooze·Out joins at the baseline in the old font (baseline row E67E:E67B); ·Ooze's right leg abuts ·Out's left upstroke at y1, the same off-junction contact as the blessed ·Ooze·Utter.
 - signature: contact:qsOoze.hapax.ex-y0:qsOut.swept-up.en-y0.ex-y5.ex-ext-1:y1
-  why: The blessed ·Ooze·Out corner with the swept-up exit extended by one toward a following ·Fee; the extension adds ink at y5 only.
+  why: The blessed ·Ooze·Out off-junction contact with the swept-up exit extended by one toward a following ·Fee; the extension adds ink at y5 only.
 - signature: contact:qsOoze.hapax.ex-y0:qsOut.swept-up.en-y0.ex-y5.ex-ext-1:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 - signature: contact:qsOoze.hapax.ex-y0:qsOut.swept-up.en-y0.ex-y5:y1
-  why: The blessed ·Ooze·Out corner with ·Out in the swept-up motion exiting at the x-height (·Ooze·Out·Day and similar windows); the sweep changes the right side only.
+  why: The blessed ·Ooze·Out off-junction contact with ·Out in the swept-up motion exiting at the x-height (·Ooze·Out·Day and similar windows); the sweep changes the right side only.
 - signature: contact:qsOoze.hapax.ex-y0:qsOut.swept-up.en-y0.ex-y5:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 - signature: contact:qsOoze.hapax.ex-y0:qsOut_qsTea.hapax.en-y0:y1
-  why: ·Ooze into the ·Out·Tea ligature joins at the baseline in the shipped font (baseline row E67E:E67B:E652); the ligature's left upstroke is ·Out's, so the corner is the blessed ·Ooze·Out one.
+  why: ·Ooze into the ·Out·Tea ligature joins at the baseline in the old font (baseline row E67E:E67B:E652); the ligature's left upstroke is ·Out's, so the off-junction contact is the blessed ·Ooze·Out one.
 - signature: contact:qsOoze.hapax.ex-y0:qsOut_qsTea.hapax.en-y0:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 - signature: contact:qsOoze.hapax.ex-y0:qsTea.full.en-y0:y1
-  why: ·Ooze·Tea joins at the baseline in the shipped font (baseline row E67E:E652, junction y0); ·Ooze's right leg at y1 is one column left of ·Tea's bar, the tail-against-bar corner blessed for ·Ox·Tea, with ·Ooze's leg as the tail.
+  why: ·Ooze·Tea joins at the baseline in the old font (baseline row E67E:E652, junction y0); ·Ooze's right leg at y1 is one column left of ·Tea's bar, the tail beside a vertical stroke blessed for ·Ox·Tea, with ·Ooze's leg as the tail.
 - signature: contact:qsOoze.hapax.ex-y0:qsTea.full.en-y0:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 - signature: contact:qsOoze.hapax.ex-y0:qsUtter.mono.en-y0.ex-y5.ex-ext-1:y1
-  why: The blessed ·Ooze·Utter corner with ·Utter's x-height exit extended by one; the extension touches the crown only.
+  why: The blessed ·Ooze·Utter off-junction contact with ·Utter's x-height exit extended by one; the extension touches the crown only.
 - signature: contact:qsOoze.hapax.ex-y0:qsUtter.mono.en-y0.ex-y5:y1
-  why: The blessed ·Ooze·Utter corner with ·Utter exiting at the x-height; the crown's exit does not move its left downstroke.
+  why: The blessed ·Ooze·Utter off-junction contact with ·Utter exiting at the x-height; the crown's exit does not move its left downstroke.
 - signature: contact:qsOoze.hapax.ex-y0:qsUtter.mono.en-y0:y1
-  why: ·Ooze·Utter joins at the baseline in the shipped font (baseline row E67E:E67A); ·Ooze's right leg abuts ·Utter's left downstroke at y1, the same corner as the blessed ·Ooze·It.
+  why: ·Ooze·Utter joins at the baseline in the old font (baseline row E67E:E67A); ·Ooze's right leg abuts ·Utter's left downstroke at y1, the same off-junction contact as the blessed ·Ooze·It.
 
-# ·Bay's baseline closing bar is unconditional letterform ink, like ·Awe's tail above: it has the same shape whether or not the exit joins. The shipped font draws bare qsBay with the full below-baseline loop and its closing bar at every word edge and before every non-joining follower, and quikscript.yaml has no unjoined form. The bar's last pixel sits one column right of the stem with no ink above or below it, so it fails the automatic `unjoined: safe` check (`geometry.verify_unjoined_safe`). The gate checks each entry and lock variant separately, so each has its own signature; all show the same terminal.
+# ·Bay's baseline closing bar is unconditional letterform ink, like ·Awe's tail above: it has the same shape whether or not the exit joins. The old font draws bare qsBay with the full below-baseline loop and its closing bar at every word edge and before every non-joining follower, and quikscript.yaml has no unjoined form. The bar's last pixel sits one column right of the stem with no ink above or below it, so it fails the automatic `unjoined: safe` check (`geometry.verify_unjoined_safe`). The gate checks each entry and lock variant separately, so each has its own signature; all show the same terminal.
 - signature: dangle:qsBay.hapax:exit:baseline
-  why: ·Bay's closing-bar terminal, drawn unconditionally in the shipped font; the declined exit keeps it.
+  why: ·Bay's closing-bar terminal, drawn unconditionally in the old font; the declined exit keeps it.
 - signature: dangle:qsBay.hapax.en-y5:exit:baseline
   why: ·Bay entered at the x-height keeps the same closing-bar terminal on a declined exit.
 - signature: dangle:qsBay.hapax.locked:exit:baseline
   why: The ZWNJ-locked twin of ·Bay's closing-bar terminal; identical drawing.
 
-# ·Key's baseline foot is unconditional letterform ink, like ·Awe's tail above: it has the same shape whether or not the exit joins. The shipped font draws bare qsKey with the full angle and its foot at every word edge and before every non-joining follower, and quikscript.yaml has no unjoined form. The foot's last pixel has no ink above it, so it fails the automatic `unjoined: safe` check (`geometry.verify_unjoined_safe`). The gate checks each entry and lock variant separately, so each has its own signature; all show the same terminal.
+# ·Key's baseline foot is unconditional letterform ink, like ·Awe's tail above: it has the same shape whether or not the exit joins. The old font draws bare qsKey with the full angle and its foot at every word edge and before every non-joining follower, and quikscript.yaml has no unjoined form. The foot's last pixel has no ink above it, so it fails the automatic `unjoined: safe` check (`geometry.verify_unjoined_safe`). The gate checks each entry and lock variant separately, so each has its own signature; all show the same terminal.
 - signature: dangle:qsKey.hapax:exit:baseline
-  why: ·Key's foot terminal, drawn unconditionally in the shipped font; the declined exit keeps it.
+  why: ·Key's foot terminal, drawn unconditionally in the old font; the declined exit keeps it.
 - signature: dangle:qsKey.hapax.en-y8:exit:baseline
   why: ·Key entered at the top keeps the same foot terminal on a declined exit.
 - signature: dangle:qsKey.hapax.locked:exit:baseline
   why: The ZWNJ-locked twin of ·Key's foot terminal; identical drawing.
 
 - signature: dangle:qsShe.hapax:exit:baseline
-  why: ·She's curved foot is the shipped isolated drawing (baseline row E65C). Its rightmost baseline pixel continues diagonally into the upturned tip at y1, not vertically, so `geometry.verify_unjoined_safe` does not accept it; the declined exit keeps this ink as part of the letter.
+  why: ·She's curved foot is the old font's isolated drawing (baseline row E65C). Its rightmost baseline pixel continues diagonally into the upturned tip at y1, not vertically, so `geometry.verify_unjoined_safe` does not accept it; the declined exit keeps this ink as part of the letter.
 - signature: dangle:qsShe.hapax.locked:exit:baseline
   why: The ZWNJ-locked twin retains ·She's curved foot, as in baseline row 200C:E65C; the diagonal upturned tip is the same intentional letterform ink.
 
 - signature: dangle:qsCheer.hapax:exit:baseline
-  why: ·Cheer's horizontal baseline foot is part of its shipped isolated drawing, as in baseline row E65E. A declined exit keeps that foot intact.
+  why: ·Cheer's horizontal baseline foot is part of its isolated drawing in the old font, as in baseline row E65E. A declined exit keeps that foot intact.
 - signature: dangle:qsCheer.hapax.en-y5:exit:baseline
   why: The entered ·Cheer retains the same baseline foot as the isolated drawing, as in baseline row E665:E65E; its x-height entry changes no baseline ink.
 - signature: dangle:qsCheer.hapax.en-y5.en-ext-1:exit:baseline
-  why: The x-height entry extension shifts ·Cheer's drawing and exit anchor together and leaves its baseline foot intact. The same foot follows the shipped `·Day+Utter.half` ligature in baseline row E650:E653:E67A:E65E.
+  why: The x-height entry extension shifts ·Cheer's drawing and exit anchor together and leaves its baseline foot intact. The same foot follows the old font's `·Day+Utter.half` ligature in baseline row E650:E653:E67A:E65E.
 - signature: dangle:qsCheer.hapax.locked:exit:baseline
-  why: The ZWNJ-locked twin keeps ·Cheer's shipped baseline foot, as in baseline row 200C:E65E.
+  why: The ZWNJ-locked twin keeps ·Cheer's baseline foot from the old font, as in baseline row 200C:E65E.
 
-# ·Jay's baseline tick and the ·Jay·Utter ligature's crown are unconditional letterform ink with the same shape whether or not the exit joins. The shipped font draws bare qsJay and bare qsJay_qsUtter with the full tick and crown at every word edge and before every non-joining follower, and quikscript.yaml has no unjoined form. Neither the tick's last pixel nor the crown's continues vertically, so both fail the automatic `unjoined: safe` check (`geometry.verify_unjoined_safe`). The gate checks each entry, adjustment, and lock variant separately, so each has its own signature; all show the same terminal.
+# ·Jay's baseline tick and the ·Jay·Utter ligature's crown are unconditional letterform ink with the same shape whether or not the exit joins. The old font draws bare qsJay and bare qsJay_qsUtter with the full tick and crown at every word edge and before every non-joining follower, and quikscript.yaml has no unjoined form. Neither the tick's last pixel nor the crown's continues vertically, so both fail the automatic `unjoined: safe` check (`geometry.verify_unjoined_safe`). The gate checks each entry, adjustment, and lock variant separately, so each has its own signature; all show the same terminal.
 - signature: dangle:qsJay.hapax:exit:baseline
-  why: ·Jay's baseline tick terminal, drawn unconditionally in the shipped font (baseline row E65F); the declined exit keeps it.
+  why: ·Jay's baseline tick terminal, drawn unconditionally in the old font (baseline row E65F); the declined exit keeps it.
 - signature: dangle:qsJay.hapax.en-y5:exit:baseline
   why: ·Jay entered at the crown keeps the same tick terminal on a declined exit (baseline row E665:E65F).
 - signature: dangle:qsJay.hapax.en-y5.en-con-1:exit:baseline
@@ -1448,7 +1448,7 @@
 - signature: dangle:qsJay.hapax.locked:exit:baseline
   why: The ZWNJ-locked twin of ·Jay's tick terminal; identical drawing (baseline row 200C:E65F).
 - signature: dangle:qsJay_qsUtter.hapax:exit:x-height
-  why: The ·Jay·Utter ligature's crown terminal (·Utter's nub at y5), drawn unconditionally in the shipped font (baseline row E65F:E67A); the declined exit keeps it.
+  why: The ·Jay·Utter ligature's crown terminal (·Utter's nub at y5), drawn unconditionally in the old font (baseline row E65F:E67A); the declined exit keeps it.
 - signature: dangle:qsJay_qsUtter.hapax.en-y5:exit:x-height
   why: The ligature entered at the crown keeps the same terminal on a declined exit (baseline row E665:E65F:E67A).
 - signature: dangle:qsJay_qsUtter.hapax.en-y5.en-con-1:exit:x-height
@@ -1458,7 +1458,7 @@
 - signature: dangle:qsJay_qsUtter.hapax.locked:exit:x-height
   why: The ZWNJ-locked twin of the ligature's crown terminal; identical drawing.
 
-# ·Gay's x-height exit places ·Jay's crown one column past ·Gay's stroke, and the two Deep descenders then share the pixel at ·Gay's column 4, two rows below the baseline, where ·Gay's loop wall meets ·Jay's (or the ligature's) descender. Above and below that pixel the two descenders stand side by side at y0, y-1, and y-3. Before ·Jay with no ligature they also do at y-2, because ·Jay's descender has ink in the column right of the shared pixel there. The shipped font places the same anchors with no adjustment (baseline rows E655:E65F and E655:E65F:E67A), so the shared pixel and the side-by-side rows are the old drawing. There is one signature per ·Gay entry, contraction, and lock variant, per ·Jay exit variant, and per finding; the junction is identical in all of them.
+# ·Gay's x-height exit places ·Jay's crown one column past ·Gay's stroke, and the two Deep descenders then share the pixel at ·Gay's column 4, two rows below the baseline, where ·Gay's loop wall meets ·Jay's (or the ligature's) descender. Above and below that pixel the two descenders stand side by side at y0, y-1, and y-3. Before ·Jay with no ligature they also do at y-2, because ·Jay's descender has ink in the column right of the shared pixel there. The old font places the same anchors with no adjustment (baseline rows E655:E65F and E655:E65F:E67A), so the shared pixel and the side-by-side rows are the old drawing. There is one signature per ·Gay entry, contraction, and lock variant, per ·Jay exit variant, and per finding; the junction is identical in all of them.
 - signature: contact:qsGay.hapax.en-y0.ex-y5:qsJay.hapax.en-y5:overlap
 - signature: contact:qsGay.hapax.en-y0.ex-y5:qsJay.hapax.en-y5:y-3
   why: The pair in the `:overlap` signature above also touches at y-3, off the junction row.
@@ -1652,7 +1652,7 @@
 - signature: contact:qsGay.hapax.ex-y5.locked:qsJay_qsUtter.hapax.en-y5.ex-y5.ex-ext-1:y0
   why: The pair in the `:overlap` signature above also touches at y0, off the junction row.
 
-# ·It entered and exiting at the baseline under ss04, after ·Jay: ·It enters at the baseline off ·Jay's tick, and its bar stands beside ·Jay's slanted right side over several rows. The bar touches it at y3 and y4 on every form, and each form has a signature at both rows. Under ss04 the rebuild joins ·Jay·It only through the `ex-ext-1` ·Jay forms, whose connector leaves a blank column before the bar, so these entries match no current finding. The shipped font draws the same join under ss04 (baseline rows E65F:E670:E653 and E65F:E670:E67A). At default the pair breaks and no contact arises.
+# ·It entered and exiting at the baseline under ss04, after ·Jay: ·It enters at the baseline off ·Jay's tick, and its bar stands beside ·Jay's slanted right side over several rows. The bar touches it at y3 and y4 on every form, and each form has a signature at both rows. Under ss04 the rebuild joins ·Jay·It only through the `ex-ext-1` ·Jay forms, whose connector leaves a blank column before the bar, so these entries match no current finding. The old font draws the same join under ss04 (baseline rows E65F:E670:E653 and E65F:E670:E67A). At default the pair breaks and no contact arises.
 - signature: contact:qsJay.hapax.en-y5.ex-y0:qsIt.hapax.en-y0.ex-y0:y3
 - signature: contact:qsJay.hapax.en-y5.ex-y0:qsIt.hapax.en-y0.ex-y0:y4
   why: The pair in the `:y3` signature above also touches at y4, off the junction row.
@@ -1669,7 +1669,7 @@
 - signature: contact:qsJay.hapax.ex-y0.locked:qsIt.hapax.en-y0.ex-y0:y4
   why: The pair in the `:y3` signature above also touches at y4, off the junction row.
 
-# qsIt's baseline entry extension after ·Key (`en-ext-1`) also applies to the ·It that exits at the baseline under ss04. It lengthens the ·Key connector on ·It's left at y0 and leaves ·It's bar, and so the right-side corner against each follower, where the un-extended signatures above have it. The extended and un-extended cells touch each follower at the same rows.
+# qsIt's baseline entry extension after ·Key (`en-ext-1`) also applies to the ·It that exits at the baseline under ss04. It lengthens the ·Key connector on ·It's left at y0 and leaves ·It's bar, and so the right-side off-junction contact against each follower, where the un-extended signatures above have it. The extended and un-extended cells touch each follower at the same rows.
 - signature: contact:qsIt.hapax.en-y0.ex-y0.en-ext-1:qsOoze.hapax.en-y0:y2
 - signature: contact:qsIt.hapax.en-y0.ex-y0.en-ext-1:qsOoze.hapax.en-y0:y1
   why: The pair in the `:y2` signature above also touches at y1, off the junction row.
@@ -1690,13 +1690,13 @@
 - signature: contact:qsIt.hapax.en-y0.ex-y0.en-ext-1:qsUtter.mono.en-y0.ex-y5:y1
 - signature: contact:qsIt.hapax.en-y0.ex-y0.en-ext-1:qsUtter.mono.en-y0.ex-y5.ex-ext-1:y1
 
-# ·Gay's crown bar is unconditional letterform ink, like ·Awe's tail above: it has the same shape whether or not the exit joins. The shipped font draws bare qsGay with the full crown at every word edge and before every non-joining follower, and quikscript.yaml has no unjoined form. The crown's terminal pixel has no ink above or below it, so it fails the automatic `unjoined: safe` check (`geometry.verify_unjoined_safe`). ·Gay's baseline foot passes that check because its terminal continues down into the loop. The gate checks each entry, exit, and lock variant separately, so each has its own signature; all show the same terminal.
+# ·Gay's crown bar is unconditional letterform ink, like ·Awe's tail above: it has the same shape whether or not the exit joins. The old font draws bare qsGay with the full crown at every word edge and before every non-joining follower, and quikscript.yaml has no unjoined form. The crown's terminal pixel has no ink above or below it, so it fails the automatic `unjoined: safe` check (`geometry.verify_unjoined_safe`). ·Gay's baseline foot passes that check because its terminal continues down into the loop. The gate checks each entry, exit, and lock variant separately, so each has its own signature; all show the same terminal.
 - signature: dangle:qsGay.hapax:exit:x-height
-  why: ·Gay's crown terminal, drawn unconditionally in the shipped font; the declined exit keeps it.
+  why: ·Gay's crown terminal, drawn unconditionally in the old font; the declined exit keeps it.
 - signature: dangle:qsGay.hapax.en-y0:exit:x-height
   why: ·Gay entered at the baseline keeps the same crown terminal while its x-height exit goes unserved.
 - signature: dangle:qsGay.hapax.en-y0.en-con-1:exit:x-height
-  why: The contracted baseline-entry twin moves no crown ink; the same terminal stays.
+  why: The contracted baseline-entry variant moves no crown ink; the same terminal stays.
 - signature: dangle:qsGay.hapax.en-y5:exit:x-height
   why: ·Gay entered at the x-height never exits at the x-height (a `never` pairing in the ·Gay rune); the crown ink stays.
 - signature: dangle:qsGay.hapax.en-y5.ex-y0:exit:x-height
@@ -1712,7 +1712,7 @@
 - signature: dangle:qsGay.hapax.locked:exit:x-height
   why: The ZWNJ-locked twin of ·Gay's crown terminal; identical drawing.
 
-# The doubly-extended ·Gay ~x~ ·J'ai junction (·Gay's ex-ext-2 meeting ·J'ai's en-ext-2, both transcribed from the old font's derive pair) puts the two Deep descenders side by side: the right side of ·Gay's loop abuts ·J'ai's descender curl at y=-2, the corner the shipped font draws in every such window (baseline rows E655:E65D and E655:E65D:E67A carry the same advances). The contact is off-anchor because the junction is at y=5. There is one signature per entry, exit, and lock variant on either side, all the same corner.
+# The doubly-extended ·Gay ~x~ ·J'ai junction (·Gay's ex-ext-2 meeting ·J'ai's en-ext-2, both transcribed from the old font's derive pair) puts the two Deep descenders side by side: the right side of ·Gay's loop abuts ·J'ai's descender curl at y=-2, the off-junction contact the old font draws in every such window (baseline rows E655:E65D and E655:E65D:E67A carry the same advances). The contact is off-anchor because the junction is at y=5. There is one signature per entry, exit, and lock variant on either side, all the same off-junction contact.
 - signature: contact:qsGay.hapax.en-y0.ex-y5.ex-ext-2:qsJai.hapax.en-y5:y-2
 - signature: contact:qsGay.hapax.en-y0.ex-y5.ex-ext-2:qsJai.hapax.en-y5.ex-y0:y-2
 - signature: contact:qsGay.hapax.en-y0.ex-y5.ex-ext-2:qsJai.hapax.en-y5.ex-y0.ex-ext-1:y-2
@@ -1732,7 +1732,7 @@
 - signature: contact:qsGay.hapax.ex-y5.locked.ex-ext-2:qsJai_qsUtter.hapax.en-y5.ex-y5:y-2
 - signature: contact:qsGay.hapax.ex-y5.locked.ex-ext-2:qsJai_qsUtter.hapax.en-y5.ex-y5.ex-ext-1:y-2
 
-# After ·Utter joins it at the x-height, ·Gay is entered at the crown and exits at the baseline into half-·Day or the half ·Day+Utter ligature. Both letters are Deep, and ·Gay's loop abuts the ·Day foot's rising hook at y=-2 and y=-1, the corner the shipped font draws in every ·Utter·Gay·Day window (baseline row E67A:E655:E653). The contact is off-anchor because the junction is at y=0. There is one signature per follower variant and per touching row, and every follower touches at both rows.
+# After ·Utter joins it at the x-height, ·Gay is entered at the crown and exits at the baseline into half-·Day or the half ·Day+Utter ligature. Both letters are Deep, and ·Gay's loop abuts the ·Day foot's rising hook at y=-2 and y=-1, the off-junction contact the old font draws in every ·Utter·Gay·Day window (baseline row E67A:E655:E653). The contact is off-anchor because the junction is at y=0. There is one signature per follower variant and per touching row, and every follower touches at both rows.
 - signature: contact:qsGay.hapax.en-y5.ex-y0:qsDay.half.en-y0:y-2
 - signature: contact:qsGay.hapax.en-y5.ex-y0:qsDay.half.en-y0:y-1
   why: The pair in the `:y-2` signature above also touches at y-1, off the junction row.
@@ -1749,7 +1749,7 @@
 - signature: contact:qsGay.hapax.en-y5.ex-y0:qsDay_qsUtter.half.en-y0.ex-y5.ex-ext-1:y-1
   why: The pair in the `:y-2` signature above also touches at y-1, off the junction row.
 
-# ·They's top-side x-height exit puts its down-stroke beside a follower whose entry stroke is vertical: ·They's stroke at (2, 4) sits one column from the left bar of ·Et or ·It at y4, one row below the y5 junction. The shipped font draws this corner in every such window (baseline rows E657:E672 and E657:E670 have a y5 junction). The gate checks each exit and lock variant against each follower variant separately; all show the same corner.
+# ·They's top-side x-height exit puts its down-stroke beside a follower whose entry stroke is vertical: ·They's stroke at (2, 4) sits one column from the left bar of ·Et or ·It at y4, one row below the y5 junction. The old font draws this off-junction contact in every such window (baseline rows E657:E672 and E657:E670 have a y5 junction). The gate checks each exit and lock variant against each follower variant separately; all show the same off-junction contact.
 - signature: contact:qsThey.hapax.ex-y5:qsEt.hapax.en-y5:y4
 - signature: contact:qsThey.hapax.ex-y5:qsEt.hapax.en-y5.ex-y0:y4
 - signature: contact:qsThey.hapax.ex-y5:qsEt.hapax.en-y5.ex-y0.ex-con-1:y4
@@ -1763,7 +1763,7 @@
 - signature: contact:qsThey.hapax.ex-y5.locked:qsIt.hapax.en-y5.ex-y0:y4
 - signature: contact:qsThey.hapax.ex-y5.locked:qsIt.hapax.en-y5.ex-y0.ex-ext-1:y4
 
-# Entered ·They lifts its hook to the baseline anchor from y=-1. Before a Deep follower whose foot also sits below the baseline (half-·Day or the half ·Day+Utter ligature), the hook's last pixel and that descender stand side by side one row under the y0 junction. The shipped font draws this corner in every such window (baseline rows E676:E657:E653 and E676:E657:E653:E67A carry the same advances). The gate checks each entry variant against each follower variant separately; all show the same corner.
+# Entered ·They lifts its hook to the baseline anchor from y=-1. Before a Deep follower whose foot also sits below the baseline (half-·Day or the half ·Day+Utter ligature), the hook's last pixel and that descender stand side by side one row under the y0 junction. The old font draws this off-junction contact in every such window (baseline rows E676:E657:E653 and E676:E657:E653:E67A carry the same advances). The gate checks each entry variant against each follower variant separately; all show the same off-junction contact.
 - signature: contact:qsThey.hapax.en-y5.ex-y0:qsDay.half.en-y0:y-1
 - signature: contact:qsThey.hapax.en-y5.ex-y0:qsDay.half.en-y0.ex-y0:y-1
 - signature: contact:qsThey.hapax.en-y5.ex-y0:qsDay_qsUtter.half.en-y0:y-1
@@ -1775,9 +1775,9 @@
 - signature: contact:qsThey.hapax.en-y5.ex-y0.en-ext-1:qsDay_qsUtter.half.en-y0.ex-y5:y-1
 - signature: contact:qsThey.hapax.en-y5.ex-y0.en-ext-1:qsDay_qsUtter.half.en-y0.ex-y5.ex-ext-1:y-1
 
-# The ·They+Utter ligature's crown is ·Utter's nub, unconditional letterform ink like the ·J'ai+Utter crown above. The shipped font draws the bare ligature with the full crown at every word edge and before every non-joining follower, and quikscript.yaml has no unjoined form. The crown's terminal pixel has no ink above or below it, so it fails the automatic `unjoined: safe` check (`geometry.verify_unjoined_safe`). The gate checks each entry and lock variant separately, so each has its own signature; all show the same terminal.
+# The ·They+Utter ligature's crown is ·Utter's nub, unconditional letterform ink like the ·J'ai+Utter crown above. The old font draws the bare ligature with the full crown at every word edge and before every non-joining follower, and quikscript.yaml has no unjoined form. The crown's terminal pixel has no ink above or below it, so it fails the automatic `unjoined: safe` check (`geometry.verify_unjoined_safe`). The gate checks each entry and lock variant separately, so each has its own signature; all show the same terminal.
 - signature: dangle:qsThey_qsUtter.hapax:exit:x-height
-  why: The ·They·Utter ligature's crown terminal (·Utter's nub at y5), drawn unconditionally in the shipped font; the declined exit keeps it.
+  why: The ·They·Utter ligature's crown terminal (·Utter's nub at y5), drawn unconditionally in the old font; the declined exit keeps it.
 - signature: dangle:qsThey_qsUtter.hapax.en-y5:exit:x-height
   why: The ligature entered at the top keeps the same crown terminal on a declined exit.
 - signature: dangle:qsThey_qsUtter.hapax.en-y5.en-ext-1:exit:x-height
@@ -1785,7 +1785,7 @@
 - signature: dangle:qsThey_qsUtter.hapax.locked:exit:x-height
   why: The ZWNJ-locked twin of the ligature's crown terminal; identical drawing.
 
-# ·I ~x~ ·They abuts with no connector, because the old font's `en-ext-1` after ·I adds its pixel on ·I's own last column and draws this composite: ·I's loop, which swings back left below the x-height, stands one column from ·They's down-stroke at y3, two rows under the y5 junction. The shipped font draws this corner in every ·I·They and ·I·They+Utter window (baseline rows E675:E657 and E675:E657:E67A carry the same advances). The gate checks each ·I stance, entry, and lock variant against each entered ·They and ligature cell separately; all show the same corner.
+# ·I ~x~ ·They abuts with no connector, because the old font's `en-ext-1` after ·I adds its pixel on ·I's own last column and draws this composite: ·I's loop, which swings back left below the x-height, stands one column from ·They's down-stroke at y3, two rows under the y5 junction. The old font draws this off-junction contact in every ·I·They and ·I·They+Utter window (baseline rows E675:E657 and E675:E657:E67A carry the same advances). The gate checks each ·I stance, entry, and lock variant against each entered ·They and ligature cell separately; all show the same off-junction contact.
 - signature: contact:qsI.loop.en-y0.ex-y5:qsThey.hapax.en-y5:y3
 - signature: contact:qsI.loop.en-y0.ex-y5:qsThey.hapax.en-y5.ex-y0:y3
 - signature: contact:qsI.loop.en-y0.ex-y5:qsThey_qsUtter.hapax.en-y5:y3
@@ -1803,13 +1803,13 @@
 - signature: contact:qsI.smaller-loop.en-y0.ex-y5:qsThey_qsUtter.hapax.en-y5:y3
 - signature: contact:qsI.smaller-loop.en-y0.ex-y5:qsThey_qsUtter.hapax.en-y5.ex-y5:y3
 
-# ·Zoo's below-baseline contacts keep the shipped font's corners. Both letters' below-baseline drawings match the old glyphs when aligned at the junction. Entry contractions change only the crown, an entry extension moves the hook and its exit anchor together, and the locked twin keeps the same drawing.
+# ·Zoo's below-baseline contacts keep the old font's off-junction contacts. Both letters' below-baseline drawings match the old glyphs when aligned at the junction. Entry contractions change only the crown, an entry extension moves the hook and its exit anchor together, and the locked twin keeps the same drawing.
 - signature: contact:qsGay.hapax.en-y5.ex-y0:qsZoo.half.en-y0:y-2
-  why: The ·Gay loop abuts half-·Zoo's left descender at y=-2, as in baseline row E67A:E655:E65B; the follower's exit state leaves this corner unchanged.
+  why: The ·Gay loop abuts half-·Zoo's left descender at y=-2, as in baseline row E67A:E655:E65B; the follower's exit state leaves this off-junction contact unchanged.
 - signature: contact:qsGay.hapax.en-y5.ex-y0:qsZoo.half.en-y0:y-1
   why: The pair in the `:y-2` signature above also touches at y-1, off the junction row.
 - signature: contact:qsGay.hapax.en-y5.ex-y0:qsZoo.half.en-y0.ex-y0:y-2
-  why: The ·Gay loop abuts half-·Zoo's left descender at y=-2, as in baseline row E67A:E655:E65B; the follower's exit state leaves this corner unchanged.
+  why: The ·Gay loop abuts half-·Zoo's left descender at y=-2, as in baseline row E67A:E655:E65B; the follower's exit state leaves this off-junction contact unchanged.
 - signature: contact:qsGay.hapax.en-y5.ex-y0:qsZoo.half.en-y0.ex-y0:y-1
   why: The pair in the `:y-2` signature above also touches at y-1, off the junction row.
 - signature: contact:qsZoo.full.en-y5.ex-y0:qsDay.half.en-y0:y-1
@@ -1823,9 +1823,9 @@
 - signature: contact:qsZoo.full.en-y5.ex-y0:qsDay_qsUtter.half.en-y0.ex-y5.ex-ext-1:y-1
   why: The ·Zoo hook abuts the half ·Day+Utter ligature's left descender at y=-1, as in baseline row E65B:E653:E67A; the ligature's outgoing reach changes no below-baseline ink.
 - signature: contact:qsZoo.full.en-y5.ex-y0:qsZoo.half.en-y0:y-1
-  why: The first ·Zoo's hook abuts half-·Zoo's left descender at y=-1, as in baseline row E65B:E65B; the entry, lock, and outgoing-anchor variants retain the same corner.
+  why: The first ·Zoo's hook abuts half-·Zoo's left descender at y=-1, as in baseline row E65B:E65B; the entry, lock, and outgoing-anchor variants retain the same off-junction contact.
 - signature: contact:qsZoo.full.en-y5.ex-y0:qsZoo.half.en-y0.ex-y0:y-1
-  why: The first ·Zoo's hook abuts half-·Zoo's left descender at y=-1, as in baseline row E65B:E65B; the entry, lock, and outgoing-anchor variants retain the same corner.
+  why: The first ·Zoo's hook abuts half-·Zoo's left descender at y=-1, as in baseline row E65B:E65B; the entry, lock, and outgoing-anchor variants retain the same off-junction contact.
 - signature: contact:qsZoo.full.en-y5.ex-y0.en-con-1:qsDay.half.en-y0:y-1
   why: The ·Zoo hook abuts half-·Day's left descender at y=-1, as in baseline row E65B:E653; entry and exit variants preserve both below-baseline drawings relative to the junction.
 - signature: contact:qsZoo.full.en-y5.ex-y0.en-con-1:qsDay.half.en-y0.ex-y0:y-1
@@ -1837,9 +1837,9 @@
 - signature: contact:qsZoo.full.en-y5.ex-y0.en-con-1:qsDay_qsUtter.half.en-y0.ex-y5.ex-ext-1:y-1
   why: The ·Zoo hook abuts the half ·Day+Utter ligature's left descender at y=-1, as in baseline row E65B:E653:E67A; the ligature's outgoing reach changes no below-baseline ink.
 - signature: contact:qsZoo.full.en-y5.ex-y0.en-con-1:qsZoo.half.en-y0:y-1
-  why: The first ·Zoo's hook abuts half-·Zoo's left descender at y=-1, as in baseline row E65B:E65B; the entry, lock, and outgoing-anchor variants retain the same corner.
+  why: The first ·Zoo's hook abuts half-·Zoo's left descender at y=-1, as in baseline row E65B:E65B; the entry, lock, and outgoing-anchor variants retain the same off-junction contact.
 - signature: contact:qsZoo.full.en-y5.ex-y0.en-con-1:qsZoo.half.en-y0.ex-y0:y-1
-  why: The first ·Zoo's hook abuts half-·Zoo's left descender at y=-1, as in baseline row E65B:E65B; the entry, lock, and outgoing-anchor variants retain the same corner.
+  why: The first ·Zoo's hook abuts half-·Zoo's left descender at y=-1, as in baseline row E65B:E65B; the entry, lock, and outgoing-anchor variants retain the same off-junction contact.
 - signature: contact:qsZoo.full.en-y5.ex-y0.en-con-2:qsDay.half.en-y0:y-1
   why: The ·Zoo hook abuts half-·Day's left descender at y=-1, as in baseline row E65B:E653; entry and exit variants preserve both below-baseline drawings relative to the junction.
 - signature: contact:qsZoo.full.en-y5.ex-y0.en-con-2:qsDay.half.en-y0.ex-y0:y-1
@@ -1851,9 +1851,9 @@
 - signature: contact:qsZoo.full.en-y5.ex-y0.en-con-2:qsDay_qsUtter.half.en-y0.ex-y5.ex-ext-1:y-1
   why: The ·Zoo hook abuts the half ·Day+Utter ligature's left descender at y=-1, as in baseline row E65B:E653:E67A; the ligature's outgoing reach changes no below-baseline ink.
 - signature: contact:qsZoo.full.en-y5.ex-y0.en-con-2:qsZoo.half.en-y0:y-1
-  why: The first ·Zoo's hook abuts half-·Zoo's left descender at y=-1, as in baseline row E65B:E65B; the entry, lock, and outgoing-anchor variants retain the same corner.
+  why: The first ·Zoo's hook abuts half-·Zoo's left descender at y=-1, as in baseline row E65B:E65B; the entry, lock, and outgoing-anchor variants retain the same off-junction contact.
 - signature: contact:qsZoo.full.en-y5.ex-y0.en-con-2:qsZoo.half.en-y0.ex-y0:y-1
-  why: The first ·Zoo's hook abuts half-·Zoo's left descender at y=-1, as in baseline row E65B:E65B; the entry, lock, and outgoing-anchor variants retain the same corner.
+  why: The first ·Zoo's hook abuts half-·Zoo's left descender at y=-1, as in baseline row E65B:E65B; the entry, lock, and outgoing-anchor variants retain the same off-junction contact.
 - signature: contact:qsZoo.full.en-y5.ex-y0.en-ext-1:qsDay.half.en-y0:y-1
   why: The ·Zoo hook abuts half-·Day's left descender at y=-1, as in baseline row E65B:E653; entry and exit variants preserve both below-baseline drawings relative to the junction.
 - signature: contact:qsZoo.full.en-y5.ex-y0.en-ext-1:qsDay.half.en-y0.ex-y0:y-1
@@ -1865,9 +1865,9 @@
 - signature: contact:qsZoo.full.en-y5.ex-y0.en-ext-1:qsDay_qsUtter.half.en-y0.ex-y5.ex-ext-1:y-1
   why: The ·Zoo hook abuts the half ·Day+Utter ligature's left descender at y=-1, as in baseline row E65B:E653:E67A; the ligature's outgoing reach changes no below-baseline ink.
 - signature: contact:qsZoo.full.en-y5.ex-y0.en-ext-1:qsZoo.half.en-y0:y-1
-  why: The first ·Zoo's hook abuts half-·Zoo's left descender at y=-1, as in baseline row E65B:E65B; the entry, lock, and outgoing-anchor variants retain the same corner.
+  why: The first ·Zoo's hook abuts half-·Zoo's left descender at y=-1, as in baseline row E65B:E65B; the entry, lock, and outgoing-anchor variants retain the same off-junction contact.
 - signature: contact:qsZoo.full.en-y5.ex-y0.en-ext-1:qsZoo.half.en-y0.ex-y0:y-1
-  why: The first ·Zoo's hook abuts half-·Zoo's left descender at y=-1, as in baseline row E65B:E65B; the entry, lock, and outgoing-anchor variants retain the same corner.
+  why: The first ·Zoo's hook abuts half-·Zoo's left descender at y=-1, as in baseline row E65B:E65B; the entry, lock, and outgoing-anchor variants retain the same off-junction contact.
 - signature: contact:qsZoo.full.ex-y0:qsDay.half.en-y0:y-1
   why: The ·Zoo hook abuts half-·Day's left descender at y=-1, as in baseline row E65B:E653; entry and exit variants preserve both below-baseline drawings relative to the junction.
 - signature: contact:qsZoo.full.ex-y0:qsDay.half.en-y0.ex-y0:y-1
@@ -1879,9 +1879,9 @@
 - signature: contact:qsZoo.full.ex-y0:qsDay_qsUtter.half.en-y0.ex-y5.ex-ext-1:y-1
   why: The ·Zoo hook abuts the half ·Day+Utter ligature's left descender at y=-1, as in baseline row E65B:E653:E67A; the ligature's outgoing reach changes no below-baseline ink.
 - signature: contact:qsZoo.full.ex-y0:qsZoo.half.en-y0:y-1
-  why: The first ·Zoo's hook abuts half-·Zoo's left descender at y=-1, as in baseline row E65B:E65B; the entry, lock, and outgoing-anchor variants retain the same corner.
+  why: The first ·Zoo's hook abuts half-·Zoo's left descender at y=-1, as in baseline row E65B:E65B; the entry, lock, and outgoing-anchor variants retain the same off-junction contact.
 - signature: contact:qsZoo.full.ex-y0:qsZoo.half.en-y0.ex-y0:y-1
-  why: The first ·Zoo's hook abuts half-·Zoo's left descender at y=-1, as in baseline row E65B:E65B; the entry, lock, and outgoing-anchor variants retain the same corner.
+  why: The first ·Zoo's hook abuts half-·Zoo's left descender at y=-1, as in baseline row E65B:E65B; the entry, lock, and outgoing-anchor variants retain the same off-junction contact.
 - signature: contact:qsZoo.full.ex-y0.locked:qsDay.half.en-y0:y-1
   why: The ·Zoo hook abuts half-·Day's left descender at y=-1, as in baseline row E65B:E653; entry and exit variants preserve both below-baseline drawings relative to the junction.
 - signature: contact:qsZoo.full.ex-y0.locked:qsDay.half.en-y0.ex-y0:y-1
@@ -1893,9 +1893,9 @@
 - signature: contact:qsZoo.full.ex-y0.locked:qsDay_qsUtter.half.en-y0.ex-y5.ex-ext-1:y-1
   why: The ·Zoo hook abuts the half ·Day+Utter ligature's left descender at y=-1, as in baseline row E65B:E653:E67A; the ligature's outgoing reach changes no below-baseline ink.
 - signature: contact:qsZoo.full.ex-y0.locked:qsZoo.half.en-y0:y-1
-  why: The first ·Zoo's hook abuts half-·Zoo's left descender at y=-1, as in baseline row E65B:E65B; the entry, lock, and outgoing-anchor variants retain the same corner.
+  why: The first ·Zoo's hook abuts half-·Zoo's left descender at y=-1, as in baseline row E65B:E65B; the entry, lock, and outgoing-anchor variants retain the same off-junction contact.
 - signature: contact:qsZoo.full.ex-y0.locked:qsZoo.half.en-y0.ex-y0:y-1
-  why: The first ·Zoo's hook abuts half-·Zoo's left descender at y=-1, as in baseline row E65B:E65B; the entry, lock, and outgoing-anchor variants retain the same corner.
+  why: The first ·Zoo's hook abuts half-·Zoo's left descender at y=-1, as in baseline row E65B:E65B; the entry, lock, and outgoing-anchor variants retain the same off-junction contact.
 - signature: contact:qsZoo.half.en-y0.ex-y0:qsDay.half.en-y0:y-1
   why: The ·Zoo hook abuts half-·Day's left descender at y=-1, as in baseline row E65B:E653; entry and exit variants preserve both below-baseline drawings relative to the junction.
 - signature: contact:qsZoo.half.en-y0.ex-y0:qsDay.half.en-y0.ex-y0:y-1
@@ -1907,25 +1907,25 @@
 - signature: contact:qsZoo.half.en-y0.ex-y0:qsDay_qsUtter.half.en-y0.ex-y5.ex-ext-1:y-1
   why: The ·Zoo hook abuts the half ·Day+Utter ligature's left descender at y=-1, as in baseline row E65B:E653:E67A; the ligature's outgoing reach changes no below-baseline ink.
 - signature: contact:qsZoo.half.en-y0.ex-y0:qsZoo.half.en-y0:y-1
-  why: The first ·Zoo's hook abuts half-·Zoo's left descender at y=-1, as in baseline row E65B:E65B; the entry, lock, and outgoing-anchor variants retain the same corner.
+  why: The first ·Zoo's hook abuts half-·Zoo's left descender at y=-1, as in baseline row E65B:E65B; the entry, lock, and outgoing-anchor variants retain the same off-junction contact.
 - signature: contact:qsZoo.half.en-y0.ex-y0:qsZoo.half.en-y0.ex-y0:y-1
-  why: The first ·Zoo's hook abuts half-·Zoo's left descender at y=-1, as in baseline row E65B:E65B; the entry, lock, and outgoing-anchor variants retain the same corner.
+  why: The first ·Zoo's hook abuts half-·Zoo's left descender at y=-1, as in baseline row E65B:E65B; the entry, lock, and outgoing-anchor variants retain the same off-junction contact.
 - signature: contact:qsThey_qsZoo.hapax.ex-y0:qsDay.half.en-y0:y-1
-  why: The preserved half-·Zoo tail in `·They+Zoo ~b~ ·Day.half` has the same ink relative to the junction as the accepted half-·Zoo corner at y=-1.
+  why: The preserved half-·Zoo tail in `·They+Zoo ~b~ ·Day.half` has the same ink relative to the junction as the accepted half-·Zoo off-junction contact at y=-1.
 - signature: contact:qsThey_qsZoo.hapax.ex-y0:qsDay.half.en-y0.ex-y0:y-1
-  why: The preserved half-·Zoo tail in `·They+Zoo ~b~ ·Day.half` has the same accepted corner at y=-1; ·Day's outgoing anchor changes no ink there.
+  why: The preserved half-·Zoo tail in `·They+Zoo ~b~ ·Day.half` has the same accepted off-junction contact at y=-1; ·Day's outgoing anchor changes no ink there.
 - signature: contact:qsThey_qsZoo.hapax.ex-y0:qsDay_qsUtter.half.en-y0:y-1
-  why: The preserved half-·Zoo tail meets the half-·Day component's descender at the accepted y=-1 corner; both ligatures keep that ink fixed relative to the baseline junction.
+  why: The preserved half-·Zoo tail meets the half-·Day component's descender at the accepted y=-1 off-junction contact; both ligatures keep that ink fixed relative to the baseline junction.
 - signature: contact:qsThey_qsZoo.hapax.ex-y0:qsDay_qsUtter.half.en-y0.ex-y5:y-1
-  why: The preserved half-·Zoo tail meets the half-·Day component's descender at the accepted y=-1 corner; the outgoing x-height anchor changes no ink there.
+  why: The preserved half-·Zoo tail meets the half-·Day component's descender at the accepted y=-1 off-junction contact; the outgoing x-height anchor changes no ink there.
 - signature: contact:qsThey_qsZoo.hapax.ex-y0:qsDay_qsUtter.half.en-y0.ex-y5.ex-ext-1:y-1
-  why: The preserved half-·Zoo tail meets the half-·Day component's descender at the accepted y=-1 corner; the outgoing x-height extension changes no below-baseline ink.
+  why: The preserved half-·Zoo tail meets the half-·Day component's descender at the accepted y=-1 off-junction contact; the outgoing x-height extension changes no below-baseline ink.
 - signature: contact:qsThey_qsZoo.hapax.ex-y0:qsZoo.half.en-y0:y-1
-  why: The preserved half-·Zoo tail in `·They+Zoo ~b~ ·Zoo.half` has the same ink relative to the junction as the accepted half-·Zoo corner at y=-1.
+  why: The preserved half-·Zoo tail in `·They+Zoo ~b~ ·Zoo.half` has the same ink relative to the junction as the accepted half-·Zoo off-junction contact at y=-1.
 - signature: contact:qsThey_qsZoo.hapax.ex-y0:qsZoo.half.en-y0.ex-y0:y-1
-  why: The preserved half-·Zoo tail in `·They+Zoo ~b~ ·Zoo.half` has the same accepted corner at y=-1; the follower's outgoing anchor changes no ink there.
+  why: The preserved half-·Zoo tail in `·They+Zoo ~b~ ·Zoo.half` has the same accepted off-junction contact at y=-1; the follower's outgoing anchor changes no ink there.
 
-# ·Ye's baseline entry sits on the foot of its stem, so a left letter joining at the baseline puts its last column against the stem, and the two bodies stand side by side above the junction: a Tall left's upright beside ·Ye's loop tail at y6 (·Cheer, ·Key), and a Short left's bowl beside the stem at y1 (·Ox, and ·Oy with no entry) or at y1 and y2 (·Ooze, the entered ·Oy, and the ·Tea·Oy ligature). The shipped font places the same anchors with no adjustment (baseline rows E65E:E660, E654:E660, E67E:E660, E678:E660, E679:E660, E652:E679:E660), so the adjacency is the old drawing. There is one signature per left entry, adjustment, and lock variant and per touching row; the junction is identical in all of them.
+# ·Ye's baseline entry sits on the foot of its stem, so a left letter joining at the baseline puts its last column against the stem, and the two bodies stand side by side above the junction: a Tall left's upright beside ·Ye's loop tail at y6 (·Cheer, ·Key), and a Short left's bowl beside the stem at y1 (·Ox, and ·Oy with no entry) or at y1 and y2 (·Ooze, the entered ·Oy, and the ·Tea·Oy ligature). The old font places the same anchors with no adjustment (baseline rows E65E:E660, E654:E660, E67E:E660, E678:E660, E679:E660, E652:E679:E660), so the touching strokes are the old drawing. There is one signature per left entry, adjustment, and lock variant and per touching row; the junction is identical in all of them.
 - signature: contact:qsCheer.hapax.en-y5.ex-y0:qsYe.loop.en-y0:y6
 - signature: contact:qsCheer.hapax.en-y5.ex-y0.en-ext-1:qsYe.loop.en-y0:y6
 - signature: contact:qsCheer.hapax.ex-y0:qsYe.loop.en-y0:y6
@@ -1955,7 +1955,7 @@
 - signature: contact:qsTea_qsOy.hapax.ex-y0:qsYe.loop.en-y0:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 
-# ·Gay's x-height exit places ·Ye's climbing loop one column past ·Gay's stroke, and ·Gay's descender then stands beside ·Ye's stem at the baseline. The shipped font places the same anchors with no adjustment (baseline row E655:E660), so the adjacency is the old drawing. There is one signature per ·Gay entry, contraction, and lock variant and per ·Ye exit variant; the junction is identical in all of them.
+# ·Gay's x-height exit places ·Ye's climbing loop one column past ·Gay's stroke, and ·Gay's descender then stands beside ·Ye's stem at the baseline. The old font places the same anchors with no adjustment (baseline row E655:E660), so the touching strokes are the old drawing. There is one signature per ·Gay entry, contraction, and lock variant and per ·Ye exit variant; the junction is identical in all of them.
 - signature: contact:qsGay.hapax.en-y0.ex-y5:qsYe.climbing-loop.en-y5:y0
 - signature: contact:qsGay.hapax.en-y0.ex-y5:qsYe.climbing-loop.en-y5.ex-y0:y0
 - signature: contact:qsGay.hapax.en-y0.ex-y5:qsYe.climbing-loop.en-y5.ex-y0.ex-ext-1:y0
@@ -1969,7 +1969,7 @@
 - signature: contact:qsGay.hapax.ex-y5.locked:qsYe.climbing-loop.en-y5.ex-y0:y0
 - signature: contact:qsGay.hapax.ex-y5.locked:qsYe.climbing-loop.en-y5.ex-y0.ex-ext-1:y0
 
-# ·Ye's baseline exit is one column right of its stem, so a baseline follower's left edge stands beside the stem where it rises from the junction: ·Utter and the normal ·Out at y1, and ·Ooze, the swept-up ·Out, and the ·Out·Tea ligature at y1 and y2. The shipped font places the same anchors with no adjustment (baseline rows E660:E67A, E660:E67B, E660:E67E, E660:E67B:E652, E660:E67B:E658), so the adjacency is the old drawing. There is one signature per ·Ye stance and lock variant, per follower exit variant, and per touching row; the junction is identical in all of them.
+# ·Ye's baseline exit is one column right of its stem, so a baseline follower's left edge stands beside the stem where it rises from the junction: ·Utter and the normal ·Out at y1, and ·Ooze, the swept-up ·Out, and the ·Out·Tea ligature at y1 and y2. The old font places the same anchors with no adjustment (baseline rows E660:E67A, E660:E67B, E660:E67E, E660:E67B:E652, E660:E67B:E658), so the touching strokes are the old drawing. There is one signature per ·Ye stance and lock variant, per follower exit variant, and per touching row; the junction is identical in all of them.
 - signature: contact:qsYe.climbing-loop.en-y5.ex-y0:qsOoze.hapax.en-y0:y2
 - signature: contact:qsYe.climbing-loop.en-y5.ex-y0:qsOoze.hapax.en-y0:y1
   why: The pair in the `:y2` signature above also touches at y1, off the junction row.
@@ -2028,7 +2028,7 @@
 - signature: contact:qsYe.loop.ex-y0.locked:qsUtter.mono.en-y0.ex-y5:y1
 - signature: contact:qsYe.loop.ex-y0.locked:qsUtter.mono.en-y0.ex-y5.ex-ext-1:y1
 
-# After ·Ye, the curled-over ·See's baseline entry lifts its curl into ·Ye's loop. It sits beside the loop at y7 and y6 after the isolated drawing. With the wider climbing loop it shares the two pixels at ·Ye's columns 3 and 4 and also sits beside the loop at y6. The shipped font draws the same composite (baseline rows E660:E65A:E650 and E665:E660:E65A:E650, `·Ye ~b~ ·See ~6~ ·Pea` with the same glyphs at the same anchors), so the overlap is the old drawing. There is one signature per ·Ye stance and lock variant against the y6-exiting ·See and per finding.
+# After ·Ye, the curled-over ·See's baseline entry lifts its curl into ·Ye's loop. It sits beside the loop at y7 and y6 after the isolated drawing. With the wider climbing loop it shares the two pixels at ·Ye's columns 3 and 4 and also sits beside the loop at y6. The old font draws the same composite (baseline rows E660:E65A:E650 and E665:E660:E65A:E650, `·Ye ~b~ ·See ~6~ ·Pea` with the same glyphs at the same anchors), so the overlap is the old drawing. There is one signature per ·Ye stance and lock variant against the y6-exiting ·See and per finding.
 - signature: contact:qsYe.climbing-loop.en-y5.ex-y0:qsSee.curled-over.en-y0.ex-y6:overlap
 - signature: contact:qsYe.climbing-loop.en-y5.ex-y0:qsSee.curled-over.en-y0.ex-y6:y6
   why: The pair in the `:overlap` signature above also touches at y6, off the junction row.

@@ -281,7 +281,7 @@ def classify_divergence(row: DivergentRow) -> str | None:
     if tags & {"-en-ext-1:qsVie", "-en-ext-1:qsVie_qsUtter"}:
         return "vie-baseline-entry-extension-dropped"
     if "-ex-con-1" in tags and tags <= {"-ex-con-1", "+en-trim-1"} and "E65A:E67B" in row.codepoints:
-        # The grounded ·See·Out fusion names the old pull-back differently. The old font's ex-con-1 tucks ·Out into ·See's whole tail (only the anchor moves). The runes keep the tail's anchor at its convention position and pull back the raked redraw's foot instead. The combined ink is identical and only the glyph names differ. The subset test keeps out any row where ink also moved elsewhere.
+        # The baseline ·See·Out fusion names the old pull-back differently. The old font's ex-con-1 tucks ·Out into ·See's whole tail (only the anchor moves). The runes keep the tail's anchor at its convention position and pull back the raked redraw's foot instead. The combined ink is identical and only the glyph names differ. The subset test keeps out any row where ink also moved elsewhere.
         return "see-out-fusion-renamed"
     if (
         "+ex-ext-2" in tags

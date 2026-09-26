@@ -515,7 +515,10 @@ mod tests {
                 "left-group",
                 &[(
                     "when",
-                    &left(&[("klass", &fixtures::names(&["utter-pass-through-vetoes"]))]),
+                    &left(&[(
+                        "klass",
+                        &fixtures::names(&["utter-both-sides-baseline-vetoes"]),
+                    )]),
                 )],
             ),
             authored(
@@ -610,7 +613,7 @@ mod tests {
                     (
                         "groups",
                         &fixtures::map(&[(
-                            "utter-pass-through-vetoes",
+                            "utter-both-sides-baseline-vetoes",
                             &fixtures::names(&["qsMay", "qsPea"]),
                         )]),
                     ),

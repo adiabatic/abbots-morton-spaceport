@@ -52,10 +52,10 @@ PICTURE_VERIFICATION_METHOD = (
 
 JUNIOR_VERIFICATION_METHOD = (
     "Divergent only under ss10 (suppress all joins), where the ratified spec is fully isolated letters; "
-    "shaped with uharfbuzz in the rebuild under ss10 and in the shipped Junior font (the canonical "
+    "shaped with uharfbuzz in the rebuild under ss10 and in the old Junior font (the canonical "
     "isolated rendering) with no features, kern-neutral on both sides; outlines decomposed, placed, and "
-    "compared after removing Junior's uniform one-pixel-per-letter tracking (verified against the shipped "
-    "Senior at construction) — the rebuild draws every letter exactly as Junior draws it in isolation."
+    "compared after removing Junior's uniform one-pixel-per-letter tracking (verified against the old "
+    "Senior font at construction) — the rebuild draws every letter exactly as Junior draws it in isolation."
 )
 
 
@@ -471,7 +471,7 @@ def _picture_diff(before: list[frozenset[tuple[int, int]]], after: list[frozense
 
 
 class JuniorOracle:
-    """The third machine-approval check, after ink identity and picture identity. A unit divergent only under ss10 is approvable when the rebuild's ss10 rendering places the same ink the shipped Junior font places for the same string, once Junior's letter tracking is removed. Junior has Senior's isolated letterforms plus one pixel of extra advance on every Quikscript glyph. The constructor checks the advance part of that premise against the shipped Senior, derives the tracking from it, and raises ValueError when it does not hold. A pass means the rebuild draws every letter fully isolated, which is the ratified meaning of ss10 (see the ss10 ledger entries in rebuild/m1-divergences.yaml), so approval does not depend on what the old font did."""
+    """The third machine-approval check, after ink identity and picture identity. A unit divergent only under ss10 is approvable when the rebuild's ss10 rendering places the same ink the old Junior font places for the same string, once Junior's letter tracking is removed. Junior has Senior's isolated letterforms plus one pixel of extra advance on every Quikscript glyph. The constructor checks the advance part of that premise against the old Senior font, derives the tracking from it, and raises ValueError when it does not hold. A pass means the rebuild draws every letter fully isolated, which is the ratified meaning of ss10 (see the ss10 ledger entries in rebuild/m1-divergences.yaml), so approval does not depend on what the old font did."""
 
     def __init__(
         self,

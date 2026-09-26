@@ -275,9 +275,9 @@ def test_a_comparison_side_data_edit_moves_the_run_key_but_not_the_tables_stamp(
 
 
 ALLOW_LIST = textwrap.dedent("""\
-    # Reviewed declared-OK signatures for the off-anchor-contact gate.
+    # Reviewed accepted signatures for the off-anchor-contact gate.
     - signature: contact:qsOy.hapax.ex-y0:qsIt.hapax.en-y0:y1
-      why: the corner today's font already draws on a baseline-proven join
+      why: the off-junction contact the old font already draws on a join it also makes
     """)
 
 

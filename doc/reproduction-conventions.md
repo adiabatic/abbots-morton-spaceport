@@ -2,7 +2,7 @@
 
 These conventions are for anyone who wants to reproduce how this font was made. `AGENTS.md` does not point agents here because the rules rarely matter during normal authoring. They apply when rebuilding the test setup or the Senior shaping corpus from scratch.
 
-## Authoring the shipped font’s YAML
+## Authoring the old font’s YAML
 
 - See [quikscript-yaml-conventions.md](quikscript-yaml-conventions.md) for the selector, ligature, and `ex-noentry` mechanism behind `glyph_data/quikscript.yaml`, and for the recipe that proves a selector change is a pure cleanup.
 
