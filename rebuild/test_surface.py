@@ -129,7 +129,7 @@ def test_resolve_side_bindings_and_overrides(spec):
     assert plan.entry_x == 2
     assert plan.exit_x == 4
     assert plan.entry_stub is not None
-    assert plan.entry_stub.cols == (3,) and plan.entry_stub.inks_when == "withdrawn"
+    assert plan.entry_stub.cols == (3,) and plan.entry_stub.inks_when == "unjoined"
     assert list(geometry.realize(spec, plan).bitmap) == [
         "  # ",
         " #  ",
@@ -149,7 +149,7 @@ def test_resolve_side_bindings_and_overrides(spec):
     assert (plan.entry_x, plan.exit_x) == (0, 5)
 
 
-def test_resolve_withdrawal_safe_obligations(spec):
+def test_resolve_unjoined_safe_obligations(spec):
     plan = surface.resolve_cell(spec, CellId("qsIt", "hapax", "x-height", None, ()))
     assert plan.bitmap is None
     assert plan.safety_checks == (("exit", "baseline"), ("exit", "x-height"))
@@ -218,8 +218,8 @@ DISAGREEING_RUNE = textwrap.dedent("""\
           entries:
             x-height: {x: 0, joined: entry-form}
           exits:
-            baseline: {x: 2, withdrawal: exit-form}
-            x-height: {x: 2, withdrawal: safe}
+            baseline: {x: 2, unjoined: exit-form}
+            x-height: {x: 2, unjoined: safe}
     """)
 
 

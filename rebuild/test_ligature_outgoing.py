@@ -63,8 +63,8 @@ def test_outgoing_inheritance_preserves_ligature_geometry_and_incoming_state(tmp
     source["surface"]["entries"]["baseline"]["from"] = [{"family": "qsMay"}]
     source["surface"]["pairings"] = {"never": [{"entry": "baseline", "exit": "baseline"}]}
     source["surface"]["require"] = ["exit"]
-    source["bitmaps"] = {"withdrawn": {"bitmap": [" "] * 6}}
-    source["surface"]["exits"]["baseline"]["withdrawal"] = "withdrawn"
+    source["bitmaps"] = {"unjoined": {"bitmap": [" "] * 6}}
+    source["surface"]["exits"]["baseline"]["unjoined"] = "unjoined"
     source["surface"]["exits"]["baseline"]["stroke"] = "vertical"
     spec = _load(tmp_path, runes)
     local = spec.runes["qsDay_qsIt"].stances["hapax"]
@@ -74,7 +74,7 @@ def test_outgoing_inheritance_preserves_ligature_geometry_and_incoming_state(tmp
     assert local.surface.pairings == model.Pairings()
     assert local.surface.require == ()
     assert local.surface.exits["baseline"].x == 3
-    assert local.surface.exits["baseline"].withdrawal == "safe"
+    assert local.surface.exits["baseline"].unjoined == "safe"
     assert local.surface.exits["baseline"].stroke is None
 
 

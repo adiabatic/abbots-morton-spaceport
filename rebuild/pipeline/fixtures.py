@@ -130,8 +130,8 @@ def _it() -> Rune:
             "x-height": SurfaceRow("x-height", x=0, stroke="vertical"),
         },
         exits={
-            "baseline": SurfaceRow("baseline", x=1, stroke="vertical", withdrawal="safe"),
-            "x-height": SurfaceRow("x-height", x=1, stroke="vertical", withdrawal="safe"),
+            "baseline": SurfaceRow("baseline", x=1, stroke="vertical", unjoined="safe"),
+            "x-height": SurfaceRow("x-height", x=1, stroke="vertical", unjoined="safe"),
         },
         pairings=Pairings(
             only=(
@@ -236,7 +236,7 @@ def _tea() -> Rune:
                 "baseline": SurfaceRow("baseline", x=0, stroke="vertical"),
                 "top": SurfaceRow("top", x=0, stroke="vertical"),
             },
-            exits={"baseline": SurfaceRow("baseline", x=1, stroke="vertical", withdrawal="safe")},
+            exits={"baseline": SurfaceRow("baseline", x=1, stroke="vertical", unjoined="safe")},
             pairings=Pairings(never=(Pairing("baseline", "baseline"),)),
             unlocks=(
                 Unlock(
@@ -264,7 +264,7 @@ def _tea() -> Rune:
                 "x-height": SurfaceRow("x-height", x=0, stroke="vertical", scope=(_HALVES,)),
                 "top": SurfaceRow("top", x=0, selectable=False),
             },
-            exits={"x-height": SurfaceRow("x-height", x=1, stroke="vertical", withdrawal="safe")},
+            exits={"x-height": SurfaceRow("x-height", x=1, stroke="vertical", unjoined="safe")},
             pairings=Pairings(never=(Pairing("x-height", "x-height"),)),
             unlocks=(
                 Unlock(
@@ -381,7 +381,7 @@ def _pea() -> Rune:
                     scope=(Condition(family=("qsEt",)), Condition(family=("qsAwe",))),
                 ),
             },
-            exits={"baseline": SurfaceRow("baseline", x=4, stroke="vertical", withdrawal="safe")},
+            exits={"baseline": SurfaceRow("baseline", x=4, stroke="vertical", unjoined="safe")},
             pairings=Pairings(never=(Pairing("baseline", "baseline"),)),
         ),
     )
@@ -407,14 +407,14 @@ def _pea() -> Rune:
             },
             exits={
                 "y6": SurfaceRow(
-                    "y6", x=4, stroke="vertical", withdrawal="safe", scope=(Condition(family=("qsPea",)),)
+                    "y6", x=4, stroke="vertical", unjoined="safe", scope=(Condition(family=("qsPea",)),)
                 ),
                 "x-height": SurfaceRow(
                     "x-height",
                     x=4,
                     ink_y=6,
                     stroke="vertical",
-                    withdrawal="safe",
+                    unjoined="safe",
                     stub=Stub(cols=(3,), inks_when="joined"),
                     scope=(
                         Condition(
@@ -505,12 +505,12 @@ def _may() -> Rune:
                     ),
                 ),
             },
-            exits={"x-height": SurfaceRow("x-height", x=5, stroke="horizontal", withdrawal="pulled-back")},
+            exits={"x-height": SurfaceRow("x-height", x=5, stroke="horizontal", unjoined="pulled-back")},
             pairings=Pairings(never=(Pairing("baseline", "baseline"), Pairing("x-height", "x-height"))),
             cells=(
                 CellBinding(
                     entry="x-height",
-                    exit="x-height-withdrawn",
+                    exit="x-height-unjoined",
                     bitmap="pulled-back",
                     provenance=_prov(_MAY_FILE, "stances.loop.surface.cells[0]"),
                 ),
@@ -644,7 +644,7 @@ def _oy() -> Rune:
                     scope=(Condition(family=("qsMay",), joined_at="x-height"),),
                 ),
             },
-            exits={"baseline": SurfaceRow("baseline", x=8, stroke="vertical", withdrawal="safe")},
+            exits={"baseline": SurfaceRow("baseline", x=8, stroke="vertical", unjoined="safe")},
             cells=(
                 CellBinding(
                     entry="x-height",
@@ -672,7 +672,7 @@ def _tea_oy() -> Rune:
         bitmap=_TEA_OY,
         surface=Surface(
             entries={},
-            exits={"baseline": SurfaceRow("baseline", x=8, stroke="vertical", withdrawal="safe")},
+            exits={"baseline": SurfaceRow("baseline", x=8, stroke="vertical", unjoined="safe")},
         ),
     )
     return Rune(
@@ -1213,7 +1213,7 @@ def synthetic_spec(prefer_a=(), prefer_b=(), contract_b=()) -> ResolvedSpec:
                 "stroke",
                 motion="stroke",
                 surface=Surface(
-                    exits={"x-height": SurfaceRow("x-height", x=1, withdrawal="safe")},
+                    exits={"x-height": SurfaceRow("x-height", x=1, unjoined="safe")},
                 ),
             ),
             "flourish": Stance("flourish", motion="stroke"),
@@ -1230,7 +1230,7 @@ def synthetic_spec(prefer_a=(), prefer_b=(), contract_b=()) -> ResolvedSpec:
                 motion="hook",
                 surface=Surface(
                     entries={"x-height": SurfaceRow("x-height", x=0)},
-                    exits={"baseline": SurfaceRow("baseline", x=1, withdrawal="safe")},
+                    exits={"baseline": SurfaceRow("baseline", x=1, unjoined="safe")},
                     pairings=Pairings(never=(Pairing("x-height", "baseline"),)),
                 ),
             ),
@@ -1279,8 +1279,8 @@ def prospect_spec() -> ResolvedSpec:
                 motion="stroke",
                 surface=Surface(
                     exits={
-                        "x-height": SurfaceRow("x-height", x=1, withdrawal="safe"),
-                        "baseline": SurfaceRow("baseline", x=1, withdrawal="safe"),
+                        "x-height": SurfaceRow("x-height", x=1, unjoined="safe"),
+                        "baseline": SurfaceRow("baseline", x=1, unjoined="safe"),
                     },
                 ),
             ),
@@ -1307,7 +1307,7 @@ def prospect_spec() -> ResolvedSpec:
                         "x-height": SurfaceRow("x-height", x=0),
                         "baseline": SurfaceRow("baseline", x=0),
                     },
-                    exits={"baseline": SurfaceRow("baseline", x=1, withdrawal="safe")},
+                    exits={"baseline": SurfaceRow("baseline", x=1, unjoined="safe")},
                     pairings=Pairings(never=(Pairing("x-height", "baseline"),)),
                 ),
             ),
@@ -1334,7 +1334,7 @@ def prospect_spec() -> ResolvedSpec:
                 motion="base",
                 surface=Surface(
                     entries={"baseline": SurfaceRow("baseline", x=0)},
-                    exits={"baseline": SurfaceRow("baseline", x=1, withdrawal="safe")},
+                    exits={"baseline": SurfaceRow("baseline", x=1, unjoined="safe")},
                     pairings=Pairings(never=(Pairing("baseline", "baseline"),)),
                 ),
             ),

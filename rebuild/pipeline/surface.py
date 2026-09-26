@@ -1,6 +1,6 @@
 """Cell enumeration and binding resolution (rebuild/M1-PLAN.md §5, Group 1). Each side's options are its declared rows plus `none`, filtered by pairings, `require`, and unlocks. A cell's bitmap comes from a matching explicit `cells:` binding, else from the side bindings, else the base bitmap, and a `cells:` binding can also override the anchor x positions.
 
-Pairings constrain two-sided cells only. One-sided and isolated cells always exist unless `require` removes them (doc/rebuild-design.md §3.2). A mid-word declined exit reaches this module as settlement's `ex-bind-<bitmap>` adjustment and resolves to the exit rows' `withdrawal:` binding. The exit-none cell with no adjustment token is the boundary rendering: its exit was never declined, so `withdrawal:` bindings do not apply and the base drawing stands.
+Pairings constrain two-sided cells only. One-sided and isolated cells always exist unless `require` removes them (doc/rebuild-design.md §3.2). A mid-word declined exit reaches this module as settlement's `ex-bind-<bitmap>` adjustment and resolves to the exit rows' `unjoined:` binding. The exit-none cell with no adjustment token is the boundary rendering: its exit was never declined, so `unjoined:` bindings do not apply and the base drawing stands.
 """
 
 from __future__ import annotations
@@ -122,8 +122,8 @@ def unlocks_for_cell(spec: ResolvedSpec, cell: CellId) -> tuple[Unlock, ...]:
 def _matches_state(token: str, side: str | None, declared: dict[str, SurfaceRow]) -> bool:
     if token == "none":
         return side is None
-    if token.endswith("-withdrawn"):
-        return side is None and token.removesuffix("-withdrawn") in declared
+    if token.endswith("-unjoined"):
+        return side is None and token.removesuffix("-unjoined") in declared
     return side == token
 
 
@@ -152,18 +152,18 @@ def resolve_cell(spec: ResolvedSpec, cell: CellId) -> CellPlan:
     exit_row = exits.get(cell.exit) if cell.exit is not None else None
 
     bitmap_name: str | None = None
-    # A `withdrawal:` binding applies when the bound exit's base-drawing ink must come off: when the cell exits live at a different height, or on a mid-word decline (settlement's `ex-bind-<bitmap>` adjustment). The exit-none cell with no adjustment token is the boundary rendering: its exit was never declined, so the base drawing stands, dangling anchor included. This matches settlement, which adds withdrawal tokens only for a mid-word decline.
-    withdrawn_exit = cell.exit is not None or any(token.startswith("ex-bind-") for token in cell.adjustments)
+    # An `unjoined:` binding applies when the bound exit's base-drawing ink must come off: when the cell exits live at a different height, or on a mid-word decline (settlement's `ex-bind-<bitmap>` adjustment). The exit-none cell with no adjustment token is the boundary rendering: its exit was never declined, so the base drawing stands, dangling anchor included. This matches settlement, which adds unjoined-binding tokens only for a mid-word decline.
+    unjoined_exit = cell.exit is not None or any(token.startswith("ex-bind-") for token in cell.adjustments)
     if explicit is not None:
         bitmap_name = explicit.bitmap
     else:
         candidates: dict[str, str] = {}
         if entry_row is not None and entry_row.joined is not None:
             candidates[entry_row.joined] = f"entry {cell.entry} joined: binding"
-        if withdrawn_exit:
+        if unjoined_exit:
             for height, row in exits.items():
-                if height != cell.exit and row.withdrawal not in (None, "safe"):
-                    candidates[row.withdrawal] = f"exit {height} withdrawal: binding"
+                if height != cell.exit and row.unjoined not in (None, "safe"):
+                    candidates[row.unjoined] = f"exit {height} unjoined: binding"
         if len(candidates) > 1:
             described = "; ".join(
                 f"{name!r} from the {source}" for name, source in sorted(candidates.items())
@@ -199,7 +199,7 @@ def resolve_cell(spec: ResolvedSpec, cell: CellId) -> CellPlan:
     safety_checks = tuple(
         ("exit", height)
         for height, row in exits.items()
-        if height != cell.exit and row.withdrawal in (None, "safe")
+        if height != cell.exit and row.unjoined in (None, "safe")
     )
 
     entry_curs_only = None

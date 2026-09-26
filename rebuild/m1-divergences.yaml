@@ -62,7 +62,7 @@
   exemplars:
     - {config: default, codepoints: "E652:E670:E652:E679", baseline: "qsTea|qsIt|qsTea_qsOy (Tea.It break)", new: "qsTea.half.ex-y5|qsIt.hapax.en-y5|qsTea_qsOy (y5 join kept)"}
   why: |
-    The old font's calt_post_liga_left_cleanup_pred reverts the join on the predecessor's left whenever the predecessor withdraws before the entryless ligature, which also undoes junctions the withdrawal never touched (the demote and cleanup passes the rebuild does not port, recon section 13.4). Settlement withdraws only the one declined exit, and the unrelated join one position to the left stays. Round-1 verdict: 6 approvals. In u-0272 the kept join lost the rejected en-ext-1 pixel when qsIt's halves entry-extension record was deleted; the exemplar shows the rendering without it.
+    The old font's calt_post_liga_left_cleanup_pred reverts the join on the predecessor's left whenever the predecessor leaves its exit unjoined before the entryless ligature, which also undoes junctions the unjoined exit never touched (the demote and cleanup passes the rebuild does not port, recon section 13.4). Settlement leaves only the one declined exit unjoined, and the unrelated join one position to the left stays. Round-1 verdict: 6 approvals. In u-0272 the kept join lost the rejected en-ext-1 pixel when qsIt's halves entry-extension record was deleted; the exemplar shows the rendering without it.
 
 - id: regrouped-chain
   status: reviewed-rejected
@@ -203,7 +203,7 @@
     - {config: default, codepoints: "E670:E670", baseline: "qsIt.ex-y5|qsIt", new: "qsIt.hapax|qsIt.hapax"}
     - {config: default, codepoints: "E650:E650", baseline: "qsPea.half.en-y6.ex-y6|qsPea.en-y6 (left entry name at word start)", new: "qsPea.half.ex-y6|qsPea.full.en-y6"}
   why: |
-    The old compiled names keep anchors that never join: a dangling exit before a letter that does not accept it (·It·It's harmless ex-y5), or an entry name at word start. Settlement's cells carry only committed anchors (E-UNACCEPTED-EXIT and lookahead closure; M1-PLAN expected class 3). The withdrawals involved are `safe`, so the ink is identical and the difference is at name grain only.
+    The old compiled names keep anchors that never join: a dangling exit before a letter that does not accept it (·It·It's harmless ex-y5), or an entry name at word start. Settlement's cells carry only committed anchors (E-UNACCEPTED-EXIT and lookahead closure; M1-PLAN expected class 3). The unjoined bindings involved are `safe`, so the ink is identical and the difference is at name grain only.
 
 - id: bare-name-live-join
   status: intended

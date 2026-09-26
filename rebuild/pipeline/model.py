@@ -19,7 +19,7 @@ from typing import Collection, Literal, Mapping
 Height = str  # "baseline" | "x-height" | "y6" | "top" (registry-validated)
 
 NONE_STATE = "none"
-WITHDRAWN_SUFFIX = "-withdrawn"
+UNJOINED_SUFFIX = "-unjoined"
 
 RIGHT_WINDOW_SLOTS = 4  # right1..rightN, the raw window settlement sees. table.py checks its Transition and Rule slot counts against this at import, so raising the chain cap without widening the table fails at import instead of emitting records that read past the window.
 RIGHT_CHAIN_CAP = (
@@ -80,10 +80,10 @@ class When:
 
 @dataclass(frozen=True)
 class Stub:
-    """Same-row attachment ink at a side's anchor row (design section 3.2). `inks_when` names the state in which the columns are inked. `joined` is a connector nub that is blank in the base drawing and inked when the side joins. `withdrawn` is ink in the base drawing that is removed when the side joins, as in qsGay."""
+    """Same-row attachment ink at a side's anchor row (design section 3.2). `inks_when` names the state in which the columns are inked. `joined` is a connector nub that is blank in the base drawing and inked when the side joins. `unjoined` is ink in the base drawing that is removed when the side joins, as in qsGay."""
 
     cols: tuple[int, ...]
-    inks_when: str  # "joined" | "withdrawn"
+    inks_when: str  # "joined" | "unjoined"
 
 
 @dataclass(frozen=True)
@@ -95,7 +95,7 @@ class SurfaceRow:
     stroke: str | None = None
     joined: str | None = None  # named sibling bitmap used when this side is live
     joined_x: int | None = None  # per-row anchor override that travels with the joined binding
-    withdrawal: str | None = None  # named sibling bitmap, or "safe" (compiler-verified no reaching ink)
+    unjoined: str | None = None  # named sibling bitmap, or "safe" (compiler-verified no reaching ink)
     stub: Stub | None = None
     scope: tuple[Condition, ...] = ()  # `from:` on entries, `toward:` on exits; empty = unscoped
     selectable: bool = (
@@ -122,7 +122,7 @@ class Pairings:
 
 @dataclass(frozen=True)
 class CellBinding:
-    """An explicit `cells:` row: the named composition when side bindings touch one cell. `entry`/`exit` are state tokens: a height, a height plus "-withdrawn", or "none"."""
+    """An explicit `cells:` row: the named composition when side bindings touch one cell. `entry`/`exit` are state tokens: a height, a height plus "-unjoined", or "none"."""
 
     entry: str
     exit: str
@@ -276,7 +276,7 @@ class ResolvedSpec:  # spec_load's output; the input to everything else
 
 @dataclass(frozen=True)
 class CellPlan:
-    """`surface.resolve_cell`'s output: the resolved bindings for one cell. It names a bitmap but holds no ink. `bitmap` is the named sibling the cell is drawn with (None means the stance's base drawing). Anchor x values already include overrides. `safety_checks` lists the (side, height) pairs whose `withdrawal: safe` claim `defects.py` must verify. `convention_exempt` names the sides ("entry", "exit") whose declared row sets `x_off_convention`, so E-ANCHOR skips those sides only."""
+    """`surface.resolve_cell`'s output: the resolved bindings for one cell. It names a bitmap but holds no ink. `bitmap` is the named sibling the cell is drawn with (None means the stance's base drawing). Anchor x values already include overrides. `safety_checks` lists the (side, height) pairs whose `unjoined: safe` claim `defects.py` must verify. `convention_exempt` names the sides ("entry", "exit") whose declared row sets `x_off_convention`, so E-ANCHOR skips those sides only."""
 
     cell: CellId
     bitmap: str | None = None

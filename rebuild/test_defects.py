@@ -79,14 +79,14 @@ def _cite_all_policy(spec):
 
 
 class TestDangle:
-    def test_unsafe_withdrawal_claim_fails(self, spec):
+    def test_unsafe_unjoined_claim_fails(self, spec):
         cell, record = _realize(
             spec, "qsMay", "loop", None, "x-height", safety_checks=(("exit", "x-height"),)
         )
         report = defects.run_gates(spec, _tables(rules=[_cite_all_policy(spec)]), {cell: record})
         assert any(d.code == "E-DANGLE" for d in report.errors)
 
-    def test_safe_withdrawal_passes(self, spec):
+    def test_safe_unjoined_claim_passes(self, spec):
         cell, record = _realize(spec, "qsIt", "hapax", None, None, safety_checks=(("exit", "baseline"),))
         report = defects.run_gates(spec, _tables(rules=[_cite_all_policy(spec)]), {cell: record})
         assert not [d for d in report.errors if d.code == "E-DANGLE"]
@@ -139,7 +139,7 @@ class TestAnchorConvention:
                     baseline: {x: 1}
                     x-height: {x: 0, selectable: false}
                   exits:
-                    baseline: {x: 2, withdrawal: safe}
+                    baseline: {x: 2, unjoined: safe}
             """)
         spec = load_tmp_spec(tmp_path, {"qsIt": text})
         report = defects.run_gates(spec, _tables(rules=[_cite_all_policy(spec)]), {})
@@ -183,8 +183,8 @@ class TestAnchorConvention:
             """)
         cell = CellId("qsIt", "hapax", "baseline", "baseline", ())
         for entry_row, exit_row, exempt, violating in (
-            ("x: 0, x_off_convention: true", "x: 3, withdrawal: safe", ("entry",), "exit"),
-            ("x: 0", "x: 3, withdrawal: safe, x_off_convention: true", ("exit",), "entry"),
+            ("x: 0, x_off_convention: true", "x: 3, unjoined: safe", ("entry",), "exit"),
+            ("x: 0", "x: 3, unjoined: safe, x_off_convention: true", ("exit",), "entry"),
         ):
             spec = load_tmp_spec(
                 tmp_path,

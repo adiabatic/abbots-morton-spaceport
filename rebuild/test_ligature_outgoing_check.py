@@ -309,8 +309,8 @@ def test_windows_are_settled_as_settled_records_in_window_batches(monkeypatch):
 
 def test_a_join_that_survives_at_another_height_is_reported_as_moved():
     exits = {
-        "baseline": SurfaceRow("baseline", x=1, withdrawal="safe"),
-        "x-height": SurfaceRow("x-height", x=1, withdrawal="safe"),
+        "baseline": SurfaceRow("baseline", x=1, unjoined="safe"),
+        "x-height": SurfaceRow("x-height", x=1, unjoined="safe"),
     }
     preference = PolicyRecord(
         "prefer",

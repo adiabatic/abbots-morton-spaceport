@@ -46,7 +46,7 @@ stances:
         baseline:
           x: 5
           stroke: horizontal
-          withdrawal: safe
+          unjoined: safe
           toward:
           - family:
             - qsTea

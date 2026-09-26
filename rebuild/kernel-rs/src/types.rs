@@ -28,8 +28,8 @@ pub const NONE_STATE: &str = "none";
 /// The state of a side that did join, in `self_entry:` and `self_exit:`, whose vocabulary is `live` or `none` instead of a height. Python writes the string inline; it is a constant here so the interned vocabulary has one source.
 pub const LIVE_STATE: &str = "live";
 
-/// The suffix a `cells:` row adds to a height to name its withdrawn exit state. `model.WITHDRAWN_SUFFIX`. [`SpecIndex::withdrawn_state`] combines a height and this suffix into one symbol.
-pub const WITHDRAWN_SUFFIX: &str = "-withdrawn";
+/// The suffix a `cells:` row adds to a height to name its unjoined exit state. `model.UNJOINED_SUFFIX`. [`SpecIndex::unjoined_state`] combines a height and this suffix into one symbol.
+pub const UNJOINED_SUFFIX: &str = "-unjoined";
 
 /// The exit index of a non-joining candidate, `settle._NO_EXIT_INDEX`. It is a large number instead of an `Option` so that it sorts after every real exit index in the final tiebreak and in the ranked list, as in Python. Real exit counts are single digits, so 9999 is always larger.
 pub const NO_EXIT_INDEX: usize = 9999;
@@ -809,7 +809,7 @@ pub struct Vocab {
     pub stance: Sym,
     /// `absolute`, the `prefer` mode that ranks before join count rather than after it.
     pub absolute: Sym,
-    /// `safe`, the withdrawal that collapses to the plain exit-none cell instead of binding a sibling bitmap.
+    /// `safe`, the unjoined binding that collapses to the plain exit-none cell instead of binding a sibling bitmap.
     pub safe: Sym,
 }
 

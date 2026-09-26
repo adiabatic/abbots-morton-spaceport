@@ -81,7 +81,7 @@ ROWS = (
     ("qsMay qsIt", (), ("qsMay.loop.ex-y5.ex-ext-1", "qsIt.hapax.en-y5")),
     ("qsMay qsMay", (), ("qsMay.grounded-loop.ex-y0", "qsMay.loop.en-y0")),
     ("qsTea qsMay", (), ("qsTea.full.ex-y0", "qsMay.loop.en-y0.en-ext-1")),
-    # qsMay's grounded baseline exit refuses qsTea (the old font breaks ·May·Tea while ·May·May joins, and the loop top touching the bar is an off-anchor contact), so ·May does not join and renders its pulled-back withdrawal.
+    # qsMay's grounded baseline exit refuses qsTea (the old font breaks ·May·Tea while ·May·May joins, and the loop top touching the bar is an off-anchor contact), so ·May does not join and renders its pulled-back unjoined drawing.
     ("qsMay qsTea", (), ("qsMay.loop.ex-bind-pulled-back", "qsTea.full")),
     # Under ss03 the x-height path scores equal and the declared order: (loop before grounded-loop) decides.
     ("qsMay qsTea", ("ss03",), ("qsMay.loop.ex-y5.ex-ext-1", "qsTea.half.en-y5")),
@@ -102,7 +102,7 @@ ROWS = (
         (),
         ("qsIt.hapax.ex-y0", "qsMay.loop.en-y0.ex-y5.en-ext-1.ex-ext-1", "qsIt.hapax.en-y5"),
     ),
-    # Full ·Tea refuses a baseline entry after an entered qsIt, so the middle qsIt does not exit, and its `withdrawal: safe` leaves the plain exit-none cell.
+    # Full ·Tea refuses a baseline entry after an entered qsIt, so the middle qsIt does not exit, and its `unjoined: safe` leaves the plain exit-none cell.
     ("qsTea qsIt qsTea", (), ("qsTea.half.ex-y5", "qsIt.hapax.en-y5.en-ext-1", "qsTea.full")),
     ("qsIt qsTea", (), ("qsIt.hapax", "qsTea.full")),
     ("qsTea qsTea", (), ("qsTea.full", "qsTea.full")),
@@ -121,14 +121,14 @@ ROWS = (
     ("qsOy qsIt", (), ("qsOy.hapax.ex-y0", "qsIt.hapax.en-y0")),
     ("qsOy qsTea", (), ("qsOy.hapax.ex-y0", "qsTea.full.en-y0")),
     ("qsIt qsOy", (), ("qsIt.hapax", "qsOy.hapax")),
-    # Formation runs first, and nothing blocks it in these windows. The ligature has no entry, so nothing joins it from the left; how the predecessor withdraws is decided by the predecessor's own cells.
+    # Formation runs first, and nothing blocks it in these windows. The ligature has no entry, so nothing joins it from the left; how the predecessor draws its unjoined exit is decided by the predecessor's own cells.
     ("qsTea qsOy", (), ("qsTea_qsOy.hapax",)),
     ("qsTea qsOy qsIt", (), ("qsTea_qsOy.hapax.ex-y0", "qsIt.hapax.en-y0")),
     ("qsTea qsOy qsTea", (), ("qsTea_qsOy.hapax.ex-y0", "qsTea.full.en-y0")),
     # qsMay's baseline entry extension lists qsTea_qsOy as a trigger, which matches the old font's en-ext-1 in the baseline.
     ("qsTea qsOy qsMay", (), ("qsTea_qsOy.hapax.ex-y0", "qsMay.loop.en-y0.en-ext-1")),
     ("qsIt qsTea qsOy", (), ("qsIt.hapax", "qsTea_qsOy.hapax")),
-    # AUTHORED-DATA FINDING (generalized unaccepted-exit-withdrawal): qsMay's declined exit before a following letter renders with the pulled-back withdrawal binding, which is part of the cell identity.
+    # AUTHORED-DATA FINDING (generalized unaccepted-exit-unjoined): qsMay's declined exit before a following letter renders with the pulled-back unjoined binding, which is part of the cell identity.
     ("qsMay qsTea qsOy", (), ("qsMay.loop.ex-bind-pulled-back", "qsTea_qsOy.hapax")),
     ("qsTea qsOy qsTea qsOy", (), ("qsTea_qsOy.hapax", "qsTea_qsOy.hapax")),
     (
@@ -382,7 +382,7 @@ def test_may_tea_jai_keeps_a_baseline_gap(real_labels, lead, features):
     assert follower_labels[1] == ("qsTea.full.en-y5" if features else "qsTea.half.ex-y5")
 
 
-# The orphaned-·Tea windows (doc/rebuild-design.md §3.4). In ·Day·Tea·Utter·Low and ·Oy·Tea·Utter·Low the predecessor would withdraw its baseline exit expecting ·Tea to join forward into ·Utter, and qsUtter's ·Low-scoped prefer then refuses that entry, leaving ·Tea joined on neither side. The three-letter `then:` chains on qsDay.policy.prefer[1] and qsOy/qsTea_qsOy.policy.prefer[0] keep the predecessor's exit in those windows, which matches the old font's `·Day ~b~ ·Tea | ·Utter.alt ~b~ ·Low` grouping. The other windows check that the predecessor still withdraws everywhere else. The depth-4 rows show the same change one letter further on: the entry-live exception in qsDay.policy.prefer[5] reads the fourth raw glyph, so in ·Pea·Day·Tea·Utter·Tea·May ·Day withdraws its exit and ·Tea joins forward into ·Utter when the fourth letter after ·Day is one that would otherwise leave ·Utter joined on neither side (the innermost `then:` list of qsDay.policy.prefer[5]). ·Day keeps its exit when the tail can still join (·Pea, or the end of the text), and under ss03 ·Utter joins the following ·Tea at the x-height. These windows are five and six letters long, past the acceptance oracle's four-letter maximum length, so only these rows check them.
+# The orphaned-·Tea windows (doc/rebuild-design.md §3.4). In ·Day·Tea·Utter·Low and ·Oy·Tea·Utter·Low the predecessor would leave its baseline exit unjoined expecting ·Tea to join forward into ·Utter, and qsUtter's ·Low-scoped prefer then refuses that entry, leaving ·Tea joined on neither side. The three-letter `then:` chains on qsDay.policy.prefer[1] and qsOy/qsTea_qsOy.policy.prefer[0] keep the predecessor's exit in those windows, which matches the old font's `·Day ~b~ ·Tea | ·Utter.alt ~b~ ·Low` grouping. The other windows check that the predecessor still leaves its exit unjoined everywhere else. The depth-4 rows show the same change one letter further on: the entry-live exception in qsDay.policy.prefer[5] reads the fourth raw glyph, so in ·Pea·Day·Tea·Utter·Tea·May ·Day leaves its exit unjoined and ·Tea joins forward into ·Utter when the fourth letter after ·Day is one that would otherwise leave ·Utter joined on neither side (the innermost `then:` list of qsDay.policy.prefer[5]). ·Day keeps its exit when the tail can still join (·Pea, or the end of the text), and under ss03 ·Utter joins the following ·Tea at the x-height. These windows are five and six letters long, past the acceptance oracle's four-letter maximum length, so only these rows check them.
 
 
 ORPHANED_TEA_ROWS = (

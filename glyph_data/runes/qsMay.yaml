@@ -91,7 +91,7 @@ stances:
           stub:
             cols:
             - 3
-            inks_when: withdrawn
+            inks_when: unjoined
           from:
           - {class: x-height-arrivers}
       exits:

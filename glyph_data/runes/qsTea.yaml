@@ -44,7 +44,7 @@ stances:
         baseline:
           x: 1
           stroke: vertical
-          withdrawal: safe
+          unjoined: safe
       pairings:
         never:
         - entry: baseline
@@ -102,7 +102,7 @@ stances:
         x-height:
           x: 1
           stroke: vertical
-          withdrawal: safe
+          unjoined: safe
       pairings:
         never:
         - entry: x-height

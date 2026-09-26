@@ -39,7 +39,7 @@ class TestDisplayName:
         assert geometry.isolated_cell(spec, "qsIt") == CellId("qsIt", "hapax", None, None, ())
         assert geometry.display_name(spec, CellId("qsMay", "loop", None, "x-height", ())) == "qsMay"
 
-    def test_withdrawn_exit_gets_a_distinct_marker(self, spec):
+    def test_unjoined_exit_gets_a_distinct_marker(self, spec):
         assert geometry.display_name(spec, CellId("qsMay", "loop", None, None, ())) == "qsMay.ex-wd"
         assert (
             geometry.display_name(spec, CellId("qsMay", "loop", "x-height", None, ())) == "qsMay.en-y5.ex-wd"
@@ -77,7 +77,7 @@ class TestRealizeBase:
         assert record.entry == (0, 0)
         assert record.exit == (5, 5)
 
-    def test_withdrawn_exit_renders_bound_form(self, spec):
+    def test_unjoined_exit_renders_bound_form(self, spec):
         plan = CellPlan(cell=CellId("qsMay", "loop", "x-height", None, ()), bitmap="pulled-back", entry_x=3)
         record = geometry.realize(spec, plan)
         assert record.bitmap == spec.runes["qsMay"].stances["loop"].bitmaps["pulled-back"].rows
@@ -108,7 +108,7 @@ class TestStubArithmetic:
         assert y5_row == "#  #"
         assert record.entry == (0, 5)
 
-    def test_pea_dip_absent_when_withdrawn(self, spec):
+    def test_pea_dip_absent_when_unjoined(self, spec):
         plan = CellPlan(
             cell=CellId("qsPea", "full", None, "baseline", ()),
             entry_stub=Stub(cols=(0,), inks_when="joined"),
@@ -140,7 +140,7 @@ class TestStubArithmetic:
     def test_joined_stub_polarity_removes_ink_when_live(self, spec):
         plan = CellPlan(
             cell=CellId("qsPea", "full", "x-height", None, ()),
-            entry_stub=Stub(cols=(3,), inks_when="withdrawn"),
+            entry_stub=Stub(cols=(3,), inks_when="unjoined"),
         )
         record = geometry.realize(spec, plan)
         assert record.bitmap[3] == "    "
@@ -228,20 +228,20 @@ class TestJunctionGap:
             geometry.junction_gap(bare, bare, "baseline")
 
 
-class TestWithdrawalSafety:
+class TestUnjoinedSafety:
     def test_bar_exit_is_safe(self, spec):
         record = _realize(spec, "qsIt", "hapax", None, None)
-        assert geometry.verify_withdrawal_safe(record, "exit", "baseline")
-        assert geometry.verify_withdrawal_safe(record, "exit", "x-height")
+        assert geometry.verify_unjoined_safe(record, "exit", "baseline")
+        assert geometry.verify_unjoined_safe(record, "exit", "x-height")
 
     def test_may_connector_is_unsafe(self, spec):
         record = geometry.realize(spec, CellPlan(cell=CellId("qsMay", "loop", None, "x-height", ())))
-        assert not geometry.verify_withdrawal_safe(record, "exit", "x-height")
+        assert not geometry.verify_unjoined_safe(record, "exit", "x-height")
 
     def test_empty_row_is_safe(self, spec):
         record = geometry.realize(spec, CellPlan(cell=CellId("qsPea", "half", None, None, ())))
-        assert geometry.verify_withdrawal_safe(record, "exit", "x-height")
+        assert geometry.verify_unjoined_safe(record, "exit", "x-height")
 
     def test_pea_half_y6_exit_is_safe(self, spec):
         record = geometry.realize(spec, CellPlan(cell=CellId("qsPea", "half", None, "y6", ())))
-        assert geometry.verify_withdrawal_safe(record, "exit", "y6")
+        assert geometry.verify_unjoined_safe(record, "exit", "y6")

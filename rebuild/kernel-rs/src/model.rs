@@ -248,7 +248,7 @@ pub struct SurfaceRow {
     pub stroke: Option<Sym>,
     pub joined: Option<Sym>,
     pub joined_x: Option<i64>,
-    pub withdrawal: Option<Sym>,
+    pub unjoined: Option<Sym>,
     pub stub: Option<Stub>,
     pub scope: Vec<Condition>,
     pub selectable: bool,

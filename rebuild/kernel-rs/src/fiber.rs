@@ -264,7 +264,7 @@ mod tests {
     }
 
     fn safe(height: &str) -> (String, String) {
-        row(height, &[("withdrawal", "\"safe\"")])
+        row(height, &[("unjoined", "\"safe\"")])
     }
 
     fn surface(entries: &str, exits: &str, extra: &[(&str, &str)]) -> String {

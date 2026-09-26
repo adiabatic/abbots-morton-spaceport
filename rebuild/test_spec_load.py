@@ -50,7 +50,7 @@ MINIMAL_RUNE = textwrap.dedent("""\
           entries:
             baseline: {x: 0}
           exits:
-            baseline: {x: 1, withdrawal: safe}
+            baseline: {x: 1, unjoined: safe}
     """)
 
 
@@ -226,7 +226,7 @@ def test_scope_condition_parsing(spec):
     grounded = spec.runes["qsMay"].stances["grounded-loop"].surface.entries["x-height"]
     assert grounded.joined is None and grounded.joined_x is None
     assert grounded.x == 2
-    assert grounded.stub is not None and grounded.stub.cols == (3,) and grounded.stub.inks_when == "withdrawn"
+    assert grounded.stub is not None and grounded.stub.cols == (3,) and grounded.stub.inks_when == "unjoined"
 
 
 def test_unlock_parsing(spec):
@@ -261,7 +261,7 @@ def test_lone_stance_must_be_hapax(tmp_path):
             bitmap: ["#", "#", "#", "#", "#", "#"]
             surface:
               exits:
-                baseline: {x: 1, withdrawal: safe}
+                baseline: {x: 1, unjoined: safe}
         """)
     error = load_tmp_error(tmp_path, {"qsIt": text})
     assert any(
@@ -285,13 +285,13 @@ def test_hapax_stance_reserved_for_single_stance_rune(tmp_path):
             bitmap: ["#", "#", "#", "#", "#", "#"]
             surface:
               exits:
-                baseline: {x: 1, withdrawal: safe}
+                baseline: {x: 1, unjoined: safe}
           hapax:
             motion: grounded
             bitmap: ["#", "#", "#", "#", "#", "#"]
             surface:
               exits:
-                baseline: {x: 1, withdrawal: safe}
+                baseline: {x: 1, unjoined: safe}
         """)
     error = load_tmp_error(tmp_path, {"qsIt": text})
     assert any("reserved for the sole stance" in issue.message for issue in error.issues)
@@ -311,7 +311,7 @@ def test_lone_motion_must_be_hapax(tmp_path):
             bitmap: ["#", "#", "#", "#", "#", "#"]
             surface:
               exits:
-                baseline: {x: 1, withdrawal: safe}
+                baseline: {x: 1, unjoined: safe}
         """)
     error = load_tmp_error(tmp_path, {"qsIt": text})
     assert any(
@@ -335,13 +335,13 @@ def test_hapax_motion_reserved_for_single_motion_ductus(tmp_path):
             bitmap: ["#", "#", "#", "#", "#", "#"]
             surface:
               exits:
-                baseline: {x: 1, withdrawal: safe}
+                baseline: {x: 1, unjoined: safe}
           grounded:
             motion: hapax
             bitmap: ["#", "#", "#", "#", "#", "#"]
             surface:
               exits:
-                baseline: {x: 1, withdrawal: safe}
+                baseline: {x: 1, unjoined: safe}
         """)
     error = load_tmp_error(tmp_path, {"qsIt": text})
     assert any("reserved for the sole motion" in issue.message for issue in error.issues)
@@ -625,13 +625,13 @@ def test_ambiguous_extend_target(tmp_path):
             bitmap: ["#", "#", "#", "#", "#", "#"]
             surface:
               exits:
-                baseline: {x: 1, withdrawal: safe}
+                baseline: {x: 1, unjoined: safe}
           pole:
             motion: pole
             bitmap: ["#", "#", "#", "#", "#", "#"]
             surface:
               exits:
-                baseline: {x: 1, withdrawal: safe}
+                baseline: {x: 1, unjoined: safe}
         policy:
           extend:
           - {exit: baseline, by: 1, when: {right: {family: qsDay}}}
@@ -672,7 +672,7 @@ def test_duplicate_groups_flagged_across_files(tmp_path):
             bitmap: ["#", "#", "#", "#", "#", "#"]
             surface:
               exits:
-                baseline: {x: 1, withdrawal: safe}
+                baseline: {x: 1, unjoined: safe}
         """)
     with pytest.warns(SpecWarning, match="identical membership"):
         load_tmp_spec(tmp_path, {"qsIt": MINIMAL_RUNE + group_block, "qsMay": may_text + group_block})
@@ -1160,7 +1160,7 @@ BITMAP_AXIS_LEFT = textwrap.dedent("""\
         - "# "
         surface:
           exits:
-            baseline: {x: 1, withdrawal: safe}
+            baseline: {x: 1, unjoined: safe}
       climbing-loop:
         motion: climbing-loop
         bitmap:
@@ -1172,7 +1172,7 @@ BITMAP_AXIS_LEFT = textwrap.dedent("""\
         - "# "
         surface:
           exits:
-            baseline: {x: 1, withdrawal: safe}
+            baseline: {x: 1, unjoined: safe}
     policy:
       order: [loop, climbing-loop]
     """)
@@ -1245,8 +1245,8 @@ def test_left_bitmap_refuses_what_the_settled_left_cannot_carry(tmp_path, left, 
 
 def test_left_bitmap_refuses_a_stance_with_sibling_drawings(tmp_path):
     with_sibling = BITMAP_AXIS_LEFT.replace(
-        '    - "# "\n    surface:\n      exits:\n        baseline: {x: 1, withdrawal: safe}\npolicy:',
-        '    - "# "\n    bitmaps:\n      reaching:\n        bitmap:\n        - " #"\n        - "##"\n        - "# "\n        - "# "\n        - "# "\n        - "##"\n    surface:\n      exits:\n        baseline: {x: 1, withdrawal: safe}\npolicy:',
+        '    - "# "\n    surface:\n      exits:\n        baseline: {x: 1, unjoined: safe}\npolicy:',
+        '    - "# "\n    bitmaps:\n      reaching:\n        bitmap:\n        - " #"\n        - "##"\n        - "# "\n        - "# "\n        - "# "\n        - "##"\n    surface:\n      exits:\n        baseline: {x: 1, unjoined: safe}\npolicy:',
     )
     assert with_sibling != BITMAP_AXIS_LEFT
     error = load_tmp_error(

@@ -335,7 +335,7 @@
 - signature: contact:qsLow.hapax.ex-y5.locked:qsIt.hapax.en-y5.ex-y0:y4
 - signature: contact:qsLow.hapax.ex-y5.locked:qsIt.hapax.en-y5.ex-y0.ex-ext-1:y4
 
-# Declined-exit terminals for ·Utter, ·I, ·No, ·Day, ·Day·Utter, ·May, and ·Ah (E-DANGLE, "declined side has reaching ink and no withdrawal binding"). The shipped font draws each of these exit terminals whether or not the exit joins, glyph_data/quikscript.yaml has no exit-side withdrawn shape for them, and their runes declare no exit `withdrawal:`. The terminal pixel has no ink directly above or below it, so `geometry.verify_withdrawal_safe` does not accept it. These entries record the terminal as part of the letter. There is one signature per stance, entry, lock, and extension variant because the gate checks each cell separately; all show the same terminal.
+# Declined-exit terminals for ·Utter, ·I, ·No, ·Day, ·Day·Utter, ·May, and ·Ah (E-DANGLE, "declined side has reaching ink and no unjoined binding"). The shipped font draws each of these exit terminals whether or not the exit joins, glyph_data/quikscript.yaml has no exit-side unjoined shape for them, and their runes declare no exit `unjoined:`. The terminal pixel has no ink directly above or below it, so `geometry.verify_unjoined_safe` does not accept it. These entries record the terminal as part of the letter. There is one signature per stance, entry, lock, and extension variant because the gate checks each cell separately; all show the same terminal.
 - signature: dangle:qsUtter.mono:exit:x-height
   why: ·Utter's mono x-height terminal (top-right nub at y5), drawn unconditionally in the shipped font; the declined exit keeps it.
 - signature: dangle:qsUtter.mono.en-y0:exit:x-height
@@ -344,7 +344,7 @@
   why: The ZWNJ-locked twin of ·Utter's mono x-height terminal; identical drawing.
 
 - signature: dangle:qsI.loop:exit:x-height
-  why: ·I's loop x-height terminal (the top-right flick at y5, reached diagonally from the loop's right side), drawn in every context by the shipped font, which has no withdrawn ·I; the declined exit keeps it.
+  why: ·I's loop x-height terminal (the top-right flick at y5, reached diagonally from the loop's right side), drawn in every context by the shipped font, which has no unjoined form of ·I; the declined exit keeps it.
 - signature: dangle:qsI.loop.en-y0:exit:x-height
   why: ·I entered at the baseline keeps the same loop x-height terminal on a declined exit.
 - signature: dangle:qsI.loop.locked:exit:x-height
@@ -352,7 +352,7 @@
 - signature: dangle:qsI.smaller-loop.en-y0:exit:x-height
   why: The smaller loop that ·I uses after some baseline joins (qsI's `prefer` records name the letters) has the same x-height terminal; the smaller loop leaves the flick where it is.
 
-# ·J'ai's baseline bar and the ·J'ai·Utter ligature's crown are part of the letter whether or not the exit joins. The shipped font draws bare qsJai and qsJai_qsUtter with the full bar and crown at every word edge and before every non-joining follower, and quikscript.yaml has no withdrawn form of either. The last pixel of the bar, and of the crown, has no ink directly above or below it, so neither passes the `withdrawal: safe` check. There is one signature per entry, contraction, and lock variant; all show the same terminal.
+# ·J'ai's baseline bar and the ·J'ai·Utter ligature's crown are part of the letter whether or not the exit joins. The shipped font draws bare qsJai and qsJai_qsUtter with the full bar and crown at every word edge and before every non-joining follower, and quikscript.yaml has no unjoined form of either. The last pixel of the bar, and of the crown, has no ink directly above or below it, so neither passes the `unjoined: safe` check. There is one signature per entry, contraction, and lock variant; all show the same terminal.
 - signature: dangle:qsJai.hapax:exit:baseline
   why: ·J'ai's baseline bar terminal, drawn unconditionally in the shipped font; the declined exit keeps it.
 - signature: dangle:qsJai.hapax.en-y5:exit:baseline
@@ -374,7 +374,7 @@
 - signature: dangle:qsJai_qsUtter.hapax.locked:exit:x-height
   why: The ZWNJ-locked twin of the ligature's crown terminal; identical drawing.
 
-# ·Awe's baseline tail is part of the letter whether or not the exit joins. The shipped font draws bare qsAwe with the full tail at every word edge and before every non-joining follower, and quikscript.yaml has no withdrawn form. The tail's last pixel has no ink directly above or below it, so it does not pass the `withdrawal: safe` check. There is one signature per entry, extension, and lock variant; all show the same terminal.
+# ·Awe's baseline tail is part of the letter whether or not the exit joins. The shipped font draws bare qsAwe with the full tail at every word edge and before every non-joining follower, and quikscript.yaml has no unjoined form. The tail's last pixel has no ink directly above or below it, so it does not pass the `unjoined: safe` check. There is one signature per entry, extension, and lock variant; all show the same terminal.
 - signature: dangle:qsAwe.hapax:exit:baseline
   why: ·Awe's baseline tail terminal, drawn unconditionally in the shipped font; the declined exit keeps it.
 - signature: dangle:qsAwe.hapax.en-y5:exit:baseline
@@ -384,7 +384,7 @@
 - signature: dangle:qsAwe.hapax.locked:exit:baseline
   why: The ZWNJ-locked twin of ·Awe's tail terminal; identical drawing.
 
-# ·Eight's diagonal tail terminal is part of the letter, as ·Awe's is. The shipped font draws bare qsEight with the full tail at every word edge and before every non-joining follower, and quikscript.yaml has no withdrawn form. The tail's last pixel is reached diagonally and has no ink directly above or below it, so it does not pass the `withdrawal: safe` check. There is one signature per entry, extension, and lock variant; all show the same terminal.
+# ·Eight's diagonal tail terminal is part of the letter, as ·Awe's is. The shipped font draws bare qsEight with the full tail at every word edge and before every non-joining follower, and quikscript.yaml has no unjoined form. The tail's last pixel is reached diagonally and has no ink directly above or below it, so it does not pass the `unjoined: safe` check. There is one signature per entry, extension, and lock variant; all show the same terminal.
 - signature: dangle:qsEight.normal-sized-loop:exit:baseline
   why: ·Eight's diagonal tail terminal, drawn unconditionally in the shipped font; the declined exit keeps it.
 - signature: dangle:qsEight.normal-sized-loop.en-y5:exit:baseline
@@ -593,7 +593,7 @@
   why: The ZWNJ-locked twin of ·Ah's x-height terminal; identical drawing.
 
 - signature: dangle:qsRoe.hapax:exit:baseline
-  why: ·Roe is one stroke whose two arms both end on the left. The rightmost ink on each arm's row is where the arm meets the bowl, three or four columns short of that row's exit anchor, and the bowl continues from it diagonally. That pixel has no ink directly above or below it, so `verify_withdrawal_safe` reports it as reaching ink. The arms are part of the letter, and the shipped font draws no withdrawn ·Roe. Every `dangle:qsRoe.*` signature here is one of these two arms on a different cell.
+  why: ·Roe is one stroke whose two arms both end on the left. The rightmost ink on each arm's row is where the arm meets the bowl, three or four columns short of that row's exit anchor, and the bowl continues from it diagonally. That pixel has no ink directly above or below it, so `verify_unjoined_safe` reports it as reaching ink. The arms are part of the letter, and the shipped font has no unjoined form of ·Roe. Every `dangle:qsRoe.*` signature here is one of these two arms on a different cell.
 - signature: dangle:qsRoe.hapax:exit:x-height
   why: The upper arm on the isolated drawing.
 - signature: dangle:qsRoe.hapax.en-y0:exit:baseline
@@ -695,7 +695,7 @@
 - signature: contact:qsTea.full.en-y0.ex-y0:qsUtter.mono.en-y0.ex-y5:y1
 - signature: contact:qsTea.full.en-y0.ex-y0:qsUtter.mono.en-y0.ex-y5.ex-ext-1:y1
 
-# ·Et's declined-exit terminal (E-DANGLE). The shipped font draws ·Et's two-pixel rightward baseline tail in every context (isolated, word-final, and before a non-joining follower) and has no withdrawn ·Et. The tail ends horizontally, so it does not pass the `withdrawal: safe` check; these entries record it as part of the letter.
+# ·Et's declined-exit terminal (E-DANGLE). The shipped font draws ·Et's two-pixel rightward baseline tail in every context (isolated, word-final, and before a non-joining follower) and has no unjoined form of ·Et. The tail ends horizontally, so it does not pass the `unjoined: safe` check; these entries record it as part of the letter.
 - signature: dangle:qsEt.hapax:exit:baseline
   why: ·Et's baseline terminal on the isolated drawing; the declined exit keeps it.
 - signature: dangle:qsEt.hapax.en-y5:exit:baseline
@@ -705,7 +705,7 @@
 - signature: dangle:qsEt.hapax.locked:exit:baseline
   why: The ZWNJ-locked twin of ·Et's baseline terminal; identical drawing.
 
-# ·See's declined-exit crest (E-DANGLE). The shipped font draws the crest's two-pixel rightward top bar in every context (isolated, word-final, and before a non-joining follower) and has no withdrawn ·See. The bar ends horizontally, so it does not pass the `withdrawal: safe` check; like ·Et's and ·Roe's terminals, it is part of the letter. The ·See·Utter ligature's x-height bar has the same shape.
+# ·See's declined-exit crest (E-DANGLE). The shipped font draws the crest's two-pixel rightward top bar in every context (isolated, word-final, and before a non-joining follower) and has no unjoined form of ·See. The bar ends horizontally, so it does not pass the `unjoined: safe` check; like ·Et's and ·Roe's terminals, it is part of the letter. The ·See·Utter ligature's x-height bar has the same shape.
 - signature: dangle:qsSee.normal:exit:top
   why: ·See's top crest on the isolated drawing; the declined exit keeps it.
 - signature: dangle:qsSee.normal.en-y0:exit:top
@@ -713,7 +713,7 @@
 - signature: dangle:qsSee.normal.locked:exit:top
   why: The ZWNJ-locked twin of ·See's crest; identical drawing.
 - signature: dangle:qsSee_qsUtter.hapax:exit:x-height
-  why: The ligature's x-height bar is drawn in every context, and the shipped font has no withdrawn ·See·Utter, so a declined exit keeps it.
+  why: The ligature's x-height bar is drawn in every context, and the shipped font has no unjoined form of ·See·Utter, so a declined exit keeps it.
 
 # ·See·Pea joins at y6 in the shipped font (baseline row E65A:E650, junction y6). The curled-over crest's hook at y7, one row above the junction, is one column left of ·Pea's left side, a corner the shipped font also draws. There is one signature per curled-over variant (bare, entered, ZWNJ-locked) and ·Pea follower (full and half, with and without their onward exits).
 - signature: contact:qsSee.curled-over.en-y0.ex-y6:qsPea.full.en-y6:y7
@@ -734,7 +734,7 @@
 - signature: contact:qsTea.full.en-y8.ex-y0:qsUtter.mono.en-y0.ex-y5:y1
 - signature: contact:qsTea.full.en-y8.ex-y0:qsUtter.mono.en-y0.ex-y5.ex-ext-1:y1
 
-# The ·Vie·Utter ligature's declined-exit arm (E-DANGLE). The shipped font draws the ligature's ·Utter arm up to the x-height in every context (isolated, word-final, and before a non-joining follower; the default ·Vie·Utter·Tea window keeps the full drawing) and has no withdrawn ·Vie·Utter. The arm ends horizontally, so it does not pass the `withdrawal: safe` check; like ·Et's and ·Roe's terminals, it is part of the letter, and it has the same shape as the ·See·Utter bar. There is one signature per entry and lock variant; all show the same arm.
+# The ·Vie·Utter ligature's declined-exit arm (E-DANGLE). The shipped font draws the ligature's ·Utter arm up to the x-height in every context (isolated, word-final, and before a non-joining follower; the default ·Vie·Utter·Tea window keeps the full drawing) and has no unjoined form of ·Vie·Utter. The arm ends horizontally, so it does not pass the `unjoined: safe` check; like ·Et's and ·Roe's terminals, it is part of the letter, and it has the same shape as the ·See·Utter bar. There is one signature per entry and lock variant; all show the same arm.
 - signature: dangle:qsVie_qsUtter.hapax:exit:x-height
   why: The ligature's x-height arm on the isolated drawing; the declined exit keeps it.
 - signature: dangle:qsVie_qsUtter.hapax.en-y0:exit:x-height
@@ -1406,7 +1406,7 @@
 - signature: contact:qsOoze.hapax.ex-y0:qsUtter.mono.en-y0:y1
   why: ·Ooze·Utter joins at the baseline in the shipped font (baseline row E67E:E67A); ·Ooze's right leg abuts ·Utter's left downstroke at y1, the same corner as the blessed ·Ooze·It.
 
-# ·Bay's baseline closing bar is unconditional letterform ink, like ·Awe's tail above: it has the same shape whether or not the exit joins. The shipped font draws bare qsBay with the full below-baseline loop and its closing bar at every word edge and before every non-joining follower, and quikscript.yaml has no withdrawn form. The bar's last pixel sits one column right of the stem with no ink above or below it, so it fails the automatic `withdrawal: safe` check (`geometry.verify_withdrawal_safe`). The gate checks each entry and lock variant separately, so each has its own signature; all show the same terminal.
+# ·Bay's baseline closing bar is unconditional letterform ink, like ·Awe's tail above: it has the same shape whether or not the exit joins. The shipped font draws bare qsBay with the full below-baseline loop and its closing bar at every word edge and before every non-joining follower, and quikscript.yaml has no unjoined form. The bar's last pixel sits one column right of the stem with no ink above or below it, so it fails the automatic `unjoined: safe` check (`geometry.verify_unjoined_safe`). The gate checks each entry and lock variant separately, so each has its own signature; all show the same terminal.
 - signature: dangle:qsBay.hapax:exit:baseline
   why: ·Bay's closing-bar terminal, drawn unconditionally in the shipped font; the declined exit keeps it.
 - signature: dangle:qsBay.hapax.en-y5:exit:baseline
@@ -1414,7 +1414,7 @@
 - signature: dangle:qsBay.hapax.locked:exit:baseline
   why: The ZWNJ-locked twin of ·Bay's closing-bar terminal; identical drawing.
 
-# ·Key's baseline foot is unconditional letterform ink, like ·Awe's tail above: it has the same shape whether or not the exit joins. The shipped font draws bare qsKey with the full angle and its foot at every word edge and before every non-joining follower, and quikscript.yaml has no withdrawn form. The foot's last pixel has no ink above it, so it fails the automatic `withdrawal: safe` check (`geometry.verify_withdrawal_safe`). The gate checks each entry and lock variant separately, so each has its own signature; all show the same terminal.
+# ·Key's baseline foot is unconditional letterform ink, like ·Awe's tail above: it has the same shape whether or not the exit joins. The shipped font draws bare qsKey with the full angle and its foot at every word edge and before every non-joining follower, and quikscript.yaml has no unjoined form. The foot's last pixel has no ink above it, so it fails the automatic `unjoined: safe` check (`geometry.verify_unjoined_safe`). The gate checks each entry and lock variant separately, so each has its own signature; all show the same terminal.
 - signature: dangle:qsKey.hapax:exit:baseline
   why: ·Key's foot terminal, drawn unconditionally in the shipped font; the declined exit keeps it.
 - signature: dangle:qsKey.hapax.en-y8:exit:baseline
@@ -1423,7 +1423,7 @@
   why: The ZWNJ-locked twin of ·Key's foot terminal; identical drawing.
 
 - signature: dangle:qsShe.hapax:exit:baseline
-  why: ·She's curved foot is the shipped isolated drawing (baseline row E65C). Its rightmost baseline pixel continues diagonally into the upturned tip at y1, not vertically, so `geometry.verify_withdrawal_safe` does not accept it; the declined exit keeps this ink as part of the letter.
+  why: ·She's curved foot is the shipped isolated drawing (baseline row E65C). Its rightmost baseline pixel continues diagonally into the upturned tip at y1, not vertically, so `geometry.verify_unjoined_safe` does not accept it; the declined exit keeps this ink as part of the letter.
 - signature: dangle:qsShe.hapax.locked:exit:baseline
   why: The ZWNJ-locked twin retains ·She's curved foot, as in baseline row 200C:E65C; the diagonal upturned tip is the same intentional letterform ink.
 
@@ -1436,7 +1436,7 @@
 - signature: dangle:qsCheer.hapax.locked:exit:baseline
   why: The ZWNJ-locked twin keeps ·Cheer's shipped baseline foot, as in baseline row 200C:E65E.
 
-# ·Jay's baseline tick and the ·Jay·Utter ligature's crown are unconditional letterform ink with the same shape whether or not the exit joins. The shipped font draws bare qsJay and bare qsJay_qsUtter with the full tick and crown at every word edge and before every non-joining follower, and quikscript.yaml has no withdrawn form. Neither the tick's last pixel nor the crown's continues vertically, so both fail the automatic `withdrawal: safe` check (`geometry.verify_withdrawal_safe`). The gate checks each entry, adjustment, and lock variant separately, so each has its own signature; all show the same terminal.
+# ·Jay's baseline tick and the ·Jay·Utter ligature's crown are unconditional letterform ink with the same shape whether or not the exit joins. The shipped font draws bare qsJay and bare qsJay_qsUtter with the full tick and crown at every word edge and before every non-joining follower, and quikscript.yaml has no unjoined form. Neither the tick's last pixel nor the crown's continues vertically, so both fail the automatic `unjoined: safe` check (`geometry.verify_unjoined_safe`). The gate checks each entry, adjustment, and lock variant separately, so each has its own signature; all show the same terminal.
 - signature: dangle:qsJay.hapax:exit:baseline
   why: ·Jay's baseline tick terminal, drawn unconditionally in the shipped font (baseline row E65F); the declined exit keeps it.
 - signature: dangle:qsJay.hapax.en-y5:exit:baseline
@@ -1690,7 +1690,7 @@
 - signature: contact:qsIt.hapax.en-y0.ex-y0.en-ext-1:qsUtter.mono.en-y0.ex-y5:y1
 - signature: contact:qsIt.hapax.en-y0.ex-y0.en-ext-1:qsUtter.mono.en-y0.ex-y5.ex-ext-1:y1
 
-# ·Gay's crown bar is unconditional letterform ink, like ·Awe's tail above: it has the same shape whether or not the exit joins. The shipped font draws bare qsGay with the full crown at every word edge and before every non-joining follower, and quikscript.yaml has no withdrawn form. The crown's terminal pixel has no ink above or below it, so it fails the automatic `withdrawal: safe` check (`geometry.verify_withdrawal_safe`). ·Gay's baseline foot passes that check because its terminal continues down into the loop. The gate checks each entry, exit, and lock variant separately, so each has its own signature; all show the same terminal.
+# ·Gay's crown bar is unconditional letterform ink, like ·Awe's tail above: it has the same shape whether or not the exit joins. The shipped font draws bare qsGay with the full crown at every word edge and before every non-joining follower, and quikscript.yaml has no unjoined form. The crown's terminal pixel has no ink above or below it, so it fails the automatic `unjoined: safe` check (`geometry.verify_unjoined_safe`). ·Gay's baseline foot passes that check because its terminal continues down into the loop. The gate checks each entry, exit, and lock variant separately, so each has its own signature; all show the same terminal.
 - signature: dangle:qsGay.hapax:exit:x-height
   why: ·Gay's crown terminal, drawn unconditionally in the shipped font; the declined exit keeps it.
 - signature: dangle:qsGay.hapax.en-y0:exit:x-height
@@ -1775,7 +1775,7 @@
 - signature: contact:qsThey.hapax.en-y5.ex-y0.en-ext-1:qsDay_qsUtter.half.en-y0.ex-y5:y-1
 - signature: contact:qsThey.hapax.en-y5.ex-y0.en-ext-1:qsDay_qsUtter.half.en-y0.ex-y5.ex-ext-1:y-1
 
-# The ·They+Utter ligature's crown is ·Utter's nub, unconditional letterform ink like the ·J'ai+Utter crown above. The shipped font draws the bare ligature with the full crown at every word edge and before every non-joining follower, and quikscript.yaml has no withdrawn form. The crown's terminal pixel has no ink above or below it, so it fails the automatic `withdrawal: safe` check (`geometry.verify_withdrawal_safe`). The gate checks each entry and lock variant separately, so each has its own signature; all show the same terminal.
+# The ·They+Utter ligature's crown is ·Utter's nub, unconditional letterform ink like the ·J'ai+Utter crown above. The shipped font draws the bare ligature with the full crown at every word edge and before every non-joining follower, and quikscript.yaml has no unjoined form. The crown's terminal pixel has no ink above or below it, so it fails the automatic `unjoined: safe` check (`geometry.verify_unjoined_safe`). The gate checks each entry and lock variant separately, so each has its own signature; all show the same terminal.
 - signature: dangle:qsThey_qsUtter.hapax:exit:x-height
   why: The ·They·Utter ligature's crown terminal (·Utter's nub at y5), drawn unconditionally in the shipped font; the declined exit keeps it.
 - signature: dangle:qsThey_qsUtter.hapax.en-y5:exit:x-height

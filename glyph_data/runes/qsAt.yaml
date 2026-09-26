@@ -60,7 +60,7 @@ stances:
         x-height:
           x: 5
           stroke: vertical
-          withdrawal: safe
+          unjoined: safe
           toward:
           - family:
             - qsDay

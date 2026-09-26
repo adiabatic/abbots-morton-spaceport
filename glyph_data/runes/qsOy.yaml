@@ -53,7 +53,7 @@ stances:
         baseline:
           x: 8
           stroke: vertical
-          withdrawal: safe
+          unjoined: safe
       cells:
       - entry: x-height
         exit: baseline

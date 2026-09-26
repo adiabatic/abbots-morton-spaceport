@@ -6,7 +6,7 @@
 //!
 //! Three pure functions of the spec are computed once when the index is built, instead of in each engine: the stance order index ([`SpecIndex::order_index`]), `is_entry_bearing`, and the per-rune entry-stroke set. The last two are feature-blind reads of the surface. `settle.is_entry_bearing` computes the same flag on the Python side.
 //!
-//! The index owns the [`Spec`]. That keeps a spec lifetime out of the engine, the guard, and the caches, and it lets the build intern [`Vocab`] and the withdrawn-state symbols into the spec's own pool. Adding symbols to the pool does not change emission, which walks the tree and never the pool.
+//! The index owns the [`Spec`]. That keeps a spec lifetime out of the engine, the guard, and the caches, and it lets the build intern [`Vocab`] and the unjoined-state symbols into the spec's own pool. Adding symbols to the pool does not change emission, which walks the tree and never the pool.
 
 use std::cell::{Cell, RefCell};
 use std::collections::BTreeSet;
@@ -17,7 +17,7 @@ use crate::hash::HashMap;
 use crate::model::{
     BoundaryToken, ResolvedSpec, Rune, ScriptRegistry, Spec, Stance, SurfaceRow, Sym, Table,
 };
-use crate::types::{RightToken, Vocab, WITHDRAWN_SUFFIX};
+use crate::types::{RightToken, UNJOINED_SUFFIX, Vocab};
 
 /// One memo-key field's value: a symbol's position, counted from one, in the table this index builds for that field. The rune field's table is the modeled runes in declaration order, then the registry's other families. The stance field's table is every stance name in first-declaration order. The entry and junction fields' tables are every height the spec can put in that field. Each field holds one of a handful of symbols, so two bytes are enough where a [`Sym`] takes four, and `NonZeroU16` keeps zero free so that `Option<Ordinal>` is also two bytes. An ordinal is meaningful only with the index that minted it, and the `*_at_ordinal` methods map it back to the symbol. Each table covers its own field alone, so a stance ordinal does not depend on the rune beside it, and a case can pair a left of one rune with another rune's stance, as a forged case does.
 pub type Ordinal = NonZeroU16;
@@ -149,7 +149,7 @@ pub struct SpecIndex {
     runes: HashMap<Sym, u32>,
     rune_index: Vec<RuneIndex>,
     heights: HashMap<Sym, i64>,
-    withdrawn: HashMap<Sym, Sym>,
+    unjoined: HashMap<Sym, Sym>,
     families: BTreeSet<Sym>,
     predicate_classes: HashMap<Sym, BTreeSet<Sym>>,
     group_owner: HashMap<Sym, u32>,
@@ -168,7 +168,7 @@ pub struct SpecIndex {
 }
 
 impl SpecIndex {
-    /// Index one parsed dump, interning the closed vocabulary and the withdrawn exit states into its pool on the way.
+    /// Index one parsed dump, interning the closed vocabulary and the unjoined exit states into its pool on the way.
     pub fn new(mut spec: Spec) -> Self {
         let vocab = Vocab::build(|text| spec.symbols.intern(text));
         let declared_heights: Vec<Sym> = spec
@@ -178,11 +178,11 @@ impl SpecIndex {
             .iter()
             .map(|(height, _)| *height)
             .collect();
-        let mut withdrawn =
+        let mut unjoined =
             HashMap::with_capacity_and_hasher(declared_heights.len(), Default::default());
         for height in declared_heights {
-            let composed = format!("{}{WITHDRAWN_SUFFIX}", spec.symbols.resolve(height));
-            withdrawn.insert(height, spec.symbols.intern(&composed));
+            let composed = format!("{}{UNJOINED_SUFFIX}", spec.symbols.resolve(height));
+            unjoined.insert(height, spec.symbols.intern(&composed));
         }
         let mut ids = HashMap::with_capacity_and_hasher(spec.symbols.len(), Default::default());
         for (symbol, text) in spec.symbols.iter() {
@@ -272,7 +272,7 @@ impl SpecIndex {
                 .iter()
                 .map(|(height, y)| (*height, *y))
                 .collect(),
-            withdrawn,
+            unjoined,
             families: registry
                 .families
                 .iter()
@@ -481,12 +481,12 @@ impl SpecIndex {
         self.heights.get(&height).copied()
     }
 
-    /// The state symbol a `cells:` row uses for this height's withdrawn exit: the height's text plus [`WITHDRAWN_SUFFIX`]. Every registry height has one interned at build time. For any other height this looks the text up in the pool, and `None` then means no authored row names it.
-    pub fn withdrawn_state(&self, height: Sym) -> Option<Sym> {
-        if let Some(state) = self.withdrawn.get(&height) {
+    /// The state symbol a `cells:` row uses for this height's unjoined exit: the height's text plus [`UNJOINED_SUFFIX`]. Every registry height has one interned at build time. For any other height this looks the text up in the pool, and `None` then means no authored row names it.
+    pub fn unjoined_state(&self, height: Sym) -> Option<Sym> {
+        if let Some(state) = self.unjoined.get(&height) {
             return Some(*state);
         }
-        self.sym_of(&format!("{}{WITHDRAWN_SUFFIX}", self.resolve(height)))
+        self.sym_of(&format!("{}{UNJOINED_SUFFIX}", self.resolve(height)))
     }
 
     /// Every family the registry declares, modeled or not. An `except:` subtracts from this set when its condition has no family axis of its own.
@@ -732,7 +732,7 @@ pub mod fixtures {
         ("stroke", "null"),
         ("joined", "null"),
         ("joined_x", "null"),
-        ("withdrawal", "null"),
+        ("unjoined", "null"),
         ("stub", "null"),
         ("scope", "[]"),
         ("selectable", "true"),
@@ -966,7 +966,7 @@ pub mod fixtures {
                                 ("x-height", &row("x-height", &[])),
                                 (
                                     "baseline",
-                                    &row("baseline", &[("withdrawal", "\"pulled-back\"")]),
+                                    &row("baseline", &[("unjoined", "\"pulled-back\"")]),
                                 ),
                             ]),
                         ),
@@ -1103,7 +1103,7 @@ pub mod fixtures {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{NONE_STATE, WITHDRAWN_SUFFIX};
+    use crate::types::{NONE_STATE, UNJOINED_SUFFIX};
 
     #[test]
     fn a_rune_and_its_stances_are_found_by_name_in_declaration_order() {
@@ -1284,18 +1284,18 @@ mod tests {
     }
 
     #[test]
-    fn a_withdrawn_state_is_the_height_plus_the_suffix() {
+    fn an_unjoined_state_is_the_height_plus_the_suffix() {
         let index = fixtures::mini();
         let baseline = fixtures::sym(&index, "baseline");
         let state = index
-            .withdrawn_state(baseline)
-            .expect("every registry height has a withdrawn state");
-        assert_eq!(index.resolve(state), "baseline-withdrawn");
+            .unjoined_state(baseline)
+            .expect("every registry height has an unjoined state");
+        assert_eq!(index.resolve(state), "baseline-unjoined");
         assert_eq!(
             index.resolve(state),
-            format!("{}{WITHDRAWN_SUFFIX}", index.resolve(baseline))
+            format!("{}{UNJOINED_SUFFIX}", index.resolve(baseline))
         );
-        assert_eq!(index.withdrawn_state(fixtures::sym(&index, "half")), None);
+        assert_eq!(index.unjoined_state(fixtures::sym(&index, "half")), None);
     }
 
     #[test]

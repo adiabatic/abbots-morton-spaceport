@@ -59,7 +59,7 @@ stances:
           x: 6
           ink_y: -1
           stroke: diagonal
-          withdrawal: safe
+          unjoined: safe
           toward:
           - family:
             - qsTea
@@ -84,7 +84,7 @@ stances:
         x-height:
           x: 3
           stroke: vertical
-          withdrawal: safe
+          unjoined: safe
           toward:
           - family:
             - qsNo

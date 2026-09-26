@@ -452,8 +452,8 @@ impl<'a> Emitter<'a> {
         self.maybe_symbol(row.joined);
         self.name("joined_x");
         self.maybe_number(row.joined_x);
-        self.name("withdrawal");
-        self.maybe_symbol(row.withdrawal);
+        self.name("unjoined");
+        self.maybe_symbol(row.unjoined);
         self.name("stub");
         self.maybe(row.stub.as_ref(), Self::stub);
         self.name("scope");

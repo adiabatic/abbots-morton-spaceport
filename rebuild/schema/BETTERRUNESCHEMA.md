@@ -16,7 +16,7 @@ This is the plan for adding readable documentation to `rune.schema.json`, the sc
 **The only reader of this documentation is the owner (Nathan).** There is no third-party reader to write for. So:
 
 - Assume fluency in the project’s own vocabulary: ·Letter names, `qsName` families, _stance_, _ductus_, _ink_, _trait_, _half_/_alt_, _anchor_, _junction_. Don’t re-teach font internals the owner already knows.
-- **Do** explain the schema-specific mechanisms the owner does _not_ keep in mind: what an `unlock` does, what `withdrawal: safe` promises, what `ok` and `split` mean on an `extend`, and so on.
+- **Do** explain the schema-specific mechanisms the owner does _not_ keep in mind: what an `unlock` does, what `unjoined: safe` promises, what `ok` and `split` mean on an `extend`, and so on.
 - **Don’t use “drawing” as a noun in prose** (R39). It reads as an undefined term. Say `bitmap` or use a plain verb. The `drawing` `$def` name and its `$ref`s stay, since they are structure and not prose, and verbs such as “redraws” and “draws” are fine.
 - **Put the terse reference first, and put the reason right after it.** The owner does not want to read `model.py` docstrings or the M1 plan to find out why a key exists, so the reason goes where the owner is already looking.
 
@@ -88,7 +88,7 @@ The reasoning behind each hover is in the `git log` of `rune.schema.json`.
 
 - **q22 — reserved-token history (when grammar/motionName).** Either explain why `before`/`after`/`noentry`/… are forbidden in names (they were old display-name suffixes), or just list them. _Lean: state the principle inline (“names = the motion, not the neighbors”) and keep the history short._
 - **q24 — migration bridging (old quikscript.yaml).** Options: none, a brief mapping note, or a detailed side-by-side comparison with the old `entry_xheight_exit_baseline`-style keys. _Lean: a brief mapping note._
-- **Scope of the stance’s `bitmaps` hover.** The hover on the stance’s `bitmaps` property says its names are “wired up elsewhere”, which was written before the scope decision: `joined`, `withdrawal`, and `cells.bitmap` resolve only to names in the stance’s own `bitmaps` map, and not to a sibling stance’s bitmap, the base `bitmap`, or the rune’s `mono`. `exitRow.withdrawal` already says this. Give the `bitmaps` hover the same precision when the walk reaches it.
+- **Scope of the stance’s `bitmaps` hover.** The hover on the stance’s `bitmaps` property says its names are “wired up elsewhere”, which was written before the scope decision: `joined`, `unjoined`, and `cells.bitmap` resolve only to names in the stance’s own `bitmaps` map, and not to a sibling stance’s bitmap, the base `bitmap`, or the rune’s `mono`. `exitRow.unjoined` already says this. Give the `bitmaps` hover the same precision when the walk reaches it.
 - **Applying D5 to committed hovers.** New text uses the lead-summary and `\n\n` shape, but most committed hovers don’t. _Lean: restructure a committed hover whenever it is being edited anyway, not all at once._
 
 ## Health note

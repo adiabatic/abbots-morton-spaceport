@@ -28,7 +28,7 @@ stances:
           x: 9
           ink_y: -1
           stroke: diagonal
-          withdrawal: safe
+          unjoined: safe
       cells: []
       unlocks: []
       require: []

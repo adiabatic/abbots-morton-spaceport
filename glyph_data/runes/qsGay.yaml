@@ -73,7 +73,7 @@ stances:
           stub:
             cols:
             - 3
-            inks_when: withdrawn
+            inks_when: unjoined
           from:
           - family:
             - qsAh
@@ -82,7 +82,7 @@ stances:
         baseline:
           x: 5
           stroke: horizontal
-          withdrawal: safe
+          unjoined: safe
           toward:
           - family:
             - qsTea

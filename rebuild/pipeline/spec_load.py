@@ -358,7 +358,7 @@ def _exit_row(height: str, raw: dict, provenance: Provenance) -> SurfaceRow:
         height=height,
         x=raw["x"],
         stroke=raw.get("stroke"),
-        withdrawal=raw.get("withdrawal"),
+        unjoined=raw.get("unjoined"),
         stub=_stub(raw.get("stub")),
         scope=tuple(_condition(item) for item in raw.get("toward", ())),
         ink_y=raw.get("ink_y"),
@@ -732,11 +732,11 @@ class _Linter:
             for height, row in (surface.get("exits") or {}).items():
                 row_path = f"{base}.surface.exits.{height}"
                 self._check_condition_refs_list(row.get("toward"), f"{row_path}.toward")
-                withdrawal = row.get("withdrawal")
-                if withdrawal not in (None, "safe") and withdrawal not in bitmaps:
+                unjoined = row.get("unjoined")
+                if unjoined not in (None, "safe") and unjoined not in bitmaps:
                     self.context.error(
-                        f"{row_path}.withdrawal",
-                        f"withdrawal binding {withdrawal!r} names no bitmaps: sibling",
+                        f"{row_path}.unjoined",
+                        f"unjoined binding {unjoined!r} names no bitmaps: sibling",
                     )
             entries = self.stance_rows[stance_name]["entry"]
             exits = self.stance_rows[stance_name]["exit"]
@@ -760,7 +760,7 @@ class _Linter:
                     )
                 for side, declared in (("entry", entries), ("exit", exits)):
                     state = cell.get(side)
-                    height = state.removesuffix("-withdrawn") if isinstance(state, str) else state
+                    height = state.removesuffix("-unjoined") if isinstance(state, str) else state
                     if height not in (None, "none") and height not in declared:
                         self.context.error(
                             f"{cell_path}.{side}",

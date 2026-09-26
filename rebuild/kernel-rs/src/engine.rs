@@ -2541,23 +2541,23 @@ impl<'i> Engine<'i> {
         Ok(Some(chosen))
     }
 
-    /// The withdrawal bindings a declined exit is drawn with. When a join does not happen mid-word the exit state is none, and each exit row that names a withdrawal bitmap adds that drawing to the cell's identity as an `ex-bind-<bitmap>` token. A `withdrawal: safe` row adds nothing, leaving the plain exit-none cell. A `cells:` composition for this (entry-state, withdrawn-height) pair overrides the row's bitmap, and the last matching composition wins, because the scan does not stop early.
-    fn withdrawal_tokens(&self, stance: &Stance, entry: Option<Sym>) -> Vec<AdjustmentToken> {
+    /// The unjoined bindings a declined exit is drawn with. When a join does not happen mid-word the exit state is none, and each exit row that names an unjoined bitmap adds that drawing to the cell's identity as an `ex-bind-<bitmap>` token. An `unjoined: safe` row adds nothing, leaving the plain exit-none cell. A `cells:` composition for this (entry-state, unjoined-height) pair overrides the row's bitmap, and the last matching composition wins, because the scan does not stop early.
+    fn unjoined_tokens(&self, stance: &Stance, entry: Option<Sym>) -> Vec<AdjustmentToken> {
         let index = self.index();
         let vocab = index.vocab();
         let entry_state = vocab.height_state(entry);
         let mut tokens: Vec<AdjustmentToken> = Vec::new();
         for (height, row) in stance.surface.exits.iter() {
-            let Some(withdrawal) = row.withdrawal else {
+            let Some(unjoined) = row.unjoined else {
                 continue;
             };
-            if withdrawal == vocab.safe {
+            if unjoined == vocab.safe {
                 continue;
             }
-            let withdrawn = index.withdrawn_state(*height);
-            let mut bitmap = withdrawal;
+            let unjoined_exit = index.unjoined_state(*height);
+            let mut bitmap = unjoined;
             for binding in &stance.surface.cells {
-                if binding.entry == entry_state && Some(binding.exit) == withdrawn {
+                if binding.entry == entry_state && Some(binding.exit) == unjoined_exit {
                     bitmap = binding.bitmap;
                 }
             }
@@ -2573,7 +2573,7 @@ impl<'i> Engine<'i> {
         left_term + own_term + prospect
     }
 
-    /// Turn the winning candidate into the cell it settles as: the ZWNJ lock first, then each live side's extend and contract, then the exit side's extension in pixels, then, for a declined join mid-word, the withdrawal bindings.
+    /// Turn the winning candidate into the cell it settles as: the ZWNJ lock first, then each live side's extend and contract, then the exit side's extension in pixels, then, for a declined join mid-word, the unjoined bindings.
     ///
     /// Same-junction extensions do not add up (the `same-junction-extension-non-summing` divergence class): a follower's entry extension is suppressed when the predecessor's exit already carries the junction's connector pixels, because both would otherwise draw them. The suppressed record still fires and is still noted as applied, because it matched and the dead-policy check should see it, and the suppression adds its own note.
     ///
@@ -2679,7 +2679,7 @@ impl<'i> Engine<'i> {
             }
             adjustments.extend(adjustment_tokens(Side::Exit, extend, contract));
         } else if right.right1.kind() == TokenKind::Letter {
-            adjustments.extend(self.withdrawal_tokens(stance, winner.entry));
+            adjustments.extend(self.unjoined_tokens(stance, winner.entry));
         }
         Ok(Settled {
             cell: CellId {
@@ -5331,7 +5331,7 @@ mod tests {
                     "stroke",
                     &surface(
                         "{}",
-                        &object(&[row("x-height", &[("withdrawal", "\"safe\"")])]),
+                        &object(&[row("x-height", &[("unjoined", "\"safe\"")])]),
                         &[],
                     ),
                 ),
@@ -5345,7 +5345,7 @@ mod tests {
                 "hook",
                 &surface(
                     &object(&[row("x-height", &[])]),
-                    &object(&[row("baseline", &[("withdrawal", "\"safe\"")])]),
+                    &object(&[row("baseline", &[("unjoined", "\"safe\"")])]),
                     &[(
                         "pairings",
                         r#"{"never":[{"entry":"x-height","exit":"baseline"}],"only":null}"#,
@@ -5620,7 +5620,7 @@ mod tests {
         )]);
         let outgoing = surface(
             "{}",
-            &object(&[row("baseline", &[("withdrawal", "\"safe\"")])]),
+            &object(&[row("baseline", &[("unjoined", "\"safe\"")])]),
             &[],
         );
         for has_unmapped_stance in [false, true] {
@@ -5687,7 +5687,7 @@ mod tests {
             )]),
         )]);
         let incoming = object(&[row("x-height", &[])]);
-        let outgoing = object(&[row("baseline", &[("withdrawal", "\"safe\"")])]);
+        let outgoing = object(&[row("baseline", &[("unjoined", "\"safe\"")])]);
         let index = spec_of(&[
             letter(
                 "qsPea",
@@ -5695,7 +5695,7 @@ mod tests {
                     "stroke",
                     &surface(
                         "{}",
-                        &object(&[row("x-height", &[("withdrawal", "\"safe\"")])]),
+                        &object(&[row("x-height", &[("unjoined", "\"safe\"")])]),
                         &[],
                     ),
                 )],
@@ -6331,15 +6331,15 @@ mod tests {
         assert_eq!(trace.notes, ["qsPea.yaml:policy.extend[0]"]);
     }
 
-    /// [`ranking_spec`] without `qsPea`'s `flourish` stance and with no policy records. `qsTea`'s baseline exit withdraws to the `pulled-back` drawing instead of `safe`, and `qsTea.hook` carries the caller's `cells:` list.
-    fn withdrawal_spec(cells: &str) -> SpecIndex {
+    /// [`ranking_spec`] without `qsPea`'s `flourish` stance and with no policy records. `qsTea`'s baseline exit binds the `pulled-back` drawing when unjoined instead of `safe`, and `qsTea.hook` carries the caller's `cells:` list.
+    fn unjoined_spec(cells: &str) -> SpecIndex {
         let tea = letter(
             "qsTea",
             &[stance(
                 "hook",
                 &surface(
                     &object(&[row("x-height", &[])]),
-                    &object(&[row("baseline", &[("withdrawal", "\"pulled-back\"")])]),
+                    &object(&[row("baseline", &[("unjoined", "\"pulled-back\"")])]),
                     &[
                         (
                             "pairings",
@@ -6357,7 +6357,7 @@ mod tests {
                 "stroke",
                 &surface(
                     "{}",
-                    &object(&[row("x-height", &[("withdrawal", "\"safe\"")])]),
+                    &object(&[row("x-height", &[("unjoined", "\"safe\"")])]),
                     &[],
                 ),
             )],
@@ -6375,8 +6375,8 @@ mod tests {
     }
 
     #[test]
-    fn a_declined_exit_binds_its_withdrawal_drawing_and_an_explicit_cell_overrides_it() {
-        let index = withdrawal_spec("[]");
+    fn a_declined_exit_binds_its_unjoined_drawing_and_an_explicit_cell_overrides_it() {
+        let index = unjoined_spec("[]");
         let mut engine = Engine::new(&index, no_features());
         let trace = engine
             .transition_trace(
@@ -6390,8 +6390,8 @@ mod tests {
             "qsTea.hook.en-y5.ex-bind-pulled-back"
         );
 
-        let index = withdrawal_spec(
-            r#"[{"entry":"x-height","exit":"baseline-withdrawn","bitmap":"hook-after-pea","entry_x":null,"exit_x":null,"provenance":null}]"#,
+        let index = unjoined_spec(
+            r#"[{"entry":"x-height","exit":"baseline-unjoined","bitmap":"hook-after-pea","entry_x":null,"exit_x":null,"provenance":null}]"#,
         );
         let mut engine = Engine::new(&index, no_features());
         let trace = engine
@@ -6404,7 +6404,7 @@ mod tests {
         assert_eq!(
             cell_label(&index, &trace.settled.cell),
             "qsTea.hook.en-y5.ex-bind-hook-after-pea",
-            "an explicit cells: composition for the withdrawn pair overrides the row's binding"
+            "an explicit cells: composition for the unjoined pair overrides the row's binding"
         );
     }
 
@@ -6437,7 +6437,7 @@ mod tests {
                 "stroke",
                 &surface(
                     "{}",
-                    &object(&[row("x-height", &[("withdrawal", "\"safe\"")])]),
+                    &object(&[row("x-height", &[("unjoined", "\"safe\"")])]),
                     &[],
                 ),
             )],
@@ -6510,7 +6510,7 @@ mod tests {
 
     /// The issue-28 shape, as in `rebuild/pipeline/fixtures.py`'s `prospect_spec`. `qsPea` exits at both heights and prefers the x-height as a yielding tie-break. `qsTea` enters at both heights, has no exit when entered at the x-height, and prefers to decline its baseline exit before qsMay·qsIt. An entered `qsMay` has no exit, so `qsTea` joining `qsMay` prevents the qsMay·qsIt join, and `qsTea` declining allows it. The candidacy estimate therefore scores `qsPea`'s baseline exit as if `qsTea`'s onward join will happen, and the simulated prospect sees `qsTea` decline it one position later.
     fn prospect_spec() -> SpecIndex {
-        let safe = |height: &str| row(height, &[("withdrawal", "\"safe\"")]);
+        let safe = |height: &str| row(height, &[("unjoined", "\"safe\"")]);
         let pea = letter(
             "qsPea",
             &[stance(
@@ -6676,7 +6676,7 @@ mod tests {
                 "hook",
                 &surface(
                     "{}",
-                    &object(&[row("baseline", &[("withdrawal", "\"safe\"")])]),
+                    &object(&[row("baseline", &[("unjoined", "\"safe\"")])]),
                     &[],
                 ),
             )],

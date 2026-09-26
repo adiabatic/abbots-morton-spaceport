@@ -18,7 +18,7 @@ E652 E670 E665            # Tea It May (backtrack: entered It carries the extens
 E665 E670 E665            # May It May (extension ownership at both junctions)
 E670 E665 E670            # It May It (middle May double-extended)
 E665 E652 E670            # May Tea It (ss03 chain)
-E652 E670 E652 E670       # Tea It Tea It (withdrawal mid-chain)
+E652 E670 E652 E670       # Tea It Tea It (unjoined exit mid-chain)
 E670 200C E652            # It ZWNJ Tea
 E652 E670 200C E665       # Tea It ZWNJ May
 E665 200C E670 E652       # May ZWNJ It Tea

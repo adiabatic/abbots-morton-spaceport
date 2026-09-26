@@ -54,7 +54,7 @@ stances:
         baseline:
           x: 4
           stroke: vertical
-          withdrawal: safe
+          unjoined: safe
       pairings:
         never:
         - entry: baseline
@@ -95,14 +95,14 @@ stances:
         y6:
           x: 4
           stroke: vertical
-          withdrawal: safe
+          unjoined: safe
           toward:
           - {family: qsPea}
         x-height:
           x: 4
           ink_y: 6
           stroke: vertical
-          withdrawal: safe
+          unjoined: safe
           stub:
             cols:
             - 3

@@ -129,13 +129,13 @@ def _report(
 def _check_dangle(report: DefectReport, allow: frozenset[str], glyphs: Mapping[CellId, GlyphRecord]) -> None:
     for cell, record in glyphs.items():
         for side, height in record.safety_checks:
-            if not geometry.verify_withdrawal_safe(record, side, height):
+            if not geometry.verify_unjoined_safe(record, side, height):
                 _report(
                     report,
                     allow,
                     "E-DANGLE",
                     f"dangle:{record.name}:{side}:{height}",
-                    f"{cell}: declined {side} at {height} has reaching ink and no withdrawal binding",
+                    f"{cell}: declined {side} at {height} has reaching ink and no unjoined binding",
                     error=True,
                 )
 

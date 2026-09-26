@@ -61,7 +61,7 @@ class LeftContext:
 class Candidate:
     stance: str
     entry: Height | None
-    junction: Height | None  # the joining exit height; None = no join (exit withdrawn or never offered)
+    junction: Height | None  # the joining exit height; None = no join (exit unjoined or never offered)
     order_index: int
     exit_index: int = _NO_EXIT_INDEX
 

@@ -2,7 +2,7 @@
 
 `realize` turns a CellPlan and its adjustments into a GlyphRecord in the design section 3.2 order. The starting drawing is the plan's bitmap binding, which `surface.resolve_cell` takes from an explicit `cells:` row first, then from a side binding, and otherwise leaves as the base bitmap. Stubs are then inked or blanked on each live side. The anchors start at the plan's override x or the stance's declared row x. The adjustment tokens (grammar in `model.parse_adjustment`) then apply in order: `ext` and `con` add or remove connector ink and shift the anchors to match, `trim` removes ink and leaves the anchor where it was, `bind` swaps in another bitmap and re-places both anchors by convention (`entry.x = min_ink_x_at_entry_y`, `exit.x = max_ink_x_at_exit_y + 1`), and `locked` drops the entry anchor. A row's `x_off_convention` flag exempts its own side of E-ANCHOR and no other. A `trim` adjustment exempts the side it trims, because its anchor stays where the pre-trim ink put it.
 
-`junction_gap` is the design section 9 gap arithmetic over two realized records. `verify_withdrawal_safe` checks a `withdrawal: safe` claim.
+`junction_gap` is the design section 9 gap arithmetic over two realized records. `verify_unjoined_safe` checks an `unjoined: safe` claim.
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ PIXEL = 50
 INK_X_OFFSET = 1
 MAX_GLYPH_NAME_BYTES = 63
 
-# A copy of the height table in rebuild/script.yaml (design section 2), so junction_gap and verify_withdrawal_safe can take height names without a registry.
+# A copy of the height table in rebuild/script.yaml (design section 2), so junction_gap and verify_unjoined_safe can take height names without a registry.
 HEIGHT_Y = {"baseline": 0, "x-height": 5, "y6": 6, "top": 8}
 
 
@@ -74,8 +74,8 @@ def ink_span(bitmap_rows: tuple[str, ...], y_offset: int, y: int) -> tuple[int, 
 
 
 def _base_live_exit(stance) -> Height | None:
-    """The exit height whose connector ink is part of the stance's base drawing, which a withdrawal binding to another bitmap marks. None when no exit, or more than one, declares such a binding."""
-    live = [height for height, row in stance.surface.exits.items() if row.withdrawal not in (None, "safe")]
+    """The exit height whose connector ink is part of the stance's base drawing, which an unjoined binding to another bitmap marks. None when no exit, or more than one, declares such a binding."""
+    live = [height for height, row in stance.surface.exits.items() if row.unjoined not in (None, "safe")]
     return live[0] if len(live) == 1 else None
 
 
@@ -305,7 +305,7 @@ def junction_gap(left: GlyphRecord, right: GlyphRecord, height: Height | int) ->
     return (left.exit[0] - 1 - left_span[1]) + (right_span[0] - right.entry[0])
 
 
-def verify_withdrawal_safe(record: GlyphRecord, side: str, height: Height | int) -> bool:
+def verify_unjoined_safe(record: GlyphRecord, side: str, height: Height | int) -> bool:
     """True when the declined side's row has no connector ink reaching toward the missing neighbor. That holds when the row is empty, or when its outermost ink pixel (rightmost for an exit, leftmost for an entry) has ink directly above or below it, which makes it part of a stroke."""
     y = _height_y(height)
     span = ink_span(record.bitmap, record.y_offset, y)
