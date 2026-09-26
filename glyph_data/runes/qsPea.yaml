@@ -138,7 +138,6 @@ policy:
         - qsAwe
         - qsOx
         - qsFoot
-    why: These join ·Pea through the half motion's x-height dip instead; without this refusal the structural floor would pick the lower baseline seam over the half chain.
   - exit: baseline
     when:
       left: {joined_at: y6}
