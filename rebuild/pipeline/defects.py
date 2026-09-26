@@ -8,7 +8,7 @@ The extension-band check is coarse because a treaty row does not say which exten
 
 E-ANCHOR is checked only here. `_check_anchors` checks the live, non-exempt sides of every realized record against the drawing that record ships. `_check_coverage_only_anchors` checks the `selectable: false` rows, which realize into no cell, against their stance's base drawing. A row's `x_off_convention` flag exempts that side alone, and a `trim` adjustment exempts the side it trimmed. An `anchor:` signature in the allow set blesses an E-ANCHOR finding like any other.
 
-The dead-policy check splits unexercised records by scope. A record is exercised when its provenance is cited. The settlement engine cites the provenance of every record that fired while tabulating a configuration (refusals that removed a candidate, including inside the lookahead closure, unlocks that granted a capability, row scopes that admitted a side, and extends, contracts, and prefers that shaped a committed cell), and the table exposes them as `DecisionTable.cited_provenance`. Rule and treaty-row provenance strings are added to the cited set too. An unexercised record is deferred-partner when one of its `when:` conditions names only families that are not modeled runes. A row scope is deferred-partner when every one of its conditions names only such families. Otherwise the record or scope is dead within the alphabet. `run_m1` writes both lists to `pipeline_summary.json`, and neither fails the build.
+The dead-policy check splits unexercised records by scope. A record is exercised when its provenance is cited. The settlement engine cites the provenance of every record that fired while tabulating a configuration (refusals that removed a candidate, including inside the lookahead closure, unlocks that granted a capability, row scopes that admitted a side, and extends, contracts, and prefers that shaped a committed cell), and the table exposes them as `DecisionTable.cited_provenance`. Rule and treaty-row provenance strings are added to the cited set too. An unexercised record is waiting on unmigrated letters when one of its `when:` conditions names only families that are not modeled runes. A row scope is waiting on unmigrated letters when every one of its conditions names only such families. Otherwise the record or scope is unused: it waits on no unmigrated letter and still never fires. `run_m1` writes both lists to `pipeline_summary.json`, as `waiting_on_unmigrated` and `unused_records`, and neither fails the build.
 """
 
 from __future__ import annotations
@@ -40,8 +40,8 @@ class DefectReport:
     errors: list[Defect] = field(default_factory=list)
     flags: list[Defect] = field(default_factory=list)
     blessed: list[Defect] = field(default_factory=list)
-    deferred_partner: list[str] = field(default_factory=list)
-    dead_in_alphabet: list[str] = field(default_factory=list)
+    waiting_on_unmigrated: list[str] = field(default_factory=list)
+    unused_records: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
 
     def fail_if_broken(self) -> None:
@@ -327,7 +327,7 @@ def _condition_positive_families(spec: ResolvedSpec, rune_name: str, condition: 
 
 
 def _when_axes(spec: ResolvedSpec, rune_name: str, when: When | None) -> list[set[str]]:
-    """One required-family set per family-constrained condition of a `when:` (left, right, and each `then:` hop). A record can fire only when every set has a modeled member, so one set with no modeled member makes the record deferred-partner."""
+    """One required-family set per family-constrained condition of a `when:` (left, right, and each `then:` hop). A record can fire only when every set has a modeled member, so one set with no modeled member leaves the record waiting on unmigrated letters."""
     axes: list[set[str]] = []
     if when is None:
         return axes
@@ -361,9 +361,9 @@ def _check_dead_policy(report: DefectReport, spec: ResolvedSpec, tables_by_confi
         empty_axes = [axis for axis in axes if not (axis & modeled)]
         if empty_axes:
             partners = sorted(set().union(*empty_axes) - modeled)
-            report.deferred_partner.append(f"{label} (partners: {', '.join(partners)})")
+            report.waiting_on_unmigrated.append(f"{label} (partners: {', '.join(partners)})")
         else:
-            report.dead_in_alphabet.append(label)
+            report.unused_records.append(label)
 
     for rune_name, rune in spec.runes.items():
         for kind in ("refuse", "prefer", "extend", "contract", "resolve"):
@@ -385,9 +385,9 @@ def _check_dead_policy(report: DefectReport, spec: ResolvedSpec, tables_by_confi
                     ]
                     if all(positive and not (positive & modeled) for positive in positives):
                         partners = sorted(set().union(*positives) - modeled)
-                        report.deferred_partner.append(f"{label} (partners: {', '.join(partners)})")
+                        report.waiting_on_unmigrated.append(f"{label} (partners: {', '.join(partners)})")
                     elif label not in cited:
-                        report.dead_in_alphabet.append(label)
+                        report.unused_records.append(label)
             for unlock in stance.surface.unlocks:
                 assert isinstance(unlock, Unlock)
                 label = (

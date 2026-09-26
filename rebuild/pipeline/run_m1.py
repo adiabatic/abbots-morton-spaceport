@@ -537,8 +537,8 @@ def _defect_summary_fields(report: defects.DefectReport) -> dict:
     return {
         "defect_errors": [f"{d.code} {d.signature}: {d.message}" for d in report.errors],
         "defect_flags": [f"{d.code} {d.signature}: {d.message}" for d in report.flags],
-        "dead_in_alphabet": sorted(report.dead_in_alphabet),
-        "deferred_partner": sorted(report.deferred_partner),
+        "unused_records": sorted(report.unused_records),
+        "waiting_on_unmigrated": sorted(report.waiting_on_unmigrated),
         "notes": report.notes,
     }
 

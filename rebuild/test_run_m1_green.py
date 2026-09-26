@@ -1132,8 +1132,8 @@ class TestGatesOnly:
         """The defect gate writes its result into the summary the build left, so the evaluator reads this pass's defect result, not the one from before the bless. The rest of the summary belongs to the build and is left as it was, since this pass compiles no font and counts no GSUB rule."""
         report = defects.DefectReport(
             flags=[defects.Defect("W-CONTACT", "qsAh~qsBay", "grazes")],
-            dead_in_alphabet=["qsZoo", "qsAh"],
-            deferred_partner=["qsNo"],
+            unused_records=["qsZoo", "qsAh"],
+            waiting_on_unmigrated=["qsNo"],
             notes=["blessed one signature"],
         )
         ran = self._reuse(monkeypatch, {})
@@ -1154,8 +1154,8 @@ class TestGatesOnly:
             "defect_errors": [],
             "notes": ["blessed one signature"],
             "defect_flags": ["W-CONTACT qsAh~qsBay: grazes"],
-            "dead_in_alphabet": ["qsAh", "qsZoo"],
-            "deferred_partner": ["qsNo"],
+            "unused_records": ["qsAh", "qsZoo"],
+            "waiting_on_unmigrated": ["qsNo"],
         }
         assert "stage_a" in ran
 

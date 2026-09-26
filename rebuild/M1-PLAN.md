@@ -181,7 +181,7 @@ families:                          # the full name registry, so conditions namin
   # ... every letter in code-point order, each ligature ({sequence: [...]}) after its lead ...
 ```
 
-The `families` registry lets the dead-policy gate tell a **deferred-partner record**, whose condition names only families that have no rune file yet, from dead policy. The gate lists deferred-partner records and does not fail on them.
+The `families` registry lets the dead-policy gate tell a **record waiting on unmigrated letters**, whose condition names only families that have no rune file yet, from an unused record. The gate lists records waiting on unmigrated letters and does not fail on them.
 
 ## 4. The JSON schema
 
@@ -308,10 +308,11 @@ def verify_withdrawal_safe(record: GlyphRecord, side: str, height: Height) -> bo
 def run_gates(spec, tables_by_config, glyphs: Mapping[CellId, GlyphRecord]) -> DefectReport: ...
     # E-DANGLE (every reachable declined side), E-UNREALIZED (gap == 0 for every treaty join row),
     # E-ANCHOR (convention drift), off-anchor contact (overlay every reachable adjacency at settled offset),
-    # extension band (ok:), dead policy. Dead policy splits into (a) deferred-partner records, where every
-    # family the condition can match lacks a rune file (reported, not failed), and (b) records dead within
-    # the modeled alphabet, which must be absent or carry a written explanation. The run's lists are
-    # written to rebuild/out/m1/pipeline_summary.json as dead_in_alphabet and deferred_partner.
+    # extension band (ok:), dead policy. Dead policy splits into (a) records waiting on unmigrated
+    # letters, where every family the condition can match lacks a rune file (reported, not failed), and
+    # (b) unused records, which wait on no unmigrated letter and still never fire; each must be absent or carry
+    # a written explanation. The run's lists are written to rebuild/out/m1/pipeline_summary.json as
+    # unused_records and waiting_on_unmigrated.
     # Errors fail; flags report.
 
 # emit_gsub.py / emit_gpos.py
@@ -445,7 +446,7 @@ All must pass for M1 completion; each is a command or an assertion in the `rebui
 3. **`make test-rebuild` passes** (the rebuild suite).
 4. **Schema validation and lints pass** — schema validation of every rune file and the registry; the stance-ID regex; ductus parity; the `right.then` prohibition; predicate-class derivability.
 5. **§9 hard E-gates on the subset** — `E-UNACCEPTED-EXIT`, `E-DANGLE`, `E-UNREALIZED` (gap 0 on every treaty join row), `E-ANCHOR`, and off-anchor contact over every reachable adjacency. `E-INCOMPARABLE` and `E-AMBIGUOUS` are expected to be absent; any occurrence needs a `resolve` record before the gate passes.
-6. **Dead policy absent or explained** — deferred-partner records are reported as a list; each record dead within the alphabet must carry a written explanation.
+6. **Dead policy absent or explained** — records waiting on unmigrated letters are reported as a list; each unused record must carry a written explanation.
 7. **Outcome-partition invariant and GSUB offset headroom** — the crate’s fold asserts the outcome partition on every configuration’s table; read-back fails the build when the GSUB subtable-offset headroom falls below `readback.SUBTABLE_OFFSET_HEADROOM_FLOOR`, recorded under `gsub_budget` in `readback_summary.json`.
 8. **Oracle conformance** (§6 above) — no subset baseline row matches more than one ledger entry (`multi_matched == 0`), across every configuration in `conform.ACCEPTANCE_CONFIGS`; the coverage of ss06, ss07, and ss06+ss07 rests on the identity checked in step 1 of the procedure above. Unmatched rows are informational and wait on verdicts on the review corpus.
 9. **Font conformance** — the per-edit belt: an exhaustive HarfBuzz sweep to the conform maximum length (default 4) against settlement, exact (no ledger), with split-buffer equivalence and gap-0 pen positions. Rule coverage belongs to read-back, the crate’s fold-time first-match check, and the build’s witness stage over the crate’s rule certificates. Read-back also checks that the boundary glyphs are inert (no substituted position admits `uni200C` or `space`, zero advance, no outline). `make conform-deep` runs the same sweep at maximum length 5+ on demand. The CoreText smoke passes over the extended sequence set.
@@ -468,7 +469,7 @@ How the first batch was drafted:
 
 ## 9. The milestone’s record
 
-There is no closing report. The milestone’s record is the commit history plus the runes’ `why:` fields. The durable design facts (the semantics-coverage section, the ductus-drafting protocol, the `rebuild/script.yaml` location deviation, and the design facts below) are in this plan, and the dead-policy and deferred-partner lists are in `rebuild/out/m1/pipeline_summary.json`.
+There is no closing report. The milestone’s record is the commit history plus the runes’ `why:` fields. The durable design facts (the semantics-coverage section, the ductus-drafting protocol, the `rebuild/script.yaml` location deviation, and the design facts below) are in this plan, and the unused-record and waiting-on-unmigrated lists are in `rebuild/out/m1/pipeline_summary.json`.
 
 ## Design facts and exceptions, as built
 
