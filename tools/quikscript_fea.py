@@ -9,7 +9,7 @@ from quikscript_ir import (
     _SYNTHESIZED_MODIFIER_TOKENS,
     JoinGlyph,
     family_names_from_compiled,
-    heal_glyph_name,
+    resolve_compiled_name,
     resolve_known_glyph_names,
     ss10_twin_name,
     ss10_twins,
@@ -5841,12 +5841,12 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         from itertools import product
 
         # Ligatures are formed inside `calt`, after `calt_cycle`'s stance selection, instead of in `liga`. A forward `calt` rule can then change a component first (e.g. qsUtter -> qsUtter.alt in ·Day·Utter·Low), which stops the `qsDay qsUtter` ligature from matching. Putting these rules in `liga` would run ligation as its own feature pass and lose that ordering.
-        # A name built by appending a suffix (`lig_name + ".half"`, `actual_lig + ".ex-ext-1"`) lacks the anchor modifiers `_synthesize_anchor_modifiers` adds (e.g. `qsDay_qsUtter.half` compiles as `qsDay_qsUtter.half.en-y0.ex-y5`), so `heal_glyph_name` rewrites it to the compiled name before the lookup in `glyph_names`.
+        # A name built by appending a suffix (`lig_name + ".half"`, `actual_lig + ".ex-ext-1"`) lacks the anchor modifiers `_synthesize_anchor_modifiers` adds (e.g. `qsDay_qsUtter.half` compiles as `qsDay_qsUtter.half.en-y0.ex-y5`), so `resolve_compiled_name` rewrites it to the compiled name before the lookup in `glyph_names`.
         _lig_family_names = family_names_from_compiled(glyph_names)
         _lig_available_names = frozenset(glyph_names)
 
         def _resolve(name: str) -> str:
-            return heal_glyph_name(name, _lig_family_names, _lig_available_names)
+            return resolve_compiled_name(name, _lig_family_names, _lig_available_names)
 
         lines.append("")
         lines.append("    lookup calt_liga {")
@@ -6498,14 +6498,14 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
             lines.append(f"        sub {prior_stance} {successor_stance}' by {target_stance};")
         lines.append(f"    }} calt_successor_demote_{safe};")
 
-    # These hand-written names can lack the en-y0 / ex-y0 modifiers `_synthesize_anchor_modifiers` adds to compiled names, so `heal_glyph_name` rewrites each one to its compiled name.
+    # These hand-written names can lack the en-y0 / ex-y0 modifiers `_synthesize_anchor_modifiers` adds to compiled names, so `resolve_compiled_name` rewrites each one to its compiled name.
     _entry_demote_family_names = family_names_from_compiled(glyph_names)
     _entry_demote_available_names = frozenset(glyph_names)
     entry_demote_rules = tuple(
         (
-            heal_glyph_name(prior, _entry_demote_family_names, _entry_demote_available_names),
-            heal_glyph_name(successor, _entry_demote_family_names, _entry_demote_available_names),
-            heal_glyph_name(isolated, _entry_demote_family_names, _entry_demote_available_names),
+            resolve_compiled_name(prior, _entry_demote_family_names, _entry_demote_available_names),
+            resolve_compiled_name(successor, _entry_demote_family_names, _entry_demote_available_names),
+            resolve_compiled_name(isolated, _entry_demote_family_names, _entry_demote_available_names),
         )
         for prior, successor, isolated in (
             ("qsOut_qsTea", "qsVie.ex-y0.en-ext-1", "qsVie.ex-y0"),

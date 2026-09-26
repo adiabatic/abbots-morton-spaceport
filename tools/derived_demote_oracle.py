@@ -1,6 +1,6 @@
 """Report how many rows of the hand-written demote tables can be derived from compiled anchor geometry.
 
-It compares the rows of `predecessor_demote_overrides` and `trailing_demote_overrides` with triples derived from anchors. By default it builds a Senior font under `tmp/` with those two tables emptied, shapes every sequence of two to four plain letters, derives demote triples from the adjacent glyph pairs that do not join, and compares the derived triples with the healed hand-written rows. `--pair-source static-calt` instead estimates the reachable pairs from the non-demote `calt` rules, which over-approximates them. The report is written to `tmp/derived-demote-oracle.txt` unless `--dump` names another path. Glyph data and emitter source are not changed.
+It compares the rows of `predecessor_demote_overrides` and `trailing_demote_overrides` with triples derived from anchors. By default it builds a Senior font under `tmp/` with those two tables emptied, shapes every sequence of two to four plain letters, derives demote triples from the adjacent glyph pairs that do not join, and compares the derived triples with the hand-written rows after compiled-name resolution. `--pair-source static-calt` instead estimates the reachable pairs from the non-demote `calt` rules, which over-approximates them. The report is written to `tmp/derived-demote-oracle.txt` unless `--dump` names another path. Glyph data and emitter source are not changed.
 """
 
 from __future__ import annotations
@@ -32,7 +32,7 @@ from glyph_compiler import compile_glyph_set  # noqa: E402
 from leak_contract_report import parse_snapshot  # noqa: E402
 from leak_static_analysis import Rule, joins, parse_calt  # noqa: E402
 from quikscript_shaping_helpers import _plain_quikscript_letters, _qs_text  # noqa: E402
-from quikscript_ir import GlyphData, JoinGlyph, heal_glyph_name  # noqa: E402
+from quikscript_ir import GlyphData, JoinGlyph, resolve_compiled_name  # noqa: E402
 
 FEA_PATH = SITE_DIR / "AbbotsMortonSpaceportSansSenior-Regular.fea"
 DUMP_PATH = ROOT / "tmp" / "derived-demote-oracle.txt"
@@ -332,22 +332,22 @@ def _load_authored_triples(glyph_meta: dict[str, JoinGlyph]) -> tuple[set[Triple
     family_names = set(data.get("glyph_families", {}))
     available_names = frozenset(glyph_meta)
 
-    def heal(name: str) -> str:
-        return heal_glyph_name(name, family_names, available_names)
+    def resolve(name: str) -> str:
+        return resolve_compiled_name(name, family_names, available_names)
 
     predecessor = {
         (
-            heal(entry["predecessor_stance"]),
-            heal(entry["trigger_stance"]),
-            heal(entry["isolated_form"]),
+            resolve(entry["predecessor_stance"]),
+            resolve(entry["trigger_stance"]),
+            resolve(entry["isolated_form"]),
         )
         for entry in data.get("predecessor_demote_overrides", []) or []
     }
     trailing = {
         (
-            heal(entry["leader_stance"]),
-            heal(entry["trailing_stance"]),
-            heal(entry["isolated_form"]),
+            resolve(entry["leader_stance"]),
+            resolve(entry["trailing_stance"]),
+            resolve(entry["isolated_form"]),
         )
         for entry in data.get("trailing_demote_overrides", []) or []
     }

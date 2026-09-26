@@ -51,7 +51,7 @@ from quikscript_ir import (
     JoinGlyph,
     family_names_from_compiled,
     get_base_glyph_name,
-    heal_glyph_name,
+    resolve_compiled_name,
 )
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -275,7 +275,7 @@ def build_cmap14(
     if not variation_sequences:
         return None
 
-    # Variation-sequence targets in metadata.yaml, such as `qsWay.half`, lack the modifiers `_synthesize_anchor_modifiers` adds, so the compiled stance is `qsWay.half.ex-y0`. Heal each target against the compiled glyph set. A target that heals to no single stance, such as `qsTea.half`, is skipped without a warning.
+    # Variation-sequence targets in metadata.yaml, such as `qsWay.half`, lack the modifiers `_synthesize_anchor_modifiers` adds, so the compiled stance is `qsWay.half.ex-y0`. Resolve each target against the compiled glyph set. A target that resolves to no single stance, such as `qsTea.half`, is skipped without a warning.
     available_names = frozenset(glyphs_def)
     family_names = family_names_from_compiled(available_names)
     uvsDict = {}
@@ -286,7 +286,7 @@ def build_cmap14(
             if base_cp is None:
                 continue
             try:
-                resolved = heal_glyph_name(target_name, family_names, available_names)
+                resolved = resolve_compiled_name(target_name, family_names, available_names)
             except ValueError:
                 resolved = target_name
             if resolved not in glyphs_def:
@@ -969,39 +969,39 @@ def build_senior_fea(
     pixel_height: int,
 ) -> str | None:
     """Emit the Senior feature code (curs, calt, ss…) for the compiled join glyphs. It is the same for Regular and Bold, so `main()` emits it once for both."""
-    # The override tables name stances without the anchor-Y modifiers `_synthesize_anchor_modifiers` adds, so `heal_glyph_name` maps each name to its compiled stance.
+    # The override tables name stances without the anchor-Y modifiers `_synthesize_anchor_modifiers` adds, so `resolve_compiled_name` maps each name to its compiled stance.
     senior_family_names = set(glyph_data.get("glyph_families", {}))
     senior_available_names = frozenset(join_glyphs)
 
-    def _heal(name: str) -> str:
-        return heal_glyph_name(name, senior_family_names, senior_available_names)
+    def _resolve(name: str) -> str:
+        return resolve_compiled_name(name, senior_family_names, senior_available_names)
 
     raw_restore_isolated_form = glyph_data.get("restore_isolated_form_overrides", []) or []
     restore_isolated_form_tuples = tuple(
         (
-            _heal(entry["prior"]),
-            _heal(entry["target"]),
-            _heal(entry["follower"]),
-            _heal(entry["isolated_form"]),
+            _resolve(entry["prior"]),
+            _resolve(entry["target"]),
+            _resolve(entry["follower"]),
+            _resolve(entry["isolated_form"]),
         )
         for entry in raw_restore_isolated_form
     )
     raw_pred_demote = glyph_data.get("predecessor_demote_overrides", []) or []
     predecessor_demote_tuples = tuple(
         (
-            _heal(entry["backtrack_stance"]) if "backtrack_stance" in entry else None,
-            _heal(entry["predecessor_stance"]),
-            _heal(entry["trigger_stance"]),
-            _heal(entry["isolated_form"]),
+            _resolve(entry["backtrack_stance"]) if "backtrack_stance" in entry else None,
+            _resolve(entry["predecessor_stance"]),
+            _resolve(entry["trigger_stance"]),
+            _resolve(entry["isolated_form"]),
         )
         for entry in raw_pred_demote
     )
     raw_trailing_demote = glyph_data.get("trailing_demote_overrides", []) or []
     trailing_demote_tuples = tuple(
         (
-            _heal(entry["leader_stance"]),
-            _heal(entry["trailing_stance"]),
-            _heal(entry["isolated_form"]),
+            _resolve(entry["leader_stance"]),
+            _resolve(entry["trailing_stance"]),
+            _resolve(entry["isolated_form"]),
         )
         for entry in raw_trailing_demote
     )

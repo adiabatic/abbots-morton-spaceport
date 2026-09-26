@@ -678,7 +678,7 @@ def _synthesize_anchor_modifiers(
 ) -> tuple[str, ...]:
     """Return the stance's modifiers with `en-<label>` / `ex-<label>` added for each anchor whose Y has a label in `_EXTENDED_HEIGHT_LABELS`.
 
-    Trait-only stances (`qsNo.alt`, `qsTea.half`) get these modifiers too, so every compiled name shows where the stance joins. Hand-written names that lack them are resolved by `_heal_renamed_selector` and `heal_glyph_name`.
+    Trait-only stances (`qsNo.alt`, `qsTea.half`) get these modifiers too, so every compiled name shows where the stance joins. Hand-written names that lack them are resolved by `_resolve_renamed_selector` and `resolve_compiled_name`.
 
     An authored `en-…-at-<Y>` (or `ex-…-at-<Y>`) suppresses the label on that side, since it already encodes the Y. The result is ordered `[en-<label>, ex-<label>, *other authored modifiers]`, with authored copies of the added labels removed. When the authored list already contains every label, it is returned unchanged.
     """
@@ -761,7 +761,7 @@ def _resolve_family_selector_name(
         resolved_family = _split_family_compiled_name(value, family_names)
         if resolved_family is not None:
             family_name, traits, modifiers = resolved_family
-            return _heal_renamed_selector(
+            return _resolve_renamed_selector(
                 _compiled_family_glyph_name(family_name, traits, modifiers),
                 family_name,
                 traits,
@@ -800,7 +800,7 @@ def _resolve_family_selector_name(
         family_name=context_family,
         context=context,
     )
-    return _heal_renamed_selector(
+    return _resolve_renamed_selector(
         _compiled_family_glyph_name(target_family, traits, modifiers),
         target_family,
         traits,
@@ -821,7 +821,7 @@ def _split_selector_extensions(
 ) -> tuple[tuple[str, ...], tuple[str, ...]]:
     """Split a selector's modifiers into `(base_modifiers, extension_modifiers)`.
 
-    Extension modifiers (`ex-ext-1`, `en-con-2`, `en-trim-2`) name variants that `expand_join_transforms` generates after selectors are resolved, so they are not yet in `available_names`. `_heal_renamed_selector` matches the base part and then appends the extensions to the healed name.
+    Extension modifiers (`ex-ext-1`, `en-con-2`, `en-trim-2`) name variants that `expand_join_transforms` generates after selectors are resolved, so they are not yet in `available_names`. `_resolve_renamed_selector` matches the base part and then appends the extensions to the resolved name.
     """
     base: list[str] = []
     extensions: list[str] = []
@@ -833,7 +833,7 @@ def _split_selector_extensions(
     return tuple(base), tuple(extensions)
 
 
-def _heal_renamed_selector(
+def _resolve_renamed_selector(
     candidate: str,
     target_family: str,
     traits: Sequence[str],
@@ -940,22 +940,22 @@ def _heal_renamed_selector(
             f"matches multiple post-synthesis stances equally ({tied_names}); add a disambiguator."
         )
 
-    _, _, healed_traits, healed_base = tied[0]
-    return _compiled_family_glyph_name(target_family, healed_traits, (*healed_base, *extension_modifiers))
+    _, _, resolved_traits, resolved_base = tied[0]
+    return _compiled_family_glyph_name(target_family, resolved_traits, (*resolved_base, *extension_modifiers))
 
 
 def family_names_from_compiled(compiled_names: set[str] | frozenset[str]) -> set[str]:
     return {name.split(".", 1)[0] for name in compiled_names}
 
 
-def heal_glyph_name(
+def resolve_compiled_name(
     name: str,
     family_names: set[str],
     available_names: frozenset[str] | set[str],
 ) -> str:
     """Return the compiled name for a hand-written glyph name that may lack the anchor-Y modifiers `_synthesize_anchor_modifiers` adds.
 
-    It serves names written as plain strings instead of selectors, such as the entries in `predecessor_demote_overrides`. A name that exists or names no known family is returned unchanged; any other name is resolved by `_heal_renamed_selector`.
+    It serves names written as plain strings instead of selectors, such as the entries in `predecessor_demote_overrides`. A name that exists or names no known family is returned unchanged; any other name is resolved by `_resolve_renamed_selector`.
     """
     if not isinstance(available_names, frozenset):
         available_names = frozenset(available_names)
@@ -967,7 +967,7 @@ def heal_glyph_name(
     family_name, traits, modifiers = parsed
     if family_name not in family_names:
         return name
-    return _heal_renamed_selector(
+    return _resolve_renamed_selector(
         name,
         family_name,
         traits,
@@ -1422,7 +1422,7 @@ def compile_glyph_families(
     family_names = set(glyph_families)
     context_sets = context_sets or {}
 
-    # Collect every compiled name before resolving selectors, so `_heal_renamed_selector` can map a name without anchor-Y modifiers (`qsOut.ex-y5`) to its compiled stance (`qsOut.en-y0.ex-y5`).
+    # Collect every compiled name before resolving selectors, so `_resolve_renamed_selector` can map a name without anchor-Y modifiers (`qsOut.ex-y5`) to its compiled stance (`qsOut.en-y0.ex-y5`).
     records = list(_iter_compiled_family_stances(glyph_families, variant, context_sets=context_sets))
     available_names = frozenset(record["output_name"] for record in records)
 
@@ -3578,7 +3578,7 @@ def _find_lead_entry_source(
     The candidates, in order:
 
     1. The lead's base glyph (named ``lead_family``), if it has an entry. It is the unrestricted default stance.
-    2. The lead's ``en-y5`` stance (found through ``heal_glyph_name``), if it has an entry and either has no ``after`` or has the same ``after`` set as the ligature. An ``en-y5`` restricted to other predecessors is rejected, because copying its anchor would give the ligature an entry after predecessors the lead does not accept.
+    2. The lead's ``en-y5`` stance (found through ``resolve_compiled_name``), if it has an entry and either has no ``after`` or has the same ``after`` set as the ligature. An ``en-y5`` restricted to other predecessors is rejected, because copying its anchor would give the ligature an entry after predecessors the lead does not accept.
 
     Stances with other authored modifiers, such as ``qsTea.en-y5.ex-y0.after-fee``, are not candidates. One anchor is enough to give the ligature an entry, and ``_iter_related_extension_targets`` then applies the lead's ``extend_entry_after`` rules to it.
     """
@@ -3587,7 +3587,7 @@ def _find_lead_entry_source(
         return lead_prop.entry, lead_prop
 
     # The en-y5 stance may compile with more anchor-Y modifiers, such as `qsJai.en-y5.ex-y0`.
-    canonical_name = heal_glyph_name(
+    canonical_name = resolve_compiled_name(
         f"{lead_family}.en-y5",
         family_names_from_compiled(set(join_glyphs)),
         frozenset(join_glyphs),

@@ -41,7 +41,7 @@ from quikscript_shaping_helpers import (  # noqa: E402
 )
 
 # Importing the shaping helpers puts ``tools/`` on ``sys.path``, so this resolves.
-from quikscript_ir import heal_glyph_name  # noqa: E402
+from quikscript_ir import resolve_compiled_name  # noqa: E402
 
 CORPUS_FILES: tuple[Path, ...] = (
     SITE_DIR / "the-manual.html",
@@ -283,7 +283,7 @@ def _synthetic_contexts(left_base: str, right_base: str) -> list[str]:
 
 
 def _junction_targets(table_name: str, entry: dict) -> tuple[str, str]:
-    """Return the adjacent glyph pair ``(left, right)`` a demote-table entry describes, as the entry's stance names before healing."""
+    """Return the adjacent glyph pair ``(left, right)`` a demote-table entry describes, as the entry's stance names before compiled-name resolution."""
     if table_name == "predecessor_demote":
         return entry["isolated_form"], entry["trigger_stance"]
     return entry["leader_stance"], entry["isolated_form"]
@@ -501,8 +501,8 @@ def build(out_path: Path) -> None:
     family_names = set(data.get("glyph_families", {}))
     available_names = frozenset(_compiled_meta().keys())
 
-    def heal(name: str) -> str:
-        return heal_glyph_name(name, family_names, available_names)
+    def resolve(name: str) -> str:
+        return resolve_compiled_name(name, family_names, available_names)
 
     junctions: dict[str, list[dict]] = {}
     skipped: list[dict] = []
@@ -537,8 +537,8 @@ def build(out_path: Path) -> None:
     for table_name, entries in demote_tables.items():
         for entry in entries:
             raw_left, raw_right = _junction_targets(table_name, entry)
-            # build_font.py heals these hand-written names before compiling them, so match the healed names.
-            target_left, target_right = heal(raw_left), heal(raw_right)
+            # build_font.py resolves these hand-written names to compiled names before compiling them, so match the resolved names.
+            target_left, target_right = resolve(raw_left), resolve(raw_right)
             outcome = _resolve_record(
                 target_left,
                 target_right,

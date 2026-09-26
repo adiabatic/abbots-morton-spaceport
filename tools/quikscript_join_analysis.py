@@ -1766,38 +1766,38 @@ def _format_backward_error(
     )
 
 
-def _heal_curated_guards_table(
+def _resolve_curated_guards_table(
     table: dict[tuple[str, str, int], tuple[DerivedBkGuard, ...]],
     reachability: JoinReachability,
 ) -> dict[tuple[str, str, int], tuple[DerivedBkGuard, ...]]:
-    """Return ``table`` with every glyph name passed through `heal_glyph_name`, so hand-written names resolve to the compiled names that `_synthesize_anchor_modifiers` produces."""
-    from quikscript_ir import family_names_from_compiled, heal_glyph_name
+    """Return ``table`` with every glyph name passed through `resolve_compiled_name`, so hand-written names resolve to the compiled names that `_synthesize_anchor_modifiers` produces."""
+    from quikscript_ir import family_names_from_compiled, resolve_compiled_name
 
     available = frozenset(reachability.glyph_meta)
     families = family_names_from_compiled(available)
 
-    def _heal(name: str) -> str:
-        return heal_glyph_name(name, families, available)
+    def _resolve(name: str) -> str:
+        return resolve_compiled_name(name, families, available)
 
-    healed: dict[tuple[str, str, int], tuple[DerivedBkGuard, ...]] = {}
+    resolved: dict[tuple[str, str, int], tuple[DerivedBkGuard, ...]] = {}
     for (source, replacement, entry_y), guards in table.items():
-        healed_key = (_heal(source), _heal(replacement), entry_y)
-        healed_guards = tuple(
+        resolved_key = (_resolve(source), _resolve(replacement), entry_y)
+        resolved_guards = tuple(
             DerivedBkGuard(
-                tuple(_heal(g) for g in guard.guard_glyphs),
-                tuple(_heal(b) for b in guard.before_bases) if guard.before_bases else (),
+                tuple(_resolve(g) for g in guard.guard_glyphs),
+                tuple(_resolve(b) for b in guard.before_bases) if guard.before_bases else (),
             )
             for guard in guards
         )
-        healed[healed_key] = healed_guards
-    return healed
+        resolved[resolved_key] = resolved_guards
+    return resolved
 
 
 def derive_pending_bk_entry_guards(
     reachability: JoinReachability,
 ) -> dict[tuple[str, str, int], tuple[DerivedBkGuard, ...]]:
-    """Return `_PENDING_BK_ENTRY_GUARDS` with its glyph names healed to compiled names, such as `qsExcite.ex-y0.before-vertical` to `qsExcite.en-y0.ex-y0.before-vertical`."""
-    return _heal_curated_guards_table(
+    """Return `_PENDING_BK_ENTRY_GUARDS` with its glyph names resolved to compiled names, such as `qsExcite.ex-y0.before-vertical` to `qsExcite.en-y0.ex-y0.before-vertical`."""
+    return _resolve_curated_guards_table(
         {key: tuple(guards) for key, guards in _PENDING_BK_ENTRY_GUARDS.items()},
         reachability,
     )
