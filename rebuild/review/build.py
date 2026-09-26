@@ -2376,7 +2376,7 @@ def _table_diff_unit_json(
     picture_identical: bool,
 ) -> dict:
     """One table-diff entry's fragment, with the same content identity an m1-audit unit has: it is built with `id` and `content_key` None, stamped with the hash of its carry projection, and given `unit_cache.unit_id_for` of that stamp as its id."""
-    witness = entry.witness
+    example_text = entry.example_text
     gate, note = config_badge((entry.config,), full_configs)
     if entry.table == "treaty":
         old = entry.old
@@ -2436,10 +2436,10 @@ def _table_diff_unit_json(
         "cluster": None,
         "class": entry.bucket,
         "group": f"{entry.table}:{getattr(entry.key, 'input', getattr(entry.key, 'left', ''))}",
-        "codepoints": ":".join(f"{value:04X}" for value in witness) if witness else None,
-        "text_entities": text_entities(witness) if witness else None,
-        "notation": notation(witness) if witness else entry.key.label(),
-        "notation_tokens": list(notation_tokens(witness)) if witness else None,
+        "codepoints": ":".join(f"{value:04X}" for value in example_text) if example_text else None,
+        "text_entities": text_entities(example_text) if example_text else None,
+        "notation": notation(example_text) if example_text else entry.key.label(),
+        "notation_tokens": list(notation_tokens(example_text)) if example_text else None,
         "configs": [entry.config],
         "config_note": note,
         "config_gate": gate,
@@ -2502,8 +2502,8 @@ def build_table_diff(
     repo_root: Path = REPO_ROOT,
     batch_size: int = BATCH_SIZE,
     static_dir: Path = STATIC_DIR,
-    with_witnesses: bool = True,
-    witness_depth: int = 5,
+    with_example_texts: bool = True,
+    example_depth: int = 5,
 ) -> dict:
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -2513,15 +2513,15 @@ def build_table_diff(
             f"{baseline_dir} and {new_dir} settle every window alike, so there is nothing to diff"
         )
 
-    if with_witnesses:
+    if with_example_texts:
         try:
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
                 spec = load_spec(repo_root)
             for config in sorted({entry.config for entry in entries}):
-                tablediff.WitnessIndex(spec, config, max_depth=witness_depth).attach(entries)
-        except Exception as error:  # noqa: BLE001 — witnesses are an enrichment, not a gate
-            print(f"warning: witness search unavailable ({error})", file=sys.stderr)
+                tablediff.ExampleIndex(spec, config, max_depth=example_depth).attach(entries)
+        except Exception as error:  # noqa: BLE001 — example texts are an enrichment, not a gate
+            print(f"warning: example-text search unavailable ({error})", file=sys.stderr)
 
     all_configs = sorted({entry.config for entry in entries})
     by_bucket: dict[str, list[tablediff.DiffEntry]] = {}
@@ -2549,8 +2549,8 @@ def build_table_diff(
         machine_count = 0
         channel_counts = {channel: 0 for channel in MACHINE_CHANNELS}
         for entry in members:
-            # An entry without a witness has no text to shape, so it cannot be shown ink- or picture-identical and stays a human unit.
-            text = "".join(chr(value) for value in entry.witness) if entry.witness else ""
+            # An entry without an example text has no text to shape, so it cannot be shown ink- or picture-identical and stays a human unit.
+            text = "".join(chr(value) for value in entry.example_text) if entry.example_text else ""
             ink_identical = bool(text) and comparator.ink_identical(text, (entry.config,))
             picture_identical = (
                 bool(text) and not ink_identical and comparator.picture_identical(text, (entry.config,))

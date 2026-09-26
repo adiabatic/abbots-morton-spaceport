@@ -531,7 +531,7 @@ def test_identical_table_directories_refuse_to_diff(tmp_path):
             new_dir,
             REPO_ROOT / "site" / "AbbotsMortonSpaceportSansSenior-Regular.otf",
             MINI_FONT,
-            with_witnesses=False,
+            with_example_texts=False,
         )
     assert str(old_dir) in str(raised.value)
     assert str(new_dir) in str(raised.value)

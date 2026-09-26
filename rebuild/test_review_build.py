@@ -1797,8 +1797,8 @@ def test_table_diff_build(tmp_path):
         new_dir,
         REPO_ROOT / "site" / "AbbotsMortonSpaceportSansSenior-Regular.otf",
         MINI / "M1.otf",
-        with_witnesses=True,
-        witness_depth=2,
+        with_example_texts=True,
+        example_depth=2,
     )
     assert manifest["mode"] == "table-diff"
     assert manifest["totals"]["units"] == 1

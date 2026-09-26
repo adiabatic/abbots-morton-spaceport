@@ -23,7 +23,7 @@ These tests run against it at full xdist width instead of against the live `rebu
 - the ordering and dedupe properties in `rebuild/test_review_audit.py`, and `test_assignment_is_deterministic` in `rebuild/test_review_families.py`
 - the enrich and drafts worked examples, through the `example_units` fixture in `rebuild/conftest.py`: which position the enricher judges and how the drafter words a record, over the frozen example windows
 - the ink comparisons in `rebuild/test_review_ink.py`, over the bundle's font and a stride through its workload
-- the table-diff build, the snapshot round trip, and the two witness tests in `rebuild/test_review_tablediff.py`, which re-settle the frozen tables under the spec they were built from
+- the table-diff build, the snapshot round trip, and the two example-text tests in `rebuild/test_review_tablediff.py`, which re-settle the frozen tables under the spec they were built from
 - the failing-pin tests of the manual-pin gate (`TestTeeth` in `rebuild/test_manual_pins.py`), which need a font and a spec that match each other
 
 When a worked-example window stops selecting any audit row, regeneration fails and names it, so the lost example is found there and not in a test failure after a later rune edit.

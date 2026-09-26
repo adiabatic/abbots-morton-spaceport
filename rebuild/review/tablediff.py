@@ -1,4 +1,4 @@
-"""Diff two directories of settlement and treaty tables for the review corpus's table-diff mode (rebuild/REVIEW-PLAN.md §2.3, design §8). Rows are matched by key, removals and additions that share an input are paired into one regrouped entry, and settlement changes that move only provenance go to the low-priority `provenance-only` bucket, which sorts last. `WitnessIndex` finds a witness string for each entry by settling every short sequence, and `write_snapshot` writes the baseline a later diff compares against."""
+"""Diff two directories of settlement and treaty tables for the review corpus's table-diff mode (rebuild/REVIEW-PLAN.md §2.3, design §8). Rows are matched by key, removals and additions that share an input are paired into one regrouped entry, and settlement changes that move only provenance go to the low-priority `provenance-only` bucket, which sorts last. `ExampleIndex` finds an example text for each entry by settling every short sequence, and `write_snapshot` writes the baseline a later diff compares against."""
 
 from __future__ import annotations
 
@@ -76,7 +76,7 @@ class _DiffEntryBase:
     bucket: str
     config: str
     paired: tuple[Self, ...] = ()
-    witness: tuple[int, ...] | None = None
+    example_text: tuple[int, ...] | None = None
 
 
 @dataclass(kw_only=True)
@@ -253,11 +253,11 @@ def _load_if_exists(path: Path, loader):
     return loader(path) if path.exists() else {}
 
 
-# --- witness search -------------------------------------------------------------
+# --- example-text search --------------------------------------------------------
 
 
-class WitnessIndex:
-    """Settle every sequence of letters and boundaries up to `max_depth` under one configuration and index the results two ways: per-position context tuples (input, settled left, raw right1 through right4) for settlement-row witnesses, and adjacent settled-label pairs for treaty-row witnesses. Sequences are enumerated shortest first and in codepoint order, and each index keeps the first sequence it sees, so a witness is always a shortest one. Each depth is sent to the crate `chunk` sequences at a time, and `kernel_exec.settle_sequences` settles each batch in waves, one per position, so the kernel is called per wave rather than per text. The sweep covers every text, so some are expected to fail: a sequence whose ligature formation or labeling raises, or that the kernel rejects, is skipped, and the rest of its batch is kept."""
+class ExampleIndex:
+    """Settle every sequence of letters and boundaries up to `max_depth` under one configuration and index the results two ways: per-position context tuples (input, settled left, raw right1 through right4) for settlement-row example texts, and adjacent settled-label pairs for treaty-row example texts. Sequences are enumerated shortest first and in codepoint order, and each index keeps the first sequence it sees, so an example text is always a shortest one. Each depth is sent to the crate `chunk` sequences at a time, and `kernel_exec.settle_sequences` settles each batch in waves, one per position, so the kernel is called per wave rather than per text. The sweep covers every text, so some are expected to fail: a sequence whose ligature formation or labeling raises, or that the kernel rejects, is skipped, and the rest of its batch is kept."""
 
     EDGE = "#EDGE"
     NA = "#NA"
@@ -338,7 +338,7 @@ class WitnessIndex:
                                 (settled_labels[index], settled_labels[index + 1]), codepoints
                             )
 
-    def witness_settlement(self, key: SettlementKey) -> tuple[int, ...] | None:
+    def example_settlement(self, key: SettlementKey) -> tuple[int, ...] | None:
         best: tuple[int, ...] | None = None
         for (label, left, right1, right2, right3, right4), codepoints in self.positions.items():
             if label != key.input:
@@ -357,21 +357,21 @@ class WitnessIndex:
                 best = codepoints
         return best
 
-    def witness_treaty(self, key: TreatyKey) -> tuple[int, ...] | None:
+    def example_treaty(self, key: TreatyKey) -> tuple[int, ...] | None:
         return self.pairs.get((key.left, key.right))
 
     def attach(self, entries: list[DiffEntry]) -> None:
         for entry in entries:
-            if entry.config != self.config or entry.witness is not None:
+            if entry.config != self.config or entry.example_text is not None:
                 continue
             if entry.table == "treaty":
-                entry.witness = self.witness_treaty(entry.key)
+                entry.example_text = self.example_treaty(entry.key)
             else:
                 keys = [member.key for member in entry.paired] or [entry.key]
                 for key in keys:
-                    witness = self.witness_settlement(key)
-                    if witness is not None:
-                        entry.witness = witness
+                    example_text = self.example_settlement(key)
+                    if example_text is not None:
+                        entry.example_text = example_text
                         break
 
 

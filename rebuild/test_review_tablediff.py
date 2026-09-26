@@ -1,6 +1,6 @@
-"""Tests for the table-vs-table treaty-diff mode: added, removed, and changed classification on synthetic table pairs, pairing of removals and additions into regrouped rows, provenance-only demotion, witness search that re-settles to the changed row, and the snapshot round trip.
+"""Tests for the table-vs-table treaty-diff mode: added, removed, and changed classification on synthetic table pairs, pairing of removals and additions into regrouped rows, provenance-only demotion, example-text search that re-settles to the changed row, and the snapshot round trip.
 
-The two witness tests re-settle real settlement rows and treaty pairs from the frozen mini-M1 bundle's tables and check that the outcome comes back. They settle under the spec `mini_bundle` materializes, which is the spec those tables were built from, so they test `WitnessIndex` and not the current rules. The classification, round-trip, and self-diff tests use the synthetic pair or the same bundle.
+The two example-text tests re-settle real settlement rows and treaty pairs from the frozen mini-M1 bundle's tables and check that the outcome comes back. They settle under the spec `mini_bundle` materializes, which is the spec those tables were built from, so they test `ExampleIndex` and not the current rules. The classification, round-trip, and self-diff tests use the synthetic pair or the same bundle.
 """
 
 import warnings
@@ -174,54 +174,56 @@ def test_diff_is_deterministic(table_dirs):
 
 
 @pytest.fixture(scope="module")
-def witness_index(mini_bundle):
+def example_index(mini_bundle):
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         spec = load_spec(mini_bundle.spec_root)
-    return spec, tablediff.WitnessIndex(spec, "default", max_depth=3)
+    return spec, tablediff.ExampleIndex(spec, "default", max_depth=3)
 
 
-def test_witness_resettles_to_the_settlement_row(witness_index):
-    """Every witness the index returns for a frozen settlement row settles to that row's outcome under the spec that wrote the row. The sampled witnesses are explained in one `explain_many` call, which runs a few kernel processes instead of one per witness."""
-    spec, index = witness_index
+def test_example_text_resettles_to_the_settlement_row(example_index):
+    """Every example text the index returns for a frozen settlement row settles to that row's outcome under the spec that wrote the row. The sampled example texts are explained in one `explain_many` call, which runs a few kernel processes instead of one per example text."""
+    spec, index = example_index
     rows = tablediff.load_settlement(MINI / "settlement-default.tsv")
     asked = []
     for key, value in list(rows.items())[::10]:
-        witness = index.witness_settlement(key)
-        if witness is not None:
-            asked.append((key, value, witness))
+        example_text = index.example_settlement(key)
+        if example_text is not None:
+            asked.append((key, value, example_text))
     assert len(asked) >= 5
     features = features_for_config("default")
-    reports = explain.explain_many(spec, [(list(witness), features) for _key, _value, witness in asked])
-    for (key, value, _witness), report in zip(asked, reports):
+    reports = explain.explain_many(
+        spec, [(list(example_text), features) for _key, _value, example_text in asked]
+    )
+    for (key, value, _example_text), report in zip(asked, reports):
         labels = [cell_label(spec, item.cell) for item in report.settled]
         assert value.outcome in labels, (key.label(), value.outcome, labels)
 
 
-def test_witness_resettles_to_the_treaty_pair(witness_index):
-    """Every witness the index returns for a frozen treaty row settles to that row's left and right as adjacent cells, explained in one `explain_many` call."""
-    spec, index = witness_index
+def test_example_text_resettles_to_the_treaty_pair(example_index):
+    """Every example text the index returns for a frozen treaty row settles to that row's left and right as adjacent cells, explained in one `explain_many` call."""
+    spec, index = example_index
     rows = tablediff.load_treaty(MINI / "treaties-default.tsv")
     asked = []
     for key in list(rows)[::25]:
-        witness = index.witness_treaty(key)
-        if witness is not None:
-            asked.append((key, witness))
+        example_text = index.example_treaty(key)
+        if example_text is not None:
+            asked.append((key, example_text))
     assert len(asked) >= 5
     features = features_for_config("default")
-    reports = explain.explain_many(spec, [(list(witness), features) for _key, witness in asked])
-    for (key, _witness), report in zip(asked, reports):
+    reports = explain.explain_many(spec, [(list(example_text), features) for _key, example_text in asked])
+    for (key, _example_text), report in zip(asked, reports):
         labels = [cell_label(spec, item.cell) for item in report.settled]
         assert (key.left, key.right) in set(zip(labels, labels[1:]))
 
 
-def test_witness_attach_fills_entries(witness_index, table_dirs):
-    _spec, index = witness_index
+def test_example_text_attach_fills_entries(example_index, table_dirs):
+    _spec, index = example_index
     old_dir, new_dir = table_dirs
     entries = tablediff.diff_dirs(old_dir, new_dir)
     index.attach(entries)
     changed = next(e for e in entries if e.bucket == "changed" and e.table == "settlement")
-    assert changed.witness is not None
+    assert changed.example_text is not None
 
 
 def test_snapshot_round_trip(tmp_path):
