@@ -4,7 +4,7 @@ Streams each `rebuild/out/baseline-<config>.tsv.gz` once through `rebuild.valida
 
 Each refilter also checks two facts that only a refilter can change. First, every `DEFAULT_COVERED_CONFIGS` sub-table must be row-identical to the `IDENTITY_REFERENCE` sub-table, because the acceptance gate covers ss06, ss07 and ss06+ss07 by running default alone. The check compares the digests the filter pass computes over the kept rows, so no table is read a second time. A mismatch or a missing table raises `SubsetIdentityError` before the stamp is written, so the tables are never stamped fresh and every later run fails the same way. Second, `refresh` writes the distinct old glyph names of each configuration's kept rows to `subset-names.json`. The oracle's alias-completeness check reads that file instead of streaming every subset row, which keeps the check cheap on the `--gates-only` path.
 
-`ensure_fresh` checks a third fact on every call, fresh or stale: that each source table was extracted from the site font on disk. `make all` rewrites that font without changing any key this module stamps, so only a check that runs on every call can catch a rebuilt font. A header whose `font_sha256` matches the font on disk passes. A version bump's `make all` rewrites only the font's `head` and `name` tables, so a header whose digest does not match still passes when the font it was extracted from and the font on disk are identical outside those two tables (`fingerprint.font_content_digest`). The header records only the raw digest, so this module records the extraction font's `head`- and `name`-blind digest in `rebuild/out/baseline-font-projections.json`, keyed by font path and raw digest, on each call where every table passes. A machine that never checked the tables before the font changed has no such entry and fails with the re-extract remedy.
+`ensure_fresh` checks a third fact on every call, fresh or stale: that each source table was extracted from the site font on disk. `make all` rewrites that font without changing any key this module stamps, so only a check that runs on every call can catch a rebuilt font. A header whose `font_sha256` matches the font on disk passes. A version bump's `make all` rewrites only the font's `head` and `name` tables, so a header whose digest does not match still passes when the font it was extracted from and the font on disk are identical outside those two tables (`fingerprint.font_content_digest`). The header records only the raw digest, so this module records the extraction font's `head`- and `name`-blind content digest in `rebuild/out/baseline-font-content-digests.json`, keyed by font path and raw digest, on each call where every table passes. When that file is absent, the digests are read from `rebuild/out/baseline-font-projections.json` in its place, and the first passing call writes the content digests file and removes that one. A machine that never checked the tables before the font changed has no such entry and fails with the re-extract remedy.
 
 `run_m1` calls `ensure_fresh` before its gates, so an `M1_ALPHABET` edit cannot feed the oracle stale subset tables. `subset_stamp.json` records a key over the alphabet, the source tables, and this module's code, plus each output's content hash, each output's kept-row count (see `subset_row_counts`), and the names sidecar's hash. The refilter is skipped only when the key matches and the outputs on disk are the stamped set with the stamped bytes. A truncated or edited table, a missing or edited names sidecar, and an orphan left by a removed source all read as stale, and `refresh` deletes orphans. Subset gzip members are written with mtime=0, so refiltering unchanged sources reproduces each table byte for byte.
 
@@ -33,8 +33,10 @@ STAMP_NAME = "subset_stamp.json"
 STAMP_FORMAT = "ams-baseline-subset-stamp/2"
 NAMES_NAME = "subset-names.json"
 NAMES_FORMAT = "ams-baseline-subset-names/1"
-FONT_PROJECTION_SIDECAR = "baseline-font-projections.json"
-FONT_PROJECTION_FORMAT = "ams-baseline-font-projections/1"
+FONT_DIGESTS_FILE = "baseline-font-content-digests.json"
+FONT_DIGESTS_FORMAT = "ams-baseline-font-content-digests/1"
+EARLIER_FONT_DIGESTS_FILE = "baseline-font-projections.json"
+EARLIER_FONT_DIGESTS_FORMAT = "ams-baseline-font-projections/1"
 DEFAULT_COVERED_CONFIGS = ("ss06", "ss07", "ss06+ss07")
 IDENTITY_REFERENCE = "default"
 
@@ -294,34 +296,40 @@ def is_fresh(repo_root: Path = REPO_ROOT) -> bool:
     return True
 
 
-def read_font_projections(baseline_dir: Path) -> dict[str, dict[str, str]]:
-    """Return the provenance sidecar as `{font relative path: {raw sha256 a header records: head- and name-blind digest of that font}}`. A missing, malformed, or other-format sidecar reads as empty, so every raw-digest mismatch then fails."""
+def read_font_content_digests(baseline_dir: Path) -> dict[str, dict[str, str]]:
+    """Return the font content digests file as `{font relative path: {raw sha256 a header records: head- and name-blind digest of that font}}`. When `FONT_DIGESTS_FILE` is absent, `EARLIER_FONT_DIGESTS_FILE` in `EARLIER_FONT_DIGESTS_FORMAT` is read in its place. A missing, malformed, or other-format file reads as empty, so every raw-digest mismatch then fails."""
+    path = Path(baseline_dir) / FONT_DIGESTS_FILE
+    expected_format = FONT_DIGESTS_FORMAT
+    if not path.exists():
+        path = Path(baseline_dir) / EARLIER_FONT_DIGESTS_FILE
+        expected_format = EARLIER_FONT_DIGESTS_FORMAT
     try:
-        payload = json.loads((Path(baseline_dir) / FONT_PROJECTION_SIDECAR).read_text())
+        payload = json.loads(path.read_text())
     except OSError, ValueError:
         return {}
-    if not isinstance(payload, dict) or payload.get("format") != FONT_PROJECTION_FORMAT:
+    if not isinstance(payload, dict) or payload.get("format") != expected_format:
         return {}
     fonts = payload.get("fonts")
     if not isinstance(fonts, dict):
         return {}
     return {
-        str(font): {str(raw): str(projection) for raw, projection in entries.items()}
+        str(font): {str(raw): str(digest) for raw, digest in entries.items()}
         for font, entries in fonts.items()
         if isinstance(entries, dict)
     }
 
 
-def _write_font_projections(baseline_dir: Path, fonts: Mapping[str, Mapping[str, str]]) -> None:
-    """Write the provenance sidecar to a staging file and rename it into place, so an interrupted call leaves the previous sidecar intact."""
+def _write_font_content_digests(baseline_dir: Path, fonts: Mapping[str, Mapping[str, str]]) -> None:
+    """Write the font content digests file to a staging file and rename it into place, so an interrupted call leaves the previous file intact, then remove `EARLIER_FONT_DIGESTS_FILE`."""
     payload = {
-        "format": FONT_PROJECTION_FORMAT,
+        "format": FONT_DIGESTS_FORMAT,
         "fonts": {font: dict(sorted(entries.items())) for font, entries in sorted(fonts.items())},
     }
-    path = Path(baseline_dir) / FONT_PROJECTION_SIDECAR
+    path = Path(baseline_dir) / FONT_DIGESTS_FILE
     staging = path.with_name(path.name + ".staging")
     staging.write_text(json.dumps(payload, indent=2) + "\n")
     os.replace(staging, path)
+    (Path(baseline_dir) / EARLIER_FONT_DIGESTS_FILE).unlink(missing_ok=True)
 
 
 def prove_font_provenance(repo_root: Path = REPO_ROOT) -> dict[str, str]:
@@ -329,14 +337,14 @@ def prove_font_provenance(repo_root: Path = REPO_ROOT) -> dict[str, str]:
 
     A baseline row depends only on the font bytes, the alphabet, and the extractor code. The header's `alphabet_sha256` records the alphabet, and the determinism and header tests in rebuild/test_extractor.py cover the extractor. This check covers the font, so no stage needs to re-shape table rows to verify them. Reading each table's header and hashing the font takes milliseconds, so the check runs on every call instead of being keyed to the stamp. With no tables it checks nothing and raises nothing; `_prove_default_covered` fails on that case during the refilter.
 
-    A header whose `font_sha256` matches the font on disk passes, and the font's `head`- and `name`-blind digest (`fingerprint.font_content_digest`) is recorded under that raw digest. A header whose digest does not match passes only when `FONT_PROJECTION_SIDECAR` holds a digest for the font it names and the font on disk has the same `head`- and `name`-blind digest, which is the case a version bump's `make all` leaves. Otherwise the call raises `BaselineProvenanceError`, and the message says whether the two fonts differ outside `head` and `name` or no digest was recorded for the extraction font. The sidecar is written at the end of a call where every table passes, and only when its contents change. It holds one entry per (font, raw digest) pair that a current header names, so it does not accumulate old fonts, and a failing call writes nothing.
+    A header whose `font_sha256` matches the font on disk passes, and the font's `head`- and `name`-blind digest (`fingerprint.font_content_digest`) is recorded under that raw digest. A header whose digest does not match passes only when `FONT_DIGESTS_FILE` holds a digest for the font it names and the font on disk has the same `head`- and `name`-blind digest, which is the case a version bump's `make all` leaves. Otherwise the call raises `BaselineProvenanceError`, and the message says whether the two fonts differ outside `head` and `name` or no digest was recorded for the extraction font. The digests file is written at the end of a call where every table passes, and only when its contents change or it is absent. It holds one entry per (font, raw digest) pair that a current header names, so it does not accumulate old fonts, and a failing call writes nothing.
     """
     baseline_dir, _ = _dirs(repo_root)
     proven: dict[str, str] = {}
     live_digests: dict[Path, str] = {}
-    live_projections: dict[Path, str] = {}
-    recorded_projections = read_font_projections(baseline_dir)
-    current_projections: dict[str, dict[str, str]] = {}
+    live_content_digests: dict[Path, str] = {}
+    recorded_content_digests = read_font_content_digests(baseline_dir)
+    current_content_digests: dict[str, dict[str, str]] = {}
     for source in sorted(baseline_dir.glob("baseline-*.tsv.gz")):
         header = read_header(source)
         font_relative = header.get("font")
@@ -352,25 +360,27 @@ def prove_font_provenance(repo_root: Path = REPO_ROOT) -> dict[str, str]:
                     f"{source.name} was extracted from {font_relative}, which is not on disk at {font_path} — the site font is gitignored `make all` output, so run `make all` before adjudicating against these tables, or {_EXTRACT_REMEDY}"
                 )
             live_digests[font_path] = fingerprint.file_sha256(font_path)
-            live_projections[font_path] = fingerprint.font_content_digest(font_path)
+            live_content_digests[font_path] = fingerprint.font_content_digest(font_path)
         live = live_digests[font_path]
-        projection = live_projections[font_path]
+        content_digest = live_content_digests[font_path]
         if live == recorded:
-            current_projections.setdefault(font_relative, {})[recorded] = projection
+            current_content_digests.setdefault(font_relative, {})[recorded] = content_digest
         else:
-            stored = recorded_projections.get(font_relative, {}).get(recorded)
+            stored = recorded_content_digests.get(font_relative, {}).get(recorded)
             if stored is None:
                 raise BaselineProvenanceError(
-                    f"{source.name} was extracted from a {font_relative} that hashed to {recorded}, but the {font_relative} on disk now hashes to {live}, and {FONT_PROJECTION_SIDECAR} records no head- and name-blind projection for the font it was extracted from, so nothing can say whether its rows are the rows this font shapes — {_EXTRACT_REMEDY}"
+                    f"{source.name} was extracted from a {font_relative} that hashed to {recorded}, but the {font_relative} on disk now hashes to {live}, and {FONT_DIGESTS_FILE} records no head- and name-blind content digest for the font it was extracted from, so nothing can say whether its rows are the rows this font shapes — {_EXTRACT_REMEDY}"
                 )
-            if stored != projection:
+            if stored != content_digest:
                 raise BaselineProvenanceError(
                     f"{source.name} was extracted from a {font_relative} that hashed to {recorded}, but the {font_relative} on disk now hashes to {live} and differs from it outside the head and name tables — its rows are not the rows this font shapes, so {_EXTRACT_REMEDY}"
                 )
-            current_projections.setdefault(font_relative, {})[recorded] = stored
+            current_content_digests.setdefault(font_relative, {})[recorded] = stored
         proven[source.name] = recorded
-    if current_projections and current_projections != recorded_projections:
-        _write_font_projections(baseline_dir, current_projections)
+    if current_content_digests and (
+        current_content_digests != recorded_content_digests or not (baseline_dir / FONT_DIGESTS_FILE).exists()
+    ):
+        _write_font_content_digests(baseline_dir, current_content_digests)
     return proven
 
 

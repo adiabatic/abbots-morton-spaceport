@@ -20,7 +20,7 @@ The crate appends a refuse record's `why` to that refusal's elimination message 
 
 Three closures outside this module hash code files raw. The rebuild-lane closure (`artifact_cycle._closure_digest`) and gate:make-test's closure (`artifact_cycle.make_test_closure_fingerprint`) do so because test fixtures and the closure tests read source text, so gate:rebuild-contracts and gate:make-test still run after a prose-only edit. The pyright gate's closure (`pyright_gate.closure_fingerprint`) does so because a `# pyright: ignore` comment changes pyright's result. rebuild/test_fingerprint.py checks what the projection keeps and drops.
 
-The two files a version bump rewrites have projections too, so a bump moves no key. `make all` writes the new version into both site fonts' `name` table and `head.fontRevision`, and the bump-minor skill refreshes `uv.lock`, where only the project's own `[[package]]` block changes.
+The two files a version bump rewrites have version-blind digests too, so a bump moves no key. `make all` writes the new version into both site fonts' `name` table and `head.fontRevision`, and the bump-minor skill refreshes `uv.lock`, where only the project's own `[[package]]` block changes.
 
 - `font_content_digest` hashes a font table by table from the bytes the `sfnt` reader returns: the sorted table tags, then each table's length and digest, leaving out `head` and `name` (`FONT_VERSION_TABLES`). `head` holds the revision, the checksum adjustment, and the modification time, and `name` holds the version strings. A shaper reads neither to position a glyph. `head` also holds `unitsPerEm`, but an edit to `units_per_em` in glyph_data/metadata.yaml still reaches the digest through `CFF `: tools/build_font.py passes `FontBuilder.setupCFF` no FontMatrix, so fontTools writes the matrix as 1/unitsPerEm. rebuild/test_fingerprint.py checks that fontTools default. Only a hand edit to `head.unitsPerEm` alone would go unseen, and nothing in the tree makes one. Every table that can affect a shaped run stays (`CFF `, `hmtx`, `GPOS`, `GSUB`, `cmap`), and so does the list of tables. A file fontTools cannot open, or whose table it cannot read, is hashed as raw bytes.
 - `lock_digest` (in `rebuild.tools.lock_digest`, a separate module because the pyright gate also hashes the lock and must not import rebuild.pipeline) removes the project's own block from the lock and hashes the rest, so a changed dependency pin or an added or removed package still moves it.
@@ -204,7 +204,7 @@ FONT_VERSION_TABLES = frozenset({"head", "name"})
 _FONT_DIGESTS: dict[str, str] = {}
 
 
-def _projected_font_lines(path: Path) -> list[str] | None:
+def _font_content_lines(path: Path) -> list[str] | None:
     """Return the lines `font_content_digest` hashes: the sorted table tags, then the length and digest of each table outside `FONT_VERSION_TABLES`. Each table is read from the reader as the bytes in the file, without decompiling, so fontTools' normalization on save cannot hide a difference. Returns None for a file that is not an `sfnt`, has no tables, or has a truncated table; the caller then hashes it raw."""
     from fontTools.ttLib import TTFont, TTLibError
 
@@ -235,7 +235,7 @@ def font_content_digest(path: Path) -> str:
     raw_digest = file_sha256(path)
     digest = _FONT_DIGESTS.get(raw_digest)
     if digest is None:
-        lines = _projected_font_lines(path)
+        lines = _font_content_lines(path)
         digest = raw_digest if lines is None else digest_lines(lines)
         _FONT_DIGESTS[raw_digest] = digest
     return digest

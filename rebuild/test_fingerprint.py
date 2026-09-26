@@ -1186,8 +1186,8 @@ def _builder_font(target, units_per_em):
     return target
 
 
-def test_a_units_per_em_edit_moves_the_font_projection_through_the_cff_font_matrix(tmp_path):
-    """tools/build_font.py passes `FontBuilder.setupCFF` a `fontInfo` with no FontMatrix, so fontTools writes the `CFF ` top dict's FontMatrix as 1/unitsPerEm. Two fonts built that way that differ only in unitsPerEm therefore differ in `CFF ` as well as `head`, and the projection, which keeps `CFF `, tells them apart. If a fontTools release stops deriving the matrix, this test fails before a unitsPerEm edit in glyph_data/metadata.yaml can go unseen by every font key."""
+def test_a_units_per_em_edit_moves_the_font_content_digest_through_the_cff_font_matrix(tmp_path):
+    """tools/build_font.py passes `FontBuilder.setupCFF` a `fontInfo` with no FontMatrix, so fontTools writes the `CFF ` top dict's FontMatrix as 1/unitsPerEm. Two fonts built that way that differ only in unitsPerEm therefore differ in `CFF ` as well as `head`, and the content digest, which keeps `CFF `, tells them apart. If a fontTools release stops deriving the matrix, this test fails before a unitsPerEm edit in glyph_data/metadata.yaml can go unseen by every font key."""
     from fontTools.ttLib import TTFont
 
     fonts = {upem: _builder_font(tmp_path / f"upem-{upem}.otf", upem) for upem in (550, 1100)}
@@ -1218,26 +1218,28 @@ def test_font_content_digest_falls_back_to_the_raw_bytes_for_a_file_that_is_no_s
     assert fingerprint.font_content_digest(MINI_FONT) != fingerprint.file_sha256(MINI_FONT)
 
 
-def test_the_font_projection_is_memoized_on_the_bytes_and_reprojects_when_they_move(tmp_path, monkeypatch):
-    """The memo is keyed on the raw digest, as in `code_file_digest`: the same bytes are projected once however many times they are asked for, and a file rewritten with different bytes is projected again."""
-    projected: list[Path] = []
-    real = fingerprint._projected_font_lines
+def test_the_font_content_digest_is_memoized_on_the_bytes_and_recomputed_when_they_move(
+    tmp_path, monkeypatch
+):
+    """The memo is keyed on the raw digest, as in `code_file_digest`: the same bytes are digested once however many times they are asked for, and a file rewritten with different bytes is digested again."""
+    digested: list[Path] = []
+    real = fingerprint._font_content_lines
 
     def counting(path):
-        projected.append(path)
+        digested.append(path)
         return real(path)
 
-    monkeypatch.setattr(fingerprint, "_projected_font_lines", counting)
+    monkeypatch.setattr(fingerprint, "_font_content_lines", counting)
     monkeypatch.setattr(fingerprint, "_FONT_DIGESTS", {})
     font = tmp_path / "font.otf"
     font.write_bytes(MINI_FONT.read_bytes())
     first = fingerprint.font_content_digest(font)
     assert fingerprint.font_content_digest(font) == first
     assert fingerprint.font_content_digest(MINI_FONT) == first
-    assert len(projected) == 1
+    assert len(digested) == 1
     _font(MINI_FONT, font, _widen_a_glyph)
     assert fingerprint.font_content_digest(font) != first
-    assert len(projected) == 2
+    assert len(digested) == 2
 
 
 def _version_bump_keys(root):
