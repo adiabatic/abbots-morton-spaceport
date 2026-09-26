@@ -255,7 +255,7 @@ def node_test_events(line: str) -> Event | None:
 
 
 def warning_events(line: str) -> Warn | None:
-    """Return a `Warn` for the two warning shapes code in this repo prints, which is why every step gets this adapter: a line starting with `warning:` in any case after leading whitespace (the standing-fill tripwire indents its line), and Python's `warnings.warn` format, which run_m1's spec load writes to stderr."""
+    """Return a `Warn` for the two warning shapes code in this repo prints, which is why every step gets this adapter: a line starting with `warning:` in any case after leading whitespace (the standing fill's disputed-match warning indents its line), and Python's `warnings.warn` format, which run_m1's spec load writes to stderr."""
     text = line.strip()
     if text.lower().startswith("warning:"):
         return Warn(text)

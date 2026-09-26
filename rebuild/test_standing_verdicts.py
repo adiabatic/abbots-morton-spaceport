@@ -3196,8 +3196,8 @@ def test_open_only_writes_the_fills_the_whole_domain_writes(tmp_path, monkeypatc
     assert [record["unit"] for record in narrowed["verdicts"]] == ["u-1"]
 
 
-def test_open_only_keeps_the_tripwire_word_for_word(tmp_path, monkeypatch, capsys):
-    """Every unit the tripwire can name has a verdict outside ACCEPTING_VERDICTS, and `--open-only` keeps those units."""
+def test_open_only_keeps_the_disputed_match_warning_word_for_word(tmp_path, monkeypatch, capsys):
+    """Every unit the disputed-match warning can name has a verdict outside ACCEPTING_VERDICTS, and `--open-only` keeps those units."""
     units = [canonical("u-1"), canonical("u-2")]
     verdicts = [{"unit": "u-2", "verdict": "reject", "note": "", "at": "2026-07-11T00:00:00Z"}]
     _run_main(tmp_path / "full", monkeypatch, units, verdicts)
@@ -8165,7 +8165,7 @@ TARGETED_HEADER = re.compile(r"^  targeted at (\S+): (\d+) of (\d+) human units 
 
 
 def _lines_about(lines, rule_id):
-    """Everything a report says about one rule, in the pieces the targeted run must reproduce byte for byte: its own tally line, the composed tally lines whose credited tuple names it, its rollup line, whether a reached-nothing line names it, the tripwire fragments under it, and its four-line explain block."""
+    """Everything a report says about one rule, in the pieces the targeted run must reproduce byte for byte: its own tally line, the composed tally lines whose credited tuple names it, its rollup line, whether a reached-nothing line names it, the disputed-match warning fragments under it, and its four-line explain block."""
     crediting = []
     for line in lines:
         head, sep, _rest = line.partition(": ")
@@ -8178,7 +8178,7 @@ def _lines_about(lines, rule_id):
         "composed": crediting,
         "rollup": [line for line in lines if line.startswith(f"    {rule_id}: ")],
         "nothing": any(line.startswith(f"  REACHED NOTHING: {rule_id} ") for line in lines),
-        "tripwire": sorted(
+        "disputed_match": sorted(
             re.findall(r"(\S+) under " + re.escape(rule_id) + r" \((\w+)\)", "\n".join(lines))
         ),
         "explain": lines[start : start + 4],
@@ -8188,7 +8188,7 @@ def _lines_about(lines, rule_id):
 def test_a_targeted_run_prints_a_rules_lines_byte_identical_to_the_whole_domain(
     tmp_path, monkeypatch, capsys, mini_corpus
 ):
-    """Over a real build of the frozen mini bundle, with a store holding a reject and an approve, each rule the whole-domain rollup shows reaching anything, and the first rule that reached nothing, gets a targeted run. Each targeted run exits cleanly, writes nothing, evaluates no more units than the domain holds (fewer for at least one rule), and prints the rule's own line, the composed lines crediting it, its rollup line, its reached-nothing line, its tripwire fragments, and its explain block as a whole-domain run with the same `--explain` prints them. `--explain` takes one rule, so the whole domain runs once per rule."""
+    """Over a real build of the frozen mini bundle, with a store holding a reject and an approve, each rule the whole-domain rollup shows reaching anything, and the first rule that reached nothing, gets a targeted run. Each targeted run exits cleanly, writes nothing, evaluates no more units than the domain holds (fewer for at least one rule), and prints the rule's own line, the composed lines crediting it, its rollup line, its reached-nothing line, its disputed-match warning fragments, and its explain block as a whole-domain run with the same `--explain` prints them. `--explain` takes one rule, so the whole domain runs once per rule."""
     rules = _mini_rules(mini_corpus, tmp_path / "rules.yaml")
     stamp = json.loads((mini_corpus / "manifest.json").read_text())["generated_at"]
     human = [unit["id"] for unit in _human_units(mini_corpus)]

@@ -2732,7 +2732,7 @@ def _scrape(lines: list[str], keep) -> list[str]:
 
 
 def _standing_fill_news(line: str) -> bool:
-    """Return whether the summary keeps this line of the standing fill's output. It keeps the `wrote` line, the tripwire's WARNING (so an over-broad rule shows in cycle_summary.json), every per-rule line (so a newly added rule shows even at 0 filled), and the composed-pair lines that filled or held something. Composed-pair lines grow quadratically with the rule count, so the rest are left to `standing_probe --coverage`. The REACHED NOTHING lines are left out because `--require-reach` fails the step on such a rule, and the except_left vocabulary line is informational. The already-verdicted column is optional because the verdict update runs the fill with `--open-only`, which omits it, while a dry run over the whole domain prints it."""
+    """Return whether the summary keeps this line of the standing fill's output. It keeps the `wrote` line, the disputed-match warning (so an over-broad rule shows in cycle_summary.json), every per-rule line (so a newly added rule shows even at 0 filled), and the composed-pair lines that filled or held something. Composed-pair lines grow quadratically with the rule count, so the rest are left to `standing_probe --coverage`. The REACHED NOTHING lines are left out because `--require-reach` fails the step on such a rule, and the except_left vocabulary line is informational. The already-verdicted column is optional because the verdict update runs the fill with `--open-only`, which omits it, while a dry run over the whole domain prints it."""
     if line.startswith("wrote ") and "standing-approval verdicts" in line:
         return True
     if line.startswith("WARNING:"):

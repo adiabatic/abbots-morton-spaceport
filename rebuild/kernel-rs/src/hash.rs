@@ -192,7 +192,7 @@ mod tests {
     }
 
     #[test]
-    fn the_import_tripwire_catches_a_renamed_collections_module() {
+    fn the_import_check_catches_a_renamed_collections_module() {
         for stray in [
             "use std::collections::HashMap;",
             "use std::collections::hash_map::Entry;",

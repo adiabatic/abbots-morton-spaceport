@@ -2606,7 +2606,7 @@ def _matches(match, unit, *, guard=True, context=None):
 
 
 class Reach(NamedTuple):
-    """One rule's reach on a run: the unit ids its own matcher accepted, split into the blanks it filled and the units that already had a verdict; the ids its except_left held back; and its composed credit, counted separately as the number of units composed lines credited it at and the number of those composed lines. The composed pass claims a window before any single rule is checked, so a rule that is only ever credited in compositions shows nothing on its own line and is still in use. Under `--open-only`, `verdicted` holds only matched units whose verdict is outside ACCEPTING_VERDICTS, which are the units the tripwire names."""
+    """One rule's reach on a run: the unit ids its own matcher accepted, split into the blanks it filled and the units that already had a verdict; the ids its except_left held back; and its composed credit, counted separately as the number of units composed lines credited it at and the number of those composed lines. The composed pass claims a window before any single rule is checked, so a rule that is only ever credited in compositions shows nothing on its own line and is still in use. Under `--open-only`, `verdicted` holds only matched units whose verdict is outside ACCEPTING_VERDICTS, which are the units the disputed-match warning names."""
 
     filled: list[str]
     verdicted: list[str]
@@ -3136,7 +3136,7 @@ def _decision_reach(rules, decisions, records, stamp) -> Run:
 
 
 def open_units(units, records):
-    """The units a run can still change: blanks, which are the only units a fill is written for, and units whose verdict is outside ACCEPTING_VERDICTS, which the tripwire reports. Every decision depends only on its own unit, the composed claim included, so leaving the other units out changes no fill. The full domain adds only the already-verdicted column and the reach rollup, which describe the verdict store, not the fills."""
+    """The units a run can still change: blanks, which are the only units a fill is written for, and units whose verdict is outside ACCEPTING_VERDICTS, which the disputed-match warning reports. Every decision depends only on its own unit, the composed claim included, so leaving the other units out changes no fill. The full domain adds only the already-verdicted column and the reach rollup, which describe the verdict store, not the fills."""
     return [
         unit
         for unit in units
@@ -3198,7 +3198,7 @@ def _rollup_lines(rules, reaches):
     return lines
 
 
-def _tripwire_lines(reaches, records):
+def _disputed_match_lines(reaches, records):
     """A WARNING line naming the matched units whose verdict is outside ACCEPTING_VERDICTS, or no line when there are none. A standing rule that matches a window the user judged some other way is the sign of an over-broad rule. ACCEPTING_VERDICTS is wider than ALLOWED_VERDICTS because `identical` also accepts the new rendering (the reviewer found the highlighted part visually unchanged), so a rule matching such a unit agrees with the user."""
     caught = [
         f"{unit_id} under {rule_id} ({records[unit_id]['verdict']})"
@@ -3272,7 +3272,7 @@ def _listed_lines(rules, rule, listed, records, decide):
 
 
 def targeted_report(rules, rule, units, listed_ids, records, stamp, decide):
-    """The report of a `--targeted` run: the lines of the whole-domain report that concern one rule, computed over only the units the rule could match at the name grain (`_reachable`) plus the listed ids. Units stay in corpus order, because `Reach` and the explain block list ids in iteration order and the lines must match the whole-domain run's. The subset contains every unit the whole-domain run would put on this rule's lines, and every decision depends only on its own unit, so the rule's own line, the composed lines crediting it, its rollup line, its tripwire, and its explain block are byte-identical to the whole-domain run's. Other rules' lines are left out, because over this subset they would be partial and the rollup would report every other rule as reaching nothing. The vocabulary line still reads the whole corpus, since it uses glyph names and no decisions, and each listed unit gets its own line (`_listed_lines`)."""
+    """The report of a `--targeted` run: the lines of the whole-domain report that concern one rule, computed over only the units the rule could match at the name grain (`_reachable`) plus the listed ids. Units stay in corpus order, because `Reach` and the explain block list ids in iteration order and the lines must match the whole-domain run's. The subset contains every unit the whole-domain run would put on this rule's lines, and every decision depends only on its own unit, so the rule's own line, the composed lines crediting it, its rollup line, its disputed-match warning, and its explain block are byte-identical to the whole-domain run's. Other rules' lines are left out, because over this subset they would be partial and the rollup would report every other rule as reaching nothing. The vocabulary line still reads the whole corpus, since it uses glyph names and no decisions, and each listed unit gets its own line (`_listed_lines`)."""
     listed = list(dict.fromkeys(listed_ids))
     wanted = set(listed)
     match = rule["match"]
@@ -3306,7 +3306,7 @@ def targeted_report(rules, rule, units, listed_ids, records, stamp, decide):
     crediting = {ids: counts for ids, counts in run.composed_counts.items() if rule_id in ids}
     lines += _tally_lines([rule], Run(run.fills, crediting, run.reaches), False)
     lines += _rollup_lines([rule], run.reaches)
-    lines += _tripwire_lines({rule_id: run.reaches[rule_id]}, records)
+    lines += _disputed_match_lines({rule_id: run.reaches[rule_id]}, records)
     lines += _joining_vocabulary_lines([rule], joining)
     lines += _explain_lines(rule_id, run.reaches[rule_id], records)
     return lines
@@ -3335,7 +3335,7 @@ def main(
     parser.add_argument(
         "--targeted",
         action="store_true",
-        help="evaluate only the --explain rule's name-grain candidates plus any --unit ids, print that rule's lines — own line, composed lines crediting it, rollup, tripwire and explain block, byte-identical to the whole-domain run's — and one decision line per listed unit; writes no fill file and never touches the memo. The authoring loop's form: a corpus load rather than a domain evaluation. The whole-domain run stays the final pass and the cycle's form.",
+        help="evaluate only the --explain rule's name-grain candidates plus any --unit ids, print that rule's lines — own line, composed lines crediting it, rollup, disputed-match warning and explain block, byte-identical to the whole-domain run's — and one decision line per listed unit; writes no fill file and never touches the memo. The authoring loop's form: a corpus load rather than a domain evaluation. The whole-domain run stays the final pass and the cycle's form.",
     )
     parser.add_argument(
         "--unit",
@@ -3506,7 +3506,7 @@ def main(
     lines += _tally_lines(rules, run, args.open_only)
     if args.require_reach or not args.open_only:
         lines += _rollup_lines(rules, reaches)
-    lines += _tripwire_lines(run.reaches, records)
+    lines += _disputed_match_lines(run.reaches, records)
     lines += _joining_vocabulary_lines(rules, joining)
     if args.explain is not None:
         lines += _explain_lines(args.explain, run.reaches[args.explain], records)
