@@ -1201,7 +1201,7 @@ details.group {
   --ss-color: light-dark(#c43030, #ff7b72);
 }
 
-/* Top-level because both the batch grid's meta strip and the docket's cluster headers show these chips. A config gate draws one chip per constraint, each in its own set's color, so a gate on two sets shows two colors. */
+/* Top-level because both the batch grid's meta strip and the review queue's cluster headers show these chips. A config gate draws one chip per constraint, each in its own set's color, so a gate on two sets shows two colors. */
 .config-note {
   cursor: default;
   border: 1px solid var(--hairline);
@@ -1238,7 +1238,7 @@ details.group {
   }
 }
 
-/* The before and after sample rendering. It is top-level so that the docket view's exemplar cards get the fonts and bands as well as the batch grid's rows. */
+/* The before and after sample rendering. It is top-level so that the queue view's exemplar cards get the fonts and bands as well as the batch grid's rows. */
 .qs {
   font-size: var(--font-size);
   line-height: 1.4;
@@ -1368,8 +1368,8 @@ dialog {
   }
 }
 
-/* The strip above a worklist opened from the docket: the decision it belongs to, the lookalike evidence, and a link back to the queue. It is in #batch, outside the #docket scope below, so it repeats the docket styles it uses. */
-#batch .docket-context {
+/* The strip above a worklist opened from the review queue: the decision it belongs to, the lookalike evidence, and a link back to the queue. It is in #batch, outside the #queue scope below, so it repeats the queue styles it uses. */
+#batch .queue-context {
   background: var(--card);
   border: 1px solid var(--hairline);
   border-radius: 8px;
@@ -1377,7 +1377,7 @@ dialog {
   margin: 0.5rem 0;
   font-size: 0.9rem;
 
-  .docket-context-line {
+  .queue-context-line {
     display: flex;
     flex-wrap: wrap;
     align-items: baseline;
@@ -1425,8 +1425,8 @@ dialog {
   }
 }
 
-/* The docket view replaces the batch grid inside <main>. The header strip, sidebar, search, and dialogs stay in use. */
-body.docket-view main {
+/* The queue view replaces the batch grid inside <main>. The header strip, sidebar, search, and dialogs stay in use. */
+body.queue-view main {
   > .toolbar,
   > .col-headers,
   > #batch {
@@ -1434,7 +1434,7 @@ body.docket-view main {
   }
 }
 
-#docket {
+#queue {
   padding: 0.75rem 1.25rem 4rem;
 
   h2 {
@@ -1445,24 +1445,24 @@ body.docket-view main {
     margin-top: 2.5rem;
   }
 
-  .docket-header h2 {
+  .queue-header h2 {
     margin-bottom: 0.25rem;
   }
 
-  .docket-provenance {
+  .queue-provenance {
     color: var(--muted);
     font-size: 0.85rem;
     margin: 0.25rem 0;
   }
 
-  .docket-note {
+  .queue-note {
     color: var(--muted);
     font-size: 0.9rem;
     max-width: 60rem;
     margin: 0.4rem 0;
   }
 
-  .docket-readiness {
+  .queue-readiness {
     font-size: 0.9rem;
     font-weight: 600;
     margin: 0.25rem 0;
@@ -1560,7 +1560,7 @@ body.docket-view main {
   }
 
   .evidence,
-  .reps {
+  .representatives {
     font-size: 0.9rem;
 
     .note {

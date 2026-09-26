@@ -840,7 +840,7 @@ def _cluster_id_from_repr(configs, class_id, diffs_repr: bytes) -> str:
 
 
 def _cluster_id(configs, class_id, diffs) -> str:
-    """Return the cluster id the in-app docket view groups blank units by: the echo key without the judged pair, so every echo group falls inside one cluster. The repr recipe must not change, so that recorded `c-` ids keep resolving."""
+    """Return the cluster id the in-app review queue groups blank units by: the echo key without the judged pair, so every echo group falls inside one cluster. The repr recipe must not change, so that recorded `c-` ids keep resolving."""
     return _cluster_id_from_repr(configs, class_id, repr(diffs).encode())
 
 

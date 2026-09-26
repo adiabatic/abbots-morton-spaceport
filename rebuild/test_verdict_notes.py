@@ -1,4 +1,4 @@
-"""Tests for `rebuild.tools.verdict_notes`: `cap_markers`, which the carry and the echo fill use to keep only the newest provenance markers at the head of a note while keeping its human prose, and `strip_markers`, which returns the prose alone for the complaint docket."""
+"""Tests for `rebuild.tools.verdict_notes`: `cap_markers`, which the carry and the echo fill use to keep only the newest provenance markers at the head of a note while keeping its human prose, and `strip_markers`, which returns the prose alone for the complaint list."""
 
 from rebuild.tools.verdict_notes import cap_markers, strip_markers
 
@@ -63,10 +63,12 @@ def test_keep_parameter_is_honored():
     assert cap_markers(note, keep=3) == note
 
 
-def test_recognizes_parked_markers():
+def test_recognizes_deferred_markers_and_the_parked_kind_older_defer_files_carry():
+    deferred = "[deferred: qsLow.yaml policy.prefer(+) — complaint list 2026-07-18T00:00:00Z]"
     parked = "[parked: qsLow.yaml policy.prefer(+) — docket 2026-07-18T00:00:00Z]"
-    note = f"{parked} {CARRIED_A} {CARRIED_B} keep me"
-    assert cap_markers(note) == f"{parked} {CARRIED_A} keep me"
+    for marker in (deferred, parked):
+        note = f"{marker} {CARRIED_A} {CARRIED_B} keep me"
+        assert cap_markers(note) == f"{marker} {CARRIED_A} keep me"
 
 
 def test_recognizes_standing_markers():
@@ -82,9 +84,9 @@ def test_a_standing_marker_ages_out_behind_newer_carries():
 
 
 def test_strip_markers_leaves_only_the_prose():
-    parked = "[parked: qsLow.yaml policy.prefer(+) — docket 2026-07-18T00:00:00Z]"
+    deferred = "[deferred: qsLow.yaml policy.prefer(+) — complaint list 2026-07-18T00:00:00Z]"
     standing = "[standing: tea-oy-ligature-break]"
-    assert strip_markers(f"{parked} {CARRIED_A} the seam overshoots") == "the seam overshoots"
+    assert strip_markers(f"{deferred} {CARRIED_A} the seam overshoots") == "the seam overshoots"
     assert strip_markers(f"{standing} {CARRIED_A} the seam overshoots") == "the seam overshoots"
     assert strip_markers(f"{CARRIED_A} {CARRIED_B}") == ""
     assert strip_markers("I prefer M1.") == "I prefer M1."

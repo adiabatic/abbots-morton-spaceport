@@ -17,7 +17,7 @@ REVIEW_DIR = ROOT / "rebuild" / "out" / "review"
 M1_OUT = ROOT / "rebuild" / "out" / "m1"
 CYCLE_SUMMARY_PATH = ROOT / "rebuild" / "out" / "cycle_summary.json"
 AUTOSAVE_PATH = ROOT / "verdicts-autosave.json"
-DOCKET_URL = "http://localhost:7294/#view=docket"
+QUEUE_URL = "http://localhost:7294/#view=queue"
 
 CHECK_ORDER = ("corpus", "freshness", "gates", "verdict_store", "frontier", "blanks", "server")
 
@@ -70,7 +70,7 @@ def checklist(result: dict, overall_ready: bool) -> list[str]:
         if check.get("level") != "ok" and remedy:
             lines.append(f"      remedy: {remedy}")
     lines.append("")
-    lines.append(f"READY - adjudicate at {DOCKET_URL}" if overall_ready else "NOT READY")
+    lines.append(f"READY - adjudicate at {QUEUE_URL}" if overall_ready else "NOT READY")
     return lines
 
 

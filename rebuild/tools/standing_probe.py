@@ -33,7 +33,7 @@ from rebuild.review.ink import features_for  # noqa: E402
 from rebuild.review.unit_index import iter_human_units  # noqa: E402
 from rebuild.tools import standing_client, standing_daemon  # noqa: E402
 from rebuild.tools import standing_verdicts as sv  # noqa: E402
-from rebuild.tools.review_docket import latest_verdicts  # noqa: E402
+from rebuild.tools.review_queue import latest_verdicts  # noqa: E402
 from rebuild.validation.classify import PIXEL_SIZE  # noqa: E402
 
 CORPUS = ROOT / "rebuild/out/review"
@@ -48,8 +48,8 @@ NO_FONTS = (
     "grain: no piece placements, no own-frame origins, no cell counts, no reading of what moved, and no "
     "composed line — rebuild the corpus (make review-cycle) to get them"
 )
-DOCKET_NOTE = (
-    "  a docket, not an instruction to widen: each form, follower and cell above joins the rule only once "
+CANDIDATE_LIST_NOTE = (
+    "  a candidate list, not an instruction to widen: each form, follower and cell above joins the rule only once "
     "its own recorded decision has been found — the verdict family, the rune edit, or the review session that "
     "decided it"
 )
@@ -543,7 +543,7 @@ def _coverage(units, blankness, rules, rule_id):
         for value, tally in unnamed:
             print(f"    {sum(tally.values()):>5}  {value}  {dict(tally)}")
     if missing:
-        print(DOCKET_NOTE)
+        print(CANDIDATE_LIST_NOTE)
 
 
 def main(argv=None, *, units=None, context=None):

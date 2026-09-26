@@ -1,11 +1,11 @@
-"""Tests for the echo-group agreement rule, `review_docket.verdicts_agree`, and the two tools that use it: the echo fill and disagreement audit in echo_verdicts.py, and the conflicts list review_docket.py bakes into the docket data."""
+"""Tests for the echo-group agreement rule, `review_queue.verdicts_agree`, and the two tools that use it: the echo fill and disagreement audit in echo_verdicts.py, and the conflicts list review_queue.py writes into the queue snapshot."""
 
 import json
 
 import pytest
 
 from rebuild.tools import echo_verdicts as ev
-from rebuild.tools import review_docket as rd
+from rebuild.tools import review_queue as rq
 
 STAMP = "2026-07-10T00:00:00Z"
 
@@ -61,7 +61,7 @@ def verdicts_file(tmp_path, records, name="verdicts.json"):
     ],
 )
 def test_verdicts_agree_admits_only_unanimity_and_the_approve_identical_mix(kinds, agree):
-    assert rd.verdicts_agree(kinds) is agree
+    assert rq.verdicts_agree(kinds) is agree
 
 
 def test_an_approve_identical_group_fills_its_blanks_from_the_newest_member(tmp_path, monkeypatch, capsys):
@@ -130,7 +130,7 @@ def test_echo_projection_matches_streamed_fill_and_reports(tmp_path, monkeypatch
         assert capsys.readouterr().out == expected_report
 
 
-def test_the_baked_docket_lists_the_split_group_and_not_the_approve_identical_one(
+def test_the_queue_snapshot_lists_the_split_group_and_not_the_approve_identical_one(
     tmp_path, monkeypatch, capsys
 ):
     corpus = corpus_with(
@@ -151,12 +151,12 @@ def test_the_baked_docket_lists_the_split_group_and_not_the_approve_identical_on
             v("u-0004", "neither"),
         ],
     )
-    data_out = tmp_path / "docket-data.json"
+    data_out = tmp_path / "queue-data.json"
     monkeypatch.setattr(
         "sys.argv",
-        ["review_docket.py", str(verdicts), "--corpus", str(corpus), "--data-out", str(data_out)],
+        ["review_queue.py", str(verdicts), "--corpus", str(corpus), "--data-out", str(data_out)],
     )
-    rd.main()
+    rq.main()
 
     conflicts = json.loads(data_out.read_text())["conflicts"]
     assert [entry["echo"] for entry in conflicts] == ["e-0002"]

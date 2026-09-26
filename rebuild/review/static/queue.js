@@ -1,10 +1,10 @@
-// The in-app docket as pure functions over the in-memory store. They follow rebuild/tools/review_docket.py's clustering, so the view agrees with a bake of the same verdicts. A blank unit is unverdicted or skipped. Clusters group blank human units by the build's `cluster` signature, which is the echo key without the judged pair, so every echo group falls inside one cluster. Evidence comes from judged units with the same signature.
+// The in-app review queue as pure functions over the in-memory store. They follow rebuild/tools/review_queue.py's clustering, so the view agrees with a snapshot of the same verdicts. A blank unit is unverdicted or skipped. Clusters group blank human units by the build's `cluster` signature, which is the echo key without the judged pair, so every echo group falls inside one cluster. Evidence comes from judged units with the same signature.
 
-export const TRANCHE_SIZE = 25;
+export const TOP_CLUSTER_COUNT = 25;
 export const SINGLETON_CHUNK = 40;
 export const RULED_STATUSES = ['intended', 'reviewed-approved', 'reviewed-rejected'];
 export const SINGLETON_DECISION = '#singletons';
-export const SHOWN_STORAGE_KEY = 'ams-review-docket-shown';
+export const SHOWN_STORAGE_KEY = 'ams-review-queue-shown';
 
 export function isBlank(record) {
   return !record || record.verdict === 'skip';
@@ -20,7 +20,7 @@ function byTriageOrder(a, b) {
 }
 
 export function buildClusters(units, recordOf) {
-  // Sort in triage order, as review_docket.py does, so each exemplar, rep and evidence sample is the first unit in the order the app pages in.
+  // Sort in triage order, as review_queue.py does, so each exemplar, representative and evidence sample is the first unit in the order the app pages in.
   const human = [];
   for (const unit of units) {
     if (unit.batch !== null && unit.batch !== undefined && typeof unit.cluster === 'string') human.push(unit);
@@ -63,7 +63,7 @@ export function buildClusters(units, recordOf) {
       configs: [...members[0].configs],
       size: members.length,
       echoGroups,
-      reps: echoGroups.map((group) => group.unitIds[0]),
+      representatives: echoGroups.map((group) => group.unitIds[0]),
       exemplar: members[0],
       memberIds: members.map((unit) => unit.id),
       evidence: {
@@ -98,8 +98,8 @@ export function partitionClusters(clusters, ruledIds) {
   let ruledBlankUnits = 0;
   for (const cluster of clusters) if (ruledIds.has(cluster.class)) ruledBlankUnits += cluster.size;
   return {
-    tranche: multi.slice(0, TRANCHE_SIZE),
-    later: multi.slice(TRANCHE_SIZE),
+    top: multi.slice(0, TOP_CLUSTER_COUNT),
+    later: multi.slice(TOP_CLUSTER_COUNT),
     singletons: unruled.filter((cluster) => cluster.size === 1),
     ruledBlankUnits,
   };
@@ -107,7 +107,7 @@ export function partitionClusters(clusters, ruledIds) {
 
 const ACCEPTING_MIX = ['approve', 'identical'];
 
-// Whether the recorded verdicts on one echo group agree: they are all the same, or they mix only approve and identical, which both accept the new rendering. Mirrors verdicts_agree in rebuild/tools/review_docket.py.
+// Whether the recorded verdicts on one echo group agree: they are all the same, or they mix only approve and identical, which both accept the new rendering. Mirrors verdicts_agree in rebuild/tools/review_queue.py.
 export function verdictsAgree(verdicts) {
   if (verdicts.size <= 1) return true;
   return verdicts.size === ACCEPTING_MIX.length && ACCEPTING_MIX.every((verdict) => verdicts.has(verdict));
@@ -184,18 +184,18 @@ export function decisionKey(units, stacked = null) {
   return signatures.size === 1 ? [...signatures][0] : SINGLETON_DECISION;
 }
 
-// The next decision to show the reviewer. Open decisions are in queue order: the largest cluster first, with one rep per echo group that has no record, then the singletons. A record on a blank member can only be a skip, so any recorded member defers its whole echo group. `shown` holds the decision keys stacked for this corpus, least recently stacked first (the app keeps it in localStorage). The first open decision not in `shown` is returned, so leaving a cluster postpones it. When every open decision has been shown, the one shown longest ago is returned with `revisit` set. The returned decision carries its `key`, which the worklist stacked from it records in `shown`. Returns null when every blank unit is in a deferred group.
-export function nextDocketDecision(units, recordOf, ruledIds, shown = new Set()) {
+// The next decision to show the reviewer. Open decisions are in queue order: the largest cluster first, with one representative per echo group that has no record, then the singletons. A record on a blank member can only be a skip, so any recorded member defers its whole echo group. `shown` holds the decision keys stacked for this corpus, least recently stacked first (the app keeps it in localStorage). The first open decision not in `shown` is returned, so leaving a cluster postpones it. When every open decision has been shown, the one shown longest ago is returned with `revisit` set. The returned decision carries its `key`, which the worklist stacked from it records in `shown`. Returns null when every blank unit is in a deferred group.
+export function nextQueueDecision(units, recordOf, ruledIds, shown = new Set()) {
   const clusters = buildClusters(units, recordOf);
-  const { tranche, later, singletons } = partitionClusters(clusters, ruledIds);
+  const { top, later, singletons } = partitionClusters(clusters, ruledIds);
   const open = [];
-  for (const cluster of [...tranche, ...later]) {
-    const reps = [];
+  for (const cluster of [...top, ...later]) {
+    const representatives = [];
     for (const group of cluster.echoGroups) {
       if (group.unitIds.some((id) => recordOf(id))) continue;
-      reps.push(group.unitIds[0]);
+      representatives.push(group.unitIds[0]);
     }
-    if (reps.length > 0) open.push({ key: cluster.id, decision: { kind: 'cluster', cluster, unitIds: reps } });
+    if (representatives.length > 0) open.push({ key: cluster.id, decision: { kind: 'cluster', cluster, unitIds: representatives } });
   }
   const openSingles = singletons.filter((cluster) => !recordOf(cluster.exemplar.id));
   if (openSingles.length > 0) {
@@ -216,8 +216,8 @@ export function nextDocketDecision(units, recordOf, ruledIds, shown = new Set())
   return { ...oldest.decision, key: oldest.key, revisit: true };
 }
 
-// What to do with a docket worklist from the URL hash. A worklist names units by id, and a rebuild gives a changed unit a new id, so a worklist stamped for another corpus (or with no stamp) is meaningless: 'restack' stacks the next decision from the live queue. A current worklist whose units all have a verdict other than skip was finished, so it gets 'advance', as finishing it live would. A skip is a record but not a verdict, and clicking a skipped-through cluster's card should show its deferred reps again, so a worklist with any skip or blank renders (null).
-export function docketResumeAction({ stamp, manifestStamp, unitIds, recordOf }) {
+// What to do with a review queue worklist from the URL hash. A worklist names units by id, and a rebuild gives a changed unit a new id, so a worklist stamped for another corpus (or with no stamp) is meaningless: 'restack' stacks the next decision from the live queue. A current worklist whose units all have a verdict other than skip was finished, so it gets 'advance', as finishing it live would. A skip is a record but not a verdict, and clicking a skipped-through cluster's card should show its deferred representatives again, so a worklist with any skip or blank renders (null).
+export function queueResumeAction({ stamp, manifestStamp, unitIds, recordOf }) {
   if (stamp !== manifestStamp) return 'restack';
   const judged = (id) => {
     const record = recordOf(id);
@@ -227,7 +227,7 @@ export function docketResumeAction({ stamp, manifestStamp, unitIds, recordOf }) 
   return null;
 }
 
-export function docketTotals(clusters) {
+export function queueTotals(clusters) {
   let blankUnits = 0;
   let echoGroups = 0;
   let multiClusters = 0;

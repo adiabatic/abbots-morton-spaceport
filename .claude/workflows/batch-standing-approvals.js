@@ -1,6 +1,6 @@
 export const meta = {
   name: 'batch-standing-approvals',
-  description: 'Turn a docket of approved review-corpus units into standing-approval rules, commit one commit per phenomenon on the current branch, then launch the detached gate-and-cycle chain',
+  description: 'Turn a list of approved review-corpus units into standing-approval rules, commit one commit per phenomenon on the current branch, then launch the detached gate-and-cycle chain',
   whenToUse: 'The batch form of the dont-bug-me-about-this-ever-again skill. args: the unit ids, as an array, a whitespace-separated string, or {units: [...]}. Running it is the go-ahead for the per-phenomenon commits.',
   phases: [
     { title: 'Cluster', detail: 'a clean-tree check, then one probe over every unit, the distinct changes clustered by phenomenon and balanced by work' },
@@ -96,7 +96,7 @@ const ANALYSIS_SCHEMA = {
           matcher_change: { type: 'string', description: 'the exact standing_verdicts.py (and probe) change with its contract cases; empty when none is needed' },
           decision_record: { type: 'string' },
           units_covered: STRING_LIST,
-          survey: { type: 'string', description: 'how the swath was enumerated and what the targeted run showed on the scratch copy, including fills outside the docket read against the blind spot' },
+          survey: { type: 'string', description: 'how the swath was enumerated and what the targeted run showed on the scratch copy, including fills outside the approved list read against the blind spot' },
           commit_message: { type: 'string' },
           depends_on: STRING_LIST,
           order: { type: 'integer' },

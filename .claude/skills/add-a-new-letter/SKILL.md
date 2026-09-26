@@ -73,7 +73,7 @@ make verdict-ready
 
 ## 6 — land and hand off
 
-Show the diff, present the sub-agent's commit-message candidates, wait for the go-ahead, land everything as the single `Add ·X` commit. Afterward the user runs `make review-cycle` and adjudicates the new units in a review session — preparing one is `/review-docket`'s job and consuming its verdicts is `/just-verdicted-now-what`'s. The batch closes when its review session does; only then does its progress file go.
+Show the diff, present the sub-agent's commit-message candidates, wait for the go-ahead, land everything as the single `Add ·X` commit. Afterward the user runs `make review-cycle` and adjudicates the new units in a review session — preparing one is `/prepare-review-queue`'s job and consuming its verdicts is `/just-verdicted-now-what`'s. The batch closes when its review session does; only then does its progress file go.
 
 ## The bundled evidence tool
 

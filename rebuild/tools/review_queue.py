@@ -1,4 +1,4 @@
-"""Assemble the machine-readable docket data for the live corpus: cluster the blank human units by the build's `cluster` signature (the echo key without the judged pair; see `_cluster_id` in rebuild/review/build.py), collect evidence from judged units with the same signature, list the ledger classes ruled intended, reviewed-approved or reviewed-rejected that still have blank units, and list the echo groups whose recorded verdicts disagree (`verdicts_agree` decides, and counts an approve/identical mix as agreement). The review app's `#view=docket` computes the same clustering live from the in-memory verdict store. This tool writes tmp/docket-data.json instead of a page: a fixed snapshot for writing bulk proposals, which need the blank membership fixed against one verdicts file."""
+"""Write a machine-readable snapshot of the review queue for the live corpus: cluster the blank human units by the build's `cluster` signature (the echo key without the judged pair; see `_cluster_id` in rebuild/review/build.py), collect evidence from judged units with the same signature, list the ledger classes ruled intended, reviewed-approved or reviewed-rejected that still have blank units, and list the echo groups whose recorded verdicts disagree (`verdicts_agree` decides, and counts an approve/identical mix as agreement). The review app's `#view=queue` computes the same clustering live from the in-memory verdict store. This tool writes tmp/queue-data.json instead of a page: a fixed snapshot for writing bulk proposals, which need the blank membership fixed against one verdicts file."""
 
 import argparse
 import collections
@@ -15,15 +15,15 @@ if str(ROOT) not in sys.path:
 from rebuild.review import unit_index  # noqa: E402
 
 CORPUS = ROOT / "rebuild/out/review"
-DATA_OUT = ROOT / "tmp/docket-data.json"
+DATA_OUT = ROOT / "tmp/queue-data.json"
 RULED_STATUSES = ("intended", "reviewed-approved", "reviewed-rejected")
-TRANCHE_SIZE = 25
+TOP_CLUSTER_COUNT = 25
 ACCEPTING_VERDICTS = frozenset({"approve", "either", "identical"})
 ACCEPTING_MIX = frozenset({"approve", "identical"})
 
 
 def verdicts_agree(verdicts):
-    """Return whether the recorded verdicts on one echo group agree. They agree when they are all the same, or when they mix approve and identical: both accept the new rendering, and identical only adds that the highlighted part looks unchanged. `verdictsAgree` in rebuild/review/static/docket.js applies the same rule."""
+    """Return whether the recorded verdicts on one echo group agree. They agree when they are all the same, or when they mix approve and identical: both accept the new rendering, and identical only adds that the highlighted part looks unchanged. `verdictsAgree` in rebuild/review/static/queue.js applies the same rule."""
     kinds = set(verdicts)
     return len(kinds) <= 1 or kinds == ACCEPTING_MIX
 
@@ -49,7 +49,7 @@ def latest_verdicts(path):
 
 
 def main(argv=None, *, units: Iterable[Mapping[str, Any]] | None = None):
-    """Write the docket data. `units` lets a caller that already holds the corpus's index records pass them instead of having this tool read them again. Only human records (`batch` not None) enter the docket either way."""
+    """Write the review queue snapshot. `units` lets a caller that already holds the corpus's index records pass them instead of having this tool read them again. Only human records (`batch` not None) enter the snapshot either way."""
     parser = argparse.ArgumentParser(description=(__doc__ or "").split(":")[0] + ".")
     parser.add_argument(
         "verdicts", help="the verdicts file for the current frontier (an export or the autosave)"
@@ -70,7 +70,7 @@ def main(argv=None, *, units: Iterable[Mapping[str, Any]] | None = None):
     records = latest_verdicts(verdicts_path)
 
     units = load_human_units(corpus)[0] if units is None else units
-    # Sorted by the index record's `order`, the order the app pages through and docket.js reads, so each cluster's exemplar and evidence samples are its earliest units in that order.
+    # Sorted by the index record's `order`, the order the app pages through and queue.js reads, so each cluster's exemplar and evidence samples are its earliest units in that order.
     human = sorted((unit for unit in units if unit["batch"] is not None), key=triage_position)
     unclustered = [unit["id"] for unit in human if not unit.get("cluster")]
     if unclustered:
@@ -166,9 +166,9 @@ def main(argv=None, *, units: Iterable[Mapping[str, Any]] | None = None):
 
     ruled_ids = {entry["id"] for entry in ruled}
     multi = [cluster for cluster in clusters if cluster["size"] > 1 and cluster["class"] not in ruled_ids]
-    tranche = multi[:TRANCHE_SIZE]
+    top = multi[:TOP_CLUSTER_COUNT]
 
-    docket_data = {
+    queue_data = {
         "manifest_generated_at": manifest["generated_at"],
         "verdicts_file": verdicts_path.name,
         "totals": {
@@ -178,8 +178,8 @@ def main(argv=None, *, units: Iterable[Mapping[str, Any]] | None = None):
             "multi_clusters": sum(1 for cluster in clusters if cluster["size"] > 1),
             "singleton_clusters": sum(1 for cluster in clusters if cluster["size"] == 1),
             "ruled_units": sum(entry["blank_count"] for entry in ruled),
-            "tranche_clusters": len(tranche),
-            "tranche_units": sum(cluster["size"] for cluster in tranche),
+            "top_clusters": len(top),
+            "top_units": sum(cluster["size"] for cluster in top),
         },
         "clusters": clusters,
         "ruled_classes": ruled,
@@ -187,20 +187,20 @@ def main(argv=None, *, units: Iterable[Mapping[str, Any]] | None = None):
     }
     data_out = pathlib.Path(args.data_out)
     data_out.parent.mkdir(parents=True, exist_ok=True)
-    data_out.write_text(json.dumps(docket_data, ensure_ascii=False, indent=1) + "\n")
+    data_out.write_text(json.dumps(queue_data, ensure_ascii=False, indent=1) + "\n")
 
     stale_page = corpus / "docket.html"
     if stale_page.exists():
         stale_page.unlink()
-        print(f"removed {stale_page} — the docket is now the app's #view=docket")
+        print(f"removed {stale_page} — the review queue is the app's #view=queue")
 
-    totals = docket_data["totals"]
+    totals = queue_data["totals"]
     print(
         f"wrote {data_out}: {totals['blank_units']} blank units in {totals['echo_groups']} echo groups → "
-        f"{len(ruled)} class rulings ({totals['ruled_units']} units) + a {len(tranche)}-cluster tranche "
-        f"({totals['tranche_units']} units) + {len(multi) - len(tranche)} later clusters + "
+        f"{len(ruled)} class rulings ({totals['ruled_units']} units) + {len(top)} top clusters "
+        f"({totals['top_units']} units) + {len(multi) - len(top)} smaller clusters + "
         f"{sum(1 for cluster in clusters if cluster['size'] == 1 and cluster['class'] not in ruled_ids)} singletons; "
-        f"{len(conflicts)} echo groups disagree — adjudicate at #view=docket in the app"
+        f"{len(conflicts)} echo groups disagree — adjudicate at #view=queue in the app"
     )
 
 

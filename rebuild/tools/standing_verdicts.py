@@ -59,11 +59,11 @@ A candidate whose own contract fails is not an event, and its ink is judged as o
 
 Credit needs two or more events. One rule credited at two positions counts, as in a window where ·Ah gives up its exit tail twice, and a single event belongs on that rule's own line. A composed fill's verdict is `either` when any credited rule's verdict is `either` or a non-composable `either` rule also matches the window, and `approve` otherwise. Its note names the credited ids in rules-file order.
 
-A rule's except_left guard refuses the whole unit, never one position, so a guarded context is never filled beside an unguarded one. Most shapes read the guard across the whole window; `extension-dropped` and `ligature` read it at the left neighbor of each matched pivot. A composed reading reads each credited rule's guard in that rule's `guard_scope`, and a guard that holds a composed window holds the whole unit: it is counted on the composed line, never filled, and never passed to the single-rule pass. A rule's except_left families name the contexts the user still wants to review: units in those contexts are held, so they still reach the docket.
+A rule's except_left guard refuses the whole unit, never one position, so a guarded context is never filled beside an unguarded one. Most shapes read the guard across the whole window; `extension-dropped` and `ligature` read it at the left neighbor of each matched pivot. A composed reading reads each credited rule's guard in that rule's `guard_scope`, and a guard that holds a composed window holds the whole unit: it is counted on the composed line, never filled, and never passed to the single-rule pass. A rule's except_left families name the contexts the user still wants to review: units in those contexts are held, so they still reach the review queue.
 
 Standing fills complement echo_verdicts.py. The echo fill copies the user's verdicts to units whose change is pixel-identical, while a standing rule applies a recorded decision to units the user has never seen, such as windows with new left letters created by later migrations, so those units never queue.
 
-Each fill record's `at` is the manifest's generated_at, so a human verdict recorded on this corpus is newer and wins on merge. A parked unit carries a skip verdict, so it is not blank and is never filled. The verdict update (rebuild/tools/verdict_update.py) runs this after the echo fill and merges its file with merge_verdicts. The report also gives each rule's total reach, its own line plus its composed credit; the totals do not sum across rules, because a window two rules explain counts toward both.
+Each fill record's `at` is the manifest's generated_at, so a human verdict recorded on this corpus is newer and wins on merge. A deferred unit carries a skip verdict, so it is not blank and is never filled. The verdict update (rebuild/tools/verdict_update.py) runs this after the echo fill and merges its file with merge_verdicts. The report also gives each rule's total reach, its own line plus its composed credit; the totals do not sum across rules, because a window two rules explain counts toward both.
 
 Every decision depends only on the unit's index record, the two fonts' rendering of its window, and the rules file; the verdict store only decides which decisions become fills. `Decider.decide` computes the decision and `_decision_reach` aggregates a run from the decisions. The memo (`Memo`, the `--memo` flag, which the verdict update passes) keeps decisions across passes, so a pass evaluates only the units whose key is new and the units a changed rule can reach. `unit_key`, `memo_environment`, `rules_roster`, and `Decider._serve` define the unit keys, the memo stamp, and when a stored decision is served. A stored decision holds rule ids and no note text, so a reworded note re-evaluates nothing and every fill quotes the new wording. When the misses reach `_STANDING_POOL_THRESHOLD`, `_prefill` decides them across a spawn pool at the width `--jobs` gives. The tool derives no width of its own; the verdict update forwards the artifact cycle's. The fills and the report are byte-identical served or computed, pooled or serial, and rebuild/test_standing_verdicts.py checks this over the frozen mini bundle. The `--require-reach` rollup reads the same decisions, so its pass over the whole domain costs no second evaluation.
 
@@ -95,7 +95,7 @@ from rebuild.review.ink import IDENTITY_DIFF, InkComparator, delta_digest, featu
 from rebuild.validation.classify import PIXEL_SIZE  # noqa: E402
 from rebuild.review.unit_index import iter_human_units  # noqa: E402
 from rebuild.tools import standing_client  # noqa: E402
-from rebuild.tools.review_docket import ACCEPTING_VERDICTS, latest_verdicts, load_human_units  # noqa: E402
+from rebuild.tools.review_queue import ACCEPTING_VERDICTS, latest_verdicts, load_human_units  # noqa: E402
 
 CORPUS = ROOT / "rebuild/out/review"
 RULES = ROOT / "rebuild/standing-approvals.yaml"
@@ -107,7 +107,7 @@ MEMO_NAME = "standing-fill-memo.ndjson.gz"
 MEMO_CODE_MODULES = (
     "rebuild/review/ink.py",
     "rebuild/review/unit_index.py",
-    "rebuild/tools/review_docket.py",
+    "rebuild/tools/review_queue.py",
     "rebuild/tools/standing_client.py",
     "rebuild/tools/standing_verdicts.py",
     "rebuild/validation/classify.py",

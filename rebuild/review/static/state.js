@@ -1,10 +1,10 @@
-export const STATE_KEYS = ['class', 'batch', 'unit', 'group', 'config', 'family', 'status', 'machine', 'units', 'order', 'docket', 'decision', 'stamp', 'view'];
+export const STATE_KEYS = ['class', 'batch', 'unit', 'group', 'config', 'family', 'status', 'machine', 'units', 'order', 'queue', 'decision', 'stamp', 'view'];
 
 export const WORKLIST_EXIT_KEYS = ['class', 'batch', 'group', 'config', 'family', 'status'];
 
 export function shedWorklist(patch) {
   for (const key of WORKLIST_EXIT_KEYS) {
-    if (key in patch) return { units: null, order: null, docket: null, decision: null, stamp: null, view: null, ...patch };
+    if (key in patch) return { units: null, order: null, queue: null, decision: null, stamp: null, view: null, ...patch };
   }
   return patch;
 }
@@ -13,6 +13,8 @@ export function parseHash(hash) {
   const params = new URLSearchParams((hash ?? '').replace(/^#/, ''));
   const state = {};
   for (const key of STATE_KEYS) state[key] = params.get(key);
+  state.queue ??= params.get('docket');
+  if (state.view === 'docket') state.view = 'queue';
   if (state.batch !== null) {
     const parsed = Number.parseInt(state.batch, 10);
     state.batch = Number.isInteger(parsed) && parsed >= 0 ? parsed : null;

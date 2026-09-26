@@ -1,12 +1,12 @@
-"""Tests for the complaint docket (`rebuild/tools/complaint_docket.py`): grouping reject and neither verdicts by the rune records that decided them (a reject groups by its policy draft's fix site when it has one and otherwise by its exact provenance tuple, and a neither joins the reject group whose pointers overlap its own most), the fresh and standing split at the manifest stamp, the lookup from a group's pointers to the blank units it can park and the judged units a fix would change, and the park file (skip verdicts stamped with the manifest's `generated_at`, one per park candidate)."""
+"""Tests for the complaint list (`rebuild/tools/complaint_list.py`): grouping reject and neither verdicts by the rune records that decided them (a reject groups by its policy draft's fix site when it has one and otherwise by its exact provenance tuple, and a neither joins the reject group whose pointers overlap its own most), the fresh and standing split at the manifest stamp, the lookup from a group's pointers to the blank units it can defer and the judged units a fix would change, and the defer file (skip verdicts stamped with the manifest's `generated_at`, one per defer candidate)."""
 
 import json
 import weakref
 
 import pytest
 
-from rebuild.tools import complaint_docket as cd
-from rebuild.tools.review_docket import load_human_units
+from rebuild.tools import complaint_list as cl
+from rebuild.tools.review_queue import load_human_units
 
 STAMP = "2026-07-10T00:00:00Z"
 FRESH = "2026-07-10T12:00:00Z"
@@ -103,14 +103,14 @@ def write_verdicts(repo, verdicts, stamp=STAMP):
 
 
 def run(repo, *args, **held):
-    return cd.main(
+    return cl.main(
         [
             str(repo["verdicts"]),
             "--corpus",
             str(repo["corpus"]),
             "--data-out",
             str(repo["data_out"]),
-            "--park-dir",
+            "--defer-dir",
             str(repo["root"]),
             *args,
         ],
@@ -198,7 +198,7 @@ def test_fresh_and_standing_split_on_the_manifest_stamp_and_since_overrides(repo
     assert data(repo)["since"] == "2026-06-01T00:00:00Z"
 
 
-def test_park_candidates_are_the_blank_sharers_and_judged_sharers_forecast_churn(repo):
+def test_defer_candidates_are_the_blank_sharers_and_judged_sharers_forecast_churn(repo):
     write_corpus(
         repo,
         [
@@ -221,14 +221,14 @@ def test_park_candidates_are_the_blank_sharers_and_judged_sharers_forecast_churn
     )
     assert run(repo) == 0
     group = data(repo)["groups"][0]
-    assert group["park_candidates"]["unit_ids"] == ["u-0002", "u-0003"]
-    assert group["park_candidates"]["count"] == 2
+    assert group["defer_candidates"]["unit_ids"] == ["u-0002", "u-0003"]
+    assert group["defer_candidates"]["count"] == 2
     assert group["churn_if_fixed"] == {"approve": 1, "either": 1, "identical": 0}
-    assert data(repo)["totals"]["park_candidates"] == 2
+    assert data(repo)["totals"]["defer_candidates"] == 2
     assert data(repo)["totals"]["approved_sharing"] == 1
 
 
-def test_ruled_class_blanks_are_counted_but_not_parked(repo):
+def test_ruled_class_blanks_are_counted_but_not_deferred(repo):
     write_corpus(
         repo,
         [
@@ -240,11 +240,11 @@ def test_ruled_class_blanks_are_counted_but_not_parked(repo):
     write_verdicts(repo, [v("u-0001", "reject")])
     assert run(repo) == 0
     group = data(repo)["groups"][0]
-    assert group["park_candidates"]["unit_ids"] == ["u-0003"]
+    assert group["defer_candidates"]["unit_ids"] == ["u-0003"]
     assert group["ruled_class_blanks"] == {"count": 1, "by_class": {"ruled-class": 1}}
 
 
-def test_park_emits_skip_verdicts_at_the_manifest_stamp_covering_exact_blanks(repo):
+def test_defer_emits_skip_verdicts_at_the_manifest_stamp_covering_exact_blanks(repo):
     write_corpus(
         repo,
         [
@@ -256,9 +256,9 @@ def test_park_emits_skip_verdicts_at_the_manifest_stamp_covering_exact_blanks(re
     write_verdicts(repo, [v("u-0001", "reject", at=FRESH), v("u-0003", "approve")])
     assert run(repo) == 0
     group = data(repo)["groups"][0]
-    assert group["park_file"].startswith("verdicts-park-qsDay-policy-contract-")
-    assert run(repo, "--park", group["id"], "--note", "fix the contract first") == 0
-    payload = json.loads((repo["root"] / group["park_file"]).read_text())
+    assert group["defer_file"].startswith("verdicts-deferred-qsDay-policy-contract-")
+    assert run(repo, "--defer", group["id"], "--note", "fix the contract first") == 0
+    payload = json.loads((repo["root"] / group["defer_file"]).read_text())
     assert payload["format"] == "ams-review-verdicts/1"
     assert payload["manifest_generated_at"] == STAMP
     assert [record["unit"] for record in payload["verdicts"]] == ["u-0002"]
@@ -266,16 +266,16 @@ def test_park_emits_skip_verdicts_at_the_manifest_stamp_covering_exact_blanks(re
     assert record["verdict"] == "skip"
     assert record["at"] == STAMP
     assert record["note"] == (
-        f"[parked: qsDay.yaml policy.contract(+) — docket {STAMP}] fix the contract first"
+        f"[deferred: qsDay.yaml policy.contract(+) — complaint list {STAMP}] fix the contract first"
     )
 
 
-def test_park_refuses_unknown_ids_and_empty_candidate_sets(repo):
+def test_defer_refuses_unknown_ids_and_empty_candidate_sets(repo):
     write_corpus(repo, [unit("u-0001", [P_EXTEND_1])])
     write_verdicts(repo, [v("u-0001", "reject")])
-    assert run(repo, "--park", "g-00000000") == 1
+    assert run(repo, "--defer", "g-00000000") == 1
     payload = data(repo)
-    assert run(repo, "--park", payload["groups"][0]["id"]) == 1
+    assert run(repo, "--defer", payload["groups"][0]["id"]) == 1
 
 
 def test_refuses_a_verdicts_file_from_another_manifest(repo, capsys):
@@ -286,7 +286,7 @@ def test_refuses_a_verdicts_file_from_another_manifest(repo, capsys):
     assert not repo["data_out"].exists()
 
 
-def test_exempt_units_never_complain_and_never_park(repo):
+def test_exempt_units_never_complain_and_are_never_deferred(repo):
     write_corpus(
         repo,
         [
@@ -300,7 +300,7 @@ def test_exempt_units_never_complain_and_never_park(repo):
     assert run(repo) == 0
     payload = data(repo)
     assert payload["totals"]["complaints"] == 1
-    assert payload["groups"][0]["park_candidates"]["unit_ids"] == []
+    assert payload["groups"][0]["defer_candidates"]["unit_ids"] == []
 
 
 def test_the_absent_unit_warning_counts_against_every_id_on_the_corpus(repo, capsys):
@@ -324,7 +324,9 @@ def test_the_human_records_without_the_id_set_are_refused(repo):
         run(repo, unit_ids={"u-0001"})
 
 
-def test_streamed_records_preserve_docket_and_park_bytes_without_retaining_records(repo, capsys):
+def test_streamed_records_preserve_complaint_list_and_defer_file_bytes_without_retaining_records(
+    repo, capsys
+):
     write_corpus(
         repo,
         [
@@ -351,10 +353,10 @@ def test_streamed_records_preserve_docket_and_park_bytes_without_retaining_recor
     units, unit_ids = load_human_units(repo["corpus"])
     assert run(repo, units=units, unit_ids=unit_ids) == 0
     group = data(repo)["groups"][0]
-    assert run(repo, "--park", group["id"], units=units, unit_ids=unit_ids) == 0
+    assert run(repo, "--defer", group["id"], units=units, unit_ids=unit_ids) == 0
     expected = repo["data_out"].read_bytes()
-    park_path = repo["root"] / group["park_file"]
-    expected_park = park_path.read_bytes()
+    defer_path = repo["root"] / group["defer_file"]
+    expected_defer = defer_path.read_bytes()
     capsys.readouterr()
 
     class StreamRecord(dict):
@@ -370,9 +372,9 @@ def test_streamed_records_preserve_docket_and_park_bytes_without_retaining_recor
             yield streamed
             del streamed
 
-    assert run(repo, "--park", group["id"], units=stream(), unit_ids=unit_ids) == 0
+    assert run(repo, "--defer", group["id"], units=stream(), unit_ids=unit_ids) == 0
     assert repo["data_out"].read_bytes() == expected
-    assert park_path.read_bytes() == expected_park
+    assert defer_path.read_bytes() == expected_defer
     assert all(reference() is None for reference in references)
     assert capsys.readouterr().err == "warning: 1 verdict records name units absent from this corpus\n"
 
@@ -399,8 +401,8 @@ def test_complaints_with_no_provenance_land_in_a_terminal_unattributed_group(rep
     payload = data(repo)
     assert [group["kind"] for group in payload["groups"]] == ["provenance", "unattributed"]
     unattributed = payload["groups"][-1]
-    assert unattributed["park_file"] is None
-    assert unattributed["park_candidates"]["count"] == 0
+    assert unattributed["defer_file"] is None
+    assert unattributed["defer_candidates"]["count"] == 0
 
 
 def test_no_open_complaints_still_writes_a_valid_empty_feed(repo, capsys):

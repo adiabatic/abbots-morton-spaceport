@@ -153,7 +153,7 @@ export function importVerdicts(store, data, manifestGeneratedAt, { force = false
   return { ok: true, mismatch, added, replaced, keptNewer, invalid, units };
 }
 
-const CARRIED_PROVENANCE_PREFIX = /^(?:\s*\[(?:carried|echo-fill|echo-harmonize|bulk|parked|standing)\b[^\]]*\])+\s*/;
+const CARRIED_PROVENANCE_PREFIX = /^(?:\s*\[(?:carried|echo-fill|echo-harmonize|bulk|deferred|parked|standing)\b[^\]]*\])+\s*/;
 
 export function stripCarriedProvenance(note) {
   return note.replace(CARRIED_PROVENANCE_PREFIX, '');

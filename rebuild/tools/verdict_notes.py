@@ -1,6 +1,6 @@
 import re
 
-_MARKER = re.compile(r"\s*(\[(?:carried|echo-fill|echo-harmonize|bulk|parked|standing)\b[^\]]*\])")
+_MARKER = re.compile(r"\s*(\[(?:carried|echo-fill|echo-harmonize|bulk|deferred|parked|standing)\b[^\]]*\])")
 
 
 def cap_markers(note, keep=2):

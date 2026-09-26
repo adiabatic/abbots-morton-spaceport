@@ -1,4 +1,4 @@
-.PHONY: all test test-rebuild test-rebuild-slow test-slowly test-leaks leak-snapshot typecheck print-job serve explainer check-html-before check-html-after build-kerning-hardcases review test-and-review review-build review-serve review-cycle artifact-cycle verdict-ready cycle-timings job-costs complaint-docket novelty-order kernel-build kernel-check kernel-gate conform-deep standing-daemon standing-daemon-stop prettier woff2 clean
+.PHONY: all test test-rebuild test-rebuild-slow test-slowly test-leaks leak-snapshot typecheck print-job serve explainer check-html-before check-html-after build-kerning-hardcases review test-and-review review-build review-serve review-cycle artifact-cycle verdict-ready cycle-timings job-costs complaint-list novelty-order kernel-build kernel-check kernel-gate conform-deep standing-daemon standing-daemon-stop prettier woff2 clean
 
 all:
 	uv run python tools/build_font.py glyph_data/ site/
@@ -74,7 +74,7 @@ review-build:
 review-serve:
 	uv run python -m rebuild.review.serve
 
-# Runs the commit-time artifact cycle: run_m1, the corpus rebuild, the verdict update (carry, merge into the autosave, the echo and standing fills, the complaint docket), the census-pin refresh, and the gates. Bare `make artifact-cycle` picks the verdicts master to carry by itself; pass flags through ARGS, e.g. make artifact-cycle ARGS='--verdicts verdicts-X.json'. Each heavy stage skips itself when its green record shows its inputs unchanged since its last green run: run_m1, the corpus rebuild, gate:conform, the rebuild suite (gate:rebuild-contracts, with its own closure and record), and gate:make-test. A cycle after verdict-only changes therefore takes seconds. ARGS='--fresh' runs everything; ARGS='--force-make-test' forces only gate:make-test. The census-pin refresh runs on every pass except a rehearsal: it copies the build's census sidecar into rebuild/review-census-pins.json in milliseconds and prints that file's git diff, and committing the diff accepts the census. This target only verifies; `make review-cycle` runs the same pass and then serves the corpus, for the look-edit-look loop. The terminal shows the plan, then a numbered banner per step with its description and surfaced child lines, then the summary table. The full output is kept under var/build-logs/<stamp>-<sha>/ (var/build-logs/latest is the newest run): plan.txt, terminal.log as a byte copy of the terminal, and one log per spawned step.
+# Runs the commit-time artifact cycle: run_m1, the corpus rebuild, the verdict update (carry, merge into the autosave, the echo and standing fills, the complaint list), the census-pin refresh, and the gates. Bare `make artifact-cycle` picks the verdicts master to carry by itself; pass flags through ARGS, e.g. make artifact-cycle ARGS='--verdicts verdicts-X.json'. Each heavy stage skips itself when its green record shows its inputs unchanged since its last green run: run_m1, the corpus rebuild, gate:conform, the rebuild suite (gate:rebuild-contracts, with its own closure and record), and gate:make-test. A cycle after verdict-only changes therefore takes seconds. ARGS='--fresh' runs everything; ARGS='--force-make-test' forces only gate:make-test. The census-pin refresh runs on every pass except a rehearsal: it copies the build's census sidecar into rebuild/review-census-pins.json in milliseconds and prints that file's git diff, and committing the diff accepts the census. This target only verifies; `make review-cycle` runs the same pass and then serves the corpus, for the look-edit-look loop. The terminal shows the plan, then a numbered banner per step with its description and surfaced child lines, then the summary table. The full output is kept under var/build-logs/<stamp>-<sha>/ (var/build-logs/latest is the newest run): plan.txt, terminal.log as a byte copy of the terminal, and one log per spawned step.
 artifact-cycle:
 	uv run python rebuild/tools/artifact_cycle.py $(ARGS)
 
@@ -135,11 +135,11 @@ cycle-timings:
 job-costs:
 	uv run python -m rebuild.tools.calibrate_budgets $(ARGS)
 
-# Clusters the open complaints (reject and neither verdicts) by the rune records that decided them, lists park candidates among the still-blank lookalikes, and writes tmp/complaints-data.json. Reads the live autosave unless ARGS names a verdicts file. ARGS='--park g-XXXXXXXX' writes a verdicts-park-*.json for the app's Import dialog.
-complaint-docket:
-	uv run python rebuild/tools/complaint_docket.py $(ARGS)
+# Clusters the open complaints (reject and neither verdicts) by the rune records that decided them, lists defer candidates among the still-blank lookalikes, and writes tmp/complaints-data.json. Reads the live autosave unless ARGS names a verdicts file. ARGS='--defer g-XXXXXXXX' writes a verdicts-deferred-*.json for the app's Import dialog.
+complaint-list:
+	uv run python rebuild/tools/complaint_list.py $(ARGS)
 
-# Orders the blank queue for novelty and prints the worklist URL to paste into the review app. It takes one rep per echo group and picks each next unit to differ most from the last few shown, by class, families, letters, stances, seams, configs, and provenance. Reads the live autosave unless ARGS names a verdicts file. Emits the first 40 entries by default; ARGS='--limit 0' emits the whole queue.
+# Orders the blank queue for novelty and prints the worklist URL to paste into the review app. It takes one representative per echo group and picks each next unit to differ most from the last few shown, by class, families, letters, stances, seams, configs, and provenance. Reads the live autosave unless ARGS names a verdicts file. Emits the first 40 entries by default; ARGS='--limit 0' emits the whole queue.
 novelty-order:
 	uv run python rebuild/tools/novelty_order.py $(ARGS)
 

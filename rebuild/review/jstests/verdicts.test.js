@@ -373,13 +373,17 @@ test('recentNotes strips leading echo-fill and echo-harmonize markers ahead of t
   assert.deepEqual(recentNotes(store), ['harmonize to approve', 'the seam overshoots']);
 });
 
-test('recentNotes strips a leading parked marker ahead of the note', () => {
+test('recentNotes strips a leading deferred marker, or the parked marker older defer files carry, ahead of the note', () => {
   const store = createStore();
   recordVerdict(store, 'u-0001', 'skip', {
-    note: '[parked: qsLow.yaml policy.prefer(+) — docket 2026-07-18T00:00:00Z] fix the prefer first',
+    note: '[deferred: qsLow.yaml policy.prefer(+) — complaint list 2026-07-18T00:00:00Z] fix the prefer first',
     at: '2026-06-10T09:00:00Z',
   });
-  assert.deepEqual(recentNotes(store), ['fix the prefer first']);
+  recordVerdict(store, 'u-0002', 'skip', {
+    note: '[parked: qsLow.yaml policy.prefer(+) — docket 2026-07-18T00:00:00Z] from an older defer file',
+    at: '2026-06-10T10:00:00Z',
+  });
+  assert.deepEqual(recentNotes(store), ['from an older defer file', 'fix the prefer first']);
 });
 
 test('recentNotes strips a leading standing marker ahead of the note', () => {

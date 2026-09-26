@@ -1,10 +1,10 @@
-"""Group the open complaints (reject and neither verdicts) on the live review corpus by the rune records that decided them, and list the blank units those records also decide as park candidates: each group becomes one entry in the fix worklist, and its park candidates can be set aside until the fix is committed.
+"""Group the open complaints (reject and neither verdicts) on the live review corpus by the rune records that decided them, and list the blank units those records also decide as defer candidates: each group becomes one entry in the fix worklist, and its defer candidates can be set aside until the fix is committed.
 
 A reject with a policy draft is grouped by the draft's fix site (file and keypath). A reject without a draft is grouped by its exact tuple of provenance pointers, and complaints with no pointers form one unattributed group. Neithers are collected by pointer tuple too, and each tuple joins the reject group whose pointers overlap it most, or forms its own group when none overlaps.
 
-Parking uses skip verdicts. A park file holds one skip verdict per park candidate, with `at` set to the manifest's `generated_at`, so any verdict the user records on this corpus is newer and wins. The echo fill ignores skips, and the docket counts a skipped unit as blank but defers its echo group. The user imports the file through the app's Import dialog. The carry drops skip verdicts, so parked units return to the blank queue on the first cycle that rebuilds the corpus.
+Deferring uses skip verdicts. A defer file holds one skip verdict per defer candidate, with `at` set to the manifest's `generated_at`, so any verdict the user records on this corpus is newer and wins. The echo fill ignores skips, and the review queue counts a skipped unit as blank but defers its echo group. The user imports the file through the app's Import dialog. The carry drops skip verdicts, so deferred units return to the blank queue on the first cycle that rebuilds the corpus.
 
-Writes tmp/complaints-data.json. `--park g-XXXXXXXX` also writes a verdicts-park-*.json for that group.
+Writes tmp/complaints-data.json. `--defer g-XXXXXXXX` also writes a verdicts-deferred-*.json for that group.
 """
 
 import argparse
@@ -22,7 +22,7 @@ import yaml
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from rebuild.tools.review_docket import (  # noqa: E402
+from rebuild.tools.review_queue import (  # noqa: E402
     ACCEPTING_VERDICTS,
     RULED_STATUSES,
     latest_verdicts,
@@ -38,7 +38,7 @@ CHURN_KINDS = tuple(sorted(ACCEPTING_VERDICTS))
 
 
 def _triage_position(unit):
-    """Return the unit's position in the corpus's triage index (the record's `order`), which orders lookalikes in the docket. A record without an order sorts last."""
+    """Return the unit's position in the corpus's triage index (the record's `order`), which orders lookalikes in the complaint list. A record without an order sorts last."""
     order = unit.get("order")
     return order if isinstance(order, int) else sys.maxsize
 
@@ -132,7 +132,7 @@ def build_groups(complaints):
     return groups
 
 
-def _park_naming(group):
+def _defer_naming(group):
     if group["kind"] == "unattributed":
         return None, None
     if group["kind"] == "policy":
@@ -144,7 +144,7 @@ def _park_naming(group):
         first = group["key"][0]
         slug = _slug(f"{pathlib.Path(first.split(':', 1)[0]).stem} {first.split(':', 1)[1]}")
         marker_target = f"{group['id']} {_marker_safe(first)}"
-    return f"verdicts-park-{slug}-{group['id'][2:]}.json", marker_target
+    return f"verdicts-deferred-{slug}-{group['id'][2:]}.json", marker_target
 
 
 def _split_by_freshness(members, threshold):
@@ -164,7 +164,7 @@ def finalize_groups(groups, *, threshold, human, records, ruled_ids):
     naming = {}
     for group in groups.values():
         basis = group["basis"]
-        park_file, marker_target = _park_naming(group)
+        defer_file, marker_target = _defer_naming(group)
         candidates, ruled_blank = [], []
         churn = collections.Counter()
         if basis:
@@ -199,7 +199,7 @@ def finalize_groups(groups, *, threshold, human, records, ruled_ids):
                 "neithers": _split_by_freshness(group["neithers"], threshold),
                 "suggested_records": suggested,
                 "draft_conflicts": len(suggested) > 1,
-                "park_candidates": {
+                "defer_candidates": {
                     "count": len(candidates),
                     "unit_ids": [unit["id"] for unit in candidates],
                     "echo_groups": len({unit.get("echo") or unit["id"] for unit in candidates}),
@@ -211,7 +211,7 @@ def finalize_groups(groups, *, threshold, human, records, ruled_ids):
                 },
                 "churn_if_fixed": {kind: churn.get(kind, 0) for kind in CHURN_KINDS},
                 "shares_pointers_with": [],
-                "park_file": park_file,
+                "defer_file": defer_file,
             }
         )
         naming[finalized[-1]["id"]] = marker_target
@@ -234,8 +234,8 @@ def finalize_groups(groups, *, threshold, human, records, ruled_ids):
     return finalized, naming
 
 
-def emit_park(group, marker_target, *, stamp, park_dir, note_text):
-    marker = f"[parked: {marker_target} — docket {stamp}]"
+def emit_defer(group, marker_target, *, stamp, defer_dir, note_text):
+    marker = f"[deferred: {marker_target} — complaint list {stamp}]"
     note = f"{marker} {note_text}" if note_text else marker
     payload = {
         "format": "ams-review-verdicts/1",
@@ -243,16 +243,16 @@ def emit_park(group, marker_target, *, stamp, park_dir, note_text):
         "exported_at": stamp,
         "verdicts": [
             {"unit": unit_id, "verdict": "skip", "note": note, "at": stamp}
-            for unit_id in group["park_candidates"]["unit_ids"]
+            for unit_id in group["defer_candidates"]["unit_ids"]
         ],
     }
-    path = park_dir / group["park_file"]
+    path = defer_dir / group["defer_file"]
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=1) + "\n")
     return path
 
 
 def main(argv=None, *, units: Iterable[Mapping[str, Any]] | None = None, unit_ids: set[str] | None = None):
-    """Write the complaint docket data, and park files for any `--park` groups.
+    """Write the complaint list data, and defer files for any `--defer` groups.
 
     `units` and `unit_ids` are passed together or not at all: a single-pass stream of human unit records, and every corpus id, machine units included, for the absent-unit warning. Only the complaint fields and small projections of the blank and churn units are kept from the stream.
     """
@@ -271,15 +271,15 @@ def main(argv=None, *, units: Iterable[Mapping[str, Any]] | None = None, unit_id
         help="fresh/standing threshold as an ISO-8601 stamp (default: the manifest's generated_at)",
     )
     parser.add_argument(
-        "--park",
+        "--defer",
         action="append",
         default=[],
         metavar="GROUP_ID",
-        help="emit a verdicts-park-*.json of skip verdicts covering this group's park candidates; repeatable",
+        help="emit a verdicts-deferred-*.json of skip verdicts covering this group's defer candidates; repeatable",
     )
-    parser.add_argument("--park-dir", default=str(ROOT), help="where park files are written")
+    parser.add_argument("--defer-dir", default=str(ROOT), help="where defer files are written")
     parser.add_argument(
-        "--note", default="", help="verbatim reviewer text appended after the marker in every parked record"
+        "--note", default="", help="verbatim reviewer text appended after the marker in every deferred record"
     )
     args = parser.parse_args(argv)
     if (units is None) != (unit_ids is None):
@@ -340,7 +340,7 @@ def main(argv=None, *, units: Iterable[Mapping[str, Any]] | None = None, unit_id
     )
 
     fresh = sum(len(group["rejects"]["fresh"]) + len(group["neithers"]["fresh"]) for group in groups)
-    park_union = {unit_id for group in groups for unit_id in group["park_candidates"]["unit_ids"]}
+    defer_union = {unit_id for group in groups for unit_id in group["defer_candidates"]["unit_ids"]}
     ruled_blank_total = sum(group["ruled_class_blanks"]["count"] for group in groups)
     approved_sharing = sum(group["churn_if_fixed"]["approve"] for group in groups)
     payload = {
@@ -354,7 +354,7 @@ def main(argv=None, *, units: Iterable[Mapping[str, Any]] | None = None, unit_id
             "fresh": fresh,
             "standing": len(complaints) - fresh,
             "groups": len(groups),
-            "park_candidates": len(park_union),
+            "defer_candidates": len(defer_union),
             "ruled_class_blanks": ruled_blank_total,
             "approved_sharing": approved_sharing,
         },
@@ -371,25 +371,25 @@ def main(argv=None, *, units: Iterable[Mapping[str, Any]] | None = None, unit_id
         print(
             f"wrote {data_out}: {totals['complaints']} open complaints "
             f"({totals['fresh']} fresh / {totals['standing']} standing) in {totals['groups']} groups — "
-            f"{totals['park_candidates']} park candidates, "
+            f"{totals['defer_candidates']} defer candidates, "
             f"{totals['approved_sharing']} approved sharers likely churn if fixed"
         )
 
-    if args.park:
+    if args.defer:
         by_id = {group["id"]: group for group in groups}
-        park_dir = pathlib.Path(args.park_dir)
-        for group_id in args.park:
+        defer_dir = pathlib.Path(args.defer_dir)
+        for group_id in args.defer:
             group = by_id.get(group_id)
             if group is None:
                 known = ", ".join(sorted(by_id)) or "none"
                 print(f"unknown group id {group_id} (known: {known})", file=sys.stderr)
                 return 1
-            if group["park_file"] is None or not group["park_candidates"]["count"]:
-                print(f"{group_id} has no park candidates — nothing to emit", file=sys.stderr)
+            if group["defer_file"] is None or not group["defer_candidates"]["count"]:
+                print(f"{group_id} has no defer candidates — nothing to emit", file=sys.stderr)
                 return 1
-            path = emit_park(group, naming[group_id], stamp=stamp, park_dir=park_dir, note_text=args.note)
+            path = emit_defer(group, naming[group_id], stamp=stamp, defer_dir=defer_dir, note_text=args.note)
             print(
-                f"parked {group['park_candidates']['count']} units -> {path} — "
+                f"deferred {group['defer_candidates']['count']} units -> {path} — "
                 f"land it through the app's Import dialog"
             )
     return 0

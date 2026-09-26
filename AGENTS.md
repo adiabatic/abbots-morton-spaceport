@@ -160,7 +160,7 @@ Git holds the history, so a checked-in note earns its place only by recording th
 - A one-line join tweak to the old font's `glyph_data/quikscript.yaml` edits an existing stance rather than authoring a new one.
   - Patterns and worked examples: the tweak-an-old-font-join skill (`.claude/skills/tweak-an-old-font-join/SKILL.md`); the rebuild's runes take expand-or-contract-a-join instead.
 - Version bumps: the bump-major and bump-minor skills edit both version files, refresh the lockfile, and open the `FONTLOG.md` heading.
-- Review sessions: `review-docket` to prepare one, `dont-bug-me-about-this-ever-again` for a standing approval, `just-verdicted-now-what` for the aftermath.
+- Review sessions: `prepare-review-queue` to prepare one, `dont-bug-me-about-this-ever-again` for a standing approval, `just-verdicted-now-what` for the aftermath.
 
 ## Visual before/after diffs
 

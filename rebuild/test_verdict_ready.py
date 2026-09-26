@@ -1358,7 +1358,7 @@ def test_readiness_adds_the_server_row_and_gates_ready_on_it(tmp_path):
     assert ready is True
     lines = verdict_ready.checklist(result, ready)
     assert "  ✓ server: listening on port 7294" in lines
-    assert lines[-1] == f"READY - adjudicate at {verdict_ready.DOCKET_URL}"
+    assert lines[-1] == f"READY - adjudicate at {verdict_ready.QUEUE_URL}"
 
 
 def test_readiness_without_the_server_row_answers_for_the_corpus_alone(tmp_path):
@@ -1369,4 +1369,4 @@ def test_readiness_without_the_server_row_answers_for_the_corpus_alone(tmp_path)
     assert "server" not in result["checks"]
     lines = verdict_ready.checklist(result, ready)
     assert not any("server" in line for line in lines)
-    assert lines[-1] == f"READY - adjudicate at {verdict_ready.DOCKET_URL}"
+    assert lines[-1] == f"READY - adjudicate at {verdict_ready.QUEUE_URL}"

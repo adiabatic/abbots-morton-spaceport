@@ -492,14 +492,14 @@ def test_coverage_names_the_followers_forms_and_cells_a_rule_does_not(tmp_path, 
     assert _section(out, "  pivot forms the rule does not name:") == [
         "1  qsTea/full/x-height/baseline/  {'BLANK': 1}"
     ]
-    assert out.count(probe.DOCKET_NOTE) == 1
+    assert out.count(probe.CANDIDATE_LIST_NOTE) == 1
 
 
 def test_coverage_reports_a_rule_that_already_names_everything(tmp_path, capsys):
     units = [tea_window("c-1", "qsVie", "qsVie/normal/baseline/None/")]
     out = _run(tmp_path, capsys, units, ["--coverage", EXT_RULE["id"]])
     assert out.count("the rule names every one this enumeration reaches") == 3
-    assert probe.DOCKET_NOTE not in out
+    assert probe.CANDIDATE_LIST_NOTE not in out
 
 
 def test_coverage_dispatches_to_the_retarget_enumeration(tmp_path, capsys):
@@ -609,7 +609,7 @@ def test_coverage_names_the_forms_a_redrawn_rule_does_not(tmp_path, capsys):
         "1  qsUtter.alternate.ex-y0  {'approve': 1}"
     ]
     assert "qsUtter.mono  " not in out and "qsUtter/mono/None/None/" not in out
-    assert out.count(probe.DOCKET_NOTE) == 1
+    assert out.count(probe.CANDIDATE_LIST_NOTE) == 1
 
 
 def gay_window(uid, left, pivot, pivot_cell):

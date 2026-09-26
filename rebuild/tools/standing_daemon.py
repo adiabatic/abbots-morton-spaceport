@@ -31,7 +31,7 @@ sys.path.insert(0, str(ROOT))
 from rebuild.pipeline import fingerprint  # noqa: E402
 from rebuild.review.unit_index import iter_human_units  # noqa: E402
 from rebuild.tools import memory_budget, peak_rss, standing_client  # noqa: E402
-from rebuild.tools.review_docket import CORPUS  # noqa: E402
+from rebuild.tools.review_queue import CORPUS  # noqa: E402
 
 # Peak memory budget for the daemon process. It covers the held human index records (`iter_human_units` projected onto `UNIT_FIELDS`, sharing repeated values within the read and keeping no set of all corpus ids), the comparator over the font pair, transient allocations while loading, allocator retention, and one whole-domain request's evaluation. It is the process's peak, which is larger than its idle resident set. The figure comes from the `peak rss` line the daemon prints at exit: 1.52 GB on the 32 GiB machine in doc/fleet.md, after a probe and a whole-domain dry run with no memo at the cycle-derived refill width, then rounded up to leave at least 25% headroom. That line measures the daemon process only; STANDING_FILL_WORKER_BYTES budgets the refill workers separately. `serve` prints `describe_fit(…, cap=1)` once, and the width of one is enforced by refusing to start beside a live daemon. No cycle width is computed from this constant or subtracts it: `corpus_job_budget` and `kernel_threads_budget` assume no daemon is running, so stop the daemon before a cycle pass. The daemon also exits by itself once its corpus is rebuilt. Re-measure the figure as the corpus grows, as with CORPUS_PARENT_BYTES. The corpus-holding cap in the dont-bug-me-about-this-ever-again skill uses the same figure.
 STANDING_DAEMON_BYTES = 2_000_000_000

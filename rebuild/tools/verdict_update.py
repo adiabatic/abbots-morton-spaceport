@@ -1,6 +1,6 @@
-"""Run the cycle's verdict update in one process: carry, merge, echo fill, standing fill, their merges, an echo fixpoint, and the complaint docket.
+"""Run the cycle's verdict update in one process: carry, merge, echo fill, standing fill, their merges, an echo fixpoint, and the complaint list.
 
-The first index walk keeps every corpus id and, for human units, only the `echo_record` projection (id, echo group, notation). The carry reads that projection, and every echo round reuses it. The standing fill and the complaint docket each get a fresh stream of human index records, so full records stay in memory only for the step that reads them. Machine units' index lines contribute their ids without being parsed.
+The first index walk keeps every corpus id and, for human units, only the `echo_record` projection (id, echo group, notation). The carry reads that projection, and every echo round reuses it. The standing fill and the complaint list each get a fresh stream of human index records, so full records stay in memory only for the step that reads them. Machine units' index lines contribute their ids without being parsed.
 
 The standing fill runs with `--open-only --require-reach`, its persistent memo, and the cycle's `--standing-fill-jobs` width. Each step opens with a `[phase]` line and closes with a `[t]` line; the failure and fixpoint lines use the `[verdict-update]` prefix. The echo rounds after the standing merge spread what the standing fill wrote, and the echo output file holds the union of the fills from every round.
 """
@@ -21,7 +21,7 @@ if str(ROOT) not in sys.path:
 from rebuild.review import unit_index  # noqa: E402
 from rebuild.tools import (  # noqa: E402
     carry_verdicts,
-    complaint_docket,
+    complaint_list,
     console,
     echo_verdicts,
     merge_verdicts,
@@ -127,14 +127,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--no-merge",
         action="store_true",
-        help="carry only: never write the live store, and run neither fill nor the docket (the rehearsal form)",
+        help="carry only: never write the live store, and run neither fill nor the complaint list (the rehearsal form)",
     )
     parser.add_argument(
         "--no-complaints",
         action="store_true",
-        help="skip the complaint docket at the end of the verdict update",
+        help="skip the complaint list at the end of the verdict update",
     )
-    parser.add_argument("--complaints-out", type=pathlib.Path, default=complaint_docket.DATA_OUT)
+    parser.add_argument("--complaints-out", type=pathlib.Path, default=complaint_list.DATA_OUT)
     args = parser.parse_args(argv)
 
     corpus = args.corpus
@@ -245,7 +245,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     return _run(
         "complaints",
-        lambda: complaint_docket.main(
+        lambda: complaint_list.main(
             [
                 str(args.autosave),
                 "--corpus",

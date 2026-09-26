@@ -8,7 +8,7 @@ Start here:
 
 - `artifact_cycle.py` (`make artifact-cycle`; `make review-cycle` runs it and then serves the corpus): the commit-time artifact cycle
 - `verdict_ready.py` (`make verdict-ready`): the checklist that says whether the corpus is ready for a review session
-- `review_docket.py`: writes the docket data for a review session; the live view is `#view=docket`
+- `review_queue.py`: writes a snapshot of the review queue for a review session; the live view is `#view=queue`
 - `standing_probe.py`: explains, without writing anything, why a unit is still in the queue under the standing approvals
 - `probe.py`: compares the old-font baseline with the new settlement for one or more codepoint windows, in every configuration
 - `cycle_timings.py` (`make cycle-timings`): summarizes the recorded step timings and check results

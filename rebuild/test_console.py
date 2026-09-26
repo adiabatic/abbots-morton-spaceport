@@ -178,7 +178,7 @@ def test_node_test_events_read_tap_failures_and_not_a_zero_fail_count():
     assert console.node_test_events("    not ok 1 - nested") == console.Warn("not ok 1 - nested")
     assert console.node_test_events("# fail 2") == console.Warn("# fail 2")
     assert console.node_test_events("# fail 0") is None
-    assert console.node_test_events("ok 4 - docket groups") is None
+    assert console.node_test_events("ok 4 - queue groups") is None
 
 
 def test_warning_events_catch_both_shapes_anything_here_prints():
@@ -601,13 +601,13 @@ def test_the_summary_prints_the_table_the_cycle_lines_and_the_verdict(capsys):
         console.SummaryRow(3, "corpus-build", "skipped", "", None),
     ]
     cycle_console.summary(
-        rows, ["census pins  : unchanged", "READY - adjudicate at the docket"], console.VERDICT_OK
+        rows, ["census pins  : unchanged", "READY - adjudicate at the review queue"], console.VERDICT_OK
     )
     out = capsys.readouterr().out
     assert console.SUMMARY_BANNER in out
     assert "  1  snapshot      ok       15,903 units    0.4s" in out
     assert "  -  corpus-build  skipped" in out
-    assert "READY - adjudicate at the docket" in out
+    assert "READY - adjudicate at the review queue" in out
     assert out.rstrip().endswith("Cycle complete.")
 
 

@@ -1,4 +1,4 @@
-"""Tests for `rebuild/tools/novelty_order.py`: rep selection (one rep per echo group among the blank human units, the member earliest in triage order, a skip counting as blank and forming its own group), the greedy max-min walk (consecutive reps change class where id order would repeat it, the rarest class comes first, the same input gives the same order), and the printed worklist URL in its `order=given` form, with the check that the verdicts file is stamped for the same manifest."""
+"""Tests for `rebuild/tools/novelty_order.py`: representative selection (one representative per echo group among the blank human units, the member earliest in triage order, a skip counting as blank and forming its own group), the greedy max-min walk (consecutive representatives change class where id order would repeat it, the rarest class comes first, the same input gives the same order), and the printed worklist URL in its `order=given` form, with the check that the verdicts file is stamped for the same manifest."""
 
 import json
 
@@ -43,7 +43,7 @@ def v(unit_id, verdict, at=STAMP):
     return {"unit": unit_id, "verdict": verdict, "note": "", "at": at}
 
 
-def test_blank_reps_takes_the_lowest_blank_member_per_echo_group():
+def test_blank_representatives_takes_the_lowest_blank_member_per_echo_group():
     units = [
         unit("u-0001", echo="e-1"),
         unit("u-0002", echo="e-1"),
@@ -52,47 +52,47 @@ def test_blank_reps_takes_the_lowest_blank_member_per_echo_group():
         unit("u-0005", batch=None),
     ]
     records = {"u-0001": v("u-0001", "approve")}
-    reps, blank_count = no.blank_reps(units, records)
-    assert [u["id"] for u in reps] == ["u-0002", "u-0003", "u-0004"]
+    representatives, blank_count = no.blank_representatives(units, records)
+    assert [u["id"] for u in representatives] == ["u-0002", "u-0003", "u-0004"]
     assert blank_count == 3
 
 
-def test_blank_reps_counts_a_skip_as_blank():
+def test_blank_representatives_counts_a_skip_as_blank():
     units = [unit("u-0001", echo="e-1")]
-    reps, blank_count = no.blank_reps(units, {"u-0001": v("u-0001", "skip")})
-    assert [u["id"] for u in reps] == ["u-0001"]
+    representatives, blank_count = no.blank_representatives(units, {"u-0001": v("u-0001", "skip")})
+    assert [u["id"] for u in representatives] == ["u-0001"]
     assert blank_count == 1
 
 
-def test_blank_reps_makes_each_skipped_echo_member_its_own_rep():
+def test_blank_representatives_makes_each_skipped_echo_member_its_own_representative():
     units = [unit("u-0001", echo="e-1"), unit("u-0002", echo="e-1"), unit("u-0003", echo="e-1")]
     records = {"u-0002": v("u-0002", "skip"), "u-0003": v("u-0003", "skip")}
-    reps, blank_count = no.blank_reps(units, records)
-    assert [u["id"] for u in reps] == ["u-0001", "u-0002", "u-0003"]
+    representatives, blank_count = no.blank_representatives(units, records)
+    assert [u["id"] for u in representatives] == ["u-0001", "u-0002", "u-0003"]
     assert blank_count == 3
 
 
 def test_novelty_order_alternates_classes_where_id_order_repeats_them():
-    reps = [
+    representatives = [
         unit("u-0001", cls="alpha", group="qsPea:qsTea", tokens=("·Pea", "·Tea")),
         unit("u-0002", cls="alpha", group="qsPea:qsDay", tokens=("·Pea", "·Day")),
         unit("u-0003", cls="beta", group="qsMay:qsNo", tokens=("·May", "·No")),
         unit("u-0004", cls="beta", group="qsMay:qsLow", tokens=("·May", "·Low")),
     ]
-    order = no.novelty_order(reps)
+    order = no.novelty_order(representatives)
     assert sorted(order) == ["u-0001", "u-0002", "u-0003", "u-0004"]
-    classes = {u["id"]: u["class"] for u in reps}
+    classes = {u["id"]: u["class"] for u in representatives}
     assert all(classes[a] != classes[b] for a, b in zip(order, order[1:]))
-    assert order == no.novelty_order(reps)
+    assert order == no.novelty_order(representatives)
 
 
 def test_novelty_order_seeds_with_the_rarest_class():
-    reps = [
+    representatives = [
         unit("u-0001", cls="common"),
         unit("u-0002", cls="common", group="qsPea:qsDay"),
         unit("u-0003", cls="rare", group="qsMay:qsNo", tokens=("·May", "·No")),
     ]
-    assert no.novelty_order(reps)[0] == "u-0003"
+    assert no.novelty_order(representatives)[0] == "u-0003"
 
 
 def test_distance_is_zero_for_identical_features_and_grows_with_difference():
@@ -175,7 +175,7 @@ def test_main_limit_emits_a_prefix(repo, monkeypatch, capsys):
     )
     write_verdicts(repo, [])
     out = run_main(repo, monkeypatch, capsys, "--limit", "2")
-    assert "emitting the first 2 reps" in out
+    assert "emitting the first 2 representatives" in out
     assert len(worklist_url(out).split("#units=")[1].split("&")[0].split(",")) == 2
 
 
@@ -183,7 +183,7 @@ def test_main_defaults_to_a_forty_unit_worklist(repo, monkeypatch, capsys):
     write_corpus(repo, [unit(f"u-{number:04d}") for number in range(1, 46)])
     write_verdicts(repo, [])
     out = run_main(repo, monkeypatch, capsys)
-    assert "emitting the first 40 reps" in out
+    assert "emitting the first 40 representatives" in out
     assert len(worklist_url(out).split("#units=")[1].split("&")[0].split(",")) == 40
 
 

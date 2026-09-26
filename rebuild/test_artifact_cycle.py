@@ -442,11 +442,11 @@ def test_dry_run_plan_complaints_rides_inside_the_verdict_update(tmp_path, monke
     step = {step.name: step for step in plan.steps}["verdict-update"]
     assert step.argv is not None
     assert "--no-complaints" not in step.argv
-    assert "complaint docket" in step.note
+    assert "complaint list" in step.note
     assert plan.complaints_note == ""
 
 
-def test_the_verdict_update_is_told_to_skip_the_docket_on_rehearsal_first_run_and_a_missing_store(
+def test_the_verdict_update_is_told_to_skip_the_complaint_list_on_rehearsal_first_run_and_a_missing_store(
     tmp_path, monkeypatch
 ):
     autosave = tmp_path / "verdicts-autosave.json"
@@ -470,7 +470,7 @@ def test_the_verdict_update_is_told_to_skip_the_docket_on_rehearsal_first_run_an
     assert "no verdicts store" in absent.complaints_note
 
 
-def test_the_docket_headline_is_scraped_and_never_fails_the_cycle(tmp_path, monkeypatch):
+def test_the_complaint_list_headline_is_scraped_and_never_fails_the_cycle(tmp_path, monkeypatch):
     autosave = tmp_path / "verdicts-autosave.json"
     autosave.write_text("{}")
     monkeypatch.setattr(ac, "AUTOSAVE", autosave)
@@ -483,7 +483,7 @@ def test_the_docket_headline_is_scraped_and_never_fails_the_cycle(tmp_path, monk
                 "complaints",
                 [
                     "wrote /x/tmp/complaints-data.json: 3 open complaints (1 fresh / 2 standing) in 2 "
-                    "groups — 5 park candidates, 4 approved sharers likely churn if fixed"
+                    "groups — 5 defer candidates, 4 approved sharers likely churn if fixed"
                 ],
             )
         ),
@@ -4858,7 +4858,7 @@ def test_a_green_finish_closes_on_the_readiness_checklist_instead_of_naming_the_
 
     def block(plan):
         seen.append(plan)
-        return ["Review corpus: here", "  ✓ gates: green", "", "READY - adjudicate at the docket"]
+        return ["Review corpus: here", "  ✓ gates: green", "", "READY - adjudicate at the review queue"]
 
     monkeypatch.setattr(cycle_paths, "READINESS_ENABLED", True)
     monkeypatch.setattr(ac, "readiness_block", block)
@@ -4866,7 +4866,7 @@ def test_a_green_finish_closes_on_the_readiness_checklist_instead_of_naming_the_
     assert ac._finish(_green_report(), [], plan) == 0
     out = capsys.readouterr().out
     assert seen == [plan]
-    assert "READY - adjudicate at the docket" in out
+    assert "READY - adjudicate at the review queue" in out
     assert "make verdict-ready" not in out
     assert out.index("  ✓ gates: green") < out.index("Cycle complete.")
 
@@ -6840,7 +6840,7 @@ def test_finish_honors_the_two_green_finish_switches(monkeypatch, capsys):
 
     def readiness(plan):
         calls["readiness"] += 1
-        return ["READY - adjudicate at the docket"]
+        return ["READY - adjudicate at the review queue"]
 
     monkeypatch.setattr(ac, "run_retention", retention)
     monkeypatch.setattr(ac, "readiness_block", readiness)
@@ -6859,7 +6859,7 @@ def test_finish_honors_the_two_green_finish_switches(monkeypatch, capsys):
     assert ac._finish(_green_report(), [], plan) == 0
     out = capsys.readouterr().out
     assert calls == {"retention": 1, "readiness": 1}
-    assert "READY - adjudicate at the docket" in out
+    assert "READY - adjudicate at the review queue" in out
     assert "swept" in out
 
 

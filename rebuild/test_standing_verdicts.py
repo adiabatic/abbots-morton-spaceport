@@ -1,6 +1,6 @@
 """Tests for the standing-approval fill in `rebuild/tools/standing_verdicts.py`.
 
-They cover every match shape in `sv.SHAPES`, the composed reading that credits two or more events in one window, the except_left guard, which units count as blank (a parked skip verdict does not), the manifest stamp every fill record carries as its `at`, rules-file validation, the `--open-only`, `--require-reach` and `--targeted` runs, the memo, and the pooled refill. The fixture rules use synthetic letters and cells, and the fixture fonts are built from rectilinear outlines (`_build_font`). The contract each shape checks is recorded in the module docstring of `standing_verdicts`, which `test_every_shape_is_named_in_the_module_docstring` checks names every shape.
+They cover every match shape in `sv.SHAPES`, the composed reading that credits two or more events in one window, the except_left guard, which units count as blank (a deferred skip verdict does not), the manifest stamp every fill record carries as its `at`, rules-file validation, the `--open-only`, `--require-reach` and `--targeted` runs, the memo, and the pooled refill. The fixture rules use synthetic letters and cells, and the fixture fonts are built from rectilinear outlines (`_build_font`). The contract each shape checks is recorded in the module docstring of `standing_verdicts`, which `test_every_shape_is_named_in_the_module_docstring` checks names every shape.
 """
 
 import gzip
@@ -2997,7 +2997,7 @@ def test_main_fills_only_blank_matching_human_units(tmp_path, monkeypatch):
     units[4]["no_verdict"] = True
     verdicts = [
         {"unit": "u-2", "verdict": "approve", "note": "", "at": "2026-07-11T00:00:00Z"},
-        {"unit": "u-3", "verdict": "skip", "note": "[parked]", "at": "2026-07-11T00:00:00Z"},
+        {"unit": "u-3", "verdict": "skip", "note": "[deferred]", "at": "2026-07-11T00:00:00Z"},
     ]
     payload = _run_main(tmp_path, monkeypatch, units, verdicts)
     assert payload["format"] == "ams-review-verdicts/1"
@@ -3044,7 +3044,7 @@ def test_main_fills_only_the_blank_matching_ink_delta_units(tmp_path, monkeypatc
     units[5]["no_verdict"] = True
     verdicts = [
         {"unit": "i-2", "verdict": "reject", "note": "", "at": "2026-07-11T00:00:00Z"},
-        {"unit": "i-3", "verdict": "skip", "note": "[parked]", "at": "2026-07-11T00:00:00Z"},
+        {"unit": "i-3", "verdict": "skip", "note": "[deferred]", "at": "2026-07-11T00:00:00Z"},
     ]
     rule = json.loads(json.dumps(INK_RULE))
     rule["match"]["except_left"] = ["qsOut"]
@@ -3187,7 +3187,7 @@ def test_open_only_writes_the_fills_the_whole_domain_writes(tmp_path, monkeypatc
     ]
     verdicts = [
         {"unit": "u-2", "verdict": "approve", "note": "", "at": "2026-07-11T00:00:00Z"},
-        {"unit": "u-3", "verdict": "skip", "note": "[parked]", "at": "2026-07-11T00:00:00Z"},
+        {"unit": "u-3", "verdict": "skip", "note": "[deferred]", "at": "2026-07-11T00:00:00Z"},
         {"unit": "u-5", "verdict": "reject", "note": "", "at": "2026-07-11T00:00:00Z"},
     ]
     whole = _run_main(tmp_path / "full", monkeypatch, units, verdicts)

@@ -44,6 +44,6 @@ just-verdicted-now-what's steps 6–7. `make test` self-skips (`glyph_data/runes
 
 UNMATCHED rows are the mid-migration steady state, not a red gate; `run_m1` exits with its gate's result. Green is defects 0/0, Manual pins clean, `multi_matched` 0. New unmatched exemplars for this pair (`+en-con-1`, `+ex-ext-N`, position-drift) are the designed divergence. A new `E-CONTACT` / dangle in `defect_errors` needs a signature in `rebuild/m1-contact-allow.yaml` in that file's idiom; a cell variant that already has one (the `qsGay.hapax.en-y0.en-con-1` dangle from ·No) is reused, not copied.
 
-Do not author a standing approval unless the user wants the docket to stop asking — that is dont-bug-me-about-this-ever-again.
+Do not author a standing approval unless the user wants the review queue to stop asking — that is dont-bug-me-about-this-ever-again.
 
 Commit message names the letters and the look (`Contract ·Key ~b~ ·Gay by a pixel`, `Extend ·Gay ~x~ ·J'ai by another pixel`). After it lands, the user runs `make review-cycle`.

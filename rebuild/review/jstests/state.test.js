@@ -39,7 +39,7 @@ test('hash state round-trips', () => {
     status: 'reject',
   };
   const reparsed = parseHash(`#${writeHash(state)}`);
-  assert.deepEqual(reparsed, { ...state, family: null, machine: null, units: null, order: null, docket: null, decision: null, stamp: null, view: null });
+  assert.deepEqual(reparsed, { ...state, family: null, machine: null, units: null, order: null, queue: null, decision: null, stamp: null, view: null });
 });
 
 test('a units worklist rides the hash and round-trips', () => {
@@ -60,62 +60,70 @@ test('a worklist order rides the hash beside the units it orders and round-trips
   assert.equal(reparsed.order, 'given');
 });
 
-test('the docket cursor rides the hash beside a units worklist and round-trips', () => {
-  const parsed = parseHash('#units=u-0001,u-0002&docket=1');
+test('the queue cursor rides the hash beside a units worklist and round-trips', () => {
+  const parsed = parseHash('#units=u-0001,u-0002&queue=1');
   assert.equal(parsed.units, 'u-0001,u-0002');
-  assert.equal(parsed.docket, '1');
-  assert.equal(parseHash('#batch=0').docket, null);
-  const serialized = writeHash({ units: 'u-0001,u-0002', docket: '1' });
+  assert.equal(parsed.queue, '1');
+  assert.equal(parseHash('#batch=0').queue, null);
+  const serialized = writeHash({ units: 'u-0001,u-0002', queue: '1' });
   const reparsed = parseHash(`#${serialized}`);
   assert.equal(reparsed.units, 'u-0001,u-0002');
-  assert.equal(reparsed.docket, '1');
+  assert.equal(reparsed.queue, '1');
 });
 
-test('shedWorklist drops the units worklist, the docket cursor, and the docket view when a navigation patch changes class, batch, group, config, family, or status', () => {
+test('shedWorklist drops the units worklist, the queue cursor, and the queue view when a navigation patch changes class, batch, group, config, family, or status', () => {
   for (const [key, value] of [['class', 'dangling-anchor-dropped'], ['batch', 2], ['group', 'qsTea:qsOy'], ['config', 'ss04'], ['family', 'qsMay'], ['status', 'verdicted']]) {
-    assert.deepEqual(shedWorklist({ [key]: value }), { units: null, order: null, docket: null, decision: null, stamp: null, view: null, [key]: value }, `changing ${key} must shed the worklist, docket cursor, and view`);
+    assert.deepEqual(shedWorklist({ [key]: value }), { units: null, order: null, queue: null, decision: null, stamp: null, view: null, [key]: value }, `changing ${key} must shed the worklist, queue cursor, and view`);
   }
   const cleared = shedWorklist({ family: null, config: null, status: null, group: null });
   assert.equal(cleared.units, null, 'clear-filters sheds the worklist alongside the other filters');
   assert.equal(cleared.order, null, 'clear-filters sheds the worklist order alongside the worklist itself');
-  assert.equal(cleared.docket, null, 'clear-filters sheds the docket cursor alongside the other filters');
+  assert.equal(cleared.queue, null, 'clear-filters sheds the queue cursor alongside the other filters');
   assert.equal(cleared.stamp, null, 'clear-filters sheds the worklist corpus stamp alongside the worklist it pins');
-  assert.equal(cleared.view, null, 'clear-filters leaves the docket view too');
+  assert.equal(cleared.view, null, 'clear-filters leaves the queue view too');
 });
 
-test('shedWorklist keeps a cursor move or machine toggle inside the worklist, injecting no docket key', () => {
+test('shedWorklist keeps a cursor move or machine toggle inside the worklist, injecting no queue key', () => {
   assert.deepEqual(shedWorklist({ unit: 'u-0001' }), { unit: 'u-0001' });
   assert.deepEqual(shedWorklist({ unit: 'u-0003' }), { unit: 'u-0003' });
   assert.deepEqual(shedWorklist({ machine: '1' }), { machine: '1' });
   assert.deepEqual(shedWorklist({}), {});
 });
 
-test('the corpus stamp rides the hash beside a docket worklist and round-trips', () => {
-  const parsed = parseHash('#units=u-0001,u-0002&docket=1&stamp=2026-08-23T20%3A08%3A03Z');
+test('the corpus stamp rides the hash beside a queue worklist and round-trips', () => {
+  const parsed = parseHash('#units=u-0001,u-0002&queue=1&stamp=2026-08-23T20%3A08%3A03Z');
   assert.equal(parsed.stamp, '2026-08-23T20:08:03Z');
-  assert.equal(parseHash('#units=u-0001,u-0002&docket=1').stamp, null);
-  const serialized = writeHash({ units: 'u-0001,u-0002', docket: '1', stamp: '2026-08-23T20:08:03Z' });
+  assert.equal(parseHash('#units=u-0001,u-0002&queue=1').stamp, null);
+  const serialized = writeHash({ units: 'u-0001,u-0002', queue: '1', stamp: '2026-08-23T20:08:03Z' });
   const reparsed = parseHash(`#${serialized}`);
-  assert.equal(reparsed.docket, '1');
+  assert.equal(reparsed.queue, '1');
   assert.equal(reparsed.stamp, '2026-08-23T20:08:03Z');
 });
 
-test('the decision key rides the hash beside a docket worklist and round-trips, the singleton run included', () => {
-  assert.equal(parseHash('#units=u-0030&docket=1&decision=%23singletons').decision, '#singletons');
-  assert.equal(parseHash('#units=u-0030&docket=1').decision, null);
+test('the decision key rides the hash beside a queue worklist and round-trips, the singleton run included', () => {
+  assert.equal(parseHash('#units=u-0030&queue=1&decision=%23singletons').decision, '#singletons');
+  assert.equal(parseHash('#units=u-0030&queue=1').decision, null);
   for (const decision of ['#singletons', 'c-bbe6acfa']) {
-    const reparsed = parseHash(`#${writeHash({ units: 'u-0030', docket: '1', decision })}`);
+    const reparsed = parseHash(`#${writeHash({ units: 'u-0030', queue: '1', decision })}`);
     assert.equal(reparsed.units, 'u-0030');
     assert.equal(reparsed.decision, decision);
   }
 });
 
-test('the docket view rides the hash and round-trips', () => {
-  assert.equal(parseHash('#view=docket').view, 'docket');
+test('the queue view rides the hash and round-trips', () => {
+  assert.equal(parseHash('#view=queue').view, 'queue');
   assert.equal(parseHash('#batch=0').view, null);
-  const serialized = writeHash({ view: 'docket' });
-  assert.equal(serialized, 'view=docket');
-  assert.equal(parseHash(`#${serialized}`).view, 'docket');
+  const serialized = writeHash({ view: 'queue' });
+  assert.equal(serialized, 'view=queue');
+  assert.equal(parseHash(`#${serialized}`).view, 'queue');
+});
+
+test('the old docket spellings in a bookmarked or logged hash open the review queue', () => {
+  const parsed = parseHash('#units=u-0001,u-0002&docket=1&decision=c-bbe6acfa');
+  assert.equal(parsed.queue, '1');
+  assert.equal(parsed.decision, 'c-bbe6acfa');
+  assert.equal(parseHash('#view=docket').view, 'queue');
+  assert.equal(writeHash(parsed), 'units=u-0001%2Cu-0002&queue=1&decision=c-bbe6acfa');
 });
 
 test('the machine toggle rides the hash and round-trips', () => {

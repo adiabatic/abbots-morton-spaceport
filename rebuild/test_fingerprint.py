@@ -352,7 +352,7 @@ LEDGER = textwrap.dedent("""\
 
 
 STANDING = textwrap.dedent("""\
-    # Once-and-for-all pattern rules, so a blessed delta shape never reaches the docket again.
+    # Once-and-for-all pattern rules, so a blessed delta shape never reaches the review queue again.
     format: ams-standing-approvals/1
     rules:
       - id: tea-oy-ligature-break

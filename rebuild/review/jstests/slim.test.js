@@ -49,7 +49,7 @@ const viewState = (over = {}) => ({
   machine: '1',
   units: null,
   order: null,
-  docket: null,
+  queue: null,
   stamp: null,
   view: null,
   ...over,

@@ -1,4 +1,4 @@
-"""Order the blank review queue for novelty, so consecutive units in a review session differ as much as possible instead of following the shard order's near-identical neighbors. It takes one rep per echo group among the human units with no record, since the app copies a verdict on the rep to the group's members that have no record. A unit whose latest verdict is a skip is blank too, but the echo fill never reaches it, so each skipped unit is its own rep. The distance between two reps is a weighted sum over `DIMENSIONS`: divergence class, left and right family, letter set, settled stances, changed seams, configuration set, unit kinds, deciding provenance and window length. The walk starts at a rep of the rarest class and then picks, each time, the rep whose smallest distance to the last `RECENT_WINDOW` shown is largest, breaking ties toward rarer classes and then earlier triage position, so one-off questions are not buried behind the large classes. It prints the worklist URL to paste into the review app, `#units=…&order=given`, which the app keeps in the given order instead of sorting by family pair."""
+"""Order the blank review queue for novelty, so consecutive units in a review session differ as much as possible instead of following the shard order's near-identical neighbors. It takes one representative per echo group among the human units with no record, since the app copies a verdict on the representative to the group's members that have no record. A unit whose latest verdict is a skip is blank too, but the echo fill never reaches it, so each skipped unit is its own representative. The distance between two representatives is a weighted sum over `DIMENSIONS`: divergence class, left and right family, letter set, settled stances, changed seams, configuration set, unit kinds, deciding provenance and window length. The walk starts at a representative of the rarest class and then picks, each time, the representative whose smallest distance to the last `RECENT_WINDOW` shown is largest, breaking ties toward rarer classes and then earlier triage position, so one-off questions are not buried behind the large classes. It prints the worklist URL to paste into the review app, `#units=…&order=given`, which the app keeps in the given order instead of sorting by family pair."""
 
 import argparse
 import collections
@@ -12,7 +12,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from rebuild.review.serve import PORT  # noqa: E402
-from rebuild.tools.review_docket import latest_verdicts, load_human_units  # noqa: E402
+from rebuild.tools.review_queue import latest_verdicts, load_human_units  # noqa: E402
 
 CORPUS = ROOT / "rebuild/out/review"
 AUTOSAVE = ROOT / "verdicts-autosave.json"
@@ -20,20 +20,20 @@ RECENT_WINDOW = 3
 
 
 def _triage_position(unit):
-    """Return the unit's position in the corpus's triage index (the index record's `order`), which decides the rep chosen from each group and breaks the walk's remaining ties."""
+    """Return the unit's position in the corpus's triage index (the index record's `order`), which decides the representative chosen from each group and breaks the walk's remaining ties."""
     order = unit.get("order")
     return order if isinstance(order, int) else sys.maxsize
 
 
-def blank_reps(units, records):
+def blank_representatives(units, records):
     human = [unit for unit in units if unit["batch"] is not None]
     blanks = [unit for unit in human if unit["id"] not in records or records[unit["id"]]["verdict"] == "skip"]
     groups = collections.defaultdict(list)
     for unit in blanks:
         groups[unit["id"] if unit["id"] in records else unit.get("echo") or unit["id"]].append(unit)
-    reps = [min(members, key=_triage_position) for members in groups.values()]
-    reps.sort(key=_triage_position)
-    return reps, len(blanks)
+    representatives = [min(members, key=_triage_position) for members in groups.values()]
+    representatives.sort(key=_triage_position)
+    return representatives, len(blanks)
 
 
 def features(unit):
@@ -88,15 +88,15 @@ def distance(fa, fb):
     return sum(weight * measure(fa[key], fb[key]) for key, weight, measure in DIMENSIONS)
 
 
-def novelty_order(reps):
-    if not reps:
+def novelty_order(representatives):
+    if not representatives:
         return []
-    feats = {unit["id"]: features(unit) for unit in reps}
-    position = {unit["id"]: _triage_position(unit) for unit in reps}
+    feats = {unit["id"]: features(unit) for unit in representatives}
+    position = {unit["id"]: _triage_position(unit) for unit in representatives}
     rarity = collections.Counter(f["class"] for f in feats.values())
-    seed = min(reps, key=lambda u: (rarity[feats[u["id"]]["class"]], position[u["id"]]))
+    seed = min(representatives, key=lambda u: (rarity[feats[u["id"]]["class"]], position[u["id"]]))
     order = [seed["id"]]
-    remaining = {unit["id"] for unit in reps} - {seed["id"]}
+    remaining = {unit["id"] for unit in representatives} - {seed["id"]}
     while remaining:
         window = order[-RECENT_WINDOW:]
         best = max(
@@ -144,22 +144,24 @@ def main(clipboard_write: Callable[[str], None] | None = None, *, units=None):
         )
     records = latest_verdicts(verdicts_path)
 
-    reps, blank_count = blank_reps(units if units is not None else load_human_units(corpus)[0], records)
-    if not reps:
+    representatives, blank_count = blank_representatives(
+        units if units is not None else load_human_units(corpus)[0], records
+    )
+    if not representatives:
         print("No blank units — nothing to order.")
         return
-    order = novelty_order(reps)
+    order = novelty_order(representatives)
     if args.limit > 0 and args.limit < len(order):
         emitted = order[: args.limit]
         print(
             f"{blank_count} blank units collapse to {len(order)} echo groups; "
-            f"emitting the first {len(emitted)} reps of the novelty order."
+            f"emitting the first {len(emitted)} representatives of the novelty order."
         )
     else:
         emitted = order
         print(
             f"{blank_count} blank units collapse to {len(order)} echo groups; "
-            f"verdicting the worklist reps echo-fills the rest."
+            f"verdicting the worklist representatives echo-fills the rest."
         )
     url = f"http://localhost:{PORT}/#units={','.join(emitted)}&order=given"
     print(url)
