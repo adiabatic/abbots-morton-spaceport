@@ -50,7 +50,7 @@ NO_FONTS = (
 )
 CANDIDATE_LIST_NOTE = (
     "  a candidate list, not an instruction to widen: each form, follower and cell above joins the rule only once "
-    "its own recorded decision has been found — the verdict family, the rune edit, or the review session that "
+    "its own recorded decision has been found — the unmatched group, the rune edit, or the review session that "
     "decided it"
 )
 

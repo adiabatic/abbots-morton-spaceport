@@ -177,7 +177,7 @@ class Selection:
             return f"every test runs ({self.reason})"
         running = self.known - len(self.skip)
         moved = capped_labels(list(self.changed)) if self.changed else "nothing"
-        return f"{running} of {self.known} recorded tests run, plus any test the record has no closure for; {len(self.skip)} proven unaffected by the diff ({moved})"
+        return f"{running} of {self.known} recorded tests run, plus any test the record has no closure for; {len(self.skip)} shown unaffected by the diff ({moved})"
 
 
 def select(record: dict | None, current: dict[str, str]) -> Selection:

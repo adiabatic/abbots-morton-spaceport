@@ -511,8 +511,8 @@ RETARGET_BEHIND_WIDENED_JOIN_RULE = {
     },
 }
 
-REACHING_JOIN_BEFORE_RETARGET_RULE = {
-    "id": "fixture-join-created-reaching-before-a-retarget",
+COLUMNS_ADDED_JOIN_BEFORE_RETARGET_RULE = {
+    "id": "fixture-join-created-with-a-follower-adding-a-column-before-a-retarget",
     "verdict": "approve",
     "note": "·J joins ·Tea at the baseline where the old font left a break, and ·Tea takes the join on a form that adds a column at its left edge",
     "match": {
@@ -529,8 +529,8 @@ REACHING_JOIN_BEFORE_RETARGET_RULE = {
     },
 }
 
-REACHING_CREATED_JOIN_RULE = {
-    "id": "fixture-join-created-with-a-reaching-follower",
+COLUMNS_ADDED_JOIN_RULE = {
+    "id": "fixture-join-created-with-a-follower-adding-a-column",
     "verdict": "approve",
     "note": "·J joins ·F3 where the old font left a break, and ·F3 takes the join on a form that adds a column at its left edge",
     "match": {
@@ -2010,10 +2010,10 @@ TEA_VERTICAL_GAIN_MISALIGNED = register_pair(
     "qsTea.half.en-y5.after-xheight-exit", "qsTea.full.en-y5.misaligned"
 )
 PLACED_CONTRACTION = register_pair("qsRoe.ex-y0.placed-contraction", "qsRoe.sole.en-y5.ex-y0.en-con-1")
-FOLLOWER_3_REACHING = register_pair("qsF3.reaching", "qsF3.reached")
+FOLLOWER_3_COLUMN_ADDED = register_pair("qsF3.reaching", "qsF3.reached")
 STUB_LEAD = register_pair("qsBay.stub-lead", "qsBay.stub-lead")
 STUB_SEE = register_pair("qsSee.ex-y0.stub-fixture", "qsSee.straighter.stub-fixture")
-REACHING_TEA = register_pair("qsTea.half.ex-y5.reach-fixture", "qsTea.reaching")
+TEA_COLUMN_ADDED = register_pair("qsTea.half.ex-y5.reach-fixture", "qsTea.reaching")
 TEA_GAINING_A_JOIN = register_pair(
     "qsTea.half.en-y5.after-xheight-exit.gain-join-fixture", "qsTea.full.en-y5.gain-join-fixture"
 )
@@ -2095,7 +2095,7 @@ SLIDE_FONTS = {
         {**AFTER_GLYPHS, "qsF3.wider": (TWO_COLUMNS, 100)},
         AFTER_CMAP,
     ),
-    "after-created-join-follower-not-reaching": (
+    "after-created-join-follower-adding-no-column": (
         {**AFTER_GLYPHS, "qsF3.reached": (TUCKED_FOLLOWER, 100)},
         AFTER_CMAP,
     ),
@@ -5218,17 +5218,19 @@ COMBINED_WIDENED_JOIN_GLYPHS = [
 ]
 COMBINED_WIDENED_JOIN_CODEPOINTS = spell(LEAD, SEE, PIVOT_SHORTENED, FOLLOWER_3_WIDENED, FOLLOWER_1)
 COMBINED_WIDENED_JOIN_RULES = [SLIDE_RULE, WIDENED_CREATED_JOIN_RULE]
-REACHING_CREATED_JOIN_GLYPHS = ["qsL", "qsJ.ex-y0.ex-ext-3.long", "qsF3.reaching", "qsF1"]
-REACHING_CREATED_JOIN_CODEPOINTS = spell(LEAD, PIVOT_SHORTENED, FOLLOWER_3_REACHING, FOLLOWER_1)
-COMBINED_REACHING_JOIN_GLYPHS = [
+COLUMNS_ADDED_JOIN_GLYPHS = ["qsL", "qsJ.ex-y0.ex-ext-3.long", "qsF3.reaching", "qsF1"]
+COLUMNS_ADDED_JOIN_CODEPOINTS = spell(LEAD, PIVOT_SHORTENED, FOLLOWER_3_COLUMN_ADDED, FOLLOWER_1)
+COMBINED_COLUMNS_ADDED_JOIN_GLYPHS = [
     "qsL",
     "qsSee.ex-y0",
     "qsJ.ex-y0.ex-ext-3.long",
     "qsF3.reaching",
     "qsF1",
 ]
-COMBINED_REACHING_JOIN_CODEPOINTS = spell(LEAD, SEE, PIVOT_SHORTENED, FOLLOWER_3_REACHING, FOLLOWER_1)
-COMBINED_REACHING_JOIN_RULES = [SLIDE_RULE, REACHING_CREATED_JOIN_RULE]
+COMBINED_COLUMNS_ADDED_JOIN_CODEPOINTS = spell(
+    LEAD, SEE, PIVOT_SHORTENED, FOLLOWER_3_COLUMN_ADDED, FOLLOWER_1
+)
+COMBINED_COLUMNS_ADDED_JOIN_RULES = [SLIDE_RULE, COLUMNS_ADDED_JOIN_RULE]
 RETARGET_BEHIND_WIDENED_JOIN_RULES = [RETARGET_RULE, RETARGET_BEHIND_WIDENED_JOIN_RULE]
 STUB_CREATED_JOIN_GLYPHS = ["qsBay.stub-lead", "qsJ.ex-y0.ex-ext-3.long", "qsF3"]
 STUB_CREATED_JOIN_CODEPOINTS = spell(STUB_LEAD, PIVOT_SHORTENED, FOLLOWER_3)
@@ -5275,8 +5277,8 @@ RETARGET_BEHIND_CREATED_JOIN_GLYPHS = [
 ]
 RETARGET_BEHIND_CREATED_JOIN_CODEPOINTS = spell(LEAD, PIVOT_SHORTENED, TEA, NO, FOLLOWER_1)
 RETARGET_BEHIND_CREATED_JOIN_RULES = [RETARGET_RULE, RETARGET_BEHIND_CREATED_JOIN_RULE]
-RETARGET_BEHIND_REACHING_JOIN_CODEPOINTS = spell(LEAD, PIVOT_SHORTENED, REACHING_TEA, NO, FOLLOWER_1)
-RETARGET_BEHIND_REACHING_JOIN_RULES = [RETARGET_RULE, REACHING_JOIN_BEFORE_RETARGET_RULE]
+RETARGET_BEHIND_COLUMNS_ADDED_JOIN_CODEPOINTS = spell(LEAD, PIVOT_SHORTENED, TEA_COLUMN_ADDED, NO, FOLLOWER_1)
+RETARGET_BEHIND_COLUMNS_ADDED_JOIN_RULES = [RETARGET_RULE, COLUMNS_ADDED_JOIN_BEFORE_RETARGET_RULE]
 EXTENSION_BEHIND_CREATED_JOIN_GLYPHS = ["qsL", "qsNo.en-ext-1", "qsJ.ex-y0.ex-ext-1", "qsF3"]
 EXTENSION_BEHIND_CREATED_JOIN_CODEPOINTS = spell(LEAD, NO, PIVOT, FOLLOWER_3)
 EXTENSION_BEHIND_CREATED_JOIN_RULES = [COMBINED_EXT_RULE, EXTENSION_BEHIND_CREATED_JOIN_RULE]
@@ -5495,10 +5497,10 @@ def combined_widened_join_window(uid="cwj-1"):
     )
 
 
-def reaching_created_join_window(uid="rcjr-1"):
+def columns_added_join_window(uid="rcjr-1"):
     return unit(
         uid,
-        list(REACHING_CREATED_JOIN_GLYPHS),
+        list(COLUMNS_ADDED_JOIN_GLYPHS),
         ["y0", "break", "y0"],
         [
             "qsL/full/None/None/",
@@ -5507,17 +5509,17 @@ def reaching_created_join_window(uid="rcjr-1"):
             "qsF1/full/None/None/",
         ],
         ["y0", "y0", "y0"],
-        codepoints=REACHING_CREATED_JOIN_CODEPOINTS,
+        codepoints=COLUMNS_ADDED_JOIN_CODEPOINTS,
         configs=("default",),
         ink_deltas={"default": SLIDE_DELTA},
         pair={"left": 1, "right": 2},
     )
 
 
-def combined_reaching_join_window(uid="crjr-1"):
+def combined_columns_added_join_window(uid="crjr-1"):
     return unit(
         uid,
-        list(COMBINED_REACHING_JOIN_GLYPHS),
+        list(COMBINED_COLUMNS_ADDED_JOIN_GLYPHS),
         ["y0", "y0", "break", "y0"],
         [
             "qsL/full/None/None/",
@@ -5527,7 +5529,7 @@ def combined_reaching_join_window(uid="crjr-1"):
             "qsF1/full/None/None/",
         ],
         ["y0", "y0", "y0", "y0"],
-        codepoints=COMBINED_REACHING_JOIN_CODEPOINTS,
+        codepoints=COMBINED_COLUMNS_ADDED_JOIN_CODEPOINTS,
         configs=("default",),
         ink_deltas={"default": SLIDE_DELTA},
         pair={"left": 3, "right": 4},
@@ -5664,7 +5666,7 @@ def retargeted_created_join_window(uid="rcj-1"):
     )
 
 
-def retarget_behind_reaching_join_window(uid="rbrj-1"):
+def retarget_behind_columns_added_join_window(uid="rbrj-1"):
     return unit(
         uid,
         ["qsL", "qsJ.ex-y0.ex-ext-3.long", "qsTea.half.ex-y5.reach-fixture", "qsNo.en-ext-1", "qsF1"],
@@ -5677,7 +5679,7 @@ def retarget_behind_reaching_join_window(uid="rbrj-1"):
             "qsF1/full/None/None/",
         ],
         ["y0", "y0", "y0", "y0"],
-        codepoints=RETARGET_BEHIND_REACHING_JOIN_CODEPOINTS,
+        codepoints=RETARGET_BEHIND_COLUMNS_ADDED_JOIN_CODEPOINTS,
         configs=("default",),
         ink_deltas={"default": SLIDE_DELTA},
         pair={"left": 1, "right": 2},
@@ -5966,34 +5968,32 @@ def test_a_created_join_rule_declaring_no_advance_is_refused_by_a_widened_follow
 
 
 def test_a_new_join_whose_follower_adds_columns_matches(slide_context):
-    assert sv._matches(
-        REACHING_CREATED_JOIN_RULE["match"], reaching_created_join_window(), context=slide_context()
-    )
+    assert sv._matches(COLUMNS_ADDED_JOIN_RULE["match"], columns_added_join_window(), context=slide_context())
 
 
 def test_a_created_join_rule_declaring_no_added_columns_is_refused_by_a_follower_that_adds_them(
     slide_context,
 ):
-    without_added_columns = json.loads(json.dumps(REACHING_CREATED_JOIN_RULE))
+    without_added_columns = json.loads(json.dumps(COLUMNS_ADDED_JOIN_RULE))
     without_added_columns["match"]["after"]["follower_columns_added"] = 0
     assert not sv._matches(
-        without_added_columns["match"], reaching_created_join_window(), context=slide_context()
+        without_added_columns["match"], columns_added_join_window(), context=slide_context()
     )
 
 
-def test_a_created_join_whose_follower_keeps_its_origin_is_refused_by_the_reaching_rule(slide_context):
+def test_a_created_join_whose_follower_keeps_its_origin_is_refused_by_the_columns_added_rule(slide_context):
     assert not sv._matches(
-        REACHING_CREATED_JOIN_RULE["match"],
-        reaching_created_join_window(),
-        context=slide_context("after-created-join-follower-not-reaching"),
+        COLUMNS_ADDED_JOIN_RULE["match"],
+        columns_added_join_window(),
+        context=slide_context("after-created-join-follower-adding-no-column"),
     )
 
 
-def test_a_slide_and_a_reaching_created_join_in_one_window_combine(slide_context):
+def test_a_slide_and_a_columns_added_join_in_one_window_combine(slide_context):
     events = sv._combined_match(
-        COMBINED_REACHING_JOIN_RULES, combined_reaching_join_window(), slide_context()
+        COMBINED_COLUMNS_ADDED_JOIN_RULES, combined_columns_added_join_window(), slide_context()
     )
-    assert events == {SLIDE_RULE["id"]: [1], REACHING_CREATED_JOIN_RULE["id"]: [2]}
+    assert events == {SLIDE_RULE["id"]: [1], COLUMNS_ADDED_JOIN_RULE["id"]: [2]}
 
 
 def test_a_new_join_whose_pivot_gives_up_a_left_side_stub_matches(slide_context):
@@ -6024,7 +6024,7 @@ def test_a_created_join_rule_dropping_no_stub_at_all_is_refused_at_load(tmp_path
 
 
 def test_a_created_join_rule_adding_a_negative_column_count_is_refused_at_load(tmp_path):
-    rule = json.loads(json.dumps(REACHING_CREATED_JOIN_RULE))
+    rule = json.loads(json.dumps(COLUMNS_ADDED_JOIN_RULE))
     rule["match"]["after"]["follower_columns_added"] = -1
     with pytest.raises(SystemExit, match="a follower's joining form adds columns"):
         sv.load_rules(_write_rules(tmp_path / "rules.yaml", [rule]))
@@ -6512,15 +6512,15 @@ def test_a_retarget_shares_a_letter_with_a_created_join_on_its_follower(slide_co
 def test_a_retarget_shares_a_letter_with_a_created_join_whose_follower_added_columns(slide_context):
     """The created join's declared `follower_columns_added` accounts for its follower's moved own-frame origin. So a follower whose joining form added columns at its left edge to take the join can still be a retarget's pivot, and the join carries past it only the added columns (`_carried_past`)."""
     events = sv._combined_match(
-        RETARGET_BEHIND_REACHING_JOIN_RULES, retarget_behind_reaching_join_window(), slide_context()
+        RETARGET_BEHIND_COLUMNS_ADDED_JOIN_RULES, retarget_behind_columns_added_join_window(), slide_context()
     )
-    assert events == {REACHING_JOIN_BEFORE_RETARGET_RULE["id"]: [1], RETARGET_RULE["id"]: [2]}
+    assert events == {COLUMNS_ADDED_JOIN_BEFORE_RETARGET_RULE["id"]: [1], RETARGET_RULE["id"]: [2]}
 
 
-def test_neither_rule_alone_reads_a_retarget_behind_a_reaching_created_join(slide_context):
+def test_neither_rule_alone_reads_a_retarget_behind_a_columns_added_join(slide_context):
     """A retarget whose pivot moved its own-frame origin is not an event by itself. Only a created join in front of it declares that move."""
-    window = retarget_behind_reaching_join_window()
-    for rule in RETARGET_BEHIND_REACHING_JOIN_RULES:
+    window = retarget_behind_columns_added_join_window()
+    for rule in RETARGET_BEHIND_COLUMNS_ADDED_JOIN_RULES:
         assert not sv._matches(rule["match"], window, context=slide_context())
         assert sv._combined_walk([rule], window, slide_context()) is None
 
@@ -7299,10 +7299,10 @@ COMBINED_WALK_CORPORA = {
         lambda: [widened_created_join_window(), combined_widened_join_window(), created_join_window()],
         ("after", "after-created-join-follower-not-widened"),
     ),
-    "join-created-with-a-reaching-follower": (
-        REACHING_CREATED_JOIN_RULE,
-        lambda: [reaching_created_join_window(), combined_reaching_join_window(), created_join_window()],
-        ("after", "after-created-join-follower-not-reaching"),
+    "join-created-with-a-follower-adding-a-column": (
+        COLUMNS_ADDED_JOIN_RULE,
+        lambda: [columns_added_join_window(), combined_columns_added_join_window(), created_join_window()],
+        ("after", "after-created-join-follower-adding-no-column"),
     ),
     "join-created-whose-pivot-drops-a-stub": (
         STUB_CREATED_JOIN_RULE,

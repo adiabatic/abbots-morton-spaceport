@@ -569,11 +569,11 @@ def render_rows(
         if row.unverified_here and row.dropped_older:
             lines.append(
                 "  UNVERIFIED HERE: no record from this host for this unit has been measured since the commit that set the constant,"
-                " so its current value is unproven on this machine until the next pass that runs this unit."
+                " so its current value is unchecked on this machine until the next pass that runs this unit."
             )
         elif row.unverified_here:
             lines.append(
-                "  UNVERIFIED HERE: no rows from this host for this unit, so the constant's headroom is unproven on this machine."
+                "  UNVERIFIED HERE: no rows from this host for this unit, so the constant's headroom is unchecked on this machine."
                 " The journal records which machine measured a peak, never which machine a constant was sized on."
             )
         sources = _sources_line(row)

@@ -177,7 +177,7 @@ class TestIsolatedOverlay:
         assert divergent.new_junctions == ("break",)
 
     def test_the_overlay_case_sweeps_two_letters_and_never_reaches_the_crate(self, spec, monkeypatch):
-        """At any belt maximum length, the overlay branch shapes every text of one or two alphabet symbols and nothing longer, and it never forms, settles, memoizes or calls the crate."""
+        """At any belt maximum length, the overlay case shapes every text of one or two alphabet symbols and nothing longer, and it never forms, settles, memoizes or calls the crate."""
 
         def unreachable(*args, **kwargs):
             raise AssertionError("the overlay case reached the crate")

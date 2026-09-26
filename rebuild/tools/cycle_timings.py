@@ -47,6 +47,8 @@ STEP_NAME_ALIASES = {
     "surface-build": "corpus-build",
     "surface-promote": "corpus-promote",
     "census": "review-facts",
+    "echo-fill": "duplicate-fill",
+    "echo-merge": "duplicate-merge",
 }
 POOL_UNIT_ALIASES = {"surface": "corpus"}
 

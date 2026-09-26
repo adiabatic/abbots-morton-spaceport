@@ -578,6 +578,26 @@ def test_load_journal_reads_a_census_step_as_the_review_facts(tmp_path):
     assert [step["name"] for run in order for step in steps[run]] == ["review-facts", "review-facts"]
 
 
+def test_load_journal_reads_the_echo_steps_as_the_duplicate_steps(tmp_path):
+    """Older lines name the duplicate fill and merge steps `echo-fill` and `echo-merge`; `--by-step` counts them with the `duplicate-fill` and `duplicate-merge` lines."""
+    path = tmp_path / "j.ndjson"
+    path.write_text(
+        "\n".join(
+            json.dumps({"kind": "step", "run": run, "name": name, "host": "h", "elapsed_s": 1.0})
+            for run, name in (
+                ("r1", "echo-fill"),
+                ("r1", "echo-merge"),
+                ("r2", "duplicate-fill"),
+                ("r2", "duplicate-merge"),
+            )
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    _, steps, order = ct.load_journal(path)
+    assert [step["name"] for run in order for step in steps[run]] == ["duplicate-fill", "duplicate-merge"] * 2
+
+
 def test_main_reports_a_missing_journal(tmp_path, capsys):
     assert ct.main(["--journal", str(tmp_path / "absent.ndjson")]) == 0
     out = capsys.readouterr().out

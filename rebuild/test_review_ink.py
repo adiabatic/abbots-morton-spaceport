@@ -299,7 +299,7 @@ def test_a_tuck_beside_a_real_change_keeps_the_real_changes_digest(tuck_comparat
     assert tuck_comparator.picture_identical(TUCKED_WINDOW, ("default",)) is False
 
 
-def test_a_re_spelling_the_neighbor_no_longer_covers_stays_in_the_delta(tmp_path):
+def test_a_renaming_the_neighbor_no_longer_covers_stays_in_the_delta(tmp_path):
     """The same change to ·At beside a ·J'ai that no longer reaches the column leaves a real hole, and the delta is that hole (a column lost, with no shift) instead of the shortened-·Fee digest. The delta is read from the rendered union of this window, so a change that is usually invisible still shows when it leaves a hole."""
     before = _build_font(tmp_path / "before.ttf", TUCK_BEFORE, TUCK_CMAP)
     holed = _build_font(tmp_path / "holed.ttf", TUCK_HOLE, TUCK_CMAP)

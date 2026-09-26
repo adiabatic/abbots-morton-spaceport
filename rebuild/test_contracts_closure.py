@@ -371,7 +371,7 @@ class TestTheGateNarrows:
 
         monkeypatch.setattr(rg, "rebuild_lane_closure", closure)
 
-    def test_a_narrowed_run_keeps_off_what_the_record_proves_and_records_the_merge(
+    def test_a_narrowed_run_keeps_off_what_the_record_checked_and_records_the_merge(
         self, contracts_store, monkeypatch, capsys
     ):
         before = {**BASE_FILES, "a.yaml": "9"}

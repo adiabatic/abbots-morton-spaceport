@@ -1195,7 +1195,7 @@ mod tests {
         std::fs::remove_dir_all(&root).expect("the scratch directory is removable");
     }
 
-    /// If `default`'s second half fails while the wave runs, the run reports `default`'s error. When only `default` is blocked, the error names the file it failed on. When every configuration is blocked, the run reports `default`'s error instead of the delta's, whether or not the delta was claimed before the stop. `a_lead_runs_beside_the_seat_that_claims_while_it_does` checks that the lead overlaps the workers; this test checks only which error the run returns.
+    /// If `default`'s second half fails while the wave runs, the run reports `default`'s error. When only `default` is blocked, the error names the file it failed on. When every configuration is blocked, the run reports `default`'s error instead of the delta's, whether or not the delta was claimed before the stop. `a_lead_runs_beside_the_worker_that_claims_while_it_does` checks that the lead overlaps the workers; this test checks only which error the run returns.
     #[test]
     fn a_default_that_fails_during_the_wave_is_what_the_run_reports() {
         let index = fixtures::mini();
@@ -1281,7 +1281,7 @@ mod tests {
 
     /// The lead runs while another worker claims, which the test enforces with a barrier instead of relying on timing: with two workers and a worklist listed out of order, the lead waits at a barrier that the first item's answer also reaches, so the worker has claimed and started an item while the lead is still running. `default`'s fold relies on this overlap. The run returns both items' results with the positions they carry, and the lead's result separately. When both fail, the run returns the lead's error.
     #[test]
-    fn a_lead_runs_beside_the_seat_that_claims_while_it_does() {
+    fn a_lead_runs_beside_the_worker_that_claims_while_it_does() {
         let work = [(3, "ss03"), (1, "ss09")];
         let met = std::sync::Barrier::new(2);
         let (led, mut seated) = claim_all_leading(
@@ -1298,7 +1298,7 @@ mod tests {
                 Ok((*token).to_owned())
             },
         )
-        .expect("both seats answer");
+        .expect("both items answer");
         seated.sort_by_key(|(seat, _)| *seat);
         assert_eq!(led, "lead");
         assert_eq!(seated, [(1, "ss09".to_owned()), (3, "ss03".to_owned())]);

@@ -74,7 +74,7 @@ def test_the_verdict_update_key_covers_every_module_it_reaches():
     uncovered = sorted(str(path.relative_to(REPO_ROOT)) for path in files - _covered(REPO_ROOT))
     assert uncovered == [], (
         "these modules run in the verdict update but no fingerprint the verdict-update key carries hashes them, "
-        f"so a fix to one would be skipped as already proven: {', '.join(uncovered)}"
+        f"so a fix to one would be skipped as already checked: {', '.join(uncovered)}"
     )
 
 

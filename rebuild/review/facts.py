@@ -66,7 +66,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 PINS_PATH = REPO_ROOT / "rebuild" / "review-facts-pins.json"
 
 FACTS_FILENAME = "review-facts.json"
-FACTS_FORMAT = "ams-review-facts/6"
+FACTS_FORMAT = "ams-review-facts/7"
 FACTS_REMEDY = "rebuild the corpus with: uv run python -m rebuild.review.build"
 
 AUDIT_PATH = REPO_ROOT / "rebuild" / "out" / "m1" / "divergence-audit.tsv"
@@ -351,7 +351,7 @@ def unmatched_group_counts(assignments: list[str]) -> dict[str, int]:
 
 def unmatched_groups_group(repo_root: Path = REPO_ROOT) -> dict:
     counts = unmatched_group_counts(unmatched_group_assignments(repo_root))
-    return {"census": counts, "total": sum(counts.values())}
+    return {"counts": counts, "total": sum(counts.values())}
 
 
 # --- the review-facts sidecar ---------------------------------------------------------
@@ -575,7 +575,7 @@ def ink_group_from_flags(class_rows: Iterable[tuple[str, bool]], flags: str) -> 
 def unmatched_groups_group_from(assignments: list[str]) -> dict:
     """The unmatched_groups group over groups already assigned, so a build can report the groups phase 1 computed without enriching every UNMATCHED window again."""
     counts = unmatched_group_counts(assignments)
-    return {"census": counts, "total": sum(counts.values())}
+    return {"counts": counts, "total": sum(counts.values())}
 
 
 def built_group_from_memory(table: UnitTable, config_notes: Mapping[int, str | None]) -> dict:
@@ -622,7 +622,7 @@ def build_facts(
             "inputs_fingerprint": manifest["inputs_fingerprint"],
         },
         "pins": {
-            "invariant": invariant_group(manifest, unmatched_groups["census"]),
+            "invariant": invariant_group(manifest, unmatched_groups["counts"]),
             "volatile": {
                 "manifest": manifest_group(manifest),
                 "built": built_group_from_memory(table, config_notes),
@@ -687,7 +687,7 @@ def compute_pins(corpus: Path | None = None, repo_root: Path = REPO_ROOT, from_s
         with _build_or_load_corpus(corpus) as (out_dir, manifest):
             unmatched_groups = unmatched_groups_group(repo_root)
             return {
-                "invariant": invariant_group(manifest, unmatched_groups["census"]),
+                "invariant": invariant_group(manifest, unmatched_groups["counts"]),
                 "volatile": {
                     "manifest": manifest_group(manifest),
                     "built": built_group(out_dir, manifest),
@@ -699,7 +699,7 @@ def compute_pins(corpus: Path | None = None, repo_root: Path = REPO_ROOT, from_s
     with _build_or_load_corpus(corpus) as (out_dir, manifest):
         volatile = load_facts(out_dir, manifest)["pins"]["volatile"]
         return {
-            "invariant": invariant_group(manifest, volatile["unmatched_groups"]["census"]),
+            "invariant": invariant_group(manifest, volatile["unmatched_groups"]["counts"]),
             "volatile": volatile,
         }
 

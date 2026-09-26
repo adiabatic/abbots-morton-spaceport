@@ -325,7 +325,7 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         action="store",
         default=None,
         metavar="PATH",
-        help="Deselect the items this selection file names as proven unaffected by the diff since the lane's last green run.",
+        help="Deselect the items this selection file names as shown unaffected by the diff since the lane's last green run.",
     )
 
 

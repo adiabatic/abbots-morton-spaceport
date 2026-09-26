@@ -341,7 +341,7 @@ def _pins(row_count: int) -> dict:
         },
         "volatile": {
             "audit": {"row_count": row_count, "units": 1},
-            "unmatched_groups": {"census": {"no-chain-gains": 1}, "total": 1},
+            "unmatched_groups": {"counts": {"no-chain-gains": 1}, "total": 1},
         },
     }
 
@@ -427,7 +427,7 @@ def test_build_facts_reduces_its_own_premerge_records(tmp_path):
     volatile = built["pins"]["volatile"]
     assert volatile["audit"] == {"row_count": 2, "units": 2}
     assert volatile["built"] == built_group(tmp_path, manifest)
-    assert volatile["unmatched_groups"] == {"census": {"no-chain-gains": 1}, "total": 1}
+    assert volatile["unmatched_groups"] == {"counts": {"no-chain-gains": 1}, "total": 1}
     assert volatile["ink"] == ink_group_from_flags(capture.class_rows(), "10")
     assert built["pins"]["invariant"] == {
         "classes": [meta["id"] for meta in manifest["classes"]],
@@ -500,14 +500,14 @@ def test_from_scratch_recomputes_from_sources_without_the_sidecar(tmp_path, monk
     monkeypatch.setattr(
         facts,
         "unmatched_groups_group",
-        lambda repo_root=REPO_ROOT: {"census": {"junction-loss-unjoined": 3}, "total": 3},
+        lambda repo_root=REPO_ROOT: {"counts": {"junction-loss-unjoined": 3}, "total": 3},
     )
 
     pins = facts.compute_pins(corpus=corpus, from_scratch=True)
     volatile = pins["volatile"]
     assert volatile["audit"] == {"audit": "sentinel"}
     assert volatile["ink"] == {"ink": "sentinel"}
-    assert volatile["unmatched_groups"] == {"census": {"junction-loss-unjoined": 3}, "total": 3}
+    assert volatile["unmatched_groups"] == {"counts": {"junction-loss-unjoined": 3}, "total": 3}
     assert volatile["built"] == built_group(corpus, manifest)
     assert pins["invariant"] == {
         "classes": [meta["id"] for meta in manifest["classes"]],
