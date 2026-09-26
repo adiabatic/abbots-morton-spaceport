@@ -196,7 +196,7 @@ predecessor_demote_overrides:
 - predecessor_stance: qsExcite.en-y0.ex-y0.before-vertical.after-baseline-letter
   trigger_stance: qsTea_qsOy
   isolated_form: qsExcite.en-y0.noexit
-  # ·They's `before-may` baseline-exit stance, entered at the x-height from ·Ah or ·I, is a cosmetic tuck for ·May. The join contract's cosmetic opt-out lets it stay before every follower, so before a non-·May follower across a break its baseline exit dangles. These entries revert it to `qsThey.en-y5` (or `qsThey.en-y5.en-ext-1`), which keeps the x-height entry and drops the exit. They are keyed on non-·May follower stances, so the ·They·May tuck is unaffected.
+  # ·They's `before-may` baseline-exit stance, entered at the x-height from ·Ah or ·I, is a cosmetic tuck for ·May. The neighbor join filter's cosmetic opt-out lets it stay before every follower, so before a non-·May follower across a break its baseline exit dangles. These entries revert it to `qsThey.en-y5` (or `qsThey.en-y5.en-ext-1`), which keeps the x-height entry and drops the exit. They are keyed on non-·May follower stances, so the ·They·May tuck is unaffected.
 - predecessor_stance: qsThey.ex-y0.before-may.en-y5
   trigger_stance: qsDay_qsEat
   isolated_form: qsThey.en-y5

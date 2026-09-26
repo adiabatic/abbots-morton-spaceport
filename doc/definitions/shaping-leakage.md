@@ -2,7 +2,7 @@
 
 This doc defines “shaping leakage” precisely enough that an agent can detect leaks, classify each as bad or benign, and fix the bad ones without a human judging each case. The closing section says where each decision is implemented and what is not built.
 
-The investigation behind these decisions (the measurement sweep, the triage of the depth-4 leaks, and the join-contract prevention work) is in `doc/history/2026-06-03--leak-cleanup/`. Those notes hold the evidence for the empirical claims here.
+The investigation behind these decisions (the measurement sweep, the triage of the depth-4 leaks, and the neighbor-join-filter prevention work) is in `doc/history/2026-06-03--leak-cleanup/`. Those notes hold the evidence for the empirical claims here.
 
 ## The one-sentence definition
 
@@ -23,7 +23,7 @@ Two predicates describe a leak at a break:
 - **Identity leak**: a glyph _immediately flanking the break_ changed: `left_chosen != isolated_left` or `right_chosen != isolated_right`. This means a contextual lookup reached across the non-join and picked a different glyph, even when nothing visibly moves.
 - **Visual leak**: the rendered run changed. The whole-run pixel signature of the in-context shaping differs from the concatenation of the two separately shaped halves, with `kern` disabled because spacing is not part of leakage.
 
-In this font every visual leak comes from a glyph-name change somewhere in the run. The sweep turns `kern` off, and `kern` holds the font’s only contextual GPOS rule. Cursive attachment cannot fire across a non-join. The join contract drops non-joining, non-cosmetic neighbors from `calt` rules before emission (`_JoinContractRecorder` in `tools/quikscript_fea.py`). The two predicates still catch different cases. The identity signature records only the two glyphs touching the break, so a glyph that changes further inside a run appears only in the visual diff. A flanking-glyph swap can render pixel-identical, which is an identity leak with no visual leak.
+In this font every visual leak comes from a glyph-name change somewhere in the run. The sweep turns `kern` off, and `kern` holds the font’s only contextual GPOS rule. Cursive attachment cannot fire across a non-join. The neighbor join filter drops non-joining, non-cosmetic neighbors from `calt` rules before emission (`_NeighborJoinFilterRecorder` in `tools/quikscript_fea.py`). The two predicates still catch different cases. The identity signature records only the two glyphs touching the break, so a glyph that changes further inside a run appears only in the visual diff. A flanking-glyph swap can render pixel-identical, which is an identity leak with no visual leak.
 
 The sweep records identity leaks, keyed by the signature `(isolated_left, left_chosen, isolated_right, right_chosen)`, and `_visual_status` in `tools/build_check_html.py` marks each example `same` or `diff`. A signature is visible if any swept example renders a `diff` (`find_visible_leaks`), so the visible set does not depend on enumeration order. Only visible leaks are written to the snapshots.
 

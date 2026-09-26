@@ -1,8 +1,8 @@
-"""Apply the join contract to every rule in the emitted Senior `calt`, as a pass over the FEA would, and compare the result with `leak_contract_report`.
+"""Apply the neighbor join filter to every rule in the emitted Senior `calt`, as a pass over the FEA would, and compare the result with `leak_neighbor_filter_report`.
 
-The contract is described in doc/history/2026-06-03--leak-cleanup/leak-prevention-plan.md. For the nearest lookahead and backtrack position of every `sub` rule that outputs a Quikscript glyph, it counts the neighbors the output does not join and has no cosmetic modifier for, and the positions that dropping them would leave empty. It then prints the `leak_contract_report` classes of the recorded leaks and lists the droppable leaks whose explaining rule the sweep did not touch.
+The filter is described in doc/history/2026-06-03--leak-cleanup/leak-prevention-plan.md. For the nearest lookahead and backtrack position of every `sub` rule that outputs a Quikscript glyph, it counts the neighbors the output does not join and has no cosmetic modifier for, and the positions that dropping them would leave empty. It then prints the `leak_neighbor_filter_report` classes of the recorded leaks and lists the droppable leaks whose explaining rule the sweep did not touch.
 
-The sweep drops far more neighbors than the droppable leaks account for, because most neighbors in a rule's context do not drive its selection. That is why the emitter enforces the contract (`_JoinContractRecorder` in `tools/quikscript_fea.py`), where the neighbor that drives each selection is known.
+The sweep drops far more neighbors than the droppable leaks account for, because most neighbors in a rule's context do not drive its selection. That is why the emitter applies the filter (`_NeighborJoinFilterRecorder` in `tools/quikscript_fea.py`), where the neighbor that drives each selection is known.
 
 Only neighbors whose names start with `qs` are checked. `space`, ZWNJ (`uni200C`), punctuation, and Latin glyphs have no anchors, so they are boundary context and never dropped.
 """
@@ -18,7 +18,7 @@ for _p in (str(ROOT / "tools"), str(ROOT / "test")):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-import leak_contract_report as rep  # noqa: E402
+import leak_neighbor_filter_report as rep  # noqa: E402
 from leak_static_analysis import Rule, parse_calt  # noqa: E402
 from quikscript_shaping_helpers import _compiled_meta, _entry_ys, _exit_ys  # noqa: E402
 
@@ -98,7 +98,7 @@ def main() -> None:
     print(f"  rule positions emptied (f/b): {empties['forward']} / {empties['backward']}")
     print(f"  distinct rules touched:       {len(rules_touched)} of {len(subs)} qs-sub rules")
     print("  (this blind sweep is an OVER-count: most of these neighbors are incidental context, not")
-    print("   selection-driving join targets. The correctly-scoped contract lives in the emitter.)")
+    print("   selection-driving join targets. The correctly-scoped filter lives in the emitter.)")
 
     verdicts = rep.classify(rep.parse_snapshot(), rules)
     klass = Counter(v.klass for v in verdicts)
@@ -106,7 +106,7 @@ def main() -> None:
     for k in ("droppable", "cosmetic", "mixed", "emergent"):
         print(f"  {k:10s} {klass[k]}")
     print(
-        f"  predicted post-contract snapshot: {len(verdicts)} - {klass['droppable']} = {len(verdicts) - klass['droppable']}"
+        f"  predicted post-filter snapshot: {len(verdicts)} - {klass['droppable']} = {len(verdicts) - klass['droppable']}"
     )
 
     miss = [

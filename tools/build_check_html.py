@@ -63,8 +63,8 @@ if str(ROOT / "tools") not in sys.path:
     sys.path.insert(0, str(ROOT / "tools"))
 
 import leak_classify  # noqa: E402
-from leak_contract_report import FEA_PATH as CONTRACT_FEA_PATH  # noqa: E402
-from leak_contract_report import classify as classify_leak_contract  # noqa: E402
+from leak_neighbor_filter_report import FEA_PATH as NEIGHBOR_FILTER_FEA_PATH  # noqa: E402
+from leak_neighbor_filter_report import classify as classify_leak_neighbor_filter  # noqa: E402
 from leak_static_analysis import parse_calt  # noqa: E402
 
 # Isolation-leak detection.
@@ -845,15 +845,15 @@ def parse_leak_snapshot(path: Path = LEAK_SNAPSHOT_PATH) -> list[tuple[Leak, Iso
     return items
 
 
-# Contract class -> (heading, blurb) for each collapsed group of leaks that the join contract removes from the triage list. The contract is described in doc/history/2026-06-03--leak-cleanup/leak-prevention-plan.md, and tools/leak_contract_report.py classifies each row.
+# Neighbor-filter class -> (heading, blurb) for each collapsed group of leaks that the neighbor join filter removes from the triage list. The filter is described in doc/history/2026-06-03--leak-cleanup/leak-prevention-plan.md, and tools/leak_neighbor_filter_report.py classifies each row.
 _MOOT_FOLD_COPY: dict[str, tuple[str, str]] = {
     "droppable": (
-        "Contract will erase — no verdict needed",
-        "A single <code>calt</code> rule selects the changed stance right next to a neighbor it does not cursive-join, so the derived join contract (see <code>doc/history/2026-06-03--leak-cleanup/leak-prevention-plan.md</code>) drops that neighbor from the rule and the leak can never be emitted. Listed for reference only — you don't need to triage these.",
+        "Neighbor filter removes — no verdict needed",
+        "A single <code>calt</code> rule selects the changed stance right next to a neighbor it does not cursive-join, so the derived neighbor join filter (see <code>doc/history/2026-06-03--leak-cleanup/leak-prevention-plan.md</code>) drops that neighbor from the rule and the leak can never be emitted. Listed for reference only — you don't need to triage these.",
     ),
     "cosmetic": (
         "Author-declared cosmetic tucks — already labeled",
-        "These carry a <code>before-</code>/<code>after-</code> modifier naming the non-joining neighbor, so the cross-break shape change is an intentional tuck the contract keeps. Skim only if you suspect a label is wrong.",
+        "These carry a <code>before-</code>/<code>after-</code> modifier naming the non-joining neighbor, so the cross-break shape change is an intentional tuck the filter keeps. Skim only if you suspect a label is wrong.",
     ),
 }
 
@@ -861,17 +861,17 @@ _MOOT_FOLD_COPY: dict[str, tuple[str, str]] = {
 def _classify_snapshot(
     items: list[tuple[Leak, IsolationLeakExample, str]],
 ) -> dict[tuple[str, str, str, str], str]:
-    """Map each snapshot leak's signature to its join-contract class (``droppable`` / ``cosmetic`` / ``emergent`` / ``mixed``) so the triage list can collapse the rows the contract handles. If the built Senior FEA is missing or classification fails, return an empty map, and the caller shows every row expanded."""
-    if not CONTRACT_FEA_PATH.exists():
+    """Map each snapshot leak's signature to its neighbor-filter class (``droppable`` / ``cosmetic`` / ``emergent`` / ``mixed``) so the triage list can collapse the rows the filter handles. If the built Senior FEA is missing or classification fails, return an empty map, and the caller shows every row expanded."""
+    if not NEIGHBOR_FILTER_FEA_PATH.exists():
         return {}
     snapshot = [
         ((leak.isolated_left, leak.left_chosen, leak.isolated_right, leak.right_chosen), line)
         for leak, _example, line in items
     ]
     try:
-        verdicts = classify_leak_contract(snapshot, parse_calt(str(CONTRACT_FEA_PATH)).rules)
+        verdicts = classify_leak_neighbor_filter(snapshot, parse_calt(str(NEIGHBOR_FILTER_FEA_PATH)).rules)
     except Exception as exc:  # the page is a dev aid; never let classification abort the build
-        print(f"leak-contract classification skipped: {exc}", file=sys.stderr)
+        print(f"neighbor-filter classification skipped: {exc}", file=sys.stderr)
         return {}
     return {verdict.signature: verdict.klass for verdict in verdicts}
 
@@ -920,7 +920,7 @@ def _leak_snapshot_section(items: list[tuple[Leak, IsolationLeakExample, str]]) 
             fixed += 1
         signature = (leak.isolated_left, leak.left_chosen, leak.isolated_right, leak.right_chosen)
         row = (leak, example, visual, snapshot_line)
-        # Rows the contract cannot prevent on its own (emergent, mixed, or unclassified because the FEA was missing) go in the expanded triage list.
+        # Rows the filter cannot prevent on its own (emergent, mixed, or unclassified because the FEA was missing) go in the expanded triage list.
         klass = klass_by_sig.get(signature, "emergent")
         if klass == "droppable":
             droppable.append(row)
@@ -934,10 +934,10 @@ def _leak_snapshot_section(items: list[tuple[Leak, IsolationLeakExample, str]]) 
     )
     moot_count = len(droppable) + len(cosmetic)
     scope_note = (
-        f" Only the <strong>{len(triage)}</strong> leaks the join contract cannot prevent on its"
-        f" own are expanded here; the <strong>{moot_count}</strong> it will erase or has already"
+        f" Only the <strong>{len(triage)}</strong> leaks the neighbor join filter cannot prevent on its"
+        f" own are expanded here; the <strong>{moot_count}</strong> it removes or has already"
         " labeled are folded away below (classification from"
-        " <code>tools/leak_contract_report.py</code>)."
+        " <code>tools/leak_neighbor_filter_report.py</code>)."
         if moot_count
         else ""
     )
@@ -1336,7 +1336,7 @@ _PAGE_CSS = """      /*
         font: inherit;
       }
 
-      /* The contract-moot folds nest inside the depth-4 triage section, so drop the standalone card chrome and read as a sub-fold with just a top divider. */
+      /* The filter-moot folds nest inside the depth-4 triage section, so drop the standalone card chrome and read as a sub-fold with just a top divider. */
       .leak-snapshot .moot-leaks {
         margin: 0;
         border-radius: 0;

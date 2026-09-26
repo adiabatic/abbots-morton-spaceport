@@ -1,6 +1,6 @@
-"""Compare the human triage verdicts in doc/history/2026-06-03--leak-cleanup/leak-emergent-verdicts.txt with the join-contract classes and with `leak_classify`.
+"""Compare the human triage verdicts in doc/history/2026-06-03--leak-cleanup/leak-emergent-verdicts.txt with the neighbor-join-filter classes and with `leak_classify`.
 
-It uses `leak_contract_report.parse_snapshot` and `classify`, so signatures match the report and site/check.html. It prints the verdict counts by bucket, a table of verdict bucket against contract class, the verdicts not on an `emergent` row (expected to be none), the emergent rows with no verdict, and the confusion matrix of `leak_classify.classify` against the verdicts. doc/history/2026-06-03--leak-cleanup/leak-triage.md has the triage.
+It uses `leak_neighbor_filter_report.parse_snapshot` and `classify`, so signatures match the report and site/check.html. It prints the verdict counts by bucket, a table of verdict bucket against filter class, the verdicts not on an `emergent` row (expected to be none), the emergent rows with no verdict, and the confusion matrix of `leak_classify.classify` against the verdicts. doc/history/2026-06-03--leak-cleanup/leak-triage.md has the triage.
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ for _p in (str(ROOT / "tools"), str(ROOT / "test")):
         sys.path.insert(0, _p)
 
 import leak_classify  # noqa: E402
-import leak_contract_report as rep  # noqa: E402
+import leak_neighbor_filter_report as rep  # noqa: E402
 from leak_static_analysis import parse_calt  # noqa: E402
 
 VERDICTS_PATH = ROOT / "doc" / "history" / "2026-06-03--leak-cleanup" / "leak-emergent-verdicts.txt"
@@ -74,7 +74,7 @@ def main() -> None:
     crosstab: dict[str, Counter] = defaultdict(Counter)
     for _snap, sig, _v, bucket in rows:
         crosstab[bucket][klass_by_sig.get(sig, "MISSING")] += 1
-    print("\n== verdict-bucket x contract-class ==")
+    print("\n== verdict-bucket x filter-class ==")
     for bucket in sorted(crosstab):
         parts = ", ".join(f"{k}:{n}" for k, n in crosstab[bucket].most_common())
         print(f"  {bucket:18s} {parts}")

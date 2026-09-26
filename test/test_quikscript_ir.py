@@ -1028,7 +1028,7 @@ def test_fwd_pair_skips_entry_variant_with_unreachable_exit(real_senior_fea: str
     ]
     assert upgrade_lines, "expected qsIt -> qsIt.ex-y5.ex-ext-1 upgrade substitution"
     assert any("qsCheer" in line and "qsCheer.en-ext-1" in line for line in upgrade_lines)
-    # The join contract drops qsCheer.noentry from this exit-y5 upgrade because it has no entry and cannot join qsIt's exit. qsCheer and qsCheer.en-ext-1 enter at y=5 and stay.
+    # The neighbor join filter drops qsCheer.noentry from this exit-y5 upgrade because it has no entry and cannot join qsIt's exit. qsCheer and qsCheer.en-ext-1 enter at y=5 and stay.
     assert all("qsCheer.noentry" not in line for line in upgrade_lines)
 
 
@@ -2843,7 +2843,7 @@ def test_inheritance_skipped_in_junior_variant():
 
 
 def test_select_rule_neighbors_is_identity_without_a_recorder():
-    # `_select_rule_neighbors` drops non-joining, non-cosmetic neighbors only while an emit run has installed `_active_contract_recorder`. Called directly, it returns its input unchanged.
+    # `_select_rule_neighbors` drops non-joining, non-cosmetic neighbors only while an emit run has installed `_active_neighbor_filter_recorder`. Called directly, it returns its input unchanged.
     followers = {"qsTea_qsOy", "qsThaw.ex-y0", "qsDay.half"}
     kept = _select_rule_neighbors("qsGay", "qsGay.en-y5", followers, direction="fwd")
     assert kept == followers

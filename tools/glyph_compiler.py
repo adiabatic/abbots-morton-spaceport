@@ -10,7 +10,7 @@ from quikscript_ir import (
     get_base_glyph_name,
     ss10_twins,
 )
-from quikscript_join_analysis import validate_join_consistency, warn_join_contract_issues
+from quikscript_join_analysis import validate_join_consistency, warn_join_metadata_issues
 
 _JOIN_REF_KEYS = (
     "calt_after",
@@ -295,7 +295,7 @@ def compile_glyph_set(glyph_data: GlyphData, variant: str) -> CompiledGlyphSet:
         _validate_compiled_glyph_references(legacy_glyphs, join_glyphs)
         _validate_extensions_reach_targets(join_glyphs)
         validate_join_consistency(join_glyphs)
-        warn_join_contract_issues(join_glyphs)
+        warn_join_metadata_issues(join_glyphs)
 
     twins = ss10_twins(join_glyphs) if variant == "senior" else {}
     glyph_meta = build_join_glyphs(legacy_glyphs)

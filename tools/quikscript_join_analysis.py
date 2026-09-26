@@ -1,6 +1,6 @@
 """Join-consistency checks, join warnings, and pending-entry guard tables for compiled Quikscript glyphs.
 
-``JoinReachability`` indexes a ``dict[str, JoinGlyph]`` by family, anchor Y, and pair selector. Its fields are named after the matching ``_JoinAnalysis`` fields in ``quikscript_fea``, but it is built from ``JoinGlyph`` attributes alone, without the FEA emitter's lookup ordering, cycle detection, and policy gates. ``glyph_compiler.compile_glyph_set`` runs ``validate_join_consistency`` and ``warn_join_contract_issues`` on the Senior build, and ``quikscript_fea._emit_quikscript_calt`` takes its guard tables from ``derive_pending_bk_entry_guards`` and ``derive_pending_fwd_strip_guards``.
+``JoinReachability`` indexes a ``dict[str, JoinGlyph]`` by family, anchor Y, and pair selector. Its fields are named after the matching ``_JoinAnalysis`` fields in ``quikscript_fea``, but it is built from ``JoinGlyph`` attributes alone, without the FEA emitter's lookup ordering, cycle detection, and policy gates. ``glyph_compiler.compile_glyph_set`` runs ``validate_join_consistency`` and ``warn_join_metadata_issues`` on the Senior build, and ``quikscript_fea._emit_quikscript_calt`` takes its guard tables from ``derive_pending_bk_entry_guards`` and ``derive_pending_fwd_strip_guards``.
 """
 
 import warnings
@@ -25,8 +25,8 @@ from quikscript_fea import (
 )
 
 
-class JoinContractWarning(UserWarning):
-    """A glyph's join-contract metadata fails one of the consistency checks in `collect_join_warnings`."""
+class JoinMetadataWarning(UserWarning):
+    """A glyph's join metadata fails one of the consistency checks in `collect_join_warnings`."""
 
 
 class OrphanAnchorWarning(UserWarning):
@@ -34,16 +34,16 @@ class OrphanAnchorWarning(UserWarning):
 
 
 class NonJoiningNeighborSelectionWarning(UserWarning):
-    """The derived join contract dropped a different number of selections than `_EXPECTED_CONTRACT_DROP_COUNT` in `quikscript_fea`.
+    """The derived neighbor join filter dropped a different number of selections than `_EXPECTED_NEIGHBOR_FILTER_DROP_COUNT` in `quikscript_fea`.
 
-    A dropped selection is one where the `calt` emitter would pick a variant whose exit (forward) or entry (backward) cannot join the neighbor, with no `before-<family>` / `after-<family>` modifier naming that neighbor. `_JoinContractRecorder.flush` always writes the full list to `tmp/leak-contract-emit.txt`. It emits this warning only when the glyph set contains every letter in `_BASELINE_REPERTOIRE_SENTINELS`, which marks the production glyph set, because the unit tests' small glyph sets drop other counts.
+    A dropped selection is one where the `calt` emitter would pick a variant whose exit (forward) or entry (backward) cannot join the neighbor, with no `before-<family>` / `after-<family>` modifier naming that neighbor. `_NeighborJoinFilterRecorder.flush` always writes the full list to `tmp/leak-neighbor-filter.txt`. It emits this warning only when the glyph set contains every letter in `_BASELINE_REPERTOIRE_SENTINELS`, which marks the production glyph set, because the unit tests' small glyph sets drop other counts.
     """
 
 
 __all__ = [
     "DerivedBkGuard",
     "FwdStripGuard",
-    "JoinContractWarning",
+    "JoinMetadataWarning",
     "JoinReachability",
     "NonJoiningNeighborSelectionWarning",
     "OrphanAnchorWarning",
@@ -51,7 +51,7 @@ __all__ = [
     "derive_pending_bk_entry_guards",
     "derive_pending_fwd_strip_guards",
     "validate_join_consistency",
-    "warn_join_contract_issues",
+    "warn_join_metadata_issues",
 ]
 
 
@@ -290,9 +290,9 @@ def collect_join_warnings(join_glyphs: Mapping[str, JoinGlyph]) -> tuple[str, ..
     return tuple(sorted(dict.fromkeys(warnings)))
 
 
-def warn_join_contract_issues(join_glyphs: Mapping[str, JoinGlyph]) -> None:
+def warn_join_metadata_issues(join_glyphs: Mapping[str, JoinGlyph]) -> None:
     for warning in collect_join_warnings(join_glyphs):
-        warnings.warn(str(warning), JoinContractWarning, stacklevel=2)
+        warnings.warn(str(warning), JoinMetadataWarning, stacklevel=2)
 
 
 def _collect_pair_intents(

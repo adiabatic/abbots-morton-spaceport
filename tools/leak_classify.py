@@ -8,7 +8,7 @@ Overrides, from highest precedence:
 
 - **Force-bad**, per signature: `site/leak-force-bad.yaml`. It covers swaps the modifier test reads as benign. Most are leaks from several lookups combined, where the changed side reverts to its bare form while an unchanged ligature neighbor takes the join. The rest are ·Excite swaps into its `before-vertical` stances.
 - **Force-benign**, per signature: `site/leak-force-benign.yaml`. It covers accepted standalone-variant swaps that gain a break-facing anchor but have no cosmetic modifier, such as `qsNo -> qsNo.alt.en-y0.ex-y0`.
-- **Force-benign**, per stance: a `before-<fam>` or `after-<fam>` modifier for the neighbor across the break, as `leak_contract_report._is_cosmetic` decides it.
+- **Force-benign**, per stance: a `before-<fam>` or `after-<fam>` modifier for the neighbor across the break, as `leak_neighbor_filter_report._is_cosmetic` decides it.
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ for _p in (str(TOOLS_DIR), str(TEST_DIR)):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-from leak_contract_report import _is_cosmetic  # noqa: E402
+from leak_neighbor_filter_report import _is_cosmetic  # noqa: E402
 from quikscript_shaping_helpers import _compiled_meta  # noqa: E402
 
 Signature = tuple[str, str, str, str]  # (isolated_left, left_chosen, isolated_right, right_chosen)

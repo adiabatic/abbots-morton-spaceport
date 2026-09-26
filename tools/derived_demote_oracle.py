@@ -29,7 +29,7 @@ for path in (TOOLS_DIR, TEST_DIR):
 
 from build_font import build_font, load_glyph_data  # noqa: E402
 from glyph_compiler import compile_glyph_set  # noqa: E402
-from leak_contract_report import parse_snapshot  # noqa: E402
+from leak_neighbor_filter_report import parse_snapshot  # noqa: E402
 from leak_static_analysis import Rule, joins, parse_calt  # noqa: E402
 from quikscript_shaping_helpers import _plain_quikscript_letters, _qs_text  # noqa: E402
 from quikscript_ir import GlyphData, JoinGlyph, resolve_compiled_name  # noqa: E402
