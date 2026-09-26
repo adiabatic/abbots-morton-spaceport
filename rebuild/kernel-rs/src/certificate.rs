@@ -457,7 +457,7 @@ enum Verdict {
     Needs(Vec<RightToken>),
 }
 
-/// Checks the formation constraints a post-formation token stream must satisfy for the raw replay to return the same stream, left to right, and reports the first one the stream does not satisfy. A surviving formation pair needs the section 5.7 guard to fire, which takes a follower the pair's survivable map names and a second slot that follower's allowed set admits. A formed ligature needs its own guard not to fire over the two raw tokens after it. A pair before a boundary always forms, so a boundary follower makes the stream [`Verdict::Dead`].
+/// Checks the formation constraints a post-formation token stream must satisfy for the raw replay to return the same stream, left to right, and reports the first one the stream does not satisfy. A surviving formation pair needs the section 5.7 guard to fire, which takes a follower the pair's unformed map names and a second slot that follower's allowed set admits. A formed ligature needs its own guard not to fire over the two raw tokens after it. A pair before a boundary always forms, so a boundary follower makes the stream [`Verdict::Dead`].
 fn open_constraint(
     index: &SpecIndex,
     options: &mut WindowOptions<'_>,
@@ -476,7 +476,7 @@ fn open_constraint(
                 .contains(&(lead, tokens[at + 1].letter()))
         {
             let Some(map) = options
-                .survivable
+                .unformed
                 .get(&(lead, tokens[at + 1].letter()))
                 .cloned()
             else {
@@ -578,7 +578,7 @@ fn ordered(index: &SpecIndex, candidates: impl Iterator<Item = RightToken>) -> V
     boundaries
 }
 
-/// Appends to `out` every closure of `tokens` the bounded search reaches, up to [`CLOSURE_CAP`] in all: the stream itself when nothing is open, or else each candidate the first open constraint asks for, appended and closed in turn. A candidate that would form a pair with the stream's last token that no survivable window admits is skipped before it is appended, since the re-read would find the stream dead.
+/// Appends to `out` every closure of `tokens` the bounded search reaches, up to [`CLOSURE_CAP`] in all: the stream itself when nothing is open, or else each candidate the first open constraint asks for, appended and closed in turn. A candidate that would form a pair with the stream's last token that no unformed window admits is skipped before it is appended, since the re-read would find the stream dead.
 fn closures(
     index: &SpecIndex,
     options: &mut WindowOptions<'_>,

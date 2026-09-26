@@ -339,7 +339,7 @@ impl Parser {
         self.list(value, Self::symbol)
     }
 
-    /// A rune's `sequence`, rejecting a one-component list that `kernel_io.spec_of` accepts. `spec_load` cannot produce one, and the settlement reads of a sequence (the formation pair's `[-2]` in `survivable_formation_windows`, `[1]` in `liga_formed_before`) assume at least two components, so this reports a one-line error instead of a panic in the window options.
+    /// A rune's `sequence`, rejecting a one-component list that `kernel_io.spec_of` accepts. `spec_load` cannot produce one, and the settlement reads of a sequence (the formation pair's `[-2]` in `unformed_formation_windows`, `[1]` in `liga_formed_before`) assume at least two components, so this reports a one-line error instead of a panic in the window options.
     fn ligature_sequence(&mut self, value: &Value) -> Result<Vec<Sym>, IngestError> {
         let symbols = self.symbol_list(value)?;
         if symbols.len() == 1 {

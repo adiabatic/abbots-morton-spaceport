@@ -370,9 +370,9 @@ fn enumerate_from_seeds<'i>(
             let follower_map: Option<Rc<FollowerMap>> = if right1.kind() == TokenKind::Letter
                 && options.formation_pairs.contains(&(rune, right1.letter()))
             {
-                match options.survivable.get(&(rune, right1.letter())) {
+                match options.unformed.get(&(rune, right1.letter())) {
                     Some(map) => Some(Rc::clone(map)),
-                    // A formation pair with no survivable window at all is inadmissible outright: the pair always forms, so no window of it enumerates.
+                    // A formation pair with no unformed window at all is inadmissible outright: the pair always forms, so no window of it enumerates.
                     None => continue,
                 }
             } else {
@@ -384,7 +384,7 @@ fn enumerate_from_seeds<'i>(
                 kept.retain(|option| {
                     !(option.kind() == TokenKind::Letter
                         && options.formation_pairs.contains(&(lead, option.letter()))
-                        && !options.survivable.contains_key(&(lead, option.letter())))
+                        && !options.unformed.contains_key(&(lead, option.letter())))
                 });
                 if let Some(map) = &follower_map {
                     kept.retain(|option| {

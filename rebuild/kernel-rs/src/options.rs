@@ -1,10 +1,10 @@
-//! The per-build tables behind the right-slot option pipelines, and the pipelines themselves: which adjacent rune pairs some ligature's sequence contains, the §5.7 survivable-window maps that say under which followers such a pair still enumerates unformed, and the third- and fourth-slot option lists. The enumeration loop and the class-grain partition assertion in [`crate::fixpoint`] both get their option lists from this code, so a filter added here applies to both.
+//! The per-build tables behind the right-slot option pipelines, and the pipelines themselves: which adjacent rune pairs some ligature's sequence contains, the §5.7 unformed-window maps that say under which followers such a pair still enumerates unformed, and the third- and fourth-slot option lists. The enumeration loop and the class-grain partition assertion in [`crate::fixpoint`] both get their option lists from this code, so a filter added here applies to both.
 //!
 //! Everything here is a function of the spec and the late-formation guard, so it is computed once per build. The guard is the expensive part, since each allowed set sweeps the whole option alphabet. The guard memoizes its verdicts, so building a [`WindowOptions`] fills the cache the pipelines later hit.
 //!
-//! Two choices follow from Rust ownership. The guard state lives inside [`WindowOptions`], so every method that can reach a verdict takes `&mut self`. A survivable follower map is returned behind an [`Rc`], so a caller can keep the map its window inherits while it calls the guard-consulting filters that run after it.
+//! Two choices follow from Rust ownership. The guard state lives inside [`WindowOptions`], so every method that can reach a verdict takes `&mut self`. An unformed follower map is returned behind an [`Rc`], so a caller can keep the map its window inherits while it calls the guard-consulting filters that run after it.
 //!
-//! [`WindowOptions::survivable`] keeps an overwrite that affects output. When two ligatures' sequences end in the same `(lead, trail)` pair, both write at that pair's key, and the one later in the model's stored order replaces the earlier map unless its own map is empty. Which unformed pairs the enumeration admits therefore depends on declaration order.
+//! [`WindowOptions::unformed`] keeps an overwrite that affects output. When two ligatures' sequences end in the same `(lead, trail)` pair, both write at that pair's key, and the one later in the model's stored order replaces the earlier map unless its own map is empty. Which unformed pairs the enumeration admits therefore depends on declaration order.
 
 use std::collections::BTreeSet;
 use std::rc::Rc;
@@ -19,10 +19,10 @@ use crate::types::{EDGE, NAMER_DOT, RightToken, SPACE, TokenKind, ZWNJ};
 /// The four non-letter tokens a raw right slot can hold, in the order every option pipeline lists them ahead of the letters. The order is output-visible, because an option list is filtered and never re-sorted.
 pub const RIGHT_BOUNDARIES: [RightToken; 4] = [EDGE, SPACE, ZWNJ, NAMER_DOT];
 
-/// One `(lead, trail)` pair that appears adjacently in some rune's sequence. It keys both the formation-pair set and the survivable map.
+/// One `(lead, trail)` pair that appears adjacently in some rune's sequence. It keys both the formation-pair set and the unformed map.
 pub type FormationPair = (Sym, Sym);
 
-/// What one formation pair's survivable window allows, per follower. A plain follower maps to the right2 options under which the pair survives unformed. A follower that is itself a formed ligature fills both guard slots and maps to `None`, which restricts nothing. Under a via-lead pair, every follower maps to `None`. A follower absent from the map is one under which the pair does not survive at all.
+/// What one formation pair's unformed window allows, per follower. A plain follower maps to the right2 options under which the pair survives unformed. A follower that is itself a formed ligature fills both guard slots and maps to `None`, which restricts nothing. Under a lead-before-ligature pair, every follower maps to `None`. A follower absent from the map is one under which the pair does not survive at all.
 pub type FollowerMap = HashMap<Sym, Option<BTreeSet<RightToken>>>;
 
 /// Every adjacent `(lead, trail)` pair in every rune's sequence, plus, for each such pair, `(lead, L)` for every ligature `L` whose first component is `trail`. Callers only test membership.
@@ -34,7 +34,7 @@ pub fn formation_pairs(index: &SpecIndex) -> HashSet<FormationPair> {
         };
         for step in sequence.windows(2) {
             pairs.insert((step[0], step[1]));
-            // The via-lead pair: in a post-formation stream, a formed ligature whose first component is this pair's trail stands for that trail, so a bare lead directly before it is the same formation-impossible adjacency under the ligature's name. For example, a bare ·Out before qsTea_qsOy is raw ·Out·Tea·Oy, where greedy formation forms qsOut_qsTea first.
+            // The lead-before-ligature pair: in a post-formation stream, a formed ligature whose first component is this pair's trail stands for that trail, so a bare lead directly before it is the same formation-impossible adjacency under the ligature's name. For example, a bare ·Out before qsTea_qsOy is raw ·Out·Tea·Oy, where greedy formation forms qsOut_qsTea first.
             for (liga_name, liga_rune) in index.runes() {
                 let Some(liga_sequence) = rune_sequence(liga_rune) else {
                     continue;
@@ -48,10 +48,10 @@ pub fn formation_pairs(index: &SpecIndex) -> HashSet<FormationPair> {
     pairs
 }
 
-/// The §5.7 late-formation guard translated into the table's post-formation label space. For each formation pair, including the via-lead pairs of [`formation_pairs`], it maps each follower of the pair's trail to the right2 options under which the pair survives unformed ([`FollowerMap`]). The guard reads raw slots, so a ligature label at either slot is queried through its raw components: [`raw_of`] on the option side, and the follower's first two sequence entries on the follower side, the two raw slots its components fill, as in [`WindowOptions::liga_formed_before`].
+/// The §5.7 late-formation guard translated into the table's post-formation label space. For each formation pair, including the lead-before-ligature pairs of [`formation_pairs`], it maps each follower of the pair's trail to the right2 options under which the pair survives unformed ([`FollowerMap`]). The guard reads raw slots, so a ligature label at either slot is queried through its raw components: [`raw_of`] on the option side, and the follower's first two sequence entries on the follower side, the two raw slots its components fill, as in [`WindowOptions::liga_formed_before`].
 ///
 /// A follower whose allowed set is empty is left out, and a pair whose whole map is empty is not stored. The enumeration reads that absence as "this window is inadmissible outright", which differs from an empty allowance.
-pub fn survivable_formation_windows(
+pub fn unformed_formation_windows(
     index: &SpecIndex,
     guard: &mut GuardState<'_>,
     right_letters: &[RightToken],
@@ -86,7 +86,7 @@ pub fn survivable_formation_windows(
         if !follower_map.is_empty() {
             out.insert(pair, Rc::new(follower_map));
         }
-        // The via-lead keys: for a follower ligature whose first component is this pair's trail, a bare lead survives directly before the formed follower only where this pair's own formation is blocked with the follower's second component in the first guard slot (raw lead·trail·second·F). Both guard slots are then filled, so the deeper slot restricts nothing and entries map to None, as for a formed-ligature follower above. The letters-keyed map cannot express survival before a boundary follower, so that case panics instead of silently narrowing.
+        // The lead-before-ligature keys: for a follower ligature whose first component is this pair's trail, a bare lead survives directly before the formed follower only where this pair's own formation is blocked with the follower's second component in the first guard slot (raw lead·trail·second·F). Both guard slots are then filled, so the deeper slot restricts nothing and entries map to None, as for a formed-ligature follower above. The letters-keyed map cannot express survival before a boundary follower, so that case panics instead of silently narrowing.
         for (liga_name, liga_rune) in index.runes() {
             let Some(liga_sequence) = rune_sequence(liga_rune) else {
                 continue;
@@ -95,20 +95,20 @@ pub fn survivable_formation_windows(
                 continue;
             }
             let second = component_token(index, liga_sequence[1]);
-            let mut via_map = FollowerMap::default();
+            let mut lead_before_ligature_map = FollowerMap::default();
             for follower in right_letters {
                 if guard.formation_blocked(*name, second, raw_of(index, *follower))? {
-                    via_map.insert(follower.letter(), None);
+                    lead_before_ligature_map.insert(follower.letter(), None);
                 }
             }
             for boundary in right_boundaries {
                 assert!(
                     !guard.formation_blocked(*name, second, *boundary)?,
-                    "a via-lead formation pair survives before a boundary follower; the survivable map cannot key it"
+                    "a lead-before-ligature formation pair survives before a boundary follower; the unformed map cannot key it"
                 );
             }
-            if !via_map.is_empty() {
-                out.insert((pair.0, *liga_name), Rc::new(via_map));
+            if !lead_before_ligature_map.is_empty() {
+                out.insert((pair.0, *liga_name), Rc::new(lead_before_ligature_map));
             }
         }
     }
@@ -147,8 +147,8 @@ pub struct WindowOptions<'i> {
     pub right_boundaries: Vec<RightToken>,
     /// The formation pairs; see [`formation_pairs`].
     pub formation_pairs: HashSet<FormationPair>,
-    /// The survivable windows per formation pair; see [`survivable_formation_windows`] and the overwrite described in the module doc.
-    pub survivable: HashMap<FormationPair, Rc<FollowerMap>>,
+    /// The unformed windows per formation pair; see [`unformed_formation_windows`] and the overwrite described in the module doc.
+    pub unformed: HashMap<FormationPair, Rc<FollowerMap>>,
     /// Every sequence-bearing rune's sequence, by name. Below, "this label is a formed ligature" means "this label is a key here".
     pub liga_sequences: HashMap<Sym, &'i [Sym]>,
     /// The options the existential case of [`WindowOptions::liga_formed_before`] ranges over: the boundaries, then the letters that are not ligatures, since a slot beyond the window is raw text and raw text holds no formed label.
@@ -167,8 +167,8 @@ impl<'i> WindowOptions<'i> {
             .collect();
         let right_boundaries = RIGHT_BOUNDARIES.to_vec();
         let formation_pairs = formation_pairs(index);
-        let survivable =
-            survivable_formation_windows(index, &mut guard, &right_letters, &right_boundaries)?;
+        let unformed =
+            unformed_formation_windows(index, &mut guard, &right_letters, &right_boundaries)?;
         let mut liga_sequences: HashMap<Sym, &'i [Sym]> = HashMap::default();
         for (name, rune) in index.runes() {
             if let Some(sequence) = rune_sequence(rune) {
@@ -188,7 +188,7 @@ impl<'i> WindowOptions<'i> {
             right_letters,
             right_boundaries,
             formation_pairs,
-            survivable,
+            unformed,
             liga_sequences,
             raw_second_options,
         })
@@ -238,19 +238,19 @@ impl<'i> WindowOptions<'i> {
         Ok(false)
     }
 
-    /// The late-formation follower map an `(input, right1)` window inherits: `None` when the pair is not a formation pair, and the survivable map's entry otherwise. A formation pair with no survivable entry also returns `None`, which is safe because the enumeration never reaches such a window: it is inadmissible outright.
+    /// The late-formation follower map an `(input, right1)` window inherits: `None` when the pair is not a formation pair, and the unformed map's entry otherwise. A formation pair with no unformed entry also returns `None`, which is safe because the enumeration never reaches such a window: it is inadmissible outright.
     pub fn context_follower_map(&self, rune_name: Sym, right1: Sym) -> Option<Rc<FollowerMap>> {
         if !self.formation_pairs.contains(&(rune_name, right1)) {
             return None;
         }
-        self.survivable.get(&(rune_name, right1)).cloned()
+        self.unformed.get(&(rune_name, right1)).cloned()
     }
 
     /// The third slot's options for a window whose two nearer slots are letters. Five filters run in this order over the boundaries-then-letters list, which is never re-sorted:
     ///
-    /// 1. Drop an option that would form a pair with `right2` that no survivable window admits.
+    /// 1. Drop an option that would form a pair with `right2` that no unformed window admits.
     /// 2. If the inherited follower map has an allowance for `right2`, keep only what it allows.
-    /// 3. If `(right1, right2)` is a formation pair, keep only the letters its survivable map names.
+    /// 3. If `(right1, right2)` is a formation pair, keep only the letters its unformed map names.
     /// 4. If `right1` is a ligature, keep an option only if the ligature can still precede `(right2, option)`.
     /// 5. If `right2` is a ligature, keep an option only if the ligature can still precede it, with the slot after it beyond the window.
     ///
@@ -271,7 +271,7 @@ impl<'i> WindowOptions<'i> {
             options.retain(|option| trail_allowed.contains(option));
         }
         if self.formation_pairs.contains(&(first, second)) {
-            let pair_map = self.survivable.get(&(first, second));
+            let pair_map = self.unformed.get(&(first, second));
             options.retain(|option| {
                 option.kind() == TokenKind::Letter
                     && pair_map.is_some_and(|map| map.contains_key(&option.letter()))
@@ -288,9 +288,9 @@ impl<'i> WindowOptions<'i> {
 
     /// The fourth slot's options once the third is known. The same five filters as [`WindowOptions::right3_options`], one slot deeper:
     ///
-    /// 1. Drop an option that would form a pair with `right3` that no survivable window admits.
+    /// 1. Drop an option that would form a pair with `right3` that no unformed window admits.
     /// 2. If `(right1, right2)` is a formation pair whose map has an allowance for `right3`, keep only what it allows.
-    /// 3. If `(right2, right3)` is a formation pair, keep only the letters its survivable map names.
+    /// 3. If `(right2, right3)` is a formation pair, keep only the letters its unformed map names.
     /// 4. If `right2` is a ligature, keep an option only if the ligature can still precede `(right3, option)`.
     /// 5. If `right3` is a ligature, keep an option only if the ligature can still precede it, with the slot after it beyond the window.
     ///
@@ -308,7 +308,7 @@ impl<'i> WindowOptions<'i> {
         options.retain(|option| !self.formation_impossible(third, *option));
         if self.formation_pairs.contains(&(first, second))
             && let Some(trail_allowed) = self
-                .survivable
+                .unformed
                 .get(&(first, second))
                 .and_then(|map| map.get(&third))
                 .and_then(Option::as_ref)
@@ -316,7 +316,7 @@ impl<'i> WindowOptions<'i> {
             options.retain(|option| trail_allowed.contains(option));
         }
         if self.formation_pairs.contains(&(second, third)) {
-            let pair_map = self.survivable.get(&(second, third));
+            let pair_map = self.unformed.get(&(second, third));
             options.retain(|option| {
                 option.kind() == TokenKind::Letter
                     && pair_map.is_some_and(|map| map.contains_key(&option.letter()))
@@ -341,11 +341,11 @@ impl<'i> WindowOptions<'i> {
         options
     }
 
-    /// Whether putting `option` after `lead` would form a pair that no survivable window admits. This is the first filter of both pipelines.
+    /// Whether putting `option` after `lead` would form a pair that no unformed window admits. This is the first filter of both pipelines.
     pub fn formation_impossible(&self, lead: Sym, option: RightToken) -> bool {
         option.kind() == TokenKind::Letter
             && self.formation_pairs.contains(&(lead, option.letter()))
-            && !self.survivable.contains_key(&(lead, option.letter()))
+            && !self.unformed.contains_key(&(lead, option.letter()))
     }
 
     /// The ligature filters' shared body: keep the options `liga` can still precede, with `slots` giving the two post-formation neighbors each option supplies. It is a loop because the guard call can fail, which `Vec::retain`'s closure cannot report.
@@ -564,18 +564,18 @@ mod tests {
     }
 
     #[test]
-    fn a_survivable_map_tells_unrestricted_from_restricted_from_absent() {
+    fn an_unformed_map_tells_unrestricted_from_restricted_from_absent() {
         let index = alphabet();
         let options = WindowOptions::new(&index).expect("the static structures build");
         // `qsPea_qsMay`'s own trail has no exit, so its pair survives under no follower and is never stored.
         let mut keys = pair_names(
             &index,
-            &options.survivable.keys().copied().collect::<HashSet<_>>(),
+            &options.unformed.keys().copied().collect::<HashSet<_>>(),
         );
         keys.sort();
         assert_eq!(keys, [("qsPea".to_owned(), "qsTea".to_owned())]);
         let map = options
-            .survivable
+            .unformed
             .get(&(
                 fixtures::sym(&index, "qsPea"),
                 fixtures::sym(&index, "qsTea"),
@@ -622,7 +622,7 @@ mod tests {
         let tea = fixtures::sym(&index, "qsTea");
         let may = fixtures::sym(&index, "qsMay");
         assert!(options.context_follower_map(pea, tea).is_some());
-        // A formation pair whose survivable map is empty reads the same as no pair at all.
+        // A formation pair whose unformed map is empty reads the same as no pair at all.
         assert!(options.context_follower_map(pea, may).is_none());
         assert!(options.context_follower_map(tea, pea).is_none());
     }
@@ -702,7 +702,7 @@ mod tests {
                 "qsPea_qsTea"
             ]
         );
-        // Filter three: a formation pair at the two nearer slots narrows to the letters its survivable map names.
+        // Filter three: a formation pair at the two nearer slots narrows to the letters its unformed map names.
         let narrowed = options
             .right3_options(pea, tea, None)
             .expect("the pipeline runs");
@@ -761,7 +761,7 @@ mod tests {
                 "qsTea"
             ]
         );
-        // Filter three: a formation pair at right2 and right3 narrows to the letters its survivable map names.
+        // Filter three: a formation pair at right2 and right3 narrows to the letters its unformed map names.
         let narrowed = options
             .right4_options(tea, pea, tea)
             .expect("the pipeline runs");
@@ -827,7 +827,7 @@ mod tests {
         let followers = |index: &SpecIndex| {
             let options = WindowOptions::new(index).expect("the static structures build");
             let map = options
-                .survivable
+                .unformed
                 .get(&(fixtures::sym(index, "qsPea"), fixtures::sym(index, "qsTea")))
                 .expect("the shared pair survives somewhere")
                 .clone();
@@ -856,7 +856,7 @@ mod tests {
         let liga = fixtures::sym(&index, "qsPea_qsTea");
         let follower = fixtures::sym(&index, "qsMay_qsPea_qsTea");
         let map = options
-            .survivable
+            .unformed
             .get(&(
                 fixtures::sym(&index, "qsPea"),
                 fixtures::sym(&index, "qsTea"),
