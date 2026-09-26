@@ -34,6 +34,7 @@ from quikscript_shaping_helpers import (
 _SS03_FEATURE = (("ss03", True),)
 _SS05_FEATURE = (("ss05", True),)
 _SS07_FEATURE = (("ss07", True),)
+_SS10_FEATURE = (("ss10", True),)
 
 from build_font import load_glyph_data
 from quikscript_ir import _EXTENSION_SUFFIX
@@ -1311,6 +1312,24 @@ def test_owe_fee_may_under_each_stylistic_set(feature_label, feature_items):
     assert _pair_join_ys(glyphs, 1) == set(), (
         f"·Fee.en-y5 has no exit; ·Fee→·May must not join under " f"features={feature_label}; got {glyphs}"
     )
+
+
+@pytest.mark.parametrize(
+    "letters",
+    [
+        pytest.param(("qsEt", "qsDay", "qsUtter"), id="et-day-utter"),
+        pytest.param(("qsEt", "qsDay", "qsEat"), id="et-day-eat"),
+        pytest.param(("qsEt", "qsEat"), id="et-eat"),
+        pytest.param(("qsDay", "qsUtter"), id="day-utter"),
+    ],
+)
+def test_ss10_forms_no_ligature_and_joins_nothing(letters):
+    """Under ss10 each letter shapes as its own anchor-free twin: no ligature forms and no two letters join."""
+    glyphs = _shape_qs(*letters, features=_SS10_FEATURE)
+    assert _base_names(glyphs) == letters, f"ss10 must keep every letter separate; got {glyphs}"
+    assert all(glyph.endswith(".ss10") for glyph in glyphs), f"ss10 must use each letter's twin; got {glyphs}"
+    joined = [index for index in range(len(glyphs) - 1) if _pair_join_ys(glyphs, index)]
+    assert not joined, f"ss10 must join nothing; got {glyphs}"
 
 
 @cache

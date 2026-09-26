@@ -103,11 +103,11 @@ def test_pair_codepoints_covers_the_pairs_codepoint_span(enricher, units_by_key)
 
 def test_position_only_drift_marks_the_boundary_without_a_pair(enricher, units_by_key):
     # A kern-channel-out-of-scope unit: an advance-only one-pixel drift on the letter beside the boundary, with no cell- or seam-grain divergence. The mark is placed on the ◊ZWNJ beside the drift, and pair stays None so no sample band is highlighted.
-    enriched = enricher.enrich(units_by_key[("E650:E650:200C:E67A", "ss10")])
+    enriched = enricher.enrich(units_by_key[("E650:200C:E676:E665", "default")])
     assert enriched.pair is None
     assert enriched.diff_positions == ()
-    assert enriched.notation_tokens == ("·Pea", "·Pea", "◊ZWNJ", "·Utter")
-    assert enriched.pair_codepoints == (2, 2)
+    assert enriched.notation_tokens == ("·Pea", "◊ZWNJ", "·Ah", "·May")
+    assert enriched.pair_codepoints == (1, 1)
 
 
 def test_parse_entry_extension():
@@ -222,11 +222,11 @@ def test_single_cell_unit_has_null_pair(enricher):
 
     row = AuditRow(
         "ss03",
-        "E652:E679",
+        "E67B:E652",
         ("ligation",),
         "synthetic",
-        ("qsTea_qsOy",),
-        ("qsTea_qsOy/hapax/None/None/",),
+        ("qsOut.en-y0.ex-y5.ex-ext-1", "qsTea.half.en-y5.after-xheight-exit"),
+        ("qsOut_qsTea/hapax/None/None/",),
     )
     unit = Unit(
         codepoints=row.codepoints,

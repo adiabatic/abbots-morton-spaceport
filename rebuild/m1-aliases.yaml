@@ -1,6 +1,6 @@
 # Hand-written alias map for the M1 oracle comparison (M1-PLAN section 6, step 2(c)): every old compiled glyph name in any subset baseline row, mapped to the CellId the name denotes.
 # This file can be deleted once the rebuild replaces the shipping font.
-# Conventions: a bare family name denotes the isolated drawing with no committed anchors. The old font also joins on the bare glyph when its base drawing already has the live anchor; those rows match the bare-name-live-join ledger class at name grain. A suffixed name denotes the anchors it names, including anchors the old font leaves dangling at word edges; those rows match dangling-anchor-dropped. A `.noentry` name is one of the old font's post-ZWNJ variants and denotes the locked twin. Boundary glyph names map to the literal string `boundary`, and the comparison skips them.
+# Conventions: a bare family name denotes the isolated drawing with no committed anchors. The old font also joins on the bare glyph when its base drawing already has the live anchor; those rows match the bare-name-live-join ledger class at name grain. A suffixed name denotes the anchors it names, including anchors the old font leaves dangling at word edges; those rows match dangling-anchor-dropped. A `.noentry` name is one of the old font's post-ZWNJ variants and denotes the locked twin. A `.ss10` name is the old font's ss10 twin of the bare glyph, the same drawing and advance with no anchors, and denotes what the bare name denotes. Boundary glyph names map to the literal string `boundary`, and the comparison skips them.
 # run_m1 checks completeness before it builds: a glyph name in a subset row with no entry here stops the run with an error listing the missing names. An entry may map to the literal string `pending` to acknowledge a name mid-migration: the completeness check accepts it, and the comparison still treats those rows as unaliased.
 
 space: boundary
@@ -19,9 +19,11 @@ qsPea.half.en-y6.ex-y6.noentry: {rune: qsPea, stance: half, exit: y6, adjustment
 qsPea.half.ex-y5: {rune: qsPea, stance: half, exit: x-height}
 qsPea.half.ex-y5.ex-dips: {rune: qsPea, stance: half, exit: x-height}
 qsPea.noentry: {rune: qsPea, stance: full, adjustments: [locked]}
+qsPea.ss10: {rune: qsPea, stance: full}
 qsBay: {rune: qsBay, stance: hapax}
 qsBay.en-y5.ex-y0: {rune: qsBay, stance: hapax, entry: x-height, exit: baseline}
 qsBay.noentry: {rune: qsBay, stance: hapax, adjustments: [locked]}
+qsBay.ss10: {rune: qsBay, stance: hapax}
 qsTea: {rune: qsTea, stance: full}
 qsTea.en-y0: {rune: qsTea, stance: full, entry: baseline}
 qsTea.en-y0.en-ext-1: {rune: qsTea, stance: full, entry: baseline, adjustments: [en-ext-1]}
@@ -44,13 +46,16 @@ qsTea.half.en-y8.ex-y5.ex-con-1: {rune: qsTea, stance: half, entry: top, exit: x
 qsTea.half.en-y8.ex-y5.noentry.ex-con-1: {rune: qsTea, stance: half, exit: x-height, adjustments: [locked]}
 qsTea.half.ex-y5.ex-con-1: {rune: qsTea, stance: half, exit: x-height}
 qsTea.noentry: {rune: qsTea, stance: full, adjustments: [locked]}
+qsTea.ss10: {rune: qsTea, stance: full}
 qsTea_qsOy: {rune: qsTea_qsOy, stance: hapax}
 qsDay: {rune: qsDay, stance: full}
 qsDay.half.en-y0.ex-y0: {rune: qsDay, stance: half, entry: baseline, exit: baseline}
 qsDay.half.en-y0.ex-y0.en-ext-1: {rune: qsDay, stance: half, entry: baseline, exit: baseline, adjustments: [en-ext-1]}
 qsDay.noentry: {rune: qsDay, stance: full, adjustments: [locked]}
+qsDay.ss10: {rune: qsDay, stance: full}
 qsKey: {rune: qsKey, stance: hapax}
 qsKey.noentry: {rune: qsKey, stance: hapax, adjustments: [locked]}
+qsKey.ss10: {rune: qsKey, stance: hapax}
 qsGay: {rune: qsGay, stance: hapax}
 qsGay.en-y0.ex-y5: {rune: qsGay, stance: hapax, entry: baseline, exit: x-height}
 qsGay.en-y0.ex-y5.ex-ext-2: {rune: qsGay, stance: hapax, entry: baseline, exit: x-height, adjustments: [ex-ext-2]}
@@ -62,9 +67,11 @@ qsGay.ex-y0.ex-ext-1: {rune: qsGay, stance: hapax, exit: baseline, adjustments: 
 qsGay.ex-y5: {rune: qsGay, stance: hapax, exit: x-height}
 qsGay.ex-y5.ex-ext-2: {rune: qsGay, stance: hapax, exit: x-height, adjustments: [ex-ext-2]}
 qsGay.noentry: {rune: qsGay, stance: hapax, adjustments: [locked]}
+qsGay.ss10: {rune: qsGay, stance: hapax}
 qsThaw: {rune: qsThaw, stance: hapax}
 qsThaw.after-tall: {rune: qsThaw, stance: hapax}
 qsThaw.noentry: {rune: qsThaw, stance: hapax, adjustments: [locked]}
+qsThaw.ss10: {rune: qsThaw, stance: hapax}
 qsThey: {rune: qsThey, stance: hapax}
 qsThey.en-y5: {rune: qsThey, stance: hapax, entry: x-height}
 qsThey.en-y5.en-ext-1: {rune: qsThey, stance: hapax, entry: x-height}
@@ -73,6 +80,7 @@ qsThey.ex-y0.before-may.en-y5: {rune: qsThey, stance: hapax, entry: x-height, ex
 qsThey.ex-y0.before-may.en-y5.en-ext-1: {rune: qsThey, stance: hapax, entry: x-height, exit: baseline}
 qsThey.ex-y5: {rune: qsThey, stance: hapax, exit: x-height}
 qsThey.noentry: {rune: qsThey, stance: hapax, adjustments: [locked]}
+qsThey.ss10: {rune: qsThey, stance: hapax}
 qsThey_qsZoo: {rune: qsThey_qsZoo, stance: hapax}
 qsThey_qsUtter: {rune: qsThey_qsUtter, stance: hapax}
 qsThey_qsUtter.en-ext-1: {rune: qsThey_qsUtter, stance: hapax, entry: x-height}
@@ -92,10 +100,13 @@ qsZoo.en-ext-1: {rune: qsZoo, stance: full, entry: x-height, adjustments: [en-ex
 qsZoo.en-trim-1: {rune: qsZoo, stance: full, entry: x-height, adjustments: [en-trim-1]}
 qsZoo.half.en-y0.ex-y0: {rune: qsZoo, stance: half, entry: baseline, exit: baseline}
 qsZoo.noentry: {rune: qsZoo, stance: full, adjustments: [locked]}
+qsZoo.ss10: {rune: qsZoo, stance: full}
 qsShe: {rune: qsShe, stance: hapax}
 qsShe.ex-y0: {rune: qsShe, stance: hapax, exit: baseline}
+qsShe.ss10: {rune: qsShe, stance: hapax}
 qsCheer: {rune: qsCheer, stance: hapax}
 qsCheer.noentry: {rune: qsCheer, stance: hapax, adjustments: [locked]}
+qsCheer.ss10: {rune: qsCheer, stance: hapax}
 qsJay: {rune: qsJay, stance: hapax}
 qsJay.en-y5.ex-y0: {rune: qsJay, stance: hapax, entry: x-height, exit: baseline}
 qsJay.en-y5.ex-y0.en-con-1: {rune: qsJay, stance: hapax, entry: x-height, exit: baseline, adjustments: [en-con-1]}
@@ -103,6 +114,7 @@ qsJay.en-y5.ex-y0.en-ext-1: {rune: qsJay, stance: hapax, entry: x-height, exit: 
 qsJay.en-y5.ex-y0.ex-ext-1: {rune: qsJay, stance: hapax, entry: x-height, exit: baseline, adjustments: [ex-ext-1]}
 qsJay.en-y5.ex-y0.noentry.ex-ext-1: {rune: qsJay, stance: hapax, exit: baseline, adjustments: [locked, ex-ext-1]}
 qsJay.noentry: {rune: qsJay, stance: hapax, adjustments: [locked]}
+qsJay.ss10: {rune: qsJay, stance: hapax}
 qsJay_qsUtter: {rune: qsJay_qsUtter, stance: hapax}
 qsJay_qsUtter.en-con-1: {rune: qsJay_qsUtter, stance: hapax, entry: x-height, adjustments: [en-con-1]}
 qsJay_qsUtter.en-con-1.ex-con-2: {rune: qsJay_qsUtter, stance: hapax, entry: x-height, exit: x-height, adjustments: [en-con-1]}
@@ -119,6 +131,7 @@ qsYe.en-y5.ex-y0.ex-ext-1: {rune: qsYe, stance: climbing-loop, entry: x-height, 
 qsYe.ex-y0: {rune: qsYe, stance: loop, exit: baseline}
 qsYe.ex-y0.ex-ext-1: {rune: qsYe, stance: loop, exit: baseline, adjustments: [ex-ext-1]}
 qsYe.noentry: {rune: qsYe, stance: loop, adjustments: [locked]}
+qsYe.ss10: {rune: qsYe, stance: loop}
 qsNo.alt.en-y0.ex-y0.after-zoo: {rune: qsNo, stance: flipped, entry: baseline, exit: baseline}
 qsFee.en-y5: {rune: qsFee, stance: reversed-loop, entry: x-height}
 qsFee.en-y8.ex-y5: {rune: qsFee, stance: loop, entry: top, exit: x-height}
@@ -130,12 +143,14 @@ qsFee.ex-y5.before-utter: {rune: qsFee, stance: loop, exit: x-height}
 qsFee.ex-y5.before-utter.ex-ext-1: {rune: qsFee, stance: loop, exit: x-height, adjustments: [ex-ext-1]}
 qsFee.ex-y5.ex-ext-1: {rune: qsFee, stance: loop, exit: x-height, adjustments: [ex-ext-1]}
 qsFee.noentry: {rune: qsFee, stance: loop, adjustments: [locked]}
+qsFee.ss10: {rune: qsFee, stance: loop}
 qsVie: {rune: qsVie, stance: normal}
 qsVie.en-ext-1: {rune: qsVie, stance: normal, entry: baseline, adjustments: [en-ext-1]}
 qsVie.en-y0.ex-y0: {rune: qsVie, stance: swept-out, entry: baseline, exit: baseline}
 qsVie.en-y0.ex-y0.en-ext-1: {rune: qsVie, stance: swept-out, entry: baseline, exit: baseline, adjustments: [en-ext-1]}
 qsVie.en-y0.ex-y0.noentry: {rune: qsVie, stance: swept-out, exit: baseline, adjustments: [locked]}
 qsVie.noentry: {rune: qsVie, stance: normal, adjustments: [locked]}
+qsVie.ss10: {rune: qsVie, stance: normal}
 qsVie_qsUtter: {rune: qsVie_qsUtter, stance: hapax}
 qsVie_qsUtter.en-ext-1: {rune: qsVie_qsUtter, stance: hapax, entry: baseline, adjustments: [en-ext-1]}
 qsVie_qsUtter.en-ext-1.ex-con-2: {rune: qsVie_qsUtter, stance: hapax, entry: baseline, exit: x-height, adjustments: [en-ext-1]}
@@ -151,6 +166,7 @@ qsSee.ex-y0.ex-y0-right: {rune: qsSee, stance: straightest, exit: baseline}
 qsSee.ex-y0.ex-con-1: {rune: qsSee, stance: straighter, exit: baseline, adjustments: [ex-con-1]}
 qsSee.ex-y0.ex-ext-2: {rune: qsSee, stance: straighter, exit: baseline, adjustments: [ex-ext-2]}
 qsSee.noentry: {rune: qsSee, stance: normal, adjustments: [locked]}
+qsSee.ss10: {rune: qsSee, stance: normal}
 qsSee_qsUtter: {rune: qsSee_qsUtter, stance: hapax}
 qsSee_qsUtter.ex-con-2: {rune: qsSee_qsUtter, stance: hapax, exit: x-height}
 qsSee_qsUtter.ex-ext-1: {rune: qsSee_qsUtter, stance: hapax, exit: x-height, adjustments: [ex-ext-1]}
@@ -163,6 +179,7 @@ qsJai.en-y5.ex-y0.ex-ext-1: {rune: qsJai, stance: hapax, entry: x-height, exit: 
 qsJai.ex-y0: {rune: qsJai, stance: hapax, exit: baseline}
 qsJai.ex-y0.ex-ext-1: {rune: qsJai, stance: hapax, exit: baseline, adjustments: [ex-ext-1]}
 qsJai.noentry: {rune: qsJai, stance: hapax, adjustments: [locked]}
+qsJai.ss10: {rune: qsJai, stance: hapax}
 qsJai_qsUtter: {rune: qsJai_qsUtter, stance: hapax}
 qsJai_qsUtter.en-con-1: {rune: qsJai_qsUtter, stance: hapax, entry: x-height, adjustments: [en-con-1]}
 qsJai_qsUtter.en-con-1.ex-con-2: {rune: qsJai_qsUtter, stance: hapax, entry: x-height, exit: x-height, adjustments: [en-con-1]}
@@ -187,6 +204,7 @@ qsMay.en-y0.ex-noentry.en-ext-1: {rune: qsMay, stance: loop, entry: baseline, ad
 qsMay.ex-ext-1: {rune: qsMay, stance: loop, exit: x-height, adjustments: [ex-ext-1]}
 qsMay.ex-y0: {rune: qsMay, stance: grounded-loop, exit: baseline}
 qsMay.noentry: {rune: qsMay, stance: loop, adjustments: [locked]}
+qsMay.ss10: {rune: qsMay, stance: loop}
 qsNo: {rune: qsNo, stance: loop}
 qsNo.alt.en-y0.ex-y0: {rune: qsNo, stance: flipped, entry: baseline, exit: baseline}
 qsNo.alt.en-y0.ex-y0.after-it-and-vie: {rune: qsNo, stance: flipped, entry: baseline, exit: baseline}
@@ -197,6 +215,7 @@ qsNo.ex-ext-1: {rune: qsNo, stance: loop, exit: x-height, adjustments: [ex-ext-1
 qsNo.noentry: {rune: qsNo, stance: loop, adjustments: [locked]}
 qsNo.noentry.ex-con-1: {rune: qsNo, stance: loop, exit: x-height, adjustments: [locked]}
 qsNo.noentry.ex-ext-1: {rune: qsNo, stance: loop, exit: x-height, adjustments: [locked, ex-ext-1]}
+qsNo.ss10: {rune: qsNo, stance: loop}
 qsLow: {rune: qsLow, stance: hapax}
 qsLow.en-ext-1: {rune: qsLow, stance: hapax, entry: baseline, adjustments: [en-ext-1]}
 qsLow.ex-con-1: {rune: qsLow, stance: hapax, exit: x-height}
@@ -204,6 +223,7 @@ qsLow.ex-ext-1: {rune: qsLow, stance: hapax, exit: x-height, adjustments: [ex-ex
 qsLow.noentry: {rune: qsLow, stance: hapax, adjustments: [locked]}
 qsLow.noentry.ex-con-1: {rune: qsLow, stance: hapax, exit: x-height, adjustments: [locked]}
 qsLow.noentry.ex-ext-1: {rune: qsLow, stance: hapax, exit: x-height, adjustments: [locked, ex-ext-1]}
+qsLow.ss10: {rune: qsLow, stance: hapax}
 qsRoe: {rune: qsRoe, stance: hapax}
 qsRoe.en-ext-1-at-0: {rune: qsRoe, stance: hapax, entry: baseline, adjustments: [en-ext-1]}
 qsRoe.en-ext-1-at-5: {rune: qsRoe, stance: hapax, entry: x-height, adjustments: [en-ext-1]}
@@ -218,6 +238,7 @@ qsRoe.ex-y0.ex-ext-1: {rune: qsRoe, stance: hapax, exit: baseline, adjustments: 
 qsRoe.ex-y0.noentry: {rune: qsRoe, stance: hapax, exit: baseline, adjustments: [locked]}
 qsRoe.ex-y0.noentry.ex-ext-1: {rune: qsRoe, stance: hapax, exit: baseline, adjustments: [locked, ex-ext-1]}
 qsRoe.noentry: {rune: qsRoe, stance: hapax, adjustments: [locked]}
+qsRoe.ss10: {rune: qsRoe, stance: hapax}
 qsIt: {rune: qsIt, stance: hapax}
 qsIt.en-y0.ex-y5: {rune: qsIt, stance: hapax, entry: baseline, exit: x-height}
 qsIt.en-y0.ex-y5.en-ext-1: {rune: qsIt, stance: hapax, entry: baseline, exit: x-height, adjustments: [en-ext-1]}
@@ -236,14 +257,17 @@ qsIt.ex-y0.before-utter: {rune: qsIt, stance: hapax, exit: baseline}
 qsIt.ex-y5: {rune: qsIt, stance: hapax, exit: x-height}
 qsIt.ex-y5.ex-ext-1: {rune: qsIt, stance: hapax, exit: x-height, adjustments: [ex-ext-1]}
 qsIt.noentry: {rune: qsIt, stance: hapax, adjustments: [locked]}
+qsIt.ss10: {rune: qsIt, stance: hapax}
 qsEt: {rune: qsEt, stance: hapax}
 qsEt.en-ext-1: {rune: qsEt, stance: hapax, entry: x-height, adjustments: [en-ext-1]}
 qsEt.noentry: {rune: qsEt, stance: hapax, adjustments: [locked]}
+qsEt.ss10: {rune: qsEt, stance: hapax}
 qsEight: {rune: qsEight, stance: normal-sized-loop}
 qsEight.en-ext-1: {rune: qsEight, stance: normal-sized-loop, entry: x-height, adjustments: [en-ext-1]}
 qsEight.ex-ext-1: {rune: qsEight, stance: normal-sized-loop, exit: baseline, adjustments: [ex-ext-1]}
 qsEight.noentry: {rune: qsEight, stance: normal-sized-loop, adjustments: [locked]}
 qsEight.noentry.ex-ext-1: {rune: qsEight, stance: normal-sized-loop, exit: baseline, adjustments: [locked, ex-ext-1]}
+qsEight.ss10: {rune: qsEight, stance: normal-sized-loop}
 qsAt: {rune: qsAt, stance: rising}
 qsAt.en-ext-1: {rune: qsAt, stance: rising, entry: baseline, adjustments: [en-ext-1]}
 qsAt.ex-con-1: {rune: qsAt, stance: rising, exit: x-height, adjustments: [ex-con-1]}
@@ -251,6 +275,7 @@ qsAt.ex-y0.before-may: {rune: qsAt, stance: falling, exit: baseline}
 qsAt.ex-y0.before-may.ex-ext-5: {rune: qsAt, stance: falling, exit: baseline, adjustments: [ex-ext-3]}
 qsAt.noentry: {rune: qsAt, stance: rising, adjustments: [locked]}
 qsAt.noentry.ex-con-1: {rune: qsAt, stance: rising, exit: x-height, adjustments: [locked, ex-con-1]}
+qsAt.ss10: {rune: qsAt, stance: rising}
 qsI: {rune: qsI, stance: loop}
 qsI.en-y0.ex-y5.smaller-loop: {rune: qsI, stance: smaller-loop, entry: baseline, exit: x-height}
 qsI.ex-con-1: {rune: qsI, stance: loop, exit: x-height}
@@ -258,21 +283,26 @@ qsI.ex-ext-1: {rune: qsI, stance: loop, exit: x-height, adjustments: [ex-ext-1]}
 qsI.noentry: {rune: qsI, stance: loop, adjustments: [locked]}
 qsI.noentry.ex-con-1: {rune: qsI, stance: loop, exit: x-height, adjustments: [locked]}
 qsI.noentry.ex-ext-1: {rune: qsI, stance: loop, exit: x-height, adjustments: [locked, ex-ext-1]}
+qsI.ss10: {rune: qsI, stance: loop}
 qsAh: {rune: qsAh, stance: hapax}
 qsAh.ex-con-2: {rune: qsAh, stance: hapax, exit: x-height}
 qsAh.ex-ext-1: {rune: qsAh, stance: hapax, exit: x-height, adjustments: [ex-ext-1]}
 qsAh.noentry: {rune: qsAh, stance: hapax, adjustments: [locked]}
 qsAh.noentry.ex-con-2: {rune: qsAh, stance: hapax, exit: x-height, adjustments: [locked]}
 qsAh.noentry.ex-ext-1: {rune: qsAh, stance: hapax, exit: x-height, adjustments: [locked, ex-ext-1]}
+qsAh.ss10: {rune: qsAh, stance: hapax}
 qsAwe: {rune: qsAwe, stance: hapax}
 qsAwe.en-ext-1: {rune: qsAwe, stance: hapax, entry: x-height, adjustments: [en-ext-1]}
 qsAwe.noentry: {rune: qsAwe, stance: hapax, adjustments: [locked]}
+qsAwe.ss10: {rune: qsAwe, stance: hapax}
 qsOx: {rune: qsOx, stance: hapax}
 qsOx.en-ext-1: {rune: qsOx, stance: hapax, entry: x-height, adjustments: [en-ext-1]}
 qsOx.noentry: {rune: qsOx, stance: hapax, adjustments: [locked]}
+qsOx.ss10: {rune: qsOx, stance: hapax}
 qsOy: {rune: qsOy, stance: hapax}
 qsOy.en-y5.ex-y0: {rune: qsOy, stance: hapax, entry: x-height, exit: baseline}
 qsOy.noentry: {rune: qsOy, stance: hapax, adjustments: [locked]}
+qsOy.ss10: {rune: qsOy, stance: hapax}
 qsUtter: {rune: qsUtter, stance: mono}
 qsUtter.alt.en-y5.ex-y0.reaches-way-back: {rune: qsUtter, stance: alternate, entry: x-height, exit: baseline}
 qsUtter.alt.ex-y0: {rune: qsUtter, stance: alternate, exit: baseline}
@@ -282,6 +312,7 @@ qsUtter.ex-ext-1: {rune: qsUtter, stance: mono, exit: x-height, adjustments: [ex
 qsUtter.noentry: {rune: qsUtter, stance: mono, adjustments: [locked]}
 qsUtter.noentry.ex-con-2: {rune: qsUtter, stance: mono, exit: x-height, adjustments: [locked]}
 qsUtter.noentry.ex-ext-1: {rune: qsUtter, stance: mono, exit: x-height, adjustments: [locked, ex-ext-1]}
+qsUtter.ss10: {rune: qsUtter, stance: mono}
 qsOut: {rune: qsOut, stance: normal}
 qsOut.en-y0.after-see.en-trim-1: {rune: qsOut, stance: normal, entry: baseline, adjustments: [en-bind-raked, en-trim-1]}
 qsOut.en-y0.ex-y5: {rune: qsOut, stance: swept-up, entry: baseline, exit: x-height}
@@ -291,7 +322,9 @@ qsOut.en-y0.ex-y5.ex-ext-1: {rune: qsOut, stance: swept-up, entry: baseline, exi
 qsOut.en-y0.ex-y5.noentry: {rune: qsOut, stance: swept-up, exit: x-height, adjustments: [locked]}
 qsOut.en-y0.ex-y5.noentry.ex-ext-1: {rune: qsOut, stance: swept-up, exit: x-height, adjustments: [locked, ex-ext-1]}
 qsOut.noentry: {rune: qsOut, stance: normal, adjustments: [locked]}
+qsOut.ss10: {rune: qsOut, stance: normal}
 qsOut_qsTea: {rune: qsOut_qsTea, stance: hapax}
 qsOut_qsTea.after-see: {rune: qsOut_qsTea, stance: hapax, entry: baseline, adjustments: [en-bind-raked]}
 qsOoze: {rune: qsOoze, stance: hapax}
 qsOoze.noentry: {rune: qsOoze, stance: hapax, adjustments: [locked]}
+qsOoze.ss10: {rune: qsOoze, stance: hapax}

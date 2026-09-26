@@ -1,9 +1,9 @@
 {
-  "head": "316ccc9cd1e16202b0b7930ea6b160a09b75ca04",
+  "head": "f6599a7cefb5e28ddd6cac5fbe3bcea2e5d3e73a",
   "objects": {
     "glyph_data/runes": "58f6b9bf84a118da4bf5e2f1d3dd1890811b9d10",
     "rebuild/schema": "93778a60a69217c3e281b7de7ae50f8da136bd4c",
     "rebuild/script.yaml": "450920706d0613903d8dc8e4c466f2f183be47a7",
-    "rebuild/m1-divergences.yaml": "f5cdaa1235c04977b78d2d628d3c10955e9fe686"
+    "rebuild/m1-divergences.yaml": "7ec6bb7609e1e817eea05067f1a00e2d964eb67e"
   }
 }

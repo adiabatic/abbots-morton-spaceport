@@ -461,7 +461,7 @@ def test_junior_tracking_premise_holds(oracle):
 
 
 def test_junior_oracle_approves_a_suppressed_ligature_unit(oracle):
-    """The ·No·Day·Utter·Utter window (divergent only under ss10 because the old font still formed the ·Day·Utter ligature there): the rebuild's ss10 rendering is Junior's isolated rendering minus the tracking, so the unit is machine-approvable."""
+    """The ·No·Day·Utter·Utter window, where every configuration but ss10 forms the ·Day·Utter ligature: the rebuild's ss10 rendering is Junior's isolated rendering minus the tracking, so the unit is machine-approvable."""
     text = "".join(chr(value) for value in (0xE666, 0xE653, 0xE67A, 0xE67A))
     assert oracle.approves(("ss10",), text) is True
 

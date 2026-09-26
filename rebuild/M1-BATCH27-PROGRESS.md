@@ -26,8 +26,6 @@ Entered ·It exits at the x-height into ·Ye (`·Gay ~b~ ·It ~x~ ·Ye`), while 
 
 ·Ye brings a Manual pin into scope, `·Key ~b~ ·No.alt | ·Tea.half ~x~ ·It` (the-manual.html:4153). It is in the `regrouping-floor-drift` class and disagrees with the rebuild's grouping, and the pin gate has no waiver mechanism. So qsNo's round-3 decline of its baseline exit before ·Tea·It lists every baseline-exiting left that the old font groups this way. ·Roe is left out, because its own x-height preference decides its seam. The ledger entry records the widening.
 
-`·Ye ~b~ ·Thaw` and `·Ye ~b~ ·See` join only under the old ss10 overlay, where the after-Tall and after-·Ye breaks are themselves disabled substitutions. Both fall under the `ss10-isolation-completed` class, with qsYe in `SS10_UNCOVERED_BY_OLD_FONT` on the exit side only.
-
 ## Verification recipe
 
 Run the gates one at a time, and detach heavy passes as `doc/running-long-steps.md` describes. `doc/testing.md` names each gate's authority and the macOS sandbox restrictions that need an unrestricted rerun.

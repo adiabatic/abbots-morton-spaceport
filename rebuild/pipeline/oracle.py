@@ -1,6 +1,6 @@
 """The baseline oracle (M1-PLAN section 6): compare settlement with the section 13.1 baseline one configuration at a time, and match each divergent row against the divergence ledger (rebuild/m1-divergences.yaml). For the rows the ledger calls ink-identical, also compare the drawn positions with the kern-normalized old positions through the position channel in rebuild/pipeline/oracle_positions.py.
 
-Nothing here builds a table or a font; everything runs against tables and an M1.otf that are already built. So this module is left out of the stamp a serialized window enumeration carries (`fingerprint.table_code_paths` subtracts `fingerprint.COMPARISON_CODE_MODULES`), and rebuild/test_build_code_closure.py fails if the import graph from any build-side module or from `run_m1.run` reaches it. An edit to `classify_divergence`, a predicate, `SS10_UNCOVERED_BY_OLD_FONT`, `compile_ledger`, `_match_compiled`, or the position channel therefore keeps every enumeration on disk, and `run_m1 --gates-only` re-runs the oracle over them. Both files stay in `fingerprint.pipeline_code_paths`, so an edit here still changes the Stage A `pipeline_code` component, the artifact cycle's run_m1 skip key, and the Stage A record the review surface's manifest copies.
+Nothing here builds a table or a font; everything runs against tables and an M1.otf that are already built. So this module is left out of the stamp a serialized window enumeration carries (`fingerprint.table_code_paths` subtracts `fingerprint.COMPARISON_CODE_MODULES`), and rebuild/test_build_code_closure.py fails if the import graph from any build-side module or from `run_m1.run` reaches it. An edit to `classify_divergence`, a predicate, `compile_ledger`, `_match_compiled`, or the position channel therefore keeps every enumeration on disk, and `run_m1 --gates-only` re-runs the oracle over them. Both files stay in `fingerprint.pipeline_code_paths`, so an edit here still changes the Stage A `pipeline_code` component, the artifact cycle's run_m1 skip key, and the Stage A record the review surface's manifest copies.
 
 The rows the oracle classifies are produced in conform.py. `_compare_row` and `_SettledWindowWalk` are the entry points whose import graph `oracle_cache.ORACLE_ROW_CODE_PATHS` must cover, and the record codec (`_cached_verdict`, `_served_verdict`) and `_verify_served_sample` sit beside them. No module under that stamp imports this one, so after a classifier edit every row verdict is still served from the store; rebuild/test_oracle_code_closure.py fails if conform.py's import graph reaches this module. The position channel is rebuild/pipeline/oracle_positions.py, the only module `oracle_cache.POSITION_CODE_PATHS` names. It never imports this module either, so a classifier edit also keeps every stored position, and the same test checks that direction. `_compare_config` calls the channel through the `oracle_positions` module, not through imported names, so monkeypatching `oracle_positions._position_drift` affects both the rows this pass shapes and `_verify_served_positions` (rebuild/test_conform.py relies on this).
 
@@ -13,7 +13,6 @@ For the overlay configuration (ss10), no settlement table produces the new side.
 
 from __future__ import annotations
 
-import functools
 import itertools
 import math
 import os
@@ -44,9 +43,8 @@ from rebuild.pipeline.conform import (
 )
 from rebuild.pipeline.labels import BOUNDARY_GLYPH_NAMES, features_for_config, load_alias_map
 from rebuild.pipeline.model import ResolvedSpec, isolated_overlay_active
-from rebuild.pipeline.spec_load import DEFAULT_REGISTRY_PATH
 from rebuild.tools.peak_rss import peak_rss_self_bytes
-from rebuild.validation.rowmodel import format_codepoints, iter_rows
+from rebuild.validation.rowmodel import iter_rows
 
 # Baseline rows read and walked at a time: the oracle's counterpart of `conform.TEXT_CHUNK`.
 ORACLE_ROW_CHUNK = 65536
@@ -223,17 +221,6 @@ def unaliased_subset_names(subset_dir: Path, alias_path: Path) -> dict[str, list
     return {name: sorted(configs) for name, configs in sorted(missing.items())}
 
 
-@functools.cache
-def ss10_formable_pairs(registry_path: Path = DEFAULT_REGISTRY_PATH) -> frozenset[str]:
-    """Return every ligature the registry (`rebuild/script.yaml`) declares, as the colon-joined code points of its component sequence (`E653:E67A` for qsDay_qsUtter). `classify_divergence`'s ss10 ligature check reads this, so a newly migrated ligature needs no edit here."""
-    families = yaml.safe_load(registry_path.read_text(encoding="utf-8"))["families"]
-    return frozenset(
-        format_codepoints(tuple(int(families[name]["codepoint"]) for name in info["sequence"]))
-        for info in families.values()
-        if info.get("sequence")
-    )
-
-
 def classify_divergence(row: DivergentRow) -> str | None:
     """Return the one ledger class for a divergent row, chosen from its phenomenon set (which `_compare_row` computes through the alias map), or None when no class applies. The order of the checks below is the precedence, and the ledger's header comment summarizes it. A row with no class can still match a function predicate or an unconditional ledger entry; otherwise it is unmatched and waits for a verdict on the review surface."""
     phenomena = set(row.phenomena)
@@ -245,10 +232,10 @@ def classify_divergence(row: DivergentRow) -> str | None:
     if {"0020", "200C"} & set(row.codepoints.split(":")):
         # Design section 3.4: the new font renders each segment of a window split by a space or ZWNJ the same as that segment alone, and the belt's split-buffer check verifies this on every build. So a boundary row can diverge from the baseline only where the old font was inconsistent across the boundary, and every divergence inside a segment also appears on that segment's own row. Boundary rows need no review of their own and take this class ahead of every other.
         return "boundary-echo"
+    if row.config in OVERLAY_CONFIGS:
+        # Under ss10 both fonts render every letter isolated, with no join and no ligature (the old font through its anchor-free `.ss10` twins, the rebuild through its pre-empt), so any other ss10 divergence is a regression and waits for review. Without this, a namer-dot ss10 row that ligates would take marker-staging-ligature-formation.
+        return None
     if "ligation" in phenomena:
-        # Under ss10 the new font never forms a ligature (the ss10 pre-empt replaces every letter before formation), while the old font still draws its own. This check comes before the marker-staging ones, whose 00B7 case would otherwise take the namer-dot ss10 windows. The pairs come from the registry's ligature sequences, so a newly migrated ligature's ss10 rows are covered.
-        if row.config == "ss10" and any(pair in row.codepoints for pair in ss10_formable_pairs()):
-            return "ss10-ligature-suppressed"
         if "E67B:E652" in row.codepoints and "ss03" in row.config:
             return "ss03-out-tea-ligature-kept"
         if "E652:E679" in row.codepoints and ("200C" in row.codepoints or "ss03" in row.config):
@@ -367,12 +354,11 @@ def _class_predicate(class_id: str) -> Callable[[DivergentRow], bool]:
     return matches
 
 
-# Predicate name to class id, for the ledger predicates that only test "classify_divergence chose this class". `compile_ledger` groups these entries by class id, and `_match_compiled` classifies each row once and looks the class up, instead of calling one closure per entry that each re-classifies the row. The three predicates below test something classification does not, so they stay functions.
+# Predicate name to class id, for the ledger predicates that only test "classify_divergence chose this class". `compile_ledger` groups these entries by class id, and `_match_compiled` classifies each row once and looks the class up, instead of calling one closure per entry that each re-classifies the row. The two predicates below test something classification does not, so they stay functions.
 CLASS_PREDICATE_IDS: dict[str, str] = {}
 
 for _class_id in (
     "boundary-echo",
-    "ss10-ligature-suppressed",
     "ss03-out-tea-ligature-kept",
     "marker-staging-ligature-formation",
     "regrouping-floor-drift",
@@ -425,85 +411,6 @@ def _may_ligature_seam_loosened(row: DivergentRow) -> bool:
         glyphs[index].startswith("qsDay_qsUtter") and glyphs[index + 1].startswith("qsMay.en-y5")
         for index in range(len(glyphs) - 1)
     )
-
-
-# The migrated runes whose joins the old font's ss10 isolated overlay does not remove. The old font keeps drawing their cursive joins under ss10, while the new model isolates every letter.
-# Membership is decided for each letter when it is migrated. qsFee is not a member: the old ss10 overlay substitutes every qsFee variant with the bare cmap glyph, which has no cursive anchors, so the old font already isolates ·Fee, and its ss10 seam-loss rows are matched by the existing ss10_isolation_completed predicate.
-# qsAh: its baseline entry and x-height exit anchors are on the base cmap glyph (`·Pea ~b~ ·Ah`, `·Oy ~b~ ·Ah` and `·Ah ~x~ ·Day` are bare-glyph GPOS attachments with no calt variant), so the old ss10 overlay has nothing to substitute away and keeps drawing those joins.
-# qsOut, entry side only, as with qsAh: its baseline entry anchor is on the bare cmap glyph (`·Pea ~b~ ·Out` stays joined under the old ss10), while its x-height exits are on calt variants the old overlay substitutes away. qsOut_qsTea inherits the same bare-glyph entry from its lead, as qsDay_qsUtter does.
-# qsAwe, both sides, as with qsAh: the old record has no stances, so its x-height entry and baseline exit are both on the base cmap glyph, and bare qsAwe is the only ·Awe glyph the old font uses under ss10. It keeps the y5 joins into it and the y0 joins out of it wherever the neighbor's anchor also survives the overlay.
-# qsOx, the qsAwe case: no stances in the old record, so both anchors are on the base cmap glyph and bare qsOx keeps its seams under ss10 (`·May ~x~ ·Ox` and `·Ox ~b~ ·Vie` stay joined).
-# qsEight, the qsAwe case: no stances in the old record, so both anchors are on the base cmap glyph and bare qsEight keeps its seams under ss10 (`·May ~x~ ·Eight` and `·Eight ~b~ ·Vie` stay joined).
-# qsAt, from direct pair evidence: the old overlay leaves bare qsAt in place, so `·Pea ~b~ ·At` and `·At ~x~ ·Day` stay joined. Its contextual forms before ·May and before ·J'ai are substituted away and isolate correctly.
-# qsOoze, the qsAwe case: no stances in the old record, so its baseline entry and baseline exit are both on the base cmap glyph and bare qsOoze keeps its seams under ss10 (`·Pea ~b~ ·Ooze` and `·Ooze ~b~ ·Vie` stay joined).
-# qsBay, from direct pair evidence, the qsAt case: the old overlay leaves bare qsBay's baseline exit live (`·Bay ~b~ ·Vie` stays joined; likewise qsSee, qsLow, qsRoe, qsAt, qsAh, qsOut and qsOoze), while its contextual en-y5 entry form is substituted away, so every entry into qsBay isolates (`·I | ·Bay` under ss10).
-# qsKey, the qsAwe case: no stances in the old record, so its top entry and baseline exit are both on the base cmap glyph and bare qsKey keeps its seams under ss10 (`·See ~t~ ·Key` and `·Key ~b~ ·Vie` stay joined). The receivers the old font serves through contextual forms (qsTea.en-y0.en-ext-1, qsDay.half, qsMay.en-y0.ex-y5, qsNo.alt) are substituted away and isolate correctly.
-# qsThaw, entry side only, as with qsOut: its baseline entry anchor is on the bare cmap glyph, so every left letter whose exit anchor also survives the overlay keeps joining it under the old ss10 (`·Bay ~b~ ·Thaw`, and likewise after qsDay, qsEt, qsEight, qsAwe, qsOx, qsOy and qsOoze). In the old font, `·Pea ~b~ ·Thaw` joins only under ss10, because the after-Tall break is itself a calt substitution the overlay disables. Its one exit is on a calt stance the overlay substitutes away (`·Thaw | ·-ing` under ss10).
-# qsZoo: bare qsZoo keeps its x-height entry and baseline exit under the old ss10 overlay (`·May ~x~ ·Zoo` and `·Zoo ~b~ ·Vie` stay joined); its half form is substituted away and loses the baseline entry.
-# qsI, both sides, the qsAwe case: its baseline entry and x-height exit are on the base cmap glyph (`·Pea ~b~ ·I`, `·I ~x~ ·Et` and `·I ~x~ ·Roe` stay joined), and its one stance carries the same two anchors.
-# qsEt, the qsAwe case: no stances in the old record, so its x-height entry and baseline exit are both on the base cmap glyph (`·May ~x~ ·Et` and `·Et ~b~ ·Vie` stay joined).
-# qsSee, both sides: its baseline entry and top exit are on the base cmap glyph (`·Pea ~b~ ·See` and `·See ~t~ ·Key` stay joined; ·Key is the one receiver with a top entry), while the y6 and baseline exits are on stances the overlay substitutes away (`·See | ·Vie` under ss10).
-# qsRoe, entry side only, as with qsOut: both its entries are on the base cmap glyph (`·Pea ~b~ ·Roe` and `·May ~x~ ·Roe` stay joined), while every exit is on a stance the overlay substitutes away (`·Roe | ·Vie` under ss10).
-# qsVie, entry side only, as with qsOut: its baseline entry is on the base cmap glyph (`·Pea ~b~ ·Vie` and `·Et ~b~ ·Vie` stay joined), while its one exit is on a stance the overlay substitutes away (`·Vie | ·Ah` under ss10).
-# Members are the migrated letters whose bare old glyph carries a live anchor, except bare qsPea, qsMay and qsOy: their surviving exits only ever meet a member's entry, so every join the old font draws under ss10 touches a member.
-# qsCheer: bare qsCheer keeps its x-height entry and baseline exit under the old ss10 overlay (`·May ~x~ ·Cheer` and `·Cheer ~b~ ·Vie` stay joined).
-# qsJay, exit side only, the qsBay case: its baseline exit is on the bare cmap glyph and survives the old overlay (`·Jay ~b~ ·Vie` stays joined under ss10), while its x-height entry is on the en-y5 stance the overlay substitutes away (`·Pea | ·Jay` under ss10).
-# qsYe, exit side only, the same case: its baseline exit is on the bare cmap glyph (`·Ye ~b~ ·Vie` stays joined under ss10, and the overlay even joins `·Ye ~b~ ·Thaw` and `·Ye ~b~ ·See`, whose after-Tall and after-·Ye breaks are themselves calt substitutions the overlay disables), while both entries are on the en-y0 and en-y5 stances the overlay substitutes away (`·Bay | ·Ye` and `·May | ·Ye` under ss10).
-SS10_UNCOVERED_BY_OLD_FONT = frozenset(
-    {
-        "qsAh",
-        "qsDay",
-        "qsNo",
-        "qsLow",
-        "qsUtter",
-        "qsDay_qsUtter",
-        "qsOut",
-        "qsOut_qsTea",
-        "qsAwe",
-        "qsOx",
-        "qsEight",
-        "qsAt",
-        "qsOoze",
-        "qsBay",
-        "qsKey",
-        "qsThaw",
-        "qsZoo",
-        "qsI",
-        "qsEt",
-        "qsSee",
-        "qsRoe",
-        "qsVie",
-        "qsCheer",
-        "qsJay",
-        "qsYe",
-    }
-)
-
-
-@predicate("ss10_isolation_completed")
-def _ss10_isolation_completed(row: DivergentRow) -> bool:
-    """Match ss10 rows whose only seam changes are losses, each on a seam that touches a rune in `SS10_UNCOVERED_BY_OLD_FONT`. Under ss10 the new model renders every letter bare, with no seam, so a join the old font still draws there appears as a seam loss. The old font's ss10 overlay does not isolate those runes, because their anchors are on the base cmap glyph; the new font's complete isolation is the intended behavior. A lost seam between two non-members is not matched: the old font draws no such seam (see the comment on `SS10_UNCOVERED_BY_OLD_FONT`), so one that appears is a regression. Rows with a space or ZWNJ are excluded so that they match boundary-echo alone."""
-    if {"0020", "200C"} & set(row.codepoints.split(":")):
-        return False
-    if row.config != "ss10" or "seam" not in row.kinds:
-        return False
-    runes = [token.split("/", 1)[0] for token in row.new_cells]
-    saw_loss = False
-    for index, (old_seam, new_seam) in enumerate(zip(row.baseline_seams, row.new_seams)):
-        if old_seam == new_seam:
-            continue
-        if new_seam != "break":
-            return False
-        if old_seam in ("break", "lig"):
-            continue
-        neighbors = {
-            runes[index] if index < len(runes) else "?",
-            runes[index + 1] if index + 1 < len(runes) else "?",
-        }
-        if not (neighbors & SS10_UNCOVERED_BY_OLD_FONT):
-            return False
-        saw_loss = True
-    return saw_loss
 
 
 @dataclass(frozen=True)

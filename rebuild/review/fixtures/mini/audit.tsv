@@ -381,6 +381,7 @@ default	E650:200C:E653:E652	cell	boundary-echo	qsPea|space|qsDay.noentry|qsTea.e
 default	E650:200C:E653:E653	cell	boundary-echo	qsPea|space|qsDay.noentry|qsDay.half.en-y0.ex-y0	qsPea/full/None/None/|zwnj/boundary/None/None/|qsDay/full/None/baseline/locked|qsDay/half/baseline/None/
 default	E650:200C:E653:E668	cell	boundary-echo	qsPea|space|qsDay.noentry|qsRoe	qsPea/full/None/None/|zwnj/boundary/None/None/|qsDay/full/None/baseline/locked|qsRoe/hapax/baseline/None/
 default	E650:200C:E668:E668	cell	boundary-echo	qsPea|space|qsRoe.en-y0.ex-y5.noentry|qsRoe	qsPea/full/None/None/|zwnj/boundary/None/None/|qsRoe/hapax/None/x-height/locked|qsRoe/hapax/x-height/None/
+default	E650:200C:E676:E665	position	kern-channel-out-of-scope	qsPea|space|qsAh.noentry.ex-ext-1|qsMay.en-y5	slot 3 (qsMay.en-y5): origin want (500, 0), got (550, 0)
 default	E650:E650:0020:0020	cell	boundary-echo	qsPea.half.en-y6.ex-y6|qsPea.en-y6|space|space	qsPea/half/None/y6/|qsPea/full/y6/None/|space/boundary/None/None/|space/boundary/None/None/
 default	E650:E650:0020:00B7	cell	boundary-echo	qsPea.half.en-y6.ex-y6|qsPea.en-y6|space|periodcentered	qsPea/half/None/y6/|qsPea/full/y6/None/|space/boundary/None/None/|namer-dot/boundary/None/None/
 default	E650:E650:0020:200C	cell	boundary-echo	qsPea.half.en-y6.ex-y6|qsPea.en-y6|space|space	qsPea/half/None/y6/|qsPea/full/y6/None/|space/boundary/None/None/|zwnj/boundary/None/None/
@@ -402,7 +403,6 @@ default	E650:E650:200C:E650	cell	boundary-echo	qsPea.half.en-y6.ex-y6|qsPea.en-y
 default	E650:E650:200C:E652	cell	boundary-echo	qsPea.half.en-y6.ex-y6|qsPea.en-y6|space|qsTea.noentry	qsPea/half/None/y6/|qsPea/full/y6/None/|zwnj/boundary/None/None/|qsTea/full/None/None/locked
 default	E650:E650:200C:E653	cell	boundary-echo	qsPea.half.en-y6.ex-y6|qsPea.en-y6|space|qsDay.noentry	qsPea/half/None/y6/|qsPea/full/y6/None/|zwnj/boundary/None/None/|qsDay/full/None/None/locked
 default	E650:E650:200C:E668	cell	boundary-echo	qsPea.half.en-y6.ex-y6|qsPea.en-y6|space|qsRoe.noentry	qsPea/half/None/y6/|qsPea/full/y6/None/|zwnj/boundary/None/None/|qsRoe/hapax/None/None/locked
-default	E650:E650:200C:E67A	cell	boundary-echo	qsPea.half.en-y6.ex-y6|qsPea.en-y6|space|qsUtter.noentry	qsPea/half/None/y6/|qsPea/full/y6/None/|zwnj/boundary/None/None/|qsUtter/mono/None/None/locked
 default	E650:E650:E650:0020	cell	boundary-echo	qsPea.half.en-y6.ex-y6|qsPea.half.en-y6.ex-y6|qsPea.en-y6|space	qsPea/half/None/y6/|qsPea/half/y6/y6/|qsPea/full/y6/None/|space/boundary/None/None/
 default	E650:E650:E650:00B7	cell	dangling-anchor-dropped	qsPea.half.en-y6.ex-y6|qsPea.half.en-y6.ex-y6|qsPea.en-y6|periodcentered	qsPea/half/None/y6/|qsPea/half/y6/y6/|qsPea/full/y6/None/|namer-dot/boundary/None/None/
 default	E650:E650:E650:200C	cell	boundary-echo	qsPea.half.en-y6.ex-y6|qsPea.half.en-y6.ex-y6|qsPea.en-y6|space	qsPea/half/None/y6/|qsPea/half/y6/y6/|qsPea/full/y6/None/|zwnj/boundary/None/None/
@@ -924,6 +924,7 @@ ss03	E653:E668	cell	bare-name-live-join	qsDay|qsRoe	qsDay/full/None/baseline/|qs
 ss03	E658:E666	cell	bare-name-live-join	qsFee.ex-y5.before-utter.ex-ext-1|qsNo	qsFee/loop/None/x-height/ex-ext-1|qsNo/loop/x-height/None/
 ss03	E668:E668	cell	dangling-anchor-dropped	qsRoe.en-y0.ex-y5|qsRoe	qsRoe/hapax/None/x-height/|qsRoe/hapax/x-height/None/
 ss03	E670:E670	cell	dangling-anchor-dropped	qsIt.ex-y5|qsIt	qsIt/hapax/None/None/|qsIt/hapax/None/None/
+ss03	E67B:E652	ligation	ss03-out-tea-ligature-kept	qsOut.en-y0.ex-y5.ex-ext-1|qsTea.half.en-y5.after-xheight-exit	qsOut_qsTea/hapax/None/None/
 ss03	0020:E650:E650	cell	boundary-echo	space|qsPea.half.en-y6.ex-y6|qsPea.en-y6	space/boundary/None/None/|qsPea/half/None/y6/|qsPea/full/y6/None/
 ss03	0020:E650:E653	cell	boundary-echo	space|qsPea|qsDay.half.en-y0.ex-y0	space/boundary/None/None/|qsPea/full/None/baseline/|qsDay/half/baseline/None/
 ss03	0020:E652:E653	cell	boundary-echo	space|qsTea.ex-y0|qsDay.half.en-y0.ex-y0.en-ext-1	space/boundary/None/None/|qsTea/full/None/baseline/|qsDay/half/baseline/None/en-ext-1
@@ -1296,6 +1297,7 @@ ss03	E650:200C:E653:E652	cell	boundary-echo	qsPea|space|qsDay.noentry|qsTea.en-y
 ss03	E650:200C:E653:E653	cell	boundary-echo	qsPea|space|qsDay.noentry|qsDay.half.en-y0.ex-y0	qsPea/full/None/None/|zwnj/boundary/None/None/|qsDay/full/None/baseline/locked|qsDay/half/baseline/None/
 ss03	E650:200C:E653:E668	cell	boundary-echo	qsPea|space|qsDay.noentry|qsRoe	qsPea/full/None/None/|zwnj/boundary/None/None/|qsDay/full/None/baseline/locked|qsRoe/hapax/baseline/None/
 ss03	E650:200C:E668:E668	cell	boundary-echo	qsPea|space|qsRoe.en-y0.ex-y5.noentry|qsRoe	qsPea/full/None/None/|zwnj/boundary/None/None/|qsRoe/hapax/None/x-height/locked|qsRoe/hapax/x-height/None/
+ss03	E650:200C:E676:E665	position	kern-channel-out-of-scope	qsPea|space|qsAh.noentry.ex-ext-1|qsMay.en-y5	slot 3 (qsMay.en-y5): origin want (500, 0), got (550, 0)
 ss03	E650:E650:0020:0020	cell	boundary-echo	qsPea.half.en-y6.ex-y6|qsPea.en-y6|space|space	qsPea/half/None/y6/|qsPea/full/y6/None/|space/boundary/None/None/|space/boundary/None/None/
 ss03	E650:E650:0020:00B7	cell	boundary-echo	qsPea.half.en-y6.ex-y6|qsPea.en-y6|space|periodcentered	qsPea/half/None/y6/|qsPea/full/y6/None/|space/boundary/None/None/|namer-dot/boundary/None/None/
 ss03	E650:E650:0020:200C	cell	boundary-echo	qsPea.half.en-y6.ex-y6|qsPea.en-y6|space|space	qsPea/half/None/y6/|qsPea/full/y6/None/|space/boundary/None/None/|zwnj/boundary/None/None/
@@ -1317,7 +1319,6 @@ ss03	E650:E650:200C:E650	cell	boundary-echo	qsPea.half.en-y6.ex-y6|qsPea.en-y6|s
 ss03	E650:E650:200C:E652	cell	boundary-echo	qsPea.half.en-y6.ex-y6|qsPea.en-y6|space|qsTea.noentry	qsPea/half/None/y6/|qsPea/full/y6/None/|zwnj/boundary/None/None/|qsTea/full/None/None/locked
 ss03	E650:E650:200C:E653	cell	boundary-echo	qsPea.half.en-y6.ex-y6|qsPea.en-y6|space|qsDay.noentry	qsPea/half/None/y6/|qsPea/full/y6/None/|zwnj/boundary/None/None/|qsDay/full/None/None/locked
 ss03	E650:E650:200C:E668	cell	boundary-echo	qsPea.half.en-y6.ex-y6|qsPea.en-y6|space|qsRoe.noentry	qsPea/half/None/y6/|qsPea/full/y6/None/|zwnj/boundary/None/None/|qsRoe/hapax/None/None/locked
-ss03	E650:E650:200C:E67A	cell	boundary-echo	qsPea.half.en-y6.ex-y6|qsPea.en-y6|space|qsUtter.noentry	qsPea/half/None/y6/|qsPea/full/y6/None/|zwnj/boundary/None/None/|qsUtter/mono/None/None/locked
 ss03	E650:E650:E650:0020	cell	boundary-echo	qsPea.half.en-y6.ex-y6|qsPea.half.en-y6.ex-y6|qsPea.en-y6|space	qsPea/half/None/y6/|qsPea/half/y6/y6/|qsPea/full/y6/None/|space/boundary/None/None/
 ss03	E650:E650:E650:00B7	cell	dangling-anchor-dropped	qsPea.half.en-y6.ex-y6|qsPea.half.en-y6.ex-y6|qsPea.en-y6|periodcentered	qsPea/half/None/y6/|qsPea/half/y6/y6/|qsPea/full/y6/None/|namer-dot/boundary/None/None/
 ss03	E650:E650:E650:200C	cell	boundary-echo	qsPea.half.en-y6.ex-y6|qsPea.half.en-y6.ex-y6|qsPea.en-y6|space	qsPea/half/None/y6/|qsPea/half/y6/y6/|qsPea/full/y6/None/|zwnj/boundary/None/None/
@@ -2211,6 +2212,7 @@ ss04	E650:200C:E653:E652	cell	boundary-echo	qsPea|space|qsDay.noentry|qsTea.en-y
 ss04	E650:200C:E653:E653	cell	boundary-echo	qsPea|space|qsDay.noentry|qsDay.half.en-y0.ex-y0	qsPea/full/None/None/|zwnj/boundary/None/None/|qsDay/full/None/baseline/locked|qsDay/half/baseline/None/
 ss04	E650:200C:E653:E668	cell	boundary-echo	qsPea|space|qsDay.noentry|qsRoe	qsPea/full/None/None/|zwnj/boundary/None/None/|qsDay/full/None/baseline/locked|qsRoe/hapax/baseline/None/
 ss04	E650:200C:E668:E668	cell	boundary-echo	qsPea|space|qsRoe.en-y0.ex-y5.noentry|qsRoe	qsPea/full/None/None/|zwnj/boundary/None/None/|qsRoe/hapax/None/x-height/locked|qsRoe/hapax/x-height/None/
+ss04	E650:200C:E676:E665	position	kern-channel-out-of-scope	qsPea|space|qsAh.noentry.ex-ext-1|qsMay.en-y5	slot 3 (qsMay.en-y5): origin want (500, 0), got (550, 0)
 ss04	E650:E650:0020:0020	cell	boundary-echo	qsPea.half.en-y6.ex-y6|qsPea.en-y6|space|space	qsPea/half/None/y6/|qsPea/full/y6/None/|space/boundary/None/None/|space/boundary/None/None/
 ss04	E650:E650:0020:00B7	cell	boundary-echo	qsPea.half.en-y6.ex-y6|qsPea.en-y6|space|periodcentered	qsPea/half/None/y6/|qsPea/full/y6/None/|space/boundary/None/None/|namer-dot/boundary/None/None/
 ss04	E650:E650:0020:200C	cell	boundary-echo	qsPea.half.en-y6.ex-y6|qsPea.en-y6|space|space	qsPea/half/None/y6/|qsPea/full/y6/None/|space/boundary/None/None/|zwnj/boundary/None/None/
@@ -2232,7 +2234,6 @@ ss04	E650:E650:200C:E650	cell	boundary-echo	qsPea.half.en-y6.ex-y6|qsPea.en-y6|s
 ss04	E650:E650:200C:E652	cell	boundary-echo	qsPea.half.en-y6.ex-y6|qsPea.en-y6|space|qsTea.noentry	qsPea/half/None/y6/|qsPea/full/y6/None/|zwnj/boundary/None/None/|qsTea/full/None/None/locked
 ss04	E650:E650:200C:E653	cell	boundary-echo	qsPea.half.en-y6.ex-y6|qsPea.en-y6|space|qsDay.noentry	qsPea/half/None/y6/|qsPea/full/y6/None/|zwnj/boundary/None/None/|qsDay/full/None/None/locked
 ss04	E650:E650:200C:E668	cell	boundary-echo	qsPea.half.en-y6.ex-y6|qsPea.en-y6|space|qsRoe.noentry	qsPea/half/None/y6/|qsPea/full/y6/None/|zwnj/boundary/None/None/|qsRoe/hapax/None/None/locked
-ss04	E650:E650:200C:E67A	cell	boundary-echo	qsPea.half.en-y6.ex-y6|qsPea.en-y6|space|qsUtter.noentry	qsPea/half/None/y6/|qsPea/full/y6/None/|zwnj/boundary/None/None/|qsUtter/mono/None/None/locked
 ss04	E650:E650:E650:0020	cell	boundary-echo	qsPea.half.en-y6.ex-y6|qsPea.half.en-y6.ex-y6|qsPea.en-y6|space	qsPea/half/None/y6/|qsPea/half/y6/y6/|qsPea/full/y6/None/|space/boundary/None/None/
 ss04	E650:E650:E650:00B7	cell	dangling-anchor-dropped	qsPea.half.en-y6.ex-y6|qsPea.half.en-y6.ex-y6|qsPea.en-y6|periodcentered	qsPea/half/None/y6/|qsPea/half/y6/y6/|qsPea/full/y6/None/|namer-dot/boundary/None/None/
 ss04	E650:E650:E650:200C	cell	boundary-echo	qsPea.half.en-y6.ex-y6|qsPea.half.en-y6.ex-y6|qsPea.en-y6|space	qsPea/half/None/y6/|qsPea/half/y6/y6/|qsPea/full/y6/None/|zwnj/boundary/None/None/
@@ -3126,6 +3127,7 @@ ss05	E650:200C:E653:E652	cell	boundary-echo	qsPea|space|qsDay.noentry|qsTea.en-y
 ss05	E650:200C:E653:E653	cell	boundary-echo	qsPea|space|qsDay.noentry|qsDay.half.en-y0.ex-y0	qsPea/full/None/None/|zwnj/boundary/None/None/|qsDay/full/None/baseline/locked|qsDay/half/baseline/None/
 ss05	E650:200C:E653:E668	cell	boundary-echo	qsPea|space|qsDay.noentry|qsRoe	qsPea/full/None/None/|zwnj/boundary/None/None/|qsDay/full/None/baseline/locked|qsRoe/hapax/baseline/None/
 ss05	E650:200C:E668:E668	cell	boundary-echo	qsPea|space|qsRoe.en-y0.ex-y5.noentry|qsRoe	qsPea/full/None/None/|zwnj/boundary/None/None/|qsRoe/hapax/None/x-height/locked|qsRoe/hapax/x-height/None/
+ss05	E650:200C:E676:E665	position	kern-channel-out-of-scope	qsPea|space|qsAh.noentry.ex-ext-1|qsMay.en-y5	slot 3 (qsMay.en-y5): origin want (500, 0), got (550, 0)
 ss05	E650:E650:0020:0020	cell	boundary-echo	qsPea.half.en-y6.ex-y6|qsPea.en-y6|space|space	qsPea/half/None/y6/|qsPea/full/y6/None/|space/boundary/None/None/|space/boundary/None/None/
 ss05	E650:E650:0020:00B7	cell	boundary-echo	qsPea.half.en-y6.ex-y6|qsPea.en-y6|space|periodcentered	qsPea/half/None/y6/|qsPea/full/y6/None/|space/boundary/None/None/|namer-dot/boundary/None/None/
 ss05	E650:E650:0020:200C	cell	boundary-echo	qsPea.half.en-y6.ex-y6|qsPea.en-y6|space|space	qsPea/half/None/y6/|qsPea/full/y6/None/|space/boundary/None/None/|zwnj/boundary/None/None/
@@ -3147,7 +3149,6 @@ ss05	E650:E650:200C:E650	cell	boundary-echo	qsPea.half.en-y6.ex-y6|qsPea.en-y6|s
 ss05	E650:E650:200C:E652	cell	boundary-echo	qsPea.half.en-y6.ex-y6|qsPea.en-y6|space|qsTea.noentry	qsPea/half/None/y6/|qsPea/full/y6/None/|zwnj/boundary/None/None/|qsTea/full/None/None/locked
 ss05	E650:E650:200C:E653	cell	boundary-echo	qsPea.half.en-y6.ex-y6|qsPea.en-y6|space|qsDay.noentry	qsPea/half/None/y6/|qsPea/full/y6/None/|zwnj/boundary/None/None/|qsDay/full/None/None/locked
 ss05	E650:E650:200C:E668	cell	boundary-echo	qsPea.half.en-y6.ex-y6|qsPea.en-y6|space|qsRoe.noentry	qsPea/half/None/y6/|qsPea/full/y6/None/|zwnj/boundary/None/None/|qsRoe/hapax/None/None/locked
-ss05	E650:E650:200C:E67A	cell	boundary-echo	qsPea.half.en-y6.ex-y6|qsPea.en-y6|space|qsUtter.noentry	qsPea/half/None/y6/|qsPea/full/y6/None/|zwnj/boundary/None/None/|qsUtter/mono/None/None/locked
 ss05	E650:E650:E650:0020	cell	boundary-echo	qsPea.half.en-y6.ex-y6|qsPea.half.en-y6.ex-y6|qsPea.en-y6|space	qsPea/half/None/y6/|qsPea/half/y6/y6/|qsPea/full/y6/None/|space/boundary/None/None/
 ss05	E650:E650:E650:00B7	cell	dangling-anchor-dropped	qsPea.half.en-y6.ex-y6|qsPea.half.en-y6.ex-y6|qsPea.en-y6|periodcentered	qsPea/half/None/y6/|qsPea/half/y6/y6/|qsPea/full/y6/None/|namer-dot/boundary/None/None/
 ss05	E650:E650:E650:200C	cell	boundary-echo	qsPea.half.en-y6.ex-y6|qsPea.half.en-y6.ex-y6|qsPea.en-y6|space	qsPea/half/None/y6/|qsPea/half/y6/y6/|qsPea/full/y6/None/|zwnj/boundary/None/None/
@@ -3669,6 +3670,7 @@ ss03+ss05	E653:E668	cell	bare-name-live-join	qsDay|qsRoe	qsDay/full/None/baselin
 ss03+ss05	E658:E666	cell	bare-name-live-join	qsFee.ex-y5.before-utter.ex-ext-1|qsNo	qsFee/loop/None/x-height/ex-ext-1|qsNo/loop/x-height/None/
 ss03+ss05	E668:E668	cell	dangling-anchor-dropped	qsRoe.en-y0.ex-y5|qsRoe	qsRoe/hapax/None/x-height/|qsRoe/hapax/x-height/None/
 ss03+ss05	E670:E670	cell	dangling-anchor-dropped	qsIt.ex-y5|qsIt	qsIt/hapax/None/None/|qsIt/hapax/None/None/
+ss03+ss05	E67B:E652	ligation	ss03-out-tea-ligature-kept	qsOut.en-y0.ex-y5.ex-ext-1|qsTea.half.en-y5.after-xheight-exit	qsOut_qsTea/hapax/None/None/
 ss03+ss05	0020:E650:E650	cell	boundary-echo	space|qsPea.half.en-y6.ex-y6|qsPea.en-y6	space/boundary/None/None/|qsPea/half/None/y6/|qsPea/full/y6/None/
 ss03+ss05	0020:E650:E653	cell	boundary-echo	space|qsPea|qsDay.half.en-y0.ex-y0	space/boundary/None/None/|qsPea/full/None/baseline/|qsDay/half/baseline/None/
 ss03+ss05	0020:E652:E653	cell	boundary-echo	space|qsTea.ex-y0|qsDay.half.en-y0.ex-y0.en-ext-1	space/boundary/None/None/|qsTea/full/None/baseline/|qsDay/half/baseline/None/en-ext-1
@@ -4041,6 +4043,7 @@ ss03+ss05	E650:200C:E653:E652	cell	boundary-echo	qsPea|space|qsDay.noentry|qsTea
 ss03+ss05	E650:200C:E653:E653	cell	boundary-echo	qsPea|space|qsDay.noentry|qsDay.half.en-y0.ex-y0	qsPea/full/None/None/|zwnj/boundary/None/None/|qsDay/full/None/baseline/locked|qsDay/half/baseline/None/
 ss03+ss05	E650:200C:E653:E668	cell	boundary-echo	qsPea|space|qsDay.noentry|qsRoe	qsPea/full/None/None/|zwnj/boundary/None/None/|qsDay/full/None/baseline/locked|qsRoe/hapax/baseline/None/
 ss03+ss05	E650:200C:E668:E668	cell	boundary-echo	qsPea|space|qsRoe.en-y0.ex-y5.noentry|qsRoe	qsPea/full/None/None/|zwnj/boundary/None/None/|qsRoe/hapax/None/x-height/locked|qsRoe/hapax/x-height/None/
+ss03+ss05	E650:200C:E676:E665	position	kern-channel-out-of-scope	qsPea|space|qsAh.noentry.ex-ext-1|qsMay.en-y5	slot 3 (qsMay.en-y5): origin want (500, 0), got (550, 0)
 ss03+ss05	E650:E650:0020:0020	cell	boundary-echo	qsPea.half.en-y6.ex-y6|qsPea.en-y6|space|space	qsPea/half/None/y6/|qsPea/full/y6/None/|space/boundary/None/None/|space/boundary/None/None/
 ss03+ss05	E650:E650:0020:00B7	cell	boundary-echo	qsPea.half.en-y6.ex-y6|qsPea.en-y6|space|periodcentered	qsPea/half/None/y6/|qsPea/full/y6/None/|space/boundary/None/None/|namer-dot/boundary/None/None/
 ss03+ss05	E650:E650:0020:200C	cell	boundary-echo	qsPea.half.en-y6.ex-y6|qsPea.en-y6|space|space	qsPea/half/None/y6/|qsPea/full/y6/None/|space/boundary/None/None/|zwnj/boundary/None/None/
@@ -4062,7 +4065,6 @@ ss03+ss05	E650:E650:200C:E650	cell	boundary-echo	qsPea.half.en-y6.ex-y6|qsPea.en
 ss03+ss05	E650:E650:200C:E652	cell	boundary-echo	qsPea.half.en-y6.ex-y6|qsPea.en-y6|space|qsTea.noentry	qsPea/half/None/y6/|qsPea/full/y6/None/|zwnj/boundary/None/None/|qsTea/full/None/None/locked
 ss03+ss05	E650:E650:200C:E653	cell	boundary-echo	qsPea.half.en-y6.ex-y6|qsPea.en-y6|space|qsDay.noentry	qsPea/half/None/y6/|qsPea/full/y6/None/|zwnj/boundary/None/None/|qsDay/full/None/None/locked
 ss03+ss05	E650:E650:200C:E668	cell	boundary-echo	qsPea.half.en-y6.ex-y6|qsPea.en-y6|space|qsRoe.noentry	qsPea/half/None/y6/|qsPea/full/y6/None/|zwnj/boundary/None/None/|qsRoe/hapax/None/None/locked
-ss03+ss05	E650:E650:200C:E67A	cell	boundary-echo	qsPea.half.en-y6.ex-y6|qsPea.en-y6|space|qsUtter.noentry	qsPea/half/None/y6/|qsPea/full/y6/None/|zwnj/boundary/None/None/|qsUtter/mono/None/None/locked
 ss03+ss05	E650:E650:E650:0020	cell	boundary-echo	qsPea.half.en-y6.ex-y6|qsPea.half.en-y6.ex-y6|qsPea.en-y6|space	qsPea/half/None/y6/|qsPea/half/y6/y6/|qsPea/full/y6/None/|space/boundary/None/None/
 ss03+ss05	E650:E650:E650:00B7	cell	dangling-anchor-dropped	qsPea.half.en-y6.ex-y6|qsPea.half.en-y6.ex-y6|qsPea.en-y6|periodcentered	qsPea/half/None/y6/|qsPea/half/y6/y6/|qsPea/full/y6/None/|namer-dot/boundary/None/None/
 ss03+ss05	E650:E650:E650:200C	cell	boundary-echo	qsPea.half.en-y6.ex-y6|qsPea.half.en-y6.ex-y6|qsPea.en-y6|space	qsPea/half/None/y6/|qsPea/half/y6/y6/|qsPea/full/y6/None/|zwnj/boundary/None/None/
@@ -4574,361 +4576,3 @@ ss03+ss05	E668:E668:E668:E652	cell	dangling-anchor-dropped	qsRoe.en-y0.ex-y5|qsR
 ss03+ss05	E668:E668:E668:E653	cell	dangling-anchor-dropped	qsRoe.en-y0.ex-y5|qsRoe.ex-y0|qsRoe|qsDay	qsRoe/hapax/None/x-height/|qsRoe/hapax/x-height/baseline/|qsRoe/hapax/baseline/None/|qsDay/full/None/None/
 ss03+ss05	E668:E668:E668:E668	cell	dangling-anchor-dropped	qsRoe.en-y0.ex-y5|qsRoe.ex-y0|qsRoe.en-y0.ex-y5|qsRoe	qsRoe/hapax/None/x-height/|qsRoe/hapax/x-height/baseline/|qsRoe/hapax/baseline/x-height/|qsRoe/hapax/x-height/None/
 ss03+ss05	E670:E67A:E670:E665	cell	same-seam-extension-non-summing	qsIt.ex-y0.before-utter|qsUtter|qsIt.en-y5.ex-y0.ex-ext-1|qsMay.en-y0.ex-y5.en-ext-1	qsIt/hapax/None/baseline/|qsUtter/mono/baseline/x-height/|qsIt/hapax/x-height/baseline/|qsMay/loop/baseline/None/
-ss10	E650:E668	seam	ss10-isolation-completed	qsPea|qsRoe	qsPea/full/None/None/|qsRoe/hapax/None/None/
-ss10	E652:E679	ligation	ss10-ligature-suppressed	qsTea_qsOy	qsTea/full/None/None/|qsOy/hapax/None/None/
-ss10	E653:E668	seam	ss10-isolation-completed	qsDay|qsRoe	qsDay/full/None/None/|qsRoe/hapax/None/None/
-ss10	0020:E650:E668	seam	boundary-echo	space|qsPea|qsRoe	space/boundary/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/
-ss10	0020:E653:E668	seam	boundary-echo	space|qsDay|qsRoe	space/boundary/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/
-ss10	00B7:E650:E668	seam	ss10-isolation-completed	periodcentered|qsPea|qsRoe	namer-dot/boundary/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/
-ss10	00B7:E653:E668	seam	ss10-isolation-completed	periodcentered|qsDay|qsRoe	namer-dot/boundary/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/
-ss10	200C:E650:E668	seam	boundary-echo	space|qsPea|qsRoe	zwnj/boundary/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/
-ss10	200C:E653:E668	seam	boundary-echo	space|qsDay|qsRoe	zwnj/boundary/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/
-ss10	E650:200C:E668	position	kern-channel-out-of-scope	qsPea|space|qsRoe	slot 1 (space): origin want (200, 0), got (250, 0)|slot 2 (qsRoe): origin want (200, 0), got (250, 0)|total advance: want 500, got 550
-ss10	E650:E650:E668	seam	ss10-isolation-completed	qsPea|qsPea|qsRoe	qsPea/full/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/
-ss10	E650:E650:E67A	seam	ss10-isolation-completed	qsPea|qsPea|qsUtter	qsPea/full/None/None/|qsPea/full/None/None/|qsUtter/mono/None/None/
-ss10	E650:E653:E668	seam	ss10-isolation-completed	qsPea|qsDay|qsRoe	qsPea/full/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/
-ss10	E650:E668:0020	seam	boundary-echo	qsPea|qsRoe|space	qsPea/full/None/None/|qsRoe/hapax/None/None/|space/boundary/None/None/
-ss10	E650:E668:00B7	seam	ss10-isolation-completed	qsPea|qsRoe|periodcentered	qsPea/full/None/None/|qsRoe/hapax/None/None/|namer-dot/boundary/None/None/
-ss10	E650:E668:200C	seam	boundary-echo	qsPea|qsRoe|space	qsPea/full/None/None/|qsRoe/hapax/None/None/|zwnj/boundary/None/None/
-ss10	E650:E668:E650	seam	ss10-isolation-completed	qsPea|qsRoe|qsPea	qsPea/full/None/None/|qsRoe/hapax/None/None/|qsPea/full/None/None/
-ss10	E650:E668:E652	seam	ss10-isolation-completed	qsPea|qsRoe|qsTea	qsPea/full/None/None/|qsRoe/hapax/None/None/|qsTea/full/None/None/
-ss10	E650:E668:E653	seam	ss10-isolation-completed	qsPea|qsRoe|qsDay	qsPea/full/None/None/|qsRoe/hapax/None/None/|qsDay/full/None/None/
-ss10	E650:E668:E668	seam	ss10-isolation-completed	qsPea|qsRoe|qsRoe	qsPea/full/None/None/|qsRoe/hapax/None/None/|qsRoe/hapax/None/None/
-ss10	E652:E650:E668	seam	ss10-isolation-completed	qsTea|qsPea|qsRoe	qsTea/full/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/
-ss10	E652:E653:E668	seam	ss10-isolation-completed	qsTea|qsDay|qsRoe	qsTea/full/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/
-ss10	E653:200C:E668	position	kern-channel-out-of-scope	qsDay|space|qsRoe	slot 1 (space): origin want (200, 0), got (250, 0)|slot 2 (qsRoe): origin want (200, 0), got (250, 0)|total advance: want 500, got 550
-ss10	E653:E650:E668	seam	ss10-isolation-completed	qsDay|qsPea|qsRoe	qsDay/full/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/
-ss10	E653:E653:E668	seam	ss10-isolation-completed	qsDay|qsDay|qsRoe	qsDay/full/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/
-ss10	E653:E668:0020	seam	boundary-echo	qsDay|qsRoe|space	qsDay/full/None/None/|qsRoe/hapax/None/None/|space/boundary/None/None/
-ss10	E653:E668:00B7	seam	ss10-isolation-completed	qsDay|qsRoe|periodcentered	qsDay/full/None/None/|qsRoe/hapax/None/None/|namer-dot/boundary/None/None/
-ss10	E653:E668:200C	seam	boundary-echo	qsDay|qsRoe|space	qsDay/full/None/None/|qsRoe/hapax/None/None/|zwnj/boundary/None/None/
-ss10	E653:E668:E650	seam	ss10-isolation-completed	qsDay|qsRoe|qsPea	qsDay/full/None/None/|qsRoe/hapax/None/None/|qsPea/full/None/None/
-ss10	E653:E668:E652	seam	ss10-isolation-completed	qsDay|qsRoe|qsTea	qsDay/full/None/None/|qsRoe/hapax/None/None/|qsTea/full/None/None/
-ss10	E653:E668:E653	seam	ss10-isolation-completed	qsDay|qsRoe|qsDay	qsDay/full/None/None/|qsRoe/hapax/None/None/|qsDay/full/None/None/
-ss10	E653:E668:E668	seam	ss10-isolation-completed	qsDay|qsRoe|qsRoe	qsDay/full/None/None/|qsRoe/hapax/None/None/|qsRoe/hapax/None/None/
-ss10	E665:E666:E666	seam	ss10-isolation-completed	qsMay|qsNo|qsNo	qsMay/loop/None/None/|qsNo/loop/None/None/|qsNo/loop/None/None/
-ss10	E668:E650:E668	seam	ss10-isolation-completed	qsRoe|qsPea|qsRoe	qsRoe/hapax/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/
-ss10	E668:E653:E668	seam	ss10-isolation-completed	qsRoe|qsDay|qsRoe	qsRoe/hapax/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/
-ss10	0020:0020:E650:E668	seam	boundary-echo	space|space|qsPea|qsRoe	space/boundary/None/None/|space/boundary/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/
-ss10	0020:0020:E653:E668	seam	boundary-echo	space|space|qsDay|qsRoe	space/boundary/None/None/|space/boundary/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/
-ss10	0020:00B7:E650:E668	seam	boundary-echo	space|periodcentered|qsPea|qsRoe	space/boundary/None/None/|namer-dot/boundary/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/
-ss10	0020:00B7:E653:E668	seam	boundary-echo	space|periodcentered|qsDay|qsRoe	space/boundary/None/None/|namer-dot/boundary/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/
-ss10	0020:200C:E650:E668	seam	boundary-echo	space|space|qsPea|qsRoe	space/boundary/None/None/|zwnj/boundary/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/
-ss10	0020:200C:E653:E668	seam	boundary-echo	space|space|qsDay|qsRoe	space/boundary/None/None/|zwnj/boundary/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/
-ss10	0020:E650:200C:E668	position	kern-channel-out-of-scope	space|qsPea|space|qsRoe	slot 2 (space): origin want (550, 0), got (600, 0)|slot 3 (qsRoe): origin want (550, 0), got (600, 0)|total advance: want 850, got 900
-ss10	0020:E650:E650:E668	seam	boundary-echo	space|qsPea|qsPea|qsRoe	space/boundary/None/None/|qsPea/full/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/
-ss10	0020:E650:E653:E668	seam	boundary-echo	space|qsPea|qsDay|qsRoe	space/boundary/None/None/|qsPea/full/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/
-ss10	0020:E650:E668:0020	seam	boundary-echo	space|qsPea|qsRoe|space	space/boundary/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/|space/boundary/None/None/
-ss10	0020:E650:E668:00B7	seam	boundary-echo	space|qsPea|qsRoe|periodcentered	space/boundary/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/|namer-dot/boundary/None/None/
-ss10	0020:E650:E668:200C	seam	boundary-echo	space|qsPea|qsRoe|space	space/boundary/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/|zwnj/boundary/None/None/
-ss10	0020:E650:E668:E650	seam	boundary-echo	space|qsPea|qsRoe|qsPea	space/boundary/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/|qsPea/full/None/None/
-ss10	0020:E650:E668:E652	seam	boundary-echo	space|qsPea|qsRoe|qsTea	space/boundary/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/|qsTea/full/None/None/
-ss10	0020:E650:E668:E653	seam	boundary-echo	space|qsPea|qsRoe|qsDay	space/boundary/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/|qsDay/full/None/None/
-ss10	0020:E650:E668:E668	seam	boundary-echo	space|qsPea|qsRoe|qsRoe	space/boundary/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/|qsRoe/hapax/None/None/
-ss10	0020:E652:E650:E668	seam	boundary-echo	space|qsTea|qsPea|qsRoe	space/boundary/None/None/|qsTea/full/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/
-ss10	0020:E652:E653:E668	seam	boundary-echo	space|qsTea|qsDay|qsRoe	space/boundary/None/None/|qsTea/full/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/
-ss10	0020:E653:200C:E668	position	kern-channel-out-of-scope	space|qsDay|space|qsRoe	slot 2 (space): origin want (550, 0), got (600, 0)|slot 3 (qsRoe): origin want (550, 0), got (600, 0)|total advance: want 850, got 900
-ss10	0020:E653:E650:E668	seam	boundary-echo	space|qsDay|qsPea|qsRoe	space/boundary/None/None/|qsDay/full/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/
-ss10	0020:E653:E653:E668	seam	boundary-echo	space|qsDay|qsDay|qsRoe	space/boundary/None/None/|qsDay/full/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/
-ss10	0020:E653:E668:0020	seam	boundary-echo	space|qsDay|qsRoe|space	space/boundary/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/|space/boundary/None/None/
-ss10	0020:E653:E668:00B7	seam	boundary-echo	space|qsDay|qsRoe|periodcentered	space/boundary/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/|namer-dot/boundary/None/None/
-ss10	0020:E653:E668:200C	seam	boundary-echo	space|qsDay|qsRoe|space	space/boundary/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/|zwnj/boundary/None/None/
-ss10	0020:E653:E668:E650	seam	boundary-echo	space|qsDay|qsRoe|qsPea	space/boundary/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/|qsPea/full/None/None/
-ss10	0020:E653:E668:E652	seam	boundary-echo	space|qsDay|qsRoe|qsTea	space/boundary/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/|qsTea/full/None/None/
-ss10	0020:E653:E668:E653	seam	boundary-echo	space|qsDay|qsRoe|qsDay	space/boundary/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/|qsDay/full/None/None/
-ss10	0020:E653:E668:E668	seam	boundary-echo	space|qsDay|qsRoe|qsRoe	space/boundary/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/|qsRoe/hapax/None/None/
-ss10	0020:E668:E650:E668	seam	boundary-echo	space|qsRoe|qsPea|qsRoe	space/boundary/None/None/|qsRoe/hapax/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/
-ss10	0020:E668:E653:E668	seam	boundary-echo	space|qsRoe|qsDay|qsRoe	space/boundary/None/None/|qsRoe/hapax/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/
-ss10	00B7:0020:E650:E668	seam	boundary-echo	periodcentered|space|qsPea|qsRoe	namer-dot/boundary/None/None/|space/boundary/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/
-ss10	00B7:0020:E653:E668	seam	boundary-echo	periodcentered|space|qsDay|qsRoe	namer-dot/boundary/None/None/|space/boundary/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/
-ss10	00B7:00B7:E650:E668	seam	ss10-isolation-completed	periodcentered|periodcentered|qsPea|qsRoe	namer-dot/boundary/None/None/|namer-dot/boundary/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/
-ss10	00B7:00B7:E653:E668	seam	ss10-isolation-completed	periodcentered|periodcentered|qsDay|qsRoe	namer-dot/boundary/None/None/|namer-dot/boundary/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/
-ss10	00B7:200C:E650:E668	seam	boundary-echo	periodcentered|space|qsPea|qsRoe	namer-dot/boundary/None/None/|zwnj/boundary/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/
-ss10	00B7:200C:E653:E668	seam	boundary-echo	periodcentered|space|qsDay|qsRoe	namer-dot/boundary/None/None/|zwnj/boundary/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/
-ss10	00B7:E650:200C:E668	position	kern-channel-out-of-scope	periodcentered|qsPea|space|qsRoe	slot 2 (space): origin want (350, 0), got (400, 0)|slot 3 (qsRoe): origin want (350, 0), got (400, 0)|total advance: want 650, got 700
-ss10	00B7:E650:E650:E668	seam	ss10-isolation-completed	periodcentered|qsPea|qsPea|qsRoe	namer-dot/boundary/None/None/|qsPea/full/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/
-ss10	00B7:E650:E653:E668	seam	ss10-isolation-completed	periodcentered|qsPea|qsDay|qsRoe	namer-dot/boundary/None/None/|qsPea/full/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/
-ss10	00B7:E650:E668:0020	seam	boundary-echo	periodcentered|qsPea|qsRoe|space	namer-dot/boundary/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/|space/boundary/None/None/
-ss10	00B7:E650:E668:00B7	seam	ss10-isolation-completed	periodcentered|qsPea|qsRoe|periodcentered	namer-dot/boundary/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/|namer-dot/boundary/None/None/
-ss10	00B7:E650:E668:200C	seam	boundary-echo	periodcentered|qsPea|qsRoe|space	namer-dot/boundary/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/|zwnj/boundary/None/None/
-ss10	00B7:E650:E668:E650	seam	ss10-isolation-completed	periodcentered|qsPea|qsRoe|qsPea	namer-dot/boundary/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/|qsPea/full/None/None/
-ss10	00B7:E650:E668:E652	seam	ss10-isolation-completed	periodcentered|qsPea|qsRoe|qsTea	namer-dot/boundary/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/|qsTea/full/None/None/
-ss10	00B7:E650:E668:E653	seam	ss10-isolation-completed	periodcentered|qsPea|qsRoe|qsDay	namer-dot/boundary/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/|qsDay/full/None/None/
-ss10	00B7:E650:E668:E668	seam	ss10-isolation-completed	periodcentered|qsPea|qsRoe|qsRoe	namer-dot/boundary/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/|qsRoe/hapax/None/None/
-ss10	00B7:E652:E650:E668	seam	ss10-isolation-completed	periodcentered|qsTea|qsPea|qsRoe	namer-dot/boundary/None/None/|qsTea/full/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/
-ss10	00B7:E652:E653:E668	seam	ss10-isolation-completed	periodcentered|qsTea|qsDay|qsRoe	namer-dot/boundary/None/None/|qsTea/full/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/
-ss10	00B7:E653:200C:E668	position	kern-channel-out-of-scope	periodcentered|qsDay|space|qsRoe	slot 2 (space): origin want (350, 0), got (400, 0)|slot 3 (qsRoe): origin want (350, 0), got (400, 0)|total advance: want 650, got 700
-ss10	00B7:E653:E650:E668	seam	ss10-isolation-completed	periodcentered|qsDay|qsPea|qsRoe	namer-dot/boundary/None/None/|qsDay/full/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/
-ss10	00B7:E653:E653:E668	seam	ss10-isolation-completed	periodcentered|qsDay|qsDay|qsRoe	namer-dot/boundary/None/None/|qsDay/full/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/
-ss10	00B7:E653:E668:0020	seam	boundary-echo	periodcentered|qsDay|qsRoe|space	namer-dot/boundary/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/|space/boundary/None/None/
-ss10	00B7:E653:E668:00B7	seam	ss10-isolation-completed	periodcentered|qsDay|qsRoe|periodcentered	namer-dot/boundary/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/|namer-dot/boundary/None/None/
-ss10	00B7:E653:E668:200C	seam	boundary-echo	periodcentered|qsDay|qsRoe|space	namer-dot/boundary/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/|zwnj/boundary/None/None/
-ss10	00B7:E653:E668:E650	seam	ss10-isolation-completed	periodcentered|qsDay|qsRoe|qsPea	namer-dot/boundary/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/|qsPea/full/None/None/
-ss10	00B7:E653:E668:E652	seam	ss10-isolation-completed	periodcentered|qsDay|qsRoe|qsTea	namer-dot/boundary/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/|qsTea/full/None/None/
-ss10	00B7:E653:E668:E653	seam	ss10-isolation-completed	periodcentered|qsDay|qsRoe|qsDay	namer-dot/boundary/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/|qsDay/full/None/None/
-ss10	00B7:E653:E668:E668	seam	ss10-isolation-completed	periodcentered|qsDay|qsRoe|qsRoe	namer-dot/boundary/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/|qsRoe/hapax/None/None/
-ss10	00B7:E668:E650:E668	seam	ss10-isolation-completed	periodcentered.lowered|qsRoe|qsPea|qsRoe	namer-dot/boundary/None/None/|qsRoe/hapax/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/
-ss10	00B7:E668:E653:E668	seam	ss10-isolation-completed	periodcentered.lowered|qsRoe|qsDay|qsRoe	namer-dot/boundary/None/None/|qsRoe/hapax/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/
-ss10	200C:0020:E650:E668	seam	boundary-echo	space|space|qsPea|qsRoe	zwnj/boundary/None/None/|space/boundary/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/
-ss10	200C:0020:E653:E668	seam	boundary-echo	space|space|qsDay|qsRoe	zwnj/boundary/None/None/|space/boundary/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/
-ss10	200C:00B7:E650:E668	seam	boundary-echo	space|periodcentered|qsPea|qsRoe	zwnj/boundary/None/None/|namer-dot/boundary/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/
-ss10	200C:00B7:E653:E668	seam	boundary-echo	space|periodcentered|qsDay|qsRoe	zwnj/boundary/None/None/|namer-dot/boundary/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/
-ss10	200C:200C:E650:E668	seam	boundary-echo	space|space|qsPea|qsRoe	zwnj/boundary/None/None/|zwnj/boundary/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/
-ss10	200C:200C:E653:E668	seam	boundary-echo	space|space|qsDay|qsRoe	zwnj/boundary/None/None/|zwnj/boundary/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/
-ss10	200C:E650:200C:E668	position	kern-channel-out-of-scope	space|qsPea|space|qsRoe	slot 2 (space): origin want (200, 0), got (250, 0)|slot 3 (qsRoe): origin want (200, 0), got (250, 0)|total advance: want 500, got 550
-ss10	200C:E650:E650:E668	seam	boundary-echo	space|qsPea|qsPea|qsRoe	zwnj/boundary/None/None/|qsPea/full/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/
-ss10	200C:E650:E653:E668	seam	boundary-echo	space|qsPea|qsDay|qsRoe	zwnj/boundary/None/None/|qsPea/full/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/
-ss10	200C:E650:E668:0020	seam	boundary-echo	space|qsPea|qsRoe|space	zwnj/boundary/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/|space/boundary/None/None/
-ss10	200C:E650:E668:00B7	seam	boundary-echo	space|qsPea|qsRoe|periodcentered	zwnj/boundary/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/|namer-dot/boundary/None/None/
-ss10	200C:E650:E668:200C	seam	boundary-echo	space|qsPea|qsRoe|space	zwnj/boundary/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/|zwnj/boundary/None/None/
-ss10	200C:E650:E668:E650	seam	boundary-echo	space|qsPea|qsRoe|qsPea	zwnj/boundary/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/|qsPea/full/None/None/
-ss10	200C:E650:E668:E652	seam	boundary-echo	space|qsPea|qsRoe|qsTea	zwnj/boundary/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/|qsTea/full/None/None/
-ss10	200C:E650:E668:E653	seam	boundary-echo	space|qsPea|qsRoe|qsDay	zwnj/boundary/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/|qsDay/full/None/None/
-ss10	200C:E650:E668:E668	seam	boundary-echo	space|qsPea|qsRoe|qsRoe	zwnj/boundary/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/|qsRoe/hapax/None/None/
-ss10	200C:E652:E650:E668	seam	boundary-echo	space|qsTea|qsPea|qsRoe	zwnj/boundary/None/None/|qsTea/full/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/
-ss10	200C:E652:E653:E668	seam	boundary-echo	space|qsTea|qsDay|qsRoe	zwnj/boundary/None/None/|qsTea/full/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/
-ss10	200C:E653:200C:E668	position	kern-channel-out-of-scope	space|qsDay|space|qsRoe	slot 2 (space): origin want (200, 0), got (250, 0)|slot 3 (qsRoe): origin want (200, 0), got (250, 0)|total advance: want 500, got 550
-ss10	200C:E653:E650:E668	seam	boundary-echo	space|qsDay|qsPea|qsRoe	zwnj/boundary/None/None/|qsDay/full/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/
-ss10	200C:E653:E653:E668	seam	boundary-echo	space|qsDay|qsDay|qsRoe	zwnj/boundary/None/None/|qsDay/full/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/
-ss10	200C:E653:E668:0020	seam	boundary-echo	space|qsDay|qsRoe|space	zwnj/boundary/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/|space/boundary/None/None/
-ss10	200C:E653:E668:00B7	seam	boundary-echo	space|qsDay|qsRoe|periodcentered	zwnj/boundary/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/|namer-dot/boundary/None/None/
-ss10	200C:E653:E668:200C	seam	boundary-echo	space|qsDay|qsRoe|space	zwnj/boundary/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/|zwnj/boundary/None/None/
-ss10	200C:E653:E668:E650	seam	boundary-echo	space|qsDay|qsRoe|qsPea	zwnj/boundary/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/|qsPea/full/None/None/
-ss10	200C:E653:E668:E652	seam	boundary-echo	space|qsDay|qsRoe|qsTea	zwnj/boundary/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/|qsTea/full/None/None/
-ss10	200C:E653:E668:E653	seam	boundary-echo	space|qsDay|qsRoe|qsDay	zwnj/boundary/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/|qsDay/full/None/None/
-ss10	200C:E653:E668:E668	seam	boundary-echo	space|qsDay|qsRoe|qsRoe	zwnj/boundary/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/|qsRoe/hapax/None/None/
-ss10	200C:E668:E650:E668	seam	boundary-echo	space|qsRoe|qsPea|qsRoe	zwnj/boundary/None/None/|qsRoe/hapax/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/
-ss10	200C:E668:E653:E668	seam	boundary-echo	space|qsRoe|qsDay|qsRoe	zwnj/boundary/None/None/|qsRoe/hapax/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/
-ss10	E650:0020:E650:E668	seam	boundary-echo	qsPea|space|qsPea|qsRoe	qsPea/full/None/None/|space/boundary/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/
-ss10	E650:0020:E653:E668	seam	boundary-echo	qsPea|space|qsDay|qsRoe	qsPea/full/None/None/|space/boundary/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/
-ss10	E650:00B7:E650:E668	seam	ss10-isolation-completed	qsPea|periodcentered|qsPea|qsRoe	qsPea/full/None/None/|namer-dot/boundary/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/
-ss10	E650:00B7:E653:E668	seam	ss10-isolation-completed	qsPea|periodcentered|qsDay|qsRoe	qsPea/full/None/None/|namer-dot/boundary/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/
-ss10	E650:200C:200C:E668	position	kern-channel-out-of-scope	qsPea|space|space|qsRoe	slot 1 (space): origin want (200, 0), got (250, 0)|slot 2 (space): origin want (200, 0), got (250, 0)|slot 3 (qsRoe): origin want (200, 0), got (250, 0)|total advance: want 500, got 550
-ss10	E650:200C:E650:E668	seam	boundary-echo	qsPea|space|qsPea|qsRoe	qsPea/full/None/None/|zwnj/boundary/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/
-ss10	E650:200C:E653:E668	seam	boundary-echo	qsPea|space|qsDay|qsRoe	qsPea/full/None/None/|zwnj/boundary/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/
-ss10	E650:200C:E668:0020	position	kern-channel-out-of-scope	qsPea|space|qsRoe|space	slot 1 (space): origin want (200, 0), got (250, 0)|slot 2 (qsRoe): origin want (200, 0), got (250, 0)|slot 3 (space): origin want (500, 0), got (550, 0)|total advance: want 850, got 900
-ss10	E650:200C:E668:00B7	position	kern-channel-out-of-scope	qsPea|space|qsRoe|periodcentered	slot 1 (space): origin want (200, 0), got (250, 0)|slot 2 (qsRoe): origin want (200, 0), got (250, 0)|slot 3 (periodcentered): origin want (500, 0), got (550, 0)|total advance: want 650, got 700
-ss10	E650:200C:E668:200C	position	kern-channel-out-of-scope	qsPea|space|qsRoe|space	slot 1 (space): origin want (200, 0), got (250, 0)|slot 2 (qsRoe): origin want (200, 0), got (250, 0)|slot 3 (space): origin want (500, 0), got (550, 0)|total advance: want 500, got 550
-ss10	E650:200C:E668:E650	position	kern-channel-out-of-scope	qsPea|space|qsRoe|qsPea	slot 1 (space): origin want (200, 0), got (250, 0)|slot 2 (qsRoe): origin want (200, 0), got (250, 0)|slot 3 (qsPea): origin want (500, 0), got (550, 0)|total advance: want 750, got 800
-ss10	E650:200C:E668:E652	position	kern-channel-out-of-scope	qsPea|space|qsRoe|qsTea	slot 1 (space): origin want (200, 0), got (250, 0)|slot 2 (qsRoe): origin want (200, 0), got (250, 0)|slot 3 (qsTea): origin want (500, 0), got (550, 0)|total advance: want 600, got 650
-ss10	E650:200C:E668:E653	position	kern-channel-out-of-scope	qsPea|space|qsRoe|qsDay	slot 1 (space): origin want (200, 0), got (250, 0)|slot 2 (qsRoe): origin want (200, 0), got (250, 0)|slot 3 (qsDay): origin want (500, 0), got (550, 0)|total advance: want 750, got 800
-ss10	E650:200C:E668:E668	position	kern-channel-out-of-scope	qsPea|space|qsRoe|qsRoe	slot 1 (space): origin want (200, 0), got (250, 0)|slot 2 (qsRoe): origin want (200, 0), got (250, 0)|slot 3 (qsRoe): origin want (500, 0), got (550, 0)|total advance: want 800, got 850
-ss10	E650:E650:200C:E668	position	kern-channel-out-of-scope	qsPea|qsPea|space|qsRoe	slot 2 (space): origin want (450, 0), got (500, 0)|slot 3 (qsRoe): origin want (450, 0), got (500, 0)|total advance: want 750, got 800
-ss10	E650:E650:200C:E67A	position	kern-channel-out-of-scope	qsPea|qsPea|space|qsUtter	slot 2 (space): origin want (450, 0), got (500, 0)|slot 3 (qsUtter): origin want (450, 0), got (500, 0)|total advance: want 750, got 800
-ss10	E650:E650:E650:E668	seam	ss10-isolation-completed	qsPea|qsPea|qsPea|qsRoe	qsPea/full/None/None/|qsPea/full/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/
-ss10	E650:E650:E653:E668	seam	ss10-isolation-completed	qsPea|qsPea|qsDay|qsRoe	qsPea/full/None/None/|qsPea/full/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/
-ss10	E650:E650:E668:0020	seam	boundary-echo	qsPea|qsPea|qsRoe|space	qsPea/full/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/|space/boundary/None/None/
-ss10	E650:E650:E668:00B7	seam	ss10-isolation-completed	qsPea|qsPea|qsRoe|periodcentered	qsPea/full/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/|namer-dot/boundary/None/None/
-ss10	E650:E650:E668:200C	seam	boundary-echo	qsPea|qsPea|qsRoe|space	qsPea/full/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/|zwnj/boundary/None/None/
-ss10	E650:E650:E668:E650	seam	ss10-isolation-completed	qsPea|qsPea|qsRoe|qsPea	qsPea/full/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/|qsPea/full/None/None/
-ss10	E650:E650:E668:E652	seam	ss10-isolation-completed	qsPea|qsPea|qsRoe|qsTea	qsPea/full/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/|qsTea/full/None/None/
-ss10	E650:E650:E668:E653	seam	ss10-isolation-completed	qsPea|qsPea|qsRoe|qsDay	qsPea/full/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/|qsDay/full/None/None/
-ss10	E650:E650:E668:E668	seam	ss10-isolation-completed	qsPea|qsPea|qsRoe|qsRoe	qsPea/full/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/|qsRoe/hapax/None/None/
-ss10	E650:E652:E650:E668	seam	ss10-isolation-completed	qsPea|qsTea|qsPea|qsRoe	qsPea/full/None/None/|qsTea/full/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/
-ss10	E650:E652:E653:E668	seam	ss10-isolation-completed	qsPea|qsTea|qsDay|qsRoe	qsPea/full/None/None/|qsTea/full/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/
-ss10	E650:E653:200C:E668	position	kern-channel-out-of-scope	qsPea|qsDay|space|qsRoe	slot 2 (space): origin want (450, 0), got (500, 0)|slot 3 (qsRoe): origin want (450, 0), got (500, 0)|total advance: want 750, got 800
-ss10	E650:E653:E650:E668	seam	ss10-isolation-completed	qsPea|qsDay|qsPea|qsRoe	qsPea/full/None/None/|qsDay/full/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/
-ss10	E650:E653:E653:E668	seam	ss10-isolation-completed	qsPea|qsDay|qsDay|qsRoe	qsPea/full/None/None/|qsDay/full/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/
-ss10	E650:E653:E668:0020	seam	boundary-echo	qsPea|qsDay|qsRoe|space	qsPea/full/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/|space/boundary/None/None/
-ss10	E650:E653:E668:00B7	seam	ss10-isolation-completed	qsPea|qsDay|qsRoe|periodcentered	qsPea/full/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/|namer-dot/boundary/None/None/
-ss10	E650:E653:E668:200C	seam	boundary-echo	qsPea|qsDay|qsRoe|space	qsPea/full/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/|zwnj/boundary/None/None/
-ss10	E650:E653:E668:E650	seam	ss10-isolation-completed	qsPea|qsDay|qsRoe|qsPea	qsPea/full/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/|qsPea/full/None/None/
-ss10	E650:E653:E668:E652	seam	ss10-isolation-completed	qsPea|qsDay|qsRoe|qsTea	qsPea/full/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/|qsTea/full/None/None/
-ss10	E650:E653:E668:E653	seam	ss10-isolation-completed	qsPea|qsDay|qsRoe|qsDay	qsPea/full/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/|qsDay/full/None/None/
-ss10	E650:E653:E668:E668	seam	ss10-isolation-completed	qsPea|qsDay|qsRoe|qsRoe	qsPea/full/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/|qsRoe/hapax/None/None/
-ss10	E650:E668:0020:0020	seam	boundary-echo	qsPea|qsRoe|space|space	qsPea/full/None/None/|qsRoe/hapax/None/None/|space/boundary/None/None/|space/boundary/None/None/
-ss10	E650:E668:0020:00B7	seam	boundary-echo	qsPea|qsRoe|space|periodcentered	qsPea/full/None/None/|qsRoe/hapax/None/None/|space/boundary/None/None/|namer-dot/boundary/None/None/
-ss10	E650:E668:0020:200C	seam	boundary-echo	qsPea|qsRoe|space|space	qsPea/full/None/None/|qsRoe/hapax/None/None/|space/boundary/None/None/|zwnj/boundary/None/None/
-ss10	E650:E668:0020:E650	seam	boundary-echo	qsPea|qsRoe|space|qsPea	qsPea/full/None/None/|qsRoe/hapax/None/None/|space/boundary/None/None/|qsPea/full/None/None/
-ss10	E650:E668:0020:E652	seam	boundary-echo	qsPea|qsRoe|space|qsTea	qsPea/full/None/None/|qsRoe/hapax/None/None/|space/boundary/None/None/|qsTea/full/None/None/
-ss10	E650:E668:0020:E653	seam	boundary-echo	qsPea|qsRoe|space|qsDay	qsPea/full/None/None/|qsRoe/hapax/None/None/|space/boundary/None/None/|qsDay/full/None/None/
-ss10	E650:E668:0020:E668	seam	boundary-echo	qsPea|qsRoe|space|qsRoe	qsPea/full/None/None/|qsRoe/hapax/None/None/|space/boundary/None/None/|qsRoe/hapax/None/None/
-ss10	E650:E668:00B7:0020	seam	boundary-echo	qsPea|qsRoe|periodcentered|space	qsPea/full/None/None/|qsRoe/hapax/None/None/|namer-dot/boundary/None/None/|space/boundary/None/None/
-ss10	E650:E668:00B7:00B7	seam	ss10-isolation-completed	qsPea|qsRoe|periodcentered|periodcentered	qsPea/full/None/None/|qsRoe/hapax/None/None/|namer-dot/boundary/None/None/|namer-dot/boundary/None/None/
-ss10	E650:E668:00B7:200C	seam	boundary-echo	qsPea|qsRoe|periodcentered|space	qsPea/full/None/None/|qsRoe/hapax/None/None/|namer-dot/boundary/None/None/|zwnj/boundary/None/None/
-ss10	E650:E668:00B7:E650	seam	ss10-isolation-completed	qsPea|qsRoe|periodcentered|qsPea	qsPea/full/None/None/|qsRoe/hapax/None/None/|namer-dot/boundary/None/None/|qsPea/full/None/None/
-ss10	E650:E668:00B7:E652	seam	ss10-isolation-completed	qsPea|qsRoe|periodcentered|qsTea	qsPea/full/None/None/|qsRoe/hapax/None/None/|namer-dot/boundary/None/None/|qsTea/full/None/None/
-ss10	E650:E668:00B7:E653	seam	ss10-isolation-completed	qsPea|qsRoe|periodcentered|qsDay	qsPea/full/None/None/|qsRoe/hapax/None/None/|namer-dot/boundary/None/None/|qsDay/full/None/None/
-ss10	E650:E668:00B7:E668	seam	ss10-isolation-completed	qsPea|qsRoe|periodcentered.lowered|qsRoe	qsPea/full/None/None/|qsRoe/hapax/None/None/|namer-dot/boundary/None/None/|qsRoe/hapax/None/None/
-ss10	E650:E668:200C:0020	seam	boundary-echo	qsPea|qsRoe|space|space	qsPea/full/None/None/|qsRoe/hapax/None/None/|zwnj/boundary/None/None/|space/boundary/None/None/
-ss10	E650:E668:200C:00B7	seam	boundary-echo	qsPea|qsRoe|space|periodcentered	qsPea/full/None/None/|qsRoe/hapax/None/None/|zwnj/boundary/None/None/|namer-dot/boundary/None/None/
-ss10	E650:E668:200C:200C	seam	boundary-echo	qsPea|qsRoe|space|space	qsPea/full/None/None/|qsRoe/hapax/None/None/|zwnj/boundary/None/None/|zwnj/boundary/None/None/
-ss10	E650:E668:200C:E650	seam	boundary-echo	qsPea|qsRoe|space|qsPea	qsPea/full/None/None/|qsRoe/hapax/None/None/|zwnj/boundary/None/None/|qsPea/full/None/None/
-ss10	E650:E668:200C:E652	seam	boundary-echo	qsPea|qsRoe|space|qsTea	qsPea/full/None/None/|qsRoe/hapax/None/None/|zwnj/boundary/None/None/|qsTea/full/None/None/
-ss10	E650:E668:200C:E653	seam	boundary-echo	qsPea|qsRoe|space|qsDay	qsPea/full/None/None/|qsRoe/hapax/None/None/|zwnj/boundary/None/None/|qsDay/full/None/None/
-ss10	E650:E668:200C:E668	seam	boundary-echo	qsPea|qsRoe|space|qsRoe	qsPea/full/None/None/|qsRoe/hapax/None/None/|zwnj/boundary/None/None/|qsRoe/hapax/None/None/
-ss10	E650:E668:E650:0020	seam	boundary-echo	qsPea|qsRoe|qsPea|space	qsPea/full/None/None/|qsRoe/hapax/None/None/|qsPea/full/None/None/|space/boundary/None/None/
-ss10	E650:E668:E650:00B7	seam	ss10-isolation-completed	qsPea|qsRoe|qsPea|periodcentered	qsPea/full/None/None/|qsRoe/hapax/None/None/|qsPea/full/None/None/|namer-dot/boundary/None/None/
-ss10	E650:E668:E650:200C	seam	boundary-echo	qsPea|qsRoe|qsPea|space	qsPea/full/None/None/|qsRoe/hapax/None/None/|qsPea/full/None/None/|zwnj/boundary/None/None/
-ss10	E650:E668:E650:E650	seam	ss10-isolation-completed	qsPea|qsRoe|qsPea|qsPea	qsPea/full/None/None/|qsRoe/hapax/None/None/|qsPea/full/None/None/|qsPea/full/None/None/
-ss10	E650:E668:E650:E652	seam	ss10-isolation-completed	qsPea|qsRoe|qsPea|qsTea	qsPea/full/None/None/|qsRoe/hapax/None/None/|qsPea/full/None/None/|qsTea/full/None/None/
-ss10	E650:E668:E650:E653	seam	ss10-isolation-completed	qsPea|qsRoe|qsPea|qsDay	qsPea/full/None/None/|qsRoe/hapax/None/None/|qsPea/full/None/None/|qsDay/full/None/None/
-ss10	E650:E668:E650:E668	seam	ss10-isolation-completed	qsPea|qsRoe|qsPea|qsRoe	qsPea/full/None/None/|qsRoe/hapax/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/
-ss10	E650:E668:E652:0020	seam	boundary-echo	qsPea|qsRoe|qsTea|space	qsPea/full/None/None/|qsRoe/hapax/None/None/|qsTea/full/None/None/|space/boundary/None/None/
-ss10	E650:E668:E652:00B7	seam	ss10-isolation-completed	qsPea|qsRoe|qsTea|periodcentered	qsPea/full/None/None/|qsRoe/hapax/None/None/|qsTea/full/None/None/|namer-dot/boundary/None/None/
-ss10	E650:E668:E652:200C	seam	boundary-echo	qsPea|qsRoe|qsTea|space	qsPea/full/None/None/|qsRoe/hapax/None/None/|qsTea/full/None/None/|zwnj/boundary/None/None/
-ss10	E650:E668:E652:E650	seam	ss10-isolation-completed	qsPea|qsRoe|qsTea|qsPea	qsPea/full/None/None/|qsRoe/hapax/None/None/|qsTea/full/None/None/|qsPea/full/None/None/
-ss10	E650:E668:E652:E652	seam	ss10-isolation-completed	qsPea|qsRoe|qsTea|qsTea	qsPea/full/None/None/|qsRoe/hapax/None/None/|qsTea/full/None/None/|qsTea/full/None/None/
-ss10	E650:E668:E652:E653	seam	ss10-isolation-completed	qsPea|qsRoe|qsTea|qsDay	qsPea/full/None/None/|qsRoe/hapax/None/None/|qsTea/full/None/None/|qsDay/full/None/None/
-ss10	E650:E668:E652:E668	seam	ss10-isolation-completed	qsPea|qsRoe|qsTea|qsRoe	qsPea/full/None/None/|qsRoe/hapax/None/None/|qsTea/full/None/None/|qsRoe/hapax/None/None/
-ss10	E650:E668:E653:0020	seam	boundary-echo	qsPea|qsRoe|qsDay|space	qsPea/full/None/None/|qsRoe/hapax/None/None/|qsDay/full/None/None/|space/boundary/None/None/
-ss10	E650:E668:E653:00B7	seam	ss10-isolation-completed	qsPea|qsRoe|qsDay|periodcentered	qsPea/full/None/None/|qsRoe/hapax/None/None/|qsDay/full/None/None/|namer-dot/boundary/None/None/
-ss10	E650:E668:E653:200C	seam	boundary-echo	qsPea|qsRoe|qsDay|space	qsPea/full/None/None/|qsRoe/hapax/None/None/|qsDay/full/None/None/|zwnj/boundary/None/None/
-ss10	E650:E668:E653:E650	seam	ss10-isolation-completed	qsPea|qsRoe|qsDay|qsPea	qsPea/full/None/None/|qsRoe/hapax/None/None/|qsDay/full/None/None/|qsPea/full/None/None/
-ss10	E650:E668:E653:E652	seam	ss10-isolation-completed	qsPea|qsRoe|qsDay|qsTea	qsPea/full/None/None/|qsRoe/hapax/None/None/|qsDay/full/None/None/|qsTea/full/None/None/
-ss10	E650:E668:E653:E653	seam	ss10-isolation-completed	qsPea|qsRoe|qsDay|qsDay	qsPea/full/None/None/|qsRoe/hapax/None/None/|qsDay/full/None/None/|qsDay/full/None/None/
-ss10	E650:E668:E653:E668	seam	ss10-isolation-completed	qsPea|qsRoe|qsDay|qsRoe	qsPea/full/None/None/|qsRoe/hapax/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/
-ss10	E650:E668:E668:0020	seam	boundary-echo	qsPea|qsRoe|qsRoe|space	qsPea/full/None/None/|qsRoe/hapax/None/None/|qsRoe/hapax/None/None/|space/boundary/None/None/
-ss10	E650:E668:E668:00B7	seam	ss10-isolation-completed	qsPea|qsRoe|qsRoe|periodcentered	qsPea/full/None/None/|qsRoe/hapax/None/None/|qsRoe/hapax/None/None/|namer-dot/boundary/None/None/
-ss10	E650:E668:E668:200C	seam	boundary-echo	qsPea|qsRoe|qsRoe|space	qsPea/full/None/None/|qsRoe/hapax/None/None/|qsRoe/hapax/None/None/|zwnj/boundary/None/None/
-ss10	E650:E668:E668:E650	seam	ss10-isolation-completed	qsPea|qsRoe|qsRoe|qsPea	qsPea/full/None/None/|qsRoe/hapax/None/None/|qsRoe/hapax/None/None/|qsPea/full/None/None/
-ss10	E650:E668:E668:E652	seam	ss10-isolation-completed	qsPea|qsRoe|qsRoe|qsTea	qsPea/full/None/None/|qsRoe/hapax/None/None/|qsRoe/hapax/None/None/|qsTea/full/None/None/
-ss10	E650:E668:E668:E653	seam	ss10-isolation-completed	qsPea|qsRoe|qsRoe|qsDay	qsPea/full/None/None/|qsRoe/hapax/None/None/|qsRoe/hapax/None/None/|qsDay/full/None/None/
-ss10	E650:E668:E668:E668	seam	ss10-isolation-completed	qsPea|qsRoe|qsRoe|qsRoe	qsPea/full/None/None/|qsRoe/hapax/None/None/|qsRoe/hapax/None/None/|qsRoe/hapax/None/None/
-ss10	E652:0020:E650:E668	seam	boundary-echo	qsTea|space|qsPea|qsRoe	qsTea/full/None/None/|space/boundary/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/
-ss10	E652:0020:E653:E668	seam	boundary-echo	qsTea|space|qsDay|qsRoe	qsTea/full/None/None/|space/boundary/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/
-ss10	E652:00B7:E650:E668	seam	ss10-isolation-completed	qsTea|periodcentered|qsPea|qsRoe	qsTea/full/None/None/|namer-dot/boundary/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/
-ss10	E652:00B7:E653:E668	seam	ss10-isolation-completed	qsTea|periodcentered|qsDay|qsRoe	qsTea/full/None/None/|namer-dot/boundary/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/
-ss10	E652:200C:E650:E668	seam	boundary-echo	qsTea|space|qsPea|qsRoe	qsTea/full/None/None/|zwnj/boundary/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/
-ss10	E652:200C:E653:E668	seam	boundary-echo	qsTea|space|qsDay|qsRoe	qsTea/full/None/None/|zwnj/boundary/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/
-ss10	E652:E650:200C:E668	position	kern-channel-out-of-scope	qsTea|qsPea|space|qsRoe	slot 2 (space): origin want (300, 0), got (350, 0)|slot 3 (qsRoe): origin want (300, 0), got (350, 0)|total advance: want 600, got 650
-ss10	E652:E650:E650:E668	seam	ss10-isolation-completed	qsTea|qsPea|qsPea|qsRoe	qsTea/full/None/None/|qsPea/full/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/
-ss10	E652:E650:E653:E668	seam	ss10-isolation-completed	qsTea|qsPea|qsDay|qsRoe	qsTea/full/None/None/|qsPea/full/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/
-ss10	E652:E650:E668:0020	seam	boundary-echo	qsTea|qsPea|qsRoe|space	qsTea/full/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/|space/boundary/None/None/
-ss10	E652:E650:E668:00B7	seam	ss10-isolation-completed	qsTea|qsPea|qsRoe|periodcentered	qsTea/full/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/|namer-dot/boundary/None/None/
-ss10	E652:E650:E668:200C	seam	boundary-echo	qsTea|qsPea|qsRoe|space	qsTea/full/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/|zwnj/boundary/None/None/
-ss10	E652:E650:E668:E650	seam	ss10-isolation-completed	qsTea|qsPea|qsRoe|qsPea	qsTea/full/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/|qsPea/full/None/None/
-ss10	E652:E650:E668:E652	seam	ss10-isolation-completed	qsTea|qsPea|qsRoe|qsTea	qsTea/full/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/|qsTea/full/None/None/
-ss10	E652:E650:E668:E653	seam	ss10-isolation-completed	qsTea|qsPea|qsRoe|qsDay	qsTea/full/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/|qsDay/full/None/None/
-ss10	E652:E650:E668:E668	seam	ss10-isolation-completed	qsTea|qsPea|qsRoe|qsRoe	qsTea/full/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/|qsRoe/hapax/None/None/
-ss10	E652:E652:E650:E668	seam	ss10-isolation-completed	qsTea|qsTea|qsPea|qsRoe	qsTea/full/None/None/|qsTea/full/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/
-ss10	E652:E652:E653:E668	seam	ss10-isolation-completed	qsTea|qsTea|qsDay|qsRoe	qsTea/full/None/None/|qsTea/full/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/
-ss10	E652:E653:200C:E668	position	kern-channel-out-of-scope	qsTea|qsDay|space|qsRoe	slot 2 (space): origin want (300, 0), got (350, 0)|slot 3 (qsRoe): origin want (300, 0), got (350, 0)|total advance: want 600, got 650
-ss10	E652:E653:E650:E668	seam	ss10-isolation-completed	qsTea|qsDay|qsPea|qsRoe	qsTea/full/None/None/|qsDay/full/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/
-ss10	E652:E653:E653:E668	seam	ss10-isolation-completed	qsTea|qsDay|qsDay|qsRoe	qsTea/full/None/None/|qsDay/full/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/
-ss10	E652:E653:E668:0020	seam	boundary-echo	qsTea|qsDay|qsRoe|space	qsTea/full/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/|space/boundary/None/None/
-ss10	E652:E653:E668:00B7	seam	ss10-isolation-completed	qsTea|qsDay|qsRoe|periodcentered	qsTea/full/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/|namer-dot/boundary/None/None/
-ss10	E652:E653:E668:200C	seam	boundary-echo	qsTea|qsDay|qsRoe|space	qsTea/full/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/|zwnj/boundary/None/None/
-ss10	E652:E653:E668:E650	seam	ss10-isolation-completed	qsTea|qsDay|qsRoe|qsPea	qsTea/full/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/|qsPea/full/None/None/
-ss10	E652:E653:E668:E652	seam	ss10-isolation-completed	qsTea|qsDay|qsRoe|qsTea	qsTea/full/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/|qsTea/full/None/None/
-ss10	E652:E653:E668:E653	seam	ss10-isolation-completed	qsTea|qsDay|qsRoe|qsDay	qsTea/full/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/|qsDay/full/None/None/
-ss10	E652:E653:E668:E668	seam	ss10-isolation-completed	qsTea|qsDay|qsRoe|qsRoe	qsTea/full/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/|qsRoe/hapax/None/None/
-ss10	E652:E653:E67A:E652	ligation	ss10-ligature-suppressed	qsTea|qsDay_qsUtter.half.en-y0.ex-y5.en-ext-1|qsTea	qsTea/full/None/None/|qsDay/full/None/None/|qsUtter/mono/None/None/|qsTea/full/None/None/
-ss10	E652:E668:E650:E668	seam	ss10-isolation-completed	qsTea|qsRoe|qsPea|qsRoe	qsTea/full/None/None/|qsRoe/hapax/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/
-ss10	E652:E668:E653:E668	seam	ss10-isolation-completed	qsTea|qsRoe|qsDay|qsRoe	qsTea/full/None/None/|qsRoe/hapax/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/
-ss10	E653:0020:E650:E668	seam	boundary-echo	qsDay|space|qsPea|qsRoe	qsDay/full/None/None/|space/boundary/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/
-ss10	E653:0020:E653:E668	seam	boundary-echo	qsDay|space|qsDay|qsRoe	qsDay/full/None/None/|space/boundary/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/
-ss10	E653:00B7:E650:E668	seam	ss10-isolation-completed	qsDay|periodcentered|qsPea|qsRoe	qsDay/full/None/None/|namer-dot/boundary/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/
-ss10	E653:00B7:E653:E668	seam	ss10-isolation-completed	qsDay|periodcentered|qsDay|qsRoe	qsDay/full/None/None/|namer-dot/boundary/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/
-ss10	E653:200C:200C:E668	position	kern-channel-out-of-scope	qsDay|space|space|qsRoe	slot 1 (space): origin want (200, 0), got (250, 0)|slot 2 (space): origin want (200, 0), got (250, 0)|slot 3 (qsRoe): origin want (200, 0), got (250, 0)|total advance: want 500, got 550
-ss10	E653:200C:E650:E668	seam	boundary-echo	qsDay|space|qsPea|qsRoe	qsDay/full/None/None/|zwnj/boundary/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/
-ss10	E653:200C:E653:E668	seam	boundary-echo	qsDay|space|qsDay|qsRoe	qsDay/full/None/None/|zwnj/boundary/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/
-ss10	E653:200C:E668:0020	position	kern-channel-out-of-scope	qsDay|space|qsRoe|space	slot 1 (space): origin want (200, 0), got (250, 0)|slot 2 (qsRoe): origin want (200, 0), got (250, 0)|slot 3 (space): origin want (500, 0), got (550, 0)|total advance: want 850, got 900
-ss10	E653:200C:E668:00B7	position	kern-channel-out-of-scope	qsDay|space|qsRoe|periodcentered	slot 1 (space): origin want (200, 0), got (250, 0)|slot 2 (qsRoe): origin want (200, 0), got (250, 0)|slot 3 (periodcentered): origin want (500, 0), got (550, 0)|total advance: want 650, got 700
-ss10	E653:200C:E668:200C	position	kern-channel-out-of-scope	qsDay|space|qsRoe|space	slot 1 (space): origin want (200, 0), got (250, 0)|slot 2 (qsRoe): origin want (200, 0), got (250, 0)|slot 3 (space): origin want (500, 0), got (550, 0)|total advance: want 500, got 550
-ss10	E653:200C:E668:E650	position	kern-channel-out-of-scope	qsDay|space|qsRoe|qsPea	slot 1 (space): origin want (200, 0), got (250, 0)|slot 2 (qsRoe): origin want (200, 0), got (250, 0)|slot 3 (qsPea): origin want (500, 0), got (550, 0)|total advance: want 750, got 800
-ss10	E653:200C:E668:E652	position	kern-channel-out-of-scope	qsDay|space|qsRoe|qsTea	slot 1 (space): origin want (200, 0), got (250, 0)|slot 2 (qsRoe): origin want (200, 0), got (250, 0)|slot 3 (qsTea): origin want (500, 0), got (550, 0)|total advance: want 600, got 650
-ss10	E653:200C:E668:E653	position	kern-channel-out-of-scope	qsDay|space|qsRoe|qsDay	slot 1 (space): origin want (200, 0), got (250, 0)|slot 2 (qsRoe): origin want (200, 0), got (250, 0)|slot 3 (qsDay): origin want (500, 0), got (550, 0)|total advance: want 750, got 800
-ss10	E653:200C:E668:E668	position	kern-channel-out-of-scope	qsDay|space|qsRoe|qsRoe	slot 1 (space): origin want (200, 0), got (250, 0)|slot 2 (qsRoe): origin want (200, 0), got (250, 0)|slot 3 (qsRoe): origin want (500, 0), got (550, 0)|total advance: want 800, got 850
-ss10	E653:E650:200C:E668	position	kern-channel-out-of-scope	qsDay|qsPea|space|qsRoe	slot 2 (space): origin want (450, 0), got (500, 0)|slot 3 (qsRoe): origin want (450, 0), got (500, 0)|total advance: want 750, got 800
-ss10	E653:E650:E650:E668	seam	ss10-isolation-completed	qsDay|qsPea|qsPea|qsRoe	qsDay/full/None/None/|qsPea/full/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/
-ss10	E653:E650:E653:E668	seam	ss10-isolation-completed	qsDay|qsPea|qsDay|qsRoe	qsDay/full/None/None/|qsPea/full/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/
-ss10	E653:E650:E668:0020	seam	boundary-echo	qsDay|qsPea|qsRoe|space	qsDay/full/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/|space/boundary/None/None/
-ss10	E653:E650:E668:00B7	seam	ss10-isolation-completed	qsDay|qsPea|qsRoe|periodcentered	qsDay/full/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/|namer-dot/boundary/None/None/
-ss10	E653:E650:E668:200C	seam	boundary-echo	qsDay|qsPea|qsRoe|space	qsDay/full/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/|zwnj/boundary/None/None/
-ss10	E653:E650:E668:E650	seam	ss10-isolation-completed	qsDay|qsPea|qsRoe|qsPea	qsDay/full/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/|qsPea/full/None/None/
-ss10	E653:E650:E668:E652	seam	ss10-isolation-completed	qsDay|qsPea|qsRoe|qsTea	qsDay/full/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/|qsTea/full/None/None/
-ss10	E653:E650:E668:E653	seam	ss10-isolation-completed	qsDay|qsPea|qsRoe|qsDay	qsDay/full/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/|qsDay/full/None/None/
-ss10	E653:E650:E668:E668	seam	ss10-isolation-completed	qsDay|qsPea|qsRoe|qsRoe	qsDay/full/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/|qsRoe/hapax/None/None/
-ss10	E653:E652:E650:E668	seam	ss10-isolation-completed	qsDay|qsTea|qsPea|qsRoe	qsDay/full/None/None/|qsTea/full/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/
-ss10	E653:E652:E653:E668	seam	ss10-isolation-completed	qsDay|qsTea|qsDay|qsRoe	qsDay/full/None/None/|qsTea/full/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/
-ss10	E653:E653:200C:E668	position	kern-channel-out-of-scope	qsDay|qsDay|space|qsRoe	slot 2 (space): origin want (450, 0), got (500, 0)|slot 3 (qsRoe): origin want (450, 0), got (500, 0)|total advance: want 750, got 800
-ss10	E653:E653:E650:E668	seam	ss10-isolation-completed	qsDay|qsDay|qsPea|qsRoe	qsDay/full/None/None/|qsDay/full/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/
-ss10	E653:E653:E653:E668	seam	ss10-isolation-completed	qsDay|qsDay|qsDay|qsRoe	qsDay/full/None/None/|qsDay/full/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/
-ss10	E653:E653:E668:0020	seam	boundary-echo	qsDay|qsDay|qsRoe|space	qsDay/full/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/|space/boundary/None/None/
-ss10	E653:E653:E668:00B7	seam	ss10-isolation-completed	qsDay|qsDay|qsRoe|periodcentered	qsDay/full/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/|namer-dot/boundary/None/None/
-ss10	E653:E653:E668:200C	seam	boundary-echo	qsDay|qsDay|qsRoe|space	qsDay/full/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/|zwnj/boundary/None/None/
-ss10	E653:E653:E668:E650	seam	ss10-isolation-completed	qsDay|qsDay|qsRoe|qsPea	qsDay/full/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/|qsPea/full/None/None/
-ss10	E653:E653:E668:E652	seam	ss10-isolation-completed	qsDay|qsDay|qsRoe|qsTea	qsDay/full/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/|qsTea/full/None/None/
-ss10	E653:E653:E668:E653	seam	ss10-isolation-completed	qsDay|qsDay|qsRoe|qsDay	qsDay/full/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/|qsDay/full/None/None/
-ss10	E653:E653:E668:E668	seam	ss10-isolation-completed	qsDay|qsDay|qsRoe|qsRoe	qsDay/full/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/|qsRoe/hapax/None/None/
-ss10	E653:E668:0020:0020	seam	boundary-echo	qsDay|qsRoe|space|space	qsDay/full/None/None/|qsRoe/hapax/None/None/|space/boundary/None/None/|space/boundary/None/None/
-ss10	E653:E668:0020:00B7	seam	boundary-echo	qsDay|qsRoe|space|periodcentered	qsDay/full/None/None/|qsRoe/hapax/None/None/|space/boundary/None/None/|namer-dot/boundary/None/None/
-ss10	E653:E668:0020:200C	seam	boundary-echo	qsDay|qsRoe|space|space	qsDay/full/None/None/|qsRoe/hapax/None/None/|space/boundary/None/None/|zwnj/boundary/None/None/
-ss10	E653:E668:0020:E650	seam	boundary-echo	qsDay|qsRoe|space|qsPea	qsDay/full/None/None/|qsRoe/hapax/None/None/|space/boundary/None/None/|qsPea/full/None/None/
-ss10	E653:E668:0020:E652	seam	boundary-echo	qsDay|qsRoe|space|qsTea	qsDay/full/None/None/|qsRoe/hapax/None/None/|space/boundary/None/None/|qsTea/full/None/None/
-ss10	E653:E668:0020:E653	seam	boundary-echo	qsDay|qsRoe|space|qsDay	qsDay/full/None/None/|qsRoe/hapax/None/None/|space/boundary/None/None/|qsDay/full/None/None/
-ss10	E653:E668:0020:E668	seam	boundary-echo	qsDay|qsRoe|space|qsRoe	qsDay/full/None/None/|qsRoe/hapax/None/None/|space/boundary/None/None/|qsRoe/hapax/None/None/
-ss10	E653:E668:00B7:0020	seam	boundary-echo	qsDay|qsRoe|periodcentered|space	qsDay/full/None/None/|qsRoe/hapax/None/None/|namer-dot/boundary/None/None/|space/boundary/None/None/
-ss10	E653:E668:00B7:00B7	seam	ss10-isolation-completed	qsDay|qsRoe|periodcentered|periodcentered	qsDay/full/None/None/|qsRoe/hapax/None/None/|namer-dot/boundary/None/None/|namer-dot/boundary/None/None/
-ss10	E653:E668:00B7:200C	seam	boundary-echo	qsDay|qsRoe|periodcentered|space	qsDay/full/None/None/|qsRoe/hapax/None/None/|namer-dot/boundary/None/None/|zwnj/boundary/None/None/
-ss10	E653:E668:00B7:E650	seam	ss10-isolation-completed	qsDay|qsRoe|periodcentered|qsPea	qsDay/full/None/None/|qsRoe/hapax/None/None/|namer-dot/boundary/None/None/|qsPea/full/None/None/
-ss10	E653:E668:00B7:E652	seam	ss10-isolation-completed	qsDay|qsRoe|periodcentered|qsTea	qsDay/full/None/None/|qsRoe/hapax/None/None/|namer-dot/boundary/None/None/|qsTea/full/None/None/
-ss10	E653:E668:00B7:E653	seam	ss10-isolation-completed	qsDay|qsRoe|periodcentered|qsDay	qsDay/full/None/None/|qsRoe/hapax/None/None/|namer-dot/boundary/None/None/|qsDay/full/None/None/
-ss10	E653:E668:00B7:E668	seam	ss10-isolation-completed	qsDay|qsRoe|periodcentered.lowered|qsRoe	qsDay/full/None/None/|qsRoe/hapax/None/None/|namer-dot/boundary/None/None/|qsRoe/hapax/None/None/
-ss10	E653:E668:200C:0020	seam	boundary-echo	qsDay|qsRoe|space|space	qsDay/full/None/None/|qsRoe/hapax/None/None/|zwnj/boundary/None/None/|space/boundary/None/None/
-ss10	E653:E668:200C:00B7	seam	boundary-echo	qsDay|qsRoe|space|periodcentered	qsDay/full/None/None/|qsRoe/hapax/None/None/|zwnj/boundary/None/None/|namer-dot/boundary/None/None/
-ss10	E653:E668:200C:200C	seam	boundary-echo	qsDay|qsRoe|space|space	qsDay/full/None/None/|qsRoe/hapax/None/None/|zwnj/boundary/None/None/|zwnj/boundary/None/None/
-ss10	E653:E668:200C:E650	seam	boundary-echo	qsDay|qsRoe|space|qsPea	qsDay/full/None/None/|qsRoe/hapax/None/None/|zwnj/boundary/None/None/|qsPea/full/None/None/
-ss10	E653:E668:200C:E652	seam	boundary-echo	qsDay|qsRoe|space|qsTea	qsDay/full/None/None/|qsRoe/hapax/None/None/|zwnj/boundary/None/None/|qsTea/full/None/None/
-ss10	E653:E668:200C:E653	seam	boundary-echo	qsDay|qsRoe|space|qsDay	qsDay/full/None/None/|qsRoe/hapax/None/None/|zwnj/boundary/None/None/|qsDay/full/None/None/
-ss10	E653:E668:200C:E668	seam	boundary-echo	qsDay|qsRoe|space|qsRoe	qsDay/full/None/None/|qsRoe/hapax/None/None/|zwnj/boundary/None/None/|qsRoe/hapax/None/None/
-ss10	E653:E668:E650:0020	seam	boundary-echo	qsDay|qsRoe|qsPea|space	qsDay/full/None/None/|qsRoe/hapax/None/None/|qsPea/full/None/None/|space/boundary/None/None/
-ss10	E653:E668:E650:00B7	seam	ss10-isolation-completed	qsDay|qsRoe|qsPea|periodcentered	qsDay/full/None/None/|qsRoe/hapax/None/None/|qsPea/full/None/None/|namer-dot/boundary/None/None/
-ss10	E653:E668:E650:200C	seam	boundary-echo	qsDay|qsRoe|qsPea|space	qsDay/full/None/None/|qsRoe/hapax/None/None/|qsPea/full/None/None/|zwnj/boundary/None/None/
-ss10	E653:E668:E650:E650	seam	ss10-isolation-completed	qsDay|qsRoe|qsPea|qsPea	qsDay/full/None/None/|qsRoe/hapax/None/None/|qsPea/full/None/None/|qsPea/full/None/None/
-ss10	E653:E668:E650:E652	seam	ss10-isolation-completed	qsDay|qsRoe|qsPea|qsTea	qsDay/full/None/None/|qsRoe/hapax/None/None/|qsPea/full/None/None/|qsTea/full/None/None/
-ss10	E653:E668:E650:E653	seam	ss10-isolation-completed	qsDay|qsRoe|qsPea|qsDay	qsDay/full/None/None/|qsRoe/hapax/None/None/|qsPea/full/None/None/|qsDay/full/None/None/
-ss10	E653:E668:E650:E668	seam	ss10-isolation-completed	qsDay|qsRoe|qsPea|qsRoe	qsDay/full/None/None/|qsRoe/hapax/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/
-ss10	E653:E668:E652:0020	seam	boundary-echo	qsDay|qsRoe|qsTea|space	qsDay/full/None/None/|qsRoe/hapax/None/None/|qsTea/full/None/None/|space/boundary/None/None/
-ss10	E653:E668:E652:00B7	seam	ss10-isolation-completed	qsDay|qsRoe|qsTea|periodcentered	qsDay/full/None/None/|qsRoe/hapax/None/None/|qsTea/full/None/None/|namer-dot/boundary/None/None/
-ss10	E653:E668:E652:200C	seam	boundary-echo	qsDay|qsRoe|qsTea|space	qsDay/full/None/None/|qsRoe/hapax/None/None/|qsTea/full/None/None/|zwnj/boundary/None/None/
-ss10	E653:E668:E652:E650	seam	ss10-isolation-completed	qsDay|qsRoe|qsTea|qsPea	qsDay/full/None/None/|qsRoe/hapax/None/None/|qsTea/full/None/None/|qsPea/full/None/None/
-ss10	E653:E668:E652:E652	seam	ss10-isolation-completed	qsDay|qsRoe|qsTea|qsTea	qsDay/full/None/None/|qsRoe/hapax/None/None/|qsTea/full/None/None/|qsTea/full/None/None/
-ss10	E653:E668:E652:E653	seam	ss10-isolation-completed	qsDay|qsRoe|qsTea|qsDay	qsDay/full/None/None/|qsRoe/hapax/None/None/|qsTea/full/None/None/|qsDay/full/None/None/
-ss10	E653:E668:E652:E668	seam	ss10-isolation-completed	qsDay|qsRoe|qsTea|qsRoe	qsDay/full/None/None/|qsRoe/hapax/None/None/|qsTea/full/None/None/|qsRoe/hapax/None/None/
-ss10	E653:E668:E653:0020	seam	boundary-echo	qsDay|qsRoe|qsDay|space	qsDay/full/None/None/|qsRoe/hapax/None/None/|qsDay/full/None/None/|space/boundary/None/None/
-ss10	E653:E668:E653:00B7	seam	ss10-isolation-completed	qsDay|qsRoe|qsDay|periodcentered	qsDay/full/None/None/|qsRoe/hapax/None/None/|qsDay/full/None/None/|namer-dot/boundary/None/None/
-ss10	E653:E668:E653:200C	seam	boundary-echo	qsDay|qsRoe|qsDay|space	qsDay/full/None/None/|qsRoe/hapax/None/None/|qsDay/full/None/None/|zwnj/boundary/None/None/
-ss10	E653:E668:E653:E650	seam	ss10-isolation-completed	qsDay|qsRoe|qsDay|qsPea	qsDay/full/None/None/|qsRoe/hapax/None/None/|qsDay/full/None/None/|qsPea/full/None/None/
-ss10	E653:E668:E653:E652	seam	ss10-isolation-completed	qsDay|qsRoe|qsDay|qsTea	qsDay/full/None/None/|qsRoe/hapax/None/None/|qsDay/full/None/None/|qsTea/full/None/None/
-ss10	E653:E668:E653:E653	seam	ss10-isolation-completed	qsDay|qsRoe|qsDay|qsDay	qsDay/full/None/None/|qsRoe/hapax/None/None/|qsDay/full/None/None/|qsDay/full/None/None/
-ss10	E653:E668:E653:E668	seam	ss10-isolation-completed	qsDay|qsRoe|qsDay|qsRoe	qsDay/full/None/None/|qsRoe/hapax/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/
-ss10	E653:E668:E668:0020	seam	boundary-echo	qsDay|qsRoe|qsRoe|space	qsDay/full/None/None/|qsRoe/hapax/None/None/|qsRoe/hapax/None/None/|space/boundary/None/None/
-ss10	E653:E668:E668:00B7	seam	ss10-isolation-completed	qsDay|qsRoe|qsRoe|periodcentered	qsDay/full/None/None/|qsRoe/hapax/None/None/|qsRoe/hapax/None/None/|namer-dot/boundary/None/None/
-ss10	E653:E668:E668:200C	seam	boundary-echo	qsDay|qsRoe|qsRoe|space	qsDay/full/None/None/|qsRoe/hapax/None/None/|qsRoe/hapax/None/None/|zwnj/boundary/None/None/
-ss10	E653:E668:E668:E650	seam	ss10-isolation-completed	qsDay|qsRoe|qsRoe|qsPea	qsDay/full/None/None/|qsRoe/hapax/None/None/|qsRoe/hapax/None/None/|qsPea/full/None/None/
-ss10	E653:E668:E668:E652	seam	ss10-isolation-completed	qsDay|qsRoe|qsRoe|qsTea	qsDay/full/None/None/|qsRoe/hapax/None/None/|qsRoe/hapax/None/None/|qsTea/full/None/None/
-ss10	E653:E668:E668:E653	seam	ss10-isolation-completed	qsDay|qsRoe|qsRoe|qsDay	qsDay/full/None/None/|qsRoe/hapax/None/None/|qsRoe/hapax/None/None/|qsDay/full/None/None/
-ss10	E653:E668:E668:E668	seam	ss10-isolation-completed	qsDay|qsRoe|qsRoe|qsRoe	qsDay/full/None/None/|qsRoe/hapax/None/None/|qsRoe/hapax/None/None/|qsRoe/hapax/None/None/
-ss10	E665:E670:E652:E679	ligation	ss10-ligature-suppressed	qsMay|qsIt|qsTea_qsOy	qsMay/loop/None/None/|qsIt/hapax/None/None/|qsTea/full/None/None/|qsOy/hapax/None/None/
-ss10	E668:0020:E650:E668	seam	boundary-echo	qsRoe|space|qsPea|qsRoe	qsRoe/hapax/None/None/|space/boundary/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/
-ss10	E668:0020:E653:E668	seam	boundary-echo	qsRoe|space|qsDay|qsRoe	qsRoe/hapax/None/None/|space/boundary/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/
-ss10	E668:00B7:E650:E668	seam	ss10-isolation-completed	qsRoe|periodcentered|qsPea|qsRoe	qsRoe/hapax/None/None/|namer-dot/boundary/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/
-ss10	E668:00B7:E653:E668	seam	ss10-isolation-completed	qsRoe|periodcentered|qsDay|qsRoe	qsRoe/hapax/None/None/|namer-dot/boundary/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/
-ss10	E668:200C:E650:E668	seam	boundary-echo	qsRoe|space|qsPea|qsRoe	qsRoe/hapax/None/None/|zwnj/boundary/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/
-ss10	E668:200C:E653:E668	seam	boundary-echo	qsRoe|space|qsDay|qsRoe	qsRoe/hapax/None/None/|zwnj/boundary/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/
-ss10	E668:E650:200C:E668	position	kern-channel-out-of-scope	qsRoe|qsPea|space|qsRoe	slot 2 (space): origin want (500, 0), got (550, 0)|slot 3 (qsRoe): origin want (500, 0), got (550, 0)|total advance: want 800, got 850
-ss10	E668:E650:E650:E668	seam	ss10-isolation-completed	qsRoe|qsPea|qsPea|qsRoe	qsRoe/hapax/None/None/|qsPea/full/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/
-ss10	E668:E650:E653:E668	seam	ss10-isolation-completed	qsRoe|qsPea|qsDay|qsRoe	qsRoe/hapax/None/None/|qsPea/full/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/
-ss10	E668:E650:E668:0020	seam	boundary-echo	qsRoe|qsPea|qsRoe|space	qsRoe/hapax/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/|space/boundary/None/None/
-ss10	E668:E650:E668:00B7	seam	ss10-isolation-completed	qsRoe|qsPea|qsRoe|periodcentered	qsRoe/hapax/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/|namer-dot/boundary/None/None/
-ss10	E668:E650:E668:200C	seam	boundary-echo	qsRoe|qsPea|qsRoe|space	qsRoe/hapax/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/|zwnj/boundary/None/None/
-ss10	E668:E650:E668:E650	seam	ss10-isolation-completed	qsRoe|qsPea|qsRoe|qsPea	qsRoe/hapax/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/|qsPea/full/None/None/
-ss10	E668:E650:E668:E652	seam	ss10-isolation-completed	qsRoe|qsPea|qsRoe|qsTea	qsRoe/hapax/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/|qsTea/full/None/None/
-ss10	E668:E650:E668:E653	seam	ss10-isolation-completed	qsRoe|qsPea|qsRoe|qsDay	qsRoe/hapax/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/|qsDay/full/None/None/
-ss10	E668:E650:E668:E668	seam	ss10-isolation-completed	qsRoe|qsPea|qsRoe|qsRoe	qsRoe/hapax/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/|qsRoe/hapax/None/None/
-ss10	E668:E652:E650:E668	seam	ss10-isolation-completed	qsRoe|qsTea|qsPea|qsRoe	qsRoe/hapax/None/None/|qsTea/full/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/
-ss10	E668:E652:E653:E668	seam	ss10-isolation-completed	qsRoe|qsTea|qsDay|qsRoe	qsRoe/hapax/None/None/|qsTea/full/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/
-ss10	E668:E653:200C:E668	position	kern-channel-out-of-scope	qsRoe|qsDay|space|qsRoe	slot 2 (space): origin want (500, 0), got (550, 0)|slot 3 (qsRoe): origin want (500, 0), got (550, 0)|total advance: want 800, got 850
-ss10	E668:E653:E650:E668	seam	ss10-isolation-completed	qsRoe|qsDay|qsPea|qsRoe	qsRoe/hapax/None/None/|qsDay/full/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/
-ss10	E668:E653:E653:E668	seam	ss10-isolation-completed	qsRoe|qsDay|qsDay|qsRoe	qsRoe/hapax/None/None/|qsDay/full/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/
-ss10	E668:E653:E668:0020	seam	boundary-echo	qsRoe|qsDay|qsRoe|space	qsRoe/hapax/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/|space/boundary/None/None/
-ss10	E668:E653:E668:00B7	seam	ss10-isolation-completed	qsRoe|qsDay|qsRoe|periodcentered	qsRoe/hapax/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/|namer-dot/boundary/None/None/
-ss10	E668:E653:E668:200C	seam	boundary-echo	qsRoe|qsDay|qsRoe|space	qsRoe/hapax/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/|zwnj/boundary/None/None/
-ss10	E668:E653:E668:E650	seam	ss10-isolation-completed	qsRoe|qsDay|qsRoe|qsPea	qsRoe/hapax/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/|qsPea/full/None/None/
-ss10	E668:E653:E668:E652	seam	ss10-isolation-completed	qsRoe|qsDay|qsRoe|qsTea	qsRoe/hapax/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/|qsTea/full/None/None/
-ss10	E668:E653:E668:E653	seam	ss10-isolation-completed	qsRoe|qsDay|qsRoe|qsDay	qsRoe/hapax/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/|qsDay/full/None/None/
-ss10	E668:E653:E668:E668	seam	ss10-isolation-completed	qsRoe|qsDay|qsRoe|qsRoe	qsRoe/hapax/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/|qsRoe/hapax/None/None/
-ss10	E668:E668:E650:E668	seam	ss10-isolation-completed	qsRoe|qsRoe|qsPea|qsRoe	qsRoe/hapax/None/None/|qsRoe/hapax/None/None/|qsPea/full/None/None/|qsRoe/hapax/None/None/
-ss10	E668:E668:E653:E668	seam	ss10-isolation-completed	qsRoe|qsRoe|qsDay|qsRoe	qsRoe/hapax/None/None/|qsRoe/hapax/None/None/|qsDay/full/None/None/|qsRoe/hapax/None/None/
