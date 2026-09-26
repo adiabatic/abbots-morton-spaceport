@@ -148,7 +148,7 @@ def test_policy_note_is_threaded_into_the_why_stub(drafter, enricher, example_un
 
 def test_any_of_orders_after_behavior_first(drafter, enricher, example_units):
     unit = example_units[("E650:E670:E65D", "default")]
-    assert unit.class_id == "regrouping-floor-drift"
+    assert unit.class_id == "regrouped-chain"
     enriched = enricher.enrich(unit)
     draft = drafter.draft_any_of(enriched)
     assert len(draft.candidates) == 2
