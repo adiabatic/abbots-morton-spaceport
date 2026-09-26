@@ -52,14 +52,14 @@
         height: 280px;
       }
 
-      .lightboard-section {
+      .pixel-grid-section {
         background: var(--card-bg);
         border: var(--card-border);
         padding: 1rem;
         border-radius: 4px;
       }
 
-      .lightboard {
+      .pixel-grid {
         display: grid;
         gap: 2px;
         background: #888;
@@ -68,7 +68,7 @@
         user-select: none;
       }
 
-      .lightboard-cell {
+      .pixel-grid-cell {
         width: 36px;
         height: 36px;
         border: none;
@@ -93,7 +93,7 @@
         }
       }
 
-      .lightboard-wrapper {
+      .pixel-grid-wrapper {
         display: flex;
         align-items: flex-start;
         gap: 0.5rem;
@@ -267,19 +267,19 @@
         ></textarea>
       </div>
 
-      <div class="lightboard-section">
-        <div class="section-label" id="lightboard-label">Lightboard (12 rows × 5 cols)</div>
+      <div class="pixel-grid-section">
+        <div class="section-label" id="pixel-grid-label">Pixel grid (12 rows × 5 cols)</div>
         <div class="glyph-info" id="glyph-info"></div>
         <div class="row-buttons">
           <button type="button" id="add-row-top" title="Add row on top">+</button>
           <button type="button" id="remove-row-top" title="Remove row from top">−</button>
         </div>
-        <div class="lightboard-wrapper">
+        <div class="pixel-grid-wrapper">
           <div class="column-buttons" id="column-buttons-left">
             <button type="button" id="add-col-left" title="Add column on left">+</button>
             <button type="button" id="remove-col-left" title="Remove column from left">−</button>
           </div>
-          <div class="lightboard" id="lightboard"></div>
+          <div class="pixel-grid" id="pixel-grid"></div>
           <div class="column-buttons" id="column-buttons-right">
             <button type="button" id="add-col-right" title="Add column on right">+</button>
             <button type="button" id="remove-col-right" title="Remove column from right">−</button>
@@ -356,15 +356,15 @@
 
       const inputYaml = document.getElementById("input-yaml");
       const outputYaml = document.getElementById("output-yaml");
-      const lightboard = document.getElementById("lightboard");
+      const pixelGrid = document.getElementById("pixel-grid");
       const glyphInfo = document.getElementById("glyph-info");
       const yOffsetInput = document.getElementById("y-offset");
       const copyBtn = document.getElementById("copy-btn");
-      const lightboardLabel = document.getElementById("lightboard-label");
+      const pixelGridLabel = document.getElementById("pixel-grid-label");
       const columnButtonsLeft = document.getElementById("column-buttons-left");
       const columnButtonsRight = document.getElementById("column-buttons-right");
 
-      // 0-based lightboard grid rows
+      // 0-based pixel grid rows
       const TALL_HEIGHT_ROW = 0;
       const CAP_HEIGHT_ROW = 1;
       const X_HEIGHT_ROW = 3;
@@ -398,14 +398,14 @@
         return BASELINE_ROW - yOffset - (bitmap.length - 1);
       }
 
-      function initLightboard() {
-        lightboard.innerHTML = "";
-        lightboard.style.gridTemplateColumns = `repeat(${cols}, 36px)`;
-        lightboardLabel.textContent = `Lightboard (${MAX_ROWS} rows × ${cols} cols)`;
+      function initPixelGrid() {
+        pixelGrid.innerHTML = "";
+        pixelGrid.style.gridTemplateColumns = `repeat(${cols}, 36px)`;
+        pixelGridLabel.textContent = `Pixel grid (${MAX_ROWS} rows × ${cols} cols)`;
         for (let row = 0; row < MAX_ROWS; row++) {
           for (let col = 0; col < cols; col++) {
             const cell = document.createElement("button");
-            cell.className = "lightboard-cell disabled";
+            cell.className = "pixel-grid-cell disabled";
             cell.dataset.row = row;
             cell.dataset.col = col;
             cell.addEventListener("mousedown", (e) => {
@@ -418,7 +418,7 @@
               chars[col] = chars[col] === "#" ? " " : "#";
               paintState = chars[col];
               bitmap[bitmapRow] = chars.join("");
-              updateLightboard();
+              updatePixelGrid();
               updatePreviews();
               updateOutput();
             });
@@ -428,7 +428,7 @@
               if (!isDragging || bitmapRow < 0 || bitmapRow >= bitmap.length) return;
               setCellState(bitmapRow, col, paintState);
             });
-            lightboard.appendChild(cell);
+            pixelGrid.appendChild(cell);
           }
         }
       }
@@ -478,8 +478,8 @@
         };
       }
 
-      function updateLightboard() {
-        const cells = lightboard.querySelectorAll(".lightboard-cell");
+      function updatePixelGrid() {
+        const cells = pixelGrid.querySelectorAll(".pixel-grid-cell");
         const startRow = getBitmapStartRow();
 
         for (const cell of cells) {
@@ -515,7 +515,7 @@
         chars[col] = state;
         bitmap[row] = chars.join("");
 
-        updateLightboard();
+        updatePixelGrid();
       }
 
       const DISPLAY_SCALE = 4; // CSS size multiplier
@@ -632,8 +632,8 @@
         if (bitmap.length === 0) return;
         bitmap = bitmap.map((row) => " " + row);
         cols++;
-        initLightboard();
-        updateLightboard();
+        initPixelGrid();
+        updatePixelGrid();
         updatePreviews();
         updateOutput();
       }
@@ -642,8 +642,8 @@
         if (cols <= 1 || bitmap.length === 0) return;
         bitmap = bitmap.map((row) => row.slice(1));
         cols--;
-        initLightboard();
-        updateLightboard();
+        initPixelGrid();
+        updatePixelGrid();
         updatePreviews();
         updateOutput();
       }
@@ -652,8 +652,8 @@
         if (bitmap.length === 0) return;
         bitmap = bitmap.map((row) => row + " ");
         cols++;
-        initLightboard();
-        updateLightboard();
+        initPixelGrid();
+        updatePixelGrid();
         updatePreviews();
         updateOutput();
       }
@@ -662,8 +662,8 @@
         if (cols <= 1 || bitmap.length === 0) return;
         bitmap = bitmap.map((row) => row.slice(0, -1));
         cols--;
-        initLightboard();
-        updateLightboard();
+        initPixelGrid();
+        updatePixelGrid();
         updatePreviews();
         updateOutput();
       }
@@ -672,7 +672,7 @@
         if (bitmap.length === 0 || bitmap.length >= MAX_ROWS) return;
         bitmap.unshift(" ".repeat(cols));
         rowComments.unshift("");
-        updateLightboard();
+        updatePixelGrid();
         updatePreviews();
         updateOutput();
       }
@@ -681,7 +681,7 @@
         if (bitmap.length <= 1) return;
         bitmap.shift();
         rowComments.shift();
-        updateLightboard();
+        updatePixelGrid();
         updatePreviews();
         updateOutput();
       }
@@ -690,7 +690,7 @@
         if (bitmap.length === 0 || bitmap.length >= MAX_ROWS) return;
         bitmap.push(" ".repeat(cols));
         rowComments.push("");
-        updateLightboard();
+        updatePixelGrid();
         updatePreviews();
         updateOutput();
       }
@@ -699,12 +699,12 @@
         if (bitmap.length <= 1) return;
         bitmap.pop();
         rowComments.pop();
-        updateLightboard();
+        updatePixelGrid();
         updatePreviews();
         updateOutput();
       }
 
-      // A drag can end outside the lightboard, so listen on the document.
+      // A drag can end outside the pixel grid, so listen on the document.
       document.addEventListener("mouseup", () => {
         if (isDragging) {
           isDragging = false;
@@ -718,9 +718,9 @@
         const parsed = parseYaml(inputYaml.value);
         if (parsed) {
           if (cols !== oldCols) {
-            initLightboard();
+            initPixelGrid();
           }
-          updateLightboard();
+          updatePixelGrid();
           updatePreviews();
           updateOutput();
         }
@@ -728,7 +728,7 @@
 
       yOffsetInput.addEventListener("input", () => {
         yOffset = parseInt(yOffsetInput.value, 10) || 0;
-        updateLightboard();
+        updatePixelGrid();
         updateOutput();
       });
 
@@ -758,7 +758,7 @@
       halfRow.hidden = !hiDpiQuery.matches;
 
       initRowMarkers();
-      initLightboard();
+      initPixelGrid();
       updatePreviews();
     </script>
   </body>
