@@ -65,16 +65,16 @@
   "rows": 2,
   "method": "Shaped with uharfbuzz in both fixture fonts under every config in the unit's set; outlines decomposed, translated, sorted, and compared.",
   "by_class": {
-   "marker-staging-ligature-formation": 1
+   "post-marker-ligature-formation": 1
   }
  },
  "classes": [
   {
-   "id": "marker-staging-ligature-formation",
+   "id": "post-marker-ligature-formation",
    "status": "intended",
    "ink_identical": true,
    "no_verdict": false,
-   "why": "Marker staging differs but the formed ligature is identical; reviewed as intended.",
+   "why": "The old font renames letters after a marker and forms no ligature there, but the formed ligature is identical; reviewed as intended.",
    "unit_count": 4,
    "row_count": 9,
    "machine_approved_count": 1,
@@ -84,7 +84,7 @@
     "junior_equivalent": 0
    },
    "shards": [
-    "units/marker-staging-ligature-formation.json"
+    "units/post-marker-ligature-formation.json"
    ],
    "batches": [
     0

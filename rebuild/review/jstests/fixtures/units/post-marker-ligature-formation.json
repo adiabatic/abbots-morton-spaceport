@@ -7,7 +7,7 @@
   "no_verdict": false,
   "duplicate_group": "e-0003",
   "cluster": "c-3a570003",
-  "class": "marker-staging-ligature-formation",
+  "class": "post-marker-ligature-formation",
   "group": "qsPea:qsMay",
   "codepoints": "E650:E665",
   "text_entities": "&#xE650;&#xE665;",
@@ -115,7 +115,7 @@
   "no_verdict": false,
   "duplicate_group": "e-0001",
   "cluster": "c-3a570001",
-  "class": "marker-staging-ligature-formation",
+  "class": "post-marker-ligature-formation",
   "group": "qsTea:qsOy",
   "codepoints": "200C:E652:E679",
   "text_entities": "&#x200C;&#xE652;&#xE679;",
@@ -205,7 +205,7 @@
     "x": 0
    }
   ],
-  "explain": "position 0: marker staged before ligature formation; the formed ligature is byte-identical.",
+  "explain": "position 0: the ligature forms before the marker lookups; the formed ligature is byte-identical.",
   "summary": "New: \u25caZWNJ \u00b7Tea\u00b7Oy settles differently from the baseline \u2014 decided by fixture data (open the explain panel for the candidate table).",
   "provenance": [
    "glyph_data/runes/qsTea.yaml:policy.extend[0]"
@@ -251,7 +251,7 @@
   "no_verdict": false,
   "duplicate_group": null,
   "cluster": null,
-  "class": "marker-staging-ligature-formation",
+  "class": "post-marker-ligature-formation",
   "group": "qsDay:qsUtter",
   "codepoints": "E653:E67A:E667",
   "text_entities": "&#xE653;&#xE67A;&#xE667;",
@@ -329,7 +329,7 @@
   "no_verdict": false,
   "duplicate_group": "e-0002",
   "cluster": "c-3a570002",
-  "class": "marker-staging-ligature-formation",
+  "class": "post-marker-ligature-formation",
   "group": "qsTea:qsOy",
   "codepoints": "0020:E652:E679",
   "text_entities": "&#x0020;&#xE652;&#xE679;",
@@ -420,7 +420,7 @@
     "x": 137
    }
   ],
-  "explain": "position 1: ligature forms through a different staging order; same ink.",
+  "explain": "position 1: the ligature forms before the marker lookups; same ink.",
   "summary": "New: \u2423 \u00b7Tea\u00b7Oy settles differently from the baseline \u2014 decided by fixture data (open the explain panel for the candidate table).",
   "provenance": [],
   "drafts": {

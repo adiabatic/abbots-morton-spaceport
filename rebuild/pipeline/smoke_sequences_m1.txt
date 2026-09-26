@@ -45,7 +45,7 @@ E650 200C E650            # Pea ZWNJ Pea
 E679                      # Oy in isolation
 E652 E679                 # Tea Oy (ligature forms)
 E670 E652 E679            # It Tea Oy
-E665 E652 E679            # May Tea Oy (marker staging: forms under ss03 too)
+E665 E652 E679            # May Tea Oy (post-marker ligature formation: forms under ss03 too)
 E652 E679 E670            # Tea+Oy It (ligature forward junction)
 E652 E679 E652            # Tea+Oy Tea
 E652 E679 E665            # Tea+Oy May
@@ -580,8 +580,8 @@ E676 E674                 # Ah At (break)
 E67B E674                 # Out At (break)
 E674 E653                 # At Day (x-height join)
 E674 E653 E67A            # At Day+Utter (x-height join into the ligature)
-E674 E65D                 # At Jai (the old exit tuck is re-spelled on Jai's entry)
-E674 E65D E67A            # At Jai+Utter (the same re-spelled tuck into the ligature)
+E674 E65D                 # At Jai (the old exit tuck is rewritten as Jai's entry contraction)
+E674 E65D E67A            # At Jai+Utter (the same rewritten tuck into the ligature)
 E65A E674 E65D            # See At Jai (Jai suppresses At's entry extension)
 E674 E665                 # At May (the special baseline exit extends across the letter)
 E674 E666                 # At No (x-height join)

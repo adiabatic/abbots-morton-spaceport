@@ -37,7 +37,7 @@ Add the codepoint to `M1_ALPHABET` in `rebuild/pipeline/baseline_subset.py`. Not
 - Bitmaps verbatim from the old YAML — double-quoted rows, bare trailing `#` markers on the rows at glyph-space y 5 and 0.
 - Rune files use the structural YAML style (everything block, three flow leaf shapes); finish with `uv run python tools/reflow_yaml.py` and expect a no-op.
 - `from:`/`toward:` members in code-point order, from the evidence tool's join map completed against the longer baseline windows. A pair-map omission is not a refusal: verify contextual join heights before closing a row's scope. Left-facing lists are ligature-transparent automatically — never hand-add `qsA_qsX` lefts; naming a ligature literally is for carving it out.
-- Old `derive` directives touching the letter become `extend:`/`contract:` records — and expect the qsJai lesson: an old exit tuck that removes ink across rows usually re-spells as the receiver's own entry contraction, not as a contract on this side.
+- Old `derive` directives touching the letter become `extend:`/`contract:` records — and expect the qsJai lesson: an old exit tuck that removes ink across rows is usually rewritten as the receiver's own entry contraction, not as a contract on this side.
 
 ## 3 — neighbors and ledgers
 

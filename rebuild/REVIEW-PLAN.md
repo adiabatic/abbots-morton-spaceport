@@ -316,7 +316,7 @@ Within a class, the parts hold the fragments in id order (§2.1). The example is
 {
   "id": "u-3mJ7kPq2Xw9",
   "ink_identical": false,
-  "class": "marker-staging-ligature-formation",
+  "class": "post-marker-ligature-formation",
   "group": "qsTea:qsOy",
   "codepoints": "200C:E652:E679",
   "text_entities": "&#x200C;&#xE652;&#xE679;",

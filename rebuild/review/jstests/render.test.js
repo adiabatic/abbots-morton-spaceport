@@ -52,7 +52,7 @@ import {
 
 const fixtureDir = new URL('./fixtures/', import.meta.url);
 const manifest = JSON.parse(await readFile(new URL('manifest.json', fixtureDir), 'utf8'));
-const shardA = JSON.parse(await readFile(new URL('units/marker-staging-ligature-formation.json', fixtureDir), 'utf8'));
+const shardA = JSON.parse(await readFile(new URL('units/post-marker-ligature-formation.json', fixtureDir), 'utf8'));
 const shardB = JSON.parse(await readFile(new URL('units/dangling-anchor-dropped.json', fixtureDir), 'utf8'));
 const explainSamples = JSON.parse(await readFile(new URL('explain-samples.json', fixtureDir), 'utf8'));
 
@@ -454,7 +454,7 @@ test('unitMatchesFilters covers class, group, family, config, and status', () =>
   const unit = shardA.find((candidate) => candidate.id === 'u-DG5XZLCzsT9');
   const empty = { class: null, group: null, family: null, config: null, status: null };
   assert.equal(unitMatchesFilters(unit, empty, undefined), true);
-  assert.equal(unitMatchesFilters(unit, { ...empty, class: 'marker-staging-ligature-formation' }, undefined), true);
+  assert.equal(unitMatchesFilters(unit, { ...empty, class: 'post-marker-ligature-formation' }, undefined), true);
   assert.equal(unitMatchesFilters(unit, { ...empty, class: 'dangling-anchor-dropped' }, undefined), false);
   assert.equal(unitMatchesFilters(unit, { ...empty, group: 'qsTea:qsOy' }, undefined), true);
   assert.equal(unitMatchesFilters(unit, { ...empty, family: 'qsOy' }, undefined), true);
@@ -651,7 +651,7 @@ test('class and family filters apply to machine units; the status filter does no
 });
 
 test('human and machine counts come from the manifest class metadata', () => {
-  const marker = manifest.classes.find((cls) => cls.id === 'marker-staging-ligature-formation');
+  const marker = manifest.classes.find((cls) => cls.id === 'post-marker-ligature-formation');
   const dangling = manifest.classes.find((cls) => cls.id === 'dangling-anchor-dropped');
   assert.equal(humanClassCount(marker), marker.unit_count - 1);
   assert.equal(humanClassCount(dangling), dangling.unit_count);
@@ -660,7 +660,7 @@ test('human and machine counts come from the manifest class metadata', () => {
 });
 
 test('machineFoldTotal counts what a class fold will hold before the class is fetched', () => {
-  const marker = manifest.classes.find((cls) => cls.id === 'marker-staging-ligature-formation');
+  const marker = manifest.classes.find((cls) => cls.id === 'post-marker-ligature-formation');
   const dangling = manifest.classes.find((cls) => cls.id === 'dangling-anchor-dropped');
   assert.equal(machineFoldTotal(marker), 1);
   assert.equal(machineFoldTotal(dangling), 0, 'a class with nothing machine-approved folds nothing');
@@ -697,7 +697,7 @@ test('machineFoldCheck picks the narrowest check that accounts for every machine
 test('machineFoldCheck falls back to the no-verdict badge for a class carrying no check split', () => {
   assert.equal(machineFoldCheck({ no_verdict: false, unit_count: 10, machine_approved_count: 10 }), 'no_verdict');
   assert.equal(machineFoldCheck({ no_verdict: false, unit_count: 10, machine_approved_count: 0 }), 'no_verdict');
-  const marker = manifest.classes.find((cls) => cls.id === 'marker-staging-ligature-formation');
+  const marker = manifest.classes.find((cls) => cls.id === 'post-marker-ligature-formation');
   assert.equal(machineFoldCheck(marker), 'ink_identical');
 });
 
@@ -927,25 +927,25 @@ test('stepIndex clamps at the ends', () => {
 test('availableBatches respects a class filter', () => {
   assert.deepEqual(availableBatches(manifest, null), [0, 1]);
   assert.deepEqual(availableBatches(manifest, 'dangling-anchor-dropped'), [0, 1]);
-  assert.deepEqual(availableBatches(manifest, 'marker-staging-ligature-formation'), [0]);
+  assert.deepEqual(availableBatches(manifest, 'post-marker-ligature-formation'), [0]);
   assert.deepEqual(availableBatches(manifest, 'nonexistent'), []);
 });
 
 test('classesInBatch names the classes with units in a batch, batchless classes included with batch 0', () => {
   assert.deepEqual(
     [...classesInBatch(manifest, 0)].sort(),
-    ['dangling-anchor-dropped', 'marker-staging-ligature-formation'],
+    ['dangling-anchor-dropped', 'post-marker-ligature-formation'],
   );
   assert.deepEqual([...classesInBatch(manifest, 1)], ['dangling-anchor-dropped']);
   const withExempt = { classes: [...manifest.classes, { id: 'boundary-window', batches: [], no_verdict: true }] };
   assert.deepEqual(
     [...classesInBatch(withExempt, 0)].sort(),
-    ['boundary-window', 'dangling-anchor-dropped', 'marker-staging-ligature-formation'],
+    ['boundary-window', 'dangling-anchor-dropped', 'post-marker-ligature-formation'],
   );
   assert.deepEqual([...classesInBatch(withExempt, 1)], ['dangling-anchor-dropped']);
   assert.deepEqual(
     [...classesInBatch(withExempt, 0, false)].sort(),
-    ['dangling-anchor-dropped', 'marker-staging-ligature-formation'],
+    ['dangling-anchor-dropped', 'post-marker-ligature-formation'],
     'with machine rows hidden a batchless class contributes nothing to batch 0',
   );
 });
@@ -1172,7 +1172,7 @@ test('searchHaystack folds id, notation, codepoints, class, group, duplicate gro
   assert.ok(haystack.includes('teaoy'), 'notation with the namer dots stripped is searchable');
   assert.ok(haystack.includes('200c:e652:e679'));
   assert.ok(haystack.includes('200ce652e679'), 'codepoints with the colons stripped are searchable');
-  assert.ok(haystack.includes('marker-staging-ligature-formation'));
+  assert.ok(haystack.includes('post-marker-ligature-formation'));
   assert.ok(haystack.includes('qstea:qsoy'));
   assert.ok(haystack.includes('ligation'));
   assert.ok(haystack.includes('e-0001'), 'the duplicate group id is searchable');

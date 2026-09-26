@@ -29,7 +29,7 @@ import { needsNoVerdict } from '../static/render.js';
 
 const fixtureDir = new URL('./fixtures/', import.meta.url);
 const manifest = JSON.parse(await readFile(new URL('manifest.json', fixtureDir), 'utf8'));
-const shardA = JSON.parse(await readFile(new URL('units/marker-staging-ligature-formation.json', fixtureDir), 'utf8'));
+const shardA = JSON.parse(await readFile(new URL('units/post-marker-ligature-formation.json', fixtureDir), 'utf8'));
 
 const drain = (state, chunks) => {
   const lines = [];
@@ -325,7 +325,7 @@ test('looksGzipped reads the magic number off a body a server handed over undeco
 test('machineFoldPlan names one fold per class in the batch that holds units needing no verdict', () => {
   const plan = machineFoldPlan(manifest, viewState());
   assert.deepEqual(plan, [
-    { classId: 'marker-staging-ligature-formation', total: 1, check: 'ink_identical', provisional: false },
+    { classId: 'post-marker-ligature-formation', total: 1, check: 'ink_identical', provisional: false },
   ]);
 });
 
@@ -340,7 +340,7 @@ test('machineFoldPlan marks its totals provisional under a filter the manifest c
   }
   // The plan applies the class filter itself, so the totals stay exact.
   assert.equal(
-    machineFoldPlan(manifest, viewState({ class: 'marker-staging-ligature-formation' }))[0].provisional,
+    machineFoldPlan(manifest, viewState({ class: 'post-marker-ligature-formation' }))[0].provisional,
     false,
   );
 });
@@ -352,8 +352,8 @@ test('machineFoldPlan plans nothing while the show-machine toggle is off, or ins
 
 test('machineFoldPlan honors the class filter and skips classes with nothing to fold', () => {
   assert.deepEqual(
-    machineFoldPlan(manifest, viewState({ class: 'marker-staging-ligature-formation' })).map((fold) => fold.classId),
-    ['marker-staging-ligature-formation'],
+    machineFoldPlan(manifest, viewState({ class: 'post-marker-ligature-formation' })).map((fold) => fold.classId),
+    ['post-marker-ligature-formation'],
   );
   assert.deepEqual(machineFoldPlan(manifest, viewState({ class: 'dangling-anchor-dropped' })), []);
 });

@@ -3,7 +3,7 @@
     "classes": [
       "boundary-window",
       "zwnj-word-initial-unification",
-      "marker-staging-ligature-formation",
+      "post-marker-ligature-formation",
       "pre-ligature-cleanup-regularized",
       "regrouping-floor-drift",
       "ss03-chain-join-gains",
@@ -18,10 +18,10 @@
       "may-ligature-junction-loosened",
       "dangling-anchor-dropped",
       "bare-name-live-join",
-      "see-out-fusion-respelled",
+      "see-out-fusion-renamed",
       "may-jai-extension-consolidated",
-      "jai-entry-contraction-respelled",
-      "zoo-entry-contraction-respelled",
+      "jai-entry-contraction-renamed",
+      "zoo-entry-contraction-renamed",
       "ss03-out-tea-ligature-kept",
       "kern-out-of-scope",
       "no-chain-gains",
@@ -42,8 +42,8 @@
       "dangling-anchor-dropped",
       "bare-name-live-join",
       "may-jai-extension-consolidated",
-      "jai-entry-contraction-respelled",
-      "zoo-entry-contraction-respelled",
+      "jai-entry-contraction-renamed",
+      "zoo-entry-contraction-renamed",
       "extension-non-summing",
       "deferred-ss04",
       "deferred-ss03"
@@ -85,8 +85,8 @@
           "dangling-anchor-dropped": 352605,
           "bare-name-live-join": 592830,
           "may-jai-extension-consolidated": 981,
-          "jai-entry-contraction-respelled": 395,
-          "zoo-entry-contraction-respelled": 1287,
+          "jai-entry-contraction-renamed": 395,
+          "zoo-entry-contraction-renamed": 1287,
           "extension-non-summing": 1162,
           "deferred-ss04": 3,
           "deferred-ss03": 1
@@ -174,7 +174,7 @@
         "zwnj-word-initial-unification": 136,
         "dangling-anchor-dropped": 329695,
         "bare-name-live-join": 585584,
-        "zoo-entry-contraction-respelled": 1281
+        "zoo-entry-contraction-renamed": 1281
       },
       "boundary_window_exempt": 47274,
       "human_units": 272952,

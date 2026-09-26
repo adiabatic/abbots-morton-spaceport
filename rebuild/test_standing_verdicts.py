@@ -2312,7 +2312,7 @@ def test_a_pure_slide_matches(slide_context):
     assert sv._matches(SLIDE_RULE["match"], window, context=slide_context())
 
 
-def test_a_union_invisible_respelling_is_matched_along_with_the_slide(slide_context):
+def test_a_union_invisible_renaming_is_matched_along_with_the_slide(slide_context):
     assert sv._matches(SLIDE_RULE["match"], founding_window(), context=slide_context())
 
 
@@ -4652,7 +4652,7 @@ def test_a_combined_ligature_continuation_still_checks_the_whole_compound(contra
     assert sv._combined_match(COMBINED_CONTRACTED_ENTRY_RULES, window, context) is None
 
 
-def test_a_union_invisible_suffix_respelling_is_matched_with_an_entry_contraction(slide_context):
+def test_a_union_invisible_suffix_renaming_is_matched_with_an_entry_contraction(slide_context):
     assert sv._matches(
         CONTRACTED_ENTRY_RULE["match"],
         contracted_entry_covered_window(),
@@ -4756,7 +4756,7 @@ def test_a_slide_and_an_entry_contraction_in_one_window_combine(slide_context):
     assert events == {SLIDE_RULE["id"]: [1], CONTRACTED_ENTRY_RULE["id"]: [3]}
 
 
-def test_a_union_invisible_suffix_respelling_is_matched_in_a_combined_entry_contraction(slide_context):
+def test_a_union_invisible_suffix_renaming_is_matched_in_a_combined_entry_contraction(slide_context):
     events = sv._combined_match(
         COMBINED_CONTRACTED_ENTRY_RULES,
         combined_contracted_entry_covered_window(),

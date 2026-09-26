@@ -30,7 +30,7 @@ test('writeHash omits null and empty values', () => {
 
 test('hash state round-trips', () => {
   const state = {
-    class: 'marker-staging-ligature-formation',
+    class: 'post-marker-ligature-formation',
     batch: 6,
     unit: 'u-0412',
     group: 'qsTea:qsOy',

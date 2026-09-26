@@ -409,12 +409,12 @@ class TestAliasAndLedger:
             divergence_tags=("exit-dropped",),
         )
         classed = {"id": "dangling-anchor-dropped", "match": {"predicate": "dangling_anchor_dropped"}}
-        blanket = {"id": "blanket", "match": {}}
+        match_all = {"id": "match-all", "match": {}}
         kern = {"id": "kern", "match": {"predicate": "kern_out_of_scope"}}
         for ledger, expected in (
-            ([blanket, classed], ["blanket", "dangling-anchor-dropped"]),
-            ([classed, blanket], ["dangling-anchor-dropped", "blanket"]),
-            ([kern, blanket, classed], ["blanket", "dangling-anchor-dropped"]),
+            ([match_all, classed], ["match-all", "dangling-anchor-dropped"]),
+            ([classed, match_all], ["dangling-anchor-dropped", "match-all"]),
+            ([kern, match_all, classed], ["match-all", "dangling-anchor-dropped"]),
         ):
             assert oracle._match_compiled(oracle.compile_ledger(ledger), row) == expected
             assert oracle._match_ledger(ledger, row) == expected
@@ -485,7 +485,7 @@ class TestAliasAndLedger:
             row = replace(base, divergence_tags=divergence_tags)
             assert oracle.classify_divergence(row) == expected, divergence_tags
 
-    def test_boundary_blanket_takes_every_nonposition_row(self):
+    def test_boundary_window_takes_every_nonposition_row(self):
         """The boundary-equals-word-boundary rule: in a window that contains a run-splitting boundary (space or ZWNJ), a cell or junction divergence classifies as `boundary-window` ahead of every other class, whatever its divergence tags. A position-only row gets no class here; it goes to the kern-attribution predicate."""
         for codepoints in ["200C:E670:E670", "0020:E670:E670"]:
             base = conform.DivergentRow(
@@ -527,7 +527,7 @@ class TestAliasAndLedger:
             new_junctions=("y5",),
             divergence_tags=divergence_tags,
         )
-        assert oracle.classify_divergence(row) == "zoo-entry-contraction-respelled"
+        assert oracle.classify_divergence(row) == "zoo-entry-contraction-renamed"
         for other in (
             replace(row, codepoints="E650:E65B"),
             replace(row, baseline_glyphs=("qsTea.half.ex-y5", "qsZoo.en-trim-1")),
@@ -761,7 +761,7 @@ class TestClassifierRouting:
     def test_position_mismatch_never_falls_under_a_cell_grain_class(self):
         assert oracle.classify_divergence(self._row("default", ("exit-dropped", "position-mismatch"))) is None
 
-    def test_ss10_ligation_boundary_rows_stay_on_the_blanket(self):
+    def test_ss10_ligation_boundary_rows_stay_in_the_boundary_window_class(self):
         row = self._row("ss10", ("ligation",), codepoints="200C:E653:E67A")
         assert oracle.classify_divergence(row) == "boundary-window"
 
@@ -775,9 +775,9 @@ class TestClassifierRouting:
                 oracle.classify_divergence(self._row("ss10", divergence_tags, codepoints=codepoints)) is None
             ), codepoints
 
-    def test_non_ss10_ligation_keeps_marker_staging(self):
+    def test_non_ss10_ligation_keeps_post_marker_ligature_formation(self):
         row = self._row("ss03", ("ligation",), codepoints="E665:E652:E679")
-        assert oracle.classify_divergence(row) == "marker-staging-ligature-formation"
+        assert oracle.classify_divergence(row) == "post-marker-ligature-formation"
 
 
 class TestConformanceMerge:

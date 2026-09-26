@@ -233,16 +233,16 @@ def classify_divergence(row: DivergentRow) -> str | None:
         # Design section 3.4: the new font renders each segment of a window split by a space or ZWNJ the same as that segment alone, and the belt's split-buffer check verifies this on every build. So a boundary row can diverge from the baseline only where the old font was inconsistent across the boundary, and every divergence inside a segment also appears on that segment's own row. Boundary rows need no review of their own and take this class ahead of every other.
         return "boundary-window"
     if row.config in OVERLAY_CONFIGS:
-        # Under ss10 both fonts render every letter isolated, with no join and no ligature (the old font through its anchor-free `.ss10` twins, the rebuild through its pre-empt), so any other ss10 divergence is a regression and waits for review. Without this, a namer-dot ss10 row that ligates would take marker-staging-ligature-formation.
+        # Under ss10 both fonts render every letter isolated, with no join and no ligature (the old font through its anchor-free `.ss10` twins, the rebuild through its pre-empt), so any other ss10 divergence is a regression and waits for review. Without this, a namer-dot ss10 row that ligates would take post-marker-ligature-formation.
         return None
     if "ligation" in tags:
         if "E67B:E652" in row.codepoints and "ss03" in row.config:
             return "ss03-out-tea-ligature-kept"
         if "E652:E679" in row.codepoints and ("200C" in row.codepoints or "ss03" in row.config):
-            return "marker-staging-ligature-formation"
-        # The old font also forms qsDay_qsUtter in every configuration, so only the windows after a ZWNJ or the namer dot diverge: there the old font renames the lead to its .noentry form or leaves a bare name, and never forms the ligature. This is the same staging divergence as ·Tea·Oy above.
+            return "post-marker-ligature-formation"
+        # The old font also forms qsDay_qsUtter in every configuration, so only the windows after a ZWNJ or the namer dot diverge: there the old font renames the lead to its .noentry form or leaves a bare name, and never forms the ligature. This is the same post-marker divergence as ·Tea·Oy above.
         if "E653:E67A" in row.codepoints and ("200C" in row.codepoints or "00B7" in row.codepoints):
-            return "marker-staging-ligature-formation"
+            return "post-marker-ligature-formation"
         return None
     gains = {item for item in tags if item.startswith("junction-gain:")}
     if "junction-moved" in tags:
@@ -282,7 +282,7 @@ def classify_divergence(row: DivergentRow) -> str | None:
         return "vie-baseline-entry-extension-dropped"
     if "-ex-con-1" in tags and tags <= {"-ex-con-1", "+en-trim-1"} and "E65A:E67B" in row.codepoints:
         # The grounded ·See·Out fusion names the old pull-back differently. The old font's ex-con-1 tucks ·Out into ·See's whole tail (only the anchor moves). The runes keep the tail's anchor at its convention position and pull back the raked redraw's foot instead. The combined ink is identical and only the glyph names differ. The subset test keeps out any row where ink also moved elsewhere.
-        return "see-out-fusion-respelled"
+        return "see-out-fusion-renamed"
     if (
         "+ex-ext-2" in tags
         and tags <= {"+ex-ext-2", "-ex-ext-1", "-en-ext-2", "exit-dropped"}
@@ -292,7 +292,7 @@ def classify_divergence(row: DivergentRow) -> str | None:
         return "may-jai-extension-consolidated"
     if tags and tags <= {"+en-con-1", "+en-con-2"} and ("E65D" in row.codepoints or "E65F" in row.codepoints):
         # The old font's exit contractions before ·J'ai are tucks: the left letter keeps its ink and only its anchor moves in, overlapping the follower. M1 draws the same result as ·J'ai's own entry contraction: the crown drops the overlapped columns and abuts instead. The combined drawing, every origin, and every advance are unchanged, and only ·J'ai's cell name gains the con token. The unentered half-·Tea exit tuck before ·Jay is the same case on the same crown shape, drawn as ·Jay's entry contraction. The subset test keeps out any row where ink also moved elsewhere.
-        return "jai-entry-contraction-respelled"
+        return "jai-entry-contraction-renamed"
     if (
         tags == {"+en-con-1", "-en-trim-1"}
         and "E652:E65B" in row.codepoints
@@ -315,7 +315,7 @@ def classify_divergence(row: DivergentRow) -> str | None:
         )
     ):
         # ·Zoo's entry contraction places the same crown as the old ·Tea exit tuck plus ·Zoo entry trim. The unrelated ·It·Roe redraw changes ink without moving origins or advances, so the position comparison cannot catch it, and this class excludes that old pair explicitly.
-        return "zoo-entry-contraction-respelled"
+        return "zoo-entry-contraction-renamed"
     # A row with these tokens has an ink change that no class covers, so it must get no class instead of reaching the name-grain classes below.
     if any(item.startswith("+ex-bind-") for item in tags) or "-ex-ext-1" in tags:
         return None
@@ -352,7 +352,7 @@ CLASS_PREDICATE_IDS: dict[str, str] = {}
 for _class_id in (
     "boundary-window",
     "ss03-out-tea-ligature-kept",
-    "marker-staging-ligature-formation",
+    "post-marker-ligature-formation",
     "regrouped-chain",
     "zwnj-word-initial-junction-moved",
     "zwnj-follower-exit-restored",
@@ -369,10 +369,10 @@ for _class_id in (
     "zwnj-word-initial-unification",
     "dangling-anchor-dropped",
     "bare-name-live-join",
-    "see-out-fusion-respelled",
+    "see-out-fusion-renamed",
     "may-jai-extension-consolidated",
-    "jai-entry-contraction-respelled",
-    "zoo-entry-contraction-respelled",
+    "jai-entry-contraction-renamed",
+    "zoo-entry-contraction-renamed",
 ):
     CLASS_PREDICATE_IDS[_class_id.replace("-", "_")] = _class_id
     PREDICATES[_class_id.replace("-", "_")] = _class_predicate(_class_id)
