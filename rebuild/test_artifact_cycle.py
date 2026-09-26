@@ -6121,18 +6121,20 @@ def test_dry_run_plan_direct_merge_still_honors_no_merge():
     assert not plan.do_merge
 
 
-def test_the_direct_merge_report_still_names_the_frontier_carried_file(tmp_path, monkeypatch):
+def test_the_direct_merge_report_still_names_the_fullest_verdicts_file(tmp_path, monkeypatch):
     carried = tmp_path / "verdicts-carried-abc.json"
     carried.write_text("{}")
-    monkeypatch.setattr(ac, "frontier_carry_out", lambda: carried)
+    monkeypatch.setattr(ac, "fullest_verdicts_carry_out", lambda: carried)
     plan = _plan(direct_merge=True)
     report, failures = _run_verdict_update(plan, _verdict_update_stdout(*_FULL_VERDICT_UPDATE[1:]))
     assert failures == []
     assert report.carry_out == carried
 
 
-def test_frontier_carry_out_derives_the_stamp_aligned_frontier_from_disk(tmp_path, monkeypatch):
-    """The summary names the frontier by deriving it from disk the way its readers do, not from the verdict-update green record: a later export with more effective verdicts outranks the file the last recorded pass wrote."""
+def test_fullest_verdicts_carry_out_derives_the_stamp_aligned_fullest_verdicts_file_from_disk(
+    tmp_path, monkeypatch
+):
+    """The summary names the fullest verdicts file by deriving it from disk the way its readers do, not from the verdict-update green record: a later export with more effective verdicts outranks the file the last recorded pass wrote."""
     review = tmp_path / "rebuild" / "out" / "review"
     review.mkdir(parents=True)
     (review / "manifest.json").write_text(json.dumps({"generated_at": "S1"}))
@@ -6156,9 +6158,9 @@ def test_frontier_carry_out_derives_the_stamp_aligned_frontier_from_disk(tmp_pat
     verdicts_file(tmp_path / "verdicts-export.json", "S1", ["u-1", "u-2"])
     monkeypatch.setattr(ac, "ROOT", tmp_path)
     monkeypatch.setattr(ac, "REVIEW_OUT", review)
-    assert ac.frontier_carry_out() == tmp_path / "verdicts-export.json"
+    assert ac.fullest_verdicts_carry_out() == tmp_path / "verdicts-export.json"
     (review / "manifest.json").write_text("not json")
-    assert ac.frontier_carry_out() is None
+    assert ac.fullest_verdicts_carry_out() is None
 
 
 def test_run_cycle_never_spawns_the_verdict_update_when_skipped(monkeypatch, tmp_path):
@@ -6177,7 +6179,7 @@ def test_run_cycle_never_spawns_the_verdict_update_when_skipped(monkeypatch, tmp
 
     carried = tmp_path / "verdicts-carried-abc.json"
     carried.write_text("{}")
-    monkeypatch.setattr(ac, "frontier_carry_out", lambda: carried)
+    monkeypatch.setattr(ac, "fullest_verdicts_carry_out", lambda: carried)
     plan = _plan(
         skip_verdict_update=True,
         verdict_update_note=ac.VERDICT_UPDATE_SKIP_NOTE,

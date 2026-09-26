@@ -162,16 +162,16 @@ def test_merge_to_a_scratch_store_proceeds_while_the_server_is_up(repo, tmp_path
     assert set(store_records(repo)) == {"u-1"}
 
 
-def test_no_files_auto_picks_the_frontier(repo, tmp_path, monkeypatch, capsys):
+def test_no_files_auto_picks_the_fullest_verdicts_file(repo, tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(mv, "ROOT", tmp_path)
     write_doc(tmp_path / "verdicts-carried-z.json", "S2", [v("u-1"), v("u-2")])
     write_doc(tmp_path / "verdicts-echo-fill.json", "S1", [v("u-9")])
     assert run(repo) == 0
     assert set(store_records(repo)) == {"u-1", "u-2"}
-    assert "auto-picked the frontier file: verdicts-carried-z.json" in capsys.readouterr().out
+    assert "auto-picked the fullest verdicts file: verdicts-carried-z.json" in capsys.readouterr().out
 
 
-def test_no_files_and_no_frontier_reports_the_aligned_store(repo, tmp_path, monkeypatch, capsys):
+def test_no_files_and_no_fullest_verdicts_file_reports_the_aligned_store(repo, tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(mv, "ROOT", tmp_path)
     write_doc(repo["autosave"], "S2", [v("u-1")])
     assert run(repo) == 0

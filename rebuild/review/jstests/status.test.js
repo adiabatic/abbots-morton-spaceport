@@ -8,7 +8,7 @@ function checks(overrides = {}) {
     freshness: { level: 'ok', detail: 'all components fresh', remedy: null, components: {} },
     gates: { level: 'ok', detail: 'gates green', remedy: null },
     verdict_store: { level: 'ok', detail: 'store readable', remedy: null },
-    frontier: { level: 'ok', detail: 'frontier clean', remedy: null, path: null, count: null },
+    fullest_verdicts: { level: 'ok', detail: 'fullest verdicts clean', remedy: null, path: null, count: null },
     blanks: { level: 'ok', detail: '3 blank units', count: 3 },
     ...overrides,
   };
@@ -149,13 +149,13 @@ test('a warning check renders warn with its detail and remedy', () => {
   assert.equal(model.remedy, 'export soon');
 });
 
-test('a frontier warning is picked up after the four blocking checks pass', () => {
+test('a fullest verdicts warning is picked up after the four blocking checks pass', () => {
   const model = bannerModel(
-    withChecks({ frontier: { level: 'warn', detail: 'frontier drifting', remedy: null, path: 'p', count: 5 } }),
+    withChecks({ fullest_verdicts: { level: 'warn', detail: 'fullest verdicts drifting', remedy: null, path: 'p', count: 5 } }),
     'gen-1',
   );
   assert.equal(model.level, 'warn');
-  assert.equal(model.text, 'frontier drifting');
+  assert.equal(model.text, 'fullest verdicts drifting');
   assert.equal(model.remedy, null);
 });
 

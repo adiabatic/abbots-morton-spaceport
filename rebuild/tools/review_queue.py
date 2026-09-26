@@ -52,7 +52,8 @@ def main(argv=None, *, units: Iterable[Mapping[str, Any]] | None = None):
     """Write the review queue snapshot. `units` lets a caller that already holds the corpus's index records pass them instead of having this tool read them again. Only human records (`batch` not None) enter the snapshot either way."""
     parser = argparse.ArgumentParser(description=(__doc__ or "").split(":")[0] + ".")
     parser.add_argument(
-        "verdicts", help="the verdicts file for the current frontier (an export or the autosave)"
+        "verdicts",
+        help="the verdicts file to read: the fullest verdicts file, another export, or the autosave",
     )
     parser.add_argument("--corpus", "--surface", default=str(CORPUS))
     parser.add_argument("--data-out", default=str(DATA_OUT))

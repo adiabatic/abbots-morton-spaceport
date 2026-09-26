@@ -52,7 +52,7 @@ A corpus promotion is the opposite case under the same skip. The whole tree unde
 
 A pass that writes under the app needs the review server stopped. --stop-server (which `make review-cycle` passes) lets it terminate the server and wait until the port is free; without it the pass stops and prints how to proceed. Retention also writes: the app appends to the journal as verdicts are recorded, and a compaction rewrites the file around a read, so while a server is up the journal and the stash sweep that depends on it are left for a later pass.
 
-A green finish ends with a retention pass over the cycle's own files, all of them regenerable or covered by the journal. Root verdicts-carried-*.json files not stamped for the live corpus are deleted, since `status.pick_frontier` reads only files stamped for the live corpus, and the tracked copy under rebuild/evidence/ is never touched. verdicts-autosave-* stashes not referenced by a journal event at or after the last base event are deleted. The journal, not the stashes, is the supported recovery path, and the check uses the journal's references because a stash's mtime predates the event that created it. The journal is compacted to the newest base event older than RETENTION_WINDOW_DAYS, keeping at least that many days of --restore-as-of history, and build-log run directories beyond the newest `cycle_paths.BUILD_LOGS_KEEP` are deleted. Failed, interrupted, first-run, and staging passes never prune, --keep-history turns retention off, and a retention error prints a warning and never turns a green cycle red.
+A green finish ends with a retention pass over the cycle's own files, all of them regenerable or covered by the journal. Root verdicts-carried-*.json files not stamped for the live corpus are deleted, since `status.pick_fullest_verdicts` reads only files stamped for the live corpus, and the tracked copy under rebuild/evidence/ is never touched. verdicts-autosave-* stashes not referenced by a journal event at or after the last base event are deleted. The journal, not the stashes, is the supported recovery path, and the check uses the journal's references because a stash's mtime predates the event that created it. The journal is compacted to the newest base event older than RETENTION_WINDOW_DAYS, keeping at least that many days of --restore-as-of history, and build-log run directories beyond the newest `cycle_paths.BUILD_LOGS_KEEP` are deleted. Failed, interrupted, first-run, and staging passes never prune, --keep-history turns retention off, and a retention error prints a warning and never turns a green cycle red.
 
 Run as: uv run python rebuild/tools/artifact_cycle.py. The carry source is resolved from the autosave and the verdicts-*.json exports; pass --verdicts to name one.
 """
@@ -317,13 +317,13 @@ def make_test_closure_fingerprint(root: Path = ROOT) -> str | None:
 
 
 def record_verdict_update_green(fingerprint: str, path: Path | None = None) -> None:
-    """Write the verdict update's green record: the key alone, like every record `read_green_record` parses. A pass that needs the frontier derives it from disk (`frontier_carry_out`), because a later export could outrank a copy remembered here."""
+    """Write the verdict update's green record: the key alone, like every record `read_green_record` parses. A pass that needs the fullest verdicts file derives it from disk (`fullest_verdicts_carry_out`), because a later export could outrank a copy remembered here."""
     record_green(path if path is not None else cycle_paths.VERDICT_UPDATE_GREEN, fingerprint)
 
 
-def frontier_carry_out() -> Path | None:
-    """Return the stamp-aligned frontier file, for the summary of a pass that wrote no carry of its own. It is derived from disk the way every consumer derives it (`status.pick_frontier`), not remembered in a green record a later export could outrank."""
-    from rebuild.review.status import pick_frontier
+def fullest_verdicts_carry_out() -> Path | None:
+    """Return the stamp-aligned fullest verdicts file, for the summary of a pass that wrote no carry of its own. It is derived from disk the way every consumer derives it (`status.pick_fullest_verdicts`), not remembered in a green record a later export could outrank."""
+    from rebuild.review.status import pick_fullest_verdicts
 
     try:
         stamp = json.loads((REVIEW_OUT / "manifest.json").read_text()).get("generated_at")
@@ -331,7 +331,7 @@ def frontier_carry_out() -> Path | None:
         return None
     if not isinstance(stamp, str):
         return None
-    hit = pick_frontier(ROOT, stamp)
+    hit = pick_fullest_verdicts(ROOT, stamp)
     return hit[0] if hit else None
 
 
@@ -2754,7 +2754,7 @@ def _do_verdict_update(
     A failure in a later echo round (`echo-fill-2`, `echo-merge-3`, and so on) comes after the whole first round, standing fill and merge included, has run. Those steps keep their done words, and the failing step's status adds the round, as in `filled, round 2 FAILED (exit 1)`. Only a first-round failure marks the steps after it as not run.
     """
     result = spawn("verdict-update", plan.argv("verdict-update"), emit=emit, registry=registry, stream=False)
-    report.carry_out = plan.carry_out if plan.carry_out is not None else frontier_carry_out()
+    report.carry_out = plan.carry_out if plan.carry_out is not None else fullest_verdicts_carry_out()
     sections = verdict_update_sections(result.stdout)
     failed = ""
     failed_round = 1
@@ -2948,10 +2948,10 @@ def _do_job_costs(
 
 
 def _skip_verdict_update(report: CycleReport, plan: Plan, emit: console.CycleConsole) -> None:
-    """Report the verdict-update step as skipped, marking each of its steps skipped. The carried file the last recorded pass wrote is still the stamp-aligned frontier, because the corpus it was carried onto has not changed, so the report still names it."""
+    """Report the verdict-update step as skipped, marking each of its steps skipped. The carried file the last recorded pass wrote is still the stamp-aligned fullest verdicts file, because the corpus it was carried onto has not changed, so the report still names it."""
     emit.step_skipped("verdict-update", plan.verdict_update_note)
     note = f"skipped ({plan.verdict_update_note})"
-    report.carry_out = frontier_carry_out()
+    report.carry_out = fullest_verdicts_carry_out()
     report.merge_status = note
     report.echo_fill_status = note
     report.echo_merge_status = note
@@ -3845,7 +3845,7 @@ def _preflight(args: argparse.Namespace, *, can_keep_running: bool = False) -> b
 
 
 def prune_carried(root: Path, stamp: str | None, keep: Path | None) -> tuple[list[Path], list[Path]]:
-    """Delete the repo-root `verdicts-carried-*.json` files whose `manifest_generated_at` is not `stamp`, sparing `keep`. `status.pick_frontier` considers only files stamped for the live corpus, and the tracked copy under `rebuild/evidence/` is outside this glob. Returns the deleted paths and the unreadable ones, which are kept. Deletes nothing when `stamp` is None."""
+    """Delete the repo-root `verdicts-carried-*.json` files whose `manifest_generated_at` is not `stamp`, sparing `keep`. `status.pick_fullest_verdicts` considers only files stamped for the live corpus, and the tracked copy under `rebuild/evidence/` is outside this glob. Returns the deleted paths and the unreadable ones, which are kept. Deletes nothing when `stamp` is None."""
     removed: list[Path] = []
     unreadable: list[Path] = []
     if stamp is None:
@@ -3955,7 +3955,7 @@ def run_retention(plan: Plan) -> RetentionResult:
         removed, unreadable = prune_carried(ROOT, stamp, plan.carry_out)
         removed_counts.append(swept(len(removed), "carried", "carried"))
         lines.append(
-            f"  carried   : removed {console.fmt_count(len(removed))} stale verdicts-carried-*.json; kept the stamp-aligned frontier"
+            f"  carried   : removed {console.fmt_count(len(removed))} stale verdicts-carried-*.json; kept the stamp-aligned fullest verdicts file"
         )
         for path in unreadable:
             lines.append(f"              kept {rel(path)} (unreadable, not pruning it)")

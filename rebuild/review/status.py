@@ -58,7 +58,7 @@ def _effective_count(data) -> int | None:
 
 @dataclass(frozen=True, slots=True)
 class _Candidate:
-    """One verdicts file's stamp and effective count, as the frontier and the carry source need them. A stamp of None means the file is not a verdicts document. On a parsed file, a count of None means a record could not be counted. On an unparsed file only the head was read, so the stamp comes from the head and the count is unknown."""
+    """One verdicts file's stamp and effective count, as the fullest verdicts pick and the carry source need them. A stamp of None means the file is not a verdicts document. On a parsed file, a count of None means a record could not be counted. On an unparsed file only the head was read, so the stamp comes from the head and the count is unknown."""
 
     stamp: str | None
     count: int | None
@@ -87,7 +87,7 @@ def _head_stamp(head: bytes) -> str | None:
 
     The head settles a stamp only when it decodes as strict UTF-8 to a JSON object whose top-level members, decoded one at a time with the decoder json.loads uses, reach the `verdicts` key after exactly one manifest_generated_at with a string value. Any other head returns None and the caller parses the whole file: a head that ends first, is not an object, starts with a BOM or uses another encoding, has a non-string stamp, has the stamp twice before `verdicts`, or closes before `verdicts`.
 
-    The result differs from json.loads only on a file with a second top-level manifest_generated_at after the `verdicts` array, where json.loads takes the later one. On such a file, pick_frontier's result also depends on earlier calls: once resolve_carry_source has memoized the file's whole parse, pick_frontier uses that parse's stamp, the later one. No writer in the repo produces such a file. Each serializes one dict or one JS object (json.dumps, VerdictStore.payload_bytes, the app's JSON.stringify), and VerdictStore._receive_full, the only path that writes bytes it did not serialize, writes a full-store POST verbatim after parsing it, so only a POST from a client other than the app could leave one on disk.
+    The result differs from json.loads only on a file with a second top-level manifest_generated_at after the `verdicts` array, where json.loads takes the later one. On such a file, pick_fullest_verdicts's result also depends on earlier calls: once resolve_carry_source has memoized the file's whole parse, pick_fullest_verdicts uses that parse's stamp, the later one. No writer in the repo produces such a file. Each serializes one dict or one JS object (json.dumps, VerdictStore.payload_bytes, the app's JSON.stringify), and VerdictStore._receive_full, the only path that writes bytes it did not serialize, writes a full-store POST verbatim after parsing it, so only a POST from a client other than the app could leave one on disk.
     """
     try:
         text = codecs.getincrementaldecoder("utf-8")().decode(head)
@@ -190,8 +190,8 @@ def _survey(repo_root, manifest_stamp, *, counts: bool) -> list[tuple[Path, _Can
     return surveyed
 
 
-def pick_frontier(repo_root, manifest_stamp) -> tuple[Path, int] | None:
-    """Return the frontier: the verdicts file stamped manifest_stamp with the most effective verdicts, with that count, taking the first in glob order on a tie; or None when no file qualifies. The live autosave is not a candidate. A file whose head settles a different stamp costs one bounded read and is not parsed. Any other file is parsed whole before its stamp and count are used. A file unchanged since a memoized read costs one stat."""
+def pick_fullest_verdicts(repo_root, manifest_stamp) -> tuple[Path, int] | None:
+    """Return the fullest verdicts file: the verdicts file stamped manifest_stamp with the most effective verdicts, with that count, taking the first in glob order on a tie; or None when no file qualifies. The live autosave is not a candidate. A file whose head settles a different stamp costs one bounded read and is not parsed. Any other file is parsed whole before its stamp and count are used. A file unchanged since a memoized read costs one stat."""
     best: tuple[Path, int] | None = None
     for path, candidate in _survey(repo_root, manifest_stamp, counts=False):
         if candidate.stamp is None or candidate.stamp != manifest_stamp:
@@ -208,7 +208,7 @@ def resolve_carry_source(repo_root, manifest_stamp, autosave_path) -> dict | Non
 
     The candidates are the live autosave and every verdicts-*.json at the repo root and under rebuild/evidence. Among those stamped manifest_stamp, the one with the most effective verdicts wins, and the autosave wins a tie because it is the live store. When none is stamped manifest_stamp, the candidates with the newest stamp compete the same way and `aligned` is False. That happens when the served corpus was restamped outside a recorded cycle, or when a pass stopped between its corpus build and its carry. The cycle uses `aligned` in the line that names the master and to choose between the direct merge and the full carry: an aligned master can be merged straight into the store when the corpus build is skipped, and an unaligned one is always carried by unit id. A verdict names its unit by content id, so a carried verdict reaches the unit with that id on the live corpus or none.
 
-    Every export is counted whatever its stamp, through the memo shared with pick_frontier, so a file pick_frontier read by its head alone is parsed whole here. The autosave is read whole on every call and is not memoized.
+    Every export is counted whatever its stamp, through the memo shared with pick_fullest_verdicts, so a file pick_fullest_verdicts read by its head alone is parsed whole here. The autosave is read whole on every call and is not memoized.
     """
     entries: list[tuple[Path, str, int, bool]] = []
     autosave_path = Path(autosave_path)
@@ -466,7 +466,7 @@ def _gates_check(summary, generated_at, manifest_fp, artifact_cycle_remedy) -> d
 
 
 def _verdict_store_check(
-    autosave_path, generated_at, carry_out, frontier_hit, frontier_rel, autosave=None
+    autosave_path, generated_at, carry_out, fullest_hit, fullest_rel, autosave=None
 ) -> tuple[dict, dict | None]:
     if autosave is None:
         path = Path(autosave_path)
@@ -486,8 +486,8 @@ def _verdict_store_check(
             stale_effective = count_effective(_latest_from_list(autosave["verdicts"]))
         except KeyError, TypeError:
             stale_effective = 0
-        if stale_effective == 0 and frontier_hit and frontier_hit[1] > 0:
-            remedy = f"Merge {frontier_rel} into the autosave ({MERGE_TOOL}); the stale autosave is empty and will be stashed automatically."
+        if stale_effective == 0 and fullest_hit and fullest_hit[1] > 0:
+            remedy = f"Merge {fullest_rel} into the autosave ({MERGE_TOOL}); the stale autosave is empty and will be stashed automatically."
         else:
             remedy = _carry_forward_remedy(carry_out)
         return {
@@ -503,11 +503,11 @@ def _verdict_store_check(
     except KeyError, TypeError:
         records = {}
     effective = count_effective(records)
-    if effective == 0 and frontier_hit and frontier_hit[1] > 0:
+    if effective == 0 and fullest_hit and fullest_hit[1] > 0:
         return {
             "level": "warn",
-            "detail": "The autosave is aligned with this corpus but empty; the frontier verdicts are not yet merged in.",
-            "remedy": f"Merge {frontier_rel} into the autosave ({MERGE_TOOL}) — carried verdicts first, then any echo fill.",
+            "detail": "The autosave is aligned with this corpus but empty; the verdicts in the fullest verdicts file are not yet merged in.",
+            "remedy": f"Merge {fullest_rel} into the autosave ({MERGE_TOOL}) — carried verdicts first, then any echo fill.",
         }, records
     return {
         "level": "ok",
@@ -516,14 +516,14 @@ def _verdict_store_check(
     }, records
 
 
-def _frontier_check(frontier_hit, frontier_rel) -> dict:
-    if frontier_hit:
-        count = frontier_hit[1]
+def _fullest_verdicts_check(fullest_hit, fullest_rel) -> dict:
+    if fullest_hit:
+        count = fullest_hit[1]
         return {
             "level": "ok",
-            "detail": f"The frontier verdicts file is {frontier_rel} ({count} effective verdicts).",
+            "detail": f"The fullest verdicts file is {fullest_rel} ({count} effective verdicts).",
             "remedy": None,
-            "path": frontier_rel,
+            "path": fullest_rel,
             "count": count,
         }
     return {
@@ -578,15 +578,15 @@ def compute_status(
     repo_head = manifest.get("repo_head") if manifest else None
     manifest_fp = manifest.get("inputs_fingerprint") if manifest else None
 
-    frontier_hit = pick_frontier(repo_root, generated_at)
-    frontier_rel = _rel(repo_root, frontier_hit[0]) if frontier_hit else None
+    fullest_hit = pick_fullest_verdicts(repo_root, generated_at)
+    fullest_rel = _rel(repo_root, fullest_hit[0]) if fullest_hit else None
     artifact_cycle_remedy = "make artifact-cycle"
 
     summary = _load_json_dict(cycle_summary_path)
     carry_out = summary.get("carry_out") if summary else None
 
     verdict_store, aligned_records = _verdict_store_check(
-        autosave_path, generated_at, carry_out, frontier_hit, frontier_rel, autosave
+        autosave_path, generated_at, carry_out, fullest_hit, fullest_rel, autosave
     )
     checks = {
         "corpus": _corpus_check(manifest),
@@ -595,7 +595,7 @@ def compute_status(
         ),
         "gates": _gates_check(summary, generated_at, manifest_fp, artifact_cycle_remedy),
         "verdict_store": verdict_store,
-        "frontier": _frontier_check(frontier_hit, frontier_rel),
+        "fullest_verdicts": _fullest_verdicts_check(fullest_hit, fullest_rel),
         "blanks": _blanks_check(aligned_records, review_dir, human_ids),
     }
     ready = all(checks[name]["level"] != "fail" for name in ("corpus", "freshness", "gates", "verdict_store"))

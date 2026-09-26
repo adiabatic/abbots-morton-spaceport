@@ -19,7 +19,7 @@ CYCLE_SUMMARY_PATH = ROOT / "rebuild" / "out" / "cycle_summary.json"
 AUTOSAVE_PATH = ROOT / "verdicts-autosave.json"
 QUEUE_URL = "http://localhost:7294/#view=queue"
 
-CHECK_ORDER = ("corpus", "freshness", "gates", "verdict_store", "frontier", "blanks", "server")
+CHECK_ORDER = ("corpus", "freshness", "gates", "verdict_store", "fullest_verdicts", "blanks", "server")
 
 
 def readiness(

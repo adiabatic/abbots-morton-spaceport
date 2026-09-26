@@ -1,7 +1,7 @@
 """Merge stamp-aligned ams-review-verdicts/1 files into verdicts-autosave.json without a browser, as the review app's Import dialog does: per unit, the record with the strictly newer `at` wins. The artifact cycle uses it to merge carried verdicts, and the app reads the result on boot or focus. The existing aligned autosave is always part of the union, so a merge never drops a verdict. An autosave stamped for another corpus is moved aside first (`stash_path_for`, as the review server's verdict store does). An input stamped for another corpus is refused; `carry_verdicts.py` moves verdicts between corpora, and there is no override. A merge that would write fails while the review server is listening, because an open tab would write its own store back over the result on its next focus; stop the server or pass --yes. `--restore-as-of --apply` has the same check. Every write is appended to verdicts-journal.ndjson (`rebuild.review.journal`), and `--restore-as-of` replays that journal to recover the store as of any recorded time.
 
 Usage:
-  uv run python -m rebuild.tools.merge_verdicts [FILES ...]     # no FILES: merge the frontier file verdict-ready names
+  uv run python -m rebuild.tools.merge_verdicts [FILES ...]     # no FILES: merge the fullest verdicts file verdict-ready names
   uv run python -m rebuild.tools.merge_verdicts --dry-run FILES ...
   uv run python -m rebuild.tools.merge_verdicts --list
   uv run python -m rebuild.tools.merge_verdicts --restore-as-of 2026-07-19T03:00 [--apply [--yes]]
@@ -99,10 +99,10 @@ def run_merge(
     existing_exists = autosave.exists()
     aligned = existing if existing is not None and existing["manifest_generated_at"] == stamp else None
     if not inputs:
-        hit = status.pick_frontier(ROOT, stamp)
+        hit = status.pick_fullest_verdicts(ROOT, stamp)
         if hit is not None:
             inputs = [hit[0]]
-            print(f"auto-picked the frontier file: {_rel(hit[0])} ({hit[1]} effective verdicts)")
+            print(f"auto-picked the fullest verdicts file: {_rel(hit[0])} ({hit[1]} effective verdicts)")
         elif aligned is not None:
             base_records = journal.latest_by_unit(aligned["verdicts"])
             print(
@@ -280,7 +280,7 @@ def main(argv: list[str] | None = None) -> int:
         "files",
         nargs="*",
         type=Path,
-        help="ams-review-verdicts/1 files to merge (default: the frontier file)",
+        help="ams-review-verdicts/1 files to merge (default: the fullest verdicts file)",
     )
     parser.add_argument(
         "--dry-run", action="store_true", help="report what would change without writing anything"

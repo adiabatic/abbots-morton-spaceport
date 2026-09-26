@@ -86,7 +86,7 @@ def main() -> None:
             """Always send the body. Otherwise a Range request whose `If-Modified-Since` is satisfied would get a 304 with no body, and the app would have nothing to parse."""
             return False
 
-    # /status recomputes the input fingerprints to check that the corpus is current, and picks the frontier (status.pick_frontier memoizes each verdicts file by its stat). The app requests it on every focus, visibility change, and hash change. It runs in the executor so that the shard Range requests a card waits on are not blocked. Concurrent requests share one computation, and a result is reused for STATUS_TTL_S seconds, so the status can lag a change on disk by up to that long.
+    # /status recomputes the input fingerprints to check that the corpus is current, and picks the fullest verdicts file (status.pick_fullest_verdicts memoizes each verdicts file by its stat). The app requests it on every focus, visibility change, and hash change. It runs in the executor so that the shard Range requests a card waits on are not blocked. Concurrent requests share one computation, and a result is reused for STATUS_TTL_S seconds, so the status can lag a change on disk by up to that long.
     class StatusCache:
         at: float = 0.0
         result: dict | None = None

@@ -122,7 +122,7 @@ def main(clipboard_write: Callable[[str], None] | None = None, *, units=None):
         "verdicts",
         nargs="?",
         default=str(AUTOSAVE),
-        help="the verdicts file for the current frontier (default: the live autosave)",
+        help="the verdicts file to read, such as the fullest verdicts file (default: the live autosave)",
     )
     parser.add_argument("--corpus", "--surface", default=str(CORPUS))
     parser.add_argument(
