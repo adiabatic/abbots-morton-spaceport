@@ -222,11 +222,11 @@ def unaliased_subset_names(subset_dir: Path, alias_path: Path) -> dict[str, list
 
 
 def classify_divergence(row: DivergentRow) -> str | None:
-    """Return the one ledger class for a divergent row, chosen from its phenomenon set (which `_compare_row` computes through the alias map), or None when no class applies. The order of the checks below is the precedence, and the ledger's header comment summarizes it. A row with no class can still match a function predicate or an unconditional ledger entry; otherwise it is unmatched and waits for a verdict on the review corpus."""
-    phenomena = set(row.phenomena)
-    if not phenomena or any(item.startswith("unaliased") for item in phenomena):
+    """Return the one ledger class for a divergent row, chosen from its divergence tags (which `_compare_row` computes through the alias map), or None when no class applies. The order of the checks below is the precedence, and the ledger's header comment summarizes it. A row with no class can still match a function predicate or an unconditional ledger entry; otherwise it is unmatched and waits for a verdict on the review corpus."""
+    tags = set(row.divergence_tags)
+    if not tags or any(item.startswith("unaliased") for item in tags):
         return None
-    if any(item.startswith("position") for item in phenomena):
+    if any(item.startswith("position") for item in tags):
         # A cell-grain class claims the ink is identical, and the position channel is the test of that claim, so a row with position drift must not take one. Such rows are left to the function predicates (`kern_channel_out_of_scope`, `may_ligature_seam_loosened`).
         return None
     if {"0020", "200C"} & set(row.codepoints.split(":")):
@@ -235,29 +235,29 @@ def classify_divergence(row: DivergentRow) -> str | None:
     if row.config in OVERLAY_CONFIGS:
         # Under ss10 both fonts render every letter isolated, with no join and no ligature (the old font through its anchor-free `.ss10` twins, the rebuild through its pre-empt), so any other ss10 divergence is a regression and waits for review. Without this, a namer-dot ss10 row that ligates would take marker-staging-ligature-formation.
         return None
-    if "ligation" in phenomena:
+    if "ligation" in tags:
         if "E67B:E652" in row.codepoints and "ss03" in row.config:
             return "ss03-out-tea-ligature-kept"
         if "E652:E679" in row.codepoints and ("200C" in row.codepoints or "ss03" in row.config):
             return "marker-staging-ligature-formation"
-        # The old font also forms qsDay_qsUtter in every configuration, so only the windows after a ZWNJ or the namer dot diverge: there the old font renames the lead to its .noentry form or leaves a bare name, and never forms the ligature. This is the same staging phenomenon as ·Tea·Oy above.
+        # The old font also forms qsDay_qsUtter in every configuration, so only the windows after a ZWNJ or the namer dot diverge: there the old font renames the lead to its .noentry form or leaves a bare name, and never forms the ligature. This is the same staging divergence as ·Tea·Oy above.
         if "E653:E67A" in row.codepoints and ("200C" in row.codepoints or "00B7" in row.codepoints):
             return "marker-staging-ligature-formation"
         return None
-    gains = {item for item in phenomena if item.startswith("seam-gain:")}
-    if "seam-moved" in phenomena:
+    gains = {item for item in tags if item.startswith("seam-gain:")}
+    if "seam-moved" in tags:
         # The old font drew a letter after a ZWNJ with a .noentry variant that joined its follower at one height. The new model settles that letter as word-initial, the same as after a space, and the join is at another height. This class applies only when the move is the row's only seam change. Any other row with a moved seam gets no class, including one that also gains or loses a seam.
-        if "old-noentry" in phenomena and not gains and "seam-loss" not in phenomena:
+        if "old-noentry" in tags and not gains and "seam-loss" not in tags:
             return "zwnj-word-initial-seam-moved"
         return None
-    if "seam-loss" in phenomena:
+    if "seam-loss" in tags:
         if gains:
             return "regrouping-floor-drift"
         return None
     if gains:
         gain_runes = {item.split(":", 1)[1] for item in gains}
-        unentered_it_gain = "seam-gain-unentered:qsIt" in phenomena
-        if "old-noentry" in phenomena:
+        unentered_it_gain = "seam-gain-unentered:qsIt" in tags
+        if "old-noentry" in tags:
             return "zwnj-follower-exit-restored"
         if "E652:E679" in row.codepoints:
             return "pre-ligature-cleanup-regularized"
@@ -268,41 +268,33 @@ def classify_divergence(row: DivergentRow) -> str | None:
         if gain_runes <= {"qsPea"}:
             return "pea-chain-regularized"
         return None
-    if "+en-ext-1" in phenomena:
+    if "+en-ext-1" in tags:
         return "halves-entry-extension-restored"
-    if phenomena & {"-en-ext-1:same-seam", "-en-ext-2:same-seam"}:
+    if tags & {"-en-ext-1:same-seam", "-en-ext-2:same-seam"}:
         return "same-seam-extension-non-summing"
-    if "-en-ext-1:qsMay" in phenomena:
+    if "-en-ext-1:qsMay" in tags:
         return "may-baseline-entry-extension-dropped"
-    if "-en-ext-1:qsNo" in phenomena:
+    if "-en-ext-1:qsNo" in tags:
         return "no-xheight-entry-extension-dropped"
-    if phenomena & {"-en-ext-1:qsDay", "-en-ext-1:qsDay_qsUtter"}:
+    if tags & {"-en-ext-1:qsDay", "-en-ext-1:qsDay_qsUtter"}:
         return "day-baseline-entry-extension-dropped"
-    if phenomena & {"-en-ext-1:qsVie", "-en-ext-1:qsVie_qsUtter"}:
+    if tags & {"-en-ext-1:qsVie", "-en-ext-1:qsVie_qsUtter"}:
         return "vie-baseline-entry-extension-dropped"
-    if (
-        "-ex-con-1" in phenomena
-        and phenomena <= {"-ex-con-1", "+en-trim-1"}
-        and "E65A:E67B" in row.codepoints
-    ):
+    if "-ex-con-1" in tags and tags <= {"-ex-con-1", "+en-trim-1"} and "E65A:E67B" in row.codepoints:
         # The grounded ·See·Out fusion names the old pull-back differently. The old font's ex-con-1 tucks ·Out into ·See's whole tail (only the anchor moves). The runes keep the tail's anchor at its convention position and pull back the raked redraw's foot instead. The combined ink is identical and only the glyph names differ. The subset test keeps out any row where ink also moved elsewhere.
         return "see-out-fusion-respelled"
     if (
-        "+ex-ext-2" in phenomena
-        and phenomena <= {"+ex-ext-2", "-ex-ext-1", "-en-ext-2", "exit-dropped"}
+        "+ex-ext-2" in tags
+        and tags <= {"+ex-ext-2", "-ex-ext-1", "-en-ext-2", "exit-dropped"}
         and "E665:E65D" in row.codepoints
     ):
         # At the ·May·J'ai seam, qsMay's single by-2 exit record replaces the old font's split extension (·May's exit by 1, ·J'ai's entry by 2) in every follower context. The -en-ext-2 token is the ·J'ai side of the same change: ·J'ai's alias keeps the old glyph's en-ext-2, which the new cell lacks. The subset test keeps out any row where unrelated ink also moved.
         return "may-jai-extension-consolidated"
-    if (
-        phenomena
-        and phenomena <= {"+en-con-1", "+en-con-2"}
-        and ("E65D" in row.codepoints or "E65F" in row.codepoints)
-    ):
+    if tags and tags <= {"+en-con-1", "+en-con-2"} and ("E65D" in row.codepoints or "E65F" in row.codepoints):
         # The old font's exit contractions before ·J'ai are tucks: the left letter keeps its ink and only its anchor moves in, overlapping the follower. M1 draws the same result as ·J'ai's own entry contraction: the crown drops the overlapped columns and abuts instead. The combined drawing, every origin, and every advance are unchanged, and only ·J'ai's cell name gains the con token. The unentered half-·Tea exit tuck before ·Jay is the same case on the same crown shape, drawn as ·Jay's entry contraction. The subset test keeps out any row where ink also moved elsewhere.
         return "jai-entry-contraction-respelled"
     if (
-        phenomena == {"+en-con-1", "-en-trim-1"}
+        tags == {"+en-con-1", "-en-trim-1"}
         and "E652:E65B" in row.codepoints
         and any(
             old_left == "qsTea.half.ex-y5.ex-con-1"
@@ -325,13 +317,13 @@ def classify_divergence(row: DivergentRow) -> str | None:
         # ·Zoo's entry contraction places the same crown as the old ·Tea exit tuck plus ·Zoo entry trim. The unrelated ·It·Roe redraw changes ink without moving origins or advances, so the position channel cannot catch it, and this class excludes that old pair explicitly.
         return "zoo-entry-contraction-respelled"
     # A row with these tokens has an ink change that no class covers, so it must get no class instead of reaching the name-grain classes below.
-    if any(item.startswith("+ex-bind-") for item in phenomena) or "-ex-ext-1" in phenomena:
+    if any(item.startswith("+ex-bind-") for item in tags) or "-ex-ext-1" in tags:
         return None
-    if "+locked" in phenomena or "old-noentry" in phenomena:
+    if "+locked" in tags or "old-noentry" in tags:
         return "zwnj-word-initial-unification"
-    if "entry-dropped" in phenomena or "exit-dropped" in phenomena:
+    if "entry-dropped" in tags or "exit-dropped" in tags:
         return "dangling-anchor-dropped"
-    if phenomena & {"entry-added", "exit-added", "entry-moved", "exit-moved", "stance"}:
+    if tags & {"entry-added", "exit-added", "entry-moved", "exit-moved", "stance"}:
         return "bare-name-live-join"
     return None
 
@@ -389,7 +381,7 @@ for _class_id in (
 @predicate("kern_channel_out_of_scope")
 def _kern_channel_out_of_scope(row: DivergentRow) -> bool:
     """Match position-only rows whose drift the position channel marked kern-attributable (`oracle_positions._position_drift` sets this when every drift comes after a slot whose old advance carries a nonzero sidecar kern or that sits next to a ZWNJ). Other position drift is not matched here, so it stays unmatched for review unless another predicate matches it."""
-    return row.kinds == ("position",) and "position-kern-attributable" in row.phenomena
+    return row.kinds == ("position",) and "position-kern-attributable" in row.divergence_tags
 
 
 # The cell-grain tokens of the ink-identical name-grain classes. Any other cell-grain token on a `may_ligature_seam_loosened` candidate means ink moved elsewhere in the row, so that predicate does not match it.
@@ -401,9 +393,9 @@ _NAME_GRAIN_TOKENS = frozenset(
 @predicate("may_ligature_seam_loosened")
 def _may_ligature_seam_loosened(row: DivergentRow) -> bool:
     """Match the reviewed `·Day+Utter ~x~ ·May` seam. The old font tucks ·May's x-height entry one pixel into the ligature's exit; the new model places it at the anchor-aligned column and draws no connector, which is the intended design (the may-ligature-seam-loosened ledger entry records the decision). Matches non-kern position drift on rows whose old glyph names contain that pair and whose other cell-grain tokens, if any, are all in `_NAME_GRAIN_TOKENS`."""
-    if "position-drift" not in row.phenomena or "position-kern-attributable" in row.phenomena:
+    if "position-drift" not in row.divergence_tags or "position-kern-attributable" in row.divergence_tags:
         return False
-    cell_grain = {item for item in row.phenomena if not item.startswith("position")}
+    cell_grain = {item for item in row.divergence_tags if not item.startswith("position")}
     if not cell_grain <= _NAME_GRAIN_TOKENS:
         return False
     glyphs = row.baseline_glyphs
@@ -700,7 +692,7 @@ def _compare_config(
                     result.positions_compared += 1
                     if drift is not None:
                         drift_notes, kern_attributable = drift
-                        phenomena = ("position-kern-attributable",) if kern_attributable else ()
+                        position_tags = ("position-kern-attributable",) if kern_attributable else ()
                         prior_ink_match = matches[0] if len(matches) == 1 else None
                         if divergent is None:
                             divergent = DivergentRow(
@@ -712,13 +704,15 @@ def _compare_config(
                                 baseline_seams=tuple(row.seams),
                                 new_cells=tuple(glyph for glyph in drift_notes),
                                 new_seams=(),
-                                phenomena=phenomena + ("position-drift",),
+                                divergence_tags=position_tags + ("position-drift",),
                             )
                         else:
                             divergent = replace(
                                 divergent,
                                 kinds=divergent.kinds + ("position",),
-                                phenomena=divergent.phenomena + phenomena + ("position-drift",),
+                                divergence_tags=divergent.divergence_tags
+                                + position_tags
+                                + ("position-drift",),
                             )
                         rematch = _match_compiled(ledger, divergent)
                         # Kern-attributable drift is out of scope, so when nothing matches after it is added, a row that already matched a single ink-identical class keeps that match. In every other case, including drift that is not kern-attributable (a real ink shift), the match list computed with the drift replaces the old one.

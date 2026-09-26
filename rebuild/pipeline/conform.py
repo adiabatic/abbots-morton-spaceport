@@ -1958,7 +1958,7 @@ class DivergentRow:
     baseline_seams: tuple[str, ...]
     new_cells: tuple[str, ...]
     new_seams: tuple[str, ...]
-    phenomena: tuple[str, ...] = ()
+    divergence_tags: tuple[str, ...] = ()
 
 
 def _seam_token(spec: ResolvedSpec, seam) -> str:
@@ -1978,7 +1978,7 @@ def _cached_verdict(divergent: DivergentRow | None) -> oracle_cache.CachedRow | 
         position=divergent.position,
         new_cells=divergent.new_cells,
         new_seams=divergent.new_seams,
-        phenomena=divergent.phenomena,
+        divergence_tags=divergent.divergence_tags,
     )
 
 
@@ -1993,7 +1993,7 @@ def _served_verdict(config: str, row: Row, cached: oracle_cache.CachedRow) -> Di
         baseline_seams=tuple(row.seams),
         new_cells=cached.new_cells,
         new_seams=cached.new_seams,
-        phenomena=cached.phenomena,
+        divergence_tags=cached.divergence_tags,
     )
 
 
@@ -2038,11 +2038,11 @@ def _compare_row(
             new_seams.append(_seam_token(spec, getattr(item, "seam", None)))
     kinds: list[str] = []
     position = -1
-    phenomena: set[str] = set()
+    tags: set[str] = set()
 
     if len(row.glyphs) != len(settled):
         kinds.append("ligation")
-        phenomena.add("ligation")
+        tags.add("ligation")
     else:
         for index, (old_name, item) in enumerate(zip(row.glyphs, settled)):
             if old_name in BOUNDARY_GLYPH_NAMES:
@@ -2052,7 +2052,7 @@ def _compare_row(
                 if "unaliased" not in kinds:
                     kinds.append("unaliased")
                     position = index
-                phenomena.add(f"unaliased:{old_name}")
+                tags.add(f"unaliased:{old_name}")
                 continue
             if isinstance(alias, str):
                 continue
@@ -2062,7 +2062,7 @@ def _compare_row(
             if "cell" not in kinds:
                 kinds.append("cell")
                 position = index
-            phenomena |= _cell_deltas(alias, cell, row.glyphs, index)
+            tags |= _cell_deltas(alias, cell, row.glyphs, index)
         baseline_seams = tuple(seam for seam in row.seams if seam != "lig")
         if baseline_seams != tuple(new_seams):
             kinds.append("seam")
@@ -2072,13 +2072,13 @@ def _compare_row(
                 if old_seam == "break":
                     cell = getattr(settled[seam_index], "cell", None)
                     left = getattr(cell, "rune", "?")
-                    phenomena.add(f"seam-gain:{left}")
+                    tags.add(f"seam-gain:{left}")
                     if left == "qsIt" and getattr(cell, "entry", None) is None:
-                        phenomena.add("seam-gain-unentered:qsIt")
+                        tags.add("seam-gain-unentered:qsIt")
                 elif new_seam == "break":
-                    phenomena.add("seam-loss")
+                    tags.add("seam-loss")
                 else:
-                    phenomena.add("seam-moved")
+                    tags.add("seam-moved")
 
     if not kinds:
         return None
@@ -2091,12 +2091,12 @@ def _compare_row(
         baseline_seams=tuple(row.seams),
         new_cells=tuple(new_cells),
         new_seams=tuple(new_seams),
-        phenomena=tuple(sorted(phenomena)),
+        divergence_tags=tuple(sorted(tags)),
     )
 
 
 def _cell_deltas(alias: CellId, cell: CellId, old_glyphs, index: int) -> set[str]:
-    """The individual differences between the cell an old name stands for and the cell settlement chose, as phenomenon tokens for `classify_divergence`."""
+    """The individual differences between the cell an old name stands for and the cell settlement chose, as divergence tags for `classify_divergence`."""
     out: set[str] = set()
     if alias.stance != cell.stance:
         out.add("stance")

@@ -981,7 +981,7 @@ def test_a_record_carries_both_verdicts_and_their_ages():
         position=1,
         new_cells=("qsPea/full", "qsTea/half"),
         new_seams=("y5",),
-        phenomena=("stance",),
+        divergence_tags=("stance",),
     )
     for cached, position, ages in (
         (None, oracle_cache.UNSHAPED, (3, 3)),

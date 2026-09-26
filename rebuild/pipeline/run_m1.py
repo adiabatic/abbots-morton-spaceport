@@ -1589,7 +1589,7 @@ def run_oracle(
     }
     for row in report.unmatched_exemplars[: oracle.ORACLE_UNMATCHED_EXEMPLARS]:
         summary.setdefault("unmatched_exemplars", []).append(
-            f"{row.config} {row.codepoints} {'|'.join(row.baseline_glyphs)} -> {'|'.join(row.new_cells)} {row.phenomena}"
+            f"{row.config} {row.codepoints} {'|'.join(row.baseline_glyphs)} -> {'|'.join(row.new_cells)} {row.divergence_tags}"
         )
     (out_dir / "oracle_summary.json").write_text(json.dumps(summary, indent=2) + "\n")
     return summary

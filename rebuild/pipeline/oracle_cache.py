@@ -4,7 +4,7 @@ Each row has two verdicts, each under its own key. The row verdict is `conform._
 
 The after font's GSUB wiring is in neither key, for the reason `fingerprint.after_font_glyph_digests` gives: a rune edit changes the lookup list on nearly every cycle, and the glyphs a row shapes to are already covered. A position is served only while the row's key is unchanged, so its settled cells are unchanged, and `gate:conform` checks every cycle that the compiled font selects the settlement's cells.
 
-The position channel adds `"position"` to a row's `kinds` and `"position-drift"`, and optionally `"position-kern-attributable"`, to its `phenomena`, and changes nothing else, so a served row verdict and a fresh one enter the channel in the same state. The position verdict is stored before the ledger decides whether the row goes through the channel. A row the previous pass never shaped is recorded as `UNSHAPED` and is shaped when a ledger edit makes it eligible, and a shaped row's position verdict is written forward even when this pass's ledger excludes the row. If any of the facts above stops holding, the cache serves wrong verdicts without any error, and `STORE_FORMAT` must change.
+The position channel adds `"position"` to a row's `kinds` and `"position-drift"`, and optionally `"position-kern-attributable"`, to its `divergence_tags`, and changes nothing else, so a served row verdict and a fresh one enter the channel in the same state. The position verdict is stored before the ledger decides whether the row goes through the channel. A row the previous pass never shaped is recorded as `UNSHAPED` and is shaped when a ledger edit makes it eligible, and a shaped row's position verdict is written forward even when this pass's ledger excludes the row. If any of the facts above stops holding, the cache serves wrong verdicts without any error, and `STORE_FORMAT` must change.
 
 Classification is outside both keys because it always runs: `classify_divergence` and `_match_compiled` run over every row on every pass, served or fresh, so `rebuild/m1-divergences.yaml` and every ledger predicate are applied again to the served verdict. A ledger-only edit therefore serves every row and still rewrites every `matched_entry`; this is the `run_m1 --gates-only` workflow. The classifier's code is outside both stamps for the same reason. It lives in `rebuild/pipeline/oracle.py`, which neither `conform.py` nor `oracle_positions.py` imports, so a classifier edit serves every row verdict and every position verdict. The producer (`_compare_row`, `_cell_deltas`, the walk, and the record codec) is in `conform.py`, which is always in `ORACLE_ROW_CODE_PATHS`. `rebuild/test_build_code_closure.py` checks that the roster names no comparison-side module.
 
@@ -353,7 +353,7 @@ class CachedRow:
     position: int
     new_cells: tuple[str, ...]
     new_seams: tuple[str, ...]
-    phenomena: tuple[str, ...]
+    divergence_tags: tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -414,7 +414,7 @@ def encode_record(
             str(cached.position),
             "|".join(cached.new_cells),
             ",".join(cached.new_seams),
-            ",".join(cached.phenomena),
+            ",".join(cached.divergence_tags),
         ]
     if position is UNSHAPED:
         fields.append("?")
@@ -439,7 +439,7 @@ def decode_record(line: str) -> StoredRecord:
             position=int(fields[at + 2]),
             new_cells=_split(fields[at + 3], "|"),
             new_seams=_split(fields[at + 4], ","),
-            phenomena=_split(fields[at + 5], ","),
+            divergence_tags=_split(fields[at + 5], ","),
         )
         at += 6
     position: PositionVerdict

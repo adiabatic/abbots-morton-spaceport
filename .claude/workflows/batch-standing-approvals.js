@@ -1,11 +1,11 @@
 export const meta = {
   name: 'batch-standing-approvals',
-  description: 'Turn a list of approved review-corpus units into standing-approval rules, commit one commit per phenomenon on the current branch, then launch the detached gate-and-cycle chain',
-  whenToUse: 'The batch form of the dont-bug-me-about-this-ever-again skill. args: the unit ids, as an array, a whitespace-separated string, or {units: [...]}. Running it is the go-ahead for the per-phenomenon commits.',
+  description: 'Turn a list of approved review-corpus units into standing-approval rules, commit one commit per kind of change on the current branch, then launch the detached gate-and-cycle chain',
+  whenToUse: 'The batch form of the dont-bug-me-about-this-ever-again skill. args: the unit ids, as an array, a whitespace-separated string, or {units: [...]}. Running it is the go-ahead for those commits, one per kind of change.',
   phases: [
-    { title: 'Cluster', detail: 'a clean-tree check, then one probe over every unit, the distinct changes clustered by phenomenon and balanced by work' },
+    { title: 'Cluster', detail: 'a clean-tree check, then one probe over every unit, the distinct changes clustered by kind and balanced by work' },
     { title: 'Analyze', detail: 'one read-only analyst per cluster, at most three holding a corpus at once, each rule proven on a scratch rules copy', model: 'opus' },
-    { title: 'Land', detail: 'one lander, serial, in dependency order: paste, one whole-domain dry run, one targeted test run, one commit per phenomenon' },
+    { title: 'Land', detail: 'one lander, serial, in dependency order: paste, one whole-domain dry run, one targeted test run, one commit per kind of change' },
     { title: 'Verify', detail: 'one dry run over the live rules and one probe over the whole input list' },
     { title: 'Launch', detail: 'the detached make test-rebuild && make review-cycle SERVE=bg chain, only on a clean tree with commits behind it' },
   ],
@@ -29,7 +29,7 @@ Corpus loads: every standing_probe.py call except a bare --shapes, and every sta
 
 Never run make test, make test-rebuild, make review-cycle, make artifact-cycle, make kernel-gate, make conform-deep or rebuild_gate: this workflow's last step launches the gate-and-cycle chain once, after every commit. Never start or stop the review server. Nothing but this workflow's lander commits; git status, git diff, git log and git show are yours. Never edit rebuild/review-facts-pins.json.
 
-The user approved every window in this batch at a review session, and that approval is the decision to record; the skill's step 3 still applies to each phenomenon: find the record (a verdict family, the rune edit found by git log -S<token> -- glyph_data/runes/qs<Family>.yaml, a review-session note) and cite it in the note:. A survey whose siblings carry neither or reject on the same stroke is a conflict to hold out and report, never a rule.
+The user approved every window in this batch at a review session, and that approval is the decision to record; the skill's step 3 still applies to each kind of change: find the record (a verdict family, the rune edit found by git log -S<token> -- glyph_data/runes/qs<Family>.yaml, a review-session note) and cite it in the note:. A survey whose siblings carry neither or reject on the same stroke is a conflict to hold out and report, never a rule.
 
 Your final message is the structured result and nothing else.`
 
@@ -54,7 +54,7 @@ const CLUSTERS_SCHEMA = {
           title: { type: 'string' },
           weight: { type: 'string', description: 'the work argued: what makes this cluster light or heavy' },
           units: STRING_LIST,
-          phenomena: {
+          changes: {
             type: 'array',
             items: {
               type: 'object',
@@ -70,7 +70,7 @@ const CLUSTERS_SCHEMA = {
           },
           brief: { type: 'string' },
         },
-        required: ['key', 'title', 'weight', 'units', 'phenomena', 'brief'],
+        required: ['key', 'title', 'weight', 'units', 'changes', 'brief'],
       },
     },
     already_covered: { type: 'array', items: { type: 'object', properties: { unit: { type: 'string' }, by: { type: 'string' } }, required: ['unit', 'by'] } },
@@ -84,7 +84,7 @@ const ANALYSIS_SCHEMA = {
   type: 'object',
   properties: {
     group: { type: 'string' },
-    phenomena: {
+    changes: {
       type: 'array',
       items: {
         type: 'object',
@@ -107,7 +107,7 @@ const ANALYSIS_SCHEMA = {
     units_unexplained: UNIT_WHY_LIST,
     notes_for_lander: { type: 'string' },
   },
-  required: ['group', 'phenomena', 'units_unexplained', 'notes_for_lander'],
+  required: ['group', 'changes', 'units_unexplained', 'notes_for_lander'],
 }
 
 const LAND_SCHEMA = {
@@ -163,13 +163,13 @@ const LAUNCH_SCHEMA = {
 phase('Cluster')
 const clusters = await agent(`${COMMON}
 
-You are the clustering agent, read-only against the tree: edit no tracked file, commit nothing, write only under ${SCRATCH}/. Start with git status --porcelain and record git rev-parse HEAD as head_before. This workflow runs only on a clean tree, because its lander commits shared files by path and reverts a phenomenon it cannot land by file, and an uncommitted edit already sitting in one of those files would be folded into a commit or discarded: if the listing is non-empty, stop there and return tree_clean false with every listed line under dirty_paths, empty clusters and empty lists, probing nothing; otherwise tree_clean is true and dirty_paths is empty. Then rm -rf ${SCRATCH} && mkdir -p ${SCRATCH}, write uv run python rebuild/tools/standing_probe.py --shapes > ${SCRATCH}/shapes-menu.txt (the one probe form that never loads the corpus, so nothing else rides on it), then make ONE probe call over every unit id: uv run python rebuild/tools/standing_probe.py ${UNITS.join(' ')} > ${SCRATCH}/probe-all.txt 2>&1. That dump is the batch's only probe until the analysts run; every later agent reads it instead of re-probing these units. Report its path as probe_dump and the menu's as shapes_menu.
+You are the clustering agent, read-only against the tree: edit no tracked file, commit nothing, write only under ${SCRATCH}/. Start with git status --porcelain and record git rev-parse HEAD as head_before. This workflow runs only on a clean tree, because its lander commits shared files by path and reverts a kind of change it cannot land by file, and an uncommitted edit already sitting in one of those files would be folded into a commit or discarded: if the listing is non-empty, stop there and return tree_clean false with every listed line under dirty_paths, empty clusters and empty lists, probing nothing; otherwise tree_clean is true and dirty_paths is empty. Then rm -rf ${SCRATCH} && mkdir -p ${SCRATCH}, write uv run python rebuild/tools/standing_probe.py --shapes > ${SCRATCH}/shapes-menu.txt (the one probe form that never loads the corpus, so nothing else rides on it), then make ONE probe call over every unit id: uv run python rebuild/tools/standing_probe.py ${UNITS.join(' ')} > ${SCRATCH}/probe-all.txt 2>&1. That dump is the batch's only probe until the analysts run; every later agent reads it instead of re-probing these units. Report its path as probe_dump and the menu's as shapes_menu.
 
 For each unit, from its block in the dump (a block starts at its u-… line): list every change in the window as (position index, before glyph, after cell, seam change into and out of it, the rendered reading) that no "rule X: matches" line explains and the combined: line does not count. A unit every change of which is already explained goes under already_covered with the rule or combined match that explains it; a "not a human unit on this corpus" line goes under not_human; a unit whose same-deltas tally or survey siblings show neither or reject on the stroke in question goes under held_out with why.
 
-Cluster the distinct changes by phenomenon, as the skill's "Cluster by phenomenon" bullet says: same pivot family and form, same follower family, same seam change, same shift or cell swap. A window with two unexplained changes belongs to two phenomena. Every change that would extend the same checked-in rule (a pivot form, follower or cell it lacks) is one phenomenon naming that rule under candidate_rules. Phenomena that must combine in the same windows go in the same cluster, so one analyst reads the combined-match line on one scratch copy.
+Cluster the distinct changes by kind, as the skill's "Cluster by kind of change" bullet says: same pivot family and form, same follower family, same seam change, same shift or cell swap. A window with two unexplained changes belongs to two kinds of change. Every change that would extend the same checked-in rule (a pivot form, follower or cell it lacks) is one kind of change naming that rule under candidate_rules. Kinds of change that must combine in the same windows go in the same cluster, so one analyst reads the combined-match line on one scratch copy.
 
-Balance the clusters by the work each costs, never by unit count (the skill's "Balance the clusters" bullet): a matcher extension or a cell-enumerating shape weighs more than a form added to an existing rule. Target ${CORPUS_HOLDERS} clusters, since that many analysts hold a corpus at once; split further only when a cluster would hold more phenomena than one analyst can carry through the skill's steps 2 through 5 in one context. Each cluster's brief is the analyst's orientation: the phenomena, the specimen and unit ids per phenomenon, the candidate rules and the shape you expect, the companions in the same windows, and where to look for the decision's record. It is a hypothesis for the analyst to verify, not a finding.`, { label: 'cluster:all', phase: 'Cluster', schema: CLUSTERS_SCHEMA })
+Balance the clusters by the work each costs, never by unit count (the skill's "Balance the clusters" bullet): a matcher extension or a cell-enumerating shape weighs more than a form added to an existing rule. Target ${CORPUS_HOLDERS} clusters, since that many analysts hold a corpus at once; split further only when a cluster would hold more kinds of change than one analyst can carry through the skill's steps 2 through 5 in one context. Each cluster's brief is the analyst's orientation: the kinds of change, the specimen and unit ids per kind of change, the candidate rules and the shape you expect, the companions in the same windows, and where to look for the decision's record. It is a hypothesis for the analyst to verify, not a finding.`, { label: 'cluster:all', phase: 'Cluster', schema: CLUSTERS_SCHEMA })
 
 if (!clusters) return { units: UNITS, error: 'the clustering agent returned nothing' }
 if (!clusters.tree_clean) return { units: UNITS, error: `the tree is not clean, and the lander commits shared files by path and reverts by file, so nothing runs until it is: ${clusters.dirty_paths.join(' ')}` }
@@ -185,14 +185,14 @@ Your units: ${cluster.units.join(' ')}
 Your orientation, a hypothesis to verify against the dump and your own survey:
 ${cluster.brief}
 
-Your phenomena as the clustering agent saw them:
-${JSON.stringify(cluster.phenomena, null, 2)}
+Your kinds of change as the clustering agent saw them:
+${JSON.stringify(cluster.changes, null, 2)}
 
-Method, per the skill's steps 1 through 5 for each phenomenon: name every change from the dump's rendered grain; survey the swath in ONE probe call per round (--survey, --coverage RULE_ID, --extension-cells, --retarget-cells, --find and extra unit ids all ride one load, and a flag's arguments come from a table the probe already printed); find the decision's record; pick the smallest home in the skill's order; draft the rule in the file's idiom onto a scratch copy, cp rebuild/standing-approvals.yaml ${SCRATCH}/${cluster.key}/rules.yaml and edit the copy, and prove it with the targeted run only: uv run python rebuild/tools/standing_verdicts.py verdicts-autosave.json --rules ${SCRATCH}/${cluster.key}/rules.yaml --explain RULE_ID --targeted --unit <each of the phenomenon's units> > ${SCRATCH}/${cluster.key}/dry-RULE_ID.txt 2>&1, passing the same --rules to every probe call. Read the rollup, not the own line; the explain block's split must cover the survey; probe the filled units outside the survey in one call and read each against the shape's blind spot. Drafts stack on the same scratch copy so a combined match can be read before either lands. The whole-domain run is the lander's, not yours.
+Method, per the skill's steps 1 through 5 for each kind of change: name every change from the dump's rendered grain; survey the swath in ONE probe call per round (--survey, --coverage RULE_ID, --extension-cells, --retarget-cells, --find and extra unit ids all ride one load, and a flag's arguments come from a table the probe already printed); find the decision's record; pick the smallest home in the skill's order; draft the rule in the file's idiom onto a scratch copy, cp rebuild/standing-approvals.yaml ${SCRATCH}/${cluster.key}/rules.yaml and edit the copy, and prove it with the targeted run only: uv run python rebuild/tools/standing_verdicts.py verdicts-autosave.json --rules ${SCRATCH}/${cluster.key}/rules.yaml --explain RULE_ID --targeted --unit <each of the change's units> > ${SCRATCH}/${cluster.key}/dry-RULE_ID.txt 2>&1, passing the same --rules to every probe call. Read the rollup, not the own line; the explain block's split must cover the survey; probe the filled units outside the survey in one call and read each against the shape's blind spot. Drafts stack on the same scratch copy so a combined match can be read before either lands. The whole-domain run is the lander's, not yours.
 
 If no shape as it currently matches names the survey, do not implement the extension: describe exactly which matcher function must newly accept what, the docstring sentence to change (present tense, no narration of before and after), the positive, negative and, if the shape combines, combined-walk contract cases for rebuild/test_standing_verdicts.py in that file's idiom, and the probe change if the shape enumerates cells; still write the rule YAML that will use it, and say in survey that it is unproven pending the extension.
 
-Return one phenomenon per rule to write or extend. yaml is paste-ready and proofread against the file's indentation (rules sit under a two-space "  - id:" list); for extend-existing give the exact old and new lines. depends_on lists, by phenomenon name from this batch or by rule id (existing or drafted, from any cluster), what must land before this rule's dry run reads right: a rule it combines with, or the matcher extension it needs. commit_message is the subject in the repository idiom, "Stop having to verdict ·X ~b~ ·Y" (braces for a family list: ·{Bay,Day} ~b~ ·Gay), sentence case, how the letters look different and never the mechanism, with an optional one-sentence body.`
+Return one kind of change per rule to write or extend. yaml is paste-ready and proofread against the file's indentation (rules sit under a two-space "  - id:" list); for extend-existing give the exact old and new lines. depends_on lists, by change name from this batch or by rule id (existing or drafted, from any cluster), what must land before this rule's dry run reads right: a rule it combines with, or the matcher extension it needs. commit_message is the subject in the repository idiom, "Stop having to verdict ·X ~b~ ·Y" (braces for a family list: ·{Bay,Day} ~b~ ·Gay), sentence case, how the letters look different and never the mechanism, with an optional one-sentence body.`
 }
 
 async function capped(cap, thunks) {
@@ -220,37 +220,37 @@ const missing = clusters.clusters.filter((cluster, index) => !analysisResults[in
 log(`analyses back for ${analyses.map(analysis => analysis.group).join(', ') || 'no cluster'}${missing.length ? `; nothing back for ${missing.join(', ')}` : ''}`)
 
 function landingOrder(analyses) {
-  const all = analyses.flatMap((analysis, groupIndex) => [...analysis.phenomena]
+  const all = analyses.flatMap((analysis, groupIndex) => [...analysis.changes]
     .sort((a, b) => a.order - b.order)
-    .map(phenomenon => ({ ...phenomenon, group: analysis.group, groupIndex })))
-  const pending = all.filter(phenomenon => phenomenon.kind !== 'already-covered')
+    .map(change => ({ ...change, group: analysis.group, groupIndex })))
+  const pending = all.filter(change => change.kind !== 'already-covered')
   const byName = new Map()
   const byRule = new Map()
-  for (const phenomenon of pending) {
-    if (!byName.has(phenomenon.name)) byName.set(phenomenon.name, phenomenon)
-    for (const id of phenomenon.rule_ids) if (!byRule.has(id)) byRule.set(id, phenomenon)
+  for (const change of pending) {
+    if (!byName.has(change.name)) byName.set(change.name, change)
+    for (const id of change.rule_ids) if (!byRule.has(id)) byRule.set(id, change)
   }
   const placed = new Set()
   const ordered = []
   let remaining = pending
   while (remaining.length) {
-    const ready = remaining.filter(phenomenon => phenomenon.depends_on.every(dep => {
+    const ready = remaining.filter(change => change.depends_on.every(dep => {
       const target = byName.get(dep) || byRule.get(dep)
-      return !target || target === phenomenon || placed.has(target)
+      return !target || target === change || placed.has(target)
     }))
     if (!ready.length) log(`dependency cycle at ${remaining[0].name}; landing it in analyst order`)
     const wave = ready.length ? ready : [remaining[0]]
-    for (const phenomenon of wave) {
-      ordered.push(phenomenon)
-      placed.add(phenomenon)
+    for (const change of wave) {
+      ordered.push(change)
+      placed.add(change)
     }
-    remaining = remaining.filter(phenomenon => !placed.has(phenomenon))
+    remaining = remaining.filter(change => !placed.has(change))
   }
   return ordered
 }
 
 const ordered = landingOrder(analyses)
-log(ordered.length ? `landing order: ${ordered.map(phenomenon => `${phenomenon.group}: ${phenomenon.name}`).join(' → ')}` : 'nothing to land')
+log(ordered.length ? `landing order: ${ordered.map(change => `${change.group}: ${change.name}`).join(' → ')}` : 'nothing to land')
 
 let landing = null
 let verify = null
@@ -262,7 +262,7 @@ if (ordered.length) {
 
 You are the lander and you run alone: no other agent touches the tree or holds a corpus while you work, so you may edit tracked files and commit on the current branch. You are the only agent in this workflow that commits, and running this workflow was the user's go-ahead for these commits. Do not push, do not branch, no worktree, never --amend, never rewrite history. Scratch goes under ${SCRATCH}/land/. The probe dump for every unit is at ${clusters.probe_dump}.
 
-Before anything else, git status --porcelain must print nothing. The clustering agent found the tree clean and every step below rests on that: the files a phenomenon touches hold no uncommitted edit but that phenomenon's, so a revert by file and a commit by path each reach exactly that and nothing else. If anything is listed, land nothing, put every phenomenon under not_landed with the listing as its why, and stop.
+Before anything else, git status --porcelain must print nothing. The clustering agent found the tree clean and every step below rests on that: the files a kind of change touches hold no uncommitted edit but that kind's, so a revert by file and a commit by path each reach exactly that and nothing else. If anything is listed, land nothing, put every kind of change under not_landed with the listing as its why, and stop.
 
 The clustering report:
 ${JSON.stringify({ head_before: clusters.head_before, already_covered: clusters.already_covered, held_out: clusters.held_out, not_human: clusters.not_human }, null, 2)}
@@ -270,17 +270,17 @@ ${JSON.stringify({ head_before: clusters.head_before, already_covered: clusters.
 What the analysts left for you:
 ${JSON.stringify(analyses.map(analysis => ({ group: analysis.group, notes_for_lander: analysis.notes_for_lander, units_unexplained: analysis.units_unexplained })), null, 2)}
 
-Land the phenomena below in the order given, which is dependency order across every cluster: a rule another combines with, and a matcher extension, come before what needs them. For each, in order:
-(1) grep -c its units_covered in the newest fill file under ${SCRATCH}/land/; a phenomenon whose every unit an earlier commit already filled, or that the analysts list as already verdicted, is skipped and reported, never re-landed; two analysts drafting the same extension to one rule is one landing.
+Land the kinds of change below in the order given, which is dependency order across every cluster: a rule another combines with, and a matcher extension, come before what needs them. For each, in order:
+(1) grep -c its units_covered in the newest fill file under ${SCRATCH}/land/; a change whose every unit an earlier commit already filled, or that the analysts list as already verdicted, is skipped and reported, never re-landed; two analysts drafting the same extension to one rule is one landing.
 (2) Apply yaml verbatim: append a new rule at the end of rebuild/standing-approvals.yaml, or edit the existing rule in place. When matcher_change is non-empty, implement it in rebuild/tools/standing_verdicts.py (and rebuild/tools/standing_probe.py when the shape enumerates cells) exactly as described, docstring in present tense with no narration of what changed, the contract cases in rebuild/test_standing_verdicts.py in the file's idiom, then make prettier (pyright runs from the PostToolUse hook; fix what it reports). No code comments beyond the surrounding density.
-(3) ONE whole-domain dry run: uv run python rebuild/tools/standing_verdicts.py verdicts-autosave.json --out ${SCRATCH}/land/dry-<n>.json --explain RULE_ID > ${SCRATCH}/land/dry-<n>.txt 2>&1; read only that rule's lines out of the file (its own line, the combined-match lines counting it, its rollup, its disputed-match warning, the explain block, and every WARNING line) with grep -n, never cat. Every one of the phenomenon's units must be filled, already verdicted, or blocked only by except_left; a rule reaching nothing may never be committed. When the fill list differs from the analyst's survey, probe the difference in one call and read it against the shape's blind spot. A rollup short of the survey: fix from the analyst's report with at most a couple of re-runs; if it still cannot honestly fill, git checkout -- <the files you edited for this phenomenon> (the tree was clean when you started and every earlier phenomenon is committed, so nothing else in them is uncommitted) and report it under not_landed.
+(3) ONE whole-domain dry run: uv run python rebuild/tools/standing_verdicts.py verdicts-autosave.json --out ${SCRATCH}/land/dry-<n>.json --explain RULE_ID > ${SCRATCH}/land/dry-<n>.txt 2>&1; read only that rule's lines out of the file (its own line, the combined-match lines counting it, its rollup, its disputed-match warning, the explain block, and every WARNING line) with grep -n, never cat. Every one of the change's units must be filled, already verdicted, or blocked only by except_left; a rule reaching nothing may never be committed. When the fill list differs from the analyst's survey, probe the difference in one call and read it against the shape's blind spot. A rollup short of the survey: fix from the analyst's report with at most a couple of re-runs; if it still cannot honestly fill, git checkout -- <the files you edited for this change> (the tree was clean when you started and every earlier change is committed, so nothing else in them is uncommitted) and report it under not_landed.
 (4) ONE targeted test run: ${TARGETED_TESTS} > ${SCRATCH}/land/tests-<n>.txt 2>&1, and read its tail; green is required whether or not the matcher moved.
-(5) Commit only the files this phenomenon changed, by path (git add rebuild/standing-approvals.yaml plus, when the matcher moved, rebuild/tools/standing_verdicts.py rebuild/tools/standing_probe.py rebuild/test_standing_verdicts.py rebuild/test_standing_probe.py; never git add -A, never tmp/, var/, verdicts-*.json or rebuild/review-facts-pins.json), subject from commit_message in the reader-terms idiom (sentence case, data-expect notation, how the letters look different, never the mechanism), an optional short body, no attribution or trailer lines of any kind. The review-facts pins are the cycle's to rewrite after every commit here and the orchestrator's to commit with the rule that moved them or as their own commit; never touch them.
+(5) Commit only the files this kind of change touched, by path (git add rebuild/standing-approvals.yaml plus, when the matcher moved, rebuild/tools/standing_verdicts.py rebuild/tools/standing_probe.py rebuild/test_standing_verdicts.py rebuild/test_standing_probe.py; never git add -A, never tmp/, var/, verdicts-*.json or rebuild/review-facts-pins.json), subject from commit_message in the reader-terms idiom (sentence case, data-expect notation, how the letters look different, never the mechanism), an optional short body, no attribution or trailer lines of any kind. The review-facts pins are the cycle's to rewrite after every commit here and the orchestrator's to commit with the rule that moved them or as their own commit; never touch them.
 
 When done, git status --porcelain must show nothing (tmp/ is ignored). Report every commit with its sha.
 
-The phenomena, in landing order:
-${JSON.stringify(ordered.map(({ groupIndex, ...phenomenon }) => phenomenon), null, 2)}`, { label: 'land:all', phase: 'Land', schema: LAND_SCHEMA })
+The kinds of change, in landing order:
+${JSON.stringify(ordered.map(({ groupIndex, ...change }) => change), null, 2)}`, { label: 'land:all', phase: 'Land', schema: LAND_SCHEMA })
   log(landing ? `${landing.commits.length} commits landed, ${landing.skipped.length} skipped, ${landing.not_landed.length} not landed` : 'the lander returned nothing; the verifier lists its commits from git')
 
   phase('Verify')
@@ -323,7 +323,7 @@ return {
   units: UNITS,
   clusters,
   analyses,
-  landing_order: ordered.map(phenomenon => `${phenomenon.group}: ${phenomenon.name}`),
+  landing_order: ordered.map(change => `${change.group}: ${change.name}`),
   landing,
   verify,
   launch,

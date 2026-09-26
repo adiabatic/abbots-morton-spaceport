@@ -250,7 +250,7 @@ class TestAliasAndLedger:
             baseline_seams=("break", "break"),
             new_cells=("uni200C", "qsTea/full/None/None/locked", "qsIt/hapax/None/None/"),
             new_seams=("break", "break"),
-            phenomena=("+locked", "old-noentry"),
+            divergence_tags=("+locked", "old-noentry"),
         )
         ledger = [
             {
@@ -276,7 +276,7 @@ class TestAliasAndLedger:
             baseline_seams=("break", "break"),
             new_cells=("periodcentered", "qsTea/full/None/None/", "qsIt/hapax/None/None/"),
             new_seams=("break", "break"),
-            phenomena=("old-noentry",),
+            divergence_tags=("old-noentry",),
         )
         assert oracle._match_ledger(ledger, namer_dot_row) == ["zwnj-word-initial-unification"]
 
@@ -316,7 +316,7 @@ class TestAliasAndLedger:
             config,
             codepoints,
             kinds,
-            phenomena,
+            divergence_tags,
             baseline_glyphs=(),
             baseline_seams=(),
             new_cells=(),
@@ -331,7 +331,7 @@ class TestAliasAndLedger:
                 baseline_seams=baseline_seams,
                 new_cells=new_cells,
                 new_seams=new_seams,
-                phenomena=phenomena,
+                divergence_tags=divergence_tags,
             )
 
         boundary_echo = row("default", "200C:E652:E670", ("cell",), ("+locked", "old-noentry"))
@@ -399,7 +399,7 @@ class TestAliasAndLedger:
             baseline_seams=(),
             new_cells=(),
             new_seams=(),
-            phenomena=("exit-dropped",),
+            divergence_tags=("exit-dropped",),
         )
         classed = {"id": "dangling-anchor-dropped", "match": {"predicate": "dangling_anchor_dropped"}}
         blanket = {"id": "blanket", "match": {}}
@@ -440,7 +440,7 @@ class TestAliasAndLedger:
         with pytest.raises(TypeError):
             oracle.compile_ledger([{"id": "null", "match": {"predicate": "boundary_echo", "configs": None}}])
 
-    def test_classifier_assigns_each_phenomenon_set_one_class(self):
+    def test_classifier_assigns_each_divergence_tag_set_one_class(self):
         base = conform.DivergentRow(
             config="default",
             codepoints="E670:E670",
@@ -472,12 +472,12 @@ class TestAliasAndLedger:
             (("seam-loss",), None),
             ((), None),
         ]
-        for phenomena, expected in cases:
-            row = replace(base, phenomena=phenomena)
-            assert oracle.classify_divergence(row) == expected, phenomena
+        for divergence_tags, expected in cases:
+            row = replace(base, divergence_tags=divergence_tags)
+            assert oracle.classify_divergence(row) == expected, divergence_tags
 
     def test_boundary_blanket_takes_every_nonposition_row(self):
-        """The boundary-equals-word-boundary rule: in a window that contains a run-splitting boundary (space or ZWNJ), a cell or seam divergence classifies as `boundary-echo` ahead of every other class, whatever its phenomena. A position-only row gets no class here; it goes to the kern-attribution predicate."""
+        """The boundary-equals-word-boundary rule: in a window that contains a run-splitting boundary (space or ZWNJ), a cell or seam divergence classifies as `boundary-echo` ahead of every other class, whatever its divergence tags. A position-only row gets no class here; it goes to the kern-attribution predicate."""
         for codepoints in ["200C:E670:E670", "0020:E670:E670"]:
             base = conform.DivergentRow(
                 config="default",
@@ -489,7 +489,7 @@ class TestAliasAndLedger:
                 new_cells=("uni200C", "qsIt/hapax/None/None/locked", "qsIt/hapax/None/None/"),
                 new_seams=("break", "break"),
             )
-            for phenomena in [
+            for divergence_tags in [
                 ("+locked", "old-noentry"),
                 ("exit-dropped",),
                 ("seam-gain:qsIt", "exit-added"),
@@ -497,16 +497,16 @@ class TestAliasAndLedger:
                 ("+en-ext-1",),
                 ("ligation",),
             ]:
-                row = replace(base, phenomena=phenomena)
-                assert oracle.classify_divergence(row) == "boundary-echo", (codepoints, phenomena)
-            position_row = replace(base, kinds=("position",), phenomena=("position-kern-attributable",))
+                row = replace(base, divergence_tags=divergence_tags)
+                assert oracle.classify_divergence(row) == "boundary-echo", (codepoints, divergence_tags)
+            position_row = replace(base, kinds=("position",), divergence_tags=("position-kern-attributable",))
             assert oracle.classify_divergence(position_row) is None
 
     def test_zoo_contraction_class_requires_the_old_tea_zoo_trim(self):
         old_zoo = CellId("qsZoo", "full", "x-height", None, ("en-trim-1",))
         new_zoo = replace(old_zoo, adjustments=("en-con-1",))
         old_names = ("qsTea.half.ex-y5.ex-con-1", "qsZoo.en-trim-1")
-        phenomena = tuple(sorted(conform._cell_deltas(old_zoo, new_zoo, old_names, 1)))
+        divergence_tags = tuple(sorted(conform._cell_deltas(old_zoo, new_zoo, old_names, 1)))
         row = conform.DivergentRow(
             config="default",
             codepoints="E652:E65B",
@@ -516,7 +516,7 @@ class TestAliasAndLedger:
             baseline_seams=("y5",),
             new_cells=("qsTea/half/None/x-height/", "qsZoo/full/x-height/None/en-con-1"),
             new_seams=("y5",),
-            phenomena=phenomena,
+            divergence_tags=divergence_tags,
         )
         assert oracle.classify_divergence(row) == "zoo-entry-contraction-respelled"
         for other in (
@@ -526,9 +526,9 @@ class TestAliasAndLedger:
             replace(row, baseline_glyphs=(old_names[0], "qsZoo.en-con-2")),
             replace(row, new_cells=("qsTea/half/top/x-height/", row.new_cells[1])),
             replace(row, new_cells=(row.new_cells[0], "qsZoo/full/x-height/None/en-con-2")),
-            replace(row, phenomena=("+en-con-1",)),
-            replace(row, phenomena=phenomena + ("+ex-ext-1",)),
-            replace(row, kinds=("cell", "position"), phenomena=phenomena + ("position-drift",)),
+            replace(row, divergence_tags=("+en-con-1",)),
+            replace(row, divergence_tags=divergence_tags + ("+ex-ext-1",)),
+            replace(row, kinds=("cell", "position"), divergence_tags=divergence_tags + ("position-drift",)),
         ):
             assert oracle.classify_divergence(other) is None
 
@@ -553,7 +553,7 @@ class TestAliasAndLedger:
                 "qsZoo/full/x-height/None/en-con-1",
             ),
             new_seams=("y5", "break", "y5"),
-            phenomena=("+en-con-1", "-en-trim-1"),
+            divergence_tags=("+en-con-1", "-en-trim-1"),
         )
         for config in ("default", "ss03", "ss04", "ss05", "ss02+ss03+ss05"):
             assert oracle.classify_divergence(replace(row, config=config)) is None
@@ -628,7 +628,7 @@ class TestAliasCompleteness:
         divergent = conform._compare_row(spec, {"qsTea": "pending"}, "default", frozenset(), row, settled)
         assert divergent is not None
         assert "unaliased" in divergent.kinds
-        assert "unaliased:qsTea" in divergent.phenomena
+        assert "unaliased:qsTea" in divergent.divergence_tags
         assert divergent == conform._compare_row(spec, {}, "default", frozenset(), row, settled)
 
 
@@ -718,7 +718,7 @@ class TestPositionProjection:
 
 
 class TestClassifierRouting:
-    def _row(self, config, phenomena, codepoints="E670:E665:E652"):
+    def _row(self, config, divergence_tags, codepoints="E670:E665:E652"):
         return conform.DivergentRow(
             config=config,
             codepoints=codepoints,
@@ -728,16 +728,16 @@ class TestClassifierRouting:
             baseline_seams=(),
             new_cells=(),
             new_seams=(),
-            phenomena=phenomena,
+            divergence_tags=divergence_tags,
         )
 
     def test_unentered_it_gain_routes_to_ss03_chain(self):
-        phenomena = ("seam-gain:qsIt", "seam-gain-unentered:qsIt")
-        assert oracle.classify_divergence(self._row("ss03", phenomena)) == "ss03-chain-join-gains"
+        divergence_tags = ("seam-gain:qsIt", "seam-gain-unentered:qsIt")
+        assert oracle.classify_divergence(self._row("ss03", divergence_tags)) == "ss03-chain-join-gains"
 
     def test_unentered_it_gain_outside_ss03_matches_nothing(self):
-        phenomena = ("seam-gain:qsIt", "seam-gain-unentered:qsIt")
-        assert oracle.classify_divergence(self._row("default", phenomena)) is None
+        divergence_tags = ("seam-gain:qsIt", "seam-gain-unentered:qsIt")
+        assert oracle.classify_divergence(self._row("default", divergence_tags)) is None
 
     def test_entered_it_gain_keeps_its_class(self):
         assert (
@@ -753,13 +753,13 @@ class TestClassifierRouting:
         assert oracle.classify_divergence(row) == "boundary-echo"
 
     def test_ss10_rows_off_a_boundary_take_no_class(self):
-        for codepoints, phenomena in (
+        for codepoints, divergence_tags in (
             ("E650:E653:E67A", ("ligation",)),
             ("00B7:E653:E67A", ("ligation",)),
             ("E679:E652", ("stance",)),
         ):
             assert (
-                oracle.classify_divergence(self._row("ss10", phenomena, codepoints=codepoints)) is None
+                oracle.classify_divergence(self._row("ss10", divergence_tags, codepoints=codepoints)) is None
             ), codepoints
 
     def test_non_ss10_ligation_keeps_marker_staging(self):
@@ -1121,7 +1121,7 @@ class TestOracleUnmatchedTally:
         assert [row.codepoints for row in quoted] == [
             f"{left:04X}:{right:04X}" for left, right in wide[: oracle.ORACLE_UNMATCHED_EXEMPLARS]
         ]
-        assert all(row.phenomena for row in quoted)
+        assert all(row.divergence_tags for row in quoted)
         audit = (serial / "divergence-audit.tsv").read_text(encoding="utf-8").splitlines()
         assert len(audit) == 29
         assert sum(line.split("\t")[3] == "UNMATCHED" for line in audit[1:]) == 28
@@ -1799,7 +1799,7 @@ class TestOracleRowCache:
         def poisoned(spec, aliases, config, features, row, settled):
             verdict = real(spec, aliases, config, features, row, settled)
             assert verdict is not None
-            return replace(verdict, phenomena=verdict.phenomena + ("poisoned",))
+            return replace(verdict, divergence_tags=verdict.divergence_tags + ("poisoned",))
 
         monkeypatch.setattr(conform, "_compare_row", poisoned)
         with pytest.raises(SystemExit, match="the oracle row cache served a stale verdict"):
@@ -2233,7 +2233,7 @@ class TestFontBlindComparison:
         assert position == ["shaper", "kern", "features", "row"]
 
     def test_the_position_channel_only_appends_position_to_kinds(self, spec, tmp_path, monkeypatch):
-        """A constructed drift over two rows, one the alias map leaves clean and one it leaves unaliased, observed through the ledger matches the channel makes before and after the drift. The clean row's drift creates a new divergent row whose kinds are exactly `position`. The divergent row's drift keeps every field it already had and appends `position` to its kinds and `position-drift` to its phenomena."""
+        """A constructed drift over two rows, one the alias map leaves clean and one it leaves unaliased, observed through the ledger matches the channel makes before and after the drift. The clean row's drift creates a new divergent row whose kinds are exactly `position`. The divergent row's drift keeps every field it already had and appends `position` to its kinds and `position-drift` to its divergence tags."""
         tables = tmp_path / "tables"
         _cache_subset_table(tables, "default", [(0xE650,), (0xE652,)])
         aliases = tmp_path / "aliases.yaml"
@@ -2266,15 +2266,15 @@ class TestFontBlindComparison:
         minted = seen[0]
         assert minted.codepoints == "E650"
         assert minted.kinds == ("position",)
-        assert minted.phenomena == ("position-drift",)
+        assert minted.divergence_tags == ("position-drift",)
         assert minted.position == -1
 
         before, after = seen[1], seen[2]
         assert before.codepoints == after.codepoints == "E652"
         assert before.kinds == ("unaliased",)
         assert after.kinds == before.kinds + ("position",)
-        assert after.phenomena == before.phenomena + ("position-drift",)
-        assert replace(after, kinds=before.kinds, phenomena=before.phenomena) == before
+        assert after.divergence_tags == before.divergence_tags + ("position-drift",)
+        assert replace(after, kinds=before.kinds, divergence_tags=before.divergence_tags) == before
 
 
 class TestConformSummary:
