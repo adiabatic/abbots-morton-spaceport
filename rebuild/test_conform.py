@@ -212,7 +212,7 @@ class TestRawLabels:
         labels = conform.raw_labels(spec, ZWNJ + TEA + IT, frozenset(), guard)
         assert labels == ["uni200C", "qsTea.noentry", "qsIt"]
 
-    def test_marker_fold_renames_under_features(self, spec, guard):
+    def test_marker_renaming_applies_under_features(self, spec, guard):
         assert conform.raw_labels(spec, MAY + TEA, frozenset({"ss03"}), guard) == ["qsMay", "qsTea.ss03"]
 
     def test_marker_and_lock_compose(self, spec, guard):
@@ -2646,7 +2646,7 @@ class TestCrateEmittedSettleMemo:
     def test_the_absorbed_memo_serves_every_window_the_walk_reaches_and_settles_alike(
         self, spec, dumps_dir, tmp_path, config
     ):
-        """The sweep to the replay's horizon, with a walk carrying the crate-written file, settles nothing (every key the walk forms is one the conversion wrote), and its streams and names equal the unmemoized reference. `ss03` exercises the marker fold on the input and right slots, `default` the unrenamed labels."""
+        """The sweep to the replay's horizon, with a walk carrying the crate-written file, settles nothing (every key the walk forms is one the conversion wrote), and its streams and names equal the unmemoized reference. `ss03` exercises the marker renaming on the input and right slots, `default` the unrenamed labels."""
         memo = self._memo(tmp_path, config)
         entries = conform.absorb_replay_memo(
             kernel_exec.replay_memo_dump(dumps_dir, config), memo, spec, config
@@ -2806,7 +2806,7 @@ class TestCrateEmittedSettleMemo:
 
 
 class TestDeepTokenIndex:
-    """`_DeepTokenIndex` is built from the table's raw labels but queried with the walk's marker-folded labels, so every member combination of every class-bearing row must resolve to the deep slots of the row's renamed key. The walk-equivalence sweeps cannot catch a rename applied on one side only, because both paths use the same index, so this test checks resolution against the rows directly. The configuration renames a bare (singleton-fiber) r3 under a class-token r4, the row shape the final assertion requires."""
+    """`_DeepTokenIndex` is built from the table's raw labels but queried with the walk's marker-renamed labels, so every member combination of every class-bearing row must resolve to the deep slots of the row's renamed key. The walk-equivalence sweeps cannot catch a rename applied on one side only, because both paths use the same index, so this test checks resolution against the rows directly. The configuration renames a bare (singleton-fiber) r3 under a class-token r4, the row shape the final assertion requires."""
 
     def test_every_class_row_resolves_under_a_renaming_config(self):
         import dataclasses

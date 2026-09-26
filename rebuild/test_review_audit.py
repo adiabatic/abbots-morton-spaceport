@@ -489,8 +489,8 @@ def test_the_signature_text_is_pinned_beside_the_store_format():
     assert signature_text("E650") == "\ue650"
 
 
-def test_ink_duplicate_siblings_fold_to_one_unit(mini_bundle):
-    """The name-grain dedupe key splits one visual question into two units when a config only renames a glyph (the old font's ss04 rename of word-initial ·It). When the ink signature reports every render of the window identical, the siblings fold. The earliest-config unit survives with the union of configs, kinds and per-config classes, a merged run of both siblings' rows in the columns (each row keeps its own rendered names), and a single render group, and compacting the table removes the absorbed unit. The two runs the merged run replaces are orphaned: outside the columns' live count but still in their bytes."""
+def test_ink_duplicate_siblings_merge_into_one_unit(mini_bundle):
+    """The name-grain dedupe key splits one visual question into two units when a config only renames a glyph (the old font's ss04 rename of word-initial ·It). When the ink signature reports every render of the window identical, the siblings merge. The earliest-config unit survives with the union of configs, kinds and per-config classes, a merged run of both siblings' rows in the columns (each row keeps its own rendered names), and a single render group, and compacting the table removes the absorbed unit. The two runs the merged run replaces are orphaned: outside the columns' live count but still in their bytes."""
     rows = [
         AuditRow("default", "E650:E665", ("cell",), "UNMATCHED", ("qsPea", "qsMay.en-y0"), ("b",)),
         AuditRow("ss03", "E650:E665", ("cell",), "UNMATCHED", ("qsPea", "qsMay.en-y0"), ("b",)),
@@ -501,12 +501,14 @@ def test_ink_duplicate_siblings_fold_to_one_unit(mini_bundle):
     assert table.n == 3
     before = {ordinal: table.config_classes(ordinal) for ordinal in range(table.n)}
     stats = merge_ink_duplicate_units(table, columns, lambda text, config: text)
-    assert stats == {"windows_folded": 1, "units_folded": 1, "kept_split_matched_classes": 0}
+    assert stats == {"windows_merged": 1, "units_merged": 1, "kept_split_matched_classes": 0}
     assert table.n == 3 and sum(table.live(ordinal) for ordinal in range(table.n)) == 2
     victim = next(ordinal for ordinal in range(table.n) if not table.live(ordinal))
     assert table.survivor(victim) != victim and table.live(table.survivor(victim))
     compaction = table.compact()
-    assert table.n == 2 and list(compaction.folded) == [1 if ordinal == victim else 0 for ordinal in range(3)]
+    assert table.n == 2 and list(compaction.removed) == [
+        1 if ordinal == victim else 0 for ordinal in range(3)
+    ]
     assert sorted(compaction.survivor) == sorted([0, 1] + [compaction.survivor[victim]])
     units = table.units()
     merged = next(unit for unit in units if unit.codepoints == "E650:E665")
@@ -534,11 +536,11 @@ def test_ink_duplicate_siblings_fold_to_one_unit(mini_bundle):
             (("ss04", "UNMATCHED"),),
             (("default", "UNMATCHED"),),
         ]
-    ), "the survivor's map was re-pooled rather than the pooled pre-fold instances rewritten"
+    ), "the survivor's map was re-pooled rather than the pooled pre-merge instances rewritten"
 
 
-def test_ink_duplicate_fold_respects_matched_classes_and_exemptions(mini_bundle):
-    """A fold that would put two different matched ledger classes on one unit is skipped, because different glyph names can match different ledger predicates. A matched class folding with an UNMATCHED sibling takes the UNMATCHED class and recomputes the no-verdict flag from the exempt classes."""
+def test_ink_duplicate_merge_respects_matched_classes_and_exemptions(mini_bundle):
+    """A merge that would put two different matched ledger classes on one unit is skipped, because different glyph names can match different ledger predicates. A matched class merging with an UNMATCHED sibling takes the UNMATCHED class and recomputes the no-verdict flag from the exempt classes."""
     conflicting, columns = load_table(
         [
             AuditRow("default", "E650:E665", ("cell",), "class-a", ("a",), ("b",)),
@@ -570,8 +572,8 @@ def test_ink_duplicate_fold_respects_matched_classes_and_exemptions(mini_bundle)
     assert merged.config_classes == {"default": "boundary-echo", "ss04": "UNMATCHED"}
 
 
-def test_units_whose_configs_render_differently_never_fold(mini_bundle):
-    """A unit only folds when every config on both sides yields one ink signature; per-config signatures leave everything standing."""
+def test_units_whose_configs_render_differently_never_merge(mini_bundle):
+    """A unit only merges when every config on both sides yields one ink signature; per-config signatures leave everything standing."""
     table, columns = load_table(
         [
             AuditRow("default", "E650:E665", ("cell",), "UNMATCHED", ("a",), ("b",)),
@@ -582,8 +584,8 @@ def test_units_whose_configs_render_differently_never_fold(mini_bundle):
         dict(LETTERS),
     )
     stats = merge_ink_duplicate_units(table, columns, lambda text, config: (text, config))
-    assert stats == {"windows_folded": 0, "units_folded": 0, "kept_split_matched_classes": 0}
-    assert table.compact().folded == bytearray(2) and table.n == 2
+    assert stats == {"windows_merged": 0, "units_merged": 0, "kept_split_matched_classes": 0}
+    assert table.compact().removed == bytearray(2) and table.n == 2
 
 
 def test_the_name_tuples_are_released_after_phase_one(mini):
@@ -606,7 +608,7 @@ def test_the_name_tuples_are_released_after_phase_one(mini):
 
 
 def test_the_table_sizes_are_the_columns_bytes_and_the_pools_priced_beside_the_string_table(mini):
-    """The table's `workload.units` reading is exact. The packed figure is the columns' bytes plus every pool's packed size, the string table is reported beside it, and the two summed are the walked figure. A compaction removes the folded rows' bytes from it."""
+    """The table's `workload.units` reading is exact. The packed figure is the columns' bytes plus every pool's packed size, the string table is reported beside it, and the two summed are the walked figure. A compaction removes the merged rows' bytes from it."""
     table = mini.table
     reading = unit_table_sizes(table)
     assert reading.packed is not None
@@ -619,7 +621,7 @@ def test_the_table_sizes_are_the_columns_bytes_and_the_pools_priced_beside_the_s
         memory_tally.PackedCost(columns + pools, len(table.strings), strings),
     )
     assert reading.packed.est_bytes / table.n < 200
-    table.fold_into(1, 0)
+    table.merge_into(1, 0)
     table.compact()
     shrunk = unit_table_sizes(table)
     assert shrunk.count == reading.count - 1 and shrunk.est_bytes < reading.est_bytes

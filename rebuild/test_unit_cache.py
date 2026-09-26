@@ -147,7 +147,7 @@ def _edited_audit(tmp_path: Path) -> Path:
 def _out_of_order_audit(tmp_path: Path) -> tuple[Path, dict[str, list[str]]]:
     """Return the mini audit with two windows split per config. The ss03 row of each is retagged to a ledger class, so each window is blessed under ss03 and novel under its other configs. The second window's ss03 row is moved to the top of the file, so its class map lists ss03 first while the first window's lists its configs in config order. Returns the edited file and, for the in-order window and then the out-of-order one, the configs in the order the edited file lists them.
 
-    The in-order window is the first in the file whose rows all have one (codepoints, baseline, new) triple and are all UNMATCHED, under configs that include default and ss03. The out-of-order window is the next such window with the same configs. A single triple means the ink-duplicate fold does not reach them. The rows left UNMATCHED keep each unit's class UNMATCHED, and since default is among them, neither the unmatched group the review facts defer nor the group phase 1 assigns changes. The mini audit is written one config block at a time, so every class map in it is in config order; the moved row is what gives the build a map in another order.
+    The in-order window is the first in the file whose rows all have one (codepoints, baseline, new) triple and are all UNMATCHED, under configs that include default and ss03. The out-of-order window is the next such window with the same configs. A single triple means the ink-duplicate merge does not reach them. The rows left UNMATCHED keep each unit's class UNMATCHED, and since default is among them, neither the unmatched group the review facts defer nor the group phase 1 assigns changes. The mini audit is written one config block at a time, so every class map in it is in config order; the moved row is what gives the build a map in another order.
     """
     lines = MINI_AUDIT.read_text(encoding="utf-8").splitlines()
     header, rows = lines[0], [line.split("\t") for line in lines[1:]]
@@ -247,7 +247,7 @@ def _pooled_maps(monkeypatch) -> list[tuple[UnitTable, PoolSnapshot]]:
 
 
 def _assert_no_pooled_map_was_written(table: UnitTable, snapshot: PoolSnapshot) -> None:
-    """Check that every class map pooled at load is still the instance at its id and still has the items it was pooled with, and that every map the pool holds now, including those the fold added, is filed under its own items."""
+    """Check that every class map pooled at load is still the instance at its id and still has the items it was pooled with, and that every map the pool holds now, including those the merge added, is filed under its own items."""
     pool = table.mappings
     for index, (instance, items) in enumerate(snapshot):
         assert pool[index] is instance, index
@@ -1103,8 +1103,8 @@ def _key_over_rows(keyer: unit_cache.UnitKeyer, codepoints: tuple[int, ...], row
     return hashlib.sha256("\n".join(lines).encode()).hexdigest()
 
 
-def test_a_folded_survivors_key_is_the_key_over_its_absorbed_rows_own_names():
-    """After the ink-duplicate fold, a survivor's run spans two name-tuple pairs, its own and the absorbed sibling's, merged by config rank with the survivor's row first at a tie. That is the stable sort of the two units' rows concatenated survivor first. The content key is over that run with each row's own names, so it equals a hash over the row records in that order, and it changes when an absorbed row's rendered names change. A key over the survivor's names alone would reuse a stale fragment to a window whose absorbed rows had changed."""
+def test_a_merged_survivors_key_is_the_key_over_its_absorbed_rows_own_names():
+    """After the ink-duplicate merge, a survivor's run spans two name-tuple pairs, its own and the absorbed sibling's, merged by config rank with the survivor's row first at a tie. That is the stable sort of the two units' rows concatenated survivor first. The content key is over that run with each row's own names, so it equals a hash over the row records in that order, and it changes when an absorbed row's rendered names change. A key over the survivor's names alone would reuse a stale fragment to a window whose absorbed rows had changed."""
 
     def rows_for(new_a: tuple[str, ...], new_b: tuple[str, ...]) -> list[AuditRow]:
         return [
@@ -1114,7 +1114,7 @@ def test_a_folded_survivors_key_is_the_key_over_its_absorbed_rows_own_names():
             AuditRow("ss04", "E650:E652", ("seam",), "UNMATCHED", ("a.ss03", "b"), new_b),
         ]
 
-    def folded(records: list[AuditRow]) -> tuple[UnitTable, RowColumns, list[AuditRow]]:
+    def merged(records: list[AuditRow]) -> tuple[UnitTable, RowColumns, list[AuditRow]]:
         table, columns = load_table(records, [], _FAMILY_OF)
         assert table.n == 2
         survivor = next(ordinal for ordinal in range(2) if table.configs(ordinal)[0] == "default")
@@ -1122,12 +1122,12 @@ def test_a_folded_survivors_key_is_the_key_over_its_absorbed_rows_own_names():
         survivor_rows = [row for row in records if row.baseline == table.baseline(survivor)]
         absorbed_rows = [row for row in records if row.baseline == table.baseline(absorbed)]
         stats = merge_ink_duplicate_units(table, columns, lambda text, config: text)
-        assert stats["units_folded"] == 1 and table.survivor(absorbed) == survivor
+        assert stats["units_merged"] == 1 and table.survivor(absorbed) == survivor
         assert table.compact().survivor[absorbed] == 0 and table.n == 1
         ordered = sorted(survivor_rows + absorbed_rows, key=lambda row: _config_index(row.config))
         return table, columns, ordered
 
-    table, columns, ordered = folded(rows_for(("c", "d"), ("c", "d.ss03")))
+    table, columns, ordered = merged(rows_for(("c", "d"), ("c", "d.ss03")))
     survivor = table.unit(0)
     assert survivor.configs == ("default", "ss03", "ss04", "ss04")
     assert [row.config for row in ordered] == list(survivor.configs)
@@ -1135,7 +1135,7 @@ def test_a_folded_survivors_key_is_the_key_over_its_absorbed_rows_own_names():
     base = _keyer().key(table, columns, 0)
     assert base == _key_over_rows(_keyer(), survivor.codepoint_values, ordered)
 
-    moved_table, moved_columns, moved_ordered = folded(rows_for(("c", "d"), ("c", "d.moved")))
+    moved_table, moved_columns, moved_ordered = merged(rows_for(("c", "d"), ("c", "d.moved")))
     moved = moved_table.unit(0)
     assert moved.baseline == survivor.baseline and moved.new == survivor.new
     assert (

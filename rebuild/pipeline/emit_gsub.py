@@ -145,7 +145,7 @@ def behavior_classes(plan: GsubPlan) -> tuple[str, ...]:
                 f"forming row over {depth} lookahead slots: {row.sequence} — the guard emits at most two"
             )
     for feature in plan.marker_lines:
-        tokens.add(f"marker-fold:{feature}")
+        tokens.add(f"marker-rename:{feature}")
     for rule in plan.settle_rules:
         depth = len(rule.lookahead)
         if depth > 4:

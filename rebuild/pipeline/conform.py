@@ -466,7 +466,7 @@ def check_isolated_positions(text, config, shaper: Shaper, shaped, divergences) 
 def raw_labels(
     spec: ResolvedSpec, text: str, features: frozenset[str], guard_verdicts: settle.FormationGuard
 ) -> list[str]:
-    """The labels the settlement lookup sees for `text`, after formation, the marker fold, and the ZWNJ chokepoint. Formation goes through `settle.form_ligatures`, so the section 5.7 late-formation guard applies here as it does in the kernel and the emitted lookup. `guard_verdicts` is the crate's verdicts for this spec (`kernel_exec.guard_sweep`), computed once by the caller."""
+    """The labels the settlement lookup sees for `text`, after formation, the marker renaming, and the ZWNJ chokepoint. Formation goes through `settle.form_ligatures`, so the section 5.7 late-formation guard applies here as it does in the kernel and the emitted lookup. `guard_verdicts` is the crate's verdicts for this spec (`kernel_exec.guard_sweep`), computed once by the caller."""
     by_codepoint = {
         info.codepoint: name for name, info in spec.registry.families.items() if info.codepoint is not None
     }
@@ -533,7 +533,7 @@ def _token_representative(decision, label: str) -> str:
 class _DeepTokenIndex:
     """Maps a window's raw third and fourth right slots to one configuration's deep-slot class tokens, for the rule replay (`witness._matched_windows` takes one as `deep_index`). `_SettledWindowWalk` does not use it.
 
-    It has two levels, because fourth-slot fibers depend on the third-slot token as well as the base: `{(renamed input, settled left, renamed r1, renamed r2) -> {renamed member label -> r3 token}}`, and the same keyed one level deeper on the resolved r3 token. That token is the class id when the row's r3 is a class, and otherwise the bare r3 in renamed space, which is what `resolve` returns in each case (a class token is never renamed, and a bare label reaches `resolve` already marker-folded).
+    It has two levels, because fourth-slot fibers depend on the third-slot token as well as the base: `{(renamed input, settled left, renamed r1, renamed r2) -> {renamed member label -> r3 token}}`, and the same keyed one level deeper on the resolved r3 token. That token is the class id when the row's r3 is a class, and otherwise the bare r3 in renamed space, which is what `resolve` returns in each case (a class token is never renamed, and a bare label reaches `resolve` already marker-renamed).
 
     It is built once per configuration from `decision.transitions`, `decision.deep_classes`, and the rename map. Callers run `resolve` where they hold the settled left, after `_window_rights` has read the raw labels, so a class id never stands where a raw label is expected. A boundary label passes through unchanged. A member the index lacks stays a raw label and then matches no row, as for any window the table lacks; the enumeration is exact, so this should not happen. `representatives` maps each class token to its renamed first member for rule matching. That is exact because the build asserts that every emitted look class holds either all of a token's members or none of them.
     """

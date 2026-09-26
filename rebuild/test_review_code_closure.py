@@ -344,7 +344,7 @@ def test_every_module_the_comparator_reaches_rides_the_signature_stamp():
     unstamped = _relative(_signature_reached() - _signature_stamped())
     assert unstamped == [], (
         "the ink comparator runs these modules but signature_code_paths does not hash them, so a cached "
-        "signature would outlive an edit to one and the ink-duplicate merge would fold windows on stale ink — "
+        "signature would outlive an edit to one and the ink-duplicate merge would merge windows on stale ink — "
         "add them to SIGNATURE_CODE_MODULES in rebuild/review/unit_cache.py: " + ", ".join(unstamped)
     )
 

@@ -360,7 +360,7 @@ def locked_glyph_name(raw_name: str) -> str:
 
 
 def raw_rename_map(spec: ResolvedSpec | None, features: frozenset[str]) -> dict[str, str]:
-    """Returns the marker fold for a configuration, the renaming of raw labels to marker twins: each rune whose unlock rows name an active set maps to its marker twin, and its chokepoint twin maps to the marker's chokepoint twin. The marker lookups rename every occurrence of such a rune before settlement runs, so settlement never sees its bare label. Returns an empty map when `spec` is None."""
+    """Returns the marker renaming for a configuration, the map from raw labels to their marker twins: each rune whose unlock rows name an active set maps to its marker twin, and its chokepoint twin maps to the marker's chokepoint twin. The marker lookups rename every occurrence of such a rune before settlement runs, so settlement never sees its bare label. Returns an empty map when `spec` is None."""
     renames: dict[str, str] = {}
     if spec is None:
         return renames

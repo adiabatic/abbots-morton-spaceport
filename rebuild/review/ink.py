@@ -300,11 +300,11 @@ class InkComparator:
         return self.ink_pieces("before", text, features) == self.ink_pieces("after", text, features)
 
     def ink_identical(self, text: str, configs: tuple[str, ...]) -> bool:
-        """Return whether `pieces_identical` holds under every config in the set. `ink_pieces` is a projection of the two run-order lists that make up `signature`, so two windows with equal signatures always get the same answer here, and no sample is needed to check that the fold and this flag agree."""
+        """Return whether `pieces_identical` holds under every config in the set. `ink_pieces` is a projection of the two run-order lists that make up `signature`, so two windows with equal signatures always get the same answer here, and no sample is needed to check that the merge and this flag agree."""
         return all(self.pieces_identical(text, config) for config in configs)
 
     def signature(self, text: str, config: str) -> tuple:
-        """Return the rendered-outcome identity of one text under one config: the pair of `run_ink` lists in run order, each entry (shape key, absolute x, absolute y, own-frame origin x). Equal signatures mean both fonts put the same ink in the same places, so the rows present the same visual question whatever their glyph names. `config_diff` reads only these two lists, so equal signatures give an equal delta, an equal `ink_identical` result, and an equal `delta_digest`. That makes the ink-duplicate fold sound without sampling: the fold groups by this value, and everything downstream that could tell two folded siblings apart is a function of it. That the signature ignores glyph names follows from `run_ink` dropping them, and rebuild/test_review_ink.py checks it on a font that gives two names one outline."""
+        """Return the rendered-outcome identity of one text under one config: the pair of `run_ink` lists in run order, each entry (shape key, absolute x, absolute y, own-frame origin x). Equal signatures mean both fonts put the same ink in the same places, so the rows present the same visual question whatever their glyph names. `config_diff` reads only these two lists, so equal signatures give an equal delta, an equal `ink_identical` result, and an equal `delta_digest`. That makes the ink-duplicate merge sound without sampling: the merge groups by this value, and everything downstream that could tell two merged siblings apart is a function of it. That the signature ignores glyph names follows from `run_ink` dropping them, and rebuild/test_review_ink.py checks it on a font that gives two names one outline."""
         features = features_for(config)
         return (
             tuple(self.run_ink("before", text, features)),

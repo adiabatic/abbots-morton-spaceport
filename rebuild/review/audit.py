@@ -379,16 +379,16 @@ LIVE = 4
 
 
 class Compaction(NamedTuple):
-    """What `UnitTable.compact` returns. `survivor` maps every pre-merge row to its survivor's post-merge row: its own new row if it stayed live, its survivor's if the merge removed it. `folded` has a byte per pre-merge row that is 1 for a removed row."""
+    """What `UnitTable.compact` returns. `survivor` maps every pre-merge row to its survivor's post-merge row: its own new row if it stayed live, its survivor's if the merge removed it. `removed` has a byte per pre-merge row that is 1 for a row the merge removed."""
 
     survivor: array
-    folded: bytearray
+    removed: bytearray
 
 
 class UnitTable:
     """The workload as columns over the unit's ordinal. The build's parent holds this from the load to the cache write instead of a list of `Unit` records, in the style of `unit_store.UnitStore`. The loader allocates one row per unit, and each field is a fixed-width `array`. Every name is an id into one `columns.StringTable`, the instance the row columns and the unit store share, so a class from the audit, an unmatched group from a worker and an echo id from a whole-corpus pass are in one vocabulary. Each tuple or mapping field is an id into a pool, and a read returns the pooled instance, so units with equal values share one object. `configs` and `kinds` are ids into `tuples`, and `render_groups` into `groups`. `baseline` and `new` are ids into `names`, the tuple pool the row columns share, until `release_names` drops both columns and the pool. `config_classes` are ids into `mappings`, a `columns.MappingPool` keyed on each mapping's insertion order (the order the audit states the unit's configs in, which appears in the fragment's bytes); a read returns the pooled mapping typed read-only. The window is parsed once at load into `(start, count)` over a `u16` side column. The ledger's two flags and the merge's `LIVE` bit share one byte. `order` and `batch` are `u32`, with `NONE` for a unit outside the triage index. `rows_start` and `row_count` address the unit's run of the row columns. `survivor` is set by the ink-duplicate merge for a row it removes.
 
-    The row index is the ordinal. The loader writes the rows in load order (ledger class, group, window, with the UNMATCHED units after every ledger class). The merge marks the rows it removes (`fold_into`), and `compact` drops them and renumbers the rest in place. After that every row is live, and the unit store is allocated over the same count, so one index reads both tables for the rest of the build. The manifest's triage order is a permutation over the rows (`sort_for_triage`) and does not reorder them. The machine flags and the unit id are stored only in the unit store. `unit` materializes a `Unit` from both tables, as `UnitStore.cached_unit` does for a store record, and `units` materializes the whole list for the review-facts CLI and the tests. The debug tally measures the table through `build.unit_table_sizes` over `columns` and `pools`; the tally is not imported here, for the reason `RowColumns` gives.
+    The row index is the ordinal. The loader writes the rows in load order (ledger class, group, window, with the UNMATCHED units after every ledger class). The merge marks the rows it removes (`merge_into`), and `compact` drops them and renumbers the rest in place. After that every row is live, and the unit store is allocated over the same count, so one index reads both tables for the rest of the build. The manifest's triage order is a permutation over the rows (`sort_for_triage`) and does not reorder them. The machine flags and the unit id are stored only in the unit store. `unit` materializes a `Unit` from both tables, as `UnitStore.cached_unit` does for a store record, and `units` materializes the whole list for the review-facts CLI and the tests. The debug tally measures the table through `build.unit_table_sizes` over `columns` and `pools`; the tally is not imported here, for the reason `RowColumns` gives.
     """
 
     __slots__ = (
@@ -522,7 +522,7 @@ class UnitTable:
         return bool(self._flags[ordinal] & LIVE)
 
     def survivor(self, ordinal: int) -> int:
-        """The row a removed unit folded into, or the row itself while it is live."""
+        """The row a removed unit merged into, or the row itself while it is live."""
         return ordinal if self._flags[ordinal] & LIVE else self._survivor[ordinal]
 
     def codepoints(self, ordinal: int) -> tuple[int, ...]:
@@ -595,10 +595,10 @@ class UnitTable:
         self._rows_start[ordinal] = start
         self._row_count[ordinal] = count
 
-    def fold_into(self, ordinal: int, survivor: int) -> None:
+    def merge_into(self, ordinal: int, survivor: int) -> None:
         """Mark the row as removed by the ink-duplicate merge into `survivor`; `compact` drops it."""
         if not self._flags[survivor] & LIVE:
-            raise ValueError(f"row {ordinal} folds into row {survivor}, which is not live")
+            raise ValueError(f"row {ordinal} merges into row {survivor}, which is not live")
         self._flags[ordinal] &= ~LIVE
         self._survivor[ordinal] = survivor
 
@@ -607,16 +607,16 @@ class UnitTable:
         flags = self._flags
         n = self.n
         remap = array("I", [NONE]) * n
-        folded = bytearray(n)
+        removed = bytearray(n)
         kept = array("I")
         for ordinal in range(n):
             if flags[ordinal] & LIVE:
                 remap[ordinal] = len(kept)
                 kept.append(ordinal)
             else:
-                folded[ordinal] = 1
+                removed[ordinal] = 1
         for ordinal in range(n):
-            if folded[ordinal]:
+            if removed[ordinal]:
                 remap[ordinal] = remap[self._survivor[ordinal]]
         if len(kept) != n:
             self._class = array("I", map(self._class.__getitem__, kept))
@@ -640,7 +640,7 @@ class UnitTable:
             self._batch = array("I", map(self._batch.__getitem__, kept))
             self._survivor = array("I", [NONE]) * len(kept)
             self.n = len(kept)
-        return Compaction(remap, folded)
+        return Compaction(remap, removed)
 
     def release_names(self) -> None:
         """Drop the `baseline` and `new` columns and their name pool; afterward `baseline` and `new` return the empty tuple. Nothing in the parent reads a name tuple after phase 1: each worker read them from the copy it was sent, and the verification sample holds its own copies."""
@@ -1097,10 +1097,10 @@ def merge_ink_duplicate_units(
 ) -> dict:
     """Merge sibling units of one window whose placed ink is identical in both fonts under every config they cover. The (codepoints, baseline, new) dedupe key is name-grain, so a config that only renames a glyph splits one visual question into two units; for example, the old font's ss04 lookups rename word-initial ·It without changing its ink. `ink_sig(text, config)` returns the rendered-outcome identity (`InkComparator.signature`, the pair of run-order ink lists that `config_diff` reads). Units merge only when every config on both sides has the same signature, so the delta, its digest and the ink verdict are identical for the survivor and the units it absorbs.
 
-    The survivor is the sibling with the earliest config. It gets a merged run of both units' rows (`RowColumns.merge_runs`, its own rows first at equal rank, so each row keeps its own rendered names and the content key over the run is the key over the rows), the union of the configs and kinds, and the merged `config_classes` (its own entries first). It keeps its own baseline and new name tuples for display, re-resolves its class with `load_table`'s UNMATCHED-wins rule, and collapses to a single render group, since ink identity implies render-group identity. A merge that would give one unit two different matched ledger classes is skipped, because different names can match different ledger predicates, and is counted in the returned stats. The survivor's row is rewritten in place and each absorbed row is marked with `UnitTable.fold_into`; the caller compacts the table afterward. Run before enrichment and batch assignment.
+    The survivor is the sibling with the earliest config. It gets a merged run of both units' rows (`RowColumns.merge_runs`, its own rows first at equal rank, so each row keeps its own rendered names and the content key over the run is the key over the rows), the union of the configs and kinds, and the merged `config_classes` (its own entries first). It keeps its own baseline and new name tuples for display, re-resolves its class with `load_table`'s UNMATCHED-wins rule, and collapses to a single render group, since ink identity implies render-group identity. A merge that would give one unit two different matched ledger classes is skipped, because different names can match different ledger predicates, and is counted in the returned stats. The survivor's row is rewritten in place and each absorbed row is marked with `UnitTable.merge_into`; the caller compacts the table afterward. Run before enrichment and batch assignment.
     """
-    stats = {"windows_folded": 0, "units_folded": 0, "kept_split_matched_classes": 0}
-    folded = 0
+    stats = {"windows_merged": 0, "units_merged": 0, "kept_split_matched_classes": 0}
+    merged = 0
     for siblings in _sibling_windows(table).values():
         text = "".join(chr(value) for value in table.codepoints(siblings[0]))
         groups: dict[tuple, list[int]] = {}
@@ -1144,12 +1144,12 @@ def merge_ink_duplicate_units(
                 table.set_no_verdict(survivor, class_id in exempt_classes)
                 table.set_render_groups(survivor, (table.configs(survivor),))
                 table.set_exemplar(survivor, table.exemplar(survivor) or table.exemplar(ordinal))
-                table.fold_into(ordinal, survivor)
-                folded += 1
+                table.merge_into(ordinal, survivor)
+                merged += 1
                 merged_any = True
             if merged_any:
-                stats["windows_folded"] += 1
-    stats["units_folded"] = folded
+                stats["windows_merged"] += 1
+    stats["units_merged"] = merged
     return stats
 
 

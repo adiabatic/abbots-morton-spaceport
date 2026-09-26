@@ -44,7 +44,7 @@ from rebuild.review.unit_store import UnitStore
 REPO_ROOT = Path(__file__).resolve().parent.parent
 LEDGER_PATH = REPO_ROOT / "rebuild" / "m1-divergences.yaml"
 
-FOLD_WINDOW = "E650:E665"
+MERGE_WINDOW = "E650:E665"
 DEFERRED_WINDOW = "E651:E665"
 MIXED_WINDOW = "E652:E665"
 STANDALONE_UNMATCHED = "E653:E653"
@@ -74,8 +74,8 @@ def _index_of(capture: facts.PremergeSnapshot, codepoints: str, config: str) -> 
     )
 
 
-def _folded_table(rows: list[AuditRow]) -> tuple[facts.PremergeSnapshot, UnitTable, UnitStore]:
-    """Load `rows` against the live ledger, capture the pre-merge snapshot, fold with an ink signature that makes every config of a window identical, then compact the table and rebase the snapshot onto it. Returns the snapshot, the table, and an empty store sized to the compacted table."""
+def _merged_table(rows: list[AuditRow]) -> tuple[facts.PremergeSnapshot, UnitTable, UnitStore]:
+    """Load `rows` against the live ledger, capture the pre-merge snapshot, merge with an ink signature that makes every config of a window identical, then compact the table and rebase the snapshot onto it. Returns the snapshot, the table, and an empty store sized to the compacted table."""
     ledger = load_ledger(LEDGER_PATH)
     table, columns = load_table(rows, ledger, dict(LETTERS))
     capture = capture_premerge(table)
@@ -85,12 +85,12 @@ def _folded_table(rows: list[AuditRow]) -> tuple[facts.PremergeSnapshot, UnitTab
     return capture, table, UnitStore(table.n, strings=table.strings)
 
 
-def _folded_fixture():
-    """Five windows covering every case the projection handles: a default-reachable UNMATCHED survivor absorbing a relabeled ss04 sibling, two stylistic-set-only UNMATCHED siblings that defer to different buckets, a no-verdict matched unit absorbing an UNMATCHED sibling, and two standalone units that never fold. Returns the pre-merge snapshot, the compacted table, and a store over it, with phase 1's products set by hand on the survivors' rows."""
+def _merged_fixture():
+    """Five windows covering every case the projection handles: a default-reachable UNMATCHED survivor absorbing a relabeled ss04 sibling, two stylistic-set-only UNMATCHED siblings that defer to different buckets, a no-verdict matched unit absorbing an UNMATCHED sibling, and two standalone units that never merge. Returns the pre-merge snapshot, the compacted table, and a store over it, with phase 1's products set by hand on the survivors' rows."""
     rows = [
-        _row("default", FOLD_WINDOW, "UNMATCHED", ("qsPea", "qsMay")),
-        _row("ss03", FOLD_WINDOW, "UNMATCHED", ("qsPea", "qsMay")),
-        _row("ss04", FOLD_WINDOW, "UNMATCHED", ("qsPea.ss04", "qsMay")),
+        _row("default", MERGE_WINDOW, "UNMATCHED", ("qsPea", "qsMay")),
+        _row("ss03", MERGE_WINDOW, "UNMATCHED", ("qsPea", "qsMay")),
+        _row("ss04", MERGE_WINDOW, "UNMATCHED", ("qsPea.ss04", "qsMay")),
         _row("ss03", DEFERRED_WINDOW, "UNMATCHED", ("qsBay", "qsMay")),
         _row("ss04", DEFERRED_WINDOW, "UNMATCHED", ("qsBay.ss04", "qsMay")),
         _row("default", MIXED_WINDOW, "boundary-echo", ("qsTea", "qsMay")),
@@ -98,9 +98,9 @@ def _folded_fixture():
         _row("default", STANDALONE_UNMATCHED, "UNMATCHED", ("qsDay", "qsDay")),
         _row("default", STANDALONE_MATCHED, "dangling-anchor-dropped", ("qsKey", "qsKey")),
     ]
-    capture, table, store = _folded_table(rows)
+    capture, table, store = _merged_table(rows)
     verdicts = {
-        FOLD_WINDOW: (True, "no-chain-gains"),
+        MERGE_WINDOW: (True, "no-chain-gains"),
         DEFERRED_WINDOW: (False, "deferred-ss04"),
         MIXED_WINDOW: (True, "unmatched-misc"),
         STANDALONE_UNMATCHED: (False, "seam-loss-withdrawal"),
@@ -115,15 +115,15 @@ def _folded_fixture():
     return capture, table, store
 
 
-def test_folded_siblings_take_their_survivors_ink_verdict():
-    """A fold happens only when every config of every folded sibling renders identical ink, so the survivor's ink verdict applies to the whole window. Each captured sibling reports its survivor's flag, and the units that never folded report their own."""
-    capture, table, store = _folded_fixture()
+def test_merged_siblings_take_their_survivors_ink_verdict():
+    """A merge happens only when every config of every merged sibling renders identical ink, so the survivor's ink verdict applies to the whole window. Each captured sibling reports its survivor's flag, and the units that never merged report their own."""
+    capture, table, store = _merged_fixture()
     premerge = derive_premerge(capture, table, store)
     flags = premerge.ink_flags
     assert premerge.units == len(capture) == len(flags) == 8
     assert premerge.workload_digest == workload_digest(capture.grains())
-    assert flags[_index_of(capture, FOLD_WINDOW, "default")] == "1"
-    assert flags[_index_of(capture, FOLD_WINDOW, "ss04")] == "1"
+    assert flags[_index_of(capture, MERGE_WINDOW, "default")] == "1"
+    assert flags[_index_of(capture, MERGE_WINDOW, "ss04")] == "1"
     assert flags[_index_of(capture, DEFERRED_WINDOW, "ss03")] == "0"
     assert flags[_index_of(capture, DEFERRED_WINDOW, "ss04")] == "0"
     assert flags[_index_of(capture, MIXED_WINDOW, "default")] == "1"
@@ -134,11 +134,11 @@ def test_folded_siblings_take_their_survivors_ink_verdict():
 
 def test_unmatched_groups_read_deferral_from_the_premerge_config_classes():
     """A pre-merge UNMATCHED unit's unmatched group is its own deferred bucket when it has one, and otherwise its survivor's phase-1 group. The bucket is decided from the pre-merge config classes: the ss03-only survivor stays deferred-ss03, although the merged unit with its ss04 sibling would be deferred-ss04. A matched unit gets no unmatched group."""
-    capture, table, store = _folded_fixture()
+    capture, table, store = _merged_fixture()
     premerge = derive_premerge(capture, table, store)
     assert dict(premerge.unmatched_groups) == {
-        _index_of(capture, FOLD_WINDOW, "default"): "no-chain-gains",
-        _index_of(capture, FOLD_WINDOW, "ss04"): "deferred-ss04",
+        _index_of(capture, MERGE_WINDOW, "default"): "no-chain-gains",
+        _index_of(capture, MERGE_WINDOW, "ss04"): "deferred-ss04",
         _index_of(capture, DEFERRED_WINDOW, "ss03"): "deferred-ss03",
         _index_of(capture, DEFERRED_WINDOW, "ss04"): "deferred-ss04",
         _index_of(capture, MIXED_WINDOW, "ss04"): "deferred-ss04",
@@ -151,11 +151,11 @@ def test_unmatched_groups_read_deferral_from_the_premerge_config_classes():
     assert matched.isdisjoint(index for index, _group in premerge.unmatched_groups)
 
 
-def test_derive_premerge_reads_each_folded_rows_survivor_off_the_compaction():
-    """A captured row that the fold removed reads through the survivor the compaction recorded for it, which is the earliest-config sibling's post-fold row. `derive_premerge` raises on a snapshot that was never rebased, and `rebase` raises on a compaction of a different size."""
+def test_derive_premerge_reads_each_merged_rows_survivor_off_the_compaction():
+    """A captured row that the merge removed reads through the survivor the compaction recorded for it, which is the earliest-config sibling's post-merge row. `derive_premerge` raises on a snapshot that was never rebased, and `rebase` raises on a compaction of a different size."""
     rows = [
-        _row("default", FOLD_WINDOW, "UNMATCHED", ("qsPea", "qsMay")),
-        _row("ss04", FOLD_WINDOW, "UNMATCHED", ("qsPea.ss04", "qsMay")),
+        _row("default", MERGE_WINDOW, "UNMATCHED", ("qsPea", "qsMay")),
+        _row("ss04", MERGE_WINDOW, "UNMATCHED", ("qsPea.ss04", "qsMay")),
     ]
     table, columns = load_table(rows, load_ledger(LEDGER_PATH), dict(LETTERS))
     capture = capture_premerge(table)
@@ -163,9 +163,9 @@ def test_derive_premerge_reads_each_folded_rows_survivor_off_the_compaction():
     with pytest.raises(ValueError, match="rebased"):
         derive_premerge(capture, table, UnitStore(table.n))
     capture.rebase(table.compact())
-    assert capture.survivor is not None and capture.folded is not None
-    folded = _index_of(capture, FOLD_WINDOW, "ss04")
-    assert list(capture.folded) == [1 if index == folded else 0 for index in range(2)]
+    assert capture.survivor is not None and capture.removed is not None
+    removed = _index_of(capture, MERGE_WINDOW, "ss04")
+    assert list(capture.removed) == [1 if index == removed else 0 for index in range(2)]
     assert list(capture.survivor) == [0, 0] and table.n == 1
     with pytest.raises(ValueError, match="against 2 captured"):
         capture.rebase(table.compact())
@@ -173,7 +173,7 @@ def test_derive_premerge_reads_each_folded_rows_survivor_off_the_compaction():
 
 def test_derive_premerge_refuses_an_unmatched_unit_with_no_group():
     """Every pre-merge UNMATCHED unit must have an unmatched group. `derive_premerge` raises on an undeferred one whose survivor has no phase-1 group instead of recording an empty group."""
-    capture, table, store = _folded_table(
+    capture, table, store = _merged_table(
         [_row("default", STANDALONE_UNMATCHED, "UNMATCHED", ("qsDay", "qsDay"))]
     )
     with pytest.raises(ValueError, match=STANDALONE_UNMATCHED):
@@ -216,7 +216,7 @@ def test_workload_digest_tracks_order_and_configs():
     """The digest shows that a flag string is indexed against the workload a reader loaded, so it must change when the unit order or a unit's config set changes. Either change would misalign every index after it."""
     units, _rows = build_units(
         [
-            _row("default", FOLD_WINDOW, "UNMATCHED", ("qsPea", "qsMay")),
+            _row("default", MERGE_WINDOW, "UNMATCHED", ("qsPea", "qsMay")),
             _row("default", STANDALONE_UNMATCHED, "UNMATCHED", ("qsDay", "qsDay")),
             _row("default", STANDALONE_MATCHED, "dangling-anchor-dropped", ("qsKey", "qsKey")),
         ],
@@ -233,8 +233,8 @@ def test_the_snapshots_grains_digest_as_the_materialized_units_do():
     """The snapshot's grains carry the same window, class, no-verdict flag, and configs, in row order, as the units the table materializes, so both give the same digest. The sidecar carries this digest."""
     table, _rows = load_table(
         [
-            _row("default", FOLD_WINDOW, "UNMATCHED", ("qsPea", "qsMay")),
-            _row("ss03", FOLD_WINDOW, "UNMATCHED", ("qsPea", "qsMay")),
+            _row("default", MERGE_WINDOW, "UNMATCHED", ("qsPea", "qsMay")),
+            _row("ss03", MERGE_WINDOW, "UNMATCHED", ("qsPea", "qsMay")),
             _row("default", STANDALONE_MATCHED, "boundary-echo", ("qsKey", "qsKey")),
         ],
         load_ledger(LEDGER_PATH),
@@ -408,7 +408,7 @@ def test_build_facts_reduces_its_own_premerge_records(tmp_path):
     capture = capture_premerge(
         load_table(
             [
-                _row("default", FOLD_WINDOW, "UNMATCHED", ("qsPea", "qsMay")),
+                _row("default", MERGE_WINDOW, "UNMATCHED", ("qsPea", "qsMay")),
                 _row("default", STANDALONE_MATCHED, "boundary-echo", ("qsKey", "qsKey")),
             ],
             load_ledger(LEDGER_PATH),
@@ -419,7 +419,7 @@ def test_build_facts_reduces_its_own_premerge_records(tmp_path):
         units=len(capture),
         workload_digest=workload_digest(capture.grains()),
         ink_flags="10",
-        unmatched_groups=[(_index_of(capture, FOLD_WINDOW, "default"), "no-chain-gains")],
+        unmatched_groups=[(_index_of(capture, MERGE_WINDOW, "default"), "no-chain-gains")],
     )
     built = build_facts(manifest, table, config_notes, capture, premerge, row_count=2)
     assert built["format"] == FACTS_FORMAT

@@ -46,7 +46,7 @@ def test_the_order_file_is_the_fold_in_fea_order_naming_its_sources(spec, built)
         assert (fields[1] == "-") == (rule.backtrack is None)
 
 
-def test_the_context_file_carries_the_marker_fold_and_the_deep_classes(spec, built):
+def test_the_context_file_carries_the_marker_renaming_and_the_deep_classes(spec, built):
     _out_dir, tables = built
     decision, _treaty = tables["ss03"]
     lines = emit_gsub.emitted_context_tsv(spec, "ss03", decision).splitlines()

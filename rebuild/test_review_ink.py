@@ -2,7 +2,7 @@
 
 `ink_identical` (the sorted placed pieces are equal) reproduces the worked readings: the ◊ZWNJ ·May·Oy·Pea window is ink-identical only because kerning is off, ␣·Pea·Pea is ink-identical outright, a real one-pixel change is not picture-identical, and two comparators give the same result. `config_diff` (the cells only one font paints over the whole window, with the shifted tail pulled back) ignores a tuck that leaves the union of painted cells unchanged. When one glyph stops painting a pixel that a neighbor still paints, the delta is the empty sentinel if nothing else changed. Beside a real change, the tuck leaves that change's digest as it is, so the window shares a key with its tuck-free siblings. The same change at a seam the neighbor no longer reaches stays in the delta as the hole it leaves.
 
-Nothing here reads the live corpus. The windows come from the frozen mini bundle's audit and are shaped in that bundle's font, because every claim here is about the comparator. The ink-duplicate fold needs no sampling: `signature` returns the same two `run_ink` lists that `config_diff` and `ink_pieces` read, so equal signatures give equal deltas and equal ink flags. That the signature ignores glyph names is checked on the marker font, which gives two names one outline. A stride of the frozen windows checks that the sentinel matches the reference picture reading, so the build's picture flag, read from the same diffs it digests, always agrees with `picture_equal`.
+Nothing here reads the live corpus. The windows come from the frozen mini bundle's audit and are shaped in that bundle's font, because every claim here is about the comparator. The ink-duplicate merge needs no sampling: `signature` returns the same two `run_ink` lists that `config_diff` and `ink_pieces` read, so equal signatures give equal deltas and equal ink flags. That the signature ignores glyph names is checked on the marker font, which gives two names one outline. A stride of the frozen windows checks that the sentinel matches the reference picture reading, so the build's picture flag, read from the same diffs it digests, always agrees with `picture_equal`.
 
 Also here: `delta_digest`, the stored identity of one config's localized delta. `check_unit` checks its shape, and its recipe must stay byte-identical because rebuild/standing-approvals.yaml records digests made with it.
 
@@ -197,7 +197,7 @@ def test_run_ink_is_the_nameless_projection_of_named_run(marker_comparator):
 
 
 def test_the_signature_is_blind_to_the_glyph_name(marker_comparator):
-    """`signature` is `run_ink` on both sides, and `run_ink` drops the glyph name, so two glyphs drawing the same outline at the same advance under different names have the same signature. The ink-duplicate fold depends on this, because the windows it folds differ only in glyph names. The synthetic fold tests stub `ink_sig`, so this test covers the real function."""
+    """`signature` is `run_ink` on both sides, and `run_ink` drops the glyph name, so two glyphs drawing the same outline at the same advance under different names have the same signature. The ink-duplicate merge depends on this, because the windows it merges differ only in glyph names. The synthetic merge tests stub `ink_sig`, so this test covers the real function."""
     assert marker_comparator.signature(chr(0xE001), "default") == marker_comparator.signature(
         chr(0xE003), "default"
     )

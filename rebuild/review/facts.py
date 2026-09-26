@@ -4,9 +4,9 @@ The file has two blocks so the cycle can say what kind of change a pass made. `v
 
 No test reads this file, since a build asserting the numbers it just wrote would check nothing. The tests check internal consistency (the deduplicated units account for every audit row), invariants derived from the sources (the manifest's own totals, the ledger's no-verdict classes), and that each in-memory reduction matches the shard walk or shaping it replaces.
 
-The manifest and built groups are post-merge: they are read from a built corpus after the ink-duplicate fold. The audit, ink, and unmatched_groups groups count pre-merge units, the (codepoints, baseline, new) triples before the fold, which no corpus shard reports, so their class counts can differ from the manifest's. `audit.row_count` counts raw audit rows.
+The manifest and built groups are post-merge: they are read from a built corpus after the ink-duplicate merge. The audit, ink, and unmatched_groups groups count pre-merge units, the (codepoints, baseline, new) triples before the merge, which no corpus shard reports, so their class counts can differ from the manifest's. `audit.row_count` counts raw audit rows.
 
-The pre-merge groups come from the review-facts.json sidecar, which `build_m1` writes. It derives them from the pre-merge state it captured just before the fold and the phase-1 products it computes anyway (each post-merge unit's ink verdict and each UNMATCHED unit's unmatched group), instead of shaping and enriching the whole corpus a second time. The review facts are then less independent of the build, but it takes milliseconds instead of minutes. `--from-scratch` recomputes the groups from the source inputs (TSV, ledger, fonts, spec) when an independent comparison is wanted. `derive_premerge` checks the derivation's assumptions: it fails on a default-novel UNMATCHED unit that was folded away and on an UNMATCHED unit with no unmatched group, and it writes one ink flag per captured unit.
+The pre-merge groups come from the review-facts.json sidecar, which `build_m1` writes. It derives them from the pre-merge state it captured just before the merge and the phase-1 products it computes anyway (each post-merge unit's ink verdict and each UNMATCHED unit's unmatched group), instead of shaping and enriching the whole corpus a second time. The review facts are then less independent of the build, but it takes milliseconds instead of minutes. `--from-scratch` recomputes the groups from the source inputs (TSV, ledger, fonts, spec) when an independent comparison is wanted. `derive_premerge` checks the derivation's assumptions: it fails on a default-novel UNMATCHED unit that was merged away and on an UNMATCHED unit with no unmatched group, and it writes one ink flag per captured unit.
 
 Usage:
     uv run python -m rebuild.review.facts --update --corpus rebuild/out/review  # what every non-staging artifact-cycle pass runs
@@ -390,7 +390,7 @@ class _Configs(NamedTuple):
 
 
 class PremergeSnapshot:
-    """The workload as the build saw it before the ink-duplicate fold, as columns copied from the table with one entry per pre-fold row: the class id and config-set id (into the table's string table and tuple pool), the no-verdict byte, the window's offsets into the table's value column (which compaction does not move), and the deferred stylistic-set bucket. The bucket must be decided here, because deferral depends only on the pre-merge config classes and the fold changes them: an ss03-only survivor that absorbs an ss04-only sibling is deferred-ss03 before the fold and would read as deferred-ss04 after it. `rebase` takes the fold's compaction and records, for each pre-fold row, its survivor's post-fold row and whether the row was folded away; `derive_premerge` then reads the survivor's phase-1 products from the store and the table by index. The columns take 18 bytes a row, 23 after `rebase`; a list of per-row records was the largest collection the build held after the fold."""
+    """The workload as the build saw it before the ink-duplicate merge, as columns copied from the table with one entry per pre-merge row: the class id and config-set id (into the table's string table and tuple pool), the no-verdict byte, the window's offsets into the table's value column (which compaction does not move), and the deferred stylistic-set bucket. The bucket must be decided here, because deferral depends only on the pre-merge config classes and the merge changes them: an ss03-only survivor that absorbs an ss04-only sibling is deferred-ss03 before the merge and would read as deferred-ss04 after it. `rebase` takes the merge's compaction and records, for each pre-merge row, its survivor's post-merge row and whether the row was merged away; `derive_premerge` then reads the survivor's phase-1 products from the store and the table by index. The columns take 18 bytes a row, 23 after `rebase`; a list of per-row records was the largest collection the build held after the merge."""
 
     __slots__ = (
         "n",
@@ -404,7 +404,7 @@ class PremergeSnapshot:
         "window_n",
         "window_values",
         "survivor",
-        "folded",
+        "removed",
     )
 
     def __init__(self, table: UnitTable) -> None:
@@ -418,7 +418,7 @@ class PremergeSnapshot:
         self.window_start, self.window_n, self.window_values = table.windows()
         self.deferred = array("I", [0]) * table.n
         self.survivor: array | None = None
-        self.folded: bytearray | None = None
+        self.removed: bytearray | None = None
         unmatched = self.strings.find(UNMATCHED_CLASS)
         if unmatched is None:
             return
@@ -439,11 +439,11 @@ class PremergeSnapshot:
         return self.n
 
     def rebase(self, compaction: Compaction) -> None:
-        """Record where each pre-fold row's survivor sits once the table is compacted, and which rows were folded away."""
+        """Record where each pre-merge row's survivor sits once the table is compacted, and which rows were merged away."""
         if len(compaction.survivor) != self.n:
             raise ValueError(f"a compaction over {len(compaction.survivor)} rows, against {self.n} captured")
         self.survivor = compaction.survivor
-        self.folded = compaction.folded
+        self.removed = compaction.removed
 
     def codepoints(self, row: int) -> tuple[int, ...]:
         start = self.window_start[row]
@@ -472,9 +472,9 @@ class PremergeSnapshot:
         yield self.deferred
         yield self.window_start
         yield self.window_n
-        if self.survivor is not None and self.folded is not None:
+        if self.survivor is not None and self.removed is not None:
             yield self.survivor
-            yield self.folded
+            yield self.removed
 
 
 @dataclass(frozen=True)
@@ -488,7 +488,7 @@ class PremergeFacts:
 
 
 def capture_premerge(table: UnitTable) -> PremergeSnapshot:
-    """Snapshot the workload for the sidecar. Call it immediately before `merge_ink_duplicate_units`, because each UNMATCHED row's deferral is decided here, from config classes the fold is about to widen. Matched rows get no deferral, since `deferred_unmatched_group` has no meaningful answer outside UNMATCHED."""
+    """Snapshot the workload for the sidecar. Call it immediately before `merge_ink_duplicate_units`, because each UNMATCHED row's deferral is decided here, from config classes the merge is about to widen. Matched rows get no deferral, since `deferred_unmatched_group` has no meaningful answer outside UNMATCHED."""
     return PremergeSnapshot(table)
 
 
@@ -507,18 +507,18 @@ def workload_digest(units: Iterable[FactsGrain]) -> str:
 
 
 def derive_premerge(snapshot: PremergeSnapshot, table: UnitTable, store: UnitStore) -> PremergeFacts:
-    """Project the build's post-merge phase-1 products back onto the pre-merge units the review-facts pins count. A unit that survived the fold reads its own row. A unit that was folded away reads the survivor the fold recorded for it (`PremergeSnapshot.rebase`): the ink flag from the store and the unmatched group from the table.
+    """Project the build's post-merge phase-1 products back onto the pre-merge units the review-facts pins count. A unit that survived the merge reads its own row. A unit that was merged away reads the survivor the merge recorded for it (`PremergeSnapshot.rebase`): the ink flag from the store and the unmatched group from the table.
 
-    Both projections are exact. The fold groups units only when every config of every sibling gives one identical `InkComparator.signature`, which is the pair of run-order ink lists `config_diff` reads, so a folded sibling's delta and ink verdict equal its survivor's. A pre-merge UNMATCHED unit that is novel under the default config always leads its window's fold order, so it is its own survivor and its phase-1 unmatched group is on its own row. Every other UNMATCHED unit is deferred and took its bucket at capture. The assert below checks the second argument where it could fail: an UNMATCHED, undeferred row that was folded away.
+    Both projections are exact. The merge groups units only when every config of every sibling gives one identical `InkComparator.signature`, which is the pair of run-order ink lists `config_diff` reads, so a merged sibling's delta and ink verdict equal its survivor's. A pre-merge UNMATCHED unit that is novel under the default config always leads its window's merge order, so it is its own survivor and its phase-1 unmatched group is on its own row. Every other UNMATCHED unit is deferred and took its bucket at capture. The assert below checks the second argument where it could fail: an UNMATCHED, undeferred row that was merged away.
     """
-    if snapshot.survivor is None or snapshot.folded is None:
+    if snapshot.survivor is None or snapshot.removed is None:
         raise ValueError(
-            "the pre-merge snapshot is derived once the fold's compaction has been rebased onto it"
+            "the pre-merge snapshot is derived once the merge's compaction has been rebased onto it"
         )
     strings = snapshot.strings
     unmatched = strings.find(UNMATCHED_CLASS)
     survivor = snapshot.survivor
-    folded = snapshot.folded
+    removed = snapshot.removed
     class_ids = snapshot.class_id
     deferred = snapshot.deferred
     ink_identical = store.ink_identical
@@ -527,8 +527,8 @@ def derive_premerge(snapshot: PremergeSnapshot, table: UnitTable, store: UnitSto
     for row in range(snapshot.n):
         target = survivor[row]
         is_unmatched = class_ids[row] == unmatched
-        assert not is_unmatched or deferred[row] or not folded[row], (
-            f"window {format_codepoints(snapshot.codepoints(row))}: a default-novel UNMATCHED unit was folded "
+        assert not is_unmatched or deferred[row] or not removed[row], (
+            f"window {format_codepoints(snapshot.codepoints(row))}: a default-novel UNMATCHED unit was merged "
             "away, so its unmatched group cannot be read off its own phase-1 row"
         )
         flags[row] = 49 if ink_identical(target) else 48

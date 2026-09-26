@@ -1971,7 +1971,7 @@ def build_m1(
         tally.hold_reading("facts.premerge", lambda: premerge_sizes(premerge_capture))
     merge_ink_duplicate_units(table, rows, ink_sig, exempt_classes)
     del signatures, ink_sig
-    # The merge marked the absorbed rows. Compacting drops them and renumbers the survivors, so from here a table row index is the unit's ordinal, which the unit store below uses too. The pre-merge snapshot records the compaction so it can find each pre-fold row's survivor.
+    # The merge marked the absorbed rows. Compacting drops them and renumbers the survivors, so from here a table row index is the unit's ordinal, which the unit store below uses too. The pre-merge snapshot records the compaction so it can find each pre-merge row's survivor.
     premerge_capture.rebase(table.compact())
     present = table.classes_present()
     workload.classes_present = [entry for entry in workload.ledger if entry.id in present]
@@ -2902,7 +2902,7 @@ def check_unit(unit: dict, mode: str = "m1-audit", *, at: tuple[str, ...] = CHEC
             )
         groups = unit.get("render_groups")
         need(isinstance(groups, list) and groups, "render_groups must be a nonempty list")
-        # A unit has one render group because its configs cannot render differently: its rows either share (codepoints, baseline, new), or `audit.merge_ink_duplicate_units` folded them together because their ink is identical in every config. Data that broke this would need stacked rendering, so it is a build error.
+        # A unit has one render group because its configs cannot render differently: its rows either share (codepoints, baseline, new), or `audit.merge_ink_duplicate_units` merged them because their ink is identical in every config. Data that broke this would need stacked rendering, so it is a build error.
         if mode == "m1-audit" and isinstance(groups, list):
             need(len(groups) == 1, "m1-audit units must carry exactly one render group")
         grouped_configs: list[str] = []
