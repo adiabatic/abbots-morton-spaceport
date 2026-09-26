@@ -25,11 +25,11 @@ import {
   partitionUnits,
   humanClassCount,
   humanTotal,
-  machineFoldChannel,
+  machineFoldCheck,
   machineFoldTotal,
   noVerdictTotal,
   formatCount,
-  machineChannels,
+  machineChecks,
   corpusChipLabel,
   corpusAlphabetLabel,
   corpusStampLine,
@@ -566,7 +566,7 @@ test('ink-identical units are hidden unless the machine toggle is on', () => {
   assert.ok(on.machine.length >= 1);
 });
 
-test('needsNoVerdict reads the machine channels and the exemption, never a batch', () => {
+test('needsNoVerdict reads the machine checks and the exemption, never a batch', () => {
   for (const flag of ['ink_identical', 'picture_identical', 'junior_equivalent', 'no_verdict']) {
     assert.equal(needsNoVerdict({ [flag]: true }), true, flag);
     assert.equal(needsNoVerdict({ [flag]: false }), false, flag);
@@ -587,7 +587,7 @@ test('triageOrder reads a row\'s place in the manifest index and puts a record w
   assert.deepEqual(orderWorklist(rows, 'given').map((row) => row.id), ['b', 'a', 'c']);
 });
 
-// App index rows leave out the three machine-channel flags and `no_verdict`, because only human units have a row (app_index.app_row). These tests check that the readers treat a row without the flags the same as a shard record with them false.
+// App index rows leave out the three machine-check flags and `no_verdict`, because only human units have a row (app_index.app_row). These tests check that the readers treat a row without the flags the same as a shard record with them false.
 const slimRow = (unit) => {
   const row = { ...unit };
   for (const field of ['ink_identical', 'picture_identical', 'junior_equivalent', 'no_verdict', 'explain', 'drafts', 'provenance']) {
@@ -668,37 +668,37 @@ test('machineFoldTotal counts what a class fold will hold before the class is fe
   assert.equal(machineFoldTotal({ no_verdict: false, unit_count: 9 }), 0, 'a countless class folds nothing');
 });
 
-test('machineFoldChannel picks the narrowest channel that accounts for every machine unit', () => {
+test('machineFoldCheck picks the narrowest check that accounts for every machine unit', () => {
   const cls = (over) => ({ no_verdict: false, unit_count: 10, machine_approved_count: 10, ...over });
   assert.equal(
-    machineFoldChannel(cls({ machine_channels: { ink_identical: 10, picture_identical: 0, junior_equivalent: 0 } })),
+    machineFoldCheck(cls({ machine_checks: { ink_identical: 10, picture_identical: 0, junior_equivalent: 0 } })),
     'ink_identical',
   );
   assert.equal(
-    machineFoldChannel(cls({ machine_channels: { ink_identical: 6, picture_identical: 4, junior_equivalent: 0 } })),
+    machineFoldCheck(cls({ machine_checks: { ink_identical: 6, picture_identical: 4, junior_equivalent: 0 } })),
     'picture_identical',
   );
   assert.equal(
-    machineFoldChannel(cls({ machine_channels: { ink_identical: 6, picture_identical: 1, junior_equivalent: 3 } })),
+    machineFoldCheck(cls({ machine_checks: { ink_identical: 6, picture_identical: 1, junior_equivalent: 3 } })),
     'junior_equivalent',
   );
   assert.equal(
-    machineFoldChannel({
+    machineFoldCheck({
       no_verdict: true,
       unit_count: 10,
       machine_approved_count: 4,
-      machine_channels: { ink_identical: 4, picture_identical: 0, junior_equivalent: 0 },
+      machine_checks: { ink_identical: 4, picture_identical: 0, junior_equivalent: 0 },
     }),
     'no_verdict',
-    'a no-verdict class folds its exempt units too, so no machine channel accounts for all of them',
+    'a no-verdict class folds its exempt units too, so no machine check accounts for all of them',
   );
 });
 
-test('machineFoldChannel falls back to the no-verdict badge for a class carrying no channel split', () => {
-  assert.equal(machineFoldChannel({ no_verdict: false, unit_count: 10, machine_approved_count: 10 }), 'no_verdict');
-  assert.equal(machineFoldChannel({ no_verdict: false, unit_count: 10, machine_approved_count: 0 }), 'no_verdict');
+test('machineFoldCheck falls back to the no-verdict badge for a class carrying no check split', () => {
+  assert.equal(machineFoldCheck({ no_verdict: false, unit_count: 10, machine_approved_count: 10 }), 'no_verdict');
+  assert.equal(machineFoldCheck({ no_verdict: false, unit_count: 10, machine_approved_count: 0 }), 'no_verdict');
   const marker = manifest.classes.find((cls) => cls.id === 'marker-staging-ligature-formation');
-  assert.equal(machineFoldChannel(marker), 'ink_identical');
+  assert.equal(machineFoldCheck(marker), 'ink_identical');
 });
 
 test('a no-verdict class contributes nothing to the human units and everything non-identical to the exempt total', () => {
@@ -716,23 +716,23 @@ test('formatCount groups thousands', () => {
   assert.equal(formatCount(15960), '15,960');
 });
 
-test('machineChannels splits the machine-approved total and treats a channel-less manifest as all ink-identical', () => {
-  assert.deepEqual(machineChannels(manifest), { units: 1, inkIdentical: 1, pictureIdentical: 0, juniorEquivalent: 0 });
-  const channelled = {
+test('machineChecks splits the machine-approved total and treats a check-less manifest as all ink-identical', () => {
+  assert.deepEqual(machineChecks(manifest), { units: 1, inkIdentical: 1, pictureIdentical: 0, juniorEquivalent: 0 });
+  const splitManifest = {
     machine_approved: {
       units: 11926,
-      channels: { ink_identical: { units: 8350 }, junior_equivalent: { units: 3576 } },
+      checks: { ink_identical: { units: 8350 }, junior_equivalent: { units: 3576 } },
     },
   };
-  assert.deepEqual(machineChannels(channelled), { units: 11926, inkIdentical: 8350, pictureIdentical: 0, juniorEquivalent: 3576 });
+  assert.deepEqual(machineChecks(splitManifest), { units: 11926, inkIdentical: 8350, pictureIdentical: 0, juniorEquivalent: 3576 });
   const threeWay = {
     machine_approved: {
       units: 13126,
-      channels: { ink_identical: { units: 8350 }, picture_identical: { units: 1200 }, junior_equivalent: { units: 3576 } },
+      checks: { ink_identical: { units: 8350 }, picture_identical: { units: 1200 }, junior_equivalent: { units: 3576 } },
     },
   };
-  assert.deepEqual(machineChannels(threeWay), { units: 13126, inkIdentical: 8350, pictureIdentical: 1200, juniorEquivalent: 3576 });
-  assert.deepEqual(machineChannels({}), { units: 0, inkIdentical: 0, pictureIdentical: 0, juniorEquivalent: 0 });
+  assert.deepEqual(machineChecks(threeWay), { units: 13126, inkIdentical: 8350, pictureIdentical: 1200, juniorEquivalent: 3576 });
+  assert.deepEqual(machineChecks({}), { units: 0, inkIdentical: 0, pictureIdentical: 0, juniorEquivalent: 0 });
 });
 
 test('the collapsed chip carries the corpus total and the popover breaks it down to the human units', () => {
@@ -745,21 +745,21 @@ test('the collapsed chip carries the corpus total and the popover breaks it down
       ['for human review', '5'],
     ],
   );
-  const channelled = {
+  const splitManifest = {
     totals: { units: 15960 },
     machine_approved: {
       units: 11926,
       method: 'Shaped in both fonts and compared.',
-      channels: { ink_identical: { units: 8350 }, junior_equivalent: { units: 3576 } },
+      checks: { ink_identical: { units: 8350 }, junior_equivalent: { units: 3576 } },
     },
     classes: [
       { id: 'boundary-echo', no_verdict: true, unit_count: 6256, machine_approved_count: 4940 },
       { id: 'x', no_verdict: false, unit_count: 9704, machine_approved_count: 6986 },
     ],
   };
-  assert.equal(corpusChipLabel(channelled), '15,960 units');
+  assert.equal(corpusChipLabel(splitManifest), '15,960 units');
   assert.deepEqual(
-    corpusDetailRows(channelled).map((row) => [row.label, row.value, row.sub ?? false]),
+    corpusDetailRows(splitManifest).map((row) => [row.label, row.value, row.sub ?? false]),
     [
       ['Corpus', '15,960', false],
       ['machine-approved', '11,926', false],
@@ -776,7 +776,7 @@ test('the collapsed chip carries the corpus total and the popover breaks it down
   );
 });
 
-test('a third machine channel takes its own sub row, and a lone channel merges back into the total row', () => {
+test('a third machine check takes its own sub row, and a lone check merges back into the total row', () => {
   const corpus = {
     totals: { units: 15960 },
     classes: [
@@ -789,7 +789,7 @@ test('a third machine channel takes its own sub row, and a lone channel merges b
     machine_approved: {
       units: 13126,
       method: 'Shaped in both fonts and compared.',
-      channels: { ink_identical: { units: 8350 }, picture_identical: { units: 1200 }, junior_equivalent: { units: 3576 } },
+      checks: { ink_identical: { units: 8350 }, picture_identical: { units: 1200 }, junior_equivalent: { units: 3576 } },
     },
   };
   assert.deepEqual(
@@ -809,7 +809,7 @@ test('a third machine channel takes its own sub row, and a lone channel merges b
     machine_approved: {
       units: 3,
       method: 'Rasterized in both fonts and compared cell by cell.',
-      channels: { ink_identical: { units: 0 }, picture_identical: { units: 3 }, junior_equivalent: { units: 0 } },
+      checks: { ink_identical: { units: 0 }, picture_identical: { units: 3 }, junior_equivalent: { units: 0 } },
     },
   };
   assert.deepEqual(
@@ -826,7 +826,7 @@ test('a third machine channel takes its own sub row, and a lone channel merges b
     machine_approved: {
       units: 3576,
       method: 'Compared against the Junior font.',
-      channels: { ink_identical: { units: 0 }, picture_identical: { units: 0 }, junior_equivalent: { units: 3576 } },
+      checks: { ink_identical: { units: 0 }, picture_identical: { units: 0 }, junior_equivalent: { units: 3576 } },
     },
   };
   assert.deepEqual(
@@ -837,7 +837,7 @@ test('a third machine channel takes its own sub row, and a lone channel merges b
       ['in no-verdict classes', '1,316', false],
       ['for human review', '2,718', false],
     ],
-    'a channel with no units gets no row, so the one channel left names the total',
+    'a check with no units gets no row, so the one check left names the total',
   );
 });
 
@@ -855,25 +855,25 @@ test('the popover stamp names the generation and the head it was generated at', 
   assert.equal(corpusStampLine({}), null);
 });
 
-test('the machine-approved tooltip leads with the channel split, then the verification method', () => {
-  const channelled = {
+test('the machine-approved tooltip leads with the check split, then the verification method', () => {
+  const splitManifest = {
     machine_approved: {
       units: 11926,
       method: 'Shaped in both fonts and compared.',
-      channels: { ink_identical: { units: 8350 }, junior_equivalent: { units: 3576 } },
+      checks: { ink_identical: { units: 8350 }, junior_equivalent: { units: 3576 } },
     },
   };
   assert.equal(
-    machineTitle(channelled),
+    machineTitle(splitManifest),
     '8,350 ink-identical + 3,576 junior-equivalent. Shaped in both fonts and compared.',
   );
-  const methodless = { machine_approved: { units: 11926, channels: channelled.machine_approved.channels } };
+  const methodless = { machine_approved: { units: 11926, checks: splitManifest.machine_approved.checks } };
   assert.equal(machineTitle(methodless), '8,350 ink-identical + 3,576 junior-equivalent.');
   const threeWay = {
     machine_approved: {
       units: 13126,
       method: 'Shaped in both fonts and compared.',
-      channels: { ink_identical: { units: 8350 }, picture_identical: { units: 1200 }, junior_equivalent: { units: 3576 } },
+      checks: { ink_identical: { units: 8350 }, picture_identical: { units: 1200 }, junior_equivalent: { units: 3576 } },
     },
   };
   assert.equal(
@@ -884,10 +884,10 @@ test('the machine-approved tooltip leads with the channel split, then the verifi
     machine_approved: {
       units: 3,
       method: 'Rasterized in both fonts and compared cell by cell.',
-      channels: { ink_identical: { units: 0 }, picture_identical: { units: 3 }, junior_equivalent: { units: 0 } },
+      checks: { ink_identical: { units: 0 }, picture_identical: { units: 3 }, junior_equivalent: { units: 0 } },
     },
   };
-  assert.equal(machineTitle(pictureOnly), pictureOnly.machine_approved.method, 'a lone channel needs no split line');
+  assert.equal(machineTitle(pictureOnly), pictureOnly.machine_approved.method, 'a lone check needs no split line');
   assert.equal(machineTitle(manifest), manifest.machine_approved.method);
   assert.equal(machineTitle({}), '');
 });

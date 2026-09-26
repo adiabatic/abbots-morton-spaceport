@@ -65,15 +65,15 @@ class LedgerClass:
     exemplar_keys: frozenset[tuple[str, str]]  # (config, codepoints)
 
 
-MACHINE_CHANNELS = ("ink_identical", "picture_identical", "junior_equivalent")
+MACHINE_CHECKS = ("ink_identical", "picture_identical", "junior_equivalent")
 
 
 def machine_approved(fragment) -> bool:
-    """Whether a unit's JSON fragment has any machine-approval flag set. The build tries the channels in `MACHINE_CHANNELS` order (picture identity only where ink identity fails, Junior equivalence only where both fail), so at most one is true."""
-    return any(fragment.get(channel) is True for channel in MACHINE_CHANNELS)
+    """Whether a unit's JSON fragment has any machine-approval flag set. The build tries the checks in `MACHINE_CHECKS` order (picture identity only where ink identity fails, Junior equivalence only where both fail), so at most one is true."""
+    return any(fragment.get(check_id) is True for check_id in MACHINE_CHECKS)
 
 
-# The keys a slim fragment leaves out. A unit that is machine-approved (any of MACHINE_CHANNELS) or exempt by its ledger class (`no_verdict`) is never paged to a human. The app reaches its fragment only from a show-machine fold or a deep link, which draw the window, both fonts' cells and seams, the badge and the summary, but not the explain panel's candidate table, the drafts, or the pair band (`highlight`). The build omits these keys because `explain` and `drafts` are the largest fields of a full fragment, and computing the pin draft costs a shaping per unit. The keys are absent, not null, so the app can tell a slim fragment from a full one with a blank field. `build.check_unit` checks the shape in both directions, `build.unit_to_json` is the only writer, and `rebuild/review/static/slim.js` reads the same rule.
+# The keys a slim fragment leaves out. A unit that is machine-approved (any of MACHINE_CHECKS) or exempt by its ledger class (`no_verdict`) is never paged to a human. The app reaches its fragment only from a show-machine fold or a deep link, which draw the window, both fonts' cells and seams, the badge and the summary, but not the explain panel's candidate table, the drafts, or the pair band (`highlight`). The build omits these keys because `explain` and `drafts` are the largest fields of a full fragment, and computing the pin draft costs a shaping per unit. The keys are absent, not null, so the app can tell a slim fragment from a full one with a blank field. `build.check_unit` checks the shape in both directions, `build.unit_to_json` is the only writer, and `rebuild/review/static/slim.js` reads the same rule.
 SLIM_OMITTED_KEYS = ("highlight", "explain", "drafts")
 
 
@@ -140,7 +140,7 @@ class Unit:
 
     @property
     def machine_approved(self) -> bool:
-        return any(getattr(self, channel) for channel in MACHINE_CHANNELS)
+        return any(getattr(self, check_id) for check_id in MACHINE_CHECKS)
 
     @property
     def slim_fragment(self) -> bool:
@@ -1161,7 +1161,7 @@ def release_rows(workload: Workload) -> None:
 def assign_batches(
     table: UnitTable, store: UnitStoreView, order: Sequence[int], batch_size: int = BATCH_SIZE
 ) -> int:
-    """Set each unit's place in the manifest's triage index, walking the units in `order`. A human unit (no machine channel approves it, per the store, and its ledger class does not exempt it, per the table) gets its position among the human units as `order` and the slice of `batch_size` that position falls in as `batch`. Machine-approved and no-verdict units get None for both, since none is paged to a human. Neither value is written into a fragment: the manifest's `human_unit_ids` is the index, and a batch is a slice of it. Returns the batch count."""
+    """Set each unit's place in the manifest's triage index, walking the units in `order`. A human unit (no machine check approves it, per the store, and its ledger class does not exempt it, per the table) gets its position among the human units as `order` and the slice of `batch_size` that position falls in as `batch`. Machine-approved and no-verdict units get None for both, since none is paged to a human. Neither value is written into a fragment: the manifest's `human_unit_ids` is the index, and a batch is a slice of it. Returns the batch count."""
     index = 0
     machine_approved = store.machine_approved
     no_verdict = table.no_verdict

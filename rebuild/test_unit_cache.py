@@ -328,7 +328,7 @@ def _store_environment(corpus: Path) -> str:
 
 
 def _flipping_class(corpus: Path, *, no_verdict: bool) -> tuple[str, int]:
-    """Return a mini-corpus class whose `no_verdict` is as given and that holds units no machine channel approves, with the number of those units. Flipping the class's exemption moves those units between the fragment shapes."""
+    """Return a mini-corpus class whose `no_verdict` is as given and that holds units no machine check approves, with the number of those units. Flipping the class's exemption moves those units between the fragment shapes."""
     manifest = json.loads((corpus / "manifest.json").read_text(encoding="utf-8"))
     for meta in manifest["classes"]:
         flipping = meta["unit_count"] - meta["machine_approved_count"]
@@ -340,7 +340,7 @@ def _flipping_class(corpus: Path, *, no_verdict: bool) -> tuple[str, int]:
 
 
 def test_a_unit_that_loses_its_exemption_is_re_enriched_in_full(mini_corpus, mini_bundle, tmp_path, capfd):
-    """`no_verdict` comes from the ledger and is outside the content key, so a unit whose key does not change could be given a fragment of the wrong shape unless the store records which shape it holds. When a class loses its `no_verdict`, every unit in it that no machine channel approves is a cache miss and is drafted in full, the machine-approved ones stay cached, and the corpus is byte-identical to a from-scratch build under the edited ledger."""
+    """`no_verdict` comes from the ledger and is outside the content key, so a unit whose key does not change could be given a fragment of the wrong shape unless the store records which shape it holds. When a class loses its `no_verdict`, every unit in it that no machine check approves is a cache miss and is drafted in full, the machine-approved ones stay cached, and the corpus is byte-identical to a from-scratch build under the edited ledger."""
     EXEMPT_CLASS, flipping = _flipping_class(mini_corpus, no_verdict=True)
     assert not _class_meta(mini_corpus, EXEMPT_CLASS)["batches"]
     ledger = _ledger_with(mini_bundle, tmp_path, EXEMPT_CLASS, no_verdict=False)

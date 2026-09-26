@@ -1,6 +1,6 @@
 // Pure helpers for loading units without holding the corpus: the incremental NDJSON line split, the sidecar header check, the byte-span addressing that fetches a unit's record from its shard, the coalescing of spans into Range requests, the locator's block table and the binary search a deep link runs over it, the bounded record cache, and the plan for the show-machine folds. The app boots from the app index (one row per unit awaiting a verdict) instead of the class shards, so the tab's memory grows with the queue, not with the corpus; rebuild/review/app_index.py describes the files. These functions live here because app.js awaits its manifest fetch at top level, so node --test cannot import it.
 
-import { machineFoldChannel, machineFoldTotal, needsNoVerdict } from './render.js';
+import { machineFoldCheck, machineFoldTotal, needsNoVerdict } from './render.js';
 
 export const APP_INDEX_NAME = 'app-units.ndjson.gz';
 export const APP_INDEX_FORMAT = 'ams-review-app-index/1';
@@ -185,7 +185,7 @@ export function machineFoldPlan(manifest, state) {
     }
     const total = machineFoldTotal(cls);
     if (total === 0) continue;
-    plan.push({ classId: cls.id, total, channel: machineFoldChannel(cls), provisional });
+    plan.push({ classId: cls.id, total, check: machineFoldCheck(cls), provisional });
   }
   return plan;
 }

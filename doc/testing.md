@@ -65,7 +65,7 @@ uv run python -m rebuild.pipeline.run_m1 --gates-only
 
 That reruns the defect gate, the Manual-pin gate, and the oracle over the tables and font already on disk, and fails if the tables' stamp is stale. The artifact cycle plans this gates-only rerun itself when everything that changed since the last passing build is comparison-side (`comparison_side_label` in `rebuild/tools/artifact_cycle.py` lists what counts), and the green record it writes lets the next pass skip the build entirely.
 
-The oracle serves what it can from the per-row stores that `rebuild/pipeline/oracle_cache.py` keeps beside the tables. Each row has two verdicts under two keys: the settlement comparison, keyed by the row's rune keys, and the shaped-position verdict, keyed by those plus the font's per-family glyph digests, the kern sidecar, and the position channel's module (`rebuild/pipeline/oracle_positions.py`).
+The oracle serves what it can from the per-row stores that `rebuild/pipeline/oracle_cache.py` keeps beside the tables. Each row has two verdicts under two keys: the settlement comparison, keyed by the row's rune keys, and the shaped-position verdict, keyed by those plus the font's per-family glyph digests, the kern sidecar, and the position comparison's module (`rebuild/pipeline/oracle_positions.py`).
 
 - A ledger, alias, or classifier (`oracle.py`) edit serves both verdicts from the store.
 - A kern-sidecar or `oracle_positions.py` edit serves the row verdicts and reshapes the positions.

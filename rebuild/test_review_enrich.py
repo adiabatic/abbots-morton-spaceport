@@ -102,7 +102,7 @@ def test_pair_codepoints_covers_the_pairs_codepoint_span(enricher, units_by_key)
 
 
 def test_position_only_drift_marks_the_boundary_without_a_pair(enricher, units_by_key):
-    # A kern-channel-out-of-scope unit: an advance-only one-pixel drift on the letter beside the boundary, with no cell- or seam-grain divergence. The mark is placed on the ◊ZWNJ beside the drift, and pair stays None so no sample band is highlighted.
+    # A position-only unit whose drift kerning explains: an advance-only one-pixel drift on the letter beside the boundary, with no cell- or seam-grain divergence. The mark is placed on the ◊ZWNJ beside the drift, and pair stays None so no sample band is highlighted.
     enriched = enricher.enrich(units_by_key[("E650:200C:E676:E665", "default")])
     assert enriched.pair is None
     assert enriched.diff_positions == ()

@@ -78,7 +78,7 @@
    "unit_count": 4,
    "row_count": 9,
    "machine_approved_count": 1,
-   "machine_channels": {
+   "machine_checks": {
     "ink_identical": 1,
     "picture_identical": 0,
     "junior_equivalent": 0
@@ -99,7 +99,7 @@
    "unit_count": 2,
    "row_count": 5,
    "machine_approved_count": 0,
-   "machine_channels": {
+   "machine_checks": {
     "ink_identical": 0,
     "picture_identical": 0,
     "junior_equivalent": 0

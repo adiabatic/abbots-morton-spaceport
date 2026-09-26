@@ -229,7 +229,7 @@ def overlap_comparator(tmp_path_factory):
 
 
 def test_picture_identity_sees_through_an_overlap_removal(overlap_comparator):
-    """The outline-level reading sees a changed qsB, but both fonts paint the same nine cells, so the delta is the empty sentinel and the picture channel approves. The column qsB gives up is one qsA still paints, and the delta is read over the window's union, not over the pieces that changed."""
+    """The outline-level reading sees a changed qsB, but both fonts paint the same nine cells, so the delta is the empty sentinel and the picture check approves. The column qsB gives up is one qsA still paints, and the delta is read over the window's union, not over the pieces that changed."""
     assert overlap_comparator.ink_identical(OVERLAP_TEXT, ("default",)) is False
     assert overlap_comparator.pieces_identical(OVERLAP_TEXT, "default") is False
     assert overlap_comparator.config_diff(OVERLAP_TEXT, "default") == IDENTITY_DIFF
@@ -240,7 +240,7 @@ def test_picture_identity_sees_through_an_overlap_removal(overlap_comparator):
 
 
 def test_picture_identity_fails_closed_off_the_grid(tmp_path):
-    """A placement or outline off the PIXEL_SIZE grid has no cell reading, so the picture channel does not approve it. An off-grid advance and an off-grid edge each leave the window to a human, and the delta falls back to the outline level (translated outlines, with the shift in font units), which is never the sentinel for pieces that differ."""
+    """A placement or outline off the PIXEL_SIZE grid has no cell reading, so the picture check does not approve it. An off-grid advance and an off-grid edge each leave the window to a human, and the delta falls back to the outline level (translated outlines, with the shift in font units), which is never the sentinel for pieces that differ."""
     before = _build_font(tmp_path / "before.ttf", OVERLAP_BEFORE, OVERLAP_CMAP)
     slid = _build_font(tmp_path / "slid.ttf", {"qsA": (COLUMN, 75), "qsB": (HALF_COLUMN, 100)}, OVERLAP_CMAP)
     comparator = InkComparator(before, slid)
@@ -284,7 +284,7 @@ def tuck_comparator(tmp_path_factory):
 
 
 def test_a_union_invisible_tuck_is_the_empty_sentinel_on_its_own(tuck_comparator):
-    """·At·J'ai alone: the pieces differ, the picture does not, so the delta is the sentinel and the picture channel approves the window."""
+    """·At·J'ai alone: the pieces differ, the picture does not, so the delta is the sentinel and the picture check approves the window."""
     assert tuck_comparator.pieces_identical(TUCK_ALONE, "default") is False
     assert tuck_comparator.config_diff(TUCK_ALONE, "default") == IDENTITY_DIFF
     assert tuck_comparator.picture_identical(TUCK_ALONE, ("default",)) is True
@@ -352,7 +352,7 @@ def test_config_diff_localizes_the_delta_to_the_changed_region(comparator):
 
 
 def test_a_real_one_pixel_change_is_not_picture_identical(comparator):
-    """·Pea·Tea·Eight·Roe differs by a single pixel that no neighbor covers, so the picture channel must not approve it."""
+    """·Pea·Tea·Eight·Roe differs by a single pixel that no neighbor covers, so the picture check must not approve it."""
     text = "".join(chr(value) for value in (0xE650, 0xE652, 0xE673, 0xE668))
     assert comparator.picture_identical(text, ("default",)) is False
 

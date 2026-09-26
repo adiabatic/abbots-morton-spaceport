@@ -37,7 +37,7 @@ from rebuild.review import app_index, facts, tablediff, unit_cache, unit_index, 
 from rebuild.review.audit import (
     ACCEPTANCE_CONFIGS,
     BATCH_SIZE,
-    MACHINE_CHANNELS,
+    MACHINE_CHECKS,
     SLIM_OMITTED_KEYS,
     UNMATCHED_CLASS,
     RowColumns,
@@ -288,9 +288,9 @@ def _config_class_note(unit) -> str | None:
 def _machine_approved_meta(
     machine_units: Iterable[tuple[str, int, str]], junior_font: Path, repo_root: Path
 ) -> dict:
-    """Return the manifest's `machine_approved` record: unit and row totals across the three machine channels (ink-identical, picture-identical and junior-equivalent), unit counts per class (classes with none are omitted), and one sub-record per channel with its counts and verification method. `machine_units` yields one `(class_id, row_count, channel)` per machine-approved unit, in triage order. `by_class` keeps classes in first-appearance order, so they follow the manifest's class order: ledger classes, then the unmatched groups in `unmatched_groups.UNMATCHED_GROUP_ORDER`. `facts.invariant_group` publishes that order as the pins' `machine_approved_classes`, so it must not depend on the table's load order. The junior channel also records the Junior font it used, because the manifest's fonts block does not cover it: the app never renders it."""
+    """Return the manifest's `machine_approved` record: unit and row totals across the three machine checks (ink-identical, picture-identical and junior-equivalent), unit counts per class (classes with none are omitted), and one sub-record per machine check with its counts and verification method. `machine_units` yields one `(class_id, row_count, check_id)` per machine-approved unit, in triage order. `by_class` keeps classes in first-appearance order, so they follow the manifest's class order: ledger classes, then the unmatched groups in `unmatched_groups.UNMATCHED_GROUP_ORDER`. `facts.invariant_group` publishes that order as the pins' `machine_approved_classes`, so it must not depend on the table's load order. The Junior check also records the Junior font it used, because the manifest's fonts block does not cover it: the app never renders it."""
     by_class: dict[str, int] = {}
-    channels = {
+    checks = {
         "ink_identical": {"units": 0, "rows": 0, "method": VERIFICATION_METHOD},
         "picture_identical": {"units": 0, "rows": 0, "method": PICTURE_VERIFICATION_METHOD},
         "junior_equivalent": {
@@ -302,19 +302,19 @@ def _machine_approved_meta(
     }
     rows = 0
     units = 0
-    for class_id, row_count, channel_name in machine_units:
+    for class_id, row_count, check_name in machine_units:
         units += 1
         by_class[class_id] = by_class.get(class_id, 0) + 1
         rows += row_count
-        channel = channels[channel_name]
-        channel["units"] += 1
-        channel["rows"] += row_count
+        record = checks[check_name]
+        record["units"] += 1
+        record["rows"] += row_count
     return {
         "units": units,
         "rows": rows,
         "method": VERIFICATION_METHOD,
         "by_class": by_class,
-        "channels": channels,
+        "checks": checks,
     }
 
 
@@ -1649,11 +1649,11 @@ def _write_corpus(
     try:
         for entry in ordered:
             ordinals = by_id[entry.id]
-            channels = {channel: 0 for channel in MACHINE_CHANNELS}
+            checks = {check_id: 0 for check_id in MACHINE_CHECKS}
             for ordinal in ordinals:
-                channel = store.machine_channel(ordinal)
-                if channel is not None:
-                    channels[channel] += 1
+                check_id = store.machine_check(ordinal)
+                if check_id is not None:
+                    checks[check_id] += 1
             meta = {
                 "id": entry.id,
                 "status": entry.status,
@@ -1662,9 +1662,9 @@ def _write_corpus(
                 "why": entry.why,
                 "unit_count": len(ordinals),
                 "row_count": sum(map(table.row_count, ordinals)),
-                "machine_approved_count": sum(channels.values()),
-                # The app draws a class's machine fold, its count and its badge, before opening the class, and under the slim app index those units are not loaded. So the per-channel counts the badge is chosen from are recorded here.
-                "machine_channels": channels,
+                "machine_approved_count": sum(checks.values()),
+                # The app draws a class's machine fold, its count and its badge, before opening the class, and under the slim app index those units are not loaded. So the per-check counts the badge is chosen from are recorded here.
+                "machine_checks": checks,
                 "shards": [],
                 "batches": sorted({batch for batch in map(table.batch, ordinals) if batch is not None}),
             }
@@ -1708,9 +1708,9 @@ def _write_corpus(
             ),
         }
         machine_units = (
-            (table.class_id(ordinal), table.row_count(ordinal), channel)
+            (table.class_id(ordinal), table.row_count(ordinal), check_id)
             for ordinal in order
-            if (channel := store.machine_channel(ordinal)) is not None
+            if (check_id := store.machine_check(ordinal)) is not None
         )
         manifest = {
             "format": MANIFEST_FORMAT,
@@ -2549,7 +2549,7 @@ def build_table_diff(
         shard = []
         batches = set()
         machine_count = 0
-        channel_counts = {channel: 0 for channel in MACHINE_CHANNELS}
+        check_counts = {check_id: 0 for check_id in MACHINE_CHECKS}
         for entry in members:
             # An entry without an example text has no text to shape, so it cannot be shown ink- or picture-identical and stays a human unit.
             text = "".join(chr(value) for value in entry.example_text) if entry.example_text else ""
@@ -2563,7 +2563,7 @@ def build_table_diff(
             ids_seen.add(fragment["id"])
             if ink_identical or picture_identical:
                 machine_count += 1
-                channel_counts["ink_identical" if ink_identical else "picture_identical"] += 1
+                check_counts["ink_identical" if ink_identical else "picture_identical"] += 1
                 machine_rows += max(len(entry.paired), 1)
             else:
                 batches.add(human_index // batch_size)
@@ -2588,7 +2588,7 @@ def build_table_diff(
                 "unit_count": len(members),
                 "row_count": sum(max(len(entry.paired), 1) for entry in members),
                 "machine_approved_count": machine_count,
-                "machine_channels": channel_counts,
+                "machine_checks": check_counts,
                 "shards": parts,
                 "batches": sorted(batches),
             }
@@ -2705,25 +2705,25 @@ def check_manifest(manifest: dict) -> list[str]:
             isinstance(by_class, dict) and all(isinstance(count, int) for count in (by_class or {}).values()),
             "machine_approved.by_class must map class ids to integers",
         )
-        channels = machine.get("channels")
-        if channels is not None:
+        checks = machine.get("checks")
+        if checks is not None:
             need(
-                isinstance(channels, dict) and set(channels) == set(MACHINE_CHANNELS),
-                "machine_approved.channels must map the three machine channels",
+                isinstance(checks, dict) and set(checks) == set(MACHINE_CHECKS),
+                "machine_approved.checks must map the three machine checks",
             )
-            if isinstance(channels, dict):
-                for channel, record in channels.items():
+            if isinstance(checks, dict):
+                for check_id, record in checks.items():
                     if not isinstance(record, dict):
-                        need(False, f"machine_approved.channels.{channel} must be a mapping")
+                        need(False, f"machine_approved.checks.{check_id} must be a mapping")
                         continue
                     for key in ("units", "rows"):
                         need(
                             isinstance(record.get(key), int),
-                            f"machine_approved.channels.{channel}.{key} must be an integer",
+                            f"machine_approved.checks.{check_id}.{key} must be an integer",
                         )
                     need(
                         isinstance(record.get("method"), str) and record.get("method"),
-                        f"machine_approved.channels.{channel}.method must be a nonempty string",
+                        f"machine_approved.checks.{check_id}.method must be a nonempty string",
                     )
     secondary_seam_counts = manifest.get("secondary_seams")
     if secondary_seam_counts is not None:
@@ -2757,15 +2757,15 @@ def check_manifest(manifest: dict) -> list[str]:
         )
         for key in ("unit_count", "row_count", "machine_approved_count"):
             need(isinstance(meta.get(key), int), f"classes[{identifier}].{key} must be an integer")
-        channels = meta.get("machine_channels")
+        checks = meta.get("machine_checks")
         well_formed = (
-            isinstance(channels, dict)
-            and set(channels) == set(MACHINE_CHANNELS)
-            and all(isinstance(count, int) for count in channels.values())
+            isinstance(checks, dict)
+            and set(checks) == set(MACHINE_CHECKS)
+            and all(isinstance(count, int) for count in checks.values())
         )
         need(
             well_formed,
-            f"classes[{identifier}].machine_channels must count the three machine channels",
+            f"classes[{identifier}].machine_checks must count the three machine checks",
         )
         need(isinstance(meta.get("batches"), list), f"classes[{identifier}].batches must be a list")
         need("status" in meta, f"classes[{identifier}].status must be present")
@@ -2818,7 +2818,7 @@ def check_unit(unit: dict, mode: str = "m1-audit", *, at: tuple[str, ...] = CHEC
                 f"{label} must satisfy x_min <= x_max <= advance_total",
             )
 
-    approving = [channel for channel in MACHINE_CHANNELS if unit.get(channel) is True]
+    approving = [check_id for check_id in MACHINE_CHECKS if unit.get(check_id) is True]
     human = not approving and unit.get("no_verdict") is not True
     pair = unit.get("pair")
 
@@ -2856,7 +2856,7 @@ def check_unit(unit: dict, mode: str = "m1-audit", *, at: tuple[str, ...] = CHEC
         need(isinstance(unit.get("no_verdict"), bool), "no_verdict must be a bool")
         # Whether a unit takes a verdict comes from its flags (`audit.slim_fragment`), and its place in the queue comes from the manifest's triage index, so a fragment carries no batch.
         need("batch" not in unit, "a fragment carries no batch; the manifest's human_unit_ids is the index")
-        need(len(approving) <= 1, "at most one machine channel may approve a unit")
+        need(len(approving) <= 1, "at most one machine check may approve a unit")
         for key in ("class", "group", "notation", "summary"):
             need(isinstance(unit.get(key), str) and unit.get(key) != "", f"{key} must be a nonempty string")
         # The slim shape is checked in both directions. A slim fragment must omit every key in `SLIM_OMITTED_KEYS`, and a full fragment must carry them with values, because a human unit without them gives the reviewer nothing to act on. Key presence is the test, as in the app's `isSlimFragment`: a null under one of these keys in a full fragment is an error, not a slim marker.
@@ -3220,13 +3220,13 @@ class _CorpusCheck:
         self._meta: Mapping = {}
         self._class_units = 0
         self._machine_count = 0
-        self._channel_counts: dict[str, int] = {}
+        self._check_counts: dict[str, int] = {}
 
     def class_start(self, meta: Mapping) -> None:
         self._meta = meta
         self._class_units = 0
         self._machine_count = 0
-        self._channel_counts = {channel: 0 for channel in MACHINE_CHANNELS}
+        self._check_counts = {check_id: 0 for check_id in MACHINE_CHECKS}
         if meta.get("no_verdict") and meta.get("batches"):
             self.errors.append(f"class {meta.get('id')}: a no-verdict class must carry no batches")
 
@@ -3281,9 +3281,9 @@ class _CorpusCheck:
             )
         if machine_approved(unit):
             self._machine_count += 1
-            for channel in MACHINE_CHANNELS:
-                if unit.get(channel) is True:
-                    self._channel_counts[channel] += 1
+            for check_id in MACHINE_CHECKS:
+                if unit.get(check_id) is True:
+                    self._check_counts[check_id] += 1
         if unit.get("secondary_seams"):
             self._seam_units += 1
             for seam in unit["secondary_seams"]:
@@ -3308,11 +3308,11 @@ class _CorpusCheck:
                 f"manifest says {meta.get('machine_approved_count')}"
             )
         # The app draws a machine fold's badge from this record alone, before it loads the fold's units, so a stale count would mislabel the fold.
-        declared_channels = meta.get("machine_channels")
-        if isinstance(declared_channels, dict) and dict(declared_channels) != self._channel_counts:
+        declared_checks = meta.get("machine_checks")
+        if isinstance(declared_checks, dict) and dict(declared_checks) != self._check_counts:
             errors.append(
-                f"class {meta.get('id')}: machine_channels {dict(declared_channels)} != "
-                f"{self._channel_counts} in the shards"
+                f"class {meta.get('id')}: machine_checks {dict(declared_checks)} != "
+                f"{self._check_counts} in the shards"
             )
         if self._machine_count:
             self._seen_machine_by_class[meta["id"]] = self._machine_count

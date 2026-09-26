@@ -181,7 +181,7 @@ def test_the_stamp_carries_the_configuration_and_its_features(repo):
 
 
 def test_the_stamp_folds_none_of_the_inputs_the_comparison_re_reads_every_pass(repo):
-    """The stamp must not include an input the comparison re-reads on every pass, because such an input can change without making any record stale, and including it would drop the whole store for nothing. A value comparison cannot detect this. The alias map is covered by the per-family keys and its own `alias_boundary` line, the divergence ledger is re-read by classification, and the kern sidecar is re-read by the position channel. Each is checked to be a data input that `stamped_data_paths` actually excludes, not merely a path the stamp does not reach."""
+    """The stamp must not include an input the comparison re-reads on every pass, because such an input can change without making any record stale, and including it would drop the whole store for nothing. A value comparison cannot detect this. The alias map is covered by the per-family keys and its own `alias_boundary` line, the divergence ledger is re-read by classification, and the kern sidecar is re-read by the position comparison. Each is checked to be a data input that `stamped_data_paths` actually excludes, not merely a path the stamp does not reach."""
     spec = fixtures.mini_spec()
     base = _stamp(repo, spec)
     (repo / "glyph_data" / "senior_quikscript_kerning.yaml").write_text("pairs: []\n", encoding="utf-8")
@@ -929,8 +929,10 @@ def test_the_position_key_embeds_the_row_key(repo):
     ) == frozenset({"qsPea"})
 
 
-def test_the_position_stamp_names_the_channel_s_code_the_toolchain_and_the_kern_sidecar(repo, tmp_path):
-    """Checks each line of the whole-store position stamp: the position channel's module, the toolchain lock that pins the shaper, and the kern sidecar's bytes each move their own named line and no other. The position stamp repeats nothing from the row stamp except `format`, so a store loads or is dropped on the row stamp alone, and the position stamp decides only whether the stored positions may be served. The classifier's module is copied beside the channel's and edited the same way, and the edit moves no line, so a classifier edit keeps every stored position. Both module edits add a statement, not a blank line, because `fingerprint.code_file_digest` is prose-insensitive and ignores comments, docstrings, and blank lines."""
+def test_the_position_stamp_names_the_position_comparison_s_code_the_toolchain_and_the_kern_sidecar(
+    repo, tmp_path
+):
+    """Checks each line of the whole-store position stamp: the position comparison's module, the toolchain lock that pins the shaper, and the kern sidecar's bytes each move their own named line and no other. The position stamp repeats nothing from the row stamp except `format`, so a store loads or is dropped on the row stamp alone, and the position stamp decides only whether the stored positions may be served. The classifier's module is copied beside the position comparison's and edited the same way, and the edit moves no line, so a classifier edit keeps every stored position. Both module edits add a statement, not a blank line, because `fingerprint.code_file_digest` is prose-insensitive and ignores comments, docstrings, and blank lines."""
     spec = fixtures.mini_spec()
     kern = tmp_path / "kern.yaml"
     kern.write_text("global:\n  value: 0\n", encoding="utf-8")

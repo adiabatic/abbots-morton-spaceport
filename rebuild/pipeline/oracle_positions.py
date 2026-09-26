@@ -1,6 +1,6 @@
-"""The baseline oracle's position channel (M1-PLAN section 6): the kern-normalized old positions, the drift between them and the new font's shaped positions, the codec between a drift and the row store's position record, the served-position verifier, the kern sidecar evaluator, and `_shaper_for`, which picks the shaper every stored position comes from. The oracle.py module docstring says why `oracle._compare_config` calls these through the module.
+"""The baseline oracle's position comparison (M1-PLAN section 6): the kern-normalized old positions, the drift between them and the new font's shaped positions, the codec between a drift and the row store's position record, the served-position verifier, the kern sidecar evaluator, and `_shaper_for`, which picks the shaper every stored position comes from. The oracle.py module docstring says why `oracle._compare_config` calls these through the module.
 
-This module is the only entry in `oracle_cache.POSITION_CODE_PATHS`: the position store's stamp covers this file's prose-insensitive digest and nothing else from the comparison side. It must never import rebuild/pipeline/oracle.py, or the classifier's code would be in the position stamp and a classifier edit would re-shape every position. rebuild/test_oracle_code_closure.py walks the import graph from here and checks that every reachable module is named by `ORACLE_ROW_CODE_PATHS` or `POSITION_CODE_PATHS` and that `rebuild.pipeline.oracle` is unreachable. What the channel reads outside this file (`conform.Shaper`, `geometry.PIXEL`, the row model) is in `ORACLE_ROW_CODE_PATHS`, and a store whose row stamp moved is not loaded at all.
+This module is the only entry in `oracle_cache.POSITION_CODE_PATHS`: the position store's stamp covers this file's prose-insensitive digest and nothing else from the comparison side. It must never import rebuild/pipeline/oracle.py, or the classifier's code would be in the position stamp and a classifier edit would re-shape every position. rebuild/test_oracle_code_closure.py walks the import graph from here and checks that every reachable module is named by `ORACLE_ROW_CODE_PATHS` or `POSITION_CODE_PATHS` and that `rebuild.pipeline.oracle` is unreachable. What the position comparison reads outside this file (`conform.Shaper`, `geometry.PIXEL`, the row model) is in `ORACLE_ROW_CODE_PATHS`, and a store whose row stamp moved is not loaded at all.
 
 For the tables' stamp this module is comparison code: `fingerprint.COMPARISON_CODE_MODULES` names it with oracle.py, so it is in `pipeline_code_paths` and the run_m1 green record but not in `table_code_paths`, and a cycle after an edit here runs `run_m1 --gates-only` instead of a rebuild. rebuild/test_build_code_closure.py checks that the build never imports it.
 """
@@ -22,7 +22,7 @@ ZWNJ_CODEPOINT = 0x200C
 def _shaper_for(
     spec: ResolvedSpec, font_path: Path | None, overlay: bool
 ) -> "Shaper | IsolatedOverlayShaper | None":
-    """The position channel's shaper for one configuration: none without a font, the synthetic overlay shaper under an isolated overlay, HarfBuzz otherwise."""
+    """The position comparison's shaper for one configuration: none without a font, the synthetic overlay shaper under an isolated overlay, HarfBuzz otherwise."""
     if font_path is None:
         return None
     if overlay:
@@ -95,7 +95,7 @@ def _cached_position(drift: tuple[tuple[str, ...], bool] | None) -> oracle_cache
 
 
 def _served_position(cached: oracle_cache.CachedPosition | None) -> tuple[tuple[str, ...], bool] | None:
-    """Convert a stored position verdict back to `_position_drift`'s return shape, so the code after the channel cannot tell a served row from a freshly shaped one."""
+    """Convert a stored position verdict back to `_position_drift`'s return shape, so the code after the position comparison cannot tell a served row from a freshly shaped one."""
     return None if cached is None else (cached.drifts, cached.kern_attributable)
 
 
@@ -117,7 +117,7 @@ def _verify_served_positions(
 
 
 class KernEvaluator:
-    """Evaluates glyph_data/senior_quikscript_kerning.yaml for pairs of old glyph names, so sidecar kerns can be added back before a baseline position comparison. Family keys match by name prefix against the pair, as the sidecar documents. Each value depends only on the pair and the sidecar is read once, so values are memoized per pair: the oracle asks about a few thousand distinct pairs across millions of slots, and scanning every sidecar rule for each slot took most of the position channel's time."""
+    """Evaluates glyph_data/senior_quikscript_kerning.yaml for pairs of old glyph names, so sidecar kerns can be added back before a baseline position comparison. Family keys match by name prefix against the pair, as the sidecar documents. Each value depends only on the pair and the sidecar is read once, so values are memoized per pair: the oracle asks about a few thousand distinct pairs across millions of slots, and scanning every sidecar rule for each slot took most of the position comparison's time."""
 
     def __init__(self, sidecar_path: Path):
         self._values: dict[tuple[str, str], int] = {}

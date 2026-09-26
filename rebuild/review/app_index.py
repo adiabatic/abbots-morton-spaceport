@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from rebuild.review import unit_index
-from rebuild.review.audit import MACHINE_CHANNELS
+from rebuild.review.audit import MACHINE_CHECKS
 
 APP_INDEX_NAME = "app-units.ndjson.gz"
 APP_INDEX_FORMAT = "ams-review-app-index/1"
@@ -33,7 +33,7 @@ LOCATOR_BLOCK_ROWS = 1024
 # Level 6, where `unit_index` uses level 1: the app fetches these files on every page load (`Cache-Control: no-store`), while the verdict update reads its index from local disk.
 COMPRESS_LEVEL = 6
 
-_SLIMMED_FLAGS = (*MACHINE_CHANNELS, "no_verdict")
+_SLIMMED_FLAGS = (*MACHINE_CHECKS, "no_verdict")
 
 Span = tuple[int, int, int]
 
@@ -45,7 +45,7 @@ def artifact_path(corpus: Path, name: str) -> Path:
 def app_row(fragment: dict, part: int, start: int, length: int, *, order: int, batch: int) -> dict:
     """Project one human unit's shard fragment onto the fields the app reads without fetching the record, plus the unit's place in the manifest's triage index and the fragment's address. Every key is always present, in a fixed order, so two builds of the same corpus write the same bytes and every row shares one hidden class in the browser.
 
-    What a card draws from the record (`text_entities`, `highlight` and `after.cells`) is not here; the app Range-fetches the record for each card it renders. The three machine-channel flags and `no_verdict` are asserted false and left out: `audit.assign_batches` gives no triage-index place to a unit with any of them, and `build.check_shards` checks that the manifest's index holds only human units. A reader finds the flags absent, which it treats like the shard's `false`.
+    What a card draws from the record (`text_entities`, `highlight` and `after.cells`) is not here; the app Range-fetches the record for each card it renders. The three machine-check flags and `no_verdict` are asserted false and left out: `audit.assign_batches` gives no triage-index place to a unit with any of them, and `build.check_shards` checks that the manifest's index holds only human units. A reader finds the flags absent, which it treats like the shard's `false`.
     """
     assert not any(fragment.get(flag) for flag in _SLIMMED_FLAGS), fragment.get("id")
     return {

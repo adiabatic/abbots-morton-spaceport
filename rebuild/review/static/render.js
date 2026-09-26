@@ -161,11 +161,11 @@ export function onlyHereSeamSpans(unit) {
   return result;
 }
 
-const MACHINE_CHANNELS = ['ink_identical', 'picture_identical', 'junior_equivalent'];
+const MACHINE_CHECKS = ['ink_identical', 'picture_identical', 'junior_equivalent'];
 
 export function needsNoVerdict(unit) {
-  // Matches audit.slim_fragment in the build: a unit approved by any machine channel, or in a no-verdict ledger class, takes no verdict. It reads the flags, not the batch, because only app-index rows carry a batch. Those rows are all human units and omit the flags, so they read as human here.
-  return Boolean(unit) && (unit.no_verdict === true || MACHINE_CHANNELS.some((channel) => unit[channel] === true));
+  // Matches audit.slim_fragment in the build: a unit approved by any machine check, or in a no-verdict ledger class, takes no verdict. It reads the flags, not the batch, because only app-index rows carry a batch. Those rows are all human units and omit the flags, so they read as human here.
+  return Boolean(unit) && (unit.no_verdict === true || MACHINE_CHECKS.some((check) => unit[check] === true));
 }
 
 // A human row's position in the manifest's triage index, the order the app pages in, or Infinity for a record without one.
@@ -248,13 +248,13 @@ export function machineFoldTotal(cls) {
   return cls.no_verdict ? cls.unit_count : (cls.machine_approved_count ?? 0);
 }
 
-// The badge for that fold, from the manifest's per-class channel counts. Channels are tried from narrowest to widest (ink-identical, picture-identical, Junior-equivalent), and the first whose count plus the narrower channels' counts equals the fold total is the badge; otherwise the fold gets the no-verdict badge.
-export function machineFoldChannel(cls) {
+// The badge for that fold, from the manifest's per-class machine-check counts. Checks are tried from narrowest to widest (ink-identical, picture-identical, Junior-equivalent), and the first whose count plus the narrower checks' counts equals the fold total is the badge; otherwise the fold gets the no-verdict badge.
+export function machineFoldCheck(cls) {
   const total = machineFoldTotal(cls);
-  const channels = cls.machine_channels ?? {};
-  const ink = channels.ink_identical ?? 0;
-  const picture = channels.picture_identical ?? 0;
-  const junior = channels.junior_equivalent ?? 0;
+  const checks = cls.machine_checks ?? {};
+  const ink = checks.ink_identical ?? 0;
+  const picture = checks.picture_identical ?? 0;
+  const junior = checks.junior_equivalent ?? 0;
   if (total === 0) return 'no_verdict';
   if (ink === total) return 'ink_identical';
   if (ink + picture === total) return 'picture_identical';
@@ -284,30 +284,30 @@ export function formatCount(value) {
   return COUNT_FORMAT.format(value);
 }
 
-export function machineChannels(manifest) {
+export function machineChecks(manifest) {
   const machine = manifest.machine_approved ?? {};
-  const channels = machine.channels ?? {};
+  const checks = machine.checks ?? {};
   return {
     units: machine.units ?? 0,
-    inkIdentical: channels.ink_identical?.units ?? machine.units ?? 0,
-    pictureIdentical: channels.picture_identical?.units ?? 0,
-    juniorEquivalent: channels.junior_equivalent?.units ?? 0,
+    inkIdentical: checks.ink_identical?.units ?? machine.units ?? 0,
+    pictureIdentical: checks.picture_identical?.units ?? 0,
+    juniorEquivalent: checks.junior_equivalent?.units ?? 0,
   };
 }
 
-const MACHINE_CHANNEL_ROWS = [
+const MACHINE_CHECK_ROWS = [
   ['ink_identical', 'inkIdentical', 'ink-identical'],
   ['picture_identical', 'pictureIdentical', 'picture-identical'],
   ['junior_equivalent', 'juniorEquivalent', 'junior-equivalent'],
 ];
 
-function machineChannelSplit(manifest) {
-  const counts = machineChannels(manifest);
-  const channels = manifest.machine_approved?.channels ?? {};
+function machineCheckSplit(manifest) {
+  const counts = machineChecks(manifest);
+  const checks = manifest.machine_approved?.checks ?? {};
   const split = [];
-  for (const [key, countKey, label] of MACHINE_CHANNEL_ROWS) {
+  for (const [key, countKey, label] of MACHINE_CHECK_ROWS) {
     const units = counts[countKey];
-    if (units > 0) split.push({ label, units, method: channels[key]?.method ?? '' });
+    if (units > 0) split.push({ label, units, method: checks[key]?.method ?? '' });
   }
   return split;
 }
@@ -334,14 +334,14 @@ const NO_VERDICT_DETAIL_TITLE =
 
 export function corpusDetailRows(manifest) {
   const rows = [{ label: 'Corpus', value: formatCount(manifest.totals.units) }];
-  const { units } = machineChannels(manifest);
+  const { units } = machineChecks(manifest);
   if (units > 0) {
-    const split = machineChannelSplit(manifest);
+    const split = machineCheckSplit(manifest);
     const label = split.length === 1 ? `${split[0].label} machine-approved` : 'machine-approved';
     rows.push({ label, value: formatCount(units), title: machineTitle(manifest) });
     if (split.length > 1) {
-      for (const channel of split) {
-        rows.push({ label: channel.label, value: formatCount(channel.units), sub: true, title: channel.method });
+      for (const check of split) {
+        rows.push({ label: check.label, value: formatCount(check.units), sub: true, title: check.method });
       }
     }
   }
@@ -352,11 +352,11 @@ export function corpusDetailRows(manifest) {
 }
 
 export function machineTitle(manifest) {
-  const { units } = machineChannels(manifest);
+  const { units } = machineChecks(manifest);
   const method = manifest.machine_approved?.method ?? '';
-  const split = machineChannelSplit(manifest);
+  const split = machineCheckSplit(manifest);
   if (units === 0 || split.length < 2) return method;
-  const parts = `${split.map((channel) => `${formatCount(channel.units)} ${channel.label}`).join(' + ')}.`;
+  const parts = `${split.map((check) => `${formatCount(check.units)} ${check.label}`).join(' + ')}.`;
   return method ? `${parts} ${method}` : parts;
 }
 

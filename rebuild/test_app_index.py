@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 
 from rebuild.review import app_index, unit_index
-from rebuild.review.audit import MACHINE_CHANNELS
+from rebuild.review.audit import MACHINE_CHECKS
 from rebuild.review.build import _check_output_files, _write_shard, check_output_dir
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -199,7 +199,7 @@ def test_the_slimmed_flags_are_absent_and_every_row_carries_an_integer_batch(fix
     assert rows
     for row in rows:
         assert isinstance(row["batch"], int)
-        for flag in (*MACHINE_CHANNELS, "no_verdict"):
+        for flag in (*MACHINE_CHECKS, "no_verdict"):
             assert flag not in row
 
 
@@ -516,13 +516,13 @@ def test_a_build_satisfies_the_whole_corpus_contract(mini_corpus):
     assert check_output_dir(mini_corpus, REPO_ROOT) == []
 
 
-def test_a_builds_class_records_count_the_machine_channels_it_shipped(mini_corpus):
+def test_a_builds_class_records_count_the_machine_checks_it_shipped(mini_corpus):
     """The app renders a machine fold's count and badge before it has any of the fold's units, so the split must be in the manifest and agree with the shards. The shard predicates check this on every build (through `check_shards`, or `_CorpusCheck` in the m1 write), over every unit written, cached ones included."""
     manifest, shards = _corpus_shards(mini_corpus)
     for meta in manifest["classes"]:
         observed = {
-            channel: sum(1 for unit in shards[meta["id"]] if unit.get(channel) is True)
-            for channel in MACHINE_CHANNELS
+            check_id: sum(1 for unit in shards[meta["id"]] if unit.get(check_id) is True)
+            for check_id in MACHINE_CHECKS
         }
-        assert meta["machine_channels"] == observed
+        assert meta["machine_checks"] == observed
         assert sum(observed.values()) == meta["machine_approved_count"]

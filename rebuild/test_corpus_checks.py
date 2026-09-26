@@ -215,7 +215,7 @@ def test_a_human_unit_with_drafts_null_fails_the_build():
 
 
 @pytest.mark.parametrize("flag", ("picture_identical", "junior_equivalent", "no_verdict"))
-def test_every_machine_channel_and_the_exemption_take_the_slim_shape(flag):
+def test_every_machine_check_and_the_exemption_take_the_slim_shape(flag):
     """Every unit that takes no verdict is slim: a picture-identical unit, a Junior-equivalent unit, and a unit in a no-verdict class each pass without the explain material, and each fails the build when it carries drafts."""
     unit = _one(SLIM_UNIT)
     deltas = {} if flag == "picture_identical" else {"ss02": "d-000000000000"}

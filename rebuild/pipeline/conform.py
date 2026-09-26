@@ -10,7 +10,7 @@ What only the belt checks is what needs the real binary: HarfBuzz's application 
 
 Settlement goes through `_SettledWindowWalk`'s per-configuration window memo: the crate settles each distinct raw window once, in a batch, and every recurrence is a lookup. The oracle's rows are the belt's texts, so the two share the memo through one file per configuration under rebuild/out/m1 (`SettleMemoFile`), keyed per family like the oracle row cache. The string replay fills that file on every full replay (`absorb_replay_memo`, from the window memo the `replay-strings` subcommand writes). So a window is settled once per configuration until a rune it names changes, and a cold pass does its settling in the replay instead of in the oracle.
 
-The section 6 oracle gate is in rebuild/pipeline/oracle.py (`compare_against_baseline`, the ledger classifier) and rebuild/pipeline/oracle_positions.py (the position channel), which the enumeration's stamp leaves out. This module holds what they consume. `_compare_row` compares one baseline row's ligation (clusters), per-seam classification, and cell identity with the settled stream through the alias map, and returns the `DivergentRow` the oracle classifies. `_cached_verdict` and `_served_verdict` convert between that result and the oracle row cache's record, and `_verify_served_sample` re-derives a pass's sample of served rows and checks them against the store. `_compare_row` and the walk are the two entry points `oracle_cache.ORACLE_ROW_CODE_PATHS` is derived from, which is why they live here and the classifier does not.
+The section 6 oracle gate is in rebuild/pipeline/oracle.py (`compare_against_baseline`, the ledger classifier) and rebuild/pipeline/oracle_positions.py (the position comparison), which the enumeration's stamp leaves out. This module holds what they consume. `_compare_row` compares one baseline row's ligation (clusters), per-seam classification, and cell identity with the settled stream through the alias map, and returns the `DivergentRow` the oracle classifies. `_cached_verdict` and `_served_verdict` convert between that result and the oracle row cache's record, and `_verify_served_sample` re-derives a pass's sample of served rows and checks them against the store. `_compare_row` and the walk are the two entry points `oracle_cache.ORACLE_ROW_CODE_PATHS` is derived from, which is why they live here and the classifier does not.
 
 The crate does all settlement, through `kernel_exec`. `_SettledWindowWalk` sends waves of distinct raw windows to `kernel_exec.settle_windows`. The certificate check (`witness.check_rule_certificates`) and the belt each call `kernel_exec.guard_sweep` once and pass its verdicts to every formation call below them. Nothing here re-derives a settled cell.
 """
@@ -162,7 +162,7 @@ class Shaper:
         ]
 
     def positions(self, text: str, features: frozenset[str]) -> list[tuple[int, int, int]]:
-        """Each slot's `(x_offset, y_offset, x_advance)` from the same shaping `shape` performs. The position channel reads nothing else, and skipping the per-slot fontTools name lookup is what makes this cheaper than `shape`."""
+        """Each slot's `(x_offset, y_offset, x_advance)` from the same shaping `shape` performs. The position comparison reads nothing else, and skipping the per-slot fontTools name lookup is what makes this cheaper than `shape`."""
         buf = self._shaped(text, features)
         return [(pos.x_offset, pos.y_offset, pos.x_advance) for pos in buf.glyph_positions]
 
@@ -405,7 +405,7 @@ class IsolatedOverlayWalk:
 
 
 class IsolatedOverlayShaper:
-    """HarfBuzz's output under the overlay, computed without shaping: each letter becomes its twin, each boundary character its glyph, and each slot sits at zero offset with its `hmtx` advance. The position channel uses it for the overlay configuration. That is valid because the belt's overlay sweep checks every text up to `OVERLAY_MAX_LENGTH` against this output, and cursive attachment is pairwise, so a glyph no pair moves is moved by no text. The font lowers the namer dot before a Short twin, but this class always names it `periodcentered`. The constructor therefore raises when the two dot glyphs have different advances, since pen positions would then depend on more than the text."""
+    """HarfBuzz's output under the overlay, computed without shaping: each letter becomes its twin, each boundary character its glyph, and each slot sits at zero offset with its `hmtx` advance. The position comparison uses it for the overlay configuration. That is valid because the belt's overlay sweep checks every text up to `OVERLAY_MAX_LENGTH` against this output, and cursive attachment is pairwise, so a glyph no pair moves is moved by no text. The font lowers the namer dot before a Short twin, but this class always names it `periodcentered`. The constructor therefore raises when the two dot glyphs have different advances, since pen positions would then depend on more than the text."""
 
     def __init__(self, font_path: Path, spec: ResolvedSpec):
         from fontTools.ttLib import TTFont

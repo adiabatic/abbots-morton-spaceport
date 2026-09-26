@@ -191,7 +191,7 @@ def test_check_unit_requires_a_well_formed_ink_deltas_map():
     assert check_unit(unit, "m1-audit") == []
 
 
-def test_check_unit_ties_ink_deltas_emptiness_to_the_identity_channels():
+def test_check_unit_ties_ink_deltas_emptiness_to_the_identity_checks():
     """`ink_deltas` and the identity flags record the same fact, so the checker fails a unit where they disagree: an ink- or picture-identical unit has no deltas, and a unit whose pixels changed has at least one."""
     identical = _fixture_unit(ink_identical=True)
     assert check_unit(identical, "m1-audit") == []
@@ -210,12 +210,12 @@ def test_check_unit_ties_ink_deltas_emptiness_to_the_identity_channels():
     assert check_unit(changed, "m1-audit") == []
 
 
-def test_check_unit_admits_one_machine_channel_at_most():
-    """The machine channels are tried in precedence order, each only where the earlier ones did not approve, so a unit approved by two channels comes from no build this checker knows."""
+def test_check_unit_admits_one_machine_check_at_most():
+    """The machine checks are tried in precedence order, each only where the earlier ones did not approve, so a unit approved by two checks comes from no build this checker knows."""
     unit = _fixture_unit(ink_identical=True)
     assert check_unit(unit, "m1-audit") == []
     unit["picture_identical"] = True
-    assert any("at most one machine channel" in error for error in check_unit(unit, "m1-audit"))
+    assert any("at most one machine check" in error for error in check_unit(unit, "m1-audit"))
 
 
 def test_check_unit_takes_picture_identical_units_out_of_the_human_units():
@@ -234,11 +234,11 @@ def test_check_unit_takes_picture_identical_units_out_of_the_human_units():
     assert check_unit(unit, "m1-audit") == []
 
 
-def test_check_manifest_requires_the_three_machine_channels():
+def test_check_manifest_requires_the_three_machine_checks():
     manifest = json.loads((FIXTURES / "manifest.json").read_text(encoding="utf-8"))
-    assert not any("machine channels" in error for error in check_manifest(manifest))
-    del manifest["machine_approved"]["channels"]["picture_identical"]
-    assert any("three machine channels" in error for error in check_manifest(manifest))
+    assert not any("machine checks" in error for error in check_manifest(manifest))
+    del manifest["machine_approved"]["checks"]["picture_identical"]
+    assert any("three machine checks" in error for error in check_manifest(manifest))
 
 
 def test_check_unit_leaves_ink_deltas_out_of_the_table_diff_contract():
@@ -1552,7 +1552,7 @@ def test_the_machine_approved_classes_are_listed_in_the_manifests_class_order(mi
 
 
 def test_export_skips_verdicts_on_picture_identical_units():
-    """The picture-identical channel takes units out of the set of human units as the other two channels do, so a verdict on a unit it approved (one recorded before this channel approved the unit) is counted as an ignored verdict and drafts nothing."""
+    """The picture-identical check takes units out of the set of human units as the other two checks do, so a verdict on a unit it approved (one recorded before this check approved the unit) is counted as an ignored verdict and drafts nothing."""
     manifest, units = _export_corpus()
     unit_id = manifest["human_unit_ids"][-1]
     unit = units[unit_id]

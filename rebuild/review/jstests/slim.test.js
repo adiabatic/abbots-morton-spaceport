@@ -325,7 +325,7 @@ test('looksGzipped reads the magic number off a body a server handed over undeco
 test('machineFoldPlan names one fold per class in the batch that holds units needing no verdict', () => {
   const plan = machineFoldPlan(manifest, viewState());
   assert.deepEqual(plan, [
-    { classId: 'marker-staging-ligature-formation', total: 1, channel: 'ink_identical', provisional: false },
+    { classId: 'marker-staging-ligature-formation', total: 1, check: 'ink_identical', provisional: false },
   ]);
 });
 
@@ -365,11 +365,11 @@ test('machineFoldPlan drops a class out of the view when the batch moves past it
 test('machineFoldPlan includes a batchless class with batch 0, the way unitsForView did', () => {
   const batchless = {
     classes: [
-      { id: 'all-machine', batches: [], unit_count: 9, machine_approved_count: 9, no_verdict: false, machine_channels: { ink_identical: 9, picture_identical: 0, junior_equivalent: 0 } },
+      { id: 'all-machine', batches: [], unit_count: 9, machine_approved_count: 9, no_verdict: false, machine_checks: { ink_identical: 9, picture_identical: 0, junior_equivalent: 0 } },
     ],
   };
   assert.deepEqual(machineFoldPlan(batchless, viewState()), [
-    { classId: 'all-machine', total: 9, channel: 'ink_identical', provisional: false },
+    { classId: 'all-machine', total: 9, check: 'ink_identical', provisional: false },
   ]);
   assert.deepEqual(machineFoldPlan(batchless, viewState({ batch: 1 })), []);
 });

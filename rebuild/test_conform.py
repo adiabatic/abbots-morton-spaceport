@@ -1,4 +1,4 @@
-"""Tests for conform.py and the oracle stages that consume it: label normalization, the raw GSUB replay, the isolated overlay, alias and ledger matching, kern evaluation and the position channel, the oracle's audit shards, row cache and row ranges, the belt's bookkeeping, and the memoized settle walk and its memo file, checked against settling the same texts without a memo. The belt at its full maximum length runs in run_m1 against the compiled M1 font. Settlement comes from the Rust crate, so these tests need a built kernel: the formation-guard sweep and the settle walk both call it."""
+"""Tests for conform.py and the oracle stages that consume it: label normalization, the raw GSUB replay, the isolated overlay, alias and ledger matching, kern evaluation and the position comparison, the oracle's audit shards, row cache and row ranges, the belt's bookkeeping, and the memoized settle walk and its memo file, checked against settling the same texts without a memo. The belt at its full maximum length runs in run_m1 against the compiled M1 font. Settlement comes from the Rust crate, so these tests need a built kernel: the formation-guard sweep and the settle walk both call it."""
 
 import gzip
 import hashlib
@@ -355,8 +355,8 @@ class TestAliasAndLedger:
 
     _LEDGER_FOR_EVERY_CASE = [
         {"id": "boundary-echo", "match": {"predicate": "boundary_echo", "configs": "all"}},
-        {"id": "kern-out-of-scope", "match": {"predicate": "kern_channel_out_of_scope", "configs": "all"}},
-        {"id": "kern-on-ss04", "match": {"predicate": "kern_channel_out_of_scope", "configs": ["ss04"]}},
+        {"id": "kern-out-of-scope", "match": {"predicate": "kern_out_of_scope", "configs": "all"}},
+        {"id": "kern-on-ss04", "match": {"predicate": "kern_out_of_scope", "configs": ["ss04"]}},
         {"id": "dangling-on-ss04", "match": {"predicate": "dangling_anchor_dropped", "configs": ["ss04"]}},
         {"id": "nobody-knows-this", "match": {"predicate": "no_such_predicate", "configs": "all"}},
         {"id": "everything", "match": {}},
@@ -403,7 +403,7 @@ class TestAliasAndLedger:
         )
         classed = {"id": "dangling-anchor-dropped", "match": {"predicate": "dangling_anchor_dropped"}}
         blanket = {"id": "blanket", "match": {}}
-        kern = {"id": "kern", "match": {"predicate": "kern_channel_out_of_scope"}}
+        kern = {"id": "kern", "match": {"predicate": "kern_out_of_scope"}}
         for ledger, expected in (
             ([blanket, classed], ["blanket", "dangling-anchor-dropped"]),
             ([classed, blanket], ["dangling-anchor-dropped", "blanket"]),
@@ -533,7 +533,7 @@ class TestAliasAndLedger:
             assert oracle.classify_divergence(other) is None
 
     def test_zoo_contraction_class_excludes_the_unchanged_position_it_roe_redraw(self):
-        """In the window ·It·Roe·Tea·Zoo the old ·It·Roe pixels differ from the new ones even though every origin and advance matches, so the position channel cannot catch the change. The ·Zoo entry-contraction class must exclude that window so the difference stays visible."""
+        """In the window ·It·Roe·Tea·Zoo the old ·It·Roe pixels differ from the new ones even though every origin and advance matches, so the position comparison cannot catch the change. The ·Zoo entry-contraction class must exclude that window so the difference stays visible."""
         row = conform.DivergentRow(
             config="default",
             codepoints="E670:E668:E652:E65B",
@@ -632,7 +632,7 @@ class TestAliasCompleteness:
         assert divergent == conform._compare_row(spec, {}, "default", frozenset(), row, settled)
 
 
-class TestPositionChannel:
+class TestPositionComparison:
     def _row(self, codepoints, glyphs, positions):
         from rebuild.validation.rowmodel import Row
 
@@ -1340,8 +1340,8 @@ def _cache_position_tags(path: Path) -> list[str]:
     return tags
 
 
-def _excluded_from_the_channel(audit: Path, rows: int) -> set[int]:
-    """The rows the position channel skips whatever the ledger says, those with a ligation or seam divergence. Read from an audit in which every row diverges, so its line order is the table's row order."""
+def _excluded_from_the_position_comparison(audit: Path, rows: int) -> set[int]:
+    """The rows the position comparison skips whatever the ledger says, those with a ligation or seam divergence. Read from an audit in which every row diverges, so its line order is the table's row order."""
     lines = audit.read_text().splitlines()[1:]
     assert len(lines) == rows
     return {
@@ -1414,7 +1414,7 @@ def _cache_rederived(rows: int, pass_ordinal: int) -> set[int]:
 
 
 def _position_bench(spec, tmp_path: Path, ledger_entries: str = _INK_IDENTICAL_LEDGER):
-    """The position channel's test bench. Its rows are the frozen mini bundle's default-table rows that use only mini-spec letters and boundaries, with real old-font positions and glyph names, plus three hand-made ·Tea·May rows at the end: the bundle has no adjacent ·Tea·May pair, and the rune edit these tests share changes that pair. The alias map is all-pending, so every row diverges, and the ledger's one ink-identical entry matches every row, so every row without a ligation or seam divergence enters the channel. The font is the bundle's frozen `M1.otf`, the after font the rows were extracted against."""
+    """The position comparison's test bench. Its rows are the frozen mini bundle's default-table rows that use only mini-spec letters and boundaries, with real old-font positions and glyph names, plus three hand-made ·Tea·May rows at the end: the bundle has no adjacent ·Tea·May pair, and the rune edit these tests share changes that pair. The alias map is all-pending, so every row diverges, and the ledger's one ink-identical entry matches every row, so every row without a ligation or seam divergence enters the position comparison. The font is the bundle's frozen `M1.otf`, the after font the rows were extracted against."""
     letters = {rune.codepoint for rune in spec.runes.values() if rune.codepoint is not None}
     boundaries = {token.codepoint for token in spec.registry.boundary_tokens.values()}
     rows: list[str] = []
@@ -1537,8 +1537,8 @@ class TestOracleRowCache:
     def _position_bench(self, spec, tmp_path: Path, ledger_entries: str = _INK_IDENTICAL_LEDGER):
         return _position_bench(spec, tmp_path, ledger_entries)
 
-    def test_a_served_position_channel_writes_the_audit_a_cold_one_writes(self, spec, tmp_path):
-        """A pass that took its position verdicts from the previous pass's store writes the same `divergence-audit.tsv` as a cold pass over the same font, and so does the uncached path, while serving every position outside the scheduled re-derivation. The bench drifts for real (old-font positions against the frozen after font), so the audit has position rows and the equality covers drift descriptions, not an empty channel."""
+    def test_a_served_position_comparison_writes_the_audit_a_cold_one_writes(self, spec, tmp_path):
+        """A pass that took its position verdicts from the previous pass's store writes the same `divergence-audit.tsv` as a cold pass over the same font, and so does the uncached path, while serving every position outside the scheduled re-derivation. The bench drifts for real (old-font positions against the frozen after font), so the audit has position rows and the equality covers drift descriptions, not an empty position comparison."""
         tables, aliases, ledger, stamps, configs, rows = self._position_bench(spec, tmp_path)
         keys = self._keys(spec)
         position = oracle_cache.position_keys(REPO_ROOT, keys, MINI / "M1.otf", None)
@@ -1553,7 +1553,7 @@ class TestOracleRowCache:
         )
         _uncached, uncached_audit, _ = self._pass(spec, tmp_path, "uncached", cached=False, **shared)
 
-        excluded = _excluded_from_the_channel(cold_audit, len(rows))
+        excluded = _excluded_from_the_position_comparison(cold_audit, len(rows))
         assert 0 < len(excluded) < len(rows)
         assert cold_report.positions_compared == len(rows) - len(excluded)
         assert cold_report.positions_served == 0
@@ -1572,10 +1572,10 @@ class TestOracleRowCache:
         assert {index for index, age in enumerate(_cache_ages(store)) if age == 1} == rederived
         assert {index for index, tag in enumerate(_cache_position_tags(store)) if tag == "?"} == excluded
 
-    def test_a_served_position_channel_that_disagrees_with_harfbuzz_is_a_hard_stop(
+    def test_a_served_position_comparison_that_disagrees_with_harfbuzz_is_a_hard_stop(
         self, spec, tmp_path, monkeypatch
     ):
-        """The served-position verifier must stop the run: a served pass whose sampled positions re-shape to something other than what the store holds aborts instead of writing them into the audit. No other test triggers this check. The test replaces `_position_drift` in the position channel's module, which `oracle._compare_config` calls through the module and not through an imported name. The scheduled re-derivation's fresh shaping therefore stores the same wrong answer (the abort prevents that store from being promoted), and the sampled served rows, re-shaped through the replaced function, disagree with the records they were served from. A verifier with nothing to re-shape would let this pass."""
+        """The served-position verifier must stop the run: a served pass whose sampled positions re-shape to something other than what the store holds aborts instead of writing them into the audit. No other test triggers this check. The test replaces `_position_drift` in the position comparison's module, which `oracle._compare_config` calls through the module and not through an imported name. The scheduled re-derivation's fresh shaping therefore stores the same wrong answer (the abort prevents that store from being promoted), and the sampled served rows, re-shaped through the replaced function, disagree with the records they were served from. A verifier with nothing to re-shape would let this pass."""
         tables, aliases, ledger, stamps, configs, _rows = self._position_bench(spec, tmp_path)
         keys = self._keys(spec)
         position = oracle_cache.position_keys(REPO_ROOT, keys, MINI / "M1.otf", None)
@@ -1620,7 +1620,7 @@ class TestOracleRowCache:
         assert carried_audit.read_bytes() == fresh_audit.read_bytes()
         assert fresh_audit.read_bytes() != cold_audit.read_bytes(), "the glyph edit moved no row"
         naming = {index for index, codepoints in enumerate(rows) if 0xE652 in codepoints}
-        excluded = _excluded_from_the_channel(cold_audit, len(rows))
+        excluded = _excluded_from_the_position_comparison(cold_audit, len(rows))
         expected = naming | _cache_rederived(len(rows), 0)
         store = oracle_cache.store_path(carried_stores, "default")
         assert {
@@ -1665,7 +1665,7 @@ class TestOracleRowCache:
         expected = {
             index for index, codepoints in enumerate(rows) if 0xE652 in codepoints
         } | _cache_rederived(len(rows), 0)
-        excluded = _excluded_from_the_channel(fresh_audit, len(rows))
+        excluded = _excluded_from_the_position_comparison(fresh_audit, len(rows))
         store = oracle_cache.store_path(carried_stores, "default")
         assert {index for index, age in enumerate(_cache_ages(store)) if age == 1} == expected
         assert {
@@ -1708,7 +1708,7 @@ class TestOracleRowCache:
     def test_a_ledger_edit_that_admits_a_row_shapes_it_and_one_that_excludes_it_keeps_its_verdict(
         self, spec, tmp_path
     ):
-        """The position verdict is stored before the ledger's eligibility test. A pass whose ledger admits no row to the channel records every position as never shaped, and the next pass under an admitting ledger shapes them all and serves none, still writing the from-scratch audit. A pass whose ledger excludes a row it shaped earlier carries that verdict forward unread, so the next pass that admits the row again finds it served."""
+        """The position verdict is stored before the ledger's eligibility test. A pass whose ledger admits no row to the position comparison records every position as never shaped, and the next pass under an admitting ledger shapes them all and serves none, still writing the from-scratch audit. A pass whose ledger excludes a row it shaped earlier carries that verdict forward unread, so the next pass that admits the row again finds it served."""
         tables, aliases, admitting, stamps, configs, rows = self._position_bench(spec, tmp_path)
         excluding = tmp_path / "excluding.yaml"
         excluding.write_text("[]\n")
@@ -1730,7 +1730,7 @@ class TestOracleRowCache:
         )
         _fresh, fresh_audit, _ = self._pass(spec, tmp_path, "fresh", ledger=admitting, cached=False, **shared)
         assert admitted_audit.read_bytes() == fresh_audit.read_bytes()
-        excluded = _excluded_from_the_channel(fresh_audit, len(rows))
+        excluded = _excluded_from_the_position_comparison(fresh_audit, len(rows))
         assert admitted_report.positions_compared == len(rows) - len(excluded)
         assert admitted_report.positions_served == 0
         tags = _cache_position_tags(oracle_cache.store_path(admitted_stores, "default"))
@@ -2224,16 +2224,16 @@ class TestOracleRowRanges:
 
 
 class TestFontBlindComparison:
-    """Two signatures and one mutation rule that the row cache's keys depend on: the comparison takes no font, the position channel takes no settled stream, and a drift only appends to a row. If any of these changed, the store's key would silently cover the wrong inputs and the cache tests above would still pass."""
+    """Two signatures and one mutation rule that the row cache's keys depend on: the comparison takes no font, the position comparison takes no settled stream, and a drift only appends to a row. If any of these changed, the store's key would silently cover the wrong inputs and the cache tests above would still pass."""
 
-    def test_the_comparison_channel_takes_no_font_and_the_position_channel_takes_no_settlement(self):
+    def test_the_comparison_takes_no_font_and_the_position_comparison_takes_no_settlement(self):
         comparison = list(inspect.signature(conform._compare_row).parameters)
         assert comparison == ["spec", "aliases", "config", "features", "row", "settled"]
         position = list(inspect.signature(oracle_positions._position_drift).parameters)
         assert position == ["shaper", "kern", "features", "row"]
 
-    def test_the_position_channel_only_appends_position_to_kinds(self, spec, tmp_path, monkeypatch):
-        """A constructed drift over two rows, one the alias map leaves clean and one it leaves unaliased, observed through the ledger matches the channel makes before and after the drift. The clean row's drift creates a new divergent row whose kinds are exactly `position`. The divergent row's drift keeps every field it already had and appends `position` to its kinds and `position-drift` to its divergence tags."""
+    def test_the_position_comparison_only_appends_position_to_kinds(self, spec, tmp_path, monkeypatch):
+        """A constructed drift over two rows, one the alias map leaves clean and one it leaves unaliased, observed through the ledger matches the position comparison makes before and after the drift. The clean row's drift creates a new divergent row whose kinds are exactly `position`. The divergent row's drift keeps every field it already had and appends `position` to its kinds and `position-drift` to its divergence tags."""
         tables = tmp_path / "tables"
         _cache_subset_table(tables, "default", [(0xE650,), (0xE652,)])
         aliases = tmp_path / "aliases.yaml"

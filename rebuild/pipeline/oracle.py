@@ -1,8 +1,8 @@
-"""The baseline oracle (M1-PLAN section 6): compare settlement with the section 13.1 baseline one configuration at a time, and match each divergent row against the divergence ledger (rebuild/m1-divergences.yaml). For the rows the ledger calls ink-identical, also compare the drawn positions with the kern-normalized old positions through the position channel in rebuild/pipeline/oracle_positions.py.
+"""The baseline oracle (M1-PLAN section 6): compare settlement with the section 13.1 baseline one configuration at a time, and match each divergent row against the divergence ledger (rebuild/m1-divergences.yaml). For the rows the ledger calls ink-identical, also compare the drawn positions with the kern-normalized old positions through the position comparison in rebuild/pipeline/oracle_positions.py.
 
-Nothing here builds a table or a font; everything runs against tables and an M1.otf that are already built. So this module is left out of the stamp a serialized window enumeration carries (`fingerprint.table_code_paths` subtracts `fingerprint.COMPARISON_CODE_MODULES`), and rebuild/test_build_code_closure.py fails if the import graph from any build-side module or from `run_m1.run` reaches it. An edit to `classify_divergence`, a predicate, `compile_ledger`, `_match_compiled`, or the position channel therefore keeps every enumeration on disk, and `run_m1 --gates-only` re-runs the oracle over them. Both files stay in `fingerprint.pipeline_code_paths`, so an edit here still changes the Stage A `pipeline_code` component, the artifact cycle's run_m1 skip key, and the Stage A record the review corpus's manifest copies.
+Nothing here builds a table or a font; everything runs against tables and an M1.otf that are already built. So this module is left out of the stamp a serialized window enumeration carries (`fingerprint.table_code_paths` subtracts `fingerprint.COMPARISON_CODE_MODULES`), and rebuild/test_build_code_closure.py fails if the import graph from any build-side module or from `run_m1.run` reaches it. An edit to `classify_divergence`, a predicate, `compile_ledger`, `_match_compiled`, or the position comparison therefore keeps every enumeration on disk, and `run_m1 --gates-only` re-runs the oracle over them. Both files stay in `fingerprint.pipeline_code_paths`, so an edit here still changes the Stage A `pipeline_code` component, the artifact cycle's run_m1 skip key, and the Stage A record the review corpus's manifest copies.
 
-The rows the oracle classifies are produced in conform.py. `_compare_row` and `_SettledWindowWalk` are the entry points whose import graph `oracle_cache.ORACLE_ROW_CODE_PATHS` must cover, and the record codec (`_cached_verdict`, `_served_verdict`) and `_verify_served_sample` sit beside them. No module under that stamp imports this one, so after a classifier edit every row verdict is still served from the store; rebuild/test_oracle_code_closure.py fails if conform.py's import graph reaches this module. The position channel is rebuild/pipeline/oracle_positions.py, the only module `oracle_cache.POSITION_CODE_PATHS` names. It never imports this module either, so a classifier edit also keeps every stored position, and the same test checks that direction. `_compare_config` calls the channel through the `oracle_positions` module, not through imported names, so monkeypatching `oracle_positions._position_drift` affects both the rows this pass shapes and `_verify_served_positions` (rebuild/test_conform.py relies on this).
+The rows the oracle classifies are produced in conform.py. `_compare_row` and `_SettledWindowWalk` are the entry points whose import graph `oracle_cache.ORACLE_ROW_CODE_PATHS` must cover, and the record codec (`_cached_verdict`, `_served_verdict`) and `_verify_served_sample` sit beside them. No module under that stamp imports this one, so after a classifier edit every row verdict is still served from the store; rebuild/test_oracle_code_closure.py fails if conform.py's import graph reaches this module. The position comparison is rebuild/pipeline/oracle_positions.py, the only module `oracle_cache.POSITION_CODE_PATHS` names. It never imports this module either, so a classifier edit also keeps every stored position, and the same test checks that direction. `_compare_config` calls the position comparison through the `oracle_positions` module, not through imported names, so monkeypatching `oracle_positions._position_drift` affects both the rows this pass shapes and `_verify_served_positions` (rebuild/test_conform.py relies on this).
 
 `compare_against_baseline` is the serial path. For each configuration it streams the subset table and settles each row, or, given an `OracleRowCache`, serves the row verdict from the previous pass's store and walks only the rows an edit can reach (rebuild/pipeline/oracle_cache.py documents what the keys cover). It compares ligation, seams, and cells through the alias map and matches each divergent row against the `CompiledLedger` (`compile_ledger`). Rows the ledger calls ink-identical are shaped against M1.otf to compare positions, or have their position verdict served from the same store under the position key.
 
@@ -125,7 +125,7 @@ class BaselineReport:
     divergent_rows: int = 0
     positions_compared: int = 0
     positions_excluded: int = (
-        0  # divergent rows not sent through the position channel: a seam or ligation divergence, or no single ink-identical ledger match
+        0  # divergent rows not sent through the position comparison: a seam or ligation divergence, or no single ink-identical ledger match
     )
     positions_served: int = 0
     counts_by_entry: dict[str, int] = field(default_factory=dict)
@@ -227,7 +227,7 @@ def classify_divergence(row: DivergentRow) -> str | None:
     if not tags or any(item.startswith("unaliased") for item in tags):
         return None
     if any(item.startswith("position") for item in tags):
-        # A cell-grain class claims the ink is identical, and the position channel is the test of that claim, so a row with position drift must not take one. Such rows are left to the function predicates (`kern_channel_out_of_scope`, `may_ligature_seam_loosened`).
+        # A cell-grain class claims the ink is identical, and the position comparison is the test of that claim, so a row with position drift must not take one. Such rows are left to the function predicates (`kern_out_of_scope`, `may_ligature_seam_loosened`).
         return None
     if {"0020", "200C"} & set(row.codepoints.split(":")):
         # Design section 3.4: the new font renders each segment of a window split by a space or ZWNJ the same as that segment alone, and the belt's split-buffer check verifies this on every build. So a boundary row can diverge from the baseline only where the old font was inconsistent across the boundary, and every divergence inside a segment also appears on that segment's own row. Boundary rows need no review of their own and take this class ahead of every other.
@@ -314,7 +314,7 @@ def classify_divergence(row: DivergentRow) -> str | None:
             for left, right in zip(row.baseline_glyphs, row.baseline_glyphs[1:])
         )
     ):
-        # ·Zoo's entry contraction places the same crown as the old ·Tea exit tuck plus ·Zoo entry trim. The unrelated ·It·Roe redraw changes ink without moving origins or advances, so the position channel cannot catch it, and this class excludes that old pair explicitly.
+        # ·Zoo's entry contraction places the same crown as the old ·Tea exit tuck plus ·Zoo entry trim. The unrelated ·It·Roe redraw changes ink without moving origins or advances, so the position comparison cannot catch it, and this class excludes that old pair explicitly.
         return "zoo-entry-contraction-respelled"
     # A row with these tokens has an ink change that no class covers, so it must get no class instead of reaching the name-grain classes below.
     if any(item.startswith("+ex-bind-") for item in tags) or "-ex-ext-1" in tags:
@@ -378,9 +378,9 @@ for _class_id in (
     PREDICATES[_class_id.replace("-", "_")] = _class_predicate(_class_id)
 
 
-@predicate("kern_channel_out_of_scope")
-def _kern_channel_out_of_scope(row: DivergentRow) -> bool:
-    """Match position-only rows whose drift the position channel marked kern-attributable (`oracle_positions._position_drift` sets this when every drift comes after a slot whose old advance carries a nonzero sidecar kern or that sits next to a ZWNJ). Other position drift is not matched here, so it stays unmatched for review unless another predicate matches it."""
+@predicate("kern_out_of_scope")
+def _kern_out_of_scope(row: DivergentRow) -> bool:
+    """Match position-only rows whose drift the position comparison marked kern-attributable (`oracle_positions._position_drift` sets this when every drift comes after a slot whose old advance carries a nonzero sidecar kern or that sits next to a ZWNJ). Other position drift is not matched here, so it stays unmatched for review unless another predicate matches it."""
     return row.kinds == ("position",) and "position-kern-attributable" in row.divergence_tags
 
 
@@ -616,7 +616,7 @@ def _compare_config(
         walker = _SettledWindowWalk(spec, features, {}, guard_verdicts, memo=settle_memo)
     config_started = time.perf_counter()
     rows = iter_rows(table_path, first_row, stop_row)
-    # Only stale rows are walked. A served row's verdict comes from the store in the same form as a fresh one before `_match_compiled` sees it, and the second loop visits the chunk in table order, so the audit bytes do not depend on which rows were served. Verification samples are drawn from served rows, not from written ones, because a read-only pass (`--gates-only`) serves verdicts without writing any. A served position verdict is used only when this pass's ledger sends the row through the position channel. For a row the ledger excludes, the stored position verdict is written forward unchanged, so a later ledger edit that includes the row again can use it.
+    # Only stale rows are walked. A served row's verdict comes from the store in the same form as a fresh one before `_match_compiled` sees it, and the second loop visits the chunk in table order, so the audit bytes do not depend on which rows were served. Verification samples are drawn from served rows, not from written ones, because a read-only pass (`--gates-only`) serves verdicts without writing any. A served position verdict is used only when this pass's ledger sends the row through the position comparison. For a row the ledger excludes, the stored position verdict is written forward unchanged, so a later ledger edit that includes the row again can use it.
     sample = (
         oracle_cache.VerificationSample(store.environment.value, store.coverage_ordinal)
         if store is not None

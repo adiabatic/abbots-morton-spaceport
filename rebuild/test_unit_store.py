@@ -141,7 +141,7 @@ def test_a_recomputed_projection_reads_back_what_the_load_was_handed():
         store.load_projection(projection, no_verdict=False, ordinal=0, address=_spooled(projection, 12)) == 0
     )
     assert store.machine_flags(0) == (True, False, False) and store.machine_approved(0)
-    assert store.machine_channel(0) == "ink_identical"
+    assert store.machine_check(0) == "ink_identical"
     flags = store.flags(0)
     assert (flags.ink_identical, flags.picture_identical, flags.junior_equivalent) == (True, False, False)
     assert (flags.cached, flags.slim, flags.exemplar, flags.no_verdict, flags.byte_copied) == (

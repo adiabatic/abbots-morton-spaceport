@@ -19,7 +19,7 @@ from collections.abc import Iterable, Iterator, Sequence
 from typing import NamedTuple, Protocol
 
 from rebuild.review import enrich, unit_cache
-from rebuild.review.audit import MACHINE_CHANNELS, format_codepoints
+from rebuild.review.audit import MACHINE_CHECKS, format_codepoints
 from rebuild.review.columns import StringTable
 from rebuild.tools import memory_tally
 
@@ -41,7 +41,7 @@ _ALPHABET_INDEX = {symbol: index for index, symbol in enumerate(unit_cache.BASE5
 
 
 class Flags(NamedTuple):
-    """One unit's flag byte, unpacked. The flag byte is the only place the three machine channels are stored; a materialized `audit.Unit` copies them from here. `slim` says the build writes the fragment in the slim shape: set when a machine channel approves the unit or the ledger exempts it (`audit.slim_fragment`), and for a cached unit copied from the store record's `slim`. `cached`, `exemplar`, `no_verdict` and `byte_copied` are set only for a cached unit: whether it was taken from the previous corpus, the exemplar and exemption flags its store record says the fragment was written with, and whether its address is the shard writer's own (`unit_cache.PriorFragment.byte_copied`). They read False on a recomputed unit."""
+    """One unit's flag byte, unpacked. The flag byte is the only place the three machine checks are stored; a materialized `audit.Unit` copies them from here. `slim` says the build writes the fragment in the slim shape: set when a machine check approves the unit or the ledger exempts it (`audit.slim_fragment`), and for a cached unit copied from the store record's `slim`. `cached`, `exemplar`, `no_verdict` and `byte_copied` are set only for a cached unit: whether it was taken from the previous corpus, the exemplar and exemption flags its store record says the fragment was written with, and whether its address is the shard writer's own (`unit_cache.PriorFragment.byte_copied`). They read False on a recomputed unit."""
 
     ink_identical: bool
     picture_identical: bool
@@ -511,7 +511,7 @@ class UnitStore:
         return bool(self._flags[ordinal] & (INK_IDENTICAL | PICTURE_IDENTICAL))
 
     def machine_flags(self, ordinal: int) -> tuple[bool, bool, bool]:
-        """Return the three machine channels in `audit.MACHINE_CHANNELS` order, as a materialized `audit.Unit` copies them."""
+        """Return the three machine checks in `audit.MACHINE_CHECKS` order, as a materialized `audit.Unit` copies them."""
         bits = self._flags[ordinal]
         return bool(bits & INK_IDENTICAL), bool(bits & PICTURE_IDENTICAL), bool(bits & JUNIOR_EQUIVALENT)
 
@@ -519,13 +519,13 @@ class UnitStore:
         return bool(self._flags[ordinal] & INK_IDENTICAL)
 
     def machine_approved(self, ordinal: int) -> bool:
-        """Whether any machine channel approves the unit (`audit.Unit.machine_approved`, read from the flag column)."""
+        """Whether any machine check approves the unit (`audit.Unit.machine_approved`, read from the flag column)."""
         return bool(self._flags[ordinal] & (INK_IDENTICAL | PICTURE_IDENTICAL | JUNIOR_EQUIVALENT))
 
-    def machine_channel(self, ordinal: int) -> str | None:
-        """Return the first channel in `MACHINE_CHANNELS` order that approves the unit, or None."""
+    def machine_check(self, ordinal: int) -> str | None:
+        """Return the first check in `MACHINE_CHECKS` order that approves the unit, or None."""
         bits = self._flags[ordinal]
-        for name, bit in zip(MACHINE_CHANNELS, (INK_IDENTICAL, PICTURE_IDENTICAL, JUNIOR_EQUIVALENT)):
+        for name, bit in zip(MACHINE_CHECKS, (INK_IDENTICAL, PICTURE_IDENTICAL, JUNIOR_EQUIVALENT)):
             if bits & bit:
                 return name
         return None

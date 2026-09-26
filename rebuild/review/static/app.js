@@ -108,7 +108,7 @@ const VERDICT_LABELS = [
   ['reject', 'Reject', 's', 'Reject — want the old behavior back (opens a follow-up choice)'],
   ['identical', 'Identical', 'e', 'The highlighted portion looks identical'],
   ['approve', 'Approve', 'f', 'Approve — the new behavior is right'],
-  ['either', 'Either', 'd', 'Fine either way (any-of channel)'],
+  ['either', 'Either', 'd', 'Fine either way (any-of check)'],
   ['neither', 'Neither', 'c', 'Neither — both behaviors look wrong; flag for follow-up'],
 ];
 const REJECT_MENU_CHOICES = [
@@ -171,7 +171,7 @@ const NO_VERDICT_TITLE =
 const SLIM_FRAGMENT_NOTE =
   'Machine-approved or in a no-verdict class: the build wrote no candidate table, no drafts and no pair band for this unit, since nothing here is for a reviewer to act on — the settled cells and seams above are the whole of what it carries.';
 
-function machineChannelOf(unit) {
+function machineCheckOf(unit) {
   if (unit.ink_identical) return { badge: MACHINE_BADGE, title: MACHINE_TITLE };
   if (unit.picture_identical) return { badge: PICTURE_BADGE, title: PICTURE_TITLE };
   if (unit.junior_equivalent) return { badge: JUNIOR_BADGE, title: JUNIOR_TITLE };
@@ -201,7 +201,7 @@ let renderedKey = null;
 let renderToken = 0;
 const machineFoldBuilders = new Map();
 
-const MACHINE_CHANNEL_BADGES = {
+const MACHINE_CHECK_BADGES = {
   ink_identical: MACHINE_BADGE,
   picture_identical: PICTURE_BADGE,
   junior_equivalent: JUNIOR_BADGE,
@@ -643,8 +643,8 @@ async function hydrateSamples(container, unit) {
 
 function buildRow(unit) {
   const exempt = needsNoVerdict(unit);
-  const channel = machineChannelOf(unit);
-  const exemptTitle = channel?.title ?? NO_VERDICT_TITLE;
+  const check = machineCheckOf(unit);
+  const exemptTitle = check?.title ?? NO_VERDICT_TITLE;
   const row = el('article', exempt ? 'row machine' : 'row');
   row.id = `unit-${unit.id}`;
   row.dataset.unit = unit.id;
@@ -664,9 +664,9 @@ function buildRow(unit) {
   const meta = el('div', 'meta-chips');
   meta.append(el('span', 'unit-id', unit.id));
   if (unit.exemplar) meta.append(el('span', 'exemplar', 'exemplar'));
-  if (channel) {
-    const badge = el('span', 'machine-badge', channel.badge);
-    badge.title = channel.title;
+  if (check) {
+    const badge = el('span', 'machine-badge', check.badge);
+    badge.title = check.title;
     meta.append(badge);
   } else if (unit.no_verdict) {
     const badge = el('span', 'machine-badge', NO_VERDICT_BADGE);
@@ -946,7 +946,7 @@ function renderMachineSection(container, machine, plan) {
   for (const fold of plan) {
     const pinned = machine.filter((unit) => unit.class === fold.classId);
     container.append(
-      buildMachineFold(fold.classId, fold.total, MACHINE_CHANNEL_BADGES[fold.channel], null, pinned, foldFilters, {
+      buildMachineFold(fold.classId, fold.total, MACHINE_CHECK_BADGES[fold.check], null, pinned, foldFilters, {
         provisional: fold.provisional,
       }),
     );
@@ -2524,7 +2524,7 @@ function renderSearchResults(query) {
     row.append(el('span', 'search-id', unit.id));
     row.append(el('span', 'search-notation', unit.notation));
     row.append(el('span', 'search-class', unit.class));
-    const where = machineChannelOf(unit)
+    const where = machineCheckOf(unit)
       ? 'machine'
       : unit.no_verdict
         ? 'no verdict'
