@@ -18,7 +18,7 @@ use crate::types::{
     TokenKind, TransitionTrace, height_json, provenance_pointer, settled_fields, settled_json,
 };
 
-/// The three raise buckets, the values `settle.SettleError.bucket` takes. `E-UNREACHABLE` covers both a stranded window and every plain settle error, so the message is sent beside the bucket: the bucket alone cannot tell a stranded exit from a rune that is not modeled.
+/// The three raise buckets, the values `settle.SettleError.bucket` takes. `E-UNREACHABLE` covers both an unaccepted-exit window and every plain settle error, so the message is sent beside the bucket: the bucket alone cannot tell an unaccepted exit from a rune that is not modeled.
 const RAISE_INCOMPARABLE: &str = "E-INCOMPARABLE";
 const RAISE_AMBIGUOUS: &str = "E-AMBIGUOUS";
 const RAISE_UNREACHABLE: &str = "E-UNREACHABLE";
@@ -141,7 +141,7 @@ fn raise_text(error: &SettleError) -> String {
     let bucket = match error.kind() {
         SettleErrorKind::Incomparable => RAISE_INCOMPARABLE,
         SettleErrorKind::Ambiguous => RAISE_AMBIGUOUS,
-        SettleErrorKind::Stranded | SettleErrorKind::Plain => RAISE_UNREACHABLE,
+        SettleErrorKind::UnacceptedExit | SettleErrorKind::Plain => RAISE_UNREACHABLE,
     };
     format!(
         "{{\"raise\":{},\"message\":{}}}",
@@ -355,7 +355,7 @@ pub(crate) fn parse_settled_json(
     )
 }
 
-/// Reads one adjustments token into the closed grammar, refusing everything `model.parse_adjustment` refuses. A left cell's adjustments affect only one output: the trace memo ignores them, but a stranded window's E-STRANDED message includes the left's full `cell_label`, which lists every adjustment. A misread token here would show up only as a different message.
+/// Reads one adjustments token into the closed grammar, refusing everything `model.parse_adjustment` refuses. A left cell's adjustments affect only one output: the trace memo ignores them, but an unaccepted-exit window's E-UNACCEPTED-EXIT message includes the left's full `cell_label`, which lists every adjustment. A misread token here would show up only as a different message.
 ///
 /// This reader differs from `model.parse_adjustment` in ways no case line reaches, because a case line's tokens are ones this kernel's own adjustment and withdrawal formatting wrote. Python reads the count with `int()`, which accepts underscore grouping (`en-ext-1_0`), surrounding whitespace, and non-ASCII decimal digits; Rust's `i64` parse refuses all three. `+1` and leading zeros parse the same on both sides. Python's `bind` accepts any string, including the empty one `ex-bind-` yields; this reader requires a name the spec interned, the same check the feature flags make, because a token naming a bitmap the spec never mentions means the case was written against another spec. Finally, the count is parsed here, not kept as text, so `en-ext-01` is written back as `en-ext-1` in a `cell_label`, where Python's tuple of raw token strings prints it unchanged.
 fn parse_adjustment(index: &SpecIndex, token: &str) -> Result<AdjustmentToken, String> {
@@ -424,8 +424,8 @@ mod tests {
     /// The window that fills in the ladder: `qsTea` being settled before `qsPea`. The x-height exit has no acceptor and an authored record refuses the baseline exit, so two stances survive with no exit and the declared order decides. It has both kinds of elimination, one naming no record and one naming the refusal, and the losing survivor is the runner-up.
     const ORDERED: &str = "edge\t\t\t\t\t\t\t\tqsTea\tqsPea\tedge\tunknown\tunknown";
 
-    /// The same follower after a left that committed an x-height exit `qsTea` cannot accept. This is the stranded window, which goes in the `E-UNREACHABLE` bucket and is told apart by its message.
-    const STRANDED: &str =
+    /// The same follower after a left that committed an x-height exit `qsTea` cannot accept. This is the unaccepted-exit window, which goes in the `E-UNREACHABLE` bucket and is told apart by its message.
+    const UNACCEPTED_EXIT: &str =
         "letter\tqsPea\thalf\t\tx-height\t\tx-height\t0\tqsTea\tqsMay\tedge\tunknown\tunknown";
 
     fn answer(line: &str, shape: Answer) -> String {
@@ -478,10 +478,10 @@ mod tests {
 
     #[test]
     fn a_raising_case_carries_its_bucket_and_the_message_byte_for_byte() {
-        let refusal = r#"{"raise":"E-UNREACHABLE","message":"E-STRANDED: qsPea.half.ex-y5 committed an exit at x-height but qsTea has no acceptor cell (the lookahead closure should have prevented this commitment)"}"#;
-        assert_eq!(result_of(STRANDED, Answer::Trace), refusal);
+        let refusal = r#"{"raise":"E-UNREACHABLE","message":"E-UNACCEPTED-EXIT: qsPea.half.ex-y5 committed an exit at x-height but qsTea has no acceptor cell (the lookahead closure should have prevented this commitment)"}"#;
+        assert_eq!(result_of(UNACCEPTED_EXIT, Answer::Trace), refusal);
         assert_eq!(
-            result_of(STRANDED, Answer::SettledOnly),
+            result_of(UNACCEPTED_EXIT, Answer::SettledOnly),
             refusal,
             "a refusal is the same object under either answer shape"
         );
@@ -499,7 +499,9 @@ mod tests {
             r#"{"raise":"E-AMBIGUOUS","message":"two left standing"}"#
         );
         assert_eq!(
-            raise_text(&SettleError::Stranded("nothing to settle into".to_owned())),
+            raise_text(&SettleError::UnacceptedExit(
+                "nothing to settle into".to_owned()
+            )),
             r#"{"raise":"E-UNREACHABLE","message":"nothing to settle into"}"#
         );
         assert_eq!(
@@ -521,7 +523,7 @@ mod tests {
 
     #[test]
     fn the_question_is_echoed_byte_for_byte_ahead_of_the_answer() {
-        for line in [UNJOINED, ORDERED, STRANDED] {
+        for line in [UNJOINED, ORDERED, UNACCEPTED_EXIT] {
             for shape in [Answer::Trace, Answer::SettledOnly] {
                 let answered = answer(line, shape);
                 assert!(answered.starts_with(&format!("{line}\t")), "{answered}");
@@ -600,12 +602,12 @@ mod tests {
     fn a_head_line_is_skipped_and_every_case_after_it_is_answered() {
         let index = fixtures::mini();
         let mut engine = replaying_engine(&index);
-        let text = format!("# ams-m1-cases\tdefault\n{UNJOINED}\n{STRANDED}\n");
+        let text = format!("# ams-m1-cases\tdefault\n{UNJOINED}\n{UNACCEPTED_EXIT}\n");
         let lines =
             replay_cases(&mut engine, &text, Answer::SettledOnly).expect("the file replays");
         assert_eq!(lines.len(), 2);
         assert_eq!(lines[0], format!("{UNJOINED}\tqsPea\thalf\t\t\t\t\t0"));
-        assert!(lines[1].starts_with(&format!("{STRANDED}\t{{\"raise\":\"E-UNREACHABLE\"")));
+        assert!(lines[1].starts_with(&format!("{UNACCEPTED_EXIT}\t{{\"raise\":\"E-UNREACHABLE\"")));
     }
 
     /// Both shapes look the delta up, so the settled-only shape, which reports no delta, still fails when the delta is missing.

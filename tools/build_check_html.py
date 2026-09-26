@@ -465,7 +465,7 @@ def _extract_assertion_lines(longrepr: str) -> list[str]:
     return out
 
 
-# `_collect_stranded_extension_joins` and other helpers in test/test_calt_regressions.py label failures as `[a·b] / qsX / qsY / [c·d]: <reason>`, where `∅` marks an empty context.
+# `_collect_unmatched_extension_joins` and other helpers in test/test_calt_regressions.py label failures as `[a·b] / qsX / qsY / [c·d]: <reason>`, where `∅` marks an empty context.
 _FAILURE_LABEL_RE = re.compile(
     r"^\s*((?:\[[^\]]*\]|qs[A-Za-z0-9]+)(?:\s*/\s*(?:\[[^\]]*\]|qs[A-Za-z0-9]+))+)\s*:"
 )

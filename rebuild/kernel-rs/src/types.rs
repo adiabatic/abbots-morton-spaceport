@@ -969,7 +969,7 @@ pub(crate) fn height_json(index: &SpecIndex, height: Option<Sym>) -> String {
     }
 }
 
-/// A deterministic text form of a cell, `settle.cell_label`: the stable name the kernel's TSV artifacts and the E-STRANDED message use. It has the same shape as geometry's compiled display name but is not that name; geometry's is capped at 63 bytes and this one is not.
+/// A deterministic text form of a cell, `settle.cell_label`: the stable name the kernel's TSV artifacts and the E-UNACCEPTED-EXIT message use. It has the same shape as geometry's compiled display name but is not that name; geometry's is capped at 63 bytes and this one is not.
 ///
 /// A boundary cell is labeled with the glyph its kind ships as. The run edge has no glyph, so labeling it panics, as the Python mapping raises `KeyError`. Reaching that means a caller labeled a cell the fold never records.
 pub fn cell_label(index: &SpecIndex, cell: &CellId) -> String {

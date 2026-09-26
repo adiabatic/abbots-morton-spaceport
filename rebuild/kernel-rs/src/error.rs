@@ -45,7 +45,7 @@ impl std::error::Error for IngestError {}
 
 /// The error settlement returns for a window that does not settle.
 ///
-/// [`crate::cases`] and [`crate::fiber`] read the variant through [`SettleError::kind`] and sort it into three outcomes: E-INCOMPARABLE, E-AMBIGUOUS, and unreachable, which covers both E-STRANDED and [`SettleError::Plain`]. `cases` writes these as the buckets `E-INCOMPARABLE`, `E-AMBIGUOUS`, and `E-UNREACHABLE`, which `settle.SettleError.bucket` carries on the Python side. Merging E-INCOMPARABLE with E-AMBIGUOUS, or either of them with the unreachable pair, would merge fibers that the review corpus and the treaty fold tell apart. [`crate::liveness`] sorts the variants into two outcomes: a raise (E-INCOMPARABLE or E-AMBIGUOUS) and unreachable. Outside the tests, no reader distinguishes E-STRANDED from the plain error.
+/// [`crate::cases`] and [`crate::fiber`] read the variant through [`SettleError::kind`] and sort it into three outcomes: E-INCOMPARABLE, E-AMBIGUOUS, and unreachable, which covers both E-UNACCEPTED-EXIT and [`SettleError::Plain`]. `cases` writes these as the buckets `E-INCOMPARABLE`, `E-AMBIGUOUS`, and `E-UNREACHABLE`, which `settle.SettleError.bucket` carries on the Python side. Merging E-INCOMPARABLE with E-AMBIGUOUS, or either of them with the unreachable pair, would merge fibers that the review corpus and the treaty fold tell apart. [`crate::liveness`] sorts the variants into two outcomes: a raise (E-INCOMPARABLE or E-AMBIGUOUS) and unreachable. Outside the tests, no reader distinguishes E-UNACCEPTED-EXIT from the plain error.
 ///
 /// The variants share one type so a caller can catch all four in one arm, as the simulated prospect's fallback in [`crate::engine`] does.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -54,8 +54,8 @@ pub enum SettleError {
     Incomparable(String),
     /// E-AMBIGUOUS: two prefer records of the same rune match the window and demand conflicting outcomes, and their conditions are equal or overlap without nesting. A `resolve:` record names another rune's record, so it cannot settle a conflict inside one rune.
     Ambiguous(String),
-    /// E-STRANDED: the left neighbor committed an exit that this letter has no cell to accept.
-    Stranded(String),
+    /// E-UNACCEPTED-EXIT: the left neighbor committed an exit that this letter has no cell to accept.
+    UnacceptedExit(String),
     /// Any other window that does not settle, such as a letter with no candidate cells, or a spec defect found during settlement.
     Plain(String),
 }
@@ -65,7 +65,7 @@ pub enum SettleError {
 pub enum SettleErrorKind {
     Incomparable,
     Ambiguous,
-    Stranded,
+    UnacceptedExit,
     Plain,
 }
 
@@ -75,7 +75,7 @@ impl SettleError {
         match self {
             Self::Incomparable(_) => SettleErrorKind::Incomparable,
             Self::Ambiguous(_) => SettleErrorKind::Ambiguous,
-            Self::Stranded(_) => SettleErrorKind::Stranded,
+            Self::UnacceptedExit(_) => SettleErrorKind::UnacceptedExit,
             Self::Plain(_) => SettleErrorKind::Plain,
         }
     }
@@ -85,7 +85,7 @@ impl SettleError {
         match self {
             Self::Incomparable(message)
             | Self::Ambiguous(message)
-            | Self::Stranded(message)
+            | Self::UnacceptedExit(message)
             | Self::Plain(message) => message,
         }
     }
@@ -109,7 +109,7 @@ mod tests {
         [
             SettleError::Incomparable("neither dominates".to_owned()),
             SettleError::Ambiguous("two left standing".to_owned()),
-            SettleError::Stranded("nothing to settle into".to_owned()),
+            SettleError::UnacceptedExit("nothing to settle into".to_owned()),
             SettleError::Plain("will not settle".to_owned()),
         ]
     }
@@ -122,7 +122,7 @@ mod tests {
             [
                 SettleErrorKind::Incomparable,
                 SettleErrorKind::Ambiguous,
-                SettleErrorKind::Stranded,
+                SettleErrorKind::UnacceptedExit,
                 SettleErrorKind::Plain,
             ]
         );
@@ -144,7 +144,7 @@ mod tests {
             .or_default() += 1;
         assert_eq!(tally.len(), 4);
         assert_eq!(tally[&SettleErrorKind::Ambiguous], 2);
-        assert_eq!(tally[&SettleErrorKind::Stranded], 1);
+        assert_eq!(tally[&SettleErrorKind::UnacceptedExit], 1);
     }
 
     #[test]

@@ -1196,7 +1196,7 @@ def enumerate_transitions(spec: ResolvedSpec, features: frozenset[str]) -> Fixpo
 
 
 def build_tables(spec: ResolvedSpec, features: frozenset[str]) -> tuple[DecisionTable, TreatyTable]:
-    """One configuration's decision and treaty tables, in memory, leaving no files: one `build-tables` process over a scratch spec dump, then the windows payload and the treaty TSV read back. The rows are read in full here, unlike on the build's own path, because a caller of this function wants the table, and the table is fixture-sized; `run_m1.build_tables` builds the live alphabet's. The crate raises its own errors during enumeration and folding (E-STRANDED, and the fold's checks listed in `rebuild/kernel-rs/src/fold.rs`), so a returned table has passed them."""
+    """One configuration's decision and treaty tables, in memory, leaving no files: one `build-tables` process over a scratch spec dump, then the windows payload and the treaty TSV read back. The rows are read in full here, unlike on the build's own path, because a caller of this function wants the table, and the table is fixture-sized; `run_m1.build_tables` builds the live alphabet's. The crate raises its own errors during enumeration and folding (E-UNACCEPTED-EXIT, and the fold's checks listed in `rebuild/kernel-rs/src/fold.rs`), so a returned table has passed them."""
     with tempfile.TemporaryDirectory() as scratch:
         directory = Path(scratch)
         spec_path = directory / "spec.json"

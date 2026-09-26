@@ -8,7 +8,7 @@
 //!
 //! The signature that collapses the left classes is `(seam, verdicts)`. The verdicts are [`Engine::cond_matches_left`] over the follower's own left-reading conditions, in the order [`ProspectLiveness::left_conditions`] gathers them. They are plain booleans, unlike the three-valued answer of a right condition, because a left is always already settled or a known boundary. The virtual left is `CellId(rune=family, stance=stance, entry=None, exit=seam, adjustments=())` inside a `Settled` at that seam with no extension. Extend and contract records change only adjustments, and neither an extension nor the left cell's entry interacts with a deep token, so these shapes cover every reachable settled left.
 //!
-//! In stage two, a left class whose baseline window raises E-STRANDED or a plain settlement error is one the fixpoint cannot reach, and it is skipped. A prefer conflict that raises E-INCOMPARABLE or E-AMBIGUOUS marks the slot live instead, so the enumeration reports the conflict instead of hiding it behind a dead slot. [`crate::error::SettleError`] says how its variants map to these outcomes.
+//! In stage two, a left class whose baseline window raises E-UNACCEPTED-EXIT or a plain settlement error is one the fixpoint cannot reach, and it is skipped. A prefer conflict that raises E-INCOMPARABLE or E-AMBIGUOUS marks the slot live instead, so the enumeration reports the conflict instead of hiding it behind a dead slot. [`crate::error::SettleError`] says how its variants map to these outcomes.
 //!
 //! With shifted vote slots on, stage one also has a vote branch, which calls [`Engine::probe_prefer_favors`] with the follower's `prefer` records. A vote reads the deep slots in two ways: through its record's shifted `when:` chain, and through the follower-cell enumeration the vote runs over the shifted window. So a row scope or closure verdict that changes with the token changes which continuations the vote can favor. The vote branch is skipped when the follower is the input's own family, because `prefer_favors` then takes its own-rune branch, which the chain branch covers. It is also skipped when the follower has no `prefer` records.
 //!
@@ -731,7 +731,7 @@ fn seat_outcome(
         Ok(cell) => SeatOutcome::Cell(cell),
         Err(error) => match error.kind() {
             SettleErrorKind::Incomparable | SettleErrorKind::Ambiguous => SeatOutcome::Raised,
-            SettleErrorKind::Stranded | SettleErrorKind::Plain => SeatOutcome::Unreachable,
+            SettleErrorKind::UnacceptedExit | SettleErrorKind::Plain => SeatOutcome::Unreachable,
         },
     }
 }
@@ -1388,7 +1388,7 @@ pub(crate) mod tests {
             .seat_left_classes(&mut engine, pea)
             .expect("the fixture settles");
 
-        let stranded: Vec<SettleErrorKind> = classes
+        let unaccepted: Vec<SettleErrorKind> = classes
             .iter()
             .filter_map(|left| {
                 engine
@@ -1407,13 +1407,13 @@ pub(crate) mod tests {
             })
             .collect();
         assert!(
-            stranded.contains(&SettleErrorKind::Stranded),
-            "qsPea enters at the baseline alone, so the cap-committing and x-height-committing left classes strand"
+            unaccepted.contains(&SettleErrorKind::UnacceptedExit),
+            "qsPea enters at the baseline alone, so the cap-committing and x-height-committing left classes commit exits it cannot accept"
         );
         assert!(
-            stranded
+            unaccepted
                 .iter()
-                .all(|kind| *kind == SettleErrorKind::Stranded)
+                .all(|kind| *kind == SettleErrorKind::UnacceptedExit)
         );
         assert_eq!(
             liveness.seat_varies(

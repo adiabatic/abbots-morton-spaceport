@@ -128,7 +128,7 @@ ROWS = (
     # qsMay's baseline entry extension lists qsTea_qsOy as a trigger, which matches the old font's en-ext-1 in the baseline.
     ("qsTea qsOy qsMay", (), ("qsTea_qsOy.hapax.ex-y0", "qsMay.loop.en-y0.en-ext-1")),
     ("qsIt qsTea qsOy", (), ("qsIt.hapax", "qsTea_qsOy.hapax")),
-    # AUTHORED-DATA FINDING (generalized stranded-exit-withdrawal): qsMay's declined exit before a following letter renders with the pulled-back withdrawal binding, which is part of the cell identity.
+    # AUTHORED-DATA FINDING (generalized unaccepted-exit-withdrawal): qsMay's declined exit before a following letter renders with the pulled-back withdrawal binding, which is part of the cell identity.
     ("qsMay qsTea qsOy", (), ("qsMay.loop.ex-bind-pulled-back", "qsTea_qsOy.hapax")),
     ("qsTea qsOy qsTea qsOy", (), ("qsTea_qsOy.hapax", "qsTea_qsOy.hapax")),
     (
@@ -197,14 +197,14 @@ def test_entry_extension_suppressed_when_left_seam_already_extended(row_settled)
 
 
 def test_a_committed_seam_nothing_accepts_is_unreachable():
-    """A left context forged with an exit at `top`, a height qsIt cannot enter at, is a window the lookahead closure never builds, and the crate returns an error instead of settling it. The error arrives as `settle.SettleError` with bucket `E-UNREACHABLE` and the crate's message. `engine.rs`'s `a_left_that_committed_a_seam_nothing_accepts_is_stranded` is the crate-side test. `ex-y8` is `top` in the mini registry."""
+    """A left context forged with an exit at `top`, a height qsIt cannot enter at, is a window the lookahead closure never builds, and the crate returns an error instead of settling it. The error arrives as `settle.SettleError` with bucket `E-UNREACHABLE` and the crate's message. `engine.rs`'s `a_left_that_committed_a_seam_nothing_accepts_is_an_unaccepted_exit` is the crate-side test. `ex-y8` is `top` in the mini registry."""
     forged = LeftContext("letter", Settled(CellId("qsTea", "full", None, "top"), seam="top", extension=0))
     case = kernel_exec.case_line(forged, RightToken("letter", "qsIt"), (EDGE, EDGE, EDGE, EDGE))
     with pytest.raises(SettleError) as caught:
         kernel_exec.settle_cases(SPEC, [case], frozenset(), decode=kernel_exec.trace_of)
     assert caught.value.bucket == "E-UNREACHABLE"
     assert str(caught.value) == (
-        "E-STRANDED: qsTea.full.ex-y8 committed an exit at top but qsIt has no acceptor cell "
+        "E-UNACCEPTED-EXIT: qsTea.full.ex-y8 committed an exit at top but qsIt has no acceptor cell "
         "(the lookahead closure should have prevented this commitment)"
     )
 

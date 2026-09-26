@@ -678,7 +678,7 @@ def _collect_pair_extension_must_be_exactly_n_pixels_regardless_of_what_comes_be
     return failures
 
 
-def _collect_stranded_extension_joins(
+def _collect_unmatched_extension_joins(
     *,
     max_chars_before: int,
     max_chars_after: int,
@@ -1988,9 +1988,9 @@ def test_it_i_extends_by_one_pixel_when_joined(before_first: str):
 
 
 @pytest.mark.parametrize("before_first", _PAIR_SWEEP_BEFORE_FIRSTS)
-def test_no_stranded_extension_joins_anywhere(before_first: str):
+def test_no_unmatched_extension_joins_anywhere(before_first: str):
     _assert_no_failures(
-        _collect_stranded_extension_joins(
+        _collect_unmatched_extension_joins(
             max_chars_before=1,
             max_chars_after=1,
             before_first_only=before_first,
@@ -4498,7 +4498,7 @@ def test_left_pair_before_zwnj_is_unaffected_by_right_context(after_first: str):
     )
 
 
-# The early `calt_trailing_demote` lookups (`_emit_trailing_demote_lookups("calt_trailing_demote")` in tools/quikscript_fea.py) are required alongside the final `calt_final_trailing_demote` ones. In `<word-boundary> ·Excite ·No ·X`, the word-initial ·Excite has no exit, so ·No takes its `qsNo.alt.en-y0.ex-y0` backward upgrade and ·X takes a baseline entry to join it. ·No then reverts to bare `qsNo`, which exits only at the x-height, and leaves ·X's entry stranded. The early trailing demote reverts ·X to bare in an earlier round. The final trailing demote runs before ·No's last demote (`calt_final2_pred_demote_qsNo`), so it cannot catch this case. The depth-4 isolation-leak gate cannot reach this 5-glyph context, so this test is the only check on these three cases.
+# The early `calt_trailing_demote` lookups (`_emit_trailing_demote_lookups("calt_trailing_demote")` in tools/quikscript_fea.py) are required alongside the final `calt_final_trailing_demote` ones. In `<word-boundary> ·Excite ·No ·X`, the word-initial ·Excite has no exit, so ·No takes its `qsNo.alt.en-y0.ex-y0` backward upgrade and ·X takes a baseline entry to join it. ·No then reverts to bare `qsNo`, which exits only at the x-height, and leaves ·X's entry unmatched. The early trailing demote reverts ·X to bare in an earlier round. The final trailing demote runs before ·No's last demote (`calt_final2_pred_demote_qsNo`), so it cannot catch this case. The depth-4 isolation-leak gate cannot reach this 5-glyph context, so this test is the only check on these three cases.
 @pytest.mark.parametrize(
     "prefix, trailing",
     [

@@ -2685,7 +2685,7 @@ impl<'i> Engine<'i> {
 
     /// Settle one window, returning the full trace the table builder and the explain CLI read.
     ///
-    /// In trace-memo mode the result is memoized over the reduced left key. The kernel reads the left only through its kind and the settled cell's rune, stance, seam and extension: condition matching reads the rune and stance, the stroke axis the committed seam, the scoring the seam's presence, and the same-seam suppression the extension. It never reads the left cell's entry or adjustments, so two lefts differing only there share one entry. The memo holds seats, not traces, so a hit is rebuilt from the memo's pools, returns what its miss returned, and replays the miss's fired delta. A window the own memo misses is looked up in the bases next and answered from the first base that holds and admits it. Only then is it settled. Raising windows are never cached: the E-STRANDED message includes the left's full label, which the key does not, and the liveness probes that hit settlement errors memoize their own verdicts above this call.
+    /// In trace-memo mode the result is memoized over the reduced left key. The kernel reads the left only through its kind and the settled cell's rune, stance, seam and extension: condition matching reads the rune and stance, the stroke axis the committed seam, the scoring the seam's presence, and the same-seam suppression the extension. It never reads the left cell's entry or adjustments, so two lefts differing only there share one entry. The memo holds seats, not traces, so a hit is rebuilt from the memo's pools, returns what its miss returned, and replays the miss's fired delta. A window the own memo misses is looked up in the bases next and answered from the first base that holds and admits it. Only then is it settled. Raising windows are never cached: the E-UNACCEPTED-EXIT message includes the left's full label, which the key does not, and the liveness probes that hit settlement errors memoize their own verdicts above this call.
     pub fn transition_trace(
         &mut self,
         left: &LeftContext,
@@ -2864,8 +2864,8 @@ impl<'i> Engine<'i> {
                     .settled
                     .as_ref()
                     .expect("a committed seam comes from a settled left");
-                return Err(SettleError::Stranded(format!(
-                    "E-STRANDED: {} committed an exit at {} but {} has no acceptor cell (the lookahead closure should have prevented this commitment)",
+                return Err(SettleError::UnacceptedExit(format!(
+                    "E-UNACCEPTED-EXIT: {} committed an exit at {} but {} has no acceptor cell (the lookahead closure should have prevented this commitment)",
                     cell_label(index, &settled.cell),
                     index.resolve(committed),
                     index.resolve(rune_name)
@@ -6638,7 +6638,7 @@ mod tests {
         );
     }
 
-    /// A window in which the follower's replayed settlement raises. `qsTea` exits toward `qsPea`, whose two entry-only stances tie at every score and whose two prefer records each demand one of them. The simulated prospect's settlement of `qsPea` is therefore E-AMBIGUOUS, although `qsTea`'s own window settles. No sweep over the live alphabet reaches this: E-AMBIGUOUS is unauthored there, and an E-STRANDED replayed settlement cannot happen either, because the closure has already shown that the follower has cells.
+    /// A window in which the follower's replayed settlement raises. `qsTea` exits toward `qsPea`, whose two entry-only stances tie at every score and whose two prefer records each demand one of them. The simulated prospect's settlement of `qsPea` is therefore E-AMBIGUOUS, although `qsTea`'s own window settles. No sweep over the live alphabet reaches this: E-AMBIGUOUS is unauthored there, and an E-UNACCEPTED-EXIT replayed settlement cannot happen either, because the closure has already shown that the follower has cells.
     fn raising_follower_spec() -> SpecIndex {
         let conflicting = fixtures::policy(&[(
             "prefer",
@@ -6994,7 +6994,7 @@ mod tests {
     }
 
     #[test]
-    fn a_left_that_committed_a_seam_nothing_accepts_is_stranded() {
+    fn a_left_that_committed_a_seam_nothing_accepts_is_an_unaccepted_exit() {
         let index = ranking_spec(&plain_policy(), &plain_policy());
         let mut engine = Engine::new(&index, no_features());
         let complaint = engine
@@ -7004,10 +7004,10 @@ mod tests {
                 Slots::pair(EDGE, EDGE),
             )
             .expect_err("qsMay enters at the baseline alone");
-        assert_eq!(complaint.kind(), SettleErrorKind::Stranded);
+        assert_eq!(complaint.kind(), SettleErrorKind::UnacceptedExit);
         assert_eq!(
             complaint.message(),
-            "E-STRANDED: qsPea.stroke.ex-y5 committed an exit at x-height but qsMay has no acceptor cell (the lookahead closure should have prevented this commitment)"
+            "E-UNACCEPTED-EXIT: qsPea.stroke.ex-y5 committed an exit at x-height but qsMay has no acceptor cell (the lookahead closure should have prevented this commitment)"
         );
     }
 

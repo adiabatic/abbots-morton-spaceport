@@ -197,7 +197,9 @@ class TestTheInvocationSeam:
     def test_a_refused_window_carries_the_crates_bucket_and_sentence(self, monkeypatch):
         """A crate refusal is `{raise, message}`. The caller gets a `SettleError` whose bucket is the `raise` value and whose message is the crate's message verbatim. It is not a `KernelRunError`, which is reserved for a failure of the boundary itself."""
         question = kernel_exec.case_line(LeftContext("edge"), RightToken("letter", "qsMay"), (EDGE,) * 4)
-        message = "E-STRANDED: qsPea.half.ex-y5 committed an exit at x-height but qsTea has no acceptor cell"
+        message = (
+            "E-UNACCEPTED-EXIT: qsPea.half.ex-y5 committed an exit at x-height but qsTea has no acceptor cell"
+        )
         refusal = json.dumps({"raise": "E-UNREACHABLE", "message": message}, separators=(",", ":"))
 
         class Finished:
@@ -291,7 +293,7 @@ class TestTheInvocationSeam:
         assert all(got is want for got, want in zip(settled, expected))
 
     def test_a_forged_left_record_survives_the_question_line_both_ways(self):
-        """The seven left-record fields pass through the question line intact. A left with adjustments, a seam, and a nonzero extension comes back as the same record under both answer formats. Where the crate refuses such a left, the E-STRANDED message, the only place the left's full `cell_label` is written out with its adjustments, is identical under both formats and names every adjustment."""
+        """The seven left-record fields pass through the question line intact. A left with adjustments, a seam, and a nonzero extension comes back as the same record under both answer formats. Where the crate refuses such a left, the E-UNACCEPTED-EXIT message, the only place the left's full `cell_label` is written out with its adjustments, is identical under both formats and names every adjustment."""
         joined = LeftContext(
             "letter",
             Settled(
@@ -315,11 +317,11 @@ class TestTheInvocationSeam:
         settled = kernel_exec.settle_windows(SPEC, [case], frozenset())[0]
         traced = kernel_exec.settle_cases(SPEC, [case], frozenset(), decode=kernel_exec.trace_of)[0]
         assert settled is traced.settled
-        stranded = LeftContext(
+        unaccepted = LeftContext(
             "letter",
             Settled(CellId("qsTea", "full", None, "top", ("locked", "en-ext-1")), seam="top", extension=1),
         )
-        case = kernel_exec.case_line(stranded, RightToken("letter", "qsIt"), (EDGE,) * 4)
+        case = kernel_exec.case_line(unaccepted, RightToken("letter", "qsIt"), (EDGE,) * 4)
         with pytest.raises(SettleError) as fields:
             kernel_exec.settle_windows(SPEC, [case], frozenset())
         with pytest.raises(SettleError) as trace:

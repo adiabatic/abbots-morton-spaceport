@@ -203,7 +203,7 @@
     - {config: default, codepoints: "E670:E670", baseline: "qsIt.ex-y5|qsIt", new: "qsIt.hapax|qsIt.hapax"}
     - {config: default, codepoints: "E650:E650", baseline: "qsPea.half.en-y6.ex-y6|qsPea.en-y6 (left entry name at word start)", new: "qsPea.half.ex-y6|qsPea.full.en-y6"}
   why: |
-    The old compiled names keep anchors that never join: a dangling exit before a letter that does not accept it (·It·It's harmless ex-y5), or an entry name at word start. Settlement's cells carry only committed anchors (E-STRANDED and lookahead closure; M1-PLAN expected class 3). The withdrawals involved are `safe`, so the ink is identical and the difference is at name grain only.
+    The old compiled names keep anchors that never join: a dangling exit before a letter that does not accept it (·It·It's harmless ex-y5), or an entry name at word start. Settlement's cells carry only committed anchors (E-UNACCEPTED-EXIT and lookahead closure; M1-PLAN expected class 3). The withdrawals involved are `safe`, so the ink is identical and the difference is at name grain only.
 
 - id: bare-name-live-join
   status: intended

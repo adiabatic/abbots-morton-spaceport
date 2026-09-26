@@ -2,7 +2,7 @@
 
 The test shapes every plain ·X·Y pair with one context glyph on each side, drawn from `_context_chars()`. For each adjacent pair in the output it finds the rows where the design intends a connection: both sides have cursive anchors at that Y, or one side has an extension suffix at a Y where the other side has no matching anchor. At each such row the left glyph's ink must reach the right glyph's ink.
 
-`_collect_bitmap_gap_warnings` in `tools/quikscript_join_analysis.py` checks the cursive case from bitmaps and anchors without shaping. This test shapes, so it sees the variant `calt` selects in context and the offsets GPOS applies. The stranded-extension cases are the ones `test_no_stranded_extension_joins_anywhere` flags from anchor data, measured here as an ink gap.
+`_collect_bitmap_gap_warnings` in `tools/quikscript_join_analysis.py` checks the cursive case from bitmaps and anchors without shaping. This test shapes, so it sees the variant `calt` selects in context and the offsets GPOS applies. The unmatched-extension cases are the ones `test_no_unmatched_extension_joins_anywhere` flags from anchor data, measured here as an ink gap.
 
 `_ACCEPTED_SHAPED_INK_GAPS` lists `(left_variant, right_variant, join_y)` triples whose gap or overlap is intended. Add an entry only after checking the rendering.
 """
@@ -152,8 +152,8 @@ def _intended_join_ys(left_meta, right_meta) -> set[tuple[int, str]]:
     """Return the Ys where the design intends a connection, each tagged with its kind.
 
     - 'cursive': both sides have anchors at this Y.
-    - 'stranded-exit': the left glyph has an extension suffix and an exit at this Y, and the right glyph has no entry there.
-    - 'stranded-entry': the right glyph has an extension suffix and an entry at this Y, and the left glyph has no exit there.
+    - 'unmatched-exit': the left glyph has an extension suffix and an exit at this Y, and the right glyph has no entry there.
+    - 'unmatched-entry': the right glyph has an extension suffix and an entry at this Y, and the left glyph has no exit there.
     """
     left_exit_ys = {anchor[1] for anchor in left_meta.exit}
     right_entry_ys = {anchor[1] for anchor in right_meta.entry} | {
@@ -162,9 +162,9 @@ def _intended_join_ys(left_meta, right_meta) -> set[tuple[int, str]]:
     cursive = left_exit_ys & right_entry_ys
     intents: set[tuple[int, str]] = {(y, "cursive") for y in cursive}
     if left_meta.extended_exit_suffix is not None:
-        intents.update((y, "stranded-exit") for y in left_exit_ys - right_entry_ys)
+        intents.update((y, "unmatched-exit") for y in left_exit_ys - right_entry_ys)
     if right_meta.extended_entry_suffix is not None:
-        intents.update((y, "stranded-entry") for y in right_entry_ys - left_exit_ys)
+        intents.update((y, "unmatched-entry") for y in right_entry_ys - left_exit_ys)
     return intents
 
 
