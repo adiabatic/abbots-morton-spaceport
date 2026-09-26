@@ -219,7 +219,7 @@ class TestTheInvocationSeam:
         assert str(traced.value) == message
 
     def test_settled_only_rides_the_argv_settle_windows_builds_and_no_other(self, monkeypatch):
-        """Only `settle_windows` passes `--settled-only` and gets the seven-field answer. `settle_cases` and `settle_sequences` get the full trace, because their callers need the explain ladder."""
+        """Only `settle_windows` passes `--settled-only` and gets the seven-field answer. `settle_cases` and `settle_sequences` get the full trace, because their callers need the ranking."""
         question = kernel_exec.case_line(LeftContext("edge"), RightToken("letter", "qsMay"), (EDGE,) * 4)
         record = {"cell": ["qsMay", "full", None, None, []], "seam": None, "extension": 0}
         trace = {

@@ -567,7 +567,7 @@ def test_data_value_ignores_notes_prose_but_not_notes_presence(tmp_path):
 
 
 def test_data_value_ignores_every_why_but_not_why_presence(tmp_path):
-    """No `why` in a rune changes `data_value` or `tables_value`, a refusal's included: the crate uses a refuse `why` only in explain ladders, which the fixpoint never requests. Removing a `why` still moves `data_value`, because the schema requires a `why` on an absolute prefer and a missing one is a load failure."""
+    """No `why` in a rune changes `data_value` or `tables_value`, a refusal's included: the crate uses a refuse `why` only in rankings, which the fixpoint never requests. Removing a `why` still moves `data_value`, because the schema requires a `why` on an absolute prefer and a missing one is a load failure."""
     root = _fake_repo(tmp_path)
     before = _data_after(root, PROSE_RUNE)
     tables = fingerprint.tables_value(root)

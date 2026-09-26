@@ -37,7 +37,7 @@ uv run python rebuild/tools/probe.py E651:E660 E655:E660 E658:E660 E665:E660 E67
 make test-rebuild
 make test
 make artifact-cycle
-uv run python -m rebuild.tools.scaling_sweep | tee rebuild/scaling-ladder.txt
+uv run python -m rebuild.tools.scaling_sweep | tee rebuild/scaling-series.txt
 uv run python -m rebuild.pipeline.coretext_smoke --font rebuild/out/m1/M1.otf
 make verdict-ready
 ```

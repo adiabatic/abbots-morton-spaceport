@@ -1,4 +1,4 @@
-"""Tests the decision and treaty tables the crate builds (`kernel_exec.build_tables`) from the mini fixture spec: the enumeration's shape, rule ordering, joint flags, per-configuration differences, the deep-class collapse, stable TSV output, and that rewording a refusal's `why` changes no table. A refusal's `why` is the only rune prose the crate reads, and only the explain ladder shows it.
+"""Tests the decision and treaty tables the crate builds (`kernel_exec.build_tables`) from the mini fixture spec: the enumeration's shape, rule ordering, joint flags, per-configuration differences, the deep-class collapse, stable TSV output, and that rewording a refusal's `why` changes no table. A refusal's `why` is the only rune prose the crate reads, and only the ranking shows it.
 
 The crate builds every table here, and every check is an independent Python reading of it. `replay` implements first-match-wins separately from the crate, so it can catch a fold mistake that the fold's own `assert_outcome_partition` check shares. Claims that need the enumerated rows the artifacts drop, or a fold to mutate, are tested in the crate: `fold::tests::the_reduced_replay_catches_what_the_whole_table_replay_catches`, `the_prospect_pass_raises_joints_and_clears_none`, `treaty_rows_tying_on_the_triple_are_ordered_by_the_whole_row`, `a_rule_that_splits_a_deep_class_is_refused` and `a_product_whose_cells_disagree_with_its_rows_is_refused`, and for E-UNACCEPTED-EXIT `engine::tests::a_left_that_committed_a_seam_nothing_accepts_is_an_unaccepted_exit`.
 
@@ -681,7 +681,7 @@ def refusal_sentences(spec, window):
 
 
 def test_a_refuse_why_rewording_leaves_the_tables_byte_identical_and_reaches_the_explain(tmp_path):
-    """Checks the assumption behind `fingerprint.rune_file_digest` leaving out a refusal's `why`: the crate reads that text only when it builds an explain ladder. Rewording it leaves the decision TSV, the treaty TSV, and `table.table_digest` unchanged, while the explain output's refusal message shows the new words and not the old ones. The test compares the TSV bytes as well as the digest, because the artifacts are what a stamp describes."""
+    """Checks the assumption behind `fingerprint.rune_file_digest` leaving out a refusal's `why`: the crate reads that text only when it builds a ranking. Rewording it leaves the decision TSV, the treaty TSV, and `table.table_digest` unchanged, while the explain output's refusal message shows the new words and not the old ones. The test compares the TSV bytes as well as the digest, because the artifacts are what a stamp describes."""
     spec = fixtures.mini_spec()
     reworded = refuse_reworded_spec(spec, "qsIt", REFUSE_WHY_MARKER)
     tables = {"before": build_tables(spec, frozenset()), "after": build_tables(reworded, frozenset())}

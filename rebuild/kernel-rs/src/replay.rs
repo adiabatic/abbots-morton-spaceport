@@ -375,7 +375,7 @@ pub struct Replay<'i> {
 }
 
 impl<'i> Replay<'i> {
-    /// A walk over `rules` in the world `modes` names, for the features one configuration resolved to. The engine keeps its trace memo, because the text set reaches the same windows many times, and a memo hit replays the window's fired delta, so a warm engine returns what a cold one would. It keeps no explain ladder, because the walk reads only the settled record.
+    /// A walk over `rules` in the world `modes` names, for the features one configuration resolved to. The engine keeps its trace memo, because the text set reaches the same windows many times, and a memo hit replays the window's fired delta, so a warm engine returns what a cold one would. It keeps no ranking, because the walk reads only the settled record.
     pub fn new(
         index: &'i SpecIndex,
         features: Vec<Sym>,
@@ -391,7 +391,7 @@ impl<'i> Replay<'i> {
                 features,
                 EngineModes {
                     trace_memo: true,
-                    explain_ladder: false,
+                    explain_ranking: false,
                     ..modes
                 },
             ),
@@ -903,9 +903,9 @@ mod tests {
         assert!(report.windows > 0);
     }
 
-    /// The walk's engine keeps its trace memo and no explain ladder, whatever modes the caller passes. The helper passes the default modes, which include the ladder, and the walk still memoizes windows without recording a ladder or holding any elimination text.
+    /// The walk's engine keeps its trace memo and no ranking, whatever modes the caller passes. The helper passes the default modes, which include the ranking, and the walk still memoizes windows without recording a ranking or holding any elimination text.
     #[test]
-    fn a_replays_engine_keeps_no_explain_ladder() {
+    fn a_replays_engine_keeps_no_ranking() {
         let index = fixtures::mini();
         let rules = folded_rules(&index);
         let mut walk = replay(&index, &rules);
@@ -920,7 +920,7 @@ mod tests {
                 .len
         };
         assert!(row("trace_cache") > 0);
-        assert_eq!(row("trace_ladders"), 0);
+        assert_eq!(row("trace_rankings"), 0);
         assert_eq!(walk.engine.elimination_text_bytes(), 0);
     }
 

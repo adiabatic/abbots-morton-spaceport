@@ -52,7 +52,7 @@ DELTA_PEAK_BYTES = 6_300_000_000
 DEFAULT_MEMO_BYTES = 2_500_000_000
 # The peak of the one `build-tables` process: the shared default snapshots plus every delta build in flight, bounded by DEFAULT_MEMO_BYTES plus DELTA_PEAK_BYTES times the width. Building a snapshot is inside this bound. `Engine::take_memo` releases the other live memos, then collects the trace map into an array, holding both during the collection, and drops the map before partitioning. Partitioning holds a four-byte source position per record and the offset cursors, plus a temporary sort buffer for an unusually large collision bucket. `read_memo` reserves space from a count of the TSV's window lines, stores accepted records directly, and boxes the compacted array after indexing, with no growing hash table. Enumeration, the memo writer and the fold still hold corpus-sized state. With ·Ye on the 32 GiB machine, four-wide measurements under `/usr/bin/time -l` with memo writes and `--cache-stats` give 12.46 GB resident / 15.49 GB footprint cold, and 10.92 / 14.95 GB with ·Ye invalidated in a previous-build seed. Kernel wall-clock times are 352.20 s and 356.42 s, against 338.08 s and 330.79 s for hash-map snapshots on the same spec. The cold peak is higher despite the smaller snapshot, and the seeded footprint is lower. The resident readings fail DELTA_PEAK_BYTES's two-gigabyte margin, so they do not justify lowering the 22 GB bound, which also covers the 20.37 GB seeded reading that meets the margin and overlap that depends on scheduling. A smaller bound needs a direct compact-snapshot measurement of the 48 GiB machine's five-wide wave. `make job-costs` compares the cycle's sampled run_m1 process peak with this figure. The delta width is still set by DELTA_PEAK_BYTES and DEFAULT_MEMO_BYTES.
 TABLE_BUILD_PEAK_BYTES = 22_000_000_000
-# The peak of one configuration's length-4 string replay; `run_m1.run_replay_strings` divides the machine's memory by it for its width. It covers the engine's trace memo over the windows its texts reach, with no liveness probes beyond the prospect's own and no explain ladder (`Replay::new` turns it off), plus the window memo's inverse label map and block buffer when the walk writes its dump. That is a subset of what the enumeration's engine holds, so it is a fraction of DELTA_PEAK_BYTES and measured separately. Nothing is subtracted before the division: the replay starts after the `build-tables` process has exited, so no configuration's memo is alive, and each worker loads one settlement TSV and builds its own engine. With ·Ye in the alphabet, the trace key packed onto ordinals, the trace entry at sixteen bytes and no explain ladder, one `replay-strings` over `default` alone at `--threads=1` with `--memo-dir` on (the shipped path, since a full replay always writes its dump) peaks at 1.24 GB under `/usr/bin/time -l` on the 18-core M5 Pro 48 GiB MacBook Pro (`doc/fleet.md`), with its `peak memory footprint` line the same, and walks 1,727,604 texts over 2,909,666 windows in 7.4 s. The same walk over every settlement configuration at the configuration count peaks at 6.10 GB for the whole process, 1.22 GB per worker, with no swaps, the footprint equal to the resident figure, and 0.31 s of system time against 45.4 s of user time. Each configuration's `[t] replay[<config>]` line reads 8.9 to 9.3 s against the solo 7.4 s. The five walks share the machine's memory without paging; paging would show in the system time and in a footprint above the resident figure, and neither rises here. The same divisor sizes the settle-memo absorbs that follow a full replay, since `run_m1.run_replay_strings` runs their pool at the replay's width. One absorb of `default`'s dump (`conform.absorb_replay_memo`, 2,909,666 rows) peaks at 0.25 GB in its own process, a fraction of the divisor. The constant takes the higher of the solo reading and the wide run's per-worker figure, adds a quarter and rounds up to the tenth. It errs high for the reason DELTA_PEAK_BYTES gives, and the headroom also covers neighbors no term subtracts: the replay shares run_m1's process tree with the glyph chain, the window packers and the shipped-order walkers, each a small, flat working set beside it (`run_m1._core_bound_threads` sizes the last two). The criterion is that both fleet machines (`doc/fleet.md`) replay every settlement configuration in one round, alone and in a gated cycle with gate:make-test's pytest pool running; `rebuild/test_memory_budget.py` and `rebuild/test_artifact_cycle.py` check it. Re-measure it whenever the alphabet grows, `REPLAY_MAX_LENGTH` changes or the trace memo's key or entry changes shape: the two runs above, both with the memo dump on, and the absorb over the solo run's dump. If a per-configuration line gets longer in the wide run while the system time rises, the width is causing paging.
+# The peak of one configuration's length-4 string replay; `run_m1.run_replay_strings` divides the machine's memory by it for its width. It covers the engine's trace memo over the windows its texts reach, with no liveness probes beyond the prospect's own and no ranking (`Replay::new` turns it off), plus the window memo's inverse label map and block buffer when the walk writes its dump. That is a subset of what the enumeration's engine holds, so it is a fraction of DELTA_PEAK_BYTES and measured separately. Nothing is subtracted before the division: the replay starts after the `build-tables` process has exited, so no configuration's memo is alive, and each worker loads one settlement TSV and builds its own engine. With ·Ye in the alphabet, the trace key packed onto ordinals, the trace entry at sixteen bytes and no ranking, one `replay-strings` over `default` alone at `--threads=1` with `--memo-dir` on (the shipped path, since a full replay always writes its dump) peaks at 1.24 GB under `/usr/bin/time -l` on the 18-core M5 Pro 48 GiB MacBook Pro (`doc/fleet.md`), with its `peak memory footprint` line the same, and walks 1,727,604 texts over 2,909,666 windows in 7.4 s. The same walk over every settlement configuration at the configuration count peaks at 6.10 GB for the whole process, 1.22 GB per worker, with no swaps, the footprint equal to the resident figure, and 0.31 s of system time against 45.4 s of user time. Each configuration's `[t] replay[<config>]` line reads 8.9 to 9.3 s against the solo 7.4 s. The five walks share the machine's memory without paging; paging would show in the system time and in a footprint above the resident figure, and neither rises here. The same divisor sizes the settle-memo absorbs that follow a full replay, since `run_m1.run_replay_strings` runs their pool at the replay's width. One absorb of `default`'s dump (`conform.absorb_replay_memo`, 2,909,666 rows) peaks at 0.25 GB in its own process, a fraction of the divisor. The constant takes the higher of the solo reading and the wide run's per-worker figure, adds a quarter and rounds up to the tenth. It errs high for the reason DELTA_PEAK_BYTES gives, and the headroom also covers neighbors no term subtracts: the replay shares run_m1's process tree with the glyph chain, the window packers and the shipped-order walkers, each a small, flat working set beside it (`run_m1._core_bound_threads` sizes the last two). The criterion is that both fleet machines (`doc/fleet.md`) replay every settlement configuration in one round, alone and in a gated cycle with gate:make-test's pytest pool running; `rebuild/test_memory_budget.py` and `rebuild/test_artifact_cycle.py` check it. Re-measure it whenever the alphabet grows, `REPLAY_MAX_LENGTH` changes or the trace memo's key or entry changes shape: the two runs above, both with the memo dump on, and the absorb over the solo run's dump. If a per-configuration line gets longer in the wide run while the system time rises, the width is causing paging.
 REPLAY_PEAK_BYTES = 1_600_000_000
 
 
@@ -794,10 +794,10 @@ def _refusal(result: Mapping) -> None:
     raise settle.SettleError(message, bucket)
 
 
-# The pieces of a trace repeat far more than traces do: a batch of tens of thousands of answers names a few hundred distinct candidates, rungs, eliminations and settled cells, and building a frozen dataclass costs more than looking one up. So each piece is built once per distinct row and shared, keyed on the row's values; sharing is invisible to a reader because every piece is immutable. A table that reaches `_INTERN_CAP` entries is cleared, which bounds each kind at that many objects in a long process.
+# The pieces of a trace repeat far more than traces do: a batch of tens of thousands of answers names a few hundred distinct candidates, ranked candidates, eliminations and settled cells, and building a frozen dataclass costs more than looking one up. So each piece is built once per distinct row and shared, keyed on the row's values; sharing is invisible to a reader because every piece is immutable. A table that reaches `_INTERN_CAP` entries is cleared, which bounds each kind at that many objects in a long process.
 _INTERN_CAP = 8192
 _CANDIDATES: dict[tuple, settle.Candidate] = {}
-_RUNGS: dict[tuple, settle.RankedCandidate] = {}
+_RANKED_CANDIDATES: dict[tuple, settle.RankedCandidate] = {}
 _ELIMINATIONS: dict[tuple, settle.Elimination] = {}
 _SETTLED: dict[tuple, Settled] = {}
 
@@ -820,17 +820,17 @@ def _candidate_of(row) -> settle.Candidate:
         raise KernelRunError(f"settle-cases returned a malformed candidate: {row!r}") from None
 
 
-def _rung_of(row) -> settle.RankedCandidate:
+def _ranked_candidate_of(row) -> settle.RankedCandidate:
     if not isinstance(row, list) or len(row) != 3 or not isinstance(row[0], list):
-        raise KernelRunError("settle-cases returned a malformed ranked ladder")
+        raise KernelRunError("settle-cases returned a malformed ranking")
     try:
         return _interned(
-            _RUNGS,
+            _RANKED_CANDIDATES,
             (tuple(row[0]), row[1], row[2]),
             lambda: settle.RankedCandidate(_candidate_of(row[0]), row[1], row[2]),
         )
     except TypeError:
-        raise KernelRunError("settle-cases returned a malformed ranked ladder") from None
+        raise KernelRunError("settle-cases returned a malformed ranking") from None
 
 
 def _elimination_of(row) -> settle.Elimination:
@@ -866,7 +866,7 @@ def settled_of_row(row) -> Settled:
 
 
 def _settled_of(result) -> Settled:
-    """The settled cell alone from a trace, for a caller that does not need the ladder that chose it."""
+    """The settled cell alone from a trace, for a caller that does not need the ranking that chose it."""
     if not isinstance(result, Mapping):
         raise KernelRunError(f"settle-cases returned a malformed result: {result!r}")
     _refusal(result)
@@ -916,7 +916,7 @@ def _provenance_of(pointer) -> Provenance | None:
 
 
 def trace_of(result) -> settle.TransitionTrace:
-    """Read one answer's `result` into the trace every author-facing consumer renders: the settled cell, the ranked ladder, the eliminations with their YAML provenance, the deciding stage, the runner-up and the notes."""
+    """Read one answer's `result` into the trace every author-facing consumer renders: the settled cell, the ranked candidates, the eliminations with their YAML provenance, the deciding stage, the runner-up and the notes."""
     if not isinstance(result, Mapping):
         raise KernelRunError(f"settle-cases returned a malformed result: {result!r}")
     _refusal(result)
@@ -940,7 +940,7 @@ def trace_of(result) -> settle.TransitionTrace:
             raise KernelRunError(
                 f"settle-cases returned a malformed {field_name} field: {result[field_name]!r}"
             )
-    ranked = tuple(map(_rung_of, result["ranked"]))
+    ranked = tuple(map(_ranked_candidate_of, result["ranked"]))
     eliminations = tuple(map(_elimination_of, result["eliminations"]))
     runner_up = None if result["runner_up"] is None else _candidate_of(result["runner_up"])
     return settle.TransitionTrace(
@@ -982,7 +982,7 @@ def settle_windows(
     on_error: str = "raise",
     tolerate: frozenset[str] = frozenset(),
 ) -> list[Settled | None]:
-    """One `Settled` per case, in the order the cases were given, decoded directly from each answer line. The conform walker and the ligature outgoing check use this: they keep only each window's outcome, so it asks the crate for the settled record alone (`--settled-only`, seven tab-separated fields) instead of a trace whose ladder nothing reads. `batch` limits how many windows one invocation takes.
+    """One `Settled` per case, in the order the cases were given, decoded directly from each answer line. The conform walker and the ligature outgoing check use this: they keep only each window's outcome, so it asks the crate for the settled record alone (`--settled-only`, seven tab-separated fields) instead of a trace whose ranking nothing reads. `batch` limits how many windows one invocation takes.
 
     `on_error="raise"` raises a refusal from the batch that met it, with the crate's message naming the left and the input, except that a refusal whose bucket `tolerate` names answers `None`. The ligature outgoing check tolerates `E-UNREACHABLE` this way, because a window no candidate can settle is a missing capability to it, while any other refusal is a fault it must report. `on_error="drop"` puts `None` in the slot of every refused case and decodes every other line as usual. A caller that settles windows it did not choose (the witness stage, which prefills every candidate string it might read) wants the other results, and wants a refusal to surface only where something reads that window. A malformed answer means the boundary is wrong, not the window, and raises `KernelRunError` in either mode.
     """

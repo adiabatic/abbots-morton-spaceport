@@ -6,7 +6,7 @@
 //!
 //! Which windows a base may answer is decided by what each entry's evaluation read. While a capture is open, the index journals every rune whose resolved content and every predicate class whose membership its accessors return ([`crate::index`]), and the entry stores that set beside its fired delta. An [`Exclusion`] naming runes and classes therefore rejects the entries that read one of them. A window whose deep slots name a rune its evaluation never consulted can still be read from the base when that rune changes, and a class whose membership changed invalidates only the windows that consulted it. The six runes a key names are also rejected, as a redundant check on the journal: over-invalidation costs a trace, and under-invalidation costs a wrong table.
 //!
-//! The snapshot is shared behind an [`Arc`] instead of copied per configuration, because the memo is the largest structure the enumeration holds, and a copy per delta configuration would again limit by memory how many delta configurations run at once. So it holds no `Rc`, no reference into any engine, and no ladder (the fixpoint never records one), and a base is read-only once built.
+//! The snapshot is shared behind an [`Arc`] instead of copied per configuration, because the memo is the largest structure the enumeration holds, and a copy per delta configuration would again limit by memory how many delta configurations run at once. So it holds no `Rc`, no reference into any engine, and no ranking (the fixpoint never records one), and a base is read-only once built.
 
 use std::fmt::Write as _;
 use std::hash::{Hash, Hasher};
@@ -208,7 +208,7 @@ impl MemoSnapshot {
         self.entries.is_empty()
     }
 
-    /// The trace one entry stands for, rebuilt from the tables as the recording engine's miss returned it, without the ladder, which the fixpoint never records.
+    /// The trace one entry stands for, rebuilt from the tables as the recording engine's miss returned it, without the ranking, which the fixpoint never records.
     pub(crate) fn trace(&self, entry: TraceEntry) -> TransitionTrace {
         TransitionTrace {
             settled: self.settled[entry.settled.index()].clone(),
@@ -216,7 +216,7 @@ impl MemoSnapshot {
             prospect: i64::from(entry.prospect()),
             decided_stage: entry.decided_stage(),
             notes: self.notes[entry.notes.index()].to_vec(),
-            ladder: None,
+            ranking: None,
         }
     }
 

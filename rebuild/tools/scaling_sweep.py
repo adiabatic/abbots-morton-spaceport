@@ -1,14 +1,14 @@
-"""Measure how the M1 table build's cost grows with the modeled alphabet. Only part of the 44-letter alphabet is modeled, so the sweep shows how far toward it a constant-factor speedup can reach: a cost that grows steeply with the alphabet uses up a constant factor quickly. The sweep is meant to be re-run after each batch, not measured once. Porting changes the constant and not the exponent, so a ladder that grows steeper between batches means work avoidance is due in any language; the threshold the whole-ladder fit is compared with is stated below. The top rung is the whole current alphabet, which checks that the sweep measures the real kernel and not a subset of it.
+"""Measure how the M1 table build's cost grows with the modeled alphabet. Only part of the 44-letter alphabet is modeled, so the sweep shows how far toward it a constant-factor speedup can reach: a cost that grows steeply with the alphabet uses up a constant factor quickly. The sweep is meant to be re-run after each batch, not measured once. Porting changes the constant and not the exponent, so a series that grows steeper between batches means work avoidance is due in any language; the threshold the whole-series fit is compared with is stated below. The largest size is the whole current alphabet, which checks that the sweep measures the real kernel and not a subset of it.
 
-Each rung runs as one kernel child, `build-tables --configs=default --threads=1`, the subcommand a build runs, which enumerates the rung and folds it. The ladder therefore times everything a build spends on one configuration. It also makes a row's `rss_high_water_gb` the rung's own peak: the child's peak RSS, read when `peak_rss.reap_peak_rss_bytes` reaps it. `cpu` and `wall` cover the whole child: spec parse, enumeration, fold, and the artifacts it writes. A row recorded by an earlier form of the sweep, such as the Python fixpoint or a crate subcommand that did not fold, covers a different total, so compare it with a current row by exponent, not by constant. The child's `[t]` lines give `spec_parse_s`, `enumerate_s` and `fold_s`. A phase the child did not report is null, not 0.0, because a zero would look like a measurement.
+Each alphabet size runs as one kernel child, `build-tables --configs=default --threads=1`, the subcommand a build runs, which enumerates that alphabet and folds it. The series therefore times everything a build spends on one configuration. It also makes a row's `rss_high_water_gb` that size's own peak: the child's peak RSS, read when `peak_rss.reap_peak_rss_bytes` reaps it. `cpu` and `wall` cover the whole child: spec parse, enumeration, fold, and the artifacts it writes. A row recorded by an earlier form of the sweep, such as the Python fixpoint or a crate subcommand that did not fold, covers a different total, so compare it with a current row by exponent, not by constant. The child's `[t]` lines give `spec_parse_s`, `enumerate_s` and `fold_s`. A phase the child did not report is null, not 0.0, because a zero would look like a measurement.
 
-`windows`, `rules` and `cells` are read from the window payload the child wrote: its header gives the rules and the reachable cells, and its body is counted one line at a time. `digest` is the digest the child reports on stdout, at the grain of `table.table_digest`, so a rung whose time changed can be told apart from a rung whose output changed. Nothing here folds: the counts cost one streamed read of a file the child already wrote, where folding on this side would cost a parsed product and several gigabytes.
+`windows`, `rules` and `cells` are read from the window payload the child wrote: its header gives the rules and the reachable cells, and its body is counted one line at a time. `digest` is the digest the child reports on stdout, at the grain of `table.table_digest`, so a size whose time changed can be told apart from a size whose output changed. Nothing here folds: the counts cost one streamed read of a file the child already wrote, where folding on this side would cost a parsed product and several gigabytes.
 
-The report gives the consecutive-pair exponents against runes, then a least-squares fit of ln count on ln size over the whole ladder, against runes and against letters. Quote the whole-ladder fit and say which size it is against. A single pair varies by a large fraction of the threshold because of ordinary scatter and because of which letters that rung added. A rune exponent is the letter exponent times `d ln letters / d ln runes`, and the nested ladder moves that factor from below 1 to above 1 as it stops adding ligatures and starts adding letters. The threshold, in this fitted form, is about 4.5 against letters, which is the same threshold as about 5.5 against runes. A fit past it means work avoidance (the coverage settings in `doc/rebuild-design.md` §14.1) is due before the next batch, in any language.
+The report gives the consecutive-pair exponents against runes, then a least-squares fit of ln count on ln size over the whole series, against runes and against letters. Quote the whole-series fit and say which size it is against. A single pair varies by a large fraction of the threshold because of ordinary scatter and because of which letters that size added. A rune exponent is the letter exponent times `d ln letters / d ln runes`, and the nested series moves that factor from below 1 to above 1 as it stops adding ligatures and starts adding letters. The threshold, in this fitted form, is about 4.5 against letters, which is the same threshold as about 5.5 against runes. A fit past it means work avoidance (the coverage settings in `doc/rebuild-design.md` §14.1) is due before the next batch, in any language.
 
-Positional arguments are the rune counts to cut rungs at, which need not be ladder rungs, and default to `scaling_ladder.ladder_rungs`. `AMS_SCALING_DUMP=<dir>` keeps each rung's spec dump and the artifacts its child wrote instead of deleting them with a temporary directory; `kernel_all_configs.py --spec <dir>/spec-rN.json` then times the enumeration on that rung, in every settlement configuration or in the ones `--configs` names. `AMS_SCALING_BINARY=<path>` measures that binary as it is instead of building the crate, which is how a build at another revision is measured. `AMS_DEEP_CLASSES=0`, `AMS_SIMULATED_PROSPECT=0` and `AMS_FOLLOWER_PREFER_SLOTS=0` reach the child through `kernel_exec.world_flags()`, and each row's `world` names the flags passed, or `shipping defaults` when none were.
+Positional arguments are the rune counts to cut alphabets at, which need not be sizes of the series, and default to `scaling_series.series_sizes`. `AMS_SCALING_DUMP=<dir>` keeps each size's spec dump and the artifacts its child wrote instead of deleting them with a temporary directory; `kernel_all_configs.py --spec <dir>/spec-rN.json` then times the enumeration at that size, in every settlement configuration or in the ones `--configs` names. `AMS_SCALING_BINARY=<path>` measures that binary as it is instead of building the crate, which is how a build at another revision is measured. `AMS_DEEP_CLASSES=0`, `AMS_SIMULATED_PROSPECT=0` and `AMS_FOLLOWER_PREFER_SLOTS=0` reach the child through `kernel_exec.world_flags()`, and each row's `world` names the flags passed, or `shipping defaults` when none were.
 
-Each row prints as its rung finishes, and the whole set is written to `rebuild/out/scaling-ladder.json`. `rebuild/scaling-ladder.txt` is the checked-in record of the last run, the rows and the report as printed, and the add-a-new-letter checklist refreshes it after every migration batch. Run from the repo root: `uv run python -m rebuild.tools.scaling_sweep [k ...] | tee rebuild/scaling-ladder.txt`.
+Each row prints as its size finishes, and the whole set is written to `rebuild/out/scaling-series.json`. `rebuild/scaling-series.txt` is the checked-in record of the last run, the rows and the report as printed, and the add-a-new-letter checklist refreshes it after every migration batch. Run from the repo root: `uv run python -m rebuild.tools.scaling_sweep [k ...] | tee rebuild/scaling-series.txt`.
 """
 
 from __future__ import annotations
@@ -26,15 +26,15 @@ from pathlib import Path
 
 from rebuild.pipeline import kernel_exec, kernel_io, table
 from rebuild.pipeline.spec_load import load_default_spec
-from rebuild.tools import peak_rss, scaling_ladder
+from rebuild.tools import peak_rss, scaling_series
 from rebuild.tools.console import INNER_LINE
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-ROWS_PATH = REPO_ROOT / "rebuild" / "out" / "scaling-ladder.json"
+ROWS_PATH = REPO_ROOT / "rebuild" / "out" / "scaling-series.json"
 
 
 def kernel_binary() -> Path:
-    """Return the kernel binary to measure. `AMS_SCALING_BINARY` names one to use as it is, which is how a build at another revision is measured. Otherwise the crate is built here once, before any rung runs, so the binary matches the sources on disk."""
+    """Return the kernel binary to measure. `AMS_SCALING_BINARY` names one to use as it is, which is how a build at another revision is measured. Otherwise the crate is built here once, before any size runs, so the binary matches the sources on disk."""
     named = os.environ.get("AMS_SCALING_BINARY")
     if not named:
         kernel_exec.cargo_build()
@@ -50,8 +50,8 @@ def cpu_children() -> float:
     return usage.ru_utime + usage.ru_stime
 
 
-def run_rung(binary: Path, spec_path: Path, out_dir: Path, stamp: str) -> dict:
-    """Build one rung's tables in one kernel child and return the child's wall time, CPU time, peak RSS, `[t]` phases and digest. Its artifacts go to files and its stdout and stderr to temporary files, not pipes, because `peak_rss.reap_peak_rss_bytes` reaps the child with `os.wait4`, and a pipe would need a reader first. The CPU time is a `RUSAGE_CHILDREN` delta, which belongs to this rung only because one child runs at a time. The CLI contract is checked as strictly as `kernel_exec.build_table_files` checks it: exit 2 is a usage error, any other nonzero exit is an error about the inputs, stdout has one `{config, digest}` line per configuration and nothing else, and stderr on a clean exit has only `[t]` lines."""
+def run_size(binary: Path, spec_path: Path, out_dir: Path, stamp: str) -> dict:
+    """Build one alphabet size's tables in one kernel child and return the child's wall time, CPU time, peak RSS, `[t]` phases and digest. Its artifacts go to files and its stdout and stderr to temporary files, not pipes, because `peak_rss.reap_peak_rss_bytes` reaps the child with `os.wait4`, and a pipe would need a reader first. The CPU time is a `RUSAGE_CHILDREN` delta, which belongs to this size only because one child runs at a time. The CLI contract is checked as strictly as `kernel_exec.build_table_files` checks it: exit 2 is a usage error, any other nonzero exit is an error about the inputs, stdout has one `{config, digest}` line per configuration and nothing else, and stderr on a clean exit has only `[t]` lines."""
     arguments = [
         str(binary),
         "build-tables",
@@ -99,7 +99,7 @@ def run_rung(binary: Path, spec_path: Path, out_dir: Path, stamp: str) -> dict:
 
 
 def counts(payload: Path) -> tuple[int, int, int]:
-    """Return one rung's window, rule and reachable-cell counts from the payload the child wrote. The header gives the rules and cells. The body is counted one line at a time instead of loaded, so this process never holds the rung's millions of rows."""
+    """Return one alphabet size's window, rule and reachable-cell counts from the payload the child wrote. The header gives the rules and cells. The body is counted one line at a time instead of loaded, so this process never holds that size's millions of rows."""
     with payload.open("rt", encoding="utf-8") as handle:
         _stamp, decision = table.read_windows(handle, windows=False)
         if tuple(handle.readline().rstrip("\n").split("\t")) != table.WINDOWS_COLUMNS:
@@ -109,7 +109,7 @@ def counts(payload: Path) -> tuple[int, int, int]:
 
 
 def fit(xs: list[int], ys: list[float]) -> float | None:
-    """Return the least-squares slope of ln y on ln x, the whole-ladder exponent to quote instead of any one consecutive pair. Returns None when fewer than two rungs have positive x and y, or when every rung has the same x."""
+    """Return the least-squares slope of ln y on ln x, the whole-series exponent to quote instead of any one consecutive pair. Returns None when fewer than two sizes have positive x and y, or when every size has the same x."""
     points = [(math.log(x), math.log(y)) for x, y in zip(xs, ys) if x > 0 and y > 0]
     if len(points) < 2:
         return None
@@ -126,7 +126,7 @@ def exponent(slope: float | None) -> str:
 
 
 def report(rows: list[dict]) -> None:
-    """Print the consecutive-pair exponents against runes, then the whole-ladder fit against runes and against letters. A pair whose two rungs have the same rune count prints `n/a` for both exponents, and a pair with a zero CPU time prints `n/a` for its CPU exponent. Rung counts from the command line can repeat, or resolve to the same rune count when they reach past the alphabet."""
+    """Print the consecutive-pair exponents against runes, then the whole-series fit against runes and against letters. A pair whose two sizes have the same rune count prints `n/a` for both exponents, and a pair with a zero CPU time prints `n/a` for its CPU exponent. Sizes from the command line can repeat, or resolve to the same rune count when they reach past the alphabet."""
     print("\nrunes_a->runes_b   window exponent   cpu exponent")
     for a, b in zip(rows, rows[1:]):
         span = math.log(b["runes"] / a["runes"])
@@ -138,12 +138,12 @@ def report(rows: list[dict]) -> None:
         )
         print(f"{a['runes']:2d}->{b['runes']:2d}   {windows}   {cpu}")
     if len(rows) < 2:
-        print(f"\nthe whole-ladder fit needs two rungs; this run has {len(rows)}")
+        print(f"\nthe whole-series fit needs two sizes; this run has {len(rows)}")
         return
     runes = [row["runes"] for row in rows]
     letters = [row["letters"] for row in rows]
     print(
-        f"\nwhole-ladder fit over {len(rows)} rungs "
+        f"\nwhole-series fit over {len(rows)} sizes "
         f"(runes {min(runes)}..{max(runes)}, letters {min(letters)}..{max(letters)})"
     )
     for label in ("windows", "cpu"):
@@ -155,8 +155,8 @@ def report(rows: list[dict]) -> None:
 
 def main() -> int:
     spec = load_default_spec()
-    order = scaling_ladder.ladder_order(spec)
-    rungs = [int(argument) for argument in sys.argv[1:]] or scaling_ladder.ladder_rungs(order)
+    order = scaling_series.series_order(spec)
+    sizes = [int(argument) for argument in sys.argv[1:]] or scaling_series.series_sizes(order)
     binary = kernel_binary()
     dump = os.environ.get("AMS_SCALING_DUMP")
     rows: list[dict] = []
@@ -166,14 +166,14 @@ def main() -> int:
             root.mkdir(parents=True, exist_ok=True)
         else:
             root = Path(stack.enter_context(tempfile.TemporaryDirectory()))
-        for rung in rungs:
-            sub = scaling_ladder.sub_spec(spec, order, rung)
+        for size in sizes:
+            sub = scaling_series.sub_spec(spec, order, size)
             runes = len(sub.runes)
             letters = sum(1 for name in sub.runes if not sub.runes[name].sequence)
             spec_path = root / f"spec-r{runes}.json"
             out_dir = root / f"r{runes}"
             kernel_io.write_spec(sub, spec_path)
-            run = run_rung(binary, spec_path, out_dir, f"scaling-r{runes}")
+            run = run_size(binary, spec_path, out_dir, f"scaling-r{runes}")
             payload = out_dir / "windows-default.tsv"
             windows, rules, cells = counts(payload)
             if not dump:

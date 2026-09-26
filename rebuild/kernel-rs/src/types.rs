@@ -750,18 +750,18 @@ impl DecidedStage {
     }
 }
 
-/// How a window was decided, as opposed to what it settled into. This is the explain part of `settle.TransitionTrace`: the ranking every survivor was scored into, every eliminated candidate with the message saying why, and the runner-up. Only the explain CLI, the probe, and the review corpus's explain panel read it; building the font does not.
+/// How a window was decided, as opposed to what it settled into. This is the explain part of `settle.TransitionTrace`: every survivor ranked with its scores, every eliminated candidate with the message saying why, and the runner-up. Only the explain CLI, the probe, and the review corpus's explain panel read it; building the font does not.
 ///
-/// It is a separate type, boxed where a trace carries one, because the table fixpoint settles millions of windows and reads none of this. Building a ladder there would be a large allocation that nothing uses.
+/// It is a separate type, boxed where a trace carries one, because the table fixpoint settles millions of windows and reads none of this. Building a ranking there would be a large allocation that nothing uses.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct TraceLadder {
+pub struct TraceRanking {
     pub ranked: Vec<RankedCandidate>,
     pub eliminations: Vec<Elimination>,
     pub runner_up: Option<Candidate>,
 }
 
-/// The ladder returned by a trace that carries none, so any trace can be asked for its ranking and return an empty one.
-static NO_LADDER: TraceLadder = TraceLadder {
+/// The ranking returned by a trace that carries none, so any trace can be asked for its ranking and return an empty one.
+static NO_RANKING: TraceRanking = TraceRanking {
     ranked: Vec::new(),
     eliminations: Vec::new(),
     runner_up: None,
@@ -769,7 +769,7 @@ static NO_LADDER: TraceLadder = TraceLadder {
 
 /// The full settlement result, `settle.TransitionTrace`: what the window settled into, plus the details of how it was decided that the table build, the explain CLI, and the review corpus read. Notes are formatted strings: YAML pointers and short messages such as `prefer applied: <pointer>` and `unlocked by <feature>`.
 ///
-/// The explain part is in [`TransitionTrace::ladder`]. It is absent when the engine was built without [`crate::engine::EngineModes::explain_ladder`], as the table fixpoint and the string replay are.
+/// The explain part is in [`TransitionTrace::ranking`]. It is absent when the engine was built without [`crate::engine::EngineModes::explain_ranking`], as the table fixpoint and the string replay are.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TransitionTrace {
     pub settled: Settled,
@@ -777,13 +777,13 @@ pub struct TransitionTrace {
     pub prospect: i64,
     pub decided_stage: DecidedStage,
     pub notes: Vec<String>,
-    pub ladder: Option<Box<TraceLadder>>,
+    pub ranking: Option<Box<TraceRanking>>,
 }
 
 impl TransitionTrace {
-    /// How this window was decided, or the empty ladder when the engine was not asked to record one.
-    pub fn ladder(&self) -> &TraceLadder {
-        self.ladder.as_deref().unwrap_or(&NO_LADDER)
+    /// How this window was decided, or the empty ranking when the engine was not asked to record one.
+    pub fn ranking(&self) -> &TraceRanking {
+        self.ranking.as_deref().unwrap_or(&NO_RANKING)
     }
 }
 

@@ -2,7 +2,7 @@
 
 It writes only the spec dump and the transition streams, both under rebuild/out/kernel-all/, and refuses an `--out-dir` that resolves anywhere else, because a scratch directory inside `rebuild/out/m1` would overwrite the artifact cycle's tables.
 
-  uv run python -m rebuild.tools.kernel_all_configs [--mode serial|parallel] [--threads N] [--configs a,b] [--spec <dump>] [--rung N] [--reps N]
+  uv run python -m rebuild.tools.kernel_all_configs [--mode serial|parallel] [--threads N] [--configs a,b] [--spec <dump>] [--alphabet-size N] [--reps N]
 
 `--mode serial`, the default, runs at `--threads=1`, every configuration in the listed order, so its per-configuration times add up. `--mode parallel` runs `--threads` wide, by default one thread per configuration up to the cores. A row's `threads_requested` is the width asked for, and `threads` is that width capped at the configuration count. The kernel also caps the width at the machine's available parallelism, so on a machine with fewer cores than configurations `threads` can be larger than the width that ran. The streams are written to files, so neither mode's times include piping stdout. Per-configuration times come from the child's own `[t]` lines, at the one decimal place the kernel prints, and are null for a phase the child did not report, since 0.0 would look like a measurement. `console.INNER_LINE` defines the `[t]` line format, and this module imports it so that it parses the same lines the artifact cycle does.
 
@@ -14,7 +14,7 @@ Each configuration holds its working set until it has emitted, so a parallel run
 
 Every configuration's row includes the SHA-256 of its stream file, and the total row's digest combines them, so a scheduling change that alters the output shows as a changed digest. The kernel writes byte-identical streams at any thread count (`a_fan_out_files_what_one_enumeration_writes_to_stdout` in `rebuild/kernel-rs/tests/cli.rs` checks this), and these digests check that each run timed the same output.
 
-`--rung N` replaces the live alphabet with one rung of the ladder `rebuild/tools/scaling_ladder.py` defines (the ladder `scaling_sweep.py` sweeps) and times the default configuration on it, or the configurations `--configs` names. `--spec` times an existing dump instead of writing one; `scaling_sweep.py` keeps one per rung under `AMS_SCALING_DUMP=<dir>`. A dump names a spec, not configurations, so a bare `--spec` over a rung dump times every settlement configuration, where the `--rung` run that wrote it timed only `default`; add `--configs=default` to repeat that measurement. `--configs` narrows any run and refuses a name that is not a settlement configuration.
+`--alphabet-size N` replaces the live alphabet with the alphabet at size N of the series `rebuild/tools/scaling_series.py` defines (the series `scaling_sweep.py` sweeps) and times the default configuration on it, or the configurations `--configs` names. `--spec` times an existing dump instead of writing one; `scaling_sweep.py` keeps one per alphabet size under `AMS_SCALING_DUMP=<dir>`. A dump names a spec, not configurations, so a bare `--spec` over a size's dump times every settlement configuration, where the `--alphabet-size` run that wrote it timed only `default`; add `--configs=default` to repeat that measurement. `--configs` narrows any run and refuses a name that is not a settlement configuration.
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ from pathlib import Path
 
 from rebuild.pipeline import conform, kernel_exec, kernel_io
 from rebuild.pipeline.spec_load import load_default_spec
-from rebuild.tools import peak_rss, scaling_ladder
+from rebuild.tools import peak_rss, scaling_series
 from rebuild.tools.console import INNER_LINE
 
 SCRATCH_OUT = Path(__file__).resolve().parents[2] / "rebuild" / "out" / "kernel-all"
@@ -104,7 +104,7 @@ def main() -> int:
     ap.add_argument("--threads", type=int, default=0)
     ap.add_argument("--configs", default="")
     ap.add_argument("--spec", default="")
-    ap.add_argument("--rung", type=int, default=0)
+    ap.add_argument("--alphabet-size", type=int, default=0)
     ap.add_argument("--reps", type=int, default=1)
     ap.add_argument("--out-dir", default="")
     ap.add_argument("--binary", default=str(kernel_exec.BINARY))
@@ -114,8 +114,8 @@ def main() -> int:
     binary = Path(args.binary).resolve()
     if not binary.is_file():
         raise SystemExit(f"no kernel binary at {binary} — run `make kernel-build` first")
-    if args.spec and args.rung:
-        raise SystemExit("--spec and --rung name different specs; pass one of them")
+    if args.spec and args.alphabet_size:
+        raise SystemExit("--spec and --alphabet-size name different specs; pass one of them")
     if args.threads and args.mode == "serial":
         raise SystemExit("--mode serial is --threads=1; pass --mode parallel to widen it")
 
@@ -123,7 +123,7 @@ def main() -> int:
     if args.configs:
         tokens = configs_from(args.configs)
     else:
-        tokens = ["default"] if args.rung else list(conform.SETTLEMENT_CONFIGS)
+        tokens = ["default"] if args.alphabet_size else list(conform.SETTLEMENT_CONFIGS)
     requested = (
         1 if args.mode == "serial" else (args.threads or min(len(tokens), os.process_cpu_count() or 1))
     )
@@ -140,15 +140,17 @@ def main() -> int:
         out_dir.mkdir(parents=True, exist_ok=True)
     else:
         spec = load_default_spec()
-        if args.rung:
-            order = scaling_ladder.ladder_order(spec)
-            rungs = scaling_ladder.ladder_rungs(order)
-            if args.rung not in rungs:
-                offered = ", ".join(str(rung) for rung in rungs)
-                raise SystemExit(f"--rung {args.rung} is not a rung of the ladder: {offered}")
-            spec = scaling_ladder.sub_spec(spec, order, args.rung)
+        if args.alphabet_size:
+            order = scaling_series.series_order(spec)
+            sizes = scaling_series.series_sizes(order)
+            if args.alphabet_size not in sizes:
+                offered = ", ".join(str(size) for size in sizes)
+                raise SystemExit(
+                    f"--alphabet-size {args.alphabet_size} is not a size of the series: {offered}"
+                )
+            spec = scaling_series.sub_spec(spec, order, args.alphabet_size)
         runes = len(spec.runes)
-        stem = f"r{runes}" if args.rung else "live"
+        stem = f"r{runes}" if args.alphabet_size else "live"
         out_dir = scratch_out_dir(args.out_dir, f"{stem}-{args.mode}")
         spec_path = out_dir / f"spec-{stem}.json"
         kernel_io.write_spec(spec, spec_path)

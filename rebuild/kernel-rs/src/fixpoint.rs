@@ -294,8 +294,8 @@ fn enumerate_seeded<'i>(
             simulated_prospect: modes.simulated_prospect,
             follower_prefer_slots: modes.follower_prefer_slots,
             trace_memo: true,
-            // The rows read only the settled triple, the prospect, the joint floor and the notes, never how a trace was decided, and the explain ladder costs more than every other explain-only allocation together.
-            explain_ladder: false,
+            // The rows read only the settled triple, the prospect, the joint floor and the notes, never how a trace was decided, and the ranking costs more than every other explain-only allocation together.
+            explain_ranking: false,
             ..EngineModes::default()
         },
     );

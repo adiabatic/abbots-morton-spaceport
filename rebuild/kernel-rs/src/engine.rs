@@ -23,7 +23,7 @@ use crate::specificity;
 use crate::types::{
     AdjustmentToken, Candidate, CandidateOrdinals, CellId, DecidedStage, Elimination,
     EliminationStage, LeftContext, NotesPool, NotesSeat, PackedKinds, RankedCandidate, RightToken,
-    Settled, SettledPool, SettledSeat, Side, TokenKind, TraceLadder, TransitionTrace, UNKNOWN,
+    Settled, SettledPool, SettledSeat, Side, TokenKind, TraceRanking, TransitionTrace, UNKNOWN,
     Vocab, boundary_settled, cell_label, provenance_pointer, word_position,
 };
 
@@ -138,8 +138,8 @@ pub struct EngineModes {
     pub follower_prefer_slots: bool,
     /// Whether the engine memoizes whole windows and journals a fired delta per memoized evaluation. On only in the table fixpoint, the `settle-cases` and `liveness-cases` subcommands, and the string replay.
     pub trace_memo: bool,
-    /// Whether a trace carries its explain ladder: the ranking, the eliminations with their descriptions, and the runner-up. On wherever a person reads a trace (the explain report, the review corpus, the probe). Off in the table fixpoint, whose rows read only the settled triple, the prospect, the joint floor and the notes, and in the string replay, which reads only the settled record. Formatting ladders nobody reads is the largest avoidable allocation in either.
-    pub explain_ladder: bool,
+    /// Whether a trace carries its ranking: every ranked survivor with its scores, the eliminations with their descriptions, and the runner-up. On wherever a person reads a trace (the explain report, the review corpus, the probe). Off in the table fixpoint, whose rows read only the settled triple, the prospect, the joint floor and the notes, and in the string replay, which reads only the settled record. Formatting rankings nobody reads is the largest avoidable allocation in either.
+    pub explain_ranking: bool,
 }
 
 impl Default for EngineModes {
@@ -149,7 +149,7 @@ impl Default for EngineModes {
             simulated_prospect: true,
             follower_prefer_slots: true,
             trace_memo: false,
-            explain_ladder: true,
+            explain_ranking: true,
         }
     }
 }
@@ -599,7 +599,7 @@ impl TraceNotesSeat {
     }
 }
 
-/// What the trace memo holds per window: two-byte seats into the memo's settled and notes pools, four-byte seats into [`Engine::deltas`] and the engine's reads pool, and one byte packing the prospect, the joint flag and the stage. That is sixteen bytes at four-byte alignment, with no heap. Packing the three fields into a byte saves nothing alone, because the alignment pads it. The two-byte seats are what take the entry from twenty bytes to sixteen. An instrumented run of an earlier layout (issue #165), which held the whole [`TransitionTrace`] and a boxed delta per entry, measured over a million entries per configuration naming a couple of hundred distinct settled records, about a hundred distinct notes lists and a few tens of thousands of distinct deltas. The ladder is stored separately in [`TraceMemo::ladders`], because only an engine built with [`EngineModes::explain_ladder`] has one, and neither the fixpoint nor the string replay is.
+/// What the trace memo holds per window: two-byte seats into the memo's settled and notes pools, four-byte seats into [`Engine::deltas`] and the engine's reads pool, and one byte packing the prospect, the joint flag and the stage. That is sixteen bytes at four-byte alignment, with no heap. Packing the three fields into a byte saves nothing alone, because the alignment pads it. The two-byte seats are what take the entry from twenty bytes to sixteen. An instrumented run of an earlier layout (issue #165), which held the whole [`TransitionTrace`] and a boxed delta per entry, measured over a million entries per configuration naming a couple of hundred distinct settled records, about a hundred distinct notes lists and a few tens of thousands of distinct deltas. The ranking is stored separately in [`TraceMemo::rankings`], because only an engine built with [`EngineModes::explain_ranking`] has one, and neither the fixpoint nor the string replay is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct TraceEntry {
     pub(crate) settled: TraceSettledSeat,
@@ -651,17 +651,17 @@ impl TraceEntry {
     }
 }
 
-/// The window memo and its fired journal, with the settled and notes pools its entries index. The delta is a seat in the entry, not a second map on the same twenty-byte key, which would cost the key and its hash-table slack again for a value only read with its trace. It resolves through [`Engine::deltas`] because the candidate, closure and prospect memos store their deltas in the same table (issue #167). The pools belong to the memo, not to a fixpoint, because the memo lives no longer than a fixpoint and is released as one piece. `ladders` uses the same key and is filled only in explain-ladder mode, so a fixpoint's memo has no ladder slot per entry, and an explain-mode hit returns the ladder its miss recorded.
+/// The window memo and its fired journal, with the settled and notes pools its entries index. The delta is a seat in the entry, not a second map on the same twenty-byte key, which would cost the key and its hash-table slack again for a value only read with its trace. It resolves through [`Engine::deltas`] because the candidate, closure and prospect memos store their deltas in the same table (issue #167). The pools belong to the memo, not to a fixpoint, because the memo lives no longer than a fixpoint and is released as one piece. `rankings` uses the same key and is filled only when the engine records rankings, so a fixpoint's memo has no ranking slot per entry, and an explain-mode hit returns the ranking its miss recorded.
 #[derive(Clone, Debug, Default)]
 struct TraceMemo {
     entries: HashMap<TraceKey, TraceEntry>,
     settled: SettledPool,
     notes: NotesPool,
-    ladders: HashMap<TraceKey, Box<TraceLadder>>,
+    rankings: HashMap<TraceKey, Box<TraceRanking>>,
 }
 
 impl TraceMemo {
-    /// Record one settled window: the trace's settled record and notes stored in the pools, the ladder stored separately when the trace has one, and the seats of the delta and read set the capture journaled.
+    /// Record one settled window: the trace's settled record and notes stored in the pools, the ranking stored separately when the trace has one, and the seats of the delta and read set the capture journaled.
     fn insert(
         &mut self,
         key: TraceKey,
@@ -679,12 +679,12 @@ impl TraceMemo {
             trace.decided_stage,
         );
         self.entries.insert(key, entry);
-        if let Some(ladder) = &trace.ladder {
-            self.ladders.insert(key, ladder.clone());
+        if let Some(ranking) = &trace.ranking {
+            self.rankings.insert(key, ranking.clone());
         }
     }
 
-    /// The trace one entry stands for, rebuilt from the pools as its miss returned it: the settled record and the notes cloned out, the prospect widened back to `i64`, and the ladder read from the side map when one was recorded.
+    /// The trace one entry stands for, rebuilt from the pools as its miss returned it: the settled record and the notes cloned out, the prospect widened back to `i64`, and the ranking read from the side map when one was recorded.
     fn trace(&self, key: &TraceKey, entry: TraceEntry) -> TransitionTrace {
         TransitionTrace {
             settled: self.settled.get(entry.settled.widen()).clone(),
@@ -692,7 +692,7 @@ impl TraceMemo {
             prospect: i64::from(entry.prospect()),
             decided_stage: entry.decided_stage(),
             notes: self.notes.get(entry.notes.widen()).to_vec(),
-            ladder: self.ladders.get(key).cloned(),
+            ranking: self.rankings.get(key).cloned(),
         }
     }
 }
@@ -721,7 +721,7 @@ pub struct Engine<'i> {
     prospect_cache: HashMap<ProspectKey, (i8, DeltaSeat, ReadsSeat)>,
     exit_sources_cache: HashMap<StanceId, (Vec<ExitSource<'i>>, Vec<Pointer>)>,
     pairing_sets: HashMap<StanceId, PairingSets>,
-    explain_ladder: bool,
+    explain_ranking: bool,
     /// The window memo, present only in trace-memo mode. It is the engine's largest collection and sets the enumeration's peak memory, which is why its entries are seats into the [`TraceMemo`] pools instead of whole traces (issue #165). A hit rebuilds the trace from the pools, and the caller sees the same trace a stored one would give.
     trace_cache: Option<TraceMemo>,
     /// Finished memos of other enumerations this engine may read, in lookup order, each behind an exclusion that says which keys it may not supply ([`crate::memo`]). A window the engine's own memo misses is looked up here before it is settled. A hit is returned, with its delta replayed, as an own hit is, but is not copied into the own memo: the bases are shared read-only across a whole fan-out, and copying each hit would rebuild the memory the sharing saves.
@@ -762,7 +762,7 @@ impl<'i> Engine<'i> {
             prospect_cache: HashMap::default(),
             exit_sources_cache: HashMap::default(),
             pairing_sets: HashMap::default(),
-            explain_ladder: modes.explain_ladder,
+            explain_ranking: modes.explain_ranking,
             trace_cache: modes.trace_memo.then(TraceMemo::default),
             bases: Vec::new(),
             base_fired: Vec::new(),
@@ -951,15 +951,15 @@ impl<'i> Engine<'i> {
                 memo.notes.capacity(),
             ));
             out.push(CacheSize::of(
-                "trace_ladders",
-                memo.ladders.len(),
-                memo.ladders.capacity(),
+                "trace_rankings",
+                memo.rankings.len(),
+                memo.rankings.capacity(),
             ));
         }
         out
     }
 
-    /// How many bytes of elimination description the candidate and trace memos hold: explain-only text that a run which never reads a ladder still stores. It is counted, not estimated, because it decides whether formatting the descriptions is worth the memory. The candidate memo's part counts each distinct list in its elimination pool once, however many entries name it, because that is what is held (issue #167).
+    /// How many bytes of elimination description the candidate and trace memos hold: explain-only text that a run which never reads a ranking still stores. It is counted, not estimated, because it decides whether formatting the descriptions is worth the memory. The candidate memo's part counts each distinct list in its elimination pool once, however many entries name it, because that is what is held (issue #167).
     pub fn elimination_text_bytes(&self) -> usize {
         let cached: usize = self
             .candidates_cache
@@ -972,8 +972,8 @@ impl<'i> Engine<'i> {
         let traced: usize = self
             .trace_cache
             .iter()
-            .flat_map(|memo| memo.ladders.values())
-            .flat_map(|ladder| ladder.eliminations.iter())
+            .flat_map(|memo| memo.rankings.values())
+            .flat_map(|ranking| ranking.eliminations.iter())
             .map(|elimination| elimination.description.len())
             .sum();
         cached + traced
@@ -1592,7 +1592,7 @@ impl<'i> Engine<'i> {
     ) -> Result<Vec<Candidate>, SettleError> {
         let mut eliminations = EliminationSink {
             list: eliminations,
-            describe: self.explain_ladder,
+            describe: self.explain_ranking,
         };
         let index = self.index();
         let vocab = index.vocab();
@@ -2709,7 +2709,7 @@ impl<'i> Engine<'i> {
                 prospect: 0,
                 decided_stage: DecidedStage::Boundary,
                 notes: Vec::new(),
-                ladder: None,
+                ranking: None,
             });
         }
         if self.trace_cache.is_none() {
@@ -2985,7 +2985,7 @@ impl<'i> Engine<'i> {
             Slots::pair(slots.right1, slots.right2),
             &mut notes,
         )?;
-        let ladder = self.explain_ladder.then(|| {
+        let ranking = self.explain_ranking.then(|| {
             let mut scored: Vec<RankedCandidate> = ranked_order
                 .iter()
                 .map(|candidate| ranked[candidate])
@@ -2997,7 +2997,7 @@ impl<'i> Engine<'i> {
                     entry.candidate.exit_index,
                 )
             });
-            Box::new(TraceLadder {
+            Box::new(TraceRanking {
                 ranked: scored,
                 eliminations,
                 runner_up,
@@ -3009,12 +3009,12 @@ impl<'i> Engine<'i> {
             prospect: ranked[&winner].prospect,
             decided_stage,
             notes,
-            ladder,
+            ranking,
         })
     }
 }
 
-/// Append one candidate's elimination when the caller asked for eliminations. The description is built lazily because the closure and the prospect enumerate with eliminations off, and formatting unread text is avoidable cost in the enumeration's inner loop. For the same reason, a sink that is not building a ladder stores an empty description and keeps only the stage and the pointer the notes are built from.
+/// Append one candidate's elimination when the caller asked for eliminations. The description is built lazily because the closure and the prospect enumerate with eliminations off, and formatting unread text is avoidable cost in the enumeration's inner loop. For the same reason, a sink that is not building a ranking stores an empty description and keeps only the stage and the pointer the notes are built from.
 fn record_elimination(
     sink: &mut EliminationSink<'_>,
     stage: EliminationStage,
@@ -5191,21 +5191,21 @@ mod tests {
         assert_eq!(engine.deltas.len(), 0);
     }
 
-    /// The trace memo keeps ladders in a separate map. An engine built without `explain_ladder` records none, and with it a hit returns the ladder its miss recorded.
+    /// The trace memo keeps rankings in a separate map. An engine built without `explain_ranking` records none, and with it a hit returns the ranking its miss recorded.
     #[test]
-    fn a_hit_reads_its_ladder_back_only_where_its_miss_recorded_one() {
+    fn a_hit_reads_its_ranking_back_only_where_its_miss_recorded_one() {
         let index = firing_spec();
         let ss03 = fixtures::sym(&index, "ss03");
         let left = settled_left(&index, "qsTea", "plain", Some("baseline"));
         let token = letter_token(&index, "qsPea");
         let slots = Slots::pair(letter_token(&index, "qsTea"), EDGE);
-        for explain_ladder in [false, true] {
+        for explain_ranking in [false, true] {
             let mut engine = Engine::with_modes(
                 &index,
                 [ss03],
                 EngineModes {
                     trace_memo: true,
-                    explain_ladder,
+                    explain_ranking,
                     ..EngineModes::default()
                 },
             );
@@ -5215,13 +5215,13 @@ mod tests {
             let hit = engine
                 .transition_trace(&left, token, slots)
                 .expect("the fixture settles");
-            assert_eq!(miss.ladder.is_some(), explain_ladder);
+            assert_eq!(miss.ranking.is_some(), explain_ranking);
             assert_eq!(hit, miss);
             let memo = engine.trace_cache.as_ref().expect("trace-memo memoizes");
             assert!(!memo.entries.is_empty());
             assert_eq!(
-                memo.ladders.len(),
-                if explain_ladder {
+                memo.rankings.len(),
+                if explain_ranking {
                     memo.entries.len()
                 } else {
                     0
@@ -5230,9 +5230,9 @@ mod tests {
         }
     }
 
-    /// Recording the explain ladder does not change settlement. Two trace-memo engines, one recording ladders and one not, settle the same windows to the same trace once the ladder is removed, on the miss and on the hit. The windows cover boundary and settled lefts, two and four slots, and letters and boundaries on the right. The string replay and the table fixpoint build their engines without the ladder because of this.
+    /// Recording the ranking does not change settlement. Two trace-memo engines, one recording rankings and one not, settle the same windows to the same trace once the ranking is removed, on the miss and on the hit. The windows cover boundary and settled lefts, two and four slots, and letters and boundaries on the right. The string replay and the table fixpoint build their engines without the ranking because of this.
     #[test]
-    fn the_explain_ladder_moves_no_settled_window() {
+    fn the_ranking_moves_no_settled_window() {
         let index = firing_spec();
         let ss03 = fixtures::sym(&index, "ss03");
         let pea = letter_token(&index, "qsPea");
@@ -5284,13 +5284,13 @@ mod tests {
                 Slots::pair(EDGE, UNKNOWN),
             ),
         ];
-        let engine = |explain_ladder| {
+        let engine = |explain_ranking| {
             Engine::with_modes(
                 &index,
                 [ss03],
                 EngineModes {
                     trace_memo: true,
-                    explain_ladder,
+                    explain_ranking,
                     ..EngineModes::default()
                 },
             )
@@ -5306,9 +5306,9 @@ mod tests {
                 };
                 let bare = settle(&mut without);
                 let mut explained = settle(&mut with);
-                assert!(bare.ladder.is_none(), "window {at} on the {pass}");
+                assert!(bare.ranking.is_none(), "window {at} on the {pass}");
                 assert!(
-                    explained.ladder.take().is_some(),
+                    explained.ranking.take().is_some(),
                     "window {at} on the {pass}"
                 );
                 assert_eq!(bare, explained, "window {at} on the {pass}");
@@ -5432,10 +5432,10 @@ mod tests {
         );
         assert_eq!(trace.prospect, 0);
         assert!(!trace.joint_floor);
-        assert!(trace.ladder().ranked.is_empty());
-        assert!(trace.ladder().eliminations.is_empty());
+        assert!(trace.ranking().ranked.is_empty());
+        assert!(trace.ranking().eliminations.is_empty());
         assert!(trace.notes.is_empty());
-        assert_eq!(trace.ladder().runner_up, None);
+        assert_eq!(trace.ranking().runner_up, None);
     }
 
     #[test]
@@ -5459,7 +5459,7 @@ mod tests {
         assert_eq!(trace.settled.cell.exit, Some(x_height));
         assert_eq!(trace.settled.seam, Some(x_height));
         assert_eq!(
-            trace.ladder().runner_up,
+            trace.ranking().runner_up,
             Some(Candidate::non_joining(
                 &index,
                 fixtures::sym(&index, "qsPea"),
@@ -5471,7 +5471,7 @@ mod tests {
         assert_eq!(trace.prospect, 0);
         assert_eq!(
             trace
-                .ladder()
+                .ranking()
                 .ranked
                 .iter()
                 .map(|entry| (entry.candidate, entry.join_count))
@@ -5524,7 +5524,7 @@ mod tests {
             Some(fixtures::sym(&plain, "x-height"))
         );
         assert_eq!(
-            trace.ladder().runner_up,
+            trace.ranking().runner_up,
             Some(Candidate::non_joining(
                 &plain,
                 fixtures::sym(&plain, "qsPea"),
@@ -5576,7 +5576,7 @@ mod tests {
         assert_eq!(trace.decided_stage, DecidedStage::YieldingPrefer);
         assert_eq!(trace.settled.cell.stance, fixtures::sym(&index, "flourish"));
         assert_eq!(
-            trace.ladder().runner_up,
+            trace.ranking().runner_up,
             Some(Candidate::joining(
                 &index,
                 fixtures::sym(&index, "qsPea"),
@@ -5767,7 +5767,7 @@ mod tests {
         assert_eq!(trace.decided_stage, DecidedStage::Order);
         assert_eq!(trace.settled.cell.stance, fixtures::sym(&index, "stroke"));
         assert_eq!(
-            trace.ladder().runner_up,
+            trace.ranking().runner_up,
             Some(Candidate::non_joining(
                 &index,
                 fixtures::sym(&index, "qsPea"),
@@ -6638,7 +6638,7 @@ mod tests {
         assert_eq!(estimated, simulated);
         assert_eq!(
             estimated
-                .ladder()
+                .ranking()
                 .ranked
                 .iter()
                 .map(|entry| entry.prospect)
@@ -6883,7 +6883,7 @@ mod tests {
         let trace = engine
             .transition_trace(&edge, token, slots)
             .expect("the fixture settles");
-        let ranked = trace.ladder().ranked.len();
+        let ranked = trace.ranking().ranked.len();
         assert!(ranked > 1, "the fixture ranks several candidates");
         assert_eq!(engine.base_hits(), ranked as u64);
     }

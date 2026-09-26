@@ -38,6 +38,6 @@ runes_a->runes_b   window exponent   cpu exponent
 38->40   windows  4.21   cpu  4.49
 40->41   windows  3.32   cpu  3.19
 
-whole-ladder fit over 19 rungs (runes 6..41, letters 4..32)
+whole-series fit over 19 sizes (runes 6..41, letters 4..32)
   windows ~ runes^3.81  letters^3.31
   cpu     ~ runes^4.05  letters^3.53

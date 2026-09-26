@@ -308,7 +308,7 @@ def test_every_crate_module_the_settlement_verbs_reach_rides_the_store_stamp():
     unstamped = _relative(reached - _corpus_stamped())
     assert unstamped == [], (
         "settle-cases or guard-sweep runs these crate modules but corpus_code_paths does not hash them, so "
-        "a cached unit's settlement or explain ladder would outlive an edit there — remove them from "
+        "a cached unit's settlement or ranking would outlive an edit there — remove them from "
         "KERNEL_NON_CORPUS_MODULES in rebuild/review/unit_cache.py: " + ", ".join(unstamped)
     )
 

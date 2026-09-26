@@ -867,7 +867,7 @@ fn a_replay_with_a_memo_directory_files_one_window_memo_per_configuration() {
     );
 }
 
-/// The replay's cache stats through the binary. `--cache-stats` leaves the answer lines byte for byte as the plain walk prints them. Without `--timings` it writes only `[c]` lines to stderr: for each configuration, the walk's own memo, every engine memo with the trace memo's ladder pool empty, an elimination-text size of zero, and the resident size after the walk. With `--timings`, a configuration's cache-stats lines come before its `replay[<config>]` phase line. Under a memo ceiling of a third of the walk's window count, each release reports the walk memo and the engine's memos under `release=<k>` with the resident size before and after, the walk reports its release count, and no `walk_memo` row exceeds the ceiling.
+/// The replay's cache stats through the binary. `--cache-stats` leaves the answer lines byte for byte as the plain walk prints them. Without `--timings` it writes only `[c]` lines to stderr: for each configuration, the walk's own memo, every engine memo with the trace memo's ranking pool empty, an elimination-text size of zero, and the resident size after the walk. With `--timings`, a configuration's cache-stats lines come before its `replay[<config>]` phase line. Under a memo ceiling of a third of the walk's window count, each release reports the walk memo and the engine's memos under `release=<k>` with the resident size before and after, the walk reports its release count, and no `walk_memo` row exceeds the ceiling.
 #[test]
 fn a_replay_with_cache_stats_writes_them_to_stderr_and_leaves_the_answer_alone() {
     let root = scratch("cli-replay-cache-stats");
@@ -912,7 +912,7 @@ fn a_replay_with_cache_stats_writes_them_to_stderr_and_leaves_the_answer_alone()
         for prefix in [
             format!("[c] {token} walk_memo len="),
             format!("[c] {token} trace_cache len="),
-            format!("[c] {token} trace_ladders len=0 "),
+            format!("[c] {token} trace_rankings len=0 "),
             format!("[c] {token} resident_after_walk kb="),
         ] {
             assert!(

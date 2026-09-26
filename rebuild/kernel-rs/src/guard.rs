@@ -34,7 +34,7 @@ const GUARD_MODES: EngineModes = EngineModes {
     simulated_prospect: false,
     follower_prefer_slots: false,
     trace_memo: false,
-    explain_ladder: true,
+    explain_ranking: true,
 };
 
 impl<'i> GuardState<'i> {

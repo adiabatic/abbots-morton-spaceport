@@ -3122,7 +3122,7 @@ def test_make_test_exempt_classification():
         "var/build-logs/latest/plan.txt",
         ".claude/settings.json",
         "rebuild/tools/scaling_sweep.py",
-        "rebuild/scaling-ladder.txt",
+        "rebuild/scaling-series.txt",
         "Makefile",
         ".vscode/settings.json",
         ".vscode/quikscript.schema.json",

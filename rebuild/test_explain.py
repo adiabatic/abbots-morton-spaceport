@@ -83,7 +83,7 @@ def test_cli_prints_the_rust_backed_report(monkeypatch, capsys):
 
 
 def _panel_report() -> ExplainReport:
-    """A hand-built report that exercises every line `render` can emit: a letter position with a ranked ladder, an elimination with a record pointer and one without, a joint floor, a note, and a runner-up; a boundary position that splits the run; a letter position with only one candidate; and a boundary position that does not split the run."""
+    """A hand-built report that exercises every line `render` can emit: a letter position with a ranking, an elimination with a record pointer and one without, a joint floor, a note, and a runner-up; a boundary position that splits the run; a letter position with only one candidate; and a boundary position that does not split the run."""
     loop = Candidate("loop", None, "x-height", 0, 0)
     grounded = Candidate("grounded", None, "baseline", 1, 1)
     hapax = Candidate("hapax", "x-height", None, 0, 0)

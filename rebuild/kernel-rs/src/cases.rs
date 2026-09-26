@@ -4,7 +4,7 @@
 //!
 //! A question has thirteen fields: the left's kind and its record (rune, stance, entry, exit, comma-joined adjustments, seam, extension; all seven empty for a left with no record, and a height or seam empty where there is none), then the rune being settled and the four raw slots after it. Each slot is a rune name or the kind name of a boundary or unknown slot. None of these values can contain a tab or a newline.
 //!
-//! The command line chooses one of two answer shapes. The trace ([`Answer::Trace`]) is one JSON object: the settled cell, the prospect, the joint-floor flag, the notes, and the fired delta, then the deciding stage, the runner-up, the ranked ladder, and the eliminations. The last four record how the decision was reached, and `explain` and the review corpus's explain view read them: a window can settle on the right cell for the wrong reason, and the ladder shows that. The settled-only answer ([`Answer::SettledOnly`]) is the record alone as seven tab-separated fields in the [`settled_fields`] format, for the conform walker, which keeps only outcomes. A settlement error is the same `{"raise":…,"message":…}` object in both shapes. In the settled-only shape a reader tells it from a record by its first byte, `{`; in the trace shape, by its `raise` key.
+//! The command line chooses one of two answer shapes. The trace ([`Answer::Trace`]) is one JSON object: the settled cell, the prospect, the joint-floor flag, the notes, and the fired delta, then the deciding stage, the runner-up, the ranked candidates, and the eliminations. The last four record how the decision was reached, and `explain` and the review corpus's explain view read them: a window can settle on the right cell for the wrong reason, and the ranking shows that. The settled-only answer ([`Answer::SettledOnly`]) is the record alone as seven tab-separated fields in the [`settled_fields`] format, for the conform walker, which keeps only outcomes. A settlement error is the same `{"raise":…,"message":…}` object in both shapes. In the settled-only shape a reader tells it from a record by its first byte, `{`; in the trace shape, by its `raise` key.
 //!
 //! The fired delta is the trace memo's journaled delta for this case's key. A missing delta is an error, not an empty list: it means this replay's key no longer matches the memo's key, or the engine has no trace memo. The settled-only answer looks the delta up too without reporting it, so both shapes fail the same way.
 
@@ -118,7 +118,7 @@ pub fn replay_cases(
     Ok(lines)
 }
 
-/// This case's answer. The trace shape gives the settled record with its fired delta and the ladder; the settled-only shape gives the record's seven fields. In either shape a settlement error gives its bucket and message, which `settle.SettleError` carries as `.bucket` and its text. The delta is looked up in both shapes because a missing delta is an error.
+/// This case's answer. The trace shape gives the settled record with its fired delta and the ranking; the settled-only shape gives the record's seven fields. In either shape a settlement error gives its bucket and message, which `settle.SettleError` carries as `.bucket` and its text. The delta is looked up in both shapes because a missing delta is an error.
 fn result_text(engine: &mut Engine<'_>, case: &Case<'_>, answer: Answer) -> Result<String, String> {
     let index = engine.index();
     let trace = match engine.transition_trace(&case.left, case.token, case.slots) {
@@ -150,14 +150,14 @@ fn raise_text(error: &SettleError) -> String {
     )
 }
 
-/// The settled trace, in the key order an answer is read in: the row-visible record and its fired delta first, then the deciding stage, the runner-up, the ranked ladder and the eliminations.
+/// The settled trace, in the key order an answer is read in: the row-visible record and its fired delta first, then the deciding stage, the runner-up, the ranked candidates and the eliminations.
 fn settled_text(index: &SpecIndex, trace: &TransitionTrace, fired: &[String]) -> String {
-    let ladder = trace.ladder();
-    let runner_up = match &ladder.runner_up {
+    let ranking = trace.ranking();
+    let runner_up = match &ranking.runner_up {
         Some(candidate) => candidate_json(index, candidate),
         None => "null".to_owned(),
     };
-    let ranked: Vec<String> = ladder
+    let ranked: Vec<String> = ranking
         .ranked
         .iter()
         .map(|entry| {
@@ -169,7 +169,7 @@ fn settled_text(index: &SpecIndex, trace: &TransitionTrace, fired: &[String]) ->
             )
         })
         .collect();
-    let eliminations: Vec<String> = ladder
+    let eliminations: Vec<String> = ranking
         .eliminations
         .iter()
         .map(|elimination| {
@@ -421,7 +421,7 @@ mod tests {
     /// One window over `fixtures::mini()`: the run edge on the left, `qsPea` being settled, and a `qsTea` follower whose only entry at `qsPea`'s exit height cannot be selected, so the x-height exit is eliminated and the cell settles unjoined.
     const UNJOINED: &str = "edge\t\t\t\t\t\t\t\tqsPea\tqsTea\tedge\tunknown\tunknown";
 
-    /// The window that fills in the ladder: `qsTea` being settled before `qsPea`. The x-height exit has no acceptor and an authored record refuses the baseline exit, so two stances survive with no exit and the declared order decides. It has both kinds of elimination, one naming no record and one naming the refusal, and the losing survivor is the runner-up.
+    /// The window that fills in the ranking: `qsTea` being settled before `qsPea`. The x-height exit has no acceptor and an authored record refuses the baseline exit, so two stances survive with no exit and the declared order decides. It has both kinds of elimination, one naming no record and one naming the refusal, and the losing survivor is the runner-up.
     const ORDERED: &str = "edge\t\t\t\t\t\t\t\tqsTea\tqsPea\tedge\tunknown\tunknown";
 
     /// The same follower after a left that committed an x-height exit `qsTea` cannot accept. This is the unaccepted-exit window, which goes in the `E-UNREACHABLE` bucket and is told apart by its message.
@@ -445,25 +445,26 @@ mod tests {
             .to_owned()
     }
 
-    /// The full trace: the settled record and its delta, then the ladder: the deciding stage, the runner-up, every ranked survivor with its two scores, and the eliminations with their provenance. This window has one survivor, so the stage is `only-candidate` and there is no runner-up. The elimination is the exit the survivor lost.
+    /// The full trace: the settled record and its delta, then the ranking: the deciding stage, the runner-up, every ranked survivor with its two scores, and the eliminations with their provenance. This window has one survivor, so the stage is `only-candidate` and there is no runner-up. The elimination is the exit the survivor lost.
     #[test]
-    fn a_settled_case_carries_the_record_the_delta_and_the_ladder_that_chose_it() {
+    fn a_settled_case_carries_the_record_the_delta_and_the_ranking_that_chose_it() {
         assert_eq!(
             result_of(UNJOINED, Answer::Trace),
             r#"{"settled":{"cell":["qsPea","half",null,null,[]],"seam":null,"extension":0},"prospect":0,"joint_floor":false,"notes":[],"fired":[],"decided_stage":"only-candidate","runner_up":null,"ranked":[[["half",null,null,0,9999],0,0]],"eliminations":[["lookahead-closure","qsPea.half: exit x-height has no refusal-aware acceptor cell on qsTea",null]]}"#
         );
     }
 
-    /// The four ladder fields on a window that fills all of them: the deciding stage, the survivor that lost, both ranked entries with their join count and prospect, and the two eliminations in enumeration order. The second elimination carries the refusal's pointer, which the delta and the notes also report.
+    /// The four ranking fields on a window that fills all of them: the deciding stage, the survivor that lost, both ranked entries with their join count and prospect, and the two eliminations in enumeration order. The second elimination carries the refusal's pointer, which the delta and the notes also report.
     #[test]
-    fn the_ladder_carries_the_stage_the_runner_up_both_rungs_and_each_eliminations_provenance() {
+    fn the_ranking_carries_the_stage_the_runner_up_both_ranked_entries_and_each_eliminations_provenance()
+     {
         assert_eq!(
             result_of(ORDERED, Answer::Trace),
             r#"{"settled":{"cell":["qsTea","full",null,null,[]],"seam":null,"extension":0},"prospect":0,"joint_floor":false,"notes":["qsTea.yaml:policy.refuse[0]"],"fired":["qsTea.yaml:policy.refuse[0]"],"decided_stage":"order","runner_up":["half",null,null,2,9999],"ranked":[[["full",null,null,1,9999],0,0],[["half",null,null,2,9999],0,0]],"eliminations":[["lookahead-closure","qsTea.half: exit x-height has no refusal-aware acceptor cell on qsPea",null],["refuse","qsTea.half: exit baseline refused","qsTea.yaml:policy.refuse[0]"]]}"#
         );
     }
 
-    /// The settled-only answer is the trace's settled record as seven fields, with an empty height where the trace has `null`, and no ladder.
+    /// The settled-only answer is the trace's settled record as seven fields, with an empty height where the trace has `null`, and no ranking.
     #[test]
     fn a_settled_only_answer_is_the_records_seven_fields() {
         assert_eq!(

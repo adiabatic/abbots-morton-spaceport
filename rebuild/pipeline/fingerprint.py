@@ -14,7 +14,7 @@ The three human-reviewed ledgers have prose-insensitive digests, like the rune f
 
 `rune_file_digest` hashes a rune's parsed document instead of its bytes, with the prose removed: YAML comments and formatting, the ductus text, `notes`, and every `why`, refuse records' included. No build step reads any of these (the refuse `why` has one reader, described next), so editing them should not make the corpus stale or re-run a cycle. The digest keeps every geometric and policy field, the ductus keys (motion names, which the lints check), and the presence of every prose field, because the schema requires `why` on some records.
 
-The crate appends a refuse record's `why` to that refusal's elimination message when it builds an explain ladder. The table fixpoint never requests a ladder; only the review corpus's explain panel shows ladders. So the refuse `why` is hashed by `rune_explain_digest`, which the review unit cache's family keys are built from, and by the Stage B `explain_prose` component. Rewording one re-enriches the windows whose explain text quotes it and restamps the corpus. No key built from `rune_file_digest` or `rune_digests` sees it.
+The crate appends a refuse record's `why` to that refusal's elimination message when it builds a ranking. The table fixpoint never requests a ranking; only the review corpus's explain panel shows rankings. So the refuse `why` is hashed by `rune_explain_digest`, which the review unit cache's family keys are built from, and by the Stage B `explain_prose` component. Rewording one re-enriches the windows whose explain text quotes it and restamps the corpus. No key built from `rune_file_digest` or `rune_digests` sees it.
 
 `code_file_digest` projects code files the same way. A `.py` file is hashed as its syntax tree with every docstring's text set to None, and a `.rs` file with its whole-line `//` comments removed, so rewording either moves no key built by `path_lines` or `hash_paths`. Everything the interpreter or compiler sees stays in: every identifier, every non-docstring string constant (matchers compare against error text), every annotation, default, and decorator, and every Rust code line including its trailing comment. The presence of each docstring stays too. A file that fails to parse or decode is hashed as raw bytes, as `_projected_digest` does, so the failure stays visible. Every other file type that reaches `path_lines`, such as the app's static files and the crate's manifest and lock, is hashed raw by `file_sha256`. `baseline_subset.stamp_key` also uses `code_file_digest`.
 
@@ -459,7 +459,7 @@ def _projected_rune_keeping_quoted_prose(document: object) -> object:
 
 
 def rune_explain_digest(path: Path) -> str:
-    """Return `rune_file_digest`'s projection with `policy.refuse[].why` kept. The crate appends that text to a refusal's elimination message in an explain ladder, which the review corpus shows as explain text. No table or font build asks for a ladder, so only the review side uses this digest: rewording a refusal invalidates the windows that quote it and nothing keyed on `rune_file_digest`."""
+    """Return `rune_file_digest`'s projection with `policy.refuse[].why` kept. The crate appends that text to a refusal's elimination message in a ranking, which the review corpus shows as explain text. No table or font build asks for a ranking, so only the review side uses this digest: rewording a refusal invalidates the windows that quote it and nothing keyed on `rune_file_digest`."""
     return _projected_digest(path, _projected_rune_keeping_quoted_prose)
 
 
