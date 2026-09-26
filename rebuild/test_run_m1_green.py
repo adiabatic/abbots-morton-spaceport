@@ -26,7 +26,7 @@ def _checks():
 
 
 def _phases(output):
-    """The phases this run opened and the labels its `[t]` lines closed, parsed with `console.parse_line` as the cycle's digest parses a child's output. A phase with no matching timing would reach the terminal with no duration."""
+    """The phases this run opened and the labels its `[t]` lines closed, parsed with `console.parse_line` as the cycle console parses a child's output. A phase with no matching timing would reach the terminal with no duration."""
     events = [console.parse_line(line) for line in output.splitlines()]
     opened = [event.name for event in events if isinstance(event, console.Phase)]
     closed = [event.label for event in events if isinstance(event, console.Timing)]

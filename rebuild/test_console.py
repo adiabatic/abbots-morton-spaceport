@@ -31,9 +31,9 @@ class _Result:
         self.peak_rss_bytes = peak_rss_bytes
 
 
-def _digest(clock=None, **kwargs):
+def _cycle_console(clock=None, **kwargs):
     kwargs.setdefault("steps", ["snapshot", "run_m1", "surface-build", "gate:conform"])
-    return console.Digest(clock=clock or _Clock(), **kwargs)
+    return console.CycleConsole(clock=clock or _Clock(), **kwargs)
 
 
 def _surfaced(out):
@@ -275,8 +275,8 @@ def test_plan_lines_carry_the_column_the_note_and_the_argv():
 
 
 def test_the_step_banner_numbers_the_step_and_wraps_its_description(capsys):
-    digest = _digest()
-    digest.step_start(
+    cycle_console = _cycle_console()
+    cycle_console.step_start(
         "run_m1",
         ["uv", "run", "python", "-m", "rebuild.pipeline.run_m1"],
         "Builds the M1 tables for every acceptance configuration in the Rust kernel, mints the glyphs, emits GSUB and GPOS, compiles the font, and reads it back.",
@@ -293,27 +293,27 @@ def test_the_step_banner_numbers_the_step_and_wraps_its_description(capsys):
 
 
 def test_a_step_outside_the_plan_still_opens_a_banner(capsys):
-    digest = _digest()
-    digest.step_start("ad-hoc", ["true"], "")
+    cycle_console = _cycle_console()
+    cycle_console.step_start("ad-hoc", ["true"], "")
     assert "---- step 1  ad-hoc " in capsys.readouterr().out
 
 
 def test_execution_numbers_follow_concurrent_starts_and_match_logs_and_summary(tmp_path):
     names = ["snapshot", "run_m1", "surface-build", "gate:conform"]
     out = io.StringIO()
-    digest = _digest(log_dir=tmp_path, out=out, aliases={"run_m1:gates-only": "run_m1"})
-    digest.step_skipped("snapshot", "no surface")
-    digest.step_not_run("surface-build", "not needed")
-    digest.note("run_m1", "waiting")
-    digest.step_start("gate:conform", None)
-    digest.step_end("gate:conform", None, "FAILED")
+    cycle_console = _cycle_console(log_dir=tmp_path, out=out, aliases={"run_m1:gates-only": "run_m1"})
+    cycle_console.step_skipped("snapshot", "no surface")
+    cycle_console.step_not_run("surface-build", "not needed")
+    cycle_console.note("run_m1", "waiting")
+    cycle_console.step_start("gate:conform", None)
+    cycle_console.step_end("gate:conform", None, "FAILED")
     barrier = threading.Barrier(3)
 
     def start(name):
         barrier.wait(timeout=10)
-        digest.step_start(name, None)
-        digest.child_line(name, console.STDOUT, name)
-        digest.step_end(name, None, "ok")
+        cycle_console.step_start(name, None)
+        cycle_console.child_line(name, console.STDOUT, name)
+        cycle_console.step_end(name, None, "ok")
 
     threads = [threading.Thread(target=start, args=(name,)) for name in ("run_m1:gates-only", "extra")]
     for thread in threads:
@@ -322,11 +322,11 @@ def test_execution_numbers_follow_concurrent_starts_and_match_logs_and_summary(t
     for thread in threads:
         thread.join(timeout=10)
         assert not thread.is_alive()
-    digest.substep("run_m1:gates-only", "late-child")
-    digest.child_line("late-child", console.STDOUT, "late output")
-    digest.substep_end("late-child")
+    cycle_console.substep("run_m1:gates-only", "late-child")
+    cycle_console.child_line("late-child", console.STDOUT, "late output")
+    cycle_console.substep_end("late-child")
     rows = [console.SummaryRow(None, name, "ok") for name in [*names, "extra"]]
-    digest.summary(rows)
+    cycle_console.summary(rows)
     rendered = out.getvalue()
     starts = re.findall(r"^---- step (\d+)  (\S+)", rendered, re.MULTILINE)
     assert [number for number, _ in starts] == ["1", "2", "3"]
@@ -342,9 +342,9 @@ def test_execution_numbers_follow_concurrent_starts_and_match_logs_and_summary(t
 
 
 def test_an_alias_reports_under_the_plan_row_it_stands_for(capsys):
-    digest = _digest(aliases={"run_m1:gates-only": "run_m1"})
-    digest.step_start("run_m1:gates-only", ["true"], "")
-    digest.child_line("run_m1:gates-only", console.STDOUT, "[warn] oracle cache reused")
+    cycle_console = _cycle_console(aliases={"run_m1:gates-only": "run_m1"})
+    cycle_console.step_start("run_m1:gates-only", ["true"], "")
+    cycle_console.child_line("run_m1:gates-only", console.STDOUT, "[warn] oracle cache reused")
     out = capsys.readouterr().out
     assert "---- step 1  run_m1  step" in out
     assert _bodies(out, "run_m1") == ["warn oracle cache reused"]
@@ -352,119 +352,121 @@ def test_an_alias_reports_under_the_plan_row_it_stands_for(capsys):
 
 def test_every_surfaced_line_carries_the_step_and_both_clocks(capsys):
     clock = _Clock()
-    digest = _digest(clock)
-    digest.step_start("surface-build", ["true"], "")
+    cycle_console = _cycle_console(clock)
+    cycle_console.step_start("surface-build", ["true"], "")
     clock.advance(75)
-    digest.child_line("surface-build", console.STDOUT, "[warn] cache miss")
+    cycle_console.child_line("surface-build", console.STDOUT, "[warn] cache miss")
     (line,) = _surfaced(capsys.readouterr().out)
     assert line == "  surface-build  step   1m15s  cycle   1m15s  warn cache miss"
 
 
 def test_a_phase_pairs_with_the_timing_of_the_same_label(capsys):
     clock = _Clock()
-    digest = _digest(clock)
-    digest.step_start("run_m1", ["true"], "")
-    digest.child_line("run_m1", console.STDOUT, "[phase] build_tables")
+    cycle_console = _cycle_console(clock)
+    cycle_console.step_start("run_m1", ["true"], "")
+    cycle_console.child_line("run_m1", console.STDOUT, "[phase] build_tables")
     clock.advance(243.1)
-    digest.child_line("run_m1", console.STDOUT, "[t] build_tables 243.1s rss_gb=8.94")
+    cycle_console.child_line("run_m1", console.STDOUT, "[t] build_tables 243.1s rss_gb=8.94")
     bodies = _bodies(capsys.readouterr().out, "run_m1")
     assert bodies == ["phase build_tables", "phase build_tables done 4m03s  rss_gb=8.94"]
 
 
 def test_an_unpaired_timing_is_log_only(capsys, tmp_path):
-    digest = _digest(log_dir=tmp_path / "run")
-    digest.step_start("run_m1", ["true"], "")
-    digest.child_line("run_m1", console.STDOUT, "[t] kernel_enumerate[default] 3.0s")
+    cycle_console = _cycle_console(log_dir=tmp_path / "run")
+    cycle_console.step_start("run_m1", ["true"], "")
+    cycle_console.child_line("run_m1", console.STDOUT, "[t] kernel_enumerate[default] 3.0s")
     assert _bodies(capsys.readouterr().out, "run_m1") == []
     assert (tmp_path / "run" / "01-run_m1.log").read_text() == "[t] kernel_enumerate[default] 3.0s\n"
 
 
 def test_a_phase_closes_once_and_the_second_timing_is_log_only(capsys):
-    digest = _digest()
-    digest.step_start("run_m1", ["true"], "")
-    digest.child_line("run_m1", console.STDOUT, "[phase] oracle")
-    digest.child_line("run_m1", console.STDOUT, "[t] oracle 1.0s")
-    digest.child_line("run_m1", console.STDOUT, "[t] oracle 1.0s")
+    cycle_console = _cycle_console()
+    cycle_console.step_start("run_m1", ["true"], "")
+    cycle_console.child_line("run_m1", console.STDOUT, "[phase] oracle")
+    cycle_console.child_line("run_m1", console.STDOUT, "[t] oracle 1.0s")
+    cycle_console.child_line("run_m1", console.STDOUT, "[t] oracle 1.0s")
     assert len(_bodies(capsys.readouterr().out, "run_m1")) == 2
 
 
 def test_progress_is_throttled_to_the_silence_window(capsys):
     clock = _Clock()
-    digest = _digest(clock, heartbeat_seconds=60)
-    digest.step_start("run_m1", ["true"], "")
-    digest.child_line("run_m1", console.STDOUT, "[progress] 1/6 configurations")
+    cycle_console = _cycle_console(clock, heartbeat_seconds=60)
+    cycle_console.step_start("run_m1", ["true"], "")
+    cycle_console.child_line("run_m1", console.STDOUT, "[progress] 1/6 configurations")
     clock.advance(10)
-    digest.child_line("run_m1", console.STDOUT, "[progress] 2/6 configurations")
+    cycle_console.child_line("run_m1", console.STDOUT, "[progress] 2/6 configurations")
     assert _bodies(capsys.readouterr().out, "run_m1") == []
     clock.advance(51)
-    digest.child_line("run_m1", console.STDOUT, "[progress] 3/6 configurations")
+    cycle_console.child_line("run_m1", console.STDOUT, "[progress] 3/6 configurations")
     assert _bodies(capsys.readouterr().out, "run_m1") == ["progress 3/6 configurations"]
 
 
 def test_a_warning_is_never_throttled(capsys):
-    digest = _digest(_Clock(), heartbeat_seconds=60)
-    digest.step_start("run_m1", ["true"], "")
+    cycle_console = _cycle_console(_Clock(), heartbeat_seconds=60)
+    cycle_console.step_start("run_m1", ["true"], "")
     for index in range(3):
-        digest.child_line("run_m1", console.STDERR, f"[warn] warning {index}")
+        cycle_console.child_line("run_m1", console.STDERR, f"[warn] warning {index}")
     assert len(_bodies(capsys.readouterr().out, "run_m1")) == 3
 
 
 def test_the_heartbeat_surfaces_the_stored_counter_then_bare_silence(capsys):
     clock = _Clock()
-    digest = _digest(clock, heartbeat_seconds=60)
-    digest.step_start("surface-build", ["true"], "")
-    digest.child_line("surface-build", console.STDERR, "[progress] 8192/15903 units")
-    digest._heartbeat_tick()
+    cycle_console = _cycle_console(clock, heartbeat_seconds=60)
+    cycle_console.step_start("surface-build", ["true"], "")
+    cycle_console.child_line("surface-build", console.STDERR, "[progress] 8192/15903 units")
+    cycle_console._heartbeat_tick()
     assert _bodies(capsys.readouterr().out, "surface-build") == []
     clock.advance(61)
-    digest._heartbeat_tick()
+    cycle_console._heartbeat_tick()
     assert _bodies(capsys.readouterr().out, "surface-build") == ["progress 8,192/15,903 units"]
     clock.advance(61)
-    digest._heartbeat_tick()
+    cycle_console._heartbeat_tick()
     assert _bodies(capsys.readouterr().out, "surface-build") == ["heartbeat"]
 
 
 def test_a_counter_never_surfaces_under_a_phase_that_did_not_count_it(capsys):
     """A stored counter is dropped when its phase closes. Otherwise the next heartbeat would print the finished phase's count while a different phase runs, and the reader would take it at face value."""
     clock = _Clock()
-    digest = _digest(clock, heartbeat_seconds=60)
-    digest.step_start("surface-build", ["true"], "")
-    digest.child_line("surface-build", console.STDERR, "[phase] review.build units")
-    digest.child_line("surface-build", console.STDERR, "[progress] 15903/15903 units")
-    digest.child_line("surface-build", console.STDERR, "[t] review.build units 12.0s")
-    digest.child_line("surface-build", console.STDERR, "[phase] review.build manifest+check")
+    cycle_console = _cycle_console(clock, heartbeat_seconds=60)
+    cycle_console.step_start("surface-build", ["true"], "")
+    cycle_console.child_line("surface-build", console.STDERR, "[phase] review.build units")
+    cycle_console.child_line("surface-build", console.STDERR, "[progress] 15903/15903 units")
+    cycle_console.child_line("surface-build", console.STDERR, "[t] review.build units 12.0s")
+    cycle_console.child_line("surface-build", console.STDERR, "[phase] review.build manifest+check")
     capsys.readouterr()
     clock.advance(61)
-    digest._heartbeat_tick()
+    cycle_console._heartbeat_tick()
     assert _bodies(capsys.readouterr().out, "surface-build") == ["heartbeat"]
 
 
 def test_a_counter_stored_under_an_opening_phase_is_dropped_with_it(capsys):
     """A counter that arrived before a phase opened is dropped when the phase opens."""
     clock = _Clock()
-    digest = _digest(clock, heartbeat_seconds=60)
-    digest.step_start("run_m1", ["true"], "")
-    digest.child_line("run_m1", console.STDOUT, "[progress] 3/6 configurations")
-    digest.child_line("run_m1", console.STDOUT, "[phase] oracle")
+    cycle_console = _cycle_console(clock, heartbeat_seconds=60)
+    cycle_console.step_start("run_m1", ["true"], "")
+    cycle_console.child_line("run_m1", console.STDOUT, "[progress] 3/6 configurations")
+    cycle_console.child_line("run_m1", console.STDOUT, "[phase] oracle")
     capsys.readouterr()
     clock.advance(61)
-    digest._heartbeat_tick()
+    cycle_console._heartbeat_tick()
     assert _bodies(capsys.readouterr().out, "run_m1") == ["heartbeat"]
 
 
-def test_the_heartbeat_thread_starts_and_stops_with_the_digest(tmp_path):
+def test_the_heartbeat_thread_starts_and_stops_with_the_console(tmp_path):
     def names():
         return {thread.name for thread in threading.enumerate()}
 
-    with console.Digest(log_dir=tmp_path / "run"):
-        assert "digest-heartbeat" in names()
-    assert "digest-heartbeat" not in names()
+    with console.CycleConsole(log_dir=tmp_path / "run"):
+        assert "console-heartbeat" in names()
+    assert "console-heartbeat" not in names()
 
 
 def test_the_closing_line_carries_the_outcome_the_figure_and_the_peak(capsys):
-    digest = _digest()
-    digest.step_start("run_m1", ["true"], "")
-    digest.step_end("run_m1", _Result(elapsed=1988.0, peak_rss_bytes=19_600_000_000), "ok", "7 unmatched")
+    cycle_console = _cycle_console()
+    cycle_console.step_start("run_m1", ["true"], "")
+    cycle_console.step_end(
+        "run_m1", _Result(elapsed=1988.0, peak_rss_bytes=19_600_000_000), "ok", "7 unmatched"
+    )
     assert _surfaced(capsys.readouterr().out) == [
         "  run_m1         step  33m08s  cycle    0.0s  ok  7 unmatched  rss 19.6G"
     ]
@@ -472,46 +474,46 @@ def test_the_closing_line_carries_the_outcome_the_figure_and_the_peak(capsys):
 
 def test_a_pytest_lane_closes_saying_how_many_times_it_warned(capsys):
     """A pytest step's closing line reports the warning count from pytest's terminal summary rule, between the figure and the peak, so warnings are not hidden behind a bare `ok`. The warnings themselves stay in the log. A non-pytest step ignores the same line."""
-    digest = _digest(steps=["gate:make-test", "gate:js"])
-    digest.step_start("gate:make-test", ["make", "test"], "")
-    digest.child_line("gate:make-test", console.STDOUT, "=========== warnings summary ===========")
-    digest.child_line("gate:make-test", console.STDOUT, "test/test_x.py::test_y: nope")
-    digest.child_line("gate:make-test", console.STDOUT, "=== 412 passed, 3 warnings in 91.20s ===")
-    digest.step_end("gate:make-test", _Result(elapsed=91.2, peak_rss_bytes=2_000_000_000), "ok")
+    cycle_console = _cycle_console(steps=["gate:make-test", "gate:js"])
+    cycle_console.step_start("gate:make-test", ["make", "test"], "")
+    cycle_console.child_line("gate:make-test", console.STDOUT, "=========== warnings summary ===========")
+    cycle_console.child_line("gate:make-test", console.STDOUT, "test/test_x.py::test_y: nope")
+    cycle_console.child_line("gate:make-test", console.STDOUT, "=== 412 passed, 3 warnings in 91.20s ===")
+    cycle_console.step_end("gate:make-test", _Result(elapsed=91.2, peak_rss_bytes=2_000_000_000), "ok")
     assert _bodies(capsys.readouterr().out, "gate:make-test") == ["ok  3 warnings, see log  rss 2.0G"]
 
-    digest.step_start("gate:js", ["node", "--test"], "")
-    digest.child_line("gate:js", console.STDOUT, "=== 412 passed, 3 warnings in 91.20s ===")
-    digest.step_end("gate:js", _Result(elapsed=2.0), "ok")
+    cycle_console.step_start("gate:js", ["node", "--test"], "")
+    cycle_console.child_line("gate:js", console.STDOUT, "=== 412 passed, 3 warnings in 91.20s ===")
+    cycle_console.step_end("gate:js", _Result(elapsed=2.0), "ok")
     assert _bodies(capsys.readouterr().out, "gate:js") == ["ok"]
 
 
 def test_a_step_whose_peak_was_never_reaped_prints_no_peak(capsys):
-    digest = _digest()
-    digest.step_start("run_m1", ["true"], "")
-    digest.step_end("run_m1", _Result(elapsed=2.0), "FAILED", "3 unexplained")
+    cycle_console = _cycle_console()
+    cycle_console.step_start("run_m1", ["true"], "")
+    cycle_console.step_end("run_m1", _Result(elapsed=2.0), "FAILED", "3 unexplained")
     assert _bodies(capsys.readouterr().out, "run_m1") == ["FAILED  3 unexplained"]
 
 
 def test_a_step_with_no_child_still_closes(capsys):
-    digest = _digest()
-    digest.step_start("snapshot", None, "")
-    digest.step_end("snapshot", None, "ok", "15,903 units")
+    cycle_console = _cycle_console()
+    cycle_console.step_start("snapshot", None, "")
+    cycle_console.step_end("snapshot", None, "ok", "15,903 units")
     assert _bodies(capsys.readouterr().out, "snapshot") == ["ok  15,903 units"]
 
 
 def test_closing_a_step_nobody_opened_still_says_so_and_writes_no_log(capsys, tmp_path):
-    digest = _digest(log_dir=tmp_path / "run")
-    digest.step_end("gate:conform", _Result(elapsed=4.0), "ok", "green")
+    cycle_console = _cycle_console(log_dir=tmp_path / "run")
+    cycle_console.step_end("gate:conform", _Result(elapsed=4.0), "ok", "green")
     assert _bodies(capsys.readouterr().out, "gate:conform") == ["ok  green"]
     assert not (tmp_path / "run").exists()
 
 
 def test_skipped_and_not_run_steps_announce_with_their_note_verbatim(capsys):
-    digest = _digest()
-    digest.step_skipped("gate:conform", "SKIPPED after run_m1 (green record matches)")
-    digest.step_not_run("surface-build", "not run (run_m1 failed)")
-    digest.note("run_m1", "ERROR: run_m1 did not write all three summary files")
+    cycle_console = _cycle_console()
+    cycle_console.step_skipped("gate:conform", "SKIPPED after run_m1 (green record matches)")
+    cycle_console.step_not_run("surface-build", "not run (run_m1 failed)")
+    cycle_console.note("run_m1", "ERROR: run_m1 did not write all three summary files")
     out = capsys.readouterr().out
     assert "skipped  SKIPPED after run_m1 (green record matches)" in out
     assert "not run  not run (run_m1 failed)" in out
@@ -520,12 +522,12 @@ def test_skipped_and_not_run_steps_announce_with_their_note_verbatim(capsys):
 
 
 def test_a_substep_logs_and_surfaces_under_its_parent(capsys, tmp_path):
-    digest = _digest(log_dir=tmp_path / "run")
-    digest.step_start("census", ["true"], "", verbatim=True)
-    digest.substep("census", "git-diff")
-    digest.child_line("git-diff", console.STDOUT, '+  "volatile": {')
-    digest.child_line("git-diff", console.STDOUT, "")
-    digest.child_line("git-diff", console.STDERR, "[warn] the pins moved")
+    cycle_console = _cycle_console(log_dir=tmp_path / "run")
+    cycle_console.step_start("census", ["true"], "", verbatim=True)
+    cycle_console.substep("census", "git-diff")
+    cycle_console.child_line("git-diff", console.STDOUT, '+  "volatile": {')
+    cycle_console.child_line("git-diff", console.STDOUT, "")
+    cycle_console.child_line("git-diff", console.STDERR, "[warn] the pins moved")
     out = capsys.readouterr().out
     assert out.splitlines()[-3:-1] == ['+  "volatile": {', ""]
     assert _bodies(out, "census") == ["warn the pins moved"]
@@ -536,69 +538,71 @@ def test_a_substep_logs_and_surfaces_under_its_parent(capsys, tmp_path):
 def test_a_substep_that_spawns_after_its_parent_closed_leaves_nothing_open(capsys, tmp_path):
     """The census prints its diff after its step has closed, so the sub-step's lines open a transient state that `substep_end` must close. Otherwise its log handle would stay open until `stop()` and the heartbeat would report the finished step every minute for the rest of the pass. The surfaced line keeps the census step's clock, so it reads as late output."""
     clock = _Clock()
-    digest = _digest(clock, log_dir=tmp_path / "run", heartbeat_seconds=60)
-    digest.step_start("census", ["true"], "", verbatim=True)
+    cycle_console = _cycle_console(clock, log_dir=tmp_path / "run", heartbeat_seconds=60)
+    cycle_console.step_start("census", ["true"], "", verbatim=True)
     clock.advance(30)
-    digest.step_end("census", _Result(elapsed=30.0), "ok")
+    cycle_console.step_end("census", _Result(elapsed=30.0), "ok")
     capsys.readouterr()
 
-    digest.substep("census", "git-diff")
-    digest.child_line("git-diff", console.STDOUT, "[warn] the pins moved")
-    digest.substep_end("git-diff")
+    cycle_console.substep("census", "git-diff")
+    cycle_console.child_line("git-diff", console.STDOUT, "[warn] the pins moved")
+    cycle_console.substep_end("git-diff")
 
     out = capsys.readouterr().out
     assert _bodies(out, "census") == ["warn the pins moved"]
     assert "step   30.0s" in out
-    assert digest._open == {}
+    assert cycle_console._open == {}
     clock.advance(61)
-    digest._heartbeat_tick()
+    cycle_console._heartbeat_tick()
     assert capsys.readouterr().out == ""
     assert not (tmp_path / "run" / "00-git-diff.log").exists()
 
 
 def test_a_substep_close_leaves_a_parent_that_is_still_running_alone(capsys, tmp_path):
     """When the sub-step runs while its parent is open, `substep_end` leaves the parent open so the parent's own `step_end` prints its closing line."""
-    digest = _digest(log_dir=tmp_path / "run")
-    digest.step_start("census", ["true"], "")
-    digest.substep("census", "git-diff")
-    digest.child_line("git-diff", console.STDOUT, "[warn] the pins moved")
-    digest.substep_end("git-diff")
-    assert set(digest._open) == {"census"}
-    digest.step_end("census", None, "ok", "updated")
-    assert digest._open == {}
+    cycle_console = _cycle_console(log_dir=tmp_path / "run")
+    cycle_console.step_start("census", ["true"], "")
+    cycle_console.substep("census", "git-diff")
+    cycle_console.child_line("git-diff", console.STDOUT, "[warn] the pins moved")
+    cycle_console.substep_end("git-diff")
+    assert set(cycle_console._open) == {"census"}
+    cycle_console.step_end("census", None, "ok", "updated")
+    assert cycle_console._open == {}
     assert _bodies(capsys.readouterr().out, "census") == ["warn the pins moved", "ok  updated"]
 
 
 def test_a_plain_line_reaches_the_terminal_only_for_a_verbatim_step(capsys):
-    digest = _digest()
-    digest.step_start("run_m1", ["true"], "")
-    digest.child_line("run_m1", console.STDOUT, "wrote rebuild/out/m1/tables.json")
+    cycle_console = _cycle_console()
+    cycle_console.step_start("run_m1", ["true"], "")
+    cycle_console.child_line("run_m1", console.STDOUT, "wrote rebuild/out/m1/tables.json")
     assert _surfaced(capsys.readouterr().out) == []
 
 
 def test_a_failure_dumps_the_whole_step_log_verbatim(capsys, tmp_path):
     for log_dir in (None, tmp_path / "run"):
-        digest = _digest(log_dir=log_dir)
-        digest.step_start("gate:js", ["node", "--test"], "")
-        digest.child_line("gate:js", console.STDOUT, "not ok 3 - keyboard")
-        digest.child_line("gate:js", console.STDERR, "TypeError: nope")
+        cycle_console = _cycle_console(log_dir=log_dir)
+        cycle_console.step_start("gate:js", ["node", "--test"], "")
+        cycle_console.child_line("gate:js", console.STDOUT, "not ok 3 - keyboard")
+        cycle_console.child_line("gate:js", console.STDERR, "TypeError: nope")
         capsys.readouterr()
-        digest.failure_dump("gate:js")
+        cycle_console.failure_dump("gate:js")
         assert capsys.readouterr().out == "\nnot ok 3 - keyboard\nstderr| TypeError: nope\n"
 
 
 def test_the_summary_prints_the_table_the_cycle_lines_and_the_verdict(capsys):
-    digest = _digest()
-    digest.step_start("snapshot", None)
-    digest.step_end("snapshot", None, "ok")
-    digest.step_start("run_m1", None)
-    digest.step_end("run_m1", None, "ok")
+    cycle_console = _cycle_console()
+    cycle_console.step_start("snapshot", None)
+    cycle_console.step_end("snapshot", None, "ok")
+    cycle_console.step_start("run_m1", None)
+    cycle_console.step_end("run_m1", None, "ok")
     rows = [
         console.SummaryRow(1, "snapshot", "ok", "15,903 units", 0.4),
         console.SummaryRow(2, "run_m1", "ok", "7 unmatched", 1988.0),
         console.SummaryRow(3, "surface-build", "skipped", "", None),
     ]
-    digest.summary(rows, ["census pins  : unchanged", "READY - adjudicate at the docket"], console.VERDICT_OK)
+    cycle_console.summary(
+        rows, ["census pins  : unchanged", "READY - adjudicate at the docket"], console.VERDICT_OK
+    )
     out = capsys.readouterr().out
     assert console.SUMMARY_BANNER in out
     assert "  1  snapshot       ok       15,903 units    0.4s" in out
@@ -608,8 +612,8 @@ def test_the_summary_prints_the_table_the_cycle_lines_and_the_verdict(capsys):
 
 
 def test_a_failed_summary_reprints_its_reasons_and_drops_the_next_line(capsys):
-    digest = _digest()
-    digest.summary(
+    cycle_console = _cycle_console()
+    cycle_console.summary(
         [console.SummaryRow(1, "gate:js", "FAILED", "1 failure", 3.0)],
         [],
         console.VERDICT_FAILED,
@@ -622,41 +626,41 @@ def test_a_failed_summary_reprints_its_reasons_and_drops_the_next_line(capsys):
 
 
 def test_an_interrupted_summary_says_so(capsys):
-    digest = _digest()
-    digest.summary([], [], console.VERDICT_INTERRUPTED, ["SIGINT: terminated 3 child process(es)."])
+    cycle_console = _cycle_console()
+    cycle_console.summary([], [], console.VERDICT_INTERRUPTED, ["SIGINT: terminated 3 child process(es)."])
     out = capsys.readouterr().out
     assert "CYCLE INTERRUPTED:" in out
     assert "  - SIGINT: terminated 3 child process(es)." in out
 
 
 def test_emit_and_emit_block_still_write_whole_lines(capsys):
-    digest = console.Digest()
-    digest.emit("one")
-    digest.emit_block(["two", "three"])
+    cycle_console = console.CycleConsole()
+    cycle_console.emit("one")
+    cycle_console.emit_block(["two", "three"])
     assert capsys.readouterr().out == "one\ntwo\nthree\n"
 
 
-def test_a_digest_without_a_log_dir_touches_no_filesystem(capsys, tmp_path, monkeypatch):
+def test_a_console_without_a_log_dir_touches_no_filesystem(capsys, tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    with _digest() as digest:
-        digest.plan_block(["4 steps: 2–3 will run, 1 skipped"])
-        digest.step_start("run_m1", ["true"], "Builds the tables.")
-        digest.child_line("run_m1", console.STDOUT, "[phase] load")
-        digest.step_end("run_m1", _Result(), "ok", "")
+    with _cycle_console() as cycle_console:
+        cycle_console.plan_block(["4 steps: 2–3 will run, 1 skipped"])
+        cycle_console.step_start("run_m1", ["true"], "Builds the tables.")
+        cycle_console.child_line("run_m1", console.STDOUT, "[phase] load")
+        cycle_console.step_end("run_m1", _Result(), "ok", "")
     assert list(tmp_path.iterdir()) == []
 
 
 def test_the_log_directory_holds_the_plan_the_terminal_copy_and_a_log_per_step(capsys, tmp_path):
     root = tmp_path / "build-logs"
     run = root / "2026-09-04T12.00.00Z-abc1234"
-    with _digest(log_dir=run) as digest:
-        digest.plan_block(["artifact cycle", "4 steps: 2–3 will run, 1 skipped"])
-        digest.step_start("run_m1", ["true"], "Builds the tables.")
+    with _cycle_console(log_dir=run) as cycle_console:
+        cycle_console.plan_block(["artifact cycle", "4 steps: 2–3 will run, 1 skipped"])
+        cycle_console.step_start("run_m1", ["true"], "Builds the tables.")
         print("Auto-resolved carry source: verdicts-autosave.json")
-        digest.child_line("run_m1", console.STDOUT, "wrote tables.json")
-        digest.child_line("run_m1", console.STDERR, "compiling")
-        digest.child_line("run_m1", console.STDOUT, "[warn] no green recorded")
-        digest.step_end("run_m1", _Result(), "ok", "")
+        cycle_console.child_line("run_m1", console.STDOUT, "wrote tables.json")
+        cycle_console.child_line("run_m1", console.STDERR, "compiling")
+        cycle_console.child_line("run_m1", console.STDOUT, "[warn] no green recorded")
+        cycle_console.step_end("run_m1", _Result(), "ok", "")
     assert sorted(path.name for path in run.iterdir()) == ["01-run_m1.log", "plan.txt", "terminal.log"]
     assert (run / "plan.txt").read_text() == "artifact cycle\n4 steps: 2–3 will run, 1 skipped\n"
     assert (run / "01-run_m1.log").read_text().splitlines() == [
@@ -676,12 +680,14 @@ def test_the_log_directory_holds_the_plan_the_terminal_copy_and_a_log_per_step(c
 def test_a_step_that_spawns_nothing_leaves_no_log_behind(capsys, tmp_path):
     """A step's log file opens on its first child line, so a step that spawns nothing, such as the retention pass that runs in the driver's process, leaves no empty log in the run directory."""
     run = tmp_path / "run"
-    with _digest(log_dir=run) as digest:
-        digest.step_start("retention", None, "Prunes the regenerable piles a green cycle leaves behind.")
-        digest.step_end("retention", None, "ok", "removed 1 carried; journal intact")
-        digest.step_start("run_m1", ["true"], "Builds the tables.")
-        digest.child_line("run_m1", console.STDOUT, "wrote tables.json")
-        digest.step_end("run_m1", _Result(), "ok", "")
+    with _cycle_console(log_dir=run) as cycle_console:
+        cycle_console.step_start(
+            "retention", None, "Prunes the regenerable piles a green cycle leaves behind."
+        )
+        cycle_console.step_end("retention", None, "ok", "removed 1 carried; journal intact")
+        cycle_console.step_start("run_m1", ["true"], "Builds the tables.")
+        cycle_console.child_line("run_m1", console.STDOUT, "wrote tables.json")
+        cycle_console.step_end("run_m1", _Result(), "ok", "")
     assert sorted(path.name for path in run.iterdir()) == ["02-run_m1.log", "terminal.log"]
     surfaced = _surfaced(capsys.readouterr().out)
     assert any("removed 1 carried; journal intact" in line for line in surfaced)
@@ -697,35 +703,35 @@ def test_a_skip_says_the_word_once(capsys, tmp_path):
         == "SKIPPED after run_m1 — the key still matches"
     )
 
-    digest = _digest()
-    digest.step_skipped("snapshot", "SKIPPED (the surface is not rewritten and no carry runs)")
-    digest.step_skipped("gate:conform", "--skip-conform")
+    cycle_console = _cycle_console()
+    cycle_console.step_skipped("snapshot", "SKIPPED (the surface is not rewritten and no carry runs)")
+    cycle_console.step_skipped("gate:conform", "--skip-conform")
     lines = _surfaced(capsys.readouterr().out)
     assert lines[0].endswith("skipped  the surface is not rewritten and no carry runs")
     assert lines[1].endswith("skipped  --skip-conform")
 
 
 def test_a_replay_reaches_the_terminal_copy_and_says_nothing_twice(capsys, tmp_path):
-    """The driver prints up to three lines before the digest exists: a recovery notice, the carry source or a no-carry notice, and the store-only decline note. `replay` writes them to terminal.log only, because they are already on the terminal. Without a log directory it writes nothing."""
+    """The driver prints up to three lines before the console exists: a recovery notice, the carry source or a no-carry notice, and the store-only decline note. `replay` writes them to terminal.log only, because they are already on the terminal. Without a log directory it writes nothing."""
     run = tmp_path / "run"
     preamble = ["No carryable verdicts found; proceeding without carry."]
     print(preamble[0])
-    with _digest(log_dir=run) as digest:
-        digest.replay(preamble)
+    with _cycle_console(log_dir=run) as cycle_console:
+        cycle_console.replay(preamble)
     assert (run / console.TERMINAL_LOG).read_text() == preamble[0] + "\n"
     assert capsys.readouterr().out == preamble[0] + "\n"
 
-    without_a_directory = _digest()
+    without_a_directory = _cycle_console()
     without_a_directory.replay(preamble)
     assert capsys.readouterr().out == ""
 
 
-def test_a_crash_inside_the_digest_lands_its_traceback_in_the_terminal_copy(capsys, tmp_path):
+def test_a_crash_inside_the_console_lands_its_traceback_in_the_terminal_copy(capsys, tmp_path):
     """Python prints an escaping exception's traceback after `stop` has restored the real streams, so it would never reach terminal.log. `__exit__` writes the traceback to terminal.log itself. It does not print it to the terminal, because Python already prints it there once."""
     run = tmp_path / "run"
     before = (sys.stdout, sys.stderr)
     with pytest.raises(RuntimeError, match="boom"):
-        with _digest(log_dir=run):
+        with _cycle_console(log_dir=run):
             raise RuntimeError("boom")
     assert (sys.stdout, sys.stderr) == before
     copy = (run / console.TERMINAL_LOG).read_text()
@@ -737,7 +743,7 @@ def test_a_crash_inside_the_digest_lands_its_traceback_in_the_terminal_copy(caps
 def test_the_latest_symlink_moves_to_the_newest_run(tmp_path):
     root = tmp_path / "build-logs"
     for name in ("first", "second"):
-        with console.Digest(log_dir=root / name):
+        with console.CycleConsole(log_dir=root / name):
             pass
     assert (root / "latest").resolve() == (root / "second").resolve()
     assert sorted(path.name for path in root.iterdir()) == ["first", "latest", "second"]
@@ -752,13 +758,13 @@ _CHILD_SCRIPT = (
 )
 
 
-def _pump(digest, name, pipe, stream):
+def _pump(cycle_console, name, pipe, stream):
     for line in pipe:
-        digest.child_line(name, stream, line)
+        cycle_console.child_line(name, stream, line)
     pipe.close()
 
 
-def _run_child(digest, tag):
+def _run_child(cycle_console, tag):
     proc = subprocess.Popen(
         [sys.executable, "-c", _CHILD_SCRIPT, tag],
         text=True,
@@ -767,8 +773,8 @@ def _run_child(digest, tag):
         bufsize=1,
     )
     threads = [
-        threading.Thread(target=_pump, args=(digest, tag, proc.stdout, console.STDOUT)),
-        threading.Thread(target=_pump, args=(digest, tag, proc.stderr, console.STDERR)),
+        threading.Thread(target=_pump, args=(cycle_console, tag, proc.stdout, console.STDOUT)),
+        threading.Thread(target=_pump, args=(cycle_console, tag, proc.stderr, console.STDERR)),
     ]
     for thread in threads:
         thread.start()
@@ -779,16 +785,16 @@ def _run_child(digest, tag):
 
 def test_two_children_at_once_never_splice_a_line(capsys, tmp_path):
     run = tmp_path / "run"
-    digest = console.Digest(steps=["childA", "childB"], log_dir=run)
+    cycle_console = console.CycleConsole(steps=["childA", "childB"], log_dir=run)
     for tag in ("childA", "childB"):
-        digest.step_start(tag, [sys.executable, "-c", "...", tag], "")
-    threads = [threading.Thread(target=_run_child, args=(digest, tag)) for tag in ("childA", "childB")]
+        cycle_console.step_start(tag, [sys.executable, "-c", "...", tag], "")
+    threads = [threading.Thread(target=_run_child, args=(cycle_console, tag)) for tag in ("childA", "childB")]
     for thread in threads:
         thread.start()
     for thread in threads:
         thread.join()
     for tag in ("childA", "childB"):
-        digest.step_end(tag, None, "ok", "")
+        cycle_console.step_end(tag, None, "ok", "")
 
     pattern = re.compile(
         r"^  (childA|childB)\s+step\s+\S+\s+cycle\s+\S+\s+warn (childA|childB)-(out|err)-\d{4}$"
@@ -809,25 +815,25 @@ def test_two_children_at_once_never_splice_a_line(capsys, tmp_path):
 def test_two_phases_open_at_once_close_by_their_own_timing_lines_in_either_order(capsys):
     """run_m1's two branches open phases concurrently (the glyph chain's `compile_font` and the table-only branch's `replay_strings`), and either may close first. Each `[t]` line closes only the phase with its label."""
     clock = _Clock()
-    digest = _digest(clock)
-    digest.step_start("run_m1", ["true"], "")
-    digest.child_line("run_m1", console.STDOUT, "[phase] replay_strings")
-    digest.child_line("run_m1", console.STDOUT, "[phase] compile_font")
+    cycle_console = _cycle_console(clock)
+    cycle_console.step_start("run_m1", ["true"], "")
+    cycle_console.child_line("run_m1", console.STDOUT, "[phase] replay_strings")
+    cycle_console.child_line("run_m1", console.STDOUT, "[phase] compile_font")
     clock.advance(10)
-    digest.child_line("run_m1", console.STDOUT, "[t] compile_font 10.0s")
+    cycle_console.child_line("run_m1", console.STDOUT, "[t] compile_font 10.0s")
     clock.advance(16)
-    digest.child_line("run_m1", console.STDOUT, "[t] replay_strings 26.0s")
+    cycle_console.child_line("run_m1", console.STDOUT, "[t] replay_strings 26.0s")
     assert _bodies(capsys.readouterr().out, "run_m1") == [
         "phase replay_strings",
         "phase compile_font",
         "phase compile_font done 10.0s",
         "phase replay_strings done 26.0s",
     ]
-    digest.child_line("run_m1", console.STDOUT, "[phase] rule_witnesses")
-    digest.child_line("run_m1", console.STDOUT, "[phase] readback")
+    cycle_console.child_line("run_m1", console.STDOUT, "[phase] rule_witnesses")
+    cycle_console.child_line("run_m1", console.STDOUT, "[phase] readback")
     clock.advance(1)
-    digest.child_line("run_m1", console.STDOUT, "[t] rule_witnesses 18.0s")
-    digest.child_line("run_m1", console.STDOUT, "[t] readback 1.0s")
+    cycle_console.child_line("run_m1", console.STDOUT, "[t] rule_witnesses 18.0s")
+    cycle_console.child_line("run_m1", console.STDOUT, "[t] readback 1.0s")
     assert _bodies(capsys.readouterr().out, "run_m1") == [
         "phase rule_witnesses",
         "phase readback",
@@ -841,18 +847,18 @@ def test_a_counter_from_one_branch_carries_its_own_unit_and_is_dropped_when_eith
 ):
     """The packers count `packed configurations` and the oracle counts `shards`, so a surfaced counter's unit shows which branch it came from. A counter stored while two phases are open is dropped when either closes, as `test_a_counter_never_surfaces_under_a_phase_that_did_not_count_it` checks for one phase."""
     clock = _Clock()
-    digest = _digest(clock, heartbeat_seconds=60)
-    digest.step_start("run_m1", ["true"], "")
-    digest.child_line("run_m1", console.STDOUT, "[phase] run_oracle")
-    digest.child_line("run_m1", console.STDOUT, "[phase] emitted_order")
-    digest.child_line("run_m1", console.STDOUT, "[progress] 3/5 packed configurations")
+    cycle_console = _cycle_console(clock, heartbeat_seconds=60)
+    cycle_console.step_start("run_m1", ["true"], "")
+    cycle_console.child_line("run_m1", console.STDOUT, "[phase] run_oracle")
+    cycle_console.child_line("run_m1", console.STDOUT, "[phase] emitted_order")
+    cycle_console.child_line("run_m1", console.STDOUT, "[progress] 3/5 packed configurations")
     capsys.readouterr()
     clock.advance(61)
-    digest._heartbeat_tick()
+    cycle_console._heartbeat_tick()
     assert _bodies(capsys.readouterr().out, "run_m1") == ["progress 3/5 packed configurations"]
-    digest.child_line("run_m1", console.STDOUT, "[progress] 4/5 packed configurations")
-    digest.child_line("run_m1", console.STDOUT, "[t] emitted_order 17.0s")
+    cycle_console.child_line("run_m1", console.STDOUT, "[progress] 4/5 packed configurations")
+    cycle_console.child_line("run_m1", console.STDOUT, "[t] emitted_order 17.0s")
     capsys.readouterr()
     clock.advance(61)
-    digest._heartbeat_tick()
+    cycle_console._heartbeat_tick()
     assert _bodies(capsys.readouterr().out, "run_m1") == ["heartbeat"]

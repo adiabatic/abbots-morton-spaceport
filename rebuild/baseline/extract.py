@@ -49,7 +49,7 @@ SHARD_WORKERS_DEFAULT = _shard_workers_default()
 
 
 @dataclass
-class Digest:
+class ExtractionSummary:
     config: str
     rows: int
     sha256_uncompressed: str
@@ -194,7 +194,7 @@ def extract_config(
     limit: int | None = None,
     sample: int | None = None,
     max_length: int = alphabet.MAX_LENGTH,
-) -> Digest:
+) -> ExtractionSummary:
     if config_token not in CONFIGS:
         raise ValueError(f"unknown config token {config_token!r}; expected one of {list(CONFIGS)}")
     if limit is not None and sample is not None:
@@ -251,7 +251,7 @@ def extract_config(
                     digest_hash.update(shard_bytes)
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
-    digest = Digest(
+    digest = ExtractionSummary(
         config=config_token,
         rows=total_rows,
         sha256_uncompressed=digest_hash.hexdigest(),
@@ -276,7 +276,7 @@ def run_all(
     limit: int | None = None,
     sample: int | None = None,
     max_length: int = alphabet.MAX_LENGTH,
-) -> list[Digest]:
+) -> list[ExtractionSummary]:
     return [
         extract_config(token, out_dir, workers, limit=limit, sample=sample, max_length=max_length)
         for token in CONFIGS
@@ -287,7 +287,7 @@ def _digest_path(out_dir: Path, config_token: str) -> Path:
     return out_dir / f"digest-{config_token}.json"
 
 
-def write_digest(digest: Digest, out_dir: Path) -> None:
+def write_digest(digest: ExtractionSummary, out_dir: Path) -> None:
     path = _digest_path(out_dir, digest.config)
     path.write_text(json.dumps(digest.to_json_dict(), indent=2, sort_keys=True) + "\n", encoding="utf-8")
 

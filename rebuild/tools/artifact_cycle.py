@@ -2,11 +2,11 @@
 
 The cycle recompiles M1.otf and checks it, rebuilds the review surface in place, runs the verdict plumbing over it, and refreshes the census pins from the surface's census sidecar, naming what moved in their invariant block since the last accepted census. The checked-in pins are that census, so committing the rewritten file accepts a new one. It then runs the gates. Once they have joined and their pytest controllers have written this pass's per-worker peaks to the timings journal, it compares the checked-in per-unit peaks with what this machine measured (`rebuild.tools.calibrate_budgets --check`). It always ends with a summary table, even on failure.
 
-The terminal shows a digest: one banner per step with that step's description, the phases and counters its child prints, every warning, and a closing line. All child output is written under var/build-logs/<stamp>-<short sha>/: one log per step with stdout and stderr merged in arrival order, plan.txt, and a copy of the terminal output. var/build-logs/latest points at the newest run, and a failed step's log is replayed under its banner. rebuild.tools.console defines the line protocol children print and the renderer that reads it.
+The terminal shows one banner per step with that step's description, the phases and counters its child prints, every warning, and a closing line. All child output is written under var/build-logs/<stamp>-<short sha>/: one log per step with stdout and stderr merged in arrival order, plan.txt, and a copy of the terminal output. var/build-logs/latest points at the newest run, and a failed step's log is replayed under its banner. rebuild.tools.console defines the line protocol children print and the renderer that reads it.
 
 The job-costs step never fails the pass, for the same reason the census pins are not a gate: a stale constant makes a pool the wrong width, which costs time but makes no artifact wrong. It is reported, and committing the re-seeded constant accepts it. When the check reports an overrun, the driver asks `calibrate_budgets --moved` which of those constants differ from their values at `HEAD`, so a constant already re-seeded shows up by name.
 
-The plumbing is one step run by one child process, rebuild.tools.verdict_chain. It carries prior verdicts forward onto the fresh manifest, merges the carried file into the live autosave (--no-merge opts out), writes echo-fill verdicts for the blanks in unanimously judged echo groups, writes standing-approval verdicts from the rules in rebuild/standing-approvals.yaml, merges each fill as it is written, repeats the echo pass until it writes nothing, and clusters the open complaints. The chain reads the build's per-unit index sidecar, and its one process holds one copy of it. Each chain step opens with a `[phase] <step>` line and closes with `[t] <step>`. The digest pairs the two into one line per step, and the cycle-timings journal reads the step's cost from the `[t]` line. The `[chain] fixpoint:` and `[chain] failed:` lines are results, not phases: `plumbing_sections` starts a section at each `[phase]` line and closes it at either `[chain]` line.
+The plumbing is one step run by one child process, rebuild.tools.verdict_chain. It carries prior verdicts forward onto the fresh manifest, merges the carried file into the live autosave (--no-merge opts out), writes echo-fill verdicts for the blanks in unanimously judged echo groups, writes standing-approval verdicts from the rules in rebuild/standing-approvals.yaml, merges each fill as it is written, repeats the echo pass until it writes nothing, and clusters the open complaints. The chain reads the build's per-unit index sidecar, and its one process holds one copy of it. Each chain step opens with a `[phase] <step>` line and closes with `[t] <step>`. The cycle console pairs the two into one line per step, and the cycle-timings journal reads the step's cost from the `[t]` line. The `[chain] fixpoint:` and `[chain] failed:` lines are results, not phases: `plumbing_sections` starts a section at each `[phase]` line and closes it at either `[chain]` line.
 
 run_m1's exit status is its own gate's verdict, but this driver judges from the three summary JSONs it writes, so a build that died before its judge is reported by what it left behind. The gates are defect_errors, the Manual-pin verdict (including its scope, so a gate that replayed nothing cannot pass), and multi_matched == 0.
 
@@ -1053,7 +1053,7 @@ SUBSTEP_PARENTS = {"invariant-diff": "census", "job-costs-diff": "job-costs"}
 class Step:
     """One row of the plan. `skipped` is set explicitly instead of derived from `argv`, because `argv is None` also describes the retention and surface-promote steps, which do real work in this process, and the `gates` placeholder, which stands for four steps. The run/skip column and the counts line use `skipped`, so a step that runs without spawning anything still shows as running.
 
-    The census's invariant diff, which the driver prints itself, and the job-costs diff it spawns are children of steps, not rows of the plan, and SUBSTEP_PARENTS names them. Registering one with the digest writes its output to the parent's log, shows its lines under the parent's column, and keeps `_run_step` from opening a second banner for a step that is already open.
+    The census's invariant diff, which the driver prints itself, and the job-costs diff it spawns are children of steps, not rows of the plan, and SUBSTEP_PARENTS names them. Registering one with the console writes its output to the parent's log, shows its lines under the parent's column, and keeps `_run_step` from opening a second banner for a step that is already open.
     """
 
     name: str
@@ -2223,7 +2223,7 @@ def _render_concurrency(plan: Plan) -> list[str]:
 
 
 def plan_rows(plan: Plan) -> list[console.PlanRow]:
-    """Return the plan's steps as the digest's rows. Only gate:conform can show `run?`, which makes the counts line a range: its skip key covers the artifacts run_m1 writes, so a pass that plans the sweep may still skip it once the build finishes. That row's note comes from `UNDECIDED_UNTIL_RUN_M1` and states the condition.
+    """Return the plan's steps as the console's rows. Only gate:conform can show `run?`, which makes the counts line a range: its skip key covers the artifacts run_m1 writes, so a pass that plans the sweep may still skip it once the build finishes. That row's note comes from `UNDECIDED_UNTIL_RUN_M1` and states the condition.
 
     A pass that skips run_m1 shows `run` instead, because nothing is rebuilt and `main` has already compared the same key and found no matching green record. A `--fresh` pass also shows `run`, because it reads no green record.
     """
@@ -2252,7 +2252,7 @@ def plan_rows(plan: Plan) -> list[console.PlanRow]:
 
 
 def render_plan(plan: Plan) -> list[str]:
-    """Return the plan block, the lines the digest prints before step 1 and writes to plan.txt: the commit, the log directory, the step counts and each step's command, then the paths this pass resolved and the concurrency block."""
+    """Return the plan block, the lines the console prints before step 1 and writes to plan.txt: the commit, the log directory, the step counts and each step's command, then the paths this pass resolved and the concurrency block."""
     stamp = plan.stamp or "(--dry-run: nothing executed)"
     lines = [f"artifact cycle {stamp}  sha {plan.short_id}  host {socket.gethostname()}"]
     if plan.log_dir is not None:
@@ -2329,7 +2329,7 @@ def _load_summary(path: Path) -> dict:
     return json.loads(path.read_text())
 
 
-_Emitter = console.Digest
+_Emitter = console.CycleConsole
 
 
 class _ChildRegistry:
@@ -2445,14 +2445,14 @@ def _run_step(
     name: str,
     argv: list[str],
     *,
-    emit: console.Digest,
+    emit: console.CycleConsole,
     registry: _ChildRegistry,
     stream: bool,
     env: dict[str, str] | None = None,
 ) -> _StepResult:
-    """Run one child to completion, passing every line of both pipes to the digest, which logs each line and shows the ones that matter. This opens the step's banner but does not close it: the caller closes it with `_close_step` once it has read the step's headline figure from the files the child wrote. `env`, when given, is overlaid on this process's environment for this child only.
+    """Run one child to completion, passing every line of both pipes to the console, which logs each line and shows the ones that matter. This opens the step's banner but does not close it: the caller closes it with `_close_step` once it has read the step's headline figure from the files the child wrote. `env`, when given, is overlaid on this process's environment for this child only.
 
-    `stream` also sends the child's unparsed lines to the terminal. Only the job-costs diff uses it, because it is the one child output a person must read to act on. Other child output reaches the terminal only as digest events, and every line reaches the log, so a failed step's full output is replayed under its banner.
+    `stream` also sends the child's unparsed lines to the terminal. Only the job-costs diff uses it, because it is the one child output a person must read to act on. Other child output reaches the terminal only as console events, and every line reaches the log, so a failed step's full output is replayed under its banner.
 
     When the registry has been torn down, a stop signal has already arrived, so the child is not started (or is terminated at once), no banner opens, and the result's return code is 130. The child stays in the cycle's process group, so a signal sent to that group reaches it and everything it spawns.
     """
@@ -2544,7 +2544,7 @@ def _do_run_m1(
     report: CycleReport,
     *,
     spawn,
-    emit: console.Digest,
+    emit: console.CycleConsole,
     registry: _ChildRegistry,
     argv: list[str] | None = None,
     skip: bool = False,
@@ -2630,7 +2630,7 @@ def _read_surface_totals(report: CycleReport, surface_dir: Path) -> bool:
 
 
 def _do_assets_refresh(
-    report: CycleReport, *, spawn, emit: console.Digest, registry: _ChildRegistry, plan: Plan
+    report: CycleReport, *, spawn, emit: console.CycleConsole, registry: _ChildRegistry, plan: Plan
 ) -> bool:
     """Copy the review app's static files over the served surface and restamp the manifest's `static` component, on a pass where that component is the only input that changed. It runs in place of the surface build, and later steps treat the pass as a surface skip: no unit, shard, sidecar or `generated_at` changes, so the carry is the identity and the review server keeps running. Livereload sees the copied files and reloads the open tab."""
     result = spawn("assets-refresh", plan.argv("assets-refresh"), emit=emit, registry=registry, stream=False)
@@ -2644,7 +2644,7 @@ def _do_assets_refresh(
     return True
 
 
-def _do_promote_surface(report: CycleReport, *, emit: console.Digest, plan: Plan) -> bool:
+def _do_promote_surface(report: CycleReport, *, emit: console.CycleConsole, plan: Plan) -> bool:
     """Move a rehearsal's surface into place, in this process, on a pass whose plan found one that reproduces these inputs byte for byte. It runs in place of the surface build, which then reports itself skipped over the promoted manifest. The move replaces every shard and the manifest stamp, so a promoting pass never keeps the review server running."""
     assert plan.promote_surface is not None
     emit.step_start("surface-promote", None, plan.describe("surface-promote"))
@@ -2670,7 +2670,7 @@ def _do_surface_build(
     report: CycleReport,
     *,
     spawn,
-    emit: console.Digest,
+    emit: console.CycleConsole,
     registry: _ChildRegistry,
     review_out: Path | None,
     argv: list[str] | None = None,
@@ -2748,7 +2748,7 @@ def _standing_fill_news(line: str) -> bool:
 
 
 def _do_plumbing(
-    report: CycleReport, *, spawn, emit: console.Digest, registry: _ChildRegistry, plan: Plan
+    report: CycleReport, *, spawn, emit: console.CycleConsole, registry: _ChildRegistry, plan: Plan
 ) -> list[str]:
     """Run the verdict chain as one child and fill the per-step report from its output. Return the failure messages for the cycle's failure list, one per failed step.
 
@@ -2861,7 +2861,7 @@ def accepted_census() -> dict | None:
 
 
 def _do_census(
-    report: CycleReport, *, spawn, emit: console.Digest, registry: _ChildRegistry, plan: Plan
+    report: CycleReport, *, spawn, emit: console.CycleConsole, registry: _ChildRegistry, plan: Plan
 ) -> None:
     """Rewrite the census pins from the surface's census-facts.json sidecar and report what changed against the last accepted census (`accepted_census`). When only the volatile block changed, the status says the invariant is unchanged. When the invariant block changed, the status lists the changes (`census.invariant_delta`) and the invariant block's diff is printed under the banner without the volatile hunks. The volatile block changes with nearly every letter, so a full diff on every pass would teach a reader to ignore it.
 
@@ -2909,7 +2909,7 @@ _MOVED_CONSTANT = re.compile(r"^([A-Z][A-Z0-9_]*): ")
 
 
 def _do_job_costs(
-    report: CycleReport, *, spawn, emit: console.Digest, registry: _ChildRegistry, plan: Plan
+    report: CycleReport, *, spawn, emit: console.CycleConsole, registry: _ChildRegistry, plan: Plan
 ) -> None:
     """Compare the checked-in per-unit memory peaks with what this machine has measured (`calibrate_budgets --check`). Several pool widths are the machine's memory divided by one of these constants, so a stale constant makes a pool the wrong width. The step runs after the gates join because it reads the timings journal, which this pass's pools have just appended to.
 
@@ -2948,7 +2948,7 @@ def _do_job_costs(
     _close_step(emit, report, "job-costs", check, "ok")
 
 
-def _skip_plumbing(report: CycleReport, plan: Plan, emit: console.Digest) -> None:
+def _skip_plumbing(report: CycleReport, plan: Plan, emit: console.CycleConsole) -> None:
     """Report the plumbing step as skipped, marking every chain step skipped. The carried file the last recorded pass wrote is still the stamp-aligned frontier, because the surface it was carried onto has not changed, so the report still names it."""
     emit.step_skipped("plumbing", plan.plumbing_note)
     note = f"skipped ({plan.plumbing_note})"
@@ -2960,7 +2960,9 @@ def _skip_plumbing(report: CycleReport, plan: Plan, emit: console.Digest) -> Non
     report.standing_merge_status = note
 
 
-def _gate_js_task(argv: list[str], spawn, emit: console.Digest, registry: _ChildRegistry) -> _StepResult:
+def _gate_js_task(
+    argv: list[str], spawn, emit: console.CycleConsole, registry: _ChildRegistry
+) -> _StepResult:
     result = spawn("gate:js", argv, emit=emit, registry=registry, stream=False)
     _close_gate(emit, "gate:js", result)
     return result
@@ -2976,7 +2978,7 @@ def make_test_self_skipped(stdout: str) -> bool:
 
 
 def _gate_make_test_task(
-    argv: list[str], spawn, emit: console.Digest, registry: _ChildRegistry
+    argv: list[str], spawn, emit: console.CycleConsole, registry: _ChildRegistry
 ) -> _StepResult:
     result = spawn("gate:make-test", argv, emit=emit, registry=registry, stream=False)
     if result.returncode == 0 and make_test_self_skipped(result.stdout):
@@ -2999,7 +3001,7 @@ def _gate_conform_task(
     pool_policy: str,
     make_fut: Future | None,
     spawn,
-    emit: console.Digest,
+    emit: console.CycleConsole,
     registry: _ChildRegistry,
     argv: list[str],
 ) -> CheckVerdict:
@@ -3043,7 +3045,7 @@ def _gate_contracts_task(
     conform_fut: Future | None,
     make_fut: Future | None,
     spawn,
-    emit: console.Digest,
+    emit: console.CycleConsole,
     registry: _ChildRegistry,
     argv: list[str],
 ) -> CheckVerdict:
@@ -3080,7 +3082,7 @@ def _join_rebuild_lane(
     failures: list[str],
     fut: Future,
     lane: str,
-    emit: console.Digest,
+    emit: console.CycleConsole,
     timings: CycleTimings | None = None,
 ) -> None:
     """Record one rebuild lane's outcome in the report and its verdict in the timings journal. A task that raised records no check line, because the exception is a failure of the thread pool, not a verdict from the suite; the report shows "FAILED (exception)"."""
@@ -3105,7 +3107,7 @@ def _join_gates(
     contracts_fut: Future | None,
     conform_fut: Future | None,
     make_fut: Future | None,
-    emit: console.Digest,
+    emit: console.CycleConsole,
     timings: CycleTimings | None = None,
 ) -> None:
     """Record every gate that ran in the report, and each gate's verdict in the timings journal. The JS suite and `make test` are judged by exit code alone, so `_rc_verdict` builds their verdicts here. gate:make-test's wrapper records no check line when CYCLE_RUN_ENV is set, so the line recorded here is the only one for it."""
@@ -3158,7 +3160,7 @@ def _plumbing_settled(report: CycleReport) -> bool:
 
 
 def _record_gate_greens(
-    report: CycleReport, plan: Plan, gate_keys: dict[str, str], emit: console.Digest
+    report: CycleReport, plan: Plan, gate_keys: dict[str, str], emit: console.CycleConsole
 ) -> None:
     """Write the green records of the gates that ran beside the build, after they joined. gate:conform's key is taken right after run_m1 finishes, where its skip is decided, and the rebuild suite's just before the surface build, where the suite is submitted. Later steps cannot change either key: the surface build writes only review output, which the suite's closure excludes, and the census pins are exempt from that closure. Each key is recomputed here before recording, so a source file edited while the gates ran is never recorded green. A red gate whose key matches its existing record deletes that record."""
     key = gate_keys.get("conform")
@@ -3239,7 +3241,7 @@ def _timed_spawn(spawn, report: CycleReport):
 def _run_cycle(
     plan: Plan,
     report: CycleReport,
-    emit: console.Digest,
+    emit: console.CycleConsole,
     registry: _ChildRegistry,
     spawn=_run_step,
     timings: CycleTimings | None = None,
@@ -3529,7 +3531,7 @@ def _figure_beside(outcome: str, figure: str) -> str:
 
 
 def _close_step(
-    emit: console.Digest,
+    emit: console.CycleConsole,
     report: CycleReport,
     name: str,
     result: _StepResult | None,
@@ -3544,7 +3546,7 @@ def _close_step(
 
 
 def _close_gate(
-    emit: console.Digest, name: str, result: _StepResult, verdict: CheckVerdict | None = None
+    emit: console.CycleConsole, name: str, result: _StepResult, verdict: CheckVerdict | None = None
 ) -> None:
     """Print a gate's closing line from the verdict its task just reached, or from the exit status when there is no verdict. `_close_step` would read the report, which `_join_gates` fills in only later, so at this point it still says the gate has not run. A plain green status is dropped from the figure, as in the table."""
     if verdict is None:
@@ -4159,7 +4161,7 @@ def main(argv: list[str] | None = None) -> int:
     preamble: list[str] = []
 
     def announce(text: str) -> None:
-        """Print a line before the digest exists, and queue it for `digest.replay` so terminal.log also gets it."""
+        """Print a line before the console exists, and queue it for `cycle_console.replay` so terminal.log also gets it."""
         preamble.append(text)
         print(text)
 
@@ -4250,12 +4252,12 @@ def main(argv: list[str] | None = None) -> int:
 
     plan.stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     plan.log_dir = cycle_paths.BUILD_LOGS_ROOT / f"{plan.stamp}-{plan.short_id}"
-    digest = console.Digest(
+    cycle_console = console.CycleConsole(
         steps=[step.name for step in plan.steps], log_dir=plan.log_dir, aliases=STEP_ALIASES
     )
-    with digest:
-        digest.replay(preamble)
-        digest.plan_block(render_plan(plan))
+    with cycle_console:
+        cycle_console.replay(preamble)
+        cycle_console.plan_block(render_plan(plan))
         if not _preflight(
             args,
             can_keep_running=server_can_keep_running(
@@ -4278,7 +4280,7 @@ def main(argv: list[str] | None = None) -> int:
 
         registry = _ChildRegistry()
         with stop_signals():
-            return _run_cycle(plan, report, digest, registry, timings=timings)
+            return _run_cycle(plan, report, cycle_console, registry, timings=timings)
 
 
 def readiness_block(plan: Plan) -> list[str]:
@@ -4306,14 +4308,14 @@ def _finish(
     failures: list[str],
     plan: Plan,
     timings: CycleTimings | None = None,
-    emit: console.Digest | None = None,
+    emit: console.CycleConsole | None = None,
 ) -> int:
     """Finish the pass and return its exit status: run retention on a green pass, write the cycle summary, then print the summary block, ending with the readiness checklist on a green pass. Retention runs before the table is printed so its row has an outcome and figure. The rebuild suite sets `cycle_paths.RETENTION_ENABLED` False so a test that reaches a green finish does not prune the live repo; retention then counts as run with no lines. `cycle_paths.READINESS_ENABLED` switches the checklist off the same way."""
-    digest = console.Digest() if emit is None else emit
+    cycle_console = console.CycleConsole() if emit is None else emit
     retention_lines: list[str] = []
     retention_ran = False
     if not failures and plan.retention and plan.record_greens:
-        digest.step_start("retention", None, plan.describe("retention"))
+        cycle_console.step_start("retention", None, plan.describe("retention"))
         started = time.perf_counter()
         try:
             pruned = run_retention(plan) if cycle_paths.RETENTION_ENABLED else RetentionResult([], "")
@@ -4324,10 +4326,10 @@ def _finish(
             retention_lines = [f"warning: retention pass failed: {exc!r}"]
         report.step_seconds["retention"] = time.perf_counter() - started
         report.retention_outcome = "ok" if retention_ran else "FAILED"
-        digest.step_end("retention", None, report.retention_outcome, report.retention_figure)
+        cycle_console.step_end("retention", None, report.retention_outcome, report.retention_figure)
     _emit_cycle_summary(report, failures, plan, "failed" if failures else "ok", timings)
     readiness = [] if failures or not cycle_paths.READINESS_ENABLED else readiness_block(plan)
-    digest.summary(
+    cycle_console.summary(
         summary_rows(report, plan, retention_ran=retention_ran),
         summary_cycle_lines(report, plan, retention_lines) + (["", *readiness] if readiness else []),
         console.VERDICT_FAILED if failures else console.VERDICT_OK,
@@ -4342,14 +4344,14 @@ def _finish_interrupted(
     killed_count: int,
     plan: Plan,
     timings: CycleTimings | None = None,
-    emit: console.Digest | None = None,
+    emit: console.CycleConsole | None = None,
     *,
     signum: int = signal.SIGINT,
 ) -> int:
     """Finish a pass that a stop signal ended, after its children were terminated. The cycle summary and timings journal record it as interrupted, the summary block names the signal and the number of children killed, and the exit status is 128 plus the signal number, as a shell reports it."""
-    digest = console.Digest() if emit is None else emit
+    cycle_console = console.CycleConsole() if emit is None else emit
     _emit_cycle_summary(report, failures, plan, "interrupted", timings)
-    digest.summary(
+    cycle_console.summary(
         summary_rows(report, plan, retention_ran=report.retention_outcome == "ok"),
         summary_cycle_lines(report, plan, []),
         console.VERDICT_INTERRUPTED,

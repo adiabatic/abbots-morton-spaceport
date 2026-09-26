@@ -193,7 +193,7 @@ Public interfaces:
 - `model.Row`: a frozen dataclass with `codepoints: tuple[int, ...]`, `glyphs: tuple[str, ...]`, `clusters: tuple[int, ...]`, `seams: tuple[str, ...]`, and `positions: tuple[tuple[int, int, int], ...]`; `Row.to_tsv() -> str`, `Row.from_tsv(line) -> Row`, `row_sort_key(row)`; `CONFIGS: dict[str, dict[str, bool]]` (the §5 list, in order).
 - `shaper.Shaper`: `Shaper(font_path)`, `shape(text: str, features: dict[str, bool]) -> ShapeResult` (names via TTFont, clusters, positions).
 - `classify.SeamClassifier`: `SeamClassifier(font_path)`, `heights() -> tuple[int, ...]`, `classify(left_glyph: str, right_glyph: str) -> str`.
-- `extract.extract_config(config_token: str, out_dir: Path, workers: int = SHARD_WORKERS_DEFAULT) -> Digest` and `extract.run_all(out_dir, workers)`.
+- `extract.extract_config(config_token: str, out_dir: Path, workers: int = SHARD_WORKERS_DEFAULT) -> ExtractionSummary` and `extract.run_all(out_dir, workers)`.
 - `validation.pins` exposes `collect_pin_runs`, `check_pin`, and `ReplayReport`.
 - The M1 pipeline reads the tables through `validation.rowmodel` (`open_table`, `read_header`, `iter_rows`).
 

@@ -4,19 +4,19 @@ Everything written here is append-only: no color, ANSI escapes, spinners, or car
 
 The protocol is four line prefixes. `[phase] <name>` opens a stretch of work and `[t] <label> <secs>s` closes it, optionally followed by a space or tab and a tail. `[progress] <k>/<n> <unit>` is a counter, with `?` for an unknown total. `[warn] <text>` always reaches the terminal. The verdict chain's `[chain]` banner and its two result lines (fixpoint and failure) are defined here too, because the chain writes them and the cycle splits the chain's output on them. `INNER_LINE` is the one pattern for the `[t]` line; `cycle_timings` parses the journal with it, and `timing()` writes a line it matches.
 
-A `[phase]` line is surfaced when it arrives. A `[t]` line whose label matches an open phase closes it, and the surfaced line carries the child's measured duration and the tail. A `[t]` line with no open phase of that label, such as the crate's per-configuration enumerate lines, the oracle's per-configuration lines, or the chain's step timings, goes to the log only. This keeps a step that prints many timings from flooding the terminal without any producer knowing which of its timings the digest shows.
+A `[phase]` line is surfaced when it arrives. A `[t]` line whose label matches an open phase closes it, and the surfaced line carries the child's measured duration and the tail. A `[t]` line with no open phase of that label, such as the crate's per-configuration enumerate lines, the oracle's per-configuration lines, or the chain's step timings, goes to the log only. This keeps a step that prints many timings from flooding the terminal without any producer knowing which of its timings the console shows.
 
 Every surfaced line carries its step name, the step's elapsed time, and the cycle's elapsed time, because several steps can be open at once.
 
 pytest, node, and git do not print this protocol, so adapters read their output into the same events. A pytest percent marker becomes a `Progress`, a pytest `FAILED`/`ERROR` summary line or a TAP `not ok` becomes a `Warn`, and `warning_events` runs on every step to catch the two warning shapes Python prints. The adapters strip ANSI first, because pytest colors its summary when `FORCE_COLOR` is set, as it is under the agent harness.
 
-Every line a child prints goes to that step's log, in arrival order, with stderr lines tagged; the terminal gets the digest. A failed step replays its whole log under its own banner. The digest writes each line in one call under one lock, so lines from overlapping children interleave but never split.
+Every line a child prints goes to that step's log, in arrival order, with stderr lines tagged; the terminal gets the console's rendering. A failed step replays its whole log under its own banner. The console writes each line in one call under one lock, so lines from overlapping children interleave but never split.
 
 This module imports nothing else from the repo. `rebuild.tools.verdict_chain` calls `phase()`, so this module is in the verdict plumbing's code closure, and anything it imported would be too. An edit to `cycle_timings` or a width module cannot change a verdict but would re-run the whole chain if it were in that closure. So `cycle_timings` imports `INNER_LINE` from here, and `fmt_rss` repeats the gigabyte divisor instead of importing `peak_rss`. `rebuild/test_console.py` checks the divisor matches and that this module has no repo imports, and `rebuild/test_plumbing_closure.py` checks the chain's closure.
 
-With `log_dir=None`, a digest does no `mkdir`, `open`, or symlink, so the driver's tests can build one without touching the repo; the rebuild suite's contracts lane audits every read and write against the live trees. In that mode a step's lines are kept in memory so a failure dump can replay them. With a log directory, they are read back from disk, so a full cycle's output never has to fit in the driver's memory.
+With `log_dir=None`, a `CycleConsole` does no `mkdir`, `open`, or symlink, so the driver's tests can build one without touching the repo; the rebuild suite's contracts lane audits every read and write against the live trees. In that mode a step's lines are kept in memory so a failure dump can replay them. With a log directory, they are read back from disk, so a full cycle's output never has to fit in the driver's memory.
 
-Every writer takes `file=None` and every digest takes `out=None`, meaning `sys.stdout` at the time the line is written. `Digest.start` replaces `sys.stdout` and `sys.stderr` with tees into `terminal.log` so bare `print` calls reach the copy, and a stream bound earlier would bypass the tee.
+Every writer takes `file=None` and every `CycleConsole` takes `out=None`, meaning `sys.stdout` at the time the line is written. `CycleConsole.start` replaces `sys.stdout` and `sys.stderr` with tees into `terminal.log` so bare `print` calls reach the copy, and a stream bound earlier would bypass the tee.
 """
 
 from __future__ import annotations
@@ -78,7 +78,7 @@ _SKIPPED_WRAPPER = re.compile(r"^SKIPPED \((.*)\)(?=$|[;,] )")
 
 @dataclass(frozen=True)
 class Timing:
-    """A closed stretch of work, parsed from `[t] <label> <secs>s` and an optional tail after a space or tab. `tail` is whatever follows the seconds, such as a peak-RSS token or a parenthesized count; the digest reprints it and never parses it."""
+    """A closed stretch of work, parsed from `[t] <label> <secs>s` and an optional tail after a space or tab. `tail` is whatever follows the seconds, such as a peak-RSS token or a parenthesized count; the console reprints it and never parses it."""
 
     label: str
     seconds: float
@@ -120,7 +120,7 @@ Event = Timing | Phase | Progress | Warn
 
 
 class StepResult(Protocol):
-    """The fields the digest reads from the driver's step result, declared structurally because the driver imports this module and this module cannot import the driver."""
+    """The fields the console reads from the driver's step result, declared structurally because the driver imports this module and this module cannot import the driver."""
 
     elapsed: float
     peak_rss_bytes: int | None
@@ -353,12 +353,12 @@ class _Tee:
         return getattr(self._stream, name)
 
 
-class Digest:
+class CycleConsole:
     """The cycle's renderer: every line the terminal shows is written here, and every line a child prints passes through here to that step's log.
 
     It takes the plan's step names (for the step column's width), the run's log directory (None for no filesystem access), an alias map that reports a spawn under the plan row for it, and three test hooks: the output stream, the clock, and the heartbeat window. Step banners take consecutive numbers under the output lock, and the logs and the closing table use those numbers; skipped and unstarted steps are unnumbered. The driver uses it as a context manager around everything after the dry-run return, so the tee and the heartbeat thread are installed and removed in one place.
 
-    `emit` and `emit_block` are lock-serialized writers. `artifact_cycle._Emitter` is an alias of this class. Every constructor argument is optional, so `Digest()` is a serialized stdout writer with no plan and no directory, which the driver's tests pass to its stage functions.
+    `emit` and `emit_block` are lock-serialized writers. `artifact_cycle._Emitter` is an alias of this class. Every constructor argument is optional, so `CycleConsole()` is a serialized stdout writer with no plan and no directory, which the driver's tests pass to its stage functions.
     """
 
     def __init__(
@@ -405,7 +405,7 @@ class Digest:
                 stream.write(line + "\n")
             stream.flush()
 
-    def start(self) -> Digest:
+    def start(self) -> CycleConsole:
         with self._lock:
             if self.log_dir is not None:
                 self.log_dir.mkdir(parents=True, exist_ok=True)
@@ -416,7 +416,7 @@ class Digest:
                 self._link_latest()
             self._stopping.clear()
             self._heartbeat = threading.Thread(
-                target=self._heartbeat_loop, name="digest-heartbeat", daemon=True
+                target=self._heartbeat_loop, name="console-heartbeat", daemon=True
             )
             self._heartbeat.start()
         return self
@@ -437,7 +437,7 @@ class Digest:
                 self._terminal.close()
                 self._terminal = None
 
-    def __enter__(self) -> Digest:
+    def __enter__(self) -> CycleConsole:
         return self.start()
 
     def __exit__(self, *exc_info: object) -> None:
@@ -450,7 +450,7 @@ class Digest:
         self.stop()
 
     def replay(self, lines: Sequence[str]) -> None:
-        """Write lines the terminal has already shown into `terminal.log` only. The driver prints some lines before the digest exists, and this copies them into the log without printing them again."""
+        """Write lines the terminal has already shown into `terminal.log` only. The driver prints some lines before the console exists, and this copies them into the log without printing them again."""
         with self._lock:
             if self._terminal is None:
                 return

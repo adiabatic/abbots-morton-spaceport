@@ -84,6 +84,6 @@ A green pass ends with a retention pass over the regenerable outputs. `--keep-hi
 
 ## Logs and timings
 
-- `console.Digest` numbers steps in the order their opening banners appear, parallel gates included. The plan lists the work without numbers, and skipped or unstarted steps get no number. Log filenames and the closing table use the same numbers, with the unnumbered rows after the steps that started.
+- `console.CycleConsole` numbers steps in the order their opening banners appear, parallel gates included. The plan lists the work without numbers, and skipped or unstarted steps get no number. Log filenames and the closing table use the same numbers, with the unnumbered rows after the steps that started.
 - Every pass appends host-tagged per-step wall times and peak RSS to `rebuild/out/cycle-timings.ndjson`. Every judged check run also writes its verdict there, including interactive `make test`, `make test-rebuild`, and `run_m1` runs. `make cycle-timings` reads the file, and `doc/fleet.md` explains how to tell which machine wrote a row.
 - `doc/running-long-steps.md` covers running a pass detached, where the per-step logs are written, how to tell whether a run is hung, and how to stop a whole pass.

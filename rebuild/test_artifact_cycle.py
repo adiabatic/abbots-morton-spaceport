@@ -1617,12 +1617,12 @@ def test_a_pass_files_one_log_per_step_beside_its_plan_and_a_copy_of_the_termina
     root = tmp_path / "build-logs"
     log_dir = root / "20260101T000000Z-testid"
     registry = ac._ChildRegistry()
-    with console.Digest(steps=[step.name for step in plan.steps], log_dir=log_dir) as digest:
-        digest.plan_block(ac.render_plan(plan))
+    with console.CycleConsole(steps=[step.name for step in plan.steps], log_dir=log_dir) as cycle_console:
+        cycle_console.plan_block(ac.render_plan(plan))
         ac._run_step(
             "gate:js",
             [sys.executable, "-c", _TWO_STREAM_CHILD.format(rc=0)],
-            emit=digest,
+            emit=cycle_console,
             registry=registry,
             stream=False,
         )
@@ -1639,15 +1639,15 @@ def test_a_failed_step_replays_its_whole_output_under_its_own_banner(tmp_path, c
     """A failing child's whole output is printed under its banner, so the reader does not have to find the step's log. The spawn prints the output and the stage prints the closing line, so the output comes before the close."""
     registry = ac._ChildRegistry()
     report = ac.CycleReport()
-    with console.Digest(log_dir=tmp_path / "logs") as digest:
+    with console.CycleConsole(log_dir=tmp_path / "logs") as cycle_console:
         result = ac._run_step(
             "gate:conform",
             [sys.executable, "-c", _TWO_STREAM_CHILD.format(rc=3)],
-            emit=digest,
+            emit=cycle_console,
             registry=registry,
             stream=False,
         )
-        ac._close_step(digest, report, "gate:conform", result)
+        ac._close_step(cycle_console, report, "gate:conform", result)
     assert result.returncode == 3
     lines = capsys.readouterr().out.splitlines()
     assert "on stdout" in lines
@@ -1664,17 +1664,17 @@ def test_the_reuse_route_banners_under_the_plans_run_m1_row(tmp_path, capsys):
     report = ac.CycleReport()
     report.unmatched = 12
     report.pins_pass = True
-    with console.Digest(
+    with console.CycleConsole(
         steps=[step.name for step in plan.steps], log_dir=log_dir, aliases=ac.STEP_ALIASES
-    ) as digest:
+    ) as cycle_console:
         result = ac._run_step(
             ac.RUN_M1_REUSE_STEP,
             [sys.executable, "-c", "print('re-adjudicating')"],
-            emit=digest,
+            emit=cycle_console,
             registry=registry,
             stream=False,
         )
-        ac._close_step(digest, report, ac.RUN_M1_REUSE_STEP, result, "ok")
+        ac._close_step(cycle_console, report, ac.RUN_M1_REUSE_STEP, result, "ok")
     out = capsys.readouterr().out
     assert "step 1  run_m1  step" in out
     assert ac.RUN_M1_REUSE_STEP not in out
@@ -1683,7 +1683,7 @@ def test_the_reuse_route_banners_under_the_plans_run_m1_row(tmp_path, capsys):
 
 
 def test_two_verbatim_children_interleave_between_lines_and_never_inside_one(capsys):
-    """Two real children print verbatim through one digest. Lines from the two may interleave, but no line may be spliced into another."""
+    """Two real children print verbatim through one console. Lines from the two may interleave, but no line may be spliced into another."""
     emit = ac._Emitter()
     registry = ac._ChildRegistry()
 
@@ -5456,9 +5456,9 @@ def test_the_census_invariant_diff_prints_under_the_census_step_in_full(tmp_path
     def spawn(name, argv, *, emit, registry, stream, **passthrough):
         return ac._run_step(name, [sys.executable, "-c", "pass"], emit=emit, registry=registry, stream=stream)
 
-    with console.Digest(steps=[step.name for step in plan.steps], log_dir=log_dir) as digest:
-        ac._do_census(report, spawn=spawn, emit=digest, registry=registry, plan=plan)
-        assert digest._open == {}
+    with console.CycleConsole(steps=[step.name for step in plan.steps], log_dir=log_dir) as cycle_console:
+        ac._do_census(report, spawn=spawn, emit=cycle_console, registry=registry, plan=plan)
+        assert cycle_console._open == {}
 
     out = capsys.readouterr().out
     assert '+    "deferred-ss10"' in out.splitlines()
@@ -5563,8 +5563,8 @@ def test_every_spawned_step_closes_with_its_own_figure_and_peak(capsys, tmp_path
 
     plan = _plan(skip_gates=True, review_out=surface)
     report = ac.CycleReport()
-    digest = console.Digest(steps=[step.name for step in plan.steps])
-    assert ac._run_cycle(plan, report, digest, ac._ChildRegistry(), spawn=spawn) == 0
+    cycle_console = console.CycleConsole(steps=[step.name for step in plan.steps])
+    assert ac._run_cycle(plan, report, cycle_console, ac._ChildRegistry(), spawn=spawn) == 0
 
     closing = [line for line in capsys.readouterr().out.splitlines() if "  cycle " in line]
     assert any(line.endswith("ok  8,423 unmatched, pins pass  rss 19.6G") for line in closing), closing
@@ -6960,7 +6960,7 @@ def test_a_stop_after_retention_finished_leaves_it_ok_in_the_interrupted_table(m
 
     tables: list[list[console.SummaryRow]] = []
 
-    class Recording(console.Digest):
+    class Recording(console.CycleConsole):
         def summary(self, rows, *args, **kwargs):
             tables.append(list(rows))
 
@@ -7390,8 +7390,8 @@ def test_main_mints_one_run_directory_and_points_latest_at_it(tmp_path, monkeypa
     assert payload["log_dir"] == str(plan.log_dir)
 
 
-def test_main_copies_what_it_said_before_the_digest_into_the_terminal_log(tmp_path, monkeypatch, capsys):
-    """The carry-source line is printed before the plan is resolved and before the digest exists. terminal.log is a copy of the terminal, so the line appears once in each."""
+def test_main_copies_what_it_said_before_the_console_into_the_terminal_log(tmp_path, monkeypatch, capsys):
+    """The carry-source line is printed before the plan is resolved and before the console exists. terminal.log is a copy of the terminal, so the line appears once in each."""
     _settled_repo(tmp_path, monkeypatch)
     ac.record_plumbing_green("plu")
     monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: False)

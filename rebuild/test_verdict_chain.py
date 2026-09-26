@@ -23,7 +23,7 @@ def _write_out(argv):
 
 
 def test_a_step_opens_a_phase_and_the_timing_that_follows_closes_it(capsys):
-    """Each step prints a `[phase]` line naming it and then a `[t]` line with the same label and its duration, which `console.Digest` matches by label. A failed step also prints a `[chain] failed:` line; that prefix marks a result, and `plumbing_sections` in `rebuild/tools/artifact_cycle.py` splits the chain's output on it."""
+    """Each step prints a `[phase]` line naming it and then a `[t]` line with the same label and its duration, which `console.CycleConsole` matches by label. A failed step also prints a `[chain] failed:` line; that prefix marks a result, and `plumbing_sections` in `rebuild/tools/artifact_cycle.py` splits the chain's output on it."""
     assert vc._run("carry", lambda: 0) == 0
     assert vc._run("merge", lambda: 3) == 3
     lines = capsys.readouterr().out.splitlines()
