@@ -102,14 +102,14 @@ class GsubPlan:
 
 
 def behavior_classes(plan: GsubPlan) -> tuple[str, ...]:
-    """The sorted class tokens for every HarfBuzz-facing shape in the plan, which arm the deep sweep. A token names a shape, such as a slot count, a guard arity, a ZWNJ in a backtrack, a locked input, or fall-through across per-family subtable breaks, and never a rule. When two builds produce the same tokens, neither asks HarfBuzz for a behavior the other did not, so a rune edit that adds no token leaves the deep sweep's green record valid. Which rules exist and where they sit is checked by read-back (rebuild/pipeline/readback.py) on every build.
+    """The sorted class tokens for every HarfBuzz-facing shape in the plan, which the deep sweep's record key covers. A token names a shape, such as a slot count, a guard arity, a ZWNJ in a backtrack, a locked input, or fall-through across per-family subtable breaks, and never a rule. When two builds produce the same tokens, neither asks HarfBuzz for a behavior the other did not, so a rune edit that adds no token leaves the deep sweep's green record valid. Which rules exist and where they sit is checked by read-back (rebuild/pipeline/readback.py) on every build.
 
-    An unknown GsubPlan field, a lookahead depth over four, a guard row shape the emitter does not produce, or an unknown calt stage raises EmitError, because a shape that produces no token would never arm the deep sweep.
+    An unknown GsubPlan field, a lookahead depth over four, a guard row shape the emitter does not produce, or an unknown calt stage raises EmitError, because a shape that produces no token would never make the deep sweep due.
     """
     for candidate in dataclasses.fields(plan):
         if candidate.name not in _KNOWN_PLAN_FIELDS:
             raise EmitError(
-                f"GsubPlan grew a field the behavior-class enumeration does not know: {candidate.name} — teach behavior_classes its shape so the deep sweep can arm on it"
+                f"GsubPlan grew a field the behavior-class enumeration does not know: {candidate.name} — teach behavior_classes its shape so the deep sweep's key covers it"
             )
     tokens: set[str] = set()
     if plan.ss10_preempt:

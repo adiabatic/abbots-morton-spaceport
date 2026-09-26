@@ -1,6 +1,6 @@
 """The deep form of gate:conform: the same exhaustive font-versus-settlement sweep the belt runs, at maximum length 5 by default (`--max-length` refuses anything below the belt's 4). The belt shapes every text up to four letters and checks what only shaping the compiled font can test: HarfBuzz's application semantics over the rule shapes the lookup contains. Whether the six-slot window is sufficient for the texts the tables were built for is checked by the crate's string replay, which `run_m1` runs on every build. This tool asks the shaper's question at a depth the belt cannot afford, over texts long enough to reach a letter's fourth lookahead slot, which no belt text reaches.
 
-It runs on demand (`make conform-deep`), not per edit. The key of its green record (`artifact_cycle.deep_sweep_skip_lines`) is the set of behavior classes the build enumerated from the emitted lookup (`emit_gsub.behavior_classes`), the font-compilation code, and the uharfbuzz version. It leaves out the runes and M1.otf, so a rune edit that changes many rules but adds no new rule shape leaves the sweep current. When a build emits a new shape, or the compilation code or the shaper changes, the key changes and the cycle reports the sweep as `armed` once per pass. The belt's key is the same lines plus its maximum length (`artifact_cycle.conform_skip_fingerprint`). No gate depends on this sweep: an armed deep sweep means it should be run, and the cycle does not fail.
+It runs on demand (`make conform-deep`), not per edit. The key of its green record (`artifact_cycle.deep_sweep_skip_lines`) is the set of behavior classes the build enumerated from the emitted lookup (`emit_gsub.behavior_classes`), the font-compilation code, and the uharfbuzz version. It leaves out the runes and M1.otf, so a rune edit that changes many rules but adds no new rule shape leaves the sweep current. When a build emits a new shape, or the compilation code or the shaper changes, the key changes and the cycle reports the sweep as `due` once per pass. The belt's key is the same lines plus its maximum length (`artifact_cycle.conform_skip_fingerprint`). No gate depends on this sweep: a due deep sweep means it should be run, and the cycle does not fail.
 
 The belt's split-buffer check (every text split at a boundary shapes the same as its segments shaped alone) runs at this depth too, and this is the only place it covers texts longer than the belt's maximum length, since no build step shapes a length-5 text. The ZWNJ glyph's own properties (zero advance, no ink) need no depth: read-back checks them in the font bytes on every build.
 
@@ -46,12 +46,12 @@ def tables_stamped() -> bool:
     return run_m1.serialized_tables(run_m1.OUT_DIR, run_m1.tables_inputs()) is not None
 
 
-def arming_key() -> str:
-    """Return this build's arming key, or exit when the sweep would be meaningless. Without a behavior-class sidecar there is no key to record a green under. With a stale tables stamp, the M1.otf on disk is not the font the runes on disk describe."""
+def record_key() -> str:
+    """Return this build's record key, or exit when the sweep would be meaningless. Without a behavior-class sidecar there is no key to record a green under. With a stale tables stamp, the M1.otf on disk is not the font the runes on disk describe."""
     fingerprint = deep_sweep_skip_fingerprint(ROOT)
     if fingerprint is None:
         raise SystemExit(
-            "no behavior-class sidecar under rebuild/out/m1 — run `make artifact-cycle` first so a build can leave one to arm this sweep"
+            "no behavior-class sidecar under rebuild/out/m1 — run `make artifact-cycle` first so a build can leave one to key this sweep on"
         )
     if not tables_stamped():
         raise SystemExit(
@@ -87,7 +87,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--status",
         action="store_true",
-        help="print whether the deep sweep is current or armed and exit, sweeping nothing (exit 0 when current)",
+        help="print whether the deep sweep is current or due and exit, sweeping nothing (exit 0 when current)",
     )
     args = parser.parse_args(argv)
 
@@ -101,7 +101,7 @@ def main(argv: list[str] | None = None) -> int:
             f"--max-length {args.max_length} is shorter than the per-edit belt's {CONFORM_MAX_LENGTH_DEFAULT}; the belt already sweeps that depth on every edit"
         )
     runes = fingerprint.rune_digests(ROOT)
-    deep_key = arming_key()
+    deep_key = record_key()
     belt_key = conform_skip_fingerprint(ROOT, CONFORM_MAX_LENGTH_DEFAULT)
     jobs = max(1, min(args.jobs, len(conform.ACCEPTANCE_CONFIGS)))
     print(

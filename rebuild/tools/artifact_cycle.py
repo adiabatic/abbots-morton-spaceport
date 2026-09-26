@@ -595,11 +595,11 @@ def conform_skip_fingerprint(root: Path = ROOT, max_length: int = CONFORM_MAX_LE
 
 
 def deep_sweep_skip_lines(root: Path = ROOT) -> list[str] | None:
-    """Return the deep sweep's arming key lines: the behavior-class set the build enumerated (rebuild/out/m1/behavior_classes.json, written by `emit_gsub.behavior_classes`), the font-compilation code that turns a plan into bytes (the pipeline modules in `COMPILE_CODE_FILES` and the tools/ closure compile_font passes the mini font to, `fingerprint.font_compile_tool_paths`, since an edit to the glyph compiler or the FEA emitter changes M1.otf's bytes and must arm this sweep and the belt together), and the shaper version. None when no build has left a sidecar, in which case the caller should run the cycle before asking whether the deep sweep is armed.
+    """Return the deep sweep's record key lines: the behavior-class set the build enumerated (rebuild/out/m1/behavior_classes.json, written by `emit_gsub.behavior_classes`), the font-compilation code that turns a plan into bytes (the pipeline modules in `COMPILE_CODE_FILES` and the tools/ closure compile_font passes the mini font to, `fingerprint.font_compile_tool_paths`, since an edit to the glyph compiler or the FEA emitter changes M1.otf's bytes and must make this sweep and the belt due together), and the shaper version. None when no build has left a sidecar, in which case the caller should run the cycle before asking whether the deep sweep is due.
 
     The key leaves out the rune digests and M1.otf's bytes, because a rune edit changes both on every pass, and the deep sweep tests HarfBuzz behavior at a depth the belt cannot reach. It tests the set of shapes the emitted lookup gives the shaper, so an edit that creates no new shape leaves nothing new for a deeper run to find, and its green stays valid. There is no maximum-length line: a deep sweep runs at any maximum length from the belt's 4 up (5 by default), so the depth a green covered is stored in the record's payload and compared with >=. Hashing it into the key would make a length-6 green fail a length-5 question.
 
-    Each class is its own line label, not a shared `class` label with the token as its value, so the per-file map behind the key (`_files_of`, stored in the green record) has one entry per token and `moved_inputs_note` can name the new shape, which is all the "armed" report says.
+    Each class is its own line label, not a shared `class` label with the token as its value, so the per-file map behind the key (`_files_of`, stored in the green record) has one entry per token and `moved_inputs_note` can name the new shape, which is all the "due" report says.
     """
     import importlib.metadata
 
@@ -635,7 +635,7 @@ def deep_sweep_skip_fingerprint(root: Path = ROOT) -> str | None:
 def record_deep_sweep_green(
     fingerprint: str, max_length: int, files: dict[str, str] | None = None, path: Path | None = None
 ) -> None:
-    """Write the deep sweep's green record. It stores the maximum length the run swept as well as the key, because the arming key ignores depth: `deep_sweep_status` reads the maximum length back to decide whether a run went deep enough for the depth asked about."""
+    """Write the deep sweep's green record. It stores the maximum length the run swept as well as the key, because the record key ignores depth: `deep_sweep_status` reads the maximum length back to decide whether a run went deep enough for the depth asked about."""
     _record_outcome(
         path if path is not None else cycle_paths.DEEP_SWEEP_GREEN,
         {"fingerprint": fingerprint, "max_length": max_length, "files": files},
@@ -681,7 +681,7 @@ def deep_replay_green_path(root: Path | None = None) -> Path:
 def deep_replay_status(
     root: Path | None = None, max_length: int = DEEP_REPLAY_MAX_LENGTH_DEFAULT
 ) -> tuple[str, str]:
-    """Return whether the deep replay is current for the runes on disk, as (status, note) for the cycle's one-line report beside the deep sweep's. `current` means the record has every rune at its current digest and reached this depth or deeper. `armed` names the runes whose content changed since the recorded walk, or the shallower depth it reached, and `make replay-deep` is the fix. `never-run` means there is no record. This only reports: the deep replay is never a cycle gate, for the cost `rebuild/tools/deep_replay.py` states."""
+    """Return whether the deep replay is current for the runes on disk, as (status, note) for the cycle's one-line report beside the deep sweep's. `current` means the record has every rune at its current digest and reached this depth or deeper. `due` names the runes whose content changed since the recorded walk, or the shallower depth it reached, and `make replay-deep` is the fix. `never-run` means there is no record. This only reports: the deep replay is never a cycle gate, for the cost `rebuild/tools/deep_replay.py` states."""
     from rebuild.pipeline import fingerprint
 
     root = ROOT if root is None else root
@@ -694,20 +694,20 @@ def deep_replay_status(
     moved = deep_replay_moved(record, fingerprint.rune_digests(root))
     if moved:
         return (
-            "armed",
+            "due",
             f"{capped_labels(moved)} moved since the last length-{recorded_max_length(record)} walk; run `make replay-deep`",
         )
     recorded = recorded_max_length(record)
     if not isinstance(recorded, int) or recorded < max_length:
         return (
-            "armed",
+            "due",
             f"the recorded deep replay reached maximum length {recorded}, shorter than {max_length}; run `make replay-deep`",
         )
     return "current", f"maximum length {recorded}"
 
 
 def deep_sweep_status(root: Path = ROOT, max_length: int = DEEP_SWEEP_MAX_LENGTH_DEFAULT) -> tuple[str, str]:
-    """Return whether the periodic deep sweep is current for what the build emits, as (status, note) for the cycle's one-line report. `current` means a green record matches the arming key at this depth or deeper. `armed` means something the deep sweep tests for has changed (a new rule shape, the compilation path, the shaper) or the recorded run was shallower than asked, and `make conform-deep` is the fix. `never-run` means there is no record, and `unknown` means no build has left a behavior-class sidecar to key on. This only reports: the deep sweep is never a cycle gate."""
+    """Return whether the periodic deep sweep is current for what the build emits, as (status, note) for the cycle's one-line report. `current` means a green record matches the record key at this depth or deeper. `due` means something the deep sweep tests for has changed (a new rule shape, the compilation path, the shaper) or the recorded run was shallower than asked, and `make conform-deep` is the fix. `never-run` means there is no record, and `unknown` means no build has left a behavior-class sidecar to key on. This only reports: the deep sweep is never a cycle gate."""
     fingerprint = deep_sweep_skip_fingerprint(root)
     if fingerprint is None:
         return "unknown", "no behavior-class sidecar yet; it lands with the next M1 build"
@@ -719,13 +719,13 @@ def deep_sweep_status(root: Path = ROOT, max_length: int = DEEP_SWEEP_MAX_LENGTH
         moved = moved_inputs_note(record, files) if files is not None else None
         detail = f"{moved}; " if moved else ""
         return (
-            "armed",
+            "due",
             f"{detail}the build emits shapes the last deep sweep never saw; run `make conform-deep`",
         )
     recorded = recorded_max_length(record)
     if not isinstance(recorded, int) or recorded < max_length:
         return (
-            "armed",
+            "due",
             f"the recorded deep sweep reached maximum length {recorded}, shorter than {max_length}; run `make conform-deep`",
         )
     return "current", f"maximum length {recorded}"

@@ -76,7 +76,7 @@ def test_without_a_record_the_walk_needs_families_or_all(bench, monkeypatch):
     assert record["files"] == {"qsTea": "t1"}
     assert record["max_length"] == ac.DEEP_REPLAY_MAX_LENGTH_DEFAULT
     assert record["structure"] == "structure-1"
-    assert ac.deep_replay_status(bench)[0] == "armed"
+    assert ac.deep_replay_status(bench)[0] == "due"
     assert "qsIt" in ac.deep_replay_status(bench)[1] and "qsPea" in ac.deep_replay_status(bench)[1]
 
 
@@ -113,7 +113,7 @@ def test_a_rune_edit_walks_the_moved_runes_and_their_readers(bench, monkeypatch)
             "qsIt": frozenset({"qsIt"}),
         },
     )
-    assert ac.deep_replay_status(bench)[0] == "armed"
+    assert ac.deep_replay_status(bench)[0] == "due"
     assert "qsPea" in ac.deep_replay_status(bench)[1]
     assert deep_replay.main(["--threads", "3"]) == 0
     assert walked == [(5, ["qsPea", "qsTea"], 3)]
@@ -134,7 +134,7 @@ def test_a_disagreement_records_nothing(bench, monkeypatch, capsys):
 
 
 def test_a_disagreement_withdraws_the_walked_runes_from_a_green_record(bench, monkeypatch):
-    """A red walk over runes the record holds green at their current digests withdraws those runes, so the status reports them armed and a bare walk covers them again, while the record keeps the runes the walk did not cover. A red `--all` walk deletes the record."""
+    """A red walk over runes the record holds green at their current digests withdraws those runes, so the status reports them due and a bare walk covers them again, while the record keeps the runes the walk did not cover. A red `--all` walk deletes the record."""
     path = bench / "rebuild" / "out" / "deep-replay-green.json"
     ac.record_deep_replay_green(dict(RUNES), 5, "structure-1", path=path)
     _stub_walk(monkeypatch, disagree="replay disagreement at position 1 of qsPea qsIt")
@@ -144,7 +144,7 @@ def test_a_disagreement_withdraws_the_walked_runes_from_a_green_record(bench, mo
     assert record["files"] == {"qsTea": "t1", "qsIt": "i1"}
     assert record["max_length"] == 5 and record["structure"] == "structure-1"
     status, note = ac.deep_replay_status(bench)
-    assert status == "armed" and "qsPea" in note and "qsTea" not in note
+    assert status == "due" and "qsPea" in note and "qsTea" not in note
     walked: list = []
     _stub_walk(monkeypatch, walked)
     assert deep_replay.main(["--threads", "1"]) == 0
@@ -157,7 +157,7 @@ def test_a_disagreement_withdraws_the_walked_runes_from_a_green_record(bench, mo
 
 
 def test_a_disagreeing_bare_walk_withdraws_the_moved_runes_and_their_readers(bench, monkeypatch):
-    """A red walk whose runes come from the record withdraws every rune it walked, including a reader whose own digest has not changed, and keeps the rest of the record, so the status names the reader armed instead of reporting "nothing moved"."""
+    """A red walk whose runes come from the record withdraws every rune it walked, including a reader whose own digest has not changed, and keeps the rest of the record, so the status names the reader due instead of reporting "nothing moved"."""
     path = bench / "rebuild" / "out" / "deep-replay-green.json"
     ac.record_deep_replay_green(dict(RUNES), 5, "structure-1", path=path)
     moved = {**RUNES, "qsPea": "p2"}
@@ -180,7 +180,7 @@ def test_a_disagreeing_bare_walk_withdraws_the_moved_runes_and_their_readers(ben
     assert record["files"] == {"qsIt": "i1"}
     assert record["max_length"] == 5 and record["structure"] == "structure-1"
     status, note = ac.deep_replay_status(bench)
-    assert status == "armed" and "qsTea" in note
+    assert status == "due" and "qsTea" in note
 
 
 def test_the_walk_hands_the_crate_its_memo_ceiling(bench, monkeypatch, capsys):
@@ -219,13 +219,13 @@ def test_runes_moving_mid_walk_record_nothing(bench, monkeypatch, capsys):
     assert "changed while it ran" in capsys.readouterr().out
 
 
-def test_a_deeper_record_is_current_and_a_shallower_one_is_armed(bench, monkeypatch):
+def test_a_deeper_record_is_current_and_a_shallower_one_is_due(bench, monkeypatch):
     ac.record_deep_replay_green(
         dict(RUNES), 6, "structure-1", path=bench / "rebuild" / "out" / "deep-replay-green.json"
     )
     monkeypatch.setattr("rebuild.pipeline.fingerprint.rune_digests", lambda root: dict(RUNES))
     assert ac.deep_replay_status(bench, 5) == ("current", "maximum length 6")
-    assert ac.deep_replay_status(bench, 7)[0] == "armed"
+    assert ac.deep_replay_status(bench, 7)[0] == "due"
 
 
 def test_the_width_is_the_boxs_memory_or_the_stated_knob(monkeypatch):

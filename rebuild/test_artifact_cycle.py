@@ -3213,7 +3213,7 @@ def test_closure_files_apply_the_exemptions(tmp_path):
 
 
 def test_closure_files_leave_the_makefile_to_the_recipe_probe(tmp_path):
-    """The Makefile is not hashed as a file. It enters the fingerprint as one `make -n` probe line per rule the suite runs (`all` and `test`), so a comment or an unrelated target does not re-arm the gate."""
+    """The Makefile is not hashed as a file. It enters the fingerprint as one `make -n` probe line per rule the suite runs (`all` and `test`), so a comment or an unrelated target does not make the gate due."""
     root = _git_repo(tmp_path)
     files = ac.make_test_closure_files(root)
     assert files is not None
@@ -4076,7 +4076,7 @@ def test_deep_sweep_fingerprint_moves_with_a_class_or_the_compile_code(tmp_path)
     assert ac.conform_skip_files(tmp_path, 4)["tools/build_font.py"] == files["tools/build_font.py"]
 
 
-def test_deep_sweep_status_walks_unknown_never_run_armed_and_current(tmp_path, monkeypatch):
+def test_deep_sweep_status_walks_unknown_never_run_due_and_current(tmp_path, monkeypatch):
     store = tmp_path / "deep-sweep-green.json"
     monkeypatch.setattr(cycle_paths, "DEEP_SWEEP_GREEN", store)
     status, note = ac.deep_sweep_status(tmp_path)
@@ -4097,12 +4097,12 @@ def test_deep_sweep_status_walks_unknown_never_run_armed_and_current(tmp_path, m
     assert ac.deep_sweep_status(tmp_path) == ("current", "maximum length 5")
     assert ac.deep_sweep_status(tmp_path, max_length=4)[0] == "current"
 
-    assert ac.deep_sweep_status(tmp_path, max_length=6)[0] == "armed"
+    assert ac.deep_sweep_status(tmp_path, max_length=6)[0] == "due"
     assert "shorter" in ac.deep_sweep_status(tmp_path, max_length=6)[1]
 
     _write_behavior_classes(tmp_path, ["namer-dot", "guard-form:zwnj"])
     status, note = ac.deep_sweep_status(tmp_path)
-    assert status == "armed"
+    assert status == "due"
     assert "make conform-deep" in note
     assert "class:guard-form:zwnj (new)" in note
 
@@ -4124,9 +4124,9 @@ def test_a_deep_green_record_under_the_horizon_key_reads_at_its_max_length(tmp_p
 
 
 def test_cycle_summary_payload_carries_the_deep_sweep_status(monkeypatch):
-    monkeypatch.setattr(ac, "deep_sweep_status", lambda root=ac.ROOT, max_length=5: ("armed", "a new shape"))
+    monkeypatch.setattr(ac, "deep_sweep_status", lambda root=ac.ROOT, max_length=5: ("due", "a new shape"))
     payload = ac.cycle_summary_payload(_green_report(), [], _plan(), "ok")
-    assert payload["deep_sweep"] == {"status": "armed", "note": "a new shape"}
+    assert payload["deep_sweep"] == {"status": "due", "note": "a new shape"}
 
 
 def test_the_deep_sweep_line_never_fails_the_summary(monkeypatch):

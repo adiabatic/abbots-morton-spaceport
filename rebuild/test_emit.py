@@ -347,7 +347,7 @@ class TestEmitGsub:
 
 
 class TestBehaviorClasses:
-    """`emit_gsub.behavior_classes` over the fixture plan the tests above check. The token set must match the plan's shapes exactly, and an unrecognized shape must raise. A shape that produced no token would never arm the deep sweep, so its green record would stay valid over a build it never shaped."""
+    """`emit_gsub.behavior_classes` over the fixture plan the tests above check. The token set must match the plan's shapes exactly, and an unrecognized shape must raise. A shape that produced no token would never make the deep sweep due, so its green record would stay valid over a build it never shaped."""
 
     FIXTURE_TOKENS = {
         "formation:2",
