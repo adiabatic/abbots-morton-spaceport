@@ -18,7 +18,7 @@ from fontTools.ttLib import TTFont
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from validation.classify import SeamClassifier
+from validation.classify import JunctionClassifier
 from validation.pins import PinRun, ReplayReport, check_pin, collect_pin_runs
 from validation.rowmodel import (
     ALPHABET,
@@ -51,11 +51,11 @@ def shaper() -> Shaper:
 
 
 @pytest.fixture(scope="module")
-def classifier() -> SeamClassifier:
-    return SeamClassifier(SENIOR_FONT)
+def classifier() -> JunctionClassifier:
+    return JunctionClassifier(SENIOR_FONT)
 
 
-def test_classifier_discovers_four_curs_lookups(classifier: SeamClassifier) -> None:
+def test_classifier_discovers_four_curs_lookups(classifier: JunctionClassifier) -> None:
     assert classifier.heights() == (0, 5, 6, 8)
 
 
@@ -70,38 +70,38 @@ def test_shaper_name_recovery_survives_harfbuzz_truncation(shaper: Shaper) -> No
         assert shaper.glyph_name(tt_font.getGlyphID(name)) == name
 
 
-def test_classifier_corpus_facts(shaper: Shaper, classifier: SeamClassifier) -> None:
+def test_classifier_corpus_facts(shaper: Shaper, classifier: JunctionClassifier) -> None:
     bay_it = row_for(shaper, classifier, QS["Bay"] + "")
-    assert bay_it.seams == ("y0",)
+    assert bay_it.junctions == ("y0",)
 
     bay_foot = row_for(shaper, classifier, QS["Bay"] + QS["Foot"])
-    assert bay_foot.seams == ("break",)
+    assert bay_foot.junctions == ("break",)
 
     fee_tea_default = row_for(shaper, classifier, QS["Fee"] + QS["Tea"])
-    assert fee_tea_default.seams == ("break",)
+    assert fee_tea_default.junctions == ("break",)
 
     fee_tea_ss03 = row_for(shaper, classifier, QS["Fee"] + QS["Tea"], {"ss03": True})
-    assert fee_tea_ss03.seams == ("y5",)
+    assert fee_tea_ss03.junctions == ("y5",)
 
 
-def test_ligature_cluster_alignment(shaper: Shaper, classifier: SeamClassifier) -> None:
+def test_ligature_cluster_alignment(shaper: Shaper, classifier: JunctionClassifier) -> None:
     lig = row_for(shaper, classifier, QS["Day"] + QS["Utter"])
     assert lig.glyphs == ("qsDay_qsUtter",)
     assert lig.clusters == (0,)
-    assert lig.seams == ("lig",)
+    assert lig.junctions == ("lig",)
 
     non_lig = row_for(shaper, classifier, QS["May"] + QS["Tea"])
     assert len(non_lig.glyphs) == 2
-    assert non_lig.seams == ("break",)
+    assert non_lig.junctions == ("break",)
 
 
-def test_row_tsv_roundtrip(shaper: Shaper, classifier: SeamClassifier) -> None:
+def test_row_tsv_roundtrip(shaper: Shaper, classifier: JunctionClassifier) -> None:
     row = row_for(shaper, classifier, QS["May"] + " " + QS["Tea"] + "·")
     assert row.to_tsv().split("\t")[0] == "E665:0020:E652:00B7"
     assert Row.from_tsv(row.to_tsv()) == row
 
     single = row_for(shaper, classifier, QS["May"])
-    assert single.seams == ()
+    assert single.junctions == ()
     assert Row.from_tsv(single.to_tsv()) == single
 
 
@@ -124,12 +124,14 @@ def _write_fixture_table(path: Path, rows: list[Row], config_token: str) -> None
         fh.write("# baseline-extract v0-fixture\n")
         fh.write("# git_sha: ae9d08d\n")
         fh.write(f"# config: {config_token}   (feature dict)\n")
-        fh.write("# columns: codepoints glyphs clusters seams positions\n")
+        fh.write("# columns: codepoints glyphs clusters junctions positions\n")
         for row in sorted(rows, key=row_sort_key):
             fh.write(row.to_tsv() + "\n")
 
 
-def test_header_parse_and_row_iteration(tmp_path: Path, shaper: Shaper, classifier: SeamClassifier) -> None:
+def test_header_parse_and_row_iteration(
+    tmp_path: Path, shaper: Shaper, classifier: JunctionClassifier
+) -> None:
     rows = [row_for(shaper, classifier, QS["May"]), row_for(shaper, classifier, QS["May"] + QS["Tea"])]
     table = tmp_path / "baseline-ss02.tsv.gz"
     _write_fixture_table(table, rows, "ss02")
@@ -178,7 +180,7 @@ def _synthetic_pin(expect: str, text: str) -> PinRun:
     )
 
 
-def test_check_pin_passes_on_corpus_grounded_facts(shaper: Shaper, classifier: SeamClassifier) -> None:
+def test_check_pin_passes_on_corpus_grounded_facts(shaper: Shaper, classifier: JunctionClassifier) -> None:
     report = ReplayReport()
     check_pin(shaper, classifier, _synthetic_pin("·Day+Utter", QS["Day"] + QS["Utter"]), report)
     check_pin(shaper, classifier, _synthetic_pin("·May | ·Tea", QS["May"] + QS["Tea"]), report)
@@ -186,7 +188,7 @@ def test_check_pin_passes_on_corpus_grounded_facts(shaper: Shaper, classifier: S
     assert report.runs_replayed == 2
 
 
-def test_check_pin_records_disagreement(shaper: Shaper, classifier: SeamClassifier) -> None:
+def test_check_pin_records_disagreement(shaper: Shaper, classifier: JunctionClassifier) -> None:
     report = ReplayReport()
     check_pin(shaper, classifier, _synthetic_pin("·May ~x~ ·Tea", QS["May"] + QS["Tea"]), report)
     assert len(report.disagreements) == 1
@@ -194,7 +196,7 @@ def test_check_pin_records_disagreement(shaper: Shaper, classifier: SeamClassifi
     assert "expected y5" in report.disagreements[0].detail
 
 
-def test_full_corpus_replay_live(shaper: Shaper, classifier: SeamClassifier) -> None:
+def test_full_corpus_replay_live(shaper: Shaper, classifier: JunctionClassifier) -> None:
     report = ReplayReport()
     pins = collect_pin_runs(report)
     assert report.cells_total > 500

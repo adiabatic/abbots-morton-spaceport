@@ -15,25 +15,25 @@ MINI = Path(__file__).resolve().parent / "review" / "fixtures" / "mini"
 SETTLED = (
     Settled(
         cell=CellId(rune="qsMay", stance="loop", entry=None, exit="x-height"),
-        seam="x-height",
+        junction="x-height",
         extension=0,
     ),
     Settled(
         cell=CellId(rune="qsIt", stance="hapax", entry="x-height", exit=None),
-        seam=None,
+        junction=None,
         extension=0,
     ),
 )
 
 
 def _settled_naming_the_request(codepoints, features):
-    """Return one cell per codepoint, with the codepoint as its rune, the active features as its stance, and every seam at the x-height. A block rendered from another window's or another configuration's reports then prints different text."""
+    """Return one cell per codepoint, with the codepoint as its rune, the active features as its stance, and every junction at the x-height. A block rendered from another window's or another configuration's reports then prints different text."""
     stance = "+".join(sorted(features)) or "default"
     last = len(codepoints) - 1
     return tuple(
         Settled(
             cell=CellId(rune=f"cp{cp:04X}", stance=stance, entry=None, exit=None),
-            seam=None if i == last else "x-height",
+            junction=None if i == last else "x-height",
             extension=0,
         )
         for i, cp in enumerate(codepoints)
@@ -62,7 +62,7 @@ def _stub_settlement(monkeypatch, configs, settle=_settled_naming_the_request):
 
 
 def test_probe_routes_its_configs_through_explain_many(monkeypatch, capsys):
-    """The probe is responsible only for routing and rendering, so the settlement here is a fixed pair of cells instead of a kernel call. The probe makes one `explain_many` call and prints each report's cells and seams under its configuration."""
+    """The probe is responsible only for routing and rendering, so the settlement here is a fixed pair of cells instead of a kernel call. The probe makes one `explain_many` call and prints each report's cells and junctions under its configuration."""
     spec, calls = _stub_settlement(monkeypatch, ["default"], settle=lambda _codepoints, _features: SETTLED)
     probe.main(["E665:E670"])
     assert len(calls) == 1
@@ -71,7 +71,7 @@ def test_probe_routes_its_configs_through_explain_many(monkeypatch, capsys):
     output = capsys.readouterr().out
     assert "=== window E665:E670 ===" in output
     assert "NEW cells : qsMay.loop/en=None/ex=x-height/ | qsIt.hapax/en=x-height/ex=None/" in output
-    assert "NEW seams : y5" in output
+    assert "NEW junctions : y5" in output
 
 
 def test_the_baseline_scan_stops_at_the_last_window_it_wants():
@@ -139,25 +139,25 @@ def test_each_block_carries_its_own_windows_settlement_and_baseline(monkeypatch,
         "=== window E665:E670 ===\n"
         "\n[default]\n"
         "  OLD glyphs: old-E665:E670-default\n"
-        "  OLD seams : y0\n"
+        "  OLD junctions : y0\n"
         "  NEW cells : cpE665.default/en=None/ex=None/ | cpE670.default/en=None/ex=None/\n"
-        "  NEW seams : y5\n"
+        "  NEW junctions : y5\n"
         "\n[ss03]\n"
         "  OLD glyphs: old-E665:E670-ss03\n"
-        "  OLD seams : y0\n"
+        "  OLD junctions : y0\n"
         "  NEW cells : cpE665.ss03/en=None/ex=None/ | cpE670.ss03/en=None/ex=None/\n"
-        "  NEW seams : y5\n"
+        "  NEW junctions : y5\n"
         "=== window E652:E67A:E650 ===\n"
         "\n[default]\n"
         "  OLD glyphs: old-E652:E67A:E650-default\n"
-        "  OLD seams : y0\n"
+        "  OLD junctions : y0\n"
         "  NEW cells : cpE652.default/en=None/ex=None/ | cpE67A.default/en=None/ex=None/ | cpE650.default/en=None/ex=None/\n"
-        "  NEW seams : y5,y5\n"
+        "  NEW junctions : y5,y5\n"
         "\n[ss03]\n"
         "  OLD glyphs: old-E652:E67A:E650-ss03\n"
-        "  OLD seams : y0\n"
+        "  OLD junctions : y0\n"
         "  NEW cells : cpE652.ss03/en=None/ex=None/ | cpE67A.ss03/en=None/ex=None/ | cpE650.ss03/en=None/ex=None/\n"
-        "  NEW seams : y5,y5\n"
+        "  NEW junctions : y5,y5\n"
     )
 
 
@@ -178,15 +178,15 @@ def test_the_multi_window_run_is_the_single_window_runs_concatenated(monkeypatch
 
 
 def test_a_window_absent_from_the_subset_reads_as_not_in_subset(monkeypatch, capsys):
-    """A baseline table that holds no row for the window prints the not-in-subset marker and an empty seams line."""
+    """A baseline table that holds no row for the window prints the not-in-subset marker and an empty junctions line."""
     _stub_settlement(monkeypatch, ["default"])
     probe.main(["E665:E670"])
     output = capsys.readouterr().out
-    assert "  OLD glyphs: (not in subset)\n  OLD seams : \n" in output
+    assert "  OLD glyphs: (not in subset)\n  OLD junctions : \n" in output
 
 
 def test_a_present_window_prints_its_baseline_row(monkeypatch, capsys):
-    """A baseline row for the window fills the glyphs slot from its second field and the seams slot from its fourth."""
+    """A baseline row for the window fills the glyphs slot from its second field and the junctions slot from its fourth."""
     _stub_settlement(monkeypatch, ["default"])
     monkeypatch.setattr(
         probe,
@@ -195,7 +195,7 @@ def test_a_present_window_prints_its_baseline_row(monkeypatch, capsys):
     )
     probe.main(["E665:E670"])
     output = capsys.readouterr().out
-    assert "  OLD glyphs: qsMay|qsIt\n  OLD seams : y5\n" in output
+    assert "  OLD glyphs: qsMay|qsIt\n  OLD junctions : y5\n" in output
 
 
 def test_no_baseline_never_reads_a_subset_table(monkeypatch, capsys):
@@ -211,7 +211,7 @@ def test_no_baseline_never_reads_a_subset_table(monkeypatch, capsys):
     assert "=== window E665:E670 ===" in output
     assert "\n[default]\n  NEW cells : " in output
     assert "OLD" not in output
-    assert "NEW seams : y5" in output
+    assert "NEW junctions : y5" in output
 
 
 @pytest.mark.parametrize("argv", [[], ["--no-baseline"], ["E665:zz"], ["E665:"], ["qsMay"]])

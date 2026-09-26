@@ -1,6 +1,6 @@
 """The settlement vocabulary of doc/rebuild-design.md §6.1: the types a window and its trace are stated in, boundary semantics, the tokenizer from codepoints to tokens, and ligature formation, which runs before settlement. Settlement itself runs in the crate under `rebuild/kernel-rs`, reached through `rebuild.pipeline.kernel_exec`. This module does not import `kernel_exec`.
 
-A `RightToken` is one raw lookahead slot. A `LeftContext` is the settled neighbor to the left. A `Candidate` is one option ranked at a position: a stance of the rune there, with its entry and the seam toward the next letter. `RankedCandidate` and `Elimination` are the ranked and eliminated candidates an explain trace lists, and a `TransitionTrace` is the full result for one position. `kernel_exec` decodes the crate's results into these types, so explain reports, review units, and conform windows all read the same objects.
+A `RightToken` is one raw lookahead slot. A `LeftContext` is the settled neighbor to the left. A `Candidate` is one option ranked at a position: a stance of the rune there, with its entry and the junction toward the next letter. `RankedCandidate` and `Elimination` are the ranked and eliminated candidates an explain trace lists, and a `TransitionTrace` is the full result for one position. `kernel_exec` decodes the crate's results into these types, so explain reports, review units, and conform windows all read the same objects.
 
 Space and ZWNJ split runs and determine word position. The namer dot does not split runs. A condition can address it as `is: namer-dot`, and because it has no join surface it breaks adjacency. A boundary position settles to `boundary_settled`, which this module computes without asking the kernel. `word_position` derives the §3.4 word position from the splitting kinds alone.
 
@@ -61,7 +61,7 @@ class LeftContext:
 class Candidate:
     stance: str
     entry: Height | None
-    seam: Height | None  # the joining exit height; None = no join (exit withdrawn or never offered)
+    junction: Height | None  # the joining exit height; None = no join (exit withdrawn or never offered)
     order_index: int
     exit_index: int = _NO_EXIT_INDEX
 
@@ -97,7 +97,7 @@ def boundary_cell(kind: str) -> CellId:
 
 
 def boundary_settled(kind: str) -> Settled:
-    return Settled(cell=boundary_cell(kind), seam=None, extension=0)
+    return Settled(cell=boundary_cell(kind), junction=None, extension=0)
 
 
 def is_boundary_settled(settled: Settled) -> bool:
@@ -108,7 +108,7 @@ ISOLATED_OVERLAY_STAGE = "isolated-overlay"
 
 
 def isolated_overlay_settled(spec: ResolvedSpec, tokens: Sequence[RightToken]) -> list[Settled]:
-    """Return the stream the `overlay: isolated` stylistic set (ss10) renders for raw tokens: each letter as its rune's default-stance cell with no entry, exit, or seam, and each boundary token as its boundary cell. Nothing settles under the overlay, because the emitted font's pre-empt lookup replaces every letter with its anchor-free twin before formation runs. Read-back checks on every build that no twin appears in a formation sequence, marker line, chokepoint class, or settlement input. So the stream depends only on the tokens and the spec, and no ligature forms: a ligature's components stay separate letters."""
+    """Return the stream the `overlay: isolated` stylistic set (ss10) renders for raw tokens: each letter as its rune's default-stance cell with no entry, exit, or junction, and each boundary token as its boundary cell. Nothing settles under the overlay, because the emitted font's pre-empt lookup replaces every letter with its anchor-free twin before formation runs. Read-back checks on every build that no twin appears in a formation sequence, marker line, chokepoint class, or settlement input. So the stream depends only on the tokens and the spec, and no ligature forms: a ligature's components stay separate letters."""
     stream: list[Settled] = []
     for token in tokens:
         if token.kind != "letter":
@@ -116,7 +116,9 @@ def isolated_overlay_settled(spec: ResolvedSpec, tokens: Sequence[RightToken]) -
             continue
         rune = spec.runes[token.letter]
         stream.append(
-            Settled(cell=CellId(token.letter, rune.default_stance, None, None, ()), seam=None, extension=0)
+            Settled(
+                cell=CellId(token.letter, rune.default_stance, None, None, ()), junction=None, extension=0
+            )
         )
     return stream
 

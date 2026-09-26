@@ -1,4 +1,4 @@
-"""Classify seams from the built font's GPOS: follow the curs feature to its cursive-attachment lookups (one per join height), record each height's exit and entry glyph sets, and classify an adjacent pair of output glyphs as joined at a height or as a break. This is equivalent to the test suite's anchor-Y intersection. Because each lookup holds anchors at one height, a glyph cannot attach to a neighbor at a different height."""
+"""Classify junctions from the built font's GPOS: follow the curs feature to its cursive-attachment lookups (one per join height), record each height's exit and entry glyph sets, and classify an adjacent pair of output glyphs as joined at a height or as a break. This is equivalent to the test suite's anchor-Y intersection. Because each lookup holds anchors at one height, a glyph cannot attach to a neighbor at a different height."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from fontTools.ttLib import TTFont
 FONT_UNITS_PER_PIXEL = 50
 
 
-class SeamClassifier:
+class JunctionClassifier:
     def __init__(self, font_path: str | Path):
         tt_font = TTFont(str(font_path), lazy=True)
         gpos = tt_font["GPOS"].table

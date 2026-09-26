@@ -78,15 +78,15 @@ from rebuild.review.enrich import (
     LETTERS,
     EnrichedUnit,
     Enricher,
-    SeamHomeUnit,
+    PrimaryUnitProjection,
     load_spec,
     notation,
     notation_tokens,
-    resolve_home_assignments,
-    seam_home_projection,
+    resolve_primary_unit_assignments,
+    primary_unit_projection,
     text_entities,
 )
-from rebuild.review.subset_pack import ensure_pack, is_seam_token, table_digests
+from rebuild.review.subset_pack import ensure_pack, is_junction_token, table_digests
 from rebuild.review.unit_store import UnitStore
 from rebuild.review.unmatched_groups import assign_unmatched_group
 from rebuild.tools import console, memory_tally
@@ -385,14 +385,14 @@ def unit_scaffold(
 def patch_fragment(
     fragment: dict,
     unit,
-    seams: list[dict],
-    seam_assign,
+    junctions: list[dict],
+    junction_assign,
     full_configs=ACCEPTANCE_CONFIGS,
     *,
     check: bool = False,
     ink_deltas: Mapping[str, str] | None = None,
 ) -> dict:
-    """Rewrite a fragment's scaffold and secondary seams for this build, and return it. The write does this to every recomputed fragment read from the spool and to every cached fragment whose patched fields changed. Every scaffold field is rewritten from the current workload, with `ink_deltas` read from the unit store, and the secondary seams are rebuilt from the unit's rects in the unit store under this build's home assignments. Assigning keys in place keeps the fragment's key order, so a patched fragment has the same bytes a from-scratch build writes, and a cached fragment whose patched fields did not change can be copied byte for byte instead.
+    """Rewrite a fragment's scaffold and secondary junctions for this build, and return it. The write does this to every recomputed fragment read from the spool and to every cached fragment whose patched fields changed. Every scaffold field is rewritten from the current workload, with `ink_deltas` read from the unit store, and the secondary junctions are rebuilt from the unit's rects in the unit store under this build's primary unit assignments. Assigning keys in place keeps the fragment's key order, so a patched fragment has the same bytes a from-scratch build writes, and a cached fragment whose patched fields did not change can be copied byte for byte instead.
 
     With `check` set, `check_scaffold` compares the checked scaffold keys (`_CHECKED_SCAFFOLD_KEYS`) before they are written. That checks that the fragment's content key still holds after the patch, and that the scaffold `check_unit`'s drafting-time subset read is the scaffold that ships, which is why that subset may run in the process that drafts. The write sets `check` for recomputed fragments only. A cached fragment's stamp was checked by the build that drafted it, and this build checks it again on the verification sample (`_recompute_fragment`, `check_stamp`).
     """
@@ -403,15 +403,15 @@ def patch_fragment(
         fragment[key] = value
     entries = [
         {
-            "pair": {"left": seam["pair"][0], "right": seam["pair"][1]},
-            "before": seam["before"],
-            "after": seam["after"],
-            "home": home,
+            "pair": {"left": junction["pair"][0], "right": junction["pair"][1]},
+            "before": junction["before"],
+            "after": junction["after"],
+            "primary_unit": primary_unit,
         }
-        for seam, (home, suppressed) in zip(seams, seam_assign)
+        for junction, (primary_unit, suppressed) in zip(junctions, junction_assign)
         if not suppressed
     ]
-    fragment["secondary_seams"] = entries or None
+    fragment["secondary_junctions"] = entries or None
     return fragment
 
 
@@ -457,9 +457,9 @@ def unit_to_json(
     final_class: str | None = None,
     ink_deltas: Mapping[str, str] | None = None,
 ) -> dict:
-    """Return the shard fragment for one enriched unit as phase 1 drafts it, while its batch's shapes are still in the shape memo. The fragment is first built without drafts, with `final_class` (the unmatched group an UNMATCHED unit is promoted to) as its class and `ink_deltas` as the comparator found them. It is then stamped: `content_key` is the hash of its carry projection, and the unit's id is `unit_cache.unit_id_for` of that key, written onto both the unit and the fragment so the seam-home projection carries the final id. The drafts are added after the stamp.
+    """Return the shard fragment for one enriched unit as phase 1 drafts it, while its batch's shapes are still in the shape memo. The fragment is first built without drafts, with `final_class` (the unmatched group an UNMATCHED unit is promoted to) as its class and `ink_deltas` as the comparator found them. It is then stamped: `content_key` is the hash of its carry projection, and the unit's id is `unit_cache.unit_id_for` of that key, written onto both the unit and the fragment so the primary-unit projection carries the final id. The drafts are added after the stamp.
 
-    The duplicate group, the cluster and the secondary-seam homes are placeholders here: `patch_fragment` overwrites them at the write, and all of them are outside the carry projection. The scaffold keys inside the projection (`_STAMPED_SCAFFOLD_KEYS`) already carry the parent's values, which `check_scaffold` checks at the write. Together these keep the stamp taken here valid for the written fragment. Nothing the drafter or the enricher produces may depend on the placeholders.
+    The duplicate group, the cluster and the primary units of secondary junctions are placeholders here: `patch_fragment` overwrites them at the write, and all of them are outside the carry projection. The scaffold keys inside the projection (`_STAMPED_SCAFFOLD_KEYS`) already carry the parent's values, which `check_scaffold` checks at the write. Together these keep the stamp taken here valid for the written fragment. Nothing the drafter or the enricher produces may depend on the placeholders.
 
     A slim unit (`audit.slim_fragment`: machine-approved or verdict-exempt) skips the drafter, whose pin draft replays a shaping per unit, and its fragment omits the `SLIM_OMITTED_KEYS` entirely (absent, not null), since no reviewer sees them. The machine flags and the exemption that decide slimness are both set before this runs: the flags by the comparator and oracle earlier in phase 1, the exemption by the ledger at load.
     """
@@ -473,10 +473,10 @@ def unit_to_json(
         "notation": enriched.notation,
         "notation_tokens": list(enriched.notation_tokens),
         **{key: scaffold[key] for key in _SCAFFOLD_TAIL},
-        "before": {"glyphs": list(enriched.before_glyphs), "seams": list(enriched.before_seams)},
+        "before": {"glyphs": list(enriched.before_glyphs), "junctions": list(enriched.before_junctions)},
         "after": {
             "cells": list(enriched.after_cells),
-            "seams": list(enriched.after_seams),
+            "junctions": list(enriched.after_junctions),
             "extensions": list(enriched.after_extensions),
         },
         "diff_positions": list(enriched.diff_positions),
@@ -484,15 +484,15 @@ def unit_to_json(
         "pair_codepoints": list(enriched.pair_codepoints) if enriched.pair_codepoints else None,
         "highlight": {"before": enriched.highlight_before, "after": enriched.highlight_after},
         "boundary_marks": list(enriched.boundary_marks),
-        "secondary_seams": [
+        "secondary_junctions": [
             {
-                "pair": {"left": seam.pair[0], "right": seam.pair[1]},
-                "before": seam.highlight_before,
-                "after": seam.highlight_after,
-                "home": seam.home,
+                "pair": {"left": junction.pair[0], "right": junction.pair[1]},
+                "before": junction.highlight_before,
+                "after": junction.highlight_after,
+                "primary_unit": junction.primary_unit,
             }
-            for seam in enriched.secondary_seams
-            if not seam.suppressed
+            for junction in enriched.secondary_junctions
+            if not junction.suppressed
         ]
         or None,
         "summary": enriched.summary,
@@ -859,8 +859,8 @@ class _UnitProjection:
     cluster: str
     unmatched_group: str
     pair_codepoints: tuple[int, int] | None
-    seam_home: SeamHomeUnit
-    seam_rects: tuple[tuple[tuple[int, int], dict, dict], ...]
+    primary_unit_projection: PrimaryUnitProjection
+    junction_rects: tuple[tuple[tuple[int, int], dict, dict], ...]
     mismatches: tuple[str, ...]
     ordinal: int = -1
     part: str = ""
@@ -902,9 +902,10 @@ def _phase1_unit(
         ),
         unmatched_group=unmatched_group,
         pair_codepoints=enriched.pair_codepoints,
-        seam_home=seam_home_projection(enriched),
-        seam_rects=tuple(
-            (seam.pair, seam.highlight_before, seam.highlight_after) for seam in enriched.secondary_seams
+        primary_unit_projection=primary_unit_projection(enriched),
+        junction_rects=tuple(
+            (junction.pair, junction.highlight_before, junction.highlight_after)
+            for junction in enriched.secondary_junctions
         ),
         mismatches=tuple(enricher.mismatches[mismatch_mark:]),
         ordinal=unit.ordinal,
@@ -915,23 +916,23 @@ def _phase1_unit(
     return projection, fragment, check_unit(fragment, at=(DRAFTED,))
 
 
-def _seam_records(seam_rects) -> list[dict]:
-    """Return a projection's secondary-seam rects in the shape `patch_fragment` reads, which is also the shape the store persists, so recomputed and cached units are patched through one code path."""
-    return [{"pair": list(pair), "before": before, "after": after} for pair, before, after in seam_rects]
+def _junction_records(junction_rects) -> list[dict]:
+    """Return a projection's secondary-junction rects in the shape `patch_fragment` reads, which is also the shape the store persists, so recomputed and cached units are patched through one code path."""
+    return [{"pair": list(pair), "before": before, "after": after} for pair, before, after in junction_rects]
 
 
 def _recompute_fragment(
     unit, injection, comparator, oracle, enricher, drafter: Drafter, report
 ) -> tuple[str, tuple[tuple[str, str], ...]]:
-    """Recompute one sampled cached unit from nothing and patch it as the write patches a recomputed fragment. The parent's global fields (duplicate group, cluster, promoted class, seam homes) are injected onto the unit copy first, because the copy was taken before the whole-corpus passes ran. `report` is the unit's result from its chunk's single `Enricher.explain_units` pass (`_released_batches`), settled from the unit's own codepoints and configuration and not read from the cache. Passing it in avoids settling each sampled unit on its own, which would cost one `settle-cases` process per position. Returns the recomputed content key and ink deltas, which the caller compares with what the cache supplied; the id follows from the key."""
+    """Recompute one sampled cached unit from nothing and patch it as the write patches a recomputed fragment. The parent's global fields (duplicate group, cluster, promoted class, primary units) are injected onto the unit copy first, because the copy was taken before the whole-corpus passes ran. `report` is the unit's result from its chunk's single `Enricher.explain_units` pass (`_released_batches`), settled from the unit's own codepoints and configuration and not read from the cache. Passing it in avoids settling each sampled unit on its own, which would cost one `settle-cases` process per position. Returns the recomputed content key and ink deltas, which the caller compares with what the cache supplied; the id follows from the key."""
     projection, fragment, _complaints = _phase1_unit(unit, comparator, oracle, enricher, drafter, report)
-    unit.duplicate_group, unit.cluster, unit.class_id, seam_assign = injection
+    unit.duplicate_group, unit.cluster, unit.class_id, junction_assign = injection
     check_stamp(
         patch_fragment(
             fragment,
             unit,
-            _seam_records(projection.seam_rects),
-            seam_assign,
+            _junction_records(projection.junction_rects),
+            junction_assign,
             ink_deltas=dict(projection.ink_deltas),
         )
     )
@@ -1208,7 +1209,7 @@ def _phase_timing(label: str, started: float, note: str = "") -> None:
 
 
 class _RecomputeRunner:
-    """Run phase 1 over the units the cache could not supply: in-process when `jobs` is 1, across persistent spawn workers otherwise, with the same per-unit work either way, so serial and parallel builds share every whole-corpus pass and are byte-identical. The parent keeps the triage order and every order-sensitive whole-corpus pass (the index and its batches, unmatched-group promotion, duplicate grouping, secondary-home resolution) and takes each recomputed unit's id from the projection its drafting stamped. The runner enriches, drafts and runs the drafting-time contract check (`_phase1_unit`). It spools each fragment as it is drafted (`_FragmentSpool`, under `out_dir`) so no EnrichedUnit outlives its batch on either path, loads each projection into the parent's unit store as it arrives (`phase1`), keeps the check's complaints in `contract_errors` for the write, and returns fragments one at a time through `fragment`, read from the spool at the address the store holds, as a cached fragment is read from the previous corpus.
+    """Run phase 1 over the units the cache could not supply: in-process when `jobs` is 1, across persistent spawn workers otherwise, with the same per-unit work either way, so serial and parallel builds share every whole-corpus pass and are byte-identical. The parent keeps the triage order and every order-sensitive whole-corpus pass (the index and its batches, unmatched-group promotion, duplicate grouping, primary-unit resolution) and takes each recomputed unit's id from the projection its drafting stamped. The runner enriches, drafts and runs the drafting-time contract check (`_phase1_unit`). It spools each fragment as it is drafted (`_FragmentSpool`, under `out_dir`) so no EnrichedUnit outlives its batch on either path, loads each projection into the parent's unit store as it arrives (`phase1`), keeps the check's complaints in `contract_errors` for the write, and returns fragments one at a time through `fragment`, read from the spool at the address the store holds, as a cached fragment is read from the previous corpus.
 
     Pooled, every worker draws batches from one queue (`_handout_width` units at a time, one batch in flight per worker) instead of owning a fixed share, so which worker drafts which unit depends on timing and changes no output byte: `OutlineIntern` keys by shape, not by first-seen order, the parent loads each projection into its ordinal's row, and every order-dependent whole-corpus pass runs in the parent over the whole store. The queue is in configuration order (`_configuration_order`), so a worker's consecutive batches share a configuration. Its baseline rows come from the subset pack the parent writes before the pool starts (`subset_pack`, mapped read-only by every worker and shared through the page cache), its lookups mostly stay in one configuration's key range, and most batches settle under one configuration. The verification sample is split into contiguous slices of the same order for the same reason. A worker holds its interpreter and shapers, one batch's units, projections and addresses, the rows materialized for that batch, and the pages of the mapping it has touched; `CORPUS_WORKER_BYTES` in rebuild/tools/artifact_cycle.py estimates that peak. `close` deletes the spool however the build ends.
     """
@@ -1602,7 +1603,7 @@ def _write_corpus(
     fragments: Callable[[Iterable[int]], Iterator[_Emission]],
     store: UnitStore,
     cached_count: int,
-    secondary_seam_counts: dict,
+    secondary_junction_counts: dict,
     duplicate_group_count: int,
     total_batches: int,
     batch_size: int,
@@ -1739,7 +1740,7 @@ def _write_corpus(
                 "duplicate_groups": duplicate_group_count,
             },
             "machine_approved": _machine_approved_meta(machine_units, junior_font, repo_root),
-            "secondary_seams": secondary_seam_counts,
+            "secondary_junctions": secondary_junction_counts,
             "classes": [meta_by_id[entry.id] for entry in classes],
             "build_command": BUILD_COMMAND,
             "serve_command": SERVE_COMMAND,
@@ -1791,7 +1792,7 @@ def premerge_sizes(snapshot: facts.PremergeSnapshot) -> memory_tally.Measure:
 def _packed_shape(collection: str) -> memory_tally.Shape:
     """Return the packed row the debug tally measures one member of the named collection against (`memory_tally.hold(..., packed=)`; the memory_tally module docstring defines the terms). Each shape matches the record the parent holds, field for field: `unit_cache.ParsedCachedUnit` under `unit_cache.unplaced`, the input-key-to-id map under `unit_cache.keys`, and the checker's identity triple under `checker.identity`. The rest of the per-unit state is columns, measured exactly elsewhere: the workload table under `workload.units` (`unit_table_sizes`), the unit store under `unit_store`, the audit's row columns under `workload.rows`, and the pre-merge snapshot under `facts.premerge`.
 
-    The widths are the unit store's own. Each flag is a bit of one flag byte. A window is a count byte and a `u16` per codepoint, measured from the value since a window is two to four cells. A pair's two cell indices take two bytes. A span is two `u16`, and a seam-rect edge three `i32`. Every interned name (the class, the configs, the glyph and cell names, the seam tokens, the diff and delta digests, the cluster, the duplicate group, a shard part's name, a policy file) is a `u32` id into one string table. A sha256 content or input key is its 32 raw bytes, and a content id the 8 raw bytes it is cut from (`unit_cache.unit_id_for`). Every variable-length field (names, deltas, seam rects, homes) is an offset and count into a side column, so an empty one costs the pair. The shape measures `mismatches` the same way, although the store keeps those lines as tuples in a dict keyed by ordinal.
+    The widths are the unit store's own. Each flag is a bit of one flag byte. A window is a count byte and a `u16` per codepoint, measured from the value since a window is two to four cells. A pair's two cell indices take two bytes. A span is two `u16`, and a junction-rect edge three `i32`. Every interned name (the class, the configs, the glyph and cell names, the junction tokens, the diff and delta digests, the cluster, the duplicate group, a shard part's name, a policy file) is a `u32` id into one string table. A sha256 content or input key is its 32 raw bytes, and a content id the 8 raw bytes it is cut from (`unit_cache.unit_id_for`). Every variable-length field (names, deltas, junction rects, primary units) is an offset and count into a side column, so an empty one costs the pair. The shape measures `mismatches` the same way, although the store keeps those lines as tuples in a dict keyed by ordinal.
 
     A unit's own id costs nothing where the collection is keyed by it, because a packed store indexes by ordinal; that applies to the checker's identity. `unit_cache.keys` does count its key, since it maps the input key to the id and the plan's key map needs an index for that lookup. `unit_cache.unplaced` holds the records a cached plan received without an address, buffered whole until the walk over the previous shards places them (none, on a store this code wrote), and each carries its `key` as a digest column because the plan finds the record's unit through it. The shapes are constant and requested at every boundary a collection is held at, so one is built per collection name and cached.
     """
@@ -1809,7 +1810,7 @@ def _packed_shape(collection: str) -> memory_tally.Shape:
     edge = memory_tally.Keyed(
         {"x_min": memory_tally.Slot(4), "x_max": memory_tally.Slot(4), "advance_total": memory_tally.Slot(4)}
     )
-    seam_rects = memory_tally.Many(memory_tally.Keyed({"pair": pair, "before": edge, "after": edge}))
+    junction_rects = memory_tally.Many(memory_tally.Keyed({"pair": pair, "before": edge, "after": edge}))
     cached = memory_tally.Record(
         {
             "key": digest,
@@ -1829,18 +1830,18 @@ def _packed_shape(collection: str) -> memory_tally.Shape:
             "duplicate_group": name,
             "exemplar": flag,
             "no_verdict": flag,
-            "homes": memory_tally.Many(memory_tally.Positional((content_id, flag))),
+            "primary_units": memory_tally.Many(memory_tally.Positional((content_id, flag))),
             "policy_file": name,
-            "seam_rects": seam_rects,
+            "junction_rects": junction_rects,
             "mismatches": names,
             "pair": pair,
             "after_spans": spans,
             "after_cells": names,
-            "after_seams": names,
+            "after_junctions": names,
             "before_spans": spans,
             "before_glyphs": names,
-            "before_seams": names,
-            "seam_pairs": cell_pairs,
+            "before_junctions": names,
+            "junction_pairs": cell_pairs,
         }
     )
     shapes: dict[str, memory_tally.Shape] = {
@@ -1863,7 +1864,7 @@ def _policy_file(fragment: Mapping) -> str | None:
     return file if isinstance(file, str) else None
 
 
-def _cached_identity(table: UnitTable, store: UnitStore, ordinal: int, seam_assign) -> dict:
+def _cached_identity(table: UnitTable, store: UnitStore, ordinal: int, junction_assign) -> dict:
     """The dict that stands in for a byte-copied fragment when `_CorpusCheck.unit` and the locator row read it. It carries every field the cross-unit predicates and the locator read, taken from the workload table and the unit store, so a cached unit is checked against its neighbors on every build without parsing its fragment or materializing a unit record."""
     pair = store.cell_pair(ordinal)
     policy_file = store.policy_file(ordinal)
@@ -1883,7 +1884,10 @@ def _cached_identity(table: UnitTable, store: UnitStore, ordinal: int, seam_assi
         "configs": list(configs),
         "config_gate": config_gate(configs, ACCEPTANCE_CONFIGS),
         "pair": {"left": pair[0], "right": pair[1]} if pair else None,
-        "secondary_seams": [{"home": home} for home, suppressed in seam_assign if not suppressed] or None,
+        "secondary_junctions": [
+            {"primary_unit": primary_unit} for primary_unit, suppressed in junction_assign if not suppressed
+        ]
+        or None,
         "drafts": {"policy": {"file": policy_file}} if policy_file else None,
     }
 
@@ -2157,21 +2161,21 @@ def build_m1(
             table.set_cluster(ordinal, store.cluster(ordinal))
 
         by_class = table.rows_by_class(order)
-        # The home-resolution pass reads the corpus through the store and writes each unit's homes back into it. The returned dict is filled only on the list path, so it is empty here.
-        _assignments, secondary_seam_counts = resolve_home_assignments(store)
+        # The primary-unit resolution pass reads the corpus through the store and writes each unit's primary units back into it. The returned dict is filled only on the list path, so it is empty here.
+        _assignments, secondary_junction_counts = resolve_primary_unit_assignments(store)
 
-        # The sampled records were materialized before the whole-corpus passes ran, so the fields the whole-corpus passes assign (duplicate group, cluster, class, homes) are passed to the recomputation explicitly.
+        # The sampled records were materialized before the whole-corpus passes ran, so the fields the whole-corpus passes assign (duplicate group, cluster, class, primary units) are passed to the recomputation explicitly.
         injections = {
             store.unit_id(ordinal): (
                 table.duplicate_group(ordinal),
                 table.cluster(ordinal),
                 table.class_id(ordinal),
-                store.homes(ordinal),
+                store.primary_units(ordinal),
             )
             for ordinal in sampled_ordinals
         }
         verified = runner.verify(injections)
-        # A cached fragment must be what a recomputation of the same window would write. The content key covers most of that: it hashes the fragment's adjudicable fields (the ink flag, both fonts' glyphs and cells, the seams, the notation, and on a full fragment the highlight geometry), so one comparison per sampled unit against the stamp the cached fragment carried checks all of them, and the id with them. The recomputation writes the slim or full shape from the unit's own flags and exemption, as the write does, so a cached fragment of the wrong shape would also fail here. Some fields are outside the key. `ink_deltas` is a carry-presentation key (`unit_cache.CARRY_PRESENTATION_KEYS`), so the recomputation returns it beside the key and it is compared with the store record the unit was taken from. The drafts, the explain text and the secondary seams are checked where they are produced, not sampled: the drafter raises on a pin or policy record it cannot validate, the explain text comes from the same enrichment as the cells and seams the key covers, and `patch_fragment` re-emits the secondary seams from the stored rects under this build's home assignments.
+        # A cached fragment must be what a recomputation of the same window would write. The content key covers most of that: it hashes the fragment's adjudicable fields (the ink flag, both fonts' glyphs and cells, the junctions, the notation, and on a full fragment the highlight geometry), so one comparison per sampled unit against the stamp the cached fragment carried checks all of them, and the id with them. The recomputation writes the slim or full shape from the unit's own flags and exemption, as the write does, so a cached fragment of the wrong shape would also fail here. Some fields are outside the key. `ink_deltas` is a carry-presentation key (`unit_cache.CARRY_PRESENTATION_KEYS`), so the recomputation returns it beside the key and it is compared with the store record the unit was taken from. The drafts, the explain text and the secondary junctions are checked where they are produced, not sampled: the drafter raises on a pin or policy record it cannot validate, the explain text comes from the same enrichment as the cells and junctions the key covers, and `patch_fragment` re-emits the secondary junctions from the stored rects under this build's primary unit assignments.
         stale: list[str] = []
         for unit_id, (key, deltas) in verified.items():
             ordinal = store.ordinal_of(unit_id)
@@ -2196,7 +2200,7 @@ def build_m1(
             f"(jobs={jobs}, recomputed={len(recomputed):,}, verified={len(verified):,} cached)",
         )
 
-        # The write (phase 2) is one pass over recomputed and cached units, each read by the address the store holds for it as its shard is written. A recomputed fragment is read from the runner's spool, patched with this build's scaffold, ink deltas and seam homes through `patch_fragment` (on a unit record materialized for the patch), checked by `check_scaffold`, and released once the shard, the checker and the sidecar spools have used it. A cached fragment is read from the previous corpus. When `UnitStore.cached_as_is` says every field the patch would write already matches, it is copied as bytes without parsing, which lets the shard writer leave it, and a part made only of such fragments, in place; the checker reads its identity from the columns (`_cached_identity`). Otherwise it is parsed, patched and serialized again. This runs inside the runner's `try` because the spool belongs to the runner.
+        # The write (phase 2) is one pass over recomputed and cached units, each read by the address the store holds for it as its shard is written. A recomputed fragment is read from the runner's spool, patched with this build's scaffold, ink deltas and primary units through `patch_fragment` (on a unit record materialized for the patch), checked by `check_scaffold`, and released once the shard, the checker and the sidecar spools have used it. A cached fragment is read from the previous corpus. When `UnitStore.cached_as_is` says every field the patch would write already matches, it is copied as bytes without parsing, which lets the shard writer leave it, and a part made only of such fragments, in place; the checker reads its identity from the columns (`_cached_identity`). Otherwise it is parsed, patched and serialized again. This runs inside the runner's `try` because the spool belongs to the runner.
         console.phase("review.build manifest+check", file=sys.stderr)
         phase = time.perf_counter()
         reader = unit_cache.PriorFragmentReader(out_dir)
@@ -2206,7 +2210,7 @@ def build_m1(
                 recomputed_unit = not store.flags(ordinal).cached
                 source = store.source(ordinal)
                 assert source is not None, ordinal
-                seam_assign = store.homes(ordinal)
+                junction_assign = store.primary_units(ordinal)
                 try:
                     if recomputed_unit:
                         fragment = runner.fragment(source)
@@ -2223,7 +2227,7 @@ def build_m1(
                             store.policy_file(ordinal),
                             body=reader.read_bytes(source),
                             source=source,
-                            identity=_cached_identity(table, store, ordinal, seam_assign),
+                            identity=_cached_identity(table, store, ordinal, junction_assign),
                         )
                         continue
                     else:
@@ -2236,8 +2240,8 @@ def build_m1(
                 fragment = patch_fragment(
                     fragment,
                     unit,
-                    store.seam_rects(ordinal),
-                    seam_assign,
+                    store.junction_rects(ordinal),
+                    junction_assign,
                     check=recomputed_unit,
                     ink_deltas=store.ink_deltas(ordinal),
                 )
@@ -2256,7 +2260,7 @@ def build_m1(
                 emissions_in,
                 store,
                 cached_count,
-                secondary_seam_counts,
+                secondary_junction_counts,
                 duplicate_group_count,
                 total_batches,
                 batch_size,
@@ -2393,11 +2397,11 @@ def _table_diff_unit_json(
         new = entry.new
         before = {
             "glyphs": [entry.key.left, entry.key.right],
-            "seams": [old.junction if old else "absent"],
+            "junctions": [old.junction if old else "absent"],
         }
         after = {
             "cells": [entry.key.left, entry.key.right],
-            "seams": [new.junction if new else "absent"],
+            "junctions": [new.junction if new else "absent"],
             "extensions": [new.extension if new else 0],
         }
         diff_positions = [0, 1]
@@ -2412,11 +2416,11 @@ def _table_diff_unit_json(
         members = entry.paired or (entry,)
         before = {
             "glyphs": [member.old.outcome for member in members if member.old is not None],
-            "seams": [],
+            "junctions": [],
         }
         after = {
             "cells": [member.new.outcome for member in members if member.new is not None],
-            "seams": [],
+            "junctions": [],
             "extensions": [],
         }
         diff_positions = [0] if (before["glyphs"] or after["cells"]) else []
@@ -2735,14 +2739,19 @@ def check_manifest(manifest: dict) -> list[str]:
                         isinstance(record.get("method"), str) and record.get("method"),
                         f"machine_approved.checks.{check_id}.method must be a nonempty string",
                     )
-    secondary_seam_counts = manifest.get("secondary_seams")
-    if secondary_seam_counts is not None:
+    secondary_junction_counts = manifest.get("secondary_junctions")
+    if secondary_junction_counts is not None:
         need(
-            isinstance(secondary_seam_counts, dict)
-            and {"units_with_markers", "seams_homed", "seams_homeless", "seams_suppressed_invisible"}
-            == set(secondary_seam_counts)
-            and all(isinstance(count, int) for count in secondary_seam_counts.values()),
-            "secondary_seams must carry the four integer counts",
+            isinstance(secondary_junction_counts, dict)
+            and {
+                "units_with_markers",
+                "junctions_with_primary_unit",
+                "junctions_without_primary_unit",
+                "junctions_suppressed_invisible",
+            }
+            == set(secondary_junction_counts)
+            and all(isinstance(count, int) for count in secondary_junction_counts.values()),
+            "secondary_junctions must carry the four integer counts",
         )
     fonts = manifest.get("fonts")
     need(isinstance(fonts, dict) and set(fonts or ()) == {"before", "after"}, "fonts must map before/after")
@@ -2803,9 +2812,9 @@ CONTRACT_ERRORS_SHOWN = 20
 
 
 def check_unit(unit: dict, mode: str = "m1-audit", *, at: tuple[str, ...] = CHECKED_AT) -> list[str]:
-    """The per-unit half of the §7 contract check. `at` selects which of its two subsets run. `DRAFTED` covers every field settled when `unit_to_json` builds the fragment: the identity and its stamp, the machine flags and `ink_deltas`, the class and group, the window, the seams, the highlight, the notation, the summary and explain, the config badge, and the drafts. `PATCHED` covers the fields `patch_fragment` assigns after the parent's whole-corpus passes: `duplicate_group`, `cluster`, and the secondary seams with their homes.
+    """The per-unit half of the §7 contract check. `at` selects which of its two subsets run. `DRAFTED` covers every field settled when `unit_to_json` builds the fragment: the identity and its stamp, the machine flags and `ink_deltas`, the class and group, the window, the junctions, the highlight, the notation, the summary and explain, the config badge, and the drafts. `PATCHED` covers the fields `patch_fragment` assigns after the parent's whole-corpus passes: `duplicate_group`, `cluster`, and the secondary junctions with their primary units.
 
-    The m1 build runs `DRAFTED` in the process that drafts the fragment (`_phase1_unit`) and `PATCHED` in the parent's write (`_write_corpus`). This is sound because `check_scaffold` checks at the write that every scaffold field outside `PATCHED` (`_CHECKED_SCAFFOLD_KEYS`) still has the value the drafting-time check read, and because only the scaffold and the secondary seams are written after drafting. Either subset may read a checked field, but only `PATCHED` may read an unchecked one. A new fragment field must be assigned to one subset here. `rebuild/test_corpus_checks.py` checks that every scaffold key is either checked by `check_scaffold` or one of the keys `PATCHED` checks, and that `DRAFTED` and `PATCHED` together equal the full check. `check_shards` and `check_output_dir` run both subsets, so a corpus read back from disk gets every predicate.
+    The m1 build runs `DRAFTED` in the process that drafts the fragment (`_phase1_unit`) and `PATCHED` in the parent's write (`_write_corpus`). This is sound because `check_scaffold` checks at the write that every scaffold field outside `PATCHED` (`_CHECKED_SCAFFOLD_KEYS`) still has the value the drafting-time check read, and because only the scaffold and the secondary junctions are written after drafting. Either subset may read a checked field, but only `PATCHED` may read an unchecked one. A new fragment field must be assigned to one subset here. `rebuild/test_corpus_checks.py` checks that every scaffold key is either checked by `check_scaffold` or one of the keys `PATCHED` checks, and that `DRAFTED` and `PATCHED` together equal the full check. `check_shards` and `check_output_dir` run both subsets, so a corpus read back from disk gets every predicate.
     """
     errors: list[str] = []
     identifier = unit.get("id", "<missing>")
@@ -2962,35 +2971,40 @@ def check_unit(unit: dict, mode: str = "m1-audit", *, at: tuple[str, ...] = CHEC
             "before.glyphs must be a list",
         )
         need(
-            isinstance(before, dict) and isinstance(before.get("seams"), list), "before.seams must be a list"
+            isinstance(before, dict) and isinstance(before.get("junctions"), list),
+            "before.junctions must be a list",
         )
         need(isinstance(after, dict) and isinstance(after.get("cells"), list), "after.cells must be a list")
-        need(isinstance(after, dict) and isinstance(after.get("seams"), list), "after.seams must be a list")
+        need(
+            isinstance(after, dict) and isinstance(after.get("junctions"), list),
+            "after.junctions must be a list",
+        )
         need(
             isinstance(after, dict) and isinstance(after.get("extensions"), list),
             "after.extensions must be a list",
         )
-        if isinstance(before, dict) and isinstance(before.get("seams"), list):
+        if isinstance(before, dict) and isinstance(before.get("junctions"), list):
             need(
-                all(is_seam_token(seam) for seam in before["seams"]),
-                "before.seams must be break/lig/yN tokens",
+                all(is_junction_token(junction) for junction in before["junctions"]),
+                "before.junctions must be break/lig/yN tokens",
             )
-        if isinstance(after, dict) and isinstance(after.get("seams"), list):
+        if isinstance(after, dict) and isinstance(after.get("junctions"), list):
             need(
-                all(is_seam_token(seam) for seam in after["seams"]), "after.seams must be break/lig/yN tokens"
+                all(is_junction_token(junction) for junction in after["junctions"]),
+                "after.junctions must be break/lig/yN tokens",
             )
         if mode == "m1-audit" and isinstance(before, dict) and isinstance(after, dict):
             need(
-                len(before.get("seams", ())) == max(len(before.get("glyphs", ())) - 1, 0),
-                "before.seams must have one entry per inter-glyph gap",
+                len(before.get("junctions", ())) == max(len(before.get("glyphs", ())) - 1, 0),
+                "before.junctions must have one entry per inter-glyph gap",
             )
             need(
-                len(after.get("seams", ())) == max(len(after.get("cells", ())) - 1, 0),
-                "after.seams must have one entry per inter-cell gap",
+                len(after.get("junctions", ())) == max(len(after.get("cells", ())) - 1, 0),
+                "after.junctions must have one entry per inter-cell gap",
             )
             need(
-                len(after.get("extensions", ())) == len(after.get("seams", ())),
-                "after.extensions must parallel after.seams",
+                len(after.get("extensions", ())) == len(after.get("junctions", ())),
+                "after.extensions must parallel after.junctions",
             )
 
         need(isinstance(unit.get("diff_positions"), list), "diff_positions must be a list")
@@ -3161,38 +3175,43 @@ def check_unit(unit: dict, mode: str = "m1-audit", *, at: tuple[str, ...] = CHEC
             else:
                 need(cluster is None, "machine-approved and no-verdict units must carry cluster null")
 
-        seams = unit.get("secondary_seams")
-        if seams is not None:
-            need(isinstance(seams, list) and seams, "secondary_seams must be null or a nonempty list")
+        junctions = unit.get("secondary_junctions")
+        if junctions is not None:
+            need(
+                isinstance(junctions, list) and junctions,
+                "secondary_junctions must be null or a nonempty list",
+            )
             need(
                 unit.get("ink_identical") is not True and unit.get("picture_identical") is not True,
-                "ink-identical and picture-identical units must not carry secondary_seams",
+                "ink-identical and picture-identical units must not carry secondary_junctions",
             )
-            for index, seam in enumerate(seams if isinstance(seams, list) else ()):
-                label = f"secondary_seams[{index}]"
-                if not isinstance(seam, dict) or {"pair", "before", "after", "home"} - set(seam):
-                    errors.append(f"unit {identifier}: {label} must carry pair/before/after/home")
+            for index, junction in enumerate(junctions if isinstance(junctions, list) else ()):
+                label = f"secondary_junctions[{index}]"
+                if not isinstance(junction, dict) or {"pair", "before", "after", "primary_unit"} - set(
+                    junction
+                ):
+                    errors.append(f"unit {identifier}: {label} must carry pair/before/after/primary_unit")
                     continue
-                seam_pair = seam.get("pair")
+                junction_pair = junction.get("pair")
                 need(
-                    isinstance(seam_pair, dict)
-                    and isinstance(seam_pair.get("left"), int)
-                    and isinstance(seam_pair.get("right"), int)
-                    and seam_pair["left"] < seam_pair["right"],
+                    isinstance(junction_pair, dict)
+                    and isinstance(junction_pair.get("left"), int)
+                    and isinstance(junction_pair.get("right"), int)
+                    and junction_pair["left"] < junction_pair["right"],
                     f"{label}.pair must be {{left, right}} with left < right",
                 )
-                if isinstance(pair, dict) and isinstance(seam_pair, dict):
+                if isinstance(pair, dict) and isinstance(junction_pair, dict):
                     need(
-                        (seam_pair.get("left"), seam_pair.get("right"))
+                        (junction_pair.get("left"), junction_pair.get("right"))
                         != (pair.get("left"), pair.get("right")),
                         f"{label} must not duplicate the primary pair",
                     )
-                need_rect(seam.get("before"), f"{label}.before")
-                need_rect(seam.get("after"), f"{label}.after")
-                home = seam.get("home")
+                need_rect(junction.get("before"), f"{label}.before")
+                need_rect(junction.get("after"), f"{label}.after")
+                primary_unit = junction.get("primary_unit")
                 need(
-                    home is None or (isinstance(home, str) and home.startswith("u-")),
-                    f"{label}.home must be null or a unit id",
+                    primary_unit is None or (isinstance(primary_unit, str) and primary_unit.startswith("u-")),
+                    f"{label}.primary_unit must be null or a unit id",
                 )
     return errors
 
@@ -3221,10 +3240,10 @@ class _CorpusCheck:
         self._seen_rows = 0
         self._seen_ids: set[str | None] = set()
         self._seen_machine_by_class: dict[str, int] = {}
-        self._seam_homes: list[tuple[str | None, str]] = []
-        self._seam_units = 0
-        self._seams_homed = 0
-        self._seams_homeless = 0
+        self._primary_units: list[tuple[str | None, str]] = []
+        self._junction_units = 0
+        self._junctions_with_primary_unit = 0
+        self._junctions_without_primary_unit = 0
         self._duplicate_group_keys: dict[str | None, set[tuple]] = {}
         self._cluster_keys: dict[str | None, set[tuple]] = {}
         self._duplicate_group_cluster: dict[str | None, str | None] = {}
@@ -3302,16 +3321,16 @@ class _CorpusCheck:
             for check_id in MACHINE_CHECKS:
                 if unit.get(check_id) is True:
                     self._check_counts[check_id] += 1
-        if unit.get("secondary_seams"):
-            self._seam_units += 1
-            for seam in unit["secondary_seams"]:
-                if not isinstance(seam, dict):
+        if unit.get("secondary_junctions"):
+            self._junction_units += 1
+            for junction in unit["secondary_junctions"]:
+                if not isinstance(junction, dict):
                     continue
-                if seam.get("home") is None:
-                    self._seams_homeless += 1
+                if junction.get("primary_unit") is None:
+                    self._junctions_without_primary_unit += 1
                 else:
-                    self._seams_homed += 1
-                    self._seam_homes.append((unit.get("id"), seam["home"]))
+                    self._junctions_with_primary_unit += 1
+                    self._primary_units.append((unit.get("id"), junction["primary_unit"]))
 
     def class_end(self) -> None:
         meta = self._meta
@@ -3404,40 +3423,50 @@ class _CorpusCheck:
                     )
             if totals.get("batches") != (len(human_unit_ids) + batch_size - 1) // batch_size:
                 errors.append("totals.batches does not count the slices human_unit_ids partitions into")
-        for unit_id, home in self._seam_homes:
-            if home == unit_id:
-                errors.append(f"unit {unit_id}: a secondary seam names itself as home")
-            elif home not in seen_ids:
-                errors.append(f"unit {unit_id}: secondary seam home {home} is not a unit in this output")
-        secondary_seam_counts = manifest.get("secondary_seams")
-        # The home relation can be checked only where the resolver assigned homes, which is where it wrote the counts. A home's window must be contained in this unit's window, the home must have a primary pair, and it must show a visible change (a seam whose home has none is counted in `seams_suppressed_invisible` instead). A unit with no visible change must not carry a secondary seam.
-        if isinstance(secondary_seam_counts, dict):
-            for unit_id, home in self._seam_homes:
-                if home not in identity or unit_id not in identity:
+        for unit_id, primary_unit in self._primary_units:
+            if primary_unit == unit_id:
+                errors.append(f"unit {unit_id}: a secondary junction names itself as its primary unit")
+            elif primary_unit not in seen_ids:
+                errors.append(
+                    f"unit {unit_id}: secondary junction's primary unit {primary_unit} is not a unit in this output"
+                )
+        secondary_junction_counts = manifest.get("secondary_junctions")
+        # The primary unit relation can be checked only where the resolver assigned primary units, which is where it wrote the counts. A primary unit's window must be contained in this unit's window, the primary unit must have a primary pair, and it must show a visible change (a junction whose primary unit has none is counted in `junctions_suppressed_invisible` instead). A unit with no visible change must not carry a secondary junction.
+        if isinstance(secondary_junction_counts, dict):
+            for unit_id, primary_unit in self._primary_units:
+                if primary_unit not in identity or unit_id not in identity:
                     continue
                 tokens = (identity[unit_id][0] or "").split(":")
-                home_tokens = (identity[home][0] or "").split(":")
-                contained = len(home_tokens) <= len(tokens) and any(
-                    tokens[offset : offset + len(home_tokens)] == home_tokens
-                    for offset in range(len(tokens) - len(home_tokens) + 1)
+                primary_tokens = (identity[primary_unit][0] or "").split(":")
+                contained = len(primary_tokens) <= len(tokens) and any(
+                    tokens[offset : offset + len(primary_tokens)] == primary_tokens
+                    for offset in range(len(tokens) - len(primary_tokens) + 1)
                 )
                 if not contained:
-                    errors.append(f"unit {unit_id}: secondary seam home {home} is not a substring window")
-                if not identity[home][1]:
-                    errors.append(f"unit {unit_id}: secondary seam home {home} has no primary pair")
-                if identity[home][2]:
-                    errors.append(f"unit {unit_id}: secondary seam home {home} shows no visible change")
-                if identity[unit_id][2]:
-                    errors.append(f"unit {unit_id}: a unit with no visible change carries a secondary seam")
-        if isinstance(secondary_seam_counts, dict):
-            for key, observed in (
-                ("units_with_markers", self._seam_units),
-                ("seams_homed", self._seams_homed),
-                ("seams_homeless", self._seams_homeless),
-            ):
-                if secondary_seam_counts.get(key) != observed:
                     errors.append(
-                        f"secondary_seams.{key} {secondary_seam_counts.get(key)} != {observed} in the shards"
+                        f"unit {unit_id}: secondary junction's primary unit {primary_unit} is not a substring window"
+                    )
+                if not identity[primary_unit][1]:
+                    errors.append(
+                        f"unit {unit_id}: secondary junction's primary unit {primary_unit} has no primary pair"
+                    )
+                if identity[primary_unit][2]:
+                    errors.append(
+                        f"unit {unit_id}: secondary junction's primary unit {primary_unit} shows no visible change"
+                    )
+                if identity[unit_id][2]:
+                    errors.append(
+                        f"unit {unit_id}: a unit with no visible change carries a secondary junction"
+                    )
+        if isinstance(secondary_junction_counts, dict):
+            for key, observed in (
+                ("units_with_markers", self._junction_units),
+                ("junctions_with_primary_unit", self._junctions_with_primary_unit),
+                ("junctions_without_primary_unit", self._junctions_without_primary_unit),
+            ):
+                if secondary_junction_counts.get(key) != observed:
+                    errors.append(
+                        f"secondary_junctions.{key} {secondary_junction_counts.get(key)} != {observed} in the shards"
                     )
         if self._repo_root is not None:
             for name in sorted(self._policy_files):
@@ -3455,11 +3484,11 @@ def check_shards(
 ) -> list[str]:
     """Run the per-unit and cross-unit §7 checks over shard payloads held in memory, keyed by class id. The table-diff build passes the dicts it serialized and `check_output_dir` passes the shards it re-parsed from disk; the m1 build runs the same predicates through `_CorpusCheck` one fragment at a time as it writes. A class missing from the mapping is skipped here and reported by the caller. When `repo_root` is given, each distinct policy-draft file is checked to exist; every other predicate reads only the payload.
 
-    The cross-unit predicates check what no single fragment can: each duplicate group and each cluster holds one class and one config set, every duplicate group lies inside one cluster, the manifest's `human_unit_ids` lists the human units in `audit.triage_key` order, every class's `batches` are the slices its units occupy in it, and each secondary seam's home is a unit whose window this unit's window contains and which has a primary pair and a visible change.
+    The cross-unit predicates check what no single fragment can: each duplicate group and each cluster holds one class and one config set, every duplicate group lies inside one cluster, the manifest's `human_unit_ids` lists the human units in `audit.triage_key` order, every class's `batches` are the slices its units occupy in it, and each secondary junction's primary unit is a unit whose window this unit's window contains and which has a primary pair and a visible change.
 
     Apart from the policy-draft files, the cross-unit predicates read only fields that slim and full fragments both carry (the machine flags, the window, the pair, the class, group, configs, duplicate group and cluster), so the manifest's counts are checked over both kinds. `check_unit` checks that a slim fragment (`audit.slim_fragment`) omits `SLIM_OMITTED_KEYS` and a full one carries them.
 
-    `check_unit` is skipped for the units in `cached_ids`. A cached fragment passed `check_unit` in the build that drafted it, and the build reuses it only when the stamp on the shard equals its store record's. The fields a later build re-patches onto a cached fragment (the scaffold and secondary seams) are not re-checked per unit; the cross-unit predicates still run over every unit. A caller re-reading a finished corpus passes no `cached_ids` and so checks everything.
+    `check_unit` is skipped for the units in `cached_ids`. A cached fragment passed `check_unit` in the build that drafted it, and the build reuses it only when the stamp on the shard equals its store record's. The fields a later build re-patches onto a cached fragment (the scaffold and secondary junctions) are not re-checked per unit; the cross-unit predicates still run over every unit. A caller re-reading a finished corpus passes no `cached_ids` and so checks everything.
     """
     check = _CorpusCheck(
         mode=manifest.get("mode", "m1-audit"),

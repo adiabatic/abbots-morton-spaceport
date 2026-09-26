@@ -1,4 +1,4 @@
-"""Tests for the unmatched-group grouper (rebuild/review/unmatched_groups.py): the seam-gain and seam-loss branches of `assign_unmatched_group` over hand-built stubs, and the determinism of an assignment over the frozen mini bundle.
+"""Tests for the unmatched-group grouper (rebuild/review/unmatched_groups.py): the junction-gain and junction-loss branches of `assign_unmatched_group` over hand-built stubs, and the determinism of an assignment over the frozen mini bundle.
 
 The partition of the live corpus is checked elsewhere. `facts.derive_premerge` records one unmatched group for each UNMATCHED row of the pre-merge list and raises on a row that resolves to no group. The review facts report how many windows each group holds, and the artifact cycle diffs those counts into rebuild/review-facts-pins.json.
 """
@@ -24,8 +24,8 @@ class _StubUnit:
 @dataclass(frozen=True)
 class _StubEnriched:
     unit: _StubUnit
-    before_seams: tuple[str, ...]
-    after_seams: tuple[str, ...]
+    before_junctions: tuple[str, ...]
+    after_junctions: tuple[str, ...]
     after_cells: tuple[str, ...]
 
 
@@ -38,8 +38,8 @@ def _enriched(
     """Return a stub with only the attributes the `UnmatchedGroupInput` protocol asks for, which are all that `assign_unmatched_group` reads."""
     return _StubEnriched(
         unit=_StubUnit(config_classes=dict(config_classes), configs=tuple(config_classes)),
-        before_seams=before,
-        after_seams=after,
+        before_junctions=before,
+        after_junctions=after,
         after_cells=cells,
     )
 
@@ -85,8 +85,8 @@ def test_gain_groups_by_pair():
     )
 
 
-def test_seam_group_uses_the_ligature_trailing_component():
-    """A seam is named by the left cell's exit, which for a ligature is its trailing component, and the right cell's entry. In `·Tea+Oy ~b~ ·It` the ligature joins ·It through its trailing ·Oy, so the window is in oy-it-baseline even though the ligature's lead is ·Tea."""
+def test_junction_group_uses_the_ligature_trailing_component():
+    """A junction is named by the left cell's exit, which for a ligature is its trailing component, and the right cell's entry. In `·Tea+Oy ~b~ ·It` the ligature joins ·It through its trailing ·Oy, so the window is in oy-it-baseline even though the ligature's lead is ·Tea."""
     cells = (*_cells("qsTea_qsOy"), *_cells("qsIt", "qsNo"))
     assert (
         assign_unmatched_group(_enriched(("break", "y0"), ("y0", "y5"), cells, DEFAULT)) == "oy-it-baseline"
@@ -96,13 +96,13 @@ def test_seam_group_uses_the_ligature_trailing_component():
 def test_loss_and_cell_only_groups():
     assert (
         assign_unmatched_group(_enriched(("y0",), ("break",), _cells("qsNo", "qsTea"), DEFAULT))
-        == "seam-loss-withdrawal"
+        == "junction-loss-unjoined"
     )
     assert (
         assign_unmatched_group(_enriched(("y5",), ("y0",), _cells("qsUtter", "qsNo"), DEFAULT))
-        == "seam-loss-withdrawal"
+        == "junction-loss-unjoined"
     )
-    # No seam changed, so the window is in extension-non-summing.
+    # No junction changed, so the window is in extension-non-summing.
     assert (
         assign_unmatched_group(_enriched(("y0",), ("y0",), _cells("qsTea_qsOy", "qsDay"), DEFAULT))
         == "extension-non-summing"

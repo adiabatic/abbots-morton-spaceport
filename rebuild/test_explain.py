@@ -48,7 +48,7 @@ def test_boundary_positions_render():
 
 
 def test_an_overlay_configuration_explains_the_bare_stream_without_the_crate(monkeypatch):
-    """Under ss10 nothing settles, so the report gives each letter its default-stance cell with no seam, leaves a ligature's components unformed, and keeps boundaries as boundaries. Each letter is decided by the overlay stage without calling the kernel. A batch that mixes overlay and settling requests keeps its order."""
+    """Under ss10 nothing settles, so the report gives each letter its default-stance cell with no junction, leaves a ligature's components unformed, and keeps boundaries as boundaries. Each letter is decided by the overlay stage without calling the kernel. A batch that mixes overlay and settling requests keeps its order."""
     from rebuild.pipeline.settle import ISOLATED_OVERLAY_STAGE
 
     crate = kernel_exec.settle_sequences
@@ -62,7 +62,7 @@ def test_an_overlay_configuration_explains_the_bare_stream_without_the_crate(mon
     overlay, plain = explain_many(SPEC, [(codepoints, frozenset({"ss10"})), (codepoints, frozenset())])
     assert overlay.features == frozenset({"ss10"}) and plain.features == frozenset()
     assert [item.cell.rune for item in overlay.settled] == ["qsTea", "qsOy", "zwnj", "qsIt"]
-    assert all(item.seam is None and item.extension == 0 for item in overlay.settled)
+    assert all(item.junction is None and item.extension == 0 for item in overlay.settled)
     assert [position.trace.decided_stage for position in overlay.positions] == [
         ISOLATED_OVERLAY_STAGE,
         ISOLATED_OVERLAY_STAGE,
@@ -134,25 +134,25 @@ sequence E665:200C:E670:00B7   config ss03
 settled: qsMay.loop.ex-y5.ex-ext-1 uni200C qsIt.hapax.en-y5 periodcentered
 
 position 0: qsMay
-  candidates (join-count = left seam + own seam + optimistic prospect):
-  -> loop             entry=none       seam=x-height   join-count=2 prospect=1
-     grounded         entry=none       seam=baseline   join-count=1 prospect=0
+  candidates (join-count = left junction + own junction + optimistic prospect):
+  -> loop             entry=none       junction=x-height   join-count=2 prospect=1
+     grounded         entry=none       junction=baseline   join-count=1 prospect=0
   eliminated before ranking:
     - (refuse) qsMay.grounded: exit baseline refused — the grounded tail cannot reach  [glyph_data/runes/qsMay.yaml:policy.refuse[0]]
     - (require) qsMay.pulled_back: requires a live entry
-  decided by: tiebreak (over grounded entry=none seam=baseline)
+  decided by: tiebreak (over grounded entry=none junction=baseline)
   joint: the final tiebreak broke a realization tie — routed to the expensive test tier
   note: prefer applied: glyph_data/runes/qsMay.yaml:policy.prefer[1]
-  settled: qsMay.loop.ex-y5.ex-ext-1   seam=x-height   extension=1
+  settled: qsMay.loop.ex-y5.ex-ext-1   junction=x-height   extension=1
 
 position 1: zwnj
   boundary token; splits run
 
 position 2: qsIt
-  candidates (join-count = left seam + own seam + optimistic prospect):
-  -> hapax            entry=x-height   seam=none       join-count=1 prospect=0
+  candidates (join-count = left junction + own junction + optimistic prospect):
+  -> hapax            entry=x-height   junction=none       join-count=1 prospect=0
   decided by: only-candidate
-  settled: qsIt.hapax.en-y5   seam=none   extension=0
+  settled: qsIt.hapax.en-y5   junction=none   extension=0
 
 position 3: namer-dot
   boundary token; does not split the run"""

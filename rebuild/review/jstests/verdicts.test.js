@@ -19,11 +19,11 @@ import {
 
 test('recordVerdict stores the whole-unit record shape', () => {
   const store = createStore();
-  recordVerdict(store, 'u-0413', 'reject', { note: 'seam looks reached-for', at: '2026-06-10T18:21:40Z' });
+  recordVerdict(store, 'u-0413', 'reject', { note: 'junction looks reached-for', at: '2026-06-10T18:21:40Z' });
   assert.deepEqual(store.records.get('u-0413'), {
     unit: 'u-0413',
     verdict: 'reject',
-    note: 'seam looks reached-for',
+    note: 'junction looks reached-for',
     at: '2026-06-10T18:21:40Z',
   });
   assert.ok(store.unexported.has('u-0413'));
@@ -133,7 +133,7 @@ test('updateNote edits the live record and marks it unexported', () => {
 
 test('assembleExport emits the export document sorted by unit id', () => {
   const store = createStore();
-  recordVerdict(store, 'u-0413', 'reject', { note: 'seam looks reached-for', at: '2026-06-10T18:21:40Z' });
+  recordVerdict(store, 'u-0413', 'reject', { note: 'junction looks reached-for', at: '2026-06-10T18:21:40Z' });
   recordVerdict(store, 'u-0412', 'approve', { at: '2026-06-10T18:21:09Z' });
   const doc = assembleExport(store, '2026-06-10T17:02:11Z', '2026-06-10T18:40:02Z');
   assert.deepEqual(doc, {
@@ -142,7 +142,7 @@ test('assembleExport emits the export document sorted by unit id', () => {
     exported_at: '2026-06-10T18:40:02Z',
     verdicts: [
       { unit: 'u-0412', verdict: 'approve', note: '', at: '2026-06-10T18:21:09Z' },
-      { unit: 'u-0413', verdict: 'reject', note: 'seam looks reached-for', at: '2026-06-10T18:21:40Z' },
+      { unit: 'u-0413', verdict: 'reject', note: 'junction looks reached-for', at: '2026-06-10T18:21:40Z' },
     ],
   });
 });
@@ -270,10 +270,10 @@ test('recentNotes returns distinct notes newest-first by their at stamp', () => 
 
 test('recentNotes dedupes a note across units and ranks it by its newest stamp', () => {
   const store = createStore();
-  recordVerdict(store, 'u-0001', 'reject', { note: 'reached-for seam', at: '2026-06-10T09:00:00Z' });
+  recordVerdict(store, 'u-0001', 'reject', { note: 'reached-for junction', at: '2026-06-10T09:00:00Z' });
   recordVerdict(store, 'u-0002', 'reject', { note: 'clean baseline join', at: '2026-06-10T10:00:00Z' });
-  recordVerdict(store, 'u-0003', 'reject', { note: 'reached-for seam', at: '2026-06-10T11:00:00Z' });
-  assert.deepEqual(recentNotes(store), ['reached-for seam', 'clean baseline join']);
+  recordVerdict(store, 'u-0003', 'reject', { note: 'reached-for junction', at: '2026-06-10T11:00:00Z' });
+  assert.deepEqual(recentNotes(store), ['reached-for junction', 'clean baseline join']);
 });
 
 test('recentNotes filters by verdict kind, and null gathers every kind', () => {
@@ -320,13 +320,13 @@ test('recentNotes strips stacked carried-forward provenance markers from a note'
 
 test('recentNotes merges a carried copy with its hand-typed twin under the newest stamp', () => {
   const store = createStore();
-  recordVerdict(store, 'u-0001', 'reject', { note: 'seam overshoots', at: '2026-06-10T09:00:00Z' });
+  recordVerdict(store, 'u-0001', 'reject', { note: 'junction overshoots', at: '2026-06-10T09:00:00Z' });
   recordVerdict(store, 'u-0002', 'reject', {
-    note: '[carried u-0100@review-pre-abc1234, verdicted 2026-07-01] seam overshoots',
+    note: '[carried u-0100@review-pre-abc1234, verdicted 2026-07-01] junction overshoots',
     at: '2026-06-10T10:00:00Z',
   });
   recordVerdict(store, 'u-0003', 'reject', { note: 'later note', at: '2026-06-10T11:00:00Z' });
-  assert.deepEqual(recentNotes(store), ['later note', 'seam overshoots']);
+  assert.deepEqual(recentNotes(store), ['later note', 'junction overshoots']);
 });
 
 test('recentNotes drops a carried note whose stripped text matches an exclude entry', () => {
@@ -363,27 +363,27 @@ test('recentNotes leaves a carried mention after real text untouched', () => {
 test('recentNotes strips leading duplicate-fill and duplicate-harmonize markers ahead of the note', () => {
   const store = createStore();
   recordVerdict(store, 'u-0001', 'reject', {
-    note: '[duplicate-fill from u-0282] [carried u-0100@review-pre-abc1234, verdicted 2026-07-01] the seam overshoots',
+    note: '[duplicate-fill from u-0282] [carried u-0100@review-pre-abc1234, verdicted 2026-07-01] the junction overshoots',
     at: '2026-06-10T09:00:00Z',
   });
   recordVerdict(store, 'u-0002', 'reject', {
     note: '[duplicate-harmonize e-1007 — review queue 2026-07-18T00:00:00Z] harmonize to approve',
     at: '2026-06-10T10:00:00Z',
   });
-  assert.deepEqual(recentNotes(store), ['harmonize to approve', 'the seam overshoots']);
+  assert.deepEqual(recentNotes(store), ['harmonize to approve', 'the junction overshoots']);
 });
 
 test('recentNotes strips the echo-fill and echo-harmonize markers older notes carry', () => {
   const store = createStore();
   recordVerdict(store, 'u-0001', 'reject', {
-    note: '[echo-fill from u-0282] [carried u-0100@review-pre-abc1234, verdicted 2026-07-01] the seam overshoots',
+    note: '[echo-fill from u-0282] [carried u-0100@review-pre-abc1234, verdicted 2026-07-01] the junction overshoots',
     at: '2026-06-10T09:00:00Z',
   });
   recordVerdict(store, 'u-0002', 'reject', {
     note: '[echo-harmonize e-1007 — docket 2026-07-18T00:00:00Z] harmonize to approve',
     at: '2026-06-10T10:00:00Z',
   });
-  assert.deepEqual(recentNotes(store), ['harmonize to approve', 'the seam overshoots']);
+  assert.deepEqual(recentNotes(store), ['harmonize to approve', 'the junction overshoots']);
 });
 
 test('recentNotes strips a leading deferred marker, or the parked marker older defer files carry, ahead of the note', () => {

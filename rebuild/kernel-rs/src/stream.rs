@@ -406,7 +406,7 @@ fn row_into(
     Ok(())
 }
 
-/// One settled record as a row writes it: the cell's index in the head, the seam it committed, and the connector pixels on that seam.
+/// One settled record as a row writes it: the cell's index in the head, the junction it committed, and the connector pixels on that junction.
 fn settled_into(
     out: &mut String,
     index: &SpecIndex,
@@ -419,7 +419,7 @@ fn settled_into(
     out.push('[');
     let _ = write!(out, "{seat}");
     out.push(',');
-    height_into(out, index, settled.seam);
+    height_into(out, index, settled.junction);
     out.push(',');
     let _ = write!(out, "{}", settled.extension);
     out.push(']');
@@ -533,7 +533,7 @@ mod tests {
     use crate::index::fixtures;
     use crate::types::{AdjustmentToken, Side, TokenKind, boundary_cell};
 
-    /// The product the byte tests use, built by hand. Its cells arrive in an order the `cell_key` sort must change, and its rows cover a `None` seam, a left-settled letter, a left-settled boundary, a negative extension, and a negative prospect.
+    /// The product the byte tests use, built by hand. Its cells arrive in an order the `cell_key` sort must change, and its rows cover a `None` junction, a left-settled letter, a left-settled boundary, a negative extension, and a negative prospect.
     fn worked_product(index: &SpecIndex) -> FixpointProduct {
         worked_product_with_labels(index, LabelPool::default())
     }
@@ -630,27 +630,27 @@ mod tests {
         vec![
             Settled {
                 cell: pea_cell(index),
-                seam: None,
+                junction: None,
                 extension: 0,
             },
             Settled {
                 cell: tea_locked(index),
-                seam: Some(fixtures::sym(index, "baseline")),
+                junction: Some(fixtures::sym(index, "baseline")),
                 extension: 2,
             },
             Settled {
                 cell: pea_cell(index),
-                seam: Some(fixtures::sym(index, "x-height")),
+                junction: Some(fixtures::sym(index, "x-height")),
                 extension: 1,
             },
             Settled {
                 cell: tea_bound(index),
-                seam: None,
+                junction: None,
                 extension: -1,
             },
             Settled {
                 cell: boundary_cell(index.vocab(), TokenKind::Space),
-                seam: None,
+                junction: None,
                 extension: 0,
             },
         ]

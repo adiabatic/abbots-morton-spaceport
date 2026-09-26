@@ -139,7 +139,7 @@ job-costs:
 complaint-list:
 	uv run python rebuild/tools/complaint_list.py $(ARGS)
 
-# Orders the blank queue for novelty and prints the worklist URL to paste into the review app. It takes one representative per duplicate group and picks each next unit to differ most from the last few shown, by class, families, letters, stances, seams, configs, and provenance. Reads the live autosave unless ARGS names a verdicts file. Emits the first 40 entries by default; ARGS='--limit 0' emits the whole queue.
+# Orders the blank queue for novelty and prints the worklist URL to paste into the review app. It takes one representative per duplicate group and picks each next unit to differ most from the last few shown, by class, families, letters, stances, junctions, configs, and provenance. Reads the live autosave unless ARGS names a verdicts file. Emits the first 40 entries by default; ARGS='--limit 0' emits the whole queue.
 novelty-order:
 	uv run python rebuild/tools/novelty_order.py $(ARGS)
 

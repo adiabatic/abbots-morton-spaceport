@@ -10,12 +10,12 @@
       "entered-it-baseline-join-gain",
       "pea-chain-regularized",
       "halves-entry-extension-restored",
-      "same-seam-extension-non-summing",
+      "same-junction-extension-non-summing",
       "may-baseline-entry-extension-dropped",
       "day-baseline-entry-extension-dropped",
       "vie-baseline-entry-extension-dropped",
       "no-xheight-entry-extension-dropped",
-      "may-ligature-seam-loosened",
+      "may-ligature-junction-loosened",
       "dangling-anchor-dropped",
       "bare-name-live-join",
       "see-out-fusion-respelled",
@@ -28,7 +28,7 @@
       "tea-it-xheight",
       "oy-it-baseline",
       "may-utter-gains",
-      "seam-loss-withdrawal",
+      "junction-loss-unjoined",
       "extension-non-summing",
       "unmatched-misc",
       "deferred-ss04",
@@ -38,7 +38,7 @@
       "boundary-window",
       "zwnj-word-initial-unification",
       "halves-entry-extension-restored",
-      "same-seam-extension-non-summing",
+      "same-junction-extension-non-summing",
       "dangling-anchor-dropped",
       "bare-name-live-join",
       "may-jai-extension-consolidated",
@@ -52,7 +52,7 @@
       "boundary-window",
       "vie-baseline-entry-extension-dropped",
       "no-xheight-entry-extension-dropped",
-      "may-ligature-seam-loosened",
+      "may-ligature-junction-loosened",
       "ss03-out-tea-ligature-kept"
     ],
     "unmatched_groups": [
@@ -60,7 +60,7 @@
       "tea-it-xheight",
       "oy-it-baseline",
       "may-utter-gains",
-      "seam-loss-withdrawal",
+      "junction-loss-unjoined",
       "extension-non-summing",
       "unmatched-misc",
       "deferred-ss04",
@@ -81,7 +81,7 @@
           "boundary-window": 171505,
           "zwnj-word-initial-unification": 136,
           "halves-entry-extension-restored": 330,
-          "same-seam-extension-non-summing": 2030,
+          "same-junction-extension-non-summing": 2030,
           "dangling-anchor-dropped": 352605,
           "bare-name-live-join": 592830,
           "may-jai-extension-consolidated": 981,
@@ -97,11 +97,11 @@
         "dangling-anchor-dropped": 362928,
         "bare-name-live-join": 611125
       },
-      "secondary_seams": {
+      "secondary_junctions": {
         "units_with_markers": 49140,
-        "seams_homed": 5691,
-        "seams_homeless": 46454,
-        "seams_suppressed_invisible": 1481
+        "junctions_with_primary_unit": 5691,
+        "junctions_without_primary_unit": 46454,
+        "junctions_suppressed_invisible": 1481
       }
     },
     "built": {
@@ -186,7 +186,7 @@
         "tea-it-xheight": 159,
         "oy-it-baseline": 126,
         "may-utter-gains": 1069,
-        "seam-loss-withdrawal": 15879,
+        "junction-loss-unjoined": 15879,
         "extension-non-summing": 101578,
         "unmatched-misc": 12986,
         "deferred-ss04": 11452,

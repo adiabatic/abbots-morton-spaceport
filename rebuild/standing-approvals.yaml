@@ -6,12 +6,12 @@ rules:
     match:
       before:
         pivot: qsTea.half
-        seam_into: y5
-        seam_out: break
+        junction_in: y5
+        junction_out: break
         follower: qsOy
       after:
         ligature: qsTea_qsOy
-        seam_into: break
+        junction_in: break
       except_left: [qsOut]
   - id: tea-i-exit-extension-dropped
     verdict: approve
@@ -20,7 +20,7 @@ rules:
       before:
         pivot: qsTea
         exit_extension: ex-ext-1
-        seam_out: y0
+        junction_out: y0
         follower: qsI
       after:
         pivot_cells:
@@ -60,12 +60,12 @@ rules:
       except_left: []
   - id: jai-exit-extension-dropped
     verdict: approve
-    note: "·Vie, ·See, ·No and ·Low sit a pixel closer to ·J’ai — the exit extension the old font drew before them came off ·J’ai’s extend record at the qsJai batch, and the tighter seam was approved in every window that reached a review session"
+    note: "·Vie, ·See, ·No and ·Low sit a pixel closer to ·J’ai — the exit extension the old font drew before them came off ·J’ai’s extend record at the qsJai batch, and the tighter junction was approved in every window that reached a review session"
     match:
       before:
         pivot: qsJai
         exit_extension: ex-ext-1
-        seam_out: y0
+        junction_out: y0
         follower: [qsVie, qsVie_qsUtter, qsSee, qsNo, qsLow]
       after:
         pivot_cells:
@@ -95,7 +95,7 @@ rules:
       before:
         pivot: qsFee
         exit_extension: ex-ext-3
-        seam_out: y5
+        junction_out: y5
         follower: qsTea
       after:
         pivot_cells:
@@ -110,7 +110,7 @@ rules:
     match:
       before:
         pivot: qsFee.ex-y5.before-may.ex-ext-3
-        seam_out: break
+        junction_out: break
         follower: qsTea
       after:
         joined: y5
@@ -130,7 +130,7 @@ rules:
       before:
         pivot: qsEt
         exit_extension: ex-con-1
-        seam_out: y0
+        junction_out: y0
         follower: qsMay
       after:
         pivot_cells:
@@ -159,7 +159,7 @@ rules:
     match:
       before:
         pivot: qsAt
-        seam_out: y5
+        junction_out: y5
         follower: qsIt
       after:
         gap: 1
@@ -170,7 +170,7 @@ rules:
     match:
       before:
         pivot: qsIt
-        seam_out: y5
+        junction_out: y5
         follower: qsEt
       after:
         gap: 1
@@ -232,7 +232,7 @@ rules:
     match:
       before:
         pivot: qsTea.half
-        seam_out: y5
+        junction_out: y5
         follower: qsNo
       after:
         retarget: y0
@@ -252,7 +252,7 @@ rules:
     match:
       before:
         pivot: qsPea.half
-        seam_out: y5
+        junction_out: y5
         follower: qsNo
       after:
         retarget: y0
@@ -273,7 +273,7 @@ rules:
       before:
         pivot: qsIt
         exit_extension: ex-ext-1
-        seam_out: y0
+        junction_out: y0
         follower: [qsVie, qsVie_qsUtter, qsMay, qsLow, qsUtter]
       after:
         pivot_cells:
@@ -301,7 +301,7 @@ rules:
       before:
         pivot: qsIt
         exit_extension: ex-ext-1
-        seam_out: y0
+        junction_out: y0
         follower: [qsAt, qsI, qsAh]
       after:
         pivot_cells:
@@ -331,7 +331,7 @@ rules:
       except_left: []
   - id: eight-smaller-loop-exit-extension-dropped
     verdict: approve
-    note: "·It sits a pixel closer to ·Eight's smaller loop — the old +1 connector extension at the baseline seam went away in the same stroke as the bowl, which keeps the gap under ·Eight's rightmost pixel just below the x-height, and every window that reached a review session approved the shorter reach"
+    note: "·It sits a pixel closer to ·Eight's smaller loop — the old +1 connector extension at the baseline junction went away in the same stroke as the bowl, which keeps the gap under ·Eight's rightmost pixel just below the x-height, and every window that reached a review session approved the shorter reach"
     match:
       before:
         pivots: [qsEight.ex-ext-1, qsEight.noentry.ex-ext-1]
@@ -388,7 +388,7 @@ rules:
       except_left: []
   - id: roe-baseline-bar-kept-entry-extension-dropped
     verdict: approve
-    note: "·Roe sits a pixel closer to ·May and keeps its baseline bar in the same stroke — the rebuild does not sum ·Roe's x-height entry extension onto ·May's own already-extended exit, and the hapax it settles into keeps the bar the old font's shortened-bottom variant cut back, and every window that reached a review session approved the tighter seam and the fuller bar"
+    note: "·Roe sits a pixel closer to ·May and keeps its baseline bar in the same stroke — the rebuild does not sum ·Roe's x-height entry extension onto ·May's own already-extended exit, and the hapax it settles into keeps the bar the old font's shortened-bottom variant cut back, and every window that reached a review session approved the tighter junction and the fuller bar"
     match:
       before:
         pivots: [qsRoe.en-ext-1-at-5]
@@ -400,7 +400,7 @@ rules:
       except_left: []
   - id: roe-baseline-exit-entry-extension-dropped
     verdict: approve
-    note: "·Roe sits a pixel closer to ·May when it carries a baseline exit of its own — the same refusal to sum ·Roe's x-height entry extension onto ·May's already-extended exit that roe-baseline-bar-kept-entry-extension-dropped records for the exitless form (“Stop bothering me about ·Roe’s new shape after ·May”), except that the exit-bearing form already draws the full baseline bar, so the entry column coming off is the whole change, and every window that reached a review session approved the tighter seam"
+    note: "·Roe sits a pixel closer to ·May when it carries a baseline exit of its own — the same refusal to sum ·Roe's x-height entry extension onto ·May's already-extended exit that roe-baseline-bar-kept-entry-extension-dropped records for the exitless form (“Stop bothering me about ·Roe’s new shape after ·May”), except that the exit-bearing form already draws the full baseline bar, so the entry column coming off is the whole change, and every window that reached a review session approved the tighter junction"
     match:
       before:
         pivots: [qsRoe.ex-y0.en-ext-1-at-5]
@@ -437,7 +437,7 @@ rules:
     match:
       before:
         pivot: qsEt
-        seam_out: break
+        junction_out: break
         follower: qsPea
       after:
         joined: y0
@@ -482,7 +482,7 @@ rules:
       before:
         pivot: qsEt
         exit_extension: ex-con-1
-        seam_out: y0
+        junction_out: y0
         follower: qsGay
       after:
         pivot_cells:
@@ -509,12 +509,12 @@ rules:
       except_left: []
   - id: ah-bay-exit-extension-dropped
     verdict: approve
-    note: "·Bay, ·Tea and ·Fee sit a pixel closer to ·Ah — the extra pixel of x-height exit came off qsAh's extend record for ·Bay and ·Fee at once in “Stop extending ·Ah ~x~ ·{Bay,Fee} by a pixel”, and off the record that drew it before ·Tea under ss03 in “Stop expanding ·Ah ~x~ ·Tea by a pixel under ss03”, and every window that reached a review session approved the shorter reach. Where the ·Tea that meets the shorter reach takes the full bar in the same stroke, that is a change of its own — tea-full-bar-after-xheight-stroke-ss03 records it, on “Always draw ·Tea's full bar after a flat x-height stroke under ss03” — so the window is the combined match's; the ·Tea that keeps its half picture and the ·Tea that goes on to take a baseline exit settle into cells named here too, the second of those carrying a join of its own and so counted in the combined match as well. The rule is bounded to the seam that stood at the x-height on both sides: an ·Ah the old font left breaking in front of ·Tea drew that tail into a gap rather than into a join, so it is a window of its own. it-ah-exit-extension-dropped and jai-exit-extension-dropped are the same stretch coming off other letters, and ah-gay-xheight-join-created and ah-entry-contracted-after-jai are ·Ah's other standing changes on this corpus. The shape reads the two letters at its own seam and nothing else, so what holds an unrelated stroke out of the fill is the corpus's own judged pair and secondary-seam fields — a window whose other letters keep every seam still can have redrawn one of them, and the rule cannot see it"
+    note: "·Bay, ·Tea and ·Fee sit a pixel closer to ·Ah — the extra pixel of x-height exit came off qsAh's extend record for ·Bay and ·Fee at once in “Stop extending ·Ah ~x~ ·{Bay,Fee} by a pixel”, and off the record that drew it before ·Tea under ss03 in “Stop expanding ·Ah ~x~ ·Tea by a pixel under ss03”, and every window that reached a review session approved the shorter reach. Where the ·Tea that meets the shorter reach takes the full bar in the same stroke, that is a change of its own — tea-full-bar-after-xheight-stroke-ss03 records it, on “Always draw ·Tea's full bar after a flat x-height stroke under ss03” — so the window is the combined match's; the ·Tea that keeps its half picture and the ·Tea that goes on to take a baseline exit settle into cells named here too, the second of those carrying a join of its own and so counted in the combined match as well. The rule is bounded to the junction that stood at the x-height on both sides: an ·Ah the old font left breaking in front of ·Tea drew that tail into a gap rather than into a join, so it is a window of its own. it-ah-exit-extension-dropped and jai-exit-extension-dropped are the same stretch coming off other letters, and ah-gay-xheight-join-created and ah-entry-contracted-after-jai are ·Ah's other standing changes on this corpus. The shape reads the two letters at its own junction and nothing else, so what holds an unrelated stroke out of the fill is the corpus's own judged pair and secondary-junction fields — a window whose other letters keep every junction still can have redrawn one of them, and the rule cannot see it"
     match:
       before:
         pivot: qsAh
         exit_extension: ex-ext-1
-        seam_out: y5
+        junction_out: y5
         follower: [qsBay, qsTea, qsFee]
       after:
         pivot_cells:
@@ -559,7 +559,7 @@ rules:
     match:
       before:
         pivot: qsAh
-        seam_out: break
+        junction_out: break
         follower: qsGay
       after:
         joined: y5
@@ -576,11 +576,11 @@ rules:
       except_left: []
   - id: it-baseline-join-created
     verdict: approve
-    note: "·It takes a baseline entry from ·No, ·Et, ·Eight, ·Awe, ·Ox, ·Oy and ·Ooze where the old font left a break, closes one column onto each of them, and gives up the baseline exit its own pairing table only unlocks under ss04, so the gained entry and the dropped exit are one decision — qsIt's baseline entry refuses only ·It itself, qsAwe, qsOx and qsOoze have carried qsIt on their baseline-exit toward-lists since “Add ·Awe”, “Add ·Ox” and “Add ·Ooze”, qsOy's open baseline exit withholds only before the ·It·No chain, qsEt's baseline exit is open to everything, ·No reaches it from the flipped stance that carries the letter's only baseline entry, whose own baseline exit names no toward-list at all, and ·Eight reaches ·It only on its smaller-loop stance, whose baseline exit names ·Tea and ·It and nothing else, so the tighter bowl and this join are one record — “Give ·Eight a smaller loop before ·Tea and ·It, mirroring ·I's” — with eight-smaller-loop naming the picture ·Eight settles into and this rule the seam that picture opens, the two matching at one position and explaining between them every window that carries anything else. Where ·Key leads into that ·No, key-no-baseline-join-created names ·No's incoming seam and this rule its outgoing one, and the two explain those windows between them. jai-it-baseline-join-created is the same new join into this entry from the one left letter that lengthens its reach to take it, which is why ·It stands still there and closes a column here, and it-xheight-join-created and it-xheight-join-created-lengthened-reach are the same decision one height up. Every window that reached a review session approved the join"
+    note: "·It takes a baseline entry from ·No, ·Et, ·Eight, ·Awe, ·Ox, ·Oy and ·Ooze where the old font left a break, closes one column onto each of them, and gives up the baseline exit its own pairing table only unlocks under ss04, so the gained entry and the dropped exit are one decision — qsIt's baseline entry refuses only ·It itself, qsAwe, qsOx and qsOoze have carried qsIt on their baseline-exit toward-lists since “Add ·Awe”, “Add ·Ox” and “Add ·Ooze”, qsOy's open baseline exit withholds only before the ·It·No chain, qsEt's baseline exit is open to everything, ·No reaches it from the flipped stance that carries the letter's only baseline entry, whose own baseline exit names no toward-list at all, and ·Eight reaches ·It only on its smaller-loop stance, whose baseline exit names ·Tea and ·It and nothing else, so the tighter bowl and this join are one record — “Give ·Eight a smaller loop before ·Tea and ·It, mirroring ·I's” — with eight-smaller-loop naming the picture ·Eight settles into and this rule the junction that picture opens, the two matching at one position and explaining between them every window that carries anything else. Where ·Key leads into that ·No, key-no-baseline-join-created names ·No's incoming junction and this rule its outgoing one, and the two explain those windows between them. jai-it-baseline-join-created is the same new join into this entry from the one left letter that lengthens its reach to take it, which is why ·It stands still there and closes a column here, and it-xheight-join-created and it-xheight-join-created-lengthened-reach are the same decision one height up. Every window that reached a review session approved the join"
     match:
       before:
         pivot: [qsNo, qsEt, qsEight, qsAwe, qsOx, qsOy, qsOoze]
-        seam_out: break
+        junction_out: break
         follower: qsIt
       after:
         joined: y0
@@ -612,11 +612,11 @@ rules:
       except_left: []
   - id: it-no-xheight-join-retargeted
     verdict: approve
-    note: "·It drops to the baseline to join the flipped ·No — the old font reached up to the x-height; qsNo prefers its flipped stance whenever ·It joins on the baseline, the condition “Keep the ·It·No x-height join in ·Day·It·No·Tea” carved that preference back to, and every window that reached a review session approved the lowered join; tea-no-xheight-join-retargeted and pea-no-xheight-join-retargeted record the same seam decision one pivot over, into the same flipped ·No cells, and ·It holds its own advance across the change where ·Tea and ·Pea each gave a column up"
+    note: "·It drops to the baseline to join the flipped ·No — the old font reached up to the x-height; qsNo prefers its flipped stance whenever ·It joins on the baseline, the condition “Keep the ·It·No x-height join in ·Day·It·No·Tea” carved that preference back to, and every window that reached a review session approved the lowered join; tea-no-xheight-join-retargeted and pea-no-xheight-join-retargeted record the same junction decision one pivot over, into the same flipped ·No cells, and ·It holds its own advance across the change where ·Tea and ·Pea each gave a column up"
     match:
       before:
         pivot: qsIt
-        seam_out: y5
+        junction_out: y5
         follower: qsNo
       after:
         retarget: y0
@@ -631,7 +631,7 @@ rules:
       except_left: []
   - id: roe-xheight-entry-contracted
     verdict: approve
-    note: "·Roe sits a pixel closer after ·Pea, ·Tea and ·He — its x-height entry pulls in one column on qsRoe's contract record, which has named all three left letters since the letter landed in “Declare ·I done and add ·Roe”, and every window that reached a review session approved the tighter seam; the baseline-entry contraction the same record carries beside it is a separate pair ruling and no business of this rule"
+    note: "·Roe sits a pixel closer after ·Pea, ·Tea and ·He — its x-height entry pulls in one column on qsRoe's contract record, which has named all three left letters since the letter landed in “Declare ·I done and add ·Roe”, and every window that reached a review session approved the tighter junction; the baseline-entry contraction the same record carries beside it is a separate pair ruling and no business of this rule"
     match:
       before:
         left: [qsPea, qsTea, qsHe]
@@ -644,7 +644,7 @@ rules:
       except_left: []
   - id: jay-entry-contracted-after-pea
     verdict: approve
-    note: "·Jay sits a pixel closer in ·Pea.half ~x~ ·Jay — its x-height entry pulls in one column on qsJay's contract record, which has named qsPea since the letter landed in “Add ·Jay”; the user gave the contraction standing approval at u-6Ha6rWUuXLG, and the same tighter seam was approved in the other windows that reached a review session"
+    note: "·Jay sits a pixel closer in ·Pea.half ~x~ ·Jay — its x-height entry pulls in one column on qsJay's contract record, which has named qsPea since the letter landed in “Add ·Jay”; the user gave the contraction standing approval at u-6Ha6rWUuXLG, and the same tighter junction was approved in the other windows that reached a review session"
     match:
       before:
         left: qsPea
@@ -672,11 +672,11 @@ rules:
       except_left: []
   - id: gay-no-baseline-join-retargeted
     verdict: approve
-    note: "·Gay reaches up to the x-height to join ·No, where the old font joined it at the baseline, and ·No redraws into its loop stance in place — qsNo's yielding prefer takes the x-height-exit cell over the baseline-exit one whenever ·Day, ·No, ·It or ·Oy follows and the left letter is neither ·Pea nor ·It, on the why recorded in “Give ·Pea·No the baseline join no matter what follows it” (its right-family list from “Let ·Day and ·No yield so ·Tea groups forward in ·Day·Tea·Day, ·Day·Tea·It, and ·No·Tea·It”), and ·Gay reached that prefer in “Add ·Gay”; every window that reached a review session approved the raised join. ·No holds its own advance across the change, so whatever follows the pair moves only by what ·No's own outgoing seam does — no-xheight-join-created, no-jai-xheight-join-created, no-fee-xheight-join-created and no-oy-xheight-join-created name the joins that seam opens, no-baseline-join-retargeted the one it raises, and no-thaw-baseline-join-dropped and no-gay-baseline-join-dropped the reaches it loses, each of them explaining its half of the window beside this rule. gay-no-xheight-extension-added is the other kind of ·Gay·No change, where the old font already exited at the x-height, and tea-no-xheight-join-retargeted, pea-no-xheight-join-retargeted and it-no-xheight-join-retargeted record ·No's seam moving the other way"
+    note: "·Gay reaches up to the x-height to join ·No, where the old font joined it at the baseline, and ·No redraws into its loop stance in place — qsNo's yielding prefer takes the x-height-exit cell over the baseline-exit one whenever ·Day, ·No, ·It or ·Oy follows and the left letter is neither ·Pea nor ·It, on the why recorded in “Give ·Pea·No the baseline join no matter what follows it” (its right-family list from “Let ·Day and ·No yield so ·Tea groups forward in ·Day·Tea·Day, ·Day·Tea·It, and ·No·Tea·It”), and ·Gay reached that prefer in “Add ·Gay”; every window that reached a review session approved the raised join. ·No holds its own advance across the change, so whatever follows the pair moves only by what ·No's own outgoing junction does — no-xheight-join-created, no-jai-xheight-join-created, no-fee-xheight-join-created and no-oy-xheight-join-created name the joins that junction opens, no-baseline-join-retargeted the one it raises, and no-thaw-baseline-join-dropped and no-gay-baseline-join-dropped the reaches it loses, each of them explaining its half of the window beside this rule. gay-no-xheight-extension-added is the other kind of ·Gay·No change, where the old font already exited at the x-height, and tea-no-xheight-join-retargeted, pea-no-xheight-join-retargeted and it-no-xheight-join-retargeted record ·No's junction moving the other way"
     match:
       before:
         pivot: qsGay
-        seam_out: y0
+        junction_out: y0
         follower: qsNo
       after:
         retarget: y5
@@ -697,7 +697,7 @@ rules:
     match:
       before:
         pivot: [qsBay, qsDay, qsKey, qsNo, qsAwe]
-        seam_out: break
+        junction_out: break
         follower: qsGay
       after:
         joined: y0
@@ -731,7 +731,7 @@ rules:
     match:
       before:
         pivot: qsEt
-        seam_out: break
+        junction_out: break
         follower: qsGay
       after:
         joined: y0
@@ -752,7 +752,7 @@ rules:
     match:
       before:
         pivot: qsNo
-        seam_out: break
+        junction_out: break
         follower: qsAh
       after:
         joined: y0
@@ -773,7 +773,7 @@ rules:
     match:
       before:
         pivot: qsNo
-        seam_out: break
+        junction_out: break
         follower: qsThaw
       after:
         joined: y0
@@ -788,11 +788,11 @@ rules:
       except_left: []
   - id: no-no-xheight-join-retargeted
     verdict: approve
-    note: "·No joins ·Day and ·No at the baseline where the old font joined at the x-height, and each letter redraws where it stands — ·No into its flipped stance, ·Day onto the half form that draws the foot hook alone. The pivot is the ·No a letter has reached at the baseline, which is the flipped stance, and that stance has one exit and must use it, so whichever follower stands after it takes a baseline entry; what each of them lands on follows from its own stances. qsNo's flipped stance has carried qsNo on its own baseline entry from-list since the letter landed in “Checkpoint the qsDay/qsUtter/qsNo migration batch with its triage residue down to 2,535”, and join-count rank settles that seam with no policy record narrowing it; the one ·No·No ruling on the books, “Don't drop ·No·No to the baseline for a ·No·See join that never happens”, held one chain back rather than the drop itself. qsDay's order reaches for the full stance first and finds only an x-height entry there, so a baseline exit lands on the half stance instead, whose baseline entry is open to every left letter but ·Way — both those qsDay records landed with the letter in that same checkpoint. Both followers hold their own advance across the change, so each sits where the old font drew it and whatever follows the pair stands with it, one set of counts covering both; the same exit reaches ·Roe, ·It and the ·Day that ligates onward with ·Utter, which the rule leaves to their own records. tea-no-xheight-join-retargeted, pea-no-xheight-join-retargeted and it-no-xheight-join-retargeted record the same lowered seam into the same flipped ·No cells one pivot over, ·It holding its own advance there where ·Tea and ·Pea each gave a column up, and where one of them is what puts ·No on that stance the two rules explain the window between them, the earlier naming ·No's incoming seam and this one its outgoing one; utter-day-xheight-join-retargeted is the same lowered seam into the same half ·Day one pivot over, and no-baseline-join-retargeted names ·No's seam into these same two followers running the other way. Any other ink anywhere in the window makes this shape return no match, so a window where the letter that reaches ·No changed too waits on the combined match. Every window that reached a review session approved the lowered join"
+    note: "·No joins ·Day and ·No at the baseline where the old font joined at the x-height, and each letter redraws where it stands — ·No into its flipped stance, ·Day onto the half form that draws the foot hook alone. The pivot is the ·No a letter has reached at the baseline, which is the flipped stance, and that stance has one exit and must use it, so whichever follower stands after it takes a baseline entry; what each of them lands on follows from its own stances. qsNo's flipped stance has carried qsNo on its own baseline entry from-list since the letter landed in “Checkpoint the qsDay/qsUtter/qsNo migration batch with its triage residue down to 2,535”, and join-count rank settles that junction with no policy record narrowing it; the one ·No·No ruling on the books, “Don't drop ·No·No to the baseline for a ·No·See join that never happens”, held one chain back rather than the drop itself. qsDay's order reaches for the full stance first and finds only an x-height entry there, so a baseline exit lands on the half stance instead, whose baseline entry is open to every left letter but ·Way — both those qsDay records landed with the letter in that same checkpoint. Both followers hold their own advance across the change, so each sits where the old font drew it and whatever follows the pair stands with it, one set of counts covering both; the same exit reaches ·Roe, ·It and the ·Day that ligates onward with ·Utter, which the rule leaves to their own records. tea-no-xheight-join-retargeted, pea-no-xheight-join-retargeted and it-no-xheight-join-retargeted record the same lowered junction into the same flipped ·No cells one pivot over, ·It holding its own advance there where ·Tea and ·Pea each gave a column up, and where one of them is what puts ·No on that stance the two rules explain the window between them, the earlier naming ·No's incoming junction and this one its outgoing one; utter-day-xheight-join-retargeted is the same lowered junction into the same half ·Day one pivot over, and no-baseline-join-retargeted names ·No's junction into these same two followers running the other way. Any other ink anywhere in the window makes this shape return no match, so a window where the letter that reaches ·No changed too waits on the combined match. Every window that reached a review session approved the lowered join"
     match:
       before:
         pivot: qsNo
-        seam_out: y5
+        junction_out: y5
         follower: [qsDay, qsNo]
       after:
         retarget: y0
@@ -809,7 +809,7 @@ rules:
       except_left: []
   - id: utter-gay-exit-extension-dropped
     verdict: approve
-    note: "·Gay sits a pixel closer to ·Utter — the extra pixel of x-height exit came off qsUtter's extend record in “Stop extending ·Utter ~x~ ·Gay by a pixel”, and every window that reached a review session approved the shorter reach. The rule names the ·Utter that takes a baseline entry beside the one that takes none, since the letter draws the same mono stroke either way and the pixel comes off both: any left letter that joins ·Utter at the baseline settles it into an entered cell and changes nothing about this seam. Where a second blessed change rides in the same window the combined match takes it, with fee-tea-ss03-exit-extension-shortened, eight-smaller-loop, pea-it-baseline-join-retargeted, utter-it-baseline-join-retargeted, no-baseline-join-retargeted or it-xheight-join-created-lengthened-reach naming that half; utter-tea-baseline-join-created, utter-xheight-join-created, utter-may-baseline-join-retargeted, utter-day-xheight-join-retargeted and utter-baseline-join-created are ·Utter's other standing changes on this corpus"
+    note: "·Gay sits a pixel closer to ·Utter — the extra pixel of x-height exit came off qsUtter's extend record in “Stop extending ·Utter ~x~ ·Gay by a pixel”, and every window that reached a review session approved the shorter reach. The rule names the ·Utter that takes a baseline entry beside the one that takes none, since the letter draws the same mono stroke either way and the pixel comes off both: any left letter that joins ·Utter at the baseline settles it into an entered cell and changes nothing about this junction. Where a second blessed change rides in the same window the combined match takes it, with fee-tea-ss03-exit-extension-shortened, eight-smaller-loop, pea-it-baseline-join-retargeted, utter-it-baseline-join-retargeted, no-baseline-join-retargeted or it-xheight-join-created-lengthened-reach naming that half; utter-tea-baseline-join-created, utter-xheight-join-created, utter-may-baseline-join-retargeted, utter-day-xheight-join-retargeted and utter-baseline-join-created are ·Utter's other standing changes on this corpus"
     match:
       before:
         pivots: [qsUtter.ex-ext-1]
@@ -825,7 +825,7 @@ rules:
     match:
       before:
         pivot: qsUtter
-        seam_out: break
+        junction_out: break
         follower: qsTea
       after:
         joined: y0
@@ -844,7 +844,7 @@ rules:
     match:
       before:
         pivot: [qsFee, qsMay, qsNo, qsUtter]
-        seam_out: break
+        junction_out: break
         follower: qsUtter
       after:
         joined: y5
@@ -866,11 +866,11 @@ rules:
       except_left: []
   - id: may-ah-baseline-join-created
     verdict: approve
-    note: "·May joins ·Ah at the baseline where the old font left a break, and ·Ah closes two columns onto it — qsAh's baseline entry has carried qsMay on its from-list since the letter landed in “Add ·Ah”, and qsMay's grounded-loop stance exits at the baseline with nothing on its refuse list standing between the two, so the seam settles on join-count rank with no policy record involved. What puts ·May in that grounded stance settles the same way, and the user's own ·Utter policy anticipates it — the mono x-height reach into a pulled-back ·May “wins only when it buys a better join”, written at “Make ·Utter·May·May chain through a pulled-back-grounded ·May” — where here the better join is this one. no-ah-baseline-join-created is the same new baseline join into ·Ah one pivot over, closing one column rather than two, and may-entry-stub-dropped and may-entry-extension-dropped are ·May's other standing changes on this corpus; every window that reached a review session approved this join or called it either"
+    note: "·May joins ·Ah at the baseline where the old font left a break, and ·Ah closes two columns onto it — qsAh's baseline entry has carried qsMay on its from-list since the letter landed in “Add ·Ah”, and qsMay's grounded-loop stance exits at the baseline with nothing on its refuse list standing between the two, so the junction settles on join-count rank with no policy record involved. What puts ·May in that grounded stance settles the same way, and the user's own ·Utter policy anticipates it — the mono x-height reach into a pulled-back ·May “wins only when it buys a better join”, written at “Make ·Utter·May·May chain through a pulled-back-grounded ·May” — where here the better join is this one. no-ah-baseline-join-created is the same new baseline join into ·Ah one pivot over, closing one column rather than two, and may-entry-stub-dropped and may-entry-extension-dropped are ·May's other standing changes on this corpus; every window that reached a review session approved this join or called it either"
     match:
       before:
         pivot: qsMay
-        seam_out: break
+        junction_out: break
         follower: qsAh
       after:
         joined: y0
@@ -887,11 +887,11 @@ rules:
       except_left: []
   - id: utter-may-baseline-join-retargeted
     verdict: approve
-    note: "·Utter reaches ·May at the x-height where the old font joined the two at the baseline, and ·May comes two columns back into that reach — qsUtter's prefer record keeps the bare baseline join and yields it exactly here, on the why the user wrote at “Make ·Utter·May·May chain through a pulled-back-grounded ·May”, where the mono x-height reach into a pulled-back ·May “wins only when it buys a better join”; what it buys is the new baseline join into ·Ah that may-ah-baseline-join-created records, so the two rules explain the ·Utter·May·Ah windows between them. qsMay's x-height entry has carried qsUtter on its from-list since “Name ·May's x-height arrivers once”, and beyond that yielding prefer the seam settles on join-count rank with no policy record involved. utter-gay-exit-extension-dropped, utter-tea-baseline-join-created and utter-xheight-join-created are ·Utter's other standing changes on this corpus"
+    note: "·Utter reaches ·May at the x-height where the old font joined the two at the baseline, and ·May comes two columns back into that reach — qsUtter's prefer record keeps the bare baseline join and yields it exactly here, on the why the user wrote at “Make ·Utter·May·May chain through a pulled-back-grounded ·May”, where the mono x-height reach into a pulled-back ·May “wins only when it buys a better join”; what it buys is the new baseline join into ·Ah that may-ah-baseline-join-created records, so the two rules explain the ·Utter·May·Ah windows between them. qsMay's x-height entry has carried qsUtter on its from-list since “Name ·May's x-height arrivers once”, and beyond that yielding prefer the junction settles on join-count rank with no policy record involved. utter-gay-exit-extension-dropped, utter-tea-baseline-join-created and utter-xheight-join-created are ·Utter's other standing changes on this corpus"
     match:
       before:
         pivot: qsUtter
-        seam_out: y0
+        junction_out: y0
         follower: qsMay
       after:
         retarget: y5
@@ -906,11 +906,11 @@ rules:
       except_left: []
   - id: utter-baseline-join-created
     verdict: approve
-    note: "·Bay and ·Gay both join ·Utter at the baseline where the old font left a break, and ·Utter closes a column onto each of them and gives it straight back: the mono form that takes the join carries its exit a column further, so the letter comes nearer while everything past it stands where it was. qsUtter's mono stance carries an unrestricted baseline entry — no from-list at all, so every left letter with an open baseline exit reaches it — and has since the letter landed in “Checkpoint the qsDay/qsUtter/qsNo migration batch with its triage residue down to 2,535”, while the alternate stance's only entry is the scoped x-height one, which is why the old pipeline broke here and why utter-xheight-join-created is a different join into the same letter one height up. Where ·May follows, ·Utter's outgoing seam rises to the x-height in the same window and utter-may-baseline-join-retargeted covers that half, on the reach the user asked for in “Reach ·Utter into ·May, and rejoin four more chains”; utter-gay-exit-extension-dropped and utter-tea-baseline-join-created are ·Utter's other standing changes on this corpus. Every window that reached a review session approved this one"
+    note: "·Bay and ·Gay both join ·Utter at the baseline where the old font left a break, and ·Utter closes a column onto each of them and gives it straight back: the mono form that takes the join carries its exit a column further, so the letter comes nearer while everything past it stands where it was. qsUtter's mono stance carries an unrestricted baseline entry — no from-list at all, so every left letter with an open baseline exit reaches it — and has since the letter landed in “Checkpoint the qsDay/qsUtter/qsNo migration batch with its triage residue down to 2,535”, while the alternate stance's only entry is the scoped x-height one, which is why the old pipeline broke here and why utter-xheight-join-created is a different join into the same letter one height up. Where ·May follows, ·Utter's outgoing junction rises to the x-height in the same window and utter-may-baseline-join-retargeted covers that half, on the reach the user asked for in “Reach ·Utter into ·May, and rejoin four more chains”; utter-gay-exit-extension-dropped and utter-tea-baseline-join-created are ·Utter's other standing changes on this corpus. Every window that reached a review session approved this one"
     match:
       before:
         pivot: [qsBay, qsGay]
-        seam_out: break
+        junction_out: break
         follower: qsUtter
       after:
         joined: y0
@@ -933,7 +933,7 @@ rules:
     match:
       before:
         pivot: [qsLow, qsAh]
-        seam_out: break
+        junction_out: break
         follower: qsIt
       after:
         joined: y5
@@ -964,11 +964,11 @@ rules:
       except_left: []
   - id: gay-baseline-join-created-reaching-back
     verdict: approve
-    note: "·Gay and ·J’ai both join ·Gay at the baseline where the old font left a break, and ·Gay takes the join on its full reaching-back form: neither left letter pulls that entry in, so the stroke inserts a column at ·Gay's left edge, the letter comes two columns nearer and its own advance stands where it was. qsGay's baseline entry carries the reachable-at-the-baseline bitmap that meets them and has named both families on its from-list since the letter landed in “Add ·Gay”, where qsGay's and qsJai's own baseline exits already reached it. gay-baseline-join-created is the same new join into ·Gay from the five left letters that do pull the entry in, which is why ·Gay settles there into an en-con-1 cell and closes the same two columns without reaching back; ah-gay-xheight-join-created records the same decision one height up, it-baseline-join-created is the multi-pivot precedent, and gay-no-baseline-join-retargeted, gay-no-xheight-extension-added, gay-entry-contracted and gay-xheight-entry-exit-extension-dropped are ·Gay's other standing changes on this corpus. What ·Gay's own outgoing seam does in the same window is a decision of its own and carries the tail further than the declared advance: gay-baseline-join-created-reaching-back-before-jai is the same join where that reach grows into ·J’ai and widens the letter by a second column, and a window where the baseline join beyond ·Gay goes away still reaches the review queue. Every window that reached a review session approved this join or called it either"
+    note: "·Gay and ·J’ai both join ·Gay at the baseline where the old font left a break, and ·Gay takes the join on its full reaching-back form: neither left letter pulls that entry in, so the stroke inserts a column at ·Gay's left edge, the letter comes two columns nearer and its own advance stands where it was. qsGay's baseline entry carries the reachable-at-the-baseline bitmap that meets them and has named both families on its from-list since the letter landed in “Add ·Gay”, where qsGay's and qsJai's own baseline exits already reached it. gay-baseline-join-created is the same new join into ·Gay from the five left letters that do pull the entry in, which is why ·Gay settles there into an en-con-1 cell and closes the same two columns without reaching back; ah-gay-xheight-join-created records the same decision one height up, it-baseline-join-created is the multi-pivot precedent, and gay-no-baseline-join-retargeted, gay-no-xheight-extension-added, gay-entry-contracted and gay-xheight-entry-exit-extension-dropped are ·Gay's other standing changes on this corpus. What ·Gay's own outgoing junction does in the same window is a decision of its own and carries the tail further than the declared advance: gay-baseline-join-created-reaching-back-before-jai is the same join where that reach grows into ·J’ai and widens the letter by a second column, and a window where the baseline join beyond ·Gay goes away still reaches the review queue. Every window that reached a review session approved this join or called it either"
     match:
       before:
         pivot: [qsGay, qsJai]
-        seam_out: break
+        junction_out: break
         follower: qsGay
       after:
         joined: y0
@@ -993,7 +993,7 @@ rules:
     match:
       before:
         pivot: qsMay
-        seam_out: break
+        junction_out: break
         follower: qsGay
       after:
         joined: y0
@@ -1051,7 +1051,7 @@ rules:
     match:
       before:
         pivot: [qsGay, qsJai]
-        seam_out: break
+        junction_out: break
         follower: qsGay
       after:
         joined: y0
@@ -1067,7 +1067,7 @@ rules:
       except_left: []
   - id: jai-entry-extension-dropped
     verdict: approve
-    note: "·J’ai gives up the two columns of crown entry the old font drew after ·Gay and ·May, redrawing to the plain hapax crown, and whatever follows it comes a column closer — the connector now sits wholly on the left letter's exit. qsJai carries no entry-extension record at all: the ·Gay arm was deleted in “Extend ·Gay ~x~ ·J’ai by another pixel”, which put that reach on qsGay's x-height exit at by-3, and the ·May arm never entered the rune, qsMay's own by-2 exit toward the qsJai family carrying it instead; rebuild/m1-divergences.yaml holds both readings, as same-seam-extension-non-summing and may-jai-extension-consolidated. The rule names the word-final crown beside the one that goes on to a baseline exit, since the letter draws the same picture either way and the declared column only ever reaches a follower. jai-crown-contracted, jai-entry-contracted-exit-extension-dropped and jai-entry-contracted-by-two-exit-extension-dropped are ·J’ai's other standing changes at the crown, each on a window the old font drew with no entry extension to give up, and jai-exit-extension-dropped is the reach at the other end. What the ·Gay in front of it does is a decision of its own, so a window where that ·Gay takes its new baseline join is the combined match's, with gay-baseline-join-created-reaching-back-before-jai. Every window that reached a review session approved the tighter crown"
+    note: "·J’ai gives up the two columns of crown entry the old font drew after ·Gay and ·May, redrawing to the plain hapax crown, and whatever follows it comes a column closer — the connector now sits wholly on the left letter's exit. qsJai carries no entry-extension record at all: the ·Gay arm was deleted in “Extend ·Gay ~x~ ·J’ai by another pixel”, which put that reach on qsGay's x-height exit at by-3, and the ·May arm never entered the rune, qsMay's own by-2 exit toward the qsJai family carrying it instead; rebuild/m1-divergences.yaml holds both readings, as same-junction-extension-non-summing and may-jai-extension-consolidated. The rule names the word-final crown beside the one that goes on to a baseline exit, since the letter draws the same picture either way and the declared column only ever reaches a follower. jai-crown-contracted, jai-entry-contracted-exit-extension-dropped and jai-entry-contracted-by-two-exit-extension-dropped are ·J’ai's other standing changes at the crown, each on a window the old font drew with no entry extension to give up, and jai-exit-extension-dropped is the reach at the other end. What the ·Gay in front of it does is a decision of its own, so a window where that ·Gay takes its new baseline join is the combined match's, with gay-baseline-join-created-reaching-back-before-jai. Every window that reached a review session approved the tighter crown"
     match:
       before:
         pivots: [qsJai.en-y5.ex-y0.en-ext-2]
@@ -1079,7 +1079,7 @@ rules:
       except_left: []
   - id: jai-utter-entry-extension-dropped
     verdict: approve
-    note: "·J’ai+Utter gives up the two columns of crown entry the old font drew after ·Gay and ·May, redrawing to the plain hapax crown, and whatever follows the ligature comes a column closer — the connector now sits wholly on the left letter's exit. qsJai_qsUtter carries no entry-extension record at all: the ·Gay arm was deleted in “Extend ·Gay ~x~ ·J’ai by another pixel”, which put that reach on qsGay's x-height exit at by-3, toward the ligature as toward the bare letter, and the ·May arm never entered the rune, qsMay's own by-2 exit toward the qsJai family carrying it instead; rebuild/m1-divergences.yaml holds both readings, as same-seam-extension-non-summing, which names this ligature's deleted record beside ·J’ai's own, and may-jai-extension-consolidated, whose second exemplar is this very seam. jai-entry-extension-dropped is the same crown entry coming off the bare letter. The rule names the word-final crown beside the one that goes on to an x-height exit, since the ligature draws the same picture either way and the declared column only ever reaches a follower; the ligature that also keeps the by-1 reach its own extend record gives it toward ·Bay, ·Gay and ·Fee carries its tail a column further out and is not this cell swap. What the ·Gay in front of it does is a decision of its own, so a window where that ·Gay takes its new baseline join is the combined match's, with gay-baseline-join-created-reaching-back-before-jai, and one where it pulls its baseline entry in is gay-entry-contracted's. Every window that reached a review session approved the tighter crown"
+    note: "·J’ai+Utter gives up the two columns of crown entry the old font drew after ·Gay and ·May, redrawing to the plain hapax crown, and whatever follows the ligature comes a column closer — the connector now sits wholly on the left letter's exit. qsJai_qsUtter carries no entry-extension record at all: the ·Gay arm was deleted in “Extend ·Gay ~x~ ·J’ai by another pixel”, which put that reach on qsGay's x-height exit at by-3, toward the ligature as toward the bare letter, and the ·May arm never entered the rune, qsMay's own by-2 exit toward the qsJai family carrying it instead; rebuild/m1-divergences.yaml holds both readings, as same-junction-extension-non-summing, which names this ligature's deleted record beside ·J’ai's own, and may-jai-extension-consolidated, whose second exemplar is this very junction. jai-entry-extension-dropped is the same crown entry coming off the bare letter. The rule names the word-final crown beside the one that goes on to an x-height exit, since the ligature draws the same picture either way and the declared column only ever reaches a follower; the ligature that also keeps the by-1 reach its own extend record gives it toward ·Bay, ·Gay and ·Fee carries its tail a column further out and is not this cell swap. What the ·Gay in front of it does is a decision of its own, so a window where that ·Gay takes its new baseline join is the combined match's, with gay-baseline-join-created-reaching-back-before-jai, and one where it pulls its baseline entry in is gay-entry-contracted's. Every window that reached a review session approved the tighter crown"
     match:
       before:
         pivots: [qsJai_qsUtter.en-ext-2]
@@ -1095,7 +1095,7 @@ rules:
     match:
       before:
         pivot: qsMay
-        seam_out: break
+        junction_out: break
         follower: qsGay
       after:
         joined: y0
@@ -1115,7 +1115,7 @@ rules:
     match:
       before:
         pivot: qsMay
-        seam_out: break
+        junction_out: break
         follower: qsI
       after:
         joined: y0
@@ -1144,7 +1144,7 @@ rules:
       except_left: []
   - id: may-xheight-exit-dropped
     verdict: approve
-    note: "·May draws its plain loop where the old font drew an x-height exit stroke into a break, and whatever follows it comes a column closer. Before ·Tea the letter has no exit left to draw: qsMay's refuse record gives the baseline exit up there on the user's why at “Let ·Ah·May·Tea join on both sides of ·May again”, everywhere but after ·Ah, and the x-height exit that would otherwise stand in its place is the one qsMay's prefer record declines before ·Tea, an exception it has carried since “Reach ·Utter into ·May, and rejoin four more chains”, so a ·May that has taken ·Utter's x-height entry keeps it and reaches nothing forward. Where ·Utter leads, utter-baseline-join-created and utter-may-baseline-join-retargeted cover the rest of the window, the retarget naming ·May's incoming seam and this rule the stroke at its other end. may-entry-stub-dropped, may-entry-extension-dropped and bay-may-entry-contracted are ·May's other standing changes at its entry, and may-gay-baseline-join-created, may-ah-baseline-join-created and may-i-baseline-join-created its new baseline joins. The rule names the word-final loop beside the one a letter stands after, since ·May draws the same picture either way and the declared column only ever reaches a follower; the ·May that also gives up the pixel of reach its extend record drew there loses a column more and is not this cell swap. Every window that reached a review session approved this loop"
+    note: "·May draws its plain loop where the old font drew an x-height exit stroke into a break, and whatever follows it comes a column closer. Before ·Tea the letter has no exit left to draw: qsMay's refuse record gives the baseline exit up there on the user's why at “Let ·Ah·May·Tea join on both sides of ·May again”, everywhere but after ·Ah, and the x-height exit that would otherwise stand in its place is the one qsMay's prefer record declines before ·Tea, an exception it has carried since “Reach ·Utter into ·May, and rejoin four more chains”, so a ·May that has taken ·Utter's x-height entry keeps it and reaches nothing forward. Where ·Utter leads, utter-baseline-join-created and utter-may-baseline-join-retargeted cover the rest of the window, the retarget naming ·May's incoming junction and this rule the stroke at its other end. may-entry-stub-dropped, may-entry-extension-dropped and bay-may-entry-contracted are ·May's other standing changes at its entry, and may-gay-baseline-join-created, may-ah-baseline-join-created and may-i-baseline-join-created its new baseline joins. The rule names the word-final loop beside the one a letter stands after, since ·May draws the same picture either way and the declared column only ever reaches a follower; the ·May that also gives up the pixel of reach its extend record drew there loses a column more and is not this cell swap. Every window that reached a review session approved this loop"
     match:
       before:
         pivots: [qsMay.en-y0.ex-y5]
@@ -1156,11 +1156,11 @@ rules:
       except_left: []
   - id: no-baseline-join-retargeted
     verdict: approve
-    note: "·No reaches up to the x-height to join ·Day, ·No and ·It, where the old font joined them at the baseline, and it redraws into its loop stance in place — qsNo's yielding prefer takes the x-height-exit cell over the baseline-exit one whenever ·Day, ·No, ·It or ·Oy follows and the left letter is neither ·Pea nor ·It, on the why recorded in “Give ·Pea·No the baseline join no matter what follows it” (its right-family list from “Let ·Day and ·No yield so ·Tea groups forward in ·Day·Tea·Day, ·Day·Tea·It, and ·No·Tea·It”); one record naming all three followers together is what makes this one rule rather than three. What each follower lands on follows from its own stances: ·Day's full form carries the only x-height entry the letter has and qsDay's order reaches for it first, while qsNo's loop stance carries an unrestricted x-height entry, so every left letter with an open x-height exit meets it, and qsIt's x-height entry is open to every left letter but ·It itself, the single exclusion “Never join ·It to itself” carved. The rule names the ·No that takes an x-height entry beside the one that takes none, since the letter draws the same loop either way, and the word-final ·It beside the one that goes on to a baseline exit or draws its own reach. ·No holds its own advance across the change, so whatever follows the pair stands where it was. gay-no-baseline-join-retargeted records the same yielding prefer one pivot over, and where ·Gay leads the two rules explain the window between them, the earlier retarget naming ·No's incoming seam and this one its outgoing one; no-no-xheight-join-retargeted names these same two followers running the other way, and tea-no-xheight-join-retargeted, pea-no-xheight-join-retargeted and it-no-xheight-join-retargeted record ·No's incoming seam moving the other way too; pea-it-baseline-join-retargeted and utter-it-baseline-join-retargeted are this same raised seam into ·It one pivot over. Every window that reached a review session approved the raised join or called it either"
+    note: "·No reaches up to the x-height to join ·Day, ·No and ·It, where the old font joined them at the baseline, and it redraws into its loop stance in place — qsNo's yielding prefer takes the x-height-exit cell over the baseline-exit one whenever ·Day, ·No, ·It or ·Oy follows and the left letter is neither ·Pea nor ·It, on the why recorded in “Give ·Pea·No the baseline join no matter what follows it” (its right-family list from “Let ·Day and ·No yield so ·Tea groups forward in ·Day·Tea·Day, ·Day·Tea·It, and ·No·Tea·It”); one record naming all three followers together is what makes this one rule rather than three. What each follower lands on follows from its own stances: ·Day's full form carries the only x-height entry the letter has and qsDay's order reaches for it first, while qsNo's loop stance carries an unrestricted x-height entry, so every left letter with an open x-height exit meets it, and qsIt's x-height entry is open to every left letter but ·It itself, the single exclusion “Never join ·It to itself” carved. The rule names the ·No that takes an x-height entry beside the one that takes none, since the letter draws the same loop either way, and the word-final ·It beside the one that goes on to a baseline exit or draws its own reach. ·No holds its own advance across the change, so whatever follows the pair stands where it was. gay-no-baseline-join-retargeted records the same yielding prefer one pivot over, and where ·Gay leads the two rules explain the window between them, the earlier retarget naming ·No's incoming junction and this one its outgoing one; no-no-xheight-join-retargeted names these same two followers running the other way, and tea-no-xheight-join-retargeted, pea-no-xheight-join-retargeted and it-no-xheight-join-retargeted record ·No's incoming junction moving the other way too; pea-it-baseline-join-retargeted and utter-it-baseline-join-retargeted are this same raised junction into ·It one pivot over. Every window that reached a review session approved the raised join or called it either"
     match:
       before:
         pivot: qsNo
-        seam_out: y0
+        junction_out: y0
         follower: [qsDay, qsNo, qsIt]
       after:
         retarget: y5
@@ -1181,11 +1181,11 @@ rules:
       except_left: []
   - id: no-thaw-baseline-join-dropped
     verdict: approve
-    note: "·Thaw sits three columns further from ·No — the two no longer join, because a ·No the letter in front of it has raised to the x-height has nothing left to reach down with: qsNo's loop stance carries an x-height exit and no baseline one, and the baseline entry is the only entry qsThaw has, carrying qsNo on its from-list since the letter landed in “Add ·Thaw”. Where ·Gay does the raising the two rules explain the window between them, gay-no-baseline-join-retargeted naming ·No's incoming seam and this one the reach it no longer has, that join itself arriving in “Join ·Gay ~x~ ·Et and ·Gay ~x~ ·No”. ·No redraws into its loop stance as it takes the raised seam, which is why the rule names the cells both letters settle into rather than holding ·No's picture. no-thaw-baseline-join-created is the same pair running the other way, where a ·No still on the baseline reaches a ·Thaw the old font left standing apart, and at-it-xheight-join-dropped and it-et-xheight-join-dropped are the other breaks on the books. Every window that reached a review session approved the break or called it either"
+    note: "·Thaw sits three columns further from ·No — the two no longer join, because a ·No the letter in front of it has raised to the x-height has nothing left to reach down with: qsNo's loop stance carries an x-height exit and no baseline one, and the baseline entry is the only entry qsThaw has, carrying qsNo on its from-list since the letter landed in “Add ·Thaw”. Where ·Gay does the raising the two rules explain the window between them, gay-no-baseline-join-retargeted naming ·No's incoming junction and this one the reach it no longer has, that join itself arriving in “Join ·Gay ~x~ ·Et and ·Gay ~x~ ·No”. ·No redraws into its loop stance as it takes the raised junction, which is why the rule names the cells both letters settle into rather than holding ·No's picture. no-thaw-baseline-join-created is the same pair running the other way, where a ·No still on the baseline reaches a ·Thaw the old font left standing apart, and at-it-xheight-join-dropped and it-et-xheight-join-dropped are the other breaks on the books. Every window that reached a review session approved the break or called it either"
     match:
       before:
         pivot: qsNo
-        seam_out: y0
+        junction_out: y0
         follower: qsThaw
       after:
         gap: 3
@@ -1196,11 +1196,11 @@ rules:
       except_left: []
   - id: no-gay-baseline-join-dropped
     verdict: approve
-    note: "·Gay sits two columns further from ·No and gives up the stroke it reached back with — the two no longer join, because a ·No that takes an x-height entry has no baseline exit left to reach down with: qsNo's policy order takes the loop stance first, and that stance's surface carries an x-height entry and an x-height exit and nothing else, while qsGay's x-height entry names only ·Ah and ·Utter on its from-list and its baseline entry, which does carry ·No, wants a baseline exit this ·No has not. Both from-lists date from “Add ·Gay” and were last revisited in “Bring back the ·Ah ~x~ ·Gay join”; the ·Gay ~x~ ·No exit that raises ·No in the first place arrived in “Join ·Gay ~x~ ·Et and ·Gay ~x~ ·No”. ·No redraws into that loop as the seam behind it rises and ·Gay settles onto the form it draws when nothing joins it, removing the column its reachable-at-the-baseline stroke inserted at its left edge — the same column gay-baseline-join-created-reaching-back declares where that stroke is taking a join rather than losing one — which is why the rule names the cells both letters settle into and the column the follower removes. Where ·Gay raises ·No the two rules explain the window between them, gay-no-baseline-join-retargeted naming ·No's incoming seam and this one the reach it no longer has; no-thaw-baseline-join-dropped is the same break behind the same raised ·No, and at-it-xheight-join-dropped and it-et-xheight-join-dropped are the other breaks on the books. The rule is bounded to the ·No that took an x-height entry, which is the ·No with no reach left; one still drawing its baseline exit settles into a different cell and carries ·Gay into a different one, so it is a window of its own. Every window that reached a review session approved the break"
+    note: "·Gay sits two columns further from ·No and gives up the stroke it reached back with — the two no longer join, because a ·No that takes an x-height entry has no baseline exit left to reach down with: qsNo's policy order takes the loop stance first, and that stance's surface carries an x-height entry and an x-height exit and nothing else, while qsGay's x-height entry names only ·Ah and ·Utter on its from-list and its baseline entry, which does carry ·No, wants a baseline exit this ·No has not. Both from-lists date from “Add ·Gay” and were last revisited in “Bring back the ·Ah ~x~ ·Gay join”; the ·Gay ~x~ ·No exit that raises ·No in the first place arrived in “Join ·Gay ~x~ ·Et and ·Gay ~x~ ·No”. ·No redraws into that loop as the junction behind it rises and ·Gay settles onto the form it draws when nothing joins it, removing the column its reachable-at-the-baseline stroke inserted at its left edge — the same column gay-baseline-join-created-reaching-back declares where that stroke is taking a join rather than losing one — which is why the rule names the cells both letters settle into and the column the follower removes. Where ·Gay raises ·No the two rules explain the window between them, gay-no-baseline-join-retargeted naming ·No's incoming junction and this one the reach it no longer has; no-thaw-baseline-join-dropped is the same break behind the same raised ·No, and at-it-xheight-join-dropped and it-et-xheight-join-dropped are the other breaks on the books. The rule is bounded to the ·No that took an x-height entry, which is the ·No with no reach left; one still drawing its baseline exit settles into a different cell and carries ·Gay into a different one, so it is a window of its own. Every window that reached a review session approved the break"
     match:
       before:
         pivot: qsNo
-        seam_out: y0
+        junction_out: y0
         follower: qsGay
       after:
         gap: 2
@@ -1212,11 +1212,11 @@ rules:
       except_left: []
   - id: no-cheer-xheight-join-dropped
     verdict: approve
-    note: "·No and ·Cheer no longer join once ·Pea or ·Tea has lowered the seam into ·No, and ·Cheer stands exactly where the old font drew it — the ·No a letter reaches at the baseline is the flipped stance, whose only exit is at the baseline, while qsCheer's only entry is at the x-height, carrying qsNo on its from-list since “Add ·Cheer”, so the flipped ·No has nothing left to reach ·Cheer with. pea-no-xheight-join-retargeted and tea-no-xheight-join-retargeted record the flip and name ·No's incoming seam, this rule its outgoing one, and the two explain each window between them; ·No redraws into the flipped stance as it takes the lowered seam, which is why the rule names the cells both letters settle into, and ·Cheer does not move, which is why the gap reads zero. no-thaw-baseline-join-dropped and no-gay-baseline-join-dropped are ·No's other lost reaches, behind a ·No raised the other way. The user asked for a standing approval of the ·{Pea,Tea} ~b~ ·No.alt flip and everything that follows from it, and every window that reached a review session approved the break"
+    note: "·No and ·Cheer no longer join once ·Pea or ·Tea has lowered the junction into ·No, and ·Cheer stands exactly where the old font drew it — the ·No a letter reaches at the baseline is the flipped stance, whose only exit is at the baseline, while qsCheer's only entry is at the x-height, carrying qsNo on its from-list since “Add ·Cheer”, so the flipped ·No has nothing left to reach ·Cheer with. pea-no-xheight-join-retargeted and tea-no-xheight-join-retargeted record the flip and name ·No's incoming junction, this rule its outgoing one, and the two explain each window between them; ·No redraws into the flipped stance as it takes the lowered junction, which is why the rule names the cells both letters settle into, and ·Cheer does not move, which is why the gap reads zero. no-thaw-baseline-join-dropped and no-gay-baseline-join-dropped are ·No's other lost reaches, behind a ·No raised the other way. The user asked for a standing approval of the ·{Pea,Tea} ~b~ ·No.alt flip and everything that follows from it, and every window that reached a review session approved the break"
     match:
       before:
         pivot: qsNo
-        seam_out: y5
+        junction_out: y5
         follower: qsCheer
       after:
         gap: 0
@@ -1228,11 +1228,11 @@ rules:
       except_left: []
   - id: no-jai-xheight-join-created
     verdict: approve
-    note: "·No joins ·J’ai at the x-height where the old font left a break, and ·J’ai closes three columns onto it on the tighter crown it draws there — qsJai's x-height entry has carried qsNo on its from-list since the letter landed in “Add ·J’ai”, and qsNo's loop stance exits at the x-height with no toward-list at all, so every follower with an open x-height entry meets it; that stance landed in “Checkpoint the qsDay/qsUtter/qsNo migration batch with its triage residue down to 2,535”. The pixel of crown that comes off as the join is taken is qsJai's own contract record — the by-1 x-height entry after ·No, ·Low, ·At and ·I, which landed with the letter — so ·J’ai settles into an en-con-1 cell and that pixel rides inside the declared columns; jai-crown-contracted is the same pixel where the old font already joined the pair, and it cannot match at this seam, whose old-font ·J’ai carries no entry at all. ·J’ai holds its own advance across the change, so whatever follows the pair moves with it, and the rule names the word-final crown beside the one that goes on to a baseline exit, since the letter draws the same picture either way. it-xheight-join-created and ah-gay-xheight-join-created are the same shape one follower over, and no-xheight-join-created, no-baseline-join-retargeted, no-thaw-baseline-join-dropped and no-gay-baseline-join-dropped are ·No's other outgoing seams on this corpus. Where ·Gay raises ·No in front of the join, gay-no-baseline-join-retargeted names ·No's incoming seam and this rule its outgoing one, and the new join that ·Gay itself takes — gay-baseline-join-created, et-gay-baseline-join-created, may-gay-baseline-join-created or gay-baseline-join-created-reaching-back — is a third change in the same window, so those windows are the combined match's. Every window that reached a review session approved the join"
+    note: "·No joins ·J’ai at the x-height where the old font left a break, and ·J’ai closes three columns onto it on the tighter crown it draws there — qsJai's x-height entry has carried qsNo on its from-list since the letter landed in “Add ·J’ai”, and qsNo's loop stance exits at the x-height with no toward-list at all, so every follower with an open x-height entry meets it; that stance landed in “Checkpoint the qsDay/qsUtter/qsNo migration batch with its triage residue down to 2,535”. The pixel of crown that comes off as the join is taken is qsJai's own contract record — the by-1 x-height entry after ·No, ·Low, ·At and ·I, which landed with the letter — so ·J’ai settles into an en-con-1 cell and that pixel rides inside the declared columns; jai-crown-contracted is the same pixel where the old font already joined the pair, and it cannot match at this junction, whose old-font ·J’ai carries no entry at all. ·J’ai holds its own advance across the change, so whatever follows the pair moves with it, and the rule names the word-final crown beside the one that goes on to a baseline exit, since the letter draws the same picture either way. it-xheight-join-created and ah-gay-xheight-join-created are the same shape one follower over, and no-xheight-join-created, no-baseline-join-retargeted, no-thaw-baseline-join-dropped and no-gay-baseline-join-dropped are ·No's other outgoing junctions on this corpus. Where ·Gay raises ·No in front of the join, gay-no-baseline-join-retargeted names ·No's incoming junction and this rule its outgoing one, and the new join that ·Gay itself takes — gay-baseline-join-created, et-gay-baseline-join-created, may-gay-baseline-join-created or gay-baseline-join-created-reaching-back — is a third change in the same window, so those windows are the combined match's. Every window that reached a review session approved the join"
     match:
       before:
         pivot: qsNo
-        seam_out: break
+        junction_out: break
         follower: qsJai
       after:
         joined: y5
@@ -1249,11 +1249,11 @@ rules:
       except_left: []
   - id: no-fee-xheight-join-created
     verdict: approve
-    note: "·No reaches a pixel further and joins ·Fee at the x-height where the old font left a break, and ·Fee turns its loop around and comes one column nearer — the extra pixel is qsNo's own extend record, an x-height exit lengthened by 1 before ·Fee, and the reversed loop is the only x-height entry qsFee has, carrying qsNo on its from-list since the letter landed in “Add ·Fee” and last touched in “Make ·Fee join forward at the x-height, and back into ·Day·Utter”. ·Fee draws it only where it has nothing to reach forward to: qsFee's prefer takes the forward exit over that backward entry on the user's why at “Generally connecting to the next letter is easier to do than to bend ·Fee backwards”, generalized to every neighbor in “·Fee: Prefer connecting to the next letter, not the previous”, so the follower's after cell carries no exit at all. ·No's side is the loop stance's open x-height exit, which has no toward-list, so every follower with an open x-height entry meets it; that stance and the reach before ·Fee both landed in “Checkpoint the qsDay/qsUtter/qsNo migration batch with its triage residue down to 2,535”. ·Fee holds its own advance across the change, so whatever follows the pair moves with it. no-jai-xheight-join-created and no-xheight-join-created are the same seam into other followers, no-ah-baseline-join-created and no-thaw-baseline-join-created are ·No's new joins one height down, and no-baseline-join-retargeted, no-thaw-baseline-join-dropped and no-gay-baseline-join-dropped are its other outgoing seams on this corpus; utter-xheight-join-created records the same break becoming an x-height join with ·No among its pivots, ah-bay-exit-extension-dropped is this same ·Fee entry where the old font already joined the pair, and fee-unjoined-loop is the ·Fee that is left unjoined instead. Where ·Gay leads, gay-no-baseline-join-retargeted names ·No's incoming seam and this rule its outgoing one, and the join ·Gay itself takes — gay-baseline-join-created or gay-baseline-join-created-reaching-back — is a third change in the same window, so those windows are the combined match's. Every window that reached a review session approved the join"
+    note: "·No reaches a pixel further and joins ·Fee at the x-height where the old font left a break, and ·Fee turns its loop around and comes one column nearer — the extra pixel is qsNo's own extend record, an x-height exit lengthened by 1 before ·Fee, and the reversed loop is the only x-height entry qsFee has, carrying qsNo on its from-list since the letter landed in “Add ·Fee” and last touched in “Make ·Fee join forward at the x-height, and back into ·Day·Utter”. ·Fee draws it only where it has nothing to reach forward to: qsFee's prefer takes the forward exit over that backward entry on the user's why at “Generally connecting to the next letter is easier to do than to bend ·Fee backwards”, generalized to every neighbor in “·Fee: Prefer connecting to the next letter, not the previous”, so the follower's after cell carries no exit at all. ·No's side is the loop stance's open x-height exit, which has no toward-list, so every follower with an open x-height entry meets it; that stance and the reach before ·Fee both landed in “Checkpoint the qsDay/qsUtter/qsNo migration batch with its triage residue down to 2,535”. ·Fee holds its own advance across the change, so whatever follows the pair moves with it. no-jai-xheight-join-created and no-xheight-join-created are the same junction into other followers, no-ah-baseline-join-created and no-thaw-baseline-join-created are ·No's new joins one height down, and no-baseline-join-retargeted, no-thaw-baseline-join-dropped and no-gay-baseline-join-dropped are its other outgoing junctions on this corpus; utter-xheight-join-created records the same break becoming an x-height join with ·No among its pivots, ah-bay-exit-extension-dropped is this same ·Fee entry where the old font already joined the pair, and fee-unjoined-loop is the ·Fee that is left unjoined instead. Where ·Gay leads, gay-no-baseline-join-retargeted names ·No's incoming junction and this rule its outgoing one, and the join ·Gay itself takes — gay-baseline-join-created or gay-baseline-join-created-reaching-back — is a third change in the same window, so those windows are the combined match's. Every window that reached a review session approved the join"
     match:
       before:
         pivot: qsNo
-        seam_out: break
+        junction_out: break
         follower: qsFee
       after:
         joined: y5
@@ -1268,11 +1268,11 @@ rules:
       except_left: []
   - id: no-oy-xheight-join-created
     verdict: approve
-    note: "·No joins ·Oy at the x-height where the old font left a break, and ·Oy opens its loop on the left to receive it — coming a column nearer, and drawing that open form three columns narrower, so whatever follows the pair comes nearer by both. The open-on-the-left bitmap is qsOy's own record of the join, hanging off the only x-height entry the letter has, whose from-list has carried qsNo since “Migrate the four worst families to the new rune-file format, conformance-verified”, so the redraw is the follower half of this join rather than a change of its own. ·No's side is the loop stance's x-height exit, which has no toward-list at all, so every follower with an open x-height entry meets it; that stance landed in “Checkpoint the qsDay/qsUtter/qsNo migration batch with its triage residue down to 2,535”, and what puts ·No on it in front of ·Oy is the yielding prefer that takes the x-height-exit cell over the baseline-exit one whenever ·Day, ·No, ·It or ·Oy follows and the left letter is neither ·Pea nor ·It, on the why recorded in “Give ·Pea·No the baseline join no matter what follows it” (its right-family list from “Let ·Day and ·No yield so ·Tea groups forward in ·Day·Tea·Day, ·Day·Tea·It, and ·No·Tea·It”). The rule names the ·No that takes an x-height entry beside the ·No that takes none, since the letter draws the same loop either way, and the word-final ·Oy beside the one that goes on to a baseline exit, for the same reason. no-jai-xheight-join-created, no-fee-xheight-join-created and no-xheight-join-created are the same seam into other followers, no-ah-baseline-join-created and no-thaw-baseline-join-created are ·No's new joins one height down, and no-baseline-join-retargeted, no-thaw-baseline-join-dropped and no-gay-baseline-join-dropped are its other outgoing seams on this corpus; it-xheight-join-created, ah-gay-xheight-join-created and utter-xheight-join-created are the same break becoming an x-height join into other letters. Where the letter in front raises ·No's own seam, no-baseline-join-retargeted or gay-no-baseline-join-retargeted names ·No's incoming seam and this rule its outgoing one, and a window carrying a third blessed change beside them is the combined match's. Every window that reached a review session approved the join or called it either"
+    note: "·No joins ·Oy at the x-height where the old font left a break, and ·Oy opens its loop on the left to receive it — coming a column nearer, and drawing that open form three columns narrower, so whatever follows the pair comes nearer by both. The open-on-the-left bitmap is qsOy's own record of the join, hanging off the only x-height entry the letter has, whose from-list has carried qsNo since “Migrate the four worst families to the new rune-file format, conformance-verified”, so the redraw is the follower half of this join rather than a change of its own. ·No's side is the loop stance's x-height exit, which has no toward-list at all, so every follower with an open x-height entry meets it; that stance landed in “Checkpoint the qsDay/qsUtter/qsNo migration batch with its triage residue down to 2,535”, and what puts ·No on it in front of ·Oy is the yielding prefer that takes the x-height-exit cell over the baseline-exit one whenever ·Day, ·No, ·It or ·Oy follows and the left letter is neither ·Pea nor ·It, on the why recorded in “Give ·Pea·No the baseline join no matter what follows it” (its right-family list from “Let ·Day and ·No yield so ·Tea groups forward in ·Day·Tea·Day, ·Day·Tea·It, and ·No·Tea·It”). The rule names the ·No that takes an x-height entry beside the ·No that takes none, since the letter draws the same loop either way, and the word-final ·Oy beside the one that goes on to a baseline exit, for the same reason. no-jai-xheight-join-created, no-fee-xheight-join-created and no-xheight-join-created are the same junction into other followers, no-ah-baseline-join-created and no-thaw-baseline-join-created are ·No's new joins one height down, and no-baseline-join-retargeted, no-thaw-baseline-join-dropped and no-gay-baseline-join-dropped are its other outgoing junctions on this corpus; it-xheight-join-created, ah-gay-xheight-join-created and utter-xheight-join-created are the same break becoming an x-height join into other letters. Where the letter in front raises ·No's own junction, no-baseline-join-retargeted or gay-no-baseline-join-retargeted names ·No's incoming junction and this rule its outgoing one, and a window carrying a third blessed change beside them is the combined match's. Every window that reached a review session approved the join or called it either"
     match:
       before:
         pivot: qsNo
-        seam_out: break
+        junction_out: break
         follower: qsOy
       after:
         joined: y5
@@ -1288,11 +1288,11 @@ rules:
       except_left: []
   - id: it-thaw-baseline-join-dropped
     verdict: approve
-    note: "·Thaw sits two columns further from ·It, and ·It gives up the pixel of exit the old font drew for it — the two no longer join, because an ·It that has taken a baseline entry has no baseline exit left to reach ·Thaw with: qsIt's pairing table carries no baseline-entry-and-baseline-exit pairing at all and unlocks that one combination behind ss04 alone, which is what “Let ss04 join ·It at the baseline on both sides with any neighbor” authored, and is why these windows diverge under every config but that one. qsIt's baseline entry is open to every left letter but ·It itself, so the baseline exits ·Utter and ·No now reach it with are enough to close the pairing off; qsThaw's baseline entry, the only entry the letter has, has carried qsIt on its from-list since “Add ·Thaw”. it-baseline-join-created records the same pairing from the other side, where ·Et, ·Awe, ·Ox, ·Oy and ·Ooze take the entry and ·It hands the exit back. ·It redraws in place as the exit goes, the extra pixel going with the stroke it lengthened — qsIt's by-1 baseline-exit extend, which draws only where the letter's own entry is live and the letter behind it joined at the x-height, the record it-may-exit-extension-dropped and it-ah-exit-extension-dropped already cite — which is why the rule names the cells both letters settle into rather than holding ·It's picture. It is bounded to the ·It the old font entered at the x-height, which is the ·It that carried that pixel; one the old font left unentered gives up a bare exit and sets ·Thaw a column further still, so that is a window of its own. Where ·Utter leads, utter-xheight-join-created names ·Utter's incoming seam and this rule ·It's outgoing one, and where ·Pea leads into ·No, pea-no-xheight-join-retargeted does. it-et-xheight-join-dropped and at-it-xheight-join-dropped are ·It's other breaks on the books, no-thaw-baseline-join-dropped and no-gay-baseline-join-dropped the rest of them, and no-thaw-baseline-join-created is ·Thaw's own seam running the other way. Nothing in this survey has reached a review session — every window of it is blank — so the break is ruled from the review queue rather than copied from a verdict by the duplicate fill"
+    note: "·Thaw sits two columns further from ·It, and ·It gives up the pixel of exit the old font drew for it — the two no longer join, because an ·It that has taken a baseline entry has no baseline exit left to reach ·Thaw with: qsIt's pairing table carries no baseline-entry-and-baseline-exit pairing at all and unlocks that one combination behind ss04 alone, which is what “Let ss04 join ·It at the baseline on both sides with any neighbor” authored, and is why these windows diverge under every config but that one. qsIt's baseline entry is open to every left letter but ·It itself, so the baseline exits ·Utter and ·No now reach it with are enough to close the pairing off; qsThaw's baseline entry, the only entry the letter has, has carried qsIt on its from-list since “Add ·Thaw”. it-baseline-join-created records the same pairing from the other side, where ·Et, ·Awe, ·Ox, ·Oy and ·Ooze take the entry and ·It hands the exit back. ·It redraws in place as the exit goes, the extra pixel going with the stroke it lengthened — qsIt's by-1 baseline-exit extend, which draws only where the letter's own entry is live and the letter behind it joined at the x-height, the record it-may-exit-extension-dropped and it-ah-exit-extension-dropped already cite — which is why the rule names the cells both letters settle into rather than holding ·It's picture. It is bounded to the ·It the old font entered at the x-height, which is the ·It that carried that pixel; one the old font left unentered gives up a bare exit and sets ·Thaw a column further still, so that is a window of its own. Where ·Utter leads, utter-xheight-join-created names ·Utter's incoming junction and this rule ·It's outgoing one, and where ·Pea leads into ·No, pea-no-xheight-join-retargeted does. it-et-xheight-join-dropped and at-it-xheight-join-dropped are ·It's other breaks on the books, no-thaw-baseline-join-dropped and no-gay-baseline-join-dropped the rest of them, and no-thaw-baseline-join-created is ·Thaw's own junction running the other way. Nothing in this survey has reached a review session — every window of it is blank — so the break is ruled from the review queue rather than copied from a verdict by the duplicate fill"
     match:
       before:
         pivot: qsIt.en-y5
-        seam_out: y0
+        junction_out: y0
         follower: qsThaw
       after:
         gap: 2
@@ -1303,11 +1303,11 @@ rules:
       except_left: []
   - id: utter-day-xheight-join-retargeted
     verdict: approve
-    note: "·Utter drops to the baseline to join ·Day, where the old font reached up to the x-height, and ·Day settles onto its half form — the ·Utter that has taken an x-height entry draws its alternate stance, and that stance has one exit and must use it: qsUtter's alternate carries a mandatory baseline exit, the one the user records on the same rune's policy (“·Utter.alt has a mandatory exit, so it can't help consuming ·Tea's baseline slot”), while qsDay's order reaches for the full stance first and finds only an x-height entry there, so a baseline exit lands on the half stance instead, whose baseline entry is open to every left letter but ·Way. Both records landed with the two letters in “Checkpoint the qsDay/qsUtter/qsNo migration batch with its triage residue down to 2,535”. The pivot is that alternate ·Utter only where something reaches it at the x-height, which is the join utter-xheight-join-created records, so this rule never matches alone: the created join names ·Utter's incoming seam and this one its outgoing seam, and the two explain each window between them. Read with the pivot standing, ·Day sits one column to its right, which is ·Day standing exactly where the old font drew it — the reaches-way-back ·Utter is a column wider than the mono form it replaces and gives straight back the column the join in front closed — and everything past ·Day stands still with it. utter-may-baseline-join-retargeted is ·Utter's other retarget and runs the other way, up from the baseline into ·May, while tea-no-xheight-join-retargeted, pea-no-xheight-join-retargeted, it-no-xheight-join-retargeted and no-no-xheight-join-retargeted record the same lowered seam into a different follower; utter-gay-exit-extension-dropped, utter-tea-baseline-join-created and utter-baseline-join-created are ·Utter's other standing changes on this corpus. Every window that reached a review session approved the lowered join or called it either"
+    note: "·Utter drops to the baseline to join ·Day, where the old font reached up to the x-height, and ·Day settles onto its half form — the ·Utter that has taken an x-height entry draws its alternate stance, and that stance has one exit and must use it: qsUtter's alternate carries a mandatory baseline exit, the one the user records on the same rune's policy (“·Utter.alt has a mandatory exit, so it can't help consuming ·Tea's baseline slot”), while qsDay's order reaches for the full stance first and finds only an x-height entry there, so a baseline exit lands on the half stance instead, whose baseline entry is open to every left letter but ·Way. Both records landed with the two letters in “Checkpoint the qsDay/qsUtter/qsNo migration batch with its triage residue down to 2,535”. The pivot is that alternate ·Utter only where something reaches it at the x-height, which is the join utter-xheight-join-created records, so this rule never matches alone: the created join names ·Utter's incoming junction and this one its outgoing junction, and the two explain each window between them. Read with the pivot standing, ·Day sits one column to its right, which is ·Day standing exactly where the old font drew it — the reaches-way-back ·Utter is a column wider than the mono form it replaces and gives straight back the column the join in front closed — and everything past ·Day stands still with it. utter-may-baseline-join-retargeted is ·Utter's other retarget and runs the other way, up from the baseline into ·May, while tea-no-xheight-join-retargeted, pea-no-xheight-join-retargeted, it-no-xheight-join-retargeted and no-no-xheight-join-retargeted record the same lowered junction into a different follower; utter-gay-exit-extension-dropped, utter-tea-baseline-join-created and utter-baseline-join-created are ·Utter's other standing changes on this corpus. Every window that reached a review session approved the lowered join or called it either"
     match:
       before:
         pivot: qsUtter
-        seam_out: y5
+        junction_out: y5
         follower: qsDay
       after:
         retarget: y0
@@ -1321,11 +1321,11 @@ rules:
       except_left: []
   - id: no-xheight-join-created
     verdict: approve
-    note: "·No joins ·Day, ·It, ·Et, ·Eight, ·Awe and ·Ox at the x-height where the old font left a break, and each of them closes one column onto it and holds its own advance, so whatever follows the pair moves with the follower. ·No's side is the loop stance's x-height exit, which has no toward-list at all, so every follower with an open x-height entry meets it; that stance landed in “Checkpoint the qsDay/qsUtter/qsNo migration batch with its triage residue down to 2,535”, and what puts ·No on it is the yielding prefer that takes the x-height-exit cell over the baseline-exit one whenever ·Day, ·No, ·It or ·Oy follows and the left letter is neither ·Pea nor ·It, on the why recorded in “Give ·Pea·No the baseline join no matter what follows it” (its right-family list from “Let ·Day and ·No yield so ·Tea groups forward in ·Day·Tea·Day, ·Day·Tea·It, and ·No·Tea·It”). Each follower's side is open too: qsDay's full stance carries the only x-height entry the letter has and qsDay's order reaches for it first, qsEt's x-height entry has been unrestricted since the letter landed in “Declare ·Roe done and add ·Et”, qsIt's is open to every left letter but ·It itself, the single exclusion “Never join ·It to itself” carved, and qsEight, qsAwe and qsOx have each carried qsNo on that entry's from-list since the letters landed in “Add ·Eight”, “Add ·Awe” and “Add ·Ox”. The rule names the word-final follower beside the one that goes on to a baseline exit, since each of these letters draws the same picture either way. no-jai-xheight-join-created is the same seam into the follower whose crown pulls in two columns further, no-fee-xheight-join-created the one that turns its loop around to take it, and no-oy-xheight-join-created the one that opens its loop on the left and draws it three columns narrower; utter-xheight-join-created records the same break becoming an x-height join into ·Utter with ·No among its pivots, no-ah-baseline-join-created and no-thaw-baseline-join-created are ·No's new joins one height down, and no-baseline-join-retargeted, no-thaw-baseline-join-dropped and no-gay-baseline-join-dropped are its other outgoing seams on this corpus. Where the letter in front raises ·No's own seam, gay-no-baseline-join-retargeted names ·No's incoming seam and this rule its outgoing one. Every window that reached a review session approved the join or called it either"
+    note: "·No joins ·Day, ·It, ·Et, ·Eight, ·Awe and ·Ox at the x-height where the old font left a break, and each of them closes one column onto it and holds its own advance, so whatever follows the pair moves with the follower. ·No's side is the loop stance's x-height exit, which has no toward-list at all, so every follower with an open x-height entry meets it; that stance landed in “Checkpoint the qsDay/qsUtter/qsNo migration batch with its triage residue down to 2,535”, and what puts ·No on it is the yielding prefer that takes the x-height-exit cell over the baseline-exit one whenever ·Day, ·No, ·It or ·Oy follows and the left letter is neither ·Pea nor ·It, on the why recorded in “Give ·Pea·No the baseline join no matter what follows it” (its right-family list from “Let ·Day and ·No yield so ·Tea groups forward in ·Day·Tea·Day, ·Day·Tea·It, and ·No·Tea·It”). Each follower's side is open too: qsDay's full stance carries the only x-height entry the letter has and qsDay's order reaches for it first, qsEt's x-height entry has been unrestricted since the letter landed in “Declare ·Roe done and add ·Et”, qsIt's is open to every left letter but ·It itself, the single exclusion “Never join ·It to itself” carved, and qsEight, qsAwe and qsOx have each carried qsNo on that entry's from-list since the letters landed in “Add ·Eight”, “Add ·Awe” and “Add ·Ox”. The rule names the word-final follower beside the one that goes on to a baseline exit, since each of these letters draws the same picture either way. no-jai-xheight-join-created is the same junction into the follower whose crown pulls in two columns further, no-fee-xheight-join-created the one that turns its loop around to take it, and no-oy-xheight-join-created the one that opens its loop on the left and draws it three columns narrower; utter-xheight-join-created records the same break becoming an x-height join into ·Utter with ·No among its pivots, no-ah-baseline-join-created and no-thaw-baseline-join-created are ·No's new joins one height down, and no-baseline-join-retargeted, no-thaw-baseline-join-dropped and no-gay-baseline-join-dropped are its other outgoing junctions on this corpus. Where the letter in front raises ·No's own junction, gay-no-baseline-join-retargeted names ·No's incoming junction and this rule its outgoing one. Every window that reached a review session approved the join or called it either"
     match:
       before:
         pivot: qsNo
-        seam_out: break
+        junction_out: break
         follower: [qsDay, qsIt, qsEt, qsEight, qsAwe, qsOx]
       after:
         joined: y5
@@ -1353,22 +1353,22 @@ rules:
       except_left: []
   - id: tea-thaw-baseline-join-dropped
     verdict: approve
-    note: "·Thaw sits three columns further from ·Tea — the two no longer join, because both sides refuse the seam: qsTea's policy refuses a baseline exit outright whenever ·Thaw, ·Excite, ·Exam or ·It follows, the user's rationale sitting on that record's own `why:`, and qsThaw's baseline entry, the only entry the letter has, has never carried qsTea on its from-list — the letters that reach into that foot are the ones “Add ·Thaw” enumerates, and the ·Tea+·Oy tail that lands there is a family of its own, which a bare-family pivot does not reach. The refusal landed with the family in “Migrate the four worst families to the new rune-file format, conformance-verified”, the commit that also gives qsTea the ss05 unlock for the baseline-entry-and-baseline-exit pairing the letter otherwise never takes, when ·Et leads. ·Tea has no other exit to offer that foot, so it settles into a cell with no exit at all whichever form it draws — the full bar, the half, and the one ·Fee raises to the x-height under ss03 all lose the same reach — which is why the rule names the letter rather than one of its forms. Neither letter moves a pixel of its own as the reach goes, so the rule holds both pictures rather than naming the cells they settle into, and that is where its bound lies: any other ink in the window makes the rule return no match until a rule of its own blesses it, so the ·It ~x~ ·Et break in front of the pair and ·Fee's shortened reach into ·Tea are the combined match's, it-et-xheight-join-dropped and fee-tea-ss03-exit-extension-shortened naming their seams and this rule ·Tea's. What the rule does not see is which ·Tea reaches the foot, since it names the family: a form a later migration draws into that seam fills on the same reading, which is qsTea's refuse and qsThaw's from-list's scope rather than this rule's. no-thaw-baseline-join-dropped and it-thaw-baseline-join-dropped are ·Thaw's other lost reaches and no-thaw-baseline-join-created the one it gains; at-it-xheight-join-dropped, it-et-xheight-join-dropped and no-gay-baseline-join-dropped are the rest of the breaks on the books. Every window that reached a review session approved the break"
+    note: "·Thaw sits three columns further from ·Tea — the two no longer join, because both sides refuse the junction: qsTea's policy refuses a baseline exit outright whenever ·Thaw, ·Excite, ·Exam or ·It follows, the user's rationale sitting on that record's own `why:`, and qsThaw's baseline entry, the only entry the letter has, has never carried qsTea on its from-list — the letters that reach into that foot are the ones “Add ·Thaw” enumerates, and the ·Tea+·Oy tail that lands there is a family of its own, which a bare-family pivot does not reach. The refusal landed with the family in “Migrate the four worst families to the new rune-file format, conformance-verified”, the commit that also gives qsTea the ss05 unlock for the baseline-entry-and-baseline-exit pairing the letter otherwise never takes, when ·Et leads. ·Tea has no other exit to offer that foot, so it settles into a cell with no exit at all whichever form it draws — the full bar, the half, and the one ·Fee raises to the x-height under ss03 all lose the same reach — which is why the rule names the letter rather than one of its forms. Neither letter moves a pixel of its own as the reach goes, so the rule holds both pictures rather than naming the cells they settle into, and that is where its bound lies: any other ink in the window makes the rule return no match until a rule of its own blesses it, so the ·It ~x~ ·Et break in front of the pair and ·Fee's shortened reach into ·Tea are the combined match's, it-et-xheight-join-dropped and fee-tea-ss03-exit-extension-shortened naming their junctions and this rule ·Tea's. What the rule does not see is which ·Tea reaches the foot, since it names the family: a form a later migration draws into that junction fills on the same reading, which is qsTea's refuse and qsThaw's from-list's scope rather than this rule's. no-thaw-baseline-join-dropped and it-thaw-baseline-join-dropped are ·Thaw's other lost reaches and no-thaw-baseline-join-created the one it gains; at-it-xheight-join-dropped, it-et-xheight-join-dropped and no-gay-baseline-join-dropped are the rest of the breaks on the books. Every window that reached a review session approved the break"
     match:
       before:
         pivot: qsTea
-        seam_out: y0
+        junction_out: y0
         follower: qsThaw
       after:
         gap: 3
       except_left: []
   - id: gay-may-baseline-join-created
     verdict: approve
-    note: "·Gay joins ·May at the baseline where the old font left a break, and ·May closes one column onto it and holds its own advance, so whatever follows the pair moves with the follower. Both surfaces are open and no pair ruling narrows either: qsGay's baseline exit has carried qsMay on its toward-list since the letter landed in “Add ·Gay”, and qsMay's loop stance, the first its order reaches for, carries a baseline entry with no from-list at all, unrestricted since the letter landed in “Migrate the four worst families to the new rune-file format, conformance-verified”. Neither side lengthens the seam — qsMay is absent from qsGay's baseline-exit extend record, and qsMay has carried no baseline-entry extend record at all since “Never lengthen ·May's baseline-entry join” — so the column ·May closes is the whole of the change. may-gay-baseline-join-created is the same pair running the other way and says nothing about this direction; ah-gay-xheight-join-created names ·Gay's incoming seam where ·Ah leads and this rule its outgoing one, and gay-baseline-join-created, gay-baseline-join-created-reaching-back and et-gay-baseline-join-created are the new joins into ·Gay from the other side. gay-no-baseline-join-retargeted, gay-no-xheight-extension-added, gay-entry-contracted and gay-xheight-entry-exit-extension-dropped are ·Gay's other standing changes on this corpus, and may-xheight-exit-dropped, may-entry-stub-dropped and may-entry-extension-dropped ·May's; where ·Tea follows and takes its full bar under ss03, tea-full-bar-after-xheight-stroke-ss03 covers the rest of the window. The rule is bounded to the ·Gay the old font drew on its bare isolated shape, which is the ·Gay this join finds standing still: where the letter in front drops its own baseline join into ·Gay, the letter redraws off its entered form onto the one it draws unentered and moves its own frame with it, so the created join is no event there and that break — into a ·Gay that keeps its baseline exit, which no rule covers — leaves those windows in the review queue. It names the word-final loop beside the one carrying the pixel of x-height reach into ·Tea, since ·May draws the same picture either way, and stops there: where ·J’ai follows, that reach grows by a column on qsMay's own extend record and ·May settles into a cell of its own. Every window that reached a review session approved this join"
+    note: "·Gay joins ·May at the baseline where the old font left a break, and ·May closes one column onto it and holds its own advance, so whatever follows the pair moves with the follower. Both surfaces are open and no pair ruling narrows either: qsGay's baseline exit has carried qsMay on its toward-list since the letter landed in “Add ·Gay”, and qsMay's loop stance, the first its order reaches for, carries a baseline entry with no from-list at all, unrestricted since the letter landed in “Migrate the four worst families to the new rune-file format, conformance-verified”. Neither side lengthens the junction — qsMay is absent from qsGay's baseline-exit extend record, and qsMay has carried no baseline-entry extend record at all since “Never lengthen ·May's baseline-entry join” — so the column ·May closes is the whole of the change. may-gay-baseline-join-created is the same pair running the other way and says nothing about this direction; ah-gay-xheight-join-created names ·Gay's incoming junction where ·Ah leads and this rule its outgoing one, and gay-baseline-join-created, gay-baseline-join-created-reaching-back and et-gay-baseline-join-created are the new joins into ·Gay from the other side. gay-no-baseline-join-retargeted, gay-no-xheight-extension-added, gay-entry-contracted and gay-xheight-entry-exit-extension-dropped are ·Gay's other standing changes on this corpus, and may-xheight-exit-dropped, may-entry-stub-dropped and may-entry-extension-dropped ·May's; where ·Tea follows and takes its full bar under ss03, tea-full-bar-after-xheight-stroke-ss03 covers the rest of the window. The rule is bounded to the ·Gay the old font drew on its bare isolated shape, which is the ·Gay this join finds standing still: where the letter in front drops its own baseline join into ·Gay, the letter redraws off its entered form onto the one it draws unentered and moves its own frame with it, so the created join is no event there and that break — into a ·Gay that keeps its baseline exit, which no rule covers — leaves those windows in the review queue. It names the word-final loop beside the one carrying the pixel of x-height reach into ·Tea, since ·May draws the same picture either way, and stops there: where ·J’ai follows, that reach grows by a column on qsMay's own extend record and ·May settles into a cell of its own. Every window that reached a review session approved this join"
     match:
       before:
         pivot: qsGay
-        seam_out: break
+        junction_out: break
         follower: qsMay
       after:
         joined: y0
@@ -1395,7 +1395,7 @@ rules:
       except_left: []
   - id: at-may-exit-extension-shortened
     verdict: approve
-    note: "·At draws two pixels less of the baseline reach into ·May, and ·May stands where it was — qsAt’s extend record reaches by three before ·May where the old font drew five, the record landing with the letter in “Add ·At”, and the reach runs on under ·May rather than in front of it, so the follower and everything past it keep their columns. The letter takes that reach on the falling stance qsAt’s prefer record picks before ·May, so a window where ·At settles onto its rising stance instead is a different change and not this cell swap. key-exit-contracted is the same pure-loss redraw one letter over; et-may-exit-contracted, fee-tea-ss03-exit-extension-shortened and utter-gay-exit-extension-dropped name the same kind of shorter reach at the name grain, which reads only the seam it judges and would bless whatever else the window did — the reason this one is written as a redraw, since these windows carry ·May’s own entry changes beside it. Where they do, may-entry-extension-dropped, may-entry-stub-dropped and bay-may-entry-contracted cover ·May’s entry and this rule covers the reach into it, and the rules explain the window between them. It matches only where every other pixel in the window is accounted for, so a window whose second change has no rule yet still reaches the review queue. Every window that reached a review session approved the shorter reach"
+    note: "·At draws two pixels less of the baseline reach into ·May, and ·May stands where it was — qsAt’s extend record reaches by three before ·May where the old font drew five, the record landing with the letter in “Add ·At”, and the reach runs on under ·May rather than in front of it, so the follower and everything past it keep their columns. The letter takes that reach on the falling stance qsAt’s prefer record picks before ·May, so a window where ·At settles onto its rising stance instead is a different change and not this cell swap. key-exit-contracted is the same pure-loss redraw one letter over; et-may-exit-contracted, fee-tea-ss03-exit-extension-shortened and utter-gay-exit-extension-dropped name the same kind of shorter reach at the name grain, which reads only the junction it judges and would bless whatever else the window did — the reason this one is written as a redraw, since these windows carry ·May’s own entry changes beside it. Where they do, may-entry-extension-dropped, may-entry-stub-dropped and bay-may-entry-contracted cover ·May’s entry and this rule covers the reach into it, and the rules explain the window between them. It matches only where every other pixel in the window is accounted for, so a window whose second change has no rule yet still reaches the review queue. Every window that reached a review session approved the shorter reach"
     match:
       before:
         pivots: [qsAt.ex-y0.before-may.ex-ext-5]
@@ -1407,11 +1407,11 @@ rules:
       except_left: []
   - id: ah-tea-xheight-join-created
     verdict: approve
-    note: "·Ah joins ·Tea at the x-height where the old font left a break, and ·Tea closes two columns onto it — one for the join, one for the tail ·Ah gives up — while holding its own advance, so whatever follows the pair moves with it. ·Tea's side is an x-height entry the full stance has only under ss03, granted by the unlock that carries qsAh among its lefts: authored as “Draw word-final ·Ah·Tea with the full bar under ss03”, widened to every letter that sticks out with a flat rightward stroke in “Always draw ·Tea's full bar after a flat x-height stroke under ss03”, and merged into the one record that carries its why: in “Consolidate ·Tea's `ss03` rules”. The tail is what “Stop expanding `·Ah ~x~ ·Tea` by a pixel under `ss03`” took off qsAh's extend record, so the ·Ah that drew a pixel into the gap draws none into the join. ·Ah's x-height exit has no toward-list at all, and the rule names the ·Ah that takes a baseline entry beside the one that takes none, since the letter draws the same sigmoid either way. ah-gay-xheight-join-created is the same break becoming an x-height join into the follower that closes a column further, ah-bay-exit-extension-dropped is the same tail coming off before ·Tea itself where the seam already stood at the x-height, and tea-full-bar-after-xheight-stroke-ss03 is the full bar ·Tea takes where the old font had already joined it. ah-tea-xheight-join-created-after-contracted-entry is the same join where ·J’ai has already pulled ·Ah's entry in, closing one column instead of two because that cell is a column narrower and ah-entry-contracted-after-jai's own count carries the tail. The shape holds ·Ah to its own-frame origin alone, so the dropped tail rides inside the join rather than being judged, and the cells both letters settle into are what bound it; a window carrying a second change beside the join is the combined match's rather than this rule's. Every window that reached a review session approved it"
+    note: "·Ah joins ·Tea at the x-height where the old font left a break, and ·Tea closes two columns onto it — one for the join, one for the tail ·Ah gives up — while holding its own advance, so whatever follows the pair moves with it. ·Tea's side is an x-height entry the full stance has only under ss03, granted by the unlock that carries qsAh among its lefts: authored as “Draw word-final ·Ah·Tea with the full bar under ss03”, widened to every letter that sticks out with a flat rightward stroke in “Always draw ·Tea's full bar after a flat x-height stroke under ss03”, and merged into the one record that carries its why: in “Consolidate ·Tea's `ss03` rules”. The tail is what “Stop expanding `·Ah ~x~ ·Tea` by a pixel under `ss03`” took off qsAh's extend record, so the ·Ah that drew a pixel into the gap draws none into the join. ·Ah's x-height exit has no toward-list at all, and the rule names the ·Ah that takes a baseline entry beside the one that takes none, since the letter draws the same sigmoid either way. ah-gay-xheight-join-created is the same break becoming an x-height join into the follower that closes a column further, ah-bay-exit-extension-dropped is the same tail coming off before ·Tea itself where the junction already stood at the x-height, and tea-full-bar-after-xheight-stroke-ss03 is the full bar ·Tea takes where the old font had already joined it. ah-tea-xheight-join-created-after-contracted-entry is the same join where ·J’ai has already pulled ·Ah's entry in, closing one column instead of two because that cell is a column narrower and ah-entry-contracted-after-jai's own count carries the tail. The shape holds ·Ah to its own-frame origin alone, so the dropped tail rides inside the join rather than being judged, and the cells both letters settle into are what bound it; a window carrying a second change beside the join is the combined match's rather than this rule's. Every window that reached a review session approved it"
     match:
       before:
         pivot: qsAh
-        seam_out: break
+        junction_out: break
         follower: qsTea
       after:
         joined: y5
@@ -1426,11 +1426,11 @@ rules:
       except_left: []
   - id: tea-baseline-join-created
     verdict: approve
-    note: "·Tea takes the full bar after a flat x-height stroke and joins the follower at the baseline where the old font drew the half stub and left a break, the follower coming one column nearer and holding its own advance. qsTea's full stance carries a baseline exit with no toward-list, so every follower whose baseline entry is open meets it, and the letters its policy refuses that exit before — ·Thaw, ·Excite, ·Exam and ·It, on the why recorded there — keep the break; what puts the full bar there is the same stance's x-height entry, unlocked under ss03 in “Make ·Tea under ss03 work right” for a left letter whose stroke arrives flat at the x-height and a follower that can enter at the baseline, and freed of that follower gate in “Always draw ·Tea's full bar after a flat x-height stroke under ss03”, so the bar descends whether or not anything takes it. The divergence ledger's reviewed-approved `ss03-chain-join-gains` entry is where the decision lives, capability-grained with no except list. tea-full-bar-after-xheight-stroke-ss03 names the picture ·Tea settles into and this rule the seam it opens, so the two match at one position and explain between them every window that carries anything else; tea-no-xheight-join-retargeted is the same bar meeting a ·No the old font already joined at the x-height, utter-tea-baseline-join-created runs the other way into ·Tea, and tea-i-exit-extension-dropped and tea-oy-ligature-break are ·Tea's other standing changes on this corpus. The followers named are the ones that hold their own advance: ·Day and ·Roe take the join on an entry the rebuild extends by a column and ·May on an exit it extends, each handing that column back past itself, and one rule declares one advance, so they want their own; ·Roe's contracted x-height entry moves its own frame, which a created join can only declare as columns its follower's joining form adds at its left edge, so those windows, and the ligature followers whose every window here is word-final and so never shows what the join carries past the follower, stay in the review queue. The shape judges the two letters' origins and placements and trusts the cells it names for their pictures, so a fill is only as honest as the rest of the window — it returns no match on any other ink on its own line, which a combined match judges pixel by pixel. Every window that reached a review session approved the join"
+    note: "·Tea takes the full bar after a flat x-height stroke and joins the follower at the baseline where the old font drew the half stub and left a break, the follower coming one column nearer and holding its own advance. qsTea's full stance carries a baseline exit with no toward-list, so every follower whose baseline entry is open meets it, and the letters its policy refuses that exit before — ·Thaw, ·Excite, ·Exam and ·It, on the why recorded there — keep the break; what puts the full bar there is the same stance's x-height entry, unlocked under ss03 in “Make ·Tea under ss03 work right” for a left letter whose stroke arrives flat at the x-height and a follower that can enter at the baseline, and freed of that follower gate in “Always draw ·Tea's full bar after a flat x-height stroke under ss03”, so the bar descends whether or not anything takes it. The divergence ledger's reviewed-approved `ss03-chain-join-gains` entry is where the decision lives, capability-grained with no except list. tea-full-bar-after-xheight-stroke-ss03 names the picture ·Tea settles into and this rule the junction it opens, so the two match at one position and explain between them every window that carries anything else; tea-no-xheight-join-retargeted is the same bar meeting a ·No the old font already joined at the x-height, utter-tea-baseline-join-created runs the other way into ·Tea, and tea-i-exit-extension-dropped and tea-oy-ligature-break are ·Tea's other standing changes on this corpus. The followers named are the ones that hold their own advance: ·Day and ·Roe take the join on an entry the rebuild extends by a column and ·May on an exit it extends, each handing that column back past itself, and one rule declares one advance, so they want their own; ·Roe's contracted x-height entry moves its own frame, which a created join can only declare as columns its follower's joining form adds at its left edge, so those windows, and the ligature followers whose every window here is word-final and so never shows what the join carries past the follower, stay in the review queue. The shape judges the two letters' origins and placements and trusts the cells it names for their pictures, so a fill is only as honest as the rest of the window — it returns no match on any other ink on its own line, which a combined match judges pixel by pixel. Every window that reached a review session approved the join"
     match:
       before:
         pivot: qsTea.half.en-y5.after-xheight-exit
-        seam_out: break
+        junction_out: break
         follower: [qsVie, qsSee, qsMay, qsNo, qsLow, qsAt, qsI, qsAh, qsUtter, qsOut, qsOoze]
       after:
         joined: y0
@@ -1469,11 +1469,11 @@ rules:
       except_left: []
   - id: pea-it-baseline-join-retargeted
     verdict: approve
-    note: "·Pea reaches ·It at the x-height where the old font joined the two at the baseline, drawing its half motion where the old font drew the full one, and ·It stands where it was — qsPea's policy refuses the baseline exit outright before ·It, on the user's why at “These join ·Pea through the half motion's x-height dip instead; without this refusal the structural floor would pick the lower baseline seam over the half chain”, so the letter reaches ·It out of that dip; qsPea's x-height exit is open to every letter that can enter at the x-height but ·Tea, ·Day, ·Fee, ·Ye, ·No and ·Owe, and qsIt's x-height entry is open to every left letter but ·It itself, the single exclusion “Never join ·It to itself” carved. Both surfaces and the refusal landed with the family in “Migrate the four worst families to the new rune-file format, conformance-verified”. Neither letter moves a column of its own, so whatever follows the pair stands still with it, and the rule names the ·Pea the old font entered at the x-height and at y6 beside the one it entered not at all, since the letter draws the same dip in all three, and the word-final ·It beside the one that goes on to a baseline exit. utter-it-baseline-join-retargeted and no-baseline-join-retargeted record the same raised seam into ·It one pivot over, pea-no-xheight-join-retargeted is ·Pea's own seam running the other way, and it-xheight-join-created and it-xheight-join-created-lengthened-reach are the new joins into that same entry. Where ·Gay closes the window, gay-entry-contracted covers its pulled-in baseline entry and utter-gay-exit-extension-dropped covers ·Utter's shorter reach into it, so those windows are the combined match's. Every window that reached a review session approved the raised join"
+    note: "·Pea reaches ·It at the x-height where the old font joined the two at the baseline, drawing its half motion where the old font drew the full one, and ·It stands where it was — qsPea's policy refuses the baseline exit outright before ·It, on the user's why at “These join ·Pea through the half motion's x-height dip instead; without this refusal the structural floor would pick the lower baseline seam over the half chain”, so the letter reaches ·It out of that dip; qsPea's x-height exit is open to every letter that can enter at the x-height but ·Tea, ·Day, ·Fee, ·Ye, ·No and ·Owe, and qsIt's x-height entry is open to every left letter but ·It itself, the single exclusion “Never join ·It to itself” carved. Both surfaces and the refusal landed with the family in “Migrate the four worst families to the new rune-file format, conformance-verified”. Neither letter moves a column of its own, so whatever follows the pair stands still with it, and the rule names the ·Pea the old font entered at the x-height and at y6 beside the one it entered not at all, since the letter draws the same dip in all three, and the word-final ·It beside the one that goes on to a baseline exit. utter-it-baseline-join-retargeted and no-baseline-join-retargeted record the same raised junction into ·It one pivot over, pea-no-xheight-join-retargeted is ·Pea's own junction running the other way, and it-xheight-join-created and it-xheight-join-created-lengthened-reach are the new joins into that same entry. Where ·Gay closes the window, gay-entry-contracted covers its pulled-in baseline entry and utter-gay-exit-extension-dropped covers ·Utter's shorter reach into it, so those windows are the combined match's. Every window that reached a review session approved the raised join"
     match:
       before:
         pivot: qsPea
-        seam_out: y0
+        junction_out: y0
         follower: qsIt
       after:
         retarget: y5
@@ -1489,11 +1489,11 @@ rules:
       except_left: []
   - id: utter-it-baseline-join-retargeted
     verdict: approve
-    note: "·Utter reaches ·It at the x-height where the old font joined the two at the baseline, drawing its mono stroke where the old font drew the alternate, and ·It stands where it was — qsUtter's stance order takes mono first and that stance's x-height exit carries no toward-list at all, so every follower with an open x-height entry meets it, while the alternate stance the old font drew here has a mandatory baseline exit and only the scoped x-height entry; qsIt's x-height entry is open to every left letter but ·It itself, the single exclusion “Never join ·It to itself” carved. The stance order and both surfaces landed with the letter in “Checkpoint the qsDay/qsUtter/qsNo migration batch with its triage residue down to 2,535”. Neither letter moves a column of its own, so whatever follows the pair stands still with it, and the rule names the ·Utter that takes a baseline entry beside the one that takes none, and the word-final ·It beside the one that goes on to a baseline exit. utter-may-baseline-join-retargeted is the same raised seam one follower over and utter-day-xheight-join-retargeted the seam running the other way; pea-it-baseline-join-retargeted and no-baseline-join-retargeted record this same raised seam into ·It from ·Pea and ·No, and it-xheight-join-created and it-xheight-join-created-lengthened-reach are the new joins into that same entry. utter-gay-exit-extension-dropped, utter-tea-baseline-join-created, utter-xheight-join-created and utter-baseline-join-created are ·Utter's other standing changes on this corpus, and where ·Gay closes the window gay-entry-contracted covers its pulled-in baseline entry, so those windows are the combined match's. Every window that reached a review session approved the raised join"
+    note: "·Utter reaches ·It at the x-height where the old font joined the two at the baseline, drawing its mono stroke where the old font drew the alternate, and ·It stands where it was — qsUtter's stance order takes mono first and that stance's x-height exit carries no toward-list at all, so every follower with an open x-height entry meets it, while the alternate stance the old font drew here has a mandatory baseline exit and only the scoped x-height entry; qsIt's x-height entry is open to every left letter but ·It itself, the single exclusion “Never join ·It to itself” carved. The stance order and both surfaces landed with the letter in “Checkpoint the qsDay/qsUtter/qsNo migration batch with its triage residue down to 2,535”. Neither letter moves a column of its own, so whatever follows the pair stands still with it, and the rule names the ·Utter that takes a baseline entry beside the one that takes none, and the word-final ·It beside the one that goes on to a baseline exit. utter-may-baseline-join-retargeted is the same raised junction one follower over and utter-day-xheight-join-retargeted the junction running the other way; pea-it-baseline-join-retargeted and no-baseline-join-retargeted record this same raised junction into ·It from ·Pea and ·No, and it-xheight-join-created and it-xheight-join-created-lengthened-reach are the new joins into that same entry. utter-gay-exit-extension-dropped, utter-tea-baseline-join-created, utter-xheight-join-created and utter-baseline-join-created are ·Utter's other standing changes on this corpus, and where ·Gay closes the window gay-entry-contracted covers its pulled-in baseline entry, so those windows are the combined match's. Every window that reached a review session approved the raised join"
     match:
       before:
         pivot: qsUtter
-        seam_out: y0
+        junction_out: y0
         follower: qsIt
       after:
         retarget: y5
@@ -1512,7 +1512,7 @@ rules:
     match:
       before:
         pivot: [qsFee, qsMay, qsI]
-        seam_out: break
+        junction_out: break
         follower: qsIt
       after:
         joined: y5
@@ -1540,7 +1540,7 @@ rules:
       before:
         pivot: qsJai
         except_pivots: [qsJai.en-y5.ex-y0.en-ext-2]
-        seam_out: break
+        junction_out: break
         follower: qsIt
       after:
         joined: y0
@@ -1559,11 +1559,11 @@ rules:
       except_left: []
   - id: key-it-baseline-join-created
     verdict: approve
-    note: "·It takes a baseline entry from ·Key where the old font left a break, closing a column onto ·Key's shortened foot and handing it straight back: the ·It that takes the join draws a pixel of baseline entry to the left of its stroke, so the letter is a column wider and everything past it stands where that shorter foot left it. What opens the seam is ss04 granting ·It the baseline-entry-and-baseline-exit pairing unconditionally, which is what “Let ss04 join ·It at the baseline on both sides with any neighbor” did; qsKey's baseline exit has carried qsIt on its toward-list since the letter landed in “Add ·Key”, and qsIt's baseline entry refuses only ·It itself, the single exclusion “Never join ·It to itself” carved. The other column the pair closes is the pixel of exit qsKey's contract record takes off before ·May, ·No and ·It, which key-exit-contracted already records, so that rule names ·Key's shorter foot and this one the seam that foot opens, and the two explain each of these windows between them; key-it-entry-extension-drawn names the pixel ·It draws to meet it, and key-it-entry-extension-drawn-exit-extension-dropped the same pixel on an ·It that gives up its own reach in the same stroke. it-baseline-join-created is the same new baseline join into ·It from the left letters that draw it no entry pixel, and key-no-baseline-join-created is ·Key's other new join here. Every window that reached a review session approved the join"
+    note: "·It takes a baseline entry from ·Key where the old font left a break, closing a column onto ·Key's shortened foot and handing it straight back: the ·It that takes the join draws a pixel of baseline entry to the left of its stroke, so the letter is a column wider and everything past it stands where that shorter foot left it. What opens the junction is ss04 granting ·It the baseline-entry-and-baseline-exit pairing unconditionally, which is what “Let ss04 join ·It at the baseline on both sides with any neighbor” did; qsKey's baseline exit has carried qsIt on its toward-list since the letter landed in “Add ·Key”, and qsIt's baseline entry refuses only ·It itself, the single exclusion “Never join ·It to itself” carved. The other column the pair closes is the pixel of exit qsKey's contract record takes off before ·May, ·No and ·It, which key-exit-contracted already records, so that rule names ·Key's shorter foot and this one the junction that foot opens, and the two explain each of these windows between them; key-it-entry-extension-drawn names the pixel ·It draws to meet it, and key-it-entry-extension-drawn-exit-extension-dropped the same pixel on an ·It that gives up its own reach in the same stroke. it-baseline-join-created is the same new baseline join into ·It from the left letters that draw it no entry pixel, and key-no-baseline-join-created is ·Key's other new join here. Every window that reached a review session approved the join"
     match:
       before:
         pivot: qsKey
-        seam_out: break
+        junction_out: break
         follower: qsIt
       after:
         joined: y0
@@ -1580,7 +1580,7 @@ rules:
       except_left: []
   - id: key-it-entry-extension-drawn
     verdict: approve
-    note: "·It draws a pixel of baseline entry to the left of its stroke after ·Key, and the stroke itself stands where it was, so nothing past ·It moves for it — qsIt's extend record lengthens that entry by a column after ·Key, transcribed from the old font in “Migrate the four worst families to the new rune-file format, conformance-verified” and live from the moment the letter it names joined the alphabet in “Add ·Key”, which is why ·It draws the pixel after nothing else. Where the old font left ·Key | ·It, the pixel arrives with a join: key-it-baseline-join-created names that seam and this rule the picture ·It settles into, so those windows are the combined match's. key-it-entry-extension-drawn-exit-extension-dropped is the same pixel on an ·It that gives up its baseline exit tail in the same stroke and so carries what follows a column closer, and this rule matches where the letter has no such tail to lose. Every window that reached a review session approved the drawn entry"
+    note: "·It draws a pixel of baseline entry to the left of its stroke after ·Key, and the stroke itself stands where it was, so nothing past ·It moves for it — qsIt's extend record lengthens that entry by a column after ·Key, transcribed from the old font in “Migrate the four worst families to the new rune-file format, conformance-verified” and live from the moment the letter it names joined the alphabet in “Add ·Key”, which is why ·It draws the pixel after nothing else. Where the old font left ·Key | ·It, the pixel arrives with a join: key-it-baseline-join-created names that junction and this rule the picture ·It settles into, so those windows are the combined match's. key-it-entry-extension-drawn-exit-extension-dropped is the same pixel on an ·It that gives up its baseline exit tail in the same stroke and so carries what follows a column closer, and this rule matches where the letter has no such tail to lose. Every window that reached a review session approved the drawn entry"
     match:
       before:
         pivots: [qsIt.ex-y0, qsIt.en-y0.ex-y0]
@@ -1595,7 +1595,7 @@ rules:
       except_left: []
   - id: key-it-entry-extension-drawn-exit-extension-dropped
     verdict: approve
-    note: "The same pixel of baseline entry ·It draws after ·Key, on an ·It that gives up the pixel of exit the old font drew in the same stroke, so what follows sits a column closer — qsIt's baseline-exit extend draws that tail only for a letter whose left neighbor joined it at the x-height, and ·Key joins it at the baseline, so the ·It that takes ·Key's entry draws none; the same record's right-hand except list withholds the tail again before ·I, ·May and ·Utter, and it-ah-exit-extension-dropped records that same narrowing where ·It's entry does not change. key-it-entry-extension-drawn is the same drawn entry on an ·It that keeps its reach, and key-it-baseline-join-created names the seam the pixel opens where the old font left ·Key | ·It. Every window that reached a review session approved the shorter reach"
+    note: "The same pixel of baseline entry ·It draws after ·Key, on an ·It that gives up the pixel of exit the old font drew in the same stroke, so what follows sits a column closer — qsIt's baseline-exit extend draws that tail only for a letter whose left neighbor joined it at the x-height, and ·Key joins it at the baseline, so the ·It that takes ·Key's entry draws none; the same record's right-hand except list withholds the tail again before ·I, ·May and ·Utter, and it-ah-exit-extension-dropped records that same narrowing where ·It's entry does not change. key-it-entry-extension-drawn is the same drawn entry on an ·It that keeps its reach, and key-it-baseline-join-created names the junction the pixel opens where the old font left ·Key | ·It. Every window that reached a review session approved the shorter reach"
     match:
       before:
         pivots: [qsIt.ex-y0.ex-ext-1]
@@ -1610,11 +1610,11 @@ rules:
       except_left: []
   - id: key-no-baseline-join-created
     verdict: approve
-    note: "·No takes a baseline entry from ·Key where the old font left a break, and closes a column onto ·Key's shortened foot while holding its own advance, so whatever follows the pair moves with it — qsNo's flipped stance carries the letter's only baseline entry, and its from-list has named qsKey since ·Key landed in “Add ·Key”, where qsKey's baseline exit took qsNo onto its toward-list in the same commit. The column is the one beyond the pixel of exit qsKey's contract record takes off before ·May, ·No and ·It, which key-exit-contracted already records, so that rule names ·Key's shorter foot and this one the seam that foot opens, and the two explain each of these windows between them. Where the chain runs on, it-baseline-join-created names ·No's own outgoing seam into ·It and the two rules explain those windows between them; key-it-baseline-join-created is ·Key's other new join here. Every window that reached a review session approved the join"
+    note: "·No takes a baseline entry from ·Key where the old font left a break, and closes a column onto ·Key's shortened foot while holding its own advance, so whatever follows the pair moves with it — qsNo's flipped stance carries the letter's only baseline entry, and its from-list has named qsKey since ·Key landed in “Add ·Key”, where qsKey's baseline exit took qsNo onto its toward-list in the same commit. The column is the one beyond the pixel of exit qsKey's contract record takes off before ·May, ·No and ·It, which key-exit-contracted already records, so that rule names ·Key's shorter foot and this one the junction that foot opens, and the two explain each of these windows between them. Where the chain runs on, it-baseline-join-created names ·No's own outgoing junction into ·It and the two rules explain those windows between them; key-it-baseline-join-created is ·Key's other new join here. Every window that reached a review session approved the join"
     match:
       before:
         pivot: qsKey
-        seam_out: break
+        junction_out: break
         follower: qsNo
       after:
         joined: y0
@@ -1629,7 +1629,7 @@ rules:
       except_left: []
   - id: jai-crown-contracted-by-two
     verdict: approve
-    note: "·J’ai’s crown pulls in after ·Ah while the baseline reach the letter carries stays exactly as it was — qsJai’s contract record has asked for two columns of crown after ·Ah and ·Utter since the letter landed, and the old font spelled that seam partly on ·Ah’s exit anchor and partly on ·J’ai’s own trimmed left edge, the tuck-versus-trim re-spelling rebuild/m1-divergences.yaml records, so one pixel of crown is what comes off here. jai-crown-contracted is the same stroke one column deep, after ·Pea, ·Tea, ·No, ·Low, ·At and ·I; jai-entry-contracted-by-two-exit-extension-dropped is this crown beside a tail that comes off in the same stroke; and the ·Utter that asks for the same two columns meets a ·J’ai the old font drew with its crown full and loses a second pixel, so it is a window of its own. The rule names the word-final crown beside the one that goes on to a baseline exit, since ·J’ai draws the same picture either way. Every window that reached a review session approved the tighter crown"
+    note: "·J’ai’s crown pulls in after ·Ah while the baseline reach the letter carries stays exactly as it was — qsJai’s contract record has asked for two columns of crown after ·Ah and ·Utter since the letter landed, and the old font spelled that junction partly on ·Ah’s exit anchor and partly on ·J’ai’s own trimmed left edge, the tuck-versus-trim re-spelling rebuild/m1-divergences.yaml records, so one pixel of crown is what comes off here. jai-crown-contracted is the same stroke one column deep, after ·Pea, ·Tea, ·No, ·Low, ·At and ·I; jai-entry-contracted-by-two-exit-extension-dropped is this crown beside a tail that comes off in the same stroke; and the ·Utter that asks for the same two columns meets a ·J’ai the old font drew with its crown full and loses a second pixel, so it is a window of its own. The rule names the word-final crown beside the one that goes on to a baseline exit, since ·J’ai draws the same picture either way. Every window that reached a review session approved the tighter crown"
     match:
       before:
         pivots: [qsJai.en-y5.ex-y0.en-trim-2]
@@ -1643,11 +1643,11 @@ rules:
       except_left: []
   - id: tea-baseline-join-created-follower-widened
     verdict: approve
-    note: "·Tea's full bar joins ·Day, ·Roe and ·May at the baseline where the old font drew the half stub and left a break, and each of those followers takes the join on a stroke the rebuild extends by a column, so the follower comes one column nearer and hands that column straight back past itself. tea-baseline-join-created is the same seam into the followers that hold their own advance, and its note leaves these three out for exactly this reason — one rule declares one advance. ·Day's and ·Roe's baseline entries carry the extra column on their own extend records, qsDay's before ·Tea and ·Ye since “Checkpoint the qsDay/qsUtter/qsNo migration batch with its triage residue down to 2,535” and qsRoe's before an exitless ·Tea since “Set ·Roe back a pixel off ·Tea's bar when nothing joins on after it”, while ·May's column comes off its own x-height exit, the by-1 extend qsMay draws whenever its entry is live. What puts the full bar in front of them is qsTea's ss03 x-height unlock, authored as “Always draw ·Tea's full bar after a flat x-height stroke under ss03” and merged into the one record that carries its why: in “Consolidate ·Tea's `ss03` rules”, and the ·Et-scoped ss05 unlock of the full stance's baseline-entry-and-baseline-exit pairing, which is why the rule names the ·Tea entered at the baseline beside the one entered at the x-height; the divergence ledger's reviewed-approved `ss03-chain-join-gains` entry is where the decision lives, capability-grained with no except list. The rule covers only the followers that hand back exactly one column: the ·Roe that gives up a baseline exit of its own as it takes the entry hands back two, the ·May whose old font already drew the reach hands back none, and the ·Roe that settles into a contracted x-height entry moves its own frame, which a created join can only declare as columns its follower's joining form adds at its left edge — all three stay in the review queue, as do the ·Day+Utter windows, every one of which is word-final and so never shows what the join carries past the follower. Every window that reached a review session approved the join"
+    note: "·Tea's full bar joins ·Day, ·Roe and ·May at the baseline where the old font drew the half stub and left a break, and each of those followers takes the join on a stroke the rebuild extends by a column, so the follower comes one column nearer and hands that column straight back past itself. tea-baseline-join-created is the same junction into the followers that hold their own advance, and its note leaves these three out for exactly this reason — one rule declares one advance. ·Day's and ·Roe's baseline entries carry the extra column on their own extend records, qsDay's before ·Tea and ·Ye since “Checkpoint the qsDay/qsUtter/qsNo migration batch with its triage residue down to 2,535” and qsRoe's before an exitless ·Tea since “Set ·Roe back a pixel off ·Tea's bar when nothing joins on after it”, while ·May's column comes off its own x-height exit, the by-1 extend qsMay draws whenever its entry is live. What puts the full bar in front of them is qsTea's ss03 x-height unlock, authored as “Always draw ·Tea's full bar after a flat x-height stroke under ss03” and merged into the one record that carries its why: in “Consolidate ·Tea's `ss03` rules”, and the ·Et-scoped ss05 unlock of the full stance's baseline-entry-and-baseline-exit pairing, which is why the rule names the ·Tea entered at the baseline beside the one entered at the x-height; the divergence ledger's reviewed-approved `ss03-chain-join-gains` entry is where the decision lives, capability-grained with no except list. The rule covers only the followers that hand back exactly one column: the ·Roe that gives up a baseline exit of its own as it takes the entry hands back two, the ·May whose old font already drew the reach hands back none, and the ·Roe that settles into a contracted x-height entry moves its own frame, which a created join can only declare as columns its follower's joining form adds at its left edge — all three stay in the review queue, as do the ·Day+Utter windows, every one of which is word-final and so never shows what the join carries past the follower. Every window that reached a review session approved the join"
     match:
       before:
         pivot: qsTea
-        seam_out: break
+        junction_out: break
         follower: [qsDay, qsMay, qsRoe]
       after:
         joined: y0
@@ -1669,7 +1669,7 @@ rules:
     match:
       before:
         pivot: qsAh
-        seam_out: break
+        junction_out: break
         follower: qsTea
       after:
         joined: y5
@@ -1687,7 +1687,7 @@ rules:
     match:
       before:
         pivot: qsMay
-        seam_out: y5
+        junction_out: y5
         follower: qsFee
       after:
         gap: 1
@@ -1699,7 +1699,7 @@ rules:
       except_left: []
   - id: may-xheight-exit-and-reach-dropped
     verdict: approve
-    note: "·May draws its plain loop where the old font drew an x-height exit stroke with a pixel of reach on it into a break, and whatever follows comes two columns closer — the stroke and the reach going together. may-xheight-exit-dropped is the same loop where the old font drew no reach and the follower comes one column closer, and its note leaves out this deeper cell swap, since a redrawn rule declares one cell swap and one count. The decision is that rule's in full: qsMay's refuse record gives the baseline exit up before ·Tea on the user's why at “Let ·Ah·May·Tea join on both sides of ·May again”, everywhere but after ·Ah and unconditionally under ss03, the x-height exit that would otherwise stand in its place is the one qsMay's prefer record declines before ·Tea, an exception it has carried since “Reach ·Utter into ·May, and rejoin four more chains”, and the loop stance forbids taking an x-height entry and an x-height exit at once, so a ·May that has taken a new x-height entry reaches nothing forward. Where ·Utter leads, utter-baseline-join-created and utter-may-baseline-join-retargeted cover the rest of the window; where ·Ah does, ah-may-xheight-join-created and ah-may-xheight-join-created-after-contracted-entry do. The cell swap is read at the pivot alone and says nothing about that letter's own outgoing seam, so a window where the ·Fee ·May used to reach at the x-height stands off it instead gives those two columns straight back and has no combined match here — a redrawn cell swap and a dropped join cannot share one position — and may-fee-xheight-join-dropped is the gap seen on its own. Every window that reached a review session approved this loop or called it either"
+    note: "·May draws its plain loop where the old font drew an x-height exit stroke with a pixel of reach on it into a break, and whatever follows comes two columns closer — the stroke and the reach going together. may-xheight-exit-dropped is the same loop where the old font drew no reach and the follower comes one column closer, and its note leaves out this deeper cell swap, since a redrawn rule declares one cell swap and one count. The decision is that rule's in full: qsMay's refuse record gives the baseline exit up before ·Tea on the user's why at “Let ·Ah·May·Tea join on both sides of ·May again”, everywhere but after ·Ah and unconditionally under ss03, the x-height exit that would otherwise stand in its place is the one qsMay's prefer record declines before ·Tea, an exception it has carried since “Reach ·Utter into ·May, and rejoin four more chains”, and the loop stance forbids taking an x-height entry and an x-height exit at once, so a ·May that has taken a new x-height entry reaches nothing forward. Where ·Utter leads, utter-baseline-join-created and utter-may-baseline-join-retargeted cover the rest of the window; where ·Ah does, ah-may-xheight-join-created and ah-may-xheight-join-created-after-contracted-entry do. The cell swap is read at the pivot alone and says nothing about that letter's own outgoing junction, so a window where the ·Fee ·May used to reach at the x-height stands off it instead gives those two columns straight back and has no combined match here — a redrawn cell swap and a dropped join cannot share one position — and may-fee-xheight-join-dropped is the gap seen on its own. Every window that reached a review session approved this loop or called it either"
     match:
       before:
         pivots: [qsMay.ex-ext-1, qsMay.en-y0.ex-y5.ex-ext-1]
@@ -1715,7 +1715,7 @@ rules:
     match:
       before:
         pivot: qsAh
-        seam_out: break
+        junction_out: break
         follower: qsMay
       after:
         joined: y5
@@ -1734,7 +1734,7 @@ rules:
     match:
       before:
         pivot: qsAh
-        seam_out: break
+        junction_out: break
         follower: qsMay
       after:
         joined: y5
@@ -1748,11 +1748,11 @@ rules:
       except_left: []
   - id: it-roe-xheight-join-retargeted
     verdict: approve
-    note: "·It drops to the baseline to join ·Roe, where the old font joined the two at the x-height, and neither letter moves: ·Roe redraws around the lowered seam and holds its own advance. ·Roe is one stroke between two tips on the left, so whichever tip receives the join the other is the one that carries on — the rune's own note, beside the pairing that forbids entering and leaving at the same height, both landed in “Declare ·I done and add ·Roe” — and these are the windows where ·Roe goes on to reach ·Oy, ·Ox, ·Awe, ·Eight or ·J’ai at the x-height, so its incoming seam has to come down. The ·It that meets it is the one qsIt's pairing table unlocks under ss04 alone, on “Let ss04 join ·It at the baseline on both sides with any neighbor”, which is why these windows diverge under that configuration and no other, and the extra column of ·Roe's entry is qsRoe's own extend record after ·It. it-roe-baseline-join-retargeted is the same seam moving the other way, where ·Roe's outgoing stroke is the baseline one; roe-oy-xheight-join-created and roe-thaw-baseline-join-created name the joins ·Roe's free tip opens, and this rule explains those windows beside them. It covers only the ·It the old font entered at the baseline and that settles into a cell keeping its picture, so an ·It that gains a pixel of exit as the seam drops is a window of its own. Every window that reached a review session approved the lowered join"
+    note: "·It drops to the baseline to join ·Roe, where the old font joined the two at the x-height, and neither letter moves: ·Roe redraws around the lowered junction and holds its own advance. ·Roe is one stroke between two tips on the left, so whichever tip receives the join the other is the one that carries on — the rune's own note, beside the pairing that forbids entering and leaving at the same height, both landed in “Declare ·I done and add ·Roe” — and these are the windows where ·Roe goes on to reach ·Oy, ·Ox, ·Awe, ·Eight or ·J’ai at the x-height, so its incoming junction has to come down. The ·It that meets it is the one qsIt's pairing table unlocks under ss04 alone, on “Let ss04 join ·It at the baseline on both sides with any neighbor”, which is why these windows diverge under that configuration and no other, and the extra column of ·Roe's entry is qsRoe's own extend record after ·It. it-roe-baseline-join-retargeted is the same junction moving the other way, where ·Roe's outgoing stroke is the baseline one; roe-oy-xheight-join-created and roe-thaw-baseline-join-created name the joins ·Roe's free tip opens, and this rule explains those windows beside them. It covers only the ·It the old font entered at the baseline and that settles into a cell keeping its picture, so an ·It that gains a pixel of exit as the junction drops is a window of its own. Every window that reached a review session approved the lowered join"
     match:
       before:
         pivot: qsIt.en-y0.ex-y5
-        seam_out: y5
+        junction_out: y5
         follower: qsRoe
       after:
         retarget: y0
@@ -1766,11 +1766,11 @@ rules:
       except_left: []
   - id: roe-oy-xheight-join-created
     verdict: approve
-    note: "·Roe joins ·Oy at the x-height where the old font left a break, ·Oy opens its loop on the left to receive it, and the pair holds its column: the open form is three columns narrower, so whatever follows comes that much nearer while ·Oy itself stands where it was. The open-on-the-left bitmap hangs off the only x-height entry ·Oy has, whose from-list has carried qsRoe since “Migrate the four worst families to the new rune-file format, conformance-verified”, so the redraw is the follower half of this join rather than a change of its own, and qsRoe's x-height exit has named qsOy on its toward-list since the letter landed in “Declare ·I done and add ·Roe”. no-oy-xheight-join-created is the same break becoming the same join from ·No, where the pivot closes a column onto the follower as well. The rule names the ·Roe that takes a baseline entry beside the one that takes none, since the letter draws the same closing arm either way, and the word-final ·Oy beside the one that goes on to a baseline exit, for the same reason; the ·Roe whose entry contracts moves its own frame, which a created join can only declare as columns its follower's joining form adds at its left edge, so those windows are not this one. Where ·It's seam into ·Roe comes down in the same window, it-roe-xheight-join-retargeted names ·Roe's incoming seam and this rule its outgoing one. Every window that reached a review session approved the join"
+    note: "·Roe joins ·Oy at the x-height where the old font left a break, ·Oy opens its loop on the left to receive it, and the pair holds its column: the open form is three columns narrower, so whatever follows comes that much nearer while ·Oy itself stands where it was. The open-on-the-left bitmap hangs off the only x-height entry ·Oy has, whose from-list has carried qsRoe since “Migrate the four worst families to the new rune-file format, conformance-verified”, so the redraw is the follower half of this join rather than a change of its own, and qsRoe's x-height exit has named qsOy on its toward-list since the letter landed in “Declare ·I done and add ·Roe”. no-oy-xheight-join-created is the same break becoming the same join from ·No, where the pivot closes a column onto the follower as well. The rule names the ·Roe that takes a baseline entry beside the one that takes none, since the letter draws the same closing arm either way, and the word-final ·Oy beside the one that goes on to a baseline exit, for the same reason; the ·Roe whose entry contracts moves its own frame, which a created join can only declare as columns its follower's joining form adds at its left edge, so those windows are not this one. Where ·It's junction into ·Roe comes down in the same window, it-roe-xheight-join-retargeted names ·Roe's incoming junction and this rule its outgoing one. Every window that reached a review session approved the join"
     match:
       before:
         pivot: qsRoe
-        seam_out: break
+        junction_out: break
         follower: qsOy
       after:
         joined: y5
@@ -1787,11 +1787,11 @@ rules:
       except_left: []
   - id: it-roe-baseline-join-retargeted
     verdict: approve
-    note: "·It reaches up to the x-height to join ·Roe, where the old font joined the two at the baseline, and neither letter moves: ·Roe redraws around the raised seam and holds its own advance. It is the mirror of it-roe-xheight-join-retargeted, and for the same reason — ·Roe is one stroke between two tips on the left, so whichever tip receives the join the other is the one that carries on, the rune's own note beside the pairing that forbids entering and leaving at the same height, both from “Declare ·I done and add ·Roe” — except that here ·Roe goes on to reach ·Thaw, ·Vie, ·See, ·No or ·Ah at the baseline, so its incoming seam has to go up. The extra column of ·Roe's entry is qsRoe's own extend record after ·It, and the rule is bounded to the ·It the old font drew after ·Day, which is the ·It that keeps its picture across the change: an ·It that gives up a pixel of exit as the seam rises moves its follower another column and is a window of its own. roe-thaw-baseline-join-created names the join ·Roe's free tip opens, and the two rules explain those windows between them. Every window that reached a review session approved the raised join or called it either"
+    note: "·It reaches up to the x-height to join ·Roe, where the old font joined the two at the baseline, and neither letter moves: ·Roe redraws around the raised junction and holds its own advance. It is the mirror of it-roe-xheight-join-retargeted, and for the same reason — ·Roe is one stroke between two tips on the left, so whichever tip receives the join the other is the one that carries on, the rune's own note beside the pairing that forbids entering and leaving at the same height, both from “Declare ·I done and add ·Roe” — except that here ·Roe goes on to reach ·Thaw, ·Vie, ·See, ·No or ·Ah at the baseline, so its incoming junction has to go up. The extra column of ·Roe's entry is qsRoe's own extend record after ·It, and the rule is bounded to the ·It the old font drew after ·Day, which is the ·It that keeps its picture across the change: an ·It that gives up a pixel of exit as the junction rises moves its follower another column and is a window of its own. roe-thaw-baseline-join-created names the join ·Roe's free tip opens, and the two rules explain those windows between them. Every window that reached a review session approved the raised join or called it either"
     match:
       before:
         pivot: qsIt.en-y0.ex-y0.after-day
-        seam_out: y0
+        junction_out: y0
         follower: qsRoe
       after:
         retarget: y5
@@ -1806,11 +1806,11 @@ rules:
       except_left: []
   - id: roe-thaw-baseline-join-created
     verdict: approve
-    note: "·Roe joins ·Thaw at the baseline where the old font left a break, and ·Thaw closes three columns onto it while holding its own advance. qsThaw's baseline entry is the only entry the letter has and has carried qsRoe on its from-list since “Add ·Thaw”, and qsRoe's baseline exit has named qsThaw first on its toward-list since the letter landed in “Declare ·I done and add ·Roe”, so the join follows from open surfaces on both sides rather than from a pair ruling. The rule names the ·Roe that takes no entry beside the one entered at the x-height with the extra column its extend record draws after ·It, since the letter draws the same closing arm either way. Where ·It's seam into ·Roe rises in the same window, it-roe-baseline-join-retargeted names ·Roe's incoming seam and this rule its outgoing one, and the two explain the window between them. it-thaw-baseline-join-dropped and no-thaw-baseline-join-dropped are the reaches ·Thaw loses on the same corpus, and no-thaw-baseline-join-created the one it gains from ·No. Nothing in this survey has reached a review session — every window of it is blank — so the join is ruled from the review queue rather than copied from a verdict by the duplicate fill, exactly as ·It's break in front of ·Thaw was"
+    note: "·Roe joins ·Thaw at the baseline where the old font left a break, and ·Thaw closes three columns onto it while holding its own advance. qsThaw's baseline entry is the only entry the letter has and has carried qsRoe on its from-list since “Add ·Thaw”, and qsRoe's baseline exit has named qsThaw first on its toward-list since the letter landed in “Declare ·I done and add ·Roe”, so the join follows from open surfaces on both sides rather than from a pair ruling. The rule names the ·Roe that takes no entry beside the one entered at the x-height with the extra column its extend record draws after ·It, since the letter draws the same closing arm either way. Where ·It's junction into ·Roe rises in the same window, it-roe-baseline-join-retargeted names ·Roe's incoming junction and this rule its outgoing one, and the two explain the window between them. it-thaw-baseline-join-dropped and no-thaw-baseline-join-dropped are the reaches ·Thaw loses on the same corpus, and no-thaw-baseline-join-created the one it gains from ·No. Nothing in this survey has reached a review session — every window of it is blank — so the join is ruled from the review queue rather than copied from a verdict by the duplicate fill, exactly as ·It's break in front of ·Thaw was"
     match:
       before:
         pivot: qsRoe
-        seam_out: break
+        junction_out: break
         follower: qsThaw
       after:
         joined: y0
@@ -1825,7 +1825,7 @@ rules:
       except_left: []
   - id: tea-jai-xheight-extension-added
     verdict: approve
-    note: "Half-·Tea reaches one pixel further into ·J’ai than the old font drew, carrying ·J’ai and everything past it one column right. The reach is qsTea's own extend record, which lengthens that x-height exit by one wherever ·May stands in front of the bar and ·J’ai closes the word, and carries the user's why: on the record itself; it landed in “Make ·May and ·J’ai not touch, even when there’s a ·Tea “between” them”. The divergence is the one-slot-per-glyph limit same-seam-extension-non-summing records from the other side: the old font spends ·May's single extension slot on the ·May·Tea seam and has none left for the ·Tea·J’ai one, while the rebuild puts the whole connector on ·Tea's own exit. gay-jai-xheight-extension-added is the same gained reach into the same letter read off ·Gay's record, and gay-no-xheight-extension-added, vie-utter-xheight-extension-added and day-utter-xheight-extension-added are the rest of that family. What ·J’ai does under the longer reach is a change of its own, so a window where its crown pulls in is the combined match's, with jai-crown-contracted. Every window that reached a review session approved the longer reach"
+    note: "Half-·Tea reaches one pixel further into ·J’ai than the old font drew, carrying ·J’ai and everything past it one column right. The reach is qsTea's own extend record, which lengthens that x-height exit by one wherever ·May stands in front of the bar and ·J’ai closes the word, and carries the user's why: on the record itself; it landed in “Make ·May and ·J’ai not touch, even when there’s a ·Tea “between” them”. The divergence is the one-slot-per-glyph limit same-junction-extension-non-summing records from the other side: the old font spends ·May's single extension slot on the ·May·Tea junction and has none left for the ·Tea·J’ai one, while the rebuild puts the whole connector on ·Tea's own exit. gay-jai-xheight-extension-added is the same gained reach into the same letter read off ·Gay's record, and gay-no-xheight-extension-added, vie-utter-xheight-extension-added and day-utter-xheight-extension-added are the rest of that family. What ·J’ai does under the longer reach is a change of its own, so a window where its crown pulls in is the combined match's, with jai-crown-contracted. Every window that reached a review session approved the longer reach"
     match:
       before:
         pivots: [qsTea.half.ex-y5]
@@ -1836,7 +1836,7 @@ rules:
       except_left: []
   - id: jai-entry-extension-dropped-reach-kept
     verdict: approve
-    note: "·J’ai gives up the two columns of crown entry the old font drew after ·Gay and ·May and keeps the pixel of baseline reach it carries forward, so the letter redraws in place and holds its own advance. jai-entry-extension-dropped is the same crown coming off where the reach goes with it and the follower comes a column closer; the entry extension is a record qsJai does not carry at all — the ·Gay arm was deleted in “Extend ·Gay ~x~ ·J’ai by another pixel”, which put that reach on qsGay's x-height exit at by-3, and the ·May arm never entered the rune, qsMay's own by-2 exit toward the qsJai family carrying it instead — and rebuild/m1-divergences.yaml holds both readings, as same-seam-extension-non-summing and may-jai-extension-consolidated. What the letter's own outgoing seam does is a change of its own: where the reach it keeps newly lands on ·It, jai-it-baseline-join-created-after-dropped-crown covers that seam and the two rules explain the window between them, the cell swap judging the picture ·J’ai settles into and the join the seam that picture opens; where ·Gay in front of it reaches a pixel further, gay-jai-xheight-extension-added does. jai-crown-contracted, jai-entry-contracted-exit-extension-dropped and jai-entry-contracted-by-two-exit-extension-dropped are ·J’ai's other standing changes at the crown, and jai-exit-extension-dropped the reach at the other end. Every window that reached a review session approved the tighter crown"
+    note: "·J’ai gives up the two columns of crown entry the old font drew after ·Gay and ·May and keeps the pixel of baseline reach it carries forward, so the letter redraws in place and holds its own advance. jai-entry-extension-dropped is the same crown coming off where the reach goes with it and the follower comes a column closer; the entry extension is a record qsJai does not carry at all — the ·Gay arm was deleted in “Extend ·Gay ~x~ ·J’ai by another pixel”, which put that reach on qsGay's x-height exit at by-3, and the ·May arm never entered the rune, qsMay's own by-2 exit toward the qsJai family carrying it instead — and rebuild/m1-divergences.yaml holds both readings, as same-junction-extension-non-summing and may-jai-extension-consolidated. What the letter's own outgoing junction does is a change of its own: where the reach it keeps newly lands on ·It, jai-it-baseline-join-created-after-dropped-crown covers that junction and the two rules explain the window between them, the cell swap judging the picture ·J’ai settles into and the join the junction that picture opens; where ·Gay in front of it reaches a pixel further, gay-jai-xheight-extension-added does. jai-crown-contracted, jai-entry-contracted-exit-extension-dropped and jai-entry-contracted-by-two-exit-extension-dropped are ·J’ai's other standing changes at the crown, and jai-exit-extension-dropped the reach at the other end. Every window that reached a review session approved the tighter crown"
     match:
       before:
         pivots: [qsJai.en-y5.ex-y0.en-ext-2]
@@ -1848,11 +1848,11 @@ rules:
       except_left: []
   - id: jai-it-baseline-join-created-after-dropped-crown
     verdict: approve
-    note: "·J’ai joins ·It at the baseline where the old font left a break, and ·It closes one column onto it — the windows where the crown entry the old font stacked in front of ·J’ai has come off and the letter keeps the pixel of reach it draws forward instead. jai-it-baseline-join-created is the same seam on the ·J’ai the old font drew without that crown: there the letter gains the reach as it takes the join, the gained pixel and the closing column cancel, and ·It stands where it was, so the two windows want two counts and the other rule declines this before form by name. qsJai's baseline exit has named qsIt on its toward-list since the letter landed in “Add ·J’ai”, and qsIt's baseline entry carries no from-list at all, refusing only ·It itself on the why at “·It never joins to itself”, so the join follows from open surfaces on both sides rather than from a pair ruling. jai-entry-extension-dropped-reach-kept names the picture ·J’ai settles into and this rule the seam that picture opens, so the two match at one position and explain between them every window that carries anything else. Where ·It gives up its own baseline exit in the same stroke that change has no rule yet, so those windows stay in the review queue. Every window that reached a review session approved the join"
+    note: "·J’ai joins ·It at the baseline where the old font left a break, and ·It closes one column onto it — the windows where the crown entry the old font stacked in front of ·J’ai has come off and the letter keeps the pixel of reach it draws forward instead. jai-it-baseline-join-created is the same junction on the ·J’ai the old font drew without that crown: there the letter gains the reach as it takes the join, the gained pixel and the closing column cancel, and ·It stands where it was, so the two windows want two counts and the other rule declines this before form by name. qsJai's baseline exit has named qsIt on its toward-list since the letter landed in “Add ·J’ai”, and qsIt's baseline entry carries no from-list at all, refusing only ·It itself on the why at “·It never joins to itself”, so the join follows from open surfaces on both sides rather than from a pair ruling. jai-entry-extension-dropped-reach-kept names the picture ·J’ai settles into and this rule the junction that picture opens, so the two match at one position and explain between them every window that carries anything else. Where ·It gives up its own baseline exit in the same stroke that change has no rule yet, so those windows stay in the review queue. Every window that reached a review session approved the join"
     match:
       before:
         pivot: qsJai.en-y5.ex-y0.en-ext-2
-        seam_out: break
+        junction_out: break
         follower: qsIt
       after:
         joined: y0
@@ -1883,7 +1883,7 @@ rules:
     match:
       before:
         pivot: qsThey_qsZoo
-        seam_out: break
+        junction_out: break
         follower: [qsTea, qsDay, qsDay_qsUtter, qsGay, qsThaw, qsVie, qsVie_qsUtter, qsSee, qsZoo, qsMay, qsNo, qsLow, qsRoe, qsIt, qsAt, qsI, qsAh, qsUtter, qsOut, qsOut_qsTea, qsOoze]
       after:
         joined: y0
@@ -1955,11 +1955,11 @@ rules:
       except_left: []
   - id: fee-xheight-join-created
     verdict: approve
-    note: "·Fee reaches forward at the x-height and joins ·Zoo, ·Awe and ·Ox where the old font left a break, and each of them closes one column onto it and holds its own advance, so whatever follows the pair moves with the follower. The join follows from open surfaces on both sides rather than from a pair ruling: the loop stance carries qsFee's only x-height exit, and its toward-list has carried qsZoo since “Add ·Zoo”, qsAwe since “Add ·Awe” and qsOx since “Add ·Ox” — the same commits that put qsFee on each follower's x-height entry from-list. ·Fee draws that exit rather than bending its loop backwards wherever it has something to reach: qsFee's prefer takes the forward exit over the x-height entry on the user's why at “Generally connecting to the next letter is easier to do than to bend ·Fee backwards”, generalized to every neighbor in “·Fee: Prefer connecting to the next letter, not the previous”, and the letter can never hold both, on qsFee's own note that it cannot join both to and from at the x-height on the same letter. qsFee's extend record names none of these three, so the exit reaches at its own length and the follower closes the column — which is what tells this rule from it-xheight-join-created-lengthened-reach, where the pixel the reach adds is the column the join would otherwise have closed. The rule names the word-final follower beside the one that goes on to a baseline exit, since each of these letters draws the same picture either way, and the cell it names on ·Fee's side is the one that takes no entry at all, the ·Fee that stands where the window leaves it: a ·Fee the old font bent backwards gives that reach up and moves a column right as it takes this one, which is the window fee-unjoined-loop's note leaves out. ·J’ai and ·Oy take the same new reach on counts of their own — ·J’ai closes two columns rather than one, and ·Oy opens its loop on the left to receive the join and draws that open form narrower — so each is a rule of its own. utter-xheight-join-created is this same exit into the ·Utter whose alternate form gives the column straight back, fee-tea-ss03-join-restored the one ss03 opens, and no-fee-xheight-join-created the seam running into ·Fee instead. ·They·Utter·Fee·Awe and ·They·Utter·Fee·Ox are this stroke one follower over, and every window of it that reached a review session approved the join"
+    note: "·Fee reaches forward at the x-height and joins ·Zoo, ·Awe and ·Ox where the old font left a break, and each of them closes one column onto it and holds its own advance, so whatever follows the pair moves with the follower. The join follows from open surfaces on both sides rather than from a pair ruling: the loop stance carries qsFee's only x-height exit, and its toward-list has carried qsZoo since “Add ·Zoo”, qsAwe since “Add ·Awe” and qsOx since “Add ·Ox” — the same commits that put qsFee on each follower's x-height entry from-list. ·Fee draws that exit rather than bending its loop backwards wherever it has something to reach: qsFee's prefer takes the forward exit over the x-height entry on the user's why at “Generally connecting to the next letter is easier to do than to bend ·Fee backwards”, generalized to every neighbor in “·Fee: Prefer connecting to the next letter, not the previous”, and the letter can never hold both, on qsFee's own note that it cannot join both to and from at the x-height on the same letter. qsFee's extend record names none of these three, so the exit reaches at its own length and the follower closes the column — which is what tells this rule from it-xheight-join-created-lengthened-reach, where the pixel the reach adds is the column the join would otherwise have closed. The rule names the word-final follower beside the one that goes on to a baseline exit, since each of these letters draws the same picture either way, and the cell it names on ·Fee's side is the one that takes no entry at all, the ·Fee that stands where the window leaves it: a ·Fee the old font bent backwards gives that reach up and moves a column right as it takes this one, which is the window fee-unjoined-loop's note leaves out. ·J’ai and ·Oy take the same new reach on counts of their own — ·J’ai closes two columns rather than one, and ·Oy opens its loop on the left to receive the join and draws that open form narrower — so each is a rule of its own. utter-xheight-join-created is this same exit into the ·Utter whose alternate form gives the column straight back, fee-tea-ss03-join-restored the one ss03 opens, and no-fee-xheight-join-created the junction running into ·Fee instead. ·They·Utter·Fee·Awe and ·They·Utter·Fee·Ox are this stroke one follower over, and every window of it that reached a review session approved the join"
     match:
       before:
         pivot: qsFee
-        seam_out: break
+        junction_out: break
         follower: [qsZoo, qsAwe, qsOx]
       after:
         joined: y5

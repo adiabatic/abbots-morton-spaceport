@@ -1,4 +1,4 @@
-"""Print codepoint windows' old-font baseline (glyphs and seams, every configuration) beside the rebuild's settlement.
+"""Print codepoint windows' old-font baseline (glyphs and junctions, every configuration) beside the rebuild's settlement.
 Usage: uv run python rebuild/tools/probe.py E653:E666:E652 [E652:E67A ...] [--no-baseline]
 
 Every argument is a window. All windows go through one `explain_many` call across the acceptance configurations, so the explainer's warm-up is paid once per process. The output is one `=== window X ===` block per argument, in argument order, and each block is what that window prints when probed alone. `--no-baseline` skips reading the baseline tables and omits each configuration's two OLD lines.
@@ -58,12 +58,12 @@ def parse_window(entry: str) -> list[int] | None:
 
 
 def render_window(spec, window_key: str, reports, baselines: dict[str, dict[str, list[str]] | None]) -> None:
-    """Print one window's block: the header, then per configuration the baseline glyphs and seams and the settled cells and seams. `baselines[cfg]` is None when the baseline was not read, and the block then carries no OLD lines."""
+    """Print one window's block: the header, then per configuration the baseline glyphs and junctions and the settled cells and junctions. `baselines[cfg]` is None when the baseline was not read, and the block then carries no OLD lines."""
     print(f"=== window {window_key} ===")
     for cfg, report in zip(CONFIGS, reports):
         settled = report.settled
         cells = []
-        seams = []
+        junctions = []
         for i, it in enumerate(settled):
             c = getattr(it, "cell", None)
             if c is not None and hasattr(c, "rune"):
@@ -71,8 +71,8 @@ def render_window(spec, window_key: str, reports, baselines: dict[str, dict[str,
             else:
                 cells.append(getattr(it, "glyph_name", str(it)))
             if i < len(settled) - 1:
-                sm = getattr(it, "seam", None)
-                seams.append(
+                sm = getattr(it, "junction", None)
+                junctions.append(
                     "break"
                     if sm is None
                     else (f"y{sm}" if isinstance(sm, int) else f"y{spec.registry.y_of(sm)}")
@@ -82,9 +82,9 @@ def render_window(spec, window_key: str, reports, baselines: dict[str, dict[str,
         if sub is not None:
             b = sub.get(window_key)
             print(f"  OLD glyphs: {b[1] if b else NOT_IN_SUBSET}")
-            print(f"  OLD seams : {b[3] if b else ''}")
+            print(f"  OLD junctions : {b[3] if b else ''}")
         print(f"  NEW cells : {' | '.join(cells)}")
-        print(f"  NEW seams : {','.join(seams)}")
+        print(f"  NEW junctions : {','.join(junctions)}")
 
 
 def main(argv: Sequence[str] | None = None) -> None:

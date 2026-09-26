@@ -60,7 +60,7 @@ def _kern_normalized_positions(
 def _position_mismatch(
     shaper: "Shaper | IsolatedOverlayShaper", kern: "KernEvaluator | None", features: frozenset[str], row: Row
 ) -> tuple[tuple[str, ...], bool] | None:
-    """Shape the row with the new font through the shaper's position projection (offsets and advances only) and compare the drawn positions with the kern-normalized baseline. The comparison is visual: per-slot glyph origins (pen + x_offset, y_offset) plus the run's total advance, because the two fonts can split a seam differently between the left glyph's advance and the right glyph's x_offset while drawing the same join. Returns None when every slot and the total match, and otherwise the mismatch descriptions and whether every mismatch follows a kern-attributable slot. A slot-count mismatch returns one description and False."""
+    """Shape the row with the new font through the shaper's position projection (offsets and advances only) and compare the drawn positions with the kern-normalized baseline. The comparison is visual: per-slot glyph origins (pen + x_offset, y_offset) plus the run's total advance, because the two fonts can split a junction differently between the left glyph's advance and the right glyph's x_offset while drawing the same join. Returns None when every slot and the total match, and otherwise the mismatch descriptions and whether every mismatch follows a kern-attributable slot. A slot-count mismatch returns one description and False."""
     shaped = shaper.positions(row.text, features)
     if len(shaped) != len(row.glyphs):
         return ((f"slot-count {len(row.glyphs)} (old) vs {len(shaped)} (new)",), False)

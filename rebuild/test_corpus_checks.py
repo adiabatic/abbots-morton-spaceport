@@ -56,11 +56,11 @@ MINI_AUDIT = MINI / "audit.tsv"
 MINI_FONT = MINI / "M1.otf"
 # How many of the bundle's windows the drafter tests enrich: enough to include each shape those tests ask for, and few enough for one settlement pass.
 MINI_SLICE = 64
-SEAM_BEARER = "u-KtPjucTyfbt"
-SEAM_HOME = "u-HZub95WTHju"
-PLAIN_UNIT = "u-DdcTojn1hba"
-DUPLICATE_MATE = "u-8nacGTcgMRS"
-THIRD_UNIT = "u-2WvdGAWe6bX"
+JUNCTION_BEARER = "u-BW5ne1qnz1k"
+PRIMARY_UNIT = "u-VFVAR2GPEXx"
+PLAIN_UNIT = "u-Zuzfh4544mg"
+DUPLICATE_MATE = "u-73QgSVQziGo"
+THIRD_UNIT = "u-hJQksth4hYb"
 
 
 def _corpus() -> tuple[dict, dict[str, list[dict]]]:
@@ -125,8 +125,8 @@ def mini_drafter():
 
 @pytest.fixture(scope="module")
 def joined_unit(mini_enriched):
-    """A window whose first after-seam is `break` or `y0`, so a test can flip it to the other and know the after font refutes the flipped pin."""
-    return next(unit for unit in mini_enriched if unit.after_seams[:1] in (("break",), ("y0",)))
+    """A window whose first after-junction is `break` or `y0`, so a test can flip it to the other and know the after font refutes the flipped pin."""
+    return next(unit for unit in mini_enriched if unit.after_junctions[:1] in (("break",), ("y0",)))
 
 
 @pytest.fixture(scope="module")
@@ -135,11 +135,14 @@ def policy_unit(mini_enriched, mini_drafter):
 
 
 def test_a_pin_the_after_font_refutes_is_never_drafted(mini_drafter, joined_unit):
-    """A pin drafted from a real window passes against the after font. A pin drafted from the same window with its first seam flipped raises DraftError instead of being shipped with a recorded failure."""
+    """A pin drafted from a real window passes against the after font. A pin drafted from the same window with its first junction flipped raises DraftError instead of being shipped with a recorded failure."""
     assert mini_drafter.draft_pin(joined_unit).semantics_after_font == "pass"
-    flipped = ("y0" if joined_unit.after_seams[0] == "break" else "break", *joined_unit.after_seams[1:])
+    flipped = (
+        "y0" if joined_unit.after_junctions[0] == "break" else "break",
+        *joined_unit.after_junctions[1:],
+    )
     with pytest.raises(DraftError) as raised:
-        mini_drafter.draft_pin(replace(joined_unit, after_seams=flipped))
+        mini_drafter.draft_pin(replace(joined_unit, after_junctions=flipped))
     assert "after font" in str(raised.value)
 
 
@@ -182,7 +185,7 @@ def test_a_policy_draft_naming_a_file_that_is_not_in_the_repo_fails_the_build():
 
 # --- the slim machine-approved and no-verdict shape ----------------------------------------------
 
-SLIM_UNIT = "u-hRgMc2EJjbs"
+SLIM_UNIT = "u-E8egK4dqX5U"
 
 
 @pytest.mark.parametrize("key", SLIM_OMITTED_KEYS)
@@ -254,10 +257,12 @@ def test_a_highlight_reaching_past_the_run_fails_the_build(side):
     _complaint(check_unit(unit), f"highlight.{side} must satisfy")
 
 
-def test_a_secondary_seam_rect_reaching_past_the_run_fails_the_build():
-    unit = _one(SEAM_BEARER)
-    unit["secondary_seams"][0]["after"]["x_max"] = unit["secondary_seams"][0]["after"]["advance_total"] + 1
-    _complaint(check_unit(unit), "secondary_seams[0].after must satisfy")
+def test_a_secondary_junction_rect_reaching_past_the_run_fails_the_build():
+    unit = _one(JUNCTION_BEARER)
+    unit["secondary_junctions"][0]["after"]["x_max"] = (
+        unit["secondary_junctions"][0]["after"]["advance_total"] + 1
+    )
+    _complaint(check_unit(unit), "secondary_junctions[0].after must satisfy")
 
 
 def test_a_gate_clause_the_manifest_does_not_gloss_fails_the_build():
@@ -285,7 +290,7 @@ def test_a_duplicate_group_spanning_two_clusters_fails_the_build():
 
 def test_a_cluster_spanning_two_classes_fails_the_build():
     manifest, shards = _corpus()
-    _unit(shards, SEAM_BEARER)["cluster"] = _unit(shards, DUPLICATE_MATE)["cluster"]
+    _unit(shards, JUNCTION_BEARER)["cluster"] = _unit(shards, DUPLICATE_MATE)["cluster"]
     _complaint(check_shards(manifest, shards), "one signature spans")
 
 
@@ -330,65 +335,65 @@ def test_a_no_verdict_class_carrying_batches_fails_the_build():
     _complaint(check_shards(manifest, shards), "no-verdict class must carry no batches")
 
 
-# --- the secondary-seam home relation -----------------------------------------------------------
+# --- the secondary-junction primary unit relation -----------------------------------------------------------
 
 
-def _homed_corpus() -> tuple[dict, dict[str, list[dict]]]:
-    """Returns the fixture with its one homed seam made to look like the resolver's output: a `secondary_seams` count record in the manifest, which marks the homes as resolver-assigned, a home window that is a substring of the bearer's window, and a primary pair on the home. The fixture ships without those counts because its seam is placed by hand."""
+def _corpus_with_primary_unit() -> tuple[dict, dict[str, list[dict]]]:
+    """Returns the fixture with its one junction with a primary unit made to look like the resolver's output: a `secondary_junctions` count record in the manifest, which marks the primary units as resolver-assigned, a primary unit window that is a substring of the bearer's window, and a primary pair on the primary unit. The fixture ships without those counts because its junction is placed by hand."""
     manifest, shards = _corpus()
-    manifest["secondary_seams"] = {
+    manifest["secondary_junctions"] = {
         "units_with_markers": 1,
-        "seams_homed": 1,
-        "seams_homeless": 0,
-        "seams_suppressed_invisible": 0,
+        "junctions_with_primary_unit": 1,
+        "junctions_without_primary_unit": 0,
+        "junctions_suppressed_invisible": 0,
     }
-    home = _unit(shards, SEAM_HOME)
-    home["codepoints"] = "E679:E652"
-    home["pair"] = {"left": 0, "right": 1}
-    home["pair_codepoints"] = [0, 1]
+    primary_unit = _unit(shards, PRIMARY_UNIT)
+    primary_unit["codepoints"] = "E679:E652"
+    primary_unit["pair"] = {"left": 0, "right": 1}
+    primary_unit["pair_codepoints"] = [0, 1]
     return manifest, shards
 
 
-def test_a_resolver_shaped_home_passes():
-    manifest, shards = _homed_corpus()
+def test_a_resolver_shaped_primary_unit_passes():
+    manifest, shards = _corpus_with_primary_unit()
     assert check_shards(manifest, shards) == []
 
 
-def test_a_home_that_is_not_a_substring_window_fails_the_build():
-    manifest, shards = _homed_corpus()
-    _unit(shards, SEAM_HOME)["codepoints"] = "E652:E670"
+def test_a_primary_unit_that_is_not_a_substring_window_fails_the_build():
+    manifest, shards = _corpus_with_primary_unit()
+    _unit(shards, PRIMARY_UNIT)["codepoints"] = "E652:E670"
     _complaint(check_shards(manifest, shards), "is not a substring window")
 
 
-def test_a_home_with_no_primary_pair_fails_the_build():
-    manifest, shards = _homed_corpus()
-    home = _unit(shards, SEAM_HOME)
-    home["pair"] = None
-    home["pair_codepoints"] = None
+def test_a_primary_unit_with_no_primary_pair_fails_the_build():
+    manifest, shards = _corpus_with_primary_unit()
+    primary_unit = _unit(shards, PRIMARY_UNIT)
+    primary_unit["pair"] = None
+    primary_unit["pair_codepoints"] = None
     _complaint(check_shards(manifest, shards), "has no primary pair")
 
 
-def test_a_home_with_nothing_to_see_fails_the_build():
-    """The resolver counts a seam whose home is ink-identical in `seams_suppressed_invisible` instead of shipping it. A shipped seam with such a home means that suppression did not happen."""
-    manifest, shards = _homed_corpus()
-    home = _unit(shards, SEAM_HOME)
-    home["ink_identical"] = True
-    home["ink_deltas"] = {}
-    home["duplicate_group"] = None
-    home["cluster"] = None
-    manifest["human_unit_ids"] = [uid for uid in manifest["human_unit_ids"] if uid != SEAM_HOME]
+def test_a_primary_unit_with_nothing_to_see_fails_the_build():
+    """The resolver counts a junction whose primary unit is ink-identical in `junctions_suppressed_invisible` instead of shipping it. A shipped junction with such a primary unit means that suppression did not happen."""
+    manifest, shards = _corpus_with_primary_unit()
+    primary_unit = _unit(shards, PRIMARY_UNIT)
+    primary_unit["ink_identical"] = True
+    primary_unit["ink_deltas"] = {}
+    primary_unit["duplicate_group"] = None
+    primary_unit["cluster"] = None
+    manifest["human_unit_ids"] = [uid for uid in manifest["human_unit_ids"] if uid != PRIMARY_UNIT]
     _complaint(check_shards(manifest, shards), "shows no visible change")
 
 
-def test_a_picture_identical_home_fails_the_build_the_same_way():
-    """A picture-identical home also shows no visible change: its delta is empty under every config, so the resolver should have suppressed the seam."""
-    manifest, shards = _homed_corpus()
-    home = _unit(shards, SEAM_HOME)
-    home["picture_identical"] = True
-    home["ink_deltas"] = {}
-    home["duplicate_group"] = None
-    home["cluster"] = None
-    manifest["human_unit_ids"] = [uid for uid in manifest["human_unit_ids"] if uid != SEAM_HOME]
+def test_a_picture_identical_primary_unit_fails_the_build_the_same_way():
+    """A picture-identical primary unit also shows no visible change: its delta is empty under every config, so the resolver should have suppressed the junction."""
+    manifest, shards = _corpus_with_primary_unit()
+    primary_unit = _unit(shards, PRIMARY_UNIT)
+    primary_unit["picture_identical"] = True
+    primary_unit["ink_deltas"] = {}
+    primary_unit["duplicate_group"] = None
+    primary_unit["cluster"] = None
+    manifest["human_unit_ids"] = [uid for uid in manifest["human_unit_ids"] if uid != PRIMARY_UNIT]
     _complaint(check_shards(manifest, shards), "shows no visible change")
 
 
@@ -583,12 +588,12 @@ def test_a_highlight_rect_is_refused_where_the_pens_run_backwards():
     }
 
 
-def _subset_row(codepoints: tuple[int, ...], seams: tuple[str, ...]) -> Row:
+def _subset_row(codepoints: tuple[int, ...], junctions: tuple[str, ...]) -> Row:
     return Row(
         codepoints=codepoints,
         glyphs=tuple({0xE650: "qsPea", 0xE652: "qsTea"}[value] for value in codepoints),
         clusters=tuple(range(len(codepoints))),
-        seams=seams,
+        junctions=junctions,
         positions=tuple((0, 0, 10 + 2 * index) for index in range(len(codepoints))),
     )
 
@@ -607,8 +612,8 @@ def _pack(tmp_path: Path, *configs: str) -> SubsetPack:
     return SubsetPack.open(write_pack(tmp_path, configs, digests, tmp_path / "subsets.pack"), digests)
 
 
-def test_a_baseline_row_outside_the_seam_vocabulary_is_refused_by_the_packer(tmp_path):
-    """`SeamClassifier.classify` can emit a compound token naming two heights, and a shard's `before.seams` cannot represent one. The packer checks every row of every table it packs, so a compound token on any row fails the table before a pack exists, whichever rows the workers later look up. Nothing is renamed into place on a failure, so no partial pack is left behind."""
+def test_a_baseline_row_outside_the_junction_vocabulary_is_refused_by_the_packer(tmp_path):
+    """`JunctionClassifier.classify` can emit a compound token naming two heights, and a shard's `before.junctions` cannot represent one. The packer checks every row of every table it packs, so a compound token on any row fails the table before a pack exists, whichever rows the workers later look up. Nothing is renamed into place on a failure, so no partial pack is left behind."""
     pair = (0xE650, 0xE652)
     _subset_table(tmp_path / "baseline-clean.subset.tsv.gz", _subset_row(pair, ("y0",)))
     clean = _pack(tmp_path, "clean")
@@ -630,25 +635,25 @@ def test_a_baseline_row_outside_the_seam_vocabulary_is_refused_by_the_packer(tmp
 
 
 def test_a_packed_row_is_the_projection_the_enricher_reads(tmp_path):
-    """A lookup returns a `SubsetRow` with only the glyphs, clusters, and seams of the parsed `Row`: `positions` is not read on this path and `codepoints` is the key. Its strings come from the pack's interned string table, so a glyph name or seam token is one object however many rows use it, and the same object `sys.intern` returns elsewhere in the process. A window the table does not hold, or a configuration the pack does not hold, returns None."""
+    """A lookup returns a `SubsetRow` with only the glyphs, clusters, and junctions of the parsed `Row`: `positions` is not read on this path and `codepoints` is the key. Its strings come from the pack's interned string table, so a glyph name or junction token is one object however many rows use it, and the same object `sys.intern` returns elsewhere in the process. A window the table does not hold, or a configuration the pack does not hold, returns None."""
     first = _subset_row((0xE650, 0xE652), ("y0",))
     second = _subset_row((0xE652, 0xE650), ("y0",))
     _subset_table(tmp_path / "baseline-two.subset.tsv.gz", first, second)
     pack = _pack(tmp_path, "two")
     projected = pack.row("two", "E650:E652")
     assert isinstance(projected, SubsetRow)
-    assert (projected.glyphs, projected.clusters, projected.seams) == (
+    assert (projected.glyphs, projected.clusters, projected.junctions) == (
         first.glyphs,
         first.clusters,
-        first.seams,
+        first.junctions,
     )
     assert not hasattr(projected, "positions")
     assert not hasattr(projected, "codepoints")
     other = pack.row("two", "E652:E650")
     assert other is not None
     assert other.glyphs[0] is projected.glyphs[1]
-    assert other.seams[0] is projected.seams[0]
-    assert projected.glyphs[0] is sys.intern("qsPea") and projected.seams[0] is sys.intern("y0")
+    assert other.junctions[0] is projected.junctions[0]
+    assert projected.glyphs[0] is sys.intern("qsPea") and projected.junctions[0] is sys.intern("y0")
     assert pack.row("two", "E650:E650") is None
     assert pack.row("default", "E650:E652") is None
     assert pack.row("two", "E650:E652:E650:E652:E650") is None
@@ -679,7 +684,7 @@ def test_a_window_no_key_can_spell_is_refused_at_the_packer(tmp_path):
     "path", sorted(MINI.glob("baseline-*.subset.tsv.gz")), ids=lambda path: path.name.split(".")[0]
 )
 def test_the_pack_drops_nothing_the_enricher_reads_from_a_real_table(path: Path, mini_bundle):
-    """For every table the frozen bundle ships, all packed into the bundle's pack, the rows read back match what `rowmodel.Row` parses: the pack's keys, in sorted order, are the table's keys, and each has the same glyphs, clusters, and seams. `iter_rows` is the reference because the packer never builds a `Row`; it splits each line and reads three fields, so the row model's parse is an independent reading. The synthetic tests above check the format; this one checks tables the extractor wrote, including ligature rows and boundary tokens."""
+    """For every table the frozen bundle ships, all packed into the bundle's pack, the rows read back match what `rowmodel.Row` parses: the pack's keys, in sorted order, are the table's keys, and each has the same glyphs, clusters, and junctions. `iter_rows` is the reference because the packer never builds a `Row`; it splits each line and reads three fields, so the row model's parse is an independent reading. The synthetic tests above check the format; this one checks tables the extractor wrote, including ligature rows and boundary tokens."""
     config = path.name.split(".")[0].removeprefix("baseline-")
     pack = SubsetPack.open(mini_bundle.subset_pack, table_digests(MINI, ACCEPTANCE_CONFIGS))
     packed = list(pack.rows(config))
@@ -688,10 +693,10 @@ def test_the_pack_drops_nothing_the_enricher_reads_from_a_real_table(path: Path,
     assert keys == sorted(keys, key=pack_key) and set(keys) == set(parsed) and len(keys) == len(parsed)
     for codepoints, projected in packed:
         row = parsed[codepoints]
-        assert (projected.glyphs, projected.clusters, projected.seams) == (
+        assert (projected.glyphs, projected.clusters, projected.junctions) == (
             row.glyphs,
             row.clusters,
-            row.seams,
+            row.junctions,
         )
         assert pack.row(config, codepoints) == projected
     pack.close()
@@ -712,17 +717,17 @@ def test_a_subset_key_is_spelled_the_way_the_row_model_spells_it(tmp_path):
     for key, row in parsed.items():
         projected = pack.row("spelled", key)
         assert projected is not None
-        assert (projected.glyphs, projected.clusters, projected.seams) == (
+        assert (projected.glyphs, projected.clusters, projected.junctions) == (
             row.glyphs,
             row.clusters,
-            row.seams,
+            row.junctions,
         )
     assert pack.row("spelled", "e650:e652") == pack.row("spelled", "E650:E652")
     pack.close()
 
 
 def test_a_pack_is_written_once_and_rewritten_only_when_a_table_moves(tmp_path, monkeypatch):
-    """Every reader goes through `ensure_pack`, which writes only when it must. A pack whose header records the tables' digests and this packer's code digest is reused. A pack is rewritten when a table's digest changes, when the packer code changes (so a change to the seam check or the projection reaches every pack on the next build), or when the configuration list or destination differs. `SubsetPack.open` raises on a pack whose header disagrees with the tables or the packer code."""
+    """Every reader goes through `ensure_pack`, which writes only when it must. A pack whose header records the tables' digests and this packer's code digest is reused. A pack is rewritten when a table's digest changes, when the packer code changes (so a change to the junction check or the projection reaches every pack on the next build), or when the configuration list or destination differs. `SubsetPack.open` raises on a pack whose header disagrees with the tables or the packer code."""
     pair = (0xE650, 0xE652)
     _subset_table(tmp_path / "baseline-default.subset.tsv.gz", _subset_row(pair, ("y0",)))
     _subset_table(tmp_path / "baseline-ss10.subset.tsv.gz", _subset_row(pair, ("break",)))
@@ -751,7 +756,7 @@ def test_a_pack_is_written_once_and_rewritten_only_when_a_table_moves(tmp_path, 
     assert module.ensure_pack(tmp_path, configs) == first and len(writes) == 2
     pack = SubsetPack.open(first, table_digests(tmp_path, configs))
     row = pack.row("ss10", "E650:E652")
-    assert row is not None and row.seams == ("y5",)
+    assert row is not None and row.junctions == ("y5",)
     pack.close()
     with pytest.raises(ValueError):
         SubsetPack.open(first, stale)
@@ -836,7 +841,7 @@ def test_the_two_check_moments_partition_the_whole_contract(mode):
 
 
 def test_every_scaffold_key_is_either_compared_by_check_scaffold_or_checked_by_patched():
-    """Every key `unit_scaffold` writes is either checked by `check_scaffold` at the write (`_CHECKED_SCAFFOLD_KEYS`, so the drafting-time check read the same value that ships) or is one of the two keys the parent's whole-corpus passes assign after drafting, `duplicate_group` and `cluster`, and no key is both. Deleting or corrupting `duplicate_group`, `cluster`, or `secondary_seams` (which the patch also writes) draws no complaint from `DRAFTED`. A wrong value in any of them draws one from `PATCHED`, and so does a missing `duplicate_group` or `cluster`. A key added to the scaffold fails this test until it is assigned to one side."""
+    """Every key `unit_scaffold` writes is either checked by `check_scaffold` at the write (`_CHECKED_SCAFFOLD_KEYS`, so the drafting-time check read the same value that ships) or is one of the two keys the parent's whole-corpus passes assign after drafting, `duplicate_group` and `cluster`, and no key is both. Deleting or corrupting `duplicate_group`, `cluster`, or `secondary_junctions` (which the patch also writes) draws no complaint from `DRAFTED`. A wrong value in any of them draws one from `PATCHED`, and so does a missing `duplicate_group` or `cluster`. A key added to the scaffold fails this test until it is assigned to one side."""
     scaffold_keys = _SCAFFOLD_HEAD + _SCAFFOLD_TAIL
     patched_only = {"duplicate_group", "cluster"}
     assert set(_CHECKED_SCAFFOLD_KEYS) | patched_only == set(scaffold_keys)
@@ -844,7 +849,7 @@ def test_every_scaffold_key_is_either_compared_by_check_scaffold_or_checked_by_p
     assert len(set(_CHECKED_SCAFFOLD_KEYS)) == len(_CHECKED_SCAFFOLD_KEYS)
     for unit in _fixture_units():
         assert check_unit(unit) == []
-        for key in sorted(patched_only | {"secondary_seams"}):
+        for key in sorted(patched_only | {"secondary_junctions"}):
             without, wrong = _broken(unit, key)
             assert check_unit(without, at=(DRAFTED,)) == []
             assert check_unit(wrong, at=(DRAFTED,)) == []

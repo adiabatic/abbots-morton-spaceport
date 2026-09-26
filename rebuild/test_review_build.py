@@ -97,8 +97,8 @@ def test_fixture_units_exercise_the_contract_branches():
         slim_fragment(unit) and not any(key in unit for key in SLIM_OMITTED_KEYS) for unit in units
     ), "a fixture unit must exercise the slim machine-approved shape"
     assert any(
-        seam["home"] for unit in units for seam in unit.get("secondary_seams") or ()
-    ), "a fixture unit must exercise the homed secondary-seam branch"
+        junction["primary_unit"] for unit in units for junction in unit.get("secondary_junctions") or ()
+    ), "a fixture unit must exercise the branch where a secondary junction has a primary unit"
     assert any(isinstance(unit["cluster"], str) for unit in units)
     assert any(unit["cluster"] is None for unit in units)
     groups_by_cluster = {}
@@ -225,7 +225,7 @@ def test_check_unit_takes_picture_identical_units_out_of_the_human_units():
     assert any("duplicate_group null" in error for error in check_unit(unit, "m1-audit"))
     unit["duplicate_group"] = None
     unit["cluster"] = None
-    unit["secondary_seams"] = None
+    unit["secondary_junctions"] = None
     assert any("omit drafts" in error for error in check_unit(unit, "m1-audit"))
     for key in SLIM_OMITTED_KEYS:
         del unit[key]
@@ -261,10 +261,10 @@ def test_check_manifest_flags_a_malformed_inputs_fingerprint():
     "human_unit_ids",
     (
         "u-0000",
-        ["u-DdcTojn1hba", ["u-8nacGTcgMRS"]],
+        ["u-Zuzfh4544mg", ["u-73QgSVQziGo"]],
         ["not-a-unit"],
         ["u-0000"],
-        ["u-DdcTojn1hba", "u-DdcTojn1hba"],
+        ["u-Zuzfh4544mg", "u-Zuzfh4544mg"],
     ),
 )
 def test_check_manifest_flags_malformed_human_unit_ids(human_unit_ids):
@@ -1517,7 +1517,7 @@ def _export_corpus():
     """
     manifest = copy.deepcopy(json.loads((FIXTURES / "manifest.json").read_text(encoding="utf-8")))
     units = {unit["id"]: unit for unit in _load_fixture_units()}
-    template = units["u-KtPjucTyfbt"]
+    template = units["u-BW5ne1qnz1k"]
 
     def clone(unit_id, **changes):
         clone = copy.deepcopy(template)
@@ -1645,7 +1645,7 @@ def test_export_round_trip(tmp_path):
                 "verdict": "reject",
                 # A `configs` field from an older export format is ignored, because a verdict covers the whole unit.
                 "configs": [units[drafted_reject]["configs"][0]],
-                "note": "seam looks reached-for",
+                "note": "junction looks reached-for",
                 "at": "2026-06-10T18:21:40Z",
             },
             {
@@ -1709,7 +1709,7 @@ def test_export_round_trip(tmp_path):
     assert len(triage["policy_edits"]) == 2
     by_unit = {edit["unit"]: edit for edit in triage["policy_edits"]}
     edit = by_unit[drafted_reject]
-    assert edit["why_stub"].endswith("seam looks reached-for")
+    assert edit["why_stub"].endswith("junction looks reached-for")
     assert edit["file"].startswith("glyph_data/runes/")
     manual = by_unit[manual_reject]
     assert manual["keypath"] is None

@@ -89,7 +89,7 @@ class TestNormalization:
     def test_settled_names_falls_back_to_display_name(self, spec):
         class WithCell:
             cell = CellId("qsMay", "loop", "baseline", "x-height", ("en-ext-1",))
-            seam = None
+            junction = None
 
         assert conform.settled_names(spec, [WithCell()]) == ["qsMay.en-y0.ex-y5.en-ext-1"]
 
@@ -146,7 +146,7 @@ class TestIsolatedOverlay:
         settled, names = walker.walk_many([TEA + OY + ZWNJ + IT])[0]
         assert names == ["qsTea.ss10", "qsOy.ss10", "uni200C", "qsIt.ss10"]
         assert [item.cell.rune for item in settled] == ["qsTea", "qsOy", "zwnj", "qsIt"]
-        assert all(item.seam is None and item.extension == 0 for item in settled)
+        assert all(item.junction is None and item.extension == 0 for item in settled)
         for item in settled:
             if item.cell.stance != settle.BOUNDARY_STANCE:
                 assert item.cell == CellId(
@@ -163,7 +163,7 @@ class TestIsolatedOverlay:
             codepoints=(0xE652, 0xE679),
             glyphs=("qsTea_qsOy",),
             clusters=(0, 0),
-            seams=("lig",),
+            junctions=("lig",),
             positions=((0, 0, 300),),
         )
         settled, _names = conform.IsolatedOverlayWalk(spec).walk_many([row.text])[0]
@@ -174,7 +174,7 @@ class TestIsolatedOverlay:
             f"qsTea/{spec.runes['qsTea'].default_stance}/None/None/",
             f"qsOy/{spec.runes['qsOy'].default_stance}/None/None/",
         )
-        assert divergent.new_seams == ("break",)
+        assert divergent.new_junctions == ("break",)
 
     def test_the_overlay_case_sweeps_two_letters_and_never_reaches_the_crate(self, spec, monkeypatch):
         """At any belt maximum length, the overlay branch shapes every text of one or two alphabet symbols and nothing longer, and it never forms, settles, memoizes or calls the crate."""
@@ -247,9 +247,9 @@ class TestAliasAndLedger:
             kinds=("cell",),
             position=1,
             baseline_glyphs=("space", "qsTea.noentry", "qsIt"),
-            baseline_seams=("break", "break"),
+            baseline_junctions=("break", "break"),
             new_cells=("uni200C", "qsTea/full/None/None/locked", "qsIt/hapax/None/None/"),
-            new_seams=("break", "break"),
+            new_junctions=("break", "break"),
             divergence_tags=("+locked", "old-noentry"),
         )
         ledger = [
@@ -273,9 +273,9 @@ class TestAliasAndLedger:
             kinds=("cell",),
             position=1,
             baseline_glyphs=("periodcentered", "qsTea.noentry", "qsIt"),
-            baseline_seams=("break", "break"),
+            baseline_junctions=("break", "break"),
             new_cells=("periodcentered", "qsTea/full/None/None/", "qsIt/hapax/None/None/"),
-            new_seams=("break", "break"),
+            new_junctions=("break", "break"),
             divergence_tags=("old-noentry",),
         )
         assert oracle._match_ledger(ledger, namer_dot_row) == ["zwnj-word-initial-unification"]
@@ -304,8 +304,8 @@ class TestAliasAndLedger:
                 window = match.get("window")
                 if window is not None and window not in row.codepoints:
                     continue
-                seam_change = match.get("seam_change")
-                if seam_change is not None and "seam" not in row.kinds:
+                junction_change = match.get("junction_change")
+                if junction_change is not None and "junction" not in row.kinds:
                     continue
             matches.append(entry.get("id", "<unnamed>"))
         return matches
@@ -318,9 +318,9 @@ class TestAliasAndLedger:
             kinds,
             divergence_tags,
             baseline_glyphs=(),
-            baseline_seams=(),
+            baseline_junctions=(),
             new_cells=(),
-            new_seams=(),
+            new_junctions=(),
         ):
             return conform.DivergentRow(
                 config=config,
@@ -328,30 +328,37 @@ class TestAliasAndLedger:
                 kinds=kinds,
                 position=0,
                 baseline_glyphs=baseline_glyphs,
-                baseline_seams=baseline_seams,
+                baseline_junctions=baseline_junctions,
                 new_cells=new_cells,
-                new_seams=new_seams,
+                new_junctions=new_junctions,
                 divergence_tags=divergence_tags,
             )
 
         boundary_window = row("default", "200C:E652:E670", ("cell",), ("+locked", "old-noentry"))
-        ss10_seam_loss = row(
+        ss10_junction_loss = row(
             "ss10",
             "E650:E659",
-            ("seam",),
-            ("seam-loss",),
+            ("junction",),
+            ("junction-loss",),
             baseline_glyphs=("qsPea", "qsVie"),
-            baseline_seams=("y0",),
+            baseline_junctions=("y0",),
             new_cells=("qsPea/full/None/None/", "qsVie/normal/None/None/"),
-            new_seams=("break",),
+            new_junctions=("break",),
         )
         position_kern = row(
             "ss04", "E650:E652", ("position",), ("position-kern-attributable", "position-mismatch")
         )
         unclassified = row("default", "E650:E652", ("cell",), ("+ex-bind-1",))
         scoped_out = row("ss05", "E650:E665:E652", ("cell",), ("exit-dropped",))
-        seamed_scoped = row("ss03", "E652:E679", ("cell", "seam"), ("seam-gain:qsTea",))
-        return [boundary_window, ss10_seam_loss, position_kern, unclassified, scoped_out, seamed_scoped]
+        with_junction_scoped = row("ss03", "E652:E679", ("cell", "junction"), ("junction-gain:qsTea",))
+        return [
+            boundary_window,
+            ss10_junction_loss,
+            position_kern,
+            unclassified,
+            scoped_out,
+            with_junction_scoped,
+        ]
 
     _LEDGER_FOR_EVERY_CASE = [
         {"id": "boundary-window", "match": {"predicate": "boundary_window", "configs": "all"}},
@@ -361,7 +368,7 @@ class TestAliasAndLedger:
         {"id": "nobody-knows-this", "match": {"predicate": "no_such_predicate", "configs": "all"}},
         {"id": "everything", "match": {}},
         {"id": "pre-ligature-window", "match": {"window": "E652:E679"}},
-        {"id": "seams-only", "match": {"seam_change": True}},
+        {"id": "junctions-only", "match": {"junction_change": True}},
         {"match": {"predicate": "dangling_anchor_dropped", "configs": "all"}},
         {
             "id": "cleanup-on-ss03",
@@ -370,7 +377,7 @@ class TestAliasAndLedger:
     ]
 
     def test_the_compiled_ledger_answers_what_a_walk_of_the_raw_ledger_answers(self):
-        """The compiled ledger against the reference walk, over a ledger with one entry of each kind: a class entry open to every configuration, a class entry scoped to one configuration, a function predicate, a predicate in neither map, an empty `match`, a `window` test, a `seam_change` test, and an entry with no `id`. The rows reach each of them. List equality checks both the ids and their order."""
+        """The compiled ledger against the reference walk, over a ledger with one entry of each kind: a class entry open to every configuration, a class entry scoped to one configuration, a function predicate, a predicate in neither map, an empty `match`, a `window` test, a `junction_change` test, and an entry with no `id`. The rows reach each of them. List equality checks both the ids and their order."""
         ledger = self._LEDGER_FOR_EVERY_CASE
         compiled = oracle.compile_ledger(ledger)
         answers = {}
@@ -381,11 +388,11 @@ class TestAliasAndLedger:
             answers[(row.config, row.codepoints)] = expected
         assert answers == {
             ("default", "200C:E652:E670"): ["boundary-window", "everything"],
-            ("ss10", "E650:E659"): ["everything", "seams-only"],
+            ("ss10", "E650:E659"): ["everything", "junctions-only"],
             ("ss04", "E650:E652"): ["kern-out-of-scope", "kern-on-ss04", "everything"],
             ("default", "E650:E652"): ["everything"],
             ("ss05", "E650:E665:E652"): ["everything", "<unnamed>"],
-            ("ss03", "E652:E679"): ["everything", "pre-ligature-window", "seams-only", "cleanup-on-ss03"],
+            ("ss03", "E652:E679"): ["everything", "pre-ligature-window", "junctions-only", "cleanup-on-ss03"],
         }
 
     def test_a_two_plus_match_comes_back_in_ledger_order_from_either_end(self):
@@ -396,9 +403,9 @@ class TestAliasAndLedger:
             kinds=("cell",),
             position=0,
             baseline_glyphs=(),
-            baseline_seams=(),
+            baseline_junctions=(),
             new_cells=(),
-            new_seams=(),
+            new_junctions=(),
             divergence_tags=("exit-dropped",),
         )
         classed = {"id": "dangling-anchor-dropped", "match": {"predicate": "dangling_anchor_dropped"}}
@@ -449,17 +456,17 @@ class TestAliasAndLedger:
             kinds=("cell",),
             position=0,
             baseline_glyphs=("qsIt.ex-y5", "qsIt"),
-            baseline_seams=("break",),
+            baseline_junctions=("break",),
             new_cells=("qsIt/hapax/None/None/", "qsIt/hapax/None/None/"),
-            new_seams=("break",),
+            new_junctions=("break",),
         )
         cases: list[tuple[tuple[str, ...], str | None]] = [
             (("exit-dropped",), "dangling-anchor-dropped"),
             (("exit-added", "exit-dropped"), "dangling-anchor-dropped"),
             (("exit-added",), "bare-name-live-join"),
             (("+en-ext-1", "exit-dropped"), "halves-entry-extension-restored"),
-            (("-en-ext-1:same-seam",), "same-seam-extension-non-summing"),
-            (("-en-ext-2:same-seam",), "same-seam-extension-non-summing"),
+            (("-en-ext-1:same-junction",), "same-junction-extension-non-summing"),
+            (("-en-ext-2:same-junction",), "same-junction-extension-non-summing"),
             (("-en-ext-2",), None),
             (("-en-ext-1:qsMay", "exit-dropped"), "may-baseline-entry-extension-dropped"),
             (("-en-ext-1:qsDay",), "day-baseline-entry-extension-dropped"),
@@ -468,10 +475,10 @@ class TestAliasAndLedger:
             (("-en-ext-1:qsNo",), "no-xheight-entry-extension-dropped"),
             (("-en-ext-1:qsNo", "exit-added"), "no-xheight-entry-extension-dropped"),
             (("+ex-bind-pulled-back", "exit-dropped"), None),
-            (("seam-gain:qsIt", "exit-added"), "entered-it-baseline-join-gain"),
-            (("seam-gain:qsPea", "entry-dropped"), "pea-chain-regularized"),
-            (("seam-gain:qsMay", "seam-loss"), "regrouped-chain"),
-            (("seam-loss",), None),
+            (("junction-gain:qsIt", "exit-added"), "entered-it-baseline-join-gain"),
+            (("junction-gain:qsPea", "entry-dropped"), "pea-chain-regularized"),
+            (("junction-gain:qsMay", "junction-loss"), "regrouped-chain"),
+            (("junction-loss",), None),
             ((), None),
         ]
         for divergence_tags, expected in cases:
@@ -479,7 +486,7 @@ class TestAliasAndLedger:
             assert oracle.classify_divergence(row) == expected, divergence_tags
 
     def test_boundary_blanket_takes_every_nonposition_row(self):
-        """The boundary-equals-word-boundary rule: in a window that contains a run-splitting boundary (space or ZWNJ), a cell or seam divergence classifies as `boundary-window` ahead of every other class, whatever its divergence tags. A position-only row gets no class here; it goes to the kern-attribution predicate."""
+        """The boundary-equals-word-boundary rule: in a window that contains a run-splitting boundary (space or ZWNJ), a cell or junction divergence classifies as `boundary-window` ahead of every other class, whatever its divergence tags. A position-only row gets no class here; it goes to the kern-attribution predicate."""
         for codepoints in ["200C:E670:E670", "0020:E670:E670"]:
             base = conform.DivergentRow(
                 config="default",
@@ -487,15 +494,15 @@ class TestAliasAndLedger:
                 kinds=("cell",),
                 position=1,
                 baseline_glyphs=("space", "qsIt.ex-y5", "qsIt"),
-                baseline_seams=("break", "break"),
+                baseline_junctions=("break", "break"),
                 new_cells=("uni200C", "qsIt/hapax/None/None/locked", "qsIt/hapax/None/None/"),
-                new_seams=("break", "break"),
+                new_junctions=("break", "break"),
             )
             for divergence_tags in [
                 ("+locked", "old-noentry"),
                 ("exit-dropped",),
-                ("seam-gain:qsIt", "exit-added"),
-                ("seam-loss",),
+                ("junction-gain:qsIt", "exit-added"),
+                ("junction-loss",),
                 ("+en-ext-1",),
                 ("ligation",),
             ]:
@@ -515,9 +522,9 @@ class TestAliasAndLedger:
             kinds=("cell",),
             position=1,
             baseline_glyphs=old_names,
-            baseline_seams=("y5",),
+            baseline_junctions=("y5",),
             new_cells=("qsTea/half/None/x-height/", "qsZoo/full/x-height/None/en-con-1"),
-            new_seams=("y5",),
+            new_junctions=("y5",),
             divergence_tags=divergence_tags,
         )
         assert oracle.classify_divergence(row) == "zoo-entry-contraction-respelled"
@@ -549,14 +556,14 @@ class TestAliasAndLedger:
                 "qsTea.half.ex-y5.ex-con-1",
                 "qsZoo.en-trim-1",
             ),
-            baseline_seams=("y5", "break", "y5"),
+            baseline_junctions=("y5", "break", "y5"),
             new_cells=(
                 "qsIt/hapax/None/x-height/",
                 "qsRoe/hapax/x-height/None/en-ext-1",
                 "qsTea/half/None/x-height/",
                 "qsZoo/full/x-height/None/en-con-1",
             ),
-            new_seams=("y5", "break", "y5"),
+            new_junctions=("y5", "break", "y5"),
             divergence_tags=("+en-con-1", "-en-trim-1"),
         )
         for config in ("default", "ss03", "ss04", "ss05", "ss02+ss03+ss05"):
@@ -626,7 +633,9 @@ class TestAliasCompleteness:
     def test_pending_alias_reads_as_unaliased_in_the_comparison(self, spec, guard):
         from rebuild.validation.rowmodel import Row
 
-        row = Row(codepoints=(0xE652,), glyphs=("qsTea",), clusters=(0,), seams=(), positions=((0, 0, 150),))
+        row = Row(
+            codepoints=(0xE652,), glyphs=("qsTea",), clusters=(0,), junctions=(), positions=((0, 0, 150),)
+        )
         walker = conform._SettledWindowWalk(spec, frozenset(), {}, guard)
         ((settled, _names),) = walker.walk_many([row.text])
         divergent = conform._compare_row(spec, {"qsTea": "pending"}, "default", frozenset(), row, settled)
@@ -644,7 +653,7 @@ class TestPositionComparison:
             codepoints=tuple(codepoints),
             glyphs=tuple(glyphs),
             clusters=tuple(range(len(glyphs))),
-            seams=("break",) * (len(glyphs) - 1),
+            junctions=("break",) * (len(glyphs) - 1),
             positions=tuple(positions),
         )
 
@@ -726,26 +735,26 @@ class TestClassifierRouting:
         return conform.DivergentRow(
             config=config,
             codepoints=codepoints,
-            kinds=("cell", "seam"),
+            kinds=("cell", "junction"),
             position=0,
             baseline_glyphs=(),
-            baseline_seams=(),
+            baseline_junctions=(),
             new_cells=(),
-            new_seams=(),
+            new_junctions=(),
             divergence_tags=divergence_tags,
         )
 
     def test_unentered_it_gain_routes_to_ss03_chain(self):
-        divergence_tags = ("seam-gain:qsIt", "seam-gain-unentered:qsIt")
+        divergence_tags = ("junction-gain:qsIt", "junction-gain-unentered:qsIt")
         assert oracle.classify_divergence(self._row("ss03", divergence_tags)) == "ss03-chain-join-gains"
 
     def test_unentered_it_gain_outside_ss03_matches_nothing(self):
-        divergence_tags = ("seam-gain:qsIt", "seam-gain-unentered:qsIt")
+        divergence_tags = ("junction-gain:qsIt", "junction-gain-unentered:qsIt")
         assert oracle.classify_divergence(self._row("default", divergence_tags)) is None
 
     def test_entered_it_gain_keeps_its_class(self):
         assert (
-            oracle.classify_divergence(self._row("default", ("seam-gain:qsIt", "exit-added")))
+            oracle.classify_divergence(self._row("default", ("junction-gain:qsIt", "exit-added")))
             == "entered-it-baseline-join-gain"
         )
 
@@ -858,7 +867,7 @@ _AUDIT_SHAPES = (
         "default": ["default\tE668:E665\tcell\tmay-utter\tqsRoe|qsMay\tqsRoe.alt|qsMay"],
         "ss03": [],
         "ss10": [
-            "ss10\tE652:E679\tligation,seam\tUNMATCHED\tqsTea_qsOy\tqsTea|qsOy",
+            "ss10\tE652:E679\tligation,junction\tUNMATCHED\tqsTea_qsOy\tqsTea|qsOy",
             "ss10\tE650:0020\tcell\ta+b\tqsPea\tqsPea.half",
         ],
     },
@@ -1345,13 +1354,13 @@ def _cache_position_tags(path: Path) -> list[str]:
 
 
 def _excluded_from_the_position_comparison(audit: Path, rows: int) -> set[int]:
-    """The rows the position comparison skips whatever the ledger says, those with a ligation or seam divergence. Read from an audit in which every row diverges, so its line order is the table's row order."""
+    """The rows the position comparison skips whatever the ledger says, those with a ligation or junction divergence. Read from an audit in which every row diverges, so its line order is the table's row order."""
     lines = audit.read_text().splitlines()[1:]
     assert len(lines) == rows
     return {
         index
         for index, line in enumerate(lines)
-        if {"ligation", "seam"} & set(line.split("\t")[2].split(","))
+        if {"ligation", "junction"} & set(line.split("\t")[2].split(","))
     }
 
 
@@ -1418,7 +1427,7 @@ def _cache_rederived(rows: int, pass_ordinal: int) -> set[int]:
 
 
 def _position_bench(spec, tmp_path: Path, ledger_entries: str = _INK_IDENTICAL_LEDGER):
-    """The position comparison's test bench. Its rows are the frozen mini bundle's default-table rows that use only mini-spec letters and boundaries, with real old-font positions and glyph names, plus three hand-made ·Tea·May rows at the end: the bundle has no adjacent ·Tea·May pair, and the rune edit these tests share changes that pair. The alias map is all-pending, so every row diverges, and the ledger's one ink-identical entry matches every row, so every row without a ligation or seam divergence enters the position comparison. The font is the bundle's frozen `M1.otf`, the after font the rows were extracted against."""
+    """The position comparison's test bench. Its rows are the frozen mini bundle's default-table rows that use only mini-spec letters and boundaries, with real old-font positions and glyph names, plus three hand-made ·Tea·May rows at the end: the bundle has no adjacent ·Tea·May pair, and the rune edit these tests share changes that pair. The alias map is all-pending, so every row diverges, and the ledger's one ink-identical entry matches every row, so every row without a ligation or junction divergence enters the position comparison. The font is the bundle's frozen `M1.otf`, the after font the rows were extracted against."""
     letters = {rune.codepoint for rune in spec.runes.values() if rune.codepoint is not None}
     boundaries = {token.codepoint for token in spec.registry.boundary_tokens.values()}
     rows: list[str] = []

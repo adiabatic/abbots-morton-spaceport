@@ -788,8 +788,8 @@ details.group {
       text-underline-offset: 0.18em;
     }
 
-    /* Underlines a secondary seam with no home unit, which is judged in this unit. It uses the dashed amber of .secondary-band and sits lower than the pair-mark underline so the two stay apart where they overlap. */
-    .seam-mark {
+    /* Underlines a secondary junction with no primary unit, which is judged in this unit. It uses the dashed amber of .secondary-band and sits lower than the pair-mark underline so the two stay apart where they overlap. */
+    .junction-mark {
       text-decoration-line: underline;
       text-decoration-style: dashed;
       text-decoration-color: light-dark(rgba(179, 89, 0, 0.55), rgba(255, 184, 107, 0.5));
@@ -1276,7 +1276,7 @@ details.group {
     pointer-events: none;
   }
 
-  /* A secondary divergent seam, drawn weaker than the pair band: a fainter fill and a dashed top edge in place of the solid bottom edge. Only its home-unit chip takes clicks. */
+  /* A secondary divergent junction, drawn weaker than the pair band: a fainter fill and a dashed top edge in place of the solid bottom edge. Only its primary-unit chip takes clicks. */
   .secondary-band {
     position: absolute;
     top: 0;
@@ -1285,7 +1285,7 @@ details.group {
     border-top: 3px dashed light-dark(rgba(179, 89, 0, 0.55), rgba(255, 184, 107, 0.5));
     pointer-events: none;
 
-    .seam-chip {
+    .junction-chip {
       position: absolute;
       top: 0.35rem;
       left: 50%;
@@ -1303,7 +1303,7 @@ details.group {
       white-space: nowrap;
     }
 
-    a.seam-chip:hover {
+    a.junction-chip:hover {
       border-color: var(--hot);
       color: var(--hot);
     }

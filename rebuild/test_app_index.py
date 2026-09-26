@@ -35,7 +35,7 @@ APP_ROW_KEYS = {
     "pair",
     "pair_codepoints",
     "boundary_marks",
-    "secondary_seams",
+    "secondary_junctions",
     "configs",
     "config_gate",
     "config_note",
@@ -211,18 +211,18 @@ def test_a_row_whose_flags_are_not_false_refuses_to_be_written():
 
 
 def test_what_a_card_draws_from_its_record_is_not_in_the_row():
-    """The sample cells and the seam underlines draw from `text_entities`, `highlight`, and `after.cells`, which the card Range-fetches from its record, so the resident row carries none of the three even when the fragment has them."""
+    """The sample cells and the junction underlines draw from `text_entities`, `highlight`, and `after.cells`, which the card Range-fetches from its record, so the resident row carries none of the three even when the fragment has them."""
     fragment = {
         "id": "u-0000",
         "text_entities": "&#xe652;&#xe679;",
         "highlight": {"before": {"x_min": 0, "x_max": 1}, "after": {"x_min": 0, "x_max": 1}},
-        "secondary_seams": [{"pair": {"left": 0, "right": 1}, "home": None}],
-        "after": {"cells": ["a", "b", "c"], "seams": [], "extensions": []},
+        "secondary_junctions": [{"pair": {"left": 0, "right": 1}, "primary_unit": None}],
+        "after": {"cells": ["a", "b", "c"], "junctions": [], "extensions": []},
     }
     row = app_index.app_row(fragment, 0, 0, 10, order=0, batch=0)
     for key in CARD_RECORD_KEYS:
         assert key not in row
-    assert row["secondary_seams"] == fragment["secondary_seams"]
+    assert row["secondary_junctions"] == fragment["secondary_junctions"]
 
 
 def test_the_locator_carries_an_address_and_nothing_else(fixture_corpus):

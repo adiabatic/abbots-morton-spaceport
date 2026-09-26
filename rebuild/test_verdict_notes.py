@@ -95,8 +95,8 @@ def test_a_standing_marker_ages_out_behind_newer_carries():
 def test_strip_markers_leaves_only_the_prose():
     deferred = "[deferred: qsLow.yaml policy.prefer(+) — complaint list 2026-07-18T00:00:00Z]"
     standing = "[standing: tea-oy-ligature-break]"
-    assert strip_markers(f"{deferred} {CARRIED_A} the seam overshoots") == "the seam overshoots"
-    assert strip_markers(f"{standing} {CARRIED_A} the seam overshoots") == "the seam overshoots"
+    assert strip_markers(f"{deferred} {CARRIED_A} the junction overshoots") == "the junction overshoots"
+    assert strip_markers(f"{standing} {CARRIED_A} the junction overshoots") == "the junction overshoots"
     assert strip_markers(f"{CARRIED_A} {CARRIED_B}") == ""
     assert strip_markers("I prefer M1.") == "I prefer M1."
 

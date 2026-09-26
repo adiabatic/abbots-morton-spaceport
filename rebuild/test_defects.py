@@ -270,7 +270,7 @@ class TestContact:
         assert any(d.code == "E-CONTACT" for d in report.errors)
         assert any(d.code == "E-UNREALIZED" for d in report.errors)
 
-    def test_every_off_seam_row_is_its_own_finding(self, spec):
+    def test_every_off_junction_row_is_its_own_finding(self, spec):
         left_cell = CellId("qsIt", "hapax", None, "baseline", ())
         right_cell = CellId("qsMay", "loop", "baseline", None, ())
         left = GlyphRecord(
@@ -289,7 +289,7 @@ class TestContact:
         assert [d.signature for d in report.blessed if d.code == "E-CONTACT"] == ["contact:l:r:y1"]
         assert [d.signature for d in report.errors if d.code == "E-CONTACT"] == ["contact:l:r:y2"]
 
-    def test_overlap_does_not_hide_off_seam_rows(self, spec):
+    def test_overlap_does_not_hide_off_junction_rows(self, spec):
         left_cell = CellId("qsIt", "hapax", None, "baseline", ())
         right_cell = CellId("qsMay", "loop", "baseline", None, ())
         left = GlyphRecord(name="l", bitmap=("#", "##"), y_offset=0, exit=(1, 0), convention_exempt=("exit",))

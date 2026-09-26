@@ -2,7 +2,7 @@
 
 `realize` turns a CellPlan and its adjustments into a GlyphRecord in the design section 3.2 order. The starting drawing is the plan's bitmap binding, which `surface.resolve_cell` takes from an explicit `cells:` row first, then from a side binding, and otherwise leaves as the base bitmap. Stubs are then inked or blanked on each live side. The anchors start at the plan's override x or the stance's declared row x. The adjustment tokens (grammar in `model.parse_adjustment`) then apply in order: `ext` and `con` add or remove connector ink and shift the anchors to match, `trim` removes ink and leaves the anchor where it was, `bind` swaps in another bitmap and re-places both anchors by convention (`entry.x = min_ink_x_at_entry_y`, `exit.x = max_ink_x_at_exit_y + 1`), and `locked` drops the entry anchor. A row's `x_off_convention` flag exempts its own side of E-ANCHOR and no other. A `trim` adjustment exempts the side it trims, because its anchor stays where the pre-trim ink put it.
 
-`seam_gap` is the design section 9 gap arithmetic over two realized records. `verify_withdrawal_safe` checks a `withdrawal: safe` claim.
+`junction_gap` is the design section 9 gap arithmetic over two realized records. `verify_withdrawal_safe` checks a `withdrawal: safe` claim.
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ PIXEL = 50
 INK_X_OFFSET = 1
 MAX_GLYPH_NAME_BYTES = 63
 
-# A copy of the height table in rebuild/script.yaml (design section 2), so seam_gap and verify_withdrawal_safe can take height names without a registry.
+# A copy of the height table in rebuild/script.yaml (design section 2), so junction_gap and verify_withdrawal_safe can take height names without a registry.
 HEIGHT_Y = {"baseline": 0, "x-height": 5, "y6": 6, "top": 8}
 
 
@@ -292,16 +292,16 @@ def realize(
     )
 
 
-def seam_gap(left: GlyphRecord, right: GlyphRecord, height: Height | int) -> int:
-    """The number of blank pixels between the left glyph's last ink and the right glyph's first ink at the seam row, with the two anchors aligned. 0 means the join closes and a negative count means overlap. When the left record has an `exit_ink_y`, its ink is read at that row, because its anchor sits off the stroke's own row (·They's hook reaches the baseline anchor from y=-1)."""
+def junction_gap(left: GlyphRecord, right: GlyphRecord, height: Height | int) -> int:
+    """The number of blank pixels between the left glyph's last ink and the right glyph's first ink at the junction row, with the two anchors aligned. 0 means the join closes and a negative count means overlap. When the left record has an `exit_ink_y`, its ink is read at that row, because its anchor sits off the stroke's own row (·They's hook reaches the baseline anchor from y=-1)."""
     y = _height_y(height)
     if left.exit is None or right.entry is None:
-        raise GeometryError("seam_gap needs a live exit on the left and a live entry on the right")
+        raise GeometryError("junction_gap needs a live exit on the left and a live entry on the right")
     left_scan_y = y if left.exit_ink_y is None else left.exit_ink_y
     left_span = ink_span(left.bitmap, left.y_offset, left_scan_y)
     right_span = ink_span(right.bitmap, right.y_offset, y)
     if left_span is None or right_span is None:
-        raise GeometryError(f"seam_gap at y={y}: a side has no ink at the seam row")
+        raise GeometryError(f"junction_gap at y={y}: a side has no ink at the junction row")
     return (left.exit[0] - 1 - left_span[1]) + (right_span[0] - right.entry[0])
 
 

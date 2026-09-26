@@ -198,7 +198,7 @@ def test_replay_tolerates_a_tail_torn_mid_character(tmp_path):
 
 def test_replay_reads_past_a_note_carrying_a_unicode_line_separator(tmp_path):
     """A note can contain U+2028, for example when pasted from a PDF. `json.dumps` writes it raw, and `str.splitlines` treats it as a line break, which would split the entry and drop every entry after it. The journal is read a line at a time and splits on newlines only, so the note and the rest of the journal replay intact."""
-    note = "the seam splits\u2028here"
+    note = "the junction splits\u2028here"
     path = tmp_path / "journal.ndjson"
     journal.record_transition(
         path,
@@ -233,7 +233,7 @@ def test_compact_finds_a_floor_past_a_note_carrying_a_unicode_line_separator(tmp
         stamp="S1",
         old_stamp=None,
         old_verdicts=[],
-        new_verdicts=[v("u-1", note="the seam splits\u2028here")],
+        new_verdicts=[v("u-1", note="the junction splits\u2028here")],
         at="2026-07-10T01:00:00Z",
     )
     journal.record_transition(
@@ -241,7 +241,7 @@ def test_compact_finds_a_floor_past_a_note_carrying_a_unicode_line_separator(tmp
         source="merge",
         stamp="S2",
         old_stamp="S1",
-        old_verdicts=[v("u-1", note="the seam splits\u2028here")],
+        old_verdicts=[v("u-1", note="the junction splits\u2028here")],
         new_verdicts=[v("u-2")],
         at="2026-07-10T03:00:00Z",
     )

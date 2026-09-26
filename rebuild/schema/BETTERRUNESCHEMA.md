@@ -15,7 +15,7 @@ This is the plan for adding readable documentation to `rune.schema.json`, the sc
 
 **The only reader of this documentation is the owner (Nathan).** There is no third-party reader to write for. So:
 
-- Assume fluency in the project’s own vocabulary: ·Letter names, `qsName` families, _stance_, _ductus_, _ink_, _trait_, _half_/_alt_, _anchor_, _seam_. Don’t re-teach font internals the owner already knows.
+- Assume fluency in the project’s own vocabulary: ·Letter names, `qsName` families, _stance_, _ductus_, _ink_, _trait_, _half_/_alt_, _anchor_, _junction_. Don’t re-teach font internals the owner already knows.
 - **Do** explain the schema-specific mechanisms the owner does _not_ keep in mind: what an `unlock` does, what `withdrawal: safe` promises, what `ok` and `split` mean on an `extend`, and so on.
 - **Don’t use “drawing” as a noun in prose** (R39). It reads as an undefined term. Say `bitmap` or use a plain verb. The `drawing` `$def` name and its `$ref`s stay, since they are structure and not prose, and verbs such as “redraws” and “draws” are fine.
 - **Put the terse reference first, and put the reason right after it.** The owner does not want to read `model.py` docstrings or the M1 plan to find out why a key exists, so the reason goes where the owner is already looking.

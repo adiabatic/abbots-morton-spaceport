@@ -1,6 +1,6 @@
 [
  {
-  "id": "u-HZub95WTHju",
+  "id": "u-VFVAR2GPEXx",
   "ink_identical": false,
   "picture_identical": false,
   "junior_equivalent": false,
@@ -47,7 +47,7 @@
     "qsTea",
     "qsOy"
    ],
-   "seams": [
+   "junctions": [
     "break"
    ]
   },
@@ -55,7 +55,7 @@
    "cells": [
     "qsTea_qsOy/hapax/None/None/"
    ],
-   "seams": [],
+   "junctions": [],
    "extensions": []
   },
   "diff_positions": [
@@ -109,10 +109,10 @@
     ]
    }
   },
-  "content_key": "630cbcc1a03cc058ac2bc7beba2f3037e8071692458b49aca171db576cd726d1"
+  "content_key": "a8e4ebfdc13b57576737031a110a7db731424e7374cf1719ff849caf4bd5e2f8"
  },
  {
-  "id": "u-KtPjucTyfbt",
+  "id": "u-BW5ne1qnz1k",
   "ink_identical": false,
   "picture_identical": false,
   "junior_equivalent": false,
@@ -171,7 +171,7 @@
     "qsOy",
     "qsTea.en-y0"
    ],
-   "seams": [
+   "junctions": [
     "break",
     "y0"
    ]
@@ -182,7 +182,7 @@
     "qsOy/hapax/None/baseline/",
     "qsTea/full/baseline/None/"
    ],
-   "seams": [
+   "junctions": [
     "break",
     "y0"
    ],
@@ -222,7 +222,7 @@
     "x": 0
    }
   ],
-  "secondary_seams": [
+  "secondary_junctions": [
    {
     "pair": {
      "left": 0,
@@ -238,7 +238,7 @@
      "x_max": 550,
      "advance_total": 1100
     },
-    "home": "u-HZub95WTHju"
+    "primary_unit": "u-VFVAR2GPEXx"
    }
   ],
   "explain": "sequence 00B7:E679:E652   config default\nsettled: periodcentered qsOy.hapax.ex-y0 qsTea.full.en-y0\n\nposition 1: qsOy\n  decided by: join-count",
@@ -271,6 +271,6 @@
     ]
    }
   },
-  "content_key": "70e995610d96067fc4178af99221eaca3446d9aba4f5f9ccbee283446d348e44"
+  "content_key": "3ec8ae0c355f96f70a0ac32d77eda74faa26478c18635c91300b441b6b7e1532"
  }
 ]

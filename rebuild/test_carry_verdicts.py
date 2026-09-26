@@ -70,13 +70,13 @@ def test_content_hash_is_the_sha256_of_the_projection():
 
 
 def test_a_change_to_the_judged_window_moves_the_content_key():
-    """Changing a judged field (the codepoints, the configs, either side's seams, or `ink_identical`) changes the key, so the tests above cannot pass with a key that ignores every field. A unit whose judged content changes loses its old verdict."""
+    """Changing a judged field (the codepoints, the configs, either side's junctions, or `ink_identical`) changes the key, so the tests above cannot pass with a key that ignores every field. A unit whose judged content changes loses its old verdict."""
     unit = _fixture_units()[0]
     for key, replacement in (
         ("codepoints", "E650:E650"),
         ("configs", ["ss07"]),
-        ("after", {**unit["after"], "seams": [*unit["after"]["seams"], "break"]}),
-        ("before", {**unit["before"], "seams": [*unit["before"]["seams"], "break"]}),
+        ("after", {**unit["after"], "junctions": [*unit["after"]["junctions"], "break"]}),
+        ("before", {**unit["before"], "junctions": [*unit["before"]["junctions"], "break"]}),
         ("ink_identical", not unit["ink_identical"]),
     ):
         assert content_key({**unit, key: replacement}) != content_key(unit), key

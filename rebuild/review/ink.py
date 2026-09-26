@@ -7,7 +7,7 @@ Placed outlines are compared without being built. `OutlineIntern` interns each o
 There are two readings:
 
 - `ink_identical` compares both fonts' sorted placed pieces (`ink_pieces`) under every config. `ink_histogram` in `rebuild/review/facts.py` flags units with it.
-- `config_diff` returns the pixel-level delta that every deduplication check keys on: the cells only one font paints, read over each font's whole rasterized window and not piece by piece. A change that paints no different pixel (an overlap removed at a seam, a stroke passed to a neighbor) does not appear in it, so a window containing such a change has the same digest as its siblings without it. Its sentinel `IDENTITY_DIFF` (no cell lost or gained, no follower shift) is the only implementation of `picture_identical`, the machine check the build checks for every unit that is not ink-identical. Piece identity implies the sentinel, because `config_diff` returns it before rasterizing anything. `rebuild/test_review_ink.py` checks over the frozen windows that the sentinel agrees with the reference picture comparison, `picture_equal` over `run_cells`.
+- `config_diff` returns the pixel-level delta that every deduplication check keys on: the cells only one font paints, read over each font's whole rasterized window and not piece by piece. A change that paints no different pixel (an overlap removed at a junction, a stroke passed to a neighbor) does not appear in it, so a window containing such a change has the same digest as its siblings without it. Its sentinel `IDENTITY_DIFF` (no cell lost or gained, no follower shift) is the only implementation of `picture_identical`, the machine check the build checks for every unit that is not ink-identical. Piece identity implies the sentinel, because `config_diff` returns it before rasterizing anything. `rebuild/test_review_ink.py` checks over the frozen windows that the sentinel agrees with the reference picture comparison, `picture_equal` over `run_cells`.
 
 `signature` is built from the same two `run_ink` lists that `config_diff` and `ink_pieces` read, so equal signatures give equal deltas, equal ink flags, and equal delta digests without any sampling.
 
@@ -45,7 +45,7 @@ PICTURE_VERIFICATION_METHOD = (
     "Shaped with uharfbuzz in both shipped fonts, kern-neutral, under every config in the unit's set; "
     "each placed outline rasterized onto the PIXEL_SIZE grid under nonzero winding and the whole window's "
     "cells unioned per font — both fonts paint exactly the same pixels under every config, so the only "
-    "change is which glyph owns which pixel (an overlap removed at a seam, a stroke handed to a neighbor), "
+    "change is which glyph owns which pixel (an overlap removed at a junction, a stroke handed to a neighbor), "
     "which no reviewer can see. Refused, and left for a human, on any curved or off-grid outline or any "
     "off-grid placement."
 )
@@ -385,7 +385,7 @@ class InkComparator:
     def config_diff(self, text: str, config: str) -> tuple:
         """Return the before-to-after ink delta under one config at the pixel level, localized to the changed region: (cells only the before font paints, cells only the after font paints, follower shift in columns).
 
-        Each run is rasterized onto the PIXEL_SIZE grid and unioned per font over the whole window. A pixel one glyph gives up but a neighbor still paints is no change. For example, ·J'ai drops its crown pixel under an ·At that paints that pixel anyway, and the change adds nothing to any window's delta. The same change at a seam the neighbor no longer reaches leaves a real hole and stays in the delta, because the comparison is over the rendered union of this window and not over a list of allowed names.
+        Each run is rasterized onto the PIXEL_SIZE grid and unioned per font over the whole window. A pixel one glyph gives up but a neighbor still paints is no change. For example, ·J'ai drops its crown pixel under an ·At that paints that pixel anyway, and the change adds nothing to any window's delta. The same change at a junction the neighbor no longer reaches leaves a real hole and stays in the delta, because the comparison is over the rendered union of this window and not over a list of allowed names.
 
         Followers that only slid are read at the same grain. The longest tail of glyphs whose after picture is the before picture displaced by a whole number of columns is moved back by that displacement before the subtraction, and the displacement is the shift. A tail that includes a pixel given up to a neighbor therefore still counts as slid, which keeps ·Fee·Tea·At·J'ai in the same group as every other window that shortens ·Fee the same way. The remaining cells are translated together so the delta's leftmost column is 0.
 

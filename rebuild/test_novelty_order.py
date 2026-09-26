@@ -16,11 +16,11 @@ def unit(
     tokens=("·Pea", "·Tea"),
     duplicate_group=None,
     batch: int | None = 1,
-    seams_before=("break",),
-    seams_after=("y0",),
+    junctions_before=("break",),
+    junctions_after=("y0",),
     cells=("qsPea/full", "qsTea/half"),
     configs=("default",),
-    kinds=("seam",),
+    kinds=("junction",),
     provenance=("glyph_data/runes/qsPea.yaml:policy.prefer[0]",),
 ):
     return {
@@ -33,8 +33,8 @@ def unit(
         "notation_tokens": list(tokens),
         "configs": list(configs),
         "kinds": list(kinds),
-        "before": {"seams": list(seams_before)},
-        "after": {"seams": list(seams_after), "cells": list(cells)},
+        "before": {"junctions": list(junctions_before)},
+        "after": {"junctions": list(junctions_after), "cells": list(cells)},
         "provenance": list(provenance),
     }
 

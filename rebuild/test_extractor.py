@@ -1,4 +1,4 @@
-"""Unit tests for the baseline extractor: basis enumeration, row serialization, header rendering, seam classification on known pairs, sampling stability, small-run determinism, and what the summarize command reports writing. The validation suite, including corpus replay, is rebuild/test_validation_suite.py."""
+"""Unit tests for the baseline extractor: basis enumeration, row serialization, header rendering, junction classification on known pairs, sampling stability, small-run determinism, and what the summarize command reports writing. The validation suite, including corpus replay, is rebuild/test_validation_suite.py."""
 
 import gzip
 
@@ -7,7 +7,7 @@ import uharfbuzz as hb
 from fontTools.ttLib import TTFont
 
 from rebuild.baseline import alphabet, cli, extract, model
-from rebuild.baseline.classify import SeamClassifier
+from rebuild.baseline.classify import JunctionClassifier
 from rebuild.baseline.model import CONFIGS, FONT_PATH, Row, render_header, row_sort_key
 from rebuild.baseline.shaper import Shaper
 
@@ -18,8 +18,8 @@ def shaper() -> Shaper:
 
 
 @pytest.fixture(scope="module")
-def classifier() -> SeamClassifier:
-    return SeamClassifier(FONT_PATH)
+def classifier() -> JunctionClassifier:
+    return JunctionClassifier(FONT_PATH)
 
 
 def test_alphabet_census():
@@ -58,14 +58,14 @@ def test_row_round_trip():
             codepoints=(0xE665,),
             glyphs=("qsMay",),
             clusters=(0,),
-            seams=(),
+            junctions=(),
             positions=((0, 0, 350),),
         ),
         Row(
             codepoints=(0xE665, 0x0020, 0xE652, 0x00B7),
             glyphs=("qsMay", "space", "qsTea.half", "periodcentered"),
             clusters=(0, 1, 2, 3),
-            seams=("break", "break", "break"),
+            junctions=("break", "break", "break"),
             positions=((0, 0, 350), (0, 0, 300), (0, 250, 250), (0, 0, 100)),
         ),
     ]
@@ -84,7 +84,7 @@ def test_header_rendering_and_parsing():
     assert header[0] == f"# baseline-extract v{model.TOOL_VERSION}"
     assert header[1] == "# git_sha: ae9d08d"
     assert header[4] == "# config: ss02+ss03 (ss02=1 ss03=1)"
-    assert header[-1] == "# columns: codepoints glyphs clusters seams positions"
+    assert header[-1] == "# columns: codepoints glyphs clusters junctions positions"
     parsed = model.parse_header(header)
     assert parsed["config"] == "ss02+ss03"
     assert parsed["tool_version"] == model.TOOL_VERSION
@@ -159,34 +159,34 @@ def test_shaper_name_recovery_survives_harfbuzz_truncation(shaper):
         assert shaper.glyph_name(tt_font.getGlyphID(name)) == name
 
 
-def _seams(shaper, classifier, codepoints, features=None):
+def _junctions(shaper, classifier, codepoints, features=None):
     row = extract.build_row(shaper, classifier, codepoints, features or {})
     return row
 
 
 def test_it_no_joins_at_baseline(shaper, classifier):
-    row = _seams(shaper, classifier, (0xE670, 0xE666))
-    assert row.seams == ("y0",)
+    row = _junctions(shaper, classifier, (0xE670, 0xE666))
+    assert row.junctions == ("y0",)
     assert row.glyphs[0].startswith("qsIt")
 
 
 def test_way_thaw_never_joins(shaper, classifier):
-    row = _seams(shaper, classifier, (0xE661, 0xE656))
-    assert row.seams == ("break",)
+    row = _junctions(shaper, classifier, (0xE661, 0xE656))
+    assert row.junctions == ("break",)
 
 
 def test_day_utter_ligates(shaper, classifier):
-    row = _seams(shaper, classifier, (0xE653, 0xE67A))
+    row = _junctions(shaper, classifier, (0xE653, 0xE67A))
     assert row.glyphs == ("qsDay_qsUtter",)
     assert row.clusters == (0,)
-    assert row.seams == ("lig",)
+    assert row.junctions == ("lig",)
 
 
 def test_may_tea_xheight_join_is_ss03_gated(shaper, classifier):
-    default_row = _seams(shaper, classifier, (0xE665, 0xE652))
-    assert default_row.seams == ("break",)
-    ss03_row = _seams(shaper, classifier, (0xE665, 0xE652), {"ss03": True})
-    assert ss03_row.seams == ("y5",)
+    default_row = _junctions(shaper, classifier, (0xE665, 0xE652))
+    assert default_row.junctions == ("break",)
+    ss03_row = _junctions(shaper, classifier, (0xE665, 0xE652), {"ss03": True})
+    assert ss03_row.junctions == ("y5",)
 
 
 def test_split_shaping_concatenates_with_absolute_clusters(shaper):

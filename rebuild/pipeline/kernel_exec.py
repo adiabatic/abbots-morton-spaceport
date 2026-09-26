@@ -101,7 +101,7 @@ TIMEOUT = 1800
 LOCK_PATH = MANIFEST.parent / "target" / ".ams-kernel-relink.lock"
 # How many lines of a failed build's stderr the exception includes: cargo reports the error in its last few lines, after the full compilation log.
 BUILD_TAIL_LINES = 20
-# On by default: the third join-count term is scored by the follower's simulated transition instead of seam-bearing candidacy. `AMS_SIMULATED_PROSPECT=0` turns it off for a comparison run, and run_m1's spawn-pool workers inherit that through the environment. It is read at call time, so a test may monkeypatch it; a caller that wants one named world regardless passes `SettlementModes`.
+# On by default: the third join-count term is scored by the follower's simulated transition instead of junction-bearing candidacy. `AMS_SIMULATED_PROSPECT=0` turns it off for a comparison run, and run_m1's spawn-pool workers inherit that through the environment. It is read at call time, so a test may monkeypatch it; a caller that wants one named world regardless passes `SettlementModes`.
 SIMULATED_PROSPECT_DEFAULT = os.environ.get("AMS_SIMULATED_PROSPECT", "1") != "0"
 # On by default: follower prefers are evaluated over the settled position's real shifted slots (follower prefer right1 = position right2, right2 = position right3, right3 = position right4) instead of pinning every slot past the follower prefer's own right1 to UNKNOWN, so a chained follower prefer resolves inside the window instead of firing optimistically wherever its then: hop read the pin. `AMS_FOLLOWER_PREFER_SLOTS=0` is the comparison state. It is a module attribute read at call time, like SIMULATED_PROSPECT_DEFAULT.
 FOLLOWER_PREFER_SLOTS_DEFAULT = os.environ.get("AMS_FOLLOWER_PREFER_SLOTS", "1") != "0"
@@ -758,7 +758,7 @@ _NO_RECORD = ("",) * 7
 
 
 def case_line(left: settle.LeftContext, token: settle.RightToken, rights: Sequence[settle.RightToken]) -> str:
-    """One independent window as a `settle-cases` case line, tab-separated: the left's kind and its record (rune, stance, entry, exit, comma-joined adjustments, seam, extension; all seven empty for a left with no record, and a height or seam empty where there is none), then the rune being settled and the four raw slots after it, each a rune name or the kind name of a boundary or unknown slot. The crate echoes the line verbatim before its result, which is how a batch's case results are matched to its case lines."""
+    """One independent window as a `settle-cases` case line, tab-separated: the left's kind and its record (rune, stance, entry, exit, comma-joined adjustments, junction, extension; all seven empty for a left with no record, and a height or junction empty where there is none), then the rune being settled and the four raw slots after it, each a rune name or the kind name of a boundary or unknown slot. The crate echoes the line verbatim before its result, which is how a batch's case results are matched to its case lines."""
     settled = left.settled
     if settled is None:
         record = _NO_RECORD
@@ -770,7 +770,7 @@ def case_line(left: settle.LeftContext, token: settle.RightToken, rights: Sequen
             cell.entry or "",
             cell.exit or "",
             ",".join(cell.adjustments),
-            settled.seam or "",
+            settled.junction or "",
             str(settled.extension),
         )
     return "\t".join(
@@ -845,8 +845,8 @@ def _elimination_of(row) -> settle.Elimination:
 
 
 def settled_of_row(row) -> Settled:
-    """Decode one settled record in the crate's JSON form (`types::settled_json`), `{"cell": [rune, stance, entry, exit, [adjustments]], "seam": …, "extension": …}`, to an interned `Settled`. A `settle-cases` trace carries this shape under `settled`, and the replay's window memo carries one per line, so both decode here. The interning key is `(rune, stance, entry, exit, adjustments, seam, extension)` with each absent height `None`. `_settled_of_fields` builds the same key from the tab-separated form, so a record read from either result shape is the same object."""
-    if not isinstance(row, Mapping) or set(row) != {"cell", "seam", "extension"}:
+    """Decode one settled record in the crate's JSON form (`types::settled_json`), `{"cell": [rune, stance, entry, exit, [adjustments]], "junction": …, "extension": …}`, to an interned `Settled`. A `settle-cases` trace carries this shape under `settled`, and the replay's window memo carries one per line, so both decode here. The interning key is `(rune, stance, entry, exit, adjustments, junction, extension)` with each absent height `None`. `_settled_of_fields` builds the same key from the tab-separated form, so a record read from either result shape is the same object."""
+    if not isinstance(row, Mapping) or set(row) != {"cell", "junction", "extension"}:
         raise KernelRunError(f"the kernel spelled a malformed settled record: {row!r}")
     cell_row = row["cell"]
     if not isinstance(cell_row, list) or len(cell_row) != 5 or not isinstance(cell_row[4], list):
@@ -854,10 +854,10 @@ def settled_of_row(row) -> Settled:
     try:
         return _interned(
             _SETTLED,
-            (*cell_row[:4], tuple(cell_row[4]), row["seam"], row["extension"]),
+            (*cell_row[:4], tuple(cell_row[4]), row["junction"], row["extension"]),
             lambda: Settled(
                 CellId(cell_row[0], cell_row[1], cell_row[2], cell_row[3], tuple(cell_row[4])),
-                row["seam"],
+                row["junction"],
                 row["extension"],
             ),
         )
@@ -878,7 +878,7 @@ _SETTLED_FIELDS = 7
 
 
 def _settled_of_fields(text: str) -> Settled:
-    """Decode one settled-only case result to an interned `Settled`. The result is seven tab-separated fields (rune, stance, entry, exit, comma-joined adjustments, seam, extension, with a height empty where there is none), or, starting with `{`, the crate's refusal object, which `_refusal` raises as it does for a trace. The interning key is the one `settled_of_row` builds, so a record read from either result shape is the same object."""
+    """Decode one settled-only case result to an interned `Settled`. The result is seven tab-separated fields (rune, stance, entry, exit, comma-joined adjustments, junction, extension, with a height empty where there is none), or, starting with `{`, the crate's refusal object, which `_refusal` raises as it does for a trace. The interning key is the one `settled_of_row` builds, so a record read from either result shape is the same object."""
     if text.startswith("{"):
         result = _json_result(text)
         if not isinstance(result, Mapping):
@@ -888,7 +888,7 @@ def _settled_of_fields(text: str) -> Settled:
     fields = text.split("\t")
     if len(fields) != _SETTLED_FIELDS:
         raise KernelRunError(f"the kernel spelled a malformed settled record: {text!r}")
-    rune, stance, entry, exit_height, adjustments, seam, extension = fields
+    rune, stance, entry, exit_height, adjustments, junction, extension = fields
     try:
         extension_value = int(extension)
     except ValueError:
@@ -896,12 +896,14 @@ def _settled_of_fields(text: str) -> Settled:
     entry_height = entry or None
     exit_height = exit_height or None
     adjustment_tokens = tuple(adjustments.split(",")) if adjustments else ()
-    seam_height = seam or None
+    junction_height = junction or None
     return _interned(
         _SETTLED,
-        (rune, stance, entry_height, exit_height, adjustment_tokens, seam_height, extension_value),
+        (rune, stance, entry_height, exit_height, adjustment_tokens, junction_height, extension_value),
         lambda: Settled(
-            CellId(rune, stance, entry_height, exit_height, adjustment_tokens), seam_height, extension_value
+            CellId(rune, stance, entry_height, exit_height, adjustment_tokens),
+            junction_height,
+            extension_value,
         ),
     )
 
@@ -1187,7 +1189,7 @@ def read_stream(stream: Path) -> FixpointProduct:
 
 
 def enumerate_transitions(spec: ResolvedSpec, features: frozenset[str]) -> FixpointProduct:
-    """One configuration's reachable windows, enumerated by the crate and parsed into a `table.FixpointProduct`. The product holds everything the fold reads and nothing else the engine touched, so a consumer that wants what a table drops (the settled cells, the seams, the optimistic prospect, the fired provenance per row) asks for the product. Only tests call this; `build_tables` folds in the crate without writing a stream. Nothing survives the call: the spec dump and the stream live in a scratch directory removed on return."""
+    """One configuration's reachable windows, enumerated by the crate and parsed into a `table.FixpointProduct`. The product holds everything the fold reads and nothing else the engine touched, so a consumer that wants what a table drops (the settled cells, the junctions, the optimistic prospect, the fired provenance per row) asks for the product. Only tests call this; `build_tables` folds in the crate without writing a stream. Nothing survives the call: the spec dump and the stream live in a scratch directory removed on return."""
     with tempfile.TemporaryDirectory() as scratch:
         directory = Path(scratch)
         spec_path = directory / "spec.json"

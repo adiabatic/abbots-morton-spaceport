@@ -153,9 +153,9 @@ struct Row {
     joint: bool,
 }
 
-/// The prospect term as a row stores it. The engine returns an `i64` because its join-count arithmetic sums these terms, but the term itself is zero or one (whether the follower's seam is claimed) in either candidacy world, so it fits in a byte. A wider value means the engine is no longer returning a count, and the conversion panics.
+/// The prospect term as a row stores it. The engine returns an `i64` because its join-count arithmetic sums these terms, but the term itself is zero or one (whether the follower's junction is claimed) in either candidacy world, so it fits in a byte. A wider value means the engine is no longer returning a count, and the conversion panics.
 fn prospect_byte(prospect: i64) -> i8 {
-    i8::try_from(prospect).expect("a prospect is a seam count, zero or one")
+    i8::try_from(prospect).expect("a prospect is a junction count, zero or one")
 }
 
 /// One third-slot entry of a class-grain window: the boundary token when the entry is a boundary, the fiber's index in the context when it is a fiber, and the members this item's pins admitted.
@@ -1080,14 +1080,16 @@ fn partition_complaint(
     )
 }
 
-/// One left state as the partition complaint names it: the cell it settled into, the seam it committed, and the connector pixels on that seam.
+/// One left state as the partition complaint names it: the cell it settled into, the junction it committed, and the connector pixels on that junction.
 fn left_state_text(index: &SpecIndex, settled: Option<&Settled>) -> String {
     match settled {
         None => "a boundary left".to_owned(),
         Some(state) => format!(
-            "{} (seam {}, extension {})",
+            "{} (junction {}, extension {})",
             cell_label(index, &state.cell),
-            state.seam.map_or("none", |height| index.resolve(height)),
+            state
+                .junction
+                .map_or("none", |height| index.resolve(height)),
             state.extension
         ),
     }
@@ -1938,7 +1940,7 @@ mod tests {
     fn a_depth_four_left_pins_the_second_slot_of_the_window_after_its_successor() {
         let index = deep_alphabet();
         let product = product(&index);
-        // The left that only the fourth slot's one live token reaches: qsPea commits the x-height seam there and nowhere else, so qsTea's entry at that height identifies that continuation.
+        // The left that only the fourth slot's one live token reaches: qsPea commits the x-height junction there and nowhere else, so qsTea's entry at that height identifies that continuation.
         assert_eq!(
             slots_at(&product, "qsTea", "qsPea.full.ex-y5")
                 .iter()
@@ -2676,8 +2678,8 @@ mod tests {
             "{complaint}"
         );
         assert!(
-            complaint.contains("qsPea.half.ex-y0 (seam floor, extension 0)")
-                && complaint.contains("qsPea.half.ex-y0 (seam baseline, extension 0)"),
+            complaint.contains("qsPea.half.ex-y0 (junction floor, extension 0)")
+                && complaint.contains("qsPea.half.ex-y0 (junction baseline, extension 0)"),
             "{complaint}"
         );
     }

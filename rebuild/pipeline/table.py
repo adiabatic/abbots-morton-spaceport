@@ -8,7 +8,7 @@ Rows carry two deep slots, `right3` and `right4`. The kernel splits a window by 
 
 `src/rulefold.rs` specifies how each input's rows are compressed into rules and the order of those rules. The crate checks the rules by replaying the rows against them under first-match-wins (`fold::assert_outcome_partition`).
 
-A row is joint when either §6.1 flag applies: the final tiebreak broke a ranking tie between candidates that differ in seam, or the optimistic prospect differs from the follower's settled choice. Both TSV artifacts are diff-stable (§8): a deterministic row order, provenance pointers, and deterministic labels.
+A row is joint when either §6.1 flag applies: the final tiebreak broke a ranking tie between candidates that differ in junction, or the optimistic prospect differs from the follower's settled choice. Both TSV artifacts are diff-stable (§8): a deterministic row order, provenance pointers, and deterministic labels.
 
 The windows artifact stores a built table so the conformance sweep does not rebuild from unchanged sources: the rules, the reachable cells, one certificate per rule, and the enumerated windows, stamped with `fingerprint.tables_value` over the sources the fixpoint read. `read_windows` returns the windows as `Window` rows, labels only, which is all a replay reads. The head alone gives the reachable cells and the witness stage's certificates. Neither digest in this module reads the certificates, because they are evidence that the rules can fire, not part of what the rules say.
 """

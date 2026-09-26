@@ -47,7 +47,7 @@ MINI_AUDIT = MINI / "audit.tsv"
 FIXTURE_AUDIT = """config\tcodepoints\tkinds\tmatched_entry\tbaseline\tnew
 default\tE650:E665\tcell\tdangling-anchor-dropped\tqsPea|qsMay.en-y0\tqsPea/full/None/baseline/|qsMay/loop/baseline/None/
 ss02\tE650:E665\tcell\tdangling-anchor-dropped\tqsPea|qsMay.en-y0\tqsPea/full/None/baseline/|qsMay/loop/baseline/None/
-default\tE652:E670\tcell,seam\thalves-entry-extension-restored\tqsTea.half.ex-y5|qsIt.en-y5\tqsTea/half/None/x-height/|qsIt/hapax/x-height/None/en-ext-1
+default\tE652:E670\tcell,junction\thalves-entry-extension-restored\tqsTea.half.ex-y5|qsIt.en-y5\tqsTea/half/None/x-height/|qsIt/hapax/x-height/None/en-ext-1
 """
 
 
@@ -58,7 +58,7 @@ def test_load_audit_parses_fixture(tmp_path):
     assert len(rows) == 3
     assert rows[0].config == "default"
     assert rows[0].baseline == ("qsPea", "qsMay.en-y0")
-    assert rows[2].kinds == ("cell", "seam")
+    assert rows[2].kinds == ("cell", "junction")
 
 
 def test_load_audit_interns_every_label_and_pools_every_name_tuple(tmp_path):
@@ -74,9 +74,9 @@ def test_load_audit_interns_every_label_and_pools_every_name_tuple(tmp_path):
     assert rows[0].new is rows[1].new
     assert rows[0].kinds is rows[1].kinds
     assert rows[0].baseline[0] is sys.intern("qsPea")
-    assert rows[2].kinds[1] is sys.intern("seam")
+    assert rows[2].kinds[1] is sys.intern("junction")
     assert names[names.id(rows[0].baseline)] is rows[0].baseline
-    assert names[names.id(("cell", "seam"))] is rows[2].kinds
+    assert names[names.id(("cell", "junction"))] is rows[2].kinds
 
 
 def test_load_audit_rejects_wrong_header(tmp_path):
@@ -93,7 +93,7 @@ def test_fixture_units_dedupe_and_carry_configs(mini_bundle, tmp_path):
     assert len(units) == 2
     by_codepoints = {unit.codepoints: unit for unit in units}
     assert by_codepoints["E650:E665"].configs == ("default", "ss02")
-    assert by_codepoints["E652:E670"].kinds == ("cell", "seam")
+    assert by_codepoints["E652:E670"].kinds == ("cell", "junction")
 
 
 def test_conflicting_class_resolves_to_unmatched_with_config_classes(mini_bundle):
@@ -216,18 +216,18 @@ def test_config_classes_follow_the_file_order_and_the_run_follows_the_config_ord
     rows = [
         AuditRow("ss03", "E650:E665", ("cell",), "UNMATCHED", ("a",), ("b",)),
         AuditRow("ss02", "E650:E665", ("cell",), "x-class", ("a",), ("b",)),
-        AuditRow("default", "E650:E665", ("seam",), "UNMATCHED", ("a",), ("b",)),
+        AuditRow("default", "E650:E665", ("junction",), "UNMATCHED", ("a",), ("b",)),
     ]
     (unit,), columns = build_units(rows, load_ledger(mini_bundle.ledger), dict(LETTERS))
     assert unit.configs == ("default", "ss03", "ss02")
     assert columns.configs(unit.rows_start, unit.row_count) == unit.configs
     assert list(unit.config_classes) == ["ss03", "ss02", "default"]
-    assert unit.kinds == ("cell", "seam")
+    assert unit.kinds == ("cell", "junction")
     assert unit.render_groups == (unit.configs,)
     assert [
         columns.line(index, unit.codepoints) for index in range(unit.rows_start, unit.rows_start + 3)
     ] == [
-        "default\tE650:E665\tseam\tUNMATCHED\ta\tb",
+        "default\tE650:E665\tjunction\tUNMATCHED\ta\tb",
         "ss03\tE650:E665\tcell\tUNMATCHED\ta\tb",
         "ss02\tE650:E665\tcell\tx-class\ta\tb",
     ]
@@ -494,7 +494,7 @@ def test_ink_duplicate_siblings_merge_into_one_unit(mini_bundle):
     rows = [
         AuditRow("default", "E650:E665", ("cell",), "UNMATCHED", ("qsPea", "qsMay.en-y0"), ("b",)),
         AuditRow("ss03", "E650:E665", ("cell",), "UNMATCHED", ("qsPea", "qsMay.en-y0"), ("b",)),
-        AuditRow("ss04", "E650:E665", ("seam",), "UNMATCHED", ("qsPea.ss04", "qsMay.en-y0"), ("b",)),
+        AuditRow("ss04", "E650:E665", ("junction",), "UNMATCHED", ("qsPea.ss04", "qsMay.en-y0"), ("b",)),
         AuditRow("default", "E650:E650", ("cell",), "UNMATCHED", ("qsPea", "qsPea"), ("c",)),
     ]
     table, columns = load_table(rows, load_ledger(mini_bundle.ledger), dict(LETTERS))
@@ -526,7 +526,7 @@ def test_ink_duplicate_siblings_merge_into_one_unit(mini_bundle):
     assert len(columns) == 7 and columns.orphaned == 3 and columns.live == 4
     assert row_column_sizes(columns).count == 4
     assert merged.baseline == ("qsPea", "qsMay.en-y0")
-    assert merged.kinds == ("cell", "seam")
+    assert merged.kinds == ("cell", "junction")
     assert merged.render_groups == (merged.configs,)
     assert merged.config_classes == {"default": "UNMATCHED", "ss03": "UNMATCHED", "ss04": "UNMATCHED"}
     assert merged.config_classes is table.mappings.pooled(dict(merged.config_classes))

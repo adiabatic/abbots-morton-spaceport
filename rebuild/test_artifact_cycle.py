@@ -3863,7 +3863,7 @@ def _fake_run_m1_root(tmp_path):
         ("rebuild/m1-aliases.yaml", "qsX: X\n"),
         ("rebuild/m1-divergences.yaml", "- id: x\n  status: intended\n  why: one\n"),
         ("glyph_data/senior_quikscript_kerning.yaml", "pairs: {}\n"),
-        ("rebuild/m1-contact-allow.yaml", "- signature: seam-1\n  why: blessed once\n"),
+        ("rebuild/m1-contact-allow.yaml", "- signature: junction-1\n  why: blessed once\n"),
         ("rebuild/pipeline/oracle.py", "verdict = 1\n"),
         ("rebuild/pipeline/settle.py", "settle = 1\n"),
         ("rebuild/validation/shaper.py", "shape = 1\n"),
@@ -3936,9 +3936,9 @@ def test_the_allow_list_line_ignores_prose(tmp_path):
     root = _fake_run_m1_root(tmp_path)
     allow = root / fingerprint.CONTACT_ALLOW_LABEL
     before = ac.run_m1_skip_fingerprint(root)
-    allow.write_text("# a comment nobody reads\n- signature: seam-1\n  why: blessed twice over\n")
+    allow.write_text("# a comment nobody reads\n- signature: junction-1\n  why: blessed twice over\n")
     assert ac.run_m1_skip_fingerprint(root) == before
-    allow.write_text("- signature: seam-1\n- signature: seam-2\n")
+    allow.write_text("- signature: junction-1\n- signature: junction-2\n")
     assert ac.run_m1_skip_fingerprint(root) != before
 
 
@@ -3966,7 +3966,7 @@ def test_a_comparison_side_edit_moves_the_run_key_and_leaves_the_sweeps_alone(tm
         ("rebuild/m1-divergences.yaml", "- id: y\n  status: intended\n  why: one\n"),
         ("rebuild/m1-aliases.yaml", "qsX: Y\n"),
         ("glyph_data/senior_quikscript_kerning.yaml", "pairs: {qsX_qsY: -1}\n"),
-        ("rebuild/m1-contact-allow.yaml", "- signature: seam-2\n"),
+        ("rebuild/m1-contact-allow.yaml", "- signature: junction-2\n"),
         ("rebuild/pipeline/oracle.py", "verdict = 2\n"),
         ("rebuild/out/baseline-default.tsv.gz", "many more baseline rows\n"),
         ("rebuild/out/m1/baseline-default.subset.tsv.gz", "many more subset rows\n"),
@@ -4267,7 +4267,7 @@ def test_rebuild_gate_closure_scope_and_exemptions(tmp_path):
     (tmp_path / "rebuild" / "NOTES.md").write_text("")
     (tmp_path / "rebuild" / "evidence" / "verdicts-old.json").write_text("{}")
     (tmp_path / "rebuild" / "review" / "jstests" / "x.test.js").write_text("")
-    (tmp_path / "rebuild" / "m1-contact-allow.yaml").write_text("- signature: seam-1\n")
+    (tmp_path / "rebuild" / "m1-contact-allow.yaml").write_text("- signature: junction-1\n")
     (tmp_path / "glyph_data" / "runes" / "qsX.yaml").write_text("")
     (tmp_path / "tools" / "outside.py").write_text("")
     (tmp_path / "conftest.py").write_text("")
@@ -4327,7 +4327,7 @@ def test_both_lane_fingerprints_ignore_prose_in_the_ledgers(lane, tmp_path):
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
     (tmp_path / "rebuild").mkdir()
     ledger = tmp_path / "rebuild" / "m1-divergences.yaml"
-    ledger.write_text("- id: seam-moved\n  status: intended\n  no_verdict: true\n  why: one\n")
+    ledger.write_text("- id: junction-moved\n  status: intended\n  no_verdict: true\n  why: one\n")
     standing = tmp_path / "rebuild" / "standing-approvals.yaml"
     standing.write_text(
         "format: ams-standing-approvals/1\nrules:\n  - id: r1\n    verdict: approve\n    note: one\n"
@@ -4335,7 +4335,7 @@ def test_both_lane_fingerprints_ignore_prose_in_the_ledgers(lane, tmp_path):
     before = ac.rebuild_lane_fingerprint(tmp_path, lane)
 
     ledger.write_text(
-        "# a header nobody classifies by\n- id: seam-moved\n  status: intended\n  no_verdict: true\n  why: two, at greater length\n"
+        "# a header nobody classifies by\n- id: junction-moved\n  status: intended\n  no_verdict: true\n  why: two, at greater length\n"
     )
     standing.write_text(
         "format: ams-standing-approvals/1\n# a header nobody matches on\nrules:\n  - id: r1\n    verdict: approve\n    note: two, at greater length\n"
@@ -4343,7 +4343,7 @@ def test_both_lane_fingerprints_ignore_prose_in_the_ledgers(lane, tmp_path):
     assert ac.rebuild_lane_fingerprint(tmp_path, lane) == before
 
     ledger.write_text(
-        "- id: seam-moved\n  status: intended\n  no_verdict: false\n  why: two, at greater length\n"
+        "- id: junction-moved\n  status: intended\n  no_verdict: false\n  why: two, at greater length\n"
     )
     reclassified = ac.rebuild_lane_fingerprint(tmp_path, lane)
     assert reclassified != before

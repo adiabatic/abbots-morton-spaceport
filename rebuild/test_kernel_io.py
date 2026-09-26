@@ -375,11 +375,11 @@ class TestTheWireLayoutIsTheDocumentedOne:
             row.right4,
             row.outcome,
         ]
-        assert first[7] == [cells.index(row.settled.cell), row.settled.seam, row.settled.extension]
+        assert first[7] == [cells.index(row.settled.cell), row.settled.junction, row.settled.extension]
         assert first[8] == (
             None
             if row.left_settled is None
-            else [cells.index(row.left_settled.cell), row.left_settled.seam, row.left_settled.extension]
+            else [cells.index(row.left_settled.cell), row.left_settled.junction, row.left_settled.extension]
         )
         assert first[9] == row.joint
         assert first[10] == row.prospect

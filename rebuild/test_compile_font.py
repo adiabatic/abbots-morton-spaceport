@@ -51,11 +51,11 @@ class TestBuildMiniFont:
             names[CellId("qsMay", "loop", "baseline", "x-height", ())],
         ]
 
-    def test_curs_anchors_close_the_seam(self, built):
+    def test_curs_anchors_close_the_junction(self, built):
         out_path, _names = built
-        from rebuild.validation.classify import SeamClassifier
+        from rebuild.validation.classify import JunctionClassifier
 
-        classifier = SeamClassifier(out_path)
+        classifier = JunctionClassifier(out_path)
         shaped_names = []
         from rebuild.pipeline.conform import Shaper
 

@@ -22,8 +22,8 @@ RULE = {
     "verdict": "approve",
     "note": "never a different opinion unless ·X is ·Out",
     "match": {
-        "before": {"pivot": "qsTea.half", "seam_into": "y5", "seam_out": "break", "follower": "qsOy"},
-        "after": {"ligature": "qsTea_qsOy", "seam_into": "break"},
+        "before": {"pivot": "qsTea.half", "junction_in": "y5", "junction_out": "break", "follower": "qsOy"},
+        "after": {"ligature": "qsTea_qsOy", "junction_in": "break"},
         "except_left": ["qsOut"],
     },
 }
@@ -31,12 +31,12 @@ RULE = {
 EXT_RULE = {
     "id": "fixture-extension-dropped",
     "verdict": "approve",
-    "note": "·Tea gives up its extension before ·I and the seam stays where it was",
+    "note": "·Tea gives up its extension before ·I and the junction stays where it was",
     "match": {
         "before": {
             "pivot": "qsTea",
             "exit_extension": "ex-ext-1",
-            "seam_out": "y0",
+            "junction_out": "y0",
             "follower": "qsI",
         },
         "after": {
@@ -55,7 +55,7 @@ SHORTENED_RULE = {
         "before": {
             "pivot": "qsFee",
             "exit_extension": "ex-ext-3",
-            "seam_out": "y5",
+            "junction_out": "y5",
             "follower": "qsTea",
         },
         "after": {
@@ -74,7 +74,7 @@ CONTRACTED_RULE = {
         "before": {
             "pivot": "qsEt",
             "exit_extension": "ex-con-1",
-            "seam_out": "y0",
+            "junction_out": "y0",
             "follower": "qsMay",
         },
         "after": {
@@ -151,7 +151,7 @@ JOIN_RULE = {
     "verdict": "approve",
     "note": "·It sits a column further from ·At — they no longer join at the x-height",
     "match": {
-        "before": {"pivot": "qsAt", "seam_out": "y5", "follower": "qsIt"},
+        "before": {"pivot": "qsAt", "junction_out": "y5", "follower": "qsIt"},
         "after": {"gap": 1},
         "except_left": [],
     },
@@ -162,7 +162,7 @@ REDRAWN_JOIN_RULE = {
     "verdict": "approve",
     "note": "·F3 sits a column further from ·No, which redraws in place as the join goes away",
     "match": {
-        "before": {"pivot": "qsNo", "seam_out": "y0", "follower": "qsF3"},
+        "before": {"pivot": "qsNo", "junction_out": "y0", "follower": "qsF3"},
         "after": {
             "gap": 1,
             "pivot_cells": ["qsNo/flipped/baseline/None/"],
@@ -177,7 +177,7 @@ UNMOVED_JOIN_RULE = {
     "verdict": "approve",
     "note": "·F3 stands where it was as ·No redraws in place and the join goes away",
     "match": {
-        "before": {"pivot": "qsNo", "seam_out": "y0", "follower": "qsF3"},
+        "before": {"pivot": "qsNo", "junction_out": "y0", "follower": "qsF3"},
         "after": {
             "gap": 0,
             "pivot_cells": ["qsNo/flipped/baseline/None/"],
@@ -192,7 +192,7 @@ COLUMNS_REMOVED_JOIN_RULE = {
     "verdict": "approve",
     "note": "·F2 sits two columns further from ·No and removes the column its joining form inserted to take the join",
     "match": {
-        "before": {"pivot": "qsNo", "seam_out": "y0", "follower": "qsF2"},
+        "before": {"pivot": "qsNo", "junction_out": "y0", "follower": "qsF2"},
         "after": {
             "gap": 2,
             "pivot_cells": ["qsNo/flipped/baseline/None/"],
@@ -258,7 +258,7 @@ RETARGET_RULE = {
     "verdict": "approve",
     "note": "·Tea sits as the full bar joining ·No at the baseline",
     "match": {
-        "before": {"pivot": "qsTea.half", "seam_out": "y5", "follower": "qsNo"},
+        "before": {"pivot": "qsTea.half", "junction_out": "y5", "follower": "qsNo"},
         "after": {
             "retarget": "y0",
             "pivot_cells": [
@@ -282,7 +282,7 @@ MOVING_RETARGET_RULE = {
     "verdict": "approve",
     "note": "·Tea reaches ·No at the baseline and pulls it a column back into the reach",
     "match": {
-        "before": {"pivot": "qsTea.half", "seam_out": "y5", "follower": "qsNo"},
+        "before": {"pivot": "qsTea.half", "junction_out": "y5", "follower": "qsNo"},
         "after": {
             "retarget": "y0",
             "pivot_cells": ["qsTea/full/None/baseline/"],
@@ -302,7 +302,7 @@ CREATED_JOIN_RULE = {
     "verdict": "approve",
     "note": "·J joins ·F3 where the old font left a break",
     "match": {
-        "before": {"pivot": "qsJ", "seam_out": "break", "follower": "qsF3"},
+        "before": {"pivot": "qsJ", "junction_out": "break", "follower": "qsF3"},
         "after": {
             "joined": "y0",
             "pivot_cells": ["qsJ/hapax/None/baseline/ex-ext-1"],
@@ -320,7 +320,7 @@ RETARGETED_CREATED_JOIN_RULE = {
     "verdict": "approve",
     "note": "·No joins ·F3 at the baseline where the old font left a break",
     "match": {
-        "before": {"pivot": "qsNo", "seam_out": "break", "follower": "qsF3"},
+        "before": {"pivot": "qsNo", "junction_out": "break", "follower": "qsF3"},
         "after": {
             "joined": "y0",
             "pivot_cells": ["qsNo/flipped/baseline/baseline/"],
@@ -338,7 +338,7 @@ RETARGET_BEHIND_CREATED_JOIN_RULE = {
     "verdict": "approve",
     "note": "·J joins ·Tea at the baseline where the old font left a break",
     "match": {
-        "before": {"pivot": "qsJ", "seam_out": "break", "follower": "qsTea"},
+        "before": {"pivot": "qsJ", "junction_out": "break", "follower": "qsTea"},
         "after": {
             "joined": "y0",
             "pivot_cells": ["qsJ/hapax/None/baseline/ex-ext-1"],
@@ -356,7 +356,7 @@ EXTENSION_BEHIND_CREATED_JOIN_RULE = {
     "verdict": "approve",
     "note": "·No joins ·J at the baseline where the old font left a break",
     "match": {
-        "before": {"pivot": "qsNo", "seam_out": "break", "follower": "qsJ"},
+        "before": {"pivot": "qsNo", "junction_out": "break", "follower": "qsJ"},
         "after": {
             "joined": "y0",
             "pivot_cells": ["qsNo/flipped/baseline/baseline/"],
@@ -374,7 +374,7 @@ CREATED_JOIN_BEHIND_CREATED_JOIN_RULE = {
     "verdict": "approve",
     "note": "·J joins ·F3 at the baseline where the old font left a break",
     "match": {
-        "before": {"pivot": "qsJ", "seam_out": "break", "follower": "qsF3"},
+        "before": {"pivot": "qsJ", "junction_out": "break", "follower": "qsF3"},
         "after": {
             "joined": "y0",
             "pivot_cells": ["qsJ/full/None/None/"],
@@ -392,7 +392,7 @@ CONTRACTED_REDRAWN_SHARED_LETTER_RULE = {
     "verdict": "approve",
     "note": "·May joins ·Eight at the x-height where the old font left a break",
     "match": {
-        "before": {"pivot": "qsMay", "seam_out": "break", "follower": "qsEight"},
+        "before": {"pivot": "qsMay", "junction_out": "break", "follower": "qsEight"},
         "after": {
             "joined": "y5",
             "pivot_cells": ["qsMay/loop/baseline/x-height/en-con-1"],
@@ -410,7 +410,7 @@ GAIN_BEHIND_CREATED_JOIN_RULE = {
     "verdict": "approve",
     "note": "·No joins ·Roe at the baseline where the old font left a break",
     "match": {
-        "before": {"pivot": "qsNo", "seam_out": "break", "follower": "qsRoe"},
+        "before": {"pivot": "qsNo", "junction_out": "break", "follower": "qsRoe"},
         "after": {
             "joined": "y0",
             "pivot_cells": ["qsNo/flipped/baseline/baseline/"],
@@ -428,7 +428,7 @@ REDRAWN_BEHIND_CREATED_JOIN_RULE = {
     "verdict": "approve",
     "note": "·No joins ·Eight at the baseline where the old font left a break",
     "match": {
-        "before": {"pivot": "qsNo", "seam_out": "break", "follower": "qsEight"},
+        "before": {"pivot": "qsNo", "junction_out": "break", "follower": "qsEight"},
         "after": {
             "joined": "y0",
             "pivot_cells": ["qsNo/flipped/baseline/baseline/"],
@@ -446,7 +446,7 @@ RETARGET_BEHIND_RETARGET_RULE = {
     "verdict": "approve",
     "note": "·No reaches ·F3 at the x-height where the old font joined the two at the baseline",
     "match": {
-        "before": {"pivot": "qsNo", "seam_out": "y0", "follower": "qsF3"},
+        "before": {"pivot": "qsNo", "junction_out": "y0", "follower": "qsF3"},
         "after": {
             "retarget": "y5",
             "pivot_cells": ["qsNo/flipped/baseline/baseline/"],
@@ -463,7 +463,7 @@ REDRAWN_BEHIND_RETARGET_RULE = {
     "verdict": "approve",
     "note": "·Tea reaches ·Eight at the baseline where the old font joined the two at the x-height",
     "match": {
-        "before": {"pivot": "qsTea.half", "seam_out": "y5", "follower": "qsEight"},
+        "before": {"pivot": "qsTea.half", "junction_out": "y5", "follower": "qsEight"},
         "after": {
             "retarget": "y0",
             "pivot_cells": ["qsTea/full/None/baseline/"],
@@ -480,7 +480,7 @@ WIDENED_CREATED_JOIN_RULE = {
     "verdict": "approve",
     "note": "·J joins ·F3 where the old font left a break, and ·F3 redraws a column wider",
     "match": {
-        "before": {"pivot": "qsJ", "seam_out": "break", "follower": "qsF3"},
+        "before": {"pivot": "qsJ", "junction_out": "break", "follower": "qsF3"},
         "after": {
             "joined": "y0",
             "pivot_cells": ["qsJ/hapax/None/baseline/ex-ext-1"],
@@ -498,7 +498,7 @@ RETARGET_BEHIND_WIDENED_JOIN_RULE = {
     "verdict": "approve",
     "note": "·J joins ·Tea at the baseline where the old font left a break, and ·Tea redraws a column wider",
     "match": {
-        "before": {"pivot": "qsJ", "seam_out": "break", "follower": "qsTea"},
+        "before": {"pivot": "qsJ", "junction_out": "break", "follower": "qsTea"},
         "after": {
             "joined": "y0",
             "pivot_cells": ["qsJ/hapax/None/baseline/ex-ext-1"],
@@ -516,7 +516,7 @@ REACHING_JOIN_BEFORE_RETARGET_RULE = {
     "verdict": "approve",
     "note": "·J joins ·Tea at the baseline where the old font left a break, and ·Tea takes the join on a form that adds a column at its left edge",
     "match": {
-        "before": {"pivot": "qsJ", "seam_out": "break", "follower": "qsTea"},
+        "before": {"pivot": "qsJ", "junction_out": "break", "follower": "qsTea"},
         "after": {
             "joined": "y0",
             "pivot_cells": ["qsJ/hapax/None/baseline/ex-ext-1"],
@@ -534,7 +534,7 @@ REACHING_CREATED_JOIN_RULE = {
     "verdict": "approve",
     "note": "·J joins ·F3 where the old font left a break, and ·F3 takes the join on a form that adds a column at its left edge",
     "match": {
-        "before": {"pivot": "qsJ", "seam_out": "break", "follower": "qsF3"},
+        "before": {"pivot": "qsJ", "junction_out": "break", "follower": "qsF3"},
         "after": {
             "joined": "y0",
             "pivot_cells": ["qsJ/hapax/None/baseline/ex-ext-1"],
@@ -552,7 +552,7 @@ STUB_CREATED_JOIN_RULE = {
     "verdict": "approve",
     "note": "·J joins ·F3 where the old font left a break, and gives up the entry stub the old font drew in front of it",
     "match": {
-        "before": {"pivot": "qsJ", "seam_out": "break", "follower": "qsF3"},
+        "before": {"pivot": "qsJ", "junction_out": "break", "follower": "qsF3"},
         "after": {
             "joined": "y0",
             "pivot_cells": ["qsJ/hapax/None/baseline/ex-ext-1"],
@@ -586,7 +586,11 @@ GAINED_CREATED_JOIN_RULE = {
     "verdict": "approve",
     "note": "·Tea joins ·F3 at the baseline where the old font left a break, and ·F3 comes two columns back onto the bar",
     "match": {
-        "before": {"pivot": "qsTea.half.en-y5.after-xheight-exit", "seam_out": "break", "follower": "qsF3"},
+        "before": {
+            "pivot": "qsTea.half.en-y5.after-xheight-exit",
+            "junction_out": "break",
+            "follower": "qsF3",
+        },
         "after": {
             "joined": "y0",
             "pivot_cells": ["qsTea/full/x-height/baseline/"],
@@ -620,7 +624,7 @@ REDRAWN_CREATED_JOIN_RULE = {
     "verdict": "approve",
     "note": "·Eight joins ·F3 at the baseline where the old font left a break, and ·F3 comes two columns back onto the bowl",
     "match": {
-        "before": {"pivot": "qsEight.redraw-join-fixture", "seam_out": "break", "follower": "qsF3"},
+        "before": {"pivot": "qsEight.redraw-join-fixture", "junction_out": "break", "follower": "qsF3"},
         "after": {
             "joined": "y0",
             "pivot_cells": ["qsEight/smaller-loop/baseline/baseline/"],
@@ -638,7 +642,7 @@ CONTRACTED_CREATED_JOIN_RULE = {
     "verdict": "approve",
     "note": "·May joins ·F3 at the x-height where the old font left a break",
     "match": {
-        "before": {"pivot": "qsMay", "seam_out": "break", "follower": "qsF3"},
+        "before": {"pivot": "qsMay", "junction_out": "break", "follower": "qsF3"},
         "after": {
             "joined": "y5",
             "pivot_cells": ["qsMay/loop/baseline/x-height/en-con-1"],
@@ -735,14 +739,14 @@ REDRAWN_EXT_RULE = {
 def unit(
     uid,
     glyphs,
-    seams,
+    junctions,
     cells,
-    after_seams,
+    after_junctions,
     *,
     no_verdict=False,
     groups=1,
     pair=None,
-    secondary_seams=None,
+    secondary_junctions=None,
     codepoints=None,
     configs=("ss03",),
     ink_deltas=None,
@@ -760,10 +764,10 @@ def unit(
         ),
         "configs": list(configs),
         "ink_deltas": ink_deltas,
-        "before": {"glyphs": glyphs, "seams": seams},
-        "after": {"cells": cells, "seams": after_seams},
+        "before": {"glyphs": glyphs, "junctions": junctions},
+        "after": {"cells": cells, "junctions": after_junctions},
         "pair": pair,
-        "secondary_seams": secondary_seams,
+        "secondary_junctions": secondary_junctions,
     }
 
 
@@ -825,24 +829,24 @@ def test_ligature_left_matches_on_its_trailing_component():
     assert not sv._matches(RULE["match"], out_lead)
 
 
-def test_a_changed_flank_seam_defeats_the_match():
+def test_a_changed_flank_junction_defeats_the_match():
     drifted = canonical()
-    drifted["after"]["seams"] = ["break", "break"]
+    drifted["after"]["junctions"] = ["break", "break"]
     assert not sv._matches(RULE["match"], drifted)
 
 
-def test_the_post_ligature_seam_is_required():
+def test_the_post_ligature_junction_is_required():
     moved = canonical()
-    moved["after"]["seams"] = ["y0", "y0"]
+    moved["after"]["junctions"] = ["y0", "y0"]
     assert not sv._matches(RULE["match"], moved)
 
 
-def test_the_seams_either_side_of_the_pivot_are_required():
+def test_the_junctions_either_side_of_the_pivot_are_required():
     other_way_in = canonical()
-    other_way_in["before"]["seams"] = ["y0", "break", "break"]
+    other_way_in["before"]["junctions"] = ["y0", "break", "break"]
     assert not sv._matches(RULE["match"], other_way_in)
     other_way_out = canonical()
-    other_way_out["before"]["seams"] = ["y0", "y5", "y5"]
+    other_way_out["before"]["junctions"] = ["y0", "y5", "y5"]
     assert not sv._matches(RULE["match"], other_way_out)
 
 
@@ -892,18 +896,18 @@ def tea_i(uid="u-10"):
     )
 
 
-def medial_tea_i(uid="u-11", left="qsPea", left_cell="qsPea/full/None/None/", seam_into="break"):
+def medial_tea_i(uid="u-11", left="qsPea", left_cell="qsPea/full/None/None/", junction_in="break"):
     return unit(
         uid,
         [left, "qsTea.en-y8.ex-y0.ex-ext-1", "qsI", "qsTea.en-y5.ex-y0"],
-        [seam_into, "y0", "y5"],
+        [junction_in, "y0", "y5"],
         [
             left_cell,
             "qsTea/full/None/baseline/",
             "qsI/smaller-loop/baseline/x-height/",
             "qsTea/full/x-height/None/",
         ],
-        [seam_into, "y0", "y5"],
+        [junction_in, "y0", "y5"],
         pair={"left": 1, "right": 2},
     )
 
@@ -921,22 +925,22 @@ def test_medial_extension_drop_matches():
     assert sv._matches(EXT_RULE["match"], medial_tea_i())
 
 
-def test_a_changed_flank_seam_defeats_the_extension_match():
+def test_a_changed_flank_junction_defeats_the_extension_match():
     drifted = medial_tea_i()
-    drifted["after"]["seams"] = ["y5", "y0", "y5"]
+    drifted["after"]["junctions"] = ["y5", "y0", "y5"]
     assert not sv._matches(EXT_RULE["match"], drifted)
 
 
-def test_a_seam_that_changes_height_at_the_pivot_defeats_the_match():
+def test_a_junction_that_changes_height_at_the_pivot_defeats_the_match():
     moved = tea_i()
-    moved["after"]["seams"] = ["y5"]
+    moved["after"]["junctions"] = ["y5"]
     assert not sv._matches(EXT_RULE["match"], moved)
 
 
-def test_an_unchanged_seam_at_the_wrong_height_defeats_the_match():
+def test_an_unchanged_junction_at_the_wrong_height_defeats_the_match():
     elsewhere = tea_i()
-    elsewhere["before"]["seams"] = ["y5"]
-    elsewhere["after"]["seams"] = ["y5"]
+    elsewhere["before"]["junctions"] = ["y5"]
+    elsewhere["after"]["junctions"] = ["y5"]
     assert not sv._matches(EXT_RULE["match"], elsewhere)
 
 
@@ -992,7 +996,7 @@ def test_an_extension_swapped_for_a_shorter_one_is_not_an_extension_dropped():
         "before": {
             "pivot": "qsFee",
             "exit_extension": "ex-ext-3",
-            "seam_out": "y5",
+            "junction_out": "y5",
             "follower": "qsTea",
         },
         "after": {
@@ -1042,7 +1046,7 @@ JAI_RULE = {
         "before": {
             "pivot": "qsJai",
             "exit_extension": "ex-ext-1",
-            "seam_out": "y0",
+            "junction_out": "y0",
             "follower": ["qsVie", "qsSee", "qsNo"],
         },
         "after": {
@@ -1109,9 +1113,9 @@ def test_a_unit_with_no_judged_pair_is_refused():
     assert not sv._matches(EXT_RULE["match"], unjudged)
 
 
-def test_a_window_carrying_a_secondary_seam_is_refused():
+def test_a_window_carrying_a_secondary_junction_is_refused():
     noisy = tea_i()
-    noisy["secondary_seams"] = [{"pair": {"left": 1, "right": 2}, "home": None}]
+    noisy["secondary_junctions"] = [{"pair": {"left": 1, "right": 2}, "primary_unit": None}]
     assert not sv._matches(EXT_RULE["match"], noisy)
 
 
@@ -1127,7 +1131,7 @@ def fee_tea_i(uid="u-13"):
         ],
         ["y5", "y0"],
         pair={"left": 0, "right": 1},
-        secondary_seams=[{"pair": {"left": 1, "right": 2}, "home": None}],
+        secondary_junctions=[{"pair": {"left": 1, "right": 2}, "primary_unit": None}],
     )
 
 
@@ -1181,13 +1185,15 @@ def test_a_window_whose_names_do_not_account_for_its_codepoints_is_refused():
 
 
 def test_except_left_blocks_the_guarded_left_family_on_the_extension_shape():
-    blocked = medial_tea_i(left="qsMay.ex-y5", left_cell="qsMay/full/None/x-height/", seam_into="y5")
+    blocked = medial_tea_i(left="qsMay.ex-y5", left_cell="qsMay/full/None/x-height/", junction_in="y5")
     assert not sv._matches(EXT_RULE["match"], blocked)
     assert sv._matches(EXT_RULE["match"], blocked, guard=False)
 
 
 def test_a_ligature_trailing_left_component_is_guarded_on_the_extension_shape():
-    blocked = medial_tea_i(left="qsDay_qsMay.alt", left_cell="qsDay_qsMay/alt/None/x-height/", seam_into="y5")
+    blocked = medial_tea_i(
+        left="qsDay_qsMay.alt", left_cell="qsDay_qsMay/alt/None/x-height/", junction_in="y5"
+    )
     assert not sv._matches(EXT_RULE["match"], blocked)
     assert sv._matches(EXT_RULE["match"], blocked, guard=False)
 
@@ -1347,7 +1353,7 @@ def test_the_checked_in_et_may_rule_reads_the_contraction_and_nothing_wider():
     match = {rule["id"]: rule for rule in sv.load_rules(sv.RULES)}["et-may-exit-contracted"]["match"]
     assert sv._matches(match, et_may())
     regrouped = et_may()
-    regrouped["secondary_seams"] = 1
+    regrouped["secondary_junctions"] = 1
     assert not sv._matches(match, regrouped)
     elsewhere = et_may()
     elsewhere["pair"] = {"left": 0, "right": 1}
@@ -1377,11 +1383,11 @@ def it_may(
     )
 
 
-def test_the_checked_in_it_may_rule_reads_the_narrowed_seam_and_nothing_wider():
+def test_the_checked_in_it_may_rule_reads_the_narrowed_junction_and_nothing_wider():
     match = {rule["id"]: rule for rule in sv.load_rules(sv.RULES)}["it-may-exit-extension-dropped"]["match"]
     assert sv._matches(match, it_may())
     regrouped = it_may()
-    regrouped["secondary_seams"] = 1
+    regrouped["secondary_junctions"] = 1
     assert not sv._matches(match, regrouped)
     elsewhere = it_may()
     elsewhere["pair"] = {"left": 0, "right": 1}
@@ -1409,11 +1415,11 @@ def it_ah(
     )
 
 
-def test_the_checked_in_it_ah_rule_reads_the_narrowed_seam_and_nothing_wider():
+def test_the_checked_in_it_ah_rule_reads_the_narrowed_junction_and_nothing_wider():
     match = {rule["id"]: rule for rule in sv.load_rules(sv.RULES)}["it-ah-exit-extension-dropped"]["match"]
     assert sv._matches(match, it_ah())
     regrouped = it_ah()
-    regrouped["secondary_seams"] = 1
+    regrouped["secondary_junctions"] = 1
     assert not sv._matches(match, regrouped)
     elsewhere = it_ah()
     elsewhere["pair"] = {"left": 0, "right": 1}
@@ -1443,7 +1449,7 @@ def test_the_checked_in_fee_rule_reads_the_ss03_shortening_and_nothing_wider():
         ],
         ["break", "y5", "break"],
         pair={"left": 1, "right": 2},
-        secondary_seams=1,
+        secondary_junctions=1,
     )
     assert not sv._matches(match, regrouped)
     half = fee_tea(follower_cell="qsTea/half/None/x-height/")
@@ -1454,14 +1460,14 @@ def test_the_checked_in_fee_rule_reads_the_ss03_shortening_and_nothing_wider():
     assert not sv._matches(match, before_may)
 
 
-def test_the_checked_in_jai_rule_reads_the_narrowed_seam_and_nothing_wider():
+def test_the_checked_in_jai_rule_reads_the_narrowed_junction_and_nothing_wider():
     match = {rule["id"]: rule for rule in sv.load_rules(sv.RULES)}["jai-exit-extension-dropped"]["match"]
     assert sv._matches(match, jai_before())
     kept = jai_before(follower="qsTea.en-y0", follower_cell="qsTea/full/baseline/None/")
     assert not sv._matches(match, kept)
     yielded = jai_before()
     yielded["after"]["cells"][1] = "qsJai/hapax/None/None/"
-    yielded["after"]["seams"] = ["break", "break"]
+    yielded["after"]["junctions"] = ["break", "break"]
     assert not sv._matches(match, yielded)
 
 
@@ -1471,7 +1477,7 @@ def test_the_checked_in_ligature_rule_reads_exactly_what_it_always_did():
     assert not sv._matches(match, canonical(left="qsOut.ex-ext-1"))
     assert sv._matches(match, canonical(left="qsOut.ex-ext-1"), guard=False)
     drifted = canonical()
-    drifted["after"]["seams"] = ["break", "break"]
+    drifted["after"]["junctions"] = ["break", "break"]
     assert not sv._matches(match, drifted)
     assert not sv._matches(match, tea_i())
 
@@ -1518,7 +1524,7 @@ def test_malformed_rules_are_refused(tmp_path, mutate):
         lambda rule: rule.update(note=""),
         lambda rule: rule["match"]["before"].pop("exit_extension"),
         lambda rule: rule["match"]["before"].update(exit_extension=""),
-        lambda rule: rule["match"]["before"].update(seam_into="y5"),
+        lambda rule: rule["match"]["before"].update(junction_in="y5"),
         lambda rule: rule["match"]["after"].pop("pivot_cells"),
         lambda rule: rule["match"]["after"].update(pivot_cells="qsTea/full/None/baseline/"),
         lambda rule: rule["match"]["after"].update(pivot_cells=[]),
@@ -1651,7 +1657,7 @@ def test_malformed_ink_delta_rules_are_refused(tmp_path, mutate):
 
 def test_an_ink_delta_rule_carrying_a_before_block_is_refused_at_load(tmp_path):
     rule = json.loads(json.dumps(INK_RULE))
-    rule["match"]["before"] = {"pivot": "qsMay", "seam_into": "y0"}
+    rule["match"]["before"] = {"pivot": "qsMay", "junction_in": "y0"}
     with pytest.raises(SystemExit, match="carries no match.before block"):
         sv.load_rules(_write_rules(tmp_path / "rules.yaml", [rule]))
 
@@ -2738,9 +2744,9 @@ def test_one_extra_pixel_after_the_join_defeats_the_match(slide_context):
     )
 
 
-def test_a_seam_that_stays_joined_defeats_the_match(slide_context):
+def test_a_junction_that_stays_joined_defeats_the_match(slide_context):
     stayed = join_window()
-    stayed["after"]["seams"] = ["y0", "y5", "y0"]
+    stayed["after"]["junctions"] = ["y0", "y5", "y0"]
     assert not sv._matches(JOIN_RULE["match"], stayed, context=slide_context())
 
 
@@ -2791,7 +2797,7 @@ def test_the_join_dropped_shape_and_the_other_shapes_do_not_read_each_others_uni
 
 def test_a_join_rule_loads(tmp_path):
     [rule] = sv.load_rules(_write_rules(tmp_path / "rules.yaml", [JOIN_RULE]))
-    assert rule["match"]["before"] == {"pivot": "qsAt", "seam_out": "y5", "follower": "qsIt"}
+    assert rule["match"]["before"] == {"pivot": "qsAt", "junction_out": "y5", "follower": "qsIt"}
     assert rule["match"]["after"] == {"gap": 1}
 
 
@@ -2801,7 +2807,7 @@ def test_a_join_rule_loads(tmp_path):
         lambda rule: rule.update(verdict="reject"),
         lambda rule: rule.update(note=""),
         lambda rule: rule["match"]["before"].update(pivot=""),
-        lambda rule: rule["match"]["before"].update(seam_out=""),
+        lambda rule: rule["match"]["before"].update(junction_out=""),
         lambda rule: rule["match"]["before"].update(follower=""),
         lambda rule: rule["match"]["before"].update(follower=[]),
         lambda rule: rule["match"]["after"].update(gap="1"),
@@ -2867,9 +2873,9 @@ def test_a_negative_gap_is_refused_at_load(tmp_path):
         sv.load_rules(_write_rules(tmp_path / "rules.yaml", [rule]))
 
 
-def test_a_break_seam_is_refused_at_load(tmp_path):
+def test_a_break_junction_is_refused_at_load(tmp_path):
     rule = json.loads(json.dumps(JOIN_RULE))
-    rule["match"]["before"]["seam_out"] = "break"
+    rule["match"]["before"]["junction_out"] = "break"
     with pytest.raises(SystemExit, match="not a yK height"):
         sv.load_rules(_write_rules(tmp_path / "rules.yaml", [rule]))
 
@@ -3028,7 +3034,7 @@ def test_main_fills_both_shapes_from_one_rules_file(tmp_path, monkeypatch):
     units = [
         canonical("u-1"),
         tea_i("u-2"),
-        medial_tea_i("u-3", left="qsMay.ex-y5", left_cell="qsMay/full/None/x-height/", seam_into="y5"),
+        medial_tea_i("u-3", left="qsMay.ex-y5", left_cell="qsMay/full/None/x-height/", junction_in="y5"),
         fee_tea_i("u-4"),
     ]
     payload = _run_main(tmp_path, monkeypatch, units, [], rules_list=(RULE, EXT_RULE))
@@ -3381,7 +3387,7 @@ COMBINED_EXT_RULE = {
         "before": {
             "pivot": "qsJ",
             "exit_extension": "ex-ext-1",
-            "seam_out": "y0",
+            "junction_out": "y0",
             "follower": "qsF3",
         },
         "after": {
@@ -3441,7 +3447,7 @@ def test_a_slide_and_an_extension_in_one_window_combine(slide_context):
 
 
 def test_one_rule_at_two_positions_combines(slide_context):
-    """The combined match counts one rule at two positions in a window the same way it counts two rules. A window that drops the same tail twice needs this, because the extension-dropped matcher matches only at the unit's primary judged seam."""
+    """The combined match counts one rule at two positions in a window the same way it counts two rules. A window that drops the same tail twice needs this, because the extension-dropped matcher matches only at the unit's primary judged junction."""
     events = sv._combined_match(COMBINABLE_RULES, twice_slid_window(), slide_context())
     assert events == {SLIDE_RULE["id"]: [1, 3]}
 
@@ -3754,14 +3760,14 @@ def test_a_follower_cell_the_rule_does_not_name_is_no_candidate():
     assert sv._candidates(COMBINED_EXT_RULE["match"], combined_window()) == [3]
 
 
-def test_a_pivot_whose_after_form_contracts_off_the_seam_row_never_combines(slide_context):
+def test_a_pivot_whose_after_form_contracts_off_the_junction_row_never_combines(slide_context):
     assert (
         sv._combined_match(COMBINABLE_RULES, combined_window(), slide_context("after-contracted-pivot"))
         is None
     )
 
 
-def test_a_dropped_cell_off_the_seam_row_never_combines(slide_context):
+def test_a_dropped_cell_off_the_junction_row_never_combines(slide_context):
     crowned = slide_unit(
         "c-crown",
         ["qsL", "qsSee.ex-y0", "qsM", "qsJ.ex-y0.ex-ext-1.crown", "qsF3"],
@@ -3771,12 +3777,12 @@ def test_a_dropped_cell_off_the_seam_row_never_combines(slide_context):
     assert sv._combined_match(COMBINABLE_RULES, crowned, slide_context()) is None
 
 
-def test_a_seam_that_names_no_height_yields_no_extension_candidate():
+def test_a_junction_that_names_no_height_yields_no_extension_candidate():
     match = json.loads(json.dumps(COMBINED_EXT_RULE["match"]))
-    match["before"]["seam_out"] = "break"
+    match["before"]["junction_out"] = "break"
     broken = combined_window()
-    broken["before"]["seams"] = ["break"] * 4
-    broken["after"]["seams"] = ["break"] * 4
+    broken["before"]["junctions"] = ["break"] * 4
+    broken["after"]["junctions"] = ["break"] * 4
     assert sv._candidates(match, broken) == []
 
 
@@ -3788,7 +3794,7 @@ SHORTENED_EXT_RULE = {
         "before": {
             "pivot": "qsJ",
             "exit_extension": "ex-ext-3",
-            "seam_out": "y0",
+            "junction_out": "y0",
             "follower": "qsF3",
         },
         "after": {
@@ -3826,7 +3832,7 @@ CONTRACTED_EXT_RULE = {
         "before": {
             "pivot": "qsEt",
             "exit_extension": "ex-con-1",
-            "seam_out": "y0",
+            "junction_out": "y0",
             "follower": "qsF3",
         },
         "after": {
@@ -4543,7 +4549,7 @@ def test_a_pure_entry_drop_matches(slide_context):
     assert sv._matches(ENTRY_RULE["match"], entry_window(), context=slide_context())
 
 
-def test_a_word_initial_entry_drop_needs_no_incoming_seam(slide_context):
+def test_a_word_initial_entry_drop_needs_no_incoming_junction(slide_context):
     window = slide_unit("initial-entry-drop", ["qsLow.en-ext-1"], spell(LOW))
     assert sv._matches(ENTRY_RULE["match"], window, context=slide_context())
 
@@ -4621,7 +4627,7 @@ def test_a_ligature_continuation_must_keep_the_pair_and_pixel_contract(contracte
     if change == "wrong_left":
         rule["match"]["before"]["left"] = "qsTea"
     elif change == "wrong_entry":
-        window["before"]["seams"][0] = "y5"
+        window["before"]["junctions"][0] = "y5"
     elif change == "wrong_lead":
         rule["match"]["before"]["pivots"] = ["qsF1.en-y0.ex-y5"]
     elif change == "missing_modifier":
@@ -5924,7 +5930,7 @@ def test_a_new_join_matches(slide_context):
 
 def test_a_pair_that_remains_broken_does_not_match_a_created_join(slide_context):
     broken = created_join_window()
-    broken["after"]["seams"][1] = "break"
+    broken["after"]["junctions"][1] = "break"
     assert not sv._matches(CREATED_JOIN_RULE["match"], broken, context=slide_context())
 
 
@@ -6084,7 +6090,7 @@ def test_two_created_joins_matching_one_position_still_refuse(slide_context):
 
 
 def test_a_created_join_that_declines_the_form_leaves_the_position_to_its_companion(slide_context):
-    """Two rules give one seam different shifts and are told apart by the before form each accepts. The rule whose `except_pivots` names this window's form does not match at the position, so the other rule is counted there and the window combines."""
+    """Two rules give one junction different shifts and are told apart by the before form each accepts. The rule whose `except_pivots` names this window's form does not match at the position, so the other rule is counted there and the window combines."""
     twin = json.loads(json.dumps(CREATED_JOIN_RULE))
     twin["id"] = CREATED_JOIN_RULE["id"] + "-again"
     twin["match"]["after"]["shift"] = -1
@@ -6196,9 +6202,9 @@ def test_one_extra_pixel_after_the_retarget_defeats_the_match(slide_context):
     )
 
 
-def test_a_seam_that_holds_its_height_defeats_the_retarget_match(slide_context):
+def test_a_junction_that_holds_its_height_defeats_the_retarget_match(slide_context):
     stayed = retarget_window()
-    stayed["after"]["seams"] = ["y0", "y5", "y0"]
+    stayed["after"]["junctions"] = ["y0", "y5", "y0"]
     assert not sv._matches(RETARGET_RULE["match"], stayed, context=slide_context())
 
 
@@ -6258,7 +6264,7 @@ def test_the_join_retargeted_shape_and_the_other_shapes_do_not_read_each_others_
 
 def test_a_retarget_rule_loads(tmp_path):
     [rule] = sv.load_rules(_write_rules(tmp_path / "rules.yaml", [RETARGET_RULE]))
-    assert rule["match"]["before"] == {"pivot": "qsTea.half", "seam_out": "y5", "follower": "qsNo"}
+    assert rule["match"]["before"] == {"pivot": "qsTea.half", "junction_out": "y5", "follower": "qsNo"}
     assert rule["match"]["after"]["retarget"] == "y0"
     assert rule["match"]["after"]["shift"] == -1
 
@@ -6269,7 +6275,7 @@ def test_a_retarget_rule_loads(tmp_path):
         lambda rule: rule.update(verdict="reject"),
         lambda rule: rule.update(note=""),
         lambda rule: rule["match"]["before"].update(pivot=""),
-        lambda rule: rule["match"]["before"].update(seam_out=""),
+        lambda rule: rule["match"]["before"].update(junction_out=""),
         lambda rule: rule["match"]["before"].update(follower=""),
         lambda rule: rule["match"]["before"].update(follower=[]),
         lambda rule: rule["match"]["after"].update(retarget=""),
@@ -6293,16 +6299,16 @@ def test_a_break_retarget_is_refused_at_load(tmp_path):
         sv.load_rules(_write_rules(tmp_path / "rules.yaml", [rule]))
 
 
-def test_a_break_before_seam_is_refused_at_load_for_retarget(tmp_path):
+def test_a_break_before_junction_is_refused_at_load_for_retarget(tmp_path):
     rule = json.loads(json.dumps(RETARGET_RULE))
-    rule["match"]["before"]["seam_out"] = "break"
+    rule["match"]["before"]["junction_out"] = "break"
     with pytest.raises(SystemExit, match="not a yK height"):
         sv.load_rules(_write_rules(tmp_path / "rules.yaml", [rule]))
 
 
-def test_a_created_join_rule_loads_with_a_break_before_seam(tmp_path):
+def test_a_created_join_rule_loads_with_a_break_before_junction(tmp_path):
     [rule] = sv.load_rules(_write_rules(tmp_path / "rules.yaml", [CREATED_JOIN_RULE]))
-    assert rule["match"]["before"]["seam_out"] == "break"
+    assert rule["match"]["before"]["junction_out"] == "break"
     assert rule["match"]["after"]["joined"] == "y0"
 
 
@@ -6410,7 +6416,7 @@ def test_a_letter_sharing_created_join_still_needs_its_follower_moved_by_both_sh
 
 
 def test_a_created_join_shares_a_letter_with_an_ink_gain_on_its_pivot(slide_context):
-    """·Tea settling into the full bar and the baseline join that bar opens are two events on one letter: the picture it takes and the seam it offers. The ink gain is the position's event, the created join shares its pivot, and both rules are counted at that position."""
+    """·Tea settling into the full bar and the baseline join that bar opens are two events on one letter: the picture it takes and the junction it offers. The ink gain is the position's event, the created join shares its pivot, and both rules are counted at that position."""
     events = sv._combined_match(GAINED_CREATED_JOIN_RULES, gained_created_join_window(), slide_context())
     assert events == {GAIN_UNDER_CREATED_JOIN_RULE["id"]: [1], GAINED_CREATED_JOIN_RULE["id"]: [1]}
 
@@ -6439,7 +6445,7 @@ def test_two_ink_gains_matching_one_position_still_refuse(slide_context):
 
 
 def test_a_created_join_shares_a_letter_with_a_redrawn_cell_swap_on_its_pivot(slide_context):
-    """·Eight's bowl pulling in and the baseline join that only the smaller bowl reaches are two events on one letter: the picture it takes and the seam it offers. The redrawn event is the position's event, the created join shares its pivot, and both rules are counted at that position."""
+    """·Eight's bowl pulling in and the baseline join that only the smaller bowl reaches are two events on one letter: the picture it takes and the junction it offers. The redrawn event is the position's event, the created join shares its pivot, and both rules are counted at that position."""
     events = sv._combined_match(REDRAWN_CREATED_JOIN_RULES, redrawn_created_join_window(), slide_context())
     assert events == {
         REDRAWN_UNDER_CREATED_JOIN_RULE["id"]: [1],
@@ -6556,7 +6562,7 @@ def test_an_extension_sharing_a_letter_with_a_created_join_still_needs_both_shif
 
 
 def test_a_created_join_shares_a_letter_with_a_created_join_on_its_follower(slide_context):
-    """The first created join covers the shared letter's incoming seam and the second covers its outgoing seam. The letter is placed where the first join put it, and the second join moves everything after its own follower by both shifts."""
+    """The first created join covers the shared letter's incoming junction and the second covers its outgoing junction. The letter is placed where the first join put it, and the second join moves everything after its own follower by both shifts."""
     events = sv._combined_match(
         CREATED_JOIN_BEHIND_CREATED_JOIN_RULES,
         created_join_behind_created_join_window(),
@@ -6631,7 +6637,7 @@ def test_a_redraw_sharing_a_letter_with_a_created_join_still_needs_both_shifts(s
 
 
 def test_a_retarget_shares_a_letter_with_a_retarget_on_its_follower(slide_context):
-    """The first retarget covers the shared letter's incoming seam and the second covers its outgoing seam. The first passes on only its follower's move, not the rest of its declared shift, because the second retarget's counts are read with its own pivot in place and already include any change in that letter's advance."""
+    """The first retarget covers the shared letter's incoming junction and the second covers its outgoing junction. The first passes on only its follower's move, not the rest of its declared shift, because the second retarget's counts are read with its own pivot in place and already include any change in that letter's advance."""
     events = sv._combined_match(
         RETARGET_BEHIND_RETARGET_RULES, retarget_behind_retarget_window(), slide_context()
     )
@@ -6656,7 +6662,7 @@ def test_a_retarget_sharing_a_letter_with_a_retarget_still_needs_its_follower_st
 
 
 def test_a_join_drop_shares_a_letter_with_a_retarget_on_its_follower(slide_context):
-    """The retarget covers the shared letter's incoming seam and the join drop covers its outgoing seam. The retarget passes on only its follower's move, not the rest of its declared shift, because the join drop's gap is read with its own pivot in place and already includes any change in that letter's advance."""
+    """The retarget covers the shared letter's incoming junction and the join drop covers its outgoing junction. The retarget passes on only its follower's move, not the rest of its declared shift, because the join drop's gap is read with its own pivot in place and already includes any change in that letter's advance."""
     events = sv._combined_match(JOIN_BEHIND_RETARGET_RULES, join_behind_retarget_window(), slide_context())
     assert events == {RETARGET_RULE["id"]: [1], REDRAWN_JOIN_RULE["id"]: [2]}
 
@@ -6679,7 +6685,7 @@ def test_a_join_drop_sharing_a_letter_with_a_retarget_still_needs_its_pivot_stan
 
 
 def test_a_join_drop_leaving_its_follower_standing_shares_a_letter_with_a_retarget(slide_context):
-    """This models the flipped ·No before ·Cheer after ·Pea or ·Tea lowers the seam into ·No: the retarget covers ·No's incoming seam, the zero-gap join drop covers its outgoing seam, and the follower stays where the old font drew it."""
+    """This models the flipped ·No before ·Cheer after ·Pea or ·Tea lowers the junction into ·No: the retarget covers ·No's incoming junction, the zero-gap join drop covers its outgoing junction, and the follower stays where the old font drew it."""
     events = sv._combined_match(
         UNMOVED_JOIN_BEHIND_RETARGET_RULES,
         join_behind_retarget_window(),
@@ -6704,7 +6710,7 @@ def test_a_zero_gap_sharing_a_letter_with_a_retarget_refuses_a_follower_sitting_
 
 
 def test_a_join_drop_whose_follower_removes_a_column_shares_a_letter_with_a_retarget(slide_context):
-    """The follower's removed columns are part of the join-dropped event, so the retarget on ·No's incoming seam and the join drop on its outgoing seam still explain the window, however far the follower redrew."""
+    """The follower's removed columns are part of the join-dropped event, so the retarget on ·No's incoming junction and the join drop on its outgoing junction still explain the window, however far the follower redrew."""
     events = sv._combined_match(
         COLUMNS_REMOVED_BEHIND_RETARGET_RULES, columns_removed_behind_retarget_window(), slide_context()
     )
@@ -7170,7 +7176,7 @@ def combined_pure_loss_window(uid="pl-2"):
 
 
 def test_a_form_that_only_gives_ink_up_is_redrawn(slide_context):
-    """An exit contraction has no cell swap to name: the foot's terminal pixel goes and nothing replaces it. So the added set is empty and the shift is how far the follower moves. The name-grain extension-dropped shape would also match this seam, without checking the rest of the window. This shape checks that nothing else in the window changed."""
+    """An exit contraction has no cell swap to name: the foot's terminal pixel goes and nothing replaces it. So the added set is empty and the shift is how far the follower moves. The name-grain extension-dropped shape would also match this junction, without checking the rest of the window. This shape checks that nothing else in the window changed."""
     assert sv._matches(PURE_LOSS_RULE["match"], pure_loss_window(), context=slide_context())
 
 
@@ -7390,7 +7396,7 @@ def test_the_memo_stamp_is_blind_to_the_rules_file(tmp_path):
     assert sv.rules_roster([guarded_rule(RULE, ["qsAh"])], False) != roster
     assert sv.rules_roster([dict(RULE, verdict="either")], False) != roster
     edited = json.loads(json.dumps(RULE))
-    edited["match"]["before"]["seam_into"] = "y0"
+    edited["match"]["before"]["junction_in"] = "y0"
     assert sv.rules_roster([edited], False) != roster
     reordered = {"match": {key: RULE["match"][key] for key in reversed(list(RULE["match"]))}}
     assert sv.rules_roster([dict(RULE, **reordered)], False) == roster

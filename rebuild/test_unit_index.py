@@ -91,8 +91,8 @@ def test_the_index_is_the_shards_field_for_field(tmp_path):
                 assert value == slot(fragment)[field], f"{record['id']}.{field}"
             elif field == "render_groups":
                 assert value == len(fragment.get("render_groups") or []), record["id"]
-            elif field == "secondary_seams":
-                assert value == len(fragment.get("secondary_seams") or []), record["id"]
+            elif field == "secondary_junctions":
+                assert value == len(fragment.get("secondary_junctions") or []), record["id"]
             elif field == "policy":
                 policy = (fragment.get("drafts") or {}).get("policy")
                 expected = (
@@ -144,7 +144,7 @@ def test_the_index_covers_every_field_the_verdict_update_reads(tmp_path):
         "summary",
         "provenance",
         "pair",
-        "secondary_seams",
+        "secondary_junctions",
         "before",
         "after",
         "policy",
@@ -494,8 +494,8 @@ def test_repeated_nested_values_share_storage_without_changing_json_types(tmp_pa
         "id": "first",
         "class": "repeated class value",
         "configs": ["senior config value"],
-        "before": {"glyphs": ["repeated glyph value"], "seams": [5]},
-        "after": {"cells": ["repeated cell value"], "seams": [5]},
+        "before": {"glyphs": ["repeated glyph value"], "junctions": [5]},
+        "after": {"cells": ["repeated cell value"], "junctions": [5]},
         "ink_deltas": {"senior config value": "same delta value"},
     }
     (tmp_path / "manifest.json").write_text(json.dumps({"classes": []}))
@@ -506,7 +506,7 @@ def test_repeated_nested_values_share_storage_without_changing_json_types(tmp_pa
         assert first[field] is second[field]
     assert isinstance(first["before"], dict)
     assert isinstance(first["before"]["glyphs"], list)
-    assert first["before"]["seams"] is first["after"]["seams"]
+    assert first["before"]["junctions"] is first["after"]["junctions"]
     assert first["configs"][0] is next(iter(first["ink_deltas"]))
     assert json.loads(json.dumps(dict(first))) == unit_index.index_record(fragment)
 
@@ -538,14 +538,14 @@ def test_pool_preserves_distinct_json_scalar_types_inside_equal_containers(tmp_p
     unit_index.write_index_lines(
         tmp_path,
         (
-            unit_index.index_line({"id": f"unit-{index}", "before": {"seams": [value]}})
+            unit_index.index_line({"id": f"unit-{index}", "before": {"junctions": [value]}})
             for index, value in enumerate(values)
         ),
     )
     records = unit_index.load_units(tmp_path, fields=("before",))
-    seams = [record["before"]["seams"] for record in records]
-    assert len({id(value) for value in seams}) == len(values)
-    for actual, expected in zip(seams, values):
+    junctions = [record["before"]["junctions"] for record in records]
+    assert len({id(value) for value in junctions}) == len(values)
+    for actual, expected in zip(junctions, values):
         assert type(actual[0]) is type(expected)
         assert json.dumps(actual) == json.dumps([expected])
 
@@ -566,7 +566,7 @@ def test_standing_projection_covers_the_fields_read_by_both_consumers(tmp_path):
         "content_key",
         "render_groups",
         "pair",
-        "secondary_seams",
+        "secondary_junctions",
         "before",
         "after",
     }

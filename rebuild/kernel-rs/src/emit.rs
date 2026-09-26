@@ -635,8 +635,8 @@ mod tests {
     #[test]
     fn a_mixed_string_escapes_only_what_needs_it() {
         assert_eq!(
-            json_string("The \u{b7}Zoo\u{2014}\u{b7}Bay seam,\nas \"drawn\"."),
-            "\"The \\u00b7Zoo\\u2014\\u00b7Bay seam,\\nas \\\"drawn\\\".\""
+            json_string("The \u{b7}Zoo\u{2014}\u{b7}Bay junction,\nas \"drawn\"."),
+            "\"The \\u00b7Zoo\\u2014\\u00b7Bay junction,\\nas \\\"drawn\\\".\""
         );
     }
 }

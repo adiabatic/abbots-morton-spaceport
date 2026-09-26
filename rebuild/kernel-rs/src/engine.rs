@@ -299,14 +299,14 @@ struct CandidatesMemo {
     eliminations: EliminationListPool,
 }
 
-/// The candidate memo's key. The left is reduced to its kind and the settled cell's rune, stance and seam. The left's entry, adjustments and extension are left out because enumeration reads none of them, so two lefts differing only there share one entry. The trace memo's key keeps the extension, because the commit's same-seam suppression reads it.
+/// The candidate memo's key. The left is reduced to its kind and the settled cell's rune, stance and junction. The left's entry, adjustments and extension are left out because enumeration reads none of them, so two lefts differing only there share one entry. The trace memo's key keeps the extension, because the commit's same-junction suppression reads it.
 ///
-/// It is packed to fourteen bytes like [`TraceKey`]: each rune, stance and seam is its field's [`Ordinal`], each slot is its rune's ordinal beside its kind, and the left's kind and the two slot kinds share one [`PackedKinds`] word. Each token has exactly one encoding, so two windows share a key exactly when their slots are equal. A key is only compared and hashed, never resolved.
+/// It is packed to fourteen bytes like [`TraceKey`]: each rune, stance and junction is its field's [`Ordinal`], each slot is its rune's ordinal beside its kind, and the left's kind and the two slot kinds share one [`PackedKinds`] word. Each token has exactly one encoding, so two windows share a key exactly when their slots are equal. A key is only compared and hashed, never resolved.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 struct CandidatesKey {
     left_rune: Option<Ordinal>,
     left_stance: Option<Ordinal>,
-    left_seam: Option<Ordinal>,
+    left_junction: Option<Ordinal>,
     rune: Ordinal,
     runes: [Option<Ordinal>; 2],
     /// The left's kind at slot zero, then the two slots' kinds.
@@ -319,19 +319,19 @@ struct ClosureKey {
     rune: Sym,
     stance: Sym,
     entry: Option<Sym>,
-    seam: Option<Sym>,
+    junction: Option<Sym>,
     right1: Sym,
     right2: RightToken,
 }
 
 /// The trace memo's key: the reduced left with its extension, the input rune, and all four raw slots. The kernel reads the left only through these fields, so lefts differing only in their cell's entry or adjustments share one entry.
 ///
-/// It is packed to twenty bytes because the memo holds one per window, over a million windows per configuration, as measured in issues #165 and #266. Each rune, stance and seam field is its field's [`Ordinal`]: two bytes naming one of the few symbols the spec offers for that position, where a `Sym` into the whole pool takes four. Each slot is its rune's ordinal beside its kind, which is what a [`RightToken`] is: a letter is its kind with a rune, and every other kind has no rune, so each token has one encoding and two windows share a key exactly when their slots are equal. The left's kind and the four slot kinds share one [`PackedKinds`] word, and the extension is an `i16` count of connector pixels. Eight ordinals, the word and the count sit at alignment two with no padding. A key is compared, hashed and sorted, and is read back only by the memo writer, which resolves each ordinal through the index that minted it.
+/// It is packed to twenty bytes because the memo holds one per window, over a million windows per configuration, as measured in issues #165 and #266. Each rune, stance and junction field is its field's [`Ordinal`]: two bytes naming one of the few symbols the spec offers for that position, where a `Sym` into the whole pool takes four. Each slot is its rune's ordinal beside its kind, which is what a [`RightToken`] is: a letter is its kind with a rune, and every other kind has no rune, so each token has one encoding and two windows share a key exactly when their slots are equal. The left's kind and the four slot kinds share one [`PackedKinds`] word, and the extension is an `i16` count of connector pixels. Eight ordinals, the word and the count sit at alignment two with no padding. A key is compared, hashed and sorted, and is read back only by the memo writer, which resolves each ordinal through the index that minted it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(crate) struct TraceKey {
     pub(crate) left_rune: Option<Ordinal>,
     pub(crate) left_stance: Option<Ordinal>,
-    pub(crate) left_seam: Option<Ordinal>,
+    pub(crate) left_junction: Option<Ordinal>,
     pub(crate) left_extension: i16,
     pub(crate) token: Ordinal,
     pub(crate) runes: [Option<Ordinal>; 4],
@@ -370,7 +370,7 @@ impl TraceKey {
         Self {
             left_rune: None,
             left_stance: None,
-            left_seam: None,
+            left_junction: None,
             left_extension: 0,
             token: ordinal(token),
             runes: runes.map(|rune| rune.map(ordinal)),
@@ -388,7 +388,7 @@ enum ProspectKey {
         rune: Ordinal,
         stance: Ordinal,
         entry: Option<Ordinal>,
-        seam: Option<Ordinal>,
+        junction: Option<Ordinal>,
         right1: Ordinal,
         right2: Ordinal,
     },
@@ -396,7 +396,7 @@ enum ProspectKey {
         rune: Ordinal,
         stance: Ordinal,
         entry: Option<Ordinal>,
-        seam: Option<Ordinal>,
+        junction: Option<Ordinal>,
         right1: Ordinal,
         runes: [Option<Ordinal>; 3],
         kinds: PackedKinds,
@@ -417,7 +417,7 @@ enum AdjustmentKind {
     Contract,
 }
 
-/// One policy record with the rune that owns it. The prefer stage gathers records from both seam runes this way and passes the two colliding ones to the resolution and the error message.
+/// One policy record with the rune that owns it. The prefer stage gathers records from both junction runes this way and passes the two colliding ones to the resolution and the error message.
 #[derive(Clone, Copy, Debug)]
 struct OwnedRecord<'i> {
     owner: Sym,
@@ -606,7 +606,7 @@ pub(crate) struct TraceEntry {
     pub(crate) notes: TraceNotesSeat,
     pub(crate) delta: DeltaSeat,
     pub(crate) reads: ReadsSeat,
-    /// The prospect bit at the bottom (the term is a seam count of zero or one), the joint flag above it, and the stage's ordinal, at most six, from bit two up. [`TraceEntry::prospect`], [`TraceEntry::joint_tiebreak`] and [`TraceEntry::decided_stage`] read them back.
+    /// The prospect bit at the bottom (the term is a junction count of zero or one), the joint flag above it, and the stage's ordinal, at most six, from bit two up. [`TraceEntry::prospect`], [`TraceEntry::joint_tiebreak`] and [`TraceEntry::decided_stage`] read them back.
     packed: u8,
 }
 
@@ -624,7 +624,7 @@ impl TraceEntry {
         let prospect = u8::try_from(prospect)
             .ok()
             .filter(|term| *term <= 1)
-            .expect("a prospect is a seam count, zero or one");
+            .expect("a prospect is a junction count, zero or one");
         Self {
             settled,
             notes,
@@ -1060,7 +1060,7 @@ impl<'i> Engine<'i> {
             return None;
         }
         let settled = left.settled.as_ref()?;
-        let seam = settled.seam?;
+        let junction = settled.junction?;
         let cell = &settled.cell;
         let index = self.index();
         index.rune(cell.rune)?;
@@ -1071,16 +1071,16 @@ impl<'i> Engine<'i> {
                 index.resolve(cell.stance)
             )
         });
-        index.exit_row(id, seam).and_then(|(_, row)| row.stroke)
+        index.exit_row(id, junction).and_then(|(_, row)| row.stroke)
     }
 
-    /// Whether a condition matches the resolved left neighbor. `seam` is the height of the join being decided between the left and this position — the candidate's entry, or `None` when unentered — which is what `joined_at:` and a from-scope condition read.
+    /// Whether a condition matches the resolved left neighbor. `junction` is the height of the join being decided between the left and this position — the candidate's entry, or `None` when unentered — which is what `joined_at:` and a from-scope condition read.
     pub fn cond_matches_left(
         &self,
         owner: Option<Sym>,
         cond: &Condition,
         left: &LeftContext,
-        seam: Option<Sym>,
+        junction: Option<Sym>,
     ) -> Result<bool, SettleError> {
         let index = self.index();
         let vocab = index.vocab();
@@ -1118,7 +1118,7 @@ impl<'i> Engine<'i> {
                 return Ok(false);
             }
             if let Some(joined_at) = cond.joined_at
-                && joined_at != vocab.height_state(seam)
+                && joined_at != vocab.height_state(junction)
             {
                 return Ok(false);
             }
@@ -1132,7 +1132,7 @@ impl<'i> Engine<'i> {
             ));
         }
         for excepted in &cond.except_ {
-            if self.cond_matches_left(owner, excepted, left, seam)? {
+            if self.cond_matches_left(owner, excepted, left, junction)? {
                 return Ok(false);
             }
         }
@@ -1220,7 +1220,7 @@ impl<'i> Engine<'i> {
         when: &When,
         left: &LeftContext,
         entry: Option<Sym>,
-        seam: Option<Sym>,
+        junction: Option<Sym>,
         slots: Slots,
     ) -> Result<Option<bool>, SettleError> {
         let vocab = self.index().vocab();
@@ -1235,7 +1235,7 @@ impl<'i> Engine<'i> {
             return Ok(Some(false));
         }
         if let Some(state) = when.self_exit
-            && state != vocab.liveness_state(seam)
+            && state != vocab.liveness_state(junction)
         {
             return Ok(Some(false));
         }
@@ -1470,13 +1470,13 @@ impl<'i> Engine<'i> {
             if record.entry.is_some() && record.entry != candidate.entry {
                 continue;
             }
-            if record.exit.is_some() && record.exit != candidate.seam {
+            if record.exit.is_some() && record.exit != candidate.junction {
                 continue;
             }
             if record.stance.is_none()
                 && record.entry.is_none()
                 && record.exit.is_none()
-                && candidate.seam.is_none()
+                && candidate.junction.is_none()
             {
                 continue;
             }
@@ -1485,7 +1485,7 @@ impl<'i> Engine<'i> {
                 &record.when,
                 left,
                 candidate.entry,
-                candidate.seam,
+                candidate.junction,
                 Slots::pair(right1, right2),
             )?;
             if verdict == Some(true) {
@@ -1498,7 +1498,7 @@ impl<'i> Engine<'i> {
 
     // --- candidate enumeration -----------------------------------------------------
 
-    /// Every pair candidate this rune offers in this window (a cell of the rune with the seam state it offers toward the next position), appending each eliminated candidate's reason to `eliminations` when that is given.
+    /// Every pair candidate this rune offers in this window (a cell of the rune with the junction state it offers toward the next position), appending each eliminated candidate's reason to `eliminations` when that is given.
     ///
     /// The memo runs only in trace-memo mode: outside it there is no journal, so an entry could carry no delta to replay and a hit would lose the firings of its first evaluation. An entry holds four seats (issue #167), so a hit clones the candidate list out of the memo's pool, extends the caller's eliminations from the pool, and replays the delta and the read set.
     pub fn candidates(
@@ -1575,7 +1575,7 @@ impl<'i> Engine<'i> {
         CandidatesKey {
             left_rune: left.ordinals.rune,
             left_stance: left.ordinals.stance,
-            left_seam: left.ordinals.seam,
+            left_junction: left.ordinals.junction,
             rune,
             runes: [right1.ordinal(), right2.ordinal()],
             kinds: PackedKinds::of(&[left.kind, right1.kind(), right2.kind()]),
@@ -1604,7 +1604,7 @@ impl<'i> Engine<'i> {
         });
         let rune = index.rune_at(seat);
         let committed = if left.kind == TokenKind::Letter {
-            left.settled.as_ref().and_then(|settled| settled.seam)
+            left.settled.as_ref().and_then(|settled| settled.junction)
         } else {
             None
         };
@@ -1626,7 +1626,7 @@ impl<'i> Engine<'i> {
                         EliminationStage::EntryBinding,
                         || {
                             format!(
-                                "{}.{}: no available entry row at {} against the committed seam",
+                                "{}.{}: no available entry row at {} against the committed junction",
                                 index.resolve(rune_name),
                                 index.resolve(*stance_name),
                                 index.resolve(committed)
@@ -1812,10 +1812,10 @@ impl<'i> Engine<'i> {
                     rune: rune_name,
                     stance: candidate.stance,
                     entry: candidate.entry,
-                    exit: candidate.seam,
+                    exit: candidate.junction,
                     adjustments: Vec::new(),
                 },
-                seam: candidate.seam,
+                junction: candidate.junction,
                 extension: 0,
             },
             candidate.ordinals.as_left(),
@@ -1840,7 +1840,7 @@ impl<'i> Engine<'i> {
             rune: rune_name,
             stance: candidate.stance,
             entry: candidate.entry,
-            seam: candidate.seam,
+            junction: candidate.junction,
             right1: follower,
             right2,
         };
@@ -1884,7 +1884,7 @@ impl<'i> Engine<'i> {
         TraceKey {
             left_rune: left.ordinals.rune,
             left_stance: left.ordinals.stance,
-            left_seam: left.ordinals.seam,
+            left_junction: left.ordinals.junction,
             left_extension: i16::try_from(
                 left.settled.as_ref().map_or(0, |settled| settled.extension),
             )
@@ -1903,9 +1903,9 @@ impl<'i> Engine<'i> {
 
     // --- the prospect term -----------------------------------------------------------
 
-    /// What the seam past this one is worth given this candidate: the join count's third term, in either of its modes.
+    /// What the junction past this one is worth given this candidate: the join count's third term, in either of its modes.
     ///
-    /// With `simulated_prospect` on (the default), the term is the follower's simulated transition: the follower's full settlement run one position over, with this candidate as the follower's left and the window shifted right. It scores 1 when the simulated winner has a seam. The recursion only moves right, over strictly fewer slots, and stops at the window edge, where a non-letter slot scores 0, so text past the window stays unknown. With the mode off (the section 5.7 guard's setting and the comparison state), the term is the optimistic candidacy estimate: 1 when any seam-bearing follower cell survives enumeration. That estimate respects refusals but ignores the follower's prefers and ordering.
+    /// With `simulated_prospect` on (the default), the term is the follower's simulated transition: the follower's full settlement run one position over, with this candidate as the follower's left and the window shifted right. It scores 1 when the simulated winner has a junction. The recursion only moves right, over strictly fewer slots, and stops at the window edge, where a non-letter slot scores 0, so text past the window stays unknown. With the mode off (the section 5.7 guard's setting and the comparison state), the term is the optimistic candidacy estimate: 1 when any junction-bearing follower cell survives enumeration. That estimate respects refusals but ignores the follower's prefers and ordering.
     ///
     /// A replayed settlement can raise where real settlement never would, for example on a prefer conflict or a definitely firing unlock scope in a window whose candidate never wins. A raising replay falls back to the candidacy estimate and counts in [`Engine::simulated_prospect_fallbacks`]. The fallback catches every [`SettleError`], including the unresolvable-class spec defect, which `spec_load` rejects long before settlement.
     ///
@@ -1928,7 +1928,7 @@ impl<'i> Engine<'i> {
             rune,
             stance,
             entry,
-            seam,
+            junction,
         } = candidate.ordinals;
         let right1 = slots.right1.letter_ordinal();
         let key = if self.simulated_prospect {
@@ -1937,7 +1937,7 @@ impl<'i> Engine<'i> {
                 rune,
                 stance,
                 entry,
-                seam,
+                junction,
                 right1,
                 runes: deep.map(RightToken::ordinal),
                 kinds: PackedKinds::of(&[deep[0].kind(), deep[1].kind(), deep[2].kind()]),
@@ -1947,7 +1947,7 @@ impl<'i> Engine<'i> {
                 rune,
                 stance,
                 entry,
-                seam,
+                junction,
                 right1,
                 right2: slots.right2.letter_ordinal(),
             }
@@ -1988,7 +1988,7 @@ impl<'i> Engine<'i> {
         };
         let seat = self.deltas.seat(delta);
         let reads = self.reads.seat(reads);
-        let prospect = i8::try_from(result).expect("a prospect is a seam count, zero or one");
+        let prospect = i8::try_from(result).expect("a prospect is a junction count, zero or one");
         self.prospect_cache.insert(key, (prospect, seat, reads));
         Ok(result)
     }
@@ -2005,43 +2005,43 @@ impl<'i> Engine<'i> {
         let synthetic_left = Self::synthetic_left(rune_name, candidate);
         if !self.simulated_prospect {
             let estimate =
-                self.seam_bearing_follower_exists(&synthetic_left, follower, slots.right2)?;
+                self.junction_bearing_follower_exists(&synthetic_left, follower, slots.right2)?;
             return Ok((estimate, ProspectTerm::Estimated));
         }
         let shifted = Slots::new(slots.right2, slots.right3, slots.right4, UNKNOWN);
-        let read_seam = |settled: &Settled| i64::from(settled.seam.is_some());
+        let read_junction = |settled: &Settled| i64::from(settled.junction.is_some());
         let simulated = if recorded {
-            self.with_settled(&synthetic_left, slots.right1, shifted, read_seam)
+            self.with_settled(&synthetic_left, slots.right1, shifted, read_junction)
         } else {
-            self.with_settled_unrecorded(&synthetic_left, slots.right1, shifted, read_seam)
+            self.with_settled_unrecorded(&synthetic_left, slots.right1, shifted, read_junction)
         };
         match simulated {
-            Ok(seam_bearing) => Ok((seam_bearing, ProspectTerm::Simulated)),
+            Ok(junction_bearing) => Ok((junction_bearing, ProspectTerm::Simulated)),
             Err(_) => {
                 self.simulated_prospect_fallbacks += 1;
                 let estimate =
-                    self.seam_bearing_follower_exists(&synthetic_left, follower, slots.right2)?;
+                    self.junction_bearing_follower_exists(&synthetic_left, follower, slots.right2)?;
                 Ok((estimate, ProspectTerm::Estimated))
             }
         }
     }
 
-    /// The candidacy estimate: whether any follower cell that survives enumeration offers a seam onward.
-    fn seam_bearing_follower_exists(
+    /// The candidacy estimate: whether any follower cell that survives enumeration offers a junction onward.
+    fn junction_bearing_follower_exists(
         &mut self,
         synthetic_left: &LeftContext,
         follower: Sym,
         right2: RightToken,
     ) -> Result<i64, SettleError> {
         let cells = self.candidates(synthetic_left, follower, right2, UNKNOWN, None)?;
-        Ok(i64::from(cells.iter().any(|cell| cell.seam.is_some())))
+        Ok(i64::from(cells.iter().any(|cell| cell.junction.is_some())))
     }
 
     // --- prefers ---------------------------------------------------------------------
 
     /// Whether one prefer record favors this candidate. `None` means the record has nothing to say about this window, which keeps an irrelevant record out of the stage instead of counting it against the candidate.
     ///
-    /// A record of our own rune targets the candidate's stance or cell directly and reads the window's deep slots as they are. A record with both a stance and a cell compares cells only within that stance: the stance limits where the preference applies and is not itself the demand. A follower's record is instead a follower prefer: it favors the candidates under which its own preferred continuation is admissible, evaluated one position over with `joined_at` bound to the candidate's seam. With `follower_prefer_slots` on, the follower prefer reads the window's slots shifted by one, so a chained condition resolves inside the window. With it off, everything past the follower prefer's own `right1` is `follower_prefer_deep_slot`, and unknown verdicts there count as firing, so a deep-chained condition has to be repeated on every possible left rune instead of written once on the rune that owns it.
+    /// A record of our own rune targets the candidate's stance or cell directly and reads the window's deep slots as they are. A record with both a stance and a cell compares cells only within that stance: the stance limits where the preference applies and is not itself the demand. A follower's record is instead a follower prefer: it favors the candidates under which its own preferred continuation is admissible, evaluated one position over with `joined_at` bound to the candidate's junction. With `follower_prefer_slots` on, the follower prefer reads the window's slots shifted by one, so a chained condition resolves inside the window. With it off, everything past the follower prefer's own `right1` is `follower_prefer_deep_slot`, and unknown verdicts there count as firing, so a deep-chained condition has to be repeated on every possible left rune instead of written once on the rune that owns it.
     fn prefer_favors(
         &mut self,
         owner: Sym,
@@ -2058,7 +2058,7 @@ impl<'i> Engine<'i> {
                 &record.when,
                 left,
                 candidate.entry,
-                candidate.seam,
+                candidate.junction,
                 slots,
             )?;
             if verdict == Some(false) {
@@ -2116,7 +2116,7 @@ impl<'i> Engine<'i> {
                 &record.when,
                 &synthetic_left,
                 cell.entry,
-                cell.seam,
+                cell.junction,
                 shifted_slots,
             )?;
             if verdict == Some(false) {
@@ -2177,7 +2177,7 @@ impl<'i> Engine<'i> {
         self.prefer_favors(owner, record, rune_name, candidate, left, slots)
     }
 
-    /// One prefer stage, absolute or yielding, over the records of both seam runes, most specific first.
+    /// One prefer stage, absolute or yielding, over the records of both junction runes, most specific first.
     ///
     /// Records are gathered in declaration order, our own rune's before the follower's, then sorted by how many other applicable records outrank them, so the narrowest applies first and a nested conflict resolves by set membership without an error. When a record's favored set no longer overlaps the survivors, the stage looks for an already applied record of equal or incomparable specificity. Within one rune that raises E-AMBIGUOUS. Across two runes, a `resolve:` naming the collision settles it, and without one it raises E-INCOMPARABLE.
     fn apply_prefers(
@@ -2453,7 +2453,10 @@ impl<'i> Engine<'i> {
                     "({}, entry {}, exit {})",
                     index.resolve(candidate.stance),
                     text_or(index.resolve(vocab.height_state(candidate.entry)), "none"),
-                    text_or(index.resolve(vocab.height_state(candidate.seam)), "none")
+                    text_or(
+                        index.resolve(vocab.height_state(candidate.junction)),
+                        "none"
+                    )
                 )
             })
             .collect();
@@ -2495,7 +2498,7 @@ impl<'i> Engine<'i> {
     ) -> Result<Option<&'i PolicyRecord>, SettleError> {
         let height = match side {
             Side::Entry => candidate.entry,
-            Side::Exit => candidate.seam,
+            Side::Exit => candidate.junction,
         }
         .expect("a side is only shaped once it is known to be live");
         let records = match kind {
@@ -2519,7 +2522,7 @@ impl<'i> Engine<'i> {
                 &record.when,
                 left,
                 candidate.entry,
-                candidate.seam,
+                candidate.junction,
                 right,
             )?;
             if verdict == Some(true) {
@@ -2563,16 +2566,16 @@ impl<'i> Engine<'i> {
         tokens
     }
 
-    /// The window join count: the seam behind us, the seam we offer, and what the seam past us is worth, which the caller asks [`Engine::prospect`] for once and passes in.
+    /// The window join count: the junction behind us, the junction we offer, and what the junction past us is worth, which the caller asks [`Engine::prospect`] for once and passes in.
     fn score(candidate: Candidate, committed: Option<Sym>, prospect: i64) -> i64 {
         let left_term = i64::from(committed.is_some());
-        let own_term = i64::from(candidate.seam.is_some());
+        let own_term = i64::from(candidate.junction.is_some());
         left_term + own_term + prospect
     }
 
     /// Turn the winning candidate into the cell it settles as: the ZWNJ lock first, then each live side's extend and contract, then the exit side's extension in pixels, then, for a declined join mid-word, the withdrawal bindings.
     ///
-    /// Same-seam extensions do not add up (the `same-seam-extension-non-summing` divergence class): a follower's entry extension is suppressed when the predecessor's exit already carries the seam's connector pixels, because both would otherwise draw them. The suppressed record still fires and is still noted as applied, because it matched and the dead-policy check should see it, and the suppression adds its own note.
+    /// Same-junction extensions do not add up (the `same-junction-extension-non-summing` divergence class): a follower's entry extension is suppressed when the predecessor's exit already carries the junction's connector pixels, because both would otherwise draw them. The suppressed record still fires and is still noted as applied, because it matched and the dead-policy check should see it, and the suppression adds its own note.
     ///
     /// `right` is the two-slot window: the caller passes only `right1` and `right2`, with the deeper slots `UNKNOWN`, so an adjustment record whose condition reaches past the follower reads the window edge, and geometry never depends on a slot the emitted lookup cannot key on.
     fn commit(
@@ -2633,7 +2636,7 @@ impl<'i> Engine<'i> {
                     .is_some_and(|settled| settled.extension > 0)
             {
                 notes.push(
-                    "entry extension suppressed: the predecessor's exit already carries the seam's connector pixels (same-seam non-summing)"
+                    "entry extension suppressed: the predecessor's exit already carries the junction's connector pixels (same-junction non-summing)"
                         .to_owned(),
                 );
                 extend = None;
@@ -2641,7 +2644,7 @@ impl<'i> Engine<'i> {
             adjustments.extend(adjustment_tokens(Side::Entry, extend, contract));
         }
         let mut extension = 0;
-        if winner.seam.is_some() {
+        if winner.junction.is_some() {
             let extend = self.pick_adjustment(
                 AdjustmentKind::Extend,
                 rune,
@@ -2683,10 +2686,10 @@ impl<'i> Engine<'i> {
                 rune: rune.name,
                 stance: winner.stance,
                 entry: winner.entry,
-                exit: winner.seam,
+                exit: winner.junction,
                 adjustments,
             },
-            seam: winner.seam,
+            junction: winner.junction,
             extension,
         })
     }
@@ -2695,7 +2698,7 @@ impl<'i> Engine<'i> {
 
     /// Settle one window, returning the full trace the table builder and the explain CLI read.
     ///
-    /// In trace-memo mode the result is memoized over the reduced left key. The kernel reads the left only through its kind and the settled cell's rune, stance, seam and extension: condition matching reads the rune and stance, the stroke axis the committed seam, the scoring the seam's presence, and the same-seam suppression the extension. It never reads the left cell's entry or adjustments, so two lefts differing only there share one entry. The memo holds seats, not traces, so a hit is rebuilt from the memo's pools, returns what its miss returned, and replays the miss's fired delta. A window the own memo misses is looked up in the shared memos next and answered from the first one that holds and admits it. Only then is it settled. Raising windows are never cached: the E-UNACCEPTED-EXIT message includes the left's full label, which the key does not, and the liveness probes that hit settlement errors memoize their own verdicts above this call.
+    /// In trace-memo mode the result is memoized over the reduced left key. The kernel reads the left only through its kind and the settled cell's rune, stance, junction and extension: condition matching reads the rune and stance, the stroke axis the committed junction, the scoring the junction's presence, and the same-junction suppression the extension. It never reads the left cell's entry or adjustments, so two lefts differing only there share one entry. The memo holds seats, not traces, so a hit is rebuilt from the memo's pools, returns what its miss returned, and replays the miss's fired delta. A window the own memo misses is looked up in the shared memos next and answered from the first one that holds and admits it. Only then is it settled. Raising windows are never cached: the E-UNACCEPTED-EXIT message includes the left's full label, which the key does not, and the liveness probes that hit settlement errors memoize their own verdicts above this call.
     pub fn transition_trace(
         &mut self,
         left: &LeftContext,
@@ -2760,7 +2763,7 @@ impl<'i> Engine<'i> {
         Ok(trace)
     }
 
-    /// Read one or two fields from a window's settled record where the record sits in the memo, without copying it. [`Engine::transition_trace`] returns a whole owned trace, and the callers here want only a seam or a cell from the settled record, so a memo hit through it would clone the notes and the adjustment list to answer a question about one `Option`.
+    /// Read one or two fields from a window's settled record where the record sits in the memo, without copying it. [`Engine::transition_trace`] returns a whole owned trace, and the callers here want only a junction or a cell from the settled record, so a memo hit through it would clone the notes and the adjustment list to answer a question about one `Option`.
     ///
     /// A hit replays the fired delta as [`Engine::transition_trace`] does, because that keeps a warm engine's fired set equal to a cold one's.
     pub(crate) fn with_settled<T>(
@@ -2845,7 +2848,7 @@ impl<'i> Engine<'i> {
             )));
         };
         let committed = if left.kind == TokenKind::Letter {
-            left.settled.as_ref().and_then(|settled| settled.seam)
+            left.settled.as_ref().and_then(|settled| settled.junction)
         } else {
             None
         };
@@ -2873,7 +2876,7 @@ impl<'i> Engine<'i> {
                 let settled = left
                     .settled
                     .as_ref()
-                    .expect("a committed seam comes from a settled left");
+                    .expect("a committed junction comes from a settled left");
                 return Err(SettleError::UnacceptedExit(format!(
                     "E-UNACCEPTED-EXIT: {} committed an exit at {} but {} has no acceptor cell (the lookahead closure should have prevented this commitment)",
                     cell_label(index, &settled.cell),
@@ -2972,7 +2975,7 @@ impl<'i> Engine<'i> {
             ordered.sort_by_key(|candidate| tiebreak_key(index, candidate));
             decided_stage = DecidedStage::Tiebreak;
             runner_up = Some(ordered[1]);
-            joint_tiebreak = ordered[0].seam.is_none() != ordered[1].seam.is_none();
+            joint_tiebreak = ordered[0].junction.is_none() != ordered[1].junction.is_none();
             survivors = vec![ordered[0]];
         }
 
@@ -3096,7 +3099,7 @@ fn cell_pattern_matches(vocab: &Vocab, pattern: &Table<Sym>, candidate: &Candida
         return false;
     }
     if let Some(wanted) = pattern_value(pattern, vocab.exit)
-        && wanted != vocab.height_state(candidate.seam)
+        && wanted != vocab.height_state(candidate.junction)
     {
         return false;
     }
@@ -3182,14 +3185,14 @@ fn adjustment_tokens(
     tokens
 }
 
-/// The final tiebreak's sort key: realizing the seam beats declining it, a lower seam beats a higher one, and the exit row's declaration index decides the rest. Realizing the left seam is the same for every candidate, because entry binding is bilateral, so it is not part of the key.
+/// The final tiebreak's sort key: realizing the junction beats declining it, a lower junction beats a higher one, and the exit row's declaration index decides the rest. Realizing the left junction is the same for every candidate, because entry binding is bilateral, so it is not part of the key.
 fn tiebreak_key(index: &SpecIndex, candidate: &Candidate) -> (usize, i64, usize) {
-    match candidate.seam {
-        Some(seam) => (
+    match candidate.junction {
+        Some(junction) => (
             0,
-            index
-                .y_of(seam)
-                .expect("a candidate's seam is registry-declared, as registry.heights[…] assumes"),
+            index.y_of(junction).expect(
+                "a candidate's junction is registry-declared, as registry.heights[…] assumes",
+            ),
             candidate.exit_index,
         ),
         None => (1, 1_000_000, candidate.exit_index),
@@ -3311,14 +3314,14 @@ mod tests {
         fixtures::letter(index, name)
     }
 
-    /// A settled letter left carrying `seam`, built from a real (rune, stance) pair, since [`LeftContext::letter`] panics on any other.
+    /// A settled letter left carrying `junction`, built from a real (rune, stance) pair, since [`LeftContext::letter`] panics on any other.
     fn settled_left(
         index: &SpecIndex,
         rune: &str,
         stance: &str,
-        seam: Option<&str>,
+        junction: Option<&str>,
     ) -> LeftContext {
-        let seam = seam.map(|height| fixtures::sym(index, height));
+        let junction = junction.map(|height| fixtures::sym(index, height));
         LeftContext::letter(
             index,
             Settled {
@@ -3326,10 +3329,10 @@ mod tests {
                     rune: fixtures::sym(index, rune),
                     stance: fixtures::sym(index, stance),
                     entry: None,
-                    exit: seam,
+                    exit: junction,
                     adjustments: Vec::new(),
                 },
-                seam,
+                junction,
                 extension: 0,
             },
         )
@@ -3393,7 +3396,7 @@ mod tests {
     }
 
     #[test]
-    fn a_committed_seam_binds_the_entry_or_eliminates_the_stance() {
+    fn a_committed_junction_binds_the_entry_or_eliminates_the_stance() {
         let index = alphabet();
         let mut engine = Engine::new(&index, no_features());
         let baseline = fixtures::sym(&index, "baseline");
@@ -3433,7 +3436,7 @@ mod tests {
         assert!(out.is_empty());
         assert_eq!(
             descriptions(&eliminations),
-            ["qsTea.plain: no available entry row at x-height against the committed seam"]
+            ["qsTea.plain: no available entry row at x-height against the committed junction"]
         );
         assert_eq!(eliminations[0].stage, EliminationStage::EntryBinding);
     }
@@ -3452,7 +3455,7 @@ mod tests {
         assert!(out.is_empty());
         assert_eq!(
             descriptions(&eliminations),
-            ["qsMay.alt: no available entry row at baseline against the committed seam"]
+            ["qsMay.alt: no available entry row at baseline against the committed junction"]
         );
         assert!(locked.fired().is_empty());
 
@@ -4130,7 +4133,7 @@ mod tests {
                 None
             ),
             Ok(false),
-            "an unjoined left committed no seam and so exits at no stroke"
+            "an unjoined left committed no junction and so exits at no stroke"
         );
 
         assert_eq!(
@@ -4956,7 +4959,7 @@ mod tests {
 
     /// `TraceEntry::new` panics on a prospect other than zero or one instead of truncating it into the bit.
     #[test]
-    #[should_panic(expected = "a prospect is a seam count, zero or one")]
+    #[should_panic(expected = "a prospect is a junction count, zero or one")]
     fn a_prospect_past_one_raises_at_the_entry() {
         let _ = TraceEntry::new(
             TraceSettledSeat::at(0),
@@ -5319,7 +5322,7 @@ mod tests {
 
     /// The ranking test spec: `rebuild/pipeline/fixtures.py`'s `synthetic_spec` written with this crate's four-family registry.
     ///
-    /// `qsPea` declares `stroke`, which exits at the x-height, and then `flourish`, which has no surface. `qsTea` enters at the x-height and exits at the baseline but forbids pairing the two, so an entered `qsTea` has no exit. `qsMay` enters at the baseline. Whichever way the qsPea·qsTea seam goes, the window makes one join, so the join count ties and the later stages decide.
+    /// `qsPea` declares `stroke`, which exits at the x-height, and then `flourish`, which has no surface. `qsTea` enters at the x-height and exits at the baseline but forbids pairing the two, so an entered `qsTea` has no exit. `qsMay` enters at the baseline. Whichever way the qsPea·qsTea junction goes, the window makes one join, so the join count ties and the later stages decide.
     fn ranking_spec(pea_policy: &str, tea_policy: &str) -> SpecIndex {
         let pea = letter(
             "qsPea",
@@ -5396,7 +5399,7 @@ mod tests {
         engine.transition_trace(&LeftContext::boundary(TokenKind::Edge), token, slots)
     }
 
-    /// A `qsPea.stroke` left that committed the x-height seam with `extension` connector pixels.
+    /// A `qsPea.stroke` left that committed the x-height junction with `extension` connector pixels.
     fn committed_left(index: &SpecIndex, extension: i64) -> LeftContext {
         let x_height = fixtures::sym(index, "x-height");
         LeftContext::letter(
@@ -5409,7 +5412,7 @@ mod tests {
                     exit: Some(x_height),
                     adjustments: Vec::new(),
                 },
-                seam: Some(x_height),
+                junction: Some(x_height),
                 extension,
             },
         )
@@ -5454,11 +5457,11 @@ mod tests {
         assert_eq!(trace.decided_stage, DecidedStage::Tiebreak);
         assert!(
             trace.joint_tiebreak,
-            "the final tiebreak chose between realizing the seam and declining it"
+            "the final tiebreak chose between realizing the junction and declining it"
         );
         assert_eq!(trace.settled.cell.stance, stroke);
         assert_eq!(trace.settled.cell.exit, Some(x_height));
-        assert_eq!(trace.settled.seam, Some(x_height));
+        assert_eq!(trace.settled.junction, Some(x_height));
         assert_eq!(
             trace.ranking().runner_up,
             Some(Candidate::non_joining(
@@ -5561,7 +5564,7 @@ mod tests {
             trace.settled.cell.stance,
             fixtures::sym(&absolute, "flourish")
         );
-        assert_eq!(trace.settled.seam, None);
+        assert_eq!(trace.settled.junction, None);
         assert_eq!(trace.notes, ["prefer applied: qsPea.yaml:policy.prefer[0]"]);
     }
 
@@ -5654,7 +5657,7 @@ mod tests {
                 )
             );
             assert_eq!(
-                trace.settled.seam,
+                trace.settled.junction,
                 has_unmapped_stance.then(|| fixtures::sym(&index, "baseline")),
                 "the unmapped stance keeps its join; mapped stances both yield without selecting between them"
             );
@@ -6087,7 +6090,7 @@ mod tests {
                     exit: None,
                     adjustments: Vec::new(),
                 },
-                seam: None,
+                junction: None,
                 extension: 0,
             },
         );
@@ -6204,7 +6207,7 @@ mod tests {
     }
 
     #[test]
-    fn an_entry_extension_is_suppressed_when_the_predecessor_already_carries_the_seam() {
+    fn an_entry_extension_is_suppressed_when_the_predecessor_already_carries_the_junction() {
         let tea_policy = fixtures::policy(&[(
             "extend",
             &fixtures::seq(&[&pointed_record(
@@ -6239,7 +6242,7 @@ mod tests {
             trace.notes,
             [
                 "qsTea.yaml:policy.extend[0]",
-                "entry extension suppressed: the predecessor's exit already carries the seam's connector pixels (same-seam non-summing)",
+                "entry extension suppressed: the predecessor's exit already carries the junction's connector pixels (same-junction non-summing)",
             ],
             "the suppressed record still matched and still fired, and the suppression says so"
         );
@@ -6278,7 +6281,7 @@ mod tests {
         assert_eq!(
             trace.settled.cell.exit,
             Some(fixtures::sym(&index, "x-height")),
-            "the seam the two records shape has to be the one that won"
+            "the junction the two records shape has to be the one that won"
         );
         assert_eq!(
             trace.settled.cell.adjustments,
@@ -6294,7 +6297,7 @@ mod tests {
         );
     }
 
-    /// An extend with a `bind:` writes the binding token before the extension token, so geometry swaps in the drawing before it lengthens the connector. The pixels still count toward the seam's extension.
+    /// An extend with a `bind:` writes the binding token before the extension token, so geometry swaps in the drawing before it lengthens the connector. The pixels still count toward the junction's extension.
     #[test]
     fn a_bound_extend_spells_its_binding_before_its_extension() {
         let pea_policy = fixtures::policy(&[(
@@ -6702,7 +6705,7 @@ mod tests {
         let trace = simulating
             .transition_trace(&edge, token, slots)
             .expect("the window qsTea settles is not the window that raised");
-        assert_eq!(trace.settled.seam, Some(baseline));
+        assert_eq!(trace.settled.junction, Some(baseline));
         assert_eq!(trace.decided_stage, DecidedStage::JoinCount);
         assert_eq!(
             simulating.simulated_prospect_fallbacks(),
@@ -7005,7 +7008,7 @@ mod tests {
     }
 
     #[test]
-    fn a_left_that_committed_a_seam_nothing_accepts_is_an_unaccepted_exit() {
+    fn a_left_that_committed_a_junction_nothing_accepts_is_an_unaccepted_exit() {
         let index = ranking_spec(&plain_policy(), &plain_policy());
         let mut engine = Engine::new(&index, no_features());
         let complaint = engine

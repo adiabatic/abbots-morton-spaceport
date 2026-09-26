@@ -22,9 +22,11 @@ class TestIdentity:
         assert hash(a) == hash(b)
         assert len({a, b}) == 1
 
-    def test_settled_carries_seam_and_extension(self):
-        settled = Settled(cell=CellId("qsMay", "loop", None, "x-height", ()), seam="x-height", extension=1)
-        assert settled.seam == "x-height"
+    def test_settled_carries_junction_and_extension(self):
+        settled = Settled(
+            cell=CellId("qsMay", "loop", None, "x-height", ()), junction="x-height", extension=1
+        )
+        assert settled.junction == "x-height"
         assert settled.extension == 1
 
 

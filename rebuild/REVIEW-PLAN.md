@@ -2,7 +2,7 @@
 
 This is the design record for the treaty-diff review app: why the corpus has its shape, and the contracts it was built against. Its inputs are design §11, §8, §10.5 and §6.3. The app is built under `rebuild/out/review/` and served on port 7294.
 
-`rebuild/review/README.md` describes what the app does today: commands, keyboard map, triage flow, and the machine-approval and deduplication mechanisms. The checkers in `rebuild/review/build.py` are the executable contract. Counts are not kept here. The last accepted review facts are `rebuild/review-facts-pins.json`, which every artifact-cycle pass refreshes from the build's review-facts sidecar (`uv run python -m rebuild.review.facts --update` is the manual form). A build's totals (`totals`, `machine_approved`, and the `secondary_seams` counts) are in `rebuild/out/review/manifest.json`, and `make verdict-ready` reports adjudication status. The `rebuild/review/*.py` module docstrings and the README cite this file's section numbers, so sections are never renumbered.
+`rebuild/review/README.md` describes what the app does today: commands, keyboard map, triage flow, and the machine-approval and deduplication mechanisms. The checkers in `rebuild/review/build.py` are the executable contract. Counts are not kept here. The last accepted review facts are `rebuild/review-facts-pins.json`, which every artifact-cycle pass refreshes from the build's review-facts sidecar (`uv run python -m rebuild.review.facts --update` is the manual form). A build's totals (`totals`, `machine_approved`, and the `secondary_junctions` counts) are in `rebuild/out/review/manifest.json`, and `make verdict-ready` reports adjudication status. The `rebuild/review/*.py` module docstrings and the README cite this file's section numbers, so sections are never renumbered.
 
 ## 1. Architecture
 
@@ -63,19 +63,19 @@ Units are ordered for triage by ledger class in the ledger's file order, then by
 
 ### 2.2 Encoding: sharded JSON, everything precomputed
 
-Decision: **one `manifest.json` plus one JSON shard per ledger class, with everything computed at build time.** A unit runs to about 1.5–3 KB with its explain text and drafts, so a single JSON file for the whole corpus would be too large to load at once. Each worker batches its settle and explain work through the Rust kernel before it enriches the units. Provenance, seams, highlight offsets, and all three verdict drafts are computed at build time. The browser does not compute any of them; it renders and collects verdicts. There is no server-side logic and no explain endpoint.
+Decision: **one `manifest.json` plus one JSON shard per ledger class, with everything computed at build time.** A unit runs to about 1.5–3 KB with its explain text and drafts, so a single JSON file for the whole corpus would be too large to load at once. Each worker batches its settle and explain work through the Rust kernel before it enriches the units. Provenance, junctions, highlight offsets, and all three verdict drafts are computed at build time. The browser does not compute any of them; it renders and collects verdicts. There is no server-side logic and no explain endpoint.
 
 The app boots from a slim index of the human units (§7.4). The index leaves out everything a card draws from the unit's own record: `explain`, `provenance`, and `drafts`, and also the sample text, the pair band, and the settled cells. When a card renders, and when its explain panel opens, the app reads the record with an HTTP Range request against the shard the build wrote, using the byte span in the index row. The directory stays static, and the tab holds the queue, not the corpus.
 
-Per-unit precomputed fields (full contract in §7): notation, before/after facts (glyphs or cells, seams, extensions), divergent positions and the primary pair, highlight x-ranges in font units for both fonts, the explain text for divergent positions, the deduped provenance pointers, exemplar status, and the three drafts. The x-ranges come from `hmtx` advances, so the frontend draws the pair highlight with `px = units × font-size / upem` and never measures text.
+Per-unit precomputed fields (full contract in §7): notation, before/after facts (glyphs or cells, junctions, extensions), divergent positions and the primary pair, highlight x-ranges in font units for both fonts, the explain text for divergent positions, the deduped provenance pointers, exemplar status, and the three drafts. The x-ranges come from `hmtx` advances, so the frontend draws the pair highlight with `px = units × font-size / upem` and never measures text.
 
-**Secondary seams and home resolution**: a longer unit can contain divergent adjacencies besides its primary pair: the other divergent gaps, plus a neighbor seam for each divergent position no gap covers (the same fallback the primary pair uses). The build emits each as a `secondary_seams` entry with per-side x-range rects computed like the primary highlight, plus the seam's **home**. The home is the shortest unit that:
+**Secondary junctions and primary-unit resolution**: a longer unit can contain divergent adjacencies besides its primary pair: the other divergent gaps, plus a neighbor junction for each divergent position no gap covers (the same fallback the primary pair uses). The build emits each as a `secondary_junctions` entry with per-side x-range rects computed like the primary highlight, plus the junction's **primary unit**. The primary unit is the shortest unit that:
 
-- has a codepoint string that is a substring of this unit's and contains the seam,
-- has the same before and after outcomes at the corresponding positions (glyph identities, covering spans after offset adjustment, and seam tokens), and
-- has that seam as its own primary pair, so the same behavior is its primary judgment.
+- has a codepoint string that is a substring of this unit's and contains the junction,
+- has the same before and after outcomes at the corresponding positions (glyph identities, covering spans after offset adjustment, and junction tokens), and
+- has that junction as its own primary pair, so the same behavior is its primary judgment.
 
-Ties break to the lowest unit id. When the home is ink- or picture-identical, the marker is suppressed: the divergence is an invisible name-grain rename, and the page promises that unmarked regions have nothing visible to judge. When no home exists, the marker is still emitted with `home: null`, so it is never silently unmarked. The manifest's `secondary_seams` record counts units with visible markers, homed seams, home-less seams, and suppressed seams. The contract checker validates the field shape and that every named home is a unit in the output. The frontend draws each visible seam as a dimmer dashed band in both columns with a chip that links to the home, or reads “only here” for `home: null`, and never on machine-approved renderings. A home-less seam is judged in this unit, so the frontend also underlines its tokens on the notation and codepoints lines with a `.seam-mark` span in the band's dashed amber (§3.1).
+Ties break to the lowest unit id. When the primary unit is ink- or picture-identical, the marker is suppressed: the divergence is an invisible name-grain rename, and the page promises that unmarked regions have nothing visible to judge. When no primary unit exists, the marker is still emitted with `primary_unit: null`, so it is never silently unmarked. The manifest's `secondary_junctions` record counts units with visible markers, junctions with a primary unit, junctions without one, and suppressed junctions. The contract checker validates the field shape and that every named primary unit is a unit in the output. The frontend draws each visible junction as a dimmer dashed band in both columns with a chip that links to the primary unit, or reads “only here” for `primary_unit: null`, and never on machine-approved renderings. A junction with no primary unit is judged in this unit, so the frontend also underlines its tokens on the notation and codepoints lines with a `.junction-mark` span in the band's dashed amber (§3.1).
 
 ### 2.3 The general table-vs-table treaty-diff mode
 
@@ -98,7 +98,7 @@ The app is a tool for one person triaging the whole divergence corpus over sever
 - **Dual @font-face**: families `AMS Review Before` and `AMS Review After` over `fonts/before.otf` and `fonts/after.otf`. Rows are a grid of label, before sample, and after sample with `align-items: baseline` and sticky column headers, as in check.html. Samples get `-webkit-font-smoothing: none; font-smooth: never;`, and the prose chrome sets `subpixel-antialiased`.
 - **Checkered background**: `--font-size: 88px` gives 8 px per font pixel (50 units at upem 550), so check.html's 16 px checker with `background-position: 0 5.6px, 8px 13.6px` applies unchanged. If the size changes, recompute the offsets.
 - **Per-row features**: JS sets `style.fontFeatureSettings` on the sample pair from the unit's primary render group (`ss02+ss03` → `"ss02" 1, "ss03" 1`; `default` → `normal`) through `render.featureSettingsValue`. There is no strip listing the unit's configs, because most units diverge under every non-ss10 config and the list says nothing. When `config_gate` is non-null, a badge shows one inert chip per clause, in the stylistic set's color, lit for an on-constraint and muted for an off-constraint, glossed with the manifest's `feature_descriptions` entry. `configGateChips` in `render.js` derives the chips and renders each clause's `text` as given, without re-parsing `config_note`. The badge marks the cases that matter for judgment (ss03-gated, ss03-excluded, ss10-only, and narrower conjunctions), which also explain the row's `font-feature-settings`. Each chip's title lists the full config set, and the review queue's cluster headers reuse the chips. If a unit ever carries more than one render group, each extra group's before/after pair renders below the first with its own label and feature settings.
-- **The pair under review is highlighted**: wrapping part of a run in a span breaks shaping, so the highlight is drawn outside the text, as an absolutely positioned underline band under the divergent pair in each sample, placed from the precomputed font-unit x-ranges (§2.2). The band uses a high-contrast accent that meets the 3:1 non-text contrast rule in both color schemes. The same `--hot` color underlines the pair on the label's notation and codepoints lines through a `.pair-mark` span. The covered codepoint span is computed at build time (`pair_codepoints`, with `notation_tokens` aligned one-to-one with codepoint positions), because ligatures make glyph positions differ from codepoint positions. A unit with no primary pair leaves those lines unmarked. Homed secondary seams never mark the text lines, since they are judged at their home unit. A home-less (“only here”) seam gets its own `.seam-mark` underline, dashed in the secondary band's amber and set below the pair-mark line where the two overlap. Its codepoint span is derived in the browser from `after.cells` (a formed ligature covers two codepoint positions) and checked against `pair_codepoints`; on any disagreement the seam marks are dropped so the wrong letters are never underlined.
+- **The pair under review is highlighted**: wrapping part of a run in a span breaks shaping, so the highlight is drawn outside the text, as an absolutely positioned underline band under the divergent pair in each sample, placed from the precomputed font-unit x-ranges (§2.2). The band uses a high-contrast accent that meets the 3:1 non-text contrast rule in both color schemes. The same `--hot` color underlines the pair on the label's notation and codepoints lines through a `.pair-mark` span. The covered codepoint span is computed at build time (`pair_codepoints`, with `notation_tokens` aligned one-to-one with codepoint positions), because ligatures make glyph positions differ from codepoint positions. A unit with no primary pair leaves those lines unmarked. Secondary junctions with a primary unit never mark the text lines, since they are judged at their primary unit. A junction with no primary unit (“only here”) gets its own `.junction-mark` underline, dashed in the secondary band's amber and set below the pair-mark line where the two overlap. Its codepoint span is derived in the browser from `after.cells` (a formed ligature covers two codepoint positions) and checked against `pair_codepoints`; on any disagreement the junction marks are dropped so the wrong letters are never underlined.
 - **ZWNJ**: emitted as a literal `&#x200C;` inside the run, so the real `uni200C` rules fire; browsers render it invisibly. The notation caption shows it as `◊ZWNJ`, and a dotted tick is drawn at its precomputed x position under the run. Space shows as `␣` in captions. All Quikscript text is stored as numeric character references in the JSON `text_entities` field, never as raw PUA characters.
 
 ### 3.2 Triage flow
@@ -135,7 +135,7 @@ View state lives in `location.hash` as `URLSearchParams`, as in tables.html: `pa
   "exported_at": "2026-06-10T18:40:02Z",
   "verdicts": [
     {"unit": "u-3mJ7kPq2Xw9", "verdict": "approve", "note": "", "at": "2026-06-10T18:21:09Z"},
-    {"unit": "u-8nacGTcgMRS", "verdict": "reject", "note": "seam looks reached-for", "at": "2026-06-10T18:21:40Z"}
+    {"unit": "u-73QgSVQziGo", "verdict": "reject", "note": "junction looks reached-for", "at": "2026-06-10T18:21:40Z"}
   ]
 }
 ```
@@ -166,7 +166,7 @@ pins:                       # one per approved unit: a whole-word data-expect pi
     note: ""
 
 policy_edits:               # one per rejected unit: the one-line refuse/contract/prefer edit; a reject with no mechanical draft still appears, with keypath/suggested_record null and a no_mechanical_draft note
-  - unit: u-8nacGTcgMRS
+  - unit: u-73QgSVQziGo
     codepoints: "E650:E665"
     file: glyph_data/runes/qsMay.yaml
     keypath: policy.refuse[+]               # [+] = append to the list
@@ -174,11 +174,11 @@ policy_edits:               # one per rejected unit: the one-line refuse/contrac
     names_provenance:                       # the records explain attributed the new outcome to (§6.3)
       - glyph_data/runes/qsMay.yaml:policy.extend[1]
     decided_stage: prefer
-    why_stub: "Reviewer rejected the M1 outcome for E650:E665 (·Pea·May): seam looks reached-for"
+    why_stub: "Reviewer rejected the M1 outcome for E650:E665 (·Pea·May): junction looks reached-for"
     schema_valid: true
 
 any_of:                     # one per fine-either-way unit: both behaviors as full expect strings
-  - unit: u-DdcTojn1hba
+  - unit: u-Zuzfh4544mg
     text: "qsPea qsOwe qsMay"               # _qs_text-ready family tokens
     features: {}
     candidates:
@@ -188,7 +188,7 @@ any_of:                     # one per fine-either-way unit: both behaviors as fu
     note: ""
 
 neither:                    # one per neither-verdicted unit: both behaviors look wrong; nothing is drafted
-  - unit: u-2WvdGAWe6bX
+  - unit: u-hJQksth4hYb
     codepoints: "E652:200C:E652:E679"
     notation: "·Tea ◊ZWNJ ·Tea·Oy"
     note: "both joins look wrong; needs a fresh stance"
@@ -196,7 +196,7 @@ neither:                    # one per neither-verdicted unit: both behaviors loo
       - glyph_data/runes/qsTea.yaml:policy.extend[0]
 
 identical:                  # one per identical-verdicted unit: the reviewer cannot see the flagged difference; nothing is drafted
-  - unit: u-hRgMc2EJjbs
+  - unit: u-E8egK4dqX5U
     codepoints: "E665:E679"
     notation: "·May·Oy"
     note: "the highlighted joins look the same to me"
@@ -204,11 +204,11 @@ identical:                  # one per identical-verdicted unit: the reviewer can
 
 ### 4.3 Drafter rules
 
-- **Pin drafter (approve)**: a whole-word pin with bare letter tokens and no variant assertions (design §10.5: “whole-word assertions remain the preferred cheap lock”). Tokens come from the notation map (`·Tea`, `◊space`, `◊ZWNJ`, and the namer dot per `doc/data-expect.md`). Connections come from the **after** settled seams: `y5` → `~x~`, `y0` → `~b~`, `y8` → `~t~`, `y6` → `~6~`, break → `|`, formed ligature → `+`. The attribute is `data-expect` when the corpus (`drafts.CORPUS_FILES`) already pins the same text under the unit's first config with `data-expect`, and `data-expect-noncanonically` otherwise. Stylistic-set scope goes in the `stylistic_set` value; in-string set scoping is §10.5 future work and is never drafted. Syntax is checked with `test_shaping.parse_expect`. Semantics are checked against the after font with the rebuild-side harness that `rebuild/test_validation_suite.py`'s corpus replay uses (`rebuild/validation/pins.py` and `rebuild/validation/shaping.Shaper`), never by monkeypatching the test module's `site/` font constants. A pin is expected to fail against the old font. A pin that fails `parse_expect` or the after font raises `DraftError` where it is drafted, so `pass` is the only value either field is ever written with. The drafter looks up the corpus for an existing `data-expect` on the same text under the same feature context and sets `duplicate_of` instead of emitting a second pin.
+- **Pin drafter (approve)**: a whole-word pin with bare letter tokens and no variant assertions (design §10.5: “whole-word assertions remain the preferred cheap lock”). Tokens come from the notation map (`·Tea`, `◊space`, `◊ZWNJ`, and the namer dot per `doc/data-expect.md`). Connections come from the **after** settled junctions: `y5` → `~x~`, `y0` → `~b~`, `y8` → `~t~`, `y6` → `~6~`, break → `|`, formed ligature → `+`. The attribute is `data-expect` when the corpus (`drafts.CORPUS_FILES`) already pins the same text under the unit's first config with `data-expect`, and `data-expect-noncanonically` otherwise. Stylistic-set scope goes in the `stylistic_set` value; in-string set scoping is §10.5 future work and is never drafted. Syntax is checked with `test_shaping.parse_expect`. Semantics are checked against the after font with the rebuild-side harness that `rebuild/test_validation_suite.py`'s corpus replay uses (`rebuild/validation/pins.py` and `rebuild/validation/shaping.Shaper`), never by monkeypatching the test module's `site/` font constants. A pin is expected to fail against the old font. A pin that fails `parse_expect` or the after font raises `DraftError` where it is drafted, so `pass` is the only value either field is ever written with. The drafter looks up the corpus for an existing `data-expect` on the same text under the same feature context and sets `duplicate_of` instead of emitting a second pin.
 - **Policy drafter (reject)**: works from the precomputed explain trace. The target file is the rune file of the divergent position. The draft names every provenance record that decided the new outcome, plus `decided_stage`. The suggested record is the smallest one-line record that reverses the change (the reversing edit), chosen in this order:
   1. When a gap next to the divergent cell is joined in the new behavior but was a break in the baseline, and provenance is nonempty: a `refuse` of the anchor that reaches across that gap, scoped to the neighbor. An outcome a positive record produced gets a refuse, because only a refuse restores the break; a contract would shorten the extension but keep the join.
   2. When the divergent cell gained an extension on a join both fonts share and a `policy.extend` decided it: a `contract` by the same amount on that side.
-  3. When the divergence is name-grain (both behaviors group the codepoints the same way and agree on every seam, so a refuse would break a join both fonts share) and provenance is nonempty: a `prefer` with `mode: absolute` that pins the baseline cell's entry and exit (read from the alias map) over the new cell's, or its stance when only the stance differs. A name-grain difference with no such record (post-ZWNJ locked twins, bind pullbacks, suppressed extensions) gets **no policy draft**; the export lists the reject with `keypath: null` and the unit's provenance for hand editing.
+  3. When the divergence is name-grain (both behaviors group the codepoints the same way and agree on every junction, so a refuse would break a join both fonts share) and provenance is nonempty: a `prefer` with `mode: absolute` that pins the baseline cell's entry and exit (read from the alias map) over the new cell's, or its stance when only the stance differs. A name-grain difference with no such record (post-ZWNJ locked twins, bind pullbacks, suppressed extensions) gets **no policy draft**; the export lists the reject with `keypath: null` and the unit's provenance for hand editing.
   4. Otherwise, with nonempty provenance: a `refuse` of the cell's exit (or stance) in the window.
   5. With empty provenance (the final tiebreak decided): a `prefer` of the baseline exit.
 
@@ -225,7 +225,7 @@ None of these tests reads the live corpus. Every example window comes from the f
 
 - `test_review_audit.py`: TSV and ledger loading, the dedupe to units with per-config classes, deterministic ordering and batch slicing over the mini workload, and that the dedupe loses no rows. Every build rechecks row conservation by comparing the manifest's row total with the rows summed over its classes (`_CorpusCheck.finish`, which `check_shards` also runs).
 - `test_review_tablediff.py`: added/removed/changed classification on synthetic table pairs, pairing of removals and additions that share (`config`, `input`), provenance-only demotion, example-text search re-settling to the changed row over the mini bundle's tables, that a table directory diffed against itself is empty, and the snapshot round trip (a snapshot's copy diffs empty against its source).
-- `test_review_enrich.py`: the notation map against `doc/glyph-names.md`, divergent-position and pair selection on named mini-bundle windows, highlight x-ranges against hand-computed `hmtx` sums, and the secondary-seam home resolver over hand-built stubs.
+- `test_review_enrich.py`: the notation map against `doc/glyph-names.md`, divergent-position and pair selection on named mini-bundle windows, highlight x-ranges against hand-computed `hmtx` sums, and the secondary-junction primary unit resolver over hand-built stubs.
 - `test_review_drafts.py`: that the semantic validator rejects a wrong pin, each branch of the policy drafter on example windows (contract, refuse, prefer on a name-grain divergence and on an empty trace, and no draft), any-of candidate ordering, and duplicate detection. What every drafted pin and record must satisfy is enforced by `DraftError` at drafting time (§4.3).
 - `test_review_build.py`: the §7 contract checker over `rebuild/review/fixtures/` (the checker every build runs over its own output), the config-note badge, the app shell, `node --check` over every shipped `.js` file (skipped if node is absent), the export round trip (a synthetic `verdicts.json` with one verdict of each kind produces a triage YAML with the right members in each section), and the table-diff build.
 - `test_review_ink.py`: the ink-identity comparator on mini-bundle windows shaped in the bundle's own font, that `signature` ignores glyph names (on the marker font), `delta_digest`, and the pixel-level readings the standing approvals use.
@@ -250,7 +250,7 @@ The ES modules in `static/` other than `app.js` (`state.js`, `keyboard.js`, `ver
 
 The executable authority is `check_manifest`, `check_unit`, `check_shards`, and `check_output_dir` in `rebuild/review/build.py`; a change must satisfy them, not this section. Where this section and the checkers disagree, the checkers are right.
 
-The m1 build checks every unit it computes. `check_unit` runs in two subsets (`CHECKED_AT` in `build.py`; `check_unit`'s docstring says which predicates run in each): `DRAFTED` in the worker that drafts the fragment, and `PATCHED` in the parent that writes it. A unit the unit cache supplied skips `check_unit`: the build reuses a fragment only when its stamp equals the unit's `content_key`, and the build that drafted the fragment ran `check_unit` on it. The fields a later build re-patches onto a cached fragment (`duplicate_group`, `cluster`, and the secondary seams) are not re-checked per unit (`_CorpusCheck.unit`). The cross-unit predicates run over every unit (`_CorpusCheck`). `check_output_dir`, which re-reads a finished corpus, and the table-diff build, which runs `check_shards` over the dicts it serialized, run all of `check_unit`. `check_manifest` and the checks on files beside the manifest run through `check_output_dir`. The contracts lane requires an empty error list from it over a real mini-bundle m1 build (`rebuild/test_app_index.py`) and a real table-diff build (`rebuild/test_review_build.py`), and `rebuild/test_corpus_checks.py` runs each predicate over the checked-in fixture corpus and over that corpus with one field broken at a time.
+The m1 build checks every unit it computes. `check_unit` runs in two subsets (`CHECKED_AT` in `build.py`; `check_unit`'s docstring says which predicates run in each): `DRAFTED` in the worker that drafts the fragment, and `PATCHED` in the parent that writes it. A unit the unit cache supplied skips `check_unit`: the build reuses a fragment only when its stamp equals the unit's `content_key`, and the build that drafted the fragment ran `check_unit` on it. The fields a later build re-patches onto a cached fragment (`duplicate_group`, `cluster`, and the secondary junctions) are not re-checked per unit (`_CorpusCheck.unit`). The cross-unit predicates run over every unit (`_CorpusCheck`). `check_output_dir`, which re-reads a finished corpus, and the table-diff build, which runs `check_shards` over the dicts it serialized, run all of `check_unit`. `check_manifest` and the checks on files beside the manifest run through `check_output_dir`. The contracts lane requires an empty error list from it over a real mini-bundle m1 build (`rebuild/test_app_index.py`) and a real table-diff build (`rebuild/test_review_build.py`), and `rebuild/test_corpus_checks.py` runs each predicate over the checked-in fixture corpus and over that corpus with one field broken at a time.
 
 What follows describes the shape of the JSON and the design decisions in its fields; it does not list every field. The JSON is the only interface between the engine (`rebuild/review/*.py`) and the frontend (`static/` and `jstests/`), and `rebuild/review/fixtures/` lets the frontend be built against the contract without running a build.
 
@@ -327,8 +327,8 @@ Within a class, the parts hold the fragments in id order (§2.1). The example is
   "render_groups": [{"configs": ["ss03", "ss02+ss03", "ss02+ss03+ss05"]}],
   "kinds": ["ligation"],
   "exemplar": true,
-  "before": {"glyphs": ["space", "qsTea_qsOy"], "seams": ["break", "lig"]},
-  "after": {"cells": ["uni200C", "qsTea_qsOy/hapax/None/None/+locked"], "seams": ["break", "lig"], "extensions": [0, 0]},
+  "before": {"glyphs": ["space", "qsTea_qsOy"], "junctions": ["break", "lig"]},
+  "after": {"cells": ["uni200C", "qsTea_qsOy/hapax/None/None/+locked"], "junctions": ["break", "lig"], "extensions": [0, 0]},
   "diff_positions": [0],
   "pair": {"left": 0, "right": 1},
   "highlight": {
@@ -349,13 +349,13 @@ Within a class, the parts hold the fragments in id order (§2.1). The example is
 
 Field semantics:
 
-- `secondary_seams` is optional: `null` or absent when the unit has no visible secondary seam, and never present on machine-approved units. Otherwise it is a list of `{pair: {left, right}, before: rect, after: rect, home: <unit id> | null}` entries resolved by the §2.2 rules, with rects in the same font-unit form as `highlight`.
+- `secondary_junctions` is optional: `null` or absent when the unit has no visible secondary junction, and never present on machine-approved units. Otherwise it is a list of `{pair: {left, right}, before: rect, after: rect, primary_unit: <unit id> | null}` entries resolved by the §2.2 rules, with rects in the same font-unit form as `highlight`.
 - `ink_identical` is required on every unit in both modes. A unit that any machine check approves is outside the manifest's `human_unit_ids`, and the frontend shows it only behind the “Show no-verdict units” toggle, with verdict controls disabled.
 - A machine-approved unit, or a unit of a no-verdict class (`audit.slim_fragment`), has a slim fragment: `explain`, `drafts`, and `highlight` (`audit.SLIM_OMITTED_KEYS`) are absent, not null, so the app can tell a slim fragment from a whole record with a blank field. `check_unit` enforces this in both directions: a human unit always has its explain material, and a slim unit never has any of it.
 - `text_entities` is the rendered run as numeric character references, never raw PUA. The frontend injects it with `innerHTML` into the sample cells only.
-- `seams` arrays have one entry per inter-glyph gap (`break`, `lig`, or `yN`).
-- `diff_positions` are the glyph indices whose cell or trailing seam diverges.
-- `pair` is the primary divergent adjacency to highlight, or `null` for a single-position divergence with no seam change.
+- `junctions` arrays have one entry per inter-glyph gap (`break`, `lig`, or `yN`).
+- `diff_positions` are the glyph indices whose cell or trailing junction diverges.
+- `pair` is the primary divergent adjacency to highlight, or `null` for a single-position divergence with no junction change.
 - `pair_codepoints` is the primary pair's covered codepoint positions as an inclusive `[start, end]`, `null` when `pair` is null. It is computed at build time because ligatures make cell indices differ from codepoint positions.
 - `notation_tokens` is the display-token list aligned one-to-one with codepoint positions: letter names like `·May` and the boundary tokens `◊ZWNJ`, `␣`, and `·`. Joining them with the notation spacing rule (letters concatenate, boundary tokens take a space on each side) reproduces `notation`. The frontend uses `pair_codepoints` and `notation_tokens` together to underline the pair on the notation and codepoints lines.
 - `highlight` x-values and `boundary_marks[].x` are in font units; the frontend converts with `font-size / upem`.

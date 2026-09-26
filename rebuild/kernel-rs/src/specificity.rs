@@ -958,7 +958,7 @@ mod tests {
     }
 
     #[test]
-    fn a_record_keyed_on_a_declined_seam_is_narrower_than_its_sibling() {
+    fn a_record_keyed_on_a_declined_junction_is_narrower_than_its_sibling() {
         let index = host_spec();
         assert_eq!(
             ranked(&index, "keyed-none", "right-it"),

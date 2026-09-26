@@ -15,7 +15,7 @@ E665 E665                 # May May (baseline join)
 E670 E670                 # It It (no join)
 E665 E652                 # May Tea (unjoined by default; joins under ss03)
 E652 E670 E665            # Tea It May (backtrack: entered It carries the extension)
-E665 E670 E665            # May It May (extension ownership at both seams)
+E665 E670 E665            # May It May (extension ownership at both junctions)
 E670 E665 E670            # It May It (middle May double-extended)
 E665 E652 E670            # May Tea It (ss03 chain)
 E652 E670 E652 E670       # Tea It Tea It (withdrawal mid-chain)
@@ -46,7 +46,7 @@ E679                      # Oy in isolation
 E652 E679                 # Tea Oy (ligature forms)
 E670 E652 E679            # It Tea Oy
 E665 E652 E679            # May Tea Oy (marker staging: forms under ss03 too)
-E652 E679 E670            # Tea+Oy It (ligature forward seam)
+E652 E679 E670            # Tea+Oy It (ligature forward junction)
 E652 E679 E652            # Tea+Oy Tea
 E652 E679 E665            # Tea+Oy May
 E652 E679 E652 E679       # Tea+Oy Tea+Oy
@@ -63,7 +63,7 @@ E679 E670                 # Oy It
 E665 00B7 E670            # mid-word namer dot before It
 00B7 200C E670            # namer dot ZWNJ It (the dot must not lower through the ZWNJ)
 #
-# Four-family seams and longer mixed windows.
+# Four-family junctions and longer mixed windows.
 E650 E665 E652            # Pea May Tea
 E652 E670 E665 E679       # Tea It May Oy
 E670 E665 E652 E679       # It May Tea Oy
@@ -88,7 +88,7 @@ E658 E67A E666            # Fee Utter No (the alternate Utter reaches back to Fe
 E658 E679                 # Fee Oy (x-height join into the opened loop)
 E667 E658                 # Low Fee (extended x-height join)
 E653 E67A E658            # Day+Utter Fee (the ligature's exit extended into Fee)
-E665 E658 E665            # May Fee May (the entered Fee cannot exit; the second seam breaks)
+E665 E658 E665            # May Fee May (the entered Fee cannot exit; the second junction breaks)
 200C E658                 # ZWNJ Fee (locked twin)
 E658 200C E665            # Fee ZWNJ May (exit severed)
 #
@@ -146,7 +146,7 @@ E668 E668                 # Roe Roe (x-height exit into the next Roe's upper tip
 E668 E675                 # Roe I (extended baseline exit into the tighter loop)
 E668 E676                 # Roe Ah (baseline exit into Ah's entry)
 E668 E679                 # Roe Oy (x-height exit into the opened loop)
-E668 E67A                 # Roe Utter (break: no seam either way)
+E668 E67A                 # Roe Utter (break: no junction either way)
 E666 E668 E665            # No Roe May (entered at the x-height, so the exit has to go low)
 E666 E668 E666            # No Roe No (entered high, leaving low into the flipped No)
 E670 E668 E666            # It Roe No (extended baseline entry, x-height exit)
@@ -903,7 +903,7 @@ E655 E670 E652            # Gay It Tea (the join holds; It's x-height exit never
 E655 E670 E653            # Gay It Day (It gives Gay's join up; its baseline exit serves Day)
 E655 E670 E653 E67A       # Gay It Day+Utter (It gives Gay's join up for the half ligature)
 E655 E670 E67A            # Gay It Utter (It gives Gay's join up; its baseline exit serves Utter)
-E655 E670 E67A E667       # Gay It Utter Low (the carve: Utter's own records rule the tail seam)
+E655 E670 E67A E667       # Gay It Utter Low (the carve: Utter's own records rule the tail junction)
 E655 E670 E67A E665       # Gay It Utter May (the carve: It keeps Gay's join; the alternate Utter serves May)
 E655 E670 E668            # Gay It Roe (the entry holds and It's x-height exit serves Roe)
 E655 E674                 # Gay At (the baseline exit)
@@ -920,7 +920,7 @@ E655 E67E                 # Gay Ooze (break: the entryless exit never reaches Oo
 E67A E655 E67E            # Utter Gay Ooze (entered at the x-height, Gay serves Ooze at the baseline)
 E655 E65D                 # Gay Jai (the x-height exit, extended by two, into the extended entry)
 E651 E655 E65D            # Bay Gay Jai (entered at the baseline, Gay still reaches Jai at the x-height)
-E655 E65D E67A            # Gay Jai+Utter (the doubly-extended seam into the ligature)
+E655 E65D E67A            # Gay Jai+Utter (the doubly-extended junction into the ligature)
 E655 E673                 # Gay Eight (the x-height exit)
 E655 E677                 # Gay Awe (the x-height exit)
 E655 E678                 # Gay Ox (the x-height exit)
@@ -941,7 +941,7 @@ E655 E652 E679            # Gay Tea+Oy (break: the ligature takes no entry)
 E655 200C E652            # Gay ZWNJ Tea (exit severed)
 00B7 E655                 # namer dot before Deep Gay (stays)
 
-# qsThaw windows: the Tall hook-and-stem — an arched hook at the top, a stem falling down the right side, and a slant coming to rest on the baseline at the foot. The baseline entry admits fifteen lefts onto the bare drawing; the letter joins nothing on its exit side in the migrated alphabet (its one old-font exit serves the unmigrated ·-ing), so every seam out of ·Thaw is a break, and the Tall lefts that once summoned the old font's after-tall form now simply sit outside the entry's scope.
+# qsThaw windows: the Tall hook-and-stem — an arched hook at the top, a stem falling down the right side, and a slant coming to rest on the baseline at the foot. The baseline entry admits fifteen lefts onto the bare drawing; the letter joins nothing on its exit side in the migrated alphabet (its one old-font exit serves the unmigrated ·-ing), so every junction out of ·Thaw is a break, and the Tall lefts that once summoned the old font's after-tall form now simply sit outside the entry's scope.
 E656                      # Thaw in isolation
 E651 E656                 # Bay Thaw (the baseline entry on the bare carrier)
 E653 E656                 # Day Thaw (the baseline entry)
@@ -990,7 +990,7 @@ E650 E666 E656            # Pea No Thaw (No entered at the x-height breaks to Th
 E651 E668 E656            # Bay Roe Thaw (entered Roe keeps the backward join)
 E67A E668 E656            # Utter Roe Thaw (entered at the x-height, Roe serves Thaw)
 E650 E673 E656            # Pea Eight Thaw (entered Eight rides through)
-E655 E65D E656            # Gay Jai Thaw (the doubly-extended seam, then the extended exit into Thaw)
+E655 E65D E656            # Gay Jai Thaw (the doubly-extended junction, then the extended exit into Thaw)
 E656 E670 E656            # Thaw It Thaw (It serves the second Thaw)
 E656 E652 E653            # Thaw Tea Day (Thaw stands aside; Tea keeps Day)
 200C E656                 # ZWNJ Thaw (locked twin)
@@ -1684,9 +1684,9 @@ E65F E67A E660           # qsJay_qsUtter before ·Ye
 E660 E65F E67A           # ·Ye before qsJay_qsUtter
 E67B E652 E660           # qsOut_qsTea before ·Ye
 E660 E67B E652           # ·Ye before qsOut_qsTea
-E651 E660 E653           # Baseline-entered ·Ye never exits: one of the two baseline seams gives way
+E651 E660 E653           # Baseline-entered ·Ye never exits: one of the two baseline junctions gives way
 E673 E660 E653           # The same choice after ·Eight's extended exit
-E651 E660 E665 E652      # ·Bay·Ye·May·Tea: under ss03 ·May reaches half-·Tea and the ·Ye·May seam gives way
+E651 E660 E665 E652      # ·Bay·Ye·May·Tea: under ss03 ·May reaches half-·Tea and the ·Ye·May junction gives way
 E665 E660 E653           # The climbing loop: entered at the x-height, exiting at the baseline
 E655 E660 E653           # ·Gay's x-height exit into the climbing loop
 E658 E660 E653           # ·Fee's x-height exit into the climbing loop

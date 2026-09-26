@@ -221,7 +221,7 @@ class TestTheInvocationInterface:
     def test_settled_only_is_included_in_the_argv_settle_windows_builds_and_no_other(self, monkeypatch):
         """Only `settle_windows` passes `--settled-only` and gets the seven-field case result. `settle_cases` and `settle_sequences` get the full trace, because their callers need the ranking."""
         case = kernel_exec.case_line(LeftContext("edge"), RightToken("letter", "qsMay"), (EDGE,) * 4)
-        record = {"cell": ["qsMay", "full", None, None, []], "seam": None, "extension": 0}
+        record = {"cell": ["qsMay", "full", None, None, []], "junction": None, "extension": 0}
         trace = {
             "settled": record,
             "prospect": 0,
@@ -293,12 +293,12 @@ class TestTheInvocationInterface:
         assert all(got is want for got, want in zip(settled, expected))
 
     def test_a_forged_left_record_survives_the_case_line_both_ways(self):
-        """The seven left-record fields pass through the case line intact. A left with adjustments, a seam, and a nonzero extension comes back as the same record under both result formats. Where the crate refuses such a left, the E-UNACCEPTED-EXIT message, the only place the left's full `cell_label` is written out with its adjustments, is identical under both formats and names every adjustment."""
+        """The seven left-record fields pass through the case line intact. A left with adjustments, a junction, and a nonzero extension comes back as the same record under both result formats. Where the crate refuses such a left, the E-UNACCEPTED-EXIT message, the only place the left's full `cell_label` is written out with its adjustments, is identical under both formats and names every adjustment."""
         joined = LeftContext(
             "letter",
             Settled(
                 CellId("qsMay", "full", None, "x-height", ("locked", "en-ext-1")),
-                seam="x-height",
+                junction="x-height",
                 extension=1,
             ),
         )
@@ -319,7 +319,9 @@ class TestTheInvocationInterface:
         assert settled is traced.settled
         unaccepted = LeftContext(
             "letter",
-            Settled(CellId("qsTea", "full", None, "top", ("locked", "en-ext-1")), seam="top", extension=1),
+            Settled(
+                CellId("qsTea", "full", None, "top", ("locked", "en-ext-1")), junction="top", extension=1
+            ),
         )
         case = kernel_exec.case_line(unaccepted, RightToken("letter", "qsIt"), (EDGE,) * 4)
         with pytest.raises(SettleError) as fields:

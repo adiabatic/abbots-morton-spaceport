@@ -48,10 +48,10 @@ A settlement window is the resolved left neighbor, the letter itself, and up to 
 
 ## 2. Runtime and size strategy
 
-- **Parallelism.** `extract.SHARD_WORKERS_DEFAULT` is the number of cores this process may run on (`memory_budget.usable_cores`, which reads the affinity mask and any cgroup CPU quota). It is not derived from a memory budget, because a shard worker's peak memory has not been measured. `--workers` overrides it. At more than one worker, each worker is a `spawn` process that builds its own `Shaper` and `SeamClassifier`. The shaper reuses one `hb.Buffer` and copies `glyph_infos` and `glyph_positions` out before the next shape. Work is sharded by (length, first symbol), 47 shards per length.
+- **Parallelism.** `extract.SHARD_WORKERS_DEFAULT` is the number of cores this process may run on (`memory_budget.usable_cores`, which reads the affinity mask and any cgroup CPU quota). It is not derived from a memory budget, because a shard worker's peak memory has not been measured. `--workers` overrides it. At more than one worker, each worker is a `spawn` process that builds its own `Shaper` and `JunctionClassifier`. The shaper reuses one `hb.Buffer` and copies `glyph_infos` and `glyph_positions` out before the next shape. Work is sharded by (length, first symbol), 47 shards per length.
 - **Determinism under parallelism.** Each worker writes its shard to a temporary file, and the writer concatenates the shards in shard-key order. Within a shard, rows are generated in the canonical row order (§3). The output bytes therefore do not depend on scheduling or on the worker count; `rebuild/test_extractor.py::test_small_extraction_is_deterministic` extracts at two workers and at one and compares the bytes. Two extractions at the same commit on the same font produce byte-identical uncompressed streams. The header records the commit, so extractions at different commits differ in that line.
 - **Sizes.** A configuration's uncompressed table is hundreds of megabytes, so every table is written gzipped (`.tsv.gz`, with `mtime=0` so the gzip bytes are deterministic too). SHA-256 digests are computed over the uncompressed stream, header included.
-- **`rebuild/out/` is gitignored.** Besides the tables, the extractor writes small, regenerable summaries that a later re-extraction can be compared against without the bulk files. `digest-<config>.json` holds a configuration's row count, the SHA-256 of its uncompressed stream, its seam counts per `y0/y5/y6/y8/lig/break`, and its full resolved-glyph-name frequency table. `digests.tsv` holds the row count, SHA-256, seam counts, and subset of every configuration that has a digest file. The `summarize` subcommand writes `SUMMARY.md`: the provenance, the symbol legend, the digest table, and each configuration's most frequent glyph names with its distinct-name count.
+- **`rebuild/out/` is gitignored.** Besides the tables, the extractor writes small, regenerable summaries that a later re-extraction can be compared against without the bulk files. `digest-<config>.json` holds a configuration's row count, the SHA-256 of its uncompressed stream, its junction counts per `y0/y5/y6/y8/lig/break`, and its full resolved-glyph-name frequency table. `digests.tsv` holds the row count, SHA-256, junction counts, and subset of every configuration that has a digest file. The `summarize` subcommand writes `SUMMARY.md`: the provenance, the symbol legend, the digest table, and each configuration's most frequent glyph names with its distinct-name count.
 
 ## 3. The table schema
 
@@ -67,30 +67,30 @@ One file per configuration: `rebuild/out/baseline-<config>.tsv.gz`, where `<conf
 # config: <config token> (<enabled features, e.g. ss02=1 ss03=1; empty for default>)
 # subset: <limit=N, or sample=N modulus=M; smoke runs only>
 # alphabet_sha256: <SHA-256 of the newline-joined sorted codepoint list>
-# columns: codepoints glyphs clusters seams positions
+# columns: codepoints glyphs clusters junctions positions
 ```
 
 The `subset` line appears only in a smoke run (`--limit` or `--sample`), so a partial table cannot be mistaken for a full one.
 
 Columns:
 
-| Column       | Content                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `codepoints` | The input string as colon-joined uppercase hex codepoints, e.g. `E665:0020:E652:00B7`. The symbol legend is in `SUMMARY.md`.                                                                                                                                                                                                                                                                                                                                                                                                            |
-| `glyphs`     | Resolved **full** glyph names in output order, pipe-joined, e.g. `qsMay.en-y0.ex-y5\|qsTea.half`. Names come from `TTFont.getGlyphName(gid)`, because HarfBuzz's `glyph_to_string` truncates names to 63 bytes.                                                                                                                                                                                                                                                                                                                         |
-| `clusters`   | Comma-joined cluster index per output glyph: the earliest input position the glyph covers. A ligature is one glyph covering two input positions. Derive per-position names from `glyphs` and `clusters`, not from index arithmetic.                                                                                                                                                                                                                                                                                                     |
-| `seams`      | One token per input seam (positions k and k+1, for k = 0 … len−2), comma-joined. The token is `lig` when no output glyph starts at position k+1, because a ligature consumed the seam. Otherwise it is the §4 classification of the flanking output glyphs: `y0`, `y5`, `y6`, or `y8` for a join at that pixel height, or `break` for no join. If more than one height matched, the heights are `+`-joined in ascending order (e.g. `y0+y5`), and the extraction raises an assertion after writing the table. No such seam is expected. |
-| `positions`  | `x_offset,y_offset,x_advance` per output glyph in font units, pipe-joined, e.g. `0,0,350\|0,250,250`. This records cursive-attachment offsets and advances, so a later comparison can detect extension changes (which also appear as `ex-ext-N` name changes), kerning changes, and attachment shifts. `y_advance` is omitted, and the shaper raises an assertion if it is ever nonzero.                                                                                                                                                |
+| Column       | Content                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `codepoints` | The input string as colon-joined uppercase hex codepoints, e.g. `E665:0020:E652:00B7`. The symbol legend is in `SUMMARY.md`.                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `glyphs`     | Resolved **full** glyph names in output order, pipe-joined, e.g. `qsMay.en-y0.ex-y5\|qsTea.half`. Names come from `TTFont.getGlyphName(gid)`, because HarfBuzz's `glyph_to_string` truncates names to 63 bytes.                                                                                                                                                                                                                                                                                                                                     |
+| `clusters`   | Comma-joined cluster index per output glyph: the earliest input position the glyph covers. A ligature is one glyph covering two input positions. Derive per-position names from `glyphs` and `clusters`, not from index arithmetic.                                                                                                                                                                                                                                                                                                                 |
+| `junctions`  | One token per input junction (positions k and k+1, for k = 0 … len−2), comma-joined. The token is `lig` when no output glyph starts at position k+1, because a ligature consumed the junction. Otherwise it is the §4 classification of the flanking output glyphs: `y0`, `y5`, `y6`, or `y8` for a join at that pixel height, or `break` for no join. If more than one height matched, the heights are `+`-joined in ascending order (e.g. `y0+y5`), and the extraction raises an assertion after writing the table. No such junction is expected. |
+| `positions`  | `x_offset,y_offset,x_advance` per output glyph in font units, pipe-joined, e.g. `0,0,350\|0,250,250`. This records cursive-attachment offsets and advances, so a later comparison can detect extension changes (which also appear as `ex-ext-N` name changes), kerning changes, and attachment shifts. `y_advance` is omitted, and the shaper raises an assertion if it is ever nonzero.                                                                                                                                                            |
 
 Row order: by string length, then by codepoint tuple, both ascending (`model.row_sort_key`). Every value is an integer or a name; there is no floating point. The same font, tool version, and commit give byte-identical uncompressed output.
 
-## 4. Seam classification
+## 4. Junction classification
 
-`SeamClassifier` reads join heights from the built font's GPOS:
+`JunctionClassifier` reads join heights from the built font's GPOS:
 
 1. At start-up it collects the lookups that the `curs` feature references, so no lookup index is hardcoded. For each lookup it records the glyphs with an ExitAnchor and the glyphs with an EntryAnchor. It asserts that every subtable is a cursive-attachment subtable (LookupType 3), that all of a lookup's anchors share one Y value that is a whole pixel (font units ÷ 50), and that no two lookups share a height. The font has four such lookups, at font-unit Y 0/250/300/400, which is pixel y 0/5/6/8; `test_classifier_heights` and `test_classifier_discovers_four_curs_lookups` check this.
 2. An adjacent output-glyph pair (left, right) in different clusters is joined at height h when the left glyph has an ExitAnchor and the right glyph has an EntryAnchor in the height-h lookup. It is a `break` when no lookup pairs them. This matches the test suite's anchor-Y intersection (`_compiled_glyph_meta` in `test/test_shaping.py`). Because each height has its own lookup, a join cannot connect two different heights.
-3. A pair in the same cluster is not an output seam; the input seam is `lig`.
+3. A pair in the same cluster is not an output junction; the input junction is `lig`.
 
 Ink-gap arithmetic (`test/test_join_ink.py`) is not a baseline column. It detects defects, which is the job of the `E-UNREALIZED` check in `rebuild/pipeline/defects.py` (`doc/rebuild-design.md` §9), and it records no outcome.
 
@@ -130,7 +130,7 @@ The equivalence triage is a one-time comparison of each basis string `w` with th
 | `edge-vs-zwnj`  | last symbol not space/ZWNJ  | shape `w + ZWNJ`; compare the `w` portion with the baseline row for `w`                              |
 | `edge-vs-space` | last symbol not space/ZWNJ  | shape `w + space`; same comparison                                                                   |
 
-The triage classifies a divergence in the `w` portion as `glyph`, `seam`, or `position-only` (positions differ while glyph names, clusters, and seams agree). The namer dot does not split runs (§3.4), so no namer-dot check exists; namer-dot contexts are ordinary basis rows.
+The triage classifies a divergence in the `w` portion as `glyph`, `junction`, or `position-only` (positions differ while glyph names, clusters, and junctions agree). The namer dot does not split runs (§3.4), so no namer-dot check exists; namer-dot contexts are ordinary basis rows.
 
 ## 7. Validation
 
@@ -140,7 +140,7 @@ The extraction outputs are trusted only when both layers below pass.
 
 `rebuild/validation/pins.py` collects every data-expect run from the three corpora (`site/index.html`, `site/the-manual.html`, `site/extra-senior-words.html`). It uses the test suite's collector and parser, imported read-only from `test/test_shaping.py`: `_DataExpectCollector`, `parse_expect`, and the helpers `_partition_by_runs`, `_token_char_spans`, and `_expand_maybe_ligatures`. It replays each Senior run whose text is inside the basis alphabet and whose configuration is one of the §5 tokens. It counts the runs it skips: Junior runs, runs with other symbols, and runs in other configurations.
 
-- Each run is shaped with the validation suite's own shaper and classifier (`validation/shaping.py`, `validation/classify.py`) under the configuration its `data-stylistic-set` gives. The replay checks base glyph names and the `half`/`alt` traits, join heights (`~b~`/`~x~`/`~6~`/`~t~` = y0/y5/y6/y8), bare joins (any height), `|` and `|?|` breaks (the seam must be `break`), and `+`/`+?`/`+|` ligatures as the parser expands them. It skips and counts other variant assertions. The existing suite checks these pins against the same font, so a disagreement is treated as a validation-suite bug until shown otherwise.
+- Each run is shaped with the validation suite's own shaper and classifier (`validation/shaping.py`, `validation/classify.py`) under the configuration its `data-stylistic-set` gives. The replay checks base glyph names and the `half`/`alt` traits, join heights (`~b~`/`~x~`/`~6~`/`~t~` = y0/y5/y6/y8), bare joins (any height), `|` and `|?|` breaks (the junction must be `break`), and `+`/`+?`/`+|` ligatures as the parser expands them. It skips and counts other variant assertions. The existing suite checks these pins against the same font, so a disagreement is treated as a validation-suite bug until shown otherwise.
 - The tables need no row-by-row replay, because a row is a pure function of the font bytes, the alphabet, and the extractor code. On every `ensure_fresh`, `baseline_subset.check_font_provenance` compares each header's `font_sha256` with the font that header names, accepting a font that differs only in its `head` and `name` tables. `run_m1` therefore fails rather than compare against tables that another font produced. The header's `alphabet_sha256` identifies the alphabet, and the determinism and header tests in `rebuild/test_extractor.py` cover the extractor code.
 
 The replay is `rebuild/test_validation_suite.py::test_full_corpus_replay_live`. It runs in `make test-rebuild`'s contracts lane and fails it on any disagreement.
@@ -151,7 +151,7 @@ The replay is `rebuild/test_validation_suite.py::test_full_corpus_replay_live`. 
 
 - GPOS discovery: `curs` references four cursive lookups, at pixel heights {0, 5, 6, 8}.
 - Name recovery: the font's glyph names longer than 63 bytes resolve correctly through `TTFont.getGlyphName`, and `glyph_to_string` truncates them, which is why the shaper does not use it.
-- Cluster alignment: ·Day·Utter ligates into one glyph covering two input positions with a `lig` seam, and ·May·Tea does not ligate.
+- Cluster alignment: ·Day·Utter ligates into one glyph covering two input positions with a `lig` junction, and ·May·Tea does not ligate.
 - Classifier checks against corpus-pinned facts: a y5 join, a y0 join, a break, and a join that appears only under its stylistic set.
 - Determinism: one subset extracted at two workers and at one gives identical bytes; row order matches §3; header content is complete.
 - Split shaping: `Shaper.shape_split` reports clusters in whole-text coordinates.
@@ -178,8 +178,8 @@ rebuild/
   validation/
     __init__.py
     rowmodel.py                    the §3 row format as the validation suite implements it, plus table reading and chunking
-    shaping.py                     hb.Font + TTFont name recovery, one reused buffer, per-row seam extraction
-    classify.py                    the §4 black-box seam classifier
+    shaping.py                     hb.Font + TTFont name recovery, one reused buffer, per-row junction extraction
+    classify.py                    the §4 black-box junction classifier
     pins.py                        read-only import of the test/ collector + parser; the §7 replay against library shaping
   check_determinism.py             the §2 determinism check: extraction output is byte-identical across two runs
   test_extractor.py                extractor unit tests
@@ -190,9 +190,9 @@ rebuild/
 
 Public interfaces:
 
-- `model.Row`: a frozen dataclass with `codepoints: tuple[int, ...]`, `glyphs: tuple[str, ...]`, `clusters: tuple[int, ...]`, `seams: tuple[str, ...]`, and `positions: tuple[tuple[int, int, int], ...]`; `Row.to_tsv() -> str`, `Row.from_tsv(line) -> Row`, `row_sort_key(row)`; `CONFIGS: dict[str, dict[str, bool]]` (the §5 list, in order).
+- `model.Row`: a frozen dataclass with `codepoints: tuple[int, ...]`, `glyphs: tuple[str, ...]`, `clusters: tuple[int, ...]`, `junctions: tuple[str, ...]`, and `positions: tuple[tuple[int, int, int], ...]`; `Row.to_tsv() -> str`, `Row.from_tsv(line) -> Row`, `row_sort_key(row)`; `CONFIGS: dict[str, dict[str, bool]]` (the §5 list, in order).
 - `shaper.Shaper`: `Shaper(font_path)`, `shape(text: str, features: dict[str, bool]) -> ShapeResult` (names via TTFont, clusters, positions).
-- `classify.SeamClassifier`: `SeamClassifier(font_path)`, `heights() -> tuple[int, ...]`, `classify(left_glyph: str, right_glyph: str) -> str`.
+- `classify.JunctionClassifier`: `JunctionClassifier(font_path)`, `heights() -> tuple[int, ...]`, `classify(left_glyph: str, right_glyph: str) -> str`.
 - `extract.extract_config(config_token: str, out_dir: Path, workers: int = SHARD_WORKERS_DEFAULT) -> ExtractionSummary` and `extract.run_all(out_dir, workers)`.
 - `validation.pins` exposes `collect_pin_runs`, `check_pin`, and `ReplayReport`.
 - The M1 pipeline reads the tables through `validation.rowmodel` (`open_table`, `read_header`, `iter_rows`).

@@ -340,9 +340,9 @@ LEDGER = textwrap.dedent("""\
         - {config: default, codepoints: "0020:E650", baseline: "space|qsPea", new: "space|qsPea.half"}
       why: |
         A window holding a run-splitting boundary never needs its own verdict.
-    - id: seam-moved
+    - id: junction-moved
       status: accepted-pending-review
-      match: {predicate: seam_moved, configs: all}
+      match: {predicate: junction_moved, configs: all}
       count: 3
       exemplars:
         - {config: default, codepoints: "E67A:E665", baseline: "qsUtter|qsMay.en-y5", new: "qsUtter|qsMay.en-y0"}
@@ -380,8 +380,8 @@ def test_divergence_ledger_digest_ignores_prose_and_falls_back_to_bytes(tmp_path
     assert _ledger_digest(path, REWORDED_CLASS) == parsed
     assert _ledger_digest(path, LEDGER.replace("# The M1", "# Retitled: the M1")) == parsed
     reflowed = LEDGER.replace(
-        "match: {predicate: seam_moved, configs: all}",
-        "match:\n    predicate: seam_moved\n    configs: all",
+        "match: {predicate: junction_moved, configs: all}",
+        "match:\n    predicate: junction_moved\n    configs: all",
     )
     assert _ledger_digest(path, reflowed) == parsed
     assert _ledger_digest(path, LEDGER.replace("no_verdict: true", "no_verdict: false")) != parsed
@@ -717,7 +717,7 @@ def test_ledger_prose_lines_name_the_class(tmp_path):
     ledger.write_text(LEDGER)
     assert fingerprint.ledger_prose_lines(root) == [
         "ledger\tboundary-window\tA window holding a run-splitting boundary never needs its own verdict.\n",
-        "ledger\tseam-moved\tThe old shadow stance joined at the x-height where word-initial settlement lands at the baseline.\n",
+        "ledger\tjunction-moved\tThe old shadow stance joined at the x-height where word-initial settlement lands at the baseline.\n",
     ]
     combined = sorted(fingerprint.refuse_prose_lines(root) + fingerprint.ledger_prose_lines(root))
     assert fingerprint.explain_prose_value(root) == hashlib.sha256("\n".join(combined).encode()).hexdigest()

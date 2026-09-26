@@ -23,7 +23,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from validation.classify import SeamClassifier
+from validation.classify import JunctionClassifier
 from validation.rowmodel import ALPHABET, CONFIGS
 from validation.shaping import SENIOR_FONT, Shaper, row_for
 
@@ -33,7 +33,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 def emit_sample(config_token: str, lengths: list[int], font: Path, out) -> None:
     features = CONFIGS[config_token]
     shaper = Shaper(font)
-    classifier = SeamClassifier(font)
+    classifier = JunctionClassifier(font)
     out.write(f"# determinism-sample config: {config_token}\n")
     out.write(f"# lengths: {','.join(str(n) for n in lengths)}\n")
     for length in sorted(lengths):

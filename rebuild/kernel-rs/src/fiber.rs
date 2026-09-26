@@ -885,7 +885,7 @@ mod tests {
                     exit: Some(fixtures::sym(&index, "baseline")),
                     adjustments: Vec::new(),
                 },
-                seam: Some(fixtures::sym(&index, "baseline")),
+                junction: Some(fixtures::sym(&index, "baseline")),
                 extension: 0,
             },
         );
@@ -895,7 +895,7 @@ mod tests {
                 .map(|_| ())
                 .map_err(|error| error.kind()),
             Err(SettleErrorKind::UnacceptedExit),
-            "qsPea bears no entry at all, so it accepts no committed seam"
+            "qsPea bears no entry at all, so it accepts no committed junction"
         );
 
         let settled = record(&mut engine, &edge, input, window("qsPea"));

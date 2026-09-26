@@ -1,14 +1,14 @@
 """Pack the baseline subset tables into one binary file that every process maps read-only.
 
-`write_pack` reads each acceptance configuration's `baseline-<config>.subset.tsv.gz` once through `rowmodel.open_table`, keeps the codepoint key and the three fields `SubsetRow` has, checks every seam token with `is_seam_token`, and writes one file. The file starts with a JSON header: the format tag, `PACKER_DIGEST` (this module's prose-insensitive code digest, so a change to the seam vocabulary or the projection rewrites every existing pack), the writer's byte order, the tables' sha256 digests (the caller passes the ones `unit_cache.environment_stamp` computes for its `subsets` line), one string table of every glyph name and seam token, and each configuration's row count and section offsets. Each configuration's section follows: a sorted array of 8-byte keys and a fixed-width record array of glyph ids, cluster starts, and seam ids.
+`write_pack` reads each acceptance configuration's `baseline-<config>.subset.tsv.gz` once through `rowmodel.open_table`, keeps the codepoint key and the three fields `SubsetRow` has, checks every junction token with `is_junction_token`, and writes one file. The file starts with a JSON header: the format tag, `PACKER_DIGEST` (this module's prose-insensitive code digest, so a change to the junction vocabulary or the projection rewrites every existing pack), the writer's byte order, the tables' sha256 digests (the caller passes the ones `unit_cache.environment_stamp` computes for its `subsets` line), one string table of every glyph name and junction token, and each configuration's row count and section offsets. Each configuration's section follows: a sorted array of 8-byte keys and a fixed-width record array of glyph ids, cluster starts, and junction ids.
 
 A key is the window's codepoints packed right-aligned into one unsigned 64-bit integer, four 16-bit slots zero-padded on the left. The extractor writes rows in `(length, codepoints)` order, which is also the integer order, so a table normally arrives sorted; one that does not is sorted here.
 
-The packer runs in the corpus build's parent before the workload loads, and its memory is budgeted under `CORPUS_PARENT_BYTES` in rebuild/tools/artifact_cycle.py. It holds every table's keys as one `array` of unsigned 64-bit integers and its rows as one `array` of indices into a pool of distinct `(glyphs, clusters, seams)` triples, which repeat heavily within and across configurations, plus one encoded record per distinct triple and one configuration's encoded section at a time while it is written. The file is written under a temporary name and renamed into place, so a reader never maps a partly written pack.
+The packer runs in the corpus build's parent before the workload loads, and its memory is budgeted under `CORPUS_PARENT_BYTES` in rebuild/tools/artifact_cycle.py. It holds every table's keys as one `array` of unsigned 64-bit integers and its rows as one `array` of indices into a pool of distinct `(glyphs, clusters, junctions)` triples, which repeat heavily within and across configurations, plus one encoded record per distinct triple and one configuration's encoded section at a time while it is written. The file is written under a temporary name and renamed into place, so a reader never maps a partly written pack.
 
 `SubsetPack.open` maps the file with `mmap.ACCESS_READ` and fails when the header's format, packer digest, byte order, or table digests differ from this process's code and from the digests the caller computed from the tables on disk. It interns the string table once through `sys.intern`. `row` bisects the key array through a cast `memoryview` and builds one frozen `SubsetRow` from the record at that index. Every worker shares the mapping through the page cache, and a process's resident share is the pages its lookups touch, so a corpus worker's memory does not grow with the tables or the alphabet (`CORPUS_WORKER_BYTES` in rebuild/tools/artifact_cycle.py budgets the rest). `ensure_pack` is the entry point a reader needs: it returns a current pack beside the tables, writing one if needed.
 
-The seam vocabulary check runs over every row at pack time. These rows are the only source of a unit's `before.seams`, and a check over only the rows a worker looks up would not cover the table. The packer fails at the first bad row, before any file is renamed into place, so a table with a compound seam token never becomes a pack.
+The junction vocabulary check runs over every row at pack time. These rows are the only source of a unit's `before.junctions`, and a check over only the rows a worker looks up would not cover the table. The packer fails at the first bad row, before any file is renamed into place, so a table with a compound junction token never becomes a pack.
 """
 
 from __future__ import annotations
@@ -35,23 +35,23 @@ _SLOT_MAX = 0xFFFF
 _KEY_BYTES = 8
 _ALIGN = 8
 _LENGTH = struct.Struct("<Q")
-_SEAM_TOKENS = ("break", "lig", "absent")
+_JUNCTION_TOKENS = ("break", "lig", "absent")
 
 
-def is_seam_token(token) -> bool:
-    """Return whether `token` is in the seam vocabulary: `break`, `lig`, `absent`, or `y` followed by a height. The compound tokens `SeamClassifier.classify` emits when two heights join at once (`y0+y5`) are excluded, because a shard's seams are single-height and the corpus cannot describe a baseline row with a compound seam."""
+def is_junction_token(token) -> bool:
+    """Return whether `token` is in the junction vocabulary: `break`, `lig`, `absent`, or `y` followed by a height. The compound tokens `JunctionClassifier.classify` emits when two heights join at once (`y0+y5`) are excluded, because a shard's junctions are single-height and the corpus cannot describe a baseline row with a compound junction."""
     return isinstance(token, str) and (
-        token in _SEAM_TOKENS or (token.startswith("y") and token[1:].isdigit())
+        token in _JUNCTION_TOKENS or (token.startswith("y") and token[1:].isdigit())
     )
 
 
 @dataclass(frozen=True, slots=True)
 class SubsetRow:
-    """The fields the enricher reads from one baseline subset row: the old font's glyph names, which the kern-neutral re-shape is checked against; the cluster starts, which give the before spans; and the seams, which give the before seams and the seam-grain half of the divergence. `rowmodel.Row` also has `positions`, which this path does not use because the subset was extracted with the old font's kerning on and the before pens come from a kern-neutral re-shape, and `codepoints`, which is the key the pack is searched by. A row is built per lookup from the mapped pack and lives only as long as the enrichment that asked for it, so no process holds a table of these."""
+    """The fields the enricher reads from one baseline subset row: the old font's glyph names, which the kern-neutral re-shape is checked against; the cluster starts, which give the before spans; and the junctions, which give the before junctions and the junction-grain half of the divergence. `rowmodel.Row` also has `positions`, which this path does not use because the subset was extracted with the old font's kerning on and the before pens come from a kern-neutral re-shape, and `codepoints`, which is the key the pack is searched by. A row is built per lookup from the mapped pack and lives only as long as the enrichment that asked for it, so no process holds a table of these."""
 
     glyphs: tuple[str, ...]
     clusters: tuple[int, ...]
-    seams: tuple[str, ...]
+    junctions: tuple[str, ...]
 
 
 def table_path(subset_dir: Path, config: str) -> Path:
@@ -95,34 +95,34 @@ def _aligned(offset: int) -> int:
     return (offset + _ALIGN - 1) // _ALIGN * _ALIGN
 
 
-def _record_struct(glyph_slots: int, cluster_slots: int, seam_slots: int) -> struct.Struct:
-    return struct.Struct(f"<BBB{glyph_slots}H{cluster_slots}B{seam_slots}H")
+def _record_struct(glyph_slots: int, cluster_slots: int, junction_slots: int) -> struct.Struct:
+    return struct.Struct(f"<BBB{glyph_slots}H{cluster_slots}B{junction_slots}H")
 
 
 def _projected_rows(path: Path) -> Iterator[tuple[int, tuple[str, ...], tuple[int, ...], tuple[str, ...]]]:
-    """Yield every data row of one table as `(key, glyphs, clusters, seams)`. Each distinct seam field is checked against the vocabulary the first time it appears, and only a field that passes is memoized, so the table still fails at its first bad row. The key is derived through `int`, so how the table formats a codepoint does not change the key."""
-    seams_by_field: dict[str, tuple[str, ...]] = {}
+    """Yield every data row of one table as `(key, glyphs, clusters, junctions)`. Each distinct junction field is checked against the vocabulary the first time it appears, and only a field that passes is memoized, so the table still fails at its first bad row. The key is derived through `int`, so how the table formats a codepoint does not change the key."""
+    junctions_by_field: dict[str, tuple[str, ...]] = {}
     clusters_by_field: dict[str, tuple[int, ...]] = {}
     with open_table(path) as handle:
         for line in handle:
             if line.startswith("#") or not line.strip():
                 continue
-            codepoint_field, glyph_field, cluster_field, seam_field, _positions = line.split("\t")
-            seams = seams_by_field.get(seam_field)
-            if seams is None:
-                seams = tuple(seam_field.split(",")) if seam_field else ()
-                for token in seams:
-                    if not is_seam_token(token):
+            codepoint_field, glyph_field, cluster_field, junction_field, _positions = line.split("\t")
+            junctions = junctions_by_field.get(junction_field)
+            if junctions is None:
+                junctions = tuple(junction_field.split(",")) if junction_field else ()
+                for token in junctions:
+                    if not is_junction_token(token):
                         codepoints = ":".join(f"{int(cp, 16):04X}" for cp in codepoint_field.split(":"))
                         raise ValueError(
-                            f"{path}: the baseline row for {codepoints} carries the seam token {token!r}, which is "
+                            f"{path}: the baseline row for {codepoints} carries the junction token {token!r}, which is "
                             "not one of break/lig/absent/yN"
                         )
-                seams_by_field[seam_field] = seams
+                junctions_by_field[junction_field] = junctions
             clusters = clusters_by_field.get(cluster_field)
             if clusters is None:
                 clusters = clusters_by_field[cluster_field] = tuple(map(int, cluster_field.split(",")))
-            yield pack_key(codepoint_field), tuple(glyph_field.split("|")), clusters, seams
+            yield pack_key(codepoint_field), tuple(glyph_field.split("|")), clusters, junctions
 
 
 @dataclass(slots=True)
@@ -132,11 +132,11 @@ class _Table:
 
 
 def _load_table(path: Path, distinct: dict[tuple, int]) -> _Table:
-    """Load one table as its keys, one unsigned 64-bit array, and its rows, one array of indices into `distinct`. `distinct` is the pool of `(glyphs, clusters, seams)` triples shared by every table in the pack, so a row that repeats within or across configurations costs one index. A table out of key order is sorted, and two rows for one window raise ValueError."""
+    """Load one table as its keys, one unsigned 64-bit array, and its rows, one array of indices into `distinct`. `distinct` is the pool of `(glyphs, clusters, junctions)` triples shared by every table in the pack, so a row that repeats within or across configurations costs one index. A table out of key order is sorted, and two rows for one window raise ValueError."""
     keys = array("Q")
     rows = array("I")
-    for key, glyphs, clusters, seams in _projected_rows(path):
-        triple = (glyphs, clusters, seams)
+    for key, glyphs, clusters, junctions in _projected_rows(path):
+        triple = (glyphs, clusters, junctions)
         keys.append(key)
         rows.append(distinct.setdefault(triple, len(distinct)))
     if any(later <= earlier for earlier, later in zip(keys, keys[1:])):
@@ -158,25 +158,25 @@ def write_pack(
     distinct: dict[tuple, int] = {}
     tables = {config: _load_table(table_path(subset_dir, config), distinct) for config in configs}
     triples = list(distinct)
-    strings = sorted({text for glyphs, _clusters, seams in triples for text in (*glyphs, *seams)})
+    strings = sorted({text for glyphs, _clusters, junctions in triples for text in (*glyphs, *junctions)})
     string_ids = {text: index for index, text in enumerate(strings)}
-    glyph_slots = max((len(glyphs) for glyphs, _clusters, _seams in triples), default=1)
-    cluster_slots = max((len(clusters) for _glyphs, clusters, _seams in triples), default=1)
-    seam_slots = max((len(seams) for _glyphs, _clusters, seams in triples), default=1)
-    record = _record_struct(glyph_slots, cluster_slots, seam_slots)
+    glyph_slots = max((len(glyphs) for glyphs, _clusters, _junctions in triples), default=1)
+    cluster_slots = max((len(clusters) for _glyphs, clusters, _junctions in triples), default=1)
+    junction_slots = max((len(junctions) for _glyphs, _clusters, junctions in triples), default=1)
+    record = _record_struct(glyph_slots, cluster_slots, junction_slots)
     encoded_rows = [
         record.pack(
             len(glyphs),
             len(clusters),
-            len(seams),
+            len(junctions),
             *(string_ids[name] for name in glyphs),
             *(0 for _ in range(glyph_slots - len(glyphs))),
             *clusters,
             *(0 for _ in range(cluster_slots - len(clusters))),
-            *(string_ids[token] for token in seams),
-            *(0 for _ in range(seam_slots - len(seams))),
+            *(string_ids[token] for token in junctions),
+            *(0 for _ in range(junction_slots - len(junctions))),
         )
-        for glyphs, clusters, seams in triples
+        for glyphs, clusters, junctions in triples
     ]
     del distinct, triples
     sections: dict[str, dict[str, int]] = {}
@@ -196,7 +196,7 @@ def write_pack(
         "strings": strings,
         "glyph_slots": glyph_slots,
         "cluster_slots": cluster_slots,
-        "seam_slots": seam_slots,
+        "junction_slots": junction_slots,
         "sections": sections,
     }
     encoded = json.dumps(header, sort_keys=True).encode("utf-8")
@@ -290,7 +290,9 @@ class SubsetPack:
         self._mapping = mapping
         self._view = memoryview(mapping)
         self.strings = tuple(sys.intern(text) for text in header["strings"])
-        self._record = _record_struct(header["glyph_slots"], header["cluster_slots"], header["seam_slots"])
+        self._record = _record_struct(
+            header["glyph_slots"], header["cluster_slots"], header["junction_slots"]
+        )
         self._glyph_slots = header["glyph_slots"]
         self._cluster_slots = header["cluster_slots"]
         self._sections: dict[str, _Section] = {}
@@ -324,15 +326,15 @@ class SubsetPack:
 
     def _materialize(self, section: _Section, index: int) -> SubsetRow:
         fields = self._record.unpack_from(section.records, index * self._record.size)
-        glyph_count, cluster_count, seam_count = fields[0], fields[1], fields[2]
+        glyph_count, cluster_count, junction_count = fields[0], fields[1], fields[2]
         glyphs_at = 3
         clusters_at = glyphs_at + self._glyph_slots
-        seams_at = clusters_at + self._cluster_slots
+        junctions_at = clusters_at + self._cluster_slots
         strings = self.strings
         return SubsetRow(
             glyphs=tuple(strings[index] for index in fields[glyphs_at : glyphs_at + glyph_count]),
             clusters=tuple(fields[clusters_at : clusters_at + cluster_count]),
-            seams=tuple(strings[index] for index in fields[seams_at : seams_at + seam_count]),
+            junctions=tuple(strings[index] for index in fields[junctions_at : junctions_at + junction_count]),
         )
 
     def row(self, config: str, codepoints: str) -> SubsetRow | None:

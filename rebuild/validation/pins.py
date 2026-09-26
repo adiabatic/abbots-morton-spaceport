@@ -1,6 +1,6 @@
 """Corpus-pin replay per rebuild/BASELINE-PLAN.md §7.
 
-Collects every data-expect run from the corpora in `CORPUS_FILES` with the test suite's collector and parser (imported read-only from test/test_shaping.py). Keeps the Senior runs whose text is inside the 47-symbol basis alphabet and whose stylistic-set configuration is one of the plan §5 configurations (`rowmodel.CONFIGS`). Replays each pin's per-seam expectations against this suite's own shaping and seam classification. The test suite already checks these pins against the same font, so a disagreement is treated as a validation-suite bug until shown otherwise.
+Collects every data-expect run from the corpora in `CORPUS_FILES` with the test suite's collector and parser (imported read-only from test/test_shaping.py). Keeps the Senior runs whose text is inside the 47-symbol basis alphabet and whose stylistic-set configuration is one of the plan §5 configurations (`rowmodel.CONFIGS`). Replays each pin's per-junction expectations against this suite's own shaping and junction classification. The test suite already checks these pins against the same font, so a disagreement is treated as a validation-suite bug until shown otherwise.
 
 Nothing here reads a baseline table. A table row is a pure function of the font bytes, the alphabet, and the extractor code, and `rebuild.pipeline.baseline_subset.check_font_provenance`, which runs on every `ensure_fresh`, checks each table header's `font_sha256` against the font that header names. So a live shaping and a table row describe the same font.
 
@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .classify import SeamClassifier
+from .classify import JunctionClassifier
 from .rowmodel import (
     ALPHABET_SET,
     Row,
@@ -74,7 +74,7 @@ class ReplayReport:
     skipped_empty: int = 0
     skipped_non_basis: int = 0
     skipped_config: int = 0
-    seam_assertions_checked: int = 0
+    junction_assertions_checked: int = 0
     identity_assertions_checked: int = 0
     variant_assertions_skipped: int = 0
     disagreements: list[Disagreement] = field(default_factory=list)
@@ -142,10 +142,10 @@ def _check_interpretation(
     row: Row,
     report: ReplayReport,
 ) -> tuple[str | None, int, int, int]:
-    """Check one expansion of a pin's maybe-ligatures against a shaped row, and return (first failure or None, seam assertions checked, identity assertions checked, variant assertions skipped)."""
+    """Check one expansion of a pin's maybe-ligatures against a shaped row, and return (first failure or None, junction assertions checked, identity assertions checked, variant assertions skipped)."""
     ts = _import_test_shaping()
     spans = ts._token_char_spans(text, tokens)
-    seam_checks = 0
+    junction_checks = 0
     identity_checks = 0
     variant_skips = 0
 
@@ -158,14 +158,14 @@ def _check_interpretation(
         if base != expected:
             return (
                 f"token {i}: expected base {expected}, got {glyph!r}",
-                seam_checks,
+                junction_checks,
                 identity_checks,
                 variant_skips,
             )
         if token["exact_glyph"] and glyph != expected:
             return (
                 f"token {i}: expected exact glyph {expected}, got {glyph!r}",
-                seam_checks,
+                junction_checks,
                 identity_checks,
                 variant_skips,
             )
@@ -176,7 +176,7 @@ def _check_interpretation(
                 if v not in name_parts:
                     return (
                         f"token {i}: expected trait {v!r} in {glyph!r}",
-                        seam_checks,
+                        junction_checks,
                         identity_checks,
                         variant_skips,
                     )
@@ -188,67 +188,67 @@ def _check_interpretation(
                 if v in name_parts:
                     return (
                         f"token {i}: trait {v!r} must not appear in {glyph!r}",
-                        seam_checks,
+                        junction_checks,
                         identity_checks,
                         variant_skips,
                     )
             else:
                 variant_skips += 1
         for k in range(start, end - 1):
-            seam_checks += 1
-            if row.seams[k] != "lig":
+            junction_checks += 1
+            if row.junctions[k] != "lig":
                 return (
-                    f"token {i}: expected ligature seam at {k}, got {row.seams[k]!r}",
-                    seam_checks,
+                    f"token {i}: expected ligature junction at {k}, got {row.junctions[k]!r}",
+                    junction_checks,
                     identity_checks,
                     variant_skips,
                 )
 
     for i, conn in enumerate(connections):
-        seam_index = spans[i + 1][0] - 1
-        seam = row.seams[seam_index]
+        junction_index = spans[i + 1][0] - 1
+        junction = row.junctions[junction_index]
         kind = conn["kind"]
         if kind == "maybe":
             continue
-        seam_checks += 1
+        junction_checks += 1
         if kind == "height":
-            if seam != f"y{conn['y']}":
+            if junction != f"y{conn['y']}":
                 return (
-                    f"connection {i}: expected y{conn['y']} at seam {seam_index}, got {seam!r}",
-                    seam_checks,
+                    f"connection {i}: expected y{conn['y']} at junction {junction_index}, got {junction!r}",
+                    junction_checks,
                     identity_checks,
                     variant_skips,
                 )
         elif kind == "join":
-            if not seam.startswith("y"):
+            if not junction.startswith("y"):
                 return (
-                    f"connection {i}: expected a join at seam {seam_index}, got {seam!r}",
-                    seam_checks,
+                    f"connection {i}: expected a join at junction {junction_index}, got {junction!r}",
+                    junction_checks,
                     identity_checks,
                     variant_skips,
                 )
         elif kind in ("break", "break_no_isolation"):
-            if seam != "break":
+            if junction != "break":
                 return (
-                    f"connection {i}: expected break at seam {seam_index}, got {seam!r}",
-                    seam_checks,
+                    f"connection {i}: expected break at junction {junction_index}, got {junction!r}",
+                    junction_checks,
                     identity_checks,
                     variant_skips,
                 )
         else:
             raise ValueError(f"unknown connection kind {kind!r}")
 
-    return (None, seam_checks, identity_checks, variant_skips)
+    return (None, junction_checks, identity_checks, variant_skips)
 
 
-def check_pin(shaper: Shaper, classifier: SeamClassifier, pin: PinRun, report: ReplayReport) -> Row:
+def check_pin(shaper: Shaper, classifier: JunctionClassifier, pin: PinRun, report: ReplayReport) -> Row:
     ts = _import_test_shaping()
     row = row_for(shaper, classifier, pin.text, pin.features or None)
     interpretations = ts._expand_maybe_ligatures(list(pin.tokens), list(pin.connections))
     errors: list[str] = []
     for tokens, connections in interpretations:
         try:
-            error, seam_checks, identity_checks, variant_skips = _check_interpretation(
+            error, junction_checks, identity_checks, variant_skips = _check_interpretation(
                 pin.text, tokens, connections, row, report
             )
         except ValueError as exc:
@@ -256,7 +256,7 @@ def check_pin(shaper: Shaper, classifier: SeamClassifier, pin: PinRun, report: R
             continue
         if error is None:
             report.runs_replayed += 1
-            report.seam_assertions_checked += seam_checks
+            report.junction_assertions_checked += junction_checks
             report.identity_assertions_checked += identity_checks
             report.variant_assertions_skipped += variant_skips
             return row
@@ -269,7 +269,8 @@ def check_pin(shaper: Shaper, classifier: SeamClassifier, pin: PinRun, report: R
             config=pin.config_token,
             codepoints=format_codepoints(row.codepoints),
             expect=pin.expect,
-            detail=f"shaped {'|'.join(row.glyphs)} seams {','.join(row.seams)}; " + " // ".join(errors),
+            detail=f"shaped {'|'.join(row.glyphs)} junctions {','.join(row.junctions)}; "
+            + " // ".join(errors),
         )
     )
     return row

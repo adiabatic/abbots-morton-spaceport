@@ -2,7 +2,7 @@
 //!
 //! The echo makes that check possible: a line the reader skipped, reordered, or settled out of turn cannot pass as the result of the case line that was sent. The echo is the input line's bytes unchanged, so it does not show that the input was understood. The parser's errors do that. A field count other than [`CASE_FIELDS`], a name the spec never interned, a kind name outside the six, an adjustments token outside the grammar, and a record field the parser cannot place are all errors, so a misread case stops the run instead of producing a wrong result.
 //!
-//! A case line has thirteen fields: the left's kind and its record (rune, stance, entry, exit, comma-joined adjustments, seam, extension; all seven empty for a left with no record, and a height or seam empty where there is none), then the rune being settled and the four raw slots after it. Each slot is a rune name or the kind name of a boundary or unknown slot. None of these values can contain a tab or a newline.
+//! A case line has thirteen fields: the left's kind and its record (rune, stance, entry, exit, comma-joined adjustments, junction, extension; all seven empty for a left with no record, and a height or junction empty where there is none), then the rune being settled and the four raw slots after it. Each slot is a rune name or the kind name of a boundary or unknown slot. None of these values can contain a tab or a newline.
 //!
 //! The command line chooses one of two result shapes. The trace ([`CaseResult::Trace`]) is one JSON object: the settled cell, the prospect, the joint-tiebreak flag, the notes, and the fired delta, then the deciding stage, the runner-up, the ranked candidates, and the eliminations. The last four record how the decision was reached, and `explain` and the review corpus's explain view read them: a window can settle on the right cell for the wrong reason, and the ranking shows that. The settled-only result ([`CaseResult::SettledOnly`]) is the record alone as seven tab-separated fields in the [`settled_fields`] format, for the conform walker, which keeps only outcomes. A settlement error is the same `{"raise":…,"message":…}` object in both shapes. In the settled-only shape a reader tells it from a record by its first byte, `{`; in the trace shape, by its `raise` key.
 //!
@@ -54,7 +54,7 @@ pub fn parse_case<'l>(index: &SpecIndex, line: &'l str) -> Result<Case<'l>, Stri
         entry,
         exit,
         adjustments,
-        seam,
+        junction,
         extension,
         input,
         right1,
@@ -71,7 +71,7 @@ pub fn parse_case<'l>(index: &SpecIndex, line: &'l str) -> Result<Case<'l>, Stri
     let left = parse_left(
         index,
         kind,
-        [rune, stance, entry, exit, adjustments, seam, extension],
+        [rune, stance, entry, exit, adjustments, junction, extension],
     )?;
     let token = letter_of(index, input, "the input rune")?;
     let slots = Slots::new(
@@ -207,7 +207,7 @@ fn candidate_json(index: &SpecIndex, candidate: &Candidate) -> String {
         "[{},{},{},{},{}]",
         json_string(index.resolve(candidate.stance)),
         height_json(index, candidate.entry),
-        height_json(index, candidate.seam),
+        height_json(index, candidate.junction),
         candidate.order_index,
         candidate.exit_index
     )
@@ -259,7 +259,9 @@ fn parse_left(index: &SpecIndex, kind: &str, record: [&str; 7]) -> Result<LeftCo
             "a letter left settles into a cell of a registered family in a declared stance at a height the spec offers, and {}.{} at {} does not",
             index.resolve(settled.cell.rune),
             index.resolve(settled.cell.stance),
-            settled.seam.map_or("none", |seam| index.resolve(seam))
+            settled
+                .junction
+                .map_or("none", |junction| index.resolve(junction))
         ));
     };
     Ok(LeftContext {
@@ -277,10 +279,10 @@ fn letter_of(index: &SpecIndex, field: &str, what: &str) -> Result<RightToken, S
         .ok_or_else(|| format!("{what} names no registered family: {field}"))
 }
 
-/// Reads the seven record fields (rune, stance, entry, exit, comma-joined adjustments, seam, extension) into a settled record. This is a case line's left, in the format [`settled_fields`] writes.
+/// Reads the seven record fields (rune, stance, entry, exit, comma-joined adjustments, junction, extension) into a settled record. This is a case line's left, in the format [`settled_fields`] writes.
 pub(crate) fn parse_settled(
     index: &SpecIndex,
-    [rune, stance, entry, exit, adjustments, seam, extension]: [&str; 7],
+    [rune, stance, entry, exit, adjustments, junction, extension]: [&str; 7],
 ) -> Result<Settled, String> {
     let adjustments: Result<Vec<AdjustmentToken>, String> = if adjustments.is_empty() {
         Ok(Vec::new())
@@ -301,7 +303,7 @@ pub(crate) fn parse_settled(
             exit: optional_symbol(index, exit, "the left cell's exit")?,
             adjustments: adjustments?,
         },
-        seam: optional_symbol(index, seam, "the left's seam")?,
+        junction: optional_symbol(index, junction, "the left's junction")?,
         extension,
     })
 }
@@ -340,7 +342,10 @@ pub(crate) fn parse_settled_json(
         .iter()
         .map(|token| text(token, "an adjustments token"))
         .collect::<Result<_, _>>()?;
-    let seam = text(raw.get("seam").ok_or("no seam field")?, "the seam")?;
+    let junction = text(
+        raw.get("junction").ok_or("no junction field")?,
+        "the junction",
+    )?;
     let extension = raw
         .get("extension")
         .and_then(serde_json::Value::as_i64)
@@ -353,7 +358,7 @@ pub(crate) fn parse_settled_json(
             &text(entry, "the cell's entry")?,
             &text(exit, "the cell's exit")?,
             &adjustments.join(","),
-            &seam,
+            &junction,
             &extension.to_string(),
         ],
     )
@@ -454,7 +459,7 @@ mod tests {
     fn a_settled_case_carries_the_record_the_delta_and_the_ranking_that_chose_it() {
         assert_eq!(
             result_of(UNJOINED, CaseResult::Trace),
-            r#"{"settled":{"cell":["qsPea","half",null,null,[]],"seam":null,"extension":0},"prospect":0,"joint_tiebreak":false,"notes":[],"fired":[],"decided_stage":"only-candidate","runner_up":null,"ranked":[[["half",null,null,0,9999],0,0]],"eliminations":[["lookahead-closure","qsPea.half: exit x-height has no refusal-aware acceptor cell on qsTea",null]]}"#
+            r#"{"settled":{"cell":["qsPea","half",null,null,[]],"junction":null,"extension":0},"prospect":0,"joint_tiebreak":false,"notes":[],"fired":[],"decided_stage":"only-candidate","runner_up":null,"ranked":[[["half",null,null,0,9999],0,0]],"eliminations":[["lookahead-closure","qsPea.half: exit x-height has no refusal-aware acceptor cell on qsTea",null]]}"#
         );
     }
 
@@ -464,7 +469,7 @@ mod tests {
      {
         assert_eq!(
             result_of(ORDERED, CaseResult::Trace),
-            r#"{"settled":{"cell":["qsTea","full",null,null,[]],"seam":null,"extension":0},"prospect":0,"joint_tiebreak":false,"notes":["qsTea.yaml:policy.refuse[0]"],"fired":["qsTea.yaml:policy.refuse[0]"],"decided_stage":"order","runner_up":["half",null,null,2,9999],"ranked":[[["full",null,null,1,9999],0,0],[["half",null,null,2,9999],0,0]],"eliminations":[["lookahead-closure","qsTea.half: exit x-height has no refusal-aware acceptor cell on qsPea",null],["refuse","qsTea.half: exit baseline refused","qsTea.yaml:policy.refuse[0]"]]}"#
+            r#"{"settled":{"cell":["qsTea","full",null,null,[]],"junction":null,"extension":0},"prospect":0,"joint_tiebreak":false,"notes":["qsTea.yaml:policy.refuse[0]"],"fired":["qsTea.yaml:policy.refuse[0]"],"decided_stage":"order","runner_up":["half",null,null,2,9999],"ranked":[[["full",null,null,1,9999],0,0],[["half",null,null,2,9999],0,0]],"eliminations":[["lookahead-closure","qsTea.half: exit x-height has no refusal-aware acceptor cell on qsPea",null],["refuse","qsTea.half: exit baseline refused","qsTea.yaml:policy.refuse[0]"]]}"#
         );
     }
 
@@ -581,7 +586,10 @@ mod tests {
             index.resolve(left.cell.entry.expect("an entry")),
             "baseline"
         );
-        assert_eq!(index.resolve(left.seam.expect("a seam")), "x-height");
+        assert_eq!(
+            index.resolve(left.junction.expect("a junction")),
+            "x-height"
+        );
         assert_eq!(left.extension, 1);
         let output = replay_case(&mut engine, &case, CaseResult::Trace).expect("the case replays");
         assert!(output.starts_with(&format!("{line}\t")));

@@ -19,7 +19,7 @@ use crate::model::{
 };
 use crate::types::{RightToken, Vocab, WITHDRAWN_SUFFIX};
 
-/// One memo-key field's value: a symbol's position, counted from one, in the table this index builds for that field. The rune field's table is the modeled runes in declaration order, then the registry's other families. The stance field's table is every stance name in first-declaration order. The entry and seam fields' tables are every height the spec can put in that field. Each field holds one of a handful of symbols, so two bytes are enough where a [`Sym`] takes four, and `NonZeroU16` keeps zero free so that `Option<Ordinal>` is also two bytes. An ordinal is meaningful only with the index that minted it, and the `*_at_ordinal` methods map it back to the symbol. Each table covers its own field alone, so a stance ordinal does not depend on the rune beside it, and a case can pair a left of one rune with another rune's stance, as a forged case does.
+/// One memo-key field's value: a symbol's position, counted from one, in the table this index builds for that field. The rune field's table is the modeled runes in declaration order, then the registry's other families. The stance field's table is every stance name in first-declaration order. The entry and junction fields' tables are every height the spec can put in that field. Each field holds one of a handful of symbols, so two bytes are enough where a [`Sym`] takes four, and `NonZeroU16` keeps zero free so that `Option<Ordinal>` is also two bytes. An ordinal is meaningful only with the index that minted it, and the `*_at_ordinal` methods map it back to the symbol. Each table covers its own field alone, so a stance ordinal does not depend on the rune beside it, and a case can pair a left of one rune with another rune's stance, as a forged case does.
 pub type Ordinal = NonZeroU16;
 
 /// The ordinal for a table's `seat`-th entry: `seat + 1`, which keeps zero free for the niche. The conversion to `u16` is checked.
@@ -163,8 +163,8 @@ pub struct SpecIndex {
     stance_ordinals: HashMap<Sym, Ordinal>,
     /// The entry-field ordinal table: the registry's heights in declaration order, then any entry row or entry unlock height the registry left undeclared. [`SpecIndex::entry_ordinal`] scans it.
     entry_heights: Vec<Sym>,
-    /// The seam-field ordinal table, over the exit side the same way.
-    seam_heights: Vec<Sym>,
+    /// The junction-field ordinal table, over the exit side the same way.
+    junction_heights: Vec<Sym>,
 }
 
 impl SpecIndex {
@@ -254,8 +254,8 @@ impl SpecIndex {
         let declared: Vec<Sym> = registry.heights.iter().map(|(height, _)| *height).collect();
         let mut entry_heights = declared.clone();
         gather_heights(&mut entry_heights, &spec.root.runes, true);
-        let mut seam_heights = declared;
-        gather_heights(&mut seam_heights, &spec.root.runes, false);
+        let mut junction_heights = declared;
+        gather_heights(&mut junction_heights, &spec.root.runes, false);
         Self {
             ids,
             vocab,
@@ -266,7 +266,7 @@ impl SpecIndex {
             stance_field,
             stance_ordinals,
             entry_heights,
-            seam_heights,
+            junction_heights,
             heights: registry
                 .heights
                 .iter()
@@ -404,14 +404,14 @@ impl SpecIndex {
         self.entry_heights[usize::from(ordinal.get()) - 1]
     }
 
-    /// A height's ordinal in the seam field of a memo key, or `None` for a symbol no seam field ever holds.
-    pub fn seam_ordinal(&self, height: Sym) -> Option<Ordinal> {
-        height_ordinal(&self.seam_heights, height)
+    /// A height's ordinal in the junction field of a memo key, or `None` for a symbol no junction field ever holds.
+    pub fn junction_ordinal(&self, height: Sym) -> Option<Ordinal> {
+        height_ordinal(&self.junction_heights, height)
     }
 
-    /// The height one seam-field ordinal stands for.
-    pub fn seam_at_ordinal(&self, ordinal: Ordinal) -> Sym {
-        self.seam_heights[usize::from(ordinal.get()) - 1]
+    /// The height one junction-field ordinal stands for.
+    pub fn junction_at_ordinal(&self, ordinal: Ordinal) -> Sym {
+        self.junction_heights[usize::from(ordinal.get()) - 1]
     }
 
     /// One stance's identity, or `None` when the rune or the stance is absent.
@@ -1410,22 +1410,22 @@ mod tests {
             }
         }
         let mut entry_ordinals = BTreeSet::new();
-        let mut seam_ordinals = BTreeSet::new();
+        let mut junction_ordinals = BTreeSet::new();
         for height in &heights {
             let entry = index
                 .entry_ordinal(*height)
                 .expect("every height has an entry ordinal");
-            let seam = index
-                .seam_ordinal(*height)
-                .expect("every height has a seam ordinal");
+            let junction = index
+                .junction_ordinal(*height)
+                .expect("every height has a junction ordinal");
             assert_eq!(index.entry_at_ordinal(entry), *height);
-            assert_eq!(index.seam_at_ordinal(seam), *height);
+            assert_eq!(index.junction_at_ordinal(junction), *height);
             entry_ordinals.insert(entry);
-            seam_ordinals.insert(seam);
+            junction_ordinals.insert(junction);
         }
         let distinct: BTreeSet<Sym> = heights.iter().copied().collect();
         assert_eq!(entry_ordinals.len(), distinct.len());
-        assert_eq!(seam_ordinals.len(), distinct.len());
+        assert_eq!(junction_ordinals.len(), distinct.len());
         let half = fixtures::sym(&index, "half");
         let tea = fixtures::sym(&index, "qsTea");
         assert_eq!(index.rune_ordinal(half), None);
@@ -1454,7 +1454,7 @@ mod tests {
         assert_eq!(index.stance_ordinal(tea), None);
         assert!(index.stance_ordinal(half).is_some());
         assert_eq!(index.entry_ordinal(half), None);
-        assert_eq!(index.seam_ordinal(tea), None);
+        assert_eq!(index.junction_ordinal(tea), None);
     }
 
     #[test]

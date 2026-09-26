@@ -1,10 +1,10 @@
-"""Explain why a review-corpus unit still needs a verdict, in the terms the standing approvals use, so the next standing rule is written from evidence: for each named unit, print both grains side by side. The recorded grain is the before glyphs and after cells with their seams. The rendered grain is each font's pieces with their placement, own-frame origin and cell count, and a one-line reading of the change: "same shape" with the placement move, "redrawn" with the cell counts, "inkless", or ink appearing or vanishing. Then print what each checked-in rule makes of the unit (matches, blocked by except_left, or nothing), whether the combined match counts any rules and whether it has at least two matched positions, and how many human units have exactly this unit's ink-delta digests and how they were verdicted. That last tally often shows that the user has already decided the change.
+"""Explain why a review-corpus unit still needs a verdict, in the terms the standing approvals use, so the next standing rule is written from evidence: for each named unit, print both grains side by side. The recorded grain is the before glyphs and after cells with their junctions. The rendered grain is each font's pieces with their placement, own-frame origin and cell count, and a one-line reading of the change: "same shape" with the placement move, "redrawn" with the cell counts, "inkless", or ink appearing or vanishing. Then print what each checked-in rule makes of the unit (matches, blocked by except_left, or nothing), whether the combined match counts any rules and whether it has at least two matched positions, and how many human units have exactly this unit's ink-delta digests and how they were verdicted. That last tally often shows that the user has already decided the change.
 
-`--extension-cells PIVOT TOKEN SEAM` lists the pivot and follower cells a new extension-dropped rule has to name. It enumerates every window where a PIVOT glyph carrying TOKEN exits at SEAM on both sides and settles into a cell without the named extension or with a shorter one, or into a cell carrying the named contraction. TOKEN is an `ex-ext-N` on the before glyph, or an `ex-con-N` on the after cell whose before glyph carried no exit extension. Each row gives the pivot cell, the follower's family, the follower cell, and the verdict tally.
+`--extension-cells PIVOT TOKEN JUNCTION` lists the pivot and follower cells a new extension-dropped rule has to name. It enumerates every window where a PIVOT glyph carrying TOKEN exits at JUNCTION on both sides and settles into a cell without the named extension or with a shorter one, or into a cell carrying the named contraction. TOKEN is an `ex-ext-N` on the before glyph, or an `ex-con-N` on the after cell whose before glyph carried no exit extension. Each row gives the pivot cell, the follower's family, the follower cell, and the verdict tally.
 
-`--retarget-cells PIVOT BEFORE_SEAM FOLLOWER AFTER_SEAM` is the same survey for a join-retargeted or join-created rule: every window where a PIVOT glyph's seam into FOLLOWER changes from BEFORE_SEAM to AFTER_SEAM.
+`--retarget-cells PIVOT BEFORE_JUNCTION FOLLOWER AFTER_JUNCTION` is the same survey for a join-retargeted or join-created rule: every window where a PIVOT glyph's junction into FOLLOWER changes from BEFORE_JUNCTION to AFTER_JUNCTION.
 
-`--survey BEFORE_GLYPH` (or `--survey BEFORE_GLYPH AFTER_CELL`) is the enumeration needed before writing a rule in a form-naming shape (redrawn, ink-gain, entry-contracted, entry-extension-dropped, stub-dropped, slide) or in the join-dropped shape. It lists every human unit whose window has a before glyph under that prefix, grouped by the before form and the after cell it settles into, then by the family on its left with the seam change into it, the seam change out of it, and the follower's family and cell. Each group has its verdict tally. It reads the index only and shapes nothing, so it costs only the corpus load. Windows whose sides do not line up letter for letter cannot be placed, and the survey prints how many there are.
+`--survey BEFORE_GLYPH` (or `--survey BEFORE_GLYPH AFTER_CELL`) is the enumeration needed before writing a rule in a form-naming shape (redrawn, ink-gain, entry-contracted, entry-extension-dropped, stub-dropped, slide) or in the join-dropped shape. It lists every human unit whose window has a before glyph under that prefix, grouped by the before form and the after cell it settles into, then by the family on its left with the junction change into it, the junction change out of it, and the follower's family and cell. Each group has its verdict tally. It reads the index only and shapes nothing, so it costs only the corpus load. Windows whose sides do not line up letter for letter cannot be placed, and the survey prints how many there are.
 
 `--coverage RULE_ID` reruns the enumeration for an existing rule's shape and reports what it reaches that the rule does not name, each value with its verdict tally. `COVERAGE_SHAPES` lists the shapes that have an enumeration. The cell-naming shapes use their pair enumeration, built from the rule's before-side fields with everything else the rule names dropped, except the before forms the rule declines, which belong to a companion rule's survey. The form-naming shapes use the survey over the rule's family, dropping each named list in turn while keeping the others, because nothing else on the before side limits a redraw at the name grain. The report lists pivot forms, follower families and follower cells, or before forms, after forms in the after font's naming (`_cell_glyph_name`) and, for entry-contracted, left families. The ligature shape names no forms and the ink-delta shape names digests, so neither has an enumeration, and the tool says so. The report is a list of candidates: a value is added to a rule only after its own recorded decision has been found.
 
@@ -151,11 +151,11 @@ def _describe(unit, rules, context, blankness, families):
     )
     print(
         f"  configs {', '.join(unit['configs'])}   deltas {', '.join(sorted(set(deltas.values()))) or 'none'}"
-        f"   pair {pair_text}   secondary seams {unit.get('secondary_seams')}"
+        f"   pair {pair_text}   secondary junctions {unit.get('secondary_junctions')}"
         f"   verdict {verdict}"
     )
-    glyphs, seams = unit["before"]["glyphs"], unit["before"]["seams"]
-    cells, after_seams = unit["after"]["cells"], unit["after"]["seams"]
+    glyphs, junctions = unit["before"]["glyphs"], unit["before"]["junctions"]
+    cells, after_junctions = unit["after"]["cells"], unit["after"]["junctions"]
     aligned = sv._letter_for_letter(unit)
     print(f"  letter for letter: {'yes' if aligned else 'no'}")
     before_pieces: dict = {}
@@ -176,10 +176,10 @@ def _describe(unit, rules, context, blankness, families):
     width = max(len(name) for name in glyphs)
     cell_width = max(len(cell) for cell in cells)
     for index, glyph in enumerate(glyphs):
-        seam = seams[index] if index < len(seams) else ""
-        after_seam = after_seams[index] if index < len(after_seams) else ""
+        junction = junctions[index] if index < len(junctions) else ""
+        after_junction = after_junctions[index] if index < len(after_junctions) else ""
         cell = cells[index] if index < len(cells) else "?"
-        line = f"  {index}  {glyph:<{width}}  {seam:<5} {cell:<{cell_width}}  {after_seam:<5}"
+        line = f"  {index}  {glyph:<{width}}  {junction:<5} {cell:<{cell_width}}  {after_junction:<5}"
         if intern is not None:
             before, after = before_pieces.get(index), after_pieces.get(index)
             line += f"  {_piece_text(intern, before):<22} {_piece_text(intern, after):<22} {_reading(intern, before, after)}"
@@ -214,20 +214,20 @@ def _describe(unit, rules, context, blankness, families):
     print()
 
 
-def _extension_pairs(units, blankness, pivot, token, seam):
-    """Return every window where a PIVOT glyph carrying TOKEN exits at SEAM on both sides and settles into a cell that gives up columns of it, keyed by (pivot cell, follower family, follower cell) with each key's verdict tally. It filters on nothing a rule names beyond those three before-side fields, so it serves both to write a new extension-dropped rule and to check an existing one's coverage. `standing_verdicts._candidates` cannot replace it, because its extension branch already filters on the rule's named followers and cells."""
+def _extension_pairs(units, blankness, pivot, token, junction):
+    """Return every window where a PIVOT glyph carrying TOKEN exits at JUNCTION on both sides and settles into a cell that gives up columns of it, keyed by (pivot cell, follower family, follower cell) with each key's verdict tally. It filters on nothing a rule names beyond those three before-side fields, so it serves both to write a new extension-dropped rule and to check an existing one's coverage. `standing_verdicts._candidates` cannot replace it, because its extension branch already filters on the rule's named followers and cells."""
     pairs: dict[tuple, collections.Counter] = collections.defaultdict(collections.Counter)
     contracted = bool(sv.EXIT_CONTRACTION.fullmatch(token))
     named = sv._extension_columns(token)
     for unit in units:
         if not sv._letter_for_letter(unit):
             continue
-        glyphs, seams = unit["before"]["glyphs"], unit["before"]["seams"]
-        cells, after_seams = unit["after"]["cells"], unit["after"]["seams"]
-        for index in range(min(len(glyphs), len(cells), len(seams) + 1, len(after_seams) + 1) - 1):
+        glyphs, junctions = unit["before"]["glyphs"], unit["before"]["junctions"]
+        cells, after_junctions = unit["after"]["cells"], unit["after"]["junctions"]
+        for index in range(min(len(glyphs), len(cells), len(junctions) + 1, len(after_junctions) + 1) - 1):
             if not sv._is_pivot(glyphs[index], pivot):
                 continue
-            if seams[index] != seam or after_seams[index] != seam:
+            if junctions[index] != junction or after_junctions[index] != junction:
                 continue
             if contracted:
                 if not sv._carries_named_drop(token, glyphs[index], cells[index]):
@@ -242,15 +242,15 @@ def _extension_pairs(units, blankness, pivot, token, seam):
     return pairs
 
 
-def _retarget_pairs(units, blankness, pivot, before_seam, follower, after_seam, declined=()):
-    """Return every window where a PIVOT glyph's seam into a follower changes from BEFORE_SEAM to AFTER_SEAM, keyed as in `_extension_pairs`. `pivot` is one glyph-name prefix or a list of them, since a join-created rule can name several. A `follower` of None reaches every follower family, which `--coverage` needs to find the followers a rule does not name. `declined` removes the before forms a rule declines, which belong to a companion rule's survey."""
+def _retarget_pairs(units, blankness, pivot, before_junction, follower, after_junction, declined=()):
+    """Return every window where a PIVOT glyph's junction into a follower changes from BEFORE_JUNCTION to AFTER_JUNCTION, keyed as in `_extension_pairs`. `pivot` is one glyph-name prefix or a list of them, since a join-created rule can name several. A `follower` of None reaches every follower family, which `--coverage` needs to find the followers a rule does not name. `declined` removes the before forms a rule declines, which belong to a companion rule's survey."""
     pairs: dict[tuple, collections.Counter] = collections.defaultdict(collections.Counter)
     for unit in units:
         if not sv._letter_for_letter(unit):
             continue
-        glyphs, seams = unit["before"]["glyphs"], unit["before"]["seams"]
-        cells, after_seams = unit["after"]["cells"], unit["after"]["seams"]
-        reach = min(len(glyphs), len(cells), len(seams) + 1, len(after_seams) + 1) - 1
+        glyphs, junctions = unit["before"]["glyphs"], unit["before"]["junctions"]
+        cells, after_junctions = unit["after"]["cells"], unit["after"]["junctions"]
+        reach = min(len(glyphs), len(cells), len(junctions) + 1, len(after_junctions) + 1) - 1
         for index in range(reach):
             if not any(sv._is_pivot(glyphs[index], name) for name in sv._families(pivot)):
                 continue
@@ -259,7 +259,7 @@ def _retarget_pairs(units, blankness, pivot, before_seam, follower, after_seam, 
             family = sv._family(glyphs[index + 1])
             if follower is not None and family != follower:
                 continue
-            if seams[index] != before_seam or after_seams[index] != after_seam:
+            if junctions[index] != before_junction or after_junctions[index] != after_junction:
                 continue
             pairs[(cells[index], family, cells[index + 1])][blankness.of(unit["id"])] += 1
     return pairs
@@ -279,15 +279,15 @@ def _pair_lines(pairs):
         print(f"  {sum(tally.values()):>5}  {pivot_cell}  →  {follower}  {follower_cell}  {dict(tally)}")
 
 
-def _extension_cells(units, blankness, pivot, token, seam):
-    pairs = _extension_pairs(units, blankness, pivot, token, seam)
+def _extension_cells(units, blankness, pivot, token, junction):
+    pairs = _extension_pairs(units, blankness, pivot, token, junction)
     if sv.EXIT_CONTRACTION.fullmatch(token):
         print(
-            f"windows where a {pivot} glyph with no exit extension exits at {seam} on both sides into a cell carrying {token}:"
+            f"windows where a {pivot} glyph with no exit extension exits at {junction} on both sides into a cell carrying {token}:"
         )
     else:
         print(
-            f"windows where a {pivot} glyph carrying {token} exits at {seam} on both sides into a cell without it or with a shorter one:"
+            f"windows where a {pivot} glyph carrying {token} exits at {junction} on both sides into a cell without it or with a shorter one:"
         )
     _pair_lines(pairs)
     print("pivot cells:", [value for value, _tally in _tallied(pairs, 0)])
@@ -295,9 +295,11 @@ def _extension_cells(units, blankness, pivot, token, seam):
     print("follower cells:", [value for value, _tally in _tallied(pairs, 2)])
 
 
-def _retarget_cells(units, blankness, pivot, before_seam, follower, after_seam):
-    pairs = _retarget_pairs(units, blankness, pivot, before_seam, follower, after_seam)
-    print(f"windows where a {pivot} glyph's seam into {follower} moves from {before_seam} to {after_seam}:")
+def _retarget_cells(units, blankness, pivot, before_junction, follower, after_junction):
+    pairs = _retarget_pairs(units, blankness, pivot, before_junction, follower, after_junction)
+    print(
+        f"windows where a {pivot} glyph's junction into {follower} moves from {before_junction} to {after_junction}:"
+    )
     for key, tally in sorted(pairs.items(), key=lambda item: -sum(item[1].values())):
         print(f"  {sum(tally.values()):>5}  {key[0]}  →  {key[2]}  {dict(tally)}")
     print("pivot cells:", [value for value, _tally in _tallied(pairs, 0)])
@@ -305,7 +307,7 @@ def _retarget_cells(units, blankness, pivot, before_seam, follower, after_seam):
 
 
 class Position(NamedTuple):
-    """One pivot position as the survey keys it: the before glyph, the after cell it settles into, the family whose stroke touches it on the left, the seam change into and out of it, and the follower's family and cell. A field is EDGE where the window ends."""
+    """One pivot position as the survey keys it: the before glyph, the after cell it settles into, the family whose stroke touches it on the left, the junction change into and out of it, and the follower's family and cell. A field is EDGE where the window ends."""
 
     glyph: str
     cell: str
@@ -316,9 +318,9 @@ class Position(NamedTuple):
     follower_cell: str
 
 
-def _seam_change(seams, after_seams, index):
-    if 0 <= index < len(seams) and index < len(after_seams):
-        return f"{seams[index]}→{after_seams[index]}"
+def _junction_change(junctions, after_junctions, index):
+    if 0 <= index < len(junctions) and index < len(after_junctions):
+        return f"{junctions[index]}→{after_junctions[index]}"
     return EDGE
 
 
@@ -333,7 +335,11 @@ def _survey_positions(units, blankness, prefix, after_cell=None):
         if not sv._letter_for_letter(unit):
             skipped += 1
             continue
-        seams, cells, after_seams = unit["before"]["seams"], unit["after"]["cells"], unit["after"]["seams"]
+        junctions, cells, after_junctions = (
+            unit["before"]["junctions"],
+            unit["after"]["cells"],
+            unit["after"]["junctions"],
+        )
         verdict = blankness.of(unit["id"])
         last = len(glyphs) - 1
         for index, glyph in enumerate(glyphs):
@@ -343,8 +349,8 @@ def _survey_positions(units, blankness, prefix, after_cell=None):
                 glyph,
                 cells[index],
                 sv._joining_family(glyphs[index - 1]) if index else EDGE,
-                _seam_change(seams, after_seams, index - 1) if index else EDGE,
-                _seam_change(seams, after_seams, index) if index < last else EDGE,
+                _junction_change(junctions, after_junctions, index - 1) if index else EDGE,
+                _junction_change(junctions, after_junctions, index) if index < last else EDGE,
                 sv._family(glyphs[index + 1]) if index < last else EDGE,
                 cells[index + 1] if index < last else EDGE,
             )
@@ -366,7 +372,7 @@ def _survey(units, blankness, prefix, after_cell):
     positions = sum(sum(tally.values()) for tally in rows.values())
     print(
         f"survey of {prefix}{where}: {positions} positions, grouped by before form and after cell, then by "
-        f"left family, seam change in and out, follower family and cell{unplaced}:"
+        f"left family, junction change in and out, follower family and cell{unplaced}:"
     )
     groups: dict[tuple, list] = collections.defaultdict(list)
     for key, tally in rows.items():
@@ -452,17 +458,17 @@ def _coverage_pairs(units, blankness, shape, match):
     if shape == "extension-dropped":
         before = match["before"]
         return _extension_pairs(
-            units, blankness, before["pivot"], before["exit_extension"], before["seam_out"]
+            units, blankness, before["pivot"], before["exit_extension"], before["junction_out"]
         )
     if shape == "join-dropped":
         before = match["before"]
-        return _retarget_pairs(units, blankness, before["pivot"], before["seam_out"], None, "break")
+        return _retarget_pairs(units, blankness, before["pivot"], before["junction_out"], None, "break")
     target = "retarget" if shape == "join-retargeted" else "joined"
     return _retarget_pairs(
         units,
         blankness,
         match["before"]["pivot"],
-        match["before"]["seam_out"],
+        match["before"]["junction_out"],
         None,
         match["after"][target],
         match["before"].get("except_pivots", ()),
@@ -564,20 +570,20 @@ def main(argv=None, *, units=None, context=None):
     parser.add_argument(
         "--extension-cells",
         nargs=3,
-        metavar=("PIVOT", "TOKEN", "SEAM"),
-        help="enumerate the pivot and follower cells an extension-dropped rule for PIVOT giving up TOKEN (ex-ext-N or ex-con-N) at SEAM would have to name",
+        metavar=("PIVOT", "TOKEN", "JUNCTION"),
+        help="enumerate the pivot and follower cells an extension-dropped rule for PIVOT giving up TOKEN (ex-ext-N or ex-con-N) at JUNCTION would have to name",
     )
     parser.add_argument(
         "--retarget-cells",
         nargs=4,
-        metavar=("PIVOT", "BEFORE_SEAM", "FOLLOWER", "AFTER_SEAM"),
-        help="enumerate the pivot and follower cells a join-retargeted or join-created rule for PIVOT's seam into FOLLOWER moving from BEFORE_SEAM to AFTER_SEAM would have to name",
+        metavar=("PIVOT", "BEFORE_JUNCTION", "FOLLOWER", "AFTER_JUNCTION"),
+        help="enumerate the pivot and follower cells a join-retargeted or join-created rule for PIVOT's junction into FOLLOWER moving from BEFORE_JUNCTION to AFTER_JUNCTION would have to name",
     )
     parser.add_argument(
         "--survey",
         nargs="+",
         metavar=("BEFORE_GLYPH", "AFTER_CELL"),
-        help="every human unit carrying a before glyph under BEFORE_GLYPH (a prefix, as a rule's pivots are), grouped by the after cell it settles into — only AFTER_CELL when given — the seam change on each side with the left family, and the follower family and cell, a verdict tally per group, in code-point order",
+        help="every human unit carrying a before glyph under BEFORE_GLYPH (a prefix, as a rule's pivots are), grouped by the after cell it settles into — only AFTER_CELL when given — the junction change on each side with the left family, and the follower family and cell, a verdict tally per group, in code-point order",
     )
     parser.add_argument(
         "--coverage",

@@ -103,7 +103,7 @@ def _merged_fixture():
         MERGE_WINDOW: (True, "no-chain-gains"),
         DEFERRED_WINDOW: (False, "deferred-ss04"),
         MIXED_WINDOW: (True, "unmatched-misc"),
-        STANDALONE_UNMATCHED: (False, "seam-loss-withdrawal"),
+        STANDALONE_UNMATCHED: (False, "junction-loss-unjoined"),
         STANDALONE_MATCHED: (True, ""),
     }
     assert table.n == 5
@@ -142,7 +142,7 @@ def test_unmatched_groups_read_deferral_from_the_premerge_config_classes():
         _index_of(capture, DEFERRED_WINDOW, "ss03"): "deferred-ss03",
         _index_of(capture, DEFERRED_WINDOW, "ss04"): "deferred-ss04",
         _index_of(capture, MIXED_WINDOW, "ss04"): "deferred-ss04",
-        _index_of(capture, STANDALONE_UNMATCHED, "default"): "seam-loss-withdrawal",
+        _index_of(capture, STANDALONE_UNMATCHED, "default"): "junction-loss-unjoined",
     }
     assert [index for index, _group in premerge.unmatched_groups] == sorted(
         index for index, _group in premerge.unmatched_groups
@@ -302,7 +302,7 @@ def _write_shard(root: Path, records: list[dict]) -> dict:
             for position, class_id in enumerate(ids)
         ],
         "machine_approved": {"units": 3, "by_class": {"bare-name-live-join": 2, "boundary-window": 1}},
-        "secondary_seams": {"units_with_markers": 0, "seams_homed": 0},
+        "secondary_junctions": {"units_with_markers": 0, "junctions_with_primary_unit": 0},
     }
     (root / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
     return manifest
@@ -500,20 +500,20 @@ def test_from_scratch_recomputes_from_sources_without_the_sidecar(tmp_path, monk
     monkeypatch.setattr(
         facts,
         "unmatched_groups_group",
-        lambda repo_root=REPO_ROOT: {"census": {"seam-loss-withdrawal": 3}, "total": 3},
+        lambda repo_root=REPO_ROOT: {"census": {"junction-loss-unjoined": 3}, "total": 3},
     )
 
     pins = facts.compute_pins(corpus=corpus, from_scratch=True)
     volatile = pins["volatile"]
     assert volatile["audit"] == {"audit": "sentinel"}
     assert volatile["ink"] == {"ink": "sentinel"}
-    assert volatile["unmatched_groups"] == {"census": {"seam-loss-withdrawal": 3}, "total": 3}
+    assert volatile["unmatched_groups"] == {"census": {"junction-loss-unjoined": 3}, "total": 3}
     assert volatile["built"] == built_group(corpus, manifest)
     assert pins["invariant"] == {
         "classes": [meta["id"] for meta in manifest["classes"]],
         "machine_approved_classes": ["bare-name-live-join", "boundary-window"],
         "no_verdict_classes": ["boundary-window"],
-        "unmatched_groups": ["seam-loss-withdrawal"],
+        "unmatched_groups": ["junction-loss-unjoined"],
     }
 
 

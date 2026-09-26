@@ -16,7 +16,7 @@ The row store's whole-store stamp (`environment_stamp`) leaves out `M1.otf` and 
 
 Keying by settled window instead of by row was measured and rejected. A settled window spans six slots and a row has at most four letters, so windows name more letters than rows (287,280 of 499,989 distinct windows name four letters). With four edited runes, window keys served 45.4% of the work against row keys' 48.6%. Window keys cover only settlement, not the comparison, and a window's left slot is keyed on the previous window's output, so an edit changes keys downstream and produces misses. Added on top of a row store, window keys served 1.40% more lookups.
 
-Records are positional and carry no row key: the subset table is the complete product over the M1 alphabet in canonical order, so the ordinal is the key. Each record starts with a row check digest (`row_check_digest`), a digest prefix of its row's codepoints that is checked on every serve. A store whose alignment was checked only by a whole-file digest and a row count would serve every row wrong with no error if the table changed under it; the row check digest makes that an abort. `baseline_glyphs`, `baseline_seams` and `codepoints` are read from the table instead of stored, to keep the store small.
+Records are positional and carry no row key: the subset table is the complete product over the M1 alphabet in canonical order, so the ordinal is the key. Each record starts with a row check digest (`row_check_digest`), a digest prefix of its row's codepoints that is checked on every serve. A store whose alignment was checked only by a whole-file digest and a row count would serve every row wrong with no error if the table changed under it; the row check digest makes that an abort. `baseline_glyphs`, `baseline_junctions` and `codepoints` are read from the table instead of stored, to keep the store small.
 
 Two mechanisms stop a wrong record from being served indefinitely. They are needed because a served record is written again under the current stamp, so its provenance never ages it out, and `gate:conform` checks the font against a fresh settlement but never compares a cached verdict with a fresh one. First, each record keeps the pass at which each of its two verdicts was derived, not the pass that last wrote it, and `RowStore.due` and `RowStore.position_due` force a re-derivation once that age reaches `MAX_RECORD_AGE`. The scheduled re-derivation is spread by row ordinal, so one row in `MAX_RECORD_AGE` re-derives on every pass instead of the whole table on one pass. Second, `VerificationSample` draws up to `VERIFICATION_SAMPLE_PER_FAMILY` served rows for every family that served any, seeded on the stamp, the family and the pass's coverage ordinal, so the checked rows change from pass to pass. A pass that writes no store, such as `--gates-only`, advances that ordinal by the clock (see `RowStore`). The caller re-derives the sampled rows and compares whole records, and a second sample of the same shape re-shapes the rows whose positions were served. Because every family that served rows is sampled, a family whose records are all wrong is always caught, not with probability equal to the sample size over the rows served. A rune edited during a run produces that kind of error.
 
@@ -347,12 +347,12 @@ def unreachable_glyph_heads(glyph_names: Iterable[str], reachable: Collection[st
 
 @dataclass(frozen=True, slots=True)
 class CachedRow:
-    """One row's pre-position comparison verdict: `conform._compare_row`'s `DivergentRow` without the three fields the subset table holds (`codepoints`, `baseline_glyphs`, `baseline_seams`) and without `config`, which the store records. It holds no provenance, so `==` is verdict equality, which the verification sample relies on. The pass a record was derived at is kept separately, in `RowStore.age`."""
+    """One row's pre-position comparison verdict: `conform._compare_row`'s `DivergentRow` without the three fields the subset table holds (`codepoints`, `baseline_glyphs`, `baseline_junctions`) and without `config`, which the store records. It holds no provenance, so `==` is verdict equality, which the verification sample relies on. The pass a record was derived at is kept separately, in `RowStore.age`."""
 
     kinds: tuple[str, ...]
     position: int
     new_cells: tuple[str, ...]
-    new_seams: tuple[str, ...]
+    new_junctions: tuple[str, ...]
     divergence_tags: tuple[str, ...]
 
 
@@ -365,7 +365,7 @@ class CachedPosition:
 
 
 class _Unshaped:
-    """The position record of a row the previous pass never shaped, because the row was kept out of the position comparison (a ligation or seam divergence, or a divergence without exactly one ledger match that claims identical ink) or no font was open. It is distinct from `None`, a shaped row that matched, so that a row the position comparison never saw is not counted as clean."""
+    """The position record of a row the previous pass never shaped, because the row was kept out of the position comparison (a ligation or junction divergence, or a divergence without exactly one ledger match that claims identical ink) or no font was open. It is distinct from `None`, a shaped row that matched, so that a row the position comparison never saw is not counted as clean."""
 
     __slots__ = ()
 
@@ -413,7 +413,7 @@ def encode_record(
             ",".join(cached.kinds),
             str(cached.position),
             "|".join(cached.new_cells),
-            ",".join(cached.new_seams),
+            ",".join(cached.new_junctions),
             ",".join(cached.divergence_tags),
         ]
     if position is UNSHAPED:
@@ -438,7 +438,7 @@ def decode_record(line: str) -> StoredRecord:
             kinds=_split(fields[at + 1], ","),
             position=int(fields[at + 2]),
             new_cells=_split(fields[at + 3], "|"),
-            new_seams=_split(fields[at + 4], ","),
+            new_junctions=_split(fields[at + 4], ","),
             divergence_tags=_split(fields[at + 5], ","),
         )
         at += 6

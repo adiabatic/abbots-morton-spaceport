@@ -11,10 +11,10 @@ import {
   highlightRect,
   pairBand,
   markOffset,
-  secondarySeamsOf,
-  seamChip,
+  secondaryJunctionsOf,
+  junctionChip,
   cellCodepointSpans,
-  onlyHereSeamSpans,
+  onlyHereJunctionSpans,
   tokenMarkRuns,
   needsNoVerdict,
   familiesOfGroup,
@@ -354,24 +354,24 @@ test('renderGroupsOf collapses a single-group unit and tolerates missing render_
 });
 
 test('duplicateChip appears only for multi-member duplicate groups and deep-links the worklist', () => {
-  const unit = { id: 'u-JSRuJ51yvVj', duplicate_group: 'e-0000', class: 'dangling-anchor-dropped' };
-  assert.equal(duplicateChip(unit, ['u-JSRuJ51yvVj']), null);
-  assert.equal(duplicateChip({ ...unit, duplicate_group: null }, ['u-JSRuJ51yvVj', 'u-CKS1rpqQsLb']), null);
-  const chip = duplicateChip(unit, ['u-JSRuJ51yvVj', 'u-CKS1rpqQsLb', 'u-0007']);
+  const unit = { id: 'u-GWzZVqhrmiS', duplicate_group: 'e-0000', class: 'dangling-anchor-dropped' };
+  assert.equal(duplicateChip(unit, ['u-GWzZVqhrmiS']), null);
+  assert.equal(duplicateChip({ ...unit, duplicate_group: null }, ['u-GWzZVqhrmiS', 'u-bJaTg1JopmL']), null);
+  const chip = duplicateChip(unit, ['u-GWzZVqhrmiS', 'u-bJaTg1JopmL', 'u-0007']);
   assert.equal(chip.label, 'duplicate ×3');
-  assert.equal(chip.href, '#units=u-JSRuJ51yvVj,u-CKS1rpqQsLb,u-0007');
+  assert.equal(chip.href, '#units=u-GWzZVqhrmiS,u-bJaTg1JopmL,u-0007');
   assert.ok(chip.title.includes('dangling-anchor-dropped'));
 });
 
 test('duplicateFillTargets excludes the unit itself and anything already verdicted', () => {
-  const unit = { id: 'u-JSRuJ51yvVj', duplicate_group: 'e-0000' };
+  const unit = { id: 'u-GWzZVqhrmiS', duplicate_group: 'e-0000' };
   const verdicted = new Set(['u-0007']);
   assert.deepEqual(
-    duplicateFillTargets(unit, ['u-JSRuJ51yvVj', 'u-CKS1rpqQsLb', 'u-0007'], (id) => verdicted.has(id)),
-    ['u-CKS1rpqQsLb'],
+    duplicateFillTargets(unit, ['u-GWzZVqhrmiS', 'u-bJaTg1JopmL', 'u-0007'], (id) => verdicted.has(id)),
+    ['u-bJaTg1JopmL'],
   );
-  assert.deepEqual(duplicateFillTargets({ id: 'u-JSRuJ51yvVj', duplicate_group: null }, ['u-JSRuJ51yvVj', 'u-CKS1rpqQsLb'], () => false), []);
-  assert.deepEqual(duplicateFillTargets(undefined, ['u-JSRuJ51yvVj'], () => false), []);
+  assert.deepEqual(duplicateFillTargets({ id: 'u-GWzZVqhrmiS', duplicate_group: null }, ['u-GWzZVqhrmiS', 'u-bJaTg1JopmL'], () => false), []);
+  assert.deepEqual(duplicateFillTargets(undefined, ['u-GWzZVqhrmiS'], () => false), []);
 });
 
 test('fixture duplicate-group ids group only within a shard and singletons carry their own id', () => {
@@ -418,7 +418,7 @@ test('pairBand draws the judged pair from a whole record and nothing from a slim
   assert.equal(pairBand(slim, 'before', 88, upem), null);
 });
 
-test('a slim fragment reaching the fold renderer yields a row from its cells and seams alone', () => {
+test('a slim fragment reaching the fold renderer yields a row from its cells and junctions alone', () => {
   // Runs the pure helpers buildRow uses over the fixture's machine fragment, as the app does for a fold's rows. None may throw on the missing explain, drafts, and highlight.
   const slim = shardA.find((unit) => needsNoVerdict(unit));
   for (const key of ['explain', 'drafts', 'highlight']) assert.equal(key in slim, false, key);
@@ -426,8 +426,8 @@ test('a slim fragment reaching the fold renderer yields a row from its cells and
   const groups = renderGroupsOf(slim);
   assert.equal(groups.length, 1);
   assert.deepEqual(groups[0].configs, slim.configs);
-  assert.deepEqual(secondarySeamsOf(slim), []);
-  assert.deepEqual(onlyHereSeamSpans(slim), []);
+  assert.deepEqual(secondaryJunctionsOf(slim), []);
+  assert.deepEqual(onlyHereJunctionSpans(slim), []);
   assert.equal(pairBand(slim, 'after', 88, manifest.fonts.after.upem), null);
   const separators = tokenSeparators(slim.notation_tokens);
   assert.equal(separators.map((sep, index) => sep + slim.notation_tokens[index]).join(''), slim.notation);
@@ -437,7 +437,7 @@ test('a slim fragment reaching the fold renderer yields a row from its cells and
   assert.deepEqual(configGateChips(slim, manifest.feature_descriptions).map((chip) => chip.text), [slim.config_note]);
   assert.ok(searchHaystack(slim).includes(slim.id.toLowerCase()), 'the haystack is lowercase; the search lowercases the query to match');
   assert.ok(typeof slim.summary === 'string' && slim.summary.startsWith('New: '));
-  assert.ok(slim.after.cells.length > 0 && slim.after.seams.length > 0);
+  assert.ok(slim.after.cells.length > 0 && slim.after.junctions.length > 0);
 });
 
 test('markOffset converts a boundary mark x position', () => {
@@ -451,7 +451,7 @@ test('familiesOfGroup splits the lead pair', () => {
 });
 
 test('unitMatchesFilters covers class, group, family, config, and status', () => {
-  const unit = shardA.find((candidate) => candidate.id === 'u-5vrBNy2RYrJ');
+  const unit = shardA.find((candidate) => candidate.id === 'u-DG5XZLCzsT9');
   const empty = { class: null, group: null, family: null, config: null, status: null };
   assert.equal(unitMatchesFilters(unit, empty, undefined), true);
   assert.equal(unitMatchesFilters(unit, { ...empty, class: 'marker-staging-ligature-formation' }, undefined), true);
@@ -470,21 +470,21 @@ test('unitMatchesFilters covers class, group, family, config, and status', () =>
 
 test('orderWorklist sorts by family-pair group then id by default', () => {
   const units = [
-    { id: 'u-3S9VGa388F8', group: 'qsTea:qsOy' },
-    { id: 'u-fyt9pUaPbr6', group: 'qsMay:qsNo' },
-    { id: 'u-5vrBNy2RYrJ', group: 'qsTea:qsOy' },
+    { id: 'u-d5Ka5gKrm4o', group: 'qsTea:qsOy' },
+    { id: 'u-j12KWNP3e7g', group: 'qsMay:qsNo' },
+    { id: 'u-DG5XZLCzsT9', group: 'qsTea:qsOy' },
   ];
-  assert.deepEqual(orderWorklist(units, null).map((u) => u.id), ['u-fyt9pUaPbr6', 'u-3S9VGa388F8', 'u-5vrBNy2RYrJ']);
-  assert.deepEqual(units.map((u) => u.id), ['u-3S9VGa388F8', 'u-fyt9pUaPbr6', 'u-5vrBNy2RYrJ'], 'the default sort must not mutate the given list');
+  assert.deepEqual(orderWorklist(units, null).map((u) => u.id), ['u-j12KWNP3e7g', 'u-d5Ka5gKrm4o', 'u-DG5XZLCzsT9']);
+  assert.deepEqual(units.map((u) => u.id), ['u-d5Ka5gKrm4o', 'u-j12KWNP3e7g', 'u-DG5XZLCzsT9'], 'the default sort must not mutate the given list');
 });
 
 test('orderWorklist preserves the given order under order=given', () => {
   const units = [
-    { id: 'u-3S9VGa388F8', group: 'qsTea:qsOy' },
-    { id: 'u-fyt9pUaPbr6', group: 'qsMay:qsNo' },
-    { id: 'u-5vrBNy2RYrJ', group: 'qsTea:qsOy' },
+    { id: 'u-d5Ka5gKrm4o', group: 'qsTea:qsOy' },
+    { id: 'u-j12KWNP3e7g', group: 'qsMay:qsNo' },
+    { id: 'u-DG5XZLCzsT9', group: 'qsTea:qsOy' },
   ];
-  assert.deepEqual(orderWorklist(units, 'given').map((u) => u.id), ['u-3S9VGa388F8', 'u-fyt9pUaPbr6', 'u-5vrBNy2RYrJ']);
+  assert.deepEqual(orderWorklist(units, 'given').map((u) => u.id), ['u-d5Ka5gKrm4o', 'u-j12KWNP3e7g', 'u-DG5XZLCzsT9']);
 });
 
 test('unitWorklist splits, trims, and drops empties', () => {
@@ -602,8 +602,8 @@ test('a slim row missing the machine flags reads as human wherever a whole recor
   for (const unit of human) {
     const row = slimRow(unit);
     assert.equal(needsNoVerdict(row), needsNoVerdict(unit), unit.id);
-    assert.deepEqual(secondarySeamsOf(row), secondarySeamsOf(unit), unit.id);
-    assert.deepEqual(onlyHereSeamSpans(row), onlyHereSeamSpans(unit), unit.id);
+    assert.deepEqual(secondaryJunctionsOf(row), secondaryJunctionsOf(unit), unit.id);
+    assert.deepEqual(onlyHereJunctionSpans(row), onlyHereJunctionSpans(unit), unit.id);
     assert.equal(unitMatchesFilters(row, emptyFilters, undefined), unitMatchesFilters(unit, emptyFilters, undefined), unit.id);
     assert.equal(searchHaystack(row), searchHaystack(unit), unit.id);
     assert.equal(copyPreamble(row), copyPreamble(unit), unit.id);
@@ -951,8 +951,8 @@ test('classesInBatch names the classes with units in a batch, batchless classes 
 });
 
 test('copyPreamble names only the unit, codepoints, and notation — the rest is looked up from the shards', () => {
-  const text = copyPreamble(shardB.find((unit) => unit.id === 'u-JSRuJ51yvVj'));
-  assert.match(text, /rebuild\/out\/review\/ unit u-JSRuJ51yvVj/);
+  const text = copyPreamble(shardB.find((unit) => unit.id === 'u-GWzZVqhrmiS'));
+  assert.match(text, /rebuild\/out\/review\/ unit u-GWzZVqhrmiS/);
   assert.match(text, /E668:E665:E657/);
   assert.match(text, /·Roe·May·They/);
   assert.doesNotMatch(text, /dangling-anchor-dropped/);
@@ -991,29 +991,29 @@ test('every fixture unit joins its notation tokens back into its notation string
   }
 });
 
-test('secondarySeamsOf returns seams for human units and nothing for machine-approved or legacy units', () => {
-  const homed = shardB.find((unit) => unit.id === 'u-JSRuJ51yvVj');
-  assert.equal(secondarySeamsOf(homed).length, 1);
-  assert.equal(secondarySeamsOf(homed)[0].home, 'u-3S9VGa388F8');
+test('secondaryJunctionsOf returns junctions for human units and nothing for machine-approved or legacy units', () => {
+  const withPrimary = shardB.find((unit) => unit.id === 'u-GWzZVqhrmiS');
+  assert.equal(secondaryJunctionsOf(withPrimary).length, 1);
+  assert.equal(secondaryJunctionsOf(withPrimary)[0].primary_unit, 'u-d5Ka5gKrm4o');
   const legacy = { ink_identical: false };
-  assert.deepEqual(secondarySeamsOf(legacy), []);
-  const nulled = { ink_identical: false, secondary_seams: null };
-  assert.deepEqual(secondarySeamsOf(nulled), []);
-  const machine = { ink_identical: true, secondary_seams: [{ home: 'u-3S9VGa388F8' }] };
-  assert.deepEqual(secondarySeamsOf(machine), [], 'machine-approved renderings never show seam markers');
-  const picture = { picture_identical: true, secondary_seams: [{ home: 'u-3S9VGa388F8' }] };
-  assert.deepEqual(secondarySeamsOf(picture), [], 'picture identity is a whole-window property, so it hides them too');
+  assert.deepEqual(secondaryJunctionsOf(legacy), []);
+  const nulled = { ink_identical: false, secondary_junctions: null };
+  assert.deepEqual(secondaryJunctionsOf(nulled), []);
+  const machine = { ink_identical: true, secondary_junctions: [{ primary_unit: 'u-d5Ka5gKrm4o' }] };
+  assert.deepEqual(secondaryJunctionsOf(machine), [], 'machine-approved renderings never show junction markers');
+  const picture = { picture_identical: true, secondary_junctions: [{ primary_unit: 'u-d5Ka5gKrm4o' }] };
+  assert.deepEqual(secondaryJunctionsOf(picture), [], 'picture identity is a whole-window property, so it hides them too');
 });
 
-test('seamChip labels a homed seam with the home unit id and a home-less seam with "only here"', () => {
-  const homed = seamChip({ home: 'u-0312' });
-  assert.equal(homed.home, 'u-0312');
-  assert.equal(homed.label, 'u-0312');
-  assert.match(homed.title, /u-0312/);
-  const homeless = seamChip({ home: null });
-  assert.equal(homeless.home, null);
-  assert.equal(homeless.label, 'only here');
-  assert.match(homeless.title, /no shorter home/);
+test('junctionChip labels a junction that has a primary unit with its id and one that has none with "only here"', () => {
+  const withPrimary = junctionChip({ primary_unit: 'u-0312' });
+  assert.equal(withPrimary.primaryUnit, 'u-0312');
+  assert.equal(withPrimary.label, 'u-0312');
+  assert.match(withPrimary.title, /u-0312/);
+  const withoutPrimary = junctionChip({ primary_unit: null });
+  assert.equal(withoutPrimary.primaryUnit, null);
+  assert.equal(withoutPrimary.label, 'only here');
+  assert.match(withoutPrimary.title, /no shorter primary unit/);
 });
 
 test('cellCodepointSpans gives each cell one codepoint position and a formed ligature two', () => {
@@ -1030,72 +1030,72 @@ const onlyHereUnit = {
   after: {
     cells: ['qsNo/loop/None/x-height/', 'qsIt/hapax/x-height/baseline/', 'qsMay/loop/baseline/None/', 'qsTea/full/None/None/'],
   },
-  secondary_seams: [
-    { pair: { left: 1, right: 2 }, home: null },
-    { pair: { left: 2, right: 3 }, home: 'u-5vrBNy2RYrJ' },
+  secondary_junctions: [
+    { pair: { left: 1, right: 2 }, primary_unit: null },
+    { pair: { left: 2, right: 3 }, primary_unit: 'u-DG5XZLCzsT9' },
   ],
 };
 
-test('onlyHereSeamSpans maps home-less seams to codepoint spans and skips homed ones', () => {
-  assert.deepEqual(onlyHereSeamSpans(onlyHereUnit), [[1, 2]]);
+test('onlyHereJunctionSpans maps junctions with no primary unit to codepoint spans and skips the rest', () => {
+  assert.deepEqual(onlyHereJunctionSpans(onlyHereUnit), [[1, 2]]);
 });
 
-test('onlyHereSeamSpans shifts spans across a formed ligature', () => {
+test('onlyHereJunctionSpans shifts spans across a formed ligature', () => {
   const unit = {
     ...onlyHereUnit,
     pair_codepoints: [0, 2],
     after: { cells: ['qsTea_qsOy/full/None/None/', 'qsIt/hapax/x-height/baseline/', 'qsMay/loop/baseline/None/'] },
-    secondary_seams: [{ pair: { left: 1, right: 2 }, home: null }],
+    secondary_junctions: [{ pair: { left: 1, right: 2 }, primary_unit: null }],
   };
-  assert.deepEqual(onlyHereSeamSpans(unit), [[2, 3]]);
+  assert.deepEqual(onlyHereJunctionSpans(unit), [[2, 3]]);
 });
 
-test('onlyHereSeamSpans yields nothing for machine-approved units, missing cells, no pair, or a derivation that disagrees with the build', () => {
-  assert.deepEqual(onlyHereSeamSpans({ ...onlyHereUnit, ink_identical: true }), []);
-  assert.deepEqual(onlyHereSeamSpans({ ...onlyHereUnit, picture_identical: true }), []);
-  assert.deepEqual(onlyHereSeamSpans({ ...onlyHereUnit, after: {} }), []);
-  assert.deepEqual(onlyHereSeamSpans({ ...onlyHereUnit, pair: null }), []);
-  assert.deepEqual(onlyHereSeamSpans({ ...onlyHereUnit, pair_codepoints: [0, 2] }), []);
+test('onlyHereJunctionSpans yields nothing for machine-approved units, missing cells, no pair, or a derivation that disagrees with the build', () => {
+  assert.deepEqual(onlyHereJunctionSpans({ ...onlyHereUnit, ink_identical: true }), []);
+  assert.deepEqual(onlyHereJunctionSpans({ ...onlyHereUnit, picture_identical: true }), []);
+  assert.deepEqual(onlyHereJunctionSpans({ ...onlyHereUnit, after: {} }), []);
+  assert.deepEqual(onlyHereJunctionSpans({ ...onlyHereUnit, pair: null }), []);
+  assert.deepEqual(onlyHereJunctionSpans({ ...onlyHereUnit, pair_codepoints: [0, 2] }), []);
 });
 
-// App index rows carry no `after` (app_index.app_row). When every secondary seam has a home, onlyHereSeamSpans skips them all, so the result is [] with or without the cells.
-test('onlyHereSeamSpans reads a homed-only row the same with cells present and with after nulled', () => {
-  const homedOnly = {
+// App index rows carry no `after` (app_index.app_row). When every secondary junction has a primary unit, onlyHereJunctionSpans skips them all, so the result is [] with or without the cells.
+test('onlyHereJunctionSpans reads a row whose junctions all have primary units the same with cells present and with after nulled', () => {
+  const withPrimaryOnly = {
     ...onlyHereUnit,
-    secondary_seams: [{ pair: { left: 1, right: 2 }, home: 'u-5vrBNy2RYrJ' }],
+    secondary_junctions: [{ pair: { left: 1, right: 2 }, primary_unit: 'u-DG5XZLCzsT9' }],
   };
-  assert.deepEqual(onlyHereSeamSpans(homedOnly), []);
-  assert.deepEqual(onlyHereSeamSpans({ ...homedOnly, after: null }), []);
-  const seamless = { ...onlyHereUnit, secondary_seams: null };
-  assert.deepEqual(onlyHereSeamSpans(seamless), []);
-  assert.deepEqual(onlyHereSeamSpans({ ...seamless, after: null }), []);
-  assert.deepEqual(onlyHereSeamSpans({ ...onlyHereUnit, after: null }), [], 'a home-less seam needs its cells to underline');
+  assert.deepEqual(onlyHereJunctionSpans(withPrimaryOnly), []);
+  assert.deepEqual(onlyHereJunctionSpans({ ...withPrimaryOnly, after: null }), []);
+  const withoutJunctions = { ...onlyHereUnit, secondary_junctions: null };
+  assert.deepEqual(onlyHereJunctionSpans(withoutJunctions), []);
+  assert.deepEqual(onlyHereJunctionSpans({ ...withoutJunctions, after: null }), []);
+  assert.deepEqual(onlyHereJunctionSpans({ ...onlyHereUnit, after: null }), [], 'a junction with no primary unit needs its cells to underline');
 });
 
-test('the only-here fixture unit underlines its seam tokens', () => {
-  const unit = shardB.find((entry) => entry.id === 'u-CKS1rpqQsLb');
-  assert.deepEqual(onlyHereSeamSpans(unit), [[1, 2]]);
+test('the only-here fixture unit underlines its junction tokens', () => {
+  const unit = shardB.find((entry) => entry.id === 'u-bJaTg1JopmL');
+  assert.deepEqual(onlyHereJunctionSpans(unit), [[1, 2]]);
 });
 
-test('tokenMarkRuns marks pair and seam stretches, sharing a separator only between two tokens under the same mark', () => {
+test('tokenMarkRuns marks pair and junction stretches, sharing a separator only between two tokens under the same mark', () => {
   const runs = tokenMarkRuns(['E666', 'E670', 'E665', 'E652'], ['', ':', ':', ':'], [0, 1], [[1, 2]]);
   assert.deepEqual(runs, [
-    { text: 'E666:', pair: true, seam: false },
-    { text: 'E670', pair: true, seam: true },
-    { text: ':E665', pair: false, seam: true },
-    { text: ':E652', pair: false, seam: false },
+    { text: 'E666:', pair: true, junction: false },
+    { text: 'E670', pair: true, junction: true },
+    { text: ':E665', pair: false, junction: true },
+    { text: ':E652', pair: false, junction: false },
   ]);
   assert.equal(runs.map((run) => run.text).join(''), 'E666:E670:E665:E652');
 });
 
-test('tokenMarkRuns without seam spans reproduces the single pair-mark split', () => {
+test('tokenMarkRuns without junction spans reproduces the single pair-mark split', () => {
   assert.deepEqual(tokenMarkRuns(['·No', '·It', '·May', '·Tea'], ['', '', '', ''], [0, 1], []), [
-    { text: '·No·It', pair: true, seam: false },
-    { text: '·May·Tea', pair: false, seam: false },
+    { text: '·No·It', pair: true, junction: false },
+    { text: '·May·Tea', pair: false, junction: false },
   ]);
   assert.deepEqual(tokenMarkRuns(['◊ZWNJ', '·Tea', '·Oy'], ['', ' ', ''], [1, 2], []), [
-    { text: '◊ZWNJ ', pair: false, seam: false },
-    { text: '·Tea·Oy', pair: true, seam: false },
+    { text: '◊ZWNJ ', pair: false, junction: false },
+    { text: '·Tea·Oy', pair: true, junction: false },
   ]);
 });
 
@@ -1138,36 +1138,36 @@ test('fixture units satisfy the contract fields the frontend relies on', () => {
       assert.equal(typeof mark.x, 'number');
       assert.ok(['zwnj', 'space'].includes(mark.kind));
     }
-    if (unit.secondary_seams != null) {
-      assert.ok(Array.isArray(unit.secondary_seams) && unit.secondary_seams.length >= 1);
+    if (unit.secondary_junctions != null) {
+      assert.ok(Array.isArray(unit.secondary_junctions) && unit.secondary_junctions.length >= 1);
       assert.equal(unit.ink_identical, false);
       assert.notEqual(unit.picture_identical, true);
-      for (const seam of unit.secondary_seams) {
-        assert.ok(Number.isInteger(seam.pair.left) && Number.isInteger(seam.pair.right));
-        assert.ok(seam.pair.left < seam.pair.right);
-        assert.notDeepEqual(seam.pair, unit.pair, `${unit.id}: a secondary seam must not duplicate the primary pair`);
+      for (const junction of unit.secondary_junctions) {
+        assert.ok(Number.isInteger(junction.pair.left) && Number.isInteger(junction.pair.right));
+        assert.ok(junction.pair.left < junction.pair.right);
+        assert.notDeepEqual(junction.pair, unit.pair, `${unit.id}: a secondary junction must not duplicate the primary pair`);
         for (const side of ['before', 'after']) {
-          assert.ok(Number.isInteger(seam[side].x_min) && Number.isInteger(seam[side].x_max));
-          assert.ok(seam[side].x_min <= seam[side].x_max);
-          assert.ok(Number.isInteger(seam[side].advance_total));
+          assert.ok(Number.isInteger(junction[side].x_min) && Number.isInteger(junction[side].x_max));
+          assert.ok(junction[side].x_min <= junction[side].x_max);
+          assert.ok(Number.isInteger(junction[side].advance_total));
         }
-        assert.ok(seam.home === null || /^u-[1-9A-HJ-NP-Za-km-z]{11}$/.test(seam.home));
+        assert.ok(junction.primary_unit === null || /^u-[1-9A-HJ-NP-Za-km-z]{11}$/.test(junction.primary_unit));
       }
     }
   }
   assert.ok(
-    [...shardA, ...shardB].some((unit) => (unit.secondary_seams ?? []).some((seam) => seam.home)),
-    'the fixtures must exercise a homed secondary seam',
+    [...shardA, ...shardB].some((unit) => (unit.secondary_junctions ?? []).some((junction) => junction.primary_unit)),
+    'the fixtures must exercise a secondary junction with a primary unit',
   );
   assert.ok(
-    [...shardA, ...shardB].some((unit) => (unit.secondary_seams ?? []).some((seam) => seam.home === null)),
-    'the fixtures must exercise a home-less secondary seam',
+    [...shardA, ...shardB].some((unit) => (unit.secondary_junctions ?? []).some((junction) => junction.primary_unit === null)),
+    'the fixtures must exercise a secondary junction with no primary unit',
   );
 });
 
 test('searchHaystack folds id, notation, codepoints, class, group, duplicate group, cluster, and kinds into one lowercase string', () => {
-  const haystack = searchHaystack(shardA.find((unit) => unit.id === 'u-5vrBNy2RYrJ'));
-  assert.ok(haystack.includes('u-5vrbny2ryrj'), 'the id, folded to lowercase like everything else');
+  const haystack = searchHaystack(shardA.find((unit) => unit.id === 'u-DG5XZLCzsT9'));
+  assert.ok(haystack.includes('u-dg5xzlczst9'), 'the id, folded to lowercase like everything else');
   assert.ok(haystack.includes('·tea·oy'));
   assert.ok(haystack.includes('teaoy'), 'notation with the namer dots stripped is searchable');
   assert.ok(haystack.includes('200c:e652:e679'));
@@ -1193,63 +1193,63 @@ test('searchHaystack is memoized per unit, so a keystroke folds each row at most
 test('searchUnits finds units by duplicate group id and by cluster id', () => {
   assert.deepEqual(
     searchUnits(allUnits, 'e-0000').matches.map((unit) => unit.id).sort(),
-    ['u-CKS1rpqQsLb', 'u-JSRuJ51yvVj'],
+    ['u-GWzZVqhrmiS', 'u-bJaTg1JopmL'],
   );
   assert.deepEqual(
     searchUnits(allUnits, 'c-0da49c11').matches.map((unit) => unit.id).sort(),
-    ['u-CKS1rpqQsLb', 'u-JSRuJ51yvVj'],
+    ['u-GWzZVqhrmiS', 'u-bJaTg1JopmL'],
   );
 });
 
 test('duplicateGroupOfQuery offers the duplicate group for a content-addressed id, keeping its case', () => {
-  const duplicateIndex = new Map([['e-3mJ7kPq2Xw9', ['u-CKS1rpqQsLb', 'u-JSRuJ51yvVj']]]);
+  const duplicateIndex = new Map([['e-3mJ7kPq2Xw9', ['u-bJaTg1JopmL', 'u-GWzZVqhrmiS']]]);
   assert.deepEqual(duplicateGroupOfQuery('  e-3mJ7kPq2Xw9 ', duplicateIndex), {
     id: 'e-3mJ7kPq2Xw9',
-    members: ['u-CKS1rpqQsLb', 'u-JSRuJ51yvVj'],
+    members: ['u-bJaTg1JopmL', 'u-GWzZVqhrmiS'],
   });
   assert.equal(duplicateGroupOfQuery('e-3mj7kpq2xw9', duplicateIndex), null, 'base58 ids are case-significant');
   assert.equal(duplicateGroupOfQuery('e-3mJ7', duplicateIndex), null);
 });
 
 test('searchUnits finds a unit by its exact id across every shard', () => {
-  const { matches, total } = searchUnits(allUnits, 'u-CKS1rpqQsLb');
+  const { matches, total } = searchUnits(allUnits, 'u-bJaTg1JopmL');
   assert.equal(total, 1);
-  assert.equal(matches[0].id, 'u-CKS1rpqQsLb');
+  assert.equal(matches[0].id, 'u-bJaTg1JopmL');
 });
 
 test('searchUnits matches notation with and without the namer dots, case-insensitively', () => {
   assert.deepEqual(
     searchUnits(allUnits, '·Pea·May').matches.map((unit) => unit.id),
-    ['u-3S9VGa388F8'],
+    ['u-d5Ka5gKrm4o'],
   );
   assert.deepEqual(
     searchUnits(allUnits, 'peamay').matches.map((unit) => unit.id),
-    ['u-3S9VGa388F8'],
+    ['u-d5Ka5gKrm4o'],
   );
 });
 
 test('searchUnits matches codepoints with and without the colons', () => {
-  assert.deepEqual(searchUnits(allUnits, 'E66C').matches.map((unit) => unit.id), ['u-CKS1rpqQsLb']);
-  assert.deepEqual(searchUnits(allUnits, 'e670e653').matches.map((unit) => unit.id), ['u-CKS1rpqQsLb']);
+  assert.deepEqual(searchUnits(allUnits, 'E66C').matches.map((unit) => unit.id), ['u-bJaTg1JopmL']);
+  assert.deepEqual(searchUnits(allUnits, 'e670e653').matches.map((unit) => unit.id), ['u-bJaTg1JopmL']);
 });
 
 test('searchUnits matches class, group, and kind, and includes machine-approved units', () => {
   const byClass = searchUnits(allUnits, 'dangling-anchor-dropped');
-  assert.deepEqual(byClass.matches.map((unit) => unit.id).sort(), ['u-CKS1rpqQsLb', 'u-JSRuJ51yvVj']);
+  assert.deepEqual(byClass.matches.map((unit) => unit.id).sort(), ['u-GWzZVqhrmiS', 'u-bJaTg1JopmL']);
   const extension = searchUnits(allUnits, 'extension');
-  assert.deepEqual(extension.matches.map((unit) => unit.id), ['u-RNA7DFboKfW']);
+  assert.deepEqual(extension.matches.map((unit) => unit.id), ['u-YkZRtKREEVF']);
   assert.equal(extension.matches[0].ink_identical, true, 'a machine-approved unit is still findable');
 });
 
 test('searchUnits requires every whitespace-separated token to match (AND)', () => {
-  assert.deepEqual(searchUnits(allUnits, 'tea oy').matches.map((unit) => unit.id).sort(), ['u-5vrBNy2RYrJ', 'u-fyt9pUaPbr6']);
+  assert.deepEqual(searchUnits(allUnits, 'tea oy').matches.map((unit) => unit.id).sort(), ['u-DG5XZLCzsT9', 'u-j12KWNP3e7g']);
   assert.equal(searchUnits(allUnits, 'tea exam').total, 0);
 });
 
 test('searchUnits ranks an exact id hit ahead of incidental substring hits', () => {
   // Only one fixture unit contains this id. searchScore ranks an exact id match first, so it would stay first even if another unit's haystack contained the id.
-  const { matches } = searchUnits(allUnits, 'u-JSRuJ51yvVj');
-  assert.equal(matches[0].id, 'u-JSRuJ51yvVj');
+  const { matches } = searchUnits(allUnits, 'u-GWzZVqhrmiS');
+  assert.equal(matches[0].id, 'u-GWzZVqhrmiS');
 });
 
 test('searchUnits caps the matches at the limit but reports the true total', () => {

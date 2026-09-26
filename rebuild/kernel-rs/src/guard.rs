@@ -134,7 +134,7 @@ impl<'i> GuardState<'i> {
         Ok(None)
     }
 
-    /// One configuration's verdict: blocked only when the unformed trail offers some seam toward the follower, its ranking-grain trace commits one, and the formed ligature offers none. The checks run in that order, and the first that fails makes the verdict free.
+    /// One configuration's verdict: blocked only when the unformed trail offers some junction toward the follower, its ranking-grain trace commits one, and the formed ligature offers none. The checks run in that order, and the first that fails makes the verdict free.
     fn blocked_under(
         engine: &mut Engine<'i>,
         liga: Sym,
@@ -173,14 +173,14 @@ impl<'i> GuardState<'i> {
                     exit: None,
                     adjustments: Vec::new(),
                 },
-                seam: None,
+                junction: None,
                 extension: 0,
             },
         );
         if !engine
             .candidates(&synthetic_left, trail, right1, right2, None)?
             .iter()
-            .any(|candidate| candidate.seam.is_some())
+            .any(|candidate| candidate.junction.is_some())
         {
             return Ok(false);
         }
@@ -193,7 +193,7 @@ impl<'i> GuardState<'i> {
                 Slots::new(right1, right2, EDGE, EDGE),
             )?
             .settled
-            .seam
+            .junction
             .is_none()
         {
             return Ok(false);
@@ -207,7 +207,7 @@ impl<'i> GuardState<'i> {
                 None,
             )?
             .iter()
-            .any(|candidate| candidate.seam.is_some()))
+            .any(|candidate| candidate.junction.is_some()))
     }
 }
 

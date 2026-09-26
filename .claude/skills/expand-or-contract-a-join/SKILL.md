@@ -10,19 +10,19 @@ A pixel change on one already-joining rebuild pair. The record lives on a rune u
 
 ## 1 — pin the request
 
-- Pair `·X·Y` is left then right. Height is probably `baseline` or `x-height` (the live seam is in a probe of the pair). Amount defaults to 1.
+- Pair `·X·Y` is left then right. Height is probably `baseline` or `x-height` (the live junction is in a probe of the pair). Amount defaults to 1.
 - Codepoints: `doc/glyph-names.md`. Confirm both runes already list each other on that height (`toward:` / `from:`).
 
 ## 2 — look for an opposing adjustment first, then pick one side and fold
 
-The two sides of a seam stack; they do not cancel. Before adding a contract, search **both** runes' `policy.extend` for a record that already covers this pair at this height with the same `feature:` / `self:` / `then:` guards the user scoped (pair-wide means no extra guards). If one exists, reduce that extend by N: drop the family from its list (delete the record when the list empties; a remaining single family goes back to flow `{family: qsGay}`), or if its `by` is larger than N, lower `by`. Only author a new contract for leftover amount. Same in reverse when the user asks to extend and a covering contract already exists.
+The two sides of a junction stack; they do not cancel. Before adding a contract, search **both** runes' `policy.extend` for a record that already covers this pair at this height with the same `feature:` / `self:` / `then:` guards the user scoped (pair-wide means no extra guards). If one exists, reduce that extend by N: drop the family from its list (delete the record when the list empties; a remaining single family goes back to flow `{family: qsGay}`), or if its `by` is larger than N, lower `by`. Only author a new contract for leftover amount. Same in reverse when the user asks to extend and a covering contract already exists.
 
 Honor an explicit side ("·Key's foot", "like the other ·Key contractions") when adding. Otherwise:
 
 - **Extend `·X·Y`:** qsX, `exit: <height>`, `when.right` includes qsY.
 - **Contract `·X·Y`:** qsY, `entry: <height>`, `when.left` includes qsX.
 
-If that side already has a record at this height with a **different** `by`, put the new `by` on the other side of the seam instead.
+If that side already has a record at this height with a **different** `by`, put the new `by` on the other side of the junction instead.
 
 Then look at that rune's `policy.extend` / `policy.contract` for a record that is already this side, this height, and this `by`. If one exists, add the family to its `family:` list in code-point order (`postscript_glyph_names.yaml`). Do not add a second record with the same shape — qsEt's two `exit: baseline, by: 1` records (qsGay / qsMay) is the split not to copy; qsJai's `left: [qsPea, qsTea]` is the fold.
 
@@ -34,7 +34,7 @@ Do not add `self:` / `then:` / `feature:` guards unless the user scoped the chan
 
 `uv run python rebuild/tools/probe.py E6XX:E6XX E6XX:E6XX …` — every window in one call, every acceptance config, one block per window in argument order. Before the edit, capture the pair and its must-not-move neighbors in one invocation to a file; after the edit, run the same invocation and diff:
 
-- The pair itself: the adjusted cell gains or drops `en-ext-N` / `ex-ext-N` / `en-con-N` / `ex-con-N` and the seam height is unchanged. Dropping an extend of N is the contraction — the cell loses `ex-ext-N` / `en-ext-N`; it does not pick up a contract token.
+- The pair itself: the adjusted cell gains or drops `en-ext-N` / `ex-ext-N` / `en-con-N` / `ex-con-N` and the junction height is unchanged. Dropping an extend of N is the contraction — the cell loses `ex-ext-N` / `en-ext-N`; it does not pick up a contract token.
 - A must-not-move neighbor on each side (a different left into Y, a different right out of X) stays byte-identical to the pre-edit probe.
 - If you changed a shared list, probe a sibling still on it — it must not move.
 

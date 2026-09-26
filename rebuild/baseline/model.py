@@ -30,7 +30,7 @@ CONFIGS: dict[str, dict[str, bool]] = {
     "ss03+ss05": {"ss03": True, "ss05": True},
 }
 
-SEAM_TOKENS: tuple[str, ...] = ("y0", "y5", "y6", "y8", "lig", "break")
+JUNCTION_TOKENS: tuple[str, ...] = ("y0", "y5", "y6", "y8", "lig", "break")
 
 
 @dataclass(frozen=True)
@@ -38,7 +38,7 @@ class Row:
     codepoints: tuple[int, ...]
     glyphs: tuple[str, ...]
     clusters: tuple[int, ...]
-    seams: tuple[str, ...]
+    junctions: tuple[str, ...]
     positions: tuple[tuple[int, int, int], ...]
 
     def to_tsv(self) -> str:
@@ -47,19 +47,19 @@ class Row:
                 codepoints_field(self.codepoints),
                 "|".join(self.glyphs),
                 ",".join(str(cluster) for cluster in self.clusters),
-                ",".join(self.seams),
+                ",".join(self.junctions),
                 "|".join(f"{x},{y},{advance}" for x, y, advance in self.positions),
             )
         )
 
     @classmethod
     def from_tsv(cls, line: str) -> "Row":
-        codepoints, glyphs, clusters, seams, positions = line.rstrip("\n").split("\t")
+        codepoints, glyphs, clusters, junctions, positions = line.rstrip("\n").split("\t")
         return cls(
             codepoints=tuple(int(part, 16) for part in codepoints.split(":")),
             glyphs=tuple(glyphs.split("|")),
             clusters=tuple(int(part) for part in clusters.split(",")),
-            seams=tuple(seams.split(",")) if seams else (),
+            junctions=tuple(junctions.split(",")) if junctions else (),
             positions=tuple(_parse_position(part) for part in positions.split("|")),
         )
 
@@ -102,7 +102,7 @@ def render_header(
     if subset is not None:
         lines.append(f"# subset: {subset}")
     lines.append(f"# alphabet_sha256: {alphabet_sha256}")
-    lines.append("# columns: codepoints glyphs clusters seams positions")
+    lines.append("# columns: codepoints glyphs clusters junctions positions")
     return lines
 
 

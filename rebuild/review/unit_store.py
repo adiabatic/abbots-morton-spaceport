@@ -1,12 +1,12 @@
 """Packed per-unit state that the corpus build's parent holds from the plan boundary to the cache write. Every phase-1 product that the whole-corpus passes and the store writer read is kept in fixed-width `array` columns indexed by the unit's ordinal, instead of as objects per unit.
 
-Columns avoid per-object overhead: a tuple header per span, a pointer per name, a dict per unit for the deltas, a string object per digest. The same state held as one slotted record per unit measured 1,192 bytes a unit against 171 packed (the `units states` tally line in `var/issue-299/stage1-cold.log`). A `UnitStore` is allocated once with the row count. Each fixed-width field is one `array` typed by width: flag bits in a byte, string ids as `u32`, the content and input keys as 32-byte slices of one `bytearray` each, and an address as a part id, a `u64` start and a `u32` length. Each variable-length field (the window's codepoints, the ink deltas, the after and before rows of the seam-home projection, the secondary seams with their rects and homes) is an offset and a count into a side array, so an empty field costs only its offsets and count. The mismatch lines are kept as objects in a dict keyed by ordinal. A shipping build has none, because the write fails when any exist, so a column for them would hold only empty offsets.
+Columns avoid per-object overhead: a tuple header per span, a pointer per name, a dict per unit for the deltas, a string object per digest. The same state held as one slotted record per unit measured 1,192 bytes a unit against 171 packed (the `units states` tally line in `var/issue-299/stage1-cold.log`). A `UnitStore` is allocated once with the row count. Each fixed-width field is one `array` typed by width: flag bits in a byte, string ids as `u32`, the content and input keys as 32-byte slices of one `bytearray` each, and an address as a part id, a `u64` start and a `u32` length. Each variable-length field (the window's codepoints, the ink deltas, the after and before rows of the primary-unit projection, the secondary junctions with their rects and primary units) is an offset and a count into a side array, so an empty field costs only its offsets and count. The mismatch lines are kept as objects in a dict keyed by ordinal. A shipping build has none, because the write fails when any exist, so a column for them would hold only empty offsets.
 
-The ordinal is the unit's row in the workload table (`audit.UnitTable`) after the ink-duplicate merge compacts it, and the store is allocated over the same count, so one index reads both tables. The two tables share one string table, passed in as `strings`. The plan's keyer loop writes every input key (`set_input_key`) before any row is loaded, and a load that carries an input key must match the one already written. The unit id is not stored. `unit_cache.unit_id_for` writes the first 64 bits of the content key as eleven base58 symbols over an ASCII-ordered alphabet, so the id is the key's first eight bytes read big-endian (`id_word`), and ids sort as strings in the same order as those integers. The home-resolution pass breaks ties on the integer. Readers that hold an id string (the checker's cached-id lookup, the verification sample, `set_homes` given a string) go through `ordinal_of`, a bisect over the sorted words, built once after the load. That build fails on a repeated id, because two windows with one 64-bit prefix would share a fragment address.
+The ordinal is the unit's row in the workload table (`audit.UnitTable`) after the ink-duplicate merge compacts it, and the store is allocated over the same count, so one index reads both tables. The two tables share one string table, passed in as `strings`. The plan's keyer loop writes every input key (`set_input_key`) before any row is loaded, and a load that carries an input key must match the one already written. The unit id is not stored. `unit_cache.unit_id_for` writes the first 64 bits of the content key as eleven base58 symbols over an ASCII-ordered alphabet, so the id is the key's first eight bytes read big-endian (`id_word`), and ids sort as strings in the same order as those integers. The primary-unit resolution pass breaks ties on the integer. Readers that hold an id string (the checker's cached-id lookup, the verification sample, `set_primary_units` given a string) go through `ordinal_of`, a bisect over the sorted words, built once after the load. That build fails on a repeated id, because two windows with one 64-bit prefix would share a fragment address.
 
-Every string (a digest, a cluster, an unmatched group, a config name, a glyph or cell name, a seam token, a part name, a class, a duplicate-group id, a policy file, a config note) is an id into one `columns.StringTable`, which interns through `sys.intern` and assigns ids in first-seen order as the load runs. In a pooled build that order depends on timing, but no output byte depends on it, because every accessor returns the string. Id 0 is the empty string, which the accessors read as `""` for a required field and as `None` for an optional one.
+Every string (a digest, a cluster, an unmatched group, a config name, a glyph or cell name, a junction token, a part name, a class, a duplicate-group id, a policy file, a config note) is an id into one `columns.StringTable`, which interns through `sys.intern` and assigns ids in first-seen order as the load runs. In a pooled build that order depends on timing, but no output byte depends on it, because every accessor returns the string. Id 0 is the empty string, which the accessors read as `""` for a required field and as `None` for an optional one.
 
-The accessors build one unit's values on demand, in the shapes the build writes: `seam_home` is the `enrich.SeamHomeUnit` the home-resolution pass compares, `seam_home_record` the `proj` dict of a store record, `seam_rects` the `[{"pair", "before", "after"}]` list `patch_fragment` reads, `homes_record` the `[[home, suppressed]]` list, `cached_unit` the `unit_cache.CachedUnit` for `record_line`, and `source` the `unit_cache.PriorFragment` the fragment is read back through. JSON key order is part of the shipped bytes, so each accessor builds its dicts in the order the writer reads them, and the load raises on input it could not rebuild byte for byte: rect dicts whose keys are not `x_min`, `x_max`, `advance_total` in that order, and rows whose spans, names and seams disagree in length. The store is also the home-resolution pass's `enrich.SeamHomeSource` (`windows`, `seam_count`, `projection`, `id_word`, `invisible` and `set_homes`), so `enrich.resolve_home_assignments` skips units with no secondary seam without building anything and writes its result straight into the seam side column.
+The accessors build one unit's values on demand, in the shapes the build writes: `primary_unit_projection` is the `enrich.PrimaryUnitProjection` the primary-unit resolution pass compares, `primary_unit_projection_record` the `proj` dict of a store record, `junction_rects` the `[{"pair", "before", "after"}]` list `patch_fragment` reads, `primary_units_record` the `[[primary_unit, suppressed]]` list, `cached_unit` the `unit_cache.CachedUnit` for `record_line`, and `source` the `unit_cache.PriorFragment` the fragment is read back through. JSON key order is part of the shipped bytes, so each accessor builds its dicts in the order the writer reads them, and the load raises on input it could not rebuild byte for byte: rect dicts whose keys are not `x_min`, `x_max`, `advance_total` in that order, and rows whose spans, names and junctions disagree in length. The store is also the primary-unit resolution pass's `enrich.PrimaryUnitSource` (`windows`, `junction_count`, `projection`, `id_word`, `invisible` and `set_primary_units`), so `enrich.resolve_primary_unit_assignments` skips units with no secondary junction without building anything and writes its result straight into the junction side column.
 
 `sizes` reports the store to the debug tally (`memory_tally.column_sizes`). The packed figure is the arrays' bytes plus the mismatch lines, with the string table printed beside it. The walked figure adds the table only when the store owns it; a store built over the workload table's strings reports its rows alone, because the workload table's tally line already counts the table.
 """
@@ -25,7 +25,7 @@ from rebuild.tools import memory_tally
 
 KEY_BYTES = 32
 ID_BYTES = 8
-NO_HOME = 0xFFFFFFFF
+NO_PRIMARY_UNIT = 0xFFFFFFFF
 RECT_EDGES = ("x_min", "x_max", "advance_total")
 
 INK_IDENTICAL = 1
@@ -87,9 +87,9 @@ class RecomputedProjection(Protocol):
     @property
     def pair_codepoints(self) -> tuple[int, int] | None: ...
     @property
-    def seam_home(self) -> enrich.SeamHomeUnit: ...
+    def primary_unit_projection(self) -> enrich.PrimaryUnitProjection: ...
     @property
-    def seam_rects(self) -> tuple[tuple[tuple[int, int], dict, dict], ...]: ...
+    def junction_rects(self) -> tuple[tuple[tuple[int, int], dict, dict], ...]: ...
     @property
     def mismatches(self) -> tuple[str, ...]: ...
 
@@ -113,9 +113,9 @@ def id_word_of(unit_id: str) -> int:
 
 
 def _rect_edges(edge: dict) -> tuple[int, int, int]:
-    """Return one highlight rect's three edges. The dict must hold exactly `RECT_EDGES` in `enrich._highlight`'s order, because `seam_rects` rebuilds the dict from the three integers and any other shape would not round-trip byte for byte."""
+    """Return one highlight rect's three edges. The dict must hold exactly `RECT_EDGES` in `enrich._highlight`'s order, because `junction_rects` rebuilds the dict from the three integers and any other shape would not round-trip byte for byte."""
     if tuple(edge) != RECT_EDGES:
-        raise ValueError(f"a seam rect edge holds {RECT_EDGES}, not {tuple(edge)}")
+        raise ValueError(f"a junction rect edge holds {RECT_EDGES}, not {tuple(edge)}")
     return int(edge["x_min"]), int(edge["x_max"]), int(edge["advance_total"])
 
 
@@ -158,28 +158,28 @@ class UnitStore:
         self._deltas_start = array("I", [0]) * n
         self._deltas_n = array("B", [0]) * n
         self._after_start = array("I", [0]) * n
-        self._after_seam_start = array("I", [0]) * n
+        self._after_junction_start = array("I", [0]) * n
         self._after_n = array("B", [0]) * n
         self._before_start = array("I", [0]) * n
-        self._before_seam_start = array("I", [0]) * n
+        self._before_junction_start = array("I", [0]) * n
         self._before_n = array("B", [0]) * n
-        self._seam_start = array("I", [0]) * n
-        self._seam_n = array("B", [0]) * n
+        self._junction_start = array("I", [0]) * n
+        self._junction_n = array("B", [0]) * n
         self._codepoint_values = array("H")
         self._delta_config = array("I")
         self._delta_digest = array("I")
         self._after_spans = array("H")
         self._after_cells = array("I")
-        self._after_seams = array("I")
+        self._after_junctions = array("I")
         self._before_spans = array("H")
         self._before_glyphs = array("I")
-        self._before_seams = array("I")
-        self._seam_pairs = array("b")
+        self._before_junctions = array("I")
+        self._junction_pairs = array("b")
         self._rect_edges = array("i")
-        self._home = array("I")
-        self._home_suppressed = array("B")
-        self._cached_home = array("I")
-        self._cached_home_suppressed = array("B")
+        self._primary_unit = array("I")
+        self._primary_unit_suppressed = array("B")
+        self._cached_primary_unit = array("I")
+        self._cached_primary_unit_suppressed = array("B")
         self._mismatches: dict[int, tuple[str, ...]] = {}
         self._id_words: array | None = None
         self._id_ordinals: array | None = None
@@ -239,94 +239,100 @@ class UnitStore:
         ordinal: int,
         spans: Sequence[tuple[int, int]],
         names: Sequence[str],
-        seams: Sequence[str],
+        junctions: Sequence[str],
         start_column: array,
-        seam_start_column: array,
+        junction_start_column: array,
         count_column: array,
         span_column: array,
         name_column: array,
-        seam_column: array,
+        junction_column: array,
         label: str,
     ) -> None:
-        """Load one side of the seam-home projection: `n` spans, `n` names and `n - 1` seams (a seam sits between two adjacent cells or glyphs; see `Enricher.enrich`) under one count. Raises when the three lengths disagree, instead of truncating. The seams have their own start offset, because a column one entry shorter per row cannot share the names' offsets."""
+        """Load one side of the primary-unit projection: `n` spans, `n` names and `n - 1` junctions (a junction sits between two adjacent cells or glyphs; see `Enricher.enrich`) under one count. Raises when the three lengths disagree, instead of truncating. The junctions have their own start offset, because a column one entry shorter per row cannot share the names' offsets."""
         count = len(spans)
-        if len(names) != count or len(seams) != max(count - 1, 0):
+        if len(names) != count or len(junctions) != max(count - 1, 0):
             raise ValueError(
-                f"ordinal {ordinal}: {label} row holds {count} spans, {len(names)} names and {len(seams)} seams"
+                f"ordinal {ordinal}: {label} row holds {count} spans, {len(names)} names and {len(junctions)} junctions"
             )
         start_column[ordinal] = len(name_column)
-        seam_start_column[ordinal] = len(seam_column)
+        junction_start_column[ordinal] = len(junction_column)
         count_column[ordinal] = count
         for span in spans:
             span_column.append(span[0])
             span_column.append(span[1])
         name_column.extend(self._table.id(name) for name in names)
-        seam_column.extend(self._table.id(seam) for seam in seams)
+        junction_column.extend(self._table.id(junction) for junction in junctions)
 
-    def _load_projection_rows(self, ordinal: int, seam_home: enrich.SeamHomeUnit) -> None:
+    def _load_projection_rows(
+        self, ordinal: int, primary_unit_projection: enrich.PrimaryUnitProjection
+    ) -> None:
         self._codepoints_start[ordinal] = len(self._codepoint_values)
-        self._codepoints_n[ordinal] = len(seam_home.codepoint_values)
-        self._codepoint_values.extend(seam_home.codepoint_values)
-        if seam_home.pair is not None:
-            self._cell_pair_l[ordinal], self._cell_pair_r[ordinal] = seam_home.pair
+        self._codepoints_n[ordinal] = len(primary_unit_projection.codepoint_values)
+        self._codepoint_values.extend(primary_unit_projection.codepoint_values)
+        if primary_unit_projection.pair is not None:
+            self._cell_pair_l[ordinal], self._cell_pair_r[ordinal] = primary_unit_projection.pair
         self._load_row(
             ordinal,
-            seam_home.after_spans,
-            seam_home.after_cells,
-            seam_home.after_seams,
+            primary_unit_projection.after_spans,
+            primary_unit_projection.after_cells,
+            primary_unit_projection.after_junctions,
             self._after_start,
-            self._after_seam_start,
+            self._after_junction_start,
             self._after_n,
             self._after_spans,
             self._after_cells,
-            self._after_seams,
+            self._after_junctions,
             "after",
         )
         self._load_row(
             ordinal,
-            seam_home.before_spans,
-            seam_home.before_glyphs,
-            seam_home.before_seams,
+            primary_unit_projection.before_spans,
+            primary_unit_projection.before_glyphs,
+            primary_unit_projection.before_junctions,
             self._before_start,
-            self._before_seam_start,
+            self._before_junction_start,
             self._before_n,
             self._before_spans,
             self._before_glyphs,
-            self._before_seams,
+            self._before_junctions,
             "before",
         )
 
-    def _load_seams(
+    def _load_junctions(
         self,
         ordinal: int,
-        seam_pairs: Sequence[tuple[int, int]],
+        junction_pairs: Sequence[tuple[int, int]],
         rects: Sequence[tuple[Sequence[int], dict, dict]],
-        cached_homes: Sequence[Sequence] | None,
+        cached_primary_units: Sequence[Sequence] | None,
     ) -> None:
-        """Load the secondary-seam side column, where one count covers the seam pairs, the rects and both home columns. Raises unless the rects name the projection's seam pairs in order (the build derives both from the unit's secondary seams) and a cached record has one home per seam."""
-        count = len(seam_pairs)
+        """Load the secondary-junction side column, where one count covers the junction pairs, the rects and both primary unit columns. Raises unless the rects name the projection's junction pairs in order (the build derives both from the unit's secondary junctions) and a cached record has one primary unit per junction."""
+        count = len(junction_pairs)
         if len(rects) != count:
-            raise ValueError(f"ordinal {ordinal}: {count} seam pairs beside {len(rects)} seam rects")
-        if cached_homes is not None and len(cached_homes) != count:
-            raise ValueError(f"ordinal {ordinal}: {count} seams beside {len(cached_homes)} cached homes")
-        self._seam_start[ordinal] = len(self._home)
-        self._seam_n[ordinal] = count
-        for pair, (rect_pair, before, after) in zip(seam_pairs, rects):
+            raise ValueError(f"ordinal {ordinal}: {count} junction pairs beside {len(rects)} junction rects")
+        if cached_primary_units is not None and len(cached_primary_units) != count:
+            raise ValueError(
+                f"ordinal {ordinal}: {count} junctions beside {len(cached_primary_units)} cached primary_units"
+            )
+        self._junction_start[ordinal] = len(self._primary_unit)
+        self._junction_n[ordinal] = count
+        for pair, (rect_pair, before, after) in zip(junction_pairs, rects):
             if tuple(rect_pair) != tuple(pair):
-                raise ValueError(f"ordinal {ordinal}: seam rect pair {rect_pair} is not seam pair {pair}")
-            self._seam_pairs.append(pair[0])
-            self._seam_pairs.append(pair[1])
+                raise ValueError(
+                    f"ordinal {ordinal}: junction rect pair {rect_pair} is not junction pair {pair}"
+                )
+            self._junction_pairs.append(pair[0])
+            self._junction_pairs.append(pair[1])
             self._rect_edges.extend(_rect_edges(before))
             self._rect_edges.extend(_rect_edges(after))
-        self._home.extend([NO_HOME] * count)
-        self._home_suppressed.extend([0] * count)
-        if cached_homes is None:
-            self._cached_home.extend([0] * count)
-            self._cached_home_suppressed.extend([0] * count)
+        self._primary_unit.extend([NO_PRIMARY_UNIT] * count)
+        self._primary_unit_suppressed.extend([0] * count)
+        if cached_primary_units is None:
+            self._cached_primary_unit.extend([0] * count)
+            self._cached_primary_unit_suppressed.extend([0] * count)
         else:
-            for home, suppressed in cached_homes:
-                self._cached_home.append(self._table.optional(home))
-                self._cached_home_suppressed.append(1 if suppressed else 0)
+            for primary_unit, suppressed in cached_primary_units:
+                self._cached_primary_unit.append(self._table.optional(primary_unit))
+                self._cached_primary_unit_suppressed.append(1 if suppressed else 0)
 
     def _load_source(self, ordinal: int, address: Address | unit_cache.PriorFragment | None) -> None:
         if address is None:
@@ -348,19 +354,19 @@ class UnitStore:
         ordinal: int | None = None,
         address: Address | unit_cache.PriorFragment | None = None,
     ) -> int:
-        """Load one recomputed unit's phase-1 projection into its row and return the ordinal. The ordinal is the argument, else the projection's `ordinal`. The spool address is the argument (a `(part, start, length)` triple or the spool's `PriorFragment`), else the projection's `part`, `start` and `length`, else absent, in which case `source` returns None. `no_verdict` is the ledger's exemption for the unit (the workload table's flag); with the three machine flags it sets the `slim` bit, the fragment shape the drafting wrote (`audit.slim_fragment`). Raises when the seam-home projection's ink flags disagree with the projection's, because `seam_home` reads them from the flag column. `ink_deltas` returns the deltas in the order loaded here, which is the fragment's JSON order."""
+        """Load one recomputed unit's phase-1 projection into its row and return the ordinal. The ordinal is the argument, else the projection's `ordinal`. The spool address is the argument (a `(part, start, length)` triple or the spool's `PriorFragment`), else the projection's `part`, `start` and `length`, else absent, in which case `source` returns None. `no_verdict` is the ledger's exemption for the unit (the workload table's flag); with the three machine flags it sets the `slim` bit, the fragment shape the drafting wrote (`audit.slim_fragment`). Raises when the primary-unit projection's ink flags disagree with the projection's, because `primary_unit_projection` reads them from the flag column. `ink_deltas` returns the deltas in the order loaded here, which is the fragment's JSON order."""
         if ordinal is None:
             ordinal = projection.ordinal
             if ordinal < 0:
                 raise ValueError(f"no ordinal for unit {projection.unit_id}")
         if address is None and projection.part:
             address = (projection.part, projection.start, projection.length)
-        seam_home = projection.seam_home
-        if (seam_home.ink_identical, seam_home.picture_identical) != (
+        primary_unit_projection = projection.primary_unit_projection
+        if (primary_unit_projection.ink_identical, primary_unit_projection.picture_identical) != (
             projection.ink_identical,
             projection.picture_identical,
         ):
-            raise ValueError(f"ordinal {ordinal}: the seam-home projection's ink flags are not the unit's")
+            raise ValueError(f"ordinal {ordinal}: the primary-unit projection's ink flags are not the unit's")
         self._begin(ordinal)
         self._load_keys(ordinal, projection.unit_id, projection.content_key, projection.input_key)
         approved = projection.ink_identical or projection.picture_identical or projection.junior_equivalent
@@ -376,8 +382,8 @@ class UnitStore:
         if projection.pair_codepoints is not None:
             self._pair_l[ordinal], self._pair_r[ordinal] = projection.pair_codepoints
         self._load_deltas(ordinal, projection.ink_deltas)
-        self._load_projection_rows(ordinal, seam_home)
-        self._load_seams(ordinal, seam_home.seam_pairs, projection.seam_rects, None)
+        self._load_projection_rows(ordinal, primary_unit_projection)
+        self._load_junctions(ordinal, primary_unit_projection.junction_pairs, projection.junction_rects, None)
         self._load_source(ordinal, address)
         if projection.mismatches:
             self._mismatches[ordinal] = tuple(projection.mismatches)
@@ -391,7 +397,7 @@ class UnitStore:
         codepoints: tuple[int, ...],
         found: unit_cache.PriorFragment | None = None,
     ) -> int:
-        """Load one cached unit's store record into its row and return the ordinal. `found` is the prior fragment the plan located for the record, by default the record's own address (`ParsedCachedUnit.located`), and becomes the row's source. It must carry the record's id and content key, because the plan reuses a unit only when they match. `codepoints` is the unit's window, which the workload table has and the record does not. The record's class, duplicate group, exemplar and exemption flags, homes and policy file are stored as the record holds them, and `cached_as_is` compares them with this build's values."""
+        """Load one cached unit's store record into its row and return the ordinal. `found` is the prior fragment the plan located for the record, by default the record's own address (`ParsedCachedUnit.located`), and becomes the row's source. It must carry the record's id and content key, because the plan reuses a unit only when they match. `codepoints` is the unit's window, which the workload table has and the record does not. The record's class, duplicate group, exemplar and exemption flags, primary units and policy file are stored as the record holds them, and `cached_as_is` compares them with this build's values."""
         if found is None:
             found = cached.located()
         if found is None:
@@ -422,7 +428,7 @@ class UnitStore:
         self._load_deltas(ordinal, cached.ink_deltas.items())
         self._load_projection_rows(
             ordinal,
-            enrich.SeamHomeUnit(
+            enrich.PrimaryUnitProjection(
                 unit_id=cached.prior_id,
                 codepoint_values=codepoints,
                 ink_identical=cached.ink_identical,
@@ -430,15 +436,17 @@ class UnitStore:
                 pair=cached.pair,
                 after_spans=cached.after_spans,
                 after_cells=cached.after_cells,
-                after_seams=cached.after_seams,
+                after_junctions=cached.after_junctions,
                 before_spans=cached.before_spans,
                 before_glyphs=cached.before_glyphs,
-                before_seams=cached.before_seams,
-                seam_pairs=cached.seam_pairs,
+                before_junctions=cached.before_junctions,
+                junction_pairs=cached.junction_pairs,
             ),
         )
-        rects = [(seam["pair"], seam["before"], seam["after"]) for seam in cached.seam_rects]
-        self._load_seams(ordinal, cached.seam_pairs, rects, cached.homes)
+        rects = [
+            (junction["pair"], junction["before"], junction["after"]) for junction in cached.junction_rects
+        ]
+        self._load_junctions(ordinal, cached.junction_pairs, rects, cached.primary_units)
         self._load_source(ordinal, found)
         if cached.mismatches:
             self._mismatches[ordinal] = tuple(cached.mismatches)
@@ -507,7 +515,7 @@ class UnitStore:
         )
 
     def invisible(self, ordinal: int) -> bool:
-        """Whether the unit is ink- or picture-identical: a seam homed on it is suppressed."""
+        """Whether the unit is ink- or picture-identical: a junction with this unit as its primary unit is suppressed."""
         return bool(self._flags[ordinal] & (INK_IDENTICAL | PICTURE_IDENTICAL))
 
     def machine_flags(self, ordinal: int) -> tuple[bool, bool, bool]:
@@ -544,7 +552,7 @@ class UnitStore:
         return None if left < 0 else (left, self._pair_r[ordinal])
 
     def cell_pair(self, ordinal: int) -> tuple[int, int] | None:
-        """Return the judged pair as after-cell indices, or None: `SeamHomeUnit.pair`, and the `pair` in a store record's `proj`, which `_cached_identity` reads."""
+        """Return the judged pair as after-cell indices, or None: `PrimaryUnitProjection.pair`, and the `pair` in a store record's `proj`, which `_cached_identity` reads."""
         left = self._cell_pair_l[ordinal]
         return None if left < 0 else (left, self._cell_pair_r[ordinal])
 
@@ -623,20 +631,20 @@ class UnitStore:
         table = self._table
         return tuple(table[index] for index in column[start : start + count])
 
-    def seam_count(self, ordinal: int) -> int:
-        return self._seam_n[ordinal]
+    def junction_count(self, ordinal: int) -> int:
+        return self._junction_n[ordinal]
 
-    def seam_pairs(self, ordinal: int) -> tuple[tuple[int, int], ...]:
-        return self._spans(self._seam_pairs, self._seam_start[ordinal], self._seam_n[ordinal])
+    def junction_pairs(self, ordinal: int) -> tuple[tuple[int, int], ...]:
+        return self._spans(self._junction_pairs, self._junction_start[ordinal], self._junction_n[ordinal])
 
-    def seam_home(self, ordinal: int) -> enrich.SeamHomeUnit:
-        """Return the unit's `SeamHomeUnit`, equal to the one loaded (for a cached unit, the record's tuples plus the unit's window and id)."""
-        return self._seam_home(ordinal, self.unit_id(ordinal))
+    def primary_unit_projection(self, ordinal: int) -> enrich.PrimaryUnitProjection:
+        """Return the unit's `PrimaryUnitProjection`, equal to the one loaded (for a cached unit, the record's tuples plus the unit's window and id)."""
+        return self._primary_unit_projection(ordinal, self.unit_id(ordinal))
 
-    def _seam_home(self, ordinal: int, unit_id: str) -> enrich.SeamHomeUnit:
+    def _primary_unit_projection(self, ordinal: int, unit_id: str) -> enrich.PrimaryUnitProjection:
         after_start, after_n = self._after_start[ordinal], self._after_n[ordinal]
         before_start, before_n = self._before_start[ordinal], self._before_n[ordinal]
-        return enrich.SeamHomeUnit(
+        return enrich.PrimaryUnitProjection(
             unit_id=unit_id,
             codepoint_values=self.codepoints(ordinal),
             ink_identical=bool(self._flags[ordinal] & INK_IDENTICAL),
@@ -644,16 +652,18 @@ class UnitStore:
             pair=self.cell_pair(ordinal),
             after_spans=self._spans(self._after_spans, after_start, after_n),
             after_cells=self._names(self._after_cells, after_start, after_n),
-            after_seams=self._names(self._after_seams, self._after_seam_start[ordinal], max(after_n - 1, 0)),
+            after_junctions=self._names(
+                self._after_junctions, self._after_junction_start[ordinal], max(after_n - 1, 0)
+            ),
             before_spans=self._spans(self._before_spans, before_start, before_n),
             before_glyphs=self._names(self._before_glyphs, before_start, before_n),
-            before_seams=self._names(
-                self._before_seams, self._before_seam_start[ordinal], max(before_n - 1, 0)
+            before_junctions=self._names(
+                self._before_junctions, self._before_junction_start[ordinal], max(before_n - 1, 0)
             ),
-            seam_pairs=self.seam_pairs(ordinal),
+            junction_pairs=self.junction_pairs(ordinal),
         )
 
-    def seam_home_record(self, ordinal: int) -> dict:
+    def primary_unit_projection_record(self, ordinal: int) -> dict:
         """Return the `proj` dict of a store record, key for key and list for list, built from the columns."""
         after_start, after_n = self._after_start[ordinal], self._after_n[ordinal]
         before_start, before_n = self._before_start[ordinal], self._before_n[ordinal]
@@ -662,20 +672,22 @@ class UnitStore:
             "pair": list(pair) if pair else None,
             "after_spans": [list(span) for span in self._spans(self._after_spans, after_start, after_n)],
             "after_cells": list(self._names(self._after_cells, after_start, after_n)),
-            "after_seams": list(
-                self._names(self._after_seams, self._after_seam_start[ordinal], max(after_n - 1, 0))
+            "after_junctions": list(
+                self._names(self._after_junctions, self._after_junction_start[ordinal], max(after_n - 1, 0))
             ),
             "before_spans": [list(span) for span in self._spans(self._before_spans, before_start, before_n)],
             "before_glyphs": list(self._names(self._before_glyphs, before_start, before_n)),
-            "before_seams": list(
-                self._names(self._before_seams, self._before_seam_start[ordinal], max(before_n - 1, 0))
+            "before_junctions": list(
+                self._names(
+                    self._before_junctions, self._before_junction_start[ordinal], max(before_n - 1, 0)
+                )
             ),
         }
 
-    def seam_rects(self, ordinal: int) -> list[dict]:
-        """Return the unit's secondary-seam rects in the shape `patch_fragment` reads and the store record keeps: the `{"pair", "before", "after"}` list `build._seam_records` writes, with each edge dict in `enrich._highlight`'s key order."""
-        start, count = self._seam_start[ordinal], self._seam_n[ordinal]
-        pairs = self._seam_pairs[2 * start : 2 * (start + count)]
+    def junction_rects(self, ordinal: int) -> list[dict]:
+        """Return the unit's secondary-junction rects in the shape `patch_fragment` reads and the store record keeps: the `{"pair", "before", "after"}` list `build._junction_records` writes, with each edge dict in `enrich._highlight`'s key order."""
+        start, count = self._junction_start[ordinal], self._junction_n[ordinal]
+        pairs = self._junction_pairs[2 * start : 2 * (start + count)]
         edges = self._rect_edges[6 * start : 6 * (start + count)]
         return [
             {
@@ -686,59 +698,65 @@ class UnitStore:
             for index in range(count)
         ]
 
-    def set_homes(self, ordinal: int, seam_assign: Sequence[tuple[int | str | None, bool]]) -> None:
-        """Record the home-resolution pass's result for the unit: one `(home, suppressed)` per seam, in seam order. A home is an ordinal, an id string (resolved through the index), or None. Raises when the length differs from the seam count, which sizes the column."""
-        start, count = self._seam_start[ordinal], self._seam_n[ordinal]
-        if len(seam_assign) != count:
-            raise ValueError(f"ordinal {ordinal}: {count} seams beside {len(seam_assign)} home assignments")
-        for offset, (home, suppressed) in enumerate(seam_assign):
-            if home is None:
-                target = NO_HOME
-            elif isinstance(home, str):
-                target = self.ordinal_of(home)
-            elif 0 <= home < self.n:
-                target = home
+    def set_primary_units(
+        self, ordinal: int, junction_assign: Sequence[tuple[int | str | None, bool]]
+    ) -> None:
+        """Record the primary-unit resolution pass's result for the unit: one `(primary_unit, suppressed)` per junction, in junction order. A primary unit is an ordinal, an id string (resolved through the index), or None. Raises when the length differs from the junction count, which sizes the column."""
+        start, count = self._junction_start[ordinal], self._junction_n[ordinal]
+        if len(junction_assign) != count:
+            raise ValueError(
+                f"ordinal {ordinal}: {count} junctions beside {len(junction_assign)} primary-unit assignments"
+            )
+        for offset, (primary_unit, suppressed) in enumerate(junction_assign):
+            if primary_unit is None:
+                target = NO_PRIMARY_UNIT
+            elif isinstance(primary_unit, str):
+                target = self.ordinal_of(primary_unit)
+            elif 0 <= primary_unit < self.n:
+                target = primary_unit
             else:
                 raise IndexError(
-                    f"ordinal {ordinal}: home ordinal {home} is outside a store of {self.n} units"
+                    f"ordinal {ordinal}: primary-unit ordinal {primary_unit} is outside a store of {self.n} units"
                 )
-            self._home[start + offset] = target
-            self._home_suppressed[start + offset] = 1 if suppressed else 0
+            self._primary_unit[start + offset] = target
+            self._primary_unit_suppressed[start + offset] = 1 if suppressed else 0
 
-    def home_ordinals(self, ordinal: int) -> tuple[tuple[int | None, bool], ...]:
-        start, count = self._seam_start[ordinal], self._seam_n[ordinal]
+    def primary_unit_ordinals(self, ordinal: int) -> tuple[tuple[int | None, bool], ...]:
+        start, count = self._junction_start[ordinal], self._junction_n[ordinal]
         return tuple(
-            (None if home == NO_HOME else home, bool(suppressed))
-            for home, suppressed in zip(
-                self._home[start : start + count], self._home_suppressed[start : start + count]
+            (None if primary_unit == NO_PRIMARY_UNIT else primary_unit, bool(suppressed))
+            for primary_unit, suppressed in zip(
+                self._primary_unit[start : start + count],
+                self._primary_unit_suppressed[start : start + count],
             )
         )
 
-    def homes(self, ordinal: int) -> tuple[tuple[str | None, bool], ...]:
-        """Return this build's home assignments for the unit, with homes as id strings; empty for a unit with no secondary seam."""
+    def primary_units(self, ordinal: int) -> tuple[tuple[str | None, bool], ...]:
+        """Return this build's primary unit assignments for the unit, with primary units as id strings; empty for a unit with no secondary junction."""
         return tuple(
-            (None if home is None else self.unit_id(home), suppressed)
-            for home, suppressed in self.home_ordinals(ordinal)
+            (None if primary_unit is None else self.unit_id(primary_unit), suppressed)
+            for primary_unit, suppressed in self.primary_unit_ordinals(ordinal)
         )
 
-    def homes_record(self, ordinal: int) -> list[list]:
-        """Return this build's homes as the `homes` field of a store record: a `[[home, suppressed]]` list."""
-        return [[home, suppressed] for home, suppressed in self.homes(ordinal)]
+    def primary_units_record(self, ordinal: int) -> list[list]:
+        """Return this build's primary units as the `primary_units` field of a store record: a `[[primary_unit, suppressed]]` list."""
+        return [[primary_unit, suppressed] for primary_unit, suppressed in self.primary_units(ordinal)]
 
-    def cached_homes(self, ordinal: int) -> list[list]:
-        """Return the homes the cached fragment was written with, as its store record holds them; empty for a recomputed unit or a unit with no secondary seam."""
-        start, count = self._seam_start[ordinal], self._seam_n[ordinal]
+    def cached_primary_units(self, ordinal: int) -> list[list]:
+        """Return the primary units the cached fragment was written with, as its store record holds them; empty for a recomputed unit or a unit with no secondary junction."""
+        start, count = self._junction_start[ordinal], self._junction_n[ordinal]
         return [
-            [self._optional(home), bool(suppressed)]
-            for home, suppressed in zip(
-                self._cached_home[start : start + count], self._cached_home_suppressed[start : start + count]
+            [self._optional(primary_unit), bool(suppressed)]
+            for primary_unit, suppressed in zip(
+                self._cached_primary_unit[start : start + count],
+                self._cached_primary_unit_suppressed[start : start + count],
             )
         ]
 
     def cached_as_is(
         self, ordinal: int, *, class_id: str, duplicate_group: str | None, exemplar: bool, no_verdict: bool
     ) -> bool:
-        """Whether the cached fragment's bytes on disk already equal what this build writes for the unit. That holds when its address is the shard writer's own and the class, duplicate group, exemplar and exemption flags and homes in its store record equal this build's values, which the caller passes from the workload table."""
+        """Whether the cached fragment's bytes on disk already equal what this build writes for the unit. That holds when its address is the shard writer's own and the class, duplicate group, exemplar and exemption flags and primary units in its store record equal this build's values, which the caller passes from the workload table."""
         flags = self.flags(ordinal)
         return (
             flags.cached
@@ -747,22 +765,22 @@ class UnitStore:
             and self.cached_duplicate_group(ordinal) == duplicate_group
             and flags.exemplar == exemplar
             and flags.no_verdict == no_verdict
-            and self.cached_homes(ordinal) == self.homes_record(ordinal)
+            and self.cached_primary_units(ordinal) == self.primary_units_record(ordinal)
         )
 
     def windows(self) -> Iterator[tuple[int, tuple[int, ...]]]:
-        """Yield every unit's ordinal and window, for the home-resolution pass's `by_codepoints` index."""
+        """Yield every unit's ordinal and window, for the primary-unit resolution pass's `by_codepoints` index."""
         for ordinal in range(self.n):
             yield ordinal, self.codepoints(ordinal)
 
-    def projection(self, ordinal: int) -> enrich.SeamHomeUnit:
-        """Return the unit as the home-resolution pass compares it: `seam_home` with an empty id. The pass reads identity from the ordinal and `id_word`, so encoding an id for every candidate it looks up would be wasted work."""
-        return self._seam_home(ordinal, "")
+    def projection(self, ordinal: int) -> enrich.PrimaryUnitProjection:
+        """Return the unit as the primary-unit resolution pass compares it: `primary_unit_projection` with an empty id. The pass reads identity from the ordinal and `id_word`, so encoding an id for every candidate it looks up would be wasted work."""
+        return self._primary_unit_projection(ordinal, "")
 
     def cached_unit(
         self, ordinal: int, *, class_id: str, duplicate_group: str | None, exemplar: bool, no_verdict: bool
     ) -> unit_cache.CachedUnit:
-        """Return the unit's store record for this build. The keys, flags, deltas, digests, projection and seams come from the columns, and `slim` from the flag column and `no_verdict`. The class, duplicate group, exemplar and exemption are the workload table's values, passed by the caller. The address, homes and policy file are what the write and the home-resolution pass set."""
+        """Return the unit's store record for this build. The keys, flags, deltas, digests, projection and junctions come from the columns, and `slim` from the flag column and `no_verdict`. The class, duplicate group, exemplar and exemption are the workload table's values, passed by the caller. The address, primary units and policy file are what the write and the primary-unit resolution pass set."""
         flags = self.flags(ordinal)
         return unit_cache.CachedUnit(
             key=self.input_key_hex(ordinal),
@@ -779,13 +797,13 @@ class UnitStore:
             cluster=self.cluster(ordinal),
             unmatched_group=self.unmatched_group(ordinal),
             pair_codepoints=self.pair_codepoints(ordinal),
-            proj=self.seam_home_record(ordinal),
-            seams=self.seam_rects(ordinal),
+            proj=self.primary_unit_projection_record(ordinal),
+            junctions=self.junction_rects(ordinal),
             mismatches=self.mismatches(ordinal),
             duplicate_group=duplicate_group,
             exemplar=exemplar,
             no_verdict=no_verdict,
-            homes=self.homes_record(ordinal),
+            primary_units=self.primary_units_record(ordinal),
             policy_file=self.policy_file(ordinal),
         )
 

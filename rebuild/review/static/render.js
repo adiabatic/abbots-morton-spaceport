@@ -100,7 +100,7 @@ export function highlightRect(highlight, fontSize, upem) {
   return { left: highlight.x_min * scale, width: (highlight.x_max - highlight.x_min) * scale };
 }
 
-// The amber band over the judged pair on one side, or null. A unit with no judged pair has none, and neither does a slim fragment, which has no `highlight` at all, so a show-machine fold draws its rows from the cells and seams alone.
+// The amber band over the judged pair on one side, or null. A unit with no judged pair has none, and neither does a slim fragment, which has no `highlight` at all, so a show-machine fold draws its rows from the cells and junctions alone.
 export function pairBand(unit, side, fontSize, upem) {
   const highlight = unit.highlight?.[side];
   if (unit.pair === null || !highlight) return null;
@@ -111,24 +111,24 @@ export function markOffset(x, fontSize, upem) {
   return (x * fontSize) / upem;
 }
 
-export function secondarySeamsOf(unit) {
+export function secondaryJunctionsOf(unit) {
   if (unit.ink_identical || unit.picture_identical) return [];
-  return Array.isArray(unit.secondary_seams) ? unit.secondary_seams : [];
+  return Array.isArray(unit.secondary_junctions) ? unit.secondary_junctions : [];
 }
 
-export function seamChip(seam) {
-  if (seam.home) {
+export function junctionChip(junction) {
+  if (junction.primary_unit) {
     return {
-      home: seam.home,
-      label: seam.home,
-      title: `This dim band is a secondary divergent seam; its behavior is judged at its home unit ${seam.home}. Click to jump there.`,
+      primaryUnit: junction.primary_unit,
+      label: junction.primary_unit,
+      title: `This dim band is a secondary divergent junction; its behavior is judged at its primary unit ${junction.primary_unit}. Click to jump there.`,
     };
   }
   return {
-    home: null,
+    primaryUnit: null,
     label: 'only here',
     title:
-      'This secondary divergent seam has no shorter home unit where the same behavior is the primary judgment, so judge it in this unit.',
+      'This secondary divergent junction has no shorter primary unit where the same behavior is the primary judgment, so judge it in this unit.',
   };
 }
 
@@ -144,18 +144,18 @@ export function cellCodepointSpans(cells) {
   return spans;
 }
 
-export function onlyHereSeamSpans(unit) {
-  // Checked against the build's pair_codepoints first. If the spans derived from the cells disagree with it, no only-here seam is underlined, so the text lines never underline the wrong letters. The pair mark, which tokenMarkRuns takes from pair_codepoints, is unaffected.
+export function onlyHereJunctionSpans(unit) {
+  // Checked against the build's pair_codepoints first. If the spans derived from the cells disagree with it, no only-here junction is underlined, so the text lines never underline the wrong letters. The pair mark, which tokenMarkRuns takes from pair_codepoints, is unaffected.
   const cells = unit.after?.cells;
   if (!Array.isArray(cells) || !unit.pair || !unit.pair_codepoints) return [];
   const spans = cellCodepointSpans(cells);
   const derived = [spans[unit.pair.left]?.[0], spans[unit.pair.right]?.[1]];
   if (derived[0] !== unit.pair_codepoints[0] || derived[1] !== unit.pair_codepoints[1]) return [];
   const result = [];
-  for (const seam of secondarySeamsOf(unit)) {
-    if (seam.home !== null) continue;
-    const left = spans[seam.pair.left];
-    const right = spans[seam.pair.right];
+  for (const junction of secondaryJunctionsOf(unit)) {
+    if (junction.primary_unit !== null) continue;
+    const left = spans[junction.pair.left];
+    const right = spans[junction.pair.right];
     if (left && right) result.push([left[0], right[1]]);
   }
   return result;
@@ -488,26 +488,26 @@ export function tokenSeparators(tokens) {
   return separators;
 }
 
-export function tokenMarkRuns(tokens, separators, pairSpan, seamSpans) {
+export function tokenMarkRuns(tokens, separators, pairSpan, junctionSpans) {
   // A separator is marked only when both its neighbors are, so the separator before the first marked token stays outside the mark. Adjacent pieces with the same marks merge into one run.
   const marksAt = (index) => ({
     pair: Boolean(pairSpan) && index >= pairSpan[0] && index <= pairSpan[1],
-    seam: seamSpans.some((span) => index >= span[0] && index <= span[1]),
+    junction: junctionSpans.some((span) => index >= span[0] && index <= span[1]),
   });
   const runs = [];
-  const push = (text, pair, seam) => {
+  const push = (text, pair, junction) => {
     if (!text) return;
     const last = runs.at(-1);
-    if (last && last.pair === pair && last.seam === seam) last.text += text;
-    else runs.push({ text, pair, seam });
+    if (last && last.pair === pair && last.junction === junction) last.text += text;
+    else runs.push({ text, pair, junction });
   };
   for (const [index, token] of tokens.entries()) {
     const marks = marksAt(index);
     if (index > 0) {
       const previous = marksAt(index - 1);
-      push(separators[index], marks.pair && previous.pair, marks.seam && previous.seam);
+      push(separators[index], marks.pair && previous.pair, marks.junction && previous.junction);
     }
-    push(token, marks.pair, marks.seam);
+    push(token, marks.pair, marks.junction);
   }
   return runs;
 }

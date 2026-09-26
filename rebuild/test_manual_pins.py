@@ -12,7 +12,7 @@ from rebuild.pipeline.geometry import isolated_cell
 from rebuild.pipeline.settle import cell_label
 from rebuild.pipeline.spec_load import load_default_spec
 from rebuild.review import enrich
-from rebuild.validation.classify import SeamClassifier
+from rebuild.validation.classify import JunctionClassifier
 from rebuild.validation.pins import PinRun, _import_test_shaping
 from rebuild.validation.shaping import Shaper
 
@@ -76,7 +76,7 @@ class TestTheGateCanFail:
         spec = enrich.load_spec(mini_bundle.spec_root)
         ts = _import_test_shaping()
         shaper = Shaper(MINI_FONT)
-        classifier = SeamClassifier(MINI_FONT)
+        classifier = JunctionClassifier(MINI_FONT)
         text = "\ue650\ue652"
         for expect in ("·Pea | ·Tea", "·Pea ~x~ ·Tea"):
             tokens, connections = ts.parse_expect(expect)

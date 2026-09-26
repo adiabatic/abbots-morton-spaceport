@@ -24,7 +24,7 @@ from rebuild.review.enrich import (
     letter_display,
 )
 from rebuild.review.ink import kern_neutral
-from rebuild.validation.classify import SeamClassifier
+from rebuild.validation.classify import JunctionClassifier
 from rebuild.validation.pins import ReplayReport, _check_interpretation
 from rebuild.validation.rowmodel import config_token_for_features
 from rebuild.validation.shaping import Shaper, row_for
@@ -137,12 +137,12 @@ def _token_for_span(codepoint_values: tuple[int, ...], span: tuple[int, int]) ->
 def expect_string(
     codepoint_values: tuple[int, ...],
     spans: tuple[tuple[int, int], ...],
-    seams: tuple[str, ...],
+    junctions: tuple[str, ...],
 ) -> str:
-    """A whole-word expect string with one token per glyph: bare letter tokens (no variant assertions), ◊space/◊ZWNJ/\\· boundary tokens, and +-joined ligature tokens, with each seam's connector from `CONNECTORS` between them."""
+    """A whole-word expect string with one token per glyph: bare letter tokens (no variant assertions), ◊space/◊ZWNJ/\\· boundary tokens, and +-joined ligature tokens, with each junction's connector from `CONNECTORS` between them."""
     parts = [_token_for_span(codepoint_values, spans[0])]
-    for index, seam in enumerate(seams):
-        parts.append(CONNECTORS[seam])
+    for index, junction in enumerate(junctions):
+        parts.append(CONNECTORS[junction])
         parts.append(_token_for_span(codepoint_values, spans[index + 1]))
     return "".join(parts)
 
@@ -220,7 +220,7 @@ class Drafter:
         shaper_factory: Callable = Shaper,
     ):
         self.after_shaper = shaper_factory(after_font)
-        self.after_classifier = SeamClassifier(after_font)
+        self.after_classifier = JunctionClassifier(after_font)
         self.corpus_index = corpus_index if corpus_index is not None else build_corpus_index(repo_root)
         self.aliases = load_alias_map(alias_path or repo_root / "rebuild" / "m1-aliases.yaml")
         schema = json.loads(
@@ -242,7 +242,7 @@ class Drafter:
     def draft_pin(self, enriched: EnrichedUnit) -> PinDraft:
         unit = enriched.unit
         values = unit.codepoint_values
-        expect = expect_string(values, enriched.after_spans, enriched.after_seams)
+        expect = expect_string(values, enriched.after_spans, enriched.after_junctions)
         ts = _import_test_shaping()
         text = "".join(chr(value) for value in values)
         config_token = unit.configs[0]
@@ -277,7 +277,7 @@ class Drafter:
         except ValueError as error:
             return f"fail: unparseable: {error}"
         row = row_for(self.after_shaper, self.after_classifier, text, kern_neutral(features))
-        # Under ss10 the pre-empt lookup replaces every letter with its anchor-free `.ss10` twin, so every seam is already classified as a break. The expect checker knows letters by their bare cmap names, so the twin suffix is stripped too.
+        # Under ss10 the pre-empt lookup replaces every letter with its anchor-free `.ss10` twin, so every junction is already classified as a break. The expect checker knows letters by their bare cmap names, so the twin suffix is stripped too.
         row = replace(
             row,
             glyphs=tuple("space" if g == "uni200C" else g.removesuffix(SS10_TWIN_SUFFIX) for g in row.glyphs),
@@ -285,7 +285,7 @@ class Drafter:
         report = ReplayReport()
         errors: list[str] = []
         for interp_tokens, interp_connections in ts._expand_maybe_ligatures(list(tokens), list(connections)):
-            error, _seams, _identity, _skips = _check_interpretation(
+            error, _junctions, _identity, _skips = _check_interpretation(
                 text, interp_tokens, interp_connections, row, report
             )
             if error is None:
@@ -322,7 +322,7 @@ class Drafter:
             record = {side: height, "by": amount, "when": when, "why": why}
             keypath = "policy.contract[+]"
             problems = self._contract_checker.check(record)
-        elif enriched.provenance and self._seam_identical(enriched):
+        elif enriched.provenance and self._junction_identical(enriched):
             pinned = self._baseline_cell_pin(enriched, position, cell, why)
             if pinned is None:
                 return None
@@ -368,26 +368,26 @@ class Drafter:
         """The side ("exit" or "entry") of the divergent cell whose gap is joined in the new behavior but was a break in the baseline, or None. That case gets a refuse on the anchor across the gap (REVIEW-PLAN §4.3), because a contract would shorten an extension but keep the join."""
         cell = enriched.report.positions[position].settled.cell
         if (
-            position < len(enriched.after_seams)
-            and enriched.after_seams[position] != "break"
+            position < len(enriched.after_junctions)
+            and enriched.after_junctions[position] != "break"
             and cell.exit is not None
-            and self._before_seam_at_gap(enriched, enriched.after_spans[position][1] - 1) == "break"
+            and self._before_junction_at_gap(enriched, enriched.after_spans[position][1] - 1) == "break"
         ):
             return "exit"
         if (
             position > 0
-            and enriched.after_seams[position - 1] != "break"
+            and enriched.after_junctions[position - 1] != "break"
             and cell.entry is not None
-            and self._before_seam_at_gap(enriched, enriched.after_spans[position][0] - 1) == "break"
+            and self._before_junction_at_gap(enriched, enriched.after_spans[position][0] - 1) == "break"
         ):
             return "entry"
         return None
 
-    def _seam_identical(self, enriched: EnrichedUnit) -> bool:
-        """Whether the divergence is name-grain: both behaviors have the same number of glyphs and the same seams, which the drafter treats as differing only in which cell renders at some position. The glyph spans are not compared."""
+    def _junction_identical(self, enriched: EnrichedUnit) -> bool:
+        """Whether the divergence is name-grain: both behaviors have the same number of glyphs and the same junctions, which the drafter treats as differing only in which cell renders at some position. The glyph spans are not compared."""
         return len(enriched.before_glyphs) == len(enriched.after_cells) and tuple(
-            enriched.before_seams
-        ) == tuple(enriched.after_seams)
+            enriched.before_junctions
+        ) == tuple(enriched.after_junctions)
 
     def _baseline_cell_pin(
         self, enriched: EnrichedUnit, position: int, cell: CellId, why: str
@@ -474,19 +474,19 @@ class Drafter:
         return {"word": "isolated"}
 
     def _baseline_exit(self, enriched: EnrichedUnit, position: int) -> str:
-        """The baseline's exit height at the divergent position, read from the before seam at the codepoint gap after the divergent cell ("none" when the baseline broke there too)."""
+        """The baseline's exit height at the divergent position, read from the before junction at the codepoint gap after the divergent cell ("none" when the baseline broke there too)."""
         gap = enriched.after_spans[position][1] - 1
         if gap < len(enriched.unit.codepoint_values) - 1:
-            seam = self._before_seam_at_gap(enriched, gap)
-            if seam is not None and seam.startswith("y"):
-                return {"y0": "baseline", "y5": "x-height", "y6": "y6", "y8": "top"}.get(seam, "none")
+            junction = self._before_junction_at_gap(enriched, gap)
+            if junction is not None and junction.startswith("y"):
+                return {"y0": "baseline", "y5": "x-height", "y6": "y6", "y8": "top"}.get(junction, "none")
         return "none"
 
     @staticmethod
-    def _before_seam_at_gap(enriched: EnrichedUnit, gap: int) -> str | None:
+    def _before_junction_at_gap(enriched: EnrichedUnit, gap: int) -> str | None:
         for index in range(len(enriched.before_spans) - 1):
             if enriched.before_spans[index + 1][0] - 1 == gap:
-                return enriched.before_seams[index]
+                return enriched.before_junctions[index]
         return None
 
     # --- the fine-either-way any-of record -------------------------------------
@@ -494,8 +494,8 @@ class Drafter:
     def draft_any_of(self, enriched: EnrichedUnit) -> AnyOfDraft:
         unit = enriched.unit
         values = unit.codepoint_values
-        after = expect_string(values, enriched.after_spans, enriched.after_seams)
-        before = expect_string(values, enriched.before_spans, enriched.before_seams)
+        after = expect_string(values, enriched.after_spans, enriched.after_junctions)
+        before = expect_string(values, enriched.before_spans, enriched.before_junctions)
         candidates: list[str] = [after]
         if before != after:
             try:

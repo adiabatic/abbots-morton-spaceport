@@ -4,7 +4,7 @@ Nothing here builds a table or a font; everything runs against tables and an M1.
 
 The rows the oracle classifies are produced in conform.py. `_compare_row` and `_SettledWindowWalk` are the entry points whose import graph `oracle_cache.ORACLE_ROW_CODE_PATHS` must cover, and the record codec (`_cached_verdict`, `_served_verdict`) and `_verify_served_sample` sit beside them. No module under that stamp imports this one, so after a classifier edit every row verdict is still served from the store; rebuild/test_oracle_code_closure.py fails if conform.py's import graph reaches this module. The position comparison is rebuild/pipeline/oracle_positions.py, the only module `oracle_cache.POSITION_CODE_PATHS` names. It never imports this module either, so a classifier edit also keeps every stored position, and the same test checks that direction. `_compare_config` calls the position comparison through the `oracle_positions` module, not through imported names, so monkeypatching `oracle_positions._position_mismatch` affects both the rows this pass shapes and `_verify_served_positions` (rebuild/test_conform.py relies on this).
 
-`compare_against_baseline` is the serial path. For each configuration it streams the subset table and settles each row, or, given an `OracleRowCache`, serves the row verdict from the previous pass's store and walks only the rows an edit can reach (rebuild/pipeline/oracle_cache.py documents what the keys cover). It compares ligation, seams, and cells through the alias map and matches each divergent row against the `CompiledLedger` (`compile_ledger`). Rows the ledger calls ink-identical are shaped against M1.otf to compare positions, or have their position verdict served from the same store under the position key.
+`compare_against_baseline` is the serial path. For each configuration it streams the subset table and settles each row, or, given an `OracleRowCache`, serves the row verdict from the previous pass's store and walks only the rows an edit can reach (rebuild/pipeline/oracle_cache.py documents what the keys cover). It compares ligation, junctions, and cells through the alias map and matches each divergent row against the `CompiledLedger` (`compile_ledger`). Rows the ledger calls ink-identical are shaped against M1.otf to compare positions, or have their position verdict served from the same store under the position key.
 
 run_m1's parallel path splits the work into row ranges of one configuration's table (`OracleShard`, planned by `oracle_shard_plan` for the worker count). `oracle_config_worker` runs `_compare_config` over one range in its own process and writes its own audit segment under `oracle_audit_scratch` and its own store segment. `join_oracle_audit` and `oracle_cache.join_store_segments` join those in row order, and `merge_config_shards` sums the ranges' counts. The output is the same as the serial path's, because `_compare_config` addresses every row by its absolute index in the table: the store records, the scheduled re-derivation, and the verification samples all key on it.
 
@@ -125,7 +125,7 @@ class BaselineReport:
     divergent_rows: int = 0
     positions_compared: int = 0
     positions_excluded: int = (
-        0  # divergent rows not sent through the position comparison: a seam or ligation divergence, or no single ink-identical ledger match
+        0  # divergent rows not sent through the position comparison: a junction or ligation divergence, or no single ink-identical ledger match
     )
     positions_served: int = 0
     counts_by_entry: dict[str, int] = field(default_factory=dict)
@@ -227,7 +227,7 @@ def classify_divergence(row: DivergentRow) -> str | None:
     if not tags or any(item.startswith("unaliased") for item in tags):
         return None
     if any(item.startswith("position") for item in tags):
-        # A cell-grain class claims the ink is identical, and the position comparison is the test of that claim, so a row with a position mismatch must not take one. Such rows are left to the function predicates (`kern_out_of_scope`, `may_ligature_seam_loosened`).
+        # A cell-grain class claims the ink is identical, and the position comparison is the test of that claim, so a row with a position mismatch must not take one. Such rows are left to the function predicates (`kern_out_of_scope`, `may_ligature_junction_loosened`).
         return None
     if {"0020", "200C"} & set(row.codepoints.split(":")):
         # Design section 3.4: the new font renders each segment of a window split by a space or ZWNJ the same as that segment alone, and the belt's split-buffer check verifies this on every build. So a boundary row can diverge from the baseline only where the old font was inconsistent across the boundary, and every divergence inside a segment also appears on that segment's own row. Boundary rows need no review of their own and take this class ahead of every other.
@@ -244,19 +244,19 @@ def classify_divergence(row: DivergentRow) -> str | None:
         if "E653:E67A" in row.codepoints and ("200C" in row.codepoints or "00B7" in row.codepoints):
             return "marker-staging-ligature-formation"
         return None
-    gains = {item for item in tags if item.startswith("seam-gain:")}
-    if "seam-moved" in tags:
-        # The old font drew a letter after a ZWNJ with a .noentry variant that joined its follower at one height. The new model settles that letter as word-initial, the same as after a space, and the join is at another height. This class applies only when the move is the row's only seam change. Any other row with a moved seam gets no class, including one that also gains or loses a seam.
-        if "old-noentry" in tags and not gains and "seam-loss" not in tags:
-            return "zwnj-word-initial-seam-moved"
+    gains = {item for item in tags if item.startswith("junction-gain:")}
+    if "junction-moved" in tags:
+        # The old font drew a letter after a ZWNJ with a .noentry variant that joined its follower at one height. The new model settles that letter as word-initial, the same as after a space, and the join is at another height. This class applies only when the move is the row's only junction change. Any other row with a moved junction gets no class, including one that also gains or loses a junction.
+        if "old-noentry" in tags and not gains and "junction-loss" not in tags:
+            return "zwnj-word-initial-junction-moved"
         return None
-    if "seam-loss" in tags:
+    if "junction-loss" in tags:
         if gains:
             return "regrouped-chain"
         return None
     if gains:
         gain_runes = {item.split(":", 1)[1] for item in gains}
-        unentered_it_gain = "seam-gain-unentered:qsIt" in tags
+        unentered_it_gain = "junction-gain-unentered:qsIt" in tags
         if "old-noentry" in tags:
             return "zwnj-follower-exit-restored"
         if "E652:E679" in row.codepoints:
@@ -270,8 +270,8 @@ def classify_divergence(row: DivergentRow) -> str | None:
         return None
     if "+en-ext-1" in tags:
         return "halves-entry-extension-restored"
-    if tags & {"-en-ext-1:same-seam", "-en-ext-2:same-seam"}:
-        return "same-seam-extension-non-summing"
+    if tags & {"-en-ext-1:same-junction", "-en-ext-2:same-junction"}:
+        return "same-junction-extension-non-summing"
     if "-en-ext-1:qsMay" in tags:
         return "may-baseline-entry-extension-dropped"
     if "-en-ext-1:qsNo" in tags:
@@ -288,7 +288,7 @@ def classify_divergence(row: DivergentRow) -> str | None:
         and tags <= {"+ex-ext-2", "-ex-ext-1", "-en-ext-2", "exit-dropped"}
         and "E665:E65D" in row.codepoints
     ):
-        # At the ·May·J'ai seam, qsMay's single by-2 exit record replaces the old font's split extension (·May's exit by 1, ·J'ai's entry by 2) in every follower context. The -en-ext-2 token is the ·J'ai side of the same change: ·J'ai's alias keeps the old glyph's en-ext-2, which the new cell lacks. The subset test keeps out any row where unrelated ink also moved.
+        # At the ·May·J'ai junction, qsMay's single by-2 exit record replaces the old font's split extension (·May's exit by 1, ·J'ai's entry by 2) in every follower context. The -en-ext-2 token is the ·J'ai side of the same change: ·J'ai's alias keeps the old glyph's en-ext-2, which the new cell lacks. The subset test keeps out any row where unrelated ink also moved.
         return "may-jai-extension-consolidated"
     if tags and tags <= {"+en-con-1", "+en-con-2"} and ("E65D" in row.codepoints or "E65F" in row.codepoints):
         # The old font's exit contractions before ·J'ai are tucks: the left letter keeps its ink and only its anchor moves in, overlapping the follower. M1 draws the same result as ·J'ai's own entry contraction: the crown drops the overlapped columns and abuts instead. The combined drawing, every origin, and every advance are unchanged, and only ·J'ai's cell name gains the con token. The unentered half-·Tea exit tuck before ·Jay is the same case on the same crown shape, drawn as ·Jay's entry contraction. The subset test keeps out any row where ink also moved elsewhere.
@@ -354,14 +354,14 @@ for _class_id in (
     "ss03-out-tea-ligature-kept",
     "marker-staging-ligature-formation",
     "regrouped-chain",
-    "zwnj-word-initial-seam-moved",
+    "zwnj-word-initial-junction-moved",
     "zwnj-follower-exit-restored",
     "pre-ligature-cleanup-regularized",
     "ss03-chain-join-gains",
     "entered-it-baseline-join-gain",
     "pea-chain-regularized",
     "halves-entry-extension-restored",
-    "same-seam-extension-non-summing",
+    "same-junction-extension-non-summing",
     "may-baseline-entry-extension-dropped",
     "no-xheight-entry-extension-dropped",
     "day-baseline-entry-extension-dropped",
@@ -384,15 +384,15 @@ def _kern_out_of_scope(row: DivergentRow) -> bool:
     return row.kinds == ("position",) and "position-kern-attributable" in row.divergence_tags
 
 
-# The cell-grain tokens of the ink-identical name-grain classes. Any other cell-grain token on a `may_ligature_seam_loosened` candidate means ink moved elsewhere in the row, so that predicate does not match it.
+# The cell-grain tokens of the ink-identical name-grain classes. Any other cell-grain token on a `may_ligature_junction_loosened` candidate means ink moved elsewhere in the row, so that predicate does not match it.
 _NAME_GRAIN_TOKENS = frozenset(
     {"stance", "entry-added", "entry-moved", "entry-dropped", "exit-added", "exit-moved", "exit-dropped"}
 )
 
 
-@predicate("may_ligature_seam_loosened")
-def _may_ligature_seam_loosened(row: DivergentRow) -> bool:
-    """Match the reviewed `·Day+Utter ~x~ ·May` seam. The old font tucks ·May's x-height entry one pixel into the ligature's exit; the new model places it at the anchor-aligned column and draws no connector, which is the intended design (the may-ligature-seam-loosened ledger entry records the decision). Matches non-kern position mismatches on rows whose old glyph names contain that pair and whose other cell-grain tokens, if any, are all in `_NAME_GRAIN_TOKENS`."""
+@predicate("may_ligature_junction_loosened")
+def _may_ligature_junction_loosened(row: DivergentRow) -> bool:
+    """Match the reviewed `·Day+Utter ~x~ ·May` junction. The old font tucks ·May's x-height entry one pixel into the ligature's exit; the new model places it at the anchor-aligned column and draws no connector, which is the intended design (the may-ligature-junction-loosened ledger entry records the decision). Matches non-kern position mismatches on rows whose old glyph names contain that pair and whose other cell-grain tokens, if any, are all in `_NAME_GRAIN_TOKENS`."""
     if "position-mismatch" not in row.divergence_tags or "position-kern-attributable" in row.divergence_tags:
         return False
     cell_grain = {item for item in row.divergence_tags if not item.startswith("position")}
@@ -407,7 +407,7 @@ def _may_ligature_seam_loosened(row: DivergentRow) -> bool:
 
 @dataclass(frozen=True)
 class CompiledLedger:
-    """The divergence ledger grouped by what each entry's `match` tests, so matching a row is a class lookup instead of a pass over every entry. Every entry keeps its ledger index, so `_match_compiled` can return matches from several groups in ledger order. `by_class` is keyed on the class id a `CLASS_PREDICATE_IDS` entry names. `functions` holds the entries whose predicate is a function of the row. `unconditional` holds the entries with no predicate, which match every row their `window` and `seam_change` admit; an empty `match` matches every row (rebuild/test_conform.py's ink-identical fixture ledger is one). An entry's `configs` is None when it applies to every configuration, and otherwise a container `row.config` is tested against. Each worker builds its own (`oracle_config_worker`)."""
+    """The divergence ledger grouped by what each entry's `match` tests, so matching a row is a class lookup instead of a pass over every entry. Every entry keeps its ledger index, so `_match_compiled` can return matches from several groups in ledger order. `by_class` is keyed on the class id a `CLASS_PREDICATE_IDS` entry names. `functions` holds the entries whose predicate is a function of the row. `unconditional` holds the entries with no predicate, which match every row their `window` and `junction_change` admit; an empty `match` matches every row (rebuild/test_conform.py's ink-identical fixture ledger is one). An entry's `configs` is None when it applies to every configuration, and otherwise a container `row.config` is tested against. Each worker builds its own (`oracle_config_worker`)."""
 
     by_class: Mapping[str, tuple[tuple[int, str, Container[str] | None], ...]]
     functions: tuple[tuple[int, str, Container[str] | None, Callable[[DivergentRow], bool]], ...]
@@ -437,7 +437,7 @@ def compile_ledger(entries: Sequence[Mapping]) -> CompiledLedger:
         predicate_name = match.get("predicate")
         if predicate_name is None:
             unconditional.append(
-                (index, entry_id, configs, match.get("window"), match.get("seam_change") is not None)
+                (index, entry_id, configs, match.get("window"), match.get("junction_change") is not None)
             )
             continue
         class_id = CLASS_PREDICATE_IDS.get(predicate_name)
@@ -455,7 +455,7 @@ def compile_ledger(entries: Sequence[Mapping]) -> CompiledLedger:
 
 
 def _match_compiled(compiled: CompiledLedger, row: DivergentRow) -> list[str]:
-    """Return the ids of every ledger entry this row matches, in ledger order, so the caller can tell a single match from a multi-match. The row is classified once and its class looked up in `by_class`. Function predicates run only when their `configs` admit the row's configuration, and unconditional entries apply their `window` and `seam_change` tests."""
+    """Return the ids of every ledger entry this row matches, in ledger order, so the caller can tell a single match from a multi-match. The row is classified once and its class looked up in `by_class`. Function predicates run only when their `configs` admit the row's configuration, and unconditional entries apply their `window` and `junction_change` tests."""
     classified = classify_divergence(row)
     config = row.config
     hits: list[tuple[int, str]] = []
@@ -466,12 +466,12 @@ def _match_compiled(compiled: CompiledLedger, row: DivergentRow) -> list[str]:
     for index, entry_id, configs, function in compiled.functions:
         if (configs is None or config in configs) and function(row):
             hits.append((index, entry_id))
-    for index, entry_id, configs, window, needs_seam in compiled.unconditional:
+    for index, entry_id, configs, window, needs_junction in compiled.unconditional:
         if configs is not None and config not in configs:
             continue
         if window is not None and window not in row.codepoints:
             continue
-        if needs_seam and "seam" not in row.kinds:
+        if needs_junction and "junction" not in row.kinds:
             continue
         hits.append((index, entry_id))
     if len(hits) > 1:
@@ -676,7 +676,7 @@ def _compare_config(
                 position, position_at = carried[0].position, carried[0].position_age
             matches = _match_compiled(ledger, divergent) if divergent is not None else []
             if shaper is not None:
-                topology_clean = divergent is None or not ({"ligation", "seam"} & set(divergent.kinds))
+                topology_clean = divergent is None or not ({"ligation", "junction"} & set(divergent.kinds))
                 class_claims_ink_identity = divergent is None or (
                     len(matches) == 1 and matches[0] in ink_identical_ids
                 )
@@ -701,9 +701,9 @@ def _compare_config(
                                 kinds=("position",),
                                 position=-1,
                                 baseline_glyphs=tuple(row.glyphs),
-                                baseline_seams=tuple(row.seams),
+                                baseline_junctions=tuple(row.junctions),
                                 new_cells=tuple(glyph for glyph in mismatch_notes),
-                                new_seams=(),
+                                new_junctions=(),
                                 divergence_tags=position_tags + ("position-mismatch",),
                             )
                         else:

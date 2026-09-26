@@ -1,4 +1,4 @@
-"""Tests for the packed unit store (`rebuild/review/unit_store.py`). Each accessor returns what the load was given, in the shape the build's whole-corpus passes and the store writer read: the `SeamHomeUnit` the home-resolution pass compares, the `proj` and `seams` a store line carries, and the `CachedUnit` whose `record_line` matches the previous store's line byte for byte. The tests also cover the id index, the length checks, and the size estimate.
+"""Tests for the packed unit store (`rebuild/review/unit_store.py`). Each accessor returns what the load was given, in the shape the build's whole-corpus passes and the store writer read: the `PrimaryUnitProjection` the primary-unit resolution pass compares, the `proj` and `junctions` a store line carries, and the `CachedUnit` whose `record_line` matches the previous store's line byte for byte. The tests also cover the id index, the length checks, and the size estimate.
 
 Most tests load synthetic projections and records. The one real workload is the checked-in mini bundle under `rebuild/review/fixtures/mini/`, whose projections the serial runner loads; no test reads a live artifact.
 """
@@ -16,8 +16,8 @@ import pytest
 from rebuild.review import build as review_build
 from rebuild.review import unit_cache, unit_store
 from rebuild.review.audit import load_workload, sort_for_triage, triage_key
-from rebuild.review.build import _seam_records
-from rebuild.review.enrich import LETTERS, SeamHomeUnit
+from rebuild.review.build import _junction_records
+from rebuild.review.enrich import LETTERS, PrimaryUnitProjection
 from rebuild.review.unit_store import UnitStore
 from rebuild.tools import memory_tally
 
@@ -40,8 +40,8 @@ class _Projection:
     cluster: str
     unmatched_group: str
     pair_codepoints: tuple[int, int] | None
-    seam_home: SeamHomeUnit
-    seam_rects: tuple[tuple[tuple[int, int], dict, dict], ...]
+    primary_unit_projection: PrimaryUnitProjection
+    junction_rects: tuple[tuple[tuple[int, int], dict, dict], ...]
     mismatches: tuple[str, ...]
     ordinal: int = -1
     part: str = ""
@@ -53,8 +53,10 @@ def _key(label: str) -> str:
     return hashlib.sha256(label.encode()).hexdigest()
 
 
-def _seam_home(unit_id: str, codepoints: tuple[int, ...], *, seams: bool = True) -> SeamHomeUnit:
-    return SeamHomeUnit(
+def _primary_unit_projection(
+    unit_id: str, codepoints: tuple[int, ...], *, junctions: bool = True
+) -> PrimaryUnitProjection:
+    return PrimaryUnitProjection(
         unit_id=unit_id,
         codepoint_values=codepoints,
         ink_identical=False,
@@ -62,29 +64,31 @@ def _seam_home(unit_id: str, codepoints: tuple[int, ...], *, seams: bool = True)
         pair=(0, 1),
         after_spans=((0, 1), (1, 2)),
         after_cells=tuple("qsTea/half/None/x-height/ qsIt/hapax/x-height/None/".split()),
-        after_seams=tuple("y5".split()),
+        after_junctions=tuple("y5".split()),
         before_spans=((0, 1), (1, 2)),
         before_glyphs=tuple("qsTea.half.ex-y5 qsIt.en-y5".split()),
-        before_seams=tuple("break".split()),
-        seam_pairs=((0, 1),) if seams else (),
+        before_junctions=tuple("break".split()),
+        junction_pairs=((0, 1),) if junctions else (),
     )
 
 
-def _rects(seam_home: SeamHomeUnit) -> tuple[tuple[tuple[int, int], dict, dict], ...]:
+def _rects(primary_unit_projection: PrimaryUnitProjection) -> tuple[tuple[tuple[int, int], dict, dict], ...]:
     return tuple(
         (
             pair,
             {"x_min": 0, "x_max": 5 + index, "advance_total": 9},
             {"x_min": 1, "x_max": 6 + index, "advance_total": 9},
         )
-        for index, pair in enumerate(seam_home.seam_pairs)
+        for index, pair in enumerate(primary_unit_projection.junction_pairs)
     )
 
 
 def _projection(label: str, codepoints: tuple[int, ...] = (0xE652, 0xE670), **overrides) -> _Projection:
     content_key = _key(f"content:{label}")
     unit_id = unit_cache.unit_id_for(content_key)
-    seam_home = overrides.pop("seam_home", None) or _seam_home(unit_id, codepoints)
+    primary_unit_projection = overrides.pop("primary_unit_projection", None) or _primary_unit_projection(
+        unit_id, codepoints
+    )
     fields: dict = dict(
         unit_id=unit_id,
         input_key=_key(f"input:{label}"),
@@ -97,13 +101,13 @@ def _projection(label: str, codepoints: tuple[int, ...] = (0xE652, 0xE670), **ov
         cluster="c-12345678",
         unmatched_group="",
         pair_codepoints=(1, 0),
-        seam_home=seam_home,
-        seam_rects=_rects(seam_home),
+        primary_unit_projection=primary_unit_projection,
+        junction_rects=_rects(primary_unit_projection),
         mismatches=(),
     )
     fields.update(overrides)
-    fields["seam_home"] = replace(
-        fields["seam_home"],
+    fields["primary_unit_projection"] = replace(
+        fields["primary_unit_projection"],
         ink_identical=fields["ink_identical"],
         picture_identical=fields["picture_identical"],
     )
@@ -113,16 +117,16 @@ def _projection(label: str, codepoints: tuple[int, ...] = (0xE652, 0xE670), **ov
 _WINDOW = (0xE652, 0xE670)
 
 
-def _record(seam_home: SeamHomeUnit) -> dict:
-    """The expected `proj` dict for a projection, with the keys and lists `unit_cache.CachedUnit.to_record` writes. `seam_home_record` is compared against it."""
+def _record(primary_unit_projection: PrimaryUnitProjection) -> dict:
+    """The expected `proj` dict for a projection, with the keys and lists `unit_cache.CachedUnit.to_record` writes. `primary_unit_projection_record` is compared against it."""
     return {
-        "pair": list(seam_home.pair) if seam_home.pair else None,
-        "after_spans": [list(span) for span in seam_home.after_spans],
-        "after_cells": list(seam_home.after_cells),
-        "after_seams": list(seam_home.after_seams),
-        "before_spans": [list(span) for span in seam_home.before_spans],
-        "before_glyphs": list(seam_home.before_glyphs),
-        "before_seams": list(seam_home.before_seams),
+        "pair": list(primary_unit_projection.pair) if primary_unit_projection.pair else None,
+        "after_spans": [list(span) for span in primary_unit_projection.after_spans],
+        "after_cells": list(primary_unit_projection.after_cells),
+        "after_junctions": list(primary_unit_projection.after_junctions),
+        "before_spans": [list(span) for span in primary_unit_projection.before_spans],
+        "before_glyphs": list(primary_unit_projection.before_glyphs),
+        "before_junctions": list(primary_unit_projection.before_junctions),
     }
 
 
@@ -133,7 +137,7 @@ def _spooled(projection: _Projection, start: int) -> unit_cache.PriorFragment:
 
 
 def test_a_recomputed_projection_reads_back_what_the_load_was_handed():
-    """Every accessor on a loaded recomputed projection returns what the projection carried, with the ink deltas in loaded order and the seam rects in the shape `_seam_records` gives them."""
+    """Every accessor on a loaded recomputed projection returns what the projection carried, with the ink deltas in loaded order and the junction rects in the shape `_junction_records` gives them."""
     projection = _projection("one", ink_identical=True, mismatches=("ss03 E652:E670: derived cells differ",))
     store = UnitStore(1)
     store.set_input_key(0, projection.input_key)
@@ -158,24 +162,24 @@ def test_a_recomputed_projection_reads_back_what_the_load_was_handed():
     assert store.cluster(0) == projection.cluster
     assert store.unmatched_group(0) == projection.unmatched_group == ""
     assert store.pair_codepoints(0) == projection.pair_codepoints
-    assert store.cell_pair(0) == projection.seam_home.pair
-    assert store.codepoints(0) == projection.seam_home.codepoint_values == _WINDOW
-    assert store.seam_home(0) == projection.seam_home
-    assert store.projection(0) == replace(store.seam_home(0), unit_id="")
-    assert store.seam_rects(0) == _seam_records(projection.seam_rects)
-    assert store.seam_pairs(0) == projection.seam_home.seam_pairs
-    assert store.seam_count(0) == 1
+    assert store.cell_pair(0) == projection.primary_unit_projection.pair
+    assert store.codepoints(0) == projection.primary_unit_projection.codepoint_values == _WINDOW
+    assert store.primary_unit_projection(0) == projection.primary_unit_projection
+    assert store.projection(0) == replace(store.primary_unit_projection(0), unit_id="")
+    assert store.junction_rects(0) == _junction_records(projection.junction_rects)
+    assert store.junction_pairs(0) == projection.primary_unit_projection.junction_pairs
+    assert store.junction_count(0) == 1
     assert store.mismatches(0) == list(projection.mismatches)
     assert store.source(0) == _spooled(projection, 12)
     assert store.content_key_hex(0) == projection.content_key
     assert store.input_key_hex(0) == projection.input_key
     assert store.unit_id(0) == projection.unit_id
-    assert store.seam_home_record(0) == _record(projection.seam_home)
+    assert store.primary_unit_projection_record(0) == _record(projection.primary_unit_projection)
     assert store.written_address(0) is None
     assert store.policy_file(0) is None and store.config_note(0) is None
     assert store.cached_class(0) is None and store.cached_duplicate_group(0) is None
-    assert store.cached_homes(0) == [[None, False]]
-    assert store.homes(0) == ((None, False),)
+    assert store.cached_primary_units(0) == [[None, False]]
+    assert store.primary_units(0) == ((None, False),)
     assert list(store.windows()) == [(0, _WINDOW)]
 
 
@@ -215,7 +219,7 @@ def test_the_load_takes_the_ordinal_and_address_off_the_projection_when_not_give
 
 
 def _cached_record(
-    label: str, homes: list[list], address: tuple[str, int, int] | None
+    label: str, primary_units: list[list], address: tuple[str, int, int] | None
 ) -> unit_cache.CachedUnit:
     content_key = _key(f"content:{label}")
     return unit_cache.CachedUnit(
@@ -237,12 +241,12 @@ def _cached_record(
             "pair": [0, 1],
             "after_spans": [[0, 1], [1, 2]],
             "after_cells": ["c", "d"],
-            "after_seams": ["y5"],
+            "after_junctions": ["y5"],
             "before_spans": [[0, 1], [1, 2]],
             "before_glyphs": ["a", "b"],
-            "before_seams": ["break"],
+            "before_junctions": ["break"],
         },
-        seams=[
+        junctions=[
             {
                 "pair": [0, 1],
                 "before": {"x_min": 0, "x_max": 5, "advance_total": 9},
@@ -253,7 +257,7 @@ def _cached_record(
         duplicate_group="e-2WvdGAWe6bX",
         exemplar=False,
         no_verdict=False,
-        homes=homes,
+        primary_units=primary_units,
         policy_file="glyph_data/runes/qsTea.yaml",
     )
 
@@ -271,50 +275,52 @@ def _load(tmp_path: Path, records: list[unit_cache.CachedUnit]) -> dict[str, uni
 
 
 def test_a_cached_record_reads_back_and_its_cached_unit_is_the_store_line(tmp_path):
-    """A store record that is written, parsed as a `ParsedCachedUnit`, and loaded reads back through `cached_unit` as the same store line after its homes are set by id and its written address is recorded. `home_ordinals` resolves a home id to its ordinal through the index. The cached-only columns hold the record's class, duplicate group, flags, and homes, which are what `cached_as_is` compares."""
-    home = _cached_record("home", [[None, False]], ("units/small.json", 1, 5))
-    homed = _cached_record("homed", [[home.prior_id, False]], ("units/small.json", 7, 5))
-    loaded = _load(tmp_path, [home, homed])
+    """A store record that is written, parsed as a `ParsedCachedUnit`, and loaded reads back through `cached_unit` as the same store line after its primary units are set by id and its written address is recorded. `primary_unit_ordinals` resolves a primary unit id to its ordinal through the index. The cached-only columns hold the record's class, duplicate group, flags, and primary units, which are what `cached_as_is` compares."""
+    primary_unit = _cached_record("primary_unit", [[None, False]], ("units/small.json", 1, 5))
+    with_primary = _cached_record(
+        "with_primary", [[primary_unit.prior_id, False]], ("units/small.json", 7, 5)
+    )
+    loaded = _load(tmp_path, [primary_unit, with_primary])
     store = UnitStore(2)
     windows = [_WINDOW, (0xE652, 0xE670, 0xE652)]
-    for ordinal, (record, window) in enumerate(zip((homed, home), windows)):
+    for ordinal, (record, window) in enumerate(zip((with_primary, primary_unit), windows)):
         cached = loaded[record.key]
         assert store.load_cached(ordinal, cached, codepoints=window) == ordinal
         assert store.unit_id(ordinal) == record.prior_id
-    homed_cached = loaded[homed.key]
-    assert store.seam_home(0) == SeamHomeUnit(
+    with_primary_cached = loaded[with_primary.key]
+    assert store.primary_unit_projection(0) == PrimaryUnitProjection(
         unit_id=store.unit_id(0),
         codepoint_values=windows[0],
-        ink_identical=homed_cached.ink_identical,
-        picture_identical=homed_cached.picture_identical,
-        pair=homed_cached.pair,
-        after_spans=homed_cached.after_spans,
-        after_cells=homed_cached.after_cells,
-        after_seams=homed_cached.after_seams,
-        before_spans=homed_cached.before_spans,
-        before_glyphs=homed_cached.before_glyphs,
-        before_seams=homed_cached.before_seams,
-        seam_pairs=homed_cached.seam_pairs,
+        ink_identical=with_primary_cached.ink_identical,
+        picture_identical=with_primary_cached.picture_identical,
+        pair=with_primary_cached.pair,
+        after_spans=with_primary_cached.after_spans,
+        after_cells=with_primary_cached.after_cells,
+        after_junctions=with_primary_cached.after_junctions,
+        before_spans=with_primary_cached.before_spans,
+        before_glyphs=with_primary_cached.before_glyphs,
+        before_junctions=with_primary_cached.before_junctions,
+        junction_pairs=with_primary_cached.junction_pairs,
     )
-    assert store.seam_home_record(0) == homed.proj
-    assert json.dumps(store.seam_home_record(0)) == json.dumps(homed.proj)
-    assert store.seam_rects(0) == homed.seams
-    assert store.ink_deltas(0) == homed.ink_deltas
+    assert store.primary_unit_projection_record(0) == with_primary.proj
+    assert json.dumps(store.primary_unit_projection_record(0)) == json.dumps(with_primary.proj)
+    assert store.junction_rects(0) == with_primary.junctions
+    assert store.ink_deltas(0) == with_primary.ink_deltas
     source = store.source(0)
-    assert source == homed_cached.located() and source is not None and source.byte_copied
+    assert source == with_primary_cached.located() and source is not None and source.byte_copied
     assert store.flags(0).cached and store.flags(0).byte_copied and not store.flags(0).slim
     assert store.cached_class(0) == "boundary-window"
     assert store.cached_duplicate_group(0) == "e-2WvdGAWe6bX"
-    assert store.policy_file(0) == homed.policy_file
-    assert store.cached_homes(0) == homed.homes
-    assert store.cached_homes(1) == home.homes == [[None, False]]
+    assert store.policy_file(0) == with_primary.policy_file
+    assert store.cached_primary_units(0) == with_primary.primary_units
+    assert store.cached_primary_units(1) == primary_unit.primary_units == [[None, False]]
     assert store.cell_pair(0) == (0, 1)
     assert store.pair_codepoints(0) == (1, 2)
-    assert store.ordinal_of(home.prior_id) == 1
-    store.set_homes(0, [(home.prior_id, False)])
-    assert store.homes(0) == ((home.prior_id, False),)
-    assert store.home_ordinals(0) == ((1, False),)
-    assert store.homes_record(0) == homed.homes
+    assert store.ordinal_of(primary_unit.prior_id) == 1
+    store.set_primary_units(0, [(primary_unit.prior_id, False)])
+    assert store.primary_units(0) == ((primary_unit.prior_id, False),)
+    assert store.primary_unit_ordinals(0) == ((1, False),)
+    assert store.primary_units_record(0) == with_primary.primary_units
 
     def held(ordinal: int, duplicate_group: str | None = "e-2WvdGAWe6bX", no_verdict: bool = False) -> bool:
         return store.cached_as_is(
@@ -326,7 +332,7 @@ def test_a_cached_record_reads_back_and_its_cached_unit_is_the_store_line(tmp_pa
         )
 
     assert held(0) and held(1)
-    for ordinal, record in enumerate((homed, home)):
+    for ordinal, record in enumerate((with_primary, primary_unit)):
         assert record.address is not None
         store.set_written_address(ordinal, record.address)
         assert store.written_address(ordinal) == record.address
@@ -343,14 +349,14 @@ def test_a_cached_record_reads_back_and_its_cached_unit_is_the_store_line(tmp_pa
     assert store.cached_unit(
         0, class_id="boundary-window", duplicate_group=None, exemplar=False, no_verdict=True
     ).slim
-    store.set_homes(0, [(1, True)])
+    store.set_primary_units(0, [(1, True)])
     assert not held(0)
-    store.set_homes(0, [(None, False)])
-    assert store.homes_record(0) == [[None, False]] and not held(0)
+    store.set_primary_units(0, [(None, False)])
+    assert store.primary_units_record(0) == [[None, False]] and not held(0)
     with pytest.raises(ValueError):
-        store.set_homes(0, [])
+        store.set_primary_units(0, [])
     with pytest.raises(IndexError):
-        store.set_homes(0, [(5, False)])
+        store.set_primary_units(0, [(5, False)])
 
 
 def test_a_cached_record_is_loaded_with_the_fragment_the_plan_located(tmp_path):
@@ -408,7 +414,7 @@ def test_the_id_index_refuses_a_duplicate_and_answers_ordinal_of():
 
 
 def test_id_string_order_is_the_order_of_the_words_they_spell():
-    """`unit_cache.unit_id_for` writes the key's first 64 bits at a fixed width over an ASCII-ordered alphabet, so ids sort in the same order as their words, and `id_word_of` inverts the encoding. The home-resolution pass relies on this to break ties on the integer."""
+    """`unit_cache.unit_id_for` writes the key's first 64 bits at a fixed width over an ASCII-ordered alphabet, so ids sort in the same order as their words, and `id_word_of` inverts the encoding. The primary-unit resolution pass relies on this to break ties on the integer."""
     generator = random.Random(299)
     words = [generator.getrandbits(64) for _ in range(4096)] + [
         0,
@@ -427,34 +433,38 @@ def test_id_string_order_is_the_order_of_the_words_they_spell():
 
 
 def test_the_load_refuses_rows_whose_lengths_disagree():
-    """The store keeps one count for a row's spans, names, and seams, and one for its seam pairs, rects, and homes, so a load raises when those lengths disagree instead of truncating. It also raises on rect edges that are not the three `enrich._highlight` keys in order, on mismatched ink flags or unit id, and on an ordinal outside the store."""
+    """The store keeps one count for a row's spans, names, and junctions, and one for its junction pairs, rects, and primary units, so a load raises when those lengths disagree instead of truncating. It also raises on rect edges that are not the three `enrich._highlight` keys in order, on mismatched ink flags or unit id, and on an ordinal outside the store."""
     base = _projection("lengths")
-    home = base.seam_home
+    primary_unit = base.primary_unit_projection
     cases = {
-        "after_cells": replace(home, after_cells=home.after_cells[:1]),
-        "after_seams": replace(home, after_seams=("y5", "y5")),
-        "before_glyphs": replace(home, before_glyphs=home.before_glyphs + ("x",)),
-        "before_seams": replace(home, before_seams=()),
+        "after_cells": replace(primary_unit, after_cells=primary_unit.after_cells[:1]),
+        "after_junctions": replace(primary_unit, after_junctions=("y5", "y5")),
+        "before_glyphs": replace(primary_unit, before_glyphs=primary_unit.before_glyphs + ("x",)),
+        "before_junctions": replace(primary_unit, before_junctions=()),
     }
-    for label, seam_home in cases.items():
+    for label, primary_unit_projection in cases.items():
         with pytest.raises(ValueError, match="spans"):
-            UnitStore(1).load_projection(replace(base, seam_home=seam_home), no_verdict=False, ordinal=0)
-    with pytest.raises(ValueError, match="seam rects"):
-        UnitStore(1).load_projection(replace(base, seam_rects=()), no_verdict=False, ordinal=0)
-    with pytest.raises(ValueError, match="is not seam pair"):
+            UnitStore(1).load_projection(
+                replace(base, primary_unit_projection=primary_unit_projection), no_verdict=False, ordinal=0
+            )
+    with pytest.raises(ValueError, match="junction rects"):
+        UnitStore(1).load_projection(replace(base, junction_rects=()), no_verdict=False, ordinal=0)
+    with pytest.raises(ValueError, match="is not junction pair"):
         UnitStore(1).load_projection(
-            replace(base, seam_rects=(((1, 0),) + base.seam_rects[0][1:],)), no_verdict=False, ordinal=0
+            replace(base, junction_rects=(((1, 0),) + base.junction_rects[0][1:],)),
+            no_verdict=False,
+            ordinal=0,
         )
-    edges = base.seam_rects[0]
+    edges = base.junction_rects[0]
     reordered = {"x_max": 5, "x_min": 0, "advance_total": 9}
     with pytest.raises(ValueError, match="rect edge"):
         UnitStore(1).load_projection(
-            replace(base, seam_rects=((edges[0], reordered, edges[2]),)), no_verdict=False, ordinal=0
+            replace(base, junction_rects=((edges[0], reordered, edges[2]),)), no_verdict=False, ordinal=0
         )
     extra = {**edges[1], "extra": 1}
     with pytest.raises(ValueError, match="rect edge"):
         UnitStore(1).load_projection(
-            replace(base, seam_rects=((edges[0], edges[1], extra),)), no_verdict=False, ordinal=0
+            replace(base, junction_rects=((edges[0], edges[1], extra),)), no_verdict=False, ordinal=0
         )
     with pytest.raises(ValueError, match="ink flags are not the unit's"):
         UnitStore(1).load_projection(replace(base, ink_identical=True), no_verdict=False, ordinal=0)
@@ -464,10 +474,10 @@ def test_the_load_refuses_rows_whose_lengths_disagree():
         UnitStore(1).load_projection(base, no_verdict=False, ordinal=1)
 
 
-def test_a_cached_record_with_homes_off_its_seams_is_refused(tmp_path):
-    record = _cached_record("homes", [[None, False], [None, False]], ("units/small.json", 1, 5))
+def test_a_cached_record_with_primary_units_off_its_junctions_is_refused(tmp_path):
+    record = _cached_record("primary_units", [[None, False], [None, False]], ("units/small.json", 1, 5))
     cached = _load(tmp_path, [record])[record.key]
-    with pytest.raises(ValueError, match="cached homes"):
+    with pytest.raises(ValueError, match="cached primary_units"):
         UnitStore(1).load_cached(0, cached, codepoints=_WINDOW)
 
 
@@ -484,32 +494,40 @@ def _string_bytes(store: UnitStore) -> tuple[int, int]:
     return len(strings), sum(len(string.encode()) + memory_tally.OFFSET_WIDTH for string in strings)
 
 
-def test_the_sizes_are_the_arrays_bytes_and_empty_homes_and_mismatches_cost_none():
-    """`sizes` reports the columns' bytes plus the mismatch lines as the packed figure, with the string table's counts beside it, and the packed figure plus the string table as the walked figure (`memory_tally.column_sizes`). A unit with no seam and no mismatch adds nothing to the seam side arrays, the home columns, or the mismatch dict."""
+def test_the_sizes_are_the_arrays_bytes_and_empty_primary_units_and_mismatches_cost_none():
+    """`sizes` reports the columns' bytes plus the mismatch lines as the packed figure, with the string table's counts beside it, and the packed figure plus the string table as the walked figure (`memory_tally.column_sizes`). A unit with no junction and no mismatch adds nothing to the junction side arrays, the primary unit columns, or the mismatch dict."""
     store = UnitStore(2)
-    seamless = _projection("seamless", seam_home=_seam_home("", (0xE652, 0xE670), seams=False))
-    seamless = replace(seamless, seam_home=replace(seamless.seam_home, unit_id=seamless.unit_id))
-    store.load_projection(seamless, no_verdict=False, ordinal=0)
-    seam_side = sum(
+    without_junctions = _projection(
+        "without_junctions",
+        primary_unit_projection=_primary_unit_projection("", (0xE652, 0xE670), junctions=False),
+    )
+    without_junctions = replace(
+        without_junctions,
+        primary_unit_projection=replace(
+            without_junctions.primary_unit_projection, unit_id=without_junctions.unit_id
+        ),
+    )
+    store.load_projection(without_junctions, no_verdict=False, ordinal=0)
+    junction_side = sum(
         len(column)
         for column in (
-            store._seam_pairs,
+            store._junction_pairs,
             store._rect_edges,
-            store._home,
-            store._home_suppressed,
-            store._cached_home,
-            store._cached_home_suppressed,
+            store._primary_unit,
+            store._primary_unit_suppressed,
+            store._cached_primary_unit,
+            store._cached_primary_unit_suppressed,
         )
     )
-    assert seam_side == 0 and store._mismatches == {}
+    assert junction_side == 0 and store._mismatches == {}
     assert (
-        store.seam_rects(0) == []
-        and store.homes(0) == ()
-        and store.homes_record(0) == []
-        and store.cached_homes(0) == []
+        store.junction_rects(0) == []
+        and store.primary_units(0) == ()
+        and store.primary_units_record(0) == []
+        and store.cached_primary_units(0) == []
     )
-    store.set_homes(0, [])
-    assert store.seam_count(0) == 0
+    store.set_primary_units(0, [])
+    assert store.junction_count(0) == 0
     before = store.sizes()
     strings, string_bytes = _string_bytes(store)
     assert before == memory_tally.Measure(
@@ -517,7 +535,7 @@ def test_the_sizes_are_the_arrays_bytes_and_empty_homes_and_mismatches_cost_none
         _column_bytes(store) + string_bytes,
         memory_tally.PackedCost(_column_bytes(store), strings, string_bytes),
     )
-    store.load_projection(_projection("seamed", mismatches=("a line",)), no_verdict=False, ordinal=1)
+    store.load_projection(_projection("with_junctions", mismatches=("a line",)), no_verdict=False, ordinal=1)
     after = store.sizes()
     strings, string_bytes = _string_bytes(store)
     lines = len("a line".encode()) + memory_tally.OFFSET_WIDTH
@@ -584,7 +602,7 @@ def test_the_mini_bundle_loads_and_reads_back_every_projection(mini_bundle, tmp_
         runner.close()
     assert sorted(store.projections) == list(range(table.n))
     units = table.units(store)
-    seams = 0
+    junctions = 0
     for ordinal, unit in enumerate(units):
         projection = store.projections[ordinal]
         assert unit.unit_id == projection.unit_id and unit.input_key == keys[ordinal]
@@ -606,9 +624,9 @@ def test_the_mini_bundle_loads_and_reads_back_every_projection(mini_bundle, tmp_
             projection.unmatched_group,
         )
         assert store.pair_codepoints(ordinal) == projection.pair_codepoints
-        assert store.seam_home(ordinal) == projection.seam_home
-        assert store.seam_home_record(ordinal) == _record(projection.seam_home)
-        assert store.seam_rects(ordinal) == _seam_records(projection.seam_rects)
+        assert store.primary_unit_projection(ordinal) == projection.primary_unit_projection
+        assert store.primary_unit_projection_record(ordinal) == _record(projection.primary_unit_projection)
+        assert store.junction_rects(ordinal) == _junction_records(projection.junction_rects)
         assert store.mismatches(ordinal) == list(projection.mismatches)
         assert store.source(ordinal) == unit_cache.PriorFragment(
             getattr(projection, "part"),
@@ -618,9 +636,9 @@ def test_the_mini_bundle_loads_and_reads_back_every_projection(mini_bundle, tmp_
             projection.content_key,
         )
         assert store.codepoints(ordinal) == unit.codepoint_values
-        assert store.seam_count(ordinal) == len(projection.seam_home.seam_pairs)
-        seams += store.seam_count(ordinal)
-    assert seams, "the mini workload must hold seam-bearing units"
+        assert store.junction_count(ordinal) == len(projection.primary_unit_projection.junction_pairs)
+        junctions += store.junction_count(ordinal)
+    assert junctions, "the mini workload must hold junction-bearing units"
     assert [window for _, window in store.windows()] == [unit.codepoint_values for unit in units]
     reading = store.sizes()
     strings, string_bytes = _string_bytes(store)

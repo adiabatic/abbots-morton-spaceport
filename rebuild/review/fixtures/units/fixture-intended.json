@@ -1,6 +1,6 @@
 [
  {
-  "id": "u-2WvdGAWe6bX",
+  "id": "u-hJQksth4hYb",
   "ink_identical": false,
   "picture_identical": false,
   "junior_equivalent": false,
@@ -58,7 +58,7 @@
     "qsTea.half.ex-y5",
     "qsIt.en-y5.ex-y0"
    ],
-   "seams": [
+   "junctions": [
     "y5"
    ]
   },
@@ -67,7 +67,7 @@
     "qsTea/half/None/x-height/",
     "qsIt/hapax/x-height/None/en-ext-1"
    ],
-   "seams": [
+   "junctions": [
     "y5"
    ],
    "extensions": [
@@ -132,10 +132,10 @@
     ]
    }
   },
-  "content_key": "09102f16345ff17e3591591cafd3aa62360971df2aa3a9dcbd642daea4d72aa5"
+  "content_key": "f0f05ecedf0409a0d77f6ef7cf4d1badfef8cc809b82ec54379603ecb0ae079c"
  },
  {
-  "id": "u-8nacGTcgMRS",
+  "id": "u-73QgSVQziGo",
   "ink_identical": false,
   "picture_identical": false,
   "junior_equivalent": false,
@@ -193,7 +193,7 @@
     "qsIt.ex-y5",
     "qsIt"
    ],
-   "seams": [
+   "junctions": [
     "break"
    ]
   },
@@ -202,7 +202,7 @@
     "qsIt/hapax/None/None/",
     "qsIt/hapax/None/None/"
    ],
-   "seams": [
+   "junctions": [
     "break"
    ],
    "extensions": [
@@ -264,10 +264,10 @@
     ]
    }
   },
-  "content_key": "2e8c6f284471802144e1355dfe4198e58b872f17926a5658237c3cde5e8e0406"
+  "content_key": "241eb1c4576433f0400d761db37fa3ae6d9c0f27e5202acc1c4104dd58b91f16"
  },
  {
-  "id": "u-DdcTojn1hba",
+  "id": "u-Zuzfh4544mg",
   "ink_identical": false,
   "picture_identical": false,
   "junior_equivalent": false,
@@ -320,7 +320,7 @@
     "space",
     "qsTea_qsOy"
    ],
-   "seams": [
+   "junctions": [
     "break"
    ]
   },
@@ -329,7 +329,7 @@
     "zwnj/boundary/None/None/",
     "qsTea_qsOy/hapax/None/None/"
    ],
-   "seams": [
+   "junctions": [
     "break"
    ],
    "extensions": [
@@ -399,10 +399,10 @@
     ]
    }
   },
-  "content_key": "4b846715919459052e9dc53ae448a7620fe45012d7f39631c7fad0e15530f499"
+  "content_key": "c4c732e23cafdf23f8199981a65ef1d2537bba0e5db32aefd67e4dc06c28933e"
  },
  {
-  "id": "u-hRgMc2EJjbs",
+  "id": "u-E8egK4dqX5U",
   "ink_identical": true,
   "picture_identical": false,
   "junior_equivalent": false,
@@ -443,7 +443,7 @@
   ],
   "kinds": [
    "cell",
-   "seam"
+   "junction"
   ],
   "exemplar": false,
   "before": {
@@ -451,7 +451,7 @@
     "qsPea",
     "qsMay.en-y0.ex-y5.en-ext-1"
    ],
-   "seams": [
+   "junctions": [
     "y0"
    ]
   },
@@ -460,7 +460,7 @@
     "qsPea/full/None/baseline/",
     "qsMay/loop/baseline/None/en-ext-1"
    ],
-   "seams": [
+   "junctions": [
     "y0"
    ],
    "extensions": [
@@ -481,6 +481,6 @@
   "boundary_marks": [],
   "summary": "New: \u00b7Pea\u00b7May settles differently from the baseline \u2014 decided by fixture data (open the explain panel for the candidate table).",
   "provenance": [],
-  "content_key": "f1b02f8c54f8efa615676e57f64cf840585e2e26c1f0d7afd8e74618da4e8f3e"
+  "content_key": "4e82ac36f0c302db62907c773b8dc10764dbf0d2549796efb634839358c90784"
  }
 ]

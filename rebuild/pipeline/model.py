@@ -39,8 +39,8 @@ class CellId:
 @dataclass(frozen=True, slots=True)
 class Settled:
     cell: CellId
-    seam: Height | None  # the committed seam toward the next position
-    extension: int  # summed connector pixels carried on this seam by this side
+    junction: Height | None  # the committed junction toward the next position
+    extension: int  # summed connector pixels carried on this junction by this side
 
 
 @dataclass(frozen=True)
@@ -59,7 +59,9 @@ class Condition:
     family: tuple[str, ...] = ()
     klass: tuple[str, ...] = ()  # predicate classes or rune-local groups ("class:" in YAML)
     stance: tuple[str, ...] = ()
-    joined_at: Height | None = None  # the height of the join being decided; "none" = the seam did not join
+    joined_at: Height | None = (
+        None  # the height of the join being decided; "none" = the junction did not join
+    )
     stroke: str | None = None
     is_token: str | None = None  # "boundary" | "space" | "zwnj" | "namer-dot" ("is:" in YAML)
     except_: tuple["Condition", ...] = ()
@@ -100,7 +102,7 @@ class SurfaceRow:
         True  # False: settlement never selects this entry, and its anchor is kept for GPOS only (CellPlan.entry_curs_only)
     )
     ink_y: int | None = (
-        None  # the old font's exit_ink_y: the row where the anchor and seam-gap checks read the exit's ink when the exit anchor sits off the stroke's row
+        None  # the old font's exit_ink_y: the row where the anchor and junction-gap checks read the exit's ink when the exit anchor sits off the stroke's row
     )
     x_off_convention: bool = False
     provenance: Provenance | None = None
@@ -377,7 +379,7 @@ def raw_rename_map(spec: ResolvedSpec | None, features: frozenset[str]) -> dict[
 
 
 def isolated_overlay_active(spec: ResolvedSpec, features: Collection[str]) -> bool:
-    """Returns whether any active feature is registered with `overlay: isolated` (ss10). Under such a feature the emitted font replaces every letter's cmap glyph with its anchor-free `.ss10` twin before formation, so no ligature forms, nothing settles, and every seam is a break. Such a configuration has no settlement table, and consumers use the isolated stream instead (`settle.isolated_overlay_settled`)."""
+    """Returns whether any active feature is registered with `overlay: isolated` (ss10). Under such a feature the emitted font replaces every letter's cmap glyph with its anchor-free `.ss10` twin before formation, so no ligature forms, nothing settles, and every junction is a break. Such a configuration has no settlement table, and consumers use the isolated stream instead (`settle.isolated_overlay_settled`)."""
     return any(
         spec.registry.features.get(feature) is not None
         and spec.registry.features[feature].overlay == "isolated"

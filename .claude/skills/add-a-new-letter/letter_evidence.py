@@ -177,12 +177,12 @@ def print_pair_section(
             continue
         label = display(partner, names_by_codepoint)
         if len(groups) == 1:
-            seam, glyph_field = next(iter(groups))
-            print(f"  {label:<18} {seam:<6} all configs      {glyph_field}")
+            junction, glyph_field = next(iter(groups))
+            print(f"  {label:<18} {junction:<6} all configs      {glyph_field}")
         else:
             print(f"  {label}")
-            for (seam, glyph_field), configs in sorted(groups.items(), key=lambda kv: sorted(kv[1])):
-                print(f"    {seam:<6} {config_label(configs, all_configs):<24} {glyph_field}")
+            for (junction, glyph_field), configs in sorted(groups.items(), key=lambda kv: sorted(kv[1])):
+                print(f"    {junction:<6} {config_label(configs, all_configs):<24} {glyph_field}")
     if always_break:
         print(f"  breaks in every config against: {', '.join(always_break)}")
 

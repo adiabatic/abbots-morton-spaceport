@@ -95,7 +95,7 @@ def manifest_group(manifest: dict) -> dict:
             "by_class": dict(manifest["machine_approved"]["by_class"]),
         },
         "class_unit_count": {key: by_id[key]["unit_count"] for key in CLASS_UNIT_COUNT_KEYS},
-        "secondary_seams": dict(manifest["secondary_seams"]),
+        "secondary_junctions": dict(manifest["secondary_junctions"]),
     }
 
 

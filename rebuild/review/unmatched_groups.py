@@ -1,10 +1,10 @@
-"""Group the UNMATCHED windows (joins the rebuild makes that the old font did not) into unmatched groups, so each group gets its own class and shard on the review corpus. The grouping is for presentation only: it reads each unit's settled seams, changes no shaping, and writes no ledger predicate, and the oracle stays dirty until the groups are adjudicated. `assign_unmatched_group` returns a group for every UNMATCHED unit, with `unmatched-misc` as the catch-all.
+"""Group the UNMATCHED windows (joins the rebuild makes that the old font did not) into unmatched groups, so each group gets its own class and shard on the review corpus. The grouping is for presentation only: it reads each unit's settled junctions, changes no shaping, and writes no ledger predicate, and the oracle stays dirty until the groups are adjudicated. `assign_unmatched_group` returns a group for every UNMATCHED unit, with `unmatched-misc` as the catch-all.
 
 Two things decide a group:
 
 - Config gating. A window that is novel only under a stylistic set goes to a deferred group named for the set (ss04, ss10, or ss03 for the ss02/ss03/ss05 cases), which sorts last. A window that is novel under the default config gets a default group.
 
-- The first changed seam. Among the default groups, the first gap whose before and after seam tokens differ names the group by its left and right letters and by whether the join was gained (`break` to `yN`, or a raised seam) or lost (`yN` to `break`, or a lowered seam). Gains at ·Tea·It, at ·Oy·It, and between ·May and ·Utter each have a group, other gains that touch ·No go to `no-chain-gains`, and the remaining gains go to `unmatched-misc`. Every loss goes to `seam-loss-withdrawal`. A window with no changed seam, or whose seam and cell counts do not line up, goes to `extension-non-summing`.
+- The first changed junction. Among the default groups, the first gap whose before and after junction tokens differ names the group by its left and right letters and by whether the join was gained (`break` to `yN`, or a raised junction) or lost (`yN` to `break`, or a lowered junction). Gains at ·Tea·It, at ·Oy·It, and between ·May and ·Utter each have a group, other gains that touch ·No go to `no-chain-gains`, and the remaining gains go to `unmatched-misc`. Every loss goes to `junction-loss-unjoined`. A window with no changed junction, or whose junction and cell counts do not line up, goes to `extension-non-summing`.
 """
 
 from __future__ import annotations
@@ -25,16 +25,16 @@ class UnitConfigs(Protocol):
 
 
 class UnmatchedGroupInput(Protocol):
-    """What `assign_unmatched_group` reads from an enriched unit: the unit's configs and the seam and cell tuples `_primary_change` scans. A test stub can satisfy it without building a whole `EnrichedUnit`."""
+    """What `assign_unmatched_group` reads from an enriched unit: the unit's configs and the junction and cell tuples `_primary_change` scans. A test stub can satisfy it without building a whole `EnrichedUnit`."""
 
     @property
     def unit(self) -> UnitConfigs: ...
 
     @property
-    def before_seams(self) -> tuple[str, ...]: ...
+    def before_junctions(self) -> tuple[str, ...]: ...
 
     @property
-    def after_seams(self) -> tuple[str, ...]: ...
+    def after_junctions(self) -> tuple[str, ...]: ...
 
     @property
     def after_cells(self) -> tuple[str, ...]: ...
@@ -45,7 +45,7 @@ UNMATCHED_GROUP_ORDER = [
     "tea-it-xheight",
     "oy-it-baseline",
     "may-utter-gains",
-    "seam-loss-withdrawal",
+    "junction-loss-unjoined",
     "extension-non-summing",
     "unmatched-misc",
     "deferred-ss04",
@@ -58,9 +58,9 @@ UNMATCHED_GROUP_WHY = {
     "tea-it-xheight": "·Tea·It now joins at the x-height (before ·Day/·Utter) where the old font broke. Resembles the entered-·It x-height gains already accepted; adjudicate whether this window should join too.",
     "oy-it-baseline": "·Oy·It now joins at the baseline before ·No (a strict +1-pixel join) where the old font broke.",
     "may-utter-gains": "·May/·Utter backward-join gains — ·May·Utter joining at the x-height and the ·Utter·May backward joins (including the post-ZWNJ ·Utter·May·X windows) the old font did not draw.",
-    "seam-loss-withdrawal": "The new engine breaks (or lowers) a seam the old font joined — ·No's flipped exit withdrawing before ·Tea, the ·Utter/·No chain-flip lowering x-height joins to the baseline, ·It withdrawing before ·Utter. The context-dependent, partly engine-limited group flagged in the round-2 analysis.",
-    "extension-non-summing": "The seams are unchanged but the lead settles as a different cell because a composed extension no longer sums — the ·Tea·Oy·Day extension-drop window and its kin.",
-    "unmatched-misc": "Default-config UNMATCHED windows that fit none of the named seam-gain or seam-loss signatures — the catch-all so no window is ever dropped from review.",
+    "junction-loss-unjoined": "The new engine breaks (or lowers) a junction the old font joined — ·No's flipped exit withdrawing before ·Tea, the ·Utter/·No chain-flip lowering x-height joins to the baseline, ·It withdrawing before ·Utter. The context-dependent, partly engine-limited group flagged in the round-2 analysis.",
+    "extension-non-summing": "The junctions are unchanged but the lead settles as a different cell because a composed extension no longer sums — the ·Tea·Oy·Day extension-drop window and its kin.",
+    "unmatched-misc": "Default-config UNMATCHED windows that fit none of the named junction-gain or junction-loss signatures — the catch-all so no window is ever dropped from review.",
     "deferred-ss04": "Deferred for a later pass: the novel behavior appears only under stylistic set ss04 (the ss04 Group A lowered-lead design question and the ss04 ligature declines). Not part of the round-3 default adjudication.",
     "deferred-ss10": "Deferred for a later pass: the novel behavior appears only under stylistic set ss10 (the isolation-overlay residue). Not part of the round-3 default adjudication.",
     "deferred-ss03": "Deferred for a later pass: the novel behavior appears only under the ss02/ss03/ss05 stylistic sets. Not part of the round-3 default adjudication.",
@@ -101,27 +101,27 @@ def _exit_family(cell_token: str) -> str:
     return cell_token.split("/", 1)[0].rsplit("_", 1)[-1]
 
 
-_SEAM_RANK = {"break": -1}
+_JUNCTION_RANK = {"break": -1}
 
 
-def _seam_rank(token: str) -> int:
-    if token in _SEAM_RANK:
-        return _SEAM_RANK[token]
+def _junction_rank(token: str) -> int:
+    if token in _JUNCTION_RANK:
+        return _JUNCTION_RANK[token]
     if token.startswith("y") and token[1:].isdigit():
         return int(token[1:])
     return -1
 
 
 def _primary_change(enriched: UnmatchedGroupInput) -> tuple[str, str, str, str] | None:
-    """Return the first gap between cells whose seam token changed, as (left family, right family, before token, after token). Return None when no seam changed, or when the seam counts differ or do not match the cell count, as when a ligature forms or splits."""
-    before = enriched.before_seams
-    after = enriched.after_seams
+    """Return the first gap between cells whose junction token changed, as (left family, right family, before token, after token). Return None when no junction changed, or when the junction counts differ or do not match the cell count, as when a ligature forms or splits."""
+    before = enriched.before_junctions
+    after = enriched.after_junctions
     cells = enriched.after_cells
     if len(before) != len(after) or len(after) + 1 != len(cells):
         return None
     for index, (was, now) in enumerate(zip(before, after)):
         if was != now:
-            # The seam is the left cell's exit (its trailing component, for a ligature) joining the right cell's entry (its lead component).
+            # The junction is the left cell's exit (its trailing component, for a ligature) joining the right cell's entry (its lead component).
             return (_exit_family(cells[index]), _entry_family(cells[index + 1]), was, now)
     return None
 
@@ -137,8 +137,8 @@ def assign_unmatched_group(enriched: UnmatchedGroupInput) -> str:
         return "extension-non-summing"
 
     left, right, was, now = change
-    gained = _seam_rank(now) > _seam_rank(was)
-    lost = _seam_rank(now) < _seam_rank(was)
+    gained = _junction_rank(now) > _junction_rank(was)
+    lost = _junction_rank(now) < _junction_rank(was)
 
     if gained:
         if left == "qsTea" and right == "qsIt":
@@ -151,5 +151,5 @@ def assign_unmatched_group(enriched: UnmatchedGroupInput) -> str:
             return "no-chain-gains"
         return "unmatched-misc"
     if lost:
-        return "seam-loss-withdrawal"
+        return "junction-loss-unjoined"
     return "unmatched-misc"

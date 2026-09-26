@@ -472,7 +472,7 @@ fn settled_line(index: &SpecIndex, symbols: &mut Symbols, settled: &Settled) -> 
         symbols.optional(index, cell.entry),
         symbols.optional(index, cell.exit),
         adjustments,
-        symbols.optional(index, settled.seam),
+        symbols.optional(index, settled.junction),
         settled.extension
     )
 }
@@ -606,8 +606,8 @@ pub fn write_memo(
         if let Some(stance) = key.left_stance {
             symbols.seat(index, index.stance_at_ordinal(stance));
         }
-        if let Some(seam) = key.left_seam {
-            symbols.seat(index, index.seam_at_ordinal(seam));
+        if let Some(junction) = key.left_junction {
+            symbols.seat(index, index.junction_at_ordinal(junction));
         }
         let settled_seat = settled.seat(&memo.settled[row.seats[0] as usize], |record| {
             Ok(settled_line(index, &mut symbols, record))
@@ -668,7 +668,11 @@ pub fn write_memo(
                 key.left_stance
                     .map(|stance| index.stance_at_ordinal(stance))
             ),
-            symbols.optional(index, key.left_seam.map(|seam| index.seam_at_ordinal(seam))),
+            symbols.optional(
+                index,
+                key.left_junction
+                    .map(|junction| index.junction_at_ordinal(junction))
+            ),
             key.left_extension,
             symbols.seat(index, index.rune_at_ordinal(key.token))
         );
@@ -742,7 +746,7 @@ fn seat_at(text: &str) -> Option<usize> {
 /// Some windows are dropped instead of failing the read, because each names something that changed and the caller's exclusion would reject it anyway:
 ///
 /// - a window naming a symbol this spec never interned: a rune, stance or height that left the spec, or a pointer whose record did;
-/// - a window naming a rune the registry knows no family by, a stance name no rune declares, or a height no seam field holds, because the key stores each as its field's [`crate::index::Ordinal`] and this spec's index has none for it;
+/// - a window naming a rune the registry knows no family by, a stance name no rune declares, or a height no junction field holds, because the key stores each as its field's [`crate::index::Ordinal`] and this spec's index has none for it;
 /// - a window seated on a settled record whose cell no left of this spec keys ([`LeftOrdinals::of`]), so that a stale record cannot reach a left, or whose adjustment tokens this spec cannot parse.
 ///
 /// A line the format does not define fails the read with an error naming the line.
@@ -821,7 +825,8 @@ pub(crate) fn read_memo(
                     ));
                 }
                 let fields: Vec<&str> = fields.collect();
-                let [rune, stance, entry, exit, adjustments, seam, extension] = fields.as_slice()
+                let [rune, stance, entry, exit, adjustments, junction, extension] =
+                    fields.as_slice()
                 else {
                     return Err(complain(number, "a settled record has seven fields"));
                 };
@@ -845,7 +850,7 @@ pub(crate) fn read_memo(
                             exit: symbol_at(&symbols, exit).ok()?,
                             adjustments,
                         },
-                        seam: symbol_at(&symbols, seam).ok()?,
+                        junction: symbol_at(&symbols, junction).ok()?,
                         extension,
                     })
                 })()
@@ -922,7 +927,7 @@ pub(crate) fn read_memo(
                     left_kind,
                     left_rune,
                     left_stance,
-                    left_seam,
+                    left_junction,
                     left_extension,
                     token,
                     slot1,
@@ -957,7 +962,9 @@ pub(crate) fn read_memo(
                     .parse()
                     .ok()
                     .filter(|term| (0..=1).contains(term))
-                    .ok_or_else(|| complain(number, "a prospect is a seam count, zero or one"))?;
+                    .ok_or_else(|| {
+                        complain(number, "a prospect is a junction count, zero or one")
+                    })?;
                 let joint_tiebreak = match *joint {
                     "0" => false,
                     "1" => true,
@@ -1004,14 +1011,14 @@ pub(crate) fn read_memo(
                         Some(stance) => Some(index.stance_ordinal(stance)?),
                         None => None,
                     };
-                    let left_seam = match symbol_at(&symbols, left_seam).ok()? {
-                        Some(seam) => Some(index.seam_ordinal(seam)?),
+                    let left_junction = match symbol_at(&symbols, left_junction).ok()? {
+                        Some(junction) => Some(index.junction_ordinal(junction)?),
                         None => None,
                     };
                     Some(TraceKey {
                         left_rune,
                         left_stance,
-                        left_seam,
+                        left_junction,
                         left_extension,
                         token: index.rune_ordinal(symbol_at(&symbols, token).ok()??)?,
                         runes,
@@ -1681,7 +1688,7 @@ mod tests {
                 read_memo(&index, &path, &head("default"), |_| true).expect_err("refused");
             assert!(
                 refusal.contains(&format!(
-                    "line {}: a prospect is a seam count, zero or one",
+                    "line {}: a prospect is a junction count, zero or one",
                     first_window + 1
                 )),
                 "{refusal}"

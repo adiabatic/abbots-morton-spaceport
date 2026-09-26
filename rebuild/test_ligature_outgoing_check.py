@@ -327,7 +327,7 @@ def test_a_join_that_survives_at_another_height_is_reported_as_moved():
         local_refuse=(local_refusal,),
     )
     spec = _with_two_height_follower(spec)
-    with pytest.raises(LigatureOutgoingError, match=r"moved x-height seam to baseline.*right=\[D"):
+    with pytest.raises(LigatureOutgoingError, match=r"moved x-height junction to baseline.*right=\[D"):
         validate_ligature_outgoing(spec, raw)
 
 

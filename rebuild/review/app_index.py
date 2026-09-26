@@ -62,7 +62,7 @@ def app_row(fragment: dict, part: int, start: int, length: int, *, order: int, b
         "pair": fragment.get("pair"),
         "pair_codepoints": fragment.get("pair_codepoints"),
         "boundary_marks": fragment.get("boundary_marks") or [],
-        "secondary_seams": fragment.get("secondary_seams"),
+        "secondary_junctions": fragment.get("secondary_junctions"),
         "configs": fragment.get("configs") or [],
         "config_gate": fragment.get("config_gate"),
         "config_note": fragment.get("config_note"),

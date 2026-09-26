@@ -66,7 +66,7 @@ impl Rule {
     }
 }
 
-/// One treaty row, `table.TreatyRow`: the two settled cells a seam joins, the height it joins at (or `break`), and the connector pixels the seam carries. `kern` is always zero and is written anyway, because the TSV has the column.
+/// One treaty row, `table.TreatyRow`: the two settled cells a junction joins, the height it joins at (or `break`), and the connector pixels the junction carries. `kern` is always zero and is written anyway, because the TSV has the column.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct TreatyRow {
     pub left: Rc<str>,
@@ -290,7 +290,7 @@ fn fold_with_report(
         let Some(left_settled) = product.left_settled(base) else {
             continue;
         };
-        match left_settled.seam {
+        match left_settled.junction {
             None => {
                 seen.insert((
                     Rc::clone(rows.left(row)),
@@ -299,11 +299,11 @@ fn fold_with_report(
                     0,
                 ));
             }
-            Some(seam) => {
+            Some(junction) => {
                 seen.insert((
                     Rc::clone(rows.left(row)),
                     Rc::clone(rows.outcome(row)),
-                    index.resolve(seam).to_owned(),
+                    index.resolve(junction).to_owned(),
                     left_settled.extension + entry_extensions[&product.settled(base).cell],
                 ));
             }
@@ -442,7 +442,7 @@ fn near_slots(row: &TransitionRow) -> [Label; 4] {
 
 /// Compares every row's optimistic prospect with the follower's actual settled choice and flags divergent rows joint (design section 6.1 step 4.2).
 ///
-/// A row's followers are the rows whose (left, input, right1) is the row's own (outcome, right1, right2). When the row carries a right3, only the followers whose right2 is that label count, and when it carries a right4, only those whose right3 is that label. The expansion is in key order, so the rows sharing an (input, left, right1) are one contiguous run, sorted by right2. The index maps each run to its range of the expansion. A row that carries a right3 narrows the range to that label's rows by binary search, and a row whose right3 is `#NA` walks the whole range. Either way, a carried right4 is checked against each follower's right3. The pass reads only the seam each follower settled (through the product's `seats` table), never a follower's joint flag, so the order the rows are visited in does not change the result, and the flags are applied together at the end.
+/// A row's followers are the rows whose (left, input, right1) is the row's own (outcome, right1, right2). When the row carries a right3, only the followers whose right2 is that label count, and when it carries a right4, only those whose right3 is that label. The expansion is in key order, so the rows sharing an (input, left, right1) are one contiguous run, sorted by right2. The index maps each run to its range of the expansion. A row that carries a right3 narrows the range to that label's rows by binary search, and a row whose right3 is `#NA` walks the whole range. Either way, a carried right4 is checked against each follower's right3. The pass reads only the junction each follower settled (through the product's `seats` table), never a follower's joint flag, so the order the rows are visited in does not change the result, and the flags are applied together at the end.
 fn flag_prospect_joints(product: &FixpointProduct, fold: &mut [FoldRow]) {
     let class = &product.transitions;
     let prefix_of = |row: &FoldRow| {
@@ -488,7 +488,7 @@ fn flag_prospect_joints(product: &FixpointProduct, fold: &mut [FoldRow]) {
                 return false;
             }
             let followed = &class[follower.seat as usize];
-            i8::from(product.seats[followed.settled.index()].seam.is_some()) != base.prospect
+            i8::from(product.seats[followed.settled.index()].junction.is_some()) != base.prospect
         });
         if diverges {
             flagged.push(seat as u32);
@@ -1370,7 +1370,7 @@ mod tests {
     struct Bench {
         index: SpecIndex,
         cell: CellId,
-        seam: crate::model::Sym,
+        junction: crate::model::Sym,
         seats: RefCell<Vec<Settled>>,
         labels: RefCell<LabelPool>,
         outcomes: RefCell<Vec<Label>>,
@@ -1386,11 +1386,11 @@ mod tests {
                 exit: Some(fixtures::sym(&index, "baseline")),
                 adjustments: Vec::new(),
             };
-            let seam = fixtures::sym(&index, "baseline");
+            let junction = fixtures::sym(&index, "baseline");
             Self {
                 index,
                 cell,
-                seam,
+                junction,
                 seats: RefCell::new(Vec::new()),
                 labels: RefCell::new(LabelPool::default()),
                 outcomes: RefCell::new(Vec::new()),
@@ -1408,7 +1408,7 @@ mod tests {
             seat
         }
 
-        /// One row from its six key labels and its outcome label, the prospect its trace claimed, and whether it committed a seam.
+        /// One row from its six key labels and its outcome label, the prospect its trace claimed, and whether it committed a junction.
         fn row(&self, labels: [&str; 7], prospect: i8, joins: bool) -> TransitionRow {
             let [input_glyph, left, right1, right2, right3, right4, _] = {
                 let mut pool = self.labels.borrow_mut();
@@ -1424,7 +1424,7 @@ mod tests {
                 settled: self.seat(
                     Settled {
                         cell: self.cell.clone(),
-                        seam: joins.then_some(self.seam),
+                        junction: joins.then_some(self.junction),
                         extension: 0,
                     },
                     labels[6],
@@ -1470,13 +1470,13 @@ mod tests {
             }
         }
 
-        /// One row whose left committed a seam. The treaty fold skips rows without `left_settled`, and [`Bench::row`] leaves it absent, so a product of those rows folds into no treaty rows.
+        /// One row whose left committed a junction. The treaty fold skips rows without `left_settled`, and [`Bench::row`] leaves it absent, so a product of those rows folds into no treaty rows.
         fn joined(&self, labels: [&str; 7], cell: CellId, left_extension: i64) -> TransitionRow {
             let mut row = self.row(labels, 0, false);
             row.settled = self.seat(
                 Settled {
                     cell,
-                    seam: None,
+                    junction: None,
                     extension: 0,
                 },
                 labels[6],
@@ -1484,7 +1484,7 @@ mod tests {
             row.left_settled = Some(self.seat(
                 Settled {
                     cell: self.cell.clone(),
-                    seam: Some(self.seam),
+                    junction: Some(self.junction),
                     extension: left_extension,
                 },
                 labels[1],
@@ -1524,7 +1524,7 @@ mod tests {
         }
     }
 
-    /// A row whose optimistic prospect claims a seam that the follower's settled choice does not make is flagged joint, and the follower's row is not.
+    /// A row whose optimistic prospect claims a junction that the follower's settled choice does not make is flagged joint, and the follower's row is not.
     #[test]
     fn a_prospect_the_follower_contradicts_flags_its_row_joint() {
         let bench = Bench::new();

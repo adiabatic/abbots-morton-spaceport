@@ -201,31 +201,31 @@ class TestExtensions:
         assert record.exit == (1, 0)
 
 
-class TestSeamGap:
+class TestJunctionGap:
     def test_it_into_may_baseline_gap_zero(self, spec):
         left = _realize(spec, "qsIt", "hapax", None, "baseline")
         right = _realize(spec, "qsMay", "loop", "baseline", "x-height")
-        assert geometry.seam_gap(left, right, "baseline") == 0
+        assert geometry.junction_gap(left, right, "baseline") == 0
 
-    def test_extended_seam_still_gap_zero(self, spec):
+    def test_extended_junction_still_gap_zero(self, spec):
         left = _realize(spec, "qsIt", "hapax", "x-height", "baseline", ["ex-ext-1"])
         right = _realize(spec, "qsMay", "loop", "baseline", "x-height")
-        assert geometry.seam_gap(left, right, "baseline") == 0
+        assert geometry.junction_gap(left, right, "baseline") == 0
 
     def test_nonzero_gap_detected(self):
         left = GlyphRecord(name="left", bitmap=("#",), y_offset=0, exit=(1, 0))
         right = GlyphRecord(name="right", bitmap=(" #",), y_offset=0, entry=(0, 0))
-        assert geometry.seam_gap(left, right, "baseline") == 1
+        assert geometry.junction_gap(left, right, "baseline") == 1
 
     def test_overlap_is_negative(self):
         left = GlyphRecord(name="left", bitmap=("##",), y_offset=0, exit=(1, 0))
         right = GlyphRecord(name="right", bitmap=("#",), y_offset=0, entry=(0, 0))
-        assert geometry.seam_gap(left, right, "baseline") == -1
+        assert geometry.junction_gap(left, right, "baseline") == -1
 
     def test_requires_live_sides(self):
         bare = GlyphRecord(name="bare", bitmap=("#",), y_offset=0)
         with pytest.raises(geometry.GeometryError):
-            geometry.seam_gap(bare, bare, "baseline")
+            geometry.junction_gap(bare, bare, "baseline")
 
 
 class TestWithdrawalSafety:

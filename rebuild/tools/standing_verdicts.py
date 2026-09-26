@@ -2,9 +2,9 @@
 
 A rule declares one shape, a row in `SHAPES`, by the field its `match.after` carries. Each matcher's docstring states what its shape checks, and no shape checks anything about the window beyond that. The shapes are:
 
-- `ligature` (declared by `ligature`): the pivot and its follower become the named ligature, and the seams on either side of that change are unchanged. It does not check that the unit's judged pair is this pivot's (see `_matches_ligature`).
+- `ligature` (declared by `ligature`): the pivot and its follower become the named ligature, and the junctions on either side of that change are unchanged. It does not check that the unit's judged pair is this pivot's (see `_matches_ligature`).
 
-- `extension-dropped` (declared by `follower_cells`): the pivot gives up a named stretch of exit. That is a whole `ex-ext-N` the before glyph carried, the columns down to a shorter extension its after cell keeps, or a named `ex-con-N` on an after cell whose before glyph carried no exit extension. The two sides must line up letter for letter over identical seams, the follower must be in a family the rule names, and the pivot and follower must settle into cells the rule names in full (rune, stance, entry, exit, and the whole adjustment set), which fixes how much of the stretch went. The unit's primary judged pair must be that pivot and follower, with no secondary seam anywhere in the window. That last condition is required because identical seams do not mean identical ink: a window can keep every seam and still be about a different letter's stroke, and only the corpus's judgment fields say which letter the unit is about. This shape reads names only.
+- `extension-dropped` (declared by `follower_cells`): the pivot gives up a named stretch of exit. That is a whole `ex-ext-N` the before glyph carried, the columns down to a shorter extension its after cell keeps, or a named `ex-con-N` on an after cell whose before glyph carried no exit extension. The two sides must line up letter for letter over identical junctions, the follower must be in a family the rule names, and the pivot and follower must settle into cells the rule names in full (rune, stance, entry, exit, and the whole adjustment set), which fixes how much of the stretch went. The unit's primary judged pair must be that pivot and follower, with no secondary junction anywhere in the window. That last condition is required because identical junctions do not mean identical ink: a window can keep every junction and still be about a different letter's stroke, and only the corpus's judgment fields say which letter the unit is about. This shape reads names only.
 
 - `ink-delta` (declared by `ink_deltas`): the unit's persisted per-config ink-delta digests (`delta_digest` over `InkComparator.config_diff` in rebuild/review/ink.py) must all be among the rule's digests. The match is pixel-exact. A name-only difference paints no different pixel, so it is part of the same digest, and any other visible ink change under any config fails the match.
 
@@ -16,7 +16,7 @@ A rule declares one shape, a row in `SHAPES`, by the field its `match.after` car
 
 - `entry-extension-dropped` (declared by `entry_drop`): the pivot gives up a named stretch of left-side entry. Either its own-frame picture is the old one compacted left by that many columns, with every dropped cell in the removed columns and its origin and placement unchanged, or its after form names an `en-con-N` that brings the letter that many columns closer. Everything after the pivot moves closer by the count. ·Low losing the extra baseline pixel the old font drew after ·See matches.
 
-- `entry-contracted` (declared by `entry_contraction`): one or more named left-pivot pairs whose pivot contracts its entry by the declared count. The letter comes that many columns closer however its after form took the contraction: a form that moved its own-frame origin right by the whole count keeps its placement, one that did not move its origin moves its placement the whole count left, and the ink ends up in the same place either way. The lost left-side ink stays inside the contracted columns, any change at the far right is exactly the difference between the exit extensions the before and after glyph names carry, and everything after the pivot moves by the contraction plus that difference. A name-only change after the pivot is allowed where the pivot still paints every cell it appears to lose. `except_pivots` declines before forms that nest under a pivot prefix but need another count or redraw, leaving them to another rule. A named pivot may also lead an existing ligature: the incoming seam must match any named entry height, the compound must carry every other named modifier except exit heights, and the same compound family must stand at the position on both sides. The whole compound's pixels and displacement are judged, so an unrelated change in the rest of the compound fails the match. A pivot outside a ligature is matched by prefix over its whole family.
+- `entry-contracted` (declared by `entry_contraction`): one or more named left-pivot pairs whose pivot contracts its entry by the declared count. The letter comes that many columns closer however its after form took the contraction: a form that moved its own-frame origin right by the whole count keeps its placement, one that did not move its origin moves its placement the whole count left, and the ink ends up in the same place either way. The lost left-side ink stays inside the contracted columns, any change at the far right is exactly the difference between the exit extensions the before and after glyph names carry, and everything after the pivot moves by the contraction plus that difference. A name-only change after the pivot is allowed where the pivot still paints every cell it appears to lose. `except_pivots` declines before forms that nest under a pivot prefix but need another count or redraw, leaving them to another rule. A named pivot may also lead an existing ligature: the incoming junction must match any named entry height, the compound must carry every other named modifier except exit heights, and the same compound family must stand at the position on both sides. The whole compound's pixels and displacement are judged, so an unrelated change in the rest of the compound fails the match. A pivot outside a ligature is matched by prefix over its whole family.
 
 - `stub-dropped` (declared by `stub_drop`): the pivot gives up a named left-side stub while the ink it keeps stays in place. Its own-frame picture is the old one compacted left by the count, its placement moves right by the count, and every other pixel in the window is unmoved. The placement move is what separates it from `entry-extension-dropped`, whose remaining ink moves closer. ·May losing the leftover left pixel after ·Ah matches. A pivot is a position whose before and after names both carry the named prefixes: a second ·May that keeps its old loop is judged as ordinary ink, because only the before form says which of the two after loops lost the stub.
 
@@ -26,7 +26,7 @@ A rule declares one shape, a row in `SHAPES`, by the field its `match.after` car
 
 - `join-created` (declared by `joined`): a named pair that was a break now joins at the named height, and the pivot and follower may redraw. The pivot keeps its own-frame origin, and its placement stays or moves up to `pivot_stub_drop` columns right when the left-side entry the old font drew in front of the join comes off (·May's own entry in front of its new baseline join into ·Gay). The follower keeps its own-frame origin, or moves it left by `follower_columns_added` when its joining form inserts columns at its left edge (·Gay's stroke that reaches the baseline). The follower moves by `shift` plus the pivot's placement move, and everything after it by that plus `follower_advance`. Two counts are needed because a follower that redraws wider gives back what the join closed: the reaches-way-back ·Utter comes a column nearer ·May and leaves the rest of the word where it was. The pivot may name several families, which records one letter's new entry for every left neighbor that now reaches it. `except_pivots` declines before forms that nest under a pivot prefix but need another count: the ·J'ai the old font drew with a stacked crown entry gives the follower a column, while the ·J'ai drawn without one gains a reach that cancels it.
 
-The combined match, which no rule declares, runs before any single rule is checked. It asks whether two or more approved changes together account for every rendered pixel of one window. For example, where the grounded ·See slides a column closer to what precedes it and ·J'ai also gives up its exit extension, neither rule covers the window alone: `slide` fails on the extension pixel, and `extension-dropped` does not look at ink outside its judged seam.
+The combined match, which no rule declares, runs before any single rule is checked. It asks whether two or more approved changes together account for every rendered pixel of one window. For example, where the grounded ·See slides a column closer to what precedes it and ·J'ai also gives up its exit extension, neither rule covers the window alone: `slide` fails on the extension pixel, and `extension-dropped` does not look at ink outside its judged junction.
 
 Only shapes whose `SHAPES` row sets `combinable` take part. Each names a local change the walk can check at one position: a displacement, named own-frame cells gained or swapped on the pivot, a join that is dropped, created, or changes height, or a left-side stretch or stub the pivot gives up. `ligature` reads the whole window's names and `ink-delta` its whole ink change, so neither says anything about one position.
 
@@ -35,7 +35,7 @@ Each combinable rule's candidate positions come from the index record without sh
 The walk (`_combined_walk`) re-shapes the window in the corpus's font pair and carries a running column displacement from left to right. At each event:
 
 - slide: the pivot leads the next span, and the displacement grows by the declared slide.
-- extension: the pivot sits at the running displacement and loses, on the row its `seam_out` height names, the tail the rule names (the named extension less any shorter one its after cell keeps, or the named contraction). The displacement shrinks by that width. The follower leads the next span, which must be a translation, the same picture compacted left by the follower's dropped entry extension, or, when the follower redrew inside its named cell, a translation of the span without the follower.
+- extension: the pivot sits at the running displacement and loses, on the row its `junction_out` height names, the tail the rule names (the named extension less any shorter one its after cell keeps, or the named contraction). The displacement shrinks by that width. The follower leads the next span, which must be a translation, the same picture compacted left by the follower's dropped entry extension, or, when the follower redrew inside its named cell, a translation of the span without the follower.
 - join (dropped): the pivot sits at the running displacement, and the displacement grows by the gap. The follower leads the next span, or, where the rule declares `follower_columns_removed`, is judged by the event and left out of the span.
 - gain: the pivot sits at the running displacement, and the displacement grows by the declared shift.
 - entry: the pivot sits left of the running displacement by the part of its entry contraction its own frame did not take (zero for a dropped entry extension), and the displacement moves closer by the entry count, adjusted for an `entry-contracted` rule by any exit-extension change on the pivot. The next span is compared together with the pivot's after picture, so a cell handed between them does not count as a change.
@@ -48,14 +48,14 @@ Every span between events must render as its before picture moved by the displac
 
 Two events may share a letter only in these cases:
 
-- A created join behind an entry, ink-gain, or redrawn event at the same position. The earlier event judges the picture the pivot settles into, and the created join judges the seam that picture opens and its follower. Examples: ·Ah's contracted entry after ·J'ai and its new x-height join into ·Gay; ·Tea's full bar under ss03 and the baseline join it takes; ·Eight's smaller loop and the baseline join into ·It that only that loop reaches.
-- A created join, redrawn cell swap, dropped join, or further retarget whose pivot is a retarget's follower. The retarget judges that letter's incoming seam and its placement. A further retarget or dropped join takes nothing of the first retarget's `shift` beyond its follower's move, because its own counts are measured with its pivot standing and already include that letter's advance. A redrawn cell swap there must leave the letter where the retarget put it, so a new form naming an entry contraction fails. Examples: ·Gay's raised join into ·No with the break ·No now leaves before ·Thaw, or with ·No's own raised join into ·Day or ·No; ·It's lowered join into ·No and ·No's new join into ·Gay; ·Utter's raised join into ·May and the loop ·May draws with no exit left.
-- A created join, retarget, extension drop, ink gain, or redrawn cell swap whose pivot is a created join's follower. The created join judges that letter's incoming seam. A following retarget receives only the created join's `follower_columns_added`, for the same reason as above, and any other following event receives the whole `follower_advance`. Such a retarget may have moved its pivot's own-frame origin, because the created join's `follower_columns_added` declared that move. Examples: ·Bay's new baseline join into ·Utter and ·Utter's raised join into ·May, which puts ·May three columns back; ·Et's new baseline join into ·Gay and ·Gay's raised join into ·No; ·Pea's lowered join into ·No, ·No's new join into ·Ah, and ·Ah's dropped tail before ·Bay; ·Ah's new x-height join into ·Gay and ·Gay's own redraw, which meets that seam and gives up its baseline tail.
+- A created join behind an entry, ink-gain, or redrawn event at the same position. The earlier event judges the picture the pivot settles into, and the created join judges the junction that picture opens and its follower. Examples: ·Ah's contracted entry after ·J'ai and its new x-height join into ·Gay; ·Tea's full bar under ss03 and the baseline join it takes; ·Eight's smaller loop and the baseline join into ·It that only that loop reaches.
+- A created join, redrawn cell swap, dropped join, or further retarget whose pivot is a retarget's follower. The retarget judges that letter's incoming junction and its placement. A further retarget or dropped join takes nothing of the first retarget's `shift` beyond its follower's move, because its own counts are measured with its pivot standing and already include that letter's advance. A redrawn cell swap there must leave the letter where the retarget put it, so a new form naming an entry contraction fails. Examples: ·Gay's raised join into ·No with the break ·No now leaves before ·Thaw, or with ·No's own raised join into ·Day or ·No; ·It's lowered join into ·No and ·No's new join into ·Gay; ·Utter's raised join into ·May and the loop ·May draws with no exit left.
+- A created join, retarget, extension drop, ink gain, or redrawn cell swap whose pivot is a created join's follower. The created join judges that letter's incoming junction. A following retarget receives only the created join's `follower_columns_added`, for the same reason as above, and any other following event receives the whole `follower_advance`. Such a retarget may have moved its pivot's own-frame origin, because the created join's `follower_columns_added` declared that move. Examples: ·Bay's new baseline join into ·Utter and ·Utter's raised join into ·May, which puts ·May three columns back; ·Et's new baseline join into ·Gay and ·Gay's raised join into ·No; ·Pea's lowered join into ·No, ·No's new join into ·Ah, and ·Ah's dropped tail before ·Bay; ·Ah's new x-height join into ·Gay and ·Gay's own redraw, which meets that junction and gives up its baseline tail.
 - A dropped join or extension drop whose follower is itself an event. That event is judged next, under the displacement the first one applied (·At's dropped x-height join and ·It's dropped exit extension).
 
 Any other pair of events at one position, or a created join or retarget whose follower position is also an event, makes the walk return None. A created join whose pivot moved its own-frame origin is an event only behind an entry, ink-gain, or redrawn event at that position. A retarget whose pivot moved its origin is an event only behind a created join at the position before it, or behind an entry, ink-gain, or redrawn event at the same position, where it shares the letter the way a created join there does.
 
-A candidate whose own check fails is not an event, and its ink is judged as ordinary span ink, so a rule that fails at a position does not stop the other rules from explaining the window. The pivot is judged piece by piece rather than as part of a union, so a pivot whose after form also drops a cell off the seam row (·J'ai's crown contracting under an ·At tuck) never combines.
+A candidate whose own check fails is not an event, and its ink is judged as ordinary span ink, so a rule that fails at a position does not stop the other rules from explaining the window. The pivot is judged piece by piece rather than as part of a union, so a pivot whose after form also drops a cell off the junction row (·J'ai's crown contracting under an ·At tuck) never combines.
 
 A combined match needs two or more events. One rule matched at two positions is enough, as in a window where ·Ah gives up its exit tail twice, and a single event belongs on that rule's own line. A combined fill's verdict is `either` when any counted rule's verdict is `either` or a non-combinable `either` rule also matches the window, and `approve` otherwise. Its note names the counted ids in rules-file order.
 
@@ -122,7 +122,7 @@ ENTRY_EXTENSION = re.compile(r"en-ext-[1-9][0-9]*")
 ENTRY_CONTRACTION = re.compile(r"en-con-[1-9][0-9]*")
 DELTA_DIGEST = re.compile(r"d-[0-9a-f]{12}")
 EMPTY_DELTA_DIGEST = delta_digest(IDENTITY_DIFF)
-SEAM_ROW = re.compile(r"y([0-9]+)")
+JUNCTION_ROW = re.compile(r"y([0-9]+)")
 
 
 def _fail(message) -> NoReturn:
@@ -259,16 +259,16 @@ def _letter_for_letter(unit):
 
 
 def _matches_ligature(match, unit, excluded, context=None):
-    """A pivot letter whose backward join drops as it ligates with its follower: the pivot sits between the two named seams, the pivot and follower become the named ligature, and the seams on either side of that change are unchanged. Unchanged seams on either side constrain the joins and nothing else. They do not show that the unit's judged question is about this pivot, so a second rule in this shape would need the judged-pair and secondary-seam checks the extension-dropped shape makes. The follower is read as the right neighbor's `_joining_family`, where the extension-dropped shape reads the whole `_family`; the two differ only when that neighbor is itself a ligature."""
-    glyphs, seams = unit["before"]["glyphs"], unit["before"]["seams"]
-    cells, after_seams = unit["after"]["cells"], unit["after"]["seams"]
+    """A pivot letter whose backward join drops as it ligates with its follower: the pivot sits between the two named junctions, the pivot and follower become the named ligature, and the junctions on either side of that change are unchanged. Unchanged junctions on either side constrain the joins and nothing else. They do not show that the unit's judged question is about this pivot, so a second rule in this shape would need the judged-pair and secondary-junction checks the extension-dropped shape makes. The follower is read as the right neighbor's `_joining_family`, where the extension-dropped shape reads the whole `_family`; the two differ only when that neighbor is itself a ligature."""
+    glyphs, junctions = unit["before"]["glyphs"], unit["before"]["junctions"]
+    cells, after_junctions = unit["after"]["cells"], unit["after"]["junctions"]
     mb, ma = match["before"], match["after"]
     hits = [
         i
         for i in range(1, len(glyphs) - 1)
         if _is_pivot(glyphs[i], mb["pivot"])
-        and seams[i - 1] == mb["seam_into"]
-        and seams[i] == mb["seam_out"]
+        and junctions[i - 1] == mb["junction_in"]
+        and junctions[i] == mb["junction_out"]
         and _joining_family(glyphs[i + 1]) == mb["follower"]
     ]
     if any(_joining_family(glyphs[i - 1]) in excluded for i in hits):
@@ -277,19 +277,19 @@ def _matches_ligature(match, unit, excluded, context=None):
         for j in range(1, len(cells)):
             if _cell_rune(cells[j]) != ma["ligature"]:
                 continue
-            if after_seams[j - 1] != ma["seam_into"]:
+            if after_junctions[j - 1] != ma["junction_in"]:
                 continue
-            if seams[: i - 1] == after_seams[: j - 1] and seams[i + 1 :] == after_seams[j:]:
+            if junctions[: i - 1] == after_junctions[: j - 1] and junctions[i + 1 :] == after_junctions[j:]:
                 return True
     return False
 
 
 def _matches_extension(match, unit, excluded, context=None):
-    """A pivot letter that gives up the named stretch of exit into a seam that keeps its named height, with every seam in the window unchanged, the follower in one of the named families, and the pivot and follower settling into cells the rule names in full. Naming the cells in full makes the change exact. Rune, stance, entry, and exit fix the bitmaps on both sides of the seam, and the adjustment set fixes what the pivot still carries (no extension, a shorter one, or the named contraction), so a rule covers only the columns between the stretch it names and the one its pivot cell keeps. Identical seams say nothing about ink elsewhere, so the unit's own judgment fields decide where the change is: the unit's primary judged pair must be this pivot and follower, and a window with any secondary seam is refused. The two sides must line up letter for letter, and the follower is compared by its whole family name, so a ligature in that slot matches only a rule that names the compound. The follower's after cell must belong to that same family, so a rule naming several followers never accepts one family's cell for another's. A word-initial pivot has no left neighbor, so except_left never blocks it."""
-    glyphs, seams = unit["before"]["glyphs"], unit["before"]["seams"]
-    cells, after_seams = unit["after"]["cells"], unit["after"]["seams"]
+    """A pivot letter that gives up the named stretch of exit into a junction that keeps its named height, with every junction in the window unchanged, the follower in one of the named families, and the pivot and follower settling into cells the rule names in full. Naming the cells in full makes the change exact. Rune, stance, entry, and exit fix the bitmaps on both sides of the junction, and the adjustment set fixes what the pivot still carries (no extension, a shorter one, or the named contraction), so a rule covers only the columns between the stretch it names and the one its pivot cell keeps. Identical junctions say nothing about ink elsewhere, so the unit's own judgment fields decide where the change is: the unit's primary judged pair must be this pivot and follower, and a window with any secondary junction is refused. The two sides must line up letter for letter, and the follower is compared by its whole family name, so a ligature in that slot matches only a rule that names the compound. The follower's after cell must belong to that same family, so a rule naming several followers never accepts one family's cell for another's. A word-initial pivot has no left neighbor, so except_left never blocks it."""
+    glyphs, junctions = unit["before"]["glyphs"], unit["before"]["junctions"]
+    cells, after_junctions = unit["after"]["cells"], unit["after"]["junctions"]
     mb, ma = match["before"], match["after"]
-    if seams != after_seams or not _letter_for_letter(unit):
+    if junctions != after_junctions or not _letter_for_letter(unit):
         return False
     extension = mb["exit_extension"]
     followers = _families(mb["follower"])
@@ -298,7 +298,7 @@ def _matches_extension(match, unit, excluded, context=None):
         for i in range(len(glyphs) - 1)
         if _is_pivot(glyphs[i], mb["pivot"])
         and _carries_named_drop(extension, glyphs[i], cells[i])
-        and seams[i] == mb["seam_out"]
+        and junctions[i] == mb["junction_out"]
         and cells[i] in ma["pivot_cells"]
         and _family(glyphs[i + 1]) in followers
         and cells[i + 1] in ma["follower_cells"]
@@ -306,7 +306,7 @@ def _matches_extension(match, unit, excluded, context=None):
     ]
     if any(i and _joining_family(glyphs[i - 1]) in excluded for i in hits):
         return False
-    if unit.get("secondary_seams"):
+    if unit.get("secondary_junctions"):
         return False
     return any(unit.get("pair") == {"left": i, "right": i + 1} for i in hits)
 
@@ -334,13 +334,13 @@ def _validate_ink_delta(rule_id, match) -> None:
 
 
 def _validate_extension(rule_id, match) -> None:
-    """Check an extension-dropped rule at load. The named token must be an exit-side extension or contraction, since an entry-side token would refer to the seam on the other side of the pivot from `seam_out`. The pivot cells must belong to the pivot's family and the follower cells to one of the follower families. Every pivot cell must give up columns: under an `ex-ext-N` rule no pivot cell may keep an exit extension of N or more columns, because the shape covers the whole extension or the part down to a shorter one, never a tail that stayed or grew. Under an `ex-con-N` rule every pivot cell must carry exactly that contraction and no exit extension, because the contraction is the named drop and a remaining `ex-ext` would be a different stretch."""
+    """Check an extension-dropped rule at load. The named token must be an exit-side extension or contraction, since an entry-side token would refer to the junction on the other side of the pivot from `junction_out`. The pivot cells must belong to the pivot's family and the follower cells to one of the follower families. Every pivot cell must give up columns: under an `ex-ext-N` rule no pivot cell may keep an exit extension of N or more columns, because the shape covers the whole extension or the part down to a shorter one, never a tail that stayed or grew. Under an `ex-con-N` rule every pivot cell must carry exactly that contraction and no exit extension, because the contraction is the named drop and a remaining `ex-ext` would be a different stretch."""
     extension = match["before"]["exit_extension"]
     contracted = bool(EXIT_CONTRACTION.fullmatch(extension))
     if not (EXIT_EXTENSION.fullmatch(extension) or contracted):
         _fail(
             f"rule {rule_id!r}: match.before.exit_extension names {extension!r}, which is not an exit-side "
-            "extension (ex-ext-N) or contraction (ex-con-N); an entry-side token would pin the seam on the "
+            "extension (ex-ext-N) or contraction (ex-con-N); an entry-side token would pin the junction on the "
             "other side of the pivot"
         )
     named = (
@@ -385,15 +385,15 @@ def _named_pivot(glyph_name, pivots):
     return any(_is_pivot(glyph_name, pivot) for pivot in pivots)
 
 
-def _named_contracted_pivot(glyph_name, pivots, seam):
-    """Whether a glyph name falls under an entry-contracted rule's pivot prefixes, where a named pivot may also lead an existing ligature. For a ligature, any entry height on the glyph or the pivot must match the incoming `seam`, exit heights are ignored because the lead letter's exit lies inside the compound, and every other modifier the pivot names is still required. A glyph that is not a ligature is matched by `_named_pivot` alone."""
+def _named_contracted_pivot(glyph_name, pivots, junction):
+    """Whether a glyph name falls under an entry-contracted rule's pivot prefixes, where a named pivot may also lead an existing ligature. For a ligature, any entry height on the glyph or the pivot must match the incoming `junction`, exit heights are ignored because the lead letter's exit lies inside the compound, and every other modifier the pivot names is still required. A glyph that is not a ligature is matched by `_named_pivot` alone."""
     if _named_pivot(glyph_name, pivots):
         return True
     family = _family(glyph_name)
     if "_" not in family:
         return False
     lead = family.split("_", 1)[0]
-    if any(part.startswith("en-y") and part[3:] != seam for part in _modifiers(glyph_name)):
+    if any(part.startswith("en-y") and part[3:] != junction for part in _modifiers(glyph_name)):
         return False
     modifiers = [part for part in _modifiers(glyph_name) if not re.fullmatch(r"(?:en|ex)-y[0-9]+", part)]
     projected = ".".join([lead, *modifiers])
@@ -401,7 +401,7 @@ def _named_contracted_pivot(glyph_name, pivots, seam):
         if _family(pivot) != lead:
             continue
         named = _modifiers(pivot)
-        if any(part.startswith("en-y") and part[3:] != seam for part in named):
+        if any(part.startswith("en-y") and part[3:] != junction for part in named):
             continue
         required = [part for part in named if not re.fullmatch(r"(?:en|ex)-y[0-9]+", part)]
         if _is_pivot(projected, ".".join([lead, *required])):
@@ -625,24 +625,24 @@ def _validate_ink_gain(rule_id, match) -> None:
 
 
 def _join_pairs(match, unit):
-    """Return the before-glyph indices where the named join became a break. The unit must line up letter for letter. At each index the glyph carries the pivot prefix, the next glyph is in a named follower family, the before seam between them is `seam_out` and the after seam is a break, and each after cell belongs to its before glyph's family. Where the rule names `pivot_cells` and `follower_after_cells`, the two after cells must be among them."""
+    """Return the before-glyph indices where the named join became a break. The unit must line up letter for letter. At each index the glyph carries the pivot prefix, the next glyph is in a named follower family, the before junction between them is `junction_out` and the after junction is a break, and each after cell belongs to its before glyph's family. Where the rule names `pivot_cells` and `follower_after_cells`, the two after cells must be among them."""
     if not _letter_for_letter(unit):
         return []
-    glyphs, seams = unit["before"]["glyphs"], unit["before"]["seams"]
-    cells, after_seams = unit["after"]["cells"], unit["after"]["seams"]
+    glyphs, junctions = unit["before"]["glyphs"], unit["before"]["junctions"]
+    cells, after_junctions = unit["after"]["cells"], unit["after"]["junctions"]
     followers = _families(match["before"]["follower"])
     pivot = match["before"]["pivot"]
-    seam = match["before"]["seam_out"]
+    junction = match["before"]["junction_out"]
     pivot_cells = match["after"].get("pivot_cells")
     follower_after_cells = match["after"].get("follower_after_cells")
-    reach = min(len(glyphs), len(cells), len(seams) + 1, len(after_seams) + 1) - 1
+    reach = min(len(glyphs), len(cells), len(junctions) + 1, len(after_junctions) + 1) - 1
     return [
         i
         for i in range(reach)
         if _is_pivot(glyphs[i], pivot)
         and _family(glyphs[i + 1]) in followers
-        and seams[i] == seam
-        and after_seams[i] == "break"
+        and junctions[i] == junction
+        and after_junctions[i] == "break"
         and (pivot_cells is None or cells[i] in pivot_cells)
         and (follower_after_cells is None or cells[i + 1] in follower_after_cells)
         and _cell_rune(cells[i]) == _family(glyphs[i])
@@ -748,7 +748,7 @@ def _matches_join_dropped(match, unit, excluded, context=None):
         )
     key = (
         match["before"]["pivot"],
-        match["before"]["seam_out"],
+        match["before"]["junction_out"],
         tuple(_families(match["before"]["follower"])),
         match["after"]["gap"],
         tuple(match["after"].get("pivot_cells", ())),
@@ -765,7 +765,7 @@ def _matches_join_dropped(match, unit, excluded, context=None):
 
 
 def _validate_join_dropped(rule_id, match) -> None:
-    """Check a join-dropped rule at load. The gap must not be negative, because a dropped join moves the letters apart. It may be zero only where the rule names the cells both letters settle into: with both pictures unchanged a zero gap is ink-identical and machine-approved already, while a pivot that may redraw can lose its join and leave the follower where it stood (the flipped ·No before ·Cheer). `seam_out` must be a yK height, since a break has no join to drop. `pivot_cells` and `follower_after_cells` are optional but come as a pair, because naming both is what lets the pivot redraw, and their cells must belong to the named pivot and follower families. A declared `follower_columns_removed` must be at least 1 and needs `follower_after_cells`: a follower that keeps its left edge leaves the field off, and one whose joining form adds columns there belongs to the join-created shape."""
+    """Check a join-dropped rule at load. The gap must not be negative, because a dropped join moves the letters apart. It may be zero only where the rule names the cells both letters settle into: with both pictures unchanged a zero gap is ink-identical and machine-approved already, while a pivot that may redraw can lose its join and leave the follower where it stood (the flipped ·No before ·Cheer). `junction_out` must be a yK height, since a break has no join to drop. `pivot_cells` and `follower_after_cells` are optional but come as a pair, because naming both is what lets the pivot redraw, and their cells must belong to the named pivot and follower families. A declared `follower_columns_removed` must be at least 1 and needs `follower_after_cells`: a follower that keeps its left edge leaves the field off, and one whose joining form adds columns there belongs to the join-created shape."""
     if match["after"]["gap"] == 0 and "pivot_cells" not in match["after"]:
         _fail(
             f"rule {rule_id!r}: match.after.gap is 0 with both pictures held; an unmoved window is "
@@ -776,9 +776,9 @@ def _validate_join_dropped(rule_id, match) -> None:
             f"rule {rule_id!r}: match.after.gap is {match['after']['gap']}; a dropped join sits "
             "the letters further apart, never closer"
         )
-    if not SEAM_ROW.fullmatch(match["before"]["seam_out"]):
+    if not JUNCTION_ROW.fullmatch(match["before"]["junction_out"]):
         _fail(
-            f"rule {rule_id!r}: match.before.seam_out names {match['before']['seam_out']!r}, "
+            f"rule {rule_id!r}: match.before.junction_out names {match['before']['junction_out']!r}, "
             "which is not a yK height; a break has no join to drop"
         )
     named = (
@@ -916,10 +916,10 @@ def _entry_geometry(match, unit, comparator, pivot_positions=None):
             or index >= len(after_run)
             or _family(before_run[index][0]) != _family(after_run[index][0])
             or not _named_contracted_pivot(
-                before_run[index][0], match["before"]["pivots"], unit["before"]["seams"][index - 1]
+                before_run[index][0], match["before"]["pivots"], unit["before"]["junctions"][index - 1]
             )
             or not _named_contracted_pivot(
-                after_run[index][0], match["after"]["pivots"], unit["after"]["seams"][index - 1]
+                after_run[index][0], match["after"]["pivots"], unit["after"]["junctions"][index - 1]
             )
             for index in before_pivots
         ):
@@ -989,10 +989,13 @@ def _contracted_entry_candidates(match, unit):
         index
         for index, name in enumerate(glyphs)
         if index
-        and index <= len(unit["before"]["seams"])
-        and ("_" not in _family(name) or (_letter_for_letter(unit) and index <= len(unit["after"]["seams"])))
-        and _named_contracted_pivot(name, match["before"]["pivots"], unit["before"]["seams"][index - 1])
-        and not _named_contracted_pivot(name, declined, unit["before"]["seams"][index - 1])
+        and index <= len(unit["before"]["junctions"])
+        and (
+            "_" not in _family(name)
+            or (_letter_for_letter(unit) and index <= len(unit["after"]["junctions"]))
+        )
+        and _named_contracted_pivot(name, match["before"]["pivots"], unit["before"]["junctions"][index - 1])
+        and not _named_contracted_pivot(name, declined, unit["before"]["junctions"][index - 1])
         and _joining_family(glyphs[index - 1]) in left_families
     ]
 
@@ -1335,25 +1338,25 @@ def _validate_redrawn(rule_id, match) -> None:
 
 
 def _retarget_pairs(match, unit):
-    """Return the before-glyph indices where the named pair changed its join state. The unit must line up letter for letter. At each index the glyph carries one of the pivot prefixes and none of the `except_pivots` forms, the next glyph is in a named follower family, the before seam between them is `seam_out` and the after seam is the rule's `retarget` or `joined` height, the two after cells are in `pivot_cells` and `follower_after_cells`, and each after cell belongs to its before glyph's family. `except_pivots` lets a rule skip a before form that falls under one of its prefixes but needs a different count, since a prefix also matches every longer form."""
+    """Return the before-glyph indices where the named pair changed its join state. The unit must line up letter for letter. At each index the glyph carries one of the pivot prefixes and none of the `except_pivots` forms, the next glyph is in a named follower family, the before junction between them is `junction_out` and the after junction is the rule's `retarget` or `joined` height, the two after cells are in `pivot_cells` and `follower_after_cells`, and each after cell belongs to its before glyph's family. `except_pivots` lets a rule skip a before form that falls under one of its prefixes but needs a different count, since a prefix also matches every longer form."""
     if not _letter_for_letter(unit):
         return []
-    glyphs, seams = unit["before"]["glyphs"], unit["before"]["seams"]
-    cells, after_seams = unit["after"]["cells"], unit["after"]["seams"]
+    glyphs, junctions = unit["before"]["glyphs"], unit["before"]["junctions"]
+    cells, after_junctions = unit["after"]["cells"], unit["after"]["junctions"]
     followers = _families(match["before"]["follower"])
     pivots = _families(match["before"]["pivot"])
     declined = match["before"].get("except_pivots", ())
-    seam = match["before"]["seam_out"]
+    junction = match["before"]["junction_out"]
     retarget = match["after"].get("retarget", match["after"].get("joined"))
-    reach = min(len(glyphs), len(cells), len(seams) + 1, len(after_seams) + 1) - 1
+    reach = min(len(glyphs), len(cells), len(junctions) + 1, len(after_junctions) + 1) - 1
     return [
         i
         for i in range(reach)
         if any(_is_pivot(glyphs[i], pivot) for pivot in pivots)
         and not _named_pivot(glyphs[i], declined)
         and _family(glyphs[i + 1]) in followers
-        and seams[i] == seam
-        and after_seams[i] == retarget
+        and junctions[i] == junction
+        and after_junctions[i] == retarget
         and cells[i] in match["after"]["pivot_cells"]
         and cells[i + 1] in match["after"]["follower_after_cells"]
         and _cell_rune(cells[i]) == _family(glyphs[i])
@@ -1438,7 +1441,7 @@ def _retarget_geometry(
 
 
 def _matches_join_retarget(match, unit, excluded, context=None):
-    """A named join that has changed height, matched at the pixel level: the named seam becomes the `retarget` height, the pivot and follower may both redraw but keep their own-frame origins, the pivot keeps its placement, the follower's placement moves by `follower_shift` (negative is nearer, zero leaves it standing), and everything after the follower moves by `shift` (`_retarget_geometry`). The unmoved origins and the unmoved pivot tie the change to the join and the two letters' forms, which rules out a slide or a dropped join. Any other ink change in the window fails this match; the combined match handles a window that also carries a second approved change. The unit's ink-delta digest must be the same under every config it lists, so shaping the first config stands for all of them. except_left reads the whole window."""
+    """A named join that has changed height, matched at the pixel level: the named junction becomes the `retarget` height, the pivot and follower may both redraw but keep their own-frame origins, the pivot keeps its placement, the follower's placement moves by `follower_shift` (negative is nearer, zero leaves it standing), and everything after the follower moves by `shift` (`_retarget_geometry`). The unmoved origins and the unmoved pivot tie the change to the join and the two letters' forms, which rules out a slide or a dropped join. Any other ink change in the window fails this match; the combined match handles a window that also carries a second approved change. The unit's ink-delta digest must be the same under every config it lists, so shaping the first config stands for all of them. except_left reads the whole window."""
     deltas = unit.get("ink_deltas")
     if not isinstance(deltas, dict) or not deltas:
         return False
@@ -1452,7 +1455,7 @@ def _matches_join_retarget(match, unit, excluded, context=None):
         )
     key = (
         match["before"]["pivot"],
-        match["before"]["seam_out"],
+        match["before"]["junction_out"],
         tuple(_families(match["before"]["follower"])),
         match["after"]["retarget"],
         tuple(match["after"]["pivot_cells"]),
@@ -1516,21 +1519,21 @@ def _matches_join_created(match, unit, excluded, context=None):
 
 
 def _validate_join_retarget(rule_id, match) -> None:
-    """Check a join-retargeted rule at load: `seam_out` and `retarget` must both be yK heights and must differ, and the pivot and follower after cells must belong to the named pivot and follower families. A break before has no join to retarget, a break after belongs to the join-dropped shape, and an unchanged height belongs to the extension-dropped shape."""
-    if not SEAM_ROW.fullmatch(match["before"]["seam_out"]):
+    """Check a join-retargeted rule at load: `junction_out` and `retarget` must both be yK heights and must differ, and the pivot and follower after cells must belong to the named pivot and follower families. A break before has no join to retarget, a break after belongs to the join-dropped shape, and an unchanged height belongs to the extension-dropped shape."""
+    if not JUNCTION_ROW.fullmatch(match["before"]["junction_out"]):
         _fail(
-            f"rule {rule_id!r}: match.before.seam_out names {match['before']['seam_out']!r}, "
+            f"rule {rule_id!r}: match.before.junction_out names {match['before']['junction_out']!r}, "
             "which is not a yK height; a break has no join to retarget"
         )
-    if not SEAM_ROW.fullmatch(match["after"]["retarget"]):
+    if not JUNCTION_ROW.fullmatch(match["after"]["retarget"]):
         _fail(
             f"rule {rule_id!r}: match.after.retarget names {match['after']['retarget']!r}, "
             "which is not a yK height; a join that becomes a break is the gap shape's subject"
         )
-    if match["before"]["seam_out"] == match["after"]["retarget"]:
+    if match["before"]["junction_out"] == match["after"]["retarget"]:
         _fail(
-            f"rule {rule_id!r}: match.after.retarget is the same height as match.before.seam_out; "
-            "a seam that holds its height is not a retarget"
+            f"rule {rule_id!r}: match.after.retarget is the same height as match.before.junction_out; "
+            "a junction that holds its height is not a retarget"
         )
     named = (
         ("pivot_cells", [_family(match["before"]["pivot"])]),
@@ -1546,13 +1549,13 @@ def _validate_join_retarget(rule_id, match) -> None:
 
 
 def _validate_join_created(rule_id, match) -> None:
-    """Check a join-created rule at load. `seam_out` must be `break` and `joined` a yK height, since a pair that already joined belongs to the retarget or extension shape and a new break to the join-dropped shape. `follower_columns_added` must not be negative, since a follower that pulls its left edge in is an entry contraction. A declared `pivot_stub_drop` must be at least 1; a rule without a stub drop leaves the field off. Every `except_pivots` form must fall under one of the named pivots, since a declined form outside them declines nothing and misstates the rule's scope. The pivot and follower after cells must belong to the named pivot and follower families. Naming several pivot families lets one rule record a letter's new entry for every left neighbor that now reaches it."""
-    if match["before"]["seam_out"] != "break":
+    """Check a join-created rule at load. `junction_out` must be `break` and `joined` a yK height, since a pair that already joined belongs to the retarget or extension shape and a new break to the join-dropped shape. `follower_columns_added` must not be negative, since a follower that pulls its left edge in is an entry contraction. A declared `pivot_stub_drop` must be at least 1; a rule without a stub drop leaves the field off. Every `except_pivots` form must fall under one of the named pivots, since a declined form outside them declines nothing and misstates the rule's scope. The pivot and follower after cells must belong to the named pivot and follower families. Naming several pivot families lets one rule record a letter's new entry for every left neighbor that now reaches it."""
+    if match["before"]["junction_out"] != "break":
         _fail(
-            f"rule {rule_id!r}: match.before.seam_out names {match['before']['seam_out']!r}; "
+            f"rule {rule_id!r}: match.before.junction_out names {match['before']['junction_out']!r}; "
             "a newly created join must start from a break"
         )
-    if not SEAM_ROW.fullmatch(match["after"]["joined"]):
+    if not JUNCTION_ROW.fullmatch(match["after"]["joined"]):
         _fail(
             f"rule {rule_id!r}: match.after.joined names {match['after']['joined']!r}, "
             "which is not a yK height"
@@ -1676,7 +1679,7 @@ def _candidate_counts(rules, unit):
 
 
 def _candidates(match, unit):
-    """Return the window positions where a combinable rule could hold, read from the unit's index record without shaping. Slide, ink-gain, entry-drop, stub-drop, and redrawn rules use every position whose before glyph carries a before pivot prefix. Entry-contracted rules use `_contracted_entry_candidates`, join-dropped rules `_join_pairs`, and join-retargeted and join-created rules `_retarget_pairs`. Extension rules use `_extension_positions`, and return none when `seam_out` is not a yK height, because the walk needs a row for the dropped tail. This is the name-only precheck: a rule with no candidate is never counted, and a window with fewer than two candidate positions across all rules is never shaped."""
+    """Return the window positions where a combinable rule could hold, read from the unit's index record without shaping. Slide, ink-gain, entry-drop, stub-drop, and redrawn rules use every position whose before glyph carries a before pivot prefix. Entry-contracted rules use `_contracted_entry_candidates`, join-dropped rules `_join_pairs`, and join-retargeted and join-created rules `_retarget_pairs`. Extension rules use `_extension_positions`, and return none when `junction_out` is not a yK height, because the walk needs a row for the dropped tail. This is the name-only precheck: a rule with no candidate is never counted, and a window with fewer than two candidate positions across all rules is never shaped."""
     glyphs = unit["before"]["glyphs"]
     if (
         _is_slide_match(match)
@@ -1692,25 +1695,25 @@ def _candidates(match, unit):
         return _join_pairs(match, unit)
     if _is_retarget_match(match) or _is_created_join_match(match):
         return _retarget_pairs(match, unit)
-    if not SEAM_ROW.fullmatch(match["before"]["seam_out"]):
+    if not JUNCTION_ROW.fullmatch(match["before"]["junction_out"]):
         return []
     return _extension_positions(match, unit)
 
 
 def _extension_positions(match, unit):
-    """Return the positions where an extension-dropped rule's per-position conditions hold, read from the index record. The pivot carries the pivot prefix and the named drop (`_carries_named_drop`), the seam is `seam_out` on both sides, the pivot and follower after cells are in the named lists, and the follower is in a named family with an after cell of that family. Unlike `_candidates`, this does not require a yK seam, so `_reachable` judges a rule whose seam the walk cannot place the way the rule's own matcher does."""
-    glyphs, seams = unit["before"]["glyphs"], unit["before"]["seams"]
-    cells, after_seams = unit["after"]["cells"], unit["after"]["seams"]
+    """Return the positions where an extension-dropped rule's per-position conditions hold, read from the index record. The pivot carries the pivot prefix and the named drop (`_carries_named_drop`), the junction is `junction_out` on both sides, the pivot and follower after cells are in the named lists, and the follower is in a named family with an after cell of that family. Unlike `_candidates`, this does not require a yK junction, so `_reachable` judges a rule whose junction the walk cannot place the way the rule's own matcher does."""
+    glyphs, junctions = unit["before"]["glyphs"], unit["before"]["junctions"]
+    cells, after_junctions = unit["after"]["cells"], unit["after"]["junctions"]
     mb, ma = match["before"], match["after"]
     followers = _families(mb["follower"])
-    reach = min(len(glyphs), len(cells), len(seams) + 1, len(after_seams) + 1) - 1
+    reach = min(len(glyphs), len(cells), len(junctions) + 1, len(after_junctions) + 1) - 1
     return [
         i
         for i in range(reach)
         if _is_pivot(glyphs[i], mb["pivot"])
         and _carries_named_drop(mb["exit_extension"], glyphs[i], cells[i])
-        and seams[i] == mb["seam_out"]
-        and after_seams[i] == mb["seam_out"]
+        and junctions[i] == mb["junction_out"]
+        and after_junctions[i] == mb["junction_out"]
         and cells[i] in ma["pivot_cells"]
         and _family(glyphs[i + 1]) in followers
         and cells[i + 1] in ma["follower_cells"]
@@ -1777,14 +1780,14 @@ def _gain_event(match, rule_id, index, after_names, intern, before_pieces, after
     return Event(rule_id, "gain", match["after"]["shift"])
 
 
-def _entry_event(match, rule_id, index, after_names, intern, before_pieces, after_pieces, seam=None):
-    """Return an entry Event at `index` when the after glyph is a named after pivot and `_entry_drop_holds` passes, or None, which leaves the piece to be judged as span ink. For an entry-contracted rule the pivot must keep its family, and the after glyph is matched by `_named_contracted_pivot` against the after seam into it, `seam`. The event's `lead` is the pivot's placement offset that `_entry_drop_holds` returns, and its shift is `_entry_shift`. The walk checks the placement against the running displacement."""
+def _entry_event(match, rule_id, index, after_names, intern, before_pieces, after_pieces, junction=None):
+    """Return an entry Event at `index` when the after glyph is a named after pivot and `_entry_drop_holds` passes, or None, which leaves the piece to be judged as span ink. For an entry-contracted rule the pivot must keep its family, and the after glyph is matched by `_named_contracted_pivot` against the after junction into it, `junction`. The event's `lead` is the pivot's placement offset that `_entry_drop_holds` returns, and its shift is `_entry_shift`. The walk checks the placement against the running displacement."""
     before, after = before_pieces.get(index), after_pieces.get(index)
     if before is None or after is None:
         return None
     if "entry_contraction" in match["after"]:
         if _family(before[0]) != _family(after[0]) or not _named_contracted_pivot(
-            after_names[index], match["after"]["pivots"], seam
+            after_names[index], match["after"]["pivots"], junction
         ):
             return None
     elif not _named_pivot(after_names[index], match["after"]["pivots"]):
@@ -1823,11 +1826,11 @@ def _redrawn_event(match, rule_id, index, after_names, intern, before_pieces, af
 
 
 def _extension_event(match, rule_id, index, intern, before_pieces, after_pieces, cell):
-    """Return an extension Event at `index` when the pivot drops exactly the named exit tail, or None, which leaves the pivot and follower to be judged as span ink. The pivot keeps its vertical placement and own-frame origin, sits on the pixel grid, and paints its before picture minus a tail. Every dropped cell lies right of the after picture's rightmost column, on the row the `seam_out` height names, and the tail is as wide as `_drop_columns` says: the named extension less any shorter one the after cell keeps, or the named contraction in full. The pivot needs its own grid check because no span ever includes it, and `_span_cells` checks every other piece. The seam row is the height divided by the pixel size, which is only correct on the grid. The follower must have ink on both sides so the walk can skip it or share it with another event, but its picture is not checked here, because the rule names its after cell and a redraw inside that cell (·May losing the stacked entry, ·I's smaller loop) is part of what the rule approves."""
-    seam = SEAM_ROW.fullmatch(match["before"]["seam_out"])
-    if seam is None:
+    """Return an extension Event at `index` when the pivot drops exactly the named exit tail, or None, which leaves the pivot and follower to be judged as span ink. The pivot keeps its vertical placement and own-frame origin, sits on the pixel grid, and paints its before picture minus a tail. Every dropped cell lies right of the after picture's rightmost column, on the row the `junction_out` height names, and the tail is as wide as `_drop_columns` says: the named extension less any shorter one the after cell keeps, or the named contraction in full. The pivot needs its own grid check because no span ever includes it, and `_span_cells` checks every other piece. The junction row is the height divided by the pixel size, which is only correct on the grid. The follower must have ink on both sides so the walk can skip it or share it with another event, but its picture is not checked here, because the rule names its after cell and a redraw inside that cell (·May losing the stacked entry, ·I's smaller loop) is part of what the rule approves."""
+    junction = JUNCTION_ROW.fullmatch(match["before"]["junction_out"])
+    if junction is None:
         return None
-    row = int(seam.group(1))
+    row = int(junction.group(1))
     columns = _drop_columns(match["before"]["exit_extension"], cell)
     before, after = before_pieces.get(index), after_pieces.get(index)
     follower_before, follower_after = before_pieces.get(index + 1), after_pieces.get(index + 1)
@@ -2006,7 +2009,7 @@ def _combined_walk(rules, unit, context):
                     intern,
                     before_pieces,
                     after_pieces,
-                    unit["after"]["seams"][index - 1],
+                    unit["after"]["junctions"][index - 1],
                 )
             elif _is_stub_match(match):
                 event = _stub_event(
@@ -2309,14 +2312,14 @@ class Shape(NamedTuple):
 SHAPES = {
     "ligature": Shape(
         keyed_by="ligature",
-        before=("pivot", "seam_into", "seam_out", "follower"),
-        after=("ligature", "seam_into"),
+        before=("pivot", "junction_in", "junction_out", "follower"),
+        after=("ligature", "junction_in"),
         cell_lists=(),
         matcher=_matches_ligature,
     ),
     "extension-dropped": Shape(
         keyed_by="follower_cells",
-        before=("pivot", "exit_extension", "seam_out", "follower"),
+        before=("pivot", "exit_extension", "junction_out", "follower"),
         after=("pivot_cells", "follower_cells"),
         cell_lists=("pivot_cells", "follower_cells"),
         matcher=_matches_extension,
@@ -2366,7 +2369,7 @@ SHAPES = {
     ),
     "join-dropped": Shape(
         keyed_by="gap",
-        before=("pivot", "seam_out", "follower"),
+        before=("pivot", "junction_out", "follower"),
         after=("gap",),
         cell_lists=("pivot_cells", "follower_after_cells"),
         matcher=_matches_join_dropped,
@@ -2440,7 +2443,7 @@ SHAPES = {
     ),
     "join-retargeted": Shape(
         keyed_by="retarget",
-        before=("pivot", "seam_out", "follower"),
+        before=("pivot", "junction_out", "follower"),
         after=("retarget", "pivot_cells", "follower_after_cells", "shift", "follower_shift"),
         cell_lists=("pivot_cells", "follower_after_cells"),
         matcher=_matches_join_retarget,
@@ -2454,7 +2457,7 @@ SHAPES = {
     ),
     "join-created": Shape(
         keyed_by="joined",
-        before=("pivot", "seam_out", "follower"),
+        before=("pivot", "junction_out", "follower"),
         after=(
             "joined",
             "pivot_cells",
@@ -2660,7 +2663,7 @@ class Decision(NamedTuple):
 
 
 def unit_key(unit, family_digests) -> str | None:
-    """The memo key of one unit, or None for a unit the build never stamped, which is evaluated every pass and never stored. The build's `content_key` covers the window, its configs, both sides' glyphs, cells, and seams, and the judged `pair`. `ink_deltas` is hashed beside it because the stamp excludes it while the ink-delta shape reads it. The after font's compiled-glyph digest for every family the after cells name covers the outlines, advances, and cursive anchors every font-backed shape uses to shape the window, so a drawing change re-evaluates only the windows that use the changed family. The before font is covered by the memo's stamp (`memo_environment`). The key is truncated to 32 hex characters (128 bits), far from any collision at one key per human unit."""
+    """The memo key of one unit, or None for a unit the build never stamped, which is evaluated every pass and never stored. The build's `content_key` covers the window, its configs, both sides' glyphs, cells, and junctions, and the judged `pair`. `ink_deltas` is hashed beside it because the stamp excludes it while the ink-delta shape reads it. The after font's compiled-glyph digest for every family the after cells name covers the outlines, advances, and cursive anchors every font-backed shape uses to shape the window, so a drawing change re-evaluates only the windows that use the changed family. The before font is covered by the memo's stamp (`memo_environment`). The key is truncated to 32 hex characters (128 bits), far from any collision at one key per human unit."""
     stamp = unit.get("content_key")
     if not stamp:
         return None
@@ -2921,7 +2924,7 @@ class Decider:
         - A window with no combined match whose `relevant` ids include a dropped rule, for the same reasons apart from the guard and the verdict.
         - A probed combinable rule has a candidate position here, so it would take part in the walk.
 
-        Otherwise the entry is served. A combined-match window is served unchanged. One with no combined match is repaired per rule: the dropped rules are removed from its matched and blocked sets, and each probed rule that its shape's name-grain precondition admits (`_reachable`) is run guarded and, for a non-empty guard, unguarded. A combinable rule with no candidate is admitted only when it is an extension rule whose seam the walk cannot place, checked through `_extension_positions` as `_reachable` does. The repair is correct only if `_reachable` admits every unit a rule's own matcher accepts or blocks; test_a_rules_lines_never_name_a_unit_outside_its_name_grain_candidates in rebuild/test_standing_verdicts.py checks that over the frozen mini bundle. A window with no shaped side skips the probe check and is served unchanged, since no matcher accepts one.
+        Otherwise the entry is served. A combined-match window is served unchanged. One with no combined match is repaired per rule: the dropped rules are removed from its matched and blocked sets, and each probed rule that its shape's name-grain precondition admits (`_reachable`) is run guarded and, for a non-empty guard, unguarded. A combinable rule with no candidate is admitted only when it is an extension rule whose junction the walk cannot place, checked through `_extension_positions` as `_reachable` does. The repair is correct only if `_reachable` admits every unit a rule's own matcher accepts or blocks; test_a_rules_lines_never_name_a_unit_outside_its_name_grain_candidates in rebuild/test_standing_verdicts.py checks that over the frozen mini bundle. A window with no shaped side skips the probe check and is served unchanged, since no matcher accepts one.
         """
         if self._gate_moved:
             return None

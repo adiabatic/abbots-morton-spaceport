@@ -54,7 +54,7 @@ UNIT_FIELDS = frozenset(
         "content_key",
         "render_groups",
         "pair",
-        "secondary_seams",
+        "secondary_junctions",
         "before",
         "after",
     }

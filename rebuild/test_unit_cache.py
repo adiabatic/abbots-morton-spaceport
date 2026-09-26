@@ -1043,12 +1043,12 @@ def test_a_refuse_why_edit_moves_only_that_family_key(tmp_path):
 # --- the key and cluster byte-contracts ------------------------------------------------
 
 
-def _unit(codepoints: str, matched: str = "seam-loss-withdrawal") -> tuple[UnitTable, RowColumns, int]:
+def _unit(codepoints: str, matched: str = "junction-loss-unjoined") -> tuple[UnitTable, RowColumns, int]:
     """Return one unit's table, row columns, and ordinal, the three things the keyer reads."""
     row = AuditRow(
         config="default",
         codepoints=codepoints,
-        kinds=("seam",),
+        kinds=("junction",),
         matched_entry=matched,
         baseline=("a", "b"),
         new=("c", "d"),
@@ -1108,8 +1108,8 @@ def test_a_merged_survivors_key_is_the_key_over_its_absorbed_rows_own_names():
         return [
             AuditRow("default", "E650:E652", ("cell",), "UNMATCHED", ("a", "b"), new_a),
             AuditRow("ss04", "E650:E652", ("cell",), "UNMATCHED", ("a", "b"), new_a),
-            AuditRow("ss03", "E650:E652", ("seam",), "UNMATCHED", ("a.ss03", "b"), new_b),
-            AuditRow("ss04", "E650:E652", ("seam",), "UNMATCHED", ("a.ss03", "b"), new_b),
+            AuditRow("ss03", "E650:E652", ("junction",), "UNMATCHED", ("a.ss03", "b"), new_b),
+            AuditRow("ss04", "E650:E652", ("junction",), "UNMATCHED", ("a.ss03", "b"), new_b),
         ]
 
     def merged(records: list[AuditRow]) -> tuple[UnitTable, RowColumns, list[AuditRow]]:
@@ -1146,8 +1146,8 @@ def test_a_merged_survivors_key_is_the_key_over_its_absorbed_rows_own_names():
 _SIGNATURE_ROW = AuditRow(
     config="default",
     codepoints="E650:E652",
-    kinds=("seam",),
-    matched_entry="seam-loss-withdrawal",
+    kinds=("junction",),
+    matched_entry="junction-loss-unjoined",
     baseline=("a", "b"),
     new=("c", "d"),
 )
@@ -1346,7 +1346,7 @@ def test_cluster_id_from_repr_matches_the_tuple_recipe():
     """The c- ids recorded in rebuild/standing-approvals.yaml and in prior verdicts are hashes of `repr((tuple(configs), class_id, diffs))`. The piecewise hashing over the diffs' repr bytes must reproduce that byte stream exactly, including empty diffs and one-element config tuples."""
     piece = ((("moveTo", ((0, 0),)), ("lineTo", ((5, 0),))),)
     for configs, class_id, diffs in (
-        (("default",), "seam-loss-withdrawal", ((), (), 0)),
+        (("default",), "junction-loss-unjoined", ((), (), 0)),
         (("default", "ss03"), "boundary-window", ((piece, (), 3), ((), piece, -2))),
         (("ss10",), "ss10-isolation-completed", ((piece, piece, 0),)),
     ):
@@ -1379,7 +1379,7 @@ def test_the_cluster_a_recomputed_unit_carries_keys_on_its_final_class(mini_corp
 
 
 def test_the_store_parse_interns_and_pools_what_repeats_across_records(tmp_path):
-    """Two records that name the same class, cluster, unmatched group, config, delta, cell name, or seam token load as the same string objects, and their span and name tuples as the same tuple objects, so a store with a million records holds one instance per distinct name and per distinct tuple. The per-record keys, which never repeat, are not interned."""
+    """Two records that name the same class, cluster, unmatched group, config, delta, cell name, or junction token load as the same string objects, and their span and name tuples as the same tuple objects, so a store with a million records holds one instance per distinct name and per distinct tuple. The per-record keys, which never repeat, are not interned."""
     (tmp_path / "manifest.json").write_text("{}", encoding="utf-8")
     unit_cache.write_store(tmp_path, "env-a", [_round_trip_unit(), replace(_round_trip_unit(), key="k2")])
     pool: dict = {}
@@ -1392,13 +1392,13 @@ def test_the_store_parse_interns_and_pools_what_repeats_across_records(tmp_path)
     assert first.unmatched_group is second.unmatched_group
     assert next(iter(first.ink_deltas)) is next(iter(second.ink_deltas)) is sys.intern("default")
     assert first.ink_deltas["default"] is second.ink_deltas["default"]
-    for name in ("after_cells", "after_seams", "before_glyphs", "before_seams"):
+    for name in ("after_cells", "after_junctions", "before_glyphs", "before_junctions"):
         assert getattr(first, name) is getattr(second, name), name
         assert all(a is b for a, b in zip(getattr(first, name), getattr(second, name), strict=True)), name
-    assert first.after_seams[0] is sys.intern("y5")
-    for name in ("pair", "after_spans", "before_spans", "seam_pairs"):
+    assert first.after_junctions[0] is sys.intern("y5")
+    for name in ("pair", "after_spans", "before_spans", "junction_pairs"):
         assert getattr(first, name) is getattr(second, name), name
-    assert first.after_spans[1] is first.before_spans[1] is second.seam_pairs[0] is pool[(1, 2)]
+    assert first.after_spans[1] is first.before_spans[1] is second.junction_pairs[0] is pool[(1, 2)]
     assert first.after_spans[0] is first.pair is pool[(0, 1)]
     assert replace(first, key="k2") == second
 
@@ -1424,7 +1424,7 @@ def test_a_streamed_store_pools_only_the_records_it_hands_over_without_an_addres
     by_key = {cached.key: cached for cached in stream}
     assert by_key["k1"].address is not None and by_key["k2"].address is not None
     assert by_key["k3"].address is None and by_key["k4"].address is None
-    for name in ("pair", "after_spans", "after_cells", "before_spans", "before_glyphs", "seam_pairs"):
+    for name in ("pair", "after_spans", "after_cells", "before_spans", "before_glyphs", "junction_pairs"):
         assert getattr(by_key["k1"], name) == getattr(by_key["k2"], name), name
         assert getattr(by_key["k1"], name) is not getattr(by_key["k2"], name), name
         assert getattr(by_key["k3"], name) is getattr(by_key["k4"], name), name
@@ -1486,7 +1486,7 @@ def test_a_line_whose_key_cannot_be_sliced_reads_as_absent(tmp_path):
 
 
 def test_the_store_parse_reproduces_the_projection_it_was_written_from(tmp_path):
-    """The projection a cached unit passes to the home-resolution pass, loaded into the unit store and serialized again the way the store writer serializes a recomputed unit's, equals the record's `proj`. The bytes of a re-addressed cached record depend on this. The tuples the store returns have the recomputed path's shapes: two-tuples of ints for the spans and the seam pairs, beside the unit's own id and codepoint values."""
+    """The projection a cached unit passes to the primary-unit resolution pass, loaded into the unit store and serialized again the way the store writer serializes a recomputed unit's, equals the record's `proj`. The bytes of a re-addressed cached record depend on this. The tuples the store returns have the recomputed path's shapes: two-tuples of ints for the spans and the junction pairs, beside the unit's own id and codepoint values."""
     (tmp_path / "manifest.json").write_text("{}", encoding="utf-8")
     prior_id = unit_cache.unit_id_for("f" * 64)
     written = replace(_round_trip_unit(), key="ab" * 32, prior_id=prior_id)
@@ -1496,14 +1496,16 @@ def test_the_store_parse_reproduces_the_projection_it_was_written_from(tmp_path)
     walked = unit_cache.PriorFragment("units/boundary-window.json", 1, 5, prior_id, written.content_key)
     store = UnitStore(1)
     store.load_cached(0, loaded[written.key], codepoints=(1, 2), found=walked)
-    home = store.seam_home(0)
-    assert store.seam_home_record(0) == written.proj
-    assert json.dumps(store.seam_home_record(0)) == json.dumps(written.proj)
+    primary_unit = store.primary_unit_projection(0)
+    assert store.primary_unit_projection_record(0) == written.proj
+    assert json.dumps(store.primary_unit_projection_record(0)) == json.dumps(written.proj)
     assert (
-        (home.unit_id, home.codepoint_values) == (prior_id, (1, 2)) == (store.unit_id(0), store.codepoints(0))
+        (primary_unit.unit_id, primary_unit.codepoint_values)
+        == (prior_id, (1, 2))
+        == (store.unit_id(0), store.codepoints(0))
     )
-    assert home.seam_pairs == ((1, 2),)
-    assert (home.ink_identical, home.picture_identical) == (False, False)
+    assert primary_unit.junction_pairs == ((1, 2),)
+    assert (primary_unit.ink_identical, primary_unit.picture_identical) == (False, False)
 
 
 def test_an_absent_manifest_hashes_to_a_sentinel_rather_than_raising(tmp_path):
@@ -1536,12 +1538,12 @@ def _round_trip_unit() -> unit_cache.CachedUnit:
             "pair": [0, 1],
             "after_spans": [[0, 1], [1, 2]],
             "after_cells": ["c", "d"],
-            "after_seams": ["y5"],
+            "after_junctions": ["y5"],
             "before_spans": [[0, 1], [1, 2]],
             "before_glyphs": ["a", "b"],
-            "before_seams": ["break"],
+            "before_junctions": ["break"],
         },
-        seams=[
+        junctions=[
             {
                 "pair": [1, 2],
                 "before": {"x_min": 0, "x_max": 5, "advance_total": 9},
@@ -1552,7 +1554,7 @@ def _round_trip_unit() -> unit_cache.CachedUnit:
         duplicate_group="e-2WvdGAWe6bX",
         exemplar=False,
         no_verdict=False,
-        homes=[["u-DdcTojn1hba", False]],
+        primary_units=[["u-DdcTojn1hba", False]],
         policy_file="glyph_data/runes/qsTea.yaml",
     )
 
@@ -1577,9 +1579,9 @@ def _round_trip_cached() -> unit_cache.ParsedCachedUnit:
         duplicate_group="e-2WvdGAWe6bX",
         exemplar=False,
         no_verdict=False,
-        homes=[["u-DdcTojn1hba", False]],
+        primary_units=[["u-DdcTojn1hba", False]],
         policy_file="glyph_data/runes/qsTea.yaml",
-        seam_rects=[
+        junction_rects=[
             {
                 "pair": [1, 2],
                 "before": {"x_min": 0, "x_max": 5, "advance_total": 9},
@@ -1590,11 +1592,11 @@ def _round_trip_cached() -> unit_cache.ParsedCachedUnit:
         pair=(0, 1),
         after_spans=((0, 1), (1, 2)),
         after_cells=("c", "d"),
-        after_seams=("y5",),
+        after_junctions=("y5",),
         before_spans=((0, 1), (1, 2)),
         before_glyphs=("a", "b"),
-        before_seams=("break",),
-        seam_pairs=((1, 2),),
+        before_junctions=("break",),
+        junction_pairs=((1, 2),),
     )
 
 

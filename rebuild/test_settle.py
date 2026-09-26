@@ -91,7 +91,7 @@ ROWS = (
         (),
         ("qsTea.full.ex-y0", "qsMay.loop.en-y0.ex-y5.en-ext-1.ex-ext-1", "qsIt.hapax.en-y5"),
     ),
-    # Extensions on one seam do not add up: the middle qsIt's extended exit suppresses the following qsMay's entry extension.
+    # Extensions on one junction do not add up: the middle qsIt's extended exit suppresses the following qsMay's entry extension.
     (
         "qsMay qsIt qsMay",
         (),
@@ -183,22 +183,22 @@ def test_settlement_rows(row_labels, sequence, features, expected):
     assert row_labels[(sequence, features)] == expected
 
 
-def test_exit_extension_amount_is_recorded_on_the_seam(row_settled):
+def test_exit_extension_amount_is_recorded_on_the_junction(row_settled):
     settled = row_settled[("qsMay qsIt", ())]
     assert settled[0].extension == 1
-    assert settled[0].seam == "x-height"
+    assert settled[0].junction == "x-height"
     assert settled[1].extension == 0
 
 
-def test_entry_extension_suppressed_when_left_seam_already_extended(row_settled):
+def test_entry_extension_suppressed_when_left_junction_already_extended(row_settled):
     settled = row_settled[("qsMay qsIt qsMay", ())]
     assert settled[1].extension == 1
     assert settled[2].cell.adjustments == ()
 
 
-def test_a_committed_seam_nothing_accepts_is_unreachable():
-    """A left context forged with an exit at `top`, a height qsIt cannot enter at, is a window the lookahead closure never builds, and the crate returns an error instead of settling it. The error arrives as `settle.SettleError` with bucket `E-UNREACHABLE` and the crate's message. `engine.rs`'s `a_left_that_committed_a_seam_nothing_accepts_is_an_unaccepted_exit` is the crate-side test. `ex-y8` is `top` in the mini registry."""
-    forged = LeftContext("letter", Settled(CellId("qsTea", "full", None, "top"), seam="top", extension=0))
+def test_a_committed_junction_nothing_accepts_is_unreachable():
+    """A left context forged with an exit at `top`, a height qsIt cannot enter at, is a window the lookahead closure never builds, and the crate returns an error instead of settling it. The error arrives as `settle.SettleError` with bucket `E-UNREACHABLE` and the crate's message. `engine.rs`'s `a_left_that_committed_a_junction_nothing_accepts_is_an_unaccepted_exit` is the crate-side test. `ex-y8` is `top` in the mini registry."""
+    forged = LeftContext("letter", Settled(CellId("qsTea", "full", None, "top"), junction="top", extension=0))
     case = kernel_exec.case_line(forged, RightToken("letter", "qsIt"), (EDGE, EDGE, EDGE, EDGE))
     with pytest.raises(SettleError) as caught:
         kernel_exec.settle_cases(SPEC, [case], frozenset(), decode=kernel_exec.trace_of)

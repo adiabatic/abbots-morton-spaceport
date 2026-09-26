@@ -880,7 +880,7 @@ def _left_facing_conditions(raw: dict):
 
 
 def _resolve_left_bitmaps(contexts: list[_FileContext], rune_raws: dict[str, dict]) -> None:
-    """Rewrite the `bitmap:` axis of each left condition to the `stance:` it stands for (design §3.4). The engine remembers a settled left as its rune, stance, and seam, not which of a stance's sibling drawings the cell used. So a drawing is addressable only when it is its stance's only drawing: the name must be a stance of every family the condition names, and that stance must have no `bitmaps:` siblings. The rewrite happens in place on the raw record before `_condition` reads it, so the kernel's spec never has the axis and a rune written with `stance:` hashes the same."""
+    """Rewrite the `bitmap:` axis of each left condition to the `stance:` it stands for (design §3.4). The engine remembers a settled left as its rune, stance, and junction, not which of a stance's sibling drawings the cell used. So a drawing is addressable only when it is its stance's only drawing: the name must be a stance of every family the condition names, and that stance must have no `bitmaps:` siblings. The rewrite happens in place on the raw record before `_condition` reads it, so the kernel's spec never has the axis and a rune written with `stance:` hashes the same."""
     for context in contexts:
         for path, condition in _left_facing_conditions(context.data):
             bitmap = condition.get("bitmap")
@@ -915,7 +915,7 @@ def _resolve_left_bitmaps(contexts: list[_FileContext], rune_raws: dict[str, dic
                     siblings = sorted(stance_raw["bitmaps"])
                     context.error(
                         f"{path}.bitmap",
-                        f"bitmap {bitmap!r} is one of several drawings {family}.{bitmap} renders (siblings {siblings}); the settled left carries stance and seam only, so a bitmap condition can name only a stance's sole drawing",
+                        f"bitmap {bitmap!r} is one of several drawings {family}.{bitmap} renders (siblings {siblings}); the settled left carries stance and junction only, so a bitmap condition can name only a stance's sole drawing",
                     )
                     resolved = False
             if not resolved:
@@ -1055,7 +1055,7 @@ def _expand_ligature_lefts(
 
 
 def outgoing_policy_record(record: PolicyRecord, source: Stance, target_stance: str) -> PolicyRecord | None:
-    """Return a trailing component's exit-side policy record projected onto a ligature stance, or None when it does not apply. It applies when it is an extend or contract naming one of the source's exits, a prefer whose `cell` (and `over`, if present) name only the exit side, or a refuse naming one of the source's exits or neither side. A refusal naming neither side vetoes the only seam an entryless ligature has. Records that name an entry or another stance, or read the left neighbor, word position, or self entry, stay with the component. The caller handles bitmap bindings, which need an explicit exception and a ligature-local replacement."""
+    """Return a trailing component's exit-side policy record projected onto a ligature stance, or None when it does not apply. It applies when it is an extend or contract naming one of the source's exits, a prefer whose `cell` (and `over`, if present) name only the exit side, or a refuse naming one of the source's exits or neither side. A refusal naming neither side vetoes the only junction an entryless ligature has. Records that name an entry or another stance, or read the left neighbor, word position, or self entry, stay with the component. The caller handles bitmap bindings, which need an explicit exception and a ligature-local replacement."""
     if record.stance not in (None, source.name) or record.entry is not None:
         return None
     when = record.when

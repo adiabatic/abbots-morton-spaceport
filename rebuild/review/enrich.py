@@ -1,4 +1,4 @@
-"""Unit enrichment for the review corpus (rebuild/REVIEW-PLAN.md §2.2): letter-name notation, old seams from the §13.1 baseline subsets, the settle and explain results (new seams, extensions, eliminations, explain text), divergent positions computed against the alias map, and highlight x-ranges in font units. The judged pair and the secondary seams are placed on positions whose ink differs when there are any, so a position that only renames a glyph stays in the divergent positions without moving them. The highlight x-ranges come from kern-neutral shaping of both fonts, matching the app's `font-kerning: none` rendering, because the baseline subset rows were extracted with the old font's kerning on."""
+"""Unit enrichment for the review corpus (rebuild/REVIEW-PLAN.md §2.2): letter-name notation, old junctions from the §13.1 baseline subsets, the settle and explain results (new junctions, extensions, eliminations, explain text), divergent positions computed against the alias map, and highlight x-ranges in font units. The judged pair and the secondary junctions are placed on positions whose ink differs when there are any, so a position that only renames a glyph stays in the divergent positions without moving them. The highlight x-ranges come from kern-neutral shaping of both fonts, matching the app's `font-kerning: none` rendering, because the baseline subset rows were extracted with the old font's kerning on."""
 
 from __future__ import annotations
 
@@ -105,7 +105,7 @@ def rune_display(rune: str) -> str:
     return display
 
 
-def _seam_phrase(token: str) -> str:
+def _junction_phrase(token: str) -> str:
     y = int(token[1:])
     return _HEIGHT_PHRASES.get(y, f"at y={y}")
 
@@ -179,13 +179,13 @@ def cell_token(cell: CellId) -> str:
 
 
 @dataclass
-class SecondarySeam:
-    """One divergent adjacency beyond a unit's primary pair: the (left, right) after-cell indices and per-side highlight rects like the primary band's. Once homes are resolved, `home` is the id of the unit where this behavior is the primary pair, or None when no such unit exists; `suppressed` is set instead when the home is ink- or picture-identical, since nothing is visible to judge and no marker is emitted."""
+class SecondaryJunction:
+    """One divergent adjacency beyond a unit's primary pair: the (left, right) after-cell indices and per-side highlight rects like the primary band's. Once primary units are resolved, `primary_unit` is the id of the unit where this behavior is the primary pair, or None when no such unit exists; `suppressed` is set instead when the primary unit is ink- or picture-identical, since nothing is visible to judge and no marker is emitted."""
 
     pair: tuple[int, int]
     highlight_before: dict
     highlight_after: dict
-    home: str | None = None
+    primary_unit: str | None = None
     suppressed: bool = False
 
 
@@ -210,9 +210,9 @@ class EnrichedUnit:
     notation: str
     text_entities: str
     before_glyphs: tuple[str, ...]
-    before_seams: tuple[str, ...]
+    before_junctions: tuple[str, ...]
     after_cells: tuple[str, ...]
-    after_seams: tuple[str, ...]
+    after_junctions: tuple[str, ...]
     after_extensions: tuple[int, ...]
     diff_positions: tuple[int, ...]
     pair: tuple[int, int] | None
@@ -226,7 +226,7 @@ class EnrichedUnit:
     notes: tuple[str, ...] = ()
     after_spans: tuple[tuple[int, int], ...] = ()
     before_spans: tuple[tuple[int, int], ...] = ()
-    secondary_seams: tuple[SecondarySeam, ...] = ()
+    secondary_junctions: tuple[SecondaryJunction, ...] = ()
     pair_codepoints: tuple[int, int] | None = None
     notation_tokens: tuple[str, ...] = ()
 
@@ -267,7 +267,7 @@ def _highlight(
 
 
 def _advance_mismatch_cell(before_pens: list[int], after_pens: list[int], cell_count: int) -> int | None:
-    """The first cell whose kern-neutral advance differs between the two fonts, or None. It locates a position-only divergence, which has no cell or seam difference to form a pair from, such as a one-pixel advance change on a letter next to a boundary. The change sits at the word break beside the letter, so the caller marks the nearest boundary token (◊ZWNJ, ␣, or ·), when there is one, instead of the letter and draws no sample band."""
+    """The first cell whose kern-neutral advance differs between the two fonts, or None. It locates a position-only divergence, which has no cell or junction difference to form a pair from, such as a one-pixel advance change on a letter next to a boundary. The change sits at the word break beside the letter, so the caller marks the nearest boundary token (◊ZWNJ, ␣, or ·), when there is one, instead of the letter and draws no sample band."""
     limit = min(cell_count, len(before_pens) - 1, len(after_pens) - 1)
     for index in range(limit):
         if before_pens[index + 1] - before_pens[index] != after_pens[index + 1] - after_pens[index]:
@@ -336,10 +336,10 @@ class Enricher:
             raise ValueError(f"formation spans cover {consumed} of {len(codepoint_values)} codepoints")
         return spans
 
-    def seam_token(self, seam, overlay: bool) -> str:
-        if overlay or seam is None:
+    def junction_token(self, junction, overlay: bool) -> str:
+        if overlay or junction is None:
             return "break"
-        return f"y{self.spec.registry.y_of(seam)}"
+        return f"y{self.spec.registry.y_of(junction)}"
 
     def explain_units(self, units: Sequence[Unit]) -> list[ExplainReport]:
         """Settle one unit batch through the Rust kernel before the enrichment loop consumes its reports."""
@@ -375,7 +375,7 @@ class Enricher:
         settled = list(report.settled)
 
         derived_cells = tuple(cell_token(item.cell) for item in settled)
-        # The audit's `new` column holds the settled cell tokens for cell and seam rows, but per-slot position diagnostics for position-only rows. Compare the re-settlement with the audit only when `new` holds cell tokens, and always take `after_cells` from the re-derived cells so they line up with `after_seams`.
+        # The audit's `new` column holds the settled cell tokens for cell and junction rows, but per-slot position diagnostics for position-only rows. Compare the re-settlement with the audit only when `new` holds cell tokens, and always take `after_cells` from the re-derived cells so they line up with `after_junctions`.
         if all("/" in token for token in unit.new) and derived_cells != unit.new:
             self.mismatches.append(
                 f"{config} {unit.codepoints}: derived cells {derived_cells} != audit {unit.new}"
@@ -384,8 +384,8 @@ class Enricher:
         after_spans = (
             [(index, index + 1) for index in range(len(values))] if overlay else self.formed_spans(values)
         )
-        after_seams = tuple(
-            self.seam_token(settled[index].seam, overlay) for index in range(len(settled) - 1)
+        after_junctions = tuple(
+            self.junction_token(settled[index].junction, overlay) for index in range(len(settled) - 1)
         )
         after_extensions = tuple(
             (
@@ -400,11 +400,13 @@ class Enricher:
         if row is None:
             raise ValueError(f"no baseline subset row for {config} {unit.codepoints}")
         before_spans = _spans_from_clusters(row.clusters, len(values))
-        before_seams = tuple(row.seams[row.clusters[index + 1] - 1] for index in range(len(row.glyphs) - 1))
-        # The per-glyph seams can be read from the per-codepoint row in two ways: the seam at each cluster's last codepoint, or the row's seams without the `lig` seams inside clusters. The assert checks that the two agree.
-        assert before_seams == tuple(
-            seam for seam in row.seams if seam != "lig"
-        ), f"{config} {unit.codepoints}: before seams {before_seams} disagree with the lig-filtered row seams"
+        before_junctions = tuple(
+            row.junctions[row.clusters[index + 1] - 1] for index in range(len(row.glyphs) - 1)
+        )
+        # The per-glyph junctions can be read from the per-codepoint row in two ways: the junction at each cluster's last codepoint, or the row's junctions without the `lig` junctions inside clusters. The assert checks that the two agree.
+        assert before_junctions == tuple(
+            junction for junction in row.junctions if junction != "lig"
+        ), f"{config} {unit.codepoints}: before junctions {before_junctions} disagree with the lig-filtered row junctions"
 
         diff_cp, divergent_gaps = self._diff_codepoints(values, row, before_spans, settled, after_spans)
         diff_positions = tuple(sorted({_covering(after_spans, cp) for cp in diff_cp}))
@@ -432,7 +434,7 @@ class Enricher:
             before_pens,
         )
         anchor_positions = ink_positions if (ink_positions or divergent_gaps) else diff_positions
-        pair = self._pick_pair(divergent_gaps, anchor_positions, after_seams, len(settled))
+        pair = self._pick_pair(divergent_gaps, anchor_positions, after_junctions, len(settled))
 
         pair_codepoints = (after_spans[pair[0]][0], after_spans[pair[1]][1] - 1) if pair is not None else None
         if pair is None and not diff_positions:
@@ -452,18 +454,20 @@ class Enricher:
         highlight_after = _highlight(after_pens, after_cluster_spans, cp_start, cp_end)
         highlight_before = _highlight(before_pens, before_spans, cp_start, cp_end)
 
-        secondary_seams: list[SecondarySeam] = []
+        secondary_junctions: list[SecondaryJunction] = []
         if pair is not None and not (unit.ink_identical or unit.picture_identical):
             for left, right in _secondary_pairs(
-                pair, divergent_gaps, anchor_positions, after_seams, len(settled)
+                pair, divergent_gaps, anchor_positions, after_junctions, len(settled)
             ):
-                seam_start = after_spans[left][0]
-                seam_end = after_spans[right][1] - 1
-                secondary_seams.append(
-                    SecondarySeam(
+                junction_start = after_spans[left][0]
+                junction_end = after_spans[right][1] - 1
+                secondary_junctions.append(
+                    SecondaryJunction(
                         pair=(left, right),
-                        highlight_before=_highlight(before_pens, before_spans, seam_start, seam_end),
-                        highlight_after=_highlight(after_pens, after_cluster_spans, seam_start, seam_end),
+                        highlight_before=_highlight(before_pens, before_spans, junction_start, junction_end),
+                        highlight_after=_highlight(
+                            after_pens, after_cluster_spans, junction_start, junction_end
+                        ),
                     )
                 )
 
@@ -489,10 +493,10 @@ class Enricher:
         summary = _summarize(
             settled=settled,
             after_spans=after_spans,
-            after_seams=after_seams,
+            after_junctions=after_junctions,
             before_glyphs=tuple(row.glyphs),
             before_spans=before_spans,
-            before_seams=before_seams,
+            before_junctions=before_junctions,
             diff_positions=ink_positions or diff_positions,
             pair=pair,
             report=report,
@@ -505,9 +509,9 @@ class Enricher:
             notation_tokens=notation_tokens(values),
             text_entities=text_entities(values),
             before_glyphs=tuple(row.glyphs),
-            before_seams=before_seams,
+            before_junctions=before_junctions,
             after_cells=derived_cells,
-            after_seams=after_seams,
+            after_junctions=after_junctions,
             after_extensions=after_extensions,
             diff_positions=diff_positions,
             pair=pair,
@@ -526,7 +530,7 @@ class Enricher:
             summary=summary,
             after_spans=tuple(after_spans),
             before_spans=tuple(before_spans),
-            secondary_seams=tuple(secondary_seams),
+            secondary_junctions=tuple(secondary_junctions),
         )
 
     def _diff_codepoints(
@@ -557,9 +561,11 @@ class Enricher:
         for gap in range(len(values) - 1):
             left_after = _covering(after_spans, gap)
             right_after = _covering(after_spans, gap + 1)
-            after_seam = "lig" if left_after == right_after else self._after_seam_at(settled, left_after)
-            before_seam = row.seams[gap]
-            if before_seam != after_seam:
+            after_junction = (
+                "lig" if left_after == right_after else self._after_junction_at(settled, left_after)
+            )
+            before_junction = row.junctions[gap]
+            if before_junction != after_junction:
                 if left_after != right_after:
                     gaps.append((left_after, right_after))
                 else:
@@ -567,8 +573,12 @@ class Enricher:
                     diff.add(gap + 1)
         return diff, gaps
 
-    def _after_seam_at(self, settled: list[Settled], index: int) -> str:
-        return self.seam_token(settled[index].seam, False) if settled[index].seam is not None else "break"
+    def _after_junction_at(self, settled: list[Settled], index: int) -> str:
+        return (
+            self.junction_token(settled[index].junction, False)
+            if settled[index].junction is not None
+            else "break"
+        )
 
     def _segment_pieces(self, side: str, shaped, pens: list[int], spans, cp_start: int, cp_end: int) -> tuple:
         """The placed ink of one font's shaped glyphs covering codepoints [cp_start, cp_end), as sorted (shape key, x, y) pieces from the intern both fonts share, translated together so the segment's leftmost ink is at x=0 (the `config_diff` normalization). The pieces are aligned on the ink and not on a pen position, because the two fonts reach the same placement through different advances and offsets, and divergent ink elsewhere in the window moves the pens apart without changing this segment.
@@ -601,7 +611,7 @@ class Enricher:
         before_cluster_spans: list[tuple[int, int]],
         before_pens: list[int],
     ) -> tuple[int, ...]:
-        """The divergent positions whose divergence is visible in ink: the glyphs covering the position's codepoint span place different outlines in the two fonts. A position whose segments match differs only in its name, such as bare qsNo against qsNo/loop/None/x-height/ where the base drawing already carries the join. It stays in `diff_positions` but does not anchor the judged pair or produce a secondary seam."""
+        """The divergent positions whose divergence is visible in ink: the glyphs covering the position's codepoint span place different outlines in the two fonts. A position whose segments match differs only in its name, such as bare qsNo against qsNo/loop/None/x-height/ where the base drawing already carries the join. It stays in `diff_positions` but does not anchor the judged pair or produce a secondary junction."""
         visible = []
         for position in diff_positions:
             cp_start, cp_end = after_spans[position]
@@ -617,7 +627,7 @@ class Enricher:
     def _pick_pair(
         divergent_gaps: list[tuple[int, int]],
         anchor_positions: tuple[int, ...],
-        after_seams: tuple[str, ...],
+        after_junctions: tuple[str, ...],
         cell_count: int,
     ) -> tuple[int, int] | None:
         """The unit's judged pair: the first divergent gap, else the first two adjacent anchor positions, else a lone anchor position paired with the neighbor it joins toward. The caller passes the ink-visible divergent positions as anchors, or all divergent positions when none is ink-visible and there is no divergent gap, so a rename-only position does not move the pair off the ink."""
@@ -629,8 +639,8 @@ class Enricher:
             if right == left + 1:
                 return (left, right)
         position = anchor_positions[0]
-        joins_right = position + 1 < cell_count and after_seams[position] != "break"
-        joins_left = position > 0 and after_seams[position - 1] != "break"
+        joins_right = position + 1 < cell_count and after_junctions[position] != "break"
+        joins_left = position > 0 and after_junctions[position - 1] != "break"
         if joins_right or (position + 1 < cell_count and not joins_left):
             return (position, position + 1)
         return (position - 1, position)
@@ -640,10 +650,10 @@ def _secondary_pairs(
     primary: tuple[int, int],
     divergent_gaps: list[tuple[int, int]],
     anchor_positions: tuple[int, ...],
-    after_seams: tuple[str, ...],
+    after_junctions: tuple[str, ...],
     cell_count: int,
 ) -> tuple[tuple[int, int], ...]:
-    """Every divergent adjacency beyond the primary pair, in left-index order: the remaining divergent gaps, plus a neighbor seam for each anchor position the primary and the gaps do not cover, chosen as `_pick_pair` chooses (adjacent anchors first, then the join direction). The caller passes the same anchors `_pick_pair` used, so a rename-only position gets no marker."""
+    """Every divergent adjacency beyond the primary pair, in left-index order: the remaining divergent gaps, plus a neighbor junction for each anchor position the primary and the gaps do not cover, chosen as `_pick_pair` chooses (adjacent anchors first, then the join direction). The caller passes the same anchors `_pick_pair` used, so a rename-only position gets no marker."""
     pairs: list[tuple[int, int]] = []
 
     def add(candidate: tuple[int, int]) -> None:
@@ -663,8 +673,8 @@ def _secondary_pairs(
             add((position, position + 1))
             index += 2
             continue
-        joins_right = position + 1 < cell_count and after_seams[position] != "break"
-        joins_left = position > 0 and after_seams[position - 1] != "break"
+        joins_right = position + 1 < cell_count and after_junctions[position] != "break"
+        joins_left = position > 0 and after_junctions[position - 1] != "break"
         if joins_right or (position + 1 < cell_count and not joins_left):
             add((position, position + 1))
         elif position > 0:
@@ -674,8 +684,8 @@ def _secondary_pairs(
 
 
 @dataclass(frozen=True)
-class SeamHomeUnit:
-    """The fields of an `EnrichedUnit` that the secondary-home search reads, as a small picklable record without the trace, the explain text, or the highlight rects. Corpus workers return these to the parent, which runs the search over the whole corpus."""
+class PrimaryUnitProjection:
+    """The fields of an `EnrichedUnit` that the primary-unit search reads, as a small picklable record without the trace, the explain text, or the highlight rects. Corpus workers return these to the parent, which runs the search over the whole corpus."""
 
     unit_id: str
     codepoint_values: tuple[int, ...]
@@ -684,15 +694,15 @@ class SeamHomeUnit:
     pair: tuple[int, int] | None
     after_spans: tuple[tuple[int, int], ...]
     after_cells: tuple[str, ...]
-    after_seams: tuple[str, ...]
+    after_junctions: tuple[str, ...]
     before_spans: tuple[tuple[int, int], ...]
     before_glyphs: tuple[str, ...]
-    before_seams: tuple[str, ...]
-    seam_pairs: tuple[tuple[int, int], ...]
+    before_junctions: tuple[str, ...]
+    junction_pairs: tuple[tuple[int, int], ...]
 
 
-def seam_home_projection(enriched: EnrichedUnit) -> SeamHomeUnit:
-    return SeamHomeUnit(
+def primary_unit_projection(enriched: EnrichedUnit) -> PrimaryUnitProjection:
+    return PrimaryUnitProjection(
         unit_id=enriched.unit.unit_id,
         codepoint_values=enriched.unit.codepoint_values,
         ink_identical=enriched.unit.ink_identical,
@@ -700,44 +710,46 @@ def seam_home_projection(enriched: EnrichedUnit) -> SeamHomeUnit:
         pair=enriched.pair,
         after_spans=enriched.after_spans,
         after_cells=enriched.after_cells,
-        after_seams=enriched.after_seams,
+        after_junctions=enriched.after_junctions,
         before_spans=enriched.before_spans,
         before_glyphs=enriched.before_glyphs,
-        before_seams=enriched.before_seams,
-        seam_pairs=tuple(seam.pair for seam in enriched.secondary_seams),
+        before_junctions=enriched.before_junctions,
+        junction_pairs=tuple(junction.pair for junction in enriched.secondary_junctions),
     )
 
 
-class SeamHomeSource(Protocol):
-    """The corpus as the secondary-home search reads it, by ordinal. Most units are read only for their window and their seam count, so a source that stores units as columns and builds a `SeamHomeUnit` on demand saves the parent a live object per unit. `_ListSource` wraps a list of projections, and the packed unit store is the other source. The protocol is declared here so that `unit_store` imports `enrich` and not the reverse.
+class PrimaryUnitSource(Protocol):
+    """The corpus as the primary-unit search reads it, by ordinal. Most units are read only for their window and their junction count, so a source that stores units as columns and builds a `PrimaryUnitProjection` on demand saves the parent a live object per unit. `_ListSource` wraps a list of projections, and the packed unit store is the other source. The protocol is declared here so that `unit_store` imports `enrich` and not the reverse.
 
-    Every method takes the unit's ordinal, a dense index over `0 … len(source)`, and every parameter is positional. `id_word` gives the order ties break on and must rank units as their `unit_id` strings do; for a corpus id that is the integer the base58 id encodes, since `unit_cache.base58_64` is fixed width over an ASCII-ordered alphabet. `invisible` is `ink_identical or picture_identical`, asked only of a resolved home. The search passes `set_homes` home ordinals (or None), and a source needs to accept only those. The search reads identity from the ordinal and `id_word`, never from a projection's `unit_id`, so a source may leave that field empty.
+    Every method takes the unit's ordinal, a dense index over `0 … len(source)`, and every parameter is positional. `id_word` gives the order ties break on and must rank units as their `unit_id` strings do; for a corpus id that is the integer the base58 id encodes, since `unit_cache.base58_64` is fixed width over an ASCII-ordered alphabet. `invisible` is `ink_identical or picture_identical`, asked only of a resolved primary unit. The search passes `set_primary_units` primary unit ordinals (or None), and a source needs to accept only those. The search reads identity from the ordinal and `id_word`, never from a projection's `unit_id`, so a source may leave that field empty.
     """
 
     def __len__(self) -> int: ...
 
     def windows(self) -> Iterable[tuple[int, tuple[int, ...]]]: ...
 
-    def seam_count(self, ordinal: int, /) -> int: ...
+    def junction_count(self, ordinal: int, /) -> int: ...
 
-    def projection(self, ordinal: int, /) -> SeamHomeUnit: ...
+    def projection(self, ordinal: int, /) -> PrimaryUnitProjection: ...
 
     def id_word(self, ordinal: int, /) -> int: ...
 
     def invisible(self, ordinal: int, /) -> bool: ...
 
-    def set_homes(self, ordinal: int, seam_assign: Sequence[tuple[int | None, bool]], /) -> None: ...
+    def set_primary_units(
+        self, ordinal: int, junction_assign: Sequence[tuple[int | None, bool]], /
+    ) -> None: ...
 
 
 class _ListSource:
-    """A list of projections as a `SeamHomeSource`, for callers that already hold the objects: `resolve_secondary_homes` and the tests. The ordinal is the list index, and the id word is the id string read as a big-endian integer, which orders correctly for ids of one width, as every `unit_cache.unit_id_for` id is. `set_homes` translates home ordinals back into ids in `assignments`, the dict `apply_home_assignments` reads.
+    """A list of projections as a `PrimaryUnitSource`, for callers that already hold the objects: `resolve_primary_units` and the tests. The ordinal is the list index, and the id word is the id string read as a big-endian integer, which orders correctly for ids of one width, as every `unit_cache.unit_id_for` id is. `set_primary_units` translates primary unit ordinals back into ids in `assignments`, the dict `apply_primary_unit_assignments` reads.
 
-    A unit with no secondary seam gets no entry, and readers treat a missing entry as an empty list.
+    A unit with no secondary junction gets no entry, and readers treat a missing entry as an empty list.
     """
 
     __slots__ = ("projections", "assignments")
 
-    def __init__(self, projections: list[SeamHomeUnit]) -> None:
+    def __init__(self, projections: list[PrimaryUnitProjection]) -> None:
         self.projections = projections
         self.assignments: dict[str, list[tuple[str | None, bool]]] = {}
 
@@ -748,10 +760,10 @@ class _ListSource:
         for ordinal, item in enumerate(self.projections):
             yield ordinal, item.codepoint_values
 
-    def seam_count(self, ordinal: int, /) -> int:
-        return len(self.projections[ordinal].seam_pairs)
+    def junction_count(self, ordinal: int, /) -> int:
+        return len(self.projections[ordinal].junction_pairs)
 
-    def projection(self, ordinal: int, /) -> SeamHomeUnit:
+    def projection(self, ordinal: int, /) -> PrimaryUnitProjection:
         return self.projections[ordinal]
 
     def id_word(self, ordinal: int, /) -> int:
@@ -761,19 +773,19 @@ class _ListSource:
         item = self.projections[ordinal]
         return item.ink_identical or item.picture_identical
 
-    def set_homes(self, ordinal: int, seam_assign: Sequence[tuple[int | None, bool]], /) -> None:
-        if not seam_assign:
+    def set_primary_units(self, ordinal: int, junction_assign: Sequence[tuple[int | None, bool]], /) -> None:
+        if not junction_assign:
             return
         self.assignments[self.projections[ordinal].unit_id] = [
-            (None if home is None else self.projections[home].unit_id, suppressed)
-            for home, suppressed in seam_assign
+            (None if primary_unit is None else self.projections[primary_unit].unit_id, suppressed)
+            for primary_unit, suppressed in junction_assign
         ]
 
 
-def _seam_outcomes_match(
-    item: SeamHomeUnit, left: int, right: int, candidate: SeamHomeUnit, offset: int
+def _junction_outcomes_match(
+    item: PrimaryUnitProjection, left: int, right: int, candidate: PrimaryUnitProjection, offset: int
 ) -> bool:
-    """Whether `candidate`, found at codepoint `offset` inside `item`, has the same before and after outcomes at the seam between item's after cells `left` and `right` (the same covering spans after the offset, glyph and cell names, and seam tokens) and has that seam as its own primary pair."""
+    """Whether `candidate`, found at codepoint `offset` inside `item`, has the same before and after outcomes at the junction between item's after cells `left` and `right` (the same covering spans after the offset, glyph and cell names, and junction tokens) and has that junction as its own primary pair."""
     span_left = item.after_spans[left]
     span_right = item.after_spans[right]
     shifted_left = (span_left[0] - offset, span_left[1] - offset)
@@ -791,7 +803,7 @@ def _seam_outcomes_match(
         return False
     if candidate.after_cells[candidate_right] != item.after_cells[right]:
         return False
-    if candidate.after_seams[candidate_left] != item.after_seams[left]:
+    if candidate.after_junctions[candidate_left] != item.after_junctions[left]:
         return False
     gap = span_left[1] - 1
     mine_left = _covering(list(item.before_spans), gap)
@@ -804,20 +816,23 @@ def _seam_outcomes_match(
             return False
         if candidate.before_glyphs[theirs] != item.before_glyphs[mine]:
             return False
-    if mine_left != mine_right and candidate.before_seams[theirs_left] != item.before_seams[mine_left]:
+    if (
+        mine_left != mine_right
+        and candidate.before_junctions[theirs_left] != item.before_junctions[mine_left]
+    ):
         return False
     return candidate.pair == (candidate_left, candidate_right)
 
 
-def _find_home(
-    item: SeamHomeUnit,
+def _find_primary_unit(
+    item: PrimaryUnitProjection,
     ordinal: int,
     pair: tuple[int, int],
     by_codepoints: dict[tuple[int, ...], list[int]],
-    source: SeamHomeSource,
-    held: dict[int, SeamHomeUnit],
+    source: PrimaryUnitSource,
+    held: dict[int, PrimaryUnitProjection],
 ) -> int | None:
-    """The ordinal of the seam's home: the shortest other unit whose codepoint string is a substring of `item`'s containing the seam's two cells, with the same before and after outcomes at the seam and that seam as its primary pair. Ties break to the lowest unit id, ranked by `source.id_word`. None when no unit qualifies. The self-skip compares ordinals because a corpus has one unit per id, which the store's index enforces. `held` caches the candidates already materialized for this item, since one candidate can match several lengths, offsets, and seams; the caller discards it after each item."""
+    """The ordinal of the junction's primary unit: the shortest other unit whose codepoint string is a substring of `item`'s containing the junction's two cells, with the same before and after outcomes at the junction and that junction as its primary pair. Ties break to the lowest unit id, ranked by `source.id_word`. None when no unit qualifies. The self-skip compares ordinals because a corpus has one unit per id, which the store's index enforces. `held` caches the candidates already materialized for this item, since one candidate can match several lengths, offsets, and junctions; the caller discards it after each item."""
     values = item.codepoint_values
     left, right = pair
     minimum = item.after_spans[right][1] - item.after_spans[left][0]
@@ -833,23 +848,23 @@ def _find_home(
                 projection = held.get(candidate)
                 if projection is None:
                     projection = held[candidate] = source.projection(candidate)
-                if _seam_outcomes_match(item, left, right, projection, offset):
+                if _junction_outcomes_match(item, left, right, projection, offset):
                     matches.append(candidate)
         if matches:
             return min(matches, key=source.id_word)
     return None
 
 
-def resolve_home_assignments(
-    source: SeamHomeSource | list[SeamHomeUnit],
+def resolve_primary_unit_assignments(
+    source: PrimaryUnitSource | list[PrimaryUnitProjection],
 ) -> tuple[dict[str, list[tuple[str | None, bool]]], dict[str, int]]:
-    """Resolve the home of every secondary seam in the corpus. For each unit with secondary seams, each seam gets (home or None, suppressed) in seam order, written back through `source.set_homes`, and the secondary-seam counts are tallied. A seam whose home is ink- or picture-identical is suppressed: the divergence is an invisible name-grain rename, so it gets no marker. A seam with no home keeps home None and stays visible, so it is never left unmarked.
+    """Resolve the primary unit of every secondary junction in the corpus. For each unit with secondary junctions, each junction gets (primary unit or None, suppressed) in junction order, written back through `source.set_primary_units`, and the secondary-junction counts are tallied. A junction whose primary unit is ink- or picture-identical is suppressed: the divergence is an invisible name-grain rename, so it gets no marker. A junction with no primary unit keeps primary unit None and stays visible, so it is never left unmarked.
 
-    The window index holds ordinals, and a unit is materialized only when it has a seam or is a candidate. A list of projections is wrapped in `_ListSource`, and only then is the returned dict filled, keyed by unit id for `apply_home_assignments`. A source that stores its own homes, such as the unit store, gets them through `set_homes`, and the dict is empty. The secondary-seam counts are the same four either way.
+    The window index holds ordinals, and a unit is materialized only when it has a junction or is a candidate. A list of projections is wrapped in `_ListSource`, and only then is the returned dict filled, keyed by unit id for `apply_primary_unit_assignments`. A source that stores its own primary units, such as the unit store, gets them through `set_primary_units`, and the dict is empty. The secondary-junction counts are the same four either way.
     """
     if isinstance(source, list):
         adapter = _ListSource(source)
-        reduced: SeamHomeSource = adapter
+        reduced: PrimaryUnitSource = adapter
     else:
         adapter = None
         reduced = source
@@ -858,51 +873,53 @@ def resolve_home_assignments(
         by_codepoints.setdefault(window, []).append(ordinal)
     counts = {
         "units_with_markers": 0,
-        "seams_homed": 0,
-        "seams_homeless": 0,
-        "seams_suppressed_invisible": 0,
+        "junctions_with_primary_unit": 0,
+        "junctions_without_primary_unit": 0,
+        "junctions_suppressed_invisible": 0,
     }
     for ordinal in range(len(reduced)):
-        if not reduced.seam_count(ordinal):
+        if not reduced.junction_count(ordinal):
             continue
         item = reduced.projection(ordinal)
-        held: dict[int, SeamHomeUnit] = {}
+        held: dict[int, PrimaryUnitProjection] = {}
         visible = 0
-        seam_assign: list[tuple[int | None, bool]] = []
-        for pair in item.seam_pairs:
-            home = _find_home(item, ordinal, pair, by_codepoints, reduced, held)
-            if home is None:
-                counts["seams_homeless"] += 1
+        junction_assign: list[tuple[int | None, bool]] = []
+        for pair in item.junction_pairs:
+            primary_unit = _find_primary_unit(item, ordinal, pair, by_codepoints, reduced, held)
+            if primary_unit is None:
+                counts["junctions_without_primary_unit"] += 1
                 visible += 1
-                seam_assign.append((None, False))
-            elif reduced.invisible(home):
-                counts["seams_suppressed_invisible"] += 1
-                seam_assign.append((None, True))
+                junction_assign.append((None, False))
+            elif reduced.invisible(primary_unit):
+                counts["junctions_suppressed_invisible"] += 1
+                junction_assign.append((None, True))
             else:
-                counts["seams_homed"] += 1
+                counts["junctions_with_primary_unit"] += 1
                 visible += 1
-                seam_assign.append((home, False))
-        reduced.set_homes(ordinal, seam_assign)
+                junction_assign.append((primary_unit, False))
+        reduced.set_primary_units(ordinal, junction_assign)
         if visible:
             counts["units_with_markers"] += 1
     return (adapter.assignments if adapter is not None else {}), counts
 
 
-def apply_home_assignments(
+def apply_primary_unit_assignments(
     enriched_units: list[EnrichedUnit], assignments: dict[str, list[tuple[str | None, bool]]]
 ) -> None:
-    """Write a `resolve_home_assignments` result onto each unit's secondary seams in place. A unit with no secondary seam has no entry and is left unchanged."""
+    """Write a `resolve_primary_unit_assignments` result onto each unit's secondary junctions in place. A unit with no secondary junction has no entry and is left unchanged."""
     for item in enriched_units:
-        for seam, (home, suppressed) in zip(item.secondary_seams, assignments.get(item.unit.unit_id, ())):
-            seam.home = home
-            seam.suppressed = suppressed
+        for junction, (primary_unit, suppressed) in zip(
+            item.secondary_junctions, assignments.get(item.unit.unit_id, ())
+        ):
+            junction.primary_unit = primary_unit
+            junction.suppressed = suppressed
 
 
-def resolve_secondary_homes(enriched_units: list[EnrichedUnit]) -> dict[str, int]:
-    """Resolve the home of every secondary seam across the given units, set it on the seams in place, and return the secondary-seam counts (`resolve_home_assignments` has the rules)."""
-    projections = [seam_home_projection(item) for item in enriched_units]
-    assignments, counts = resolve_home_assignments(projections)
-    apply_home_assignments(enriched_units, assignments)
+def resolve_primary_units(enriched_units: list[EnrichedUnit]) -> dict[str, int]:
+    """Resolve the primary unit of every secondary junction across the given units, set it on the junctions in place, and return the secondary-junction counts (`resolve_primary_unit_assignments` has the rules)."""
+    projections = [primary_unit_projection(item) for item in enriched_units]
+    assignments, counts = resolve_primary_unit_assignments(projections)
+    apply_primary_unit_assignments(enriched_units, assignments)
     return counts
 
 
@@ -910,10 +927,10 @@ def _summarize(
     *,
     settled: list[Settled],
     after_spans: list[tuple[int, int]],
-    after_seams: tuple[str, ...],
+    after_junctions: tuple[str, ...],
     before_glyphs: tuple[str, ...],
     before_spans: list[tuple[int, int]],
-    before_seams: tuple[str, ...],
+    before_junctions: tuple[str, ...],
     diff_positions: tuple[int, ...],
     pair: tuple[int, int] | None,
     report: ExplainReport,
@@ -927,17 +944,17 @@ def _summarize(
             break
     stage = report.positions[position].trace.decided_stage if position is not None else None
     clause = _summary_clause(
-        settled, after_spans, after_seams, before_glyphs, before_spans, before_seams, pair, position
+        settled, after_spans, after_junctions, before_glyphs, before_spans, before_junctions, pair, position
     )
     return f"New: {clause} — {_decided_by(provenance, stage)}."
 
 
-def _before_seam_at_codepoint_gap(
-    before_spans: list[tuple[int, int]], before_seams: tuple[str, ...], gap: int
+def _before_junction_at_codepoint_gap(
+    before_spans: list[tuple[int, int]], before_junctions: tuple[str, ...], gap: int
 ) -> str | None:
     for index in range(len(before_spans) - 1):
         if before_spans[index + 1][0] == gap + 1:
-            return before_seams[index]
+            return before_junctions[index]
     return None
 
 
@@ -951,10 +968,10 @@ def _cell_description(cell: CellId) -> str:
 def _summary_clause(
     settled: list[Settled],
     after_spans: list[tuple[int, int]],
-    after_seams: tuple[str, ...],
+    after_junctions: tuple[str, ...],
     before_glyphs: tuple[str, ...],
     before_spans: list[tuple[int, int]],
-    before_seams: tuple[str, ...],
+    before_junctions: tuple[str, ...],
     pair: tuple[int, int] | None,
     position: int | None,
 ) -> str:
@@ -972,27 +989,27 @@ def _summary_clause(
     if pair is not None:
         left = rune_display(settled[pair[0]].cell.rune)
         right = rune_display(settled[pair[1]].cell.rune)
-        after_seam = after_seams[pair[0]]
+        after_junction = after_junctions[pair[0]]
         gap = after_spans[pair[0]][1] - 1
-        before_seam = _before_seam_at_codepoint_gap(before_spans, before_seams, gap)
-        if after_seam.startswith("y") and before_seam in (None, "break"):
-            return f"{left} joins {right} {_seam_phrase(after_seam)} (the old pipeline broke there)"
-        if after_seam == "break" and before_seam is not None and before_seam.startswith("y"):
-            return f"{left} no longer joins {right} (the old pipeline joined {_seam_phrase(before_seam)})"
+        before_junction = _before_junction_at_codepoint_gap(before_spans, before_junctions, gap)
+        if after_junction.startswith("y") and before_junction in (None, "break"):
+            return f"{left} joins {right} {_junction_phrase(after_junction)} (the old pipeline broke there)"
+        if after_junction == "break" and before_junction is not None and before_junction.startswith("y"):
+            return f"{left} no longer joins {right} (the old pipeline joined {_junction_phrase(before_junction)})"
         if (
-            after_seam.startswith("y")
-            and before_seam is not None
-            and before_seam.startswith("y")
-            and after_seam != before_seam
+            after_junction.startswith("y")
+            and before_junction is not None
+            and before_junction.startswith("y")
+            and after_junction != before_junction
         ):
-            return f"{left} joins {right} {_seam_phrase(after_seam)} instead of {_seam_phrase(before_seam)}"
+            return f"{left} joins {right} {_junction_phrase(after_junction)} instead of {_junction_phrase(before_junction)}"
     if position is not None:
         cell = settled[position].cell
         return (
-            f"{rune_display(cell.rune)} keeps the same seams but settles as a different cell "
+            f"{rune_display(cell.rune)} keeps the same junctions but settles as a different cell "
             f"({_cell_description(cell)})"
         )
-    return "only the boundary marker's glyph changed; every letter cell and seam is unchanged"
+    return "only the boundary marker's glyph changed; every letter cell and junction is unchanged"
 
 
 def _collect_provenance(traces) -> tuple[str, ...]:

@@ -8,7 +8,7 @@ from pathlib import Path
 import uharfbuzz as hb
 from fontTools.ttLib import TTFont
 
-from .classify import SeamClassifier
+from .classify import JunctionClassifier
 from .rowmodel import Row
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -75,27 +75,27 @@ def first_glyph_covering(clusters: tuple[int, ...], position: int) -> int:
     return first
 
 
-def seams_for(result: ShapeResult, length: int, classifier: SeamClassifier) -> tuple[str, ...]:
-    seams: list[str] = []
+def junctions_for(result: ShapeResult, length: int, classifier: JunctionClassifier) -> tuple[str, ...]:
+    junctions: list[str] = []
     for k in range(length - 1):
         left = last_glyph_covering(result.clusters, k)
         right_last = last_glyph_covering(result.clusters, k + 1)
         if left == right_last:
-            seams.append("lig")
+            junctions.append("lig")
             continue
         right = first_glyph_covering(result.clusters, k + 1)
-        seams.append(classifier.classify(result.names[left], result.names[right]))
-    return tuple(seams)
+        junctions.append(classifier.classify(result.names[left], result.names[right]))
+    return tuple(junctions)
 
 
 def row_for(
-    shaper: Shaper, classifier: SeamClassifier, text: str, features: dict[str, bool] | None = None
+    shaper: Shaper, classifier: JunctionClassifier, text: str, features: dict[str, bool] | None = None
 ) -> Row:
     result = shaper.shape(text, features)
     return Row(
         codepoints=tuple(ord(c) for c in text),
         glyphs=result.names,
         clusters=result.clusters,
-        seams=seams_for(result, len(text), classifier),
+        junctions=junctions_for(result, len(text), classifier),
         positions=result.positions,
     )

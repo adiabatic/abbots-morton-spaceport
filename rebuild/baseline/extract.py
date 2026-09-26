@@ -15,7 +15,7 @@ from pathlib import Path
 from rebuild.tools.memory_budget import usable_cores
 
 from . import alphabet
-from .classify import SeamClassifier
+from .classify import JunctionClassifier
 from .model import (
     CONFIGS,
     FONT_PATH,
@@ -36,7 +36,7 @@ MULTI_HEIGHT_EXAMPLE_CAP = 5
 def _shard_workers_default(*, cgroup_root: str | Path = "/") -> int:
     """Return the default number of shard workers: the cores this process may run on, from `usable_cores()`, which reads the affinity mask and any cgroup CPU quota that `os.cpu_count()` ignores.
 
-    The width is not derived from a memory budget because a worker's peak memory (a `Shaper` and a `SeamClassifier` over the font, one open shard file, two `Counter`s, and a capped list of multi-height examples) has not been measured. Once it is, the width should become `memory_budget.how_many_fit` over a peak constant, as `kernel_exec.kernel_threads_default` does over `DELTA_PEAK_BYTES`, capped at these cores.
+    The width is not derived from a memory budget because a worker's peak memory (a `Shaper` and a `JunctionClassifier` over the font, one open shard file, two `Counter`s, and a capped list of multi-height examples) has not been measured. Once it is, the width should become `memory_budget.how_many_fit` over a peak constant, as `kernel_exec.kernel_threads_default` does over `DELTA_PEAK_BYTES`, capped at these cores.
 
     The width cannot change the output: each worker writes its own shard file and the writer concatenates them in shard-index order. `rebuild/test_extractor.py` checks this by extracting one subset with two workers and with one and comparing the gzip payloads.
 
@@ -53,7 +53,7 @@ class ExtractionSummary:
     config: str
     rows: int
     sha256_uncompressed: str
-    seam_counts: dict[str, int]
+    junction_counts: dict[str, int]
     glyph_counts: dict[str, int]
     multi_height_examples: list[tuple[str, str]] = field(default_factory=list)
     subset: str | None = None
@@ -68,7 +68,7 @@ class ExtractionSummary:
             "subset": self.subset,
             "rows": self.rows,
             "sha256_uncompressed": self.sha256_uncompressed,
-            "seam_counts": dict(sorted(self.seam_counts.items())),
+            "junction_counts": dict(sorted(self.junction_counts.items())),
             "multi_height_examples": self.multi_height_examples,
             "glyph_distinct": len(self.glyph_counts),
             "glyph_counts": dict(sorted(self.glyph_counts.items())),
@@ -77,25 +77,25 @@ class ExtractionSummary:
 
 def build_row(
     shaper: Shaper,
-    classifier: SeamClassifier,
+    classifier: JunctionClassifier,
     codepoints: tuple[int, ...],
     features: dict[str, bool],
 ) -> Row:
-    """Shape one basis string and classify each input seam. The output glyphs on either side of seam k are the last glyph covering input k and the first glyph covering input k+1. When one glyph covers both inputs, the seam is a ligature (`lig`)."""
+    """Shape one basis string and classify each input junction. The output glyphs on either side of junction k are the last glyph covering input k and the first glyph covering input k+1. When one glyph covers both inputs, the junction is a ligature (`lig`)."""
     result = shaper.shape(alphabet.string_text(codepoints), features)
-    seams: list[str] = []
+    junctions: list[str] = []
     for k in range(len(codepoints) - 1):
         left_index = bisect_right(result.clusters, k) - 1
         right_index = left_index + 1
         if right_index >= len(result.clusters) or result.clusters[right_index] > k + 1:
-            seams.append("lig")
+            junctions.append("lig")
         else:
-            seams.append(classifier.classify(result.names[left_index], result.names[right_index]))
+            junctions.append(classifier.classify(result.names[left_index], result.names[right_index]))
     return Row(
         codepoints=codepoints,
         glyphs=result.names,
         clusters=result.clusters,
-        seams=tuple(seams),
+        junctions=tuple(junctions),
         positions=result.positions,
     )
 
@@ -111,13 +111,13 @@ def sample_includes(codepoints: tuple[int, ...], modulus: int) -> bool:
 
 
 _SHAPER: Shaper | None = None
-_CLASSIFIER: SeamClassifier | None = None
+_CLASSIFIER: JunctionClassifier | None = None
 
 
 def _init_worker(font_path: str) -> None:
     global _SHAPER, _CLASSIFIER
     _SHAPER = Shaper(font_path)
-    _CLASSIFIER = SeamClassifier(font_path)
+    _CLASSIFIER = JunctionClassifier(font_path)
 
 
 @dataclass(frozen=True)
@@ -133,7 +133,7 @@ class _ShardTask:
 def _run_shard(task: _ShardTask) -> tuple[int, Counter, Counter, list[tuple[str, str]]]:
     assert _SHAPER is not None and _CLASSIFIER is not None
     features = dict(task.features)
-    seam_counts: Counter = Counter()
+    junction_counts: Counter = Counter()
     glyph_counts: Counter = Counter()
     multi_height: list[tuple[str, str]] = []
     rows = 0
@@ -146,13 +146,13 @@ def _run_shard(task: _ShardTask) -> tuple[int, Counter, Counter, list[tuple[str,
             row = build_row(_SHAPER, _CLASSIFIER, codepoints, features)
             f.write(row.to_tsv() + "\n")
             rows += 1
-            for seam in row.seams:
-                seam_counts[seam] += 1
-                if "+" in seam and len(multi_height) < MULTI_HEIGHT_EXAMPLE_CAP:
-                    multi_height.append((codepoints_field(codepoints), seam))
+            for junction in row.junctions:
+                junction_counts[junction] += 1
+                if "+" in junction and len(multi_height) < MULTI_HEIGHT_EXAMPLE_CAP:
+                    multi_height.append((codepoints_field(codepoints), junction))
             for glyph in row.glyphs:
                 glyph_counts[glyph] += 1
-    return rows, seam_counts, glyph_counts, multi_height
+    return rows, junction_counts, glyph_counts, multi_height
 
 
 def _build_tasks(
@@ -222,12 +222,12 @@ def extract_config(
             _init_worker(str(FONT_PATH))
             results = [_run_shard(task) for task in tasks]
         total_rows = 0
-        seam_counts: Counter = Counter()
+        junction_counts: Counter = Counter()
         glyph_counts: Counter = Counter()
         multi_height: list[tuple[str, str]] = []
-        for rows, shard_seams, shard_glyphs, shard_multi in results:
+        for rows, shard_junctions, shard_glyphs, shard_multi in results:
             total_rows += rows
-            seam_counts.update(shard_seams)
+            junction_counts.update(shard_junctions)
             glyph_counts.update(shard_glyphs)
             multi_height.extend(shard_multi)
         multi_height = multi_height[:MULTI_HEIGHT_EXAMPLE_CAP]
@@ -255,7 +255,7 @@ def extract_config(
         config=config_token,
         rows=total_rows,
         sha256_uncompressed=digest_hash.hexdigest(),
-        seam_counts=dict(seam_counts),
+        junction_counts=dict(junction_counts),
         glyph_counts=dict(glyph_counts),
         multi_height_examples=multi_height,
         subset=subset,
@@ -264,7 +264,7 @@ def extract_config(
     write_digests_tsv(out_dir)
     if multi_height:
         raise AssertionError(
-            f"multi-height seam classifications in {config_token} (none expected); first examples: {multi_height}"
+            f"multi-height junction classifications in {config_token} (none expected); first examples: {multi_height}"
         )
     return digest
 
@@ -297,7 +297,10 @@ def load_digest_dicts(out_dir: Path) -> list[dict]:
     for token in CONFIGS:
         path = _digest_path(out_dir, token)
         if path.exists():
-            digests.append(json.loads(path.read_text(encoding="utf-8")))
+            digest = json.loads(path.read_text(encoding="utf-8"))
+            if "seam_counts" in digest:
+                digest["junction_counts"] = digest.pop("seam_counts")
+            digests.append(digest)
     return digests
 
 
@@ -306,14 +309,14 @@ def write_digests_tsv(out_dir: Path) -> Path:
     columns = ["config", "rows", "sha256_uncompressed", "y0", "y5", "y6", "y8", "lig", "break", "subset"]
     lines = ["\t".join(columns)]
     for digest in load_digest_dicts(out_dir):
-        seams = digest["seam_counts"]
+        junctions = digest["junction_counts"]
         lines.append(
             "\t".join(
                 [
                     digest["config"],
                     str(digest["rows"]),
                     digest["sha256_uncompressed"],
-                    *[str(seams.get(token, 0)) for token in ("y0", "y5", "y6", "y8", "lig", "break")],
+                    *[str(junctions.get(token, 0)) for token in ("y0", "y5", "y6", "y8", "lig", "break")],
                     digest["subset"] or "full",
                 ]
             )
@@ -352,13 +355,13 @@ def write_summary(out_dir: Path, top_glyphs: int = 20) -> Path:
             "| ------ | ---- | ---------------------- | -- | -- | -- | -- | --- | ----- | --------------- | ------ |"
         )
         for digest in digests:
-            seams = digest["seam_counts"]
-            seam_cells = " | ".join(
-                str(seams.get(token, 0)) for token in ("y0", "y5", "y6", "y8", "lig", "break")
+            junctions = digest["junction_counts"]
+            junction_cells = " | ".join(
+                str(junctions.get(token, 0)) for token in ("y0", "y5", "y6", "y8", "lig", "break")
             )
             lines.append(
                 f"| {digest['config']} | {digest['rows']} | `{digest['sha256_uncompressed']}` | "
-                f"{seam_cells} | {digest['glyph_distinct']} | {digest['subset'] or 'full'} |"
+                f"{junction_cells} | {digest['glyph_distinct']} | {digest['subset'] or 'full'} |"
             )
         lines.append("")
         lines.append("## Resolved-glyph-name frequencies (top section)")

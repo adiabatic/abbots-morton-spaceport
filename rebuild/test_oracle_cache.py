@@ -400,7 +400,7 @@ def test_an_alias_map_edited_into_a_shape_the_guard_refuses_promotes_nothing(
 
 def _row(index: int, glyph: str = "g") -> Row:
     return Row(
-        codepoints=(0xE650 + index,), glyphs=(glyph,), clusters=(0,), seams=(), positions=((0, 0, 100),)
+        codepoints=(0xE650 + index,), glyphs=(glyph,), clusters=(0,), junctions=(), positions=((0, 0, 100),)
     )
 
 
@@ -982,7 +982,7 @@ def test_a_record_carries_both_verdicts_and_their_ages():
         kinds=("cell",),
         position=1,
         new_cells=("qsPea/full", "qsTea/half"),
-        new_seams=("y5",),
+        new_junctions=("y5",),
         divergence_tags=("stance",),
     )
     for cached, position, ages in (

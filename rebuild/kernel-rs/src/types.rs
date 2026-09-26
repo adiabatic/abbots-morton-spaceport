@@ -337,11 +337,11 @@ pub struct CellId {
     pub adjustments: Vec<AdjustmentToken>,
 }
 
-/// What one position settled into, `model.Settled`: the cell, the seam committed toward the next position, and the connector pixels this side carries on that seam.
+/// What one position settled into, `model.Settled`: the cell, the junction committed toward the next position, and the connector pixels this side carries on that junction.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Settled {
     pub cell: CellId,
-    pub seam: Option<Sym>,
+    pub junction: Option<Sym>,
     pub extension: i64,
 }
 
@@ -474,27 +474,27 @@ impl NotesPool {
     }
 }
 
-/// The left neighbor in the form the memo keys store: the settled cell's rune and stance and the committed seam, each as the [`Ordinal`] of its key field. They are resolved once, when the left is built, so building a key looks nothing up. All three are absent for a boundary left. Every read the kernel makes of a left's rune, stance, or seam first checks that the left is a letter. The only read of a settled record without that check is the commit's same-seam check of the extension, and `TraceKey` keys it by its own `left_extension` field. So a boundary left gets the same key whether or not its case line gave a record beside its kind.
+/// The left neighbor in the form the memo keys store: the settled cell's rune and stance and the committed junction, each as the [`Ordinal`] of its key field. They are resolved once, when the left is built, so building a key looks nothing up. All three are absent for a boundary left. Every read the kernel makes of a left's rune, stance, or junction first checks that the left is a letter. The only read of a settled record without that check is the commit's same-junction check of the extension, and `TraceKey` keys it by its own `left_extension` field. So a boundary left gets the same key whether or not its case line gave a record beside its kind.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct LeftOrdinals {
     pub rune: Option<Ordinal>,
     pub stance: Option<Ordinal>,
-    pub seam: Option<Ordinal>,
+    pub junction: Option<Ordinal>,
 }
 
 impl LeftOrdinals {
-    /// The three ordinals of a settled record used as a left, or `None` when its rune is not a registered family, its stance is not declared by any rune, or its seam is not a height the spec offers. No settlement of this spec produces such a cell, and `cases.rs` rejects a case line whose left names one.
+    /// The three ordinals of a settled record used as a left, or `None` when its rune is not a registered family, its stance is not declared by any rune, or its junction is not a height the spec offers. No settlement of this spec produces such a cell, and `cases.rs` rejects a case line whose left names one.
     pub fn of(index: &SpecIndex, settled: &Settled) -> Option<Self> {
         let rune = index.rune_ordinal(settled.cell.rune)?;
         let stance = index.stance_ordinal(settled.cell.stance)?;
-        let seam = match settled.seam {
-            Some(seam) => Some(index.seam_ordinal(seam)?),
+        let junction = match settled.junction {
+            Some(junction) => Some(index.junction_ordinal(junction)?),
             None => None,
         };
         Some(Self {
             rune: Some(rune),
             stance: Some(stance),
-            seam,
+            junction,
         })
     }
 }
@@ -532,7 +532,7 @@ impl LeftContext {
             panic!(
                 "a letter left settles into a cell of a registered family in a declared stance at a height the spec offers, and {} at {} does not",
                 cell_label(index, &settled.cell),
-                height_text(index, settled.seam)
+                height_text(index, settled.junction)
             )
         });
         Self {
@@ -543,13 +543,13 @@ impl LeftContext {
     }
 }
 
-/// A candidate's cell in the form the memo keys store: its rune, stance, entry, and seam, each as the [`Ordinal`] of its key field, resolved once when the candidate is enumerated. The prospect memo keys on these and the follower's synthetic left carries them, so a lookup resolves nothing.
+/// A candidate's cell in the form the memo keys store: its rune, stance, entry, and junction, each as the [`Ordinal`] of its key field, resolved once when the candidate is enumerated. The prospect memo keys on these and the follower's synthetic left carries them, so a lookup resolves nothing.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct CandidateOrdinals {
     pub rune: Ordinal,
     pub stance: Ordinal,
     pub entry: Option<Ordinal>,
-    pub seam: Option<Ordinal>,
+    pub junction: Option<Ordinal>,
 }
 
 impl CandidateOrdinals {
@@ -559,7 +559,7 @@ impl CandidateOrdinals {
         rune: Sym,
         stance: Sym,
         entry: Option<Sym>,
-        seam: Option<Sym>,
+        junction: Option<Sym>,
     ) -> Self {
         let missing = || {
             panic!(
@@ -567,60 +567,60 @@ impl CandidateOrdinals {
                 index.resolve(rune),
                 index.resolve(stance),
                 height_text(index, entry),
-                height_text(index, seam)
+                height_text(index, junction)
             )
         };
         Self {
             rune: index.rune_ordinal(rune).unwrap_or_else(missing),
             stance: index.stance_ordinal(stance).unwrap_or_else(missing),
             entry: entry.map(|height| index.entry_ordinal(height).unwrap_or_else(missing)),
-            seam: seam.map(|height| index.seam_ordinal(height).unwrap_or_else(missing)),
+            junction: junction.map(|height| index.junction_ordinal(height).unwrap_or_else(missing)),
         }
     }
 
-    /// The left a follower settles against if this candidate wins: the cell's rune and stance at its seam.
+    /// The left a follower settles against if this candidate wins: the cell's rune and stance at its junction.
     pub fn as_left(self) -> LeftOrdinals {
         LeftOrdinals {
             rune: Some(self.rune),
             stance: Some(self.stance),
-            seam: self.seam,
+            junction: self.junction,
         }
     }
 }
 
-/// One pair candidate, `settle.Candidate`: a cell of this rune with the seam state it offers toward the next position. `order_index` is the stance's rank in the rune's declared order, and `exit_index` is its exit row's declaration index; the later ranking stages read both. A non-joining candidate carries [`NO_EXIT_INDEX`]. The ordinals are the last field, so the derived ordering is determined by the five fields before them.
+/// One pair candidate, `settle.Candidate`: a cell of this rune with the junction state it offers toward the next position. `order_index` is the stance's rank in the rune's declared order, and `exit_index` is its exit row's declaration index; the later ranking stages read both. A non-joining candidate carries [`NO_EXIT_INDEX`]. The ordinals are the last field, so the derived ordering is determined by the five fields before them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Candidate {
     pub stance: Sym,
     pub entry: Option<Sym>,
-    pub seam: Option<Sym>,
+    pub junction: Option<Sym>,
     pub order_index: usize,
     pub exit_index: usize,
     pub ordinals: CandidateOrdinals,
 }
 
 impl Candidate {
-    /// A candidate that offers a seam, with the index of the exit row it was enumerated from.
+    /// A candidate that offers a junction, with the index of the exit row it was enumerated from.
     pub fn joining(
         index: &SpecIndex,
         rune: Sym,
         stance: Sym,
         entry: Option<Sym>,
-        seam: Sym,
+        junction: Sym,
         order_index: usize,
         exit_index: usize,
     ) -> Self {
         Self {
             stance,
             entry,
-            seam: Some(seam),
+            junction: Some(junction),
             order_index,
             exit_index,
-            ordinals: CandidateOrdinals::of(index, rune, stance, entry, Some(seam)),
+            ordinals: CandidateOrdinals::of(index, rune, stance, entry, Some(junction)),
         }
     }
 
-    /// The stance's non-joining candidate: no seam, and the sentinel exit index that sorts after every real one.
+    /// The stance's non-joining candidate: no junction, and the sentinel exit index that sorts after every real one.
     pub fn non_joining(
         index: &SpecIndex,
         rune: Sym,
@@ -631,7 +631,7 @@ impl Candidate {
         Self {
             stance,
             entry,
-            seam: None,
+            junction: None,
             order_index,
             exit_index: NO_EXIT_INDEX,
             ordinals: CandidateOrdinals::of(index, rune, stance, entry, None),
@@ -893,11 +893,11 @@ pub fn boundary_cell(vocab: &Vocab, kind: TokenKind) -> CellId {
     }
 }
 
-/// The settled record for a boundary, `settle.boundary_settled`: no seam and no extension, because a boundary offers neither.
+/// The settled record for a boundary, `settle.boundary_settled`: no junction and no extension, because a boundary offers neither.
 pub fn boundary_settled(vocab: &Vocab, kind: TokenKind) -> Settled {
     Settled {
         cell: boundary_cell(vocab, kind),
-        seam: None,
+        junction: None,
         extension: 0,
     }
 }
@@ -916,7 +916,7 @@ pub fn provenance_pointer(index: &SpecIndex, provenance: &Provenance) -> String 
     )
 }
 
-/// One settled record as JSON, in the shape `kernel_exec.settled_of_row` reads: `{"cell":[rune,stance,entry,exit,[adjustments]],"seam":…,"extension":…}`, with a height as its name or `null`. The `settle-cases` trace result writes its `settled` key with this function, and the replay's window memo writes one record per line with it, so Python decodes one JSON shape. [`settled_fields`] is the tab-separated form the settled-only result uses.
+/// One settled record as JSON, in the shape `kernel_exec.settled_of_row` reads: `{"cell":[rune,stance,entry,exit,[adjustments]],"junction":…,"extension":…}`, with a height as its name or `null`. The `settle-cases` trace result writes its `settled` key with this function, and the replay's window memo writes one record per line with it, so Python decodes one JSON shape. [`settled_fields`] is the tab-separated form the settled-only result uses.
 pub(crate) fn settled_json(index: &SpecIndex, settled: &Settled) -> String {
     let adjustments: Vec<String> = settled
         .cell
@@ -925,18 +925,18 @@ pub(crate) fn settled_json(index: &SpecIndex, settled: &Settled) -> String {
         .map(|token| json_string(&adjustment_text(index, *token)))
         .collect();
     format!(
-        "{{\"cell\":[{},{},{},{},[{}]],\"seam\":{},\"extension\":{}}}",
+        "{{\"cell\":[{},{},{},{},[{}]],\"junction\":{},\"extension\":{}}}",
         json_string(index.resolve(settled.cell.rune)),
         json_string(index.resolve(settled.cell.stance)),
         height_json(index, settled.cell.entry),
         height_json(index, settled.cell.exit),
         adjustments.join(","),
-        height_json(index, settled.seam),
+        height_json(index, settled.junction),
         settled.extension
     )
 }
 
-/// One settled record as seven tab-separated fields, in the shape `kernel_exec._settled_of_fields` reads: rune, stance, entry, exit, comma-joined adjustments, seam, extension, with an empty field for a missing height. A `settle-cases` case line gives its left record in the same seven fields (`cases::parse_settled` reads them), so a settled-only result can serve as the next case line's left.
+/// One settled record as seven tab-separated fields, in the shape `kernel_exec._settled_of_fields` reads: rune, stance, entry, exit, comma-joined adjustments, junction, extension, with an empty field for a missing height. A `settle-cases` case line gives its left record in the same seven fields (`cases::parse_settled` reads them), so a settled-only result can serve as the next case line's left.
 pub(crate) fn settled_fields(index: &SpecIndex, settled: &Settled) -> String {
     let adjustments: Vec<String> = settled
         .cell
@@ -951,7 +951,7 @@ pub(crate) fn settled_fields(index: &SpecIndex, settled: &Settled) -> String {
         height_text(index, settled.cell.entry),
         height_text(index, settled.cell.exit),
         adjustments.join(","),
-        height_text(index, settled.seam),
+        height_text(index, settled.junction),
         settled.extension
     )
 }
@@ -1137,7 +1137,7 @@ mod tests {
         let vocab = index.vocab();
         let settled = boundary_settled(vocab, TokenKind::Zwnj);
         assert!(is_boundary_settled(vocab, &settled));
-        assert_eq!(settled.seam, None);
+        assert_eq!(settled.junction, None);
         assert_eq!(settled.extension, 0);
         assert_eq!(settled.cell, boundary_cell(vocab, TokenKind::Zwnj));
         assert_eq!(cell_label(&index, &settled.cell), "uni200C");
@@ -1203,8 +1203,8 @@ mod tests {
         let index = fixtures::mini();
         let pea = fixtures::sym(&index, "qsPea");
         let stance = fixtures::sym(&index, "half");
-        let seam = fixtures::sym(&index, "baseline");
-        let joining = Candidate::joining(&index, pea, stance, None, seam, 0, 3);
+        let junction = fixtures::sym(&index, "baseline");
+        let joining = Candidate::joining(&index, pea, stance, None, junction, 0, 3);
         let non_joining = Candidate::non_joining(&index, pea, stance, None, 0);
         assert_eq!(
             joining.ordinals.rune,
@@ -1214,13 +1214,13 @@ mod tests {
             joining.ordinals.stance,
             index.stance_ordinal(stance).expect("declared")
         );
-        assert_eq!(joining.ordinals.seam, index.seam_ordinal(seam));
-        assert_eq!(non_joining.ordinals.seam, None);
+        assert_eq!(joining.ordinals.junction, index.junction_ordinal(junction));
+        assert_eq!(non_joining.ordinals.junction, None);
         assert_eq!(non_joining.ordinals.entry, None);
         assert_eq!(non_joining.exit_index, NO_EXIT_INDEX);
         assert!(joining.exit_index < non_joining.exit_index);
-        assert_eq!(non_joining.seam, None);
-        assert_eq!(joining.seam, Some(seam));
+        assert_eq!(non_joining.junction, None);
+        assert_eq!(joining.junction, Some(junction));
     }
 
     #[test]

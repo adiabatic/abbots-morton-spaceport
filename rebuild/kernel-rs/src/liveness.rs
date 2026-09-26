@@ -2,11 +2,11 @@
 //!
 //! The check has two stages because cheaper checks open far too many windows. Tracking which slots the recursion consults opens nearly everything, since it consults slots past the window almost everywhere. Stopping at follower-prospect variance still opens fifteen times as many as needed on the real spec (1,543 consulted triples have a prospect some token changes, and only 103 ever change a replay outcome). That is enough to push the emitted settlement lookup's subtable-offset headroom below the floor that read-back checks (`SUBTABLE_OFFSET_HEADROOM_FLOOR` in `rebuild/pipeline/readback.py`).
 //!
-//! Stage one is a cheap prefilter. For each `(stance, seam)` shape the input can commit, it evaluates the follower's simulated prospect for each concrete token and compares it with the value at `EDGE`, which is what a dead slot is given. The synthetic left's entry is never read, so entry states collapse. If nothing varies, the token has no way into the input letter's ranking: a deep token reaches settlement only through prospect values, follower prefers, and own-rune chains, and the chain branch already covers the chains.
+//! Stage one is a cheap prefilter. For each `(stance, junction)` shape the input can commit, it evaluates the follower's simulated prospect for each concrete token and compares it with the value at `EDGE`, which is what a dead slot is given. The synthetic left's entry is never read, so entry states collapse. If nothing varies, the token has no way into the input letter's ranking: a deep token reaches settlement only through prospect values, follower prefers, and own-rune chains, and the chain branch already covers the chains.
 //!
 //! Stage two runs only where stage one fired. It replays the input letter's own transition for each token over the representative lefts (the four boundary kinds, then one synthetic left per distinct left-condition signature) and reports the slot live only where some representative left's settled cell changes.
 //!
-//! The left-condition signature that picks the representative lefts is `(seam, verdicts)`. The verdicts are [`Engine::cond_matches_left`] over the follower's own left-reading conditions, in the order [`ProspectLiveness::left_conditions`] gathers them. They are plain booleans, unlike the three-valued answer of a right condition, because a left is always already settled or a known boundary. The synthetic left is `CellId(rune=family, stance=stance, entry=None, exit=seam, adjustments=())` inside a `Settled` at that seam with no extension. Extend and contract records change only adjustments, and neither an extension nor the left cell's entry interacts with a deep token, so these shapes cover every reachable settled left.
+//! The left-condition signature that picks the representative lefts is `(junction, verdicts)`. The verdicts are [`Engine::cond_matches_left`] over the follower's own left-reading conditions, in the order [`ProspectLiveness::left_conditions`] gathers them. They are plain booleans, unlike the three-valued answer of a right condition, because a left is always already settled or a known boundary. The synthetic left is `CellId(rune=family, stance=stance, entry=None, exit=junction, adjustments=())` inside a `Settled` at that junction with no extension. Extend and contract records change only adjustments, and neither an extension nor the left cell's entry interacts with a deep token, so these shapes cover every reachable settled left.
 //!
 //! In stage two, a representative left whose baseline window raises E-UNACCEPTED-EXIT or a plain settlement error is one the fixpoint cannot reach, and it is skipped. A prefer conflict that raises E-INCOMPARABLE or E-AMBIGUOUS marks the slot live instead, so the enumeration reports the conflict instead of hiding it behind a dead slot. [`crate::error::SettleError`] says how its variants map to these outcomes.
 //!
@@ -30,10 +30,10 @@ use crate::types::{
     SPACE, Settled, TokenKind, UNKNOWN, ZWNJ,
 };
 
-/// One shape a probe candidate can commit: a stance of the input's own rune and the exit seam it offers there, `None` for the shape that offers no exit.
+/// One shape a probe candidate can commit: a stance of the input's own rune and the exit junction it offers there, `None` for the shape that offers no exit.
 type Shape = (Sym, Option<Sym>);
 
-/// The left-condition signature: the committed seam, then the follower's own left-reading conditions answered against the synthetic left, in the order [`ProspectLiveness::left_conditions`] gathers them. The verdicts are behind an [`Rc`] because the signature is copied into every memo key the prospect and follower prefer branches write.
+/// The left-condition signature: the committed junction, then the follower's own left-reading conditions answered against the synthetic left, in the order [`ProspectLiveness::left_conditions`] gathers them. The verdicts are behind an [`Rc`] because the signature is copied into every memo key the prospect and follower prefer branches write.
 type LeftConditionSignature = (Option<Sym>, Rc<Vec<bool>>);
 
 /// What the input replay saw at one probed window. `Raised` is a prefer conflict the enumeration must report, so the slot is live. `Unreachable` is a window the fixpoint cannot reach from this representative left; at the baseline the replay skips that left.
@@ -184,7 +184,7 @@ impl<'i> ProspectLiveness<'i> {
         Ok(verdict)
     }
 
-    /// The representative lefts the input replay and the fiber probes settle this family against: the four boundary lefts, then one synthetic `(family, stance, seam)` left per distinct left-condition signature.
+    /// The representative lefts the input replay and the fiber probes settle this family against: the four boundary lefts, then one synthetic `(family, stance, junction)` left per distinct left-condition signature.
     ///
     /// The runes are visited in the dump's declaration order ([`SpecIndex::runes`]), not sorted order, and the first left with a given signature is the one kept. A different order keeps a different synthetic left, which can change both a liveness verdict and a fiber key.
     ///
@@ -206,12 +206,12 @@ impl<'i> ProspectLiveness<'i> {
         let mut seen: HashSet<LeftConditionSignature> = HashSet::default();
         let left_families: Vec<Sym> = self.index.runes().iter().map(|(name, _)| *name).collect();
         for left_family in left_families {
-            for (stance, seam) in self.probe_candidate_shapes(left_family).iter().copied() {
-                let signature = self.signature(engine, family, left_family, stance, seam)?;
+            for (stance, junction) in self.probe_candidate_shapes(left_family).iter().copied() {
+                let signature = self.signature(engine, family, left_family, stance, junction)?;
                 if !seen.insert(signature) {
                     continue;
                 }
-                out.push(synthetic_left(self.index, left_family, stance, seam));
+                out.push(synthetic_left(self.index, left_family, stance, junction));
             }
         }
         let lefts = Rc::new(out);
@@ -234,9 +234,9 @@ impl<'i> ProspectLiveness<'i> {
         Rc::clone(self.tokens.as_ref().expect("the token list was just built"))
     }
 
-    /// The `(stance, seam)` shapes this family's probe candidate can commit, in the stances' declaration order.
+    /// The `(stance, junction)` shapes this family's probe candidate can commit, in the stances' declaration order.
     ///
-    /// Each stance contributes, in order: the exitless shape, unless the stance requires an exit; its declared exit rows; then the exits an unlock adds that the surface does not declare. Repeated seams within a stance are dropped after the first.
+    /// Each stance contributes, in order: the exitless shape, unless the stance requires an exit; its declared exit rows; then the exits an unlock adds that the surface does not declare. Repeated junctions within a stance are dropped after the first.
     fn probe_candidate_shapes(&mut self, family: Sym) -> Rc<Vec<Shape>> {
         if let Some(cached) = self.shapes.get(&family) {
             return Rc::clone(cached);
@@ -249,23 +249,23 @@ impl<'i> ProspectLiveness<'i> {
         let mut out: Vec<Shape> = Vec::new();
         for (stance_name, stance) in rune.stances.iter() {
             let surface = &stance.surface;
-            let mut seams: Vec<Option<Sym>> = if surface.require.contains(&vocab.exit) {
+            let mut junctions: Vec<Option<Sym>> = if surface.require.contains(&vocab.exit) {
                 Vec::new()
             } else {
                 vec![None]
             };
-            seams.extend(surface.exits.iter().map(|(height, _)| Some(*height)));
+            junctions.extend(surface.exits.iter().map(|(height, _)| Some(*height)));
             for unlock in &surface.unlocks {
                 if let Some(exit) = unlock.exit
                     && !surface.exits.iter().any(|(height, _)| *height == exit)
                 {
-                    seams.push(Some(exit));
+                    junctions.push(Some(exit));
                 }
             }
             let mut seen: HashSet<Option<Sym>> = HashSet::default();
-            for seam in seams {
-                if seen.insert(seam) {
-                    out.push((*stance_name, seam));
+            for junction in junctions {
+                if seen.insert(junction) {
+                    out.push((*stance_name, junction));
                 }
             }
         }
@@ -322,7 +322,7 @@ impl<'i> ProspectLiveness<'i> {
             .prefer
     }
 
-    /// The probe candidate's left-condition signature at this shape: the seam it commits, and the follower's left conditions evaluated against the synthetic left for that shape.
+    /// The probe candidate's left-condition signature at this shape: the junction it commits, and the follower's left conditions evaluated against the synthetic left for that shape.
     ///
     /// A left condition carrying a `then:` makes [`Engine::cond_matches_left`] return an error. The error is not memoized, so a second call returns it again.
     fn signature(
@@ -331,19 +331,19 @@ impl<'i> ProspectLiveness<'i> {
         follower: Sym,
         family: Sym,
         stance: Sym,
-        seam: Option<Sym>,
+        junction: Option<Sym>,
     ) -> Result<LeftConditionSignature, SettleError> {
-        let key = (follower, family, stance, seam);
+        let key = (follower, family, stance, junction);
         if let Some(cached) = self.sigs.get(&key) {
             return Ok(cached.clone());
         }
-        let left = synthetic_left(self.index, family, stance, seam);
+        let left = synthetic_left(self.index, family, stance, junction);
         let conds = self.left_conditions(follower);
         let mut verdicts: Vec<bool> = Vec::with_capacity(conds.len());
         for cond in conds.iter() {
-            verdicts.push(engine.cond_matches_left(Some(follower), cond, &left, seam)?);
+            verdicts.push(engine.cond_matches_left(Some(follower), cond, &left, junction)?);
         }
-        let signature: LeftConditionSignature = (seam, Rc::new(verdicts));
+        let signature: LeftConditionSignature = (junction, Rc::new(verdicts));
         self.sigs.insert(key, signature.clone());
         Ok(signature)
     }
@@ -358,14 +358,14 @@ impl<'i> ProspectLiveness<'i> {
         r1tok: RightToken,
         r2tok: RightToken,
     ) -> Result<bool, SettleError> {
-        for (stance, seam) in self.probe_candidate_shapes(family).iter().copied() {
-            let signature = self.signature(engine, right1, family, stance, seam)?;
+        for (stance, junction) in self.probe_candidate_shapes(family).iter().copied() {
+            let signature = self.signature(engine, right1, family, stance, junction)?;
             let key = (right1, right2, signature);
             let verdict = match self.prospect3.get(&key) {
                 Some(&cached) => cached,
                 None => {
                     let verdict =
-                        self.third_class_live(engine, family, stance, seam, r1tok, r2tok)?;
+                        self.third_class_live(engine, family, stance, junction, r1tok, r2tok)?;
                     self.prospect3.insert(key, verdict);
                     verdict
                 }
@@ -383,11 +383,11 @@ impl<'i> ProspectLiveness<'i> {
         engine: &mut Engine<'_>,
         family: Sym,
         stance: Sym,
-        seam: Option<Sym>,
+        junction: Option<Sym>,
         r1tok: RightToken,
         r2tok: RightToken,
     ) -> Result<bool, SettleError> {
-        let candidate = probe_candidate(self.index, family, stance, seam);
+        let candidate = probe_candidate(self.index, family, stance, junction);
         let baseline =
             engine.probe_prospect(family, candidate, Slots::new(r1tok, r2tok, EDGE, EDGE))?;
         let tokens = self.probe_tokens();
@@ -419,14 +419,14 @@ impl<'i> ProspectLiveness<'i> {
         r2tok: RightToken,
         r3tok: RightToken,
     ) -> Result<bool, SettleError> {
-        for (stance, seam) in self.probe_candidate_shapes(family).iter().copied() {
-            let signature = self.signature(engine, right1, family, stance, seam)?;
+        for (stance, junction) in self.probe_candidate_shapes(family).iter().copied() {
+            let signature = self.signature(engine, right1, family, stance, junction)?;
             let key = (right1, right2, right3, signature);
             let verdict = match self.prospect4.get(&key) {
                 Some(&cached) => cached,
                 None => {
-                    let verdict =
-                        self.fourth_class_live(engine, family, stance, seam, r1tok, r2tok, r3tok)?;
+                    let verdict = self
+                        .fourth_class_live(engine, family, stance, junction, r1tok, r2tok, r3tok)?;
                     self.prospect4.insert(key, verdict);
                     verdict
                 }
@@ -445,12 +445,12 @@ impl<'i> ProspectLiveness<'i> {
         engine: &mut Engine<'_>,
         family: Sym,
         stance: Sym,
-        seam: Option<Sym>,
+        junction: Option<Sym>,
         r1tok: RightToken,
         r2tok: RightToken,
         r3tok: RightToken,
     ) -> Result<bool, SettleError> {
-        let candidate = probe_candidate(self.index, family, stance, seam);
+        let candidate = probe_candidate(self.index, family, stance, junction);
         let baseline =
             engine.probe_prospect(family, candidate, Slots::new(r1tok, r2tok, r3tok, EDGE))?;
         let tokens = self.probe_tokens();
@@ -477,14 +477,14 @@ impl<'i> ProspectLiveness<'i> {
         if right1 == family || self.follower_prefer_records(right1).is_empty() {
             return Ok(false);
         }
-        for (stance, seam) in self.probe_candidate_shapes(family).iter().copied() {
-            let signature = self.signature(engine, right1, family, stance, seam)?;
+        for (stance, junction) in self.probe_candidate_shapes(family).iter().copied() {
+            let signature = self.signature(engine, right1, family, stance, junction)?;
             let key = (right1, right2, signature);
             let verdict = match self.follower_prefer3.get(&key) {
                 Some(&cached) => cached,
                 None => {
                     let verdict = self.follower_prefer_class_live(
-                        engine, family, stance, seam, r1tok, r2tok, None,
+                        engine, family, stance, junction, r1tok, r2tok, None,
                     )?;
                     self.follower_prefer3.insert(key, verdict);
                     verdict
@@ -513,8 +513,8 @@ impl<'i> ProspectLiveness<'i> {
         if right1 == family || self.follower_prefer_records(right1).is_empty() {
             return Ok(false);
         }
-        for (stance, seam) in self.probe_candidate_shapes(family).iter().copied() {
-            let signature = self.signature(engine, right1, family, stance, seam)?;
+        for (stance, junction) in self.probe_candidate_shapes(family).iter().copied() {
+            let signature = self.signature(engine, right1, family, stance, junction)?;
             let key = (right1, right2, right3, signature);
             let verdict = match self.follower_prefer4.get(&key) {
                 Some(&cached) => cached,
@@ -523,7 +523,7 @@ impl<'i> ProspectLiveness<'i> {
                         engine,
                         family,
                         stance,
-                        seam,
+                        junction,
                         r1tok,
                         r2tok,
                         Some(r3tok),
@@ -548,12 +548,12 @@ impl<'i> ProspectLiveness<'i> {
         engine: &mut Engine<'_>,
         family: Sym,
         stance: Sym,
-        seam: Option<Sym>,
+        junction: Option<Sym>,
         r1tok: RightToken,
         r2tok: RightToken,
         r3tok: Option<RightToken>,
     ) -> Result<bool, SettleError> {
-        let candidate = probe_candidate(self.index, family, stance, seam);
+        let candidate = probe_candidate(self.index, family, stance, junction);
         let owner = r1tok.letter();
         let edge_left = LeftContext::boundary(TokenKind::Edge);
         let records = self.follower_prefer_records(owner);
@@ -694,8 +694,13 @@ impl<'i> ProspectLiveness<'i> {
     }
 }
 
-/// The synthetic left for one `(family, stance, seam)` shape: the cell with no entry and no adjustments, settled at that seam with no extension. Nothing a deep token can reach reads the entry, so all entries collapse to this one.
-fn synthetic_left(index: &SpecIndex, family: Sym, stance: Sym, seam: Option<Sym>) -> LeftContext {
+/// The synthetic left for one `(family, stance, junction)` shape: the cell with no entry and no adjustments, settled at that junction with no extension. Nothing a deep token can reach reads the entry, so all entries collapse to this one.
+fn synthetic_left(
+    index: &SpecIndex,
+    family: Sym,
+    stance: Sym,
+    junction: Option<Sym>,
+) -> LeftContext {
     LeftContext::letter(
         index,
         Settled {
@@ -703,24 +708,29 @@ fn synthetic_left(index: &SpecIndex, family: Sym, stance: Sym, seam: Option<Sym>
                 rune: family,
                 stance,
                 entry: None,
-                exit: seam,
+                exit: junction,
                 adjustments: Vec::new(),
             },
-            seam,
+            junction,
             extension: 0,
         },
     )
 }
 
-/// The probe candidate every stage-one probe runs for: no entry, the shape's own seam, order index 0, and the `NO_EXIT_INDEX` sentinel, because it is a shape the input can commit and not a candidate the enumeration produced.
-fn probe_candidate(index: &SpecIndex, family: Sym, stance: Sym, seam: Option<Sym>) -> Candidate {
+/// The probe candidate every stage-one probe runs for: no entry, the shape's own junction, order index 0, and the `NO_EXIT_INDEX` sentinel, because it is a shape the input can commit and not a candidate the enumeration produced.
+fn probe_candidate(
+    index: &SpecIndex,
+    family: Sym,
+    stance: Sym,
+    junction: Option<Sym>,
+) -> Candidate {
     Candidate {
         stance,
         entry: None,
-        seam,
+        junction,
         order_index: 0,
         exit_index: NO_EXIT_INDEX,
-        ordinals: CandidateOrdinals::of(index, family, stance, None, seam),
+        ordinals: CandidateOrdinals::of(index, family, stance, None, junction),
     }
 }
 

@@ -1,6 +1,6 @@
-"""Tests for the review corpus's enrichment: the notation map against doc/glyph-names.md, divergent positions and pair selection on known units, highlight x-ranges against hand-computed hmtx sums, and the secondary-seam home resolver over hand-built stubs.
+"""Tests for the review corpus's enrichment: the notation map against doc/glyph-names.md, divergent positions and pair selection on known units, highlight x-ranges against hand-computed hmtx sums, and the secondary-junction primary unit resolver over hand-built stubs.
 
-Each test names its units by codepoints and takes them from `example_units`, a filtered load of the frozen mini bundle's audit settled under the spec that `mini_bundle` materializes, so no test reads the live corpus. If a named window disappears, regenerating the bundle fails and names it. The build checks three claims over every shipped unit instead: that re-settlement agrees with the audit, that the two before-seam derivations agree, and the shape of the summary.
+Each test names its units by codepoints and takes them from `example_units`, a filtered load of the frozen mini bundle's audit settled under the spec that `mini_bundle` materializes, so no test reads the live corpus. If a named window disappears, regenerating the bundle fails and names it. The build checks three claims over every shipped unit instead: that re-settlement agrees with the audit, that the two before-junction derivations agree, and the shape of the summary.
 """
 
 import dataclasses
@@ -16,17 +16,17 @@ from rebuild.review.enrich import (
     LETTERS,
     EnrichedUnit,
     Enricher,
-    SeamHomeUnit,
-    SecondarySeam,
+    PrimaryUnitProjection,
+    SecondaryJunction,
     letter_display,
     load_spec,
     notation,
     notation_tokens,
     parse_entry_extension,
-    resolve_home_assignments,
-    resolve_secondary_homes,
+    resolve_primary_unit_assignments,
+    resolve_primary_units,
     rune_display,
-    seam_home_projection,
+    primary_unit_projection,
     text_entities,
 )
 from rebuild.review.unit_cache import unit_id_for
@@ -102,7 +102,7 @@ def test_pair_codepoints_covers_the_pairs_codepoint_span(enricher, units_by_key)
 
 
 def test_position_only_mismatch_marks_the_boundary_without_a_pair(enricher, units_by_key):
-    # A position-only unit whose mismatch kerning explains: an advance-only one-pixel mismatch on the letter beside the boundary, with no cell- or seam-grain divergence. The mark is placed on the ◊ZWNJ beside the mismatch, and pair stays None so no sample band is highlighted.
+    # A position-only unit whose mismatch kerning explains: an advance-only one-pixel mismatch on the letter beside the boundary, with no cell- or junction-grain divergence. The mark is placed on the ◊ZWNJ beside the mismatch, and pair stays None so no sample band is highlighted.
     enriched = enricher.enrich(units_by_key[("E650:200C:E676:E665", "default")])
     assert enriched.pair is None
     assert enriched.diff_positions == ()
@@ -117,7 +117,7 @@ def test_parse_entry_extension():
 
 
 def test_known_halves_extension_unit(enricher, units_by_key):
-    # The ss03 window `·Tea ~b~ ·Day+Utter ~x~ ·Tea`: the qsDay_qsUtter ligature cell carries both its baseline en-ext-1 and its own x-height exit extension, so the enricher reports an extension at both of its seams. The final ·Tea is the full bar, which also differs from the old font's half.
+    # The ss03 window `·Tea ~b~ ·Day+Utter ~x~ ·Tea`: the qsDay_qsUtter ligature cell carries both its baseline en-ext-1 and its own x-height exit extension, so the enricher reports an extension at both of its junctions. The final ·Tea is the full bar, which also differs from the old font's half.
     unit = units_by_key[("E652:E653:E67A:E652", "ss03")]
     enriched = enricher.enrich(unit)
     assert enriched.before_glyphs == (
@@ -125,8 +125,8 @@ def test_known_halves_extension_unit(enricher, units_by_key):
         "qsDay_qsUtter.half.en-y0.ex-y5.ex-ext-1",
         "qsTea.half.en-y5.after-xheight-exit",
     )
-    assert enriched.before_seams == ("y0", "y5")
-    assert enriched.after_seams == ("y0", "y5")
+    assert enriched.before_junctions == ("y0", "y5")
+    assert enriched.after_junctions == ("y0", "y5")
     assert enriched.after_extensions == (1, 1)
     assert enriched.diff_positions == (1, 2)
     assert enriched.pair == (1, 2)
@@ -134,13 +134,13 @@ def test_known_halves_extension_unit(enricher, units_by_key):
 
 
 def test_annotation_grain_renames_do_not_anchor_the_pair(enricher, units_by_key):
-    # ·It·Utter·It·May: position 1 is a bare-name ·Utter rename with an identical drawing, and the ink change (a dropped non-summing extension) is at the ·It·May seam. The pair anchors on the ink-visible positions. The rename stays in diff_positions without a secondary seam, and the summary describes the anchored position.
+    # ·It·Utter·It·May: position 1 is a bare-name ·Utter rename with an identical drawing, and the ink change (a dropped non-summing extension) is at the ·It·May junction. The pair anchors on the ink-visible positions. The rename stays in diff_positions without a secondary junction, and the summary describes the anchored position.
     unit = units_by_key[("E670:E67A:E670:E665", "default")]
     enriched = enricher.enrich(unit)
     assert enriched.before_glyphs[1] == "qsUtter"
     assert enriched.diff_positions == (1, 2, 3)
     assert enriched.pair == (2, 3)
-    assert enriched.secondary_seams == ()
+    assert enriched.secondary_junctions == ()
     assert enriched.summary.startswith("New: ·It ")
 
 
@@ -245,7 +245,7 @@ def test_single_cell_unit_has_null_pair(enricher):
 def test_highlight_matches_hmtx_sums_on_a_break_only_unit(enricher, units_by_key):
     unit = units_by_key[("E670:E670", "default")]
     enriched = enricher.enrich(unit)
-    assert enriched.after_seams == ("break",)
+    assert enriched.after_junctions == ("break",)
     font = TTFont(str(MINI_FONT))
     hmtx = font["hmtx"]
     shaped = enricher.after_shaper.shape("".join(chr(v) for v in unit.codepoint_values))
@@ -313,7 +313,7 @@ def test_explain_text_keeps_header_and_divergent_positions(enricher, units_by_ke
 
 @pytest.mark.parametrize("flag", ("ink_identical", "picture_identical", "junior_equivalent", "no_verdict"))
 def test_a_slim_unit_renders_no_explain(enricher, units_by_key, flag):
-    """A machine-approved or verdict-exempt unit ships without an explain, so the enricher does not render the candidate table for it. Its summary still comes from the same report, and its cells, seams, and highlight geometry are computed as for any other unit."""
+    """A machine-approved or verdict-exempt unit ships without an explain, so the enricher does not render the candidate table for it. Its summary still comes from the same report, and its cells, junctions, and highlight geometry are computed as for any other unit."""
     unit = dataclasses.replace(units_by_key[("E652:E670", "default")], **{flag: True})
     enriched = enricher.enrich(unit)
     assert enriched.explain_text == ""
@@ -322,9 +322,17 @@ def test_a_slim_unit_renders_no_explain(enricher, units_by_key, flag):
 
 
 def _stub_enriched(
-    unit_id, values, cells, seams, pair, *, ink_identical=False, picture_identical=False, seam_pairs=()
+    unit_id,
+    values,
+    cells,
+    junctions,
+    pair,
+    *,
+    ink_identical=False,
+    picture_identical=False,
+    junction_pairs=(),
 ):
-    """A minimal EnrichedUnit for resolver tests: one codepoint per cell, before glyphs derived from the cell tokens, all before seams break."""
+    """A minimal EnrichedUnit for resolver tests: one codepoint per cell, before glyphs derived from the cell tokens, all before junctions break."""
     from rebuild.review.audit import Unit, format_codepoints
 
     spans = tuple((index, index + 1) for index in range(len(values)))
@@ -342,9 +350,9 @@ def _stub_enriched(
         notation="",
         text_entities="",
         before_glyphs=tuple(f"old-{cell}" for cell in cells),
-        before_seams=("break",) * (len(cells) - 1),
+        before_junctions=("break",) * (len(cells) - 1),
         after_cells=tuple(cells),
-        after_seams=tuple(seams),
+        after_junctions=tuple(junctions),
         after_extensions=(),
         diff_positions=(),
         pair=pair,
@@ -356,153 +364,154 @@ def _stub_enriched(
         report=None,  # pyright: ignore[reportArgumentType]
         after_spans=spans,
         before_spans=spans,
-        secondary_seams=tuple(
-            SecondarySeam(pair=seam_pair, highlight_before={}, highlight_after={}) for seam_pair in seam_pairs
+        secondary_junctions=tuple(
+            SecondaryJunction(pair=junction_pair, highlight_before={}, highlight_after={})
+            for junction_pair in junction_pairs
         ),
     )
 
 
-def test_secondary_home_prefers_the_shortest_matching_substring_unit():
+def test_primary_unit_prefers_the_shortest_matching_substring_unit():
     item = _stub_enriched(
         "u-0001",
         (0xE650, 0xE665, 0xE652, 0xE670),
         ("A", "B", "C", "D"),
         ("y0", "y5", "break"),
         pair=(0, 1),
-        seam_pairs=((1, 2),),
+        junction_pairs=((1, 2),),
     )
     short = _stub_enriched("u-0002", (0xE665, 0xE652), ("B", "C"), ("y5",), pair=(0, 1))
     longer = _stub_enriched("u-0003", (0xE665, 0xE652, 0xE670), ("B", "C", "D"), ("y5", "break"), pair=(0, 1))
-    counts = resolve_secondary_homes([item, short, longer])
-    assert item.secondary_seams[0].home == "u-0002"
+    counts = resolve_primary_units([item, short, longer])
+    assert item.secondary_junctions[0].primary_unit == "u-0002"
     assert counts == {
         "units_with_markers": 1,
-        "seams_homed": 1,
-        "seams_homeless": 0,
-        "seams_suppressed_invisible": 0,
+        "junctions_with_primary_unit": 1,
+        "junctions_without_primary_unit": 0,
+        "junctions_suppressed_invisible": 0,
     }
 
 
-def test_secondary_home_rejects_a_substring_candidate_whose_outcome_differs():
+def test_primary_unit_rejects_a_substring_candidate_whose_outcome_differs():
     item = _stub_enriched(
         "u-0001",
         (0xE650, 0xE665, 0xE652, 0xE670),
         ("A", "B", "C", "D"),
         ("y0", "y5", "break"),
         pair=(0, 1),
-        seam_pairs=((1, 2),),
+        junction_pairs=((1, 2),),
     )
     wrong_cell = _stub_enriched("u-0002", (0xE665, 0xE652), ("B", "C-other"), ("y5",), pair=(0, 1))
     matching = _stub_enriched(
         "u-0003", (0xE665, 0xE652, 0xE670), ("B", "C", "D"), ("y5", "break"), pair=(0, 1)
     )
-    resolve_secondary_homes([item, wrong_cell, matching])
-    assert item.secondary_seams[0].home == "u-0003"
+    resolve_primary_units([item, wrong_cell, matching])
+    assert item.secondary_junctions[0].primary_unit == "u-0003"
 
 
-def test_secondary_home_requires_the_seam_to_be_the_candidates_primary_pair():
+def test_primary_unit_requires_the_junction_to_be_the_candidates_primary_pair():
     item = _stub_enriched(
         "u-0001",
         (0xE650, 0xE665, 0xE652, 0xE670),
         ("A", "B", "C", "D"),
         ("y0", "y5", "break"),
         pair=(0, 1),
-        seam_pairs=((1, 2),),
+        junction_pairs=((1, 2),),
     )
     secondary_there_too = _stub_enriched(
         "u-0002", (0xE665, 0xE652, 0xE670), ("B", "C", "D"), ("y5", "break"), pair=(1, 2)
     )
-    counts = resolve_secondary_homes([item, secondary_there_too])
-    assert item.secondary_seams[0].home is None
-    assert counts["seams_homeless"] == 1
+    counts = resolve_primary_units([item, secondary_there_too])
+    assert item.secondary_junctions[0].primary_unit is None
+    assert counts["junctions_without_primary_unit"] == 1
 
 
-def test_secondary_seam_with_an_ink_identical_home_is_suppressed():
+def test_secondary_junction_with_an_ink_identical_primary_unit_is_suppressed():
     item = _stub_enriched(
         "u-0001",
         (0xE650, 0xE665, 0xE652, 0xE670),
         ("A", "B", "C", "D"),
         ("y0", "y5", "break"),
         pair=(0, 1),
-        seam_pairs=((1, 2),),
+        junction_pairs=((1, 2),),
     )
     invisible = _stub_enriched(
         "u-0002", (0xE665, 0xE652), ("B", "C"), ("y5",), pair=(0, 1), ink_identical=True
     )
-    counts = resolve_secondary_homes([item, invisible])
-    seam = item.secondary_seams[0]
-    assert seam.suppressed is True
-    assert seam.home is None
+    counts = resolve_primary_units([item, invisible])
+    junction = item.secondary_junctions[0]
+    assert junction.suppressed is True
+    assert junction.primary_unit is None
     assert counts == {
         "units_with_markers": 0,
-        "seams_homed": 0,
-        "seams_homeless": 0,
-        "seams_suppressed_invisible": 1,
+        "junctions_with_primary_unit": 0,
+        "junctions_without_primary_unit": 0,
+        "junctions_suppressed_invisible": 1,
     }
 
 
-def test_secondary_seam_with_a_picture_identical_home_is_suppressed():
-    """A picture-identical home shows no visible change, like an ink-identical one, so it suppresses the marker in the same way."""
+def test_secondary_junction_with_a_picture_identical_primary_unit_is_suppressed():
+    """A picture-identical primary unit shows no visible change, like an ink-identical one, so it suppresses the marker in the same way."""
     item = _stub_enriched(
         "u-0001",
         (0xE650, 0xE665, 0xE652, 0xE670),
         ("A", "B", "C", "D"),
         ("y0", "y5", "break"),
         pair=(0, 1),
-        seam_pairs=((1, 2),),
+        junction_pairs=((1, 2),),
     )
     invisible = _stub_enriched(
         "u-0002", (0xE665, 0xE652), ("B", "C"), ("y5",), pair=(0, 1), picture_identical=True
     )
-    counts = resolve_secondary_homes([item, invisible])
-    seam = item.secondary_seams[0]
-    assert seam.suppressed is True
-    assert seam.home is None
-    assert counts["seams_suppressed_invisible"] == 1
+    counts = resolve_primary_units([item, invisible])
+    junction = item.secondary_junctions[0]
+    assert junction.suppressed is True
+    assert junction.primary_unit is None
+    assert counts["junctions_suppressed_invisible"] == 1
 
 
-def test_secondary_seam_without_any_home_is_emitted_with_home_none():
+def test_secondary_junction_without_any_primary_unit_is_emitted_with_primary_unit_none():
     item = _stub_enriched(
         "u-0001",
         (0xE650, 0xE665, 0xE652, 0xE670),
         ("A", "B", "C", "D"),
         ("y0", "y5", "break"),
         pair=(0, 1),
-        seam_pairs=((1, 2),),
+        junction_pairs=((1, 2),),
     )
-    counts = resolve_secondary_homes([item])
-    seam = item.secondary_seams[0]
-    assert seam.home is None
-    assert seam.suppressed is False
+    counts = resolve_primary_units([item])
+    junction = item.secondary_junctions[0]
+    assert junction.primary_unit is None
+    assert junction.suppressed is False
     assert counts == {
         "units_with_markers": 1,
-        "seams_homed": 0,
-        "seams_homeless": 1,
-        "seams_suppressed_invisible": 0,
+        "junctions_with_primary_unit": 0,
+        "junctions_without_primary_unit": 1,
+        "junctions_suppressed_invisible": 0,
     }
 
 
-class _ColumnarSeamHomes:
-    """A `SeamHomeSource` shaped like the packed unit store, which this file must not import: projections held as parallel column lists, a `SeamHomeUnit` rebuilt on every lookup, ids ranked as integers, and homes written back as ordinals into a side map. It shares no code with `_ListSource`, so when the two give the same result, the home-resolution pass is reading only through the protocol."""
+class _ColumnarPrimaryUnits:
+    """A `PrimaryUnitSource` shaped like the packed unit store, which this file must not import: projections held as parallel column lists, a `PrimaryUnitProjection` rebuilt on every lookup, ids ranked as integers, and primary units written back as ordinals into a side map. It shares no code with `_ListSource`, so when the two give the same result, the primary-unit resolution pass is reading only through the protocol."""
 
     def __init__(self, projections):
         self.ids = [item.unit_id for item in projections]
         self.codepoints = [item.codepoint_values for item in projections]
-        self.seams = [item.seam_pairs for item in projections]
+        self.junctions = [item.junction_pairs for item in projections]
         self.flags = [(item.ink_identical, item.picture_identical) for item in projections]
         self.outcomes = [
             (
                 item.pair,
                 item.after_spans,
                 item.after_cells,
-                item.after_seams,
+                item.after_junctions,
                 item.before_spans,
                 item.before_glyphs,
-                item.before_seams,
+                item.before_junctions,
             )
             for item in projections
         ]
-        self.homes: dict[int, list[tuple[int | None, bool]]] = {}
+        self.primary_units: dict[int, list[tuple[int | None, bool]]] = {}
 
     def __len__(self):
         return len(self.ids)
@@ -510,15 +519,15 @@ class _ColumnarSeamHomes:
     def windows(self):
         return enumerate(self.codepoints)
 
-    def seam_count(self, ordinal):
-        return len(self.seams[ordinal])
+    def junction_count(self, ordinal):
+        return len(self.junctions[ordinal])
 
     def projection(self, ordinal):
-        pair, after_spans, after_cells, after_seams, before_spans, before_glyphs, before_seams = (
+        pair, after_spans, after_cells, after_junctions, before_spans, before_glyphs, before_junctions = (
             self.outcomes[ordinal]
         )
         ink_identical, picture_identical = self.flags[ordinal]
-        return SeamHomeUnit(
+        return PrimaryUnitProjection(
             unit_id=self.ids[ordinal],
             codepoint_values=self.codepoints[ordinal],
             ink_identical=ink_identical,
@@ -526,11 +535,11 @@ class _ColumnarSeamHomes:
             pair=pair,
             after_spans=after_spans,
             after_cells=after_cells,
-            after_seams=after_seams,
+            after_junctions=after_junctions,
             before_spans=before_spans,
             before_glyphs=before_glyphs,
-            before_seams=before_seams,
-            seam_pairs=self.seams[ordinal],
+            before_junctions=before_junctions,
+            junction_pairs=self.junctions[ordinal],
         )
 
     def id_word(self, ordinal):
@@ -540,29 +549,30 @@ class _ColumnarSeamHomes:
         ink_identical, picture_identical = self.flags[ordinal]
         return ink_identical or picture_identical
 
-    def set_homes(self, ordinal, seam_assign):
-        if seam_assign:
-            self.homes[ordinal] = list(seam_assign)
+    def set_primary_units(self, ordinal, junction_assign):
+        if junction_assign:
+            self.primary_units[ordinal] = list(junction_assign)
 
-    def named_homes(self):
+    def named_primary_units(self):
         """Return the side map keyed and valued by unit id, the form the list path returns, so one equality compares both."""
         return {
             self.ids[ordinal]: [
-                (None if home is None else self.ids[home], suppressed) for home, suppressed in entries
+                (None if primary_unit is None else self.ids[primary_unit], suppressed)
+                for primary_unit, suppressed in entries
             ]
-            for ordinal, entries in self.homes.items()
+            for ordinal, entries in self.primary_units.items()
         }
 
 
-def _home_fixtures():
-    """Return the resolver tests' corpora as projections for the home-resolution pass: one corpus per outcome (a shortest-substring home, a rejected outcome, a candidate that judges the seam as a secondary seam itself, an ink- or picture-identical home, no home), plus a corpus in which no unit has a secondary seam."""
+def _primary_unit_fixtures():
+    """Return the resolver tests' corpora as projections for the primary-unit resolution pass: one corpus per outcome (a shortest-substring primary unit, a rejected outcome, a candidate that judges the junction as a secondary junction itself, an ink- or picture-identical primary unit, no primary unit), plus a corpus in which no unit has a secondary junction."""
     item = _stub_enriched(
         "u-0001",
         (0xE650, 0xE665, 0xE652, 0xE670),
         ("A", "B", "C", "D"),
         ("y0", "y5", "break"),
         pair=(0, 1),
-        seam_pairs=((1, 2),),
+        junction_pairs=((1, 2),),
     )
     short = _stub_enriched("u-0002", (0xE665, 0xE652), ("B", "C"), ("y5",), pair=(0, 1))
     longer = _stub_enriched("u-0003", (0xE665, 0xE652, 0xE670), ("B", "C", "D"), ("y5", "break"), pair=(0, 1))
@@ -579,54 +589,54 @@ def _home_fixtures():
     corpora = {
         "shortest_substring_wins": [item, short, longer],
         "differing_outcome_rejected": [item, wrong_cell, longer],
-        "seam_must_be_the_candidates_primary": [item, secondary_there_too],
-        "ink_identical_home_suppresses": [item, ink_identical],
-        "picture_identical_home_suppresses": [item, picture_identical],
-        "no_home_at_all": [item],
-        "every_unit_seamless": [short, longer, wrong_cell],
+        "junction_must_be_the_candidates_primary": [item, secondary_there_too],
+        "ink_identical_primary_unit_suppresses": [item, ink_identical],
+        "picture_identical_primary_unit_suppresses": [item, picture_identical],
+        "no_primary_unit_at_all": [item],
+        "every_unit_without_secondary_junctions": [short, longer, wrong_cell],
     }
     return {
-        name: [seam_home_projection(enriched) for enriched in enriched_units]
+        name: [primary_unit_projection(enriched) for enriched in enriched_units]
         for name, enriched_units in corpora.items()
     }
 
 
-@pytest.mark.parametrize("name", sorted(_home_fixtures()))
-def test_a_columnar_source_and_the_list_adapter_resolve_the_same_homes(name):
-    """A source that rebuilds each projection from columns and a plain list of projections must give the same assignments and the same secondary-seam counts. Otherwise the packed store would ship different homes from the ones the tests above check."""
-    projections = _home_fixtures()[name]
-    expected, expected_counts = resolve_home_assignments(projections)
-    columnar = _ColumnarSeamHomes(projections)
-    assignments, counts = resolve_home_assignments(columnar)
-    assert columnar.named_homes() == expected
+@pytest.mark.parametrize("name", sorted(_primary_unit_fixtures()))
+def test_a_columnar_source_and_the_list_adapter_resolve_the_same_primary_units(name):
+    """A source that rebuilds each projection from columns and a plain list of projections must give the same assignments and the same secondary-junction counts. Otherwise the packed store would ship different primary units from the ones the tests above check."""
+    projections = _primary_unit_fixtures()[name]
+    expected, expected_counts = resolve_primary_unit_assignments(projections)
+    columnar = _ColumnarPrimaryUnits(projections)
+    assignments, counts = resolve_primary_unit_assignments(columnar)
+    assert columnar.named_primary_units() == expected
     assert counts == expected_counts
-    assert assignments == {}, "a source that keeps its own homes is not handed a second copy of them"
+    assert assignments == {}, "a source that keeps its own primary_units is not handed a second copy of them"
 
 
 def test_the_list_adapter_hands_back_the_assignment_dict_its_readers_index():
-    """`apply_home_assignments` indexes the list path's result by unit id and reads (home id, suppressed) pairs from it, so the list adapter must return ids instead of the ordinals the home-resolution pass works with."""
-    assignments, _ = resolve_home_assignments(_home_fixtures()["shortest_substring_wins"])
+    """`apply_primary_unit_assignments` indexes the list path's result by unit id and reads (primary unit id, suppressed) pairs from it, so the list adapter must return ids instead of the ordinals the primary-unit resolution pass works with."""
+    assignments, _ = resolve_primary_unit_assignments(_primary_unit_fixtures()["shortest_substring_wins"])
     assert assignments == {"u-0001": [("u-0002", False)]}
 
 
-def test_a_seamless_projection_gets_no_assignment_entry():
-    """A unit with no secondary seam gets no entry in the assignments dict, because every reader treats a missing entry the same as an empty one. `apply_home_assignments` must handle the missing entry, which `resolve_secondary_homes` exercises here."""
-    projections = _home_fixtures()["every_unit_seamless"]
-    assignments, counts = resolve_home_assignments(projections)
+def test_a_projection_without_secondary_junctions_gets_no_assignment_entry():
+    """A unit with no secondary junction gets no entry in the assignments dict, because every reader treats a missing entry the same as an empty one. `apply_primary_unit_assignments` must handle the missing entry, which `resolve_primary_units` exercises here."""
+    projections = _primary_unit_fixtures()["every_unit_without_secondary_junctions"]
+    assignments, counts = resolve_primary_unit_assignments(projections)
     assert assignments == {}
     assert counts == {
         "units_with_markers": 0,
-        "seams_homed": 0,
-        "seams_homeless": 0,
-        "seams_suppressed_invisible": 0,
+        "junctions_with_primary_unit": 0,
+        "junctions_without_primary_unit": 0,
+        "junctions_suppressed_invisible": 0,
     }
-    seamless = _stub_enriched("u-0002", (0xE665, 0xE652), ("B", "C"), ("y5",), pair=(0, 1))
-    assert resolve_secondary_homes([seamless])["units_with_markers"] == 0
-    assert seamless.secondary_seams == ()
+    without_junctions = _stub_enriched("u-0002", (0xE665, 0xE652), ("B", "C"), ("y5",), pair=(0, 1))
+    assert resolve_primary_units([without_junctions])["units_with_markers"] == 0
+    assert without_junctions.secondary_junctions == ()
 
 
 def test_a_unit_ids_string_order_is_the_integer_order_of_the_word_it_encodes():
-    """The home-resolution pass breaks a tie between homes on `id_word`, so that integer order must match the order of the `unit_id` strings, or a tie could resolve to a different home. `unit_cache.base58_64` writes a fixed `ID_SYMBOLS` symbols from an alphabet in ascending ASCII order, so the base58 form of a 64-bit word sorts as the word does. With the constant `u-` prefix and that fixed width, the whole id string also sorts as its bytes read as a big-endian integer, which is the value `_ListSource.id_word` returns."""
+    """The primary-unit resolution pass breaks a tie between primary units on `id_word`, so that integer order must match the order of the `unit_id` strings, or a tie could resolve to a different primary unit. `unit_cache.base58_64` writes a fixed `ID_SYMBOLS` symbols from an alphabet in ascending ASCII order, so the base58 form of a 64-bit word sorts as the word does. With the constant `u-` prefix and that fixed width, the whole id string also sorts as its bytes read as a big-endian integer, which is the value `_ListSource.id_word` returns."""
     draws = random.Random(299)
     words = sorted({0, 1, 2**63, 2**64 - 1} | {draws.getrandbits(64) for _ in range(200)})
     ids = [unit_id_for(f"{word:016x}") for word in words]
@@ -637,18 +647,18 @@ def test_a_unit_ids_string_order_is_the_integer_order_of_the_word_it_encodes():
     )
 
 
-def test_enrich_emits_secondary_seams_with_primary_style_rects(enricher, units_by_key):
-    # ·May·No·No: both seams are ink-visible, so the trailing ·No·No seam gets a marker in addition to the primary ·May·No pair.
+def test_enrich_emits_secondary_junctions_with_primary_style_rects(enricher, units_by_key):
+    # ·May·No·No: both junctions are ink-visible, so the trailing ·No·No junction gets a marker in addition to the primary ·May·No pair.
     unit = units_by_key[("E665:E666:E666", "default")]
     enriched = enricher.enrich(unit)
     assert enriched.pair == (0, 1)
-    assert len(enriched.secondary_seams) == 1
-    seam = enriched.secondary_seams[0]
-    assert seam.pair == (1, 2)
-    for rect in (seam.highlight_before, seam.highlight_after):
+    assert len(enriched.secondary_junctions) == 1
+    junction = enriched.secondary_junctions[0]
+    assert junction.pair == (1, 2)
+    for rect in (junction.highlight_before, junction.highlight_after):
         assert set(rect) == {"x_min", "x_max", "advance_total"}
         assert 0 <= rect["x_min"] <= rect["x_max"] <= rect["advance_total"]
-    assert seam.highlight_after["x_min"] > enriched.highlight_after["x_min"]
+    assert junction.highlight_after["x_min"] > enriched.highlight_after["x_min"]
 
 
 def test_subset_tables_iterate():

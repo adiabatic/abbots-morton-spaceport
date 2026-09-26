@@ -2,7 +2,7 @@
 
 For each mapped stance, the check settles two single-stance versions of the ligature in the Rust engine: the ligature as authored, and the same ligature carrying the source stance's outgoing exits, unlocks, and applicable policy (with declared replacements standing in for excepted records). Both drop the stance's entry requirement and are settled after a boundary, so incoming requirements and the unformed trailing component's internal left neighbor do not affect the result. A formation guard that leaves the ligature unformed to keep an exit the ligature omits does not satisfy this check. The conformance sweep checks the built font's full contextual stream; this check checks each stance's outgoing declaration before the tables are built.
 
-The right-hand windows cover every modeled letter and boundary token in the first two slots, plus windows that satisfy each authored right-side condition chain, including each rune's chains shifted one slot right with that rune as the follower. The seam and its height must match, and a yield must stay a yield, so a local record that drops a join, moves it to another height, or joins where the source yields fails the build. Windows are settled through `kernel_exec.settle_windows`, which asks the crate for each window's settled record alone rather than its trace, in batches of `kernel_exec.SETTLE_WINDOW_BATCH`, with one pair of projected specs in memory at a time. A window the source projection refuses as `E-UNREACHABLE` is skipped, one only the ligature as authored refuses that way counts as having no seam, and any other refusal fails the check. Configurations under the isolated overlay pre-empt formation, so they are not checked and are listed in the summary's `formation_preempted`.
+The right-hand windows cover every modeled letter and boundary token in the first two slots, plus windows that satisfy each authored right-side condition chain, including each rune's chains shifted one slot right with that rune as the follower. The junction and its height must match, and a yield must stay a yield, so a local record that drops a join, moves it to another height, or joins where the source yields fails the build. Windows are settled through `kernel_exec.settle_windows`, which asks the crate for each window's settled record alone rather than its trace, in batches of `kernel_exec.SETTLE_WINDOW_BATCH`, with one pair of projected specs in memory at a time. A window the source projection refuses as `E-UNREACHABLE` is skipped, one only the ligature as authored refuses that way counts as having no junction, and any other refusal fails the check. Configurations under the isolated overlay pre-empt formation, so they are not checked and are listed in the summary's `formation_preempted`.
 """
 
 from __future__ import annotations
@@ -191,7 +191,7 @@ def _right_windows(spec: ResolvedSpec) -> Iterable[tuple[RightToken, ...]]:
 
 
 def validate_ligature_outgoing(spec: ResolvedSpec, rune_raws: Mapping[str, dict]) -> dict:
-    """Checks every mapped ligature stance in each configuration of `conform.ACCEPTANCE_CONFIGS` that the spec supports, skipping configurations under the isolated overlay. Raises `LigatureOutgoingError` naming the stance, configuration, and window of the first window whose seam differs from the source's, after the declared exceptions are applied. Returns counts for the build summary, which `run_m1.run_ligature_outgoing` writes to `ligature_outgoing_summary.json`."""
+    """Checks every mapped ligature stance in each configuration of `conform.ACCEPTANCE_CONFIGS` that the spec supports, skipping configurations under the isolated overlay. Raises `LigatureOutgoingError` naming the stance, configuration, and window of the first window whose junction differs from the source's, after the declared exceptions are applied. Returns counts for the build summary, which `run_m1.run_ligature_outgoing` writes to `ligature_outgoing_summary.json`."""
     mappings = []
     for name, rune in spec.runes.items():
         if not rune.sequence:
@@ -229,16 +229,16 @@ def validate_ligature_outgoing(spec: ResolvedSpec, rune_raws: Mapping[str, dict]
                     checked += 1
                     if wanted is None:
                         continue
-                    actual_seam = None if got is None else got.seam
-                    if wanted.seam == actual_seam:
+                    actual_junction = None if got is None else got.junction
+                    if wanted.junction == actual_junction:
                         continue
                     following = " ".join(token.rune or token.kind for token in right)
-                    if wanted.seam is None:
+                    if wanted.junction is None:
                         mismatch = "lost outgoing yield"
-                    elif actual_seam is None:
-                        mismatch = f"lost {wanted.seam} seam"
+                    elif actual_junction is None:
+                        mismatch = f"lost {wanted.junction} junction"
                     else:
-                        mismatch = f"moved {wanted.seam} seam to {actual_seam}"
+                        mismatch = f"moved {wanted.junction} junction to {actual_junction}"
                     raise LigatureOutgoingError(
                         f"{rune.name}.stances.{stance.name}.outgoing: {mismatch} from {rune.sequence[-1]}.{declaration['stance']} under {config}; left={left.kind}, right=[{following}]"
                     )

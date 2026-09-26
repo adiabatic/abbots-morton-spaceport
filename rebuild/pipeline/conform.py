@@ -10,7 +10,7 @@ What only the belt checks is what needs the real binary: HarfBuzz's application 
 
 Settlement goes through `_SettledWindowWalk`'s per-configuration window memo: the crate settles each distinct raw window once, in a batch, and every recurrence is a lookup. The oracle's rows are the belt's texts, so the two share the memo through one file per configuration under rebuild/out/m1 (`SettleMemoFile`), keyed per family like the oracle row cache. The string replay fills that file on every full replay (`absorb_replay_memo`, from the window memo the `replay-strings` subcommand writes). So a window is settled once per configuration until a rune it names changes, and a cold pass does its settling in the replay instead of in the oracle.
 
-The section 6 oracle gate is in rebuild/pipeline/oracle.py (`compare_against_baseline`, the ledger classifier) and rebuild/pipeline/oracle_positions.py (the position comparison), which the enumeration's stamp leaves out. This module holds what they consume. `_compare_row` compares one baseline row's ligation (clusters), per-seam classification, and cell identity with the settled stream through the alias map, and returns the `DivergentRow` the oracle classifies. `_cached_verdict` and `_served_verdict` convert between that result and the oracle row cache's record, and `_verify_served_sample` re-derives a pass's sample of served rows and checks them against the store. `_compare_row` and the walk are the two entry points `oracle_cache.ORACLE_ROW_CODE_PATHS` is derived from, which is why they live here and the classifier does not.
+The section 6 oracle gate is in rebuild/pipeline/oracle.py (`compare_against_baseline`, the ledger classifier) and rebuild/pipeline/oracle_positions.py (the position comparison), which the enumeration's stamp leaves out. This module holds what they consume. `_compare_row` compares one baseline row's ligation (clusters), per-junction classification, and cell identity with the settled stream through the alias map, and returns the `DivergentRow` the oracle classifies. `_cached_verdict` and `_served_verdict` convert between that result and the oracle row cache's record, and `_verify_served_sample` re-derives a pass's sample of served rows and checks them against the store. `_compare_row` and the walk are the two entry points `oracle_cache.ORACLE_ROW_CODE_PATHS` is derived from, which is why they live here and the classifier does not.
 
 The crate does all settlement, through `kernel_exec`. `_SettledWindowWalk` sends waves of distinct raw windows to `kernel_exec.settle_windows`. The certificate check (`witness.check_rule_certificates`) and the belt each call `kernel_exec.guard_sweep` once and pass its verdicts to every formation call below them. Nothing here re-derives a settled cell.
 """
@@ -335,7 +335,7 @@ def check_join_gaps(
                     text,
                     config,
                     index,
-                    f"gap 0 at seam (exit {exit_point})",
+                    f"gap 0 at junction (exit {exit_point})",
                     f"entry {entry_point} ({left['name']} -> {right['name']})",
                     "gap",
                 )
@@ -1955,18 +1955,18 @@ class DivergentRow:
     kinds: tuple[str, ...]
     position: int
     baseline_glyphs: tuple[str, ...]
-    baseline_seams: tuple[str, ...]
+    baseline_junctions: tuple[str, ...]
     new_cells: tuple[str, ...]
-    new_seams: tuple[str, ...]
+    new_junctions: tuple[str, ...]
     divergence_tags: tuple[str, ...] = ()
 
 
-def _seam_token(spec: ResolvedSpec, seam) -> str:
-    if seam is None:
+def _junction_token(spec: ResolvedSpec, junction) -> str:
+    if junction is None:
         return "break"
-    if isinstance(seam, int):
-        return f"y{seam}"
-    return f"y{spec.registry.y_of(seam)}"
+    if isinstance(junction, int):
+        return f"y{junction}"
+    return f"y{spec.registry.y_of(junction)}"
 
 
 def _cached_verdict(divergent: DivergentRow | None) -> oracle_cache.CachedRow | None:
@@ -1977,7 +1977,7 @@ def _cached_verdict(divergent: DivergentRow | None) -> oracle_cache.CachedRow | 
         kinds=divergent.kinds,
         position=divergent.position,
         new_cells=divergent.new_cells,
-        new_seams=divergent.new_seams,
+        new_junctions=divergent.new_junctions,
         divergence_tags=divergent.divergence_tags,
     )
 
@@ -1990,9 +1990,9 @@ def _served_verdict(config: str, row: Row, cached: oracle_cache.CachedRow) -> Di
         kinds=cached.kinds,
         position=cached.position,
         baseline_glyphs=tuple(row.glyphs),
-        baseline_seams=tuple(row.seams),
+        baseline_junctions=tuple(row.junctions),
         new_cells=cached.new_cells,
-        new_seams=cached.new_seams,
+        new_junctions=cached.new_junctions,
         divergence_tags=cached.divergence_tags,
     )
 
@@ -2028,14 +2028,14 @@ def _compare_row(
     row: Row,
     settled: Sequence[Settled],
 ) -> DivergentRow | None:
-    """Compare one baseline row with the settlement of its text, and return the `DivergentRow`, or None when they agree. The caller's walk passes in `settled`, so each row is settled once. Under the overlay configuration it is `IsolatedOverlayWalk`'s bare stream: each letter's default-stance cell with no seam, which is what the alias map means by a bare name, one per raw token, so a window whose pair formed a ligature in the old font diverges as `ligation`."""
+    """Compare one baseline row with the settlement of its text, and return the `DivergentRow`, or None when they agree. The caller's walk passes in `settled`, so each row is settled once. Under the overlay configuration it is `IsolatedOverlayWalk`'s bare stream: each letter's default-stance cell with no junction, which is what the alias map means by a bare name, one per raw token, so a window whose pair formed a ligature in the old font diverges as `ligation`."""
     new_cells: list[str] = []
-    new_seams: list[str] = []
+    new_junctions: list[str] = []
     for index, item in enumerate(settled):
         cell = getattr(item, "cell", None)
         new_cells.append(_cell_token(cell, item))
         if index < len(settled) - 1:
-            new_seams.append(_seam_token(spec, getattr(item, "seam", None)))
+            new_junctions.append(_junction_token(spec, getattr(item, "junction", None)))
     kinds: list[str] = []
     position = -1
     tags: set[str] = set()
@@ -2063,22 +2063,24 @@ def _compare_row(
                 kinds.append("cell")
                 position = index
             tags |= _cell_deltas(alias, cell, row.glyphs, index)
-        baseline_seams = tuple(seam for seam in row.seams if seam != "lig")
-        if baseline_seams != tuple(new_seams):
-            kinds.append("seam")
-            for seam_index, (old_seam, new_seam) in enumerate(zip(baseline_seams, new_seams)):
-                if old_seam == new_seam:
+        baseline_junctions = tuple(junction for junction in row.junctions if junction != "lig")
+        if baseline_junctions != tuple(new_junctions):
+            kinds.append("junction")
+            for junction_index, (old_junction, new_junction) in enumerate(
+                zip(baseline_junctions, new_junctions)
+            ):
+                if old_junction == new_junction:
                     continue
-                if old_seam == "break":
-                    cell = getattr(settled[seam_index], "cell", None)
+                if old_junction == "break":
+                    cell = getattr(settled[junction_index], "cell", None)
                     left = getattr(cell, "rune", "?")
-                    tags.add(f"seam-gain:{left}")
+                    tags.add(f"junction-gain:{left}")
                     if left == "qsIt" and getattr(cell, "entry", None) is None:
-                        tags.add("seam-gain-unentered:qsIt")
-                elif new_seam == "break":
-                    tags.add("seam-loss")
+                        tags.add("junction-gain-unentered:qsIt")
+                elif new_junction == "break":
+                    tags.add("junction-loss")
                 else:
-                    tags.add("seam-moved")
+                    tags.add("junction-moved")
 
     if not kinds:
         return None
@@ -2088,9 +2090,9 @@ def _compare_row(
         kinds=tuple(dict.fromkeys(kinds)),
         position=position,
         baseline_glyphs=tuple(row.glyphs),
-        baseline_seams=tuple(row.seams),
+        baseline_junctions=tuple(row.junctions),
         new_cells=tuple(new_cells),
-        new_seams=tuple(new_seams),
+        new_junctions=tuple(new_junctions),
         divergence_tags=tuple(sorted(tags)),
     )
 
@@ -2116,11 +2118,11 @@ def _cell_deltas(alias: CellId, cell: CellId, old_glyphs, index: int) -> set[str
     for token in old_tokens - new_tokens:
         if token == "en-ext-1":
             if index > 0 and "ex-ext-1" in old_glyphs[index - 1]:
-                out.add("-en-ext-1:same-seam")
+                out.add("-en-ext-1:same-junction")
             else:
                 out.add(f"-en-ext-1:{cell.rune}")
         elif token == "en-ext-2" and index > 0 and "ex-ext-2" in old_glyphs[index - 1]:
-            out.add("-en-ext-2:same-seam")
+            out.add("-en-ext-2:same-junction")
         else:
             out.add(f"-{token}")
     if ".noentry" in old_glyphs[index]:

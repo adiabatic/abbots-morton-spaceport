@@ -1,6 +1,6 @@
 [
  {
-  "id": "u-CKS1rpqQsLb",
+  "id": "u-bJaTg1JopmL",
   "ink_identical": false,
   "picture_identical": false,
   "junior_equivalent": false,
@@ -45,7 +45,7 @@
     "qsDay.half",
     "qsExam"
    ],
-   "seams": [
+   "junctions": [
     "y0",
     "break"
    ]
@@ -56,7 +56,7 @@
     "qsDay",
     "qsExam"
    ],
-   "seams": [
+   "junctions": [
     "break",
     "break"
    ],
@@ -90,7 +90,7 @@
    }
   },
   "boundary_marks": [],
-  "secondary_seams": [
+  "secondary_junctions": [
    {
     "pair": {
      "left": 1,
@@ -106,7 +106,7 @@
      "x_max": 1400,
      "advance_total": 1400
     },
-    "home": null
+    "primary_unit": null
    }
   ],
   "explain": "position 0: same exit-drop family as u-0005, second batch slice.",
@@ -145,10 +145,10 @@
     ]
    }
   },
-  "content_key": "43aa229da27205b05b382d2f296a6f366ef52ff47d9d5fae5bf0f23acef01481"
+  "content_key": "cd15a41f7626aca74fd6741412504469892736fb83d84f13e2a3206d69eae53a"
  },
  {
-  "id": "u-JSRuJ51yvVj",
+  "id": "u-GWzZVqhrmiS",
   "ink_identical": false,
   "picture_identical": false,
   "junior_equivalent": false,
@@ -205,7 +205,7 @@
     "qsMay",
     "qsThey"
    ],
-   "seams": [
+   "junctions": [
     "y0",
     "break"
    ]
@@ -216,7 +216,7 @@
     "qsMay/loop/None/None/",
     "qsThey"
    ],
-   "seams": [
+   "junctions": [
     "break",
     "break"
    ],
@@ -250,7 +250,7 @@
    }
   },
   "boundary_marks": [],
-  "secondary_seams": [
+  "secondary_junctions": [
    {
     "pair": {
      "left": 1,
@@ -266,7 +266,7 @@
      "x_max": 1450,
      "advance_total": 1450
     },
-    "home": "u-3S9VGa388F8"
+    "primary_unit": "u-d5Ka5gKrm4o"
    }
   ],
   "explain": "position 0: the baseline kept an exit toward an entryless follower; the rebuild drops the dangling anchor and breaks.",
@@ -303,6 +303,6 @@
     ]
    }
   },
-  "content_key": "6841f2356dfe607608976df50cd7e1fd4e512c7d7229f7530109406cca61d6a1"
+  "content_key": "5cc54f6e0ce90bbb9af2642dd5f0702f03b546aad9e1ce6d587634ec09cb1b03"
  }
 ]

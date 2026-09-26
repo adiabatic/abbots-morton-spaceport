@@ -2,9 +2,9 @@
 
 `run_gates` checks the decision and treaty tables and the realized glyph records before any font exists. Errors fail the build and flags are only reported. Every defect carries a signature. A defect whose signature is in the `allow` set (the reviewed entries of `rebuild/m1-contact-allow.yaml`) is reported as blessed instead of as an error or flag. The dead-policy check produces lists, not defects, and takes no allow set.
 
-`tables_by_config` maps each feature configuration to a `(DecisionTable, TreatyTable)` pair, as `kernel_exec.build_tables` returns, or to one object that serves as both. From the decision side this module reads `cited_provenance` and each rule's `provenance`, for the dead-policy check. From the treaty side it reads `rows`. Each row gives `left` and `right` (a CellId, a cell label or glyph name, or None at a boundary), the join height under `join`, `junction`, `height`, or `seam` (None or "break" for a break), and `extension`, the summed connector pixels on the seam.
+`tables_by_config` maps each feature configuration to a `(DecisionTable, TreatyTable)` pair, as `kernel_exec.build_tables` returns, or to one object that serves as both. From the decision side this module reads `cited_provenance` and each rule's `provenance`, for the dead-policy check. From the treaty side it reads `rows`. Each row gives `left` and `right` (a CellId, a cell label or glyph name, or None at a boundary), the join height under `join`, `junction`, or `height` (None or "break" for a break), and `extension`, the summed connector pixels on the junction.
 
-The extension-band check is coarse because a treaty row does not say which extend record applied. A seam with a positive summed extension is checked against every band that an extend record on either rune declares at the seam's side and height, whatever its `when:`. An extension below every band, or on a seam where no record declares a band, is an error. Any other extension outside every band is a flag.
+The extension-band check is coarse because a treaty row does not say which extend record applied. A junction with a positive summed extension is checked against every band that an extend record on either rune declares at the junction's side and height, whatever its `when:`. An extension below every band, or on a junction where no record declares a band, is an error. Any other extension outside every band is a flag.
 
 E-ANCHOR is checked only here. `_check_anchors` checks the live, non-exempt sides of every realized record against the drawing that record ships. `_check_coverage_only_anchors` checks the `selectable: false` rows, which realize into no cell, against their stance's base drawing. A row's `x_off_convention` flag exempts that side alone, and a `trim` adjustment exempts the side it trimmed. An `anchor:` signature in the allow set blesses an E-ANCHOR finding like any other.
 
@@ -61,7 +61,7 @@ def _treaty_rows(treaty) -> Iterable:
 
 
 def _row_join(row):
-    for attribute in ("join", "junction", "height", "seam"):
+    for attribute in ("join", "junction", "height"):
         if hasattr(row, attribute):
             value = getattr(row, attribute)
             return None if value in (None, "break") else value
@@ -214,7 +214,7 @@ def _check_treaties(
             if join is not None and left_record is not None and right_record is not None:
                 signature = f"unrealized:{left_record.name}:{right_record.name}:{join}"
                 try:
-                    gap = geometry.seam_gap(left_record, right_record, join)
+                    gap = geometry.junction_gap(left_record, right_record, join)
                 except geometry.GeometryError as error:
                     _report(
                         report, allow, "E-UNREALIZED", signature, f"{left} -> {right}: {error}", error=True
@@ -256,7 +256,7 @@ def _check_band(report, allow, spec: ResolvedSpec, left: CellId, right: CellId, 
             allow,
             "E-EXTENSION-BAND",
             f"band:{left}:{right}:{join}",
-            f"{left} -> {right}: seam carries extension {extension} but neither rune declares an extend at that side and height",
+            f"{left} -> {right}: junction carries extension {extension} but neither rune declares an extend at that side and height",
             error=True,
         )
         return
@@ -278,7 +278,7 @@ def _check_contact(report, allow, left: GlyphRecord, right: GlyphRecord, join) -
         if left.exit is None or right.entry is None:
             return
         offset = left.exit[0] - right.entry[0]
-        seam_y = left.exit[1]
+        junction_y = left.exit[1]
     else:
         advance = (
             left.advance_width
@@ -288,7 +288,7 @@ def _check_contact(report, allow, left: GlyphRecord, right: GlyphRecord, join) -
         offset = (
             advance - 1
         )  # tools/build_font.py compiles a Senior Quikscript letter with no explicit advance one pixel narrower than width + 2
-        seam_y = None
+        junction_y = None
     left_ink = geometry.ink_cells(left)
     right_ink = geometry.ink_cells(right, x_origin=offset)
     overlap = left_ink & right_ink
@@ -301,15 +301,15 @@ def _check_contact(report, allow, left: GlyphRecord, right: GlyphRecord, join) -
             f"{left.name} + {right.name}: ink overlap at {sorted(overlap)[:4]}",
             error=True,
         )
-    if seam_y is None:
+    if junction_y is None:
         return
-    for y in sorted({y for x, y in left_ink if y != seam_y and (x + 1, y) in right_ink}):
+    for y in sorted({y for x, y in left_ink if y != junction_y and (x + 1, y) in right_ink}):
         _report(
             report,
             allow,
             "E-CONTACT",
             f"contact:{left.name}:{right.name}:y{y}",
-            f"{left.name} + {right.name}: off-anchor ink contact at y={y} (seam is y={seam_y})",
+            f"{left.name} + {right.name}: off-anchor ink contact at y={y} (junction is y={junction_y})",
             error=True,
         )
 

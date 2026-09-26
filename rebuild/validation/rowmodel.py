@@ -46,7 +46,7 @@ class Row:
     codepoints: tuple[int, ...]
     glyphs: tuple[str, ...]
     clusters: tuple[int, ...]
-    seams: tuple[str, ...]
+    junctions: tuple[str, ...]
     positions: tuple[tuple[int, int, int], ...]
 
     def to_tsv(self) -> str:
@@ -55,19 +55,19 @@ class Row:
                 ":".join(f"{cp:04X}" for cp in self.codepoints),
                 "|".join(self.glyphs),
                 ",".join(str(c) for c in self.clusters),
-                ",".join(self.seams),
+                ",".join(self.junctions),
                 "|".join(f"{x},{y},{a}" for x, y, a in self.positions),
             )
         )
 
     @classmethod
     def from_tsv(cls, line: str) -> "Row":
-        cps, glyphs, clusters, seams, positions = line.rstrip("\n").split("\t")
+        cps, glyphs, clusters, junctions, positions = line.rstrip("\n").split("\t")
         return cls(
             codepoints=tuple(int(cp, 16) for cp in cps.split(":")),
             glyphs=tuple(glyphs.split("|")),
             clusters=tuple(int(c) for c in clusters.split(",")),
-            seams=tuple(seams.split(",")) if seams else (),
+            junctions=tuple(junctions.split(",")) if junctions else (),
             positions=tuple(
                 (int(x), int(y), int(advance))
                 for x, y, advance in (triple.split(",") for triple in positions.split("|"))

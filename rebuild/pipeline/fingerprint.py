@@ -97,7 +97,7 @@ def font_compile_tool_paths(repo_root: Path) -> list[Path]:
 
 
 def pipeline_code_paths(repo_root: Path) -> list[Path]:
-    """Return the code the `pipeline_code` component hashes: rebuild/pipeline, rebuild/validation, the kernel crate's manifest, lock, and sources, and the font compile's tools/ modules (`font_compile_tool_paths`). rebuild/validation holds the shaper, row model, seam classifier, and Manual-pin replays, which are the before side of the M1 comparison. Whole trees are hashed instead of a list of imported modules, because such a list goes stale when an import or a Rust module is added, and over-invalidating is the safe error.
+    """Return the code the `pipeline_code` component hashes: rebuild/pipeline, rebuild/validation, the kernel crate's manifest, lock, and sources, and the font compile's tools/ modules (`font_compile_tool_paths`). rebuild/validation holds the shaper, row model, junction classifier, and Manual-pin replays, which are the before side of the M1 comparison. Whole trees are hashed instead of a list of imported modules, because such a list goes stale when an import or a Rust module is added, and over-invalidating is the safe error.
 
     The tools/ modules are included because compile_font passes the mini font to tools/build_font.py, so an edit to the glyph compiler, the IR, the FEA emitter, or the join analysis changes M1.otf. They are build-side, so `table_code_paths` keeps them as well.
 

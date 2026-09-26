@@ -64,22 +64,22 @@ class ExplainReport:
                 continue
             if trace.decided_stage == ISOLATED_OVERLAY_STAGE:
                 lines.append(
-                    f"  isolated overlay: the pre-empt renders the letter as its anchor-free twin before formation, so nothing settles and both seams break   settled: {cell_label(self.spec, settled.cell)}"
+                    f"  isolated overlay: the pre-empt renders the letter as its anchor-free twin before formation, so nothing settles and both junctions break   settled: {cell_label(self.spec, settled.cell)}"
                 )
                 continue
-            lines.append(f"  candidates (join-count = left seam + own seam + optimistic prospect):")
+            lines.append(f"  candidates (join-count = left junction + own junction + optimistic prospect):")
             for ranked in trace.ranked:
                 candidate = ranked.candidate
                 marker = (
                     "->"
-                    if (candidate.stance, candidate.entry, candidate.seam)
-                    == (settled.cell.stance, settled.cell.entry, settled.seam)
+                    if (candidate.stance, candidate.entry, candidate.junction)
+                    == (settled.cell.stance, settled.cell.entry, settled.junction)
                     else "  "
                 )
                 entry = candidate.entry or "none"
-                seam = candidate.seam or "none"
+                junction = candidate.junction or "none"
                 lines.append(
-                    f"  {marker} {candidate.stance:<16} entry={entry:<10} seam={seam:<10} join-count={ranked.join_count} prospect={ranked.prospect}"
+                    f"  {marker} {candidate.stance:<16} entry={entry:<10} junction={junction:<10} join-count={ranked.join_count} prospect={ranked.prospect}"
                 )
             if trace.eliminations:
                 lines.append("  eliminated before ranking:")
@@ -89,9 +89,7 @@ class ExplainReport:
             decided = f"  decided by: {trace.decided_stage}"
             if trace.runner_up is not None:
                 runner = trace.runner_up
-                decided += (
-                    f" (over {runner.stance} entry={runner.entry or 'none'} seam={runner.seam or 'none'})"
-                )
+                decided += f" (over {runner.stance} entry={runner.entry or 'none'} junction={runner.junction or 'none'})"
             lines.append(decided)
             if trace.joint_tiebreak:
                 lines.append(
@@ -100,7 +98,7 @@ class ExplainReport:
             for note in trace.notes:
                 lines.append(f"  note: {note}")
             lines.append(
-                f"  settled: {cell_label(self.spec, settled.cell)}   seam={settled.seam or 'none'}   extension={settled.extension}"
+                f"  settled: {cell_label(self.spec, settled.cell)}   junction={settled.junction or 'none'}   extension={settled.extension}"
             )
         return "\n".join(lines)
 

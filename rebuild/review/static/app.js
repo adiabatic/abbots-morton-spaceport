@@ -27,9 +27,9 @@ import {
   highlightRect,
   pairBand,
   markOffset,
-  secondarySeamsOf,
-  seamChip,
-  onlyHereSeamSpans,
+  secondaryJunctionsOf,
+  junctionChip,
+  onlyHereJunctionSpans,
   tokenMarkRuns,
   duplicateChip,
   duplicateFillTargets,
@@ -169,7 +169,7 @@ const JUNIOR_TITLE =
 const NO_VERDICT_TITLE =
   "This unit's class is adjudicated wholesale at the ledger level (hover its sidebar entry for the rationale); no unit in it ever needs an individual verdict.";
 const SLIM_FRAGMENT_NOTE =
-  'Machine-approved or in a no-verdict class: the build wrote no candidate table, no drafts and no pair band for this unit, since nothing here is for a reviewer to act on — the settled cells and seams above are the whole of what it carries.';
+  'Machine-approved or in a no-verdict class: the build wrote no candidate table, no drafts and no pair band for this unit, since nothing here is for a reviewer to act on — the settled cells and junctions above are the whole of what it carries.';
 
 function machineCheckOf(unit) {
   if (unit.ink_identical) return { badge: MACHINE_BADGE, title: MACHINE_TITLE };
@@ -555,17 +555,17 @@ function buildSample(unit, side, featureSettings) {
     band.style.width = `${rect.width}px`;
     cell.append(band);
   }
-  for (const seam of secondarySeamsOf(unit)) {
-    if (!seam[side]) continue;
-    const rect = highlightRect(seam[side], FONT_SIZE, upem);
+  for (const junction of secondaryJunctionsOf(unit)) {
+    if (!junction[side]) continue;
+    const rect = highlightRect(junction[side], FONT_SIZE, upem);
     const band = el('span', 'secondary-band');
     band.style.left = `${rect.left}px`;
     band.style.width = `${rect.width}px`;
-    const chip = seamChip(seam);
-    const node = el(chip.home ? 'a' : 'span', 'seam-chip', chip.label);
-    if (chip.home) {
-      node.href = `#unit=${chip.home}`;
-      node.dataset.home = chip.home;
+    const chip = junctionChip(junction);
+    const node = el(chip.primaryUnit ? 'a' : 'span', 'junction-chip', chip.label);
+    if (chip.primaryUnit) {
+      node.href = `#unit=${chip.primaryUnit}`;
+      node.dataset.primaryUnit = chip.primaryUnit;
     }
     node.title = chip.title;
     node.tabIndex = -1;
@@ -581,19 +581,19 @@ function buildSample(unit, side, featureSettings) {
   return cell;
 }
 
-const SEAM_MARK_TITLE =
-  'This dashed underline is the secondary divergent seam judged only in this unit — the text-line twin of the sample band’s “only here” chip.';
+const JUNCTION_MARK_TITLE =
+  'This dashed underline is the secondary divergent junction judged only in this unit — the text-line twin of the sample band’s “only here” chip.';
 
 function appendMarkedTokens(node, tokens, separators, unit) {
-  for (const run of tokenMarkRuns(tokens, separators, unit.pair_codepoints, onlyHereSeamSpans(unit))) {
-    if (!run.pair && !run.seam) {
+  for (const run of tokenMarkRuns(tokens, separators, unit.pair_codepoints, onlyHereJunctionSpans(unit))) {
+    if (!run.pair && !run.junction) {
       node.append(document.createTextNode(run.text));
       continue;
     }
     let mark = null;
-    if (run.seam) {
-      mark = el('span', 'seam-mark', run.text);
-      mark.title = SEAM_MARK_TITLE;
+    if (run.junction) {
+      mark = el('span', 'junction-mark', run.text);
+      mark.title = JUNCTION_MARK_TITLE;
     }
     if (run.pair) {
       const pair = el('span', 'pair-mark');
@@ -628,7 +628,7 @@ function buildCodepointsCode(unit) {
   return code;
 }
 
-// A card built from an app-index row draws its label at once and its samples when the record arrives, from one Range request against the class shard (the same one the explain panel uses). The marked runs on the text lines are rebuilt from the record, because the seam underline reads the settled cells.
+// A card built from an app-index row draws its label at once and its samples when the record arrives, from one Range request against the class shard (the same one the explain panel uses). The marked runs on the text lines are rebuilt from the record, because the junction underline reads the settled cells.
 async function hydrateSamples(container, unit) {
   const record = await fetchFullRecord(unit);
   if (!record || !container.isConnected) return;
@@ -2448,7 +2448,7 @@ function selectSearchResult(unitId) {
   if (!unitId) return;
   closeSearch();
   document.getElementById('unit-search').blur();
-  // The hash names only the unit, the same deep-link form as a seam chip, so applyHashState finds it in any batch or class and shows it even when it takes no verdict.
+  // The hash names only the unit, the same deep-link form as a junction chip, so applyHashState finds it in any batch or class and shows it even when it takes no verdict.
   const next = `unit=${unitId}`;
   // Selecting the unit already in the hash leaves the hash unchanged and fires no hashchange, so call applyHashState directly to move the cursor and scroll.
   if (location.hash.replace(/^#/, '') === next) applyHashState();
@@ -2723,11 +2723,11 @@ function wireEvents() {
   );
 
   document.getElementById('batch').addEventListener('click', (event) => {
-    const chip = event.target.closest('.seam-chip');
+    const chip = event.target.closest('.junction-chip');
     if (chip) {
       event.preventDefault();
-      // The hash names only the home unit, the same form as a pasted deep link, so applyHashState finds it in any batch or class and shows it even when it takes no verdict.
-      if (chip.dataset.home) location.hash = `unit=${chip.dataset.home}`;
+      // The hash names only the primary unit, the same form as a pasted deep link, so applyHashState finds it in any batch or class and shows it even when it takes no verdict.
+      if (chip.dataset.primaryUnit) location.hash = `unit=${chip.dataset.primaryUnit}`;
       return;
     }
     const duplicateLink = event.target.closest('.duplicate-chip');

@@ -46,8 +46,8 @@ def test_pins_are_whole_word_with_no_variant_assertions():
         ((0xE650, 0xE665, 0xE667), ((0, 1), (1, 2), (2, 3)), ("y0", "y0")),
         ((0xE650, 0x0020, 0xE650), ((0, 1), (1, 2), (2, 3)), ("break", "break")),
     )
-    for values, spans, seams in cases:
-        tokens, _connections = ts.parse_expect(expect_string(values, spans, seams))
+    for values, spans, junctions in cases:
+        tokens, _connections = ts.parse_expect(expect_string(values, spans, junctions))
         for token in tokens:
             assert token["variants"] == []
             assert token["neg_variants"] == []
@@ -100,14 +100,14 @@ def test_policy_draft_refuses_when_the_divergence_includes_a_new_join(drafter, e
     assert policy.schema_valid
 
 
-def test_refuse_drafts_never_target_seam_identical_units(drafter, enricher, example_units):
-    """A refuse draft forbids a new join, so it must never target a unit whose seams did not change. The fourth branch of `draft_policy` is reached only when the seam-identical branch was not taken, so it cannot target one. The new-join branch relies on the codepoint-gap lookup in `_new_join_side` agreeing with the glyph-seam comparison in `_seam_identical`, and this test checks that agreement on the example windows."""
+def test_refuse_drafts_never_target_junction_identical_units(drafter, enricher, example_units):
+    """A refuse draft forbids a new join, so it must never target a unit whose junctions did not change. The fourth branch of `draft_policy` is reached only when the junction-identical branch was not taken, so it cannot target one. The new-join branch relies on the codepoint-gap lookup in `_new_join_side` agreeing with the glyph-junction comparison in `_junction_identical`, and this test checks that agreement on the example windows."""
     for unit in example_units.values():
         enriched = enricher.enrich(unit)
         policy = drafter.draft_policy(enriched)
         if policy is None or policy.keypath != "policy.refuse[+]":
             continue
-        assert not drafter._seam_identical(enriched), enriched.unit.codepoints
+        assert not drafter._junction_identical(enriched), enriched.unit.codepoints
 
 
 def test_policy_draft_pins_baseline_cell_on_name_grain_divergence(drafter, enricher, example_units):
@@ -141,9 +141,9 @@ def test_policy_draft_uses_prefer_when_provenance_is_empty(drafter, enricher, ex
 
 def test_policy_note_is_threaded_into_the_why_stub(drafter, enricher, example_units):
     enriched = enricher.enrich(example_units[("E650:200C:E650:E665", "default")])
-    policy = drafter.draft_policy(enriched, note="seam looks reached-for")
+    policy = drafter.draft_policy(enriched, note="junction looks reached-for")
     assert policy is not None
-    assert policy.why_stub.endswith("seam looks reached-for")
+    assert policy.why_stub.endswith("junction looks reached-for")
 
 
 def test_any_of_orders_after_behavior_first(drafter, enricher, example_units):
@@ -152,7 +152,7 @@ def test_any_of_orders_after_behavior_first(drafter, enricher, example_units):
     enriched = enricher.enrich(unit)
     draft = drafter.draft_any_of(enriched)
     assert len(draft.candidates) == 2
-    after_expect = expect_string(unit.codepoint_values, enriched.after_spans, enriched.after_seams)
+    after_expect = expect_string(unit.codepoint_values, enriched.after_spans, enriched.after_junctions)
     assert draft.candidates[0] == after_expect
 
 

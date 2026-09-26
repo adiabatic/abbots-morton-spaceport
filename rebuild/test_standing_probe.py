@@ -1,4 +1,4 @@
-"""Tests for rebuild/tools/standing_probe.py, the read-only tool used to write standing-approval rules. They check that every family and cell list prints in code-point order, the order the rules file is written in, so a survey can be pasted from directly, and that an `--extension-cells` header for a contraction names only the contraction it lists. They check that a verdicts file stamped for another manifest prints every verdict as UNKNOWN_VERDICT instead of BLANK, and that a corpus with no font pair says which columns and which combined-match line are missing and why. They check that `--shapes` lists every entry of `standing_verdicts.SHAPES` with the opening words of its matcher's docstring, that a run whose unit ids all miss the corpus prints the same list, and that a listing run such as `--extension-cells` does not. They check that `--find` is a substring match over notations that lists blanks first and is capped with the total stated. They check that a run with no daemon loads the daemon's projection of the human records, `standing_daemon.UNIT_FIELDS`, and builds no set of the corpus's unit ids. They check that `--survey` groups every position under a before-glyph prefix by before form, after cell, left family, seam changes, and follower, each with a verdict tally and in code-point order, that it can narrow to one after cell, that it counts the windows it cannot place, and that it says when no window carries the glyph. They check that `--coverage` re-runs a rule's enumeration without the rule's named lists and prints, once, the followers, forms, and cells the rule does not name, for every shape except ligature and ink-delta, and that it says so when a rule's shape has no enumeration. They also check `_cell_glyph_name` against `cell_label` over the mini spec, and that the dropped and added pixels in a redrawn reading are never truncated. Every test uses a synthetic corpus and rules file under tmp_path, or the frozen mini bundle, and reads no live build artifact."""
+"""Tests for rebuild/tools/standing_probe.py, the read-only tool used to write standing-approval rules. They check that every family and cell list prints in code-point order, the order the rules file is written in, so a survey can be pasted from directly, and that an `--extension-cells` header for a contraction names only the contraction it lists. They check that a verdicts file stamped for another manifest prints every verdict as UNKNOWN_VERDICT instead of BLANK, and that a corpus with no font pair says which columns and which combined-match line are missing and why. They check that `--shapes` lists every entry of `standing_verdicts.SHAPES` with the opening words of its matcher's docstring, that a run whose unit ids all miss the corpus prints the same list, and that a listing run such as `--extension-cells` does not. They check that `--find` is a substring match over notations that lists blanks first and is capped with the total stated. They check that a run with no daemon loads the daemon's projection of the human records, `standing_daemon.UNIT_FIELDS`, and builds no set of the corpus's unit ids. They check that `--survey` groups every position under a before-glyph prefix by before form, after cell, left family, junction changes, and follower, each with a verdict tally and in code-point order, that it can narrow to one after cell, that it counts the windows it cannot place, and that it says when no window carries the glyph. They check that `--coverage` re-runs a rule's enumeration without the rule's named lists and prints, once, the followers, forms, and cells the rule does not name, for every shape except ligature and ink-delta, and that it says so when a rule's shape has no enumeration. They also check `_cell_glyph_name` against `cell_label` over the mini spec, and that the dropped and added pixels in a redrawn reading are never truncated. Every test uses a synthetic corpus and rules file under tmp_path, or the frozen mini bundle, and reads no live build artifact."""
 
 import json
 
@@ -25,7 +25,7 @@ EXT_RULE = {
         "before": {
             "pivot": "qsTea",
             "exit_extension": "ex-ext-1",
-            "seam_out": "y0",
+            "junction_out": "y0",
             "follower": "qsVie",
         },
         "after": {
@@ -41,7 +41,7 @@ RETARGET_RULE = {
     "verdict": "approve",
     "note": "·Tea sits as the full bar joining ·No at the baseline",
     "match": {
-        "before": {"pivot": "qsTea.half", "seam_out": "y5", "follower": "qsNo"},
+        "before": {"pivot": "qsTea.half", "junction_out": "y5", "follower": "qsNo"},
         "after": {
             "retarget": "y0",
             "pivot_cells": ["qsTea/full/None/baseline/"],
@@ -65,7 +65,7 @@ GAP_RULE = {
     "verdict": "approve",
     "note": "·Gay sits two columns further from a raised ·No",
     "match": {
-        "before": {"pivot": "qsNo", "seam_out": "y0", "follower": "qsGay"},
+        "before": {"pivot": "qsNo", "junction_out": "y0", "follower": "qsGay"},
         "after": {
             "gap": 2,
             "pivot_cells": ["qsNo/loop/x-height/None/"],
@@ -80,7 +80,7 @@ GAP_RULE_BARE = {
     "verdict": "approve",
     "note": "·It sits a column further from ·At",
     "match": {
-        "before": {"pivot": "qsAt", "seam_out": "y5", "follower": "qsIt"},
+        "before": {"pivot": "qsAt", "junction_out": "y5", "follower": "qsIt"},
         "after": {"gap": 1},
         "except_left": [],
     },
@@ -117,7 +117,7 @@ ENTRY_RULE = {
 }
 
 
-def unit(uid, glyphs, seams, cells, after_seams, *, codepoints, notation="·X ~b~ ·Y", deltas=None):
+def unit(uid, glyphs, junctions, cells, after_junctions, *, codepoints, notation="·X ~b~ ·Y", deltas=None):
     return {
         "id": uid,
         "batch": 0,
@@ -129,10 +129,10 @@ def unit(uid, glyphs, seams, cells, after_seams, *, codepoints, notation="·X ~b
         "codepoints": codepoints,
         "configs": ["default"],
         "ink_deltas": deltas,
-        "before": {"glyphs": list(glyphs), "seams": list(seams)},
-        "after": {"cells": list(cells), "seams": list(after_seams)},
+        "before": {"glyphs": list(glyphs), "junctions": list(junctions)},
+        "after": {"cells": list(cells), "junctions": list(after_junctions)},
         "pair": None,
-        "secondary_seams": [],
+        "secondary_junctions": [],
     }
 
 
@@ -166,10 +166,10 @@ def retarget_window(uid, follower, follower_cell, **kwargs):
     )
 
 
-def window(uid, glyphs, cells, seams, after_seams, **kwargs):
+def window(uid, glyphs, cells, junctions, after_junctions, **kwargs):
     """One window spelled out on both sides, its codepoints counted off the before glyphs."""
     codepoints = ":".join(["E000"] * sum(sv._components(sv._family(name)) for name in glyphs))
-    return unit(uid, glyphs, seams, cells, after_seams, codepoints=codepoints, **kwargs)
+    return unit(uid, glyphs, junctions, cells, after_junctions, codepoints=codepoints, **kwargs)
 
 
 def _corpus(tmp_path, units):
@@ -680,8 +680,8 @@ SURVEY_UNITS = [
 ]
 
 
-def test_survey_groups_positions_by_form_cell_seams_and_follower(tmp_path, capsys):
-    """Groups are ordered by before form, then after cell, in code-point order with the token breaking ties. Rows in a group are ordered by left family, seams, and follower in the same order (·No before ·It). A pivot at either end of the window prints EDGE in place of the missing seam and neighbor."""
+def test_survey_groups_positions_by_form_cell_junctions_and_follower(tmp_path, capsys):
+    """Groups are ordered by before form, then after cell, in code-point order with the token breaking ties. Rows in a group are ordered by left family, junctions, and follower in the same order (·No before ·It). A pivot at either end of the window prints EDGE in place of the missing junction and neighbor."""
     records = [{"unit": "s-2", "verdict": "approve", "note": "", "at": STAMP}]
     out = _run(tmp_path, capsys, SURVEY_UNITS, ["--survey", "qsKey"], records=records)
     assert _line(out, "survey of qsKey: 4 positions").endswith("follower family and cell:")

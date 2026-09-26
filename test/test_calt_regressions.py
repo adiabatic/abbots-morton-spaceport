@@ -2263,7 +2263,7 @@ def _pea_joins_neither_side_before(glyph: str) -> bool:
     return False
 
 
-def _pea_after_et_and_awe_seam_failures() -> list[str]:
+def _pea_after_et_and_awe_junction_failures() -> list[str]:
     letters = [name for name, _ in _plain_quikscript_letters()]
     followers = [(name,) for name, _ in _context_chars()] + [()]
     followers += list(product(letters, repeat=2))
@@ -2276,10 +2276,10 @@ def _pea_after_et_and_awe_seam_failures() -> list[str]:
             if _base_names(glyphs)[:2] != (left, "qsPea"):
                 failures.append(f"{label}: expected {left} then qsPea at the start of {glyphs}")
                 continue
-            seam_ys = _pair_join_ys(glyphs, 1)
-            if seam_ys != right_ys:
+            junction_ys = _pair_join_ys(glyphs, 1)
+            if junction_ys != right_ys:
                 failures.append(
-                    f"{label}: qsPea's right seam Ys {sorted(seam_ys)} differ from {sorted(right_ys)} without {left} in {glyphs}"
+                    f"{label}: qsPea's right junction Ys {sorted(junction_ys)} differ from {sorted(right_ys)} without {left} in {glyphs}"
                 )
             expects_join = not right_ys and not (
                 len(glyphs) > 2 and _pea_joins_neither_side_before(glyphs[2])
@@ -2292,7 +2292,7 @@ def _pea_after_et_and_awe_seam_failures() -> list[str]:
 
 
 def test_et_and_awe_join_pea_at_baseline_exactly_when_pea_breaks_after():
-    _assert_no_failures(_pea_after_et_and_awe_seam_failures(), limit=None)
+    _assert_no_failures(_pea_after_et_and_awe_junction_failures(), limit=None)
 
 
 @pytest.mark.parametrize(

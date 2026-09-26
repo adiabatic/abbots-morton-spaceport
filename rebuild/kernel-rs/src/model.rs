@@ -10,7 +10,7 @@ use crate::hash::HashMap;
 
 /// An interned vocabulary string, valid only with the [`Interner`] that minted it. Comparison and hashing use the integer, never the text.
 ///
-/// The integer is a `NonZeroU32` so that `Option<Sym>` is four bytes: the compiler stores `None` as zero, so a side that did not join (`CellId.entry`, `Settled.seam`, `Candidate.entry`, the engine's left-context fields) costs no extra discriminant. The pool numbers its strings from one to keep zero free. Only the interner reads the integer, and a symbol's order is its minting order.
+/// The integer is a `NonZeroU32` so that `Option<Sym>` is four bytes: the compiler stores `None` as zero, so a side that did not join (`CellId.entry`, `Settled.junction`, `Candidate.entry`, the engine's left-context fields) costs no extra discriminant. The pool numbers its strings from one to keep zero free. Only the interner reads the integer, and a symbol's order is its minting order.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Sym(NonZeroU32);
 

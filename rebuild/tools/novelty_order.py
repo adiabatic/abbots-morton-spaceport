@@ -1,4 +1,4 @@
-"""Order the blank review queue for novelty, so consecutive units in a review session differ as much as possible instead of following the shard order's near-identical neighbors. It takes one representative per duplicate group among the human units with no record, since the app copies a verdict on the representative to the group's members that have no record. A unit whose latest verdict is a skip is blank too, but the duplicate fill never reaches it, so each skipped unit is its own representative. The distance between two representatives is a weighted sum over `DIMENSIONS`: divergence class, left and right family, letter set, settled stances, changed seams, configuration set, unit kinds, deciding provenance and window length. The walk starts at a representative of the rarest class and then picks, each time, the representative whose smallest distance to the last `RECENT_WINDOW` shown is largest, breaking ties toward rarer classes and then earlier triage position, so one-off questions are not buried behind the large classes. It prints the worklist URL to paste into the review app, `#units=…&order=given`, which the app keeps in the given order instead of sorting by family pair."""
+"""Order the blank review queue for novelty, so consecutive units in a review session differ as much as possible instead of following the shard order's near-identical neighbors. It takes one representative per duplicate group among the human units with no record, since the app copies a verdict on the representative to the group's members that have no record. A unit whose latest verdict is a skip is blank too, but the duplicate fill never reaches it, so each skipped unit is its own representative. The distance between two representatives is a weighted sum over `DIMENSIONS`: divergence class, left and right family, letter set, settled stances, changed junctions, configuration set, unit kinds, deciding provenance and window length. The walk starts at a representative of the rarest class and then picks, each time, the representative whose smallest distance to the last `RECENT_WINDOW` shown is largest, breaking ties toward rarer classes and then earlier triage position, so one-off questions are not buried behind the large classes. It prints the worklist URL to paste into the review app, `#units=…&order=given`, which the app keeps in the given order instead of sorting by family pair."""
 
 import argparse
 import collections
@@ -44,7 +44,7 @@ def features(unit):
     after = unit.get("after") or {}
     changed = frozenset(
         f"{i}:{b}>{a}"
-        for i, (b, a) in enumerate(zip(before.get("seams") or [], after.get("seams") or []))
+        for i, (b, a) in enumerate(zip(before.get("junctions") or [], after.get("junctions") or []))
         if b != a
     )
     return {
@@ -53,7 +53,7 @@ def features(unit):
         "right": right,
         "letters": frozenset(token for token in unit.get("notation_tokens") or [] if token != "·"),
         "cells": frozenset("/".join(cell.split("/")[:2]) for cell in after.get("cells") or []),
-        "seams": changed or frozenset({"unchanged"}),
+        "junctions": changed or frozenset({"unchanged"}),
         "configs": tuple(unit.get("configs") or []),
         "kinds": frozenset(unit.get("kinds") or []),
         "provenance": frozenset((unit.get("provenance") or [])[:12]),
@@ -78,7 +78,7 @@ DIMENSIONS = (
     ("right", 0.09, _differs),
     ("letters", 0.14, _jaccard),
     ("cells", 0.13, _jaccard),
-    ("seams", 0.11, _jaccard),
+    ("junctions", 0.11, _jaccard),
     ("configs", 0.08, _differs),
     ("kinds", 0.05, _jaccard),
     ("provenance", 0.11, _jaccard),
