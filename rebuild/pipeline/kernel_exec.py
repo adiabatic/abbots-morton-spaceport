@@ -923,7 +923,7 @@ def trace_of(result) -> settle.TransitionTrace:
     expected = {
         "settled",
         "prospect",
-        "joint_floor",
+        "joint_tiebreak",
         "notes",
         "fired",
         "decided_stage",
@@ -945,7 +945,7 @@ def trace_of(result) -> settle.TransitionTrace:
     runner_up = None if result["runner_up"] is None else _candidate_of(result["runner_up"])
     return settle.TransitionTrace(
         settled=_settled_of(result),
-        joint_floor=result["joint_floor"],
+        joint_tiebreak=result["joint_tiebreak"],
         prospect=result["prospect"],
         ranked=ranked,
         eliminations=eliminations,

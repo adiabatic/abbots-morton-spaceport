@@ -234,7 +234,7 @@
    }
   },
   "boundary_marks": [],
-  "explain": "sequence E670:E670   config default\nsettled: qsIt.hapax qsIt.hapax\n\nposition 0: qsIt\n  decided by: floor",
+  "explain": "sequence E670:E670   config default\nsettled: qsIt.hapax qsIt.hapax\n\nposition 0: qsIt\n  decided by: tiebreak",
   "summary": "New: \u00b7It\u00b7It settles differently from the baseline \u2014 decided by fixture data (open the explain panel for the candidate table).",
   "provenance": [],
   "drafts": {
@@ -252,7 +252,7 @@
     "keypath": "policy.prefer[+]",
     "suggested_record": "{cell: {exit: none}, when: {right: {family: [qsIt]}}, why: 'Reviewer rejected the M1 outcome for E670:E670 (\u00b7It\u00b7It)'}",
     "names_provenance": [],
-    "decided_stage": "floor",
+    "decided_stage": "tiebreak",
     "schema_valid": true,
     "why_stub": "Reviewer rejected the M1 outcome for E670:E670 (\u00b7It\u00b7It)"
    },

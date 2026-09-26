@@ -31,7 +31,7 @@ pub const LIVE_STATE: &str = "live";
 /// The suffix a `cells:` row adds to a height to name its withdrawn exit state. `model.WITHDRAWN_SUFFIX`. [`SpecIndex::withdrawn_state`] combines a height and this suffix into one symbol.
 pub const WITHDRAWN_SUFFIX: &str = "-withdrawn";
 
-/// The exit index of a non-joining candidate, `settle._NO_EXIT_INDEX`. It is a large number instead of an `Option` so that it sorts after every real exit index in the structural floor and in the ranked list, as in Python. Real exit counts are single digits, so 9999 is always larger.
+/// The exit index of a non-joining candidate, `settle._NO_EXIT_INDEX`. It is a large number instead of an `Option` so that it sorts after every real exit index in the final tiebreak and in the ranked list, as in Python. Real exit counts are single digits, so 9999 is always larger.
 pub const NO_EXIT_INDEX: usize = 9999;
 
 /// What a window slot holds, apart from which letter. The six kinds are the ones the comment on `settle.RightToken.kind` lists. `Unknown` means the slot is outside the evaluated window, not something in the text; three-valued right-condition matching turns it into a `None` result.
@@ -689,7 +689,7 @@ pub enum DecidedStage {
     JoinCount,
     YieldingPrefer,
     Order,
-    Floor,
+    Tiebreak,
 }
 
 impl DecidedStage {
@@ -701,7 +701,7 @@ impl DecidedStage {
         Self::JoinCount,
         Self::YieldingPrefer,
         Self::Order,
-        Self::Floor,
+        Self::Tiebreak,
     ];
 
     /// The stage's position in ranking order, zero through six. The trace memo's packed entry stores a stage as this value, in three bits of its one byte. It is an exhaustive match, not `as u8`, so adding a stage to the enum is a compile error here and in [`DecidedStage::from_ordinal`].
@@ -713,7 +713,7 @@ impl DecidedStage {
             Self::JoinCount => 3,
             Self::YieldingPrefer => 4,
             Self::Order => 5,
-            Self::Floor => 6,
+            Self::Tiebreak => 6,
         }
     }
 
@@ -726,7 +726,7 @@ impl DecidedStage {
             3 => Some(Self::JoinCount),
             4 => Some(Self::YieldingPrefer),
             5 => Some(Self::Order),
-            6 => Some(Self::Floor),
+            6 => Some(Self::Tiebreak),
             _ => None,
         }
     }
@@ -745,7 +745,7 @@ impl DecidedStage {
             Self::JoinCount => "join-count",
             Self::YieldingPrefer => "yielding-prefer",
             Self::Order => "order",
-            Self::Floor => "floor",
+            Self::Tiebreak => "tiebreak",
         }
     }
 }
@@ -773,7 +773,7 @@ static NO_RANKING: TraceRanking = TraceRanking {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TransitionTrace {
     pub settled: Settled,
-    pub joint_floor: bool,
+    pub joint_tiebreak: bool,
     pub prospect: i64,
     pub decided_stage: DecidedStage,
     pub notes: Vec<String>,

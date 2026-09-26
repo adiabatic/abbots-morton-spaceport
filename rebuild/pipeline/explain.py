@@ -93,9 +93,9 @@ class ExplainReport:
                     f" (over {runner.stance} entry={runner.entry or 'none'} seam={runner.seam or 'none'})"
                 )
             lines.append(decided)
-            if trace.joint_floor:
+            if trace.joint_tiebreak:
                 lines.append(
-                    "  joint: the structural floor broke a realization tie — routed to the expensive test tier"
+                    "  joint: the final tiebreak broke a realization tie — routed to the expensive test tier"
                 )
             for note in trace.notes:
                 lines.append(f"  note: {note}")

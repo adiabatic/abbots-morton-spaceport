@@ -442,12 +442,12 @@ def _policy_record(kind: str, raw: dict, provenance: Provenance) -> PolicyRecord
 
 
 def _resolve_record(context: _FileContext, raw: dict, path: str, provenance: Provenance) -> PolicyRecord:
-    """Build a resolve record in the §5.8 against-a-named-record form, `{against: {rune, id}, when, pick, why}`. The floor form (`at:`) and grouped resolves are designed but not implemented. A resolve's `when:` may not carry `self:`, because the record is consulted where two prefers collided, before any cell at that position is chosen, so there is no self state to read."""
+    """Build a resolve record in the §5.8 against-a-named-record form, `{against: {rune, id}, when, pick, why}`. The tiebreak form (`at:`) and grouped resolves are designed but not implemented. A resolve's `when:` may not carry `self:`, because the record is consulted where two prefers collided, before any cell at that position is chosen, so there is no self state to read."""
     against_raw = raw.get("against")
     if "at" in raw or against_raw is None:
         context.error(
             path,
-            "resolve floor form (at:) and grouped resolves are not yet implemented; only against-a-named-record resolves ({against: {rune, id}, when, pick, why}) are supported",
+            "resolve tiebreak form (at:) and grouped resolves are not yet implemented; only against-a-named-record resolves ({against: {rune, id}, when, pick, why}) are supported",
         )
     if isinstance(raw.get("when"), dict) and "self" in raw["when"]:
         context.error(

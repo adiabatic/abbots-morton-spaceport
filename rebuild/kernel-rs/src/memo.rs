@@ -212,7 +212,7 @@ impl MemoSnapshot {
     pub(crate) fn trace(&self, entry: TraceEntry) -> TransitionTrace {
         TransitionTrace {
             settled: self.settled[entry.settled.index()].clone(),
-            joint_floor: entry.joint_floor(),
+            joint_tiebreak: entry.joint_tiebreak(),
             prospect: i64::from(entry.prospect()),
             decided_stage: entry.decided_stage(),
             notes: self.notes[entry.notes.index()].to_vec(),
@@ -518,7 +518,7 @@ struct Row<'a> {
     key: &'a TraceKey,
     seats: [u32; 4],
     prospect: i8,
-    joint_floor: bool,
+    joint_tiebreak: bool,
     decided_stage: DecidedStage,
     source: u16,
 }
@@ -584,7 +584,7 @@ pub fn write_memo(
                     pool_seat(entry.reads.index()),
                 ],
                 prospect: entry.prospect(),
-                joint_floor: entry.joint_floor(),
+                joint_tiebreak: entry.joint_tiebreak(),
                 decided_stage: entry.decided_stage(),
                 source,
             });
@@ -688,7 +688,7 @@ pub fn write_memo(
             line,
             "\t{settled_seat}\t{notes_seat}\t{delta_seat}\t{reads_seat}\t{}\t{}\t{}",
             row.prospect,
-            u8::from(row.joint_floor),
+            u8::from(row.joint_tiebreak),
             row.decided_stage.as_str()
         );
         writeln!(out, "{line}").map_err(complain)?;
@@ -958,7 +958,7 @@ pub(crate) fn read_memo(
                     .ok()
                     .filter(|term| (0..=1).contains(term))
                     .ok_or_else(|| complain(number, "a prospect is a seam count, zero or one"))?;
-                let joint_floor = match *joint {
+                let joint_tiebreak = match *joint {
                     "0" => false,
                     "1" => true,
                     _ => return Err(complain(number, "a joint flag is 0 or 1")),
@@ -1037,7 +1037,7 @@ pub(crate) fn read_memo(
                         DeltaSeat::at(delta_seat),
                         ReadsSeat::at(reads_seat),
                         prospect,
-                        joint_floor,
+                        joint_tiebreak,
                         decided_stage,
                     ),
                 ));
@@ -1284,8 +1284,16 @@ mod tests {
             assert_eq!(back.delta(again), memo.delta(*entry));
             assert_eq!(back.reads(again), memo.reads(*entry));
             assert_eq!(
-                (again.prospect(), again.joint_floor(), again.decided_stage()),
-                (entry.prospect(), entry.joint_floor(), entry.decided_stage())
+                (
+                    again.prospect(),
+                    again.joint_tiebreak(),
+                    again.decided_stage()
+                ),
+                (
+                    entry.prospect(),
+                    entry.joint_tiebreak(),
+                    entry.decided_stage()
+                )
             );
         }
         let back = Arc::new(back);
@@ -1554,7 +1562,7 @@ mod tests {
                 memo.delta(entry).to_vec(),
                 memo.reads(entry).to_vec(),
                 entry.prospect(),
-                entry.joint_floor(),
+                entry.joint_tiebreak(),
                 entry.decided_stage(),
             )
         };

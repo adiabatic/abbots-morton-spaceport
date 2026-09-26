@@ -588,7 +588,7 @@ class TestDeepClasses:
     def test_actual_lefts_agree_with_the_left_class_assumption(
         self, request, deep_world, spec_fixture, expect_r4
     ):
-        """Asserts that for every multi-member deep-class token in the enumeration, every member traces the same at the row's settled left: the same settled cell, prospect, joint floor, and notes. The classes come from the enumeration and the traces from `settle-cases`, so a class whose members settle differently at the actual left fails here. The test reads the enumeration product (`kernel_exec.enumerate_transitions`) because the tables drop each row's settled left. All member windows go to one `settle_cases` call, in the world the enumeration ran in. The prospect spec creates no r4 classes, so the synthetic depth-4 spec is the case that checks r4 classes (per context and r3 class) at actual lefts, and the `checked4` assertion fails if it stops creating them."""
+        """Asserts that for every multi-member deep-class token in the enumeration, every member traces the same at the row's settled left: the same settled cell, prospect, joint tiebreak, and notes. The classes come from the enumeration and the traces from `settle-cases`, so a class whose members settle differently at the actual left fails here. The test reads the enumeration product (`kernel_exec.enumerate_transitions`) because the tables drop each row's settled left. All member windows go to one `settle_cases` call, in the world the enumeration ran in. The prospect spec creates no r4 classes, so the synthetic depth-4 spec is the case that checks r4 classes (per context and r3 class) at actual lefts, and the `checked4` assertion fails if it stops creating them."""
         from rebuild.pipeline.settle import EDGE, LeftContext, RightToken
 
         spec = request.getfixturevalue(spec_fixture)
@@ -645,7 +645,7 @@ class TestDeepClasses:
         results = kernel_exec.settle_cases(spec, cases, frozenset(), decode=kernel_exec.trace_of)
         records: dict[tuple[int, int], tuple[tuple, dict[tuple, str]]] = {}
         for (asked_at, key, member), trace in zip(asked, results):
-            probe = (trace.settled, trace.prospect, trace.joint_floor, trace.notes)
+            probe = (trace.settled, trace.prospect, trace.joint_tiebreak, trace.notes)
             records.setdefault(asked_at, (key, {}))[1][probe] = member
         checked3 = 0
         checked4 = 0

@@ -678,7 +678,7 @@ def test_duplicate_groups_flagged_across_files(tmp_path):
         load_tmp_spec(tmp_path, {"qsIt": MINIMAL_RUNE + group_block, "qsMay": may_text + group_block})
 
 
-def test_resolve_floor_form_still_rejected(tmp_path):
+def test_resolve_tiebreak_form_still_rejected(tmp_path):
     text = MINIMAL_RUNE + textwrap.dedent("""\
         policy:
           resolve:
@@ -890,14 +890,14 @@ def test_the_qsday_prefer_right_scopes_are_pinned(spec):
 
 
 def test_resolve_record_slice_validation(tmp_path):
-    floor = MINIMAL_RUNE + textwrap.dedent("""\
+    tiebreak_form = MINIMAL_RUNE + textwrap.dedent("""\
         policy:
           resolve:
           - at: {right: {family: qsDay}}
             pick: {exit: baseline}
             why: x
         """)
-    assert "not yet implemented" in str(load_tmp_error(tmp_path, {"qsIt": floor}))
+    assert "not yet implemented" in str(load_tmp_error(tmp_path, {"qsIt": tiebreak_form}))
 
     dangling = MINIMAL_RUNE + textwrap.dedent("""\
         policy:

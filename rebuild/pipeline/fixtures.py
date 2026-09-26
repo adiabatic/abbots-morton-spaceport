@@ -1203,7 +1203,7 @@ def mini_spec() -> ResolvedSpec:
 
 
 def synthetic_spec(prefer_a=(), prefer_b=(), contract_b=()) -> ResolvedSpec:
-    """Three letters for testing the structural floor and prefer records. A exits at the x-height. B enters at the x-height and exits at the baseline, and a pairing stops an entered B from exiting. C enters at the baseline. At the A·B seam, joining and the prospect of B's onward join each count one join in the window, so they tie. The crate's version of this fixture is `ranking_spec` in `engine.rs`, which names A, B, and C qsPea, qsTea, and qsMay."""
+    """Three letters for testing the final tiebreak and prefer records. A exits at the x-height. B enters at the x-height and exits at the baseline, and a pairing stops an entered B from exiting. C enters at the baseline. At the A·B seam, joining and the prospect of B's onward join each count one join in the window, so they tie. The crate's version of this fixture is `ranking_spec` in `engine.rs`, which names A, B, and C qsPea, qsTea, and qsMay."""
     a = Rune(
         name="A",
         codepoint=0xE001,

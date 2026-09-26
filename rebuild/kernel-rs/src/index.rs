@@ -464,7 +464,7 @@ impl SpecIndex {
         Some((seat, row_at(&self.stance(id).surface.entries, seat)))
     }
 
-    /// One exit row with its declaration seat — `stance.surface.exits.get(height)`, plus the exit index the structural floor's final tiebreak reads.
+    /// One exit row with its declaration seat — `stance.surface.exits.get(height)`, plus the exit index the final tiebreak reads last.
     pub fn exit_row(&self, id: StanceId, height: Sym) -> Option<(usize, &SurfaceRow)> {
         let seat = *self.rows(id).exits.get(&height)?;
         Some((seat, row_at(&self.stance(id).surface.exits, seat)))

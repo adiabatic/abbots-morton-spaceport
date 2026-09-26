@@ -1,4 +1,4 @@
-//! The settlement engine: condition matching, the capability reads that decide what a stance can offer, refusals, candidate enumeration, the refusal-aware lookahead closure, and the lexicographic ranking (absolute prefers, the window join count, yielding prefers, the runes' declared order, then the structural floor), followed by the adjustments and the commit that turn the winner into a settled cell. This crate is the only implementation of settlement.
+//! The settlement engine: condition matching, the capability reads that decide what a stance can offer, refusals, candidate enumeration, the refusal-aware lookahead closure, and the lexicographic ranking (absolute prefers, the window join count, yielding prefers, the runes' declared order, then the final tiebreak), followed by the adjustments and the commit that turn the winner into a settled cell. This crate is the only implementation of settlement.
 //!
 //! Each ranking stage narrows the survivor list the next stage reads, so the order of the stages determines the result, and `decided_stage` names the stage that narrowed the list to one. The two prefer stages can raise instead of choosing: prefer records that demand different outcomes at non-nested specificity raise E-AMBIGUOUS within one rune and E-INCOMPARABLE across two. The E-INCOMPARABLE message ends in a paste-ready `resolve:` stub that the author copies into the rune's YAML, so its wording must stay as it is.
 //!
@@ -138,7 +138,7 @@ pub struct EngineModes {
     pub follower_prefer_slots: bool,
     /// Whether the engine memoizes whole windows and journals a fired delta per memoized evaluation. On only in the table fixpoint, the `settle-cases` and `liveness-cases` subcommands, and the string replay.
     pub trace_memo: bool,
-    /// Whether a trace carries its ranking: every ranked survivor with its scores, the eliminations with their descriptions, and the runner-up. On wherever a person reads a trace (the explain report, the review corpus, the probe). Off in the table fixpoint, whose rows read only the settled triple, the prospect, the joint floor and the notes, and in the string replay, which reads only the settled record. Formatting rankings nobody reads is the largest avoidable allocation in either.
+    /// Whether a trace carries its ranking: every ranked survivor with its scores, the eliminations with their descriptions, and the runner-up. On wherever a person reads a trace (the explain report, the review corpus, the probe). Off in the table fixpoint, whose rows read only the settled triple, the prospect, the joint tiebreak and the notes, and in the string replay, which reads only the settled record. Formatting rankings nobody reads is the largest avoidable allocation in either.
     pub explain_ranking: bool,
 }
 
@@ -606,7 +606,7 @@ pub(crate) struct TraceEntry {
     pub(crate) notes: TraceNotesSeat,
     pub(crate) delta: DeltaSeat,
     pub(crate) reads: ReadsSeat,
-    /// The prospect bit at the bottom (the term is a seam count of zero or one), the joint flag above it, and the stage's ordinal, at most six, from bit two up. [`TraceEntry::prospect`], [`TraceEntry::joint_floor`] and [`TraceEntry::decided_stage`] read them back.
+    /// The prospect bit at the bottom (the term is a seam count of zero or one), the joint flag above it, and the stage's ordinal, at most six, from bit two up. [`TraceEntry::prospect`], [`TraceEntry::joint_tiebreak`] and [`TraceEntry::decided_stage`] read them back.
     packed: u8,
 }
 
@@ -618,7 +618,7 @@ impl TraceEntry {
         delta: DeltaSeat,
         reads: ReadsSeat,
         prospect: i64,
-        joint_floor: bool,
+        joint_tiebreak: bool,
         decided_stage: DecidedStage,
     ) -> Self {
         let prospect = u8::try_from(prospect)
@@ -630,7 +630,7 @@ impl TraceEntry {
             notes,
             delta,
             reads,
-            packed: prospect | (u8::from(joint_floor) << 1) | (decided_stage.ordinal() << 2),
+            packed: prospect | (u8::from(joint_tiebreak) << 1) | (decided_stage.ordinal() << 2),
         }
     }
 
@@ -639,8 +639,8 @@ impl TraceEntry {
         (self.packed & 1) as i8
     }
 
-    /// Whether the floor decided between a joining and a non-joining candidate.
-    pub(crate) fn joint_floor(self) -> bool {
+    /// Whether the final tiebreak decided between a joining and a non-joining candidate.
+    pub(crate) fn joint_tiebreak(self) -> bool {
         self.packed & 2 != 0
     }
 
@@ -675,7 +675,7 @@ impl TraceMemo {
             delta,
             reads,
             trace.prospect,
-            trace.joint_floor,
+            trace.joint_tiebreak,
             trace.decided_stage,
         );
         self.entries.insert(key, entry);
@@ -688,7 +688,7 @@ impl TraceMemo {
     fn trace(&self, key: &TraceKey, entry: TraceEntry) -> TransitionTrace {
         TransitionTrace {
             settled: self.settled.get(entry.settled.widen()).clone(),
-            joint_floor: entry.joint_floor(),
+            joint_tiebreak: entry.joint_tiebreak(),
             prospect: i64::from(entry.prospect()),
             decided_stage: entry.decided_stage(),
             notes: self.notes.get(entry.notes.widen()).to_vec(),
@@ -2705,7 +2705,7 @@ impl<'i> Engine<'i> {
         if token.kind() != TokenKind::Letter {
             return Ok(TransitionTrace {
                 settled: boundary_settled(self.index().vocab(), token.kind()),
-                joint_floor: false,
+                joint_tiebreak: false,
                 prospect: 0,
                 decided_stage: DecidedStage::Boundary,
                 notes: Vec::new(),
@@ -2966,13 +2966,13 @@ impl<'i> Engine<'i> {
             survivors = narrowed;
         }
 
-        let mut joint_floor = false;
+        let mut joint_tiebreak = false;
         if survivors.len() > 1 {
             let mut ordered = survivors.clone();
-            ordered.sort_by_key(|candidate| floor_key(index, candidate));
-            decided_stage = DecidedStage::Floor;
+            ordered.sort_by_key(|candidate| tiebreak_key(index, candidate));
+            decided_stage = DecidedStage::Tiebreak;
             runner_up = Some(ordered[1]);
-            joint_floor = ordered[0].seam.is_none() != ordered[1].seam.is_none();
+            joint_tiebreak = ordered[0].seam.is_none() != ordered[1].seam.is_none();
             survivors = vec![ordered[0]];
         }
 
@@ -3005,7 +3005,7 @@ impl<'i> Engine<'i> {
         });
         Ok(TransitionTrace {
             settled,
-            joint_floor,
+            joint_tiebreak,
             prospect: ranked[&winner].prospect,
             decided_stage,
             notes,
@@ -3182,8 +3182,8 @@ fn adjustment_tokens(
     tokens
 }
 
-/// The structural floor's sort key: realizing the seam beats declining it, a lower seam beats a higher one, and the exit row's declaration index decides the rest. Realizing the left seam is the same for every candidate, because entry binding is bilateral, so it is not part of the key.
-fn floor_key(index: &SpecIndex, candidate: &Candidate) -> (usize, i64, usize) {
+/// The final tiebreak's sort key: realizing the seam beats declining it, a lower seam beats a higher one, and the exit row's declaration index decides the rest. Realizing the left seam is the same for every candidate, because entry binding is bilateral, so it is not part of the key.
+fn tiebreak_key(index: &SpecIndex, candidate: &Candidate) -> (usize, i64, usize) {
     match candidate.seam {
         Some(seam) => (
             0,
@@ -4901,7 +4901,7 @@ mod tests {
     #[test]
     fn a_packed_entry_reads_back_every_prospect_joint_flag_and_stage() {
         for prospect in [0i64, 1] {
-            for joint_floor in [false, true] {
+            for joint_tiebreak in [false, true] {
                 for stage in DecidedStage::ALL {
                     let entry = TraceEntry::new(
                         TraceSettledSeat::at(3),
@@ -4909,7 +4909,7 @@ mod tests {
                         DeltaSeat::at(7),
                         ReadsSeat::at(11),
                         prospect,
-                        joint_floor,
+                        joint_tiebreak,
                         stage,
                     );
                     assert_eq!(
@@ -4917,10 +4917,10 @@ mod tests {
                             entry.settled.index(),
                             entry.notes.index(),
                             i64::from(entry.prospect()),
-                            entry.joint_floor(),
+                            entry.joint_tiebreak(),
                             entry.decided_stage()
                         ),
-                        (3, 5, prospect, joint_floor, stage)
+                        (3, 5, prospect, joint_tiebreak, stage)
                     );
                 }
             }
@@ -5432,7 +5432,7 @@ mod tests {
             boundary_settled(index.vocab(), TokenKind::Space)
         );
         assert_eq!(trace.prospect, 0);
-        assert!(!trace.joint_floor);
+        assert!(!trace.joint_tiebreak);
         assert!(trace.ranking().ranked.is_empty());
         assert!(trace.ranking().eliminations.is_empty());
         assert!(trace.notes.is_empty());
@@ -5440,7 +5440,7 @@ mod tests {
     }
 
     #[test]
-    fn the_floor_breaks_a_realization_tie_toward_the_join_and_flags_it_joint() {
+    fn the_final_tiebreak_breaks_a_realization_tie_toward_the_join_and_flags_it_joint() {
         let index = ranking_spec(&plain_policy(), &plain_policy());
         let mut engine = Engine::new(&index, no_features());
         let trace = settle_pea(
@@ -5451,10 +5451,10 @@ mod tests {
         let stroke = fixtures::sym(&index, "stroke");
         let flourish = fixtures::sym(&index, "flourish");
         let x_height = fixtures::sym(&index, "x-height");
-        assert_eq!(trace.decided_stage, DecidedStage::Floor);
+        assert_eq!(trace.decided_stage, DecidedStage::Tiebreak);
         assert!(
-            trace.joint_floor,
-            "the floor chose between realizing the seam and declining it"
+            trace.joint_tiebreak,
+            "the final tiebreak chose between realizing the seam and declining it"
         );
         assert_eq!(trace.settled.cell.stance, stroke);
         assert_eq!(trace.settled.cell.exit, Some(x_height));

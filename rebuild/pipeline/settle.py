@@ -83,7 +83,7 @@ class RankedCandidate:
 @dataclass(frozen=True, slots=True)
 class TransitionTrace:
     settled: Settled
-    joint_floor: bool
+    joint_tiebreak: bool
     prospect: int
     ranked: tuple[RankedCandidate, ...]
     eliminations: tuple[Elimination, ...]
@@ -126,7 +126,7 @@ def isolated_overlay_traces(spec: ResolvedSpec, tokens: Sequence[RightToken]) ->
     return [
         TransitionTrace(
             settled=settled,
-            joint_floor=False,
+            joint_tiebreak=False,
             prospect=0,
             ranked=(),
             eliminations=(),

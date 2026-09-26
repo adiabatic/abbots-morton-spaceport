@@ -199,7 +199,7 @@ struct PendingDeepRow {
 }
 
 impl PendingDeepRow {
-    /// Whether a cross-check trace's record matches the representative's in the four fields a row stores: the settled triple and the notes (each read back through its pool), the prospect, and the joint-floor flag. The ranking that reached them is not compared because the row does not store it.
+    /// Whether a cross-check trace's record matches the representative's in the four fields a row stores: the settled triple and the notes (each read back through its pool), the prospect, and the joint-tiebreak flag. The ranking that reached them is not compared because the row does not store it.
     fn matches_stored_fields(
         &self,
         seats: &SettledPool,
@@ -208,7 +208,7 @@ impl PendingDeepRow {
     ) -> bool {
         cross_check.settled == *seats.get(self.settled)
             && cross_check.prospect == i64::from(self.prospect)
-            && cross_check.joint_floor == self.joint
+            && cross_check.joint_tiebreak == self.joint
             && cross_check.notes == notes.get(self.provenance)
     }
 }
@@ -299,7 +299,7 @@ fn enumerate_from_seeds<'i>(
             simulated_prospect: modes.simulated_prospect,
             follower_prefer_slots: modes.follower_prefer_slots,
             trace_memo: true,
-            // The rows read only the settled triple, the prospect, the joint floor and the notes, never how a trace was decided, and the ranking costs more than every other explain-only allocation together.
+            // The rows read only the settled triple, the prospect, the joint tiebreak and the notes, never how a trace was decided, and the ranking costs more than every other explain-only allocation together.
             explain_ranking: false,
             ..EngineModes::default()
         },
@@ -550,7 +550,7 @@ fn enumerate_from_seeds<'i>(
                                         left_settled: left_seat,
                                         provenance: notes.seat(trace.notes),
                                         prospect: prospect_byte(trace.prospect),
-                                        joint: trace.joint_floor,
+                                        joint: trace.joint_tiebreak,
                                     });
                                     trace.settled
                                 }
@@ -658,7 +658,7 @@ fn enumerate_from_seeds<'i>(
                                     left_settled: left_seat,
                                     provenance: notes.seat(trace.notes),
                                     prospect: prospect_byte(trace.prospect),
-                                    joint: trace.joint_floor,
+                                    joint: trace.joint_tiebreak,
                                 },
                             );
                             trace.settled
@@ -1141,7 +1141,7 @@ fn member_mismatch(
             index,
             &got.settled,
             got.prospect,
-            got.joint_floor,
+            got.joint_tiebreak,
             &got.notes
         ),
         stored_row_text(
@@ -2622,8 +2622,16 @@ mod tests {
             assert_eq!(back.delta(again), kept.delta(*entry));
             assert_eq!(back.reads(again), kept.reads(*entry));
             assert_eq!(
-                (again.prospect(), again.joint_floor(), again.decided_stage()),
-                (entry.prospect(), entry.joint_floor(), entry.decided_stage())
+                (
+                    again.prospect(),
+                    again.joint_tiebreak(),
+                    again.decided_stage()
+                ),
+                (
+                    entry.prospect(),
+                    entry.joint_tiebreak(),
+                    entry.decided_stage()
+                )
             );
         }
         std::fs::remove_dir_all(&dir).expect("the scratch directory is removable");

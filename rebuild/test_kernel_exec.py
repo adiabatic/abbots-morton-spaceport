@@ -225,7 +225,7 @@ class TestTheInvocationInterface:
         trace = {
             "settled": record,
             "prospect": 0,
-            "joint_floor": False,
+            "joint_tiebreak": False,
             "notes": [],
             "fired": [],
             "decided_stage": "only-candidate",
@@ -510,7 +510,7 @@ def test_the_tables_stamp_appends_exactly_the_enumeration_tokens(monkeypatch):
 
 @pytest.mark.parametrize("config", sorted(CONFIGS))
 class TestTheProductStandsAlone:
-    """Nothing folds a stream on this side, so each product is checked by itself: rows come in the key order `fold::assert_key_sorted` requires, with no duplicates, and every cell a row names is in the product. The rows' joint flags are the trace's `joint_floor` before the prospect-divergence pass; the crate test `fold::tests::the_prospect_pass_raises_joints_and_clears_none` covers that pass."""
+    """Nothing folds a stream on this side, so each product is checked by itself: rows come in the key order `fold::assert_key_sorted` requires, with no duplicates, and every cell a row names is in the product. The rows' joint flags are the trace's `joint_tiebreak` before the prospect-divergence pass; the crate test `fold::tests::the_prospect_pass_raises_joints_and_clears_none` covers that pass."""
 
     def test_the_stream_is_key_sorted_without_duplicates(self, products, config):
         keys = [row.key for row in products[config].transitions]

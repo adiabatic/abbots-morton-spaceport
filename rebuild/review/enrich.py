@@ -82,7 +82,7 @@ _STAGE_PHRASES = {
     "join-count": "join-count rank",
     "yielding-prefer": "a yielding prefer",
     "order": "declaration order",
-    "floor": "the structural floor",
+    "tiebreak": "the final tiebreak",
 }
 _HEIGHT_PHRASES = {0: "at the baseline", 5: "at the x-height", 8: "at the top"}
 _BOUNDARY_SUMMARY_NAMES = {"space": "the space", "zwnj": "◊ZWNJ", "namer-dot": "the namer dot"}

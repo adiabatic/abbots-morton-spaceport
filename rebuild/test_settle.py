@@ -230,12 +230,12 @@ def test_word_position_derivation():
 # --- synthetic specs for the stages the real records leave unexercised ---------------------
 
 
-def test_floor_breaks_realization_tie_toward_the_join_and_flags_joint():
+def test_final_tiebreak_breaks_realization_tie_toward_the_join_and_flags_joint():
     spec = fixtures.synthetic_spec()
     trace = _traces(spec, [([0xE001, 0xE002, 0xE003], ())])[0][0]
     assert trace.settled.cell == CellId("A", "stroke", None, "x-height")
-    assert trace.decided_stage == "floor"
-    assert trace.joint_floor
+    assert trace.decided_stage == "tiebreak"
+    assert trace.joint_tiebreak
 
 
 def test_follower_cell_grain_prefer_withholds_the_predecessor_exit():

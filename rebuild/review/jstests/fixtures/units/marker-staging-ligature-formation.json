@@ -438,7 +438,7 @@
     "keypath": "policy.refuse[+]",
     "suggested_record": "{left: {rune: space}, why: 'TODO'}",
     "names_provenance": [],
-    "decided_stage": "floor",
+    "decided_stage": "tiebreak",
     "schema_valid": true
    },
    "any_of": {

@@ -4,7 +4,7 @@
 //!
 //! A case line has thirteen fields: the left's kind and its record (rune, stance, entry, exit, comma-joined adjustments, seam, extension; all seven empty for a left with no record, and a height or seam empty where there is none), then the rune being settled and the four raw slots after it. Each slot is a rune name or the kind name of a boundary or unknown slot. None of these values can contain a tab or a newline.
 //!
-//! The command line chooses one of two result shapes. The trace ([`CaseResult::Trace`]) is one JSON object: the settled cell, the prospect, the joint-floor flag, the notes, and the fired delta, then the deciding stage, the runner-up, the ranked candidates, and the eliminations. The last four record how the decision was reached, and `explain` and the review corpus's explain view read them: a window can settle on the right cell for the wrong reason, and the ranking shows that. The settled-only result ([`CaseResult::SettledOnly`]) is the record alone as seven tab-separated fields in the [`settled_fields`] format, for the conform walker, which keeps only outcomes. A settlement error is the same `{"raise":…,"message":…}` object in both shapes. In the settled-only shape a reader tells it from a record by its first byte, `{`; in the trace shape, by its `raise` key.
+//! The command line chooses one of two result shapes. The trace ([`CaseResult::Trace`]) is one JSON object: the settled cell, the prospect, the joint-tiebreak flag, the notes, and the fired delta, then the deciding stage, the runner-up, the ranked candidates, and the eliminations. The last four record how the decision was reached, and `explain` and the review corpus's explain view read them: a window can settle on the right cell for the wrong reason, and the ranking shows that. The settled-only result ([`CaseResult::SettledOnly`]) is the record alone as seven tab-separated fields in the [`settled_fields`] format, for the conform walker, which keeps only outcomes. A settlement error is the same `{"raise":…,"message":…}` object in both shapes. In the settled-only shape a reader tells it from a record by its first byte, `{`; in the trace shape, by its `raise` key.
 //!
 //! The fired delta is the trace memo's journaled delta for this case's key. A missing delta is an error, not an empty list: it means this replay's key no longer matches the memo's key, or the engine has no trace memo. The settled-only result looks the delta up too without reporting it, so both shapes fail the same way.
 
@@ -189,10 +189,10 @@ fn settled_text(index: &SpecIndex, trace: &TransitionTrace, fired: &[String]) ->
         })
         .collect();
     format!(
-        "{{\"settled\":{},\"prospect\":{},\"joint_floor\":{},\"notes\":{},\"fired\":{},\"decided_stage\":{},\"runner_up\":{runner_up},\"ranked\":[{}],\"eliminations\":[{}]}}",
+        "{{\"settled\":{},\"prospect\":{},\"joint_tiebreak\":{},\"notes\":{},\"fired\":{},\"decided_stage\":{},\"runner_up\":{runner_up},\"ranked\":[{}],\"eliminations\":[{}]}}",
         settled_json(index, &trace.settled),
         trace.prospect,
-        trace.joint_floor,
+        trace.joint_tiebreak,
         strings_json(&trace.notes),
         strings_json(fired),
         json_string(trace.decided_stage.as_str()),
@@ -201,7 +201,7 @@ fn settled_text(index: &SpecIndex, trace: &TransitionTrace, fired: &[String]) ->
     )
 }
 
-/// One candidate as the trace writes it and `kernel_exec._candidate_of` reads it back into a `settle.Candidate`: the stance, its two heights, and the two indices the ranking and the floor sort on. A non-joining candidate carries the sentinel exit index (`settle._NO_EXIT_INDEX` in Python) instead of null, because the reader wants the sort key the ranking used.
+/// One candidate as the trace writes it and `kernel_exec._candidate_of` reads it back into a `settle.Candidate`: the stance, its two heights, and the two indices the ranking and the final tiebreak sort on. A non-joining candidate carries the sentinel exit index (`settle._NO_EXIT_INDEX` in Python) instead of null, because the reader wants the sort key the ranking used.
 fn candidate_json(index: &SpecIndex, candidate: &Candidate) -> String {
     format!(
         "[{},{},{},{},{}]",
@@ -454,7 +454,7 @@ mod tests {
     fn a_settled_case_carries_the_record_the_delta_and_the_ranking_that_chose_it() {
         assert_eq!(
             result_of(UNJOINED, CaseResult::Trace),
-            r#"{"settled":{"cell":["qsPea","half",null,null,[]],"seam":null,"extension":0},"prospect":0,"joint_floor":false,"notes":[],"fired":[],"decided_stage":"only-candidate","runner_up":null,"ranked":[[["half",null,null,0,9999],0,0]],"eliminations":[["lookahead-closure","qsPea.half: exit x-height has no refusal-aware acceptor cell on qsTea",null]]}"#
+            r#"{"settled":{"cell":["qsPea","half",null,null,[]],"seam":null,"extension":0},"prospect":0,"joint_tiebreak":false,"notes":[],"fired":[],"decided_stage":"only-candidate","runner_up":null,"ranked":[[["half",null,null,0,9999],0,0]],"eliminations":[["lookahead-closure","qsPea.half: exit x-height has no refusal-aware acceptor cell on qsTea",null]]}"#
         );
     }
 
@@ -464,7 +464,7 @@ mod tests {
      {
         assert_eq!(
             result_of(ORDERED, CaseResult::Trace),
-            r#"{"settled":{"cell":["qsTea","full",null,null,[]],"seam":null,"extension":0},"prospect":0,"joint_floor":false,"notes":["qsTea.yaml:policy.refuse[0]"],"fired":["qsTea.yaml:policy.refuse[0]"],"decided_stage":"order","runner_up":["half",null,null,2,9999],"ranked":[[["full",null,null,1,9999],0,0],[["half",null,null,2,9999],0,0]],"eliminations":[["lookahead-closure","qsTea.half: exit x-height has no refusal-aware acceptor cell on qsPea",null],["refuse","qsTea.half: exit baseline refused","qsTea.yaml:policy.refuse[0]"]]}"#
+            r#"{"settled":{"cell":["qsTea","full",null,null,[]],"seam":null,"extension":0},"prospect":0,"joint_tiebreak":false,"notes":["qsTea.yaml:policy.refuse[0]"],"fired":["qsTea.yaml:policy.refuse[0]"],"decided_stage":"order","runner_up":["half",null,null,2,9999],"ranked":[[["full",null,null,1,9999],0,0],[["half",null,null,2,9999],0,0]],"eliminations":[["lookahead-closure","qsTea.half: exit x-height has no refusal-aware acceptor cell on qsPea",null],["refuse","qsTea.half: exit baseline refused","qsTea.yaml:policy.refuse[0]"]]}"#
         );
     }
 

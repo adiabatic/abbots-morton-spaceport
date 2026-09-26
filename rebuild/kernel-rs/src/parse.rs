@@ -2,7 +2,7 @@
 //!
 //! Each record must have exactly the fields its dataclass in `rebuild/pipeline/model.py` declares. A missing field and an unknown field are both errors, because a dump from another `model.py` is wrong, not partial. Types are checked as Python checks them, which is stricter than JSON: a boolean is not an integer, an integer is not a boolean, and a float or an exponent-form number is not an integer. Fixed-arity tuples check their length, and a `Provenance` must be a two-element `[file, path]` array.
 //!
-//! Key order inside a record is not checked, as Python compares the field names as a set. Canonical dumps list fields in declaration order, and re-emission writes them in that order. Key order inside a mapping is preserved, because settlement depends on it (exit declaration order is the structural floor's final tiebreak) and re-emission must reproduce the dump byte for byte.
+//! Key order inside a record is not checked, as Python compares the field names as a set. Canonical dumps list fields in declaration order, and re-emission writes them in that order. Key order inside a mapping is preserved, because settlement depends on it (exit declaration order is the final tiebreak's last key) and re-emission must reproduce the dump byte for byte.
 //!
 //! Four rejections are stricter than Python's, and a canonical dump triggers none of them:
 //!

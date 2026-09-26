@@ -83,13 +83,13 @@ def test_cli_prints_the_rust_backed_report(monkeypatch, capsys):
 
 
 def _panel_report() -> ExplainReport:
-    """A hand-built report that exercises every line `render` can emit: a letter position with a ranking, an elimination with a record pointer and one without, a joint floor, a note, and a runner-up; a boundary position that splits the run; a letter position with only one candidate; and a boundary position that does not split the run."""
+    """A hand-built report that exercises every line `render` can emit: a letter position with a ranking, an elimination with a record pointer and one without, a joint tiebreak, a note, and a runner-up; a boundary position that splits the run; a letter position with only one candidate; and a boundary position that does not split the run."""
     loop = Candidate("loop", None, "x-height", 0, 0)
     grounded = Candidate("grounded", None, "baseline", 1, 1)
     hapax = Candidate("hapax", "x-height", None, 0, 0)
     first = TransitionTrace(
         settled=Settled(CellId("qsMay", "loop", None, "x-height", ("ex-ext-1",)), "x-height", 1),
-        joint_floor=True,
+        joint_tiebreak=True,
         prospect=1,
         ranked=(RankedCandidate(loop, 2, 1), RankedCandidate(grounded, 1, 0)),
         eliminations=(
@@ -100,7 +100,7 @@ def _panel_report() -> ExplainReport:
             ),
             Elimination("require", "qsMay.pulled_back: requires a live entry"),
         ),
-        decided_stage="floor",
+        decided_stage="tiebreak",
         runner_up=grounded,
         notes=("prefer applied: glyph_data/runes/qsMay.yaml:policy.prefer[1]",),
     )
@@ -108,7 +108,7 @@ def _panel_report() -> ExplainReport:
     unsplitting = TransitionTrace(boundary_settled("namer-dot"), False, 0, (), (), "boundary", None, ())
     third = TransitionTrace(
         settled=Settled(CellId("qsIt", "hapax", "x-height", None, ()), None, 0),
-        joint_floor=False,
+        joint_tiebreak=False,
         prospect=0,
         ranked=(RankedCandidate(hapax, 1, 0),),
         eliminations=(),
@@ -140,8 +140,8 @@ position 0: qsMay
   eliminated before ranking:
     - (refuse) qsMay.grounded: exit baseline refused — the grounded tail cannot reach  [glyph_data/runes/qsMay.yaml:policy.refuse[0]]
     - (require) qsMay.pulled_back: requires a live entry
-  decided by: floor (over grounded entry=none seam=baseline)
-  joint: the structural floor broke a realization tie — routed to the expensive test tier
+  decided by: tiebreak (over grounded entry=none seam=baseline)
+  joint: the final tiebreak broke a realization tie — routed to the expensive test tier
   note: prefer applied: glyph_data/runes/qsMay.yaml:policy.prefer[1]
   settled: qsMay.loop.ex-y5.ex-ext-1   seam=x-height   extension=1
 
