@@ -2,7 +2,7 @@
 
 Collects every data-expect run from the corpora in `CORPUS_FILES` with the test suite's collector and parser (imported read-only from test/test_shaping.py). Keeps the Senior runs whose text is inside the 47-symbol basis alphabet and whose stylistic-set configuration is one of the plan §5 configurations (`rowmodel.CONFIGS`). Replays each pin's per-seam expectations against this suite's own shaping and seam classification. The test suite already checks these pins against the same font, so a disagreement is treated as a validation-suite bug until shown otherwise.
 
-Nothing here reads a baseline table. A table row is a pure function of the font bytes, the alphabet, and the extractor code, and `rebuild.pipeline.baseline_subset.prove_font_provenance`, which runs on every `ensure_fresh`, checks each table header's `font_sha256` against the font that header names. So a live shaping and a table row describe the same font.
+Nothing here reads a baseline table. A table row is a pure function of the font bytes, the alphabet, and the extractor code, and `rebuild.pipeline.baseline_subset.check_font_provenance`, which runs on every `ensure_fresh`, checks each table header's `font_sha256` against the font that header names. So a live shaping and a table row describe the same font.
 
 Only the `half` and `alt` variant assertions are replayed, because those traits appear in compiled glyph names. The test suite checks the other variant assertions against compat metadata from the compiled YAML, which this module does not load, so they are skipped and counted here and the test suite keeps checking them.
 """

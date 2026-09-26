@@ -257,14 +257,14 @@ class TestEnsureFresh:
 class TestFontProvenance:
     """Every source table was extracted from the site font on disk, which the oracle's rows depend on. The site font is `make all` output, not a filter input, so rebuilding it changes no stamp key. That is why the check runs on every `ensure_fresh`, before the freshness check, and not once per refilter."""
 
-    def test_matching_headers_prove_and_return_the_tables(self, tmp_path):
+    def test_matching_headers_pass_and_return_the_tables(self, tmp_path):
         root = _seed_repo(tmp_path)
-        proven = baseline_subset.prove_font_provenance(root)
-        assert set(proven) == {
+        checked = baseline_subset.check_font_provenance(root)
+        assert set(checked) == {
             f"baseline-{config}.tsv.gz"
             for config in (baseline_subset.IDENTITY_REFERENCE,) + baseline_subset.DEFAULT_COVERED_CONFIGS
         }
-        assert set(proven.values()) == {FONT_SHA256}
+        assert set(checked.values()) == {FONT_SHA256}
         assert baseline_subset.ensure_fresh(root) is True
 
     def test_a_rewritten_site_font_refuses_before_any_freshness_check(self, tmp_path):
@@ -300,7 +300,7 @@ class TestFontProvenance:
             fh.write("# config: default\n")
             fh.write(SEED_ROWS[0] + "\n")
         with pytest.raises(baseline_subset.BaselineProvenanceError) as error:
-            baseline_subset.prove_font_provenance(root)
+            baseline_subset.check_font_provenance(root)
         message = str(error.value)
         assert "baseline-ss05.tsv.gz" in message
         assert "render_header" in message
@@ -314,7 +314,7 @@ class TestFontProvenance:
         assert FONT_RELATIVE_PATH in message
         assert "make all" in message
 
-    def test_main_hand_run_proves_provenance_first(self, tmp_path, monkeypatch):
+    def test_main_hand_run_checks_provenance_first(self, tmp_path, monkeypatch):
         root = _seed_repo(tmp_path)
         monkeypatch.setattr(baseline_subset, "REPO_ROOT", root)
         (root / FONT_RELATIVE_PATH).write_bytes(b"rebuilt out from under the tables")
@@ -461,23 +461,23 @@ def _digests_file(root):
 class TestFontProvenanceThroughAVersionBump:
     """The second step of the provenance check, over a real `sfnt`. A header whose raw digest no longer matches the font on disk passes when the digests file holds the extraction font's head- and name-blind content digest and the font on disk has the same content digest. It fails in every other case: a changed glyph, a missing or corrupt digests file, or a font that changed before it was ever checked. Only a call that passes writes the digests file."""
 
-    def test_a_proven_pass_records_the_extraction_fonts_content_digest(self, tmp_path):
+    def test_a_passing_check_records_the_extraction_fonts_content_digest(self, tmp_path):
         from rebuild.pipeline import fingerprint
 
         root, font, digest = _seed_sfnt_repo(tmp_path)
         assert not _digests_file(root).exists()
-        proven = baseline_subset.prove_font_provenance(root)
-        assert set(proven.values()) == {digest}
+        checked = baseline_subset.check_font_provenance(root)
+        assert set(checked.values()) == {digest}
         recorded = baseline_subset.read_font_content_digests(root / "rebuild" / "out")
         assert recorded == {FONT_RELATIVE_PATH: {digest: fingerprint.font_content_digest(font)}}
         assert recorded[FONT_RELATIVE_PATH][digest] != digest
         payload = json.loads(_digests_file(root).read_text())
         assert payload["format"] == baseline_subset.FONT_DIGESTS_FORMAT
         first = _digests_file(root).read_bytes()
-        baseline_subset.prove_font_provenance(root)
+        baseline_subset.check_font_provenance(root)
         assert _digests_file(root).read_bytes() == first
 
-    def test_a_head_and_name_only_rewrite_proves_without_a_refilter(self, tmp_path):
+    def test_a_head_and_name_only_rewrite_passes_without_a_refilter(self, tmp_path):
         """A version bump: `make all` rewrote the font's `head` and `name`, and the tables still name the old raw digest. The check passes, nothing is refiltered or re-extracted, and the subset stamp and digests file keep their bytes."""
         root, font, digest = _seed_sfnt_repo(tmp_path)
         assert baseline_subset.ensure_fresh(root) is True
@@ -486,18 +486,18 @@ class TestFontProvenanceThroughAVersionBump:
         before_digests = _digests_file(root).read_bytes()
         _sfnt_font(MINI_FONT, font, _bump_version)
         assert hashlib.sha256(font.read_bytes()).hexdigest() != digest
-        proven = baseline_subset.prove_font_provenance(root)
-        assert set(proven.values()) == {digest}
+        checked = baseline_subset.check_font_provenance(root)
+        assert set(checked.values()) == {digest}
         assert baseline_subset.ensure_fresh(root) is False
         assert stamp.read_bytes() == before_stamp
         assert _digests_file(root).read_bytes() == before_digests
         _sfnt_font(font, font, _bump_version)
         assert baseline_subset.ensure_fresh(root) is False
 
-    def test_a_bump_proves_from_the_earlier_digests_file_and_replaces_it(self, tmp_path):
-        """With only `EARLIER_FONT_DIGESTS_FILE` on disk, a version bump still proves from the digests it holds, and that call writes `FONT_DIGESTS_FILE` with the same digests and removes the earlier file."""
+    def test_a_bump_passes_on_the_earlier_digests_file_and_replaces_it(self, tmp_path):
+        """With only `EARLIER_FONT_DIGESTS_FILE` on disk, a version bump still passes on the digests it holds, and that call writes `FONT_DIGESTS_FILE` with the same digests and removes the earlier file."""
         root, font, digest = _seed_sfnt_repo(tmp_path)
-        baseline_subset.prove_font_provenance(root)
+        baseline_subset.check_font_provenance(root)
         recorded = json.loads(_digests_file(root).read_text())["fonts"]
         earlier = root / "rebuild" / "out" / baseline_subset.EARLIER_FONT_DIGESTS_FILE
         earlier.write_text(
@@ -505,8 +505,8 @@ class TestFontProvenanceThroughAVersionBump:
         )
         _digests_file(root).unlink()
         _sfnt_font(MINI_FONT, font, _bump_version)
-        proven = baseline_subset.prove_font_provenance(root)
-        assert set(proven.values()) == {digest}
+        checked = baseline_subset.check_font_provenance(root)
+        assert set(checked.values()) == {digest}
         assert not earlier.exists()
         payload = json.loads(_digests_file(root).read_text())
         assert payload == {"format": baseline_subset.FONT_DIGESTS_FORMAT, "fonts": recorded}
@@ -542,7 +542,7 @@ class TestFontProvenanceThroughAVersionBump:
         _sfnt_font(MINI_FONT, font, _bump_version)
         live = hashlib.sha256(font.read_bytes()).hexdigest()
         with pytest.raises(baseline_subset.BaselineProvenanceError) as error:
-            baseline_subset.prove_font_provenance(root)
+            baseline_subset.check_font_provenance(root)
         message = str(error.value)
         assert digest in message and live in message
         assert baseline_subset.FONT_DIGESTS_FILE in message
@@ -552,18 +552,18 @@ class TestFontProvenanceThroughAVersionBump:
         root, _font, _digest = _seed_sfnt_repo(tmp_path)
         _write_table(root / "rebuild" / "out" / "baseline-ss04.tsv.gz", SEED_ROWS, font_sha256="f" * 64)
         with pytest.raises(baseline_subset.BaselineProvenanceError):
-            baseline_subset.prove_font_provenance(root)
+            baseline_subset.check_font_provenance(root)
         assert not _digests_file(root).exists()
 
     def test_the_digests_file_holds_only_the_pairs_the_headers_name(self, tmp_path):
         """One entry per `(font, raw digest)` pair a header records, so a re-extraction retires the old font's entry instead of accumulating one per release."""
         root, font, digest = _seed_sfnt_repo(tmp_path)
-        baseline_subset.prove_font_provenance(root)
+        baseline_subset.check_font_provenance(root)
         _sfnt_font(MINI_FONT, font, _widen_a_glyph)
         moved = hashlib.sha256(font.read_bytes()).hexdigest()
         for config in (baseline_subset.IDENTITY_REFERENCE,) + baseline_subset.DEFAULT_COVERED_CONFIGS:
             _write_table(root / "rebuild" / "out" / f"baseline-{config}.tsv.gz", SEED_ROWS, font_sha256=moved)
-        baseline_subset.prove_font_provenance(root)
+        baseline_subset.check_font_provenance(root)
         recorded = baseline_subset.read_font_content_digests(root / "rebuild" / "out")
         assert set(recorded[FONT_RELATIVE_PATH]) == {moved}
         assert digest not in recorded[FONT_RELATIVE_PATH]
@@ -573,7 +573,7 @@ class TestFontProvenanceThroughAVersionBump:
         from rebuild.pipeline import fingerprint
 
         root = _seed_repo(tmp_path)
-        baseline_subset.prove_font_provenance(root)
+        baseline_subset.check_font_provenance(root)
         assert baseline_subset.read_font_content_digests(root / "rebuild" / "out") == {
             FONT_RELATIVE_PATH: {FONT_SHA256: FONT_SHA256}
         }

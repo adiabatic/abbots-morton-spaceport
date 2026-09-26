@@ -175,13 +175,13 @@ def _first_differing_row(left: Path, right: Path) -> tuple[str | None, str | Non
     return None, None
 
 
-def _prove_default_covered(out_dir: Path, filtered: Mapping[str, FilteredTable]) -> None:
+def _check_default_covered(out_dir: Path, filtered: Mapping[str, FilteredTable]) -> None:
     """Raise `SubsetIdentityError` unless every `DEFAULT_COVERED_CONFIGS` sub-table was written and has the same row digest as the `IDENTITY_REFERENCE` sub-table."""
     for config in DEFAULT_COVERED_CONFIGS:
         for name in (config, IDENTITY_REFERENCE):
             if name not in filtered:
                 raise SubsetIdentityError(
-                    f"subset table {name} was not written, so {config} cannot be proven row-identical to {IDENTITY_REFERENCE} — {_IDENTITY_REMEDY}"
+                    f"subset table {name} was not written, so {config} cannot be checked for row identity with {IDENTITY_REFERENCE} — {_IDENTITY_REMEDY}"
                 )
         if filtered[config].rows_sha256 == filtered[IDENTITY_REFERENCE].rows_sha256:
             continue
@@ -236,7 +236,7 @@ def refresh(repo_root: Path = REPO_ROOT) -> dict[str, str]:
     for name in sorted(_subset_outputs_on_disk(out_dir) - outputs.keys()):
         (out_dir / name).unlink()
         print(f"pruned orphaned {name}")
-    _prove_default_covered(out_dir, filtered)
+    _check_default_covered(out_dir, filtered)
     names_path = _write_subset_names(out_dir, filtered)
     payload = {
         "format": STAMP_FORMAT,
@@ -332,15 +332,15 @@ def _write_font_content_digests(baseline_dir: Path, fonts: Mapping[str, Mapping[
     (Path(baseline_dir) / EARLIER_FONT_DIGESTS_FILE).unlink(missing_ok=True)
 
 
-def prove_font_provenance(repo_root: Path = REPO_ROOT) -> dict[str, str]:
+def check_font_provenance(repo_root: Path = REPO_ROOT) -> dict[str, str]:
     """Check that every `rebuild/out/baseline-*.tsv.gz` was extracted from the font now on disk at the path its header names, and return `{table name: font_sha256}` for the tables checked.
 
-    A baseline row depends only on the font bytes, the alphabet, and the extractor code. The header's `alphabet_sha256` records the alphabet, and the determinism and header tests in rebuild/test_extractor.py cover the extractor. This check covers the font, so no stage needs to re-shape table rows to verify them. Reading each table's header and hashing the font takes milliseconds, so the check runs on every call instead of being keyed to the stamp. With no tables it checks nothing and raises nothing; `_prove_default_covered` fails on that case during the refilter.
+    A baseline row depends only on the font bytes, the alphabet, and the extractor code. The header's `alphabet_sha256` records the alphabet, and the determinism and header tests in rebuild/test_extractor.py cover the extractor. This check covers the font, so no stage needs to re-shape table rows to verify them. Reading each table's header and hashing the font takes milliseconds, so the check runs on every call instead of being keyed to the stamp. With no tables it checks nothing and raises nothing; `_check_default_covered` fails on that case during the refilter.
 
     A header whose `font_sha256` matches the font on disk passes, and the font's `head`- and `name`-blind digest (`fingerprint.font_content_digest`) is recorded under that raw digest. A header whose digest does not match passes only when `FONT_DIGESTS_FILE` holds a digest for the font it names and the font on disk has the same `head`- and `name`-blind digest, which is the case a version bump's `make all` leaves. Otherwise the call raises `BaselineProvenanceError`, and the message says whether the two fonts differ outside `head` and `name` or no digest was recorded for the extraction font. The digests file is written at the end of a call where every table passes, and only when its contents change or it is absent. It holds one entry per (font, raw digest) pair that a current header names, so it does not accumulate old fonts, and a failing call writes nothing.
     """
     baseline_dir, _ = _dirs(repo_root)
-    proven: dict[str, str] = {}
+    checked: dict[str, str] = {}
     live_digests: dict[Path, str] = {}
     live_content_digests: dict[Path, str] = {}
     recorded_content_digests = read_font_content_digests(baseline_dir)
@@ -376,17 +376,17 @@ def prove_font_provenance(repo_root: Path = REPO_ROOT) -> dict[str, str]:
                     f"{source.name} was extracted from a {font_relative} that hashed to {recorded}, but the {font_relative} on disk now hashes to {live} and differs from it outside the head and name tables — its rows are not the rows this font shapes, so {_EXTRACT_REMEDY}"
                 )
             current_content_digests.setdefault(font_relative, {})[recorded] = stored
-        proven[source.name] = recorded
+        checked[source.name] = recorded
     if current_content_digests and (
         current_content_digests != recorded_content_digests or not (baseline_dir / FONT_DIGESTS_FILE).exists()
     ):
         _write_font_content_digests(baseline_dir, current_content_digests)
-    return proven
+    return checked
 
 
 def ensure_fresh(repo_root: Path = REPO_ROOT) -> bool:
     """Check the source tables' font provenance, then refilter if the subset tables are stale, and return whether a refilter ran. Raises `BaselineProvenanceError` from the provenance check and `SubsetIdentityError` from the refilter. The provenance check runs on every call because the site font is `make all` output and not a stamp input, so it can change while the stamp key stays the same."""
-    prove_font_provenance(repo_root)
+    check_font_provenance(repo_root)
     if is_fresh(repo_root):
         return False
     refresh(repo_root)
@@ -394,7 +394,7 @@ def ensure_fresh(repo_root: Path = REPO_ROOT) -> bool:
 
 
 def main() -> None:
-    prove_font_provenance(REPO_ROOT)
+    check_font_provenance(REPO_ROOT)
     refresh(REPO_ROOT)
 
 

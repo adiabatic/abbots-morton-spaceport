@@ -4641,7 +4641,7 @@ def test_a_ligature_continuation_contraction_combines_with_a_slide(contracted_li
 
 
 @pytest.mark.parametrize("change", ["extra_pixel", "wrong_continuation", "wrong_after_entry"])
-def test_a_combined_ligature_continuation_still_proves_the_whole_compound(contracted_ligature, change):
+def test_a_combined_ligature_continuation_still_checks_the_whole_compound(contracted_ligature, change):
     window, context = contracted_ligature(combined=True, **{change: True})
     assert sv._combined_match(COMBINED_CONTRACTED_ENTRY_RULES, window, context) is None
 

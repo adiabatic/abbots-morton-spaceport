@@ -422,10 +422,10 @@ def _symptom(matcher):
 
 
 def _shapes():
-    """Print the symptom-to-shape menu from `standing_verdicts.SHAPES`: each row's name, the `match.after` field that declares it, and the symptom its matcher's docstring opens with. The menu is generated at run time, so a new shape appears in it automatically. standing_verdicts.py's module docstring describes what each shape proves."""
+    """Print the symptom-to-shape menu from `standing_verdicts.SHAPES`: each row's name, the `match.after` field that declares it, and the symptom its matcher's docstring opens with. The menu is generated at run time, so a new shape appears in it automatically. standing_verdicts.py's module docstring describes what each shape checks."""
     print(
         "delta shapes a standing-approval rule can declare — standing_verdicts.py's module docstring is the "
-        "authority on what each one proves:"
+        "authority on what each one checks:"
     )
     for name, shape in sv.SHAPES.items():
         print(f"  {name}  — declared by match.after.{shape.keyed_by}")
