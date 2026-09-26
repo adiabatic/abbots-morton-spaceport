@@ -4,7 +4,7 @@
 //!
 //! The product depends only on the set of rows, not on the traversal order, at either grain. At label grain the dedup is by window key, and a hit reuses the recorded settled state because the left label is injective into the trace's inputs, so the fired set is a union over a window set that no order changes. At class grain a fiber's row is traced at the fiber's representative, its least member under the label order (the first entry of the fiber's sorted member list), whichever item reaches the fiber first and whatever subset of it that item's pins admit. The admitted members accumulate as a union across items, which is also order-independent. The worklist is LIFO with the `seen` check at pop time, so the traversal is a fixed function of the seeds, and the two permuted-seed tests below check order-independence at each grain.
 //!
-//! In the deep world with the deep-classes flag on, the deep slots enumerate at class grain: the same static option lists, their letters split into the outcome fibers of [`crate::fiber::DeepFiberDeriver`], one in-flight row per base and fiber identity accumulating the admitted members across items, successor pins carrying those member sets instead of singletons, and a content-addressed id per multi-member set in the product's `deep_classes` map. Two checks run with it. The echo check re-traces a second member of every multi-member row at the row's real left and requires the same row-visible record. `DeepPartitionCheck` runs over the finished product before it is returned. With the flag off, or in the pinned world where class grain cannot arise, only the label-grain path runs, and the deep slots still enumerate: the rune sets and the filters decide which deep slots are live.
+//! In the deep world with the deep-classes flag on, the deep slots enumerate at class grain: the same static option lists, their letters split into the outcome fibers of [`crate::fiber::DeepFiberDeriver`], one in-flight row per base and fiber identity accumulating the admitted members across items, successor pins carrying those member sets instead of singletons, and a content-addressed id per multi-member set in the product's `deep_classes` map. Two checks run with it. The member cross-check re-traces a second member of every multi-member row at the row's real left and requires the same stored row fields. `DeepPartitionCheck` runs over the finished product before it is returned. With the flag off, or in the pinned world where class grain cannot arise, only the label-grain path runs, and the deep slots still enumerate: the rune sets and the filters decide which deep slots are live.
 //!
 //! One engine settles everything, and the two slot filters, the liveness probe and the fiber deriver all borrow it. The trace memo makes a re-reached window free, and `Engine::fired` becomes the product's `cited_provenance`, so a probe running on a second engine would silently drop entries from what the dead-policy gate sees as fired. For the same reason one liveness probe is lent to both filters and to the deriver.
 
@@ -176,7 +176,7 @@ enum Identity3 {
     Members(Vec<RightToken>),
 }
 
-/// One in-flight class-grain row: the representative trace's row-visible record, the r3 members accumulating across worklist items, and the frame the echo traces replay after the drain.
+/// One in-flight class-grain row: the representative trace's stored row fields, the r3 members accumulating across worklist items, and the frame the cross-check traces replay after the drain.
 ///
 /// The representative is the fiber's least member under the label order, the first entry of [`crate::fiber::Fiber::members`], whether or not the first item to reach the row admitted it. The r4 members carry no pins and so are complete from the first item, which is why they are a plain group here while the third slot's are a set.
 struct PendingDeepRow {
@@ -189,8 +189,8 @@ struct PendingDeepRow {
     boundary3: Option<RightToken>,
     admitted3: BTreeSet<RightToken>,
     members4: Slot4Entry,
-    rep3: RightToken,
-    rep4: Option<RightToken>,
+    traced_r3_member: RightToken,
+    traced_r4_member: Option<RightToken>,
     settled: SettledSeat,
     left_settled: Option<SettledSeat>,
     provenance: NotesSeat,
@@ -199,12 +199,17 @@ struct PendingDeepRow {
 }
 
 impl PendingDeepRow {
-    /// Whether an echo trace's record matches the representative's in the four fields a row carries: the settled triple and the notes (each read back through its pool), the prospect, and the joint-floor flag. The ranking that reached them is not compared because the row does not store it.
-    fn echoes(&self, seats: &SettledPool, notes: &NotesPool, echo: &TransitionTrace) -> bool {
-        echo.settled == *seats.get(self.settled)
-            && echo.prospect == i64::from(self.prospect)
-            && echo.joint_floor == self.joint
-            && echo.notes == notes.get(self.provenance)
+    /// Whether a cross-check trace's record matches the representative's in the four fields a row stores: the settled triple and the notes (each read back through its pool), the prospect, and the joint-floor flag. The ranking that reached them is not compared because the row does not store it.
+    fn matches_stored_fields(
+        &self,
+        seats: &SettledPool,
+        notes: &NotesPool,
+        cross_check: &TransitionTrace,
+    ) -> bool {
+        cross_check.settled == *seats.get(self.settled)
+            && cross_check.prospect == i64::from(self.prospect)
+            && cross_check.joint_floor == self.joint
+            && cross_check.notes == notes.get(self.provenance)
     }
 }
 
@@ -316,7 +321,7 @@ fn enumerate_from_seeds<'i>(
     let mut seats = SettledPool::default();
     let mut notes = NotesPool::default();
     let mut transitions: HashMap<WindowKey, Row> = HashMap::default();
-    // The in-flight class-grain rows in creation order, which the echo pass walks, and a map from each row's key to its index.
+    // The in-flight class-grain rows in creation order, which the member cross-check walks, and a map from each row's key to its index.
     let mut pending_rows: Vec<PendingDeepRow> = Vec::new();
     let mut pending_seats: HashMap<PendingKey, usize> = HashMap::default();
     let mut seen: HashSet<Item> = HashSet::default();
@@ -479,12 +484,12 @@ fn enumerate_from_seeds<'i>(
                             })),
                         };
                         // The row is traced at the fiber's least member whether or not this item's pins admit it. The fiber invariant makes every member's record the same, and tracing a fixed member makes the traced window set, and so the fired set, independent of which item reached the fiber first.
-                        let rep3 = match fiber3 {
+                        let traced_r3_member = match fiber3 {
                             Some(seat) => context.fibers[seat].members[0],
                             None => admitted3[0],
                         };
                         for members4 in slot4_entries {
-                            let rep4 = members4.as_ref().map(|group| group[0]);
+                            let traced_r4_member = members4.as_ref().map(|group| group[0]);
                             let pending_key: PendingKey = (
                                 input_label,
                                 left_label,
@@ -502,8 +507,8 @@ fn enumerate_from_seeds<'i>(
                                             left_label,
                                             labels.token(index, right1),
                                             labels.token(index, right2),
-                                            labels.token(index, rep3),
-                                            labels.slot(index, rep4),
+                                            labels.token(index, traced_r3_member),
+                                            labels.slot(index, traced_r4_member),
                                         ];
                                         return Err(partition_complaint(
                                             index,
@@ -520,7 +525,12 @@ fn enumerate_from_seeds<'i>(
                                         .transition_trace(
                                             &left,
                                             token,
-                                            Slots::new(right1, right2, rep3, rep4.unwrap_or(EDGE)),
+                                            Slots::new(
+                                                right1,
+                                                right2,
+                                                traced_r3_member,
+                                                traced_r4_member.unwrap_or(EDGE),
+                                            ),
                                         )
                                         .map_err(complaint)?;
                                     pending_seats.insert(pending_key, pending_rows.len());
@@ -534,8 +544,8 @@ fn enumerate_from_seeds<'i>(
                                         boundary3,
                                         admitted3: admitted3.iter().copied().collect(),
                                         members4: members4.clone(),
-                                        rep3,
-                                        rep4,
+                                        traced_r3_member,
+                                        traced_r4_member,
                                         settled: seats.seat(&trace.settled),
                                         left_settled: left_seat,
                                         provenance: notes.seat(trace.notes),
@@ -686,7 +696,7 @@ fn enumerate_from_seeds<'i>(
 
     let mut deep_classes: Vec<(String, Vec<String>)> = Vec::new();
     let mut named_classes: HashSet<String> = HashSet::default();
-    // The echo check, and the emission of the class rows: for every multi-member row, the last admitted third-slot member is re-traced at the row's real left (and the last r4 member at the representative third), and its whole row-visible record must equal the representative's. This checks, on every build, the virtual-left collapse the fibers rely on at real lefts, entries and adjustments.
+    // The member cross-check, and the emission of the class rows: for every multi-member row, the last admitted third-slot member is re-traced at the row's real left (and the last r4 member at the representative third), and its stored row fields must all equal the representative's. This checks, on every build, the virtual-left collapse the fibers rely on at real lefts, entries and adjustments.
     for pending in &pending_rows {
         let (label3, admitted3) = match pending.boundary3 {
             Some(token) => (labels.token(index, token), vec![token]),
@@ -727,25 +737,25 @@ fn enumerate_from_seeds<'i>(
             label3,
             label4,
         ];
-        let rep4 = pending.rep4.unwrap_or(EDGE);
+        let traced_r4_member = pending.traced_r4_member.unwrap_or(EDGE);
         if pending.boundary3.is_none() && admitted3.len() > 1 {
-            let last3 = echo_member(&admitted3, pending.rep3);
-            let echo = engine
+            let last3 = cross_check_member(&admitted3, pending.traced_r3_member);
+            let cross_check = engine
                 .transition_trace(
                     &pending.left_context,
                     pending.token,
-                    Slots::new(pending.right1, pending.right2, last3, rep4),
+                    Slots::new(pending.right1, pending.right2, last3, traced_r4_member),
                 )
                 .map_err(complaint)?;
-            if !pending.echoes(&seats, &notes, &echo) {
-                return Err(echo_mismatch(
+            if !pending.matches_stored_fields(&seats, &notes, &cross_check) {
+                return Err(member_mismatch(
                     index,
                     &labels.spelled(&window_key),
                     last3,
                     pending,
                     seats.get(pending.settled),
                     notes.get(pending.provenance),
-                    &echo,
+                    &cross_check,
                 ));
             }
         }
@@ -754,22 +764,27 @@ fn enumerate_from_seeds<'i>(
             && group.len() > 1
         {
             let last4 = group[group.len() - 1];
-            let echo = engine
+            let cross_check = engine
                 .transition_trace(
                     &pending.left_context,
                     pending.token,
-                    Slots::new(pending.right1, pending.right2, pending.rep3, last4),
+                    Slots::new(
+                        pending.right1,
+                        pending.right2,
+                        pending.traced_r3_member,
+                        last4,
+                    ),
                 )
                 .map_err(complaint)?;
-            if !pending.echoes(&seats, &notes, &echo) {
-                return Err(echo_mismatch(
+            if !pending.matches_stored_fields(&seats, &notes, &cross_check) {
+                return Err(member_mismatch(
                     index,
                     &labels.spelled(&window_key),
                     last4,
                     pending,
                     seats.get(pending.settled),
                     notes.get(pending.provenance),
-                    &echo,
+                    &cross_check,
                 ));
             }
         }
@@ -833,7 +848,7 @@ fn enumerate_from_seeds<'i>(
         ));
     }
 
-    // Taken here, before the memos are released: the drain, the sort and the partition check that follow do not change what the product reports as fired, and the partition check's re-traces are left out of it. The echo traces above are included.
+    // Taken here, before the memos are released: the drain, the sort and the partition check that follow do not change what the product reports as fired, and the partition check's re-traces are left out of it. The cross-check traces above are included.
     let cited_provenance = engine
         .fired()
         .iter()
@@ -1099,8 +1114,8 @@ fn deep_label(
     token
 }
 
-/// The member a class row's echo re-traces: the last admitted member, or the first one when the last is the representative, since echoing the representative would re-trace the window the row already carries. A representative the pins never admitted is echoed against an admitted member, which still checks the fiber at a real left.
-fn echo_member(members: &[RightToken], representative: RightToken) -> RightToken {
+/// The member a class row's cross-check re-traces: the last admitted member, or the first one when the last is the representative, since cross-checking the representative would re-trace the window the row already carries. A representative the pins never admitted is cross-checked against an admitted member, which still checks the fiber at a real left.
+fn cross_check_member(members: &[RightToken], representative: RightToken) -> RightToken {
     let last = members[members.len() - 1];
     if last == representative {
         members[0]
@@ -1109,8 +1124,8 @@ fn echo_member(members: &[RightToken], representative: RightToken) -> RightToken
     }
 }
 
-/// The echo check's `PartitionError` message: a member of a class row traced a different record than the representative, meaning the virtual-left fiber collapse fails at a real left. The representative's settled record and notes are passed in resolved, since the row holds only their indexes.
-fn echo_mismatch(
+/// The member cross-check's `PartitionError` message: a member of a class row traced a different record than the representative, meaning the virtual-left fiber collapse fails at a real left. The representative's settled record and notes are passed in resolved, since the row holds only their indexes.
+fn member_mismatch(
     index: &SpecIndex,
     key: &[&str; 6],
     member: RightToken,
@@ -1120,16 +1135,16 @@ fn echo_mismatch(
     got: &TransitionTrace,
 ) -> String {
     format!(
-        "deep-class echo mismatch at {key:?}: member {} traces {} where the representative traced {}",
+        "deep-class member mismatch at {key:?}: member {} traces {} where the representative traced {}",
         right_token_label(index, member),
-        row_record_text(
+        stored_row_text(
             index,
             &got.settled,
             got.prospect,
             got.joint_floor,
             &got.notes
         ),
-        row_record_text(
+        stored_row_text(
             index,
             expected_settled,
             i64::from(expected.prospect),
@@ -1139,8 +1154,8 @@ fn echo_mismatch(
     )
 }
 
-/// One row-visible record as the echo error names it: the four fields the check compares.
-fn row_record_text(
+/// One row's stored fields as the member-mismatch error names them: the four fields the cross-check compares.
+fn stored_row_text(
     index: &SpecIndex,
     settled: &Settled,
     prospect: i64,
@@ -2126,16 +2141,16 @@ mod tests {
         );
     }
 
-    /// The echo re-traces the last admitted member, or the first one when the last is the representative the row was built from, since a class of two would otherwise echo the window it is checked against.
+    /// The cross-check re-traces the last admitted member, or the first one when the last is the representative the row was built from, since a class of two would otherwise re-trace the window it is checked against.
     #[test]
-    fn the_echo_member_is_the_last_admitted_unless_that_is_the_representative() {
+    fn the_cross_check_member_is_the_last_admitted_unless_that_is_the_representative() {
         let index = deep_alphabet();
         let [pea, tea, may] =
             ["qsPea", "qsTea", "qsMay"].map(|name| fixtures::letter(&index, name));
-        assert_eq!(echo_member(&[pea, tea, may], pea), may);
-        assert_eq!(echo_member(&[pea, tea, may], may), pea);
-        assert_eq!(echo_member(&[pea, tea], tea), pea);
-        assert_eq!(echo_member(&[pea, tea], pea), tea);
+        assert_eq!(cross_check_member(&[pea, tea, may], pea), may);
+        assert_eq!(cross_check_member(&[pea, tea, may], may), pea);
+        assert_eq!(cross_check_member(&[pea, tea], tea), pea);
+        assert_eq!(cross_check_member(&[pea, tea], pea), tea);
     }
 
     /// Runs the partition check over a hand-built product, with each live context's fiber partition given instead of derived.

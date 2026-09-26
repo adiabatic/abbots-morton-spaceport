@@ -619,18 +619,22 @@ class TestDeepClasses:
             token = RightToken("letter", row.input_glyph.split(".")[0])
             r1tok = RightToken("letter", row.right1)
             r2tok = RightToken("letter", row.right2)
-            rep4 = right_token(representative(row.right4))
+            traced_r4_member = right_token(representative(row.right4))
             if members3 is not None:
                 for member in members3:
                     cases.append(
-                        kernel_exec.case_line(left, token, (r1tok, r2tok, RightToken("letter", member), rep4))
+                        kernel_exec.case_line(
+                            left, token, (r1tok, r2tok, RightToken("letter", member), traced_r4_member)
+                        )
                     )
                     asked.append(((index, 3), row.key, member))
             if members4 is not None:
-                rep3 = right_token(representative(row.right3))
+                traced_r3_member = right_token(representative(row.right3))
                 for member in members4:
                     cases.append(
-                        kernel_exec.case_line(left, token, (r1tok, r2tok, rep3, RightToken("letter", member)))
+                        kernel_exec.case_line(
+                            left, token, (r1tok, r2tok, traced_r3_member, RightToken("letter", member))
+                        )
                     )
                     asked.append(((index, 4), row.key, member))
 

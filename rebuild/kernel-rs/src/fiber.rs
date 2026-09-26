@@ -2,7 +2,7 @@
 //!
 //! A fiber is a set of third-slot letters that the enumeration may collapse into one row. A candidate letter `t3`'s fiber key has three parts:
 //!
-//! 1. The probe results: for every left class in [`ProspectLiveness::seat_left_classes`] and every probed coordinate, the full row-visible record, which is the settled triple, the prospect, the joint-floor flag, and the notes. An error is one of three values: E-INCOMPARABLE, E-AMBIGUOUS, or unreachable. Unreachable covers E-UNACCEPTED-EXIT and every other [`crate::error::SettleError`], as the `E-UNREACHABLE` raise does in `settle-cases` output. Merging any two of the three would merge fibers that the review corpus and the treaty fold tell apart.
+//! 1. The probe results: for every left class in [`ProspectLiveness::seat_left_classes`] and every probed coordinate, the full stored row fields, which are the settled triple, the prospect, the joint-floor flag, and the notes. An error is one of three values: E-INCOMPARABLE, E-AMBIGUOUS, or unreachable. Unreachable covers E-UNACCEPTED-EXIT and every other [`crate::error::SettleError`], as the `E-UNREACHABLE` raise does in `settle-cases` output. Merging any two of the three would merge fibers that the review corpus and the treaty fold tell apart.
 //! 2. The `fourth_slot_matters` verdict.
 //! 3. Where that verdict is true, the r4 option list [`WindowOptions::right4_options`] computes for this member. Because the key stores the computed list, a filter added to that pipeline without a key update makes [`crate::fixpoint`]'s partition assertion fail instead of silently splitting a fiber.
 //!
@@ -12,7 +12,7 @@
 //!
 //! The deriver asks for the raw filter verdict `fourth_slot_matters(family, right1, right2, t3)`, not that verdict ANDed with the depth-4 rune set. The fixpoint applies the rune set (`deep4_inputs`) separately when it decides whether a fiber's r4 groups become slot-4 entries, and the partition assertion does the same. In the deep world the rune set is every rune, so the AND changes nothing there; the pinned-world assertions still read it.
 //!
-//! The probes run on the build's own tracing engine, so their traces go into the shared memo and their fired pointers into `Engine::fired`, as the liveness probes' do. The one assumption taken from elsewhere instead of probed is the left-class collapse in [`ProspectLiveness::seat_left_classes`]. The fixpoint's echo check tests it on every build at real lefts, real entries, and real adjustments.
+//! The probes run on the build's own tracing engine, so their traces go into the shared memo and their fired pointers into `Engine::fired`, as the liveness probes' do. The one assumption taken from elsewhere instead of probed is the left-class collapse in [`ProspectLiveness::seat_left_classes`]. The fixpoint's member cross-check tests it on every build at real lefts, real entries, and real adjustments.
 
 use std::rc::Rc;
 
@@ -28,7 +28,7 @@ use crate::types::{EDGE, LeftContext, RightToken, Settled, TokenKind, UNKNOWN};
 /// The coordinates an r4-dead member is probed at. The enumeration traces such a member's row only at `EDGE` and enqueues no r4 pin, so no letter in the fourth slot is ever read for it, and probing the whole alphabet would key the fiber on windows nothing reads.
 const DEAD_FOURTH_COORDS: [RightToken; 2] = [EDGE, UNKNOWN];
 
-/// One probed window's row-visible record. A settled window keeps every field a row reports: the settled triple, the prospect, the joint-floor flag, and the notes. The three error outcomes stay distinct, because a fiber that merged an E-INCOMPARABLE window with an unreachable one would merge outcomes the review corpus and the treaty fold tell apart.
+/// One probed window's stored row fields. A settled window keeps every field a row stores: the settled triple, the prospect, the joint-floor flag, and the notes. The three error outcomes stay distinct, because a fiber that merged an E-INCOMPARABLE window with an unreachable one would merge outcomes the review corpus and the treaty fold tell apart.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 enum FiberRecord {
     Settled {
@@ -192,7 +192,7 @@ impl DeepFiberDeriver {
     }
 }
 
-/// One probed window's record: the trace's row-visible fields when the window settles, or one of the three error outcomes when it does not.
+/// One probed window's record: the trace's stored row fields when the window settles, or one of the three error outcomes when it does not.
 fn record(
     engine: &mut Engine<'_>,
     left: &LeftContext,
@@ -930,9 +930,9 @@ mod tests {
         );
     }
 
-    /// A record carries every row-visible field, so two windows that settle into one cell but report different notes or a different prospect stay two values.
+    /// A record carries every stored row field, so two windows that settle into one cell but report different notes or a different prospect stay two values.
     #[test]
-    fn a_settled_record_carries_the_whole_row_visible_trace() {
+    fn a_settled_record_carries_every_stored_row_field() {
         let index = raising_spec();
         let mut engine = engine_in(&index);
         let seat = fixtures::letter(&index, "qsPea");

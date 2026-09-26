@@ -150,7 +150,7 @@ fn raise_text(error: &SettleError) -> String {
     )
 }
 
-/// The settled trace, in the key order an answer is read in: the row-visible record and its fired delta first, then the deciding stage, the runner-up, the ranked candidates and the eliminations.
+/// The settled trace, in the key order an answer is read in: the stored row fields and their fired delta first, then the deciding stage, the runner-up, the ranked candidates and the eliminations.
 fn settled_text(index: &SpecIndex, trace: &TransitionTrace, fired: &[String]) -> String {
     let ranking = trace.ranking();
     let runner_up = match &ranking.runner_up {
