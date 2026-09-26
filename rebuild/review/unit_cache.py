@@ -261,7 +261,7 @@ def environment_stamp(
 
 
 def family_content_keys(repo_root: Path, spec: ResolvedSpec, after_font: Path) -> tuple[dict[str, str], str]:
-    """Return each family's content key, for bare letters and ligature runes alike, and the after font's helpers digest for the whole-store stamps. A family's key combines its explain-aware rune digest (prose-blind except for the refuse `why` the explain text quotes), the rune digests of its static `resolve.against` closure, which is the one way its records read another rune file directly, and the after font's compiled-glyph digest for the family."""
+    """Return each family's content key, for bare letters and ligature runes alike, and the after font's helpers digest for the whole-store stamps. A family's key combines its explain-aware rune digest (prose-insensitive except for the refuse `why` the explain text quotes), the rune digests of its static `resolve.against` closure, which is the one way its records read another rune file directly, and the after font's compiled-glyph digest for the family."""
     digests = fingerprint.rune_explain_digests(Path(repo_root))
     closure = spec_load.rune_closure(spec)
     glyph_digests, helpers = fingerprint.after_font_glyph_digests(after_font)

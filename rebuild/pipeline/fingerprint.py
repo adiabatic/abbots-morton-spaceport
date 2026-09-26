@@ -6,7 +6,7 @@ run_m1 writes the Stage A components (`data`, `baselines`, `pipeline_code`) to `
 
 `tables_value` is the source stamp a serialized window enumeration carries, so the conformance sweep can tell whether the tables on disk were built from the sources on disk. It covers only what the table fixpoint and the font compile read. Its data half, `table_data_value`, leaves out `NON_TABLE_DATA_LABELS` (the alias map, the divergence ledger, and the kern sidecar). Its code half, `table_code_paths`, leaves out `COMPARISON_CODE_MODULES` (oracle.py and oracle_positions.py). Those inputs are read only by gates that run against tables and a font already built, so editing one re-runs those gates over the enumeration on disk instead of discarding it. rebuild/test_build_code_closure.py checks that the build never imports the comparison modules.
 
-The three human-reviewed ledgers have prose-blind digests, like the rune files below:
+The three human-reviewed ledgers have prose-insensitive digests, like the rune files below:
 
 - The contact allow-list is in no component, not even `data`. Only the defect gate reads it, so its digest (`contact_allow_digest`, under `CONTACT_ALLOW_LABEL`) is only in the artifact cycle's run_m1 skip key. Changing a signature re-runs that gate without restamping the surface or dropping the review unit cache. Each entry's `why` is left out of the digest.
 - The divergence ledger is in `data` and left out of `tables_value`. `divergence_ledger_digest` hashes every field except each class's `why`. The audit, the classifier, and the census read those fields, so changing one moves `data` and the run_m1 skip key, and the cycle re-runs the comparison over the tables and font on disk. The review build copies each class's `why` into the manifest's `classes[].why`, which `check_manifest` requires, so the `why` is hashed into the Stage B `explain_prose` component through `ledger_prose_lines`. Rewording a class's `why` costs a surface rebuild served from the unit cache and nothing else.
@@ -168,7 +168,7 @@ _CODE_DIGESTS: dict[tuple[str, str], str] = {}
 
 
 def code_file_digest(path: Path) -> str:
-    """Return a prose-blind digest for a `.py` or `.rs` file (the module docstring says what the projection drops), and `file_sha256` for any other suffix. The suffix is checked before the file is opened, so a font or a baseline reaching `path_lines` is streamed and never read whole. A file that fails to parse or decode digests to its raw bytes, so two broken drafts don't share a value.
+    """Return a prose-insensitive digest for a `.py` or `.rs` file (the module docstring says what the projection drops), and `file_sha256` for any other suffix. The suffix is checked before the file is opened, so a font or a baseline reaching `path_lines` is streamed and never read whole. A file that fails to parse or decode digests to its raw bytes, so two broken drafts don't share a value.
 
     Results are memoized per process on the suffix and the raw content digest. The stamp functions ask for the same files many times in one cycle, and the projection costs far more than the raw hash. A key on size and mtime could return a stale projection for a file rewritten to the same size within one clock tick, which the tests do.
     """
@@ -411,7 +411,7 @@ def _projected_stance(stance: object) -> object:
 
 
 def _projected_rune(document: object, *, quoted_prose: bool = False) -> object:
-    """Return the prose-blind view of a parsed rune document (the module docstring says what it drops). A value shaped in a way the schema rejects, such as a non-string prose value or a non-dict ductus, passes through unchanged, so the digest still moves and the load failure stays visible. With `quoted_prose`, the `why` of refuse records is kept."""
+    """Return the prose-insensitive view of a parsed rune document (the module docstring says what it drops). A value shaped in a way the schema rejects, such as a non-string prose value or a non-dict ductus, passes through unchanged, so the digest still moves and the load failure stays visible. With `quoted_prose`, the `why` of refuse records is kept."""
     if not isinstance(document, dict):
         return document
     projected = dict(document)
@@ -450,7 +450,7 @@ def _projected_digest(path: Path, project: Callable[[object], object]) -> str:
 
 
 def rune_file_digest(path: Path) -> str:
-    """One rune file's prose-blind content digest (the module docstring holds the contract for what the projection drops)."""
+    """One rune file's prose-insensitive content digest (the module docstring holds the contract for what the projection drops)."""
     return _projected_digest(path, _projected_rune)
 
 
@@ -474,7 +474,7 @@ def _projected_allow_list(document: object) -> object:
 
 
 def contact_allow_digest(path: Path) -> str:
-    """Return the contact allow-list's prose-blind digest. Only the artifact cycle's run_m1 skip key uses it, under `CONTACT_ALLOW_LABEL`. Adding or changing a signature moves it; rewording a `why` does not."""
+    """Return the contact allow-list's prose-insensitive digest. Only the artifact cycle's run_m1 skip key uses it, under `CONTACT_ALLOW_LABEL`. Adding or changing a signature moves it; rewording a `why` does not."""
     return _projected_digest(path, _projected_allow_list)
 
 
@@ -490,7 +490,7 @@ def _projected_ledger(document: object) -> object:
 
 
 def divergence_ledger_digest(path: Path) -> str:
-    """Return the divergence ledger's prose-blind digest, which `data_lines` uses. Changing a class's fields moves it. Rewording a class's `why` does not, because `ledger_prose_lines` hashes the `why` into `explain_prose` instead."""
+    """Return the divergence ledger's prose-insensitive digest, which `data_lines` uses. Changing a class's fields moves it. Rewording a class's `why` does not, because `ledger_prose_lines` hashes the `why` into `explain_prose` instead."""
     return _projected_digest(path, _projected_ledger)
 
 
@@ -510,7 +510,7 @@ def standing_approvals_digest(path: Path) -> str:
 
 
 def _data_digest(root: Path, path: Path, runes: set[Path]) -> str:
-    """Return one data input's digest for `data_lines`: the prose-blind digest for rune files and the divergence ledger, and the raw bytes for everything else."""
+    """Return one data input's digest for `data_lines`: the prose-insensitive digest for rune files and the divergence ledger, and the raw bytes for everything else."""
     if path in runes:
         return rune_file_digest(path)
     if _label(root, path) == DIVERGENCE_LEDGER_LABEL:

@@ -85,7 +85,7 @@ def _stamp(root: Path, spec, config: str = "default") -> oracle_cache.Environmen
 
 
 def _perturb_rune(path: Path) -> None:
-    """Make a geometric edit to a rune file: the first stance with a bitmap gains or loses its top-left pixel. The edit must be geometry, because the rune digest a family key uses is prose-blind. A comment, a `ductus` rewrite, or a new `notes` paragraph would leave the key unchanged."""
+    """Make a geometric edit to a rune file: the first stance with a bitmap gains or loses its top-left pixel. The edit must be geometry, because the rune digest a family key uses is prose-insensitive. A comment, a `ductus` rewrite, or a new `notes` paragraph would leave the key unchanged."""
     document = yaml.safe_load(path.read_text(encoding="utf-8"))
     stance = next(stance for stance in document["stances"].values() if stance.get("bitmap"))
     row = stance["bitmap"][0]
@@ -930,7 +930,7 @@ def test_the_position_key_embeds_the_row_key(repo):
 
 
 def test_the_position_stamp_names_the_channel_s_code_the_toolchain_and_the_kern_sidecar(repo, tmp_path):
-    """Checks each line of the whole-store position stamp: the position channel's module, the toolchain lock that pins the shaper, and the kern sidecar's bytes each move their own named line and no other. The position stamp repeats nothing from the row stamp except `format`, so a store loads or is dropped on the row stamp alone, and the position stamp decides only whether the stored positions may be served. The classifier's module is copied beside the channel's and edited the same way, and the edit moves no line, so a classifier edit keeps every stored position. Both module edits add a statement, not a blank line, because `fingerprint.code_file_digest` is prose-blind and ignores comments, docstrings, and blank lines."""
+    """Checks each line of the whole-store position stamp: the position channel's module, the toolchain lock that pins the shaper, and the kern sidecar's bytes each move their own named line and no other. The position stamp repeats nothing from the row stamp except `format`, so a store loads or is dropped on the row stamp alone, and the position stamp decides only whether the stored positions may be served. The classifier's module is copied beside the channel's and edited the same way, and the edit moves no line, so a classifier edit keeps every stored position. Both module edits add a statement, not a blank line, because `fingerprint.code_file_digest` is prose-insensitive and ignores comments, docstrings, and blank lines."""
     spec = fixtures.mini_spec()
     kern = tmp_path / "kern.yaml"
     kern.write_text("global:\n  value: 0\n", encoding="utf-8")

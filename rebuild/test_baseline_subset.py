@@ -114,7 +114,7 @@ class TestEnsureFresh:
         assert baseline_subset.stamp_key(root) != before
 
     def test_a_docstring_reword_in_the_filter_leaves_the_key_still(self, tmp_path, monkeypatch):
-        """The filter's own code enters the key prose-blind (`fingerprint.code_file_digest`), so rewording a docstring keeps the subset on disk and a code change refilters. A copy of the module stands in for `__file__`, so the edits never touch the checkout."""
+        """The filter's own code enters the key through a prose-insensitive digest (`fingerprint.code_file_digest`), so rewording a docstring keeps the subset on disk and a code change refilters. A copy of the module stands in for `__file__`, so the edits never touch the checkout."""
         root = _seed_repo(tmp_path)
         module = tmp_path / "baseline_subset.py"
         source = Path(baseline_subset.__file__).read_text(encoding="utf-8")

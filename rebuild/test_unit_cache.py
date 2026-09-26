@@ -846,7 +846,7 @@ COMPARATOR_CODE = (
 
 
 def _stamped_root(tmp_path: Path) -> Path:
-    """Build a root holding every file the three code rosters name, each written as a Python statement so that the code line's prose-blind digest sees a real edit. The stamp tests below edit it through `_edit`, so their assertions are about the rosters, not this checkout."""
+    """Build a root holding every file the three code rosters name, each written as a Python statement so that the code line's prose-insensitive digest sees a real edit. The stamp tests below edit it through `_edit`, so their assertions are about the rosters, not this checkout."""
     root = tmp_path / "repo"
     for relative in SURFACE_UNREAD_CODE + SURFACE_ONLY_CODE + COMPARATOR_CODE:
         (root / relative).parent.mkdir(parents=True, exist_ok=True)
@@ -859,7 +859,7 @@ def _edit(root: Path, relative: str) -> None:
 
 
 def test_both_store_stamps_survive_a_pipeline_or_crate_edit_the_surface_never_reads(tmp_path):
-    """An edit to code the surface build never runs (`SURFACE_UNREAD_CODE`) changes neither stamp, so it does not cost the next build a cold units phase (`unit_cache.surface_code_paths`). An edit to a module the build runs and no signature does (`SURFACE_ONLY_CODE`) changes the unit store's stamp and leaves the signature store's alone (`unit_cache.signature_code_paths`). An edit to the comparator or a module it imports (`COMPARATOR_CODE`) changes both. The root is hand-built so the edits are to real files and the assertions are about the rosters, not this checkout; rebuild/test_review_code_closure.py checks the rosters against the walked import closure. Each file is a Python statement before and after its edit, because the code line's digest is prose-blind (`fingerprint.code_file_digest`) and falls back to raw bytes only for a file that does not parse, so a file of bare prose would test the fallback instead."""
+    """An edit to code the surface build never runs (`SURFACE_UNREAD_CODE`) changes neither stamp, so it does not cost the next build a cold units phase (`unit_cache.surface_code_paths`). An edit to a module the build runs and no signature does (`SURFACE_ONLY_CODE`) changes the unit store's stamp and leaves the signature store's alone (`unit_cache.signature_code_paths`). An edit to the comparator or a module it imports (`COMPARATOR_CODE`) changes both. The root is hand-built so the edits are to real files and the assertions are about the rosters, not this checkout; rebuild/test_review_code_closure.py checks the rosters against the walked import closure. Each file is a Python statement before and after its edit, because the code line's digest is prose-insensitive (`fingerprint.code_file_digest`) and falls back to raw bytes only for a file that does not parse, so a file of bare prose would test the fallback instead."""
     spec = fixtures.mini_spec()
     root = _stamped_root(tmp_path)
 

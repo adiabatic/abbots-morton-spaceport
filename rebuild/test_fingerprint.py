@@ -1,4 +1,4 @@
-"""Tests for rebuild/pipeline/fingerprint.py: the streamed file digest and the sweep that checks no rebuild/ module hashes a file read whole, the path hashes (content sensitivity, order independence, missing files), the baselines component, the Stage A record, the prose-blind rune, ledger, code, lock, and font digests, and the explain-aware rune digest and `explain_prose` component, and the gate closures that hash code raw.
+"""Tests for rebuild/pipeline/fingerprint.py: the streamed file digest and the sweep that checks no rebuild/ module hashes a file read whole, the path hashes (content sensitivity, order independence, missing files), the baselines component, the Stage A record, the prose-insensitive rune, ledger, code, lock, and font digests, and the explain-aware rune digest and `explain_prose` component, and the gate closures that hash code raw.
 
 `file_sha256` streams a file so that hashing it never holds the whole file in memory. That helps only if every hash in rebuild/ goes through it, so the read-whole sweep checks this in code; a list of callers in a docstring would go stale unnoticed. Modules that cannot import fingerprint copy the streamed read inline, and a test here checks that each copy returns the same value as `file_sha256`.
 """
@@ -258,7 +258,7 @@ def test_table_data_lines_drop_exactly_the_comparison_side_inputs(tmp_path):
 def test_a_comparison_side_data_edit_moves_the_run_key_but_not_the_tables_stamp(tmp_path):
     """Editing an input in `NON_TABLE_DATA_LABELS` moves `data_value` and the run_m1 skip key but not `tables_value`. The oracle reads the alias map and the divergence ledger to name and classify divergences, and only `oracle_positions.KernEvaluator` reads the kern sidecar (the font compile never opens it), so an enumeration built before the edit still matches its sources and `--gates-only` can re-run the comparison over it. The run_m1 key still moves, so the gates still re-run.
 
-    The edit is structural because the divergence ledger hashes prose-blind, so a comment-only edit to it would move nothing.
+    The edit is structural because the divergence ledger's hash ignores prose, so a comment-only edit to it would move nothing.
     """
     root = _fake_repo(tmp_path)
     assert "glyph_data/senior_quikscript_kerning.yaml" in fingerprint.NON_TABLE_DATA_LABELS
@@ -312,7 +312,7 @@ def test_wording_a_bless_or_reformatting_the_allow_list_moves_nothing(tmp_path):
     assert _allow_after(root, ALLOW_LIST.replace("- signature:", "\n- signature:")) == before
 
 
-def test_contact_allow_digest_is_prose_blind_and_falls_back_to_bytes(tmp_path):
+def test_contact_allow_digest_ignores_prose_and_falls_back_to_bytes(tmp_path):
     """A signature change moves the digest and a `why` change does not. A malformed allow-list digests to its raw bytes, so two different broken drafts get different values; `defects.run_gates` rejects either one."""
     path = tmp_path / "m1-contact-allow.yaml"
     path.write_text(ALLOW_LIST)
@@ -373,7 +373,7 @@ def _ledger_digest(path, text):
     return fingerprint.divergence_ledger_digest(path)
 
 
-def test_divergence_ledger_digest_is_prose_blind_and_falls_back_to_bytes(tmp_path):
+def test_divergence_ledger_digest_ignores_prose_and_falls_back_to_bytes(tmp_path):
     """Every ledger field except `why` moves the digest, since `audit.load_ledger`, `oracle.classify_divergence`, and the census read them: changing a class's status, its `no_verdict` flag, its count, or an exemplar, or adding a class. Rewording a `why`, editing a comment, or reformatting moves nothing. A malformed ledger digests to its raw bytes, so two broken drafts get different values."""
     path = tmp_path / "m1-divergences.yaml"
     parsed = _ledger_digest(path, LEDGER)
@@ -404,7 +404,7 @@ def _standing_digest(path, text):
     return fingerprint.standing_approvals_digest(path)
 
 
-def test_standing_approvals_digest_is_note_blind_and_falls_back_to_bytes(tmp_path):
+def test_standing_approvals_digest_ignores_notes_and_falls_back_to_bytes(tmp_path):
     """`verdict`, `match`, and `except_left` move the digest; a rule's `note` and the file's comments don't. Only the artifact cycle's rebuild-lane closure reads this digest. The plumbing key hashes the file raw, because the standing fill copies each `note` into the verdicts it writes. A malformed file digests to its raw bytes."""
     path = tmp_path / "standing-approvals.yaml"
     parsed = _standing_digest(path, STANDING)
@@ -667,7 +667,7 @@ def _ledger_components(root, text):
     return fingerprint.compute_all(root)
 
 
-def test_the_divergence_ledger_line_carries_the_prose_blind_digest(tmp_path):
+def test_the_divergence_ledger_line_carries_the_prose_insensitive_digest(tmp_path):
     """The ledger's `data_lines` entry uses `divergence_ledger_digest`, and the ledger is in `NON_TABLE_DATA_LABELS`. `_data_digest` picks the digest by label, so this also checks that the ledger's path in `data_paths` matches `DIVERGENCE_LEDGER_LABEL`; a mismatch would hash the ledger raw."""
     root = _fake_repo(tmp_path)
     ledger = root / fingerprint.DIVERGENCE_LEDGER_LABEL
@@ -762,7 +762,7 @@ def test_data_value_tracks_non_rune_data_bytes(tmp_path):
     assert fingerprint.data_value(root) != before
 
 
-def test_stage_a_data_component_is_the_prose_blind_value(tmp_path):
+def test_stage_a_data_component_is_the_prose_insensitive_value(tmp_path):
     root = _fake_repo(tmp_path)
     assert fingerprint.stage_a(root)["data"] == fingerprint.data_value(root)
 
@@ -794,7 +794,7 @@ def _code_digest(path, text):
     return fingerprint.code_file_digest(path)
 
 
-def test_code_digest_is_docstring_blind_for_python(tmp_path):
+def test_code_digest_ignores_docstrings_for_python(tmp_path):
     """Rewording a module, class, method, or function docstring, adding a `#` comment, or changing blank lines leaves the digest unchanged. Changing an identifier, a non-docstring string (error text a matcher compares against), an annotation, a default, or a decorator moves it. Removing a docstring moves it too, because the projection keeps each docstring's presence, as the rune projection keeps each `why`'s."""
     path = tmp_path / "module.py"
     parsed = _code_digest(path, PYTHON_MODULE)

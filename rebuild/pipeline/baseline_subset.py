@@ -147,7 +147,7 @@ def _subset_path(out_dir: Path, config: str) -> Path:
 
 
 def stamp_key(repo_root: Path = REPO_ROOT) -> str:
-    """The content key the stamp records: a hash of the alphabet, the source tables, and this module's code. The source tables enter through the size-plus-digests proxy of `fingerprint.baselines_value`, so a freshness check reads no source table. The code enters through the prose-blind `fingerprint.code_file_digest`, so a code change forces a refilter and a docstring edit does not."""
+    """The content key the stamp records: a hash of the alphabet, the source tables, and this module's code. The source tables enter through the size-plus-digests proxy of `fingerprint.baselines_value`, so a freshness check reads no source table. The code enters through the prose-insensitive `fingerprint.code_file_digest`, so a code change forces a refilter and a docstring edit does not."""
     lines = [
         "alphabet\t" + ",".join(f"{codepoint:04X}" for codepoint in sorted(M1_ALPHABET)),
         f"baselines\t{fingerprint.baselines_value(Path(repo_root))}",

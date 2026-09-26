@@ -27,7 +27,7 @@ Git holds the history, so a checked-in note earns its place only by recording th
   - There, `why:` is the user's rationale in the user's voice, and its durable home: other files may point at a `why:` but never re-narrate it.
   - The rule is scoped exactly that narrowly: the `why:` fields in `rebuild/m1-contact-allow.yaml` and `rebuild/m1-divergences.yaml` are agent-written.
     - Draft them yourself in the surrounding idiom; "Human-reviewed" there means the user decides whether the entry belongs, not who drafts the sentence.
-  - Both ledgers hash prose-blind, so rewording a `why:` re-runs no gate.
+  - Both ledgers' hashes ignore prose, so rewording a `why:` re-runs no gate.
 - When a request names a letter ("after ·Pea") and the family has several variants (half/full, alt, `en-y6`, `ex-y0`, …), don't default to a bare `{family: qsX}` selector: enumerate the variants from `glyph_data/quikscript.yaml` and ask which subset is meant.
 - A join change is pair-wide: the two letters that bound the space decide it, never the letter's word position. Never author word-initial, word-final, or isolated special treatment (`word:`, a `self:` guard that only a word edge satisfies, a follower-scoped carve-out) unless The Manual mandates it. A mechanical constraint that happens to exclude a cell (a `bind:` that cannot coexist with an onward exit) is not a treatment, but say so in the commit message.
 - Say what you mean: mannered prose substitutes metaphor and flourish for direct statement ("a dial worth turning" for "a parameter worth varying"), makes the reader work harder, and drags in connotations the writer did not choose. When a literal phrase is available, use it.
@@ -112,7 +112,7 @@ Git holds the history, so a checked-in note earns its place only by recording th
 - `make review-serve` serves the rebuild review surface on `http://localhost:7294/`.
 - When the user asks whether everything is ready to verdict, run `make verdict-ready` — never reason it out from the git log. The app’s banner shows the same status.
 - `make review-cycle` is the hands-off loop: the artifact cycle, then serve (`SERVE=0` or `SERVE=bg` for a caller that must terminate). `make artifact-cycle` is the same verification without the serve, the form for commit time.
-  - `doc/review-cycle.md` is the runbook: what a pass skips, which fingerprints are prose-blind, when the server comes down, the verdict store and journal, retention, logs, and timings.
+  - `doc/review-cycle.md` is the runbook: what a pass skips, which hashes ignore prose, when the server comes down, the verdict store and journal, retention, logs, and timings.
   - Every non-rehearsal pass rewrites `rebuild/review-census-pins.json` and prints its diff; committing that diff accepts the census, so read the `invariant` block before committing.
 
 ## YAML files

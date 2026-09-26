@@ -3888,7 +3888,7 @@ def test_a_missing_allow_list_contributes_no_line(tmp_path):
     assert fingerprint.CONTACT_ALLOW_LABEL not in ac.run_m1_skip_files(root)
 
 
-def test_the_allow_list_line_is_prose_blind(tmp_path):
+def test_the_allow_list_line_ignores_prose(tmp_path):
     """Adding a contact signature must change this key, because the defect gate is the only stage that reads the file. Rewording a `why` or adding a comment must not, because re-running the gates for it would prove nothing new."""
     from rebuild.pipeline import fingerprint
 
@@ -3901,7 +3901,7 @@ def test_the_allow_list_line_is_prose_blind(tmp_path):
     assert ac.run_m1_skip_fingerprint(root) != before
 
 
-def test_the_divergence_ledger_line_is_prose_blind(tmp_path):
+def test_the_divergence_ledger_line_ignores_prose(tmp_path):
     """Reclassifying a divergence class must change this key, because the oracle reads the ledger to classify rows. Rewording a class's `why` must not, because no classifier reads it. The review build copies the `why` into the manifest and the Stage B `explain_prose` component hashes it, so a reword costs a surface rebuild served from the unit cache and no re-adjudication."""
     from rebuild.pipeline import fingerprint
 
@@ -4251,7 +4251,7 @@ def test_an_absent_artifact_hashes_to_a_sentinel_rather_than_raising(tmp_path):
 
 
 @pytest.mark.parametrize("lane", ac.REBUILD_LANES)
-def test_both_lane_fingerprints_are_prose_blind_for_runes(lane, tmp_path):
+def test_both_lane_fingerprints_ignore_prose_in_runes(lane, tmp_path):
     """The lane key includes the rune files, because contracts tests load the live spec. A structural edit to a rune changes the key, and a ductus prose edit does not."""
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
     (tmp_path / "glyph_data" / "runes").mkdir(parents=True)
@@ -4265,8 +4265,8 @@ def test_both_lane_fingerprints_are_prose_blind_for_runes(lane, tmp_path):
 
 
 @pytest.mark.parametrize("lane", ac.REBUILD_LANES)
-def test_both_lane_fingerprints_are_prose_blind_for_the_ledgers(lane, tmp_path):
-    """The closure includes the divergence ledger and the standing approvals, hashed prose-blind like a rune. Tests across the suite read the census facts and class ids from the divergence ledger and each rule's `match` from the standing approvals, never a `why` or `note`, so re-running the suite after a reword would reproduce the same result. Reclassifying a class or changing a rule's verdict still changes the key."""
+def test_both_lane_fingerprints_ignore_prose_in_the_ledgers(lane, tmp_path):
+    """The closure includes the divergence ledger and the standing approvals, with prose-insensitive hashes like a rune's. Tests across the suite read the census facts and class ids from the divergence ledger and each rule's `match` from the standing approvals, never a `why` or `note`, so re-running the suite after a reword would reproduce the same result. Reclassifying a class or changing a rule's verdict still changes the key."""
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
     (tmp_path / "rebuild").mkdir()
     ledger = tmp_path / "rebuild" / "m1-divergences.yaml"
@@ -5966,7 +5966,7 @@ def test_run_m1_failure_still_leaves_the_rebuild_suite_not_run(monkeypatch, caps
 
 
 def test_plumbing_skip_fingerprint_moves_with_every_input(tmp_path):
-    """The plumbing key moves with every input. The standing approvals are hashed by raw bytes here, although the rebuild lanes hash them prose-blind: the fill copies each rule's `note` into the verdict note it writes, so a reworded note changes what the chain writes and must re-run it."""
+    """The plumbing key moves with every input. The standing approvals are hashed by raw bytes here, although the rebuild lanes give them a prose-insensitive hash: the fill copies each rule's `note` into the verdict note it writes, so a reworded note changes what the chain writes and must re-run it."""
     surface = tmp_path / "review"
     surface.mkdir()
     (surface / "manifest.json").write_text(

@@ -7301,7 +7301,7 @@ def test_the_memo_stamp_is_blind_to_the_rules_file(tmp_path):
 
 
 def test_the_memo_stamp_holds_still_across_a_docstring_edit(tmp_path):
-    """The stamp hashes the deciding code through `fingerprint.hash_paths`, whose per-file digest is prose-blind. Rewording a docstring in any module `MEMO_CODE_MODULES` names leaves the stamp unchanged, so the memo is still served, and a statement edit in the same module changes it. Without this, a reworded docstring in the unit index would recompute the whole domain. The test builds a root with a file at every roster path, so it checks the roster and not this checkout."""
+    """The stamp hashes the deciding code through `fingerprint.hash_paths`, whose per-file digest is prose-insensitive. Rewording a docstring in any module `MEMO_CODE_MODULES` names leaves the stamp unchanged, so the memo is still served, and a statement edit in the same module changes it. Without this, a reworded docstring in the unit index would recompute the whole domain. The test builds a root with a file at every roster path, so it checks the roster and not this checkout."""
     root = tmp_path / "repo"
     for relative in sv.MEMO_CODE_MODULES:
         (root / relative).parent.mkdir(parents=True, exist_ok=True)

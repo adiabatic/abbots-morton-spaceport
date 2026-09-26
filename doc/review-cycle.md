@@ -37,7 +37,7 @@ Every non-rehearsal pass rewrites `rebuild/review-census-pins.json` from the cen
 - The `invariant` block records which classes the surface ships, which ones the build machine-approves, which are exempt from individual verdicts, and which verdict families the corpus reaches. When it changed, the line names the change (`classes +1 (…)`, `machine-approved -1 (…)`, `families +1 (…)`) and the block's own diff is printed under the census banner, without the volatile hunks. This is the diff to read carefully before committing.
 - The `census reach` line compares the ledger's `ink_identical` and `no_verdict` declarations with what the corpus reached. It reports how many classes approve units and which of those the ledger never declared, which declared classes approve none, and which ledger entries and exemptions no unit reached. Neither the ledger nor the pins shows this by itself. `census.reach` in `rebuild/review/census.py` is the authority, and `cycle_summary.json` stores the sets under `census_reach_sets`.
 
-## What is prose-blind
+## Which hashes ignore prose
 
 The fingerprints for the table build, the conform sweep, and the rebuild suite's one lane (`contracts`) ignore prose in rune files and ledgers, so rewording those triggers no heavy rebuild. Code-file prose is covered in the last item below. `rebuild/pipeline/fingerprint.py` is the authority. In outline:
 
