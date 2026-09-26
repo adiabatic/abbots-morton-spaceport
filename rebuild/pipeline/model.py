@@ -180,7 +180,7 @@ class Stance:
 
 @dataclass(frozen=True)
 class PolicyRecord:
-    """One rider (refuse, prefer, extend, contract, or resolve), in the record shape of design section 3.3. `id` lets a resolve's `against:` name the record. `against`, `pick`, and `migrated` are used only by resolve records (design section 5.8)."""
+    """One policy record (refuse, prefer, extend, contract, or resolve), in the record shape of design section 3.3. `id` lets a resolve's `against:` name the record. `against`, `pick`, and `migrated` are used only by resolve records (design section 5.8)."""
 
     kind: str
     when: When = field(default_factory=When)

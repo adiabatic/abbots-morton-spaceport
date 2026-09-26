@@ -1,6 +1,6 @@
-# Rebuild design: stance surfaces, riders, and the settled pipeline
+# Rebuild design: stance surfaces, policy records, and the settled pipeline
 
-This is the design for the rebuild whose requirements are in [core-idea.md](core-idea.md). Core-idea says _what the system is for_; this document says _what the YAML looks like and what the code does_. It combines four candidate designs (join-surface-first, rider-conditions, negotiation-protocol, and a conservative-reform control) that were scored against core-idea's requirements and then reviewed adversarially. The structure is the join-surface-first design, with specific mechanisms taken from the other three where the scoring found them better.
+This is the design for the rebuild whose requirements are in [core-idea.md](core-idea.md). Core-idea says _what the system is for_; this document says _what the YAML looks like and what the code does_. It combines four candidate designs (join-surface-first, policy-conditions, negotiation-protocol, and a conservative-reform control) that were scored against core-idea's requirements and then reviewed adversarially. The structure is the join-surface-first design, with specific mechanisms taken from the other three where the scoring found them better.
 
 ## 0. Two findings that frame everything
 
@@ -125,9 +125,9 @@ Key by key:
 
 **The derived view.** The derived view is a designed, generated, diffable report of each rune's complete capability matrix (entries × exits × pairings × unlocks × row scopes, per stylistic-set configuration). It is the join surface that core-idea says is “derived from the stance set and shown to the author”, and it is meant to be the first thing a reader or agent consults. No target generates it yet. The pipeline generates the settlement and treaty tables of §8, and the emitted FEA comments each settlement rule with the records that shaped it.
 
-### 3.3 Policy: five rider kinds
+### 3.3 Policy: five policy record kinds
 
-All contextual behavior is attached to existing stances or to the rune through five rider kinds: `refuse`, `prefer`, `extend`, `contract`, and `resolve`. Two more policy keys are not riders: `order:`, the rune's stance preference list, and `groups:`, rune-local named sets. None of them adds a stance. A rider names its target with optional keys (`stance:`, `cell:`, or `entry:`/`exit:` with a height) and its context with a `when:` condition from the closed vocabulary of §3.4. `when:` is required on refuse, extend, and contract records and optional on prefer and resolve records. The stance-target key is always `stance:`.
+All contextual behavior is attached to existing stances or to the rune through five policy record kinds: `refuse`, `prefer`, `extend`, `contract`, and `resolve`. Two more policy keys are not policy records: `order:`, the rune's stance preference list, and `groups:`, rune-local named sets. None of them adds a stance. A policy record names its target with optional keys (`stance:`, `cell:`, or `entry:`/`exit:` with a height) and its context with a `when:` condition from the closed vocabulary of §3.4. `when:` is required on refuse, extend, and contract records and optional on prefer and resolve records. The stance-target key is always `stance:`.
 
 ```yaml
 policy:

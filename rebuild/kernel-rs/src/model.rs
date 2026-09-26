@@ -151,7 +151,7 @@ pub struct Rune {
     pub policy: Policy,
 }
 
-/// A rune's riders, each list in declaration order, which is the order settlement gathers them in.
+/// A rune's policy records, each list in declaration order, which is the order settlement gathers them in.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Policy {
     pub order: Vec<Sym>,
@@ -163,7 +163,7 @@ pub struct Policy {
     pub groups: Table<Vec<Sym>>,
 }
 
-/// One rider in the single grammatical shape all five kinds share.
+/// One policy record in the single grammatical shape all five kinds share.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PolicyRecord {
     pub kind: Sym,
@@ -187,7 +187,7 @@ pub struct PolicyRecord {
     pub provenance: Option<Provenance>,
 }
 
-/// The conditions under which a rider or an unlock applies.
+/// The conditions under which a policy record or an unlock applies.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct When {
     pub left: Option<Condition>,
