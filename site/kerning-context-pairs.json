@@ -17,7 +17,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -39,7 +39,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -61,7 +61,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -83,7 +83,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -107,7 +107,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -127,7 +127,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -149,7 +149,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -171,7 +171,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -195,7 +195,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -215,7 +215,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -237,7 +237,7 @@
       "beforeEnd": 1,
       "junctionEnd": 3,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -259,7 +259,7 @@
       "beforeEnd": 3,
       "junctionEnd": 5,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -283,7 +283,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -303,7 +303,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -325,7 +325,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -347,7 +347,7 @@
       "beforeEnd": 3,
       "junctionEnd": 5,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -371,7 +371,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -391,7 +391,7 @@
       "beforeEnd": 1,
       "junctionEnd": 3,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -415,7 +415,7 @@
       "beforeEnd": 1,
       "junctionEnd": 3,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -435,7 +435,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     }
   ],
@@ -501,7 +501,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -521,7 +521,7 @@
       "beforeEnd": 2,
       "junctionEnd": 4,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -543,7 +543,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -565,7 +565,7 @@
       "beforeEnd": 3,
       "junctionEnd": 5,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -589,7 +589,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -609,7 +609,7 @@
       "beforeEnd": 1,
       "junctionEnd": 3,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -631,7 +631,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -653,7 +653,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -677,7 +677,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -697,7 +697,7 @@
       "beforeEnd": 1,
       "junctionEnd": 3,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -719,7 +719,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -741,7 +741,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -763,7 +763,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -785,7 +785,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -807,7 +807,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -829,7 +829,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -1081,7 +1081,7 @@
       "beforeEnd": 1,
       "junctionEnd": 3,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -1101,7 +1101,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -1123,7 +1123,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -1145,7 +1145,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -1189,7 +1189,7 @@
       "beforeEnd": 1,
       "junctionEnd": 3,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -1211,7 +1211,7 @@
       "beforeEnd": 1,
       "junctionEnd": 3,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -1233,7 +1233,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -1255,7 +1255,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -1299,7 +1299,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -1321,7 +1321,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -1499,7 +1499,7 @@
       "beforeEnd": 1,
       "junctionEnd": 3,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -1519,7 +1519,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -1585,7 +1585,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -1607,7 +1607,7 @@
       "beforeEnd": 2,
       "junctionEnd": 4,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -1717,7 +1717,7 @@
       "beforeEnd": 1,
       "junctionEnd": 3,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -1739,7 +1739,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -1761,7 +1761,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -1783,7 +1783,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -1807,7 +1807,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -1827,7 +1827,7 @@
       "beforeEnd": 4,
       "junctionEnd": 6,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -1849,7 +1849,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -1871,7 +1871,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -1961,7 +1961,7 @@
       "beforeEnd": 1,
       "junctionEnd": 3,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -1981,7 +1981,7 @@
       "beforeEnd": 6,
       "junctionEnd": 8,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -2003,7 +2003,7 @@
       "beforeEnd": 3,
       "junctionEnd": 5,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -2025,7 +2025,7 @@
       "beforeEnd": 6,
       "junctionEnd": 8,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -2069,7 +2069,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -2091,7 +2091,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -2203,7 +2203,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -2223,7 +2223,7 @@
       "beforeEnd": 2,
       "junctionEnd": 4,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -2267,7 +2267,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     }
   ],
@@ -2377,7 +2377,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -2397,7 +2397,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -2421,7 +2421,7 @@
       "beforeEnd": 1,
       "junctionEnd": 3,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -2441,7 +2441,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     }
   ],
@@ -2465,7 +2465,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -2485,7 +2485,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -2507,7 +2507,7 @@
       "beforeEnd": 2,
       "junctionEnd": 4,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -2529,7 +2529,7 @@
       "beforeEnd": 2,
       "junctionEnd": 4,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -2553,7 +2553,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -2573,7 +2573,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -2595,7 +2595,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -2617,7 +2617,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -2639,7 +2639,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -2661,7 +2661,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -2683,7 +2683,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -2705,7 +2705,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -2727,7 +2727,7 @@
       "beforeEnd": 1,
       "junctionEnd": 3,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -2749,7 +2749,7 @@
       "beforeEnd": 4,
       "junctionEnd": 6,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -2855,7 +2855,7 @@
       "beforeEnd": 1,
       "junctionEnd": 3,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -2877,7 +2877,7 @@
       "beforeEnd": 4,
       "junctionEnd": 6,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -3127,7 +3127,7 @@
       "beforeEnd": 4,
       "junctionEnd": 6,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -3149,7 +3149,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -3195,7 +3195,7 @@
       "beforeEnd": 1,
       "junctionEnd": 3,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -3215,7 +3215,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -3239,7 +3239,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -3259,7 +3259,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -3281,7 +3281,7 @@
       "beforeEnd": 1,
       "junctionEnd": 3,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -3303,7 +3303,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -3325,7 +3325,7 @@
       "beforeEnd": 1,
       "junctionEnd": 3,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -3347,7 +3347,7 @@
       "beforeEnd": 2,
       "junctionEnd": 4,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -3369,7 +3369,7 @@
       "beforeEnd": 1,
       "junctionEnd": 3,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -3391,7 +3391,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -3413,7 +3413,7 @@
       "beforeEnd": 7,
       "junctionEnd": 9,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -3435,7 +3435,7 @@
       "beforeEnd": 3,
       "junctionEnd": 5,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -3459,7 +3459,7 @@
       "beforeEnd": 1,
       "junctionEnd": 3,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -3479,7 +3479,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -3501,7 +3501,7 @@
       "beforeEnd": 4,
       "junctionEnd": 6,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -3523,7 +3523,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -3545,7 +3545,7 @@
       "beforeEnd": 5,
       "junctionEnd": 7,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -3567,7 +3567,7 @@
       "beforeEnd": 3,
       "junctionEnd": 5,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -3591,7 +3591,7 @@
       "beforeEnd": 1,
       "junctionEnd": 3,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -3611,7 +3611,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -3635,7 +3635,7 @@
       "beforeEnd": 1,
       "junctionEnd": 3,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -3655,7 +3655,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -3677,7 +3677,7 @@
       "beforeEnd": 2,
       "junctionEnd": 4,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -3699,7 +3699,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -3721,7 +3721,7 @@
       "beforeEnd": 1,
       "junctionEnd": 3,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -3743,7 +3743,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -3767,7 +3767,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -3787,7 +3787,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -3809,7 +3809,7 @@
       "beforeEnd": 1,
       "junctionEnd": 3,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -3831,7 +3831,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -3855,7 +3855,7 @@
       "beforeEnd": 1,
       "junctionEnd": 3,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -3875,7 +3875,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -3899,7 +3899,7 @@
       "beforeEnd": 2,
       "junctionEnd": 4,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -3919,7 +3919,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -3941,7 +3941,7 @@
       "beforeEnd": 2,
       "junctionEnd": 4,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -3963,7 +3963,7 @@
       "beforeEnd": 3,
       "junctionEnd": 5,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -3985,7 +3985,7 @@
       "beforeEnd": 1,
       "junctionEnd": 3,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -4007,7 +4007,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -4029,7 +4029,7 @@
       "beforeEnd": 1,
       "junctionEnd": 3,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -4051,7 +4051,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -4073,7 +4073,7 @@
       "beforeEnd": 1,
       "junctionEnd": 3,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -4095,7 +4095,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -4117,7 +4117,7 @@
       "beforeEnd": 1,
       "junctionEnd": 3,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -4139,7 +4139,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -4161,7 +4161,7 @@
       "beforeEnd": 1,
       "junctionEnd": 3,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -4183,7 +4183,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -4207,7 +4207,7 @@
       "beforeEnd": 2,
       "junctionEnd": 4,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -4227,7 +4227,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -4251,7 +4251,7 @@
       "beforeEnd": 1,
       "junctionEnd": 3,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -4271,7 +4271,7 @@
       "beforeEnd": 5,
       "junctionEnd": 7,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -4295,7 +4295,7 @@
       "beforeEnd": 2,
       "junctionEnd": 4,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -4317,7 +4317,7 @@
       "beforeEnd": 2,
       "junctionEnd": 4,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -4337,7 +4337,7 @@
       "beforeEnd": 1,
       "junctionEnd": 3,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -4361,7 +4361,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -4385,7 +4385,7 @@
       "beforeEnd": 1,
       "junctionEnd": 3,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -4405,7 +4405,7 @@
       "beforeEnd": 3,
       "junctionEnd": 5,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -4429,7 +4429,7 @@
       "beforeEnd": 1,
       "junctionEnd": 3,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -4449,7 +4449,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -4471,7 +4471,7 @@
       "beforeEnd": 1,
       "junctionEnd": 3,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -4493,7 +4493,7 @@
       "beforeEnd": 1,
       "junctionEnd": 3,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -4515,7 +4515,7 @@
       "beforeEnd": 1,
       "junctionEnd": 3,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -4537,7 +4537,7 @@
       "beforeEnd": 2,
       "junctionEnd": 4,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -4559,7 +4559,7 @@
       "beforeEnd": 1,
       "junctionEnd": 3,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -4581,7 +4581,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -4603,7 +4603,7 @@
       "beforeEnd": 1,
       "junctionEnd": 3,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -4625,7 +4625,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -4647,7 +4647,7 @@
       "beforeEnd": 1,
       "junctionEnd": 3,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -4669,7 +4669,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -4693,7 +4693,7 @@
       "beforeEnd": 7,
       "junctionEnd": 9,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -4713,7 +4713,7 @@
       "beforeEnd": 1,
       "junctionEnd": 3,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -4735,7 +4735,7 @@
       "beforeEnd": 1,
       "junctionEnd": 3,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -4757,7 +4757,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -4779,7 +4779,7 @@
       "beforeEnd": 3,
       "junctionEnd": 5,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -4801,7 +4801,7 @@
       "beforeEnd": 4,
       "junctionEnd": 6,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -4825,7 +4825,7 @@
       "beforeEnd": 1,
       "junctionEnd": 3,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -4845,7 +4845,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -4867,7 +4867,7 @@
       "beforeEnd": 1,
       "junctionEnd": 3,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -4889,7 +4889,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -4915,7 +4915,7 @@
       "beforeEnd": 1,
       "junctionEnd": 3,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -4937,7 +4937,7 @@
       "beforeEnd": 2,
       "junctionEnd": 4,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -4957,7 +4957,7 @@
       "beforeEnd": 3,
       "junctionEnd": 5,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -4979,7 +4979,7 @@
       "beforeEnd": 3,
       "junctionEnd": 5,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -5003,7 +5003,7 @@
       "beforeEnd": 1,
       "junctionEnd": 3,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -5023,7 +5023,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -5045,7 +5045,7 @@
       "beforeEnd": 1,
       "junctionEnd": 3,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -5067,7 +5067,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -5089,7 +5089,7 @@
       "beforeEnd": 1,
       "junctionEnd": 3,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -5111,7 +5111,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -5133,7 +5133,7 @@
       "beforeEnd": 6,
       "junctionEnd": 8,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -5155,7 +5155,7 @@
       "beforeEnd": 3,
       "junctionEnd": 5,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -5177,7 +5177,7 @@
       "beforeEnd": 2,
       "junctionEnd": 4,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -5199,7 +5199,7 @@
       "beforeEnd": 4,
       "junctionEnd": 6,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -5223,7 +5223,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -5243,7 +5243,7 @@
       "beforeEnd": 1,
       "junctionEnd": 3,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -5265,7 +5265,7 @@
       "beforeEnd": 4,
       "junctionEnd": 6,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -5287,7 +5287,7 @@
       "beforeEnd": 1,
       "junctionEnd": 3,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -5331,7 +5331,7 @@
       "beforeEnd": 1,
       "junctionEnd": 3,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -5353,7 +5353,7 @@
       "beforeEnd": 1,
       "junctionEnd": 3,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -5397,7 +5397,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -5419,7 +5419,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -5507,7 +5507,7 @@
       "beforeEnd": 1,
       "junctionEnd": 3,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -5529,7 +5529,7 @@
       "beforeEnd": 2,
       "junctionEnd": 4,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -5551,7 +5551,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -5573,7 +5573,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -5619,7 +5619,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -5639,7 +5639,7 @@
       "beforeEnd": 1,
       "junctionEnd": 3,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -5661,7 +5661,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -5683,7 +5683,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -5707,7 +5707,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -5727,7 +5727,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -5749,7 +5749,7 @@
       "beforeEnd": 1,
       "junctionEnd": 3,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -5771,7 +5771,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -5837,7 +5837,7 @@
       "beforeEnd": 1,
       "junctionEnd": 3,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -5859,7 +5859,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -5881,7 +5881,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -5903,7 +5903,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -5947,7 +5947,7 @@
       "beforeEnd": 2,
       "junctionEnd": 4,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -5969,7 +5969,7 @@
       "beforeEnd": 2,
       "junctionEnd": 4,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -6013,7 +6013,7 @@
       "beforeEnd": 2,
       "junctionEnd": 4,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -6035,7 +6035,7 @@
       "beforeEnd": 1,
       "junctionEnd": 3,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -6057,7 +6057,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -6079,7 +6079,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -6103,7 +6103,7 @@
       "beforeEnd": 1,
       "junctionEnd": 3,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -6123,7 +6123,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     }
   ],
@@ -6147,7 +6147,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -6167,7 +6167,7 @@
       "beforeEnd": 1,
       "junctionEnd": 3,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -6189,7 +6189,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -6211,7 +6211,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -6299,7 +6299,7 @@
       "beforeEnd": 1,
       "junctionEnd": 3,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -6321,7 +6321,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -6343,7 +6343,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -6365,7 +6365,7 @@
       "beforeEnd": 2,
       "junctionEnd": 4,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -6387,7 +6387,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -6409,7 +6409,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -6431,7 +6431,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -6453,7 +6453,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -6679,7 +6679,7 @@
       "beforeEnd": 1,
       "junctionEnd": 3,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -6701,7 +6701,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -7091,7 +7091,7 @@
       "beforeEnd": 1,
       "junctionEnd": 3,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -7111,7 +7111,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     }
   ],
@@ -7135,7 +7135,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -7155,7 +7155,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -7179,7 +7179,7 @@
       "beforeEnd": 1,
       "junctionEnd": 3,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -7199,7 +7199,7 @@
       "beforeEnd": 2,
       "junctionEnd": 4,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -7221,7 +7221,7 @@
       "beforeEnd": 6,
       "junctionEnd": 8,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -7245,7 +7245,7 @@
       "beforeEnd": 1,
       "junctionEnd": 3,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -7269,7 +7269,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -7289,7 +7289,7 @@
       "beforeEnd": 1,
       "junctionEnd": 3,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -7313,7 +7313,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -7333,7 +7333,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -7357,7 +7357,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -7381,7 +7381,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -7405,7 +7405,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -7425,7 +7425,7 @@
       "beforeEnd": 1,
       "junctionEnd": 3,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -7449,7 +7449,7 @@
       "beforeEnd": 1,
       "junctionEnd": 3,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -7469,7 +7469,7 @@
       "beforeEnd": 2,
       "junctionEnd": 4,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     }
   ],
@@ -7553,7 +7553,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     }
   ],
@@ -7681,7 +7681,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     }
   ],
@@ -7747,7 +7747,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -7767,7 +7767,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -7789,7 +7789,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -7811,7 +7811,7 @@
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -7835,7 +7835,7 @@
       "beforeEnd": 2,
       "junctionEnd": 4,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -7855,7 +7855,7 @@
       "beforeEnd": 2,
       "junctionEnd": 4,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -7877,7 +7877,7 @@
       "beforeEnd": 2,
       "junctionEnd": 4,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": false
     },
     {
@@ -7899,7 +7899,7 @@
       "beforeEnd": 2,
       "junctionEnd": 4,
       "source": "corpus",
-      "origin": "alt-axis",
+      "origin": "alt-combinations",
       "isolated": true
     }
   ],
@@ -7929,7 +7929,7 @@
         "trigger_stance": "qsUtter.alt",
         "isolated_form": "qsExcite"
       },
-      "reason": "superseded_by_alt_axis"
+      "reason": "superseded_by_alt_combinations"
     },
     {
       "table": "predecessor_demote",
@@ -8010,7 +8010,7 @@
         "trigger_stance": "qsUtter.alt.ex-y0",
         "isolated_form": "qsThey.en-y5"
       },
-      "reason": "superseded_by_alt_axis"
+      "reason": "superseded_by_alt_combinations"
     },
     {
       "table": "predecessor_demote",
@@ -8055,7 +8055,7 @@
         "trigger_stance": "qsUtter.alt.ex-y0",
         "isolated_form": "qsThey.en-y5.en-ext-1"
       },
-      "reason": "superseded_by_alt_axis"
+      "reason": "superseded_by_alt_combinations"
     },
     {
       "table": "predecessor_demote",
@@ -8064,7 +8064,7 @@
         "trigger_stance": "qsNo",
         "isolated_form": "qsGay"
       },
-      "reason": "superseded_by_alt_axis"
+      "reason": "superseded_by_alt_combinations"
     },
     {
       "table": "predecessor_demote",
@@ -8074,7 +8074,7 @@
         "trigger_stance": "qsUtter",
         "isolated_form": "qsGay"
       },
-      "reason": "superseded_by_alt_axis"
+      "reason": "superseded_by_alt_combinations"
     },
     {
       "table": "predecessor_demote",
@@ -8083,7 +8083,7 @@
         "trigger_stance": "qsNo",
         "isolated_form": "qsRoe"
       },
-      "reason": "superseded_by_alt_axis"
+      "reason": "superseded_by_alt_combinations"
     },
     {
       "table": "predecessor_demote",
@@ -8092,7 +8092,7 @@
         "trigger_stance": "qsNo",
         "isolated_form": "qsShe"
       },
-      "reason": "superseded_by_alt_axis"
+      "reason": "superseded_by_alt_combinations"
     },
     {
       "table": "predecessor_demote",
@@ -8101,7 +8101,7 @@
         "trigger_stance": "qsNo",
         "isolated_form": "qsYe"
       },
-      "reason": "superseded_by_alt_axis"
+      "reason": "superseded_by_alt_combinations"
     },
     {
       "table": "predecessor_demote",
@@ -8110,7 +8110,7 @@
         "trigger_stance": "qsNo",
         "isolated_form": "qsExcite"
       },
-      "reason": "superseded_by_alt_axis"
+      "reason": "superseded_by_alt_combinations"
     },
     {
       "table": "predecessor_demote",
@@ -8119,7 +8119,7 @@
         "trigger_stance": "qsNo",
         "isolated_form": "qsJai"
       },
-      "reason": "superseded_by_alt_axis"
+      "reason": "superseded_by_alt_combinations"
     },
     {
       "table": "predecessor_demote",
@@ -8128,7 +8128,7 @@
         "trigger_stance": "qsNo",
         "isolated_form": "qsVie"
       },
-      "reason": "superseded_by_alt_axis"
+      "reason": "superseded_by_alt_combinations"
     },
     {
       "table": "predecessor_demote",
@@ -8137,7 +8137,7 @@
         "trigger_stance": "qsSee.ex-y0",
         "isolated_form": "qsUtter"
       },
-      "reason": "superseded_by_alt_axis"
+      "reason": "superseded_by_alt_combinations"
     },
     {
       "table": "predecessor_demote",
@@ -8146,7 +8146,7 @@
         "trigger_stance": "qsSee.ex-y0.ex-con-1",
         "isolated_form": "qsUtter"
       },
-      "reason": "superseded_by_alt_axis"
+      "reason": "superseded_by_alt_combinations"
     },
     {
       "table": "predecessor_demote",
@@ -8155,7 +8155,7 @@
         "trigger_stance": "qsSee.ex-y0.ex-ext-2",
         "isolated_form": "qsUtter"
       },
-      "reason": "superseded_by_alt_axis"
+      "reason": "superseded_by_alt_combinations"
     },
     {
       "table": "predecessor_demote",
@@ -8164,7 +8164,7 @@
         "trigger_stance": "qsSee.ex-y0.ex-y0-right",
         "isolated_form": "qsUtter"
       },
-      "reason": "superseded_by_alt_axis"
+      "reason": "superseded_by_alt_combinations"
     },
     {
       "table": "predecessor_demote",
@@ -8254,7 +8254,7 @@
         "trigger_stance": "qsGay.ex-y0",
         "isolated_form": "qsNo"
       },
-      "reason": "superseded_by_alt_axis"
+      "reason": "superseded_by_alt_combinations"
     },
     {
       "table": "predecessor_demote",
@@ -8263,7 +8263,7 @@
         "trigger_stance": "qsIt.ex-y0",
         "isolated_form": "qsNo"
       },
-      "reason": "superseded_by_alt_axis"
+      "reason": "superseded_by_alt_combinations"
     },
     {
       "table": "predecessor_demote",
@@ -8272,7 +8272,7 @@
         "trigger_stance": "qsUtter.alt",
         "isolated_form": "qsNo"
       },
-      "reason": "superseded_by_alt_axis"
+      "reason": "superseded_by_alt_combinations"
     },
     {
       "table": "predecessor_demote",
@@ -8281,7 +8281,7 @@
         "trigger_stance": "qsFee.ex-y5",
         "isolated_form": "qsNo"
       },
-      "reason": "superseded_by_alt_axis"
+      "reason": "superseded_by_alt_combinations"
     },
     {
       "table": "predecessor_demote",
@@ -8548,7 +8548,7 @@
         "trailing_stance": "qsJai.en-y5.ex-y0",
         "isolated_form": "qsJai"
       },
-      "reason": "superseded_by_alt_axis"
+      "reason": "superseded_by_alt_combinations"
     },
     {
       "table": "trailing_demote",
@@ -8557,7 +8557,7 @@
         "trailing_stance": "qsExcite.en-y0.noexit",
         "isolated_form": "qsExcite"
       },
-      "reason": "superseded_by_alt_axis"
+      "reason": "superseded_by_alt_combinations"
     },
     {
       "table": "trailing_demote",
@@ -8566,7 +8566,7 @@
         "trailing_stance": "qsOwe.en-y5",
         "isolated_form": "qsOwe"
       },
-      "reason": "superseded_by_alt_axis"
+      "reason": "superseded_by_alt_combinations"
     },
     {
       "table": "trailing_demote",
@@ -8575,7 +8575,7 @@
         "trailing_stance": "qsYe.en-y5.ex-y0",
         "isolated_form": "qsYe"
       },
-      "reason": "not_hidden"
+      "reason": "not_context_only"
     },
     {
       "table": "trailing_demote",
@@ -8584,7 +8584,7 @@
         "trailing_stance": "qsDay.half.en-y0.ex-y0",
         "isolated_form": "qsDay"
       },
-      "reason": "not_hidden"
+      "reason": "not_context_only"
     },
     {
       "table": "trailing_demote",
@@ -8602,7 +8602,7 @@
         "trailing_stance": "qsGay.en-y0.ex-y5",
         "isolated_form": "qsGay"
       },
-      "reason": "superseded_by_alt_axis"
+      "reason": "superseded_by_alt_combinations"
     },
     {
       "table": "trailing_demote",
@@ -8611,7 +8611,7 @@
         "trailing_stance": "qsZoo.half.en-y0.ex-y0",
         "isolated_form": "qsZoo"
       },
-      "reason": "not_hidden"
+      "reason": "not_context_only"
     },
     {
       "table": "trailing_demote",
@@ -8629,7 +8629,7 @@
         "trailing_stance": "qsNo.alt.en-y0.ex-y0",
         "isolated_form": "qsNo"
       },
-      "reason": "superseded_by_alt_axis"
+      "reason": "superseded_by_alt_combinations"
     },
     {
       "table": "trailing_demote",
@@ -8647,7 +8647,7 @@
         "trailing_stance": "qsOy.en-y5.ex-y0",
         "isolated_form": "qsOy"
       },
-      "reason": "superseded_by_alt_axis"
+      "reason": "superseded_by_alt_combinations"
     },
     {
       "table": "trailing_demote",
@@ -8656,7 +8656,7 @@
         "trailing_stance": "qsYe.en-y5.ex-y0",
         "isolated_form": "qsYe"
       },
-      "reason": "superseded_by_alt_axis"
+      "reason": "superseded_by_alt_combinations"
     },
     {
       "table": "trailing_demote",
@@ -8720,7 +8720,7 @@
         "follower": "qsDay",
         "isolated_form": "qsIt.en-y5.ex-y0"
       },
-      "reason": "superseded_by_alt_axis"
+      "reason": "superseded_by_alt_combinations"
     },
     {
       "table": "restore_isolated_form",
@@ -8730,7 +8730,7 @@
         "follower": "qsZoo",
         "isolated_form": "qsIt.ex-y0"
       },
-      "reason": "not_hidden"
+      "reason": "not_context_only"
     },
     {
       "table": "restore_isolated_form",
@@ -8740,7 +8740,7 @@
         "follower": "qsNo",
         "isolated_form": "qsIt.ex-y0"
       },
-      "reason": "not_hidden"
+      "reason": "not_context_only"
     },
     {
       "table": "restore_isolated_form",
@@ -8750,7 +8750,7 @@
         "follower": "qsZoo",
         "isolated_form": "qsIt.ex-y0"
       },
-      "reason": "not_hidden"
+      "reason": "not_context_only"
     },
     {
       "table": "restore_isolated_form",
@@ -8760,7 +8760,7 @@
         "follower": "qsNo",
         "isolated_form": "qsIt.ex-y0"
       },
-      "reason": "not_hidden"
+      "reason": "not_context_only"
     },
     {
       "table": "restore_isolated_form",
@@ -8770,7 +8770,7 @@
         "follower": "qsZoo",
         "isolated_form": "qsIt.ex-y0"
       },
-      "reason": "not_hidden"
+      "reason": "not_context_only"
     },
     {
       "table": "restore_isolated_form",
@@ -8780,7 +8780,7 @@
         "follower": "qsZoo",
         "isolated_form": "qsIt.ex-y0"
       },
-      "reason": "not_hidden"
+      "reason": "not_context_only"
     },
     {
       "table": "restore_isolated_form",
@@ -8790,7 +8790,7 @@
         "follower": "qsNo",
         "isolated_form": "qsIt.ex-y0"
       },
-      "reason": "not_hidden"
+      "reason": "not_context_only"
     }
   ]
 }

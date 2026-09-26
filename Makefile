@@ -1,4 +1,4 @@
-.PHONY: all test test-rebuild test-rebuild-slow test-slowly test-leaks leak-snapshot typecheck print-job serve explainer check-html-before check-html-after build-kerning-hardcases review test-and-review review-build review-serve review-cycle artifact-cycle verdict-ready cycle-timings job-costs complaint-list novelty-order kernel-build kernel-check kernel-gate conform-deep standing-daemon standing-daemon-stop prettier woff2 clean
+.PHONY: all test test-rebuild test-rebuild-slow test-slowly test-leaks leak-snapshot typecheck print-job serve explainer check-html-before check-html-after build-kerning-context-pairs review test-and-review review-build review-serve review-cycle artifact-cycle verdict-ready cycle-timings job-costs complaint-list novelty-order kernel-build kernel-check kernel-gate conform-deep standing-daemon standing-daemon-stop prettier woff2 clean
 
 all:
 	uv run python tools/build_font.py glyph_data/ site/
@@ -8,8 +8,8 @@ all:
 check-html-after: all
 	uv run python tools/build_check_html.py
 
-build-kerning-hardcases: all
-	uv run python tools/build_kerning_hardcases.py
+build-kerning-context-pairs: all
+	uv run python tools/build_kerning_context_pairs.py
 
 check-html-before: all
 	mkdir -p site/before

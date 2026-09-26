@@ -372,7 +372,7 @@ REBUILD_GATE_HARNESS_PATHS = (
     "tools/audit_anchor_geometry.py",
     "tools/build_check_html.py",
     "tools/build_font.py",
-    "tools/build_kerning_hardcases.py",
+    "tools/build_kerning_context_pairs.py",
     "tools/departure_mono_import.py",
     "tools/derived_demote_oracle.py",
     "tools/extract_glyph.py",

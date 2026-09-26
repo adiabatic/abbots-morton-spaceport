@@ -1,15 +1,15 @@
-"""Enumerate Quikscript "hard-case" stance junctions and write JSON for site/kerning.html.
+"""Enumerate the Quikscript context-only stance pairs and write JSON for site/kerning.html.
 
-The kerning matrix in ``site/kerning.html`` shows only the isolated two-letter shaping of each family pair, so some stance-to-stance junctions never appear there. For example, ·No·Utter shapes to ``qsNo.alt`` + ``qsUtter`` in isolation, so the (plain ·No, alt ·Utter) and (alt ·No, alt ·Utter) combinations appear only in longer text. This tool finds those junctions from two sources and takes their union:
+The kerning matrix in ``site/kerning.html`` shows only the isolated two-letter shaping of each family pair, so some stance-to-stance junctions, the context-only stance pairs, never appear there. For example, ·No·Utter shapes to ``qsNo.alt`` + ``qsUtter`` in isolation, so the (plain ·No, alt ·Utter) and (alt ·No, alt ·Utter) combinations appear only in longer text. This tool finds those junctions from two sources and takes their union:
 
-1. **Alt-axis cross-product.** For every family pair where at least one side has an enabled ``traits: [alt]`` stance, it enumerates the ``{plain, alt}`` combinations and keeps each one that some context produces. When a pair has at least one other combination, the combination its isolated two-letter shaping produces is also emitted, with ``isolated: true``. Each side's selector covers a whole kind: ``qsUtter.alt`` is a prefix that matches every alt variant, and "plain" is the family minus its ``.alt`` variants. ``half`` is supported but disabled (see ``ALT_AXIS_KINDS``).
-2. **Demote and restore tables.** The ``predecessor_demote_overrides``, ``trailing_demote_overrides``, and ``restore_isolated_form_overrides`` tables in ``glyph_data/quikscript.yaml`` name specific contextual stances (such as ``qsIt.ex-y0.before-day``) that the alt-axis pass does not cover. A junction from these tables is dropped as ``superseded_by_alt_axis`` when the alt-axis pass already emitted junctions for its family pair.
+1. **Alt combinations.** For every family pair where at least one side has an enabled ``traits: [alt]`` stance, it enumerates the ``{plain, alt}`` combinations and keeps each one that some context produces. When a pair has at least one other combination, the combination its isolated two-letter shaping produces is also emitted, with ``isolated: true``. Each side's selector covers a whole kind: ``qsUtter.alt`` is a prefix that matches every alt variant, and "plain" is the family minus its ``.alt`` variants. ``half`` is supported but disabled (see ``ALT_COMBINATION_KINDS``).
+2. **Demote and restore tables.** The ``predecessor_demote_overrides``, ``trailing_demote_overrides``, and ``restore_isolated_form_overrides`` tables in ``glyph_data/quikscript.yaml`` name specific contextual stances (such as ``qsIt.ex-y0.before-day``) that the alt-combinations pass does not cover. A junction from these tables is dropped as ``superseded_by_alt_combinations`` when the alt-combinations pass already emitted junctions for its family pair.
 
 For each junction it looks for a context that produces it, trying corpus text first and then a bounded, deterministic synthetic search, and records the offsets site/kerning.html uses to highlight the junction within that context.
 
-Run after ``make all`` (``make build-kerning-hardcases`` runs both)::
+Run after ``make all`` (``make build-kerning-context-pairs`` runs both)::
 
-    uv run python tools/build_kerning_hardcases.py
+    uv run python tools/build_kerning_context_pairs.py
 """
 
 from __future__ import annotations
@@ -57,7 +57,7 @@ ENTITY_DEC_RE = re.compile(r"&#(\d+);")
 ENTRYLESS_MARKERS = (".noentry", ".ex-noentry", ".nonjoining-left")
 
 # The trait kinds the cross-product pass enumerates. `half` is left out because it interacts more with join geometry (·He has a `shared_kern_entangled` skip). The code handles any kind the same way, so enabling it means adding it to this tuple.
-ALT_AXIS_KINDS = ("alt",)
+ALT_COMBINATION_KINDS = ("alt",)
 
 
 def _plain_families_by_codepoint() -> list[str]:
@@ -127,25 +127,25 @@ def _stance_prefix(glyph_name: str, base: str) -> str | None:
 
 
 def _glyph_kind(glyph_name: str) -> str:
-    """Return the first kind in ``ALT_AXIS_KINDS`` that the glyph has as a trait, or ``"plain"``.
+    """Return the first kind in ``ALT_COMBINATION_KINDS`` that the glyph has as a trait, or ``"plain"``.
 
     A glyph whose only trait is a disabled kind, such as ``half``, counts as ``"plain"``, which keeps disabled kinds out of the cross-product.
     """
     meta = _compiled_meta().get(glyph_name)
     traits = meta.traits if meta is not None else frozenset()
-    for kind in ALT_AXIS_KINDS:
+    for kind in ALT_COMBINATION_KINDS:
         if kind in traits:
             return kind
     return "plain"
 
 
 def _family_alt_kinds() -> dict[str, set[str]]:
-    """Map each family to the kinds in ``ALT_AXIS_KINDS`` it has a non-ligature stance for (for example ``qsNo -> {"alt"}``)."""
+    """Map each family to the kinds in ``ALT_COMBINATION_KINDS`` it has a non-ligature stance for (for example ``qsNo -> {"alt"}``)."""
     result: dict[str, set[str]] = defaultdict(set)
     for name, meta in _compiled_meta().items():
         if "_" in name:
             continue
-        for kind in ALT_AXIS_KINDS:
+        for kind in ALT_COMBINATION_KINDS:
             if kind in meta.traits:
                 result[meta.base_name].add(kind)
     return result
@@ -158,7 +158,7 @@ def _selector_alt_kind(family: str, kind: str) -> dict:
 
 def _selector_plain(family: str, alt_kinds_present: set[str]) -> dict:
     """Return the selector for one side's plain kind: the whole family with its enabled alternate stances in ``except``, because the bare family name alone would also match ``qsNo.alt``."""
-    excepts = [f"{family}.{kind}" for kind in ALT_AXIS_KINDS if kind in alt_kinds_present]
+    excepts = [f"{family}.{kind}" for kind in ALT_COMBINATION_KINDS if kind in alt_kinds_present]
     return {"family": family, "kind": "plain", "stance": None, "except": excepts or None}
 
 
@@ -239,7 +239,7 @@ def _verify(context: str, accept, before_end: int, junction_end: int) -> bool:
     return False
 
 
-def _is_hidden(left: str, right: str) -> bool:
+def _is_context_only(left: str, right: str) -> bool:
     """Return True unless shaping the two base letters alone produces an adjacent pair that matches ``(left, right)`` under ``_prefix_match``."""
     left_char = _family_char(_base_name(left))
     right_char = _family_char(_base_name(right))
@@ -329,14 +329,14 @@ def _resolve_record(
 ) -> dict | str:
     """Return the output record for a demote or restore table junction ``(target_left, target_right)``, or a skip reason.
 
-    A junction whose family pair is in ``alt_owned_pairs`` is skipped as ``superseded_by_alt_axis``. On such a pair the plain and alt selectors do not overlap, and site/kerning.html writes one kerning rule per alt-axis record on the assumption that no two rules overlap. The alt-axis pass emits only the kind combinations some context produces, so the records need not cover every glyph pair. A table-derived selector there would overlap one of them.
+    A junction whose family pair is in ``alt_owned_pairs`` is skipped as ``superseded_by_alt_combinations``. On such a pair the plain and alt selectors do not overlap, and site/kerning.html writes one kerning rule per alt-combinations record on the assumption that no two rules overlap. The alt-combinations pass emits only the kind combinations some context produces, so the records need not cover every glyph pair. A table-derived selector there would overlap one of them.
     """
     skip = _skip_reason(target_left, target_right)
     if skip is not None:
         return skip
 
-    if not _is_hidden(target_left, target_right):
-        return "not_hidden"
+    if not _is_context_only(target_left, target_right):
+        return "not_context_only"
 
     accept = lambda left, right: _prefix_match(left, target_left) and _prefix_match(right, target_right)
     match = _resolve_match(accept, context_sources, table_name)
@@ -350,7 +350,7 @@ def _resolve_record(
     right_base = _base_name(right_glyph)
     key = f"{left_base}|{right_base}"
     if key in alt_owned_pairs:
-        return "superseded_by_alt_axis"
+        return "superseded_by_alt_combinations"
 
     return {
         "left": _selector_from_stance_prefix(_stance_prefix(target_left, left_base), left_base),
@@ -368,7 +368,7 @@ def _resolve_record(
 def _index_corpus_by_kind(
     sequences: list[str],
 ) -> tuple[dict[tuple, tuple[str, int, int, str, str]], set[tuple]]:
-    """Index the corpus by ``(leftBase, leftKind, rightBase, rightKind)`` so the alt-axis pass does not rescan it for every combination.
+    """Index the corpus by ``(leftBase, leftKind, rightBase, rightKind)`` so the alt-combinations pass does not rescan it for every combination.
 
     Each signature maps to its first adjacency with contiguous input ranges, as ``(context, beforeEnd, junctionEnd, leftGlyph, rightGlyph)``. The returned set holds every signature seen at least once without such ranges.
     """
@@ -396,12 +396,12 @@ def _index_corpus_by_kind(
     return index, ambiguous
 
 
-def _alt_axis_junctions(
+def _alt_combination_junctions(
     sequences: list[str],
 ) -> tuple[list[dict], dict[str, set[tuple[str, str]]]]:
     """Enumerate the kind combinations for every family pair where at least one side has an enabled alternate kind, and return the records for those some context produces.
 
-    Also returns, per pair key, the set of ``(leftKind, rightKind)`` combinations emitted other than the isolated one. ``build`` uses its keys to skip table-derived junctions on the same pairs. A pair's isolated combination is emitted (with ``isolated: true``) only when the pair has at least one other combination, so site/kerning.html can store the pair's cell value on that quadrant.
+    Also returns, per pair key, the set of ``(leftKind, rightKind)`` combinations emitted other than the isolated one. ``build`` uses its keys to skip table-derived junctions on the same pairs. A pair's isolated combination is emitted (with ``isolated: true``) only when the pair has at least one other combination, so site/kerning.html can store the pair's cell value on that combination.
     """
     alt_kinds = _family_alt_kinds()
     families = _plain_families_by_codepoint()
@@ -416,7 +416,7 @@ def _alt_axis_junctions(
         return _selector_alt_kind(family, kind)
 
     def variant_kinds(family: str) -> list[str]:
-        return ["plain"] + [kind for kind in ALT_AXIS_KINDS if kind in alt_kinds.get(family, set())]
+        return ["plain"] + [kind for kind in ALT_COMBINATION_KINDS if kind in alt_kinds.get(family, set())]
 
     def find(left_family: str, left_kind: str, right_family: str, right_kind: str):
         signature = (left_family, left_kind, right_family, right_kind)
@@ -457,7 +457,7 @@ def _alt_axis_junctions(
                     break
 
             key = f"{left_family}|{right_family}"
-            hidden_records: list[dict] = []
+            context_only_records: list[dict] = []
             isolated_record: dict | None = None
             for left_kind in variant_kinds(left_family):
                 for right_kind in variant_kinds(right_family):
@@ -474,18 +474,18 @@ def _alt_axis_junctions(
                         "beforeEnd": before_end,
                         "junctionEnd": junction_end,
                         "source": source,
-                        "origin": "alt-axis",
+                        "origin": "alt-combinations",
                         "isolated": is_isolated,
                         "_key": key,
                     }
                     if is_isolated:
                         isolated_record = record
                     else:
-                        hidden_records.append(record)
+                        context_only_records.append(record)
                         signatures[key].add(combo)
 
-            if hidden_records:
-                records.extend(hidden_records)
+            if context_only_records:
+                records.extend(context_only_records)
                 if isolated_record is not None:
                     records.append(isolated_record)
 
@@ -524,8 +524,8 @@ def build(out_path: Path) -> None:
         synthetic = _synthetic_contexts(_base_name(target_left), _base_name(target_right))
         return [("corpus", sequences), ("synthetic", synthetic)]
 
-    # The alt-axis pass runs first because the table passes skip every pair it emitted.
-    alt_records, alt_signatures = _alt_axis_junctions(sequences)
+    # The alt-combinations pass runs first because the table passes skip every pair it emitted.
+    alt_records, alt_signatures = _alt_combination_junctions(sequences)
     alt_owned_pairs = set(alt_signatures)
     for record in alt_records:
         emit(record)
@@ -605,8 +605,8 @@ def main() -> None:
     parser.add_argument(
         "--out",
         type=Path,
-        default=SITE_DIR / "kerning-hardcases.json",
-        help="Output JSON path (default: site/kerning-hardcases.json)",
+        default=SITE_DIR / "kerning-context-pairs.json",
+        help="Output JSON path (default: site/kerning-context-pairs.json)",
     )
     args = parser.parse_args()
     build(args.out)

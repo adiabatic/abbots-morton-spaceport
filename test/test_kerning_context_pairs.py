@@ -17,14 +17,14 @@ from quikscript_shaping_helpers import (
 )
 
 ROOT = Path(__file__).resolve().parent.parent
-DATA_PATH = ROOT / "site" / "kerning-hardcases.json"
+DATA_PATH = ROOT / "site" / "kerning-context-pairs.json"
 
 TOOLS_PATH = str(ROOT / "tools")
 if TOOLS_PATH not in sys.path:
     sys.path.insert(0, TOOLS_PATH)
 
 from build_font import generate_kern_fea
-from build_kerning_hardcases import _glyph_kind
+from build_kerning_context_pairs import _glyph_kind
 
 ALLOWED_SKIP_REASONS = {
     "ligature",
@@ -32,8 +32,8 @@ ALLOWED_SKIP_REASONS = {
     "shared_kern_entangled",
     "no_context",
     "cluster_ambiguous",
-    "not_hidden",
-    "superseded_by_alt_axis",
+    "not_context_only",
+    "superseded_by_alt_combinations",
 }
 
 
@@ -132,7 +132,7 @@ def _check_side(failures: list[str], label: str, side: str, selector: dict, fami
             failures.append(f"{label} {side}: plain selector unexpectedly carries stance {stance!r}")
         if _glyph_kind(glyph) != "plain":
             failures.append(f"{label} {side}: glyph {glyph!r} is {_glyph_kind(glyph)!r}, not plain")
-    else:  # an alternate axis, e.g. "alt"
+    else:  # an alternate kind, e.g. "alt"
         if stance != f"{family}.{kind}":
             failures.append(f"{label} {side}: {kind} selector stance {stance!r} != {family}.{kind!r}")
         if _glyph_kind(glyph) != kind or not _matches_stance(glyph, f"{family}.{kind}"):
@@ -142,11 +142,11 @@ def _check_side(failures: list[str], label: str, side: str, selector: dict, fami
 
 
 def test_no_utter_alt_combos() -> None:
-    """·No·Utter lists the three hidden alternate-stance combinations, and (alt, plain) is its one isolated grid cell."""
+    """·No·Utter lists the three context-only alternate-stance combinations, and (alt, plain) is its one isolated grid cell."""
     data = _load_data()
     junctions = data["qsNo|qsUtter"]
-    hidden = {(j["left"]["kind"], j["right"]["kind"]) for j in junctions if not j["isolated"]}
-    assert hidden == {("plain", "plain"), ("plain", "alt"), ("alt", "alt")}, hidden
+    context_only = {(j["left"]["kind"], j["right"]["kind"]) for j in junctions if not j["isolated"]}
+    assert context_only == {("plain", "plain"), ("plain", "alt"), ("alt", "alt")}, context_only
     isolated = [j for j in junctions if j["isolated"]]
     assert len(isolated) == 1, isolated
     assert (isolated[0]["left"]["kind"], isolated[0]["right"]["kind"]) == ("alt", "plain")
@@ -281,7 +281,7 @@ def _coverage(fea: str) -> dict[tuple[str, str], str]:
 
 
 def test_generate_kern_fea_both_sides_partition_is_disjoint() -> None:
-    """The four quadrant rules `site/kerning.html` writes for an alt pair (plain or alt on each side, using `except_left` and `except_right`) kern every family × family glyph pair exactly once."""
+    """The four stance-combination rules `site/kerning.html` writes for an alt pair (plain or alt on each side, using `except_left` and `except_right`) kern every family × family glyph pair exactly once."""
     all_glyph_names = [
         "qsNo",
         "qsNo.alt",
@@ -291,7 +291,7 @@ def test_generate_kern_fea_both_sides_partition_is_disjoint() -> None:
         "qsUtter.alt",
         "qsUtter.alt.ex-y0",
     ]
-    quadrants = {
+    combinations = {
         "pp": {
             "left_family": ["qsNo"],
             "except_left": ["qsNo.alt"],
@@ -313,14 +313,14 @@ def test_generate_kern_fea_both_sides_partition_is_disjoint() -> None:
             "value": -1,
         },
     }
-    fea = generate_kern_fea(quadrants, {}, all_glyph_names, 50)
+    fea = generate_kern_fea(combinations, {}, all_glyph_names, 50)
     cover = _coverage(fea)
 
     no_glyphs = [g for g in all_glyph_names if g.startswith("qsNo")]
     utter_glyphs = [g for g in all_glyph_names if g.startswith("qsUtter")]
     for left in no_glyphs:
         for right in utter_glyphs:
-            assert (left, right) in cover, f"{(left, right)} kerned by no quadrant"
+            assert (left, right) in cover, f"{(left, right)} kerned by no stance combination"
 
 
 KERNING_PAGE_GLYPHS = [

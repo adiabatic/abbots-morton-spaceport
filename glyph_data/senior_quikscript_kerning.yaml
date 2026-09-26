@@ -22,7 +22,7 @@
 #   except_left: [qsNo.alt, ...]   # drop every glyph matching qsNo.alt or qsNo.alt.* from the left set (pairs with a left_stance override of the same prefix)
 #   except_right: [qsNo.alt, ...]  # same on the right side; ignored with right_group
 #
-# Both sides may carry a stance prefix, a carve-out, or both. The kerning drill-down in site/kerning.html writes this when it splits an alternate-stance pair (for example ·No·Utter) into disjoint quadrants: a plain side is the family minus its alternates (left_family with except_left: [qsNo.alt]), and an alternate side is its stance prefix (right_stance: [qsUtter.alt]). The four quadrants partition the family-by-family pairs, so no glyph pair is kerned by two lookups. For example, the (plain ·No, alternate ·Utter) quadrant:
+# Both sides may carry a stance prefix, a carve-out, or both. The kerning drill-down in site/kerning.html writes this when it splits an alternate-stance pair (for example ·No·Utter) into disjoint stance combinations: a plain side is the family minus its alternates (left_family with except_left: [qsNo.alt]), and an alternate side is its stance prefix (right_stance: [qsUtter.alt]). The four stance combinations partition the family-by-family pairs, so no glyph pair is kerned by two lookups. For example, the (plain ·No, alternate ·Utter) combination:
 #
 # ---
 # left_family: [qsNo]
@@ -30,7 +30,7 @@
 # right_stance: [qsUtter.alt]
 # value: -3
 #
-# The drill-down also carves up a pair that has hidden-junction overrides and no alternate-stance quadrants. Each glyph pair takes the value of the most specific override whose prefixes match it (a longer left prefix first, then a longer right one), or the cell value when none does, and the rules it writes are disjoint pieces of the family-by-family pairs. An override on qsGay.ex-y0 therefore leaves out qsGay.ex-y0.ex-ext-1 when that prefix has its own override, and the cell's rules leave out only the glyph pairs that some override decides.
+# The drill-down also carves up a pair that has overrides on context-only stance pairs and no alternate-stance combinations. Each glyph pair takes the value of the most specific override whose prefixes match it (a longer left prefix first, then a longer right one), or the cell value when none does, and the rules it writes are disjoint pieces of the family-by-family pairs. An override on qsGay.ex-y0 therefore leaves out qsGay.ex-y0.ex-ext-1 when that prefix has its own override, and the cell's rules leave out only the glyph pairs that some override decides.
 #
 # In either kind of pair, the drill-down writes a junction override of 0 as an explicit `value: 0` rule. The rule kerns nothing, but it lets the drill-down read the override back.
 #

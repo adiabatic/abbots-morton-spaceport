@@ -198,8 +198,8 @@
           pointer-events: none;
         }
 
-        /* Cells whose pair has precomputed stance-junctions get a corner triangle. Clicking it opens the drill-down panel. */
-        td.has-hard-cases .hard-case-badge {
+        /* Cells whose pair has context-only stance pairs get a corner triangle. Clicking it opens the drill-down panel. */
+        td.has-context-pairs .context-pair-badge {
           position: absolute;
           top: 0;
           left: 0;
@@ -419,14 +419,14 @@
       const textarea = document.getElementById("kern-yaml");
       const junctionPanel = document.getElementById("junction-panel");
 
-      // "qsLeft|qsRight" -> the pair's precomputed stance-junctions, which the isolated two-letter rendering can't show. tools/build_kerning_hardcases.py writes the file. Without it, no cell gets a badge and the drill-down panel never opens.
-      const hardCases = await fetch("./kerning-hardcases.json")
+      // "qsLeft|qsRight" -> the pair's context-only stance pairs: precomputed stance junctions the isolated two-letter rendering can't show. tools/build_kerning_context_pairs.py writes the file. Without it, no cell gets a badge and the drill-down panel never opens.
+      const contextPairs = await fetch("./kerning-context-pairs.json")
         .then((r) => r.json())
         .catch(() => ({}));
-      const hardCasesByPair = new Map();
-      for (const [key, junctions] of Object.entries(hardCases)) {
+      const contextPairsByPair = new Map();
+      for (const [key, junctions] of Object.entries(contextPairs)) {
         if (key === "_skipped" || !Array.isArray(junctions) || junctions.length === 0) continue;
-        hardCasesByPair.set(key, junctions);
+        contextPairsByPair.set(key, junctions);
       }
 
       const VOWEL_FIRST_CODE = 0xe670;
@@ -475,10 +475,10 @@
         return { family: token, stance: null, except: null, glyph: KNOWN_GLYPHS.has(token) };
       }
 
-      // junctionKey -> {pairKey, isolated, left, right} for every precomputed junction, including each isolated quadrant. Parsing uses it to tell a hidden-junction override from the cell value an alt pair stores in its isolated quadrant.
+      // junctionKey -> {pairKey, isolated, left, right} for every precomputed junction, including each isolated combination. Parsing uses it to tell an override on a context-only stance pair from the cell value an alt pair stores in its isolated combination.
       function knownJunctions() {
         const known = new Map();
-        for (const [pairKey, junctions] of hardCasesByPair) {
+        for (const [pairKey, junctions] of contextPairsByPair) {
           for (const junction of junctions) {
             known.set(junctionKey(junction), {
               pairKey,
@@ -491,10 +491,10 @@
         return known;
       }
 
-      // Every alt-axis junction of the pair: the hidden rows plus the isolated quadrant. Empty for a pair with no alt-axis junctions, including one whose junctions all come from the demote and restore tables.
-      function altQuadrants(pairKey) {
-        const junctions = hardCasesByPair.get(pairKey) || [];
-        return junctions.filter((j) => j.origin === "alt-axis");
+      // Every junction in the pair's alt combinations: the context-only rows plus the isolated combination. Empty for a pair with no alt combinations, including one whose junctions all come from the demote and restore tables.
+      function altCombinations(pairKey) {
+        const junctions = contextPairsByPair.get(pairKey) || [];
+        return junctions.filter((j) => j.origin === "alt-combinations");
       }
 
       function parseInlineList(raw) {
@@ -539,7 +539,7 @@
 
         const known = knownJunctions();
         const leftover = [];
-        // "qsLeft|qsRight" -> the rules with a stance prefix or a hidden-junction selector, for a pair without alt-axis quadrants.
+        // "qsLeft|qsRight" -> the rules with a stance prefix or a context-only stance pair selector, for a pair without alt combinations.
         const pairRules = new Map();
 
         // Parses one side of a rule into a list of {family, stance, except} selectors, or null if it names an unknown family or glyph. `*_stance` gives one stance selector per entry; `*_family` gives one family selector per family, all sharing the side's `except_*` list.
@@ -590,12 +590,12 @@
               const key = junctionKey({ left, right });
               const match = known.get(key);
               if (match && match.isolated) {
-                // The isolated quadrant of an alt pair holds the pair's cell value.
+                // The isolated combination of an alt pair holds the pair's cell value.
                 if (value === 0) cellValues.delete(match.pairKey);
                 else cellValues.set(match.pairKey, value);
               } else if (match || left.stance || right.stance) {
                 const pairKey = cellKey(left.family, right.family);
-                if (!altQuadrants(pairKey).length) {
+                if (!altCombinations(pairKey).length) {
                   // serialize() cuts such a pair into disjoint pieces, so its rules are read back together once every document is parsed.
                   const exceptOf = (which) => (`except_${which}` in fields ? parseInlineList(fields[`except_${which}`]) : []);
                   if (!pairRules.has(pairKey)) pairRules.set(pairKey, []);
@@ -606,7 +606,7 @@
                   });
                   continue;
                 }
-                // A precomputed hidden junction, or any other rule with a stance prefix, is a per-junction override, a `value: 0` one included.
+                // A precomputed context-only stance pair, or any other rule with a stance prefix, is a per-junction override, a `value: 0` one included.
                 stanceOverrides.set(key, { left, right, value });
               } else {
                 // A plain family × family rule is the grid cell. serialize() recomputes any carve-out.
@@ -626,10 +626,10 @@
           }
         }
 
-        // serialize() writes an alt pair's cell value on every quadrant without an override, so after a reload those quadrants parse as overrides equal to the cell value. Drop them so the panel lists only the overrides the user set.
+        // serialize() writes an alt pair's cell value on every stance combination without an override, so after a reload those combinations parse as overrides equal to the cell value. Drop them so the panel lists only the overrides the user set.
         for (const [key, override] of [...stanceOverrides]) {
           const match = known.get(key);
-          if (match && !match.isolated && altQuadrants(match.pairKey).length && override.value === (cellValues.get(match.pairKey) || 0)) {
+          if (match && !match.isolated && altCombinations(match.pairKey).length && override.value === (cellValues.get(match.pairKey) || 0)) {
             stanceOverrides.delete(key);
           }
         }
@@ -660,23 +660,23 @@
           const [lf, rf] = pairKey.split("|");
           const cellValue = cellValues.get(pairKey) || 0;
           const overrides = overridesByPair.get(pairKey);
-          const quadrants = altQuadrants(pairKey);
+          const combinations = altCombinations(pairKey);
 
-          if (quadrants.length && overrides && overrides.size) {
-            // An alt pair with overrides: write one rule per quadrant, using the override where there is one and the cell value elsewhere. The quadrants partition the family × family space, so no two rules overlap. A quadrant whose value is 0 gets an explicit `value: 0` rule when the cell's value is not 0, so a zero override reads back.
+          if (combinations.length && overrides && overrides.size) {
+            // An alt pair with overrides: write one rule per stance combination, using the override where there is one and the cell value elsewhere. The combinations partition the family × family space, so no two rules overlap. A combination whose value is 0 gets an explicit `value: 0` rule when the cell's value is not 0, so a zero override reads back.
             const emitted = new Set();
-            for (const quadrant of quadrants) {
-              const quadrantKey = junctionKey(quadrant);
-              emitted.add(quadrantKey);
-              const value = overrides.has(quadrantKey) ? overrides.get(quadrantKey).value : cellValue;
-              if (value !== 0 || cellValue !== 0) bodies.push(ruleBody(quadrant.left, quadrant.right, value));
+            for (const combination of combinations) {
+              const combinationKey = junctionKey(combination);
+              emitted.add(combinationKey);
+              const value = overrides.has(combinationKey) ? overrides.get(combinationKey).value : cellValue;
+              if (value !== 0 || cellValue !== 0) bodies.push(ruleBody(combination.left, combination.right, value));
             }
-            // An alt pair whose isolated rendering is a ligature has no isolated quadrant, and it can have overrides on selectors outside the quadrants. Write those unchanged.
+            // An alt pair whose isolated rendering is a ligature has no isolated combination, and it can have overrides on selectors outside the stance combinations. Write those unchanged.
             for (const [overrideKey, override] of overrides) {
               if (!emitted.has(overrideKey)) bodies.push(ruleBody(override.left, override.right, override.value));
             }
           } else if (overrides && overrides.size) {
-            // A pair with overrides and no alt-axis quadrants: disjoint rules that give each glyph pair its most specific override, or the cell value where no override matches. kerning-rules.js says how the pieces are cut.
+            // A pair with overrides and no alt combinations: disjoint rules that give each glyph pair its most specific override, or the cell value where no override matches. kerning-rules.js says how the pieces are cut.
             const sorted = [...overrides].sort((a, b) => a[0].localeCompare(b[0]));
             const regions = sorted.map(([, o]) => ({ left: o.left.stance || null, right: o.right.stance || null, value: o.value }));
             bodies.push(...partitionPair(sideForToken(lf), sideForToken(rf), cellValue, regions));
@@ -846,11 +846,11 @@
             if (rowAtVowelStart) td.classList.add("boundary-top");
             if (rowAtConsonantEnd) td.classList.add("boundary-bottom");
             if (rowAtPunctStart) td.classList.add("boundary-top");
-            if (hardCasesByPair.has(key)) {
-              td.classList.add("has-hard-cases");
+            if (contextPairsByPair.has(key)) {
+              td.classList.add("has-context-pairs");
               const badge = document.createElement("span");
-              badge.className = "hard-case-badge";
-              badge.title = "hidden stance-junctions — click to drill down";
+              badge.className = "context-pair-badge";
+              badge.title = "context-only stance pairs — click to drill down";
               td.appendChild(badge);
             }
             keyToCell.set(key, td);
@@ -879,11 +879,11 @@
         for (const render of openJunctionRows) render();
       }
 
-      // The value serialize() writes on a junction's glyph pairs when the junction has no override: the cell value for an alt pair, or for a pair without alt-axis quadrants the most specific other override that holds the junction, or the cell value.
+      // The value serialize() writes on a junction's glyph pairs when the junction has no override: the cell value for an alt pair, or for a pair without alt combinations the most specific other override that holds the junction, or the cell value.
       function inheritedJunctionValue(junction) {
         const pairKey = cellKey(junction.left.family, junction.right.family);
         const cellValue = cellValues.get(pairKey) || 0;
-        if (altQuadrants(pairKey).length) return cellValue;
+        if (altCombinations(pairKey).length) return cellValue;
         const own = junctionKey(junction);
         const others = pairRegions(pairKey).filter((region) => region.key !== own);
         return inheritedValue(cellValue, others, junction.left.stance || null, junction.right.stance || null);
@@ -924,7 +924,7 @@
         if (kernSpan) kernSpan.style.marginLeft = fake ? `calc(${fake} * 1em / ${PIXEL_DENOMINATOR})` : "";
       }
 
-      // An override is dropped only when serialize() writes the same value on every glyph pair of the pair without it: in an alt pair, when it equals the cell value; in a pair without alt-axis quadrants, when no glyph pair it decides would take a different value from the pair's other overrides or the cell.
+      // An override is dropped only when serialize() writes the same value on every glyph pair of the pair without it: in an alt pair, when it equals the cell value; in a pair without alt combinations, when no glyph pair it decides would take a different value from the pair's other overrides or the cell.
       function adjustJunction(junction, delta) {
         const key = junctionKey(junction);
         const pairKey = cellKey(junction.left.family, junction.right.family);
@@ -932,7 +932,7 @@
         const override = stanceOverrides.get(key);
         const next = (override ? override.value : inheritedJunctionValue(junction)) + delta;
         stanceOverrides.set(key, { left: junction.left, right: junction.right, value: next });
-        const redundant = altQuadrants(pairKey).length
+        const redundant = altCombinations(pairKey).length
           ? next === cellValue
           : overrideIsRedundant(cellValue, pairRegions(pairKey), junction.left.stance || null, junction.right.stance || null);
         if (redundant) stanceOverrides.delete(key);
@@ -947,9 +947,9 @@
       }
 
       function openJunctionPanel(pairKey) {
-        const all = hardCasesByPair.get(pairKey);
+        const all = contextPairsByPair.get(pairKey);
         if (!all) return;
-        // The isolated quadrant is the grid cell itself, so it gets no row.
+        // The isolated combination is the grid cell itself, so it gets no row.
         const junctions = all.filter((j) => !j.isolated);
         if (!junctions.length) return;
         openJunctionPairKey = pairKey;
@@ -966,7 +966,7 @@
         junctionPanel.appendChild(closeButton);
 
         const heading = document.createElement("h2");
-        heading.textContent = `·${FAMILY_TO_LETTER.get(leftFamily).name} · ·${FAMILY_TO_LETTER.get(rightFamily).name} — hidden junctions`;
+        heading.textContent = `·${FAMILY_TO_LETTER.get(leftFamily).name} · ·${FAMILY_TO_LETTER.get(rightFamily).name} — context-only stance pairs`;
         junctionPanel.appendChild(heading);
 
         for (const junction of junctions) {
@@ -1027,7 +1027,7 @@
       table.addEventListener("click", (e) => {
         const td = e.target.closest("td");
         if (!td) return;
-        if (e.target.classList.contains("hard-case-badge") || (e.shiftKey && td.classList.contains("has-hard-cases"))) {
+        if (e.target.classList.contains("context-pair-badge") || (e.shiftKey && td.classList.contains("has-context-pairs"))) {
           e.stopPropagation();
           openJunctionPanel(td.dataset.key);
           return;
@@ -1126,7 +1126,7 @@
     </div>
 
     <p class="help">
-      Paste <code>glyph_data/senior_quikscript_kerning.yaml</code> below. <kbd>Click</kbd> a pair to tighten it by one pixel, <kbd>right-click</kbd> to loosen it. Each pixel is faked with <code>letter-spacing</code> of <sup>1</sup>&frasl;<sub>11</sub>&nbsp;em. The textarea rewrites itself live as you edit the grid, so copy it back out when you&rsquo;re done. Punctuation runs after the letters on both axes; pairs touching it emit explicit <code>left:</code>&thinsp;/&thinsp;<code>right:</code> rules. A small purple corner triangle marks pairs with hidden stance-junctions; <kbd>click</kbd> the triangle (or <kbd>shift</kbd>+click the cell) to open a drill-down panel where you <kbd>click</kbd> a junction to tighten it and <kbd>right-click</kbd> to loosen it, just like the grid.
+      Paste <code>glyph_data/senior_quikscript_kerning.yaml</code> below. <kbd>Click</kbd> a pair to tighten it by one pixel, <kbd>right-click</kbd> to loosen it. Each pixel is faked with <code>letter-spacing</code> of <sup>1</sup>&frasl;<sub>11</sub>&nbsp;em. The textarea rewrites itself live as you edit the grid, so copy it back out when you&rsquo;re done. Punctuation runs after the letters on both axes; pairs touching it emit explicit <code>left:</code>&thinsp;/&thinsp;<code>right:</code> rules. A small purple corner triangle marks the cells whose letter pair has context-only stance pairs; <kbd>click</kbd> the triangle (or <kbd>shift</kbd>+click the cell) to open a drill-down panel where you <kbd>click</kbd> a junction to tighten it and <kbd>right-click</kbd> to loosen it, just like the grid.
     </p>
 
     <div class="kern-layout">

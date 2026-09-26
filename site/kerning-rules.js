@@ -1,4 +1,4 @@
-// Writes and reads back the kern rules for a pair with per-junction overrides and no alt-axis quadrants.
+// Writes and reads back the kern rules for a pair with per-junction overrides and no alt combinations.
 //
 // A side of an override is a stance prefix, or null for the whole family. Two prefixes are nested (qsGay.ex-y0 holds qsGay.ex-y0.ex-ext-1) or disjoint, so the prefixes of a pair form a tree under the family. Each tree node stands for its own glyphs: the ones no deeper prefix claims. A glyph pair takes the value of the most specific override that matches it, comparing the left prefix first and then the right, or the cell value when none matches. The rules written for a pair are disjoint, so the separate lookups the build makes of them never add up on one glyph pair.
 
