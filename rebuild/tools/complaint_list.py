@@ -1,6 +1,6 @@
 """Group the open complaints (reject and neither verdicts) on the live review corpus by the rune records that decided them, and list the blank units those records also decide as defer candidates: each group becomes one entry in the fix worklist, and its defer candidates can be set aside until the fix is committed.
 
-A reject with a policy draft is grouped by the draft's fix site (file and keypath). A reject without a draft is grouped by its exact tuple of provenance pointers, and complaints with no pointers form one unattributed group. Neithers are collected by pointer tuple too, and each tuple joins the reject group whose pointers overlap it most, or forms its own group when none overlaps.
+A reject with a policy draft is grouped by its draft target (file and keypath). A reject without a draft is grouped by its exact tuple of provenance pointers, and complaints with no pointers form one unattributed group. Neithers are collected by pointer tuple too, and each tuple joins the reject group whose pointers overlap it most, or forms its own group when none overlaps.
 
 Deferring uses skip verdicts. A defer file holds one skip verdict per defer candidate, with `at` set to the manifest's `generated_at`, so any verdict the user records on this corpus is newer and wins. The echo fill ignores skips, and the review queue counts a skipped unit as blank but defers its echo group. The user imports the file through the app's Import dialog. The carry drops skip verdicts, so deferred units return to the blank queue on the first cycle that rebuilds the corpus.
 
@@ -34,7 +34,7 @@ CORPUS = ROOT / "rebuild/out/review"
 AUTOSAVE = ROOT / "verdicts-autosave.json"
 DATA_OUT = ROOT / "tmp/complaints-data.json"
 COMPLAINT_KINDS = ("reject", "neither")
-CHURN_KINDS = tuple(sorted(ACCEPTING_VERDICTS))
+AT_RISK_KINDS = tuple(sorted(ACCEPTING_VERDICTS))
 
 
 def _triage_position(unit):
@@ -77,16 +77,16 @@ def _complaint_entry(unit, record):
 
 def _scaffold(kind, key):
     if kind == "policy":
-        basis_repr = f"{key[0]}|{key[1]}"
+        key_repr = f"{key[0]}|{key[1]}"
     else:
-        basis_repr = "\n".join(key)
+        key_repr = "\n".join(key)
     return {
         "kind": kind,
         "key": key,
-        "id": "g-" + hashlib.sha256(basis_repr.encode()).hexdigest()[:8],
+        "id": "g-" + hashlib.sha256(key_repr.encode()).hexdigest()[:8],
         "rejects": [],
         "neithers": [],
-        "basis": set(),
+        "provenance_pointers": set(),
     }
 
 
@@ -107,8 +107,10 @@ def build_groups(complaints):
             key = ("unattributed", ())
         group = groups.setdefault(key, _scaffold(*key))
         group["rejects"].append((unit, record))
-        group["basis"].update(pointers)
-    reject_bases = {key: set(group["basis"]) for key, group in groups.items() if group["rejects"]}
+        group["provenance_pointers"].update(pointers)
+    reject_pointers = {
+        key: set(group["provenance_pointers"]) for key, group in groups.items() if group["rejects"]
+    }
     for pointers in sorted(neither_pool):
         members = neither_pool[pointers]
         if not pointers:
@@ -117,9 +119,9 @@ def build_groups(complaints):
             group["neithers"].extend(members)
             continue
         overlaps = [
-            (len(set(pointers) & reject_bases[key]), len(groups[key]["rejects"]), groups[key]["id"], key)
-            for key in reject_bases
-            if set(pointers) & reject_bases[key]
+            (len(set(pointers) & reject_pointers[key]), len(groups[key]["rejects"]), groups[key]["id"], key)
+            for key in reject_pointers
+            if set(pointers) & reject_pointers[key]
         ]
         if overlaps:
             overlaps.sort(key=lambda item: (-item[0], -item[1], item[2]))
@@ -128,7 +130,7 @@ def build_groups(complaints):
             key = ("provenance", pointers)
             target = groups.setdefault(key, _scaffold(*key))
         target["neithers"].extend(members)
-        target["basis"].update(pointers)
+        target["provenance_pointers"].update(pointers)
     return groups
 
 
@@ -147,13 +149,13 @@ def _defer_naming(group):
     return f"verdicts-deferred-{slug}-{group['id'][2:]}.json", marker_target
 
 
-def _split_by_freshness(members, threshold):
+def _split_by_age(members, threshold):
     entries = [(_complaint_entry(unit, record), _triage_position(unit)) for unit, record in members]
     entries.sort(key=lambda item: (item[0]["at"], item[1]), reverse=True)
     entries = [entry for entry, _position in entries]
     return {
-        "fresh": [entry for entry in entries if entry["at"] >= threshold],
-        "standing": [entry for entry in entries if entry["at"] < threshold],
+        "new": [entry for entry in entries if entry["at"] >= threshold],
+        "older": [entry for entry in entries if entry["at"] < threshold],
     }
 
 
@@ -163,18 +165,22 @@ def finalize_groups(groups, *, threshold, human, records, ruled_ids):
     finalized = []
     naming = {}
     for group in groups.values():
-        basis = group["basis"]
+        provenance_pointers = group["provenance_pointers"]
         defer_file, marker_target = _defer_naming(group)
         candidates, ruled_blank = [], []
-        churn = collections.Counter()
-        if basis:
+        at_risk = collections.Counter()
+        if provenance_pointers:
             for unit in blanks:
-                if prov_sets[unit["id"]] & basis:
+                if prov_sets[unit["id"]] & provenance_pointers:
                     (ruled_blank if unit["class"] in ruled_ids else candidates).append(unit)
             for unit in human:
                 record = records.get(unit["id"])
-                if record and record["verdict"] in CHURN_KINDS and prov_sets[unit["id"]] & basis:
-                    churn[record["verdict"]] += 1
+                if (
+                    record
+                    and record["verdict"] in AT_RISK_KINDS
+                    and prov_sets[unit["id"]] & provenance_pointers
+                ):
+                    at_risk[record["verdict"]] += 1
         candidates.sort(key=_triage_position)
         suggested = sorted(
             {
@@ -193,10 +199,10 @@ def finalize_groups(groups, *, threshold, human, records, ruled_ids):
                 "id": group["id"],
                 "kind": group["kind"],
                 "target": target,
-                "pointers": sorted(basis),
+                "pointers": sorted(provenance_pointers),
                 "classes": sorted({unit["class"] for unit, _record in member_entries}),
-                "rejects": _split_by_freshness(group["rejects"], threshold),
-                "neithers": _split_by_freshness(group["neithers"], threshold),
+                "rejects": _split_by_age(group["rejects"], threshold),
+                "neithers": _split_by_age(group["neithers"], threshold),
                 "suggested_records": suggested,
                 "draft_conflicts": len(suggested) > 1,
                 "defer_candidates": {
@@ -209,7 +215,7 @@ def finalize_groups(groups, *, threshold, human, records, ruled_ids):
                     "count": len(ruled_blank),
                     "by_class": dict(collections.Counter(unit["class"] for unit in ruled_blank)),
                 },
-                "churn_if_fixed": {kind: churn.get(kind, 0) for kind in CHURN_KINDS},
+                "approved_units_at_risk": {kind: at_risk.get(kind, 0) for kind in AT_RISK_KINDS},
                 "shares_pointers_with": [],
                 "defer_file": defer_file,
             }
@@ -223,7 +229,7 @@ def finalize_groups(groups, *, threshold, human, records, ruled_ids):
     finalized.sort(
         key=lambda group: (
             group["kind"] == "unattributed",
-            -(len(group["rejects"]["fresh"]) + len(group["neithers"]["fresh"])),
+            -(len(group["rejects"]["new"]) + len(group["neithers"]["new"])),
             -(
                 sum(len(part) for part in group["rejects"].values())
                 + sum(len(part) for part in group["neithers"].values())
@@ -254,7 +260,7 @@ def emit_defer(group, marker_target, *, stamp, defer_dir, note_text):
 def main(argv=None, *, units: Iterable[Mapping[str, Any]] | None = None, unit_ids: set[str] | None = None):
     """Write the complaint list data, and defer files for any `--defer` groups.
 
-    `units` and `unit_ids` are passed together or not at all: a single-pass stream of human unit records, and every corpus id, machine units included, for the absent-unit warning. Only the complaint fields and small projections of the blank and churn units are kept from the stream.
+    `units` and `unit_ids` are passed together or not at all: a single-pass stream of human unit records, and every corpus id, machine units included, for the absent-unit warning. Only the complaint fields and small projections of the blank and at-risk units are kept from the stream.
     """
     parser = argparse.ArgumentParser(description=(__doc__ or "").split(":")[0] + ".")
     parser.add_argument(
@@ -268,7 +274,7 @@ def main(argv=None, *, units: Iterable[Mapping[str, Any]] | None = None, unit_id
     parser.add_argument(
         "--since",
         default=None,
-        help="fresh/standing threshold as an ISO-8601 stamp (default: the manifest's generated_at)",
+        help="new/older threshold as an ISO-8601 stamp (default: the manifest's generated_at)",
     )
     parser.add_argument(
         "--defer",
@@ -315,7 +321,7 @@ def main(argv=None, *, units: Iterable[Mapping[str, Any]] | None = None, unit_id
             )
             complaints.append((complaint, record))
         elif unit.get("provenance") and (
-            not record or record["verdict"] == "skip" or record["verdict"] in CHURN_KINDS
+            not record or record["verdict"] == "skip" or record["verdict"] in AT_RISK_KINDS
         ):
             human.append(
                 {
@@ -339,10 +345,10 @@ def main(argv=None, *, units: Iterable[Mapping[str, Any]] | None = None, unit_id
         build_groups(complaints), threshold=threshold, human=human, records=records, ruled_ids=ruled_ids
     )
 
-    fresh = sum(len(group["rejects"]["fresh"]) + len(group["neithers"]["fresh"]) for group in groups)
+    new = sum(len(group["rejects"]["new"]) + len(group["neithers"]["new"]) for group in groups)
     defer_union = {unit_id for group in groups for unit_id in group["defer_candidates"]["unit_ids"]}
     ruled_blank_total = sum(group["ruled_class_blanks"]["count"] for group in groups)
-    approved_sharing = sum(group["churn_if_fixed"]["approve"] for group in groups)
+    approved_at_risk = sum(group["approved_units_at_risk"]["approve"] for group in groups)
     payload = {
         "manifest_generated_at": stamp,
         "verdicts_file": verdicts_path.name,
@@ -351,12 +357,12 @@ def main(argv=None, *, units: Iterable[Mapping[str, Any]] | None = None, unit_id
             "complaints": len(complaints),
             "rejects": sum(1 for _unit, record in complaints if record["verdict"] == "reject"),
             "neithers": sum(1 for _unit, record in complaints if record["verdict"] == "neither"),
-            "fresh": fresh,
-            "standing": len(complaints) - fresh,
+            "new": new,
+            "older": len(complaints) - new,
             "groups": len(groups),
             "defer_candidates": len(defer_union),
             "ruled_class_blanks": ruled_blank_total,
-            "approved_sharing": approved_sharing,
+            "approved_units_at_risk": approved_at_risk,
         },
         "groups": groups,
     }
@@ -370,9 +376,9 @@ def main(argv=None, *, units: Iterable[Mapping[str, Any]] | None = None, unit_id
         totals = payload["totals"]
         print(
             f"wrote {data_out}: {totals['complaints']} open complaints "
-            f"({totals['fresh']} fresh / {totals['standing']} standing) in {totals['groups']} groups — "
+            f"({totals['new']} new / {totals['older']} older) in {totals['groups']} groups — "
             f"{totals['defer_candidates']} defer candidates, "
-            f"{totals['approved_sharing']} approved sharers likely churn if fixed"
+            f"{totals['approved_units_at_risk']} approved units a fix would likely change"
         )
 
     if args.defer:

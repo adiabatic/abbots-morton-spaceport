@@ -1,4 +1,4 @@
-"""Tests for the complaint list (`rebuild/tools/complaint_list.py`): grouping reject and neither verdicts by the rune records that decided them (a reject groups by its policy draft's fix site when it has one and otherwise by its exact provenance tuple, and a neither joins the reject group whose pointers overlap its own most), the fresh and standing split at the manifest stamp, the lookup from a group's pointers to the blank units it can defer and the judged units a fix would change, and the defer file (skip verdicts stamped with the manifest's `generated_at`, one per defer candidate)."""
+"""Tests for the complaint list (`rebuild/tools/complaint_list.py`): grouping reject and neither verdicts by the rune records that decided them (a reject groups by its draft target when it has one and otherwise by its exact provenance tuple, and a neither joins the reject group whose pointers overlap its own most), the new and older split at the manifest stamp, the lookup from a group's pointers to the blank units it can defer and the approved units a fix would likely change, and the defer file (skip verdicts stamped with the manifest's `generated_at`, one per defer candidate)."""
 
 import json
 import weakref
@@ -9,7 +9,7 @@ from rebuild.tools import complaint_list as cl
 from rebuild.tools.review_queue import load_human_units
 
 STAMP = "2026-07-10T00:00:00Z"
-FRESH = "2026-07-10T12:00:00Z"
+NEW = "2026-07-10T12:00:00Z"
 OLD = "2026-07-01T00:00:00Z"
 
 P_EXTEND_1 = "glyph_data/runes/qsDay.yaml:policy.extend[1]"
@@ -122,7 +122,7 @@ def data(repo):
     return json.loads(repo["data_out"].read_text())
 
 
-def test_rejects_sharing_a_policy_target_form_one_group_with_a_union_basis(repo):
+def test_rejects_sharing_a_draft_target_form_one_group_with_the_union_of_their_pointers(repo):
     write_corpus(
         repo,
         [
@@ -130,7 +130,7 @@ def test_rejects_sharing_a_policy_target_form_one_group_with_a_union_basis(repo)
             unit("u-0002", [P_EXTEND_2], policy=policy_draft(codepoints="E653:E654")),
         ],
     )
-    write_verdicts(repo, [v("u-0001", "reject", at=FRESH), v("u-0002", "reject", at=FRESH)])
+    write_verdicts(repo, [v("u-0001", "reject", at=NEW), v("u-0002", "reject", at=NEW)])
     assert run(repo) == 0
     payload = data(repo)
     assert payload["totals"]["groups"] == 1
@@ -138,7 +138,7 @@ def test_rejects_sharing_a_policy_target_form_one_group_with_a_union_basis(repo)
     assert group["kind"] == "policy"
     assert group["target"] == {"file": "glyph_data/runes/qsDay.yaml", "keypath": "policy.contract[+]"}
     assert group["pointers"] == [P_EXTEND_1, P_EXTEND_2]
-    assert {entry["unit"] for entry in group["rejects"]["fresh"]} == {"u-0001", "u-0002"}
+    assert {entry["unit"] for entry in group["rejects"]["new"]} == {"u-0001", "u-0002"}
     assert len(group["suggested_records"]) == 1
     assert group["draft_conflicts"] is False
 
@@ -156,13 +156,13 @@ def test_draftless_rejects_group_by_their_exact_provenance_tuple(repo):
     assert run(repo) == 0
     payload = data(repo)
     assert payload["totals"]["groups"] == 2
-    pair = next(group for group in payload["groups"] if len(group["rejects"]["standing"]) == 2)
+    pair = next(group for group in payload["groups"] if len(group["rejects"]["older"]) == 2)
     assert pair["kind"] == "provenance"
     assert pair["target"] == {"pointers": [P_EXTEND_1, P_EXTEND_2]}
     assert pair["suggested_records"] == []
 
 
-def test_a_neither_strand_attaches_to_the_pointer_sharing_reject_group(repo):
+def test_a_neither_group_attaches_to_the_pointer_sharing_reject_group(repo):
     write_corpus(
         repo,
         [
@@ -179,26 +179,26 @@ def test_a_neither_strand_attaches_to_the_pointer_sharing_reject_group(repo):
     payload = data(repo)
     assert payload["totals"]["groups"] == 2
     attached = next(group for group in payload["groups"] if group["kind"] == "policy")
-    assert [entry["unit"] for entry in attached["neithers"]["standing"]] == ["u-0002"]
+    assert [entry["unit"] for entry in attached["neithers"]["older"]] == ["u-0002"]
     assert set(attached["pointers"]) == {P_EXTEND_1, P_EXTEND_2}
     standalone = next(group for group in payload["groups"] if group["kind"] == "provenance")
-    assert [entry["unit"] for entry in standalone["neithers"]["standing"]] == ["u-0003"]
-    assert standalone["rejects"] == {"fresh": [], "standing": []}
+    assert [entry["unit"] for entry in standalone["neithers"]["older"]] == ["u-0003"]
+    assert standalone["rejects"] == {"new": [], "older": []}
 
 
-def test_fresh_and_standing_split_on_the_manifest_stamp_and_since_overrides(repo):
+def test_new_and_older_split_on_the_manifest_stamp_and_since_overrides(repo):
     write_corpus(repo, [unit("u-0001", [P_EXTEND_1]), unit("u-0002", [P_EXTEND_1])])
-    write_verdicts(repo, [v("u-0001", "reject", at=FRESH), v("u-0002", "reject", at=OLD)])
+    write_verdicts(repo, [v("u-0001", "reject", at=NEW), v("u-0002", "reject", at=OLD)])
     assert run(repo) == 0
     totals = data(repo)["totals"]
-    assert (totals["fresh"], totals["standing"]) == (1, 1)
+    assert (totals["new"], totals["older"]) == (1, 1)
     assert run(repo, "--since", "2026-06-01T00:00:00Z") == 0
     totals = data(repo)["totals"]
-    assert (totals["fresh"], totals["standing"]) == (2, 0)
+    assert (totals["new"], totals["older"]) == (2, 0)
     assert data(repo)["since"] == "2026-06-01T00:00:00Z"
 
 
-def test_defer_candidates_are_the_blank_sharers_and_judged_sharers_forecast_churn(repo):
+def test_defer_candidates_are_the_blank_sharers_and_judged_sharers_are_at_risk(repo):
     write_corpus(
         repo,
         [
@@ -213,7 +213,7 @@ def test_defer_candidates_are_the_blank_sharers_and_judged_sharers_forecast_chur
     write_verdicts(
         repo,
         [
-            v("u-0001", "reject", at=FRESH),
+            v("u-0001", "reject", at=NEW),
             v("u-0003", "skip"),
             v("u-0004", "approve"),
             v("u-0005", "either"),
@@ -223,9 +223,9 @@ def test_defer_candidates_are_the_blank_sharers_and_judged_sharers_forecast_chur
     group = data(repo)["groups"][0]
     assert group["defer_candidates"]["unit_ids"] == ["u-0002", "u-0003"]
     assert group["defer_candidates"]["count"] == 2
-    assert group["churn_if_fixed"] == {"approve": 1, "either": 1, "identical": 0}
+    assert group["approved_units_at_risk"] == {"approve": 1, "either": 1, "identical": 0}
     assert data(repo)["totals"]["defer_candidates"] == 2
-    assert data(repo)["totals"]["approved_sharing"] == 1
+    assert data(repo)["totals"]["approved_units_at_risk"] == 1
 
 
 def test_ruled_class_blanks_are_counted_but_not_deferred(repo):
@@ -253,7 +253,7 @@ def test_defer_emits_skip_verdicts_at_the_manifest_stamp_covering_exact_blanks(r
             unit("u-0003", [P_EXTEND_1]),
         ],
     )
-    write_verdicts(repo, [v("u-0001", "reject", at=FRESH), v("u-0003", "approve")])
+    write_verdicts(repo, [v("u-0001", "reject", at=NEW), v("u-0003", "approve")])
     assert run(repo) == 0
     group = data(repo)["groups"][0]
     assert group["defer_file"].startswith("verdicts-deferred-qsDay-policy-contract-")
@@ -342,7 +342,7 @@ def test_streamed_records_preserve_complaint_list_and_defer_file_bytes_without_r
     write_verdicts(
         repo,
         [
-            v("u-0001", "reject", at=FRESH),
+            v("u-0001", "reject", at=NEW),
             v("u-0002", "neither"),
             v("u-0004", "approve"),
             v("u-0006", "skip"),
@@ -379,7 +379,7 @@ def test_streamed_records_preserve_complaint_list_and_defer_file_bytes_without_r
     assert capsys.readouterr().err == "warning: 1 verdict records name units absent from this corpus\n"
 
 
-def test_conflicting_mechanical_drafts_on_one_fix_site_are_flagged(repo):
+def test_conflicting_mechanical_drafts_on_one_draft_target_are_flagged(repo):
     write_corpus(
         repo,
         [
@@ -396,7 +396,7 @@ def test_conflicting_mechanical_drafts_on_one_fix_site_are_flagged(repo):
 
 def test_complaints_with_no_provenance_land_in_a_terminal_unattributed_group(repo):
     write_corpus(repo, [unit("u-0001", []), unit("u-0002", [P_EXTEND_1])])
-    write_verdicts(repo, [v("u-0001", "reject", at=FRESH), v("u-0002", "reject")])
+    write_verdicts(repo, [v("u-0001", "reject", at=NEW), v("u-0002", "reject")])
     assert run(repo) == 0
     payload = data(repo)
     assert [group["kind"] for group in payload["groups"]] == ["provenance", "unattributed"]

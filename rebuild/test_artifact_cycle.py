@@ -482,8 +482,8 @@ def test_the_complaint_list_headline_is_scraped_and_never_fails_the_cycle(tmp_pa
             (
                 "complaints",
                 [
-                    "wrote /x/tmp/complaints-data.json: 3 open complaints (1 fresh / 2 standing) in 2 "
-                    "groups — 5 defer candidates, 4 approved sharers likely churn if fixed"
+                    "wrote /x/tmp/complaints-data.json: 3 open complaints (1 new / 2 older) in 2 "
+                    "groups — 5 defer candidates, 4 approved units a fix would likely change"
                 ],
             )
         ),
