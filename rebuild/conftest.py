@@ -559,7 +559,7 @@ def mini_corpus(tmp_path_factory, mini_bundle: MiniBundle) -> Path:
 
 @pytest.fixture(scope="session")
 def example_units(mini_bundle: MiniBundle):
-    """Return the frozen worked-example units for the enrich and drafts tests, keyed by (codepoints, first config). `regenerate.EXAMPLE_WINDOWS` is the authority on the set. Regenerating the bundle fails when a member selects no audit row; the assertion below is a second check, for a window the bundle holds rows for but this loader cannot reach.
+    """Return the frozen example-window units for the enrich and drafts tests, keyed by (codepoints, first config). `regenerate.EXAMPLE_WINDOWS` is the authority on the set. Regenerating the bundle fails when a member selects no audit row; the assertion below is a second check, for a window the bundle holds rows for but this loader cannot reach.
 
     The units come from the mini audit, whose rows settled under the pinned spec `mini_bundle` materializes, so the enricher re-derives the settlement they were written under. This fixture must never read the live audit.
     """

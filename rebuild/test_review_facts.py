@@ -20,7 +20,7 @@ from rebuild.review.audit import (
 )
 from rebuild.review.facts import (
     FACTS_FORMAT,
-    WORKED_EXAMPLE_CODEPOINTS,
+    REFERENCE_WINDOW_CODEPOINTS,
     PremergeFacts,
     build_facts,
     built_group,
@@ -247,9 +247,9 @@ def test_the_snapshots_grains_digest_as_the_materialized_units_do():
 
 
 def _example_table() -> tuple[UnitTable, dict[int, str | None], list[dict]]:
-    """A table of four windows with order, batch, and echo set as the reduce sets them: three human units in two echo groups, the worked example among them, and one machine-approved unit outside the index. Returns the table, each unit's config note by ordinal, and the shard records the same units would be written as."""
+    """A table of four windows with order, batch, and echo set as the reduce sets them: three human units in two echo groups, the reference window among them, and one machine-approved unit outside the index. Returns the table, each unit's config note by ordinal, and the shard records the same units would be written as."""
     windows = {
-        WORKED_EXAMPLE_CODEPOINTS: (0, "e-0000", None),
+        REFERENCE_WINDOW_CODEPOINTS: (0, "e-0000", None),
         "E670:E653:E652:E650": (0, "e-0000", None),
         "E670:E653:E652:E651": (1, "e-0001", "only under ss10"),
         "E650:E651": (None, None, "only when ss03 is on"),
@@ -309,24 +309,24 @@ def _write_shard(root: Path, records: list[dict]) -> dict:
 
 
 def test_built_group_from_memory_mirrors_the_shard_walk(tmp_path):
-    """`built_group_from_memory` over the table and config notes must equal `built_group` over the shards written from them: the same human unit count, echo-sibling count for the worked example, and encoded config-note histogram."""
+    """`built_group_from_memory` over the table and config notes must equal `built_group` over the shards written from them: the same human unit count, echo-sibling count for the reference window, and encoded config-note histogram."""
     table, config_notes, records = _example_table()
     manifest = _write_shard(tmp_path, records)
     assert built_group_from_memory(table, config_notes) == built_group(tmp_path, manifest)
-    assert built_group_from_memory(table, config_notes)["worked_example_echo_siblings"] == 2
+    assert built_group_from_memory(table, config_notes)["reference_window_echo_siblings"] == 2
 
 
-def test_built_group_reports_a_missing_worked_example_as_none(tmp_path):
-    """When the worked example is not a human unit, as on every mini corpus a test builds, both functions report its echo-sibling count as None instead of failing. On the live corpus, the pins diff shows the loss as an accepted count replaced by null."""
+def test_built_group_reports_a_missing_reference_window_as_none(tmp_path):
+    """When the reference window is not a human unit, as on every mini corpus a test builds, both functions report its echo-sibling count as None instead of failing. On the live corpus, the pins diff shows the loss as an accepted count replaced by null."""
     table, config_notes, records = _example_table()
-    example = next(
-        ordinal for ordinal in range(table.n) if table.codepoints_text(ordinal) == WORKED_EXAMPLE_CODEPOINTS
+    reference = next(
+        ordinal for ordinal in range(table.n) if table.codepoints_text(ordinal) == REFERENCE_WINDOW_CODEPOINTS
     )
-    table.set_order_batch(example, None, None)
-    records[example]["ink_identical"] = True
+    table.set_order_batch(reference, None, None)
+    records[reference]["ink_identical"] = True
     manifest = _write_shard(tmp_path, records)
     from_memory = built_group_from_memory(table, config_notes)
-    assert from_memory["worked_example_echo_siblings"] is None
+    assert from_memory["reference_window_echo_siblings"] is None
     assert from_memory == built_group(tmp_path, manifest)
 
 

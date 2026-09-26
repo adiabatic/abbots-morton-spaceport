@@ -66,7 +66,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 PINS_PATH = REPO_ROOT / "rebuild" / "review-facts-pins.json"
 
 FACTS_FILENAME = "review-facts.json"
-FACTS_FORMAT = "ams-review-facts/4"
+FACTS_FORMAT = "ams-review-facts/5"
 FACTS_REMEDY = "rebuild the corpus with: uv run python -m rebuild.review.build"
 
 AUDIT_PATH = REPO_ROOT / "rebuild" / "out" / "m1" / "divergence-audit.tsv"
@@ -77,8 +77,8 @@ BEFORE_FONT = REPO_ROOT / "site" / "AbbotsMortonSpaceportSansSenior-Regular.otf"
 
 CLASS_UNIT_COUNT_KEYS = ("boundary-echo", "dangling-anchor-dropped", "bare-name-live-join")
 
-WORKED_EXAMPLE_CODEPOINTS = "E670:E653:E652:E666"
-_WORKED_EXAMPLE_WINDOW = parse_codepoints(WORKED_EXAMPLE_CODEPOINTS)
+REFERENCE_WINDOW_CODEPOINTS = "E670:E653:E652:E666"
+_REFERENCE_WINDOW = parse_codepoints(REFERENCE_WINDOW_CODEPOINTS)
 
 
 def _text(unit) -> str:
@@ -243,25 +243,25 @@ def _shard_units(out_dir: Path, meta: dict) -> Iterable[dict]:
 
 
 def built_group(out_dir: Path, manifest: dict) -> dict:
-    """The post-merge facts that need a walk of the corpus's unit shards: the human-unit count, the config-note histogram, and the worked example's echo-sibling count (the distinct windows one ·It·Day·Tea·No verdict covers). The echo-sibling count is None when the worked example is not a human unit. Every build writes the sidecar, including the unit-cache tests' small corpora, so only the live corpus is required to contain the example, and the pins diff shows a missing one as an accepted count replaced by None."""
+    """The post-merge facts that need a walk of the corpus's unit shards: the human-unit count, the config-note histogram, and the reference window's echo-sibling count (the distinct windows one ·It·Day·Tea·No verdict covers). The echo-sibling count is None when the reference window is not a human unit. Every build writes the sidecar, including the unit-cache tests' small corpora, so only the live corpus is required to contain the reference window, and the pins diff shows a missing one as an accepted count replaced by None."""
     out_dir = Path(out_dir)
     human_units = 0
     distribution: dict[str | None, int] = {}
-    example_echo: str | None = None
+    reference_echo: str | None = None
     codepoints_by_echo: dict[str, set[str]] = {}
     for meta in manifest["classes"]:
         for unit in _shard_units(out_dir, meta):
             if not slim_fragment(unit):
                 human_units += 1
                 codepoints_by_echo.setdefault(unit["echo"], set()).add(unit["codepoints"])
-                if unit["codepoints"] == WORKED_EXAMPLE_CODEPOINTS:
-                    example_echo = unit["echo"]
+                if unit["codepoints"] == REFERENCE_WINDOW_CODEPOINTS:
+                    reference_echo = unit["echo"]
             note = unit["config_note"]
             distribution[note] = distribution.get(note, 0) + 1
     return {
         "human_units": human_units,
-        "worked_example_echo_siblings": (
-            len(codepoints_by_echo[example_echo]) if example_echo is not None else None
+        "reference_window_echo_siblings": (
+            len(codepoints_by_echo[reference_echo]) if reference_echo is not None else None
         ),
         "config_note_distribution": _encode_note_distribution(distribution),
     }
@@ -579,10 +579,10 @@ def unmatched_groups_group_from(assignments: list[str]) -> dict:
 
 
 def built_group_from_memory(table: UnitTable, config_notes: Mapping[int, str | None]) -> dict:
-    """`built_group` computed from the build's in-memory state instead of the shards it wrote: the same three facts by the same rules, including None for a missing worked example, without parsing the shards again. The units are the table's rows; `config_notes` maps each unit's ordinal to its `config_note`, the one fragment field this group reads."""
+    """`built_group` computed from the build's in-memory state instead of the shards it wrote: the same three facts by the same rules, including None for a missing reference window, without parsing the shards again. The units are the table's rows; `config_notes` maps each unit's ordinal to its `config_note`, the one fragment field this group reads."""
     human_units = 0
     distribution: dict[str | None, int] = {}
-    example_echo: str | None = None
+    reference_echo: str | None = None
     windows_by_echo: dict[str, set[tuple[int, ...]]] = {}
     for ordinal in range(table.n):
         if table.batch(ordinal) is not None:
@@ -591,14 +591,14 @@ def built_group_from_memory(table: UnitTable, config_notes: Mapping[int, str | N
             human_units += 1
             window = table.codepoints(ordinal)
             windows_by_echo.setdefault(echo, set()).add(window)
-            if window == _WORKED_EXAMPLE_WINDOW:
-                example_echo = echo
+            if window == _REFERENCE_WINDOW:
+                reference_echo = echo
         note = config_notes[ordinal]
         distribution[note] = distribution.get(note, 0) + 1
     return {
         "human_units": human_units,
-        "worked_example_echo_siblings": (
-            len(windows_by_echo[example_echo]) if example_echo is not None else None
+        "reference_window_echo_siblings": (
+            len(windows_by_echo[reference_echo]) if reference_echo is not None else None
         ),
         "config_note_distribution": _encode_note_distribution(distribution),
     }

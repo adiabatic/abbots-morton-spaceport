@@ -1,6 +1,6 @@
-"""Tests for the three verdict drafters on real M1 units: the semantic validator rejecting a wrong pin, the record each branch of `draft_policy` drafts on worked-example windows (contract for a gained extension, refuse for a new join, prefer on a name-grain divergence and on an empty trace, and no draft), the order of any-of candidates, and duplicate detection against a synthetic corpus index.
+"""Tests for the three verdict drafters on real M1 units: the semantic validator rejecting a wrong pin, the record each branch of `draft_policy` drafts on example windows (contract for a gained extension, refuse for a new join, prefer on a name-grain divergence and on an empty trace, and no draft), the order of any-of candidates, and duplicate detection against a synthetic corpus index.
 
-There is no sweep over the whole corpus. The drafter raises `DraftError` where it makes a pin that does not parse or does not replay as "pass", a policy record the rune schema rejects, or an any-of candidate that does not parse, so a shipped fragment cannot carry a failing draft. A machine-approved or verdict-exempt unit is never drafted, so its slim fragment has no `drafts`. `check_unit` checks that a policy record names only the unit's own provenance, and `check_shards` checks that the record's file exists. The worked examples take their windows from `example_units`, a filtered load of the frozen mini bundle's audit, and shape them in the bundle's font, so no test here reads the live corpus.
+There is no sweep over the whole corpus. The drafter raises `DraftError` where it makes a pin that does not parse or does not replay as "pass", a policy record the rune schema rejects, or an any-of candidate that does not parse, so a shipped fragment cannot carry a failing draft. A machine-approved or verdict-exempt unit is never drafted, so its slim fragment has no `drafts`. `check_unit` checks that a policy record names only the unit's own provenance, and `check_shards` checks that the record's file exists. The tests take their example windows from `example_units`, a filtered load of the frozen mini bundle's audit, and shape them in the bundle's font, so no test here reads the live corpus.
 """
 
 import warnings
@@ -101,7 +101,7 @@ def test_policy_draft_refuses_when_the_divergence_includes_a_new_join(drafter, e
 
 
 def test_refuse_drafts_never_target_seam_identical_units(drafter, enricher, example_units):
-    """A refuse draft forbids a new join, so it must never target a unit whose seams did not change. The fourth branch of `draft_policy` is reached only when the seam-identical branch was not taken, so it cannot target one. The new-join branch relies on the codepoint-gap lookup in `_new_join_side` agreeing with the glyph-seam comparison in `_seam_identical`, and this test checks that agreement on the worked-example windows."""
+    """A refuse draft forbids a new join, so it must never target a unit whose seams did not change. The fourth branch of `draft_policy` is reached only when the seam-identical branch was not taken, so it cannot target one. The new-join branch relies on the codepoint-gap lookup in `_new_join_side` agreeing with the glyph-seam comparison in `_seam_identical`, and this test checks that agreement on the example windows."""
     for unit in example_units.values():
         enriched = enricher.enrich(unit)
         policy = drafter.draft_policy(enriched)

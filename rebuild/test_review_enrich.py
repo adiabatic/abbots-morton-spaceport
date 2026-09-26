@@ -52,7 +52,7 @@ def enricher(spec, mini_bundle):
 
 @pytest.fixture(scope="module")
 def units_by_key(example_units):
-    """Return the worked-example units, keyed by (codepoints, first config)."""
+    """Return the example-window units, keyed by (codepoints, first config)."""
     return example_units
 
 

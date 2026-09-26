@@ -13,7 +13,7 @@ A small hand-written `build_m1` corpus for tests to assert against. The units un
 
 A second fixture of a different kind: a slice of real build output, frozen so that tests of the build machinery need no live `rebuild/out/`. It holds:
 
-- `audit.tsv`, the divergence audit filtered to every window drawn from ·Pea, ·Tea, ·Day, ·Roe, and the boundary tokens, plus every window in `regenerate.EXAMPLE_WINDOWS`, the windows the review corpus's worked examples name by codepoint
+- `audit.tsv`, the divergence audit filtered to every window drawn from ·Pea, ·Tea, ·Day, ·Roe, and the boundary tokens, plus every window in `regenerate.EXAMPLE_WINDOWS`, the example windows the review tests name by codepoint
 - a `baseline-<config>.subset.tsv.gz` slice for each acceptance config and no other
 - `M1.otf`, and the default settlement and treaty tables
 
@@ -21,12 +21,12 @@ These tests run against it at full xdist width instead of against the live `rebu
 
 - all of `rebuild/test_unit_cache.py` (a mini `build_m1` takes seconds), and the mini build that `rebuild/test_app_index.py` checks the sidecars against
 - the ordering and dedupe properties in `rebuild/test_review_audit.py`, and `test_assignment_is_deterministic` in `rebuild/test_review_unmatched_groups.py`
-- the enrich and drafts worked examples, through the `example_units` fixture in `rebuild/conftest.py`: which position the enricher judges and how the drafter words a record, over the frozen example windows
+- the enrich and drafts tests' example windows, through the `example_units` fixture in `rebuild/conftest.py`: which position the enricher judges and how the drafter words a record, over the frozen example windows
 - the ink comparisons in `rebuild/test_review_ink.py`, over the bundle's font and a stride through its workload
 - the table-diff build, the snapshot round trip, and the two example-text tests in `rebuild/test_review_tablediff.py`, which re-settle the frozen tables under the spec they were built from
 - the failing-pin tests of the manual-pin gate (`TestTeeth` in `rebuild/test_manual_pins.py`), which need a font and a spec that match each other
 
-When a worked-example window stops selecting any audit row, regeneration fails and names it, so the lost example is found there and not in a test failure after a later rune edit.
+When an example window stops selecting any audit row, regeneration fails and names it, so the lost window is found there and not in a test failure after a later rune edit.
 
 It also holds `pin.json`: the tree and blob shas of the paths in `pin.PINNED_PATHS` (`mini/pin.py`) at the commit the bundle was regenerated on. The `mini_bundle` fixture in `rebuild/conftest.py` writes those objects out of git into a session temp directory, and every mini-bundle test passes that directory to `build_m1` as its `spec_root` and reads its ledger from there. So the enricher re-derives the settlement these rows were written under, a rune edit cannot fail the contracts lane, and there is no second copy of the runes in the tree to edit by mistake. The pin is content-addressed, so a rebase that leaves those files' bytes unchanged keeps it valid. A pin whose objects the repository no longer holds fails and names the command that regenerates the bundle. Everything else in a mini build comes from the repo root (the fingerprints, the git head, the manifest's relative paths, the corpus the pin drafts are validated against), because those describe the checkout and not the workload.
 
