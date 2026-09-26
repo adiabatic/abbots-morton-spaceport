@@ -1,4 +1,4 @@
-"""Explain why a review-corpus unit still needs a verdict, in the terms the standing approvals use, so the next standing rule is written from evidence: for each named unit, print both grains side by side. The recorded grain is the before glyphs and after cells with their seams. The rendered grain is each font's pieces with their placement, own-frame origin and cell count, and a one-line reading of the change: "same shape" with the placement move, "redrawn" with the cell counts, "inkless", or ink appearing or vanishing. Then print what each checked-in rule makes of the unit (matches, held by except_left, or nothing), whether the composed reading credits any rules and whether that credit reaches the two-event threshold, and how many human units have exactly this unit's ink-delta digests and how they were verdicted. That last tally often shows that the user has already decided the change.
+"""Explain why a review-corpus unit still needs a verdict, in the terms the standing approvals use, so the next standing rule is written from evidence: for each named unit, print both grains side by side. The recorded grain is the before glyphs and after cells with their seams. The rendered grain is each font's pieces with their placement, own-frame origin and cell count, and a one-line reading of the change: "same shape" with the placement move, "redrawn" with the cell counts, "inkless", or ink appearing or vanishing. Then print what each checked-in rule makes of the unit (matches, held by except_left, or nothing), whether the combined match counts any rules and whether it has at least two matched positions, and how many human units have exactly this unit's ink-delta digests and how they were verdicted. That last tally often shows that the user has already decided the change.
 
 `--extension-cells PIVOT TOKEN SEAM` lists the pivot and follower cells a new extension-dropped rule has to name. It enumerates every window where a PIVOT glyph carrying TOKEN exits at SEAM on both sides and settles into a cell without the named extension or with a shorter one, or into a cell carrying the named contraction. TOKEN is an `ex-ext-N` on the before glyph, or an `ex-con-N` on the after cell whose before glyph carried no exit extension. Each row gives the pivot cell, the follower's family, the follower cell, and the verdict tally.
 
@@ -46,7 +46,7 @@ EDGE = "—"
 NO_FONTS = (
     "this corpus carries no fonts/before.otf + fonts/after.otf, so nothing below is read at the rendered "
     "grain: no piece placements, no own-frame origins, no cell counts, no reading of what moved, and no "
-    "composed line — rebuild the corpus (make review-cycle) to get them"
+    "combined-match line — rebuild the corpus (make review-cycle) to get them"
 )
 CANDIDATE_LIST_NOTE = (
     "  a candidate list, not an instruction to widen: each form, follower and cell above joins the rule only once "
@@ -187,18 +187,22 @@ def _describe(unit, rules, context, blankness, families):
             rule["match"], unit, guard=False, context=context
         ):
             print(f"  rule {rule['id']}: held by except_left")
-    composable = sv._composable(rules)
-    if context is not None and composable:
-        found = {rule["id"]: sv._candidates(rule["match"], unit) for rule in composable}
+    combinable = sv._combinable(rules)
+    if context is not None and combinable:
+        found = {rule["id"]: sv._candidates(rule["match"], unit) for rule in combinable}
         candidates = {rule_id: at for rule_id, at in found.items() if at}
         positions = sum(len(at) for at in candidates.values())
-        credited = sv._composed_walk(composable, unit, context) if positions > 1 else None
-        if credited:
-            events = sum(len(at) for at in credited.values())
-            reach = "reaches the two-event threshold" if events > 1 else "one event only, so its own line"
-            print(f"  composed: credits {' + '.join(credited)} ({reach})")
+        counted = sv._combined_walk(combinable, unit, context) if positions > 1 else None
+        if counted:
+            events = sum(len(at) for at in counted.values())
+            reach = (
+                "at least two matched positions"
+                if events > 1
+                else "one matched position only, so its own line"
+            )
+            print(f"  combined: counts {' + '.join(counted)} ({reach})")
         else:
-            print(f"  composed: nothing (candidates from {', '.join(candidates) or 'no rule'})")
+            print(f"  combined: nothing (candidates from {', '.join(candidates) or 'no rule'})")
     key = frozenset(deltas.values())
     if key:
         tally = collections.Counter(blankness.of(sibling["id"]) for sibling in families.get(key, []))

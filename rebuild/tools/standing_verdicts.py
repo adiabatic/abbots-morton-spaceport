@@ -26,13 +26,13 @@ A rule declares one shape, a row in `SHAPES`, by the field its `match.after` car
 
 - `join-created` (declared by `joined`): a named pair that was a break now joins at the named height, and the pivot and follower may redraw. The pivot keeps its own-frame origin, and its placement stays or moves up to `pivot_stub_drop` columns right when the left-side entry the old font drew in front of the join comes off (·May's own entry in front of its new baseline join into ·Gay). The follower keeps its own-frame origin, or moves it left by `follower_reach` when its joining form inserts columns at its left edge (·Gay's stroke that reaches the baseline). The follower moves by `shift` plus the pivot's placement move, and everything after it by that plus `follower_advance`. Two counts are needed because a follower that redraws wider gives back what the join closed: the reaches-way-back ·Utter comes a column nearer ·May and leaves the rest of the word where it was. The pivot may name several families, which records one letter's new entry for every left neighbor that now reaches it. `except_pivots` declines before forms that nest under a pivot prefix but need another count: the ·J'ai the old font drew with a stacked crown entry gives the follower a column, while the ·J'ai drawn without one gains a reach that cancels it.
 
-The composed reading, which no rule declares, runs before any single rule is checked. It asks whether two or more approved changes together account for every rendered pixel of one window. For example, where the grounded ·See slides a column closer to what precedes it and ·J'ai also gives up its exit extension, neither rule covers the window alone: `slide` fails on the extension pixel, and `extension-dropped` does not look at ink outside its judged seam.
+The combined match, which no rule declares, runs before any single rule is checked. It asks whether two or more approved changes together account for every rendered pixel of one window. For example, where the grounded ·See slides a column closer to what precedes it and ·J'ai also gives up its exit extension, neither rule covers the window alone: `slide` fails on the extension pixel, and `extension-dropped` does not look at ink outside its judged seam.
 
-Only shapes whose `SHAPES` row sets `composable` take part. Each names a local change the walk can check at one position: a displacement, named own-frame cells gained or traded on the pivot, a join that is dropped, created, or changes height, or a left-side stretch or stub the pivot gives up. `ligature` reads the whole window's names and `ink-delta` its whole ink change, so neither says anything about one position.
+Only shapes whose `SHAPES` row sets `combinable` take part. Each names a local change the walk can check at one position: a displacement, named own-frame cells gained or traded on the pivot, a join that is dropped, created, or changes height, or a left-side stretch or stub the pivot gives up. `ligature` reads the whole window's names and `ink-delta` its whole ink change, so neither says anything about one position.
 
-Each composable rule's candidate positions come from the index record without shaping (`_candidates`), and a window with fewer than two candidate positions in total is never shaped.
+Each combinable rule's candidate positions come from the index record without shaping (`_candidates`), and a window with fewer than two candidate positions in total is never shaped.
 
-The walk (`_composed_walk`) re-shapes the window in the corpus's font pair and carries a running column displacement from left to right. At each event:
+The walk (`_combined_walk`) re-shapes the window in the corpus's font pair and carries a running column displacement from left to right. At each event:
 
 - slide: the pivot leads the next span, and the displacement grows by the declared slide.
 - extension: the pivot sits at the running displacement and loses, on the row its `seam_out` height names, the tail the rule names (the named extension less any shorter one its after cell keeps, or the named contraction). The displacement shrinks by that width. The follower leads the next span, which must be a translation, the same picture compacted left by the follower's dropped entry extension, or, when the follower redrew inside its named cell, a translation of the span without the follower.
@@ -46,24 +46,24 @@ The walk (`_composed_walk`) re-shapes the window in the corpus's font pair and c
 
 Every span between events must render as its before picture moved by the displacement at its start.
 
-Two events may share a letter only in these chains:
+Two events may share a letter only in these cases:
 
 - A created join behind an entry, ink-gain, or redrawn event at the same position. The earlier event judges the picture the pivot settles into, and the created join judges the seam that picture opens and its follower. Examples: ·Ah's contracted entry after ·J'ai and its new x-height join into ·Gay; ·Tea's full bar under ss03 and the baseline join it takes; ·Eight's smaller loop and the baseline join into ·It that only that loop reaches.
 - A created join, redrawn trade, dropped join, or further retarget whose pivot is a retarget's follower. The retarget judges that letter's incoming seam and its placement. A further retarget or dropped join takes nothing of the first retarget's `shift` beyond its follower's move, because its own counts are measured with its pivot standing and already include that letter's advance. A redrawn trade there must leave the letter where the retarget put it, so a new form naming an entry contraction fails. Examples: ·Gay's raised join into ·No with the break ·No now leaves before ·Thaw, or with ·No's own raised join into ·Day or ·No; ·It's lowered join into ·No and ·No's new join into ·Gay; ·Utter's raised join into ·May and the loop ·May draws with no exit left.
 - A created join, retarget, extension drop, ink gain, or redrawn trade whose pivot is a created join's follower. The created join judges that letter's incoming seam. A following retarget receives only the created join's `follower_reach`, for the same reason as above, and any other following event receives the whole `follower_advance`. Such a retarget may have moved its pivot's own-frame origin, because the created join's `follower_reach` declared that move. Examples: ·Bay's new baseline join into ·Utter and ·Utter's raised join into ·May, which puts ·May three columns back; ·Et's new baseline join into ·Gay and ·Gay's raised join into ·No; ·Pea's lowered join into ·No, ·No's new join into ·Ah, and ·Ah's dropped tail before ·Bay; ·Ah's new x-height join into ·Gay and ·Gay's own redraw, which meets that seam and gives up its baseline tail.
 - A dropped join or extension drop whose follower is itself an event. That event is judged next, under the displacement the first one applied (·At's dropped x-height join and ·It's dropped exit extension).
 
-Any other pair of events at one position, or a created join or retarget whose follower position is also an event, makes the walk return None. A created join whose pivot moved its own-frame origin is an event only behind an entry, ink-gain, or redrawn event at that position. A retarget whose pivot moved its origin is an event only behind a created join at the position before it, or behind an entry, ink-gain, or redrawn event at the same position, which the walk chains the way it chains a created join there.
+Any other pair of events at one position, or a created join or retarget whose follower position is also an event, makes the walk return None. A created join whose pivot moved its own-frame origin is an event only behind an entry, ink-gain, or redrawn event at that position. A retarget whose pivot moved its origin is an event only behind a created join at the position before it, or behind an entry, ink-gain, or redrawn event at the same position, where it shares the letter the way a created join there does.
 
-A candidate whose own contract fails is not an event, and its ink is judged as ordinary span ink, so a rule that fails at a position does not stop the other rules from explaining the window. The pivot is judged piece by piece rather than as part of a union, so a pivot whose after form also drops a cell off the seam row (·J'ai's crown contracting under an ·At tuck) never composes.
+A candidate whose own contract fails is not an event, and its ink is judged as ordinary span ink, so a rule that fails at a position does not stop the other rules from explaining the window. The pivot is judged piece by piece rather than as part of a union, so a pivot whose after form also drops a cell off the seam row (·J'ai's crown contracting under an ·At tuck) never combines.
 
-Credit needs two or more events. One rule credited at two positions counts, as in a window where ·Ah gives up its exit tail twice, and a single event belongs on that rule's own line. A composed fill's verdict is `either` when any credited rule's verdict is `either` or a non-composable `either` rule also matches the window, and `approve` otherwise. Its note names the credited ids in rules-file order.
+A combined match needs two or more events. One rule matched at two positions is enough, as in a window where ·Ah gives up its exit tail twice, and a single event belongs on that rule's own line. A combined fill's verdict is `either` when any counted rule's verdict is `either` or a non-combinable `either` rule also matches the window, and `approve` otherwise. Its note names the counted ids in rules-file order.
 
-A rule's except_left guard refuses the whole unit, never one position, so a guarded context is never filled beside an unguarded one. Most shapes read the guard across the whole window; `extension-dropped` and `ligature` read it at the left neighbor of each matched pivot. A composed reading reads each credited rule's guard in that rule's `guard_scope`, and a guard that holds a composed window holds the whole unit: it is counted on the composed line, never filled, and never passed to the single-rule pass. A rule's except_left families name the contexts the user still wants to review: units in those contexts are held, so they still reach the review queue.
+A rule's except_left guard refuses the whole unit, never one position, so a guarded context is never filled beside an unguarded one. Most shapes read the guard across the whole window; `extension-dropped` and `ligature` read it at the left neighbor of each matched pivot. A combined match reads each counted rule's guard in that rule's `guard_scope`, and a guard that holds a combined-match window holds the whole unit: it is counted on the combined-match line, never filled, and never passed to the single-rule pass. A rule's except_left families name the contexts the user still wants to review: units in those contexts are held, so they still reach the review queue.
 
 Standing fills complement echo_verdicts.py. The echo fill copies the user's verdicts to units whose change is pixel-identical, while a standing rule applies a recorded decision to units the user has never seen, such as windows with new left letters created by later migrations, so those units never queue.
 
-Each fill record's `at` is the manifest's generated_at, so a human verdict recorded on this corpus is newer and wins on merge. A deferred unit carries a skip verdict, so it is not blank and is never filled. The verdict update (rebuild/tools/verdict_update.py) runs this after the echo fill and merges its file with merge_verdicts. The report also gives each rule's total reach, its own line plus its composed credit; the totals do not sum across rules, because a window two rules explain counts toward both.
+Each fill record's `at` is the manifest's generated_at, so a human verdict recorded on this corpus is newer and wins on merge. A deferred unit carries a skip verdict, so it is not blank and is never filled. The verdict update (rebuild/tools/verdict_update.py) runs this after the echo fill and merges its file with merge_verdicts. The report also gives each rule's total reach, its own line plus its combined-match count; the totals do not sum across rules, because a window two rules explain counts toward both.
 
 Every decision depends only on the unit's index record, the two fonts' rendering of its window, and the rules file; the verdict store only decides which decisions become fills. `Decider.decide` computes the decision and `_decision_reach` aggregates a run from the decisions. The memo (`Memo`, the `--memo` flag, which the verdict update passes) keeps decisions across passes, so a pass evaluates only the units whose key is new and the units a changed rule can reach. `unit_key`, `memo_environment`, `rules_roster`, and `Decider._serve` define the unit keys, the memo stamp, and when a stored decision is served. A stored decision holds rule ids and no note text, so a reworded note re-evaluates nothing and every fill quotes the new wording. When the misses reach `_STANDING_POOL_THRESHOLD`, `_prefill` decides them across a spawn pool at the width `--jobs` gives. The tool derives no width of its own; the verdict update forwards the artifact cycle's. The fills and the report are byte-identical served or computed, pooled or serial, and rebuild/test_standing_verdicts.py checks this over the frozen mini bundle. The `--require-reach` rollup reads the same decisions, so its pass over the whole domain costs no second evaluation.
 
@@ -243,7 +243,7 @@ def release_alignment_cache() -> None:
 
 
 def _letter_for_letter(unit):
-    """Whether each before-glyph index and after-cell index name the same letters along the whole window, which the pivot and follower comparisons and the corpus's after-indexed `pair` rely on. The sides line up when they merge the same codepoints at the same positions. Requiring each side's components to sum to the window's codepoint count makes the check fail if a name ever covers codepoints some other way than as a ligature. The matchers and the composed walk ask this of a unit several times, so the answer is cached per unit object. The entry is keyed on the unit's `id()` and holds the unit itself beside the answer, so no other object can reuse that address while the entry exists."""
+    """Whether each before-glyph index and after-cell index name the same letters along the whole window, which the pivot and follower comparisons and the corpus's after-indexed `pair` rely on. The sides line up when they merge the same codepoints at the same positions. Requiring each side's components to sum to the window's codepoint count makes the check fail if a name ever covers codepoints some other way than as a ligature. The matchers and the combined walk ask this of a unit several times, so the answer is cached per unit object. The entry is keyed on the unit's `id()` and holds the unit itself beside the answer, so no other object can reuse that address while the entry exists."""
     cached = _alignment_cache.get(id(unit))
     if cached is not None:
         return cached[1]
@@ -475,7 +475,7 @@ def _slide_geometry(match, unit, comparator):
 
 
 def _matches_slide(match, unit, excluded, context=None):
-    """A letter re-spaced against what precedes it, matched at the rendered-pixel grain: the old-font pivot form becomes a named new form, and the window's whole visible change is the pivot and everything after it moving by the declared column count (`_slide_geometry`). Every pixel before the pivot stays, and everything from the pivot on renders identically once moved. Pixels are compared instead of per-glyph pieces, so a name-only change to the right of the pivot that moves ink from one glyph to a neighbor without changing the union (the ·At·J'ai tuck under a moved ·See) does not stop the match. Any other ink change in the window fails this match; the composed reading, which runs first, handles a window that also carries a second approved change. The unit's ink-delta digest must be the same under every config it lists, so shaping the first config stands for all of them. except_left reads the whole window."""
+    """A letter re-spaced against what precedes it, matched at the rendered-pixel grain: the old-font pivot form becomes a named new form, and the window's whole visible change is the pivot and everything after it moving by the declared column count (`_slide_geometry`). Every pixel before the pivot stays, and everything from the pivot on renders identically once moved. Pixels are compared instead of per-glyph pieces, so a name-only change to the right of the pivot that moves ink from one glyph to a neighbor without changing the union (the ·At·J'ai tuck under a moved ·See) does not stop the match. Any other ink change in the window fails this match; the combined match, which runs first, handles a window that also carries a second approved change. The unit's ink-delta digest must be the same under every config it lists, so shaping the first config stands for all of them. except_left reads the whole window."""
     deltas = unit.get("ink_deltas")
     if not isinstance(deltas, dict) or not deltas:
         return False
@@ -582,7 +582,7 @@ def _gain_geometry(match, unit, comparator):
 
 
 def _matches_ink_gain(match, unit, excluded, context=None):
-    """A letterform that keeps a named set of cells the old font omitted, matched at the rendered-pixel grain: the old-font pivot form becomes a named new form whose picture is the old one plus those cells, and everything after the pivot moves by the declared column count (`_gain_geometry`). The new frame may extend vertically around the old picture. The unchanged horizontal placement and own-frame origin tie the extra ink to the letterform and not to a slide or a sidebearing change. Any other ink change in the window fails this match; the composed reading handles a window that also carries a second approved change. The unit's ink-delta digest must be the same under every config it lists, so shaping the first config stands for all of them. except_left reads the whole window."""
+    """A letterform that keeps a named set of cells the old font omitted, matched at the rendered-pixel grain: the old-font pivot form becomes a named new form whose picture is the old one plus those cells, and everything after the pivot moves by the declared column count (`_gain_geometry`). The new frame may extend vertically around the old picture. The unchanged horizontal placement and own-frame origin tie the extra ink to the letterform and not to a slide or a sidebearing change. Any other ink change in the window fails this match; the combined match handles a window that also carries a second approved change. The unit's ink-delta digest must be the same under every config it lists, so shaping the first config stands for all of them. except_left reads the whole window."""
     deltas = unit.get("ink_deltas")
     if not isinstance(deltas, dict) or not deltas:
         return False
@@ -734,7 +734,7 @@ def _join_geometry(match, unit, comparator):
 
 
 def _matches_join_dropped(match, unit, excluded, context=None):
-    """A named join that is now a break, matched at the rendered-pixel grain: the pivot keeps its own-frame origin, and its picture too unless the rule names in full the cells both letters settle into. The follower keeps its picture and origin, or, where the rule declares `follower_give_back`, moves its origin right by that count and redraws inside the receiver cells. The follower sits the declared number of columns further away, and everything after it moves by the same gap (`_join_geometry`). The origin check separates a cursive attachment going away from a sidebearing change, so a slide of the follower fails it. Any other ink change in the window fails this match; the composed reading handles a window that also carries a second approved change. The unit's ink-delta digest must be the same under every config it lists, so shaping the first config stands for all of them. except_left reads the whole window."""
+    """A named join that is now a break, matched at the rendered-pixel grain: the pivot keeps its own-frame origin, and its picture too unless the rule names in full the cells both letters settle into. The follower keeps its picture and origin, or, where the rule declares `follower_give_back`, moves its origin right by that count and redraws inside the receiver cells. The follower sits the declared number of columns further away, and everything after it moves by the same gap (`_join_geometry`). The origin check separates a cursive attachment going away from a sidebearing change, so a slide of the follower fails it. Any other ink change in the window fails this match; the combined match handles a window that also carries a second approved change. The unit's ink-delta digest must be the same under every config it lists, so shaping the first config stands for all of them. except_left reads the whole window."""
     deltas = unit.get("ink_deltas")
     if not isinstance(deltas, dict) or not deltas:
         return False
@@ -953,7 +953,7 @@ def _entry_geometry(match, unit, comparator, pivot_positions=None):
 
 
 def _matches_entry_drop(match, unit, excluded, context=None):
-    """A letter that gives up a named stretch of left-side entry, matched at the rendered-pixel grain: either the old form's extra entry columns come off under an unchanged own-frame origin, or a named `en-con-N` on the after form brings the letter that many columns closer, taken into its own-frame origin, its placement, or both (`_entry_geometry`). Everything after the pivot moves closer by that count. Any other ink change in the window fails this match; the composed reading handles a window that also carries a second approved change. The unit's ink-delta digest must be the same under every config it lists, so shaping the first config stands for all of them. except_left reads the whole window."""
+    """A letter that gives up a named stretch of left-side entry, matched at the rendered-pixel grain: either the old form's extra entry columns come off under an unchanged own-frame origin, or a named `en-con-N` on the after form brings the letter that many columns closer, taken into its own-frame origin, its placement, or both (`_entry_geometry`). Everything after the pivot moves closer by that count. Any other ink change in the window fails this match; the combined match handles a window that also carries a second approved change. The unit's ink-delta digest must be the same under every config it lists, so shaping the first config stands for all of them. except_left reads the whole window."""
     deltas = unit.get("ink_deltas")
     if not isinstance(deltas, dict) or not deltas:
         return False
@@ -998,7 +998,7 @@ def _contracted_entry_candidates(match, unit):
 
 
 def _matches_entry_contracted(match, unit, excluded, context=None):
-    """One or more named left–pivot pairs whose pivot contracts its entry by the declared columns, matched at the rendered-pixel grain by `_entry_geometry`, as in the contraction case of the entry-extension-dropped shape. The named left families limit the rule to those pairs. The after glyph must carry the declared `en-con-N`, and the letter must come that many columns closer however its frame took the contraction (own-frame origin, placement, or both). The only far-right change allowed is the exit-extension change the before and after glyph names state. Everything after the pivot must move by the contraction plus that exit-extension change. Any other ink change in the window fails this match; the composed reading handles a window that also carries a second approved change."""
+    """One or more named left–pivot pairs whose pivot contracts its entry by the declared columns, matched at the rendered-pixel grain by `_entry_geometry`, as in the contraction case of the entry-extension-dropped shape. The named left families limit the rule to those pairs. The after glyph must carry the declared `en-con-N`, and the letter must come that many columns closer however its frame took the contraction (own-frame origin, placement, or both). The only far-right change allowed is the exit-extension change the before and after glyph names state. Everything after the pivot must move by the contraction plus that exit-extension change. Any other ink change in the window fails this match; the combined match handles a window that also carries a second approved change."""
     deltas = unit.get("ink_deltas")
     if not isinstance(deltas, dict) or not deltas:
         return False
@@ -1082,7 +1082,7 @@ def _stub_geometry(match, unit, comparator):
 
 
 def _matches_stub_drop(match, unit, excluded, context=None):
-    """A letter that gives up a named left-side stub while its remaining ink stays put, matched at the rendered-pixel grain: the old-font pivot form becomes a named new form whose own-frame picture is the old one compacted left by the declared column count, with its placement moved right by that count and everything else in the window unmoved (`_stub_geometry`). The placement move separates this from an entry drop, whose remaining ink moves closer while its placement stays. Any other ink change in the window fails this match; the composed reading handles a window that also carries a second approved change. The unit's ink-delta digest must be the same under every config it lists, so shaping the first config stands for all of them. except_left reads the whole window."""
+    """A letter that gives up a named left-side stub while its remaining ink stays put, matched at the rendered-pixel grain: the old-font pivot form becomes a named new form whose own-frame picture is the old one compacted left by the declared column count, with its placement moved right by that count and everything else in the window unmoved (`_stub_geometry`). The placement move separates this from an entry drop, whose remaining ink moves closer while its placement stays. Any other ink change in the window fails this match; the combined match handles a window that also carries a second approved change. The unit's ink-delta digest must be the same under every config it lists, so shaping the first config stands for all of them. except_left reads the whole window."""
     deltas = unit.get("ink_deltas")
     if not isinstance(deltas, dict) or not deltas:
         return False
@@ -1286,7 +1286,7 @@ def _redrawn_geometry(match, unit, comparator):
 
 
 def _matches_redrawn(match, unit, excluded, context=None):
-    """A letter redrawn in place to a named new form, matched at the rendered-pixel grain: the before pivot form becomes an after pivot form whose own-frame picture is the old one with the named cells dropped and added at one common column offset (`_redrawn_geometry`). The own-frame origin and the placement stay where they were unless the new form names more entry contraction than the old one. The frame may take up to all of that extra contraction, and the placement may move left by the part the frame did not take. Everything after the pivot moves by the declared shift plus that placement change; the shift may be zero when the new form keeps the pivot's advance. The added set may be empty, for a form that only loses ink: ·Key's foot dropping its terminal pixel and its follower coming a column closer. The extension-dropped shape reads only names and so cannot see the rest of the window, which is why this shape is the one for an exit contraction in a window that carries anything else. Any other ink change in the window fails this match; the composed reading handles a window that also carries a second approved change. The unit's ink-delta digest must be the same under every config it lists, so shaping the first config stands for all of them. except_left reads the whole window."""
+    """A letter redrawn in place to a named new form, matched at the rendered-pixel grain: the before pivot form becomes an after pivot form whose own-frame picture is the old one with the named cells dropped and added at one common column offset (`_redrawn_geometry`). The own-frame origin and the placement stay where they were unless the new form names more entry contraction than the old one. The frame may take up to all of that extra contraction, and the placement may move left by the part the frame did not take. Everything after the pivot moves by the declared shift plus that placement change; the shift may be zero when the new form keeps the pivot's advance. The added set may be empty, for a form that only loses ink: ·Key's foot dropping its terminal pixel and its follower coming a column closer. The extension-dropped shape reads only names and so cannot see the rest of the window, which is why this shape is the one for an exit contraction in a window that carries anything else. Any other ink change in the window fails this match; the combined match handles a window that also carries a second approved change. The unit's ink-delta digest must be the same under every config it lists, so shaping the first config stands for all of them. except_left reads the whole window."""
     deltas = unit.get("ink_deltas")
     if not isinstance(deltas, dict) or not deltas:
         return False
@@ -1436,7 +1436,7 @@ def _retarget_geometry(match, unit, comparator, follower_shift, onward, follower
 
 
 def _matches_join_retarget(match, unit, excluded, context=None):
-    """A named join that has changed height, matched at the rendered-pixel grain: the named seam becomes the `retarget` height, the pivot and follower may both redraw but keep their own-frame origins, the pivot keeps its placement, the follower's placement moves by `follower_shift` (negative is nearer, zero leaves it standing), and everything after the follower moves by `shift` (`_retarget_geometry`). The unmoved origins and the unmoved pivot tie the change to the join and the two letters' forms, which rules out a slide or a dropped join. Any other ink change in the window fails this match; the composed reading handles a window that also carries a second approved change. The unit's ink-delta digest must be the same under every config it lists, so shaping the first config stands for all of them. except_left reads the whole window."""
+    """A named join that has changed height, matched at the rendered-pixel grain: the named seam becomes the `retarget` height, the pivot and follower may both redraw but keep their own-frame origins, the pivot keeps its placement, the follower's placement moves by `follower_shift` (negative is nearer, zero leaves it standing), and everything after the follower moves by `shift` (`_retarget_geometry`). The unmoved origins and the unmoved pivot tie the change to the join and the two letters' forms, which rules out a slide or a dropped join. Any other ink change in the window fails this match; the combined match handles a window that also carries a second approved change. The unit's ink-delta digest must be the same under every config it lists, so shaping the first config stands for all of them. except_left reads the whole window."""
     deltas = unit.get("ink_deltas")
     if not isinstance(deltas, dict) or not deltas:
         return False
@@ -1470,7 +1470,7 @@ def _matches_join_retarget(match, unit, excluded, context=None):
 
 
 def _matches_join_created(match, unit, excluded, context=None):
-    """A named pair, or any of several named pivots into one follower, that has newly joined, matched at the rendered-pixel grain: the recorded break becomes the `joined` height, and the pivot and follower may both redraw (`_retarget_geometry`). The pivot keeps its own-frame origin, and its placement stays put or sits up to `pivot_stub_drop` columns further right. The follower keeps its own-frame origin or moves it left by `follower_reach`, and its placement moves by `shift` plus the pivot's offset. Everything after the follower moves by that plus `follower_advance`. Any other ink change in the window fails this match; the composed reading handles a window that also carries a second approved change. The unit's ink-delta digest must be the same under every config it lists, so shaping the first config stands for all of them. except_left reads the whole window."""
+    """A named pair, or any of several named pivots into one follower, that has newly joined, matched at the rendered-pixel grain: the recorded break becomes the `joined` height, and the pivot and follower may both redraw (`_retarget_geometry`). The pivot keeps its own-frame origin, and its placement stays put or sits up to `pivot_stub_drop` columns further right. The follower keeps its own-frame origin or moves it left by `follower_reach`, and its placement moves by `shift` plus the pivot's offset. Everything after the follower moves by that plus `follower_advance`. Any other ink change in the window fails this match; the combined match handles a window that also carries a second approved change. The unit's ink-delta digest must be the same under every config it lists, so shaping the first config stands for all of them. except_left reads the whole window."""
     deltas = unit.get("ink_deltas")
     if not isinstance(deltas, dict) or not deltas:
         return False
@@ -1587,13 +1587,13 @@ def _validate_join_created(rule_id, match) -> None:
 
 
 class Event(NamedTuple):
-    """One position where a composable rule's contract held in a composed walk.
+    """One position where a combinable rule's contract held in a combined walk.
 
     `kind` names the shape: `slide`, `extension`, `gain`, `join` (dropped), `entry`, `stub`, `redrawn`, `retarget`, or `joined` (created). `shift` is the columns the running displacement moves at this position: the declared slide, minus the extension's dropped columns, the declared gap, the entry shortening plus any exit-extension change on the pivot, the created join's shift, the columns a retarget moves its follower, or the declared ink-gain or redrawn shift. For `stub`, `shift` is the pivot's own placement offset instead, and the followers do not move.
 
-    `pivot_judged` is False only for a `retarget` or `joined` event whose pivot moved its own-frame origin. The walk keeps either kind only when it chains behind an entry, gain, or redrawn event at the same position, which has judged the pivot, and also keeps such a retarget behind a created join at the previous position, whose `follower_reach` has already checked that move.
+    `pivot_judged` is False only for a `retarget` or `joined` event whose pivot moved its own-frame origin. The walk keeps either kind only when it shares its pivot with an entry, gain, or redrawn event at the same position, which has judged the pivot, and also keeps such a retarget behind a created join at the previous position, whose `follower_reach` has already checked that move.
 
-    `lead` is an entry event's expected placement offset from the running displacement, zero or negative; it is nonzero only for an entry contraction the after form's own frame did not fully take into its origin. `room` is how far the pivot's placement may sit from the running displacement: to the left for a redrawn event, by the part of its new form's entry contraction its frame did not take, and to the right for a created join, by its `pivot_stub_drop`. `advance` is the further displacement applied once the walk is past the follower: a created join's `follower_advance`, or what a retarget's `shift` leaves after its `follower_shift`. `reach` is a created join's `follower_reach`, the part of its advance a retarget chained behind it still needs. On a dropped join it is `follower_give_back`, which makes the follower's picture part of the event instead of the head of the next span.
+    `lead` is an entry event's expected placement offset from the running displacement, zero or negative; it is nonzero only for an entry contraction the after form's own frame did not fully take into its origin. `room` is how far the pivot's placement may sit from the running displacement: to the left for a redrawn event, by the part of its new form's entry contraction its frame did not take, and to the right for a created join, by its `pivot_stub_drop`. `advance` is the further displacement applied once the walk is past the follower: a created join's `follower_advance`, or what a retarget's `shift` leaves after its `follower_shift`. `reach` is a created join's `follower_reach`, the part of its advance a retarget that shares a letter with it still needs. On a dropped join it is `follower_give_back`, which makes the follower's picture part of the event instead of the head of the next span.
     """
 
     rule_id: str
@@ -1614,15 +1614,15 @@ def _shape_of(match):
     return None
 
 
-def _is_composable(rule):
-    """Whether a rule's shape has the `composable` flag, so a composed walk may credit it. The module docstring says which shapes compose and why."""
+def _is_combinable(rule):
+    """Whether a rule's shape has the `combinable` flag, so a combined walk may count it. The module docstring says which shapes combine and why."""
     shape = _shape_of(rule["match"])
-    return shape is not None and shape.composable
+    return shape is not None and shape.combinable
 
 
-def _composable(rules):
-    """The rules a composed reading may credit, in rules-file order."""
-    return [rule for rule in rules if _is_composable(rule)]
+def _combinable(rules):
+    """The rules a combined match may count, in rules-file order."""
+    return [rule for rule in rules if _is_combinable(rule)]
 
 
 def _is_slide_match(match):
@@ -1661,20 +1661,20 @@ def _is_created_join_match(match):
     return SHAPES["join-created"].keyed_by in match["after"]
 
 
-def _composable_digest(rules):
-    """Return a hashable key for a list of composable rules: each rule's id with its match as sorted JSON. `SlideContext.composed` is keyed on it, so a context shared by two rule sets never returns one set's walk for the other. The ids are part of the key because the stored walk names rule ids."""
+def _combinable_digest(rules):
+    """Return a hashable key for a list of combinable rules: each rule's id with its match as sorted JSON. `SlideContext.combined` is keyed on it, so a context shared by two rule sets never returns one set's walk for the other. The ids are part of the key because the stored walk names rule ids."""
     return tuple((rule["id"], json.dumps(rule["match"], sort_keys=True)) for rule in rules)
 
 
 def _candidate_counts(rules, unit):
-    """Return each rule's number of candidate positions in the window (`_candidates`), by id in rules-file order, or an empty dict when the unit lacks a before or after record. `Decider.evaluate` computes it once and uses it for both the composed pre-gate and the memo entry's `relevant` rules."""
+    """Return each rule's number of candidate positions in the window (`_candidates`), by id in rules-file order, or an empty dict when the unit lacks a before or after record. `Decider.evaluate` computes it once and uses it for both the name-only precheck and the memo entry's `relevant` rules."""
     if not unit.get("before") or not unit.get("after"):
         return {}
     return {rule["id"]: len(_candidates(rule["match"], unit)) for rule in rules}
 
 
 def _candidates(match, unit):
-    """Return the window positions where a composable rule could hold, read from the unit's index record without shaping. Slide, ink-gain, entry-drop, stub-drop, and redrawn rules use every position whose before glyph carries a before pivot prefix. Entry-contracted rules use `_contracted_entry_candidates`, join-dropped rules `_join_pairs`, and join-retargeted and join-created rules `_retarget_pairs`. Extension rules use `_extension_positions`, and return none when `seam_out` is not a yK height, because the walk needs a row for the dropped tail. This is the composed pre-gate: a rule with no candidate is never credited, and a window with fewer than two candidate positions across all rules is never shaped."""
+    """Return the window positions where a combinable rule could hold, read from the unit's index record without shaping. Slide, ink-gain, entry-drop, stub-drop, and redrawn rules use every position whose before glyph carries a before pivot prefix. Entry-contracted rules use `_contracted_entry_candidates`, join-dropped rules `_join_pairs`, and join-retargeted and join-created rules `_retarget_pairs`. Extension rules use `_extension_positions`, and return none when `seam_out` is not a yK height, because the walk needs a row for the dropped tail. This is the name-only precheck: a rule with no candidate is never counted, and a window with fewer than two candidate positions across all rules is never shaped."""
     glyphs = unit["before"]["glyphs"]
     if (
         _is_slide_match(match)
@@ -1717,7 +1717,7 @@ def _extension_positions(match, unit):
 
 
 def _reachable(match, unit):
-    """Whether a rule could accept or hold the unit, judged from names alone without shaping. A composable rule needs a candidate position (`_candidates`, or `_extension_positions` for an extension rule); a ligature rule needs a glyph with its pivot prefix; an ink-delta rule needs the unit's persisted digests to be a nonempty subset of its own. Each condition is necessary for the rule's matcher, guarded or not, and for composed credit, since the walk tries a rule only at its candidates. So a unit this rejects appears on none of the rule's report lines: filled, already verdicted, held, or composed. `--targeted` relies on this to evaluate only the admitted units and still print the rule's lines as the whole-domain run would. test_a_rules_lines_never_name_a_unit_outside_its_name_grain_candidates in rebuild/test_standing_verdicts.py checks it for every checked-in rule over the frozen mini bundle."""
+    """Whether a rule could accept or hold the unit, judged from names alone without shaping. A combinable rule needs a candidate position (`_candidates`, or `_extension_positions` for an extension rule); a ligature rule needs a glyph with its pivot prefix; an ink-delta rule needs the unit's persisted digests to be a nonempty subset of its own. Each condition is necessary for the rule's matcher, guarded or not, and for a count in a combined match, since the walk tries a rule only at its candidates. So a unit this rejects appears on none of the rule's report lines: filled, already verdicted, held, or combined. `--targeted` relies on this to evaluate only the admitted units and still print the rule's lines as the whole-domain run would. test_a_rules_lines_never_name_a_unit_outside_its_name_grain_candidates in rebuild/test_standing_verdicts.py checks it for every checked-in rule over the frozen mini bundle."""
     if not unit.get("before") or not unit.get("after"):
         return False
     shape = _shape_of(match)
@@ -1725,7 +1725,7 @@ def _reachable(match, unit):
         return False
     if shape is SHAPES["extension-dropped"]:
         return bool(_extension_positions(match, unit))
-    if shape.composable:
+    if shape.combinable:
         return bool(_candidates(match, unit))
     if shape is SHAPES["ligature"]:
         return any(_is_pivot(name, match["before"]["pivot"]) for name in unit["before"]["glyphs"])
@@ -1821,7 +1821,7 @@ def _redrawn_event(match, rule_id, index, after_names, intern, before_pieces, af
 
 
 def _extension_event(match, rule_id, index, intern, before_pieces, after_pieces, cell):
-    """Return an extension Event at `index` when the pivot drops exactly the named exit tail, or None, which leaves the pivot and follower to be judged as span ink. The pivot keeps its vertical placement and own-frame origin, sits on the pixel grid, and paints its before picture minus a tail. Every dropped cell lies right of the after picture's rightmost column, on the row the `seam_out` height names, and the tail is as wide as `_drop_columns` says: the named extension less any shorter one the after cell keeps, or the named contraction in full. The pivot needs its own grid check because no span ever includes it, and `_span_cells` checks every other piece. The seam row is the height divided by the pixel size, which is only correct on the grid. The follower must have ink on both sides so the walk can skip or chain it, but its picture is not checked here, because the rule names its after cell and a redraw inside that cell (·May losing the stacked entry, ·I's smaller loop) is part of what the rule approves."""
+    """Return an extension Event at `index` when the pivot drops exactly the named exit tail, or None, which leaves the pivot and follower to be judged as span ink. The pivot keeps its vertical placement and own-frame origin, sits on the pixel grid, and paints its before picture minus a tail. Every dropped cell lies right of the after picture's rightmost column, on the row the `seam_out` height names, and the tail is as wide as `_drop_columns` says: the named extension less any shorter one the after cell keeps, or the named contraction in full. The pivot needs its own grid check because no span ever includes it, and `_span_cells` checks every other piece. The seam row is the height divided by the pixel size, which is only correct on the grid. The follower must have ink on both sides so the walk can skip it or share it with another event, but its picture is not checked here, because the rule names its after cell and a redraw inside that cell (·May losing the stacked entry, ·I's smaller loop) is part of what the rule approves."""
     seam = SEAM_ROW.fullmatch(match["before"]["seam_out"])
     if seam is None:
         return None
@@ -1878,7 +1878,7 @@ def _retarget_event(match, rule_id, index, before_pieces, after_pieces):
 
 
 def _created_join_event(match, rule_id, index, before_pieces, after_pieces):
-    """Return a created-join (`joined`) Event at `index` when the follower keeps its own-frame origin or moves it left by `follower_reach`, on the grid, and the pivot has ink on both sides, or None, which leaves both pieces to be judged as span ink. Height and picture may change. `pivot_judged` is False when the pivot moved its own-frame origin; the walk keeps such an event only when it chains behind an entry, gain, or redrawn event at the same position, which has judged the pivot. In the walk the pivot sits at the running displacement or up to `pivot_stub_drop` columns right of it, the follower moves by the shift plus that offset, and the follower's advance delta is carried past it."""
+    """Return a created-join (`joined`) Event at `index` when the follower keeps its own-frame origin or moves it left by `follower_reach`, on the grid, and the pivot has ink on both sides, or None, which leaves both pieces to be judged as span ink. Height and picture may change. `pivot_judged` is False when the pivot moved its own-frame origin; the walk keeps such an event only when it shares its pivot with an entry, gain, or redrawn event at the same position, which has judged the pivot. In the walk the pivot sits at the running displacement or up to `pivot_stub_drop` columns right of it, the follower moves by the shift plus that offset, and the follower's advance delta is carried past it."""
     if not _retarget_piece_holds(
         before_pieces.get(index + 1), after_pieces.get(index + 1), match["after"]["follower_reach"]
     ):
@@ -1945,12 +1945,12 @@ def _handed_on(event, follower_event):
     return event.reach if follower_event.kind == "retarget" else event.advance
 
 
-def _composed_walk(rules, unit, context):
-    """Walk the window left to right under a running column displacement and return each credited rule's event positions, or None when the composable rules cannot account for every rendered pixel together. The module docstring describes each event kind's placement and the chains in which two events share a letter; this function implements them.
+def _combined_walk(rules, unit, context):
+    """Walk the window left to right under a running column displacement and return each counted rule's event positions, or None when the combinable rules cannot account for every rendered pixel together. The module docstring describes each event kind's placement and the cases in which two events share a letter; this function implements them.
 
-    The unit's ink-delta digest must be the same under every config, and the window is shaped under the first. Both shaped runs must match the index record letter for letter. Every candidate of every rule is tested against its event contract (`_slide_event` and the others). A candidate that fails is not an event, and its ink is judged as span ink, so a rule that fails at a position does not stop the other rules from explaining the window. Two judged events at one position, or a retarget or created-join event whose follower position is also an event, return None unless they form one of the chains the module docstring lists. Every span between events must pass `_span_explained` under the displacement at its start.
+    The unit's ink-delta digest must be the same under every config, and the window is shaped under the first. Both shaped runs must match the index record letter for letter. Every candidate of every rule is tested against its event contract (`_slide_event` and the others). A candidate that fails is not an event, and its ink is judged as span ink, so a rule that fails at a position does not stop the other rules from explaining the window. Two judged events at one position, or a retarget or created-join event whose follower position is also an event, return None unless they form one of the cases the module docstring lists. Every span between events must pass `_span_explained` under the displacement at its start.
 
-    There is no minimum event count here, so tests can compare a single-event walk with each single-shape matcher. `_composed` requires two events.
+    There is no minimum event count here, so tests can compare a single-event walk with each single-shape matcher. `_combined_match` requires two events.
     """
     deltas = unit.get("ink_deltas")
     if not isinstance(deltas, dict) or not deltas:
@@ -2033,15 +2033,15 @@ def _composed_walk(rules, unit, context):
             if event is not None:
                 found.setdefault(index, []).append(event)
     events: dict[int, Event] = {}
-    chained: dict[int, Event] = {}
+    sharing: dict[int, Event] = {}
     reached: dict[int, Event] = {}
-    for index, claims in found.items():
-        judged = [claim for claim in claims if claim.pivot_judged]
-        unjudged = [claim for claim in claims if not claim.pivot_judged]
-        kinds = {claim.kind for claim in judged}
+    for index, candidates in found.items():
+        judged = [event for event in candidates if event.pivot_judged]
+        unjudged = [event for event in candidates if not event.pivot_judged]
+        kinds = {event.kind for event in judged}
         if len(judged) == 2 and "joined" in kinds and kinds & {"gain", "redrawn"}:
-            unjudged = [claim for claim in judged if claim.kind == "joined"] + unjudged
-            judged = [claim for claim in judged if claim.kind != "joined"]
+            unjudged = [event for event in judged if event.kind == "joined"] + unjudged
+            judged = [event for event in judged if event.kind != "joined"]
         if len(judged) > 1:
             return None
         if not judged:
@@ -2052,7 +2052,7 @@ def _composed_walk(rules, unit, context):
         if unjudged and judged[0].kind in ("entry", "gain", "redrawn"):
             if len(unjudged) > 1:
                 return None
-            chained[index] = unjudged[0]
+            sharing[index] = unjudged[0]
     for index, event in reached.items():
         prior = events.get(index - 1)
         if event.kind == "retarget" and prior is not None and prior.kind == "joined":
@@ -2066,7 +2066,7 @@ def _composed_walk(rules, unit, context):
     }
     behind_join = {
         index + 1
-        for index, event in list(events.items()) + list(chained.items())
+        for index, event in list(events.items()) + list(sharing.items())
         if event.kind == "joined"
         and index + 1 in events
         and events[index + 1].kind in ("joined", "retarget", "extension", "gain", "redrawn")
@@ -2074,10 +2074,10 @@ def _composed_walk(rules, unit, context):
     if any(
         index + 1 in events and index + 1 not in behind_retarget and index + 1 not in behind_join
         for index, event in events.items()
-        if event.kind in ("retarget", "joined") or index in chained
+        if event.kind in ("retarget", "joined") or index in sharing
     ):
         return None
-    credited: dict[str, list[int]] = {}
+    counted: dict[str, list[int]] = {}
     before_span: list = []
     after_span: list = []
     displacement = 0
@@ -2124,13 +2124,13 @@ def _composed_walk(rules, unit, context):
             if event.kind == "entry":
                 after_anchor = after_pieces[index]
             index += 1
-            joined = chained.get(position)
+            joined = sharing.get(position)
             if joined is not None:
                 displacement += joined.shift
                 if after_pieces[index][2] != before_pieces[index][2] + displacement * PIXEL_SIZE:
                     return None
                 after_anchor = None
-                credited.setdefault(joined.rule_id, []).append(position)
+                counted.setdefault(joined.rule_id, []).append(position)
                 if index in behind_join:
                     carried = _handed_on(joined, events[index])
                 else:
@@ -2157,7 +2157,7 @@ def _composed_walk(rules, unit, context):
                 index += 2
                 if trailing is not None:
                     displacement += trailing.shift
-                    credited.setdefault(trailing.rule_id, []).append(position + 1)
+                    counted.setdefault(trailing.rule_id, []).append(position + 1)
                     if trailing.kind == "joined":
                         if after_pieces[index][2] != before_pieces[index][2] + displacement * PIXEL_SIZE:
                             return None
@@ -2202,7 +2202,7 @@ def _composed_walk(rules, unit, context):
                     compact = _dropped_entry(glyphs[follower_index], cells[follower_index])
                     skippable = True
                 index += 2
-        credited.setdefault(event.rule_id, []).append(position)
+        counted.setdefault(event.rule_id, []).append(position)
     if not _span_explained(
         intern,
         before_span,
@@ -2213,26 +2213,26 @@ def _composed_walk(rules, unit, context):
         after_anchor,
     ):
         return None
-    return credited
+    return counted
 
 
-def _composed(rules, unit, context, digest=None, counts=None):
-    """Return the composed reading a fill may use: each credited rule's event positions, before any guard is read, or None. It returns None without shaping when the rules have fewer than two candidate positions in total, and None when the walk credits fewer than two events. A single event belongs on that rule's own line, while one rule credited at two positions counts as a composition. The walk is memoized per rules digest and unit id in `context.composed`. A caller that already has `digest` (`_composable_digest(rules)`) or `counts` (`_candidate_counts(rules, unit)`) passes them, as `Decider.evaluate` does; otherwise they are computed here."""
+def _combined_match(rules, unit, context, digest=None, counts=None):
+    """Return the combined match a fill may use: each counted rule's event positions, before any guard is read, or None. It returns None without shaping when the rules have fewer than two candidate positions in total, and None when the walk counts fewer than two events. A single event belongs on that rule's own line, while one rule matched at two positions is a combined match. The walk is memoized per rules digest and unit id in `context.combined`. A caller that already has `digest` (`_combinable_digest(rules)`) or `counts` (`_candidate_counts(rules, unit)`) passes them, as `Decider.evaluate` does; otherwise they are computed here."""
     if not unit.get("before") or not unit.get("after"):
         return None
     if counts is None:
         counts = _candidate_counts(rules, unit)
     if sum(counts.values()) < 2:
         return None
-    key = (_composable_digest(rules) if digest is None else digest, unit["id"])
-    if key not in context.composed:
-        context.composed[key] = _composed_walk(rules, unit, context)
-    events = context.composed[key]
+    key = (_combinable_digest(rules) if digest is None else digest, unit["id"])
+    if key not in context.combined:
+        context.combined[key] = _combined_walk(rules, unit, context)
+    events = context.combined[key]
     return events if events is not None and sum(len(at) for at in events.values()) > 1 else None
 
 
-def _composed_held(rules, unit, events, context):
-    """Whether an except_left guard holds this composed window. A credited rule's guard is read in its shape's `guard_scope`: across the whole window for `window`, or at the left neighbor of each credited position for `left-neighbor`. A non-composable rule holds the window when its own matcher accepts it unguarded and rejects it guarded, since it would have held the window in the single-rule pass. A hold applies to the whole unit, not only to one rule's credit."""
+def _combined_held(rules, unit, events, context):
+    """Whether an except_left guard holds this combined-match window. A counted rule's guard is read in its shape's `guard_scope`: across the whole window for `window`, or at the left neighbor of each counted position for `left-neighbor`. A non-combinable rule holds the window when its own matcher accepts it unguarded and rejects it guarded, since it would have held the window in the single-rule pass. A hold applies to the whole unit, not only to one counted rule."""
     glyphs = unit["before"]["glyphs"]
     for rule in rules:
         match = rule["match"]
@@ -2247,7 +2247,7 @@ def _composed_held(rules, unit, events, context):
                     return True
             elif any(index and _joining_family(glyphs[index - 1]) in excluded for index in indices):
                 return True
-        elif not _is_composable(rule):
+        elif not _is_combinable(rule):
             if _matches(match, unit, guard=False, context=context) and not _matches(
                 match, unit, context=context
             ):
@@ -2255,14 +2255,14 @@ def _composed_held(rules, unit, events, context):
     return False
 
 
-def _composed_verdict(rules, unit, events, context):
-    """Return the composed fill's verdict and the id of the non-credited rule that weakened it, or None for the id. The verdict is `either` when any credited rule's verdict is `either`, or when a non-composable `either` rule's own matcher also accepts the window; otherwise it is `approve`. `_composed_note` writes the fill's note from the live rules."""
-    credited = [rule for rule in rules if rule["id"] in events]
-    verdict = "either" if any(rule["verdict"] == "either" for rule in credited) else "approve"
+def _combined_verdict(rules, unit, events, context):
+    """Return the combined fill's verdict and the id of the non-counted rule that weakened it, or None for the id. The verdict is `either` when any counted rule's verdict is `either`, or when a non-combinable `either` rule's own matcher also accepts the window; otherwise it is `approve`. `_combined_note` writes the fill's note from the live rules."""
+    counted = [rule for rule in rules if rule["id"] in events]
+    verdict = "either" if any(rule["verdict"] == "either" for rule in counted) else "approve"
     weakened = None
     if verdict == "approve":
         for rule in rules:
-            if _is_composable(rule) or rule["verdict"] != "either":
+            if _is_combinable(rule) or rule["verdict"] != "either":
                 continue
             if _matches(rule["match"], unit, context=context):
                 verdict, weakened = "either", rule["id"]
@@ -2271,17 +2271,17 @@ def _composed_verdict(rules, unit, events, context):
 
 
 class SlideContext:
-    """The font-backed state for the shapes that re-shape windows and for the composed walk. `comparator` is an InkComparator over the corpus's before and after fonts, and `fonts` keeps that pair so `_prefill` can build each pool worker's context over the same fonts (`_standing_pool_init`). `memo` caches each font-backed matcher's geometric result per shape, rule parameters, and unit, so the guarded and unguarded passes over one rule shape a window once. `composed` caches each composed walk per rules digest and unit. Every key names one unit, so `Decider._release` empties both after each unit it decides or serves, and a pool worker empties them after each chunk (`_standing_pool_chunk`), which keeps a worker's peak memory to one chunk's windows."""
+    """The font-backed state for the shapes that re-shape windows and for the combined walk. `comparator` is an InkComparator over the corpus's before and after fonts, and `fonts` keeps that pair so `_prefill` can build each pool worker's context over the same fonts (`_standing_pool_init`). `memo` caches each font-backed matcher's geometric result per shape, rule parameters, and unit, so the guarded and unguarded passes over one rule shape a window once. `combined` caches each combined walk per rules digest and unit. Every key names one unit, so `Decider._release` empties both after each unit it decides or serves, and a pool worker empties them after each chunk (`_standing_pool_chunk`), which keeps a worker's peak memory to one chunk's windows."""
 
     def __init__(self, before_font, after_font) -> None:
         self.fonts = (before_font, after_font)
         self.comparator = InkComparator(before_font, after_font)
         self.memo: dict[tuple, bool] = {}
-        self.composed: dict[tuple, dict[str, list[int]] | None] = {}
+        self.combined: dict[tuple, dict[str, list[int]] | None] = {}
 
 
 class Shape(NamedTuple):
-    """One row of SHAPES: a delta shape a rule can declare. `keyed_by` is the `match.after` field that declares it. `before` and `after` are the fields `match.before` and `match.after` must carry, and an empty `before` means that block must be absent; `optional` and `before_optional` are fields they may also carry. `cell_lists`, `digest_lists`, `name_lists`, `int_fields`, `family_fields`, and `point_lists` tell `load_rules` how to check a field's type: a list of cell strings, a list of ink-delta digests, a list of glyph-name prefixes, an integer column count, a family name or list of them, or a list of [column, row] cells. Any other field must be a nonempty string. `matcher` reads a unit and `validate` checks the rule at load. `composable` says whether a composed walk may credit the shape, `font_backed` whether its matcher re-shapes windows in the corpus's fonts, and `needs_ink_deltas` whether it reads the units' persisted ink deltas. `guard_scope` is where a composed reading reads the rule's except_left guard: `window`, `left-neighbor`, or None for a shape that never composes."""
+    """One row of SHAPES: a delta shape a rule can declare. `keyed_by` is the `match.after` field that declares it. `before` and `after` are the fields `match.before` and `match.after` must carry, and an empty `before` means that block must be absent; `optional` and `before_optional` are fields they may also carry. `cell_lists`, `digest_lists`, `name_lists`, `int_fields`, `family_fields`, and `point_lists` tell `load_rules` how to check a field's type: a list of cell strings, a list of ink-delta digests, a list of glyph-name prefixes, an integer column count, a family name or list of them, or a list of [column, row] cells. Any other field must be a nonempty string. `matcher` reads a unit and `validate` checks the rule at load. `combinable` says whether a combined walk may count the shape, `font_backed` whether its matcher re-shapes windows in the corpus's fonts, and `needs_ink_deltas` whether it reads the units' persisted ink deltas. `guard_scope` is where a combined match reads the rule's except_left guard: `window`, `left-neighbor`, or None for a shape that never combines."""
 
     keyed_by: str
     before: tuple[str, ...]
@@ -2296,7 +2296,7 @@ class Shape(NamedTuple):
     int_fields: tuple[str, ...] = ()
     family_fields: tuple[str, ...] = ()
     point_lists: tuple[str, ...] = ()
-    composable: bool = False
+    combinable: bool = False
     font_backed: bool = False
     needs_ink_deltas: bool = False
     guard_scope: str | None = None
@@ -2318,7 +2318,7 @@ SHAPES = {
         matcher=_matches_extension,
         validate=_validate_extension,
         family_fields=("follower",),
-        composable=True,
+        combinable=True,
         guard_scope="left-neighbor",
     ),
     "ink-delta": Shape(
@@ -2340,7 +2340,7 @@ SHAPES = {
         validate=_validate_slide,
         name_lists=("pivots",),
         int_fields=("slide",),
-        composable=True,
+        combinable=True,
         font_backed=True,
         needs_ink_deltas=True,
         guard_scope="window",
@@ -2355,7 +2355,7 @@ SHAPES = {
         name_lists=("pivots",),
         int_fields=("shift",),
         point_lists=("gained",),
-        composable=True,
+        combinable=True,
         font_backed=True,
         needs_ink_deltas=True,
         guard_scope="window",
@@ -2370,7 +2370,7 @@ SHAPES = {
         optional=("pivot_cells", "receiver_cells", "follower_give_back"),
         int_fields=("gap", "follower_give_back"),
         family_fields=("follower",),
-        composable=True,
+        combinable=True,
         font_backed=True,
         needs_ink_deltas=True,
         guard_scope="window",
@@ -2384,7 +2384,7 @@ SHAPES = {
         validate=_validate_entry_drop,
         name_lists=("pivots",),
         int_fields=("entry_drop",),
-        composable=True,
+        combinable=True,
         font_backed=True,
         needs_ink_deltas=True,
         guard_scope="window",
@@ -2400,7 +2400,7 @@ SHAPES = {
         name_lists=("pivots", "except_pivots"),
         int_fields=("entry_contraction",),
         family_fields=("left",),
-        composable=True,
+        combinable=True,
         font_backed=True,
         needs_ink_deltas=True,
         guard_scope="window",
@@ -2414,7 +2414,7 @@ SHAPES = {
         validate=_validate_stub_drop,
         name_lists=("pivots",),
         int_fields=("stub_drop",),
-        composable=True,
+        combinable=True,
         font_backed=True,
         needs_ink_deltas=True,
         guard_scope="window",
@@ -2429,7 +2429,7 @@ SHAPES = {
         name_lists=("pivots",),
         int_fields=("shift",),
         point_lists=("dropped", "added"),
-        composable=True,
+        combinable=True,
         font_backed=True,
         needs_ink_deltas=True,
         guard_scope="window",
@@ -2443,7 +2443,7 @@ SHAPES = {
         validate=_validate_join_retarget,
         int_fields=("shift", "follower_shift"),
         family_fields=("follower",),
-        composable=True,
+        combinable=True,
         font_backed=True,
         needs_ink_deltas=True,
         guard_scope="window",
@@ -2460,7 +2460,7 @@ SHAPES = {
         name_lists=("except_pivots",),
         int_fields=("shift", "follower_advance", "follower_reach", "pivot_stub_drop"),
         family_fields=("pivot", "follower"),
-        composable=True,
+        combinable=True,
         font_backed=True,
         needs_ink_deltas=True,
         guard_scope="window",
@@ -2606,43 +2606,43 @@ def _matches(match, unit, *, guard=True, context=None):
 
 
 class Reach(NamedTuple):
-    """One rule's reach on a run: the unit ids its own matcher accepted, split into the blanks it filled and the units that already had a verdict; the ids its except_left held back; and its composed credit, counted separately as the number of units composed lines credited it at and the number of those composed lines. The composed pass claims a window before any single rule is checked, so a rule that is only ever credited in compositions shows nothing on its own line and is still in use. Under `--open-only`, `verdicted` holds only matched units whose verdict is outside ACCEPTING_VERDICTS, which are the units the disputed-match warning names."""
+    """One rule's reach on a run: the unit ids its own matcher accepted, split into the blanks it filled and the units that already had a verdict; the ids its except_left held back; and its count in combined matches, kept separately as the number of units combined matches counted it in and the number of those combined-match lines. The combined pass takes a window before any single rule is checked, so a rule that is only ever counted in combined matches shows nothing on its own line and is still in use. Under `--open-only`, `verdicted` holds only matched units whose verdict is outside ACCEPTING_VERDICTS, which are the units the disputed-match warning names."""
 
     filled: list[str]
     verdicted: list[str]
     held: list[str]
-    composed_credit: int
-    composed_lines: int
+    combined_units: int
+    combined_lines: int
 
 
 class Run(NamedTuple):
-    """One pass of the standing approvals over a corpus: the fill records to write, the composed pass's [filled, already verdicted, held] counts per credited-id tuple in rules-file order, and each rule's Reach by id."""
+    """One pass of the standing approvals over a corpus: the fill records to write, the combined pass's [filled, already verdicted, held] counts per counted-id tuple in rules-file order, and each rule's Reach by id."""
 
     fills: list[dict]
-    composed_counts: dict[tuple[str, ...], list[int]]
+    combined_counts: dict[tuple[str, ...], list[int]]
     reaches: dict[str, Reach]
 
 
-class Composed(NamedTuple):
-    """The composed reading's decision for one window: the credited rule ids in rules-file order, whether a guard holds the whole unit, and, for a window no guard holds, the verdict a fill carries and the id of the non-composable `either` rule that weakened it (None when none did). A held window's verdict is not computed, because nothing writes it. The decision holds no note text: `_composed_note` reads the notes from the live rules when the fill is written, so a reworded note does not invalidate a stored decision."""
+class CombinedMatch(NamedTuple):
+    """The combined match's decision for one window: the counted rule ids in rules-file order, whether a guard holds the whole unit, and, for a window no guard holds, the verdict a fill carries and the id of the non-combinable `either` rule that weakened it (None when none did). A held window's verdict is not computed, because nothing writes it. The decision holds no note text: `_combined_note` reads the notes from the live rules when the fill is written, so a reworded note does not invalidate a stored decision."""
 
-    credited: tuple[str, ...]
+    counted: tuple[str, ...]
     held: bool
     verdict: str | None
     weakened: str | None = None
 
 
-def _composed_note(by_id, composed: Composed) -> str:
-    """The note a composed fill carries, read from the live rules like a single-rule fill's: the credited ids and their notes in rules-file order, plus the rule outside the credited set that weakened the verdict, if one did."""
-    ids = " + ".join(composed.credited)
-    note = f"[standing: {ids}] " + "; ".join(by_id[rule_id]["note"] for rule_id in composed.credited)
-    return note + (f" (either: {composed.weakened})" if composed.weakened else "")
+def _combined_note(by_id, combined: CombinedMatch) -> str:
+    """The note a combined fill carries, read from the live rules like a single-rule fill's: the counted ids and their notes in rules-file order, plus the rule outside the counted set that weakened the verdict, if one did."""
+    ids = " + ".join(combined.counted)
+    note = f"[standing: {ids}] " + "; ".join(by_id[rule_id]["note"] for rule_id in combined.counted)
+    return note + (f" (either: {combined.weakened})" if combined.weakened else "")
 
 
 class Decision(NamedTuple):
-    """Everything a run needs about one unit apart from the verdict store: the composed reading when one claims the window, else the rules whose own matchers accept it and the rules whose except_left holds it. A claimed window has no per-rule results, because the single-rule pass never sees it. `relevant` is not part of the verdict; it is part of the memo entry's key: the composable rules with a candidate position in this window (`_candidate_counts`), in rules-file order. Only these rules add a term to the composed pre-gate or an event to `_composed_walk`, so a change to any other rule cannot change the composed part. It is empty when the composed reading is off (`Decider.gate`)."""
+    """Everything a run needs about one unit apart from the verdict store: the combined match when one explains the window, else the rules whose own matchers accept it and the rules whose except_left holds it. A combined-match window has no per-rule results, because the single-rule pass never sees it. `relevant` is not part of the verdict; it is part of the memo entry's key: the combinable rules with a candidate position in this window (`_candidate_counts`), in rules-file order. Only these rules add a term to the name-only precheck or an event to `_combined_walk`, so a change to any other rule cannot change the combined part. It is empty when the combined match is off (`Decider.gate`)."""
 
-    composed: Composed | None
+    combined: CombinedMatch | None
     matched: frozenset[str]
     held: frozenset[str]
     relevant: tuple[str, ...] = ()
@@ -2682,34 +2682,34 @@ def memo_environment(corpus, root=ROOT) -> tuple[str, dict[str, str]]:
 
 
 class Roster(NamedTuple):
-    """What the memo header records about the rules file, and what a `Decider` compares the live file against. `rules` maps each id, in rules-file order, to the rule's match digest and verdict. `always` lists, in the same order, the non-composable rules the composed reading consults for every window it claims, because they have a non-empty except_left (`_composed_held`) or an `either` verdict (`_composed_verdict`). `composed_gate` says whether the composed reading is on (`Decider.gate`). Together with an entry's `relevant` ids, this is everything a stored decision depends on besides its unit key, and it contains no note text."""
+    """What the memo header records about the rules file, and what a `Decider` compares the live file against. `rules` maps each id, in rules-file order, to the rule's match digest and verdict. `always` lists, in the same order, the non-combinable rules the combined match consults for every combined-match window, because they have a non-empty except_left (`_combined_held`) or an `either` verdict (`_combined_verdict`). `combined_gate` says whether the combined match is on (`Decider.gate`). Together with an entry's `relevant` ids, this is everything a stored decision depends on besides its unit key, and it contains no note text."""
 
     rules: dict[str, tuple[str, str]]
     always: tuple[str, ...]
-    composed_gate: bool
+    combined_gate: bool
 
 
 def _match_digest(match) -> str:
     return hashlib.sha256(json.dumps(match, sort_keys=True).encode()).hexdigest()[:16]
 
 
-def rules_roster(rules, composed_gate) -> Roster:
+def rules_roster(rules, combined_gate) -> Roster:
     """The roster of a loaded rules file. Each match digest ignores key order and includes `except_left`, which `load_rules` keeps inside `match`. It is not `fingerprint.standing_approvals_digest`, which is one digest over the whole file in the file's own key order."""
     return Roster(
         {rule["id"]: (_match_digest(rule["match"]), rule["verdict"]) for rule in rules},
         tuple(
             rule["id"]
             for rule in rules
-            if not _is_composable(rule)
+            if not _is_combinable(rule)
             and (not _guard_is_inert(rule["match"]) or rule["verdict"] == "either")
         ),
-        composed_gate,
+        combined_gate,
     )
 
 
 def _roster_from_header(header) -> Roster | None:
     """The roster a memo header carries, or None for a missing or malformed one, which `Decider` treats as every rule having changed."""
-    rules, always, gate = header.get("rules"), header.get("always"), header.get("composed_gate")
+    rules, always, gate = header.get("rules"), header.get("always"), header.get("combined_gate")
     if not isinstance(rules, dict) or not isinstance(always, list) or not isinstance(gate, bool):
         return None
     if not all(
@@ -2721,12 +2721,12 @@ def _roster_from_header(header) -> Roster | None:
 
 
 def _decision_record(decision: Decision) -> list:
-    composed = decision.composed
+    combined = decision.combined
     return [
         (
             None
-            if composed is None
-            else [list(composed.credited), composed.held, composed.verdict, composed.weakened]
+            if combined is None
+            else [list(combined.counted), combined.held, combined.verdict, combined.weakened]
         ),
         sorted(decision.matched),
         sorted(decision.held),
@@ -2736,12 +2736,12 @@ def _decision_record(decision: Decision) -> list:
 
 def _decision_from_record(record: list) -> Decision:
     """Rebuild a decision from its memo record, interning the rule ids: the memo holds one entry per human unit, the entries repeat a small set of rule ids, and `json` gives every line its own copies."""
-    composed, matched, held, relevant = record
+    combined, matched, held, relevant = record
     return Decision(
         (
             None
-            if composed is None
-            else Composed(tuple(map(sys.intern, composed[0])), composed[1], composed[2], composed[3])
+            if combined is None
+            else CombinedMatch(tuple(map(sys.intern, combined[0])), combined[1], combined[2], combined[3])
         ),
         frozenset(map(sys.intern, matched)),
         frozenset(map(sys.intern, held)),
@@ -2818,7 +2818,7 @@ class Memo:
                 None if roster is None else {rule_id: list(entry) for rule_id, entry in roster.rules.items()}
             ),
             "always": None if roster is None else list(roster.always),
-            "composed_gate": None if roster is None else roster.composed_gate,
+            "combined_gate": None if roster is None else roster.combined_gate,
         }
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with open(self.path, "wb") as handle:
@@ -2832,16 +2832,16 @@ class Memo:
 class Decider:
     """The per-unit decision function behind a run. Each unit is decided once per run however many times it is asked about, so the narrowed pass and the `--require-reach` pass over the whole domain share results. A decision is served from the memo when the memo holds an entry under the unit's key that the live rules still support (`_serve`). `served`, `computed` and `unkeyed` count how each decision was reached.
 
-    The comparison of the live rules with the memo's stored `Roster` is computed once here, so a rules commit re-checks only the rules that changed instead of the whole domain. `_stale` holds every stored id whose match digest or verdict changed or that the live file no longer has. `_dropped` is the subset that vanished or whose match changed, since a verdict-only change leaves the rule's matcher results valid. `_probe` holds the live rules that are new or whose match changed, the only rules any per-unit candidate or reach check runs this pass. `_always_moved` says whether the rules the composed reading consults for every window changed at all, and `_gate_moved` whether the composed reading was switched on or off. A memo with no stored roster counts every rule as changed.
+    The comparison of the live rules with the memo's stored `Roster` is computed once here, so a rules commit re-checks only the rules that changed instead of the whole domain. `_stale` holds every stored id whose match digest or verdict changed or that the live file no longer has. `_dropped` is the subset that vanished or whose match changed, since a verdict-only change leaves the rule's matcher results valid. `_probe` holds the live rules that are new or whose match changed, the only rules any per-unit candidate or reach check runs this pass. `_always_moved` says whether the rules the combined match consults for every window changed at all, and `_gate_moved` whether the combined match was switched on or off. A memo with no stored roster counts every rule as changed.
     """
 
     def __init__(self, rules, context, memo: Memo | None = None) -> None:
         self.rules = rules
         self.context = context
         self.memo = memo
-        self.composable = _composable(rules)
-        self.composable_digest = _composable_digest(self.composable)
-        self.gate = len(self.composable) > 1 and context is not None
+        self.combinable = _combinable(rules)
+        self.combinable_digest = _combinable_digest(self.combinable)
+        self.gate = len(self.combinable) > 1 and context is not None
         self.roster = rules_roster(rules, self.gate)
         self._order = {rule["id"]: index for index, rule in enumerate(rules)}
         stored = memo.stored if memo is not None else None
@@ -2851,7 +2851,7 @@ class Decider:
             self._stale = self._dropped = frozenset(live)
             self._probe = list(rules)
         else:
-            self._gate_moved = stored.composed_gate != self.gate
+            self._gate_moved = stored.combined_gate != self.gate
             self._always_moved = [(rule_id, stored.rules.get(rule_id)) for rule_id in stored.always] != [
                 (rule_id, live[rule_id]) for rule_id in self.roster.always
             ]
@@ -2877,46 +2877,46 @@ class Decider:
         self.unkeyed = 0
 
     def evaluate(self, unit) -> Decision:
-        """Compute the decision. The composed reading runs first, because it claims a window before any single rule is checked. For an unclaimed window each rule's own matcher runs, and a guarded rule that fails is run again unguarded to find whether its guard held the window. The candidate counts for the composed pre-gate are computed once and also give the entry's `relevant` rules."""
-        composed = None
+        """Compute the decision. The combined match runs first, because it takes a window before any single rule is checked. For any other window each rule's own matcher runs, and a guarded rule that fails is run again unguarded to find whether its guard held the window. The candidate counts for the name-only precheck are computed once and also give the entry's `relevant` rules."""
+        combined = None
         relevant: tuple[str, ...] = ()
         if self.gate:
-            counts = _candidate_counts(self.composable, unit)
+            counts = _candidate_counts(self.combinable, unit)
             relevant = tuple(rule_id for rule_id, count in counts.items() if count)
-            events = _composed(self.composable, unit, self.context, self.composable_digest, counts)
+            events = _combined_match(self.combinable, unit, self.context, self.combinable_digest, counts)
             if events is not None:
-                credited = tuple(rule["id"] for rule in self.rules if rule["id"] in events)
-                held = _composed_held(self.rules, unit, events, self.context)
+                counted = tuple(rule["id"] for rule in self.rules if rule["id"] in events)
+                held = _combined_held(self.rules, unit, events, self.context)
                 verdict, weakened = (
-                    (None, None) if held else _composed_verdict(self.rules, unit, events, self.context)
+                    (None, None) if held else _combined_verdict(self.rules, unit, events, self.context)
                 )
-                composed = Composed(credited, held, verdict, weakened)
+                combined = CombinedMatch(counted, held, verdict, weakened)
         matched: list[str] = []
         held_by: list[str] = []
-        if composed is None:
+        if combined is None:
             for rule in self.rules:
                 match = rule["match"]
                 if _matches(match, unit, context=self.context):
                     matched.append(rule["id"])
                 elif not _guard_is_inert(match) and _matches(match, unit, guard=False, context=self.context):
                     held_by.append(rule["id"])
-        return Decision(composed, frozenset(matched), frozenset(held_by), relevant)
+        return Decision(combined, frozenset(matched), frozenset(held_by), relevant)
 
     def _serve(self, unit, entry: Decision) -> tuple[Decision, bool] | None:
         """Return the decision a memo entry still stands for under the live rules, with whether a matcher ran to repair it, or None when only `evaluate` can decide. Every uncertain case returns None:
 
-        - The composed gate changed, so no entry stands.
-        - A claimed window whose `relevant` ids include a stale rule, whose always-consulted rules changed, or whose `relevant` ids are no longer in rules-file order. A rule that had a candidate here and then changed or vanished can change the pre-gate sum, the walk's ambiguity check, a credit, a guard, or the verdict, and the credited tuple is stored in file order.
-        - An unclaimed window whose `relevant` ids include a dropped rule, for the same reasons apart from the guard and the verdict.
-        - A probed composable rule has a candidate position here, so it would take part in the walk.
+        - The combined gate changed, so no entry stands.
+        - A combined-match window whose `relevant` ids include a stale rule, whose always-consulted rules changed, or whose `relevant` ids are no longer in rules-file order. A rule that had a candidate here and then changed or vanished can change the name-only precheck sum, the walk's ambiguity check, a count, a guard, or the verdict, and the counted tuple is stored in file order.
+        - A window with no combined match whose `relevant` ids include a dropped rule, for the same reasons apart from the guard and the verdict.
+        - A probed combinable rule has a candidate position here, so it would take part in the walk.
 
-        Otherwise the entry is served. A claimed window is served unchanged. An unclaimed one is repaired per rule: the dropped rules are removed from its matched and held sets, and each probed rule that its shape's name-grain precondition admits (`_reachable`) is run guarded and, for a non-empty guard, unguarded. A composable rule with no candidate is admitted only when it is an extension rule whose seam the walk cannot place, checked through `_extension_positions` as `_reachable` does. The repair is correct only if `_reachable` admits every unit a rule's own matcher accepts or holds; test_a_rules_lines_never_name_a_unit_outside_its_name_grain_candidates in rebuild/test_standing_verdicts.py checks that over the frozen mini bundle. A window with no shaped side skips the probe check and is served unchanged, since no matcher accepts one.
+        Otherwise the entry is served. A combined-match window is served unchanged. One with no combined match is repaired per rule: the dropped rules are removed from its matched and held sets, and each probed rule that its shape's name-grain precondition admits (`_reachable`) is run guarded and, for a non-empty guard, unguarded. A combinable rule with no candidate is admitted only when it is an extension rule whose seam the walk cannot place, checked through `_extension_positions` as `_reachable` does. The repair is correct only if `_reachable` admits every unit a rule's own matcher accepts or holds; test_a_rules_lines_never_name_a_unit_outside_its_name_grain_candidates in rebuild/test_standing_verdicts.py checks that over the frozen mini bundle. A window with no shaped side skips the probe check and is served unchanged, since no matcher accepts one.
         """
         if self._gate_moved:
             return None
         relevant = set(entry.relevant)
-        composed = entry.composed
-        if composed is not None:
+        combined = entry.combined
+        if combined is not None:
             if self._always_moved or relevant & self._stale:
                 return None
             if sorted(entry.relevant, key=self._order.__getitem__) != list(entry.relevant):
@@ -2928,18 +2928,18 @@ class Decider:
         repairs = []
         for rule in self._probe:
             match = rule["match"]
-            if _is_composable(rule):
+            if _is_combinable(rule):
                 if _candidates(match, unit):
                     return None
                 if (
-                    composed is None
+                    combined is None
                     and _shape_of(match) is SHAPES["extension-dropped"]
                     and _extension_positions(match, unit)
                 ):
                     repairs.append(rule)
-            elif composed is None and _reachable(match, unit):
+            elif combined is None and _reachable(match, unit):
                 repairs.append(rule)
-        if composed is not None:
+        if combined is not None:
             return entry, False
         matched = set(entry.matched) - self._dropped
         held = set(entry.held) - self._dropped
@@ -2955,7 +2955,7 @@ class Decider:
         """Empty the context's shape and walk memos. Every key in them is for one unit, and `_decided` and `_servings` answer repeat requests, so emptying them after each unit loses nothing. It also empties the alignment cache (`release_alignment_cache`), whose entries each hold one unit record, so the parent keeps no unit it has decided or served. `decide` calls this after every unit it serves or computes, `_serving` after every memo entry it checks (which `_prefill` does outside `decide`), and a pooled worker after every chunk (`_standing_pool_chunk`)."""
         if self.context is not None:
             self.context.memo.clear()
-            self.context.composed.clear()
+            self.context.combined.clear()
         release_alignment_cache()
 
     def _serving(self, unit) -> tuple[Decision, bool] | None:
@@ -3085,22 +3085,22 @@ def _decision_reach(rules, decisions, records, stamp) -> Run:
     order = {rule["id"]: index for index, rule in enumerate(rules)}
     by_id = {rule["id"]: rule for rule in rules}
     fills = []
-    credited_units: dict[str, list[str]] = {}
-    composed_counts: dict[tuple[str, ...], list[int]] = {}
+    counted_units: dict[str, list[str]] = {}
+    combined_counts: dict[tuple[str, ...], list[int]] = {}
     matched_by: dict[str, list[str]] = {rule["id"]: [] for rule in rules}
     held_by: dict[str, list[str]] = {rule["id"]: [] for rule in rules}
     for unit_id, decision in decisions:
-        composed = decision.composed
-        if composed is None:
+        combined = decision.combined
+        if combined is None:
             for rule_id in decision.matched:
                 matched_by[rule_id].append(unit_id)
             for rule_id in decision.held:
                 held_by[rule_id].append(unit_id)
             continue
-        for rule_id in composed.credited:
-            credited_units.setdefault(rule_id, []).append(unit_id)
-        counts = composed_counts.setdefault(composed.credited, [0, 0, 0])
-        if composed.held:
+        for rule_id in combined.counted:
+            counted_units.setdefault(rule_id, []).append(unit_id)
+        counts = combined_counts.setdefault(combined.counted, [0, 0, 0])
+        if combined.held:
             counts[2] += 1
         elif unit_id in records:
             counts[1] += 1
@@ -3109,8 +3109,8 @@ def _decision_reach(rules, decisions, records, stamp) -> Run:
             fills.append(
                 {
                     "unit": unit_id,
-                    "verdict": composed.verdict,
-                    "note": _composed_note(by_id, composed),
+                    "verdict": combined.verdict,
+                    "note": _combined_note(by_id, combined),
                     "at": stamp,
                 }
             )
@@ -3126,17 +3126,17 @@ def _decision_reach(rules, decisions, records, stamp) -> Run:
             filled=blanks,
             verdicted=[unit_id for unit_id in matched if unit_id in records],
             held=held_by[rule["id"]],
-            composed_credit=len(credited_units.get(rule["id"], ())),
-            composed_lines=sum(1 for ids in composed_counts if rule["id"] in ids),
+            combined_units=len(counted_units.get(rule["id"], ())),
+            combined_lines=sum(1 for ids in combined_counts if rule["id"] in ids),
         )
 
     fills.sort(key=lambda record: record["unit"])
-    ordered = sorted(composed_counts, key=lambda ids: [order[rule_id] for rule_id in ids])
-    return Run(fills, {credited: composed_counts[credited] for credited in ordered}, reaches)
+    ordered = sorted(combined_counts, key=lambda ids: [order[rule_id] for rule_id in ids])
+    return Run(fills, {counted: combined_counts[counted] for counted in ordered}, reaches)
 
 
 def open_units(units, records):
-    """The units a run can still change: blanks, which are the only units a fill is written for, and units whose verdict is outside ACCEPTING_VERDICTS, which the disputed-match warning reports. Every decision depends only on its own unit, the composed claim included, so leaving the other units out changes no fill. The full domain adds only the already-verdicted column and the reach rollup, which describe the verdict store, not the fills."""
+    """The units a run can still change: blanks, which are the only units a fill is written for, and units whose verdict is outside ACCEPTING_VERDICTS, which the disputed-match warning reports. Every decision depends only on its own unit, its combined match included, so leaving the other units out changes no fill. The full domain adds only the already-verdicted column and the reach rollup, which describe the verdict store, not the fills."""
     return [
         unit
         for unit in units
@@ -3155,44 +3155,44 @@ def _own_line_total(reach):
 
 
 def _tally_line(name, filled, verdicted, held, open_only):
-    """One report line for a rule or a credited tuple. Under `--open-only` the already-verdicted column is omitted, not shown as zero, because the run never saw the units it would count."""
+    """One report line for a rule or a counted tuple. Under `--open-only` the already-verdicted column is omitted, not shown as zero, because the run never saw the units it would count."""
     column = "" if open_only else f"{verdicted} already verdicted, "
     return f"  {name}: {filled} filled, {column}{held} held for review by except_left"
 
 
 def _tally_lines(rules, run, open_only):
-    """One line per rule in rules-file order, then one line per composed reading."""
+    """One line per rule in rules-file order, then one line per combined match."""
     lines = []
     for rule in rules:
         reach = run.reaches[rule["id"]]
         lines.append(
             _tally_line(rule["id"], len(reach.filled), len(reach.verdicted), len(reach.held), open_only)
         )
-    for credited, (filled, verdicted, held) in run.composed_counts.items():
-        lines.append(_tally_line(" + ".join(credited), filled, verdicted, held, open_only))
+    for counted, (filled, verdicted, held) in run.combined_counts.items():
+        lines.append(_tally_line(" + ".join(counted), filled, verdicted, held, open_only))
     return lines
 
 
 def _rollup_lines(rules, reaches):
-    """Each rule's total reach: the units its own line counts, the units composed lines credited it at, their sum, and how many composed lines name it. Then a REACHED NOTHING line for each rule that reached nothing, since a row of zeros is easy to miss."""
+    """Each rule's total reach: the units its own line counts, the units combined matches counted it in, their sum, and how many combined-match lines name it. Then a REACHED NOTHING line for each rule that reached nothing, since a row of zeros is easy to miss."""
     lines = [
-        "  per-rule reach (a window a composed line explains counts toward every rule that line credits, "
+        "  per-rule reach (a window a combined match explains counts toward every rule it counts, "
         "so these totals deliberately do not sum to the run):"
     ]
     for rule in rules:
         reach = reaches[rule["id"]]
         own = _own_line_total(reach)
         lines.append(
-            f"    {rule['id']}: {own} on its own line, {reach.composed_credit} credited across "
-            f"{_count(reach.composed_lines, 'composed line')}, {own + reach.composed_credit} in all"
+            f"    {rule['id']}: {own} on its own line, {reach.combined_units} counted in "
+            f"{_count(reach.combined_lines, 'combined-match line')}, {own + reach.combined_units} in all"
         )
     for rule in rules:
         reach = reaches[rule["id"]]
-        if _own_line_total(reach) or reach.composed_credit:
+        if _own_line_total(reach) or reach.combined_units:
             continue
         lines.append(
-            f"  REACHED NOTHING: {rule['id']} matched no window on its own and no composed line credited "
-            "it. A narrow rule aimed at a form this corpus does not carry yet reads exactly like this, so "
+            f"  REACHED NOTHING: {rule['id']} matched no window on its own and was counted in no "
+            "combined match. A narrow rule aimed at a form this corpus does not carry yet reads exactly like this, so "
             "it lands as it stands; if the form is already migrated, the rule wants another look."
         )
     return lines
@@ -3246,7 +3246,7 @@ def _explain_lines(rule_id, reach, records):
 
 
 def _listed_lines(rules, rule, listed, records, decide):
-    """One line per listed unit, in the order listed: the verdict the store holds (`blank` when none), whether the unit is a name-grain candidate of the targeted rule (`_reachable`), and what the run decided. That is the composed reading that claims it, with the fill's verdict or `held` when a guard holds the window; else the rules whose own matchers accept it and the rules whose except_left holds it, in rules-file order; else that no rule matches it. It shows why a unit the user named is missing from the explain block. It reads the same `Decision` the run counted, so listing a unit changes no other line."""
+    """One line per listed unit, in the order listed: the verdict the store holds (`blank` when none), whether the unit is a name-grain candidate of the targeted rule (`_reachable`), and what the run decided. That is the combined match that explains it, with the fill's verdict or `held` when a guard holds the window; else the rules whose own matchers accept it and the rules whose except_left holds it, in rules-file order; else that no rule matches it. It shows why a unit the user named is missing from the explain block. It reads the same `Decision` the run counted, so listing a unit changes no other line."""
     order = {each["id"]: index for index, each in enumerate(rules)}
     lines = []
     for unit in listed:
@@ -3254,10 +3254,10 @@ def _listed_lines(rules, rule, listed, records, decide):
         verdict = records[unit_id]["verdict"] if unit_id in records else "blank"
         candidacy = "a candidate" if _reachable(rule["match"], unit) else "not a candidate"
         decision = decide(unit)
-        composed = decision.composed
-        if composed is not None:
-            outcome = "held" if composed.held else composed.verdict
-            reading = f"composed {' + '.join(composed.credited)} ({outcome})"
+        combined = decision.combined
+        if combined is not None:
+            outcome = "held" if combined.held else combined.verdict
+            reading = f"combined {' + '.join(combined.counted)} ({outcome})"
         else:
             clauses = []
             if decision.matched:
@@ -3272,7 +3272,7 @@ def _listed_lines(rules, rule, listed, records, decide):
 
 
 def targeted_report(rules, rule, units, listed_ids, records, stamp, decide):
-    """The report of a `--targeted` run: the lines of the whole-domain report that concern one rule, computed over only the units the rule could match at the name grain (`_reachable`) plus the listed ids. Units stay in corpus order, because `Reach` and the explain block list ids in iteration order and the lines must match the whole-domain run's. The subset contains every unit the whole-domain run would put on this rule's lines, and every decision depends only on its own unit, so the rule's own line, the composed lines crediting it, its rollup line, its disputed-match warning, and its explain block are byte-identical to the whole-domain run's. Other rules' lines are left out, because over this subset they would be partial and the rollup would report every other rule as reaching nothing. The vocabulary line still reads the whole corpus, since it uses glyph names and no decisions, and each listed unit gets its own line (`_listed_lines`)."""
+    """The report of a `--targeted` run: the lines of the whole-domain report that concern one rule, computed over only the units the rule could match at the name grain (`_reachable`) plus the listed ids. Units stay in corpus order, because `Reach` and the explain block list ids in iteration order and the lines must match the whole-domain run's. The subset contains every unit the whole-domain run would put on this rule's lines, and every decision depends only on its own unit, so the rule's own line, the combined-match lines counting it, its rollup line, its disputed-match warning, and its explain block are byte-identical to the whole-domain run's. Other rules' lines are left out, because over this subset they would be partial and the rollup would report every other rule as reaching nothing. The vocabulary line still reads the whole corpus, since it uses glyph names and no decisions, and each listed unit gets its own line (`_listed_lines`)."""
     listed = list(dict.fromkeys(listed_ids))
     wanted = set(listed)
     match = rule["match"]
@@ -3303,8 +3303,8 @@ def targeted_report(rules, rule, units, listed_ids, records, stamp, decide):
     lines += [
         f"  listed {unit_id}: not a human unit on this corpus" for unit_id in listed if unit_id not in by_id
     ]
-    crediting = {ids: counts for ids, counts in run.composed_counts.items() if rule_id in ids}
-    lines += _tally_lines([rule], Run(run.fills, crediting, run.reaches), False)
+    counting = {ids: counts for ids, counts in run.combined_counts.items() if rule_id in ids}
+    lines += _tally_lines([rule], Run(run.fills, counting, run.reaches), False)
     lines += _rollup_lines([rule], run.reaches)
     lines += _disputed_match_lines({rule_id: run.reaches[rule_id]}, records)
     lines += _joining_vocabulary_lines([rule], joining)
@@ -3335,7 +3335,7 @@ def main(
     parser.add_argument(
         "--targeted",
         action="store_true",
-        help="evaluate only the --explain rule's name-grain candidates plus any --unit ids, print that rule's lines — own line, composed lines crediting it, rollup, disputed-match warning and explain block, byte-identical to the whole-domain run's — and one decision line per listed unit; writes no fill file and never touches the memo. The authoring loop's form: a corpus load rather than a domain evaluation. The whole-domain run stays the final pass and the cycle's form.",
+        help="evaluate only the --explain rule's name-grain candidates plus any --unit ids, print that rule's lines — own line, combined-match lines counting it, rollup, disputed-match warning and explain block, byte-identical to the whole-domain run's — and one decision line per listed unit; writes no fill file and never touches the memo. The authoring loop's form: a corpus load rather than a domain evaluation. The whole-domain run stays the final pass and the cycle's form.",
     )
     parser.add_argument(
         "--unit",
@@ -3412,18 +3412,18 @@ def main(
         for unit in source
         if not unit.get("no_verdict") and unit.get("batch") is not None and unit.get("render_groups") == 1
     )
-    composable = _composable(rules)
+    combinable = _combinable(rules)
     declared = [shape for shape in (_shape_of(rule["match"]) for rule in rules) if shape is not None]
-    wants_deltas = any(shape.needs_ink_deltas for shape in declared) or len(composable) > 1
+    wants_deltas = any(shape.needs_ink_deltas for shape in declared) or len(combinable) > 1
     context_error = None
-    if not (any(shape.font_backed for shape in declared) or len(composable) > 1):
+    if not (any(shape.font_backed for shape in declared) or len(combinable) > 1):
         context = None
     elif context is None:
         before_font, after_font = corpus / "fonts" / "before.otf", corpus / "fonts" / "after.otf"
         if not (before_font.is_file() and after_font.is_file()):
             context_error = (
-                f"a {_shape_names(lambda shape: shape.font_backed, 'or')} rule, and any composed reading "
-                "two or more composable rules could earn, re-shape their candidate windows in the "
+                f"a {_shape_names(lambda shape: shape.font_backed, 'or')} rule, and any combined match "
+                "of two or more combinable rules, re-shape their candidate windows in the "
                 "corpus's own font pair, and this corpus carries no fonts/before.otf + fonts/after.otf "
                 "— rebuild the corpus (make review-cycle) first"
             )
@@ -3529,7 +3529,7 @@ def main(
         unreached = [
             rule["id"]
             for rule in rules
-            if not (_own_line_total(reaches[rule["id"]]) + reaches[rule["id"]].composed_credit)
+            if not (_own_line_total(reaches[rule["id"]]) + reaches[rule["id"]].combined_units)
         ]
         if unreached:
             print(

@@ -1,6 +1,6 @@
 """Tests for the standing-approval fill in `rebuild/tools/standing_verdicts.py`.
 
-They cover every match shape in `sv.SHAPES`, the composed reading that credits two or more events in one window, the except_left guard, which units count as blank (a deferred skip verdict does not), the manifest stamp every fill record carries as its `at`, rules-file validation, the `--open-only`, `--require-reach` and `--targeted` runs, the memo, and the pooled refill. The fixture rules use synthetic letters and cells, and the fixture fonts are built from rectilinear outlines (`_build_font`). The contract each shape checks is recorded in the module docstring of `standing_verdicts`, which `test_every_shape_is_named_in_the_module_docstring` checks names every shape.
+They cover every match shape in `sv.SHAPES`, the combined match that counts two or more events in one window, the except_left guard, which units count as blank (a deferred skip verdict does not), the manifest stamp every fill record carries as its `at`, rules-file validation, the `--open-only`, `--require-reach` and `--targeted` runs, the memo, and the pooled refill. The fixture rules use synthetic letters and cells, and the fixture fonts are built from rectilinear outlines (`_build_font`). The contract each shape checks is recorded in the module docstring of `standing_verdicts`, which `test_every_shape_is_named_in_the_module_docstring` checks names every shape.
 """
 
 import gzip
@@ -387,7 +387,7 @@ CREATED_JOIN_BEHIND_CREATED_JOIN_RULE = {
     },
 }
 
-CONTRACTED_REDRAWN_CHAIN_RULE = {
+CONTRACTED_REDRAWN_SHARED_LETTER_RULE = {
     "id": "fixture-join-created-behind-a-contraction-before-a-redraw",
     "verdict": "approve",
     "note": "·May joins ·Eight at the x-height where the old font left a break",
@@ -1863,9 +1863,9 @@ register_glyph("before", "qsTea.half.ex-y5", (_rect(0, 100, 100, 150),), 100)
 register_glyph("before", "qsTea.half.ex-y5.moving-fixture", (_rect(0, 100, 100, 150),), 100)
 register_glyph("before", "qsPea.half.ex-y5", (_rect(0, 100, 100, 150),), 100)
 register_glyph("before", "qsNo.en-ext-1", TWO_COLUMNS, 100)
-register_glyph("before", "qsNo.en-ext-1.chain-fixture", TWO_COLUMNS, 200)
-register_glyph("before", "qsNo.en-ext-1.extension-chain-fixture", TWO_COLUMNS, 150)
-register_glyph("before", "qsNo.en-ext-1.retarget-chain-fixture", TWO_COLUMNS, 100)
+register_glyph("before", "qsNo.en-ext-1.shared-letter-fixture", TWO_COLUMNS, 200)
+register_glyph("before", "qsNo.en-ext-1.extension-shared-letter-fixture", TWO_COLUMNS, 150)
+register_glyph("before", "qsNo.en-ext-1.retarget-shared-letter-fixture", TWO_COLUMNS, 100)
 register_glyph("before", "qsNo.en-ext-1.gap-fixture", TWO_COLUMNS, 100)
 register_glyph("before", "qsEight", EIGHTISH, 100)
 register_glyph("before", "qsEight.ex-ext-1", EIGHTISH_EXTENDED, 150)
@@ -1912,9 +1912,9 @@ register_glyph("after", "qsTea", TWO_COLUMNS, 100)
 register_glyph("after", "qsTea.moving-fixture", TWO_COLUMNS, 50)
 register_glyph("after", "qsPea", TWO_COLUMNS, 100)
 register_glyph("after", "qsNo", TRIMMED_PIVOT, 50)
-register_glyph("after", "qsNo.chain-fixture", TRIMMED_PIVOT, 50)
-register_glyph("after", "qsNo.extension-chain-fixture", TRIMMED_PIVOT, 50)
-register_glyph("after", "qsNo.retarget-chain-fixture", TRIMMED_PIVOT, 100)
+register_glyph("after", "qsNo.shared-letter-fixture", TRIMMED_PIVOT, 50)
+register_glyph("after", "qsNo.extension-shared-letter-fixture", TRIMMED_PIVOT, 50)
+register_glyph("after", "qsNo.retarget-shared-letter-fixture", TRIMMED_PIVOT, 100)
 register_glyph("after", "qsNo.gap-fixture", TRIMMED_PIVOT, 150)
 register_glyph("after", "qsEight.smaller-loop", EIGHTISH_SMALLER, 100)
 register_glyph("after", "qsEight.smaller-loop.en-ext-1", EIGHTISH_ENTRY_EXTENDED_SMALLER, 150)
@@ -1968,9 +1968,13 @@ TEA = register_pair("qsTea.half.ex-y5", "qsTea")
 MOVING_TEA = register_pair("qsTea.half.ex-y5.moving-fixture", "qsTea.moving-fixture")
 PEA = register_pair("qsPea.half.ex-y5", "qsPea")
 NO = register_pair("qsNo.en-ext-1", "qsNo")
-NO_CHAINED = register_pair("qsNo.en-ext-1.chain-fixture", "qsNo.chain-fixture")
-NO_EXTENSION_CHAINED = register_pair("qsNo.en-ext-1.extension-chain-fixture", "qsNo.extension-chain-fixture")
-NO_RETARGET_CHAINED = register_pair("qsNo.en-ext-1.retarget-chain-fixture", "qsNo.retarget-chain-fixture")
+NO_SHARED = register_pair("qsNo.en-ext-1.shared-letter-fixture", "qsNo.shared-letter-fixture")
+NO_EXTENSION_SHARED = register_pair(
+    "qsNo.en-ext-1.extension-shared-letter-fixture", "qsNo.extension-shared-letter-fixture"
+)
+NO_RETARGET_SHARED = register_pair(
+    "qsNo.en-ext-1.retarget-shared-letter-fixture", "qsNo.retarget-shared-letter-fixture"
+)
 NO_GAP_REDRAWN = register_pair("qsNo.en-ext-1.gap-fixture", "qsNo.gap-fixture")
 VIE = register_pair("qsVie.en-ext-1", "qsVie.normal")
 VIE_UTTER = register_pair("qsVie_qsUtter.en-ext-1", "qsVie_qsUtter.hapax")
@@ -2090,8 +2094,8 @@ SLIDE_FONTS = {
         {**AFTER_GLYPHS, "qsTea": (TWO_COLUMNS, 150)},
         AFTER_CMAP,
     ),
-    "after-chained-created-join-unmoved": (
-        {**AFTER_GLYPHS, "qsNo.chain-fixture": (TRIMMED_PIVOT, 150)},
+    "after-letter-sharing-created-join-unmoved": (
+        {**AFTER_GLYPHS, "qsNo.shared-letter-fixture": (TRIMMED_PIVOT, 150)},
         AFTER_CMAP,
     ),
     "after-gained-created-join-unmoved": (
@@ -2107,7 +2111,7 @@ SLIDE_FONTS = {
         AFTER_CMAP,
     ),
     "after-retarget-behind-retarget-moved-follower": (
-        {**AFTER_GLYPHS, "qsNo.retarget-chain-fixture": (TRIMMED_PIVOT, 150)},
+        {**AFTER_GLYPHS, "qsNo.retarget-shared-letter-fixture": (TRIMMED_PIVOT, 150)},
         AFTER_CMAP,
     ),
     "after-extension-behind-created-join-unmoved": (
@@ -3140,7 +3144,7 @@ def test_the_rollup_reads_the_same_numbers_the_per_rule_line_does(tmp_path, monk
     _run_main(tmp_path, monkeypatch, units, verdicts)
     lines = capsys.readouterr().out.splitlines()
     assert any(line.startswith("  per-rule reach (") for line in lines)
-    assert f"    {RULE['id']}: 3 on its own line, 0 credited across 0 composed lines, 3 in all" in lines
+    assert f"    {RULE['id']}: 3 on its own line, 0 counted in 0 combined-match lines, 3 in all" in lines
 
 
 def test_a_rule_that_reached_nothing_says_so_and_the_run_still_writes(tmp_path, monkeypatch, capsys):
@@ -3363,8 +3367,8 @@ def test_an_unknown_explain_rule_is_refused(tmp_path, monkeypatch):
         _run_main(tmp_path, monkeypatch, [canonical("u-1")], [], extra=("--explain", "no-such-rule"))
 
 
-COMPOSED_EXT_RULE = {
-    "id": "fixture-composed-extension-dropped",
+COMBINED_EXT_RULE = {
+    "id": "fixture-combined-extension-dropped",
     "verdict": "approve",
     "note": "the follower sits a pixel closer to ·J",
     "match": {
@@ -3382,14 +3386,14 @@ COMPOSED_EXT_RULE = {
     },
 }
 
-COMPOSABLE_RULES = [SLIDE_RULE, COMPOSED_EXT_RULE]
+COMBINABLE_RULES = [SLIDE_RULE, COMBINED_EXT_RULE]
 
-COMPOSED_GLYPHS = ["qsL", "qsSee.ex-y0", "qsM", "qsJ.ex-y0.ex-ext-1", "qsF3", "qsF1"]
-COMPOSED_CODEPOINTS = spell(LEAD, SEE, MIDDLE, PIVOT, FOLLOWER_3, FOLLOWER_1)
+COMBINED_GLYPHS = ["qsL", "qsSee.ex-y0", "qsM", "qsJ.ex-y0.ex-ext-1", "qsF3", "qsF1"]
+COMBINED_CODEPOINTS = spell(LEAD, SEE, MIDDLE, PIVOT, FOLLOWER_3, FOLLOWER_1)
 
 
-def composed_window(uid="c-1", pair=None):
-    return slide_unit(uid, COMPOSED_GLYPHS, COMPOSED_CODEPOINTS, pair=pair)
+def combined_window(uid="c-1", pair=None):
+    return slide_unit(uid, COMBINED_GLYPHS, COMBINED_CODEPOINTS, pair=pair)
 
 
 def guarded_rule(rule, families):
@@ -3402,16 +3406,18 @@ class _RefusingComparator:
     intern = None
 
     def named_run(self, *args, **kwargs):
-        raise AssertionError("the pre-gate let a window holding one candidate position reach the fonts")
+        raise AssertionError(
+            "the name-only precheck let a window holding one candidate position reach the fonts"
+        )
 
 
 class _RefusingContext:
-    """A SlideContext stand-in whose comparator raises if asked to shape, so a test can show the name-grain pre-gate decided without the fonts."""
+    """A SlideContext stand-in whose comparator raises if asked to shape, so a test can show the name-grain name-only precheck decided without the fonts."""
 
     def __init__(self) -> None:
         self.comparator = _RefusingComparator()
         self.memo = {}
-        self.composed = {}
+        self.combined = {}
 
 
 def twice_slid_window(uid="c-twice"):
@@ -3423,26 +3429,26 @@ def twice_slid_window(uid="c-twice"):
     )
 
 
-def test_a_slide_and_an_extension_in_one_window_compose(slide_context):
-    events = sv._composed(COMPOSABLE_RULES, composed_window(), slide_context())
-    assert events == {SLIDE_RULE["id"]: [1], COMPOSED_EXT_RULE["id"]: [3]}
+def test_a_slide_and_an_extension_in_one_window_combine(slide_context):
+    events = sv._combined_match(COMBINABLE_RULES, combined_window(), slide_context())
+    assert events == {SLIDE_RULE["id"]: [1], COMBINED_EXT_RULE["id"]: [3]}
 
 
-def test_one_rule_at_two_positions_composes(slide_context):
-    """The composed reading credits one rule at two positions in a window the same way it credits two rules. A window that drops the same tail twice needs this, because the extension-dropped matcher matches only at the unit's primary judged seam."""
-    events = sv._composed(COMPOSABLE_RULES, twice_slid_window(), slide_context())
+def test_one_rule_at_two_positions_combines(slide_context):
+    """The combined match counts one rule at two positions in a window the same way it counts two rules. A window that drops the same tail twice needs this, because the extension-dropped matcher matches only at the unit's primary judged seam."""
+    events = sv._combined_match(COMBINABLE_RULES, twice_slid_window(), slide_context())
     assert events == {SLIDE_RULE["id"]: [1, 3]}
 
 
-def test_main_writes_one_composed_record_and_leaves_the_per_rule_lines(
+def test_main_writes_one_combined_record_and_leaves_the_per_rule_lines(
     tmp_path, monkeypatch, capsys, slide_fonts
 ):
     payload = _run_main(
         tmp_path,
         monkeypatch,
-        [composed_window("c-1")],
+        [combined_window("c-1")],
         [],
-        rules_list=(SLIDE_RULE, COMPOSED_EXT_RULE),
+        rules_list=(SLIDE_RULE, COMBINED_EXT_RULE),
         fonts=slide_fonts,
     )
     assert [record["unit"] for record in payload["verdicts"]] == ["c-1"]
@@ -3450,28 +3456,28 @@ def test_main_writes_one_composed_record_and_leaves_the_per_rule_lines(
     assert record["verdict"] == "approve"
     assert record["at"] == STAMP
     assert record["note"] == (
-        f"[standing: {SLIDE_RULE['id']} + {COMPOSED_EXT_RULE['id']}] "
-        f"{SLIDE_RULE['note']}; {COMPOSED_EXT_RULE['note']}"
+        f"[standing: {SLIDE_RULE['id']} + {COMBINED_EXT_RULE['id']}] "
+        f"{SLIDE_RULE['note']}; {COMBINED_EXT_RULE['note']}"
     )
     lines = capsys.readouterr().out.splitlines()
     assert f"  {SLIDE_RULE['id']}: 0 filled, 0 already verdicted, 0 held for review by except_left" in lines
     assert (
-        f"  {COMPOSED_EXT_RULE['id']}: 0 filled, 0 already verdicted, 0 held for review by except_left"
+        f"  {COMBINED_EXT_RULE['id']}: 0 filled, 0 already verdicted, 0 held for review by except_left"
     ) in lines
     assert (
-        f"  {SLIDE_RULE['id']} + {COMPOSED_EXT_RULE['id']}: 1 filled, 0 already verdicted, "
+        f"  {SLIDE_RULE['id']} + {COMBINED_EXT_RULE['id']}: 1 filled, 0 already verdicted, "
         "0 held for review by except_left"
     ) in lines
 
 
-def test_main_writes_a_twice_slid_window_on_a_composed_line(tmp_path, monkeypatch, capsys, slide_fonts):
-    """A composed line that credits one rule twice is labeled with that rule's id alone, so its text matches the rule's own line and only the block it is printed in distinguishes them."""
+def test_main_writes_a_twice_slid_window_on_a_combined_match_line(tmp_path, monkeypatch, capsys, slide_fonts):
+    """A combined-match line that counts one rule twice is labeled with that rule's id alone, so its text matches the rule's own line and only the block it is printed in distinguishes them."""
     payload = _run_main(
         tmp_path,
         monkeypatch,
         [twice_slid_window("c-1")],
         [],
-        rules_list=(SLIDE_RULE, COMPOSED_EXT_RULE),
+        rules_list=(SLIDE_RULE, COMBINED_EXT_RULE),
         fonts=slide_fonts,
     )
     assert [record["unit"] for record in payload["verdicts"]] == ["c-1"]
@@ -3481,25 +3487,27 @@ def test_main_writes_a_twice_slid_window_on_a_composed_line(tmp_path, monkeypatc
         lines.count(f"  {SLIDE_RULE['id']}: 1 filled, 0 already verdicted, 0 held for review by except_left")
         == 1
     )
-    assert f"    {SLIDE_RULE['id']}: 0 on its own line, 1 credited across 1 composed line, 1 in all" in lines
+    assert f"    {SLIDE_RULE['id']}: 0 on its own line, 1 counted in 1 combined-match line, 1 in all" in lines
 
 
-def test_open_only_names_the_composed_pair_without_the_column(tmp_path, monkeypatch, capsys, slide_fonts):
-    """A composed reading depends only on the window, so a narrowed run credits the same pair and drops only the already-verdicted column."""
+def test_open_only_names_the_combined_match_line_without_the_column(
+    tmp_path, monkeypatch, capsys, slide_fonts
+):
+    """A combined match depends only on the window, so a narrowed run prints the same combined-match line and drops only the already-verdicted column."""
     _run_main(
         tmp_path,
         monkeypatch,
-        [composed_window("c-1")],
+        [combined_window("c-1")],
         [],
-        rules_list=(SLIDE_RULE, COMPOSED_EXT_RULE),
+        rules_list=(SLIDE_RULE, COMBINED_EXT_RULE),
         fonts=slide_fonts,
         extra=("--open-only",),
     )
     lines = capsys.readouterr().out.splitlines()
     assert f"  {SLIDE_RULE['id']}: 0 filled, 0 held for review by except_left" in lines
-    assert f"  {COMPOSED_EXT_RULE['id']}: 0 filled, 0 held for review by except_left" in lines
+    assert f"  {COMBINED_EXT_RULE['id']}: 0 filled, 0 held for review by except_left" in lines
     assert (
-        f"  {SLIDE_RULE['id']} + {COMPOSED_EXT_RULE['id']}: 1 filled, " "0 held for review by except_left"
+        f"  {SLIDE_RULE['id']} + {COMBINED_EXT_RULE['id']}: 1 filled, " "0 held for review by except_left"
     ) in lines
 
 
@@ -3511,45 +3519,45 @@ def test_open_only_names_the_composed_pair_without_the_column(tmp_path, monkeypa
         "after-extra-post-follower-pixel",
     ],
 )
-def test_one_extra_pixel_anywhere_defeats_the_composed_reading(slide_context, after):
-    assert sv._composed(COMPOSABLE_RULES, composed_window(), slide_context(after)) is None
+def test_one_extra_pixel_anywhere_defeats_the_combined_match(slide_context, after):
+    assert sv._combined_match(COMBINABLE_RULES, combined_window(), slide_context(after)) is None
 
 
-def test_a_composed_window_already_verdicted_is_counted_and_not_refilled(
+def test_a_combined_window_already_verdicted_is_counted_and_not_refilled(
     tmp_path, monkeypatch, capsys, slide_fonts
 ):
     payload = _run_main(
         tmp_path,
         monkeypatch,
-        [composed_window("c-1"), composed_window("c-2")],
+        [combined_window("c-1"), combined_window("c-2")],
         [{"unit": "c-1", "verdict": "reject", "note": "", "at": "2026-07-11T00:00:00Z"}],
-        rules_list=(SLIDE_RULE, COMPOSED_EXT_RULE),
+        rules_list=(SLIDE_RULE, COMBINED_EXT_RULE),
         fonts=slide_fonts,
     )
     assert [record["unit"] for record in payload["verdicts"]] == ["c-2"]
     lines = capsys.readouterr().out.splitlines()
     assert (
-        f"  {SLIDE_RULE['id']} + {COMPOSED_EXT_RULE['id']}: 1 filled, 1 already verdicted, "
+        f"  {SLIDE_RULE['id']} + {COMBINED_EXT_RULE['id']}: 1 filled, 1 already verdicted, "
         "0 held for review by except_left"
     ) in lines
 
 
-def test_the_composed_memo_never_serves_one_rule_sets_ids_to_another(slide_context):
+def test_the_combined_memo_never_serves_one_rule_sets_ids_to_another(slide_context):
     context = slide_context()
-    renamed = [json.loads(json.dumps(rule)) for rule in COMPOSABLE_RULES]
+    renamed = [json.loads(json.dumps(rule)) for rule in COMBINABLE_RULES]
     for rule in renamed:
         rule["id"] = rule["id"] + "-twin"
-    assert set(sv._composed(COMPOSABLE_RULES, composed_window(), context) or ()) == {
+    assert set(sv._combined_match(COMBINABLE_RULES, combined_window(), context) or ()) == {
         SLIDE_RULE["id"],
-        COMPOSED_EXT_RULE["id"],
+        COMBINED_EXT_RULE["id"],
     }
-    assert set(sv._composed(renamed, composed_window(), context) or ()) == {
+    assert set(sv._combined_match(renamed, combined_window(), context) or ()) == {
         SLIDE_RULE["id"] + "-twin",
-        COMPOSED_EXT_RULE["id"] + "-twin",
+        COMBINED_EXT_RULE["id"] + "-twin",
     }
 
 
-def test_two_composable_rules_refuse_a_corpus_that_predates_the_ink_delta_field(tmp_path, monkeypatch):
+def test_two_combinable_rules_refuse_a_corpus_that_predates_the_ink_delta_field(tmp_path, monkeypatch):
     with pytest.raises(
         SystemExit,
         match=(
@@ -3557,7 +3565,7 @@ def test_two_composable_rules_refuse_a_corpus_that_predates_the_ink_delta_field(
             "entry-contracted, stub-dropped, redrawn, join-retargeted, and join-created"
         ),
     ):
-        _run_main(tmp_path, monkeypatch, [tea_i("u-1")], [], rules_list=(EXT_RULE, COMPOSED_EXT_RULE))
+        _run_main(tmp_path, monkeypatch, [tea_i("u-1")], [], rules_list=(EXT_RULE, COMBINED_EXT_RULE))
 
 
 def extension_only_window(uid="e-1"):
@@ -3569,10 +3577,10 @@ def extension_only_window(uid="e-1"):
     )
 
 
-def test_a_window_one_rule_explains_is_not_composed(slide_context):
+def test_a_window_one_rule_explains_is_not_combined(slide_context):
     context = slide_context()
-    assert sv._composed(COMPOSABLE_RULES, founding_window(), context) is None
-    assert sv._composed(COMPOSABLE_RULES, extension_only_window(), context) is None
+    assert sv._combined_match(COMBINABLE_RULES, founding_window(), context) is None
+    assert sv._combined_match(COMBINABLE_RULES, extension_only_window(), context) is None
 
 
 def test_main_fills_a_single_shape_window_under_that_shapes_own_line(
@@ -3583,60 +3591,60 @@ def test_main_fills_a_single_shape_window_under_that_shapes_own_line(
         monkeypatch,
         [founding_window("s-1"), extension_only_window("e-1")],
         [],
-        rules_list=(SLIDE_RULE, COMPOSED_EXT_RULE),
+        rules_list=(SLIDE_RULE, COMBINED_EXT_RULE),
         fonts=slide_fonts,
     )
     by_unit = {record["unit"]: record for record in payload["verdicts"]}
     assert set(by_unit) == {"s-1", "e-1"}
     assert by_unit["s-1"]["note"] == f"[standing: {SLIDE_RULE['id']}] {SLIDE_RULE['note']}"
-    assert by_unit["e-1"]["note"] == f"[standing: {COMPOSED_EXT_RULE['id']}] {COMPOSED_EXT_RULE['note']}"
+    assert by_unit["e-1"]["note"] == f"[standing: {COMBINED_EXT_RULE['id']}] {COMBINED_EXT_RULE['note']}"
     lines = capsys.readouterr().out.splitlines()
     assert f"  {SLIDE_RULE['id']}: 1 filled, 0 already verdicted, 0 held for review by except_left" in lines
     assert (
-        f"  {COMPOSED_EXT_RULE['id']}: 1 filled, 0 already verdicted, 0 held for review by except_left"
+        f"  {COMBINED_EXT_RULE['id']}: 1 filled, 0 already verdicted, 0 held for review by except_left"
     ) in lines
     assert not any(" + " in line for line in lines)
 
 
-def test_the_rollup_adds_a_rules_own_line_to_the_credit_composed_lines_gave_it(
+def test_the_rollup_adds_a_rules_own_line_to_its_count_in_combined_matches(
     tmp_path, monkeypatch, capsys, slide_fonts
 ):
     _run_main(
         tmp_path,
         monkeypatch,
-        [composed_window("c-1"), founding_window("s-1")],
+        [combined_window("c-1"), founding_window("s-1")],
         [],
-        rules_list=(SLIDE_RULE, COMPOSED_EXT_RULE),
+        rules_list=(SLIDE_RULE, COMBINED_EXT_RULE),
         fonts=slide_fonts,
     )
     lines = capsys.readouterr().out.splitlines()
-    assert f"    {SLIDE_RULE['id']}: 1 on its own line, 1 credited across 1 composed line, 2 in all" in lines
+    assert f"    {SLIDE_RULE['id']}: 1 on its own line, 1 counted in 1 combined-match line, 2 in all" in lines
     assert (
-        f"    {COMPOSED_EXT_RULE['id']}: 0 on its own line, 1 credited across 1 composed line, 1 in all"
+        f"    {COMBINED_EXT_RULE['id']}: 0 on its own line, 1 counted in 1 combined-match line, 1 in all"
     ) in lines
 
 
-def test_a_rule_that_only_ever_earned_composed_credit_does_not_read_as_dead(
+def test_a_rule_only_ever_counted_in_combined_matches_does_not_read_as_dead(
     tmp_path, monkeypatch, capsys, slide_fonts
 ):
-    """The composed pass claims a window before any single rule is checked, so a rule reached only through composition shows zero on its own line, and the REACHED NOTHING line must not count it as unreached."""
+    """The combined pass takes a window before any single rule is checked, so a rule reached only through combined matches shows zero on its own line, and the REACHED NOTHING line must not count it as unreached."""
     _run_main(
         tmp_path,
         monkeypatch,
-        [composed_window("c-1")],
+        [combined_window("c-1")],
         [],
-        rules_list=(SLIDE_RULE, COMPOSED_EXT_RULE),
+        rules_list=(SLIDE_RULE, COMBINED_EXT_RULE),
         fonts=slide_fonts,
     )
     lines = capsys.readouterr().out.splitlines()
-    assert f"    {SLIDE_RULE['id']}: 0 on its own line, 1 credited across 1 composed line, 1 in all" in lines
+    assert f"    {SLIDE_RULE['id']}: 0 on its own line, 1 counted in 1 combined-match line, 1 in all" in lines
     assert (
-        f"    {COMPOSED_EXT_RULE['id']}: 0 on its own line, 1 credited across 1 composed line, 1 in all"
+        f"    {COMBINED_EXT_RULE['id']}: 0 on its own line, 1 counted in 1 combined-match line, 1 in all"
     ) in lines
     assert not any(line.startswith("  REACHED NOTHING:") for line in lines)
 
 
-def test_the_rollup_reads_zero_composed_lines_when_nothing_composed(
+def test_the_rollup_reads_zero_combined_match_lines_when_nothing_combined(
     tmp_path, monkeypatch, capsys, slide_fonts
 ):
     _run_main(
@@ -3644,21 +3652,21 @@ def test_the_rollup_reads_zero_composed_lines_when_nothing_composed(
         monkeypatch,
         [founding_window("s-1"), extension_only_window("e-1")],
         [],
-        rules_list=(SLIDE_RULE, COMPOSED_EXT_RULE),
+        rules_list=(SLIDE_RULE, COMBINED_EXT_RULE),
         fonts=slide_fonts,
     )
     lines = capsys.readouterr().out.splitlines()
     assert f"  {SLIDE_RULE['id']}: 1 filled, 0 already verdicted, 0 held for review by except_left" in lines
     assert (
-        f"  {COMPOSED_EXT_RULE['id']}: 1 filled, 0 already verdicted, 0 held for review by except_left"
+        f"  {COMBINED_EXT_RULE['id']}: 1 filled, 0 already verdicted, 0 held for review by except_left"
     ) in lines
     assert (
-        f"    {SLIDE_RULE['id']}: 1 on its own line, 0 credited across 0 composed lines, 1 in all"
+        f"    {SLIDE_RULE['id']}: 1 on its own line, 0 counted in 0 combined-match lines, 1 in all"
     ) in lines
 
 
 def slide_fixture_windows():
-    """The slide shape's fixture windows, including the ones it rejects, for comparing the composed walk with `_matches_slide`."""
+    """The slide shape's fixture windows, including the ones it rejects, for comparing the combined walk with `_matches_slide`."""
     bare = founding_window("s-1b")
     del bare["ink_deltas"]
     return [
@@ -3698,16 +3706,16 @@ def slide_fixture_windows():
 
 def test_a_failed_extension_candidate_is_judged_as_span_ink(slide_context):
     context = slide_context("after-unshortened-pivot")
-    assert sv._candidates(COMPOSED_EXT_RULE["match"], composed_window()) == [3]
-    assert sv._composed_walk(COMPOSABLE_RULES, composed_window(), context) == {SLIDE_RULE["id"]: [1]}
-    assert sv._composed(COMPOSABLE_RULES, composed_window(), context) is None
+    assert sv._candidates(COMBINED_EXT_RULE["match"], combined_window()) == [3]
+    assert sv._combined_walk(COMBINABLE_RULES, combined_window(), context) == {SLIDE_RULE["id"]: [1]}
+    assert sv._combined_match(COMBINABLE_RULES, combined_window(), context) is None
 
 
 def test_a_named_extension_follower_may_redraw(slide_context):
     context = slide_context("after-extra-tail-pixel")
-    assert sv._composed(COMPOSABLE_RULES, composed_window(), context) == {
+    assert sv._combined_match(COMBINABLE_RULES, combined_window(), context) == {
         SLIDE_RULE["id"]: [1],
-        COMPOSED_EXT_RULE["id"]: [3],
+        COMBINED_EXT_RULE["id"]: [3],
     }
 
 
@@ -3722,37 +3730,40 @@ def test_dropped_entry_reads_the_lost_en_ext_and_nothing_else():
 
 
 def test_a_follower_cell_the_rule_does_not_name_is_no_candidate():
-    strayed = composed_window()
+    strayed = combined_window()
     strayed["after"]["cells"][4] = "qsF3/tucked/None/None/"
-    assert sv._candidates(COMPOSED_EXT_RULE["match"], strayed) == []
-    assert sv._candidates(COMPOSED_EXT_RULE["match"], composed_window()) == [3]
+    assert sv._candidates(COMBINED_EXT_RULE["match"], strayed) == []
+    assert sv._candidates(COMBINED_EXT_RULE["match"], combined_window()) == [3]
 
 
-def test_a_pivot_whose_after_form_contracts_off_the_seam_row_never_composes(slide_context):
-    assert sv._composed(COMPOSABLE_RULES, composed_window(), slide_context("after-contracted-pivot")) is None
+def test_a_pivot_whose_after_form_contracts_off_the_seam_row_never_combines(slide_context):
+    assert (
+        sv._combined_match(COMBINABLE_RULES, combined_window(), slide_context("after-contracted-pivot"))
+        is None
+    )
 
 
-def test_a_dropped_cell_off_the_seam_row_never_composes(slide_context):
+def test_a_dropped_cell_off_the_seam_row_never_combines(slide_context):
     crowned = slide_unit(
         "c-crown",
         ["qsL", "qsSee.ex-y0", "qsM", "qsJ.ex-y0.ex-ext-1.crown", "qsF3"],
         spell(LEAD, SEE, MIDDLE, PIVOT_CROWNED, FOLLOWER_3),
     )
-    assert sv._candidates(COMPOSED_EXT_RULE["match"], crowned) == [3]
-    assert sv._composed(COMPOSABLE_RULES, crowned, slide_context()) is None
+    assert sv._candidates(COMBINED_EXT_RULE["match"], crowned) == [3]
+    assert sv._combined_match(COMBINABLE_RULES, crowned, slide_context()) is None
 
 
 def test_a_seam_that_names_no_height_yields_no_extension_candidate():
-    match = json.loads(json.dumps(COMPOSED_EXT_RULE["match"]))
+    match = json.loads(json.dumps(COMBINED_EXT_RULE["match"]))
     match["before"]["seam_out"] = "break"
-    broken = composed_window()
+    broken = combined_window()
     broken["before"]["seams"] = ["break"] * 4
     broken["after"]["seams"] = ["break"] * 4
     assert sv._candidates(match, broken) == []
 
 
 SHORTENED_EXT_RULE = {
-    "id": "fixture-composed-extension-shortened",
+    "id": "fixture-combined-extension-shortened",
     "verdict": "approve",
     "note": "·J reaches its follower with one column of extension where it drew three",
     "match": {
@@ -3781,16 +3792,16 @@ def shortened_window(uid="c-short", pivot=PIVOT_SHORTENED):
     return window
 
 
-def test_a_slide_and_a_shortened_extension_in_one_window_compose(slide_context):
+def test_a_slide_and_a_shortened_extension_in_one_window_combine(slide_context):
     assert sv._candidates(SHORTENED_EXT_RULE["match"], shortened_window()) == [3]
-    assert sv._composed([SLIDE_RULE, SHORTENED_EXT_RULE], shortened_window(), slide_context()) == {
+    assert sv._combined_match([SLIDE_RULE, SHORTENED_EXT_RULE], shortened_window(), slide_context()) == {
         SLIDE_RULE["id"]: [1],
         SHORTENED_EXT_RULE["id"]: [3],
     }
 
 
 CONTRACTED_EXT_RULE = {
-    "id": "fixture-composed-exit-contracted",
+    "id": "fixture-combined-exit-contracted",
     "verdict": "approve",
     "note": "the follower sits a pixel closer to ·Et",
     "match": {
@@ -3819,25 +3830,25 @@ def contracted_window(uid="c-con"):
     return window
 
 
-def test_a_slide_and_a_contraction_in_one_window_compose(slide_context):
+def test_a_slide_and_a_contraction_in_one_window_combine(slide_context):
     assert sv._candidates(CONTRACTED_EXT_RULE["match"], contracted_window()) == [3]
-    assert sv._composed([SLIDE_RULE, CONTRACTED_EXT_RULE], contracted_window(), slide_context()) == {
+    assert sv._combined_match([SLIDE_RULE, CONTRACTED_EXT_RULE], contracted_window(), slide_context()) == {
         SLIDE_RULE["id"]: [1],
         CONTRACTED_EXT_RULE["id"]: [3],
     }
 
 
 def test_a_contraction_rule_has_no_candidate_in_a_dropped_extension_window():
-    assert sv._candidates(CONTRACTED_EXT_RULE["match"], composed_window()) == []
+    assert sv._candidates(CONTRACTED_EXT_RULE["match"], combined_window()) == []
     dropped = contracted_window()
     dropped["before"]["glyphs"][3] = "qsEt.ex-ext-1"
     assert sv._candidates(CONTRACTED_EXT_RULE["match"], dropped) == []
 
 
-def test_a_rule_naming_a_kept_extension_never_composes_over_a_tail_dropped_whole(slide_context):
+def test_a_rule_naming_a_kept_extension_never_combines_over_a_tail_dropped_whole(slide_context):
     whole = shortened_window("c-whole", PIVOT_DROPPED_WHOLE)
     assert sv._candidates(SHORTENED_EXT_RULE["match"], whole) == [3]
-    assert sv._composed([SLIDE_RULE, SHORTENED_EXT_RULE], whole, slide_context()) is None
+    assert sv._combined_match([SLIDE_RULE, SHORTENED_EXT_RULE], whole, slide_context()) is None
 
 
 def test_a_rule_naming_an_extensionless_pivot_cell_has_no_candidate_in_a_shortened_window():
@@ -3852,24 +3863,24 @@ def test_a_tail_wider_than_the_named_extension_is_refused(slide_context):
         ["qsL", "qsSee.ex-y0", "qsM", "qsJ.ex-y0.ex-ext-1.wide", "qsF3"],
         spell(LEAD, SEE, MIDDLE, PIVOT_WIDE_TAIL, FOLLOWER_3),
     )
-    assert sv._candidates(COMPOSED_EXT_RULE["match"], wide) == [3]
-    assert sv._composed(COMPOSABLE_RULES, wide, slide_context()) is None
+    assert sv._candidates(COMBINED_EXT_RULE["match"], wide) == [3]
+    assert sv._combined_match(COMBINABLE_RULES, wide, slide_context()) is None
 
 
 def test_a_window_holding_one_candidate_position_is_never_shaped():
-    assert sv._composed(COMPOSABLE_RULES, founding_window(), _RefusingContext()) is None
-    assert sv._composed(COMPOSABLE_RULES, extension_only_window(), _RefusingContext()) is None
+    assert sv._combined_match(COMBINABLE_RULES, founding_window(), _RefusingContext()) is None
+    assert sv._combined_match(COMBINABLE_RULES, extension_only_window(), _RefusingContext()) is None
 
 
-def test_markers_ride_through_a_composed_window(slide_context):
+def test_markers_ride_through_a_combined_window(slide_context):
     spaced = slide_unit(
         "c-space",
         ["space", "qsL", "qsSee.ex-y0", "space", "qsM", "qsJ.ex-y0.ex-ext-1", "qsF3"],
         spell(MARKER, LEAD, SEE, MARKER, MIDDLE, PIVOT, FOLLOWER_3),
     )
-    assert sv._composed(COMPOSABLE_RULES, spaced, slide_context()) == {
+    assert sv._combined_match(COMBINABLE_RULES, spaced, slide_context()) == {
         SLIDE_RULE["id"]: [2],
-        COMPOSED_EXT_RULE["id"]: [5],
+        COMBINED_EXT_RULE["id"]: [5],
     }
 
 
@@ -3881,43 +3892,43 @@ def test_a_marker_at_a_candidate_position_is_no_event(slide_context):
         spell(LEAD, SEE_BLANK, MIDDLE, PIVOT, FOLLOWER_3),
     )
     assert sv._candidates(SLIDE_RULE["match"], blanked) == [1]
-    assert sv._composed_walk(COMPOSABLE_RULES, blanked, context) == {COMPOSED_EXT_RULE["id"]: [3]}
-    assert sv._composed(COMPOSABLE_RULES, blanked, context) is None
+    assert sv._combined_walk(COMBINABLE_RULES, blanked, context) == {COMBINED_EXT_RULE["id"]: [3]}
+    assert sv._combined_match(COMBINABLE_RULES, blanked, context) is None
 
 
-def test_two_rules_claiming_one_position_refuse(slide_context):
+def test_two_rules_matching_one_position_refuse(slide_context):
     twin = json.loads(json.dumps(SLIDE_RULE))
     twin["id"] = SLIDE_RULE["id"] + "-again"
-    assert sv._composed_walk([SLIDE_RULE, twin], founding_window(), slide_context()) is None
+    assert sv._combined_walk([SLIDE_RULE, twin], founding_window(), slide_context()) is None
 
 
-def test_an_extension_whose_follower_is_a_slide_pivot_composes(slide_context):
-    chained = json.loads(json.dumps(COMPOSED_EXT_RULE))
-    chained["match"]["before"]["follower"] = ["qsF3", "qsSee"]
-    chained["match"]["after"]["follower_cells"] = ["qsF3/full/None/None/", "qsSee/full/None/None/"]
+def test_an_extension_whose_follower_is_a_slide_pivot_combines(slide_context):
+    sharing = json.loads(json.dumps(COMBINED_EXT_RULE))
+    sharing["match"]["before"]["follower"] = ["qsF3", "qsSee"]
+    sharing["match"]["after"]["follower_cells"] = ["qsF3/full/None/None/", "qsSee/full/None/None/"]
     window = slide_unit(
-        "c-chain", ["qsL", "qsJ.ex-y0.ex-ext-1", "qsSee.ex-y0", "qsM"], spell(LEAD, PIVOT, SEE, MIDDLE)
+        "c-sharing", ["qsL", "qsJ.ex-y0.ex-ext-1", "qsSee.ex-y0", "qsM"], spell(LEAD, PIVOT, SEE, MIDDLE)
     )
-    assert sv._candidates(chained["match"], window) == [1]
+    assert sv._candidates(sharing["match"], window) == [1]
     assert sv._candidates(SLIDE_RULE["match"], window) == [2]
-    assert sv._composed([SLIDE_RULE, chained], window, slide_context()) == {
+    assert sv._combined_match([SLIDE_RULE, sharing], window, slide_context()) == {
         SLIDE_RULE["id"]: [2],
-        chained["id"]: [1],
+        sharing["id"]: [1],
     }
 
 
 @pytest.mark.parametrize("family", ["qsL", "qsF3"])
-def test_the_slide_guard_holds_the_whole_composed_window(slide_context, family):
-    """·L is the slide pivot's left neighbor, and ·F3 is three letters past the pivot, beyond the other credited rule's pivot. The slide shape's guard reads the whole window, so either family holds the unit."""
-    rules = [guarded_rule(SLIDE_RULE, [family]), COMPOSED_EXT_RULE]
-    window = composed_window()
+def test_the_slide_guard_holds_the_whole_combined_window(slide_context, family):
+    """·L is the slide pivot's left neighbor, and ·F3 is three letters past the pivot, beyond the other counted rule's pivot. The slide shape's guard reads the whole window, so either family holds the unit."""
+    rules = [guarded_rule(SLIDE_RULE, [family]), COMBINED_EXT_RULE]
+    window = combined_window()
     context = slide_context()
-    events = sv._composed(rules, window, context)
+    events = sv._combined_match(rules, window, context)
     assert events is not None
-    assert sv._composed_held(rules, window, events, context)
+    assert sv._combined_held(rules, window, events, context)
 
 
-def test_a_guarded_rule_outside_the_walk_still_holds_a_composed_window(slide_context):
+def test_a_guarded_rule_outside_the_walk_still_holds_a_combined_window(slide_context):
     context = slide_context()
     bystander = {
         "id": "the-whole-change-is-blessed",
@@ -3925,33 +3936,33 @@ def test_a_guarded_rule_outside_the_walk_still_holds_a_composed_window(slide_con
         "note": "blessed, except after ·L",
         "match": {"after": {"ink_deltas": [SLIDE_DELTA]}, "except_left": []},
     }
-    window = composed_window()
-    events = sv._composed(COMPOSABLE_RULES, window, context)
+    window = combined_window()
+    events = sv._combined_match(COMBINABLE_RULES, window, context)
     assert events is not None
     assert sv._matches(bystander["match"], window, context=context)
-    assert not sv._composed_held([*COMPOSABLE_RULES, bystander], window, events, context)
-    assert sv._composed_held([*COMPOSABLE_RULES, guarded_rule(bystander, ["qsL"])], window, events, context)
+    assert not sv._combined_held([*COMBINABLE_RULES, bystander], window, events, context)
+    assert sv._combined_held([*COMBINABLE_RULES, guarded_rule(bystander, ["qsL"])], window, events, context)
 
 
 def test_the_extension_guard_reads_only_the_pivots_left_neighbor(slide_context):
     context = slide_context()
-    at_pivot = [SLIDE_RULE, guarded_rule(COMPOSED_EXT_RULE, ["qsM"])]
-    elsewhere = [SLIDE_RULE, guarded_rule(COMPOSED_EXT_RULE, ["qsL"])]
-    window = composed_window()
-    held = sv._composed(at_pivot, window, context)
-    assert held is not None and sv._composed_held(at_pivot, window, held, context)
-    free = sv._composed(elsewhere, window, context)
-    assert free is not None and not sv._composed_held(elsewhere, window, free, context)
+    at_pivot = [SLIDE_RULE, guarded_rule(COMBINED_EXT_RULE, ["qsM"])]
+    elsewhere = [SLIDE_RULE, guarded_rule(COMBINED_EXT_RULE, ["qsL"])]
+    window = combined_window()
+    held = sv._combined_match(at_pivot, window, context)
+    assert held is not None and sv._combined_held(at_pivot, window, held, context)
+    free = sv._combined_match(elsewhere, window, context)
+    assert free is not None and not sv._combined_held(elsewhere, window, free, context)
 
 
-def test_main_holds_a_guarded_composed_window_and_hands_it_to_nobody(
+def test_main_holds_a_guarded_combined_window_and_hands_it_to_nobody(
     tmp_path, monkeypatch, capsys, slide_fonts
 ):
-    guarded = guarded_rule(COMPOSED_EXT_RULE, ["qsM"])
+    guarded = guarded_rule(COMBINED_EXT_RULE, ["qsM"])
     payload = _run_main(
         tmp_path,
         monkeypatch,
-        [composed_window("c-1", pair={"left": 3, "right": 4})],
+        [combined_window("c-1", pair={"left": 3, "right": 4})],
         [],
         rules_list=(SLIDE_RULE, guarded),
         fonts=slide_fonts,
@@ -3965,13 +3976,13 @@ def test_main_holds_a_guarded_composed_window_and_hands_it_to_nobody(
     assert f"  {guarded['id']}: 0 filled, 0 already verdicted, 0 held for review by except_left" in lines
 
 
-def test_a_credited_either_rule_weakens_the_composed_verdict(tmp_path, monkeypatch, slide_fonts):
-    soft = json.loads(json.dumps(COMPOSED_EXT_RULE))
+def test_a_counted_either_rule_weakens_the_combined_verdict(tmp_path, monkeypatch, slide_fonts):
+    soft = json.loads(json.dumps(COMBINED_EXT_RULE))
     soft["verdict"] = "either"
     payload = _run_main(
         tmp_path,
         monkeypatch,
-        [composed_window("c-1")],
+        [combined_window("c-1")],
         [],
         rules_list=(SLIDE_RULE, soft),
         fonts=slide_fonts,
@@ -3981,7 +3992,7 @@ def test_a_credited_either_rule_weakens_the_composed_verdict(tmp_path, monkeypat
     assert "(either:" not in record["note"]
 
 
-def test_a_matching_ink_delta_rule_weakens_the_composed_verdict_and_is_named(
+def test_a_matching_ink_delta_rule_weakens_the_combined_verdict_and_is_named(
     tmp_path, monkeypatch, slide_fonts
 ):
     soft = {
@@ -3993,9 +4004,9 @@ def test_a_matching_ink_delta_rule_weakens_the_composed_verdict_and_is_named(
     payload = _run_main(
         tmp_path,
         monkeypatch,
-        [composed_window("c-1")],
+        [combined_window("c-1")],
         [],
-        rules_list=(SLIDE_RULE, COMPOSED_EXT_RULE, soft),
+        rules_list=(SLIDE_RULE, COMBINED_EXT_RULE, soft),
         fonts=slide_fonts,
     )
     record = payload["verdicts"][0]
@@ -4003,29 +4014,29 @@ def test_a_matching_ink_delta_rule_weakens_the_composed_verdict_and_is_named(
     assert record["note"].endswith(f" (either: {soft['id']})")
 
 
-def test_a_window_the_extension_rule_fills_today_moves_to_the_composed_line(
+def test_a_window_the_extension_rule_fills_today_moves_to_the_combined_match_line(
     tmp_path, monkeypatch, capsys, slide_fonts
 ):
-    window = composed_window("c-1", pair={"left": 3, "right": 4})
-    assert sv._matches(COMPOSED_EXT_RULE["match"], window)
+    window = combined_window("c-1", pair={"left": 3, "right": 4})
+    assert sv._matches(COMBINED_EXT_RULE["match"], window)
     payload = _run_main(
         tmp_path,
         monkeypatch,
         [window],
         [],
-        rules_list=(SLIDE_RULE, COMPOSED_EXT_RULE),
+        rules_list=(SLIDE_RULE, COMBINED_EXT_RULE),
         fonts=slide_fonts,
     )
     assert [record["unit"] for record in payload["verdicts"]] == ["c-1"]
     assert payload["verdicts"][0]["note"].startswith(
-        f"[standing: {SLIDE_RULE['id']} + {COMPOSED_EXT_RULE['id']}]"
+        f"[standing: {SLIDE_RULE['id']} + {COMBINED_EXT_RULE['id']}]"
     )
     lines = capsys.readouterr().out.splitlines()
     assert (
-        f"  {COMPOSED_EXT_RULE['id']}: 0 filled, 0 already verdicted, 0 held for review by except_left"
+        f"  {COMBINED_EXT_RULE['id']}: 0 filled, 0 already verdicted, 0 held for review by except_left"
     ) in lines
     assert (
-        f"  {SLIDE_RULE['id']} + {COMPOSED_EXT_RULE['id']}: 1 filled, 0 already verdicted, "
+        f"  {SLIDE_RULE['id']} + {COMBINED_EXT_RULE['id']}: 1 filled, 0 already verdicted, "
         "0 held for review by except_left"
     ) in lines
 
@@ -4038,9 +4049,9 @@ def test_a_candidate_whose_contract_fails_is_judged_as_span_ink(slide_context):
         spell(SEE_SPARE, LEAD, SEE, MIDDLE, PIVOT, FOLLOWER_3),
     )
     assert sv._candidates(SLIDE_RULE["match"], riding) == [0, 2]
-    assert sv._composed(COMPOSABLE_RULES, riding, context) == {
+    assert sv._combined_match(COMBINABLE_RULES, riding, context) == {
         SLIDE_RULE["id"]: [2],
-        COMPOSED_EXT_RULE["id"]: [4],
+        COMBINED_EXT_RULE["id"]: [4],
     }
     refusing = slide_unit(
         "c-refuse",
@@ -4048,53 +4059,53 @@ def test_a_candidate_whose_contract_fails_is_judged_as_span_ink(slide_context):
         spell(SEE_WANDERED, LEAD, SEE, MIDDLE, PIVOT, FOLLOWER_3),
     )
     assert sv._candidates(SLIDE_RULE["match"], refusing) == [0, 2]
-    assert sv._composed(COMPOSABLE_RULES, refusing, context) is None
+    assert sv._combined_match(COMBINABLE_RULES, refusing, context) is None
 
 
-COMPOSED_GAIN_GLYPHS = ["qsL", "qsSee.ex-y0", "qsRoe.en-ext-1-at-5", "qsF1"]
-COMPOSED_GAIN_CODEPOINTS = spell(LEAD, SEE, ROE, FOLLOWER_1)
-COMPOSED_GAIN_RULES = [SLIDE_RULE, GAIN_RULE]
-COMPOSED_SHIFTED_GAIN_RULES = [SLIDE_RULE, SHIFTED_GAIN_RULE]
+COMBINED_GAIN_GLYPHS = ["qsL", "qsSee.ex-y0", "qsRoe.en-ext-1-at-5", "qsF1"]
+COMBINED_GAIN_CODEPOINTS = spell(LEAD, SEE, ROE, FOLLOWER_1)
+COMBINED_GAIN_RULES = [SLIDE_RULE, GAIN_RULE]
+COMBINED_SHIFTED_GAIN_RULES = [SLIDE_RULE, SHIFTED_GAIN_RULE]
 
 
-def composed_gain_window(uid="cg-1"):
-    return slide_unit(uid, COMPOSED_GAIN_GLYPHS, COMPOSED_GAIN_CODEPOINTS)
+def combined_gain_window(uid="cg-1"):
+    return slide_unit(uid, COMBINED_GAIN_GLYPHS, COMBINED_GAIN_CODEPOINTS)
 
 
-def composed_shifted_gain_window(uid="csg-1"):
+def combined_shifted_gain_window(uid="csg-1"):
     return slide_unit(
         uid,
-        COMPOSED_GAIN_GLYPHS,
+        COMBINED_GAIN_GLYPHS,
         spell(LEAD, SEE, ROE_SHIFTED_GAIN, FOLLOWER_1),
     )
 
 
-def test_a_slide_and_an_ink_gain_in_one_window_compose(slide_context):
-    events = sv._composed(COMPOSED_GAIN_RULES, composed_gain_window(), slide_context())
+def test_a_slide_and_an_ink_gain_in_one_window_combine(slide_context):
+    events = sv._combined_match(COMBINED_GAIN_RULES, combined_gain_window(), slide_context())
     assert events == {SLIDE_RULE["id"]: [1], GAIN_RULE["id"]: [2]}
 
 
-def test_a_slide_and_a_shifted_ink_gain_carry_the_composed_displacement(slide_context):
-    events = sv._composed(
-        COMPOSED_SHIFTED_GAIN_RULES,
-        composed_shifted_gain_window(),
+def test_a_slide_and_a_shifted_ink_gain_carry_the_combined_displacement(slide_context):
+    events = sv._combined_match(
+        COMBINED_SHIFTED_GAIN_RULES,
+        combined_shifted_gain_window(),
         slide_context(),
     )
     assert events == {SLIDE_RULE["id"]: [1], SHIFTED_GAIN_RULE["id"]: [2]}
 
 
-def test_a_pure_gain_is_not_composed(slide_context):
-    assert sv._composed(COMPOSED_GAIN_RULES, gain_window(), slide_context()) is None
+def test_a_pure_gain_is_not_combined(slide_context):
+    assert sv._combined_match(COMBINED_GAIN_RULES, gain_window(), slide_context()) is None
     assert sv._matches(GAIN_RULE["match"], gain_window(), context=slide_context())
 
 
-def test_main_writes_one_composed_gain_record_and_leaves_the_per_rule_lines(
+def test_main_writes_one_combined_gain_record_and_leaves_the_per_rule_lines(
     tmp_path, monkeypatch, capsys, slide_fonts
 ):
     payload = _run_main(
         tmp_path,
         monkeypatch,
-        [composed_gain_window("cg-1")],
+        [combined_gain_window("cg-1")],
         [],
         rules_list=(SLIDE_RULE, GAIN_RULE),
         fonts=slide_fonts,
@@ -4114,25 +4125,27 @@ def test_main_writes_one_composed_gain_record_and_leaves_the_per_rule_lines(
     ) in lines
 
 
-def test_one_extra_pixel_defeats_the_composed_gain_reading(slide_context):
+def test_one_extra_pixel_defeats_the_combined_gain_match(slide_context):
     assert (
-        sv._composed(COMPOSED_GAIN_RULES, composed_gain_window(), slide_context("after-extra-prefix-pixel"))
+        sv._combined_match(
+            COMBINED_GAIN_RULES, combined_gain_window(), slide_context("after-extra-prefix-pixel")
+        )
         is None
     )
 
 
-def test_a_wrong_gained_cell_defeats_the_composed_gain_reading(slide_context):
+def test_a_wrong_gained_cell_defeats_the_combined_gain_match(slide_context):
     assert (
-        sv._composed(COMPOSED_GAIN_RULES, composed_gain_window(), slide_context("after-roe-wrong-cell"))
+        sv._combined_match(COMBINED_GAIN_RULES, combined_gain_window(), slide_context("after-roe-wrong-cell"))
         is None
     )
 
 
-def test_the_gain_guard_holds_the_whole_composed_window(slide_context):
-    events = sv._composed(COMPOSED_GAIN_RULES, composed_gain_window(), slide_context())
-    assert sv._composed_held(
+def test_the_gain_guard_holds_the_whole_combined_window(slide_context):
+    events = sv._combined_match(COMBINED_GAIN_RULES, combined_gain_window(), slide_context())
+    assert sv._combined_held(
         [guarded_rule(GAIN_RULE, ["qsL"]), SLIDE_RULE],
-        composed_gain_window(),
+        combined_gain_window(),
         events,
         slide_context(),
     )
@@ -4144,7 +4157,7 @@ def test_main_fills_a_single_gain_window_under_that_shapes_own_line(
     payload = _run_main(
         tmp_path,
         monkeypatch,
-        [gain_window("g-1"), composed_gain_window("cg-1")],
+        [gain_window("g-1"), combined_gain_window("cg-1")],
         [],
         rules_list=(SLIDE_RULE, GAIN_RULE),
         fonts=slide_fonts,
@@ -4161,24 +4174,24 @@ def test_main_fills_a_single_gain_window_under_that_shapes_own_line(
     ) in lines
 
 
-COMPOSED_JOIN_GLYPHS = ["qsL", "qsSee.ex-y0", "qsAt", "qsIt"]
-COMPOSED_JOIN_CODEPOINTS = spell(LEAD, SEE, AT, IT)
-COMPOSED_JOIN_RULES = [SLIDE_RULE, JOIN_RULE]
+COMBINED_JOIN_GLYPHS = ["qsL", "qsSee.ex-y0", "qsAt", "qsIt"]
+COMBINED_JOIN_CODEPOINTS = spell(LEAD, SEE, AT, IT)
+COMBINED_JOIN_RULES = [SLIDE_RULE, JOIN_RULE]
 EXT_JOIN_GLYPHS = ["qsL", "qsJ.ex-y0.ex-ext-1", "qsF3", "qsAt", "qsIt"]
 EXT_JOIN_CODEPOINTS = spell(LEAD, PIVOT, FOLLOWER_3, AT, IT)
-EXT_JOIN_RULES = [COMPOSED_EXT_RULE, JOIN_RULE]
+EXT_JOIN_RULES = [COMBINED_EXT_RULE, JOIN_RULE]
 JOIN_THEN_EXT_JOIN = json.loads(json.dumps(JOIN_RULE))
 JOIN_THEN_EXT_JOIN["id"] = "fixture-join-dropped-into-extension"
 JOIN_THEN_EXT_JOIN["match"]["before"]["follower"] = "qsJ"
-JOIN_THEN_EXT_RULES = [JOIN_THEN_EXT_JOIN, COMPOSED_EXT_RULE]
+JOIN_THEN_EXT_RULES = [JOIN_THEN_EXT_JOIN, COMBINED_EXT_RULE]
 JOIN_THEN_EXT_GLYPHS = ["qsL", "qsAt", "qsJ.ex-y0.ex-ext-1", "qsF3"]
 JOIN_THEN_EXT_CODEPOINTS = spell(LEAD, AT, PIVOT, FOLLOWER_3)
 
 
-def composed_join_window(uid="cj-1"):
+def combined_join_window(uid="cj-1"):
     return unit(
         uid,
-        list(COMPOSED_JOIN_GLYPHS),
+        list(COMBINED_JOIN_GLYPHS),
         ["y0", "y0", "y5"],
         [
             "qsL/full/None/None/",
@@ -4187,7 +4200,7 @@ def composed_join_window(uid="cj-1"):
             "qsIt/full/None/None/",
         ],
         ["y0", "y0", "break"],
-        codepoints=COMPOSED_JOIN_CODEPOINTS,
+        codepoints=COMBINED_JOIN_CODEPOINTS,
         configs=("default",),
         ink_deltas={"default": SLIDE_DELTA},
         pair={"left": 2, "right": 3},
@@ -4214,14 +4227,14 @@ def extension_join_window(uid="ej-1"):
     )
 
 
-def test_a_slide_and_a_join_drop_in_one_window_compose(slide_context):
-    events = sv._composed(COMPOSED_JOIN_RULES, composed_join_window(), slide_context())
+def test_a_slide_and_a_join_drop_in_one_window_combine(slide_context):
+    events = sv._combined_match(COMBINED_JOIN_RULES, combined_join_window(), slide_context())
     assert events == {SLIDE_RULE["id"]: [1], JOIN_RULE["id"]: [2]}
 
 
-def test_an_extension_and_a_join_drop_in_one_window_compose(slide_context):
-    events = sv._composed(EXT_JOIN_RULES, extension_join_window(), slide_context())
-    assert events == {COMPOSED_EXT_RULE["id"]: [1], JOIN_RULE["id"]: [3]}
+def test_an_extension_and_a_join_drop_in_one_window_combine(slide_context):
+    events = sv._combined_match(EXT_JOIN_RULES, extension_join_window(), slide_context())
+    assert events == {COMBINED_EXT_RULE["id"]: [1], JOIN_RULE["id"]: [3]}
 
 
 def join_then_extension_window(uid="je-1"):
@@ -4243,22 +4256,22 @@ def join_then_extension_window(uid="je-1"):
     )
 
 
-def test_a_join_drop_whose_follower_is_an_extension_pivot_composes(slide_context):
-    events = sv._composed(JOIN_THEN_EXT_RULES, join_then_extension_window(), slide_context())
-    assert events == {JOIN_THEN_EXT_JOIN["id"]: [1], COMPOSED_EXT_RULE["id"]: [2]}
+def test_a_join_drop_whose_follower_is_an_extension_pivot_combines(slide_context):
+    events = sv._combined_match(JOIN_THEN_EXT_RULES, join_then_extension_window(), slide_context())
+    assert events == {JOIN_THEN_EXT_JOIN["id"]: [1], COMBINED_EXT_RULE["id"]: [2]}
 
 
-def test_a_pure_join_drop_is_not_composed(slide_context):
-    assert sv._composed(COMPOSED_JOIN_RULES, join_window(), slide_context()) is None
+def test_a_pure_join_drop_is_not_combined(slide_context):
+    assert sv._combined_match(COMBINED_JOIN_RULES, join_window(), slide_context()) is None
 
 
-def test_main_writes_one_composed_join_record_and_leaves_the_per_rule_lines(
+def test_main_writes_one_combined_join_record_and_leaves_the_per_rule_lines(
     tmp_path, monkeypatch, capsys, slide_fonts
 ):
     payload = _run_main(
         tmp_path,
         monkeypatch,
-        [composed_join_window("cj-1")],
+        [combined_join_window("cj-1")],
         [],
         rules_list=(SLIDE_RULE, JOIN_RULE),
         fonts=slide_fonts,
@@ -4278,27 +4291,29 @@ def test_main_writes_one_composed_join_record_and_leaves_the_per_rule_lines(
     ) in lines
 
 
-def test_one_extra_pixel_defeats_the_composed_join_reading(slide_context):
+def test_one_extra_pixel_defeats_the_combined_join_match(slide_context):
     assert (
-        sv._composed(COMPOSED_JOIN_RULES, composed_join_window(), slide_context("after-extra-prefix-pixel"))
-        is None
-    )
-
-
-def test_a_redrawn_join_follower_defeats_the_composed_reading(slide_context):
-    assert (
-        sv._composed(
-            COMPOSED_JOIN_RULES, composed_join_window(), slide_context("after-join-redrawn-follower")
+        sv._combined_match(
+            COMBINED_JOIN_RULES, combined_join_window(), slide_context("after-extra-prefix-pixel")
         )
         is None
     )
 
 
-def test_the_join_guard_holds_the_whole_composed_window(slide_context):
-    events = sv._composed(COMPOSED_JOIN_RULES, composed_join_window(), slide_context())
-    assert sv._composed_held(
+def test_a_redrawn_join_follower_defeats_the_combined_match(slide_context):
+    assert (
+        sv._combined_match(
+            COMBINED_JOIN_RULES, combined_join_window(), slide_context("after-join-redrawn-follower")
+        )
+        is None
+    )
+
+
+def test_the_join_guard_holds_the_whole_combined_window(slide_context):
+    events = sv._combined_match(COMBINED_JOIN_RULES, combined_join_window(), slide_context())
+    assert sv._combined_held(
         [guarded_rule(JOIN_RULE, ["qsL"]), SLIDE_RULE],
-        composed_join_window(),
+        combined_join_window(),
         events,
         slide_context(),
     )
@@ -4310,7 +4325,7 @@ def test_main_fills_a_single_join_window_under_that_shapes_own_line(
     payload = _run_main(
         tmp_path,
         monkeypatch,
-        [join_window("j-1"), composed_join_window("cj-1")],
+        [join_window("j-1"), combined_join_window("cj-1")],
         [],
         rules_list=(SLIDE_RULE, JOIN_RULE),
         fonts=slide_fonts,
@@ -4329,9 +4344,9 @@ def test_main_fills_a_single_join_window_under_that_shapes_own_line(
 
 ENTRY_GLYPHS = ["qsL", "qsLow.en-ext-1", "qsF1"]
 ENTRY_CODEPOINTS = spell(LEAD, LOW, FOLLOWER_1)
-COMPOSED_ENTRY_GLYPHS = ["qsL", "qsSee.ex-y0", "qsLow.en-ext-1", "qsF1"]
-COMPOSED_ENTRY_CODEPOINTS = spell(LEAD, SEE, LOW, FOLLOWER_1)
-COMPOSED_ENTRY_RULES = [SLIDE_RULE, ENTRY_RULE]
+COMBINED_ENTRY_GLYPHS = ["qsL", "qsSee.ex-y0", "qsLow.en-ext-1", "qsF1"]
+COMBINED_ENTRY_CODEPOINTS = spell(LEAD, SEE, LOW, FOLLOWER_1)
+COMBINED_ENTRY_RULES = [SLIDE_RULE, ENTRY_RULE]
 CONTRACTED_ENTRY_GLYPHS = ["qsBay.contract-lead", "qsMay.en-y0.ex-y5.contract-fixture", "qsF1"]
 CONTRACTED_ENTRY_CODEPOINTS = spell(CONTRACTION_LEAD, CONTRACTED_MAY, FOLLOWER_1)
 CONTRACTED_ENTRY_COVERED_GLYPHS = [
@@ -4340,29 +4355,29 @@ CONTRACTED_ENTRY_COVERED_GLYPHS = [
     "qsFcovered.en-ext-1",
 ]
 CONTRACTED_ENTRY_COVERED_CODEPOINTS = spell(CONTRACTION_LEAD, CONTRACTED_MAY, COVERED_FOLLOWER)
-COMPOSED_CONTRACTED_ENTRY_GLYPHS = [
+COMBINED_CONTRACTED_ENTRY_GLYPHS = [
     "qsL",
     "qsSee.ex-y0",
     "qsBay.contract-lead",
     "qsMay.en-y0.ex-y5.contract-fixture",
     "qsF1",
 ]
-COMPOSED_CONTRACTED_ENTRY_CODEPOINTS = spell(LEAD, SEE, CONTRACTION_LEAD, CONTRACTED_MAY, FOLLOWER_1)
-COMPOSED_CONTRACTED_ENTRY_COVERED_GLYPHS = [
+COMBINED_CONTRACTED_ENTRY_CODEPOINTS = spell(LEAD, SEE, CONTRACTION_LEAD, CONTRACTED_MAY, FOLLOWER_1)
+COMBINED_CONTRACTED_ENTRY_COVERED_GLYPHS = [
     "qsL",
     "qsSee.ex-y0",
     "qsBay.contract-lead",
     "qsMay.en-y0.ex-y5.contract-fixture",
     "qsFcovered.en-ext-1",
 ]
-COMPOSED_CONTRACTED_ENTRY_COVERED_CODEPOINTS = spell(
+COMBINED_CONTRACTED_ENTRY_COVERED_CODEPOINTS = spell(
     LEAD,
     SEE,
     CONTRACTION_LEAD,
     CONTRACTED_MAY,
     COVERED_FOLLOWER,
 )
-COMPOSED_CONTRACTED_ENTRY_RULES = [SLIDE_RULE, CONTRACTED_ENTRY_RULE]
+COMBINED_CONTRACTED_ENTRY_RULES = [SLIDE_RULE, CONTRACTED_ENTRY_RULE]
 VERTICAL_GAIN_CONTRACTED_ENTRY_GLYPHS = [
     "qsTea.half.en-y5.after-xheight-exit",
     "qsBay.contract-lead",
@@ -4388,29 +4403,29 @@ DUPLICATE_MAY_AFTER_GLYPHS = [
 DUPLICATE_MAY_AFTER_CODEPOINTS = spell(CONTRACTION_LEAD, CONTRACTED_MAY, LEAD, UNCHANGED_MAY, FOLLOWER_1)
 PLACED_CONTRACTION_GLYPHS = ["qsBay.contract-lead", "qsRoe.ex-y0.placed-contraction", "qsF1"]
 PLACED_CONTRACTION_CODEPOINTS = spell(CONTRACTION_LEAD, PLACED_CONTRACTION, FOLLOWER_1)
-COMPOSED_PLACED_CONTRACTION_GLYPHS = [
+COMBINED_PLACED_CONTRACTION_GLYPHS = [
     "qsL",
     "qsSee.ex-y0",
     "qsBay.contract-lead",
     "qsRoe.ex-y0.placed-contraction",
     "qsF1",
 ]
-COMPOSED_PLACED_CONTRACTION_CODEPOINTS = spell(
+COMBINED_PLACED_CONTRACTION_CODEPOINTS = spell(
     LEAD,
     SEE,
     CONTRACTION_LEAD,
     PLACED_CONTRACTION,
     FOLLOWER_1,
 )
-COMPOSED_PLACED_CONTRACTION_RULES = [SLIDE_RULE, PLACED_CONTRACTION_RULE]
+COMBINED_PLACED_CONTRACTION_RULES = [SLIDE_RULE, PLACED_CONTRACTION_RULE]
 
 
 def entry_window(uid="e-1"):
     return slide_unit(uid, ENTRY_GLYPHS, ENTRY_CODEPOINTS)
 
 
-def composed_entry_window(uid="ce-1"):
-    return slide_unit(uid, COMPOSED_ENTRY_GLYPHS, COMPOSED_ENTRY_CODEPOINTS)
+def combined_entry_window(uid="ce-1"):
+    return slide_unit(uid, COMBINED_ENTRY_GLYPHS, COMBINED_ENTRY_CODEPOINTS)
 
 
 def contracted_entry_window(uid="ec-1"):
@@ -4425,21 +4440,21 @@ def contracted_entry_covered_window(uid="ec-covered-1"):
     return window
 
 
-def composed_contracted_entry_window(uid="cec-1"):
+def combined_contracted_entry_window(uid="cec-1"):
     window = slide_unit(
         uid,
-        COMPOSED_CONTRACTED_ENTRY_GLYPHS,
-        COMPOSED_CONTRACTED_ENTRY_CODEPOINTS,
+        COMBINED_CONTRACTED_ENTRY_GLYPHS,
+        COMBINED_CONTRACTED_ENTRY_CODEPOINTS,
     )
     window["after"]["cells"][3] = "qsMay/loop/baseline/None/en-con-1"
     return window
 
 
-def composed_contracted_entry_covered_window(uid="cec-covered-1"):
+def combined_contracted_entry_covered_window(uid="cec-covered-1"):
     window = slide_unit(
         uid,
-        COMPOSED_CONTRACTED_ENTRY_COVERED_GLYPHS,
-        COMPOSED_CONTRACTED_ENTRY_COVERED_CODEPOINTS,
+        COMBINED_CONTRACTED_ENTRY_COVERED_GLYPHS,
+        COMBINED_CONTRACTED_ENTRY_COVERED_CODEPOINTS,
     )
     window["after"]["cells"][3] = "qsMay/loop/baseline/None/en-con-1"
     return window
@@ -4451,11 +4466,11 @@ def placed_contraction_window(uid="pc-1"):
     return window
 
 
-def composed_placed_contraction_window(uid="cpc-1"):
+def combined_placed_contraction_window(uid="cpc-1"):
     window = slide_unit(
         uid,
-        COMPOSED_PLACED_CONTRACTION_GLYPHS,
-        COMPOSED_PLACED_CONTRACTION_CODEPOINTS,
+        COMBINED_PLACED_CONTRACTION_GLYPHS,
+        COMBINED_PLACED_CONTRACTION_CODEPOINTS,
     )
     window["after"]["cells"][3] = "qsRoe/hapax/x-height/baseline/en-con-1"
     return window
@@ -4501,7 +4516,7 @@ def contracted_ligature(tmp_path):
     from fontTools.feaLib.builder import addOpenTypeFeaturesFromString
     from fontTools.ttLib import TTFont
 
-    def build(*, composed=False, extra_pixel=False, wrong_continuation=False, wrong_after_entry=False):
+    def build(*, combined=False, extra_pixel=False, wrong_continuation=False, wrong_after_entry=False):
         before_name = "qsMay_qsF1"
         after_family = "qsMay_qsF2" if wrong_continuation else before_name
         after_entry = "y5" if wrong_after_entry else "y0"
@@ -4528,7 +4543,7 @@ def contracted_ligature(tmp_path):
             paths.append(path)
         glyphs = ["qsBay.contract-lead", before_name, "qsF1"]
         codepoints = [CONTRACTION_LEAD, CONTRACTED_MAY, FOLLOWER_1, FOLLOWER_1]
-        if composed:
+        if combined:
             glyphs = ["qsL", "qsSee.ex-y0", *glyphs]
             codepoints = [LEAD, SEE, *codepoints]
         window = slide_unit("contracted-ligature", glyphs, spell(*codepoints))
@@ -4575,19 +4590,19 @@ def test_a_ligature_continuation_must_keep_the_pair_and_pixel_contract(contracte
     assert not sv._matches(rule["match"], window, context=context)
 
 
-def test_a_ligature_continuation_contraction_composes_with_a_slide(contracted_ligature):
-    window, context = contracted_ligature(composed=True)
+def test_a_ligature_continuation_contraction_combines_with_a_slide(contracted_ligature):
+    window, context = contracted_ligature(combined=True)
     assert not sv._matches(CONTRACTED_ENTRY_RULE["match"], window, context=context)
-    assert sv._composed(COMPOSED_CONTRACTED_ENTRY_RULES, window, context) == {
+    assert sv._combined_match(COMBINED_CONTRACTED_ENTRY_RULES, window, context) == {
         SLIDE_RULE["id"]: [1],
         CONTRACTED_ENTRY_RULE["id"]: [3],
     }
 
 
 @pytest.mark.parametrize("change", ["extra_pixel", "wrong_continuation", "wrong_after_entry"])
-def test_a_composed_ligature_continuation_still_proves_the_whole_compound(contracted_ligature, change):
-    window, context = contracted_ligature(composed=True, **{change: True})
-    assert sv._composed(COMPOSED_CONTRACTED_ENTRY_RULES, window, context) is None
+def test_a_combined_ligature_continuation_still_proves_the_whole_compound(contracted_ligature, change):
+    window, context = contracted_ligature(combined=True, **{change: True})
+    assert sv._combined_match(COMBINED_CONTRACTED_ENTRY_RULES, window, context) is None
 
 
 def test_a_union_invisible_suffix_respelling_rides_with_an_entry_contraction(slide_context):
@@ -4615,12 +4630,12 @@ def test_an_entry_contraction_can_name_multiple_left_families(slide_context):
     assert not sv._matches(rule["match"], contracted_entry_window(), context=slide_context())
 
 
-def test_a_multi_left_entry_contraction_composes(slide_context):
+def test_a_multi_left_entry_contraction_combines(slide_context):
     rule = json.loads(json.dumps(CONTRACTED_ENTRY_RULE))
     rule["match"]["before"]["left"] = ["qsKey", "qsBay"]
-    events = sv._composed(
+    events = sv._combined_match(
         [SLIDE_RULE, rule],
-        composed_contracted_entry_window(),
+        combined_contracted_entry_window(),
         slide_context(),
     )
     assert events == {SLIDE_RULE["id"]: [1], rule["id"]: [3]}
@@ -4638,13 +4653,13 @@ def test_an_entry_contraction_rule_declining_another_nested_form_still_matches(s
     assert sv._matches(rule["match"], contracted_entry_window(), context=slide_context())
 
 
-def test_a_declined_entry_contraction_leaves_its_position_to_the_other_composed_rule(slide_context):
+def test_a_declined_entry_contraction_leaves_its_position_to_the_other_combined_rule(slide_context):
     twin = json.loads(json.dumps(CONTRACTED_ENTRY_RULE))
     twin["id"] += "-declining"
     twin["match"]["before"]["except_pivots"] = ["qsMay.en-y0.ex-y5"]
-    events = sv._composed(
+    events = sv._combined_match(
         [SLIDE_RULE, CONTRACTED_ENTRY_RULE, twin],
-        composed_contracted_entry_window(),
+        combined_contracted_entry_window(),
         slide_context(),
     )
     assert events == {SLIDE_RULE["id"]: [1], CONTRACTED_ENTRY_RULE["id"]: [3]}
@@ -4685,19 +4700,19 @@ def test_an_unmoved_follower_defeats_the_entry_contraction(slide_context):
     )
 
 
-def test_a_slide_and_an_entry_contraction_in_one_window_compose(slide_context):
-    events = sv._composed(
-        COMPOSED_CONTRACTED_ENTRY_RULES,
-        composed_contracted_entry_window(),
+def test_a_slide_and_an_entry_contraction_in_one_window_combine(slide_context):
+    events = sv._combined_match(
+        COMBINED_CONTRACTED_ENTRY_RULES,
+        combined_contracted_entry_window(),
         slide_context(),
     )
     assert events == {SLIDE_RULE["id"]: [1], CONTRACTED_ENTRY_RULE["id"]: [3]}
 
 
-def test_a_union_invisible_suffix_respelling_rides_in_a_composed_entry_contraction(slide_context):
-    events = sv._composed(
-        COMPOSED_CONTRACTED_ENTRY_RULES,
-        composed_contracted_entry_covered_window(),
+def test_a_union_invisible_suffix_respelling_rides_in_a_combined_entry_contraction(slide_context):
+    events = sv._combined_match(
+        COMBINED_CONTRACTED_ENTRY_RULES,
+        combined_contracted_entry_covered_window(),
         slide_context(),
     )
     assert events == {SLIDE_RULE["id"]: [1], CONTRACTED_ENTRY_RULE["id"]: [3]}
@@ -4719,17 +4734,17 @@ def test_an_unmoved_pivot_defeats_a_contraction_the_placement_carries(slide_cont
     )
 
 
-def test_a_slide_and_a_placement_carried_contraction_in_one_window_compose(slide_context):
-    events = sv._composed(
-        COMPOSED_PLACED_CONTRACTION_RULES,
-        composed_placed_contraction_window(),
+def test_a_slide_and_a_placement_carried_contraction_in_one_window_combine(slide_context):
+    events = sv._combined_match(
+        COMBINED_PLACED_CONTRACTION_RULES,
+        combined_placed_contraction_window(),
         slide_context(),
     )
     assert events == {SLIDE_RULE["id"]: [1], PLACED_CONTRACTION_RULE["id"]: [3]}
 
 
-def test_a_vertical_gain_and_an_entry_contraction_in_one_window_compose(slide_context):
-    events = sv._composed(
+def test_a_vertical_gain_and_an_entry_contraction_in_one_window_combine(slide_context):
+    events = sv._combined_match(
         VERTICAL_GAIN_CONTRACTED_ENTRY_RULES,
         vertical_gain_contracted_entry_window(),
         slide_context(),
@@ -4855,22 +4870,22 @@ def test_same_parameter_rules_of_different_shapes_do_not_share_a_memo_entry(
         assert {field: sv._matches(matches[field], window(), context=context) for field in order} == expected
 
 
-COMPOSED_STUB_GLYPHS = ["qsRoe.en-ext-1-at-5", "qsK", "qsMay.en-y5"]
-COMPOSED_STUB_CODEPOINTS = spell(ROE, LEFT_NEIGHBOR, MAY_STUB)
-COMPOSED_STUB_RULES = [GAIN_RULE, STUB_RULE]
+COMBINED_STUB_GLYPHS = ["qsRoe.en-ext-1-at-5", "qsK", "qsMay.en-y5"]
+COMBINED_STUB_CODEPOINTS = spell(ROE, LEFT_NEIGHBOR, MAY_STUB)
+COMBINED_STUB_RULES = [GAIN_RULE, STUB_RULE]
 
 
-def composed_stub_window(uid="cs-1"):
-    return slide_unit(uid, COMPOSED_STUB_GLYPHS, COMPOSED_STUB_CODEPOINTS)
+def combined_stub_window(uid="cs-1"):
+    return slide_unit(uid, COMBINED_STUB_GLYPHS, COMBINED_STUB_CODEPOINTS)
 
 
-def test_a_gain_and_a_stub_drop_in_one_window_compose(slide_context):
-    events = sv._composed(COMPOSED_STUB_RULES, composed_stub_window(), slide_context())
+def test_a_gain_and_a_stub_drop_in_one_window_combine(slide_context):
+    events = sv._combined_match(COMBINED_STUB_RULES, combined_stub_window(), slide_context())
     assert events == {GAIN_RULE["id"]: [0], STUB_RULE["id"]: [2]}
 
 
 def test_an_entry_contraction_that_keeps_its_origin_is_not_a_stub_drop(slide_context):
-    """The `en-con-1` ·May keeps its own-frame origin and loses a cell in column 0, so `_entry_drop_holds` reads it as a contraction its own frame did not take and returns a placement offset of -1, not 0. Its kept ink stays in place only if its placement stays put, so moved one column right as a stub drop, its kept ink moves with it, and neither the single-rule matcher nor the composed walk may read that as a stub drop."""
+    """The `en-con-1` ·May keeps its own-frame origin and loses a cell in column 0, so `_entry_drop_holds` reads it as a contraction its own frame did not take and returns a placement offset of -1, not 0. Its kept ink stays in place only if its placement stays put, so moved one column right as a stub drop, its kept ink moves with it, and neither the single-rule matcher nor the combined walk may read that as a stub drop."""
     context = slide_context()
     window = slide_unit(
         "st-3",
@@ -4878,22 +4893,22 @@ def test_an_entry_contraction_that_keeps_its_origin_is_not_a_stub_drop(slide_con
         spell(LEFT_NEIGHBOR, MAY_STUB_CONTRACTED_IN_FRAME, FOLLOWER_1),
     )
     assert not sv._matches(STUB_RULE["match"], window, context=context)
-    composed = slide_unit(
+    combined = slide_unit(
         "cs-2",
         ["qsRoe.en-ext-1-at-5", "qsK", "qsMay.en-y5.in-frame-fixture"],
         spell(ROE, LEFT_NEIGHBOR, MAY_STUB_CONTRACTED_IN_FRAME),
     )
-    assert sv._composed(COMPOSED_STUB_RULES, composed, context) is None
+    assert sv._combined_match(COMBINED_STUB_RULES, combined, context) is None
 
 
-def test_the_stub_guard_holds_the_whole_composed_window(slide_context):
+def test_the_stub_guard_holds_the_whole_combined_window(slide_context):
     """·Roe is the window's first letter, two letters before the stub pivot, so only a guard read over the whole window reaches it. The stub-dropped shape's guard scope is the whole window, as it is for its single-rule matcher."""
     rules = [GAIN_RULE, guarded_rule(STUB_RULE, ["qsRoe"])]
-    window = composed_stub_window()
+    window = combined_stub_window()
     context = slide_context()
-    events = sv._composed(rules, window, context)
+    events = sv._combined_match(rules, window, context)
     assert events is not None
-    assert sv._composed_held(rules, window, events, context)
+    assert sv._combined_held(rules, window, events, context)
 
 
 def test_the_checked_in_vie_utter_rule_reads_the_drop_and_nothing_wider(slide_context):
@@ -5046,23 +5061,23 @@ def test_entry_drop_pivot_lists_spanning_two_families_are_refused_at_load(tmp_pa
         sv.load_rules(_write_rules(tmp_path / "rules.yaml", [across]))
 
 
-def test_a_slide_and_an_entry_drop_in_one_window_compose(slide_context):
-    events = sv._composed(COMPOSED_ENTRY_RULES, composed_entry_window(), slide_context())
+def test_a_slide_and_an_entry_drop_in_one_window_combine(slide_context):
+    events = sv._combined_match(COMBINED_ENTRY_RULES, combined_entry_window(), slide_context())
     assert events == {SLIDE_RULE["id"]: [1], ENTRY_RULE["id"]: [2]}
 
 
-def test_a_pure_entry_drop_is_not_composed(slide_context):
-    assert sv._composed(COMPOSED_ENTRY_RULES, entry_window(), slide_context()) is None
+def test_a_pure_entry_drop_is_not_combined(slide_context):
+    assert sv._combined_match(COMBINED_ENTRY_RULES, entry_window(), slide_context()) is None
     assert sv._matches(ENTRY_RULE["match"], entry_window(), context=slide_context())
 
 
-def test_main_writes_one_composed_entry_record_and_leaves_the_per_rule_lines(
+def test_main_writes_one_combined_entry_record_and_leaves_the_per_rule_lines(
     tmp_path, monkeypatch, capsys, slide_fonts
 ):
     payload = _run_main(
         tmp_path,
         monkeypatch,
-        [composed_entry_window("ce-1")],
+        [combined_entry_window("ce-1")],
         [],
         rules_list=(SLIDE_RULE, ENTRY_RULE),
         fonts=slide_fonts,
@@ -5082,18 +5097,20 @@ def test_main_writes_one_composed_entry_record_and_leaves_the_per_rule_lines(
     ) in lines
 
 
-def test_one_extra_pixel_defeats_the_composed_entry_reading(slide_context):
+def test_one_extra_pixel_defeats_the_combined_entry_match(slide_context):
     assert (
-        sv._composed(COMPOSED_ENTRY_RULES, composed_entry_window(), slide_context("after-extra-prefix-pixel"))
+        sv._combined_match(
+            COMBINED_ENTRY_RULES, combined_entry_window(), slide_context("after-extra-prefix-pixel")
+        )
         is None
     )
 
 
-def test_the_entry_drop_guard_holds_the_whole_composed_window(slide_context):
-    events = sv._composed(COMPOSED_ENTRY_RULES, composed_entry_window(), slide_context())
-    assert sv._composed_held(
+def test_the_entry_drop_guard_holds_the_whole_combined_window(slide_context):
+    events = sv._combined_match(COMBINED_ENTRY_RULES, combined_entry_window(), slide_context())
+    assert sv._combined_held(
         [guarded_rule(ENTRY_RULE, ["qsL"]), SLIDE_RULE],
-        composed_entry_window(),
+        combined_entry_window(),
         events,
         slide_context(),
     )
@@ -5105,7 +5122,7 @@ def test_main_fills_a_single_entry_window_under_that_shapes_own_line(
     payload = _run_main(
         tmp_path,
         monkeypatch,
-        [entry_window("e-1"), composed_entry_window("ce-1")],
+        [entry_window("e-1"), combined_entry_window("ce-1")],
         [],
         rules_list=(SLIDE_RULE, ENTRY_RULE),
         fonts=slide_fonts,
@@ -5124,47 +5141,47 @@ def test_main_fills_a_single_entry_window_under_that_shapes_own_line(
 
 RETARGET_GLYPHS = ["qsL", "qsTea.half.ex-y5", "qsNo.en-ext-1", "qsF1"]
 RETARGET_CODEPOINTS = spell(LEAD, TEA, NO, FOLLOWER_1)
-COMPOSED_RETARGET_GLYPHS = ["qsL", "qsSee.ex-y0", "qsTea.half.ex-y5", "qsNo.en-ext-1"]
-COMPOSED_RETARGET_CODEPOINTS = spell(LEAD, SEE, TEA, NO)
-COMPOSED_RETARGET_RULES = [SLIDE_RULE, RETARGET_RULE]
+COMBINED_RETARGET_GLYPHS = ["qsL", "qsSee.ex-y0", "qsTea.half.ex-y5", "qsNo.en-ext-1"]
+COMBINED_RETARGET_CODEPOINTS = spell(LEAD, SEE, TEA, NO)
+COMBINED_RETARGET_RULES = [SLIDE_RULE, RETARGET_RULE]
 CREATED_JOIN_GLYPHS = ["qsL", "qsJ.ex-y0.ex-ext-3.long", "qsF3"]
 CREATED_JOIN_CODEPOINTS = spell(LEAD, PIVOT_SHORTENED, FOLLOWER_3)
-COMPOSED_CREATED_JOIN_GLYPHS = ["qsL", "qsSee.ex-y0", "qsJ.ex-y0.ex-ext-3.long", "qsF3"]
-COMPOSED_CREATED_JOIN_CODEPOINTS = spell(LEAD, SEE, PIVOT_SHORTENED, FOLLOWER_3)
-COMPOSED_CREATED_JOIN_RULES = [SLIDE_RULE, CREATED_JOIN_RULE]
+COMBINED_CREATED_JOIN_GLYPHS = ["qsL", "qsSee.ex-y0", "qsJ.ex-y0.ex-ext-3.long", "qsF3"]
+COMBINED_CREATED_JOIN_CODEPOINTS = spell(LEAD, SEE, PIVOT_SHORTENED, FOLLOWER_3)
+COMBINED_CREATED_JOIN_RULES = [SLIDE_RULE, CREATED_JOIN_RULE]
 WIDENED_CREATED_JOIN_GLYPHS = ["qsL", "qsJ.ex-y0.ex-ext-3.long", "qsF3.narrow", "qsF1"]
 WIDENED_CREATED_JOIN_CODEPOINTS = spell(LEAD, PIVOT_SHORTENED, FOLLOWER_3_WIDENED, FOLLOWER_1)
-COMPOSED_WIDENED_JOIN_GLYPHS = [
+COMBINED_WIDENED_JOIN_GLYPHS = [
     "qsL",
     "qsSee.ex-y0",
     "qsJ.ex-y0.ex-ext-3.long",
     "qsF3.narrow",
     "qsF1",
 ]
-COMPOSED_WIDENED_JOIN_CODEPOINTS = spell(LEAD, SEE, PIVOT_SHORTENED, FOLLOWER_3_WIDENED, FOLLOWER_1)
-COMPOSED_WIDENED_JOIN_RULES = [SLIDE_RULE, WIDENED_CREATED_JOIN_RULE]
+COMBINED_WIDENED_JOIN_CODEPOINTS = spell(LEAD, SEE, PIVOT_SHORTENED, FOLLOWER_3_WIDENED, FOLLOWER_1)
+COMBINED_WIDENED_JOIN_RULES = [SLIDE_RULE, WIDENED_CREATED_JOIN_RULE]
 REACHING_CREATED_JOIN_GLYPHS = ["qsL", "qsJ.ex-y0.ex-ext-3.long", "qsF3.reaching", "qsF1"]
 REACHING_CREATED_JOIN_CODEPOINTS = spell(LEAD, PIVOT_SHORTENED, FOLLOWER_3_REACHING, FOLLOWER_1)
-COMPOSED_REACHING_JOIN_GLYPHS = [
+COMBINED_REACHING_JOIN_GLYPHS = [
     "qsL",
     "qsSee.ex-y0",
     "qsJ.ex-y0.ex-ext-3.long",
     "qsF3.reaching",
     "qsF1",
 ]
-COMPOSED_REACHING_JOIN_CODEPOINTS = spell(LEAD, SEE, PIVOT_SHORTENED, FOLLOWER_3_REACHING, FOLLOWER_1)
-COMPOSED_REACHING_JOIN_RULES = [SLIDE_RULE, REACHING_CREATED_JOIN_RULE]
+COMBINED_REACHING_JOIN_CODEPOINTS = spell(LEAD, SEE, PIVOT_SHORTENED, FOLLOWER_3_REACHING, FOLLOWER_1)
+COMBINED_REACHING_JOIN_RULES = [SLIDE_RULE, REACHING_CREATED_JOIN_RULE]
 RETARGET_BEHIND_WIDENED_JOIN_RULES = [RETARGET_RULE, RETARGET_BEHIND_WIDENED_JOIN_RULE]
 STUB_CREATED_JOIN_GLYPHS = ["qsBay.stub-lead", "qsJ.ex-y0.ex-ext-3.long", "qsF3"]
 STUB_CREATED_JOIN_CODEPOINTS = spell(STUB_LEAD, PIVOT_SHORTENED, FOLLOWER_3)
-COMPOSED_STUB_JOIN_GLYPHS = [
+COMBINED_STUB_JOIN_GLYPHS = [
     "qsL",
     "qsSee.ex-y0.stub-fixture",
     "qsJ.ex-y0.ex-ext-3.long",
     "qsF3",
 ]
-COMPOSED_STUB_JOIN_CODEPOINTS = spell(LEAD, STUB_SEE, PIVOT_SHORTENED, FOLLOWER_3)
-COMPOSED_STUB_JOIN_RULES = [SLIDE_RULE, STUB_CREATED_JOIN_RULE]
+COMBINED_STUB_JOIN_CODEPOINTS = spell(LEAD, STUB_SEE, PIVOT_SHORTENED, FOLLOWER_3)
+COMBINED_STUB_JOIN_RULES = [SLIDE_RULE, STUB_CREATED_JOIN_RULE]
 CONTRACTED_CREATED_JOIN_GLYPHS = ["qsBay.contract-lead", "qsMay.en-y0.ex-y5.contract-fixture", "qsF3"]
 CONTRACTED_CREATED_JOIN_CODEPOINTS = spell(CONTRACTION_LEAD, CONTRACTED_JOINING_MAY, FOLLOWER_3)
 CONTRACTED_UNMOVED_JOIN_CODEPOINTS = spell(CONTRACTION_LEAD, CONTRACTED_MAY, FOLLOWER_3)
@@ -5178,18 +5195,18 @@ REDRAWN_CREATED_JOIN_RULES = [REDRAWN_UNDER_CREATED_JOIN_RULE, REDRAWN_CREATED_J
 JOIN_RETARGET_GLYPHS = ["qsL", "qsAt", "qsIt", "qsTea.half.ex-y5", "qsNo.en-ext-1"]
 JOIN_RETARGET_CODEPOINTS = spell(LEAD, AT, IT, TEA, NO)
 JOIN_RETARGET_RULES = [JOIN_RULE, RETARGET_RULE]
-RETARGETED_CREATED_JOIN_GLYPHS = ["qsL", "qsTea.half.ex-y5", "qsNo.en-ext-1.chain-fixture", "qsF3"]
-RETARGETED_CREATED_JOIN_CODEPOINTS = spell(LEAD, TEA, NO_CHAINED, FOLLOWER_3)
+RETARGETED_CREATED_JOIN_GLYPHS = ["qsL", "qsTea.half.ex-y5", "qsNo.en-ext-1.shared-letter-fixture", "qsF3"]
+RETARGETED_CREATED_JOIN_CODEPOINTS = spell(LEAD, TEA, NO_SHARED, FOLLOWER_3)
 RETARGETED_CREATED_JOIN_RULES = [RETARGET_RULE, RETARGETED_CREATED_JOIN_RULE]
 MOVING_RETARGET_GLYPHS = ["qsL", "qsTea.half.ex-y5.moving-fixture", "qsNo.en-ext-1", "qsF1"]
 MOVING_RETARGET_CODEPOINTS = spell(LEAD, MOVING_TEA, NO, FOLLOWER_1)
 MOVING_RETARGETED_CREATED_JOIN_GLYPHS = [
     "qsL",
     "qsTea.half.ex-y5.moving-fixture",
-    "qsNo.en-ext-1.chain-fixture",
+    "qsNo.en-ext-1.shared-letter-fixture",
     "qsF3",
 ]
-MOVING_RETARGETED_CREATED_JOIN_CODEPOINTS = spell(LEAD, MOVING_TEA, NO_CHAINED, FOLLOWER_3)
+MOVING_RETARGETED_CREATED_JOIN_CODEPOINTS = spell(LEAD, MOVING_TEA, NO_SHARED, FOLLOWER_3)
 MOVING_RETARGETED_CREATED_JOIN_RULES = [MOVING_RETARGET_RULE, RETARGETED_CREATED_JOIN_RULE]
 RETARGET_BEHIND_CREATED_JOIN_GLYPHS = [
     "qsL",
@@ -5204,23 +5221,27 @@ RETARGET_BEHIND_REACHING_JOIN_CODEPOINTS = spell(LEAD, PIVOT_SHORTENED, REACHING
 RETARGET_BEHIND_REACHING_JOIN_RULES = [RETARGET_RULE, REACHING_JOIN_BEFORE_RETARGET_RULE]
 EXTENSION_BEHIND_CREATED_JOIN_GLYPHS = ["qsL", "qsNo.en-ext-1", "qsJ.ex-y0.ex-ext-1", "qsF3"]
 EXTENSION_BEHIND_CREATED_JOIN_CODEPOINTS = spell(LEAD, NO, PIVOT, FOLLOWER_3)
-EXTENSION_BEHIND_CREATED_JOIN_RULES = [COMPOSED_EXT_RULE, EXTENSION_BEHIND_CREATED_JOIN_RULE]
+EXTENSION_BEHIND_CREATED_JOIN_RULES = [COMBINED_EXT_RULE, EXTENSION_BEHIND_CREATED_JOIN_RULE]
 CREATED_JOIN_BEHIND_CREATED_JOIN_GLYPHS = ["qsL", "qsNo.en-ext-1", "qsJ.ex-y0.ex-ext-1", "qsF3"]
 CREATED_JOIN_BEHIND_CREATED_JOIN_CODEPOINTS = spell(LEAD, NO, PIVOT, FOLLOWER_3)
 CREATED_JOIN_BEHIND_CREATED_JOIN_RULES = [
     EXTENSION_BEHIND_CREATED_JOIN_RULE,
     CREATED_JOIN_BEHIND_CREATED_JOIN_RULE,
 ]
-CONTRACTED_REDRAWN_CHAIN_GLYPHS = [
+CONTRACTED_REDRAWN_SHARED_LETTER_GLYPHS = [
     "qsBay.contract-lead",
     "qsMay.en-y0.ex-y5.contract-fixture",
     "qsEight.ex-ext-1",
     "qsF3",
 ]
-CONTRACTED_REDRAWN_CHAIN_CODEPOINTS = spell(
+CONTRACTED_REDRAWN_SHARED_LETTER_CODEPOINTS = spell(
     CONTRACTION_LEAD, CONTRACTED_JOINING_MAY, EIGHT_EXTENDED, FOLLOWER_3
 )
-CONTRACTED_REDRAWN_CHAIN_RULES = [CONTRACTED_ENTRY_RULE, REDRAWN_EXT_RULE, CONTRACTED_REDRAWN_CHAIN_RULE]
+CONTRACTED_REDRAWN_SHARED_LETTER_RULES = [
+    CONTRACTED_ENTRY_RULE,
+    REDRAWN_EXT_RULE,
+    CONTRACTED_REDRAWN_SHARED_LETTER_RULE,
+]
 GAIN_BEHIND_CREATED_JOIN_GLYPHS = ["qsL", "qsNo.en-ext-1", "qsRoe.en-ext-1-at-5", "qsF1"]
 GAIN_BEHIND_CREATED_JOIN_CODEPOINTS = spell(LEAD, NO, ROE_SHIFTED_GAIN, FOLLOWER_1)
 GAIN_BEHIND_CREATED_JOIN_RULES = [SHIFTED_GAIN_RULE, GAIN_BEHIND_CREATED_JOIN_RULE]
@@ -5241,25 +5262,25 @@ GIVE_BACK_BEHIND_RETARGET_RULES = [RETARGET_RULE, GIVE_BACK_JOIN_RULE]
 RETARGET_BEHIND_RETARGET_GLYPHS = [
     "qsL",
     "qsTea.half.ex-y5",
-    "qsNo.en-ext-1.retarget-chain-fixture",
+    "qsNo.en-ext-1.retarget-shared-letter-fixture",
     "qsF3",
 ]
-RETARGET_BEHIND_RETARGET_CODEPOINTS = spell(LEAD, TEA, NO_RETARGET_CHAINED, FOLLOWER_3)
+RETARGET_BEHIND_RETARGET_CODEPOINTS = spell(LEAD, TEA, NO_RETARGET_SHARED, FOLLOWER_3)
 RETARGET_BEHIND_RETARGET_RULES = [RETARGET_RULE, RETARGET_BEHIND_RETARGET_RULE]
 REDRAWN_BEHIND_RETARGET_GLYPHS = ["qsL", "qsTea.half.ex-y5", "qsEight.ex-ext-1", "qsF3"]
 REDRAWN_BEHIND_RETARGET_CODEPOINTS = spell(LEAD, TEA, EIGHT_EXTENDED, FOLLOWER_3)
 REDRAWN_BEHIND_RETARGET_RULES = [REDRAWN_EXT_RULE, REDRAWN_BEHIND_RETARGET_RULE]
-RETARGETED_EXTENSION_CHAIN_GLYPHS = [
+RETARGETED_EXTENSION_SHARED_LETTER_GLYPHS = [
     "qsL",
     "qsTea.half.ex-y5",
-    "qsNo.en-ext-1.extension-chain-fixture",
+    "qsNo.en-ext-1.extension-shared-letter-fixture",
     "qsJ.ex-y0.ex-ext-1",
     "qsF3",
 ]
-RETARGETED_EXTENSION_CHAIN_CODEPOINTS = spell(LEAD, TEA, NO_EXTENSION_CHAINED, PIVOT, FOLLOWER_3)
-RETARGETED_EXTENSION_CHAIN_RULES = [
+RETARGETED_EXTENSION_SHARED_LETTER_CODEPOINTS = spell(LEAD, TEA, NO_EXTENSION_SHARED, PIVOT, FOLLOWER_3)
+RETARGETED_EXTENSION_SHARED_LETTER_RULES = [
     RETARGET_RULE,
-    COMPOSED_EXT_RULE,
+    COMBINED_EXT_RULE,
     EXTENSION_BEHIND_CREATED_JOIN_RULE,
 ]
 
@@ -5321,10 +5342,10 @@ def moving_retargeted_created_join_window(uid="mrcj-1"):
     )
 
 
-def composed_retarget_window(uid="cr-1"):
+def combined_retarget_window(uid="cr-1"):
     return unit(
         uid,
-        list(COMPOSED_RETARGET_GLYPHS),
+        list(COMBINED_RETARGET_GLYPHS),
         ["y0", "y0", "y5"],
         [
             "qsL/full/None/None/",
@@ -5333,7 +5354,7 @@ def composed_retarget_window(uid="cr-1"):
             "qsNo/flipped/baseline/None/",
         ],
         ["y0", "y0", "y0"],
-        codepoints=COMPOSED_RETARGET_CODEPOINTS,
+        codepoints=COMBINED_RETARGET_CODEPOINTS,
         configs=("default",),
         ink_deltas={"default": SLIDE_DELTA},
         pair={"left": 2, "right": 3},
@@ -5358,10 +5379,10 @@ def created_join_window(uid="cj-1"):
     )
 
 
-def composed_created_join_window(uid="ccj-1"):
+def combined_created_join_window(uid="ccj-1"):
     return unit(
         uid,
-        list(COMPOSED_CREATED_JOIN_GLYPHS),
+        list(COMBINED_CREATED_JOIN_GLYPHS),
         ["y0", "y0", "break"],
         [
             "qsL/full/None/None/",
@@ -5370,7 +5391,7 @@ def composed_created_join_window(uid="ccj-1"):
             "qsF3/full/None/None/",
         ],
         ["y0", "y0", "y0"],
-        codepoints=COMPOSED_CREATED_JOIN_CODEPOINTS,
+        codepoints=COMBINED_CREATED_JOIN_CODEPOINTS,
         configs=("default",),
         ink_deltas={"default": SLIDE_DELTA},
         pair={"left": 2, "right": 3},
@@ -5396,10 +5417,10 @@ def widened_created_join_window(uid="wcj-1"):
     )
 
 
-def composed_widened_join_window(uid="cwj-1"):
+def combined_widened_join_window(uid="cwj-1"):
     return unit(
         uid,
-        list(COMPOSED_WIDENED_JOIN_GLYPHS),
+        list(COMBINED_WIDENED_JOIN_GLYPHS),
         ["y0", "y0", "break", "y0"],
         [
             "qsL/full/None/None/",
@@ -5409,7 +5430,7 @@ def composed_widened_join_window(uid="cwj-1"):
             "qsF1/full/None/None/",
         ],
         ["y0", "y0", "y0", "y0"],
-        codepoints=COMPOSED_WIDENED_JOIN_CODEPOINTS,
+        codepoints=COMBINED_WIDENED_JOIN_CODEPOINTS,
         configs=("default",),
         ink_deltas={"default": SLIDE_DELTA},
         pair={"left": 3, "right": 4},
@@ -5435,10 +5456,10 @@ def reaching_created_join_window(uid="rcjr-1"):
     )
 
 
-def composed_reaching_join_window(uid="crjr-1"):
+def combined_reaching_join_window(uid="crjr-1"):
     return unit(
         uid,
-        list(COMPOSED_REACHING_JOIN_GLYPHS),
+        list(COMBINED_REACHING_JOIN_GLYPHS),
         ["y0", "y0", "break", "y0"],
         [
             "qsL/full/None/None/",
@@ -5448,7 +5469,7 @@ def composed_reaching_join_window(uid="crjr-1"):
             "qsF1/full/None/None/",
         ],
         ["y0", "y0", "y0", "y0"],
-        codepoints=COMPOSED_REACHING_JOIN_CODEPOINTS,
+        codepoints=COMBINED_REACHING_JOIN_CODEPOINTS,
         configs=("default",),
         ink_deltas={"default": SLIDE_DELTA},
         pair={"left": 3, "right": 4},
@@ -5473,10 +5494,10 @@ def stub_created_join_window(uid="scj-1"):
     )
 
 
-def composed_stub_join_window(uid="csj-1"):
+def combined_stub_join_window(uid="csj-1"):
     return unit(
         uid,
-        list(COMPOSED_STUB_JOIN_GLYPHS),
+        list(COMBINED_STUB_JOIN_GLYPHS),
         ["y0", "y0", "break"],
         [
             "qsL/full/None/None/",
@@ -5485,7 +5506,7 @@ def composed_stub_join_window(uid="csj-1"):
             "qsF3/full/None/None/",
         ],
         ["y0", "y0", "y0"],
-        codepoints=COMPOSED_STUB_JOIN_CODEPOINTS,
+        codepoints=COMBINED_STUB_JOIN_CODEPOINTS,
         configs=("default",),
         ink_deltas={"default": SLIDE_DELTA},
         pair={"left": 2, "right": 3},
@@ -5663,10 +5684,10 @@ def created_join_behind_created_join_window(uid="cjbcj-1"):
     )
 
 
-def contracted_redrawn_chain_window(uid="crc-1"):
+def contracted_redrawn_shared_letter_window(uid="crc-1"):
     return unit(
         uid,
-        list(CONTRACTED_REDRAWN_CHAIN_GLYPHS),
+        list(CONTRACTED_REDRAWN_SHARED_LETTER_GLYPHS),
         ["y0", "break", "y0"],
         [
             "qsBay/full/None/None/",
@@ -5675,7 +5696,7 @@ def contracted_redrawn_chain_window(uid="crc-1"):
             "qsF3/full/None/None/",
         ],
         ["y0", "y5", "y0"],
-        codepoints=CONTRACTED_REDRAWN_CHAIN_CODEPOINTS,
+        codepoints=CONTRACTED_REDRAWN_SHARED_LETTER_CODEPOINTS,
         configs=("default",),
         ink_deltas={"default": SLIDE_DELTA},
         pair={"left": 1, "right": 2},
@@ -5824,10 +5845,10 @@ def redrawn_behind_created_join_window(uid="rdbcj-1"):
     )
 
 
-def retargeted_extension_chain_window(uid="rec-1"):
+def retargeted_extension_shared_letter_window(uid="rec-1"):
     return unit(
         uid,
-        list(RETARGETED_EXTENSION_CHAIN_GLYPHS),
+        list(RETARGETED_EXTENSION_SHARED_LETTER_GLYPHS),
         ["y0", "y5", "break", "y0"],
         [
             "qsL/full/None/None/",
@@ -5837,7 +5858,7 @@ def retargeted_extension_chain_window(uid="rec-1"):
             "qsF3/full/None/None/",
         ],
         ["y0", "y0", "y0", "y0"],
-        codepoints=RETARGETED_EXTENSION_CHAIN_CODEPOINTS,
+        codepoints=RETARGETED_EXTENSION_SHARED_LETTER_CODEPOINTS,
         configs=("default",),
         ink_deltas={"default": SLIDE_DELTA},
         pair={"left": 1, "right": 2},
@@ -5906,8 +5927,10 @@ def test_a_created_join_whose_follower_keeps_its_origin_is_refused_by_the_reachi
     )
 
 
-def test_a_slide_and_a_reaching_created_join_in_one_window_compose(slide_context):
-    events = sv._composed(COMPOSED_REACHING_JOIN_RULES, composed_reaching_join_window(), slide_context())
+def test_a_slide_and_a_reaching_created_join_in_one_window_combine(slide_context):
+    events = sv._combined_match(
+        COMBINED_REACHING_JOIN_RULES, combined_reaching_join_window(), slide_context()
+    )
     assert events == {SLIDE_RULE["id"]: [1], REACHING_CREATED_JOIN_RULE["id"]: [2]}
 
 
@@ -5926,8 +5949,8 @@ def test_a_created_join_rule_declaring_a_stub_drop_still_matches_a_pivot_that_ke
     assert sv._matches(STUB_CREATED_JOIN_RULE["match"], created_join_window(), context=slide_context())
 
 
-def test_a_slide_and_a_stub_dropping_created_join_in_one_window_compose(slide_context):
-    events = sv._composed(COMPOSED_STUB_JOIN_RULES, composed_stub_join_window(), slide_context())
+def test_a_slide_and_a_stub_dropping_created_join_in_one_window_combine(slide_context):
+    events = sv._combined_match(COMBINED_STUB_JOIN_RULES, combined_stub_join_window(), slide_context())
     assert events == {SLIDE_RULE["id"]: [1], STUB_CREATED_JOIN_RULE["id"]: [2]}
 
 
@@ -5963,9 +5986,9 @@ def test_a_created_join_rule_whose_pivot_list_omits_the_window_letter_does_not_m
     assert not sv._matches(rule["match"], created_join_window(), context=slide_context())
 
 
-def test_a_created_join_rule_naming_several_pivots_still_composes(slide_context):
+def test_a_created_join_rule_naming_several_pivots_still_combines(slide_context):
     rule = _several_pivots("qsSee", "qsJ")
-    events = sv._composed([SLIDE_RULE, rule], composed_created_join_window(), slide_context())
+    events = sv._combined_match([SLIDE_RULE, rule], combined_created_join_window(), slide_context())
     assert events == {SLIDE_RULE["id"]: [1], rule["id"]: [2]}
 
 
@@ -5999,22 +6022,22 @@ def test_a_created_join_rule_declining_another_form_still_matches(slide_context)
     assert sv._matches(rule["match"], created_join_window(), context=slide_context())
 
 
-def test_two_created_joins_claiming_one_position_still_refuse(slide_context):
+def test_two_created_joins_matching_one_position_still_refuse(slide_context):
     twin = json.loads(json.dumps(CREATED_JOIN_RULE))
     twin["id"] = CREATED_JOIN_RULE["id"] + "-again"
     twin["match"]["after"]["shift"] = -1
     rules = [SLIDE_RULE, CREATED_JOIN_RULE, twin]
-    assert sv._composed_walk(rules, composed_created_join_window(), slide_context()) is None
+    assert sv._combined_walk(rules, combined_created_join_window(), slide_context()) is None
 
 
 def test_a_created_join_that_declines_the_form_leaves_the_position_to_its_companion(slide_context):
-    """Two rules give one seam different shifts and are told apart by the before form each accepts. The rule whose `except_pivots` names this window's form makes no claim on the position, so the other rule is credited there and the window composes."""
+    """Two rules give one seam different shifts and are told apart by the before form each accepts. The rule whose `except_pivots` names this window's form does not match at the position, so the other rule is counted there and the window combines."""
     twin = json.loads(json.dumps(CREATED_JOIN_RULE))
     twin["id"] = CREATED_JOIN_RULE["id"] + "-again"
     twin["match"]["after"]["shift"] = -1
     twin["match"]["before"]["except_pivots"] = ["qsJ.ex-y0.ex-ext-3.long"]
     rules = [SLIDE_RULE, CREATED_JOIN_RULE, twin]
-    events = sv._composed(rules, composed_created_join_window(), slide_context())
+    events = sv._combined_match(rules, combined_created_join_window(), slide_context())
     assert events == {SLIDE_RULE["id"]: [1], CREATED_JOIN_RULE["id"]: [2]}
 
 
@@ -6085,8 +6108,8 @@ def test_a_follower_that_moves_defeats_the_standing_retarget_match(slide_context
     assert not sv._matches(RETARGET_RULE["match"], moving_retarget_window(), context=slide_context())
 
 
-def test_a_created_join_chains_behind_a_retarget_that_moved_its_follower(slide_context):
-    events = sv._composed(
+def test_a_created_join_shares_a_letter_with_a_retarget_that_moved_its_follower(slide_context):
+    events = sv._combined_match(
         MOVING_RETARGETED_CREATED_JOIN_RULES,
         moving_retargeted_created_join_window(),
         slide_context(),
@@ -6272,34 +6295,34 @@ def test_main_fills_only_the_blank_matching_join_retargeted_units(tmp_path, monk
     assert payload["verdicts"][0]["note"] == f"[standing: {RETARGET_RULE['id']}] {RETARGET_RULE['note']}"
 
 
-def test_a_slide_and_a_join_retarget_in_one_window_compose(slide_context):
-    events = sv._composed(COMPOSED_RETARGET_RULES, composed_retarget_window(), slide_context())
+def test_a_slide_and_a_join_retarget_in_one_window_combine(slide_context):
+    events = sv._combined_match(COMBINED_RETARGET_RULES, combined_retarget_window(), slide_context())
     assert events == {SLIDE_RULE["id"]: [1], RETARGET_RULE["id"]: [2]}
 
 
-def test_a_slide_and_a_created_join_in_one_window_compose(slide_context):
-    events = sv._composed(COMPOSED_CREATED_JOIN_RULES, composed_created_join_window(), slide_context())
+def test_a_slide_and_a_created_join_in_one_window_combine(slide_context):
+    events = sv._combined_match(COMBINED_CREATED_JOIN_RULES, combined_created_join_window(), slide_context())
     assert events == {SLIDE_RULE["id"]: [1], CREATED_JOIN_RULE["id"]: [2]}
 
 
-def test_a_slide_and_a_widened_created_join_in_one_window_compose(slide_context):
-    events = sv._composed(COMPOSED_WIDENED_JOIN_RULES, composed_widened_join_window(), slide_context())
+def test_a_slide_and_a_widened_created_join_in_one_window_combine(slide_context):
+    events = sv._combined_match(COMBINED_WIDENED_JOIN_RULES, combined_widened_join_window(), slide_context())
     assert events == {SLIDE_RULE["id"]: [1], WIDENED_CREATED_JOIN_RULE["id"]: [2]}
 
 
-def test_a_retarget_chained_behind_a_created_join_spends_the_follower_advance(slide_context):
+def test_a_retarget_sharing_a_letter_with_a_created_join_spends_the_follower_advance(slide_context):
     """When a retarget's pivot is a widened created join's follower, the walk places that letter by the join's shift alone. The retarget's own counts are read with its pivot in place, so they already include the advance the wider form gave back (`_handed_on`)."""
-    events = sv._composed(
+    events = sv._combined_match(
         RETARGET_BEHIND_WIDENED_JOIN_RULES, retarget_behind_created_join_window(), slide_context()
     )
     assert events == {RETARGET_BEHIND_WIDENED_JOIN_RULE["id"]: [1], RETARGET_RULE["id"]: [2]}
 
 
-def test_a_retarget_chained_behind_a_created_join_refuses_a_follower_moved_by_the_advance_too(
+def test_a_retarget_sharing_a_letter_with_a_created_join_refuses_a_follower_moved_by_the_advance_too(
     slide_context,
 ):
     """The walk fails when the follower moves the created join's declared advance further than the retarget's own count, because the walk does not add that advance a second time."""
-    events = sv._composed(
+    events = sv._combined_match(
         RETARGET_BEHIND_WIDENED_JOIN_RULES,
         retarget_behind_created_join_window(),
         slide_context("after-created-join-widened-follower"),
@@ -6307,8 +6330,10 @@ def test_a_retarget_chained_behind_a_created_join_refuses_a_follower_moved_by_th
     assert events is None
 
 
-def test_a_created_join_chains_behind_an_entry_contraction_on_its_pivot(slide_context):
-    events = sv._composed(CONTRACTED_CREATED_JOIN_RULES, contracted_created_join_window(), slide_context())
+def test_a_created_join_shares_a_letter_with_an_entry_contraction_on_its_pivot(slide_context):
+    events = sv._combined_match(
+        CONTRACTED_CREATED_JOIN_RULES, contracted_created_join_window(), slide_context()
+    )
     assert events == {CONTRACTED_ENTRY_RULE["id"]: [1], CONTRACTED_CREATED_JOIN_RULE["id"]: [1]}
 
 
@@ -6316,24 +6341,24 @@ def test_neither_rule_alone_reads_a_created_join_behind_a_contraction(slide_cont
     window = contracted_created_join_window()
     for rule in CONTRACTED_CREATED_JOIN_RULES:
         assert not sv._matches(rule["match"], window, context=slide_context())
-        assert sv._composed_walk([rule], window, slide_context()) is None
+        assert sv._combined_walk([rule], window, slide_context()) is None
 
 
 def test_a_created_join_whose_pivot_moved_its_origin_is_no_event_without_the_contraction(slide_context):
-    events = sv._composed_walk(
+    events = sv._combined_walk(
         [SLIDE_RULE, CONTRACTED_CREATED_JOIN_RULE], contracted_created_join_window(), slide_context()
     )
     assert events is None
 
 
-def test_a_chained_created_join_still_needs_its_follower_moved_by_both_shifts(slide_context):
+def test_a_letter_sharing_created_join_still_needs_its_follower_moved_by_both_shifts(slide_context):
     window = contracted_created_join_window(codepoints=CONTRACTED_UNMOVED_JOIN_CODEPOINTS)
-    assert sv._composed(CONTRACTED_CREATED_JOIN_RULES, window, slide_context()) is None
+    assert sv._combined_match(CONTRACTED_CREATED_JOIN_RULES, window, slide_context()) is None
 
 
-def test_a_created_join_chains_behind_an_ink_gain_on_its_pivot(slide_context):
-    """·Tea settling into the full bar and the baseline join that bar opens are two events on one letter: the picture it takes and the seam it offers. The ink gain is the position's event, the created join chains behind it, and both rules are credited at that position."""
-    events = sv._composed(GAINED_CREATED_JOIN_RULES, gained_created_join_window(), slide_context())
+def test_a_created_join_shares_a_letter_with_an_ink_gain_on_its_pivot(slide_context):
+    """·Tea settling into the full bar and the baseline join that bar opens are two events on one letter: the picture it takes and the seam it offers. The ink gain is the position's event, the created join shares its pivot, and both rules are counted at that position."""
+    events = sv._combined_match(GAINED_CREATED_JOIN_RULES, gained_created_join_window(), slide_context())
     assert events == {GAIN_UNDER_CREATED_JOIN_RULE["id"]: [1], GAINED_CREATED_JOIN_RULE["id"]: [1]}
 
 
@@ -6341,11 +6366,11 @@ def test_neither_rule_alone_reads_a_created_join_behind_a_gain(slide_context):
     window = gained_created_join_window()
     for rule in GAINED_CREATED_JOIN_RULES:
         assert not sv._matches(rule["match"], window, context=slide_context())
-        assert sv._composed_walk([rule], window, slide_context()) is None
+        assert sv._combined_walk([rule], window, slide_context()) is None
 
 
-def test_a_created_join_chained_behind_a_gain_still_needs_its_follower_moved(slide_context):
-    events = sv._composed(
+def test_a_created_join_sharing_a_letter_with_a_gain_still_needs_its_follower_moved(slide_context):
+    events = sv._combined_match(
         GAINED_CREATED_JOIN_RULES,
         gained_created_join_window(),
         slide_context("after-gained-created-join-unmoved"),
@@ -6353,16 +6378,16 @@ def test_a_created_join_chained_behind_a_gain_still_needs_its_follower_moved(sli
     assert events is None
 
 
-def test_two_ink_gains_claiming_one_position_still_refuse(slide_context):
+def test_two_ink_gains_matching_one_position_still_refuse(slide_context):
     twin = json.loads(json.dumps(GAIN_UNDER_CREATED_JOIN_RULE))
     twin["id"] = GAIN_UNDER_CREATED_JOIN_RULE["id"] + "-again"
     rules = [GAIN_UNDER_CREATED_JOIN_RULE, twin]
-    assert sv._composed_walk(rules, gained_created_join_window(), slide_context()) is None
+    assert sv._combined_walk(rules, gained_created_join_window(), slide_context()) is None
 
 
-def test_a_created_join_chains_behind_a_redrawn_trade_on_its_pivot(slide_context):
-    """·Eight's bowl pulling in and the baseline join that only the smaller bowl reaches are two events on one letter: the picture it takes and the seam it offers. The redrawn event is the position's event, the created join chains behind it, and both rules are credited at that position."""
-    events = sv._composed(REDRAWN_CREATED_JOIN_RULES, redrawn_created_join_window(), slide_context())
+def test_a_created_join_shares_a_letter_with_a_redrawn_trade_on_its_pivot(slide_context):
+    """·Eight's bowl pulling in and the baseline join that only the smaller bowl reaches are two events on one letter: the picture it takes and the seam it offers. The redrawn event is the position's event, the created join shares its pivot, and both rules are counted at that position."""
+    events = sv._combined_match(REDRAWN_CREATED_JOIN_RULES, redrawn_created_join_window(), slide_context())
     assert events == {
         REDRAWN_UNDER_CREATED_JOIN_RULE["id"]: [1],
         REDRAWN_CREATED_JOIN_RULE["id"]: [1],
@@ -6373,11 +6398,11 @@ def test_neither_rule_alone_reads_a_created_join_behind_a_redraw(slide_context):
     window = redrawn_created_join_window()
     for rule in REDRAWN_CREATED_JOIN_RULES:
         assert not sv._matches(rule["match"], window, context=slide_context())
-        assert sv._composed_walk([rule], window, slide_context()) is None
+        assert sv._combined_walk([rule], window, slide_context()) is None
 
 
-def test_a_created_join_chained_behind_a_redraw_still_needs_its_follower_moved(slide_context):
-    events = sv._composed(
+def test_a_created_join_sharing_a_letter_with_a_redraw_still_needs_its_follower_moved(slide_context):
+    events = sv._combined_match(
         REDRAWN_CREATED_JOIN_RULES,
         redrawn_created_join_window(),
         slide_context("after-redrawn-created-join-unmoved"),
@@ -6385,15 +6410,17 @@ def test_a_created_join_chained_behind_a_redraw_still_needs_its_follower_moved(s
     assert events is None
 
 
-def test_two_redrawn_trades_claiming_one_position_still_refuse(slide_context):
+def test_two_redrawn_trades_matching_one_position_still_refuse(slide_context):
     twin = json.loads(json.dumps(REDRAWN_UNDER_CREATED_JOIN_RULE))
     twin["id"] = REDRAWN_UNDER_CREATED_JOIN_RULE["id"] + "-again"
     rules = [REDRAWN_UNDER_CREATED_JOIN_RULE, twin]
-    assert sv._composed_walk(rules, redrawn_created_join_window(), slide_context()) is None
+    assert sv._combined_walk(rules, redrawn_created_join_window(), slide_context()) is None
 
 
-def test_a_created_join_chains_behind_a_retarget_on_its_follower(slide_context):
-    events = sv._composed(RETARGETED_CREATED_JOIN_RULES, retargeted_created_join_window(), slide_context())
+def test_a_created_join_shares_a_letter_with_a_retarget_on_its_follower(slide_context):
+    events = sv._combined_match(
+        RETARGETED_CREATED_JOIN_RULES, retargeted_created_join_window(), slide_context()
+    )
     assert events == {RETARGET_RULE["id"]: [1], RETARGETED_CREATED_JOIN_RULE["id"]: [2]}
 
 
@@ -6401,28 +6428,28 @@ def test_neither_rule_alone_reads_a_created_join_behind_a_retarget(slide_context
     window = retargeted_created_join_window()
     for rule in RETARGETED_CREATED_JOIN_RULES:
         assert not sv._matches(rule["match"], window, context=slide_context())
-        assert sv._composed_walk([rule], window, slide_context()) is None
+        assert sv._combined_walk([rule], window, slide_context()) is None
 
 
-def test_a_created_join_chained_behind_a_retarget_still_needs_both_shifts(slide_context):
-    events = sv._composed(
+def test_a_created_join_sharing_a_letter_with_a_retarget_still_needs_both_shifts(slide_context):
+    events = sv._combined_match(
         RETARGETED_CREATED_JOIN_RULES,
         retargeted_created_join_window(),
-        slide_context("after-chained-created-join-unmoved"),
+        slide_context("after-letter-sharing-created-join-unmoved"),
     )
     assert events is None
 
 
-def test_a_retarget_chains_behind_a_created_join_on_its_follower(slide_context):
-    events = sv._composed(
+def test_a_retarget_shares_a_letter_with_a_created_join_on_its_follower(slide_context):
+    events = sv._combined_match(
         RETARGET_BEHIND_CREATED_JOIN_RULES, retarget_behind_created_join_window(), slide_context()
     )
     assert events == {RETARGET_BEHIND_CREATED_JOIN_RULE["id"]: [1], RETARGET_RULE["id"]: [2]}
 
 
-def test_a_retarget_chains_behind_a_created_join_whose_follower_reached_back(slide_context):
+def test_a_retarget_shares_a_letter_with_a_created_join_whose_follower_reached_back(slide_context):
     """The created join's declared `follower_reach` accounts for its follower's moved own-frame origin. So a follower that reached back over its old left edge to take the join can still be a retarget's pivot, and the join passes the retarget only the reached-back columns (`_handed_on`)."""
-    events = sv._composed(
+    events = sv._combined_match(
         RETARGET_BEHIND_REACHING_JOIN_RULES, retarget_behind_reaching_join_window(), slide_context()
     )
     assert events == {REACHING_JOIN_BEFORE_RETARGET_RULE["id"]: [1], RETARGET_RULE["id"]: [2]}
@@ -6433,18 +6460,18 @@ def test_neither_rule_alone_reads_a_retarget_behind_a_reaching_created_join(slid
     window = retarget_behind_reaching_join_window()
     for rule in RETARGET_BEHIND_REACHING_JOIN_RULES:
         assert not sv._matches(rule["match"], window, context=slide_context())
-        assert sv._composed_walk([rule], window, slide_context()) is None
+        assert sv._combined_walk([rule], window, slide_context()) is None
 
 
 def test_neither_rule_alone_reads_a_retarget_behind_a_created_join(slide_context):
     window = retarget_behind_created_join_window()
     for rule in RETARGET_BEHIND_CREATED_JOIN_RULES:
         assert not sv._matches(rule["match"], window, context=slide_context())
-        assert sv._composed_walk([rule], window, slide_context()) is None
+        assert sv._combined_walk([rule], window, slide_context()) is None
 
 
-def test_a_retarget_chained_behind_a_created_join_still_needs_both_shifts(slide_context):
-    events = sv._composed(
+def test_a_retarget_sharing_a_letter_with_a_created_join_still_needs_both_shifts(slide_context):
+    events = sv._combined_match(
         RETARGET_BEHIND_CREATED_JOIN_RULES,
         retarget_behind_created_join_window(),
         slide_context("after-retarget-behind-created-join-unmoved"),
@@ -6452,22 +6479,22 @@ def test_a_retarget_chained_behind_a_created_join_still_needs_both_shifts(slide_
     assert events is None
 
 
-def test_an_extension_chains_behind_a_created_join_on_its_follower(slide_context):
-    events = sv._composed(
+def test_an_extension_shares_a_letter_with_a_created_join_on_its_follower(slide_context):
+    events = sv._combined_match(
         EXTENSION_BEHIND_CREATED_JOIN_RULES, extension_behind_created_join_window(), slide_context()
     )
-    assert events == {EXTENSION_BEHIND_CREATED_JOIN_RULE["id"]: [1], COMPOSED_EXT_RULE["id"]: [2]}
+    assert events == {EXTENSION_BEHIND_CREATED_JOIN_RULE["id"]: [1], COMBINED_EXT_RULE["id"]: [2]}
 
 
 def test_neither_rule_alone_reads_an_extension_behind_a_created_join(slide_context):
     window = extension_behind_created_join_window()
     for rule in EXTENSION_BEHIND_CREATED_JOIN_RULES:
         assert not sv._matches(rule["match"], window, context=slide_context())
-        assert sv._composed_walk([rule], window, slide_context()) is None
+        assert sv._combined_walk([rule], window, slide_context()) is None
 
 
-def test_an_extension_chained_behind_a_created_join_still_needs_both_shifts(slide_context):
-    events = sv._composed(
+def test_an_extension_sharing_a_letter_with_a_created_join_still_needs_both_shifts(slide_context):
+    events = sv._combined_match(
         EXTENSION_BEHIND_CREATED_JOIN_RULES,
         extension_behind_created_join_window(),
         slide_context("after-extension-behind-created-join-unmoved"),
@@ -6475,9 +6502,9 @@ def test_an_extension_chained_behind_a_created_join_still_needs_both_shifts(slid
     assert events is None
 
 
-def test_a_created_join_chains_behind_a_created_join_on_its_follower(slide_context):
+def test_a_created_join_shares_a_letter_with_a_created_join_on_its_follower(slide_context):
     """The first created join covers the shared letter's incoming seam and the second covers its outgoing seam. The letter is placed where the first join put it, and the second join moves everything after its own follower by both shifts."""
-    events = sv._composed(
+    events = sv._combined_match(
         CREATED_JOIN_BEHIND_CREATED_JOIN_RULES,
         created_join_behind_created_join_window(),
         slide_context(),
@@ -6492,11 +6519,11 @@ def test_neither_rule_alone_reads_a_created_join_behind_a_created_join(slide_con
     window = created_join_behind_created_join_window()
     for rule in CREATED_JOIN_BEHIND_CREATED_JOIN_RULES:
         assert not sv._matches(rule["match"], window, context=slide_context())
-        assert sv._composed_walk([rule], window, slide_context()) is None
+        assert sv._combined_walk([rule], window, slide_context()) is None
 
 
-def test_a_created_join_chained_behind_a_created_join_still_needs_both_shifts(slide_context):
-    events = sv._composed(
+def test_a_created_join_sharing_a_letter_with_a_created_join_still_needs_both_shifts(slide_context):
+    events = sv._combined_match(
         CREATED_JOIN_BEHIND_CREATED_JOIN_RULES,
         created_join_behind_created_join_window(),
         slide_context("after-created-join-behind-created-join-unmoved"),
@@ -6504,8 +6531,10 @@ def test_a_created_join_chained_behind_a_created_join_still_needs_both_shifts(sl
     assert events is None
 
 
-def test_an_ink_gain_chains_behind_a_created_join_on_its_follower(slide_context):
-    events = sv._composed(GAIN_BEHIND_CREATED_JOIN_RULES, gain_behind_created_join_window(), slide_context())
+def test_an_ink_gain_shares_a_letter_with_a_created_join_on_its_follower(slide_context):
+    events = sv._combined_match(
+        GAIN_BEHIND_CREATED_JOIN_RULES, gain_behind_created_join_window(), slide_context()
+    )
     assert events == {GAIN_BEHIND_CREATED_JOIN_RULE["id"]: [1], SHIFTED_GAIN_RULE["id"]: [2]}
 
 
@@ -6513,11 +6542,11 @@ def test_neither_rule_alone_reads_an_ink_gain_behind_a_created_join(slide_contex
     window = gain_behind_created_join_window()
     for rule in GAIN_BEHIND_CREATED_JOIN_RULES:
         assert not sv._matches(rule["match"], window, context=slide_context())
-        assert sv._composed_walk([rule], window, slide_context()) is None
+        assert sv._combined_walk([rule], window, slide_context()) is None
 
 
-def test_an_ink_gain_chained_behind_a_created_join_still_needs_both_shifts(slide_context):
-    events = sv._composed(
+def test_an_ink_gain_sharing_a_letter_with_a_created_join_still_needs_both_shifts(slide_context):
+    events = sv._combined_match(
         GAIN_BEHIND_CREATED_JOIN_RULES,
         gain_behind_created_join_window(),
         slide_context("after-gain-behind-created-join-unmoved"),
@@ -6525,8 +6554,8 @@ def test_an_ink_gain_chained_behind_a_created_join_still_needs_both_shifts(slide
     assert events is None
 
 
-def test_a_redraw_chains_behind_a_created_join_on_its_follower(slide_context):
-    events = sv._composed(
+def test_a_redraw_shares_a_letter_with_a_created_join_on_its_follower(slide_context):
+    events = sv._combined_match(
         REDRAWN_BEHIND_CREATED_JOIN_RULES, redrawn_behind_created_join_window(), slide_context()
     )
     assert events == {REDRAWN_BEHIND_CREATED_JOIN_RULE["id"]: [1], REDRAWN_EXT_RULE["id"]: [2]}
@@ -6536,11 +6565,11 @@ def test_neither_rule_alone_reads_a_redraw_behind_a_created_join(slide_context):
     window = redrawn_behind_created_join_window()
     for rule in REDRAWN_BEHIND_CREATED_JOIN_RULES:
         assert not sv._matches(rule["match"], window, context=slide_context())
-        assert sv._composed_walk([rule], window, slide_context()) is None
+        assert sv._combined_walk([rule], window, slide_context()) is None
 
 
-def test_a_redraw_chained_behind_a_created_join_still_needs_both_shifts(slide_context):
-    events = sv._composed(
+def test_a_redraw_sharing_a_letter_with_a_created_join_still_needs_both_shifts(slide_context):
+    events = sv._combined_match(
         REDRAWN_BEHIND_CREATED_JOIN_RULES,
         redrawn_behind_created_join_window(),
         slide_context("after-redrawn-unmoved-follower"),
@@ -6548,9 +6577,11 @@ def test_a_redraw_chained_behind_a_created_join_still_needs_both_shifts(slide_co
     assert events is None
 
 
-def test_a_retarget_chains_behind_a_retarget_on_its_follower(slide_context):
+def test_a_retarget_shares_a_letter_with_a_retarget_on_its_follower(slide_context):
     """The first retarget covers the shared letter's incoming seam and the second covers its outgoing seam. The first passes on only its follower's move, not the rest of its declared shift, because the second retarget's counts are read with its own pivot in place and already include any change in that letter's advance."""
-    events = sv._composed(RETARGET_BEHIND_RETARGET_RULES, retarget_behind_retarget_window(), slide_context())
+    events = sv._combined_match(
+        RETARGET_BEHIND_RETARGET_RULES, retarget_behind_retarget_window(), slide_context()
+    )
     assert events == {RETARGET_RULE["id"]: [1], RETARGET_BEHIND_RETARGET_RULE["id"]: [2]}
 
 
@@ -6558,12 +6589,12 @@ def test_neither_rule_alone_reads_a_retarget_behind_a_retarget(slide_context):
     window = retarget_behind_retarget_window()
     for rule in RETARGET_BEHIND_RETARGET_RULES:
         assert not sv._matches(rule["match"], window, context=slide_context())
-        assert sv._composed_walk([rule], window, slide_context()) is None
+        assert sv._combined_walk([rule], window, slide_context()) is None
 
 
-def test_a_retarget_chained_behind_a_retarget_still_needs_its_follower_standing(slide_context):
+def test_a_retarget_sharing_a_letter_with_a_retarget_still_needs_its_follower_standing(slide_context):
     """The first retarget says nothing about where the second retarget's follower is placed, so the walk still checks that placement."""
-    events = sv._composed(
+    events = sv._combined_match(
         RETARGET_BEHIND_RETARGET_RULES,
         retarget_behind_retarget_window(),
         slide_context("after-retarget-behind-retarget-moved-follower"),
@@ -6571,9 +6602,9 @@ def test_a_retarget_chained_behind_a_retarget_still_needs_its_follower_standing(
     assert events is None
 
 
-def test_a_join_drop_chains_behind_a_retarget_on_its_follower(slide_context):
+def test_a_join_drop_shares_a_letter_with_a_retarget_on_its_follower(slide_context):
     """The retarget covers the shared letter's incoming seam and the join drop covers its outgoing seam. The retarget passes on only its follower's move, not the rest of its declared shift, because the join drop's gap is read with its own pivot in place and already includes any change in that letter's advance."""
-    events = sv._composed(JOIN_BEHIND_RETARGET_RULES, join_behind_retarget_window(), slide_context())
+    events = sv._combined_match(JOIN_BEHIND_RETARGET_RULES, join_behind_retarget_window(), slide_context())
     assert events == {RETARGET_RULE["id"]: [1], REDRAWN_JOIN_RULE["id"]: [2]}
 
 
@@ -6581,12 +6612,12 @@ def test_neither_rule_alone_reads_a_join_drop_behind_a_retarget(slide_context):
     window = join_behind_retarget_window()
     for rule in JOIN_BEHIND_RETARGET_RULES:
         assert not sv._matches(rule["match"], window, context=slide_context())
-        assert sv._composed_walk([rule], window, slide_context()) is None
+        assert sv._combined_walk([rule], window, slide_context()) is None
 
 
-def test_a_join_drop_chained_behind_a_retarget_still_needs_its_pivot_standing(slide_context):
+def test_a_join_drop_sharing_a_letter_with_a_retarget_still_needs_its_pivot_standing(slide_context):
     """The retarget in front says nothing about the join drop's pivot origin, so the join drop still checks it."""
-    events = sv._composed(
+    events = sv._combined_match(
         JOIN_BEHIND_RETARGET_RULES,
         join_behind_retarget_window(),
         slide_context("after-join-pivot-moved-origin"),
@@ -6594,9 +6625,9 @@ def test_a_join_drop_chained_behind_a_retarget_still_needs_its_pivot_standing(sl
     assert events is None
 
 
-def test_a_join_drop_leaving_its_follower_standing_chains_behind_a_retarget(slide_context):
+def test_a_join_drop_leaving_its_follower_standing_shares_a_letter_with_a_retarget(slide_context):
     """This models the flipped ·No before ·Cheer after ·Pea or ·Tea lowers the seam into ·No: the retarget covers ·No's incoming seam, the zero-gap join drop covers its outgoing seam, and the follower stays where the old font drew it."""
-    events = sv._composed(
+    events = sv._combined_match(
         UNMOVED_JOIN_BEHIND_RETARGET_RULES,
         join_behind_retarget_window(),
         slide_context("after-join-pivot-keeping-its-advance"),
@@ -6609,17 +6640,19 @@ def test_neither_rule_alone_reads_a_zero_gap_behind_a_retarget(slide_context):
     context = slide_context("after-join-pivot-keeping-its-advance")
     for rule in UNMOVED_JOIN_BEHIND_RETARGET_RULES:
         assert not sv._matches(rule["match"], window, context=context)
-        assert sv._composed_walk([rule], window, context) is None
+        assert sv._combined_walk([rule], window, context) is None
 
 
-def test_a_zero_gap_chained_behind_a_retarget_refuses_a_follower_sitting_further(slide_context):
-    events = sv._composed(UNMOVED_JOIN_BEHIND_RETARGET_RULES, join_behind_retarget_window(), slide_context())
+def test_a_zero_gap_sharing_a_letter_with_a_retarget_refuses_a_follower_sitting_further(slide_context):
+    events = sv._combined_match(
+        UNMOVED_JOIN_BEHIND_RETARGET_RULES, join_behind_retarget_window(), slide_context()
+    )
     assert events is None
 
 
-def test_a_join_drop_whose_follower_hands_a_column_back_chains_behind_a_retarget(slide_context):
+def test_a_join_drop_whose_follower_hands_a_column_back_shares_a_letter_with_a_retarget(slide_context):
     """The follower's give-back is part of the join-dropped event, so the retarget on ·No's incoming seam and the join drop on its outgoing seam still explain the window, however far the follower redrew."""
-    events = sv._composed(
+    events = sv._combined_match(
         GIVE_BACK_BEHIND_RETARGET_RULES, give_back_behind_retarget_window(), slide_context()
     )
     assert events == {RETARGET_RULE["id"]: [1], GIVE_BACK_JOIN_RULE["id"]: [2]}
@@ -6629,12 +6662,14 @@ def test_neither_rule_alone_reads_a_give_back_join_behind_a_retarget(slide_conte
     window = give_back_behind_retarget_window()
     for rule in GIVE_BACK_BEHIND_RETARGET_RULES:
         assert not sv._matches(rule["match"], window, context=slide_context())
-        assert sv._composed_walk([rule], window, slide_context()) is None
+        assert sv._combined_walk([rule], window, slide_context()) is None
 
 
-def test_a_redraw_chains_behind_a_retarget_on_its_follower(slide_context):
+def test_a_redraw_shares_a_letter_with_a_retarget_on_its_follower(slide_context):
     """The retarget checks where the letter it brings in is placed, and the redrawn event checks the picture that letter settles into. Together they explain the window, as a created join followed by a redraw does."""
-    events = sv._composed(REDRAWN_BEHIND_RETARGET_RULES, redrawn_behind_retarget_window(), slide_context())
+    events = sv._combined_match(
+        REDRAWN_BEHIND_RETARGET_RULES, redrawn_behind_retarget_window(), slide_context()
+    )
     assert events == {REDRAWN_BEHIND_RETARGET_RULE["id"]: [1], REDRAWN_EXT_RULE["id"]: [2]}
 
 
@@ -6642,12 +6677,12 @@ def test_neither_rule_alone_reads_a_redraw_behind_a_retarget(slide_context):
     window = redrawn_behind_retarget_window()
     for rule in REDRAWN_BEHIND_RETARGET_RULES:
         assert not sv._matches(rule["match"], window, context=slide_context())
-        assert sv._composed_walk([rule], window, slide_context()) is None
+        assert sv._combined_walk([rule], window, slide_context()) is None
 
 
-def test_a_redraw_chained_behind_a_retarget_still_needs_its_column(slide_context):
+def test_a_redraw_sharing_a_letter_with_a_retarget_still_needs_its_column(slide_context):
     """The retarget has already checked where the redrawn letter is placed, so the redrawn event still has to move everything after it by its declared shift."""
-    events = sv._composed(
+    events = sv._combined_match(
         REDRAWN_BEHIND_RETARGET_RULES,
         redrawn_behind_retarget_window(),
         slide_context("after-redrawn-unmoved-follower"),
@@ -6655,61 +6690,63 @@ def test_a_redraw_chained_behind_a_retarget_still_needs_its_column(slide_context
     assert events is None
 
 
-def test_a_contraction_a_created_join_and_a_redraw_chain_through_one_window(slide_context):
-    events = sv._composed(CONTRACTED_REDRAWN_CHAIN_RULES, contracted_redrawn_chain_window(), slide_context())
+def test_a_contraction_a_created_join_and_a_redraw_share_letters_through_one_window(slide_context):
+    events = sv._combined_match(
+        CONTRACTED_REDRAWN_SHARED_LETTER_RULES, contracted_redrawn_shared_letter_window(), slide_context()
+    )
     assert events == {
         CONTRACTED_ENTRY_RULE["id"]: [1],
-        CONTRACTED_REDRAWN_CHAIN_RULE["id"]: [1],
+        CONTRACTED_REDRAWN_SHARED_LETTER_RULE["id"]: [1],
         REDRAWN_EXT_RULE["id"]: [2],
     }
 
 
-def test_a_redraw_behind_a_chained_created_join_still_needs_every_shift(slide_context):
-    events = sv._composed(
-        CONTRACTED_REDRAWN_CHAIN_RULES,
-        contracted_redrawn_chain_window(),
+def test_a_redraw_behind_a_letter_sharing_created_join_still_needs_every_shift(slide_context):
+    events = sv._combined_match(
+        CONTRACTED_REDRAWN_SHARED_LETTER_RULES,
+        contracted_redrawn_shared_letter_window(),
         slide_context("after-redrawn-unmoved-follower"),
     )
     assert events is None
 
 
-def test_a_retarget_a_created_join_and_an_extension_chain_through_one_window(slide_context):
-    events = sv._composed(
-        RETARGETED_EXTENSION_CHAIN_RULES, retargeted_extension_chain_window(), slide_context()
+def test_a_retarget_a_created_join_and_an_extension_share_letters_through_one_window(slide_context):
+    events = sv._combined_match(
+        RETARGETED_EXTENSION_SHARED_LETTER_RULES, retargeted_extension_shared_letter_window(), slide_context()
     )
     assert events == {
         RETARGET_RULE["id"]: [1],
         EXTENSION_BEHIND_CREATED_JOIN_RULE["id"]: [2],
-        COMPOSED_EXT_RULE["id"]: [3],
+        COMBINED_EXT_RULE["id"]: [3],
     }
 
 
-def test_a_chain_of_three_still_needs_the_extension_to_deliver_its_column(slide_context):
-    events = sv._composed(
-        RETARGETED_EXTENSION_CHAIN_RULES,
-        retargeted_extension_chain_window(),
+def test_three_letter_sharing_events_still_need_the_extension_to_deliver_its_column(slide_context):
+    events = sv._combined_match(
+        RETARGETED_EXTENSION_SHARED_LETTER_RULES,
+        retargeted_extension_shared_letter_window(),
         slide_context("after-extension-behind-created-join-unmoved"),
     )
     assert events is None
 
 
-def test_a_join_drop_and_a_join_retarget_in_one_window_compose(slide_context):
-    events = sv._composed(JOIN_RETARGET_RULES, join_retarget_window(), slide_context())
+def test_a_join_drop_and_a_join_retarget_in_one_window_combine(slide_context):
+    events = sv._combined_match(JOIN_RETARGET_RULES, join_retarget_window(), slide_context())
     assert events == {JOIN_RULE["id"]: [1], RETARGET_RULE["id"]: [3]}
 
 
-def test_a_pure_join_retarget_is_not_composed(slide_context):
-    assert sv._composed(COMPOSED_RETARGET_RULES, retarget_window(), slide_context()) is None
+def test_a_pure_join_retarget_is_not_combined(slide_context):
+    assert sv._combined_match(COMBINED_RETARGET_RULES, retarget_window(), slide_context()) is None
     assert sv._matches(RETARGET_RULE["match"], retarget_window(), context=slide_context())
 
 
-def test_main_writes_one_composed_retarget_record_and_leaves_the_per_rule_lines(
+def test_main_writes_one_combined_retarget_record_and_leaves_the_per_rule_lines(
     tmp_path, monkeypatch, capsys, slide_fonts
 ):
     payload = _run_main(
         tmp_path,
         monkeypatch,
-        [composed_retarget_window("cr-1")],
+        [combined_retarget_window("cr-1")],
         [],
         rules_list=(SLIDE_RULE, RETARGET_RULE),
         fonts=slide_fonts,
@@ -6732,20 +6769,20 @@ def test_main_writes_one_composed_retarget_record_and_leaves_the_per_rule_lines(
     ) in lines
 
 
-def test_one_extra_pixel_defeats_the_composed_retarget_reading(slide_context):
+def test_one_extra_pixel_defeats_the_combined_retarget_match(slide_context):
     assert (
-        sv._composed(
-            COMPOSED_RETARGET_RULES, composed_retarget_window(), slide_context("after-extra-prefix-pixel")
+        sv._combined_match(
+            COMBINED_RETARGET_RULES, combined_retarget_window(), slide_context("after-extra-prefix-pixel")
         )
         is None
     )
 
 
-def test_the_retarget_guard_holds_the_whole_composed_window(slide_context):
-    events = sv._composed(COMPOSED_RETARGET_RULES, composed_retarget_window(), slide_context())
-    assert sv._composed_held(
+def test_the_retarget_guard_holds_the_whole_combined_window(slide_context):
+    events = sv._combined_match(COMBINED_RETARGET_RULES, combined_retarget_window(), slide_context())
+    assert sv._combined_held(
         [guarded_rule(RETARGET_RULE, ["qsL"]), SLIDE_RULE],
-        composed_retarget_window(),
+        combined_retarget_window(),
         events,
         slide_context(),
     )
@@ -6757,7 +6794,7 @@ def test_main_fills_a_single_retarget_window_under_that_shapes_own_line(
     payload = _run_main(
         tmp_path,
         monkeypatch,
-        [retarget_window("r-1"), composed_retarget_window("cr-1")],
+        [retarget_window("r-1"), combined_retarget_window("cr-1")],
         [],
         rules_list=(SLIDE_RULE, RETARGET_RULE),
         fonts=slide_fonts,
@@ -6780,7 +6817,7 @@ REDRAWN_GLYPHS = ["qsL", "qsEight", "qsF3"]
 REDRAWN_CODEPOINTS = spell(LEAD, EIGHT, FOLLOWER_3)
 REDRAWN_EXT_GLYPHS = ["qsL", "qsEight.ex-ext-1", "qsF3"]
 REDRAWN_EXT_CODEPOINTS = spell(LEAD, EIGHT_EXTENDED, FOLLOWER_3)
-COMPOSED_REDRAWN_RULES = [REDRAWN_RULE, REDRAWN_EXT_RULE, ENTRY_RULE]
+COMBINED_REDRAWN_RULES = [REDRAWN_RULE, REDRAWN_EXT_RULE, ENTRY_RULE]
 
 
 def redrawn_window(uid="rd-1"):
@@ -6793,41 +6830,41 @@ def redrawn_ext_window(uid="rd-2"):
 
 PULLED_REDRAWN_GLYPHS = ["qsBay.contract-lead", "qsEight", "qsF3"]
 PULLED_REDRAWN_CODEPOINTS = spell(CONTRACTION_LEAD, EIGHT_PULLED_IN, FOLLOWER_3)
-COMPOSED_PULLED_REDRAWN_GLYPHS = ["qsL", "qsSee.ex-y0", "qsBay.contract-lead", "qsEight", "qsF3"]
-COMPOSED_PULLED_REDRAWN_CODEPOINTS = spell(LEAD, SEE, CONTRACTION_LEAD, EIGHT_PULLED_IN, FOLLOWER_3)
-COMPOSED_PULLED_REDRAWN_RULES = [SLIDE_RULE, PULLED_REDRAWN_RULE]
+COMBINED_PULLED_REDRAWN_GLYPHS = ["qsL", "qsSee.ex-y0", "qsBay.contract-lead", "qsEight", "qsF3"]
+COMBINED_PULLED_REDRAWN_CODEPOINTS = spell(LEAD, SEE, CONTRACTION_LEAD, EIGHT_PULLED_IN, FOLLOWER_3)
+COMBINED_PULLED_REDRAWN_RULES = [SLIDE_RULE, PULLED_REDRAWN_RULE]
 
 
 def pulled_redrawn_window(uid="rdp-1"):
     return slide_unit(uid, PULLED_REDRAWN_GLYPHS, PULLED_REDRAWN_CODEPOINTS)
 
 
-def composed_pulled_redrawn_window(uid="rdp-2"):
-    return slide_unit(uid, COMPOSED_PULLED_REDRAWN_GLYPHS, COMPOSED_PULLED_REDRAWN_CODEPOINTS)
+def combined_pulled_redrawn_window(uid="rdp-2"):
+    return slide_unit(uid, COMBINED_PULLED_REDRAWN_GLYPHS, COMBINED_PULLED_REDRAWN_CODEPOINTS)
 
 
 FRAMED_REDRAWN_GLYPHS = ["qsBay.contract-lead", "qsEight.frame-fixture", "qsF3"]
 FRAMED_REDRAWN_CODEPOINTS = spell(CONTRACTION_LEAD, EIGHT_FRAME_CONTRACTED, FOLLOWER_3)
-COMPOSED_FRAMED_REDRAWN_GLYPHS = [
+COMBINED_FRAMED_REDRAWN_GLYPHS = [
     "qsL",
     "qsSee.ex-y0",
     "qsBay.contract-lead",
     "qsEight.frame-fixture",
     "qsF3",
 ]
-COMPOSED_FRAMED_REDRAWN_CODEPOINTS = spell(LEAD, SEE, CONTRACTION_LEAD, EIGHT_FRAME_CONTRACTED, FOLLOWER_3)
-COMPOSED_FRAMED_REDRAWN_RULES = [SLIDE_RULE, FRAMED_REDRAWN_RULE]
+COMBINED_FRAMED_REDRAWN_CODEPOINTS = spell(LEAD, SEE, CONTRACTION_LEAD, EIGHT_FRAME_CONTRACTED, FOLLOWER_3)
+COMBINED_FRAMED_REDRAWN_RULES = [SLIDE_RULE, FRAMED_REDRAWN_RULE]
 
 
 def framed_redrawn_window(uid="rdf-1"):
     return slide_unit(uid, FRAMED_REDRAWN_GLYPHS, FRAMED_REDRAWN_CODEPOINTS)
 
 
-def composed_framed_redrawn_window(uid="rdf-2"):
-    return slide_unit(uid, COMPOSED_FRAMED_REDRAWN_GLYPHS, COMPOSED_FRAMED_REDRAWN_CODEPOINTS)
+def combined_framed_redrawn_window(uid="rdf-2"):
+    return slide_unit(uid, COMBINED_FRAMED_REDRAWN_GLYPHS, COMBINED_FRAMED_REDRAWN_CODEPOINTS)
 
 
-def composed_redrawn_window(uid="rd-3"):
+def combined_redrawn_window(uid="rd-3"):
     return slide_unit(
         uid,
         ["qsL", "qsEight.ex-ext-1", "qsLow.en-ext-1", "qsF3"],
@@ -6936,18 +6973,18 @@ def test_the_redrawn_shape_and_the_other_shapes_do_not_read_each_others_units(sl
     assert not sv._matches(INK_RULE["match"], redrawn_window())
 
 
-def test_a_redrawn_trade_and_an_entry_drop_in_one_window_compose(slide_context):
-    events = sv._composed(COMPOSED_REDRAWN_RULES, composed_redrawn_window(), slide_context())
+def test_a_redrawn_trade_and_an_entry_drop_in_one_window_combine(slide_context):
+    events = sv._combined_match(COMBINED_REDRAWN_RULES, combined_redrawn_window(), slide_context())
     assert events == {REDRAWN_EXT_RULE["id"]: [1], ENTRY_RULE["id"]: [2]}
 
 
-def test_the_redrawn_guard_holds_the_whole_composed_window(slide_context):
+def test_the_redrawn_guard_holds_the_whole_combined_window(slide_context):
     rules = [REDRAWN_RULE, guarded_rule(REDRAWN_EXT_RULE, ["qsF3"]), ENTRY_RULE]
-    window = composed_redrawn_window()
+    window = combined_redrawn_window()
     context = slide_context()
-    events = sv._composed(rules, window, context)
+    events = sv._combined_match(rules, window, context)
     assert events is not None
-    assert sv._composed_held(rules, window, events, context)
+    assert sv._combined_held(rules, window, events, context)
 
 
 def test_a_trade_the_pivots_own_placement_carries_matches(slide_context):
@@ -6962,8 +6999,10 @@ def test_a_pivot_pulled_further_than_its_contraction_names_is_refused(slide_cont
     )
 
 
-def test_a_slide_and_a_placement_carried_trade_in_one_window_compose(slide_context):
-    events = sv._composed(COMPOSED_PULLED_REDRAWN_RULES, composed_pulled_redrawn_window(), slide_context())
+def test_a_slide_and_a_placement_carried_trade_in_one_window_combine(slide_context):
+    events = sv._combined_match(
+        COMBINED_PULLED_REDRAWN_RULES, combined_pulled_redrawn_window(), slide_context()
+    )
     assert events == {SLIDE_RULE["id"]: [1], PULLED_REDRAWN_RULE["id"]: [3]}
 
 
@@ -6989,14 +7028,16 @@ def test_a_placement_taking_the_contraction_the_frame_already_took_is_refused(sl
     )
 
 
-def test_a_slide_and_a_frame_carried_trade_in_one_window_compose(slide_context):
-    events = sv._composed(COMPOSED_FRAMED_REDRAWN_RULES, composed_framed_redrawn_window(), slide_context())
+def test_a_slide_and_a_frame_carried_trade_in_one_window_combine(slide_context):
+    events = sv._combined_match(
+        COMBINED_FRAMED_REDRAWN_RULES, combined_framed_redrawn_window(), slide_context()
+    )
     assert events == {SLIDE_RULE["id"]: [1], FRAMED_REDRAWN_RULE["id"]: [3]}
 
 
-def test_a_pure_redrawn_window_is_not_composed(slide_context):
+def test_a_pure_redrawn_window_is_not_combined(slide_context):
     context = slide_context()
-    assert sv._composed(COMPOSED_REDRAWN_RULES, redrawn_window(), context) is None
+    assert sv._combined_match(COMBINED_REDRAWN_RULES, redrawn_window(), context) is None
     assert sv._matches(REDRAWN_RULE["match"], redrawn_window(), context=context)
 
 
@@ -7067,7 +7108,7 @@ def pure_loss_window(uid="pl-1"):
     return slide_unit(uid, ["qsL", "qsKey", "qsF3"], spell(LEAD, KEY, FOLLOWER_3))
 
 
-def composed_pure_loss_window(uid="pl-2"):
+def combined_pure_loss_window(uid="pl-2"):
     return slide_unit(uid, ["qsL", "qsKey", "qsLow.en-ext-1", "qsF3"], spell(LEAD, KEY, LOW, FOLLOWER_3))
 
 
@@ -7082,8 +7123,8 @@ def test_a_pure_loss_form_that_also_takes_a_cell_on_is_refused(slide_context):
     )
 
 
-def test_a_pure_loss_and_an_entry_drop_in_one_window_compose(slide_context):
-    events = sv._composed([PURE_LOSS_RULE, ENTRY_RULE], composed_pure_loss_window(), slide_context())
+def test_a_pure_loss_and_an_entry_drop_in_one_window_combine(slide_context):
+    events = sv._combined_match([PURE_LOSS_RULE, ENTRY_RULE], combined_pure_loss_window(), slide_context())
     assert events == {PURE_LOSS_RULE["id"]: [1], ENTRY_RULE["id"]: [2]}
 
 
@@ -7137,16 +7178,16 @@ def test_a_solo_rule_of_every_shape_fills_its_window_or_names_the_missing_fonts(
     assert payload["verdicts"][0]["note"] == f"[standing: {rule['id']}] {rule['note']}"
 
 
-COMPOSED_WALK_CORPORA = {
+COMBINED_WALK_CORPORA = {
     "slide": (
         SLIDE_RULE,
         slide_fixture_windows,
         ("after", "after-extra-prefix-pixel", "after-extra-follower-pixel"),
     ),
-    "ink-gain": (GAIN_RULE, lambda: [gain_window(), composed_gain_window(), founding_window()], ("after",)),
+    "ink-gain": (GAIN_RULE, lambda: [gain_window(), combined_gain_window(), founding_window()], ("after",)),
     "join-dropped": (
         JOIN_RULE,
-        lambda: [join_window(), composed_join_window(), founding_window()],
+        lambda: [join_window(), combined_join_window(), founding_window()],
         ("after",),
     ),
     "join-dropped-with-a-redrawn-pivot": (
@@ -7161,45 +7202,45 @@ COMPOSED_WALK_CORPORA = {
     ),
     "entry-extension-dropped": (
         ENTRY_RULE,
-        lambda: [entry_window(), composed_entry_window(), founding_window()],
+        lambda: [entry_window(), combined_entry_window(), founding_window()],
         ("after",),
     ),
     "entry-contracted": (
         CONTRACTED_ENTRY_RULE,
         lambda: [
             contracted_entry_window(),
-            composed_contracted_entry_window(),
+            combined_contracted_entry_window(),
             duplicate_may_before_window(),
             duplicate_may_after_window(),
             contracted_entry_covered_window(),
-            composed_contracted_entry_covered_window(),
+            combined_contracted_entry_covered_window(),
             founding_window(),
         ],
         ("after", "after-contracted-entry-extra-cell", "after-contracted-entry-unmoved-follower"),
     ),
     "join-retargeted": (
         RETARGET_RULE,
-        lambda: [retarget_window(), composed_retarget_window(), founding_window()],
+        lambda: [retarget_window(), combined_retarget_window(), founding_window()],
         ("after",),
     ),
     "join-created": (
         CREATED_JOIN_RULE,
-        lambda: [created_join_window(), composed_created_join_window(), founding_window()],
+        lambda: [created_join_window(), combined_created_join_window(), founding_window()],
         ("after", "after-created-join-unmoved"),
     ),
     "join-created-with-a-widened-follower": (
         WIDENED_CREATED_JOIN_RULE,
-        lambda: [widened_created_join_window(), composed_widened_join_window(), created_join_window()],
+        lambda: [widened_created_join_window(), combined_widened_join_window(), created_join_window()],
         ("after", "after-created-join-follower-not-widened"),
     ),
     "join-created-with-a-reaching-follower": (
         REACHING_CREATED_JOIN_RULE,
-        lambda: [reaching_created_join_window(), composed_reaching_join_window(), created_join_window()],
+        lambda: [reaching_created_join_window(), combined_reaching_join_window(), created_join_window()],
         ("after", "after-created-join-follower-not-reaching"),
     ),
     "join-created-whose-pivot-drops-a-stub": (
         STUB_CREATED_JOIN_RULE,
-        lambda: [stub_created_join_window(), composed_stub_join_window(), created_join_window()],
+        lambda: [stub_created_join_window(), combined_stub_join_window(), created_join_window()],
         ("after", "after-created-join-unmoved"),
     ),
     "join-created-behind-a-gain": (
@@ -7223,31 +7264,31 @@ COMPOSED_WALK_CORPORA = {
     ),
     "redrawn": (
         REDRAWN_RULE,
-        lambda: [redrawn_window(), redrawn_ext_window(), composed_redrawn_window()],
+        lambda: [redrawn_window(), redrawn_ext_window(), combined_redrawn_window()],
         ("after",),
     ),
     "redrawn-under-an-extension-frame": (
         REDRAWN_EXT_RULE,
-        lambda: [redrawn_window(), redrawn_ext_window(), composed_redrawn_window()],
+        lambda: [redrawn_window(), redrawn_ext_window(), combined_redrawn_window()],
         ("after",),
     ),
     "redrawn-as-a-pure-loss": (
         PURE_LOSS_RULE,
-        lambda: [pure_loss_window(), composed_pure_loss_window(), redrawn_window()],
+        lambda: [pure_loss_window(), combined_pure_loss_window(), redrawn_window()],
         ("after", "after-key-crowned"),
     ),
 }
 
 
-@pytest.mark.parametrize("corpus_name", list(COMPOSED_WALK_CORPORA))
-def test_the_composed_walk_credits_a_shape_exactly_where_its_own_matcher_does(slide_context, corpus_name):
-    """The composed walk and the single-rule matcher must agree about one rule on every window: the walk credits the rule where the matcher matches and nowhere else. Each row of `COMPOSED_WALK_CORPORA` checks this over its own corpus: windows the rule matches, composed windows it appears in, and windows that belong to another shape. The slide row's extra after fonts supply the stray-pixel cases that must fail."""
-    rule, windows, afters = COMPOSED_WALK_CORPORA[corpus_name]
+@pytest.mark.parametrize("corpus_name", list(COMBINED_WALK_CORPORA))
+def test_the_combined_walk_counts_a_shape_exactly_where_its_own_matcher_does(slide_context, corpus_name):
+    """The combined walk and the single-rule matcher must agree about one rule on every window: the walk counts the rule where the matcher matches and nowhere else. Each row of `COMBINED_WALK_CORPORA` checks this over its own corpus: windows the rule matches, combined-match windows it appears in, and windows that belong to another shape. The slide row's extra after fonts supply the stray-pixel cases that must fail."""
+    rule, windows, afters = COMBINED_WALK_CORPORA[corpus_name]
     for after in afters:
         context = slide_context(after)
         for window in windows():
-            credited = set(sv._composed_walk([rule], window, context) or ())
-            assert (credited == {rule["id"]}) == sv._matches(rule["match"], window, context=context), (
+            counted = set(sv._combined_walk([rule], window, context) or ())
+            assert (counted == {rule["id"]}) == sv._matches(rule["match"], window, context=context), (
                 after,
                 window["id"],
             )
@@ -7296,9 +7337,9 @@ def test_the_memo_stamp_is_blind_to_the_rules_file(tmp_path):
     assert sv.rules_roster([edited], False) != roster
     reordered = {"match": {key: RULE["match"][key] for key in reversed(list(RULE["match"]))}}
     assert sv.rules_roster([dict(RULE, **reordered)], False) == roster
-    assert roster.always == (RULE["id"],) and roster.composed_gate is False
-    assert sv.rules_roster([RULE, SLIDE_RULE, COMPOSED_EXT_RULE], True).always == (RULE["id"],)
-    assert sv.rules_roster([SLIDE_RULE, COMPOSED_EXT_RULE], True).always == ()
+    assert roster.always == (RULE["id"],) and roster.combined_gate is False
+    assert sv.rules_roster([RULE, SLIDE_RULE, COMBINED_EXT_RULE], True).always == (RULE["id"],)
+    assert sv.rules_roster([SLIDE_RULE, COMBINED_EXT_RULE], True).always == ()
 
 
 def test_the_memo_stamp_holds_still_across_a_docstring_edit(tmp_path):
@@ -7396,16 +7437,16 @@ def test_a_header_with_no_readable_roster_reads_as_every_rule_moved(tmp_path):
     assert reopened.stored is None and len(reopened.entries) == 1
     assert sv.Decider([RULE], None, reopened).decide(unit).matched == {RULE["id"]}
     for header in (
-        {"format": sv.MEMO_FORMAT, "environment": "env", "rules": [], "always": [], "composed_gate": False},
+        {"format": sv.MEMO_FORMAT, "environment": "env", "rules": [], "always": [], "combined_gate": False},
         {
             "format": sv.MEMO_FORMAT,
             "environment": "env",
             "rules": {"a": ["x"]},
             "always": [],
-            "composed_gate": False,
+            "combined_gate": False,
         },
-        {"format": sv.MEMO_FORMAT, "environment": "env", "rules": {}, "always": [1], "composed_gate": False},
-        {"format": sv.MEMO_FORMAT, "environment": "env", "rules": {}, "always": [], "composed_gate": None},
+        {"format": sv.MEMO_FORMAT, "environment": "env", "rules": {}, "always": [1], "combined_gate": False},
+        {"format": sv.MEMO_FORMAT, "environment": "env", "rules": {}, "always": [], "combined_gate": None},
     ):
         with gzip.open(path, "wt", encoding="utf-8") as stream:
             stream.write(json.dumps(header) + "\n")
@@ -7416,13 +7457,15 @@ def test_a_header_with_no_readable_roster_reads_as_every_rule_moved(tmp_path):
 
 
 def test_a_decision_survives_the_memo_round_trip(tmp_path):
-    """Every field of a decision reads back from the file as written: the composed part's credited ids, held flag, verdict, and weakening rule; the matched and held ids; and the entry's relevant ids. The header's roster reads back too."""
-    composed = sv.Composed(("a", "b"), False, "either", "w")
+    """Every field of a decision reads back from the file as written: the combined part's counted ids, held flag, verdict, and weakening rule; the matched and held ids; and the entry's relevant ids. The header's roster reads back too."""
+    combined = sv.CombinedMatch(("a", "b"), False, "either", "w")
     decisions = {
-        "1" * 64: sv.Decision(composed, frozenset(), frozenset(), ("a", "b", "d")),
+        "1" * 64: sv.Decision(combined, frozenset(), frozenset(), ("a", "b", "d")),
         "2"
-        * 64: sv.Decision(sv.Composed(("a", "b"), True, None, None), frozenset(), frozenset(), ("a", "b")),
-        "3" * 64: sv.Decision(sv.Composed(("a",), False, "approve"), frozenset(), frozenset(), ("a",)),
+        * 64: sv.Decision(
+            sv.CombinedMatch(("a", "b"), True, None, None), frozenset(), frozenset(), ("a", "b")
+        ),
+        "3" * 64: sv.Decision(sv.CombinedMatch(("a",), False, "approve"), frozenset(), frozenset(), ("a",)),
         "4" * 64: sv.Decision(None, frozenset({"a", "b"}), frozenset({"c"}), ("b",)),
         "5" * 64: sv.Decision(None, frozenset(), frozenset()),
     }
@@ -7430,12 +7473,12 @@ def test_a_decision_survives_the_memo_round_trip(tmp_path):
     memo = sv.Memo(tmp_path / "memo.ndjson.gz", "env", {})
     for unit, decision in zip(units, decisions.values()):
         memo.fresh[memo.key_for(unit) or ""] = decision
-    roster = sv.rules_roster([SLIDE_RULE, COMPOSED_EXT_RULE, RULE], True)
+    roster = sv.rules_roster([SLIDE_RULE, COMBINED_EXT_RULE, RULE], True)
     assert memo.write(units, roster) == 5
     reopened = sv.Memo.open(tmp_path / "memo.ndjson.gz", "env", {})
     assert [reopened.entries[memo.key_for(unit) or ""] for unit in units] == list(decisions.values())
     assert reopened.stored is not None and reopened.stored == roster
-    assert list(reopened.stored.rules) == [SLIDE_RULE["id"], COMPOSED_EXT_RULE["id"], RULE["id"]]
+    assert list(reopened.stored.rules) == [SLIDE_RULE["id"], COMBINED_EXT_RULE["id"], RULE["id"]]
 
 
 def test_the_memo_written_back_is_bounded_to_the_corpus_and_keeps_what_it_did_not_read(tmp_path):
@@ -7506,7 +7549,7 @@ EXT_ONLY_CODEPOINTS = spell(LEAD, MIDDLE, PIVOT, FOLLOWER_3, FOLLOWER_1)
 
 
 def _nowhere_slide(uid="fixture-slide-nowhere"):
-    """A composable rule whose pivot no fixture window draws, so it has no candidate position anywhere."""
+    """A combinable rule whose pivot no fixture window draws, so it has no candidate position anywhere."""
     copied = json.loads(json.dumps(SLIDE_RULE))
     copied["id"] = uid
     copied["match"]["before"]["pivots"] = ["qsSee.nowhere"]
@@ -7515,8 +7558,8 @@ def _nowhere_slide(uid="fixture-slide-nowhere"):
 
 
 def _keyed_windows():
-    """Three keyed slide windows: one both composable rules have a candidate in, one only the slide rule has, one only the extension rule has."""
-    both = dict(composed_window("w-both"), content_key="b" * 64)
+    """Three keyed slide windows: one both combinable rules have a candidate in, one only the slide rule has, one only the extension rule has."""
+    both = dict(combined_window("w-both"), content_key="b" * 64)
     slide = dict(twice_slid_window("w-slide"), content_key="s" * 64)
     extension = dict(slide_unit("w-ext", EXT_ONLY_GLYPHS, EXT_ONLY_CODEPOINTS), content_key="e" * 64)
     return [both, slide, extension]
@@ -7546,31 +7589,31 @@ def _warm_runs(tmp_path, monkeypatch, capsys, fonts, units, rules_by_label, memo
 
 
 def test_a_units_relevant_rules_are_the_ones_that_could_speak_for_it(slide_context):
-    """An entry's relevant ids are the composable rules with a candidate position in its window, in rules-file order, whatever the window's decision was. A non-composable rule with a non-empty except_left or an `either` verdict is read by every composed reading, so it goes in the roster's `always` list instead. A rule that is neither is in neither list."""
+    """An entry's relevant ids are the combinable rules with a candidate position in its window, in rules-file order, whatever the window's decision was. A non-combinable rule with a non-empty except_left or an `either` verdict is read by every combined match, so it goes in the roster's `always` list instead. A rule that is neither is in neither list."""
     context = slide_context()
     inert_either = dict(RULE, id="inert-either", verdict="either", match=dict(RULE["match"], except_left=[]))
     inert_approve = dict(RULE, id="inert-approve", match=dict(RULE["match"], except_left=[]))
-    rules = [RULE, SLIDE_RULE, inert_either, COMPOSED_EXT_RULE, inert_approve, _nowhere_slide()]
+    rules = [RULE, SLIDE_RULE, inert_either, COMBINED_EXT_RULE, inert_approve, _nowhere_slide()]
     decider = sv.Decider(rules, context)
     both, slide, extension = _keyed_windows()
-    assert decider.evaluate(both).relevant == (SLIDE_RULE["id"], COMPOSED_EXT_RULE["id"])
-    assert decider.evaluate(both).composed is not None
+    assert decider.evaluate(both).relevant == (SLIDE_RULE["id"], COMBINED_EXT_RULE["id"])
+    assert decider.evaluate(both).combined is not None
     assert decider.evaluate(slide).relevant == (SLIDE_RULE["id"],)
-    assert decider.evaluate(extension).relevant == (COMPOSED_EXT_RULE["id"],)
-    assert decider.evaluate(extension).composed is None
+    assert decider.evaluate(extension).relevant == (COMBINED_EXT_RULE["id"],)
+    assert decider.evaluate(extension).combined is None
     assert decider.evaluate(canonical("u-1")).relevant == ()
     assert decider.roster.always == (RULE["id"], "inert-either")
 
 
 def test_adding_a_rule_keeps_the_entries_it_has_no_candidate_in(tmp_path, monkeypatch, capsys, slide_fonts):
-    """A composable rule with no candidate position in a window adds no term to that window's pre-gate and no event to its walk. So appending one serves every stored entry unchanged, prints the appended rule's own zero line, and writes the same fills."""
+    """A combinable rule with no candidate position in a window adds no term to that window's name-only precheck and no event to its walk. So appending one serves every stored entry unchanged, prints the appended rule's own zero line, and writes the same fills."""
     runs = _warm_runs(
         tmp_path,
         monkeypatch,
         capsys,
         slide_fonts,
         _keyed_windows(),
-        {"seed": COMPOSABLE_RULES, "appended": [*COMPOSABLE_RULES, _nowhere_slide()]},
+        {"seed": COMBINABLE_RULES, "appended": [*COMBINABLE_RULES, _nowhere_slide()]},
     )
     assert runs["seed"][1] == "  memo: served 0, computed 3, unkeyed 0; memo.ndjson.gz holds 3 entries"
     assert runs["appended"][1] == "  memo: served 3, computed 0, unkeyed 0; memo.ndjson.gz holds 3 entries"
@@ -7594,9 +7637,9 @@ def test_a_changed_rule_drops_only_the_entries_it_had_candidates_in(
         slide_fonts,
         [both, slide, extension],
         {
-            "seed": [SLIDE_RULE, COMPOSED_EXT_RULE, _nowhere_slide()],
-            "widened": [widened, COMPOSED_EXT_RULE, _nowhere_slide()],
-            "retargeted": [widened, COMPOSED_EXT_RULE, retargeted],
+            "seed": [SLIDE_RULE, COMBINED_EXT_RULE, _nowhere_slide()],
+            "widened": [widened, COMBINED_EXT_RULE, _nowhere_slide()],
+            "retargeted": [widened, COMBINED_EXT_RULE, retargeted],
         },
     )
     assert runs["seed"][1] == "  memo: served 0, computed 3, unkeyed 0; memo.ndjson.gz holds 3 entries"
@@ -7609,7 +7652,7 @@ def test_a_changed_rule_drops_only_the_entries_it_had_candidates_in(
         capsys,
         slide_fonts,
         [both, slide, extension],
-        {"retargeted": [widened, COMPOSED_EXT_RULE, retargeted]},
+        {"retargeted": [widened, COMBINED_EXT_RULE, retargeted]},
     )
     assert runs["retargeted"][0] == fresh["retargeted"][0]
     assert runs["retargeted"][2] == fresh["retargeted"][2]
@@ -7618,7 +7661,7 @@ def test_a_changed_rule_drops_only_the_entries_it_had_candidates_in(
 def test_a_vanished_rule_is_taken_off_the_entries_it_was_matched_on(
     tmp_path, monkeypatch, capsys, slide_fonts
 ):
-    """A non-composable rule removed from the file has no candidates, so no entry is re-evaluated for it. It is removed from the matched and held sets of the entries that named it, so the memo does not name a rule the report has no line for, and the file written back does not name it either."""
+    """A non-combinable rule removed from the file has no candidates, so no entry is re-evaluated for it. It is removed from the matched and held sets of the entries that named it, so the memo does not name a rule the report has no line for, and the file written back does not name it either."""
     held = dict(canonical("k-2", left="qsOut.ex-ext-1"), content_key="e" * 64, ink_deltas={"ss03": DELTA_A})
     units = [_keyed_unit("k-1"), held]
     memo = tmp_path / "memo.ndjson.gz"
@@ -7641,8 +7684,8 @@ def test_a_vanished_rule_is_taken_off_the_entries_it_was_matched_on(
     assert all(record[1] == [] and record[2] == [] for record in records)
 
 
-def test_the_composed_gate_turning_on_drops_every_entry(tmp_path, monkeypatch, capsys, slide_fonts):
-    """The composed reading is on for the whole run once the file has two composable rules. So going from one to two re-evaluates every entry, even where the second rule has no candidate. This is the one edit that changes a window's decision without touching a rule that has a candidate in it. A third run under the same two rules serves everything."""
+def test_the_combined_gate_turning_on_drops_every_entry(tmp_path, monkeypatch, capsys, slide_fonts):
+    """The combined match is on for the whole run once the file has two combinable rules. So going from one to two re-evaluates every entry, even where the second rule has no candidate. This is the one edit that changes a window's decision without touching a rule that has a candidate in it. A third run under the same two rules serves everything."""
     runs = _warm_runs(
         tmp_path,
         monkeypatch,
@@ -7663,10 +7706,10 @@ def test_the_composed_gate_turning_on_drops_every_entry(tmp_path, monkeypatch, c
     assert runs["one-again"][0] == runs["one"][0]
 
 
-def test_a_changed_always_read_rule_drops_the_claimed_windows_only(
+def test_a_changed_always_read_rule_drops_the_combined_match_windows_only(
     tmp_path, monkeypatch, capsys, slide_fonts
 ):
-    """A non-composable rule with a non-empty except_left is read by every composed reading, so editing its guard re-evaluates the windows a composed reading claims and serves the rest. An unclaimed window does not read that rule, and the edited rule's own results on it are repaired only where its name-grain precondition admits the window. A ·Tea ligature rule's precondition admits none of these windows."""
+    """A non-combinable rule with a non-empty except_left is read by every combined match, so editing its guard re-evaluates the combined-match windows and serves the rest. A window with no combined match does not read that rule, and the edited rule's own results on it are repaired only where its name-grain precondition admits the window. A ·Tea ligature rule's precondition admits none of these windows."""
     both, slide, extension = _keyed_windows()
     guarded = guarded_rule(dict(RULE, id="guarded-ligature"), ["qsAh"])
     reguarded = guarded_rule(dict(RULE, id="guarded-ligature"), ["qsOut"])
@@ -7676,26 +7719,26 @@ def test_a_changed_always_read_rule_drops_the_claimed_windows_only(
         capsys,
         slide_fonts,
         [both, slide, extension],
-        {"seed": [*COMPOSABLE_RULES, guarded], "reguarded": [*COMPOSABLE_RULES, reguarded]},
+        {"seed": [*COMBINABLE_RULES, guarded], "reguarded": [*COMBINABLE_RULES, reguarded]},
     )
     assert runs["seed"][1] == "  memo: served 0, computed 3, unkeyed 0; memo.ndjson.gz holds 3 entries"
     assert runs["reguarded"][1] == "  memo: served 1, computed 2, unkeyed 0; memo.ndjson.gz holds 3 entries"
     assert runs["reguarded"][0] == runs["seed"][0]
 
 
-def test_two_composable_rules_swapping_places_re_evaluate_the_windows_naming_both(
+def test_two_combinable_rules_swapping_places_re_evaluate_the_windows_naming_both(
     tmp_path, monkeypatch, capsys, slide_fonts
 ):
-    """Swapping two composable rules in the file changes no match digest and no verdict, but it does change a claimed window's fill, because the credited ids and their notes are written in rules-file order. A claimed window whose relevant ids are no longer in file order is re-evaluated, a window naming only one of them is served, and the fills match a fresh run's under the swapped file."""
+    """Swapping two combinable rules in the file changes no match digest and no verdict, but it does change a combined-match window's fill, because the counted ids and their notes are written in rules-file order. A combined-match window whose relevant ids are no longer in file order is re-evaluated, a window naming only one of them is served, and the fills match a fresh run's under the swapped file."""
     both, slide, extension = _keyed_windows()
-    swapped = [COMPOSED_EXT_RULE, SLIDE_RULE]
+    swapped = [COMBINED_EXT_RULE, SLIDE_RULE]
     runs = _warm_runs(
         tmp_path,
         monkeypatch,
         capsys,
         slide_fonts,
         [both, slide, extension],
-        {"seed": COMPOSABLE_RULES, "swapped": swapped},
+        {"seed": COMBINABLE_RULES, "swapped": swapped},
     )
     fresh = _warm_runs(
         tmp_path / "fresh", monkeypatch, capsys, slide_fonts, [both, slide, extension], {"swapped": swapped}
@@ -7709,14 +7752,14 @@ def test_two_composable_rules_swapping_places_re_evaluate_the_windows_naming_bot
     assert notes["w-both"] != seeded["w-both"]
 
 
-def test_a_new_non_composable_rule_is_asked_on_the_served_entries_its_shape_admits(
+def test_a_new_non_combinable_rule_is_asked_on_the_served_entries_its_shape_admits(
     tmp_path, monkeypatch, capsys, slide_fonts
 ):
-    """A non-composable rule appended to the file has no candidate positions, so no unclaimed entry is re-evaluated for it. Instead it is checked, with and without its guard, on every served unclaimed entry its name-grain precondition admits, and nothing else runs on those entries. The test lets the parent's `evaluate` run only for the two claimed windows and fails otherwise, so every other result the run counted came from the repair. The fills and the report match a run with no memo under the appended rules: the window the rule accepts is filled, the one its guard holds is reported held, the claimed windows are re-evaluated because a guarded rule joins the rules every composed reading reads, and the unclaimed extension window, which a ·Tea ligature rule's precondition does not admit, is served unchanged."""
+    """A non-combinable rule appended to the file has no candidate positions, so no entry without a combined match is re-evaluated for it. Instead it is checked, with and without its guard, on every served entry without a combined match its name-grain precondition admits, and nothing else runs on those entries. The test lets the parent's `evaluate` run only for the two combined-match windows and fails otherwise, so every other result the run counted came from the repair. The fills and the report match a run with no memo under the appended rules: the window the rule accepts is filled, the one its guard holds is reported held, the combined-match windows are re-evaluated because a guarded rule joins the rules every combined match reads, and the extension window with no combined match, which a ·Tea ligature rule's precondition does not admit, is served unchanged."""
     held = dict(canonical("k-2", left="qsOut.ex-ext-1"), content_key="e" * 64, ink_deltas={"ss03": DELTA_A})
     units = [_keyed_unit("k-1"), held, *_keyed_windows()]
-    appended = [*COMPOSABLE_RULES, RULE]
-    runs = _warm_runs(tmp_path, monkeypatch, capsys, slide_fonts, units, {"seed": COMPOSABLE_RULES})
+    appended = [*COMBINABLE_RULES, RULE]
+    runs = _warm_runs(tmp_path, monkeypatch, capsys, slide_fonts, units, {"seed": COMBINABLE_RULES})
     fresh = _warm_runs(tmp_path / "fresh", monkeypatch, capsys, slide_fonts, units, {"appended": appended})
     evaluate = sv.Decider.evaluate
     monkeypatch.setattr(
@@ -7768,7 +7811,7 @@ def _human_units(corpus):
 
 
 def _mini_rules(corpus, path):
-    """The checked-in rules, whose composed reading credits windows of the mini bundle, plus one ink-delta rule for the digest the bundle's human units carry most often, so the run also writes single-rule fills."""
+    """The checked-in rules, whose combined match counts windows of the mini bundle, plus one ink-delta rule for the digest the bundle's human units carry most often, so the run also writes single-rule fills."""
     from collections import Counter
 
     digests = Counter(
@@ -7803,10 +7846,10 @@ def _run_over_mini(tmp_path, monkeypatch, corpus, rules, verdicts, extra, writes
     return code, out.read_bytes()
 
 
-def test_the_mini_bundle_reaches_a_composed_line_and_the_bundle_local_rule(
+def test_the_mini_bundle_reaches_a_combined_match_line_and_the_bundle_local_rule(
     tmp_path, monkeypatch, capsys, mini_corpus
 ):
-    """Over a blank store, the mini-bundle run writes both kinds of fill: one credited by a composed reading and one written by a single rule's own line. The byte-identity tests below depend on this, because a memo that served either kind wrongly would then show a difference."""
+    """Over a blank store, the mini-bundle run writes both kinds of fill: one counted by a combined match and one written by a single rule's own line. The byte-identity tests below depend on this, because a memo that served either kind wrongly would then show a difference."""
     rules = _mini_rules(mini_corpus, tmp_path / "rules.yaml")
     _code, fills = _run_over_mini(tmp_path, monkeypatch, mini_corpus, rules, [], ())
     capsys.readouterr()
@@ -7856,14 +7899,14 @@ def test_the_memo_serves_the_mini_bundle_byte_for_byte(tmp_path, monkeypatch, ca
 def test_a_rules_edit_recomputes_only_the_units_the_edit_can_reach(
     tmp_path, monkeypatch, capsys, mini_corpus, form
 ):
-    """Over a real build of the frozen mini bundle, under the checked-in rules and the bundle-local ink-delta rule. With every note reworded, a warm run computes nothing and writes the same fills, exit code, and report lines as a run with no memo under the reworded rules, and every fill uses the new wording. With one composable rule appended, a warm run computes only the human units the appended rule has a candidate position in, and matches a run with no memo under the appended rules byte for byte. The appended rule is a copy of a checked-in rule that has candidates here, so the walk's refusal of two rules claiming one position changes the fills of every window it reaches. Both the bare form and the verdict update's form are checked."""
+    """Over a real build of the frozen mini bundle, under the checked-in rules and the bundle-local ink-delta rule. With every note reworded, a warm run computes nothing and writes the same fills, exit code, and report lines as a run with no memo under the reworded rules, and every fill uses the new wording. With one combinable rule appended, a warm run computes only the human units the appended rule has a candidate position in, and matches a run with no memo under the appended rules byte for byte. The appended rule is a copy of a checked-in rule that has candidates here, so the walk's refusal of two rules matching one position changes the fills of every window it reaches. Both the bare form and the verdict update's form are checked."""
     seeded = sv.load_rules(_mini_rules(mini_corpus, tmp_path / "seed.yaml"))
     human = _human_units(mini_corpus)
     reworded = [dict(rule, note=rule["note"] + " (reworded)") for rule in seeded]
     twin = next(
         json.loads(json.dumps(rule))
         for rule in seeded
-        if sv._is_composable(rule)
+        if sv._is_combinable(rule)
         and sv._shape_of(rule["match"]) is not sv.SHAPES["extension-dropped"]
         and any(sv._candidates(rule["match"], unit) for unit in human)
     )
@@ -8056,70 +8099,70 @@ def test_a_shallow_miss_pile_and_a_width_of_one_never_start_a_pool(monkeypatch):
     assert (decider.computed, decider.unkeyed) == (5, 1)
 
 
-def test_the_decider_holds_the_composable_digest_for_the_run(slide_context):
-    """`_composed` runs per unit, and the digest it keys the walk memo on is constant for the run, so the Decider computes it once. Two Deciders with different rule sets, driven through `evaluate` against one context, still get separate walk memo entries, which is what the digest is for."""
+def test_the_decider_holds_the_combinable_digest_for_the_run(slide_context):
+    """`_combined_match` runs per unit, and the digest it keys the walk memo on is constant for the run, so the Decider computes it once. Two Deciders with different rule sets, driven through `evaluate` against one context, still get separate walk memo entries, which is what the digest is for."""
     context = slide_context()
-    renamed = [json.loads(json.dumps(rule)) for rule in COMPOSABLE_RULES]
+    renamed = [json.loads(json.dumps(rule)) for rule in COMBINABLE_RULES]
     for rule in renamed:
         rule["id"] = rule["id"] + "-twin"
-    first, twin = sv.Decider(COMPOSABLE_RULES, context), sv.Decider(renamed, context)
-    assert first.composable_digest == sv._composable_digest(sv._composable(COMPOSABLE_RULES))
-    assert first.composable_digest != twin.composable_digest
-    credited = first.evaluate(composed_window()).composed, twin.evaluate(composed_window()).composed
-    assert credited[0] is not None and credited[1] is not None
-    assert credited[0].credited == (SLIDE_RULE["id"], COMPOSED_EXT_RULE["id"])
-    assert credited[1].credited == (SLIDE_RULE["id"] + "-twin", COMPOSED_EXT_RULE["id"] + "-twin")
-    assert len(context.composed) == 2
+    first, twin = sv.Decider(COMBINABLE_RULES, context), sv.Decider(renamed, context)
+    assert first.combinable_digest == sv._combinable_digest(sv._combinable(COMBINABLE_RULES))
+    assert first.combinable_digest != twin.combinable_digest
+    counted = first.evaluate(combined_window()).combined, twin.evaluate(combined_window()).combined
+    assert counted[0] is not None and counted[1] is not None
+    assert counted[0].counted == (SLIDE_RULE["id"], COMBINED_EXT_RULE["id"])
+    assert counted[1].counted == (SLIDE_RULE["id"] + "-twin", COMBINED_EXT_RULE["id"] + "-twin")
+    assert len(context.combined) == 2
 
 
 def test_the_decider_empties_the_context_memos_behind_every_unit(slide_context):
     """`decide` empties the context's shape memo and walk memo after every unit and returns what a fresh context computes through `evaluate`, because every key in both memos is for one unit. So a second, differently shaped unit through the same Decider is decided independently and also leaves both memos empty."""
     context = slide_context()
-    decider = sv.Decider(COMPOSABLE_RULES, context)
-    for window in (composed_window(), founding_window()):
+    decider = sv.Decider(COMBINABLE_RULES, context)
+    for window in (combined_window(), founding_window()):
         decision = decider.decide(window)
-        assert (context.memo, context.composed) == ({}, {})
-        assert decision == sv.Decider(COMPOSABLE_RULES, slide_context()).evaluate(window)
+        assert (context.memo, context.combined) == ({}, {})
+        assert decision == sv.Decider(COMBINABLE_RULES, slide_context()).evaluate(window)
         assert decider.decide(window) == decision
-    assert composed_window() != founding_window()
-    assert decider.decide(composed_window()).composed is not None
-    assert decider.decide(founding_window()).composed is None
+    assert combined_window() != founding_window()
+    assert decider.decide(combined_window()).combined is not None
+    assert decider.decide(founding_window()).combined is None
 
 
 def test_the_decider_empties_the_context_memos_behind_every_memo_entry_it_serves(slide_context):
     """`_serving` is called outside `decide`, by the prefill's spool pass, so it empties the context's shape and walk memos after the `_serve` it runs. It does so both for an entry it repairs and for one it refuses (the spool pass's hit and its miss); here the memos hold another window's shapes when it is called. The repaired decision equals what a fresh context computes through `evaluate` under the live rules. `decide` records it without calling `evaluate`, evaluates the refused window, and counts both as computed."""
     keyed = _keyed_unit("k-1")
-    claimed = dict(composed_window("w-both"), content_key="b" * 64)
-    seed = sv.Decider(COMPOSABLE_RULES, slide_context())
+    combined_unit = dict(combined_window("w-both"), content_key="b" * 64)
+    seed = sv.Decider(COMBINABLE_RULES, slide_context())
     memo = sv.Memo(pathlib.Path("unused"), "env", {}, stored=seed.roster)
-    for unit in (keyed, claimed):
+    for unit in (keyed, combined_unit):
         memo.entries[memo.key_for(unit) or ""] = seed.evaluate(unit)
-    live = [*COMPOSABLE_RULES, RULE]
+    live = [*COMBINABLE_RULES, RULE]
     context = slide_context()
     decider = sv.Decider(live, context, memo)
-    fresh = {unit["id"]: sv.Decider(live, slide_context()).evaluate(unit) for unit in (keyed, claimed)}
-    for unit, served in ((keyed, (fresh["k-1"], True)), (claimed, None)):
-        for window in (composed_window(), founding_window()):
+    fresh = {unit["id"]: sv.Decider(live, slide_context()).evaluate(unit) for unit in (keyed, combined_unit)}
+    for unit, served in ((keyed, (fresh["k-1"], True)), (combined_unit, None)):
+        for window in (combined_window(), founding_window()):
             decider.evaluate(window)
-        assert context.memo and context.composed
+        assert context.memo and context.combined
         assert decider._serving(unit) == served
-        assert (context.memo, context.composed) == ({}, {})
-    assert fresh["k-1"].matched == {RULE["id"]} and fresh["w-both"].composed is not None
-    for unit in (keyed, claimed):
+        assert (context.memo, context.combined) == ({}, {})
+    assert fresh["k-1"].matched == {RULE["id"]} and fresh["w-both"].combined is not None
+    for unit in (keyed, combined_unit):
         assert decider.decide(unit) == fresh[unit["id"]]
-        assert (context.memo, context.composed) == ({}, {})
+        assert (context.memo, context.combined) == ({}, {})
     assert (decider.served, decider.computed) == (0, 2)
 
 
 def test_the_decider_empties_the_alignment_cache_behind_every_unit_and_memo_entry(slide_context):
     """`_release` empties the alignment cache beside the context memos, so neither a unit `decide` computes nor a memo entry `_serving` checks leaves a unit record in the cache after it, whatever an earlier `evaluate` left there."""
-    claimed = dict(composed_window("w-both"), content_key="b" * 64)
-    seed = sv.Decider(COMPOSABLE_RULES, slide_context())
+    combined_unit = dict(combined_window("w-both"), content_key="b" * 64)
+    seed = sv.Decider(COMBINABLE_RULES, slide_context())
     memo = sv.Memo(pathlib.Path("unused"), "env", {}, stored=seed.roster)
-    memo.entries[memo.key_for(claimed) or ""] = seed.evaluate(claimed)
-    decider = sv.Decider([*COMPOSABLE_RULES, RULE], slide_context(), memo)
-    for check in (lambda: decider._serving(claimed), lambda: decider.decide(founding_window())):
-        decider.evaluate(composed_window())
+    memo.entries[memo.key_for(combined_unit) or ""] = seed.evaluate(combined_unit)
+    decider = sv.Decider([*COMBINABLE_RULES, RULE], slide_context(), memo)
+    for check in (lambda: decider._serving(combined_unit), lambda: decider.decide(founding_window())):
+        decider.evaluate(combined_window())
         assert sv._alignment_cache
         check()
         assert sv._alignment_cache == {}
@@ -8140,7 +8183,7 @@ def test_the_alignment_cache_answers_per_unit_object_and_releases():
 
 
 def test_a_rules_lines_never_name_a_unit_outside_its_name_grain_candidates(tmp_path, mini_corpus):
-    """The targeted run depends on this. Over the frozen mini bundle, under the checked-in rules and the bundle-local ink-delta rule, every unit a rule's own matcher accepts or holds, and every unit a composed reading credits it at, is one `_reachable` admits for that rule. So a run over only the admitted units sees everything the whole domain would put on the rule's lines. The test also checks that the narrowing removes units: some rule with a reach admits fewer units than the domain holds."""
+    """The targeted run depends on this. Over the frozen mini bundle, under the checked-in rules and the bundle-local ink-delta rule, every unit a rule's own matcher accepts or holds, and every unit a combined match counts it in, is one `_reachable` admits for that rule. So a run over only the admitted units sees everything the whole domain would put on the rule's lines. The test also checks that the narrowing removes units: some rule with a reach admits fewer units than the domain holds."""
     rules = sv.load_rules(_mini_rules(mini_corpus, tmp_path / "rules.yaml"))
     context = sv.SlideContext(mini_corpus / "fonts" / "before.otf", mini_corpus / "fonts" / "after.otf")
     decide = sv.Decider(rules, context).decide
@@ -8148,8 +8191,8 @@ def test_a_rules_lines_never_name_a_unit_outside_its_name_grain_candidates(tmp_p
     named = {rule["id"]: set() for rule in rules}
     for unit in units:
         decision = decide(unit)
-        credited = decision.composed.credited if decision.composed is not None else ()
-        for rule_id in (*credited, *decision.matched, *decision.held):
+        counted = decision.combined.counted if decision.combined is not None else ()
+        for rule_id in (*counted, *decision.matched, *decision.held):
             named[rule_id].add(unit["id"])
     admitted = {
         rule["id"]: {unit["id"] for unit in units if sv._reachable(rule["match"], unit)} for rule in rules
@@ -8159,23 +8202,23 @@ def test_a_rules_lines_never_name_a_unit_outside_its_name_grain_candidates(tmp_p
 
 
 ROLLUP_LINE = re.compile(
-    r"^    (\S+): (\d+) on its own line, (\d+) credited across \d+ composed lines?, (\d+) in all$"
+    r"^    (\S+): (\d+) on its own line, (\d+) counted in \d+ combined-match lines?, (\d+) in all$"
 )
 TARGETED_HEADER = re.compile(r"^  targeted at (\S+): (\d+) of (\d+) human units evaluated")
 
 
 def _lines_about(lines, rule_id):
-    """Everything a report says about one rule, in the pieces the targeted run must reproduce byte for byte: its own tally line, the composed tally lines whose credited tuple names it, its rollup line, whether a reached-nothing line names it, the disputed-match warning fragments under it, and its four-line explain block."""
-    crediting = []
+    """Everything a report says about one rule, in the pieces the targeted run must reproduce byte for byte: its own tally line, the combined-match lines whose counted tuple names it, its rollup line, whether a reached-nothing line names it, the disputed-match warning fragments under it, and its four-line explain block."""
+    counting = []
     for line in lines:
         head, sep, _rest = line.partition(": ")
         if sep and head.startswith("  ") and not head.startswith("    ") and " + " in head:
             if rule_id in head[2:].split(" + "):
-                crediting.append(line)
+                counting.append(line)
     start = lines.index(f"  explain {rule_id}:")
     return {
         "own": [line for line in lines if line.startswith(f"  {rule_id}: ")],
-        "composed": crediting,
+        "combined": counting,
         "rollup": [line for line in lines if line.startswith(f"    {rule_id}: ")],
         "nothing": any(line.startswith(f"  REACHED NOTHING: {rule_id} ") for line in lines),
         "disputed_match": sorted(
@@ -8188,7 +8231,7 @@ def _lines_about(lines, rule_id):
 def test_a_targeted_run_prints_a_rules_lines_byte_identical_to_the_whole_domain(
     tmp_path, monkeypatch, capsys, mini_corpus
 ):
-    """Over a real build of the frozen mini bundle, with a store holding a reject and an approve, each rule the whole-domain rollup shows reaching anything, and the first rule that reached nothing, gets a targeted run. Each targeted run exits cleanly, writes nothing, evaluates no more units than the domain holds (fewer for at least one rule), and prints the rule's own line, the composed lines crediting it, its rollup line, its reached-nothing line, its disputed-match warning fragments, and its explain block as a whole-domain run with the same `--explain` prints them. `--explain` takes one rule, so the whole domain runs once per rule."""
+    """Over a real build of the frozen mini bundle, with a store holding a reject and an approve, each rule the whole-domain rollup shows reaching anything, and the first rule that reached nothing, gets a targeted run. Each targeted run exits cleanly, writes nothing, evaluates no more units than the domain holds (fewer for at least one rule), and prints the rule's own line, the combined-match lines counting it, its rollup line, its reached-nothing line, its disputed-match warning fragments, and its explain block as a whole-domain run with the same `--explain` prints them. `--explain` takes one rule, so the whole domain runs once per rule."""
     rules = _mini_rules(mini_corpus, tmp_path / "rules.yaml")
     stamp = json.loads((mini_corpus / "manifest.json").read_text())["generated_at"]
     human = [unit["id"] for unit in _human_units(mini_corpus)]
@@ -8293,27 +8336,27 @@ def test_a_listed_unit_gets_its_decision_line_and_moves_no_line_of_the_rules(tmp
     assert f"  {rule_id}: 1 filled, 0 already verdicted, 1 held for review by except_left" in bare
 
 
-def test_a_listed_composed_window_names_its_credit(tmp_path, monkeypatch, capsys, slide_fonts):
-    """A targeted run at one of two composing rules prints the composed line crediting both, the rule's own line at zero, and a rollup carrying the credit, as the whole-domain run in test_main_writes_one_composed_record_and_leaves_the_per_rule_lines prints them. A listed composed window's line names the credited rules and the verdict the fill carries."""
+def test_a_listed_combined_window_names_its_counted_rules(tmp_path, monkeypatch, capsys, slide_fonts):
+    """A targeted run at one of two combining rules prints the combined-match line counting both, the rule's own line at zero, and a rollup carrying the count, as the whole-domain run in test_main_writes_one_combined_record_and_leaves_the_per_rule_lines prints them. A listed combined-match window's line names the counted rules and the verdict the fill carries."""
     rule_id = SLIDE_RULE["id"]
     _target_main(
         tmp_path,
         monkeypatch,
-        [composed_window("c-1")],
+        [combined_window("c-1")],
         [],
         ("--explain", rule_id, "--targeted", "--unit", "c-1"),
-        rules_list=(SLIDE_RULE, COMPOSED_EXT_RULE),
+        rules_list=(SLIDE_RULE, COMBINED_EXT_RULE),
         fonts=slide_fonts,
     )
     lines = capsys.readouterr().out.splitlines()
     assert (
-        f"  {rule_id} + {COMPOSED_EXT_RULE['id']}: 1 filled, 0 already verdicted, 0 held for review by except_left"
+        f"  {rule_id} + {COMBINED_EXT_RULE['id']}: 1 filled, 0 already verdicted, 0 held for review by except_left"
     ) in lines
     assert f"  {rule_id}: 0 filled, 0 already verdicted, 0 held for review by except_left" in lines
-    assert f"    {rule_id}: 0 on its own line, 1 credited across 1 composed line, 1 in all" in lines
-    assert not any(line.startswith(f"  {COMPOSED_EXT_RULE['id']}: ") for line in lines)
+    assert f"    {rule_id}: 0 on its own line, 1 counted in 1 combined-match line, 1 in all" in lines
+    assert not any(line.startswith(f"  {COMBINED_EXT_RULE['id']}: ") for line in lines)
     assert (
-        f"  listed c-1 (blank): a candidate of {rule_id}; composed {rule_id} + {COMPOSED_EXT_RULE['id']} (approve)"
+        f"  listed c-1 (blank): a candidate of {rule_id}; combined {rule_id} + {COMBINED_EXT_RULE['id']} (approve)"
     ) in lines
 
 
@@ -8450,7 +8493,7 @@ def test_prefill_releases_streamed_records_and_bounds_pool_waves(tmp_path, monke
 def test_missing_delta_stream_writes_neither_fills_nor_memo(tmp_path, monkeypatch):
     units = [tea_i("u-1")]
     corpus = _corpus(tmp_path, units)
-    rules = _write_rules(tmp_path / "rules.yaml", [EXT_RULE, COMPOSED_EXT_RULE])
+    rules = _write_rules(tmp_path / "rules.yaml", [EXT_RULE, COMBINED_EXT_RULE])
     verdicts = tmp_path / "verdicts.json"
     verdicts.write_text(json.dumps({"manifest_generated_at": STAMP, "verdicts": []}))
     out, memo = tmp_path / "out.json", tmp_path / "memo.gz"

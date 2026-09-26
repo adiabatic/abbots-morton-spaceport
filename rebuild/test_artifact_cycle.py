@@ -1171,8 +1171,8 @@ def test_the_driver_reads_a_line_per_step_out_of_one_child(capsys):
     assert report.verdict_update_fixpoint is True
 
 
-def test_standing_fill_news_keeps_rules_and_drops_steady_state_composed_pairs():
-    """Per-rule lines are kept at any count, so a newly added rule shows even at 0 filled. A composed pair's line is kept only when it filled or held something, which keeps the quadratic number of unchanged pair lines out of the console block and cycle_summary.json. The disputed-match warning is always kept. Both line formats are handled: the verdict update runs the fill with --open-only, which prints no already-verdicted column, while a dry run over the whole domain prints it."""
+def test_standing_fill_news_keeps_rules_and_drops_steady_state_combined_matches():
+    """Per-rule lines are kept at any count, so a newly added rule shows even at 0 filled. A combined-match line is kept only when it filled or held something, which keeps the quadratic number of unchanged pair lines out of the console block and cycle_summary.json. The disputed-match warning is always kept. Both line formats are handled: the verdict update runs the fill with --open-only, which prints no already-verdicted column, while a dry run over the whole domain prints it."""
     news = ac._standing_fill_news
     assert news("wrote verdicts-standing-fill.json: 25 standing-approval verdicts onto manifest S1")
     assert news("quiet-rule: 0 filled, 12 already verdicted, 0 held for review by except_left")
@@ -1188,7 +1188,7 @@ def test_standing_fill_news_keeps_rules_and_drops_steady_state_composed_pairs():
         "over-broad rule takes."
     )
     assert not news(
-        "REACHED NOTHING: quiet-rule matched no window on its own and no composed line credited it."
+        "REACHED NOTHING: quiet-rule matched no window on its own and was counted in no combined match."
     )
     assert not news(
         "except_left vocabulary: quiet-rule guards against qsOut, which no window on this corpus joins from."

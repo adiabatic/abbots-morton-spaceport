@@ -150,7 +150,7 @@ def run_tool(tool: str, argv: list[str], cwd: str, units: list, context) -> tupl
     finally:
         if context is not None:
             context.memo.clear()
-            context.composed.clear()
+            context.combined.clear()
         standing_verdicts.release_alignment_cache()
     return code, out.getvalue(), err.getvalue()
 
