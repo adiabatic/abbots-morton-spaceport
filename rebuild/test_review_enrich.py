@@ -373,9 +373,9 @@ def test_secondary_home_prefers_the_shortest_matching_substring_unit():
     )
     short = _stub_enriched("u-0002", (0xE665, 0xE652), ("B", "C"), ("y5",), pair=(0, 1))
     longer = _stub_enriched("u-0003", (0xE665, 0xE652, 0xE670), ("B", "C", "D"), ("y5", "break"), pair=(0, 1))
-    census = resolve_secondary_homes([item, short, longer])
+    counts = resolve_secondary_homes([item, short, longer])
     assert item.secondary_seams[0].home == "u-0002"
-    assert census == {
+    assert counts == {
         "units_with_markers": 1,
         "seams_homed": 1,
         "seams_homeless": 0,
@@ -412,9 +412,9 @@ def test_secondary_home_requires_the_seam_to_be_the_candidates_primary_pair():
     secondary_there_too = _stub_enriched(
         "u-0002", (0xE665, 0xE652, 0xE670), ("B", "C", "D"), ("y5", "break"), pair=(1, 2)
     )
-    census = resolve_secondary_homes([item, secondary_there_too])
+    counts = resolve_secondary_homes([item, secondary_there_too])
     assert item.secondary_seams[0].home is None
-    assert census["seams_homeless"] == 1
+    assert counts["seams_homeless"] == 1
 
 
 def test_secondary_seam_with_an_ink_identical_home_is_suppressed():
@@ -429,11 +429,11 @@ def test_secondary_seam_with_an_ink_identical_home_is_suppressed():
     invisible = _stub_enriched(
         "u-0002", (0xE665, 0xE652), ("B", "C"), ("y5",), pair=(0, 1), ink_identical=True
     )
-    census = resolve_secondary_homes([item, invisible])
+    counts = resolve_secondary_homes([item, invisible])
     seam = item.secondary_seams[0]
     assert seam.suppressed is True
     assert seam.home is None
-    assert census == {
+    assert counts == {
         "units_with_markers": 0,
         "seams_homed": 0,
         "seams_homeless": 0,
@@ -454,11 +454,11 @@ def test_secondary_seam_with_a_picture_identical_home_is_suppressed():
     invisible = _stub_enriched(
         "u-0002", (0xE665, 0xE652), ("B", "C"), ("y5",), pair=(0, 1), picture_identical=True
     )
-    census = resolve_secondary_homes([item, invisible])
+    counts = resolve_secondary_homes([item, invisible])
     seam = item.secondary_seams[0]
     assert seam.suppressed is True
     assert seam.home is None
-    assert census["seams_suppressed_invisible"] == 1
+    assert counts["seams_suppressed_invisible"] == 1
 
 
 def test_secondary_seam_without_any_home_is_emitted_with_home_none():
@@ -470,11 +470,11 @@ def test_secondary_seam_without_any_home_is_emitted_with_home_none():
         pair=(0, 1),
         seam_pairs=((1, 2),),
     )
-    census = resolve_secondary_homes([item])
+    counts = resolve_secondary_homes([item])
     seam = item.secondary_seams[0]
     assert seam.home is None
     assert seam.suppressed is False
-    assert census == {
+    assert counts == {
         "units_with_markers": 1,
         "seams_homed": 0,
         "seams_homeless": 1,
@@ -593,13 +593,13 @@ def _home_fixtures():
 
 @pytest.mark.parametrize("name", sorted(_home_fixtures()))
 def test_a_columnar_source_and_the_list_adapter_resolve_the_same_homes(name):
-    """A source that rebuilds each projection from columns and a plain list of projections must give the same assignments and the same census counts. Otherwise the packed store would ship different homes from the ones the tests above check."""
+    """A source that rebuilds each projection from columns and a plain list of projections must give the same assignments and the same secondary-seam counts. Otherwise the packed store would ship different homes from the ones the tests above check."""
     projections = _home_fixtures()[name]
-    expected, expected_census = resolve_home_assignments(projections)
+    expected, expected_counts = resolve_home_assignments(projections)
     columnar = _ColumnarSeamHomes(projections)
-    assignments, census = resolve_home_assignments(columnar)
+    assignments, counts = resolve_home_assignments(columnar)
     assert columnar.named_homes() == expected
-    assert census == expected_census
+    assert counts == expected_counts
     assert assignments == {}, "a source that keeps its own homes is not handed a second copy of them"
 
 
@@ -612,9 +612,9 @@ def test_the_list_adapter_hands_back_the_assignment_dict_its_readers_index():
 def test_a_seamless_projection_gets_no_assignment_entry():
     """A unit with no secondary seam gets no entry in the assignments dict, because every reader treats a missing entry the same as an empty one. `apply_home_assignments` must handle the missing entry, which `resolve_secondary_homes` exercises here."""
     projections = _home_fixtures()["every_unit_seamless"]
-    assignments, census = resolve_home_assignments(projections)
+    assignments, counts = resolve_home_assignments(projections)
     assert assignments == {}
-    assert census == {
+    assert counts == {
         "units_with_markers": 0,
         "seams_homed": 0,
         "seams_homeless": 0,

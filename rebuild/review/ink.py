@@ -6,7 +6,7 @@ Placed outlines are compared without being built. `OutlineIntern` interns each o
 
 There are two readings:
 
-- `ink_identical` compares both fonts' sorted placed pieces (`ink_pieces`) under every config. `ink_histogram` in `rebuild/review/census.py` flags units with it.
+- `ink_identical` compares both fonts' sorted placed pieces (`ink_pieces`) under every config. `ink_histogram` in `rebuild/review/facts.py` flags units with it.
 - `config_diff` returns the picture-grain delta that every deduplication channel keys on: the cells only one font paints, read over each font's whole rasterized window and not piece by piece. A change that paints no different pixel (an overlap removed at a seam, a stroke passed to a neighbor) does not appear in it, so a window containing such a change has the same digest as its siblings without it. Its sentinel `IDENTITY_DIFF` (no cell lost or gained, no follower shift) is the only implementation of `picture_identical`, the machine channel the build checks for every unit that is not ink-identical. Piece identity implies the sentinel, because `config_diff` returns it before rasterizing anything. `rebuild/test_review_ink.py` checks over the frozen windows that the sentinel agrees with the reference picture comparison, `picture_equal` over `run_cells`.
 
 `signature` is built from the same two `run_ink` lists that `config_diff` and `ink_pieces` read, so equal signatures give equal deltas, equal ink flags, and equal delta digests without any sampling.
@@ -84,7 +84,7 @@ def signature_digest(signature: tuple) -> str:
     return hashlib.sha256(marshal.dumps(signature, 2)).hexdigest()
 
 
-class ShapeMemoCensus(NamedTuple):
+class ShapeMemoSizes(NamedTuple):
     """A shape memo's entry count and an approximate byte size of its keys and results. The size is `sys.getsizeof` summed over the containers and the ints they hold, so it does not count the glyph-name strings (the font's glyph-order strings, shared by every entry that shapes the same glyph) and does not discount the small ints CPython caches. It is cheap enough to take at a batch boundary. Measurements read it beside a worker's peak memory (issue #150); the build never acts on it."""
 
     entries: int
@@ -110,7 +110,7 @@ def _approx_entry_bytes(key: tuple, result: ShapeResult) -> int:
 class _MemoizedShaper(Shaper):
     """A Shaper whose `shape` memoizes by (text, features). The corpus build shapes the same (text, config) in `config_diff`, in `Enricher.enrich`, in the JuniorOracle, and in the Drafter's semantics replay, and the memo turns those four calls into one HarfBuzz call, because a fragment is drafted in the same batch that enriched it. Only the corpus build uses it, through `shaper_for`.
 
-    The memo holds one unit batch of shapes at a time. The corpus build calls `release_shape_memos` after every unit batch (`_phase1_batches` and `_released_batches` in rebuild/review/build.py, in the pool worker and the in-process runner alike) and once after the parent's serial signature pass. The release is required. Measured on one tree one pass apart (issue #150): a serial build with the release peaked at 15.4 GB in the `corpus-build` step and finished its units phase in about twenty minutes. The same build with `release` made a no-op held 6.9 million shapes, about 10.5 GB by `census`, when it was just past half the corpus. By then it had used most of the 32 GiB machine's swap at twice the elapsed time, and it was stopped there. The memo grows linearly with the units, at about 1.5 KB a shape, so without the release it outgrows every other collection a serial build holds, the retained EnrichedUnits included.
+    The memo holds one unit batch of shapes at a time. The corpus build calls `release_shape_memos` after every unit batch (`_phase1_batches` and `_released_batches` in rebuild/review/build.py, in the pool worker and the in-process runner alike) and once after the parent's serial signature pass. The release is required. Measured on one tree one pass apart (issue #150): a serial build with the release peaked at 15.4 GB in the `corpus-build` step and finished its units phase in about twenty minutes. The same build with `release` made a no-op held 6.9 million shapes, about 10.5 GB by `sizes`, when it was just past half the corpus. By then it had used most of the 32 GiB machine's swap at twice the elapsed time, and it was stopped there. The memo grows linearly with the units, at about 1.5 KB a shape, so without the release it outgrows every other collection a serial build holds, the retained EnrichedUnits included.
     """
 
     def __init__(self, font_path: Path | str) -> None:
@@ -128,8 +128,8 @@ class _MemoizedShaper(Shaper):
         """Forget every shape held. Every release path calls this method, so an A/B measurement of the bound replaces the `clear()` line with `pass` and changes nothing else."""
         self._memo.clear()
 
-    def census(self) -> ShapeMemoCensus:
-        return ShapeMemoCensus(
+    def sizes(self) -> ShapeMemoSizes:
+        return ShapeMemoSizes(
             len(self._memo), sum(_approx_entry_bytes(key, result) for key, result in self._memo.items())
         )
 
@@ -143,14 +143,14 @@ def release_shape_memos() -> None:
         shaper.release()
 
 
-def shape_memo_census() -> ShapeMemoCensus:
-    """Return the sum of every registered memo's census. A measurement reads it beside the process's peak RSS, at a batch boundary or, with the release disabled, when a worker stops."""
+def shape_memo_sizes() -> ShapeMemoSizes:
+    """Return the sum of every registered memo's sizes. A measurement reads it beside the process's peak RSS, at a batch boundary or, with the release disabled, when a worker stops."""
     entries = approx_bytes = 0
     for shaper in _shaper_registry.values():
-        census = shaper.census()
-        entries += census.entries
-        approx_bytes += census.approx_bytes
-    return ShapeMemoCensus(entries, approx_bytes)
+        sizes = shaper.sizes()
+        entries += sizes.entries
+        approx_bytes += sizes.approx_bytes
+    return ShapeMemoSizes(entries, approx_bytes)
 
 
 def shaper_for(font_path: Path | str) -> Shaper:

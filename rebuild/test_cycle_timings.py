@@ -192,7 +192,7 @@ def test_finish_copies_the_summary_blocks(tmp_path):
         "plan": {"short_id": "abc"},
         "argv": ["prog", "--fresh"],
         "carry": {"human": 60000, "matched": 51946, "unmatched": 8054, "orphaned": 12},
-        "census_status": "clean",
+        "facts_status": "clean",
     }
     timings.finish(payload)
     (entry,) = _lines(path)
@@ -206,7 +206,7 @@ def test_finish_copies_the_summary_blocks(tmp_path):
     assert entry["wall_s"] >= 0.0
     for key in ("exit", "interrupted", "failures", "gates", "plan", "argv", "carry"):
         assert entry[key] == payload[key]
-    assert "census_status" not in entry
+    assert "facts_status" not in entry
 
 
 def test_finish_defaults_missing_summary_keys_to_null(tmp_path):
@@ -557,6 +557,25 @@ def test_load_journal_reads_a_plumbing_step_as_the_verdict_update(tmp_path):
     assert [step["name"] for run in order for step in steps[run]] == ["verdict-update", "verdict-update"]
     rows = [line for line in ct.render_by_step(steps, order, []) if line.startswith("verdict-update")]
     assert len(rows) == 1 and rows[0].split()[2] == "2"
+
+
+def test_load_journal_reads_a_census_step_as_the_review_facts(tmp_path):
+    """Older lines name the review-facts step `census`; `--by-step` counts them with the `review-facts` lines as one step."""
+    path = tmp_path / "j.ndjson"
+    path.write_text(
+        "\n".join(
+            [
+                json.dumps({"kind": "step", "run": "r1", "name": "census", "host": "h", "elapsed_s": 1.0}),
+                json.dumps(
+                    {"kind": "step", "run": "r2", "name": "review-facts", "host": "h", "elapsed_s": 3.0}
+                ),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    _, steps, order = ct.load_journal(path)
+    assert [step["name"] for run in order for step in steps[run]] == ["review-facts", "review-facts"]
 
 
 def test_main_reports_a_missing_journal(tmp_path, capsys):

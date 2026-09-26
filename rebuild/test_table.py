@@ -31,7 +31,7 @@ def candidacy_tables(spec, features):
 
 
 def chain_inputs(spec, reach):
-    """Returns the runes whose own prefer or resolve records can read a slot `reach` past the input's first lookahead. A `then:` hop advances one slot, and an `except:` entry tests its parent's slot, so its hops count from there. The kernel computes the same sets while enumerating (`census::depth3_inputs` and `depth4_inputs`); this is the test's own statement of which inputs the pinned world may split on a deep slot."""
+    """Returns the runes whose own prefer or resolve records can read a slot `reach` past the input's first lookahead. A `then:` hop advances one slot, and an `except:` entry tests its parent's slot, so its hops count from there. The kernel computes the same sets while enumerating (`deep_slots::depth3_inputs` and `depth4_inputs`); this is the test's own statement of which inputs the pinned world may split on a deep slot."""
 
     def hops(condition):
         reaches = [1 + hops(condition.then)] if condition.then is not None else [0]

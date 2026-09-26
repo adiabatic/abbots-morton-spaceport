@@ -1,4 +1,4 @@
-"""Tests for the census-facts sidecar (`rebuild/review/census.py`): projecting a corpus build's post-merge phase-1 products back onto the pre-merge grain the pins are defined over, the two in-memory functions that must match their shard- or font-reading counterparts, reading and writing the sidecar, and the CLI paths that read it.
+"""Tests for the review-facts sidecar (`rebuild/review/facts.py`): projecting a corpus build's post-merge phase-1 products back onto the pre-merge grain the pins are defined over, the two in-memory functions that must match their shard- or font-reading counterparts, reading and writing the sidecar, and the CLI paths that read it.
 
 The tests use hand-built audit rows and hand-set ink verdicts and families, with no fonts, no shaping, and no live workload; the only live input is the checked-in divergence ledger. A failure here is a bug in the derivation, not a change in the corpus.
 """
@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from rebuild.review import census, unit_store
+from rebuild.review import facts, unit_store
 from rebuild.review.audit import (
     AuditRow,
     UnitTable,
@@ -18,7 +18,7 @@ from rebuild.review.audit import (
     load_table,
     merge_ink_duplicate_units,
 )
-from rebuild.review.census import (
+from rebuild.review.facts import (
     FACTS_FORMAT,
     WORKED_EXAMPLE_CODEPOINTS,
     PremergeFacts,
@@ -66,7 +66,7 @@ def _row(config: str, codepoints: str, matched: str, baseline: tuple[str, ...]) 
     )
 
 
-def _index_of(capture: census.PremergeSnapshot, codepoints: str, config: str) -> int:
+def _index_of(capture: facts.PremergeSnapshot, codepoints: str, config: str) -> int:
     return next(
         index
         for index, grain in enumerate(capture.grains())
@@ -74,7 +74,7 @@ def _index_of(capture: census.PremergeSnapshot, codepoints: str, config: str) ->
     )
 
 
-def _folded_table(rows: list[AuditRow]) -> tuple[census.PremergeSnapshot, UnitTable, UnitStore]:
+def _folded_table(rows: list[AuditRow]) -> tuple[facts.PremergeSnapshot, UnitTable, UnitStore]:
     """Load `rows` against the live ledger, capture the pre-merge snapshot, fold with an ink signature that makes every config of a window identical, then compact the table and rebase the snapshot onto it. Returns the snapshot, the table, and an empty store sized to the compacted table."""
     ledger = load_ledger(LEDGER_PATH)
     table, columns = load_table(rows, ledger, dict(LETTERS))
@@ -118,10 +118,10 @@ def _folded_fixture():
 def test_folded_siblings_take_their_survivors_ink_verdict():
     """A fold happens only when every config of every folded sibling renders identical ink, so the survivor's ink verdict applies to the whole window. Each captured sibling reports its survivor's flag, and the units that never folded report their own."""
     capture, table, store = _folded_fixture()
-    facts = derive_premerge(capture, table, store)
-    flags = facts.ink_flags
-    assert facts.units == len(capture) == len(flags) == 8
-    assert facts.workload_digest == workload_digest(capture.grains())
+    premerge = derive_premerge(capture, table, store)
+    flags = premerge.ink_flags
+    assert premerge.units == len(capture) == len(flags) == 8
+    assert premerge.workload_digest == workload_digest(capture.grains())
     assert flags[_index_of(capture, FOLD_WINDOW, "default")] == "1"
     assert flags[_index_of(capture, FOLD_WINDOW, "ss04")] == "1"
     assert flags[_index_of(capture, DEFERRED_WINDOW, "ss03")] == "0"
@@ -135,8 +135,8 @@ def test_folded_siblings_take_their_survivors_ink_verdict():
 def test_families_read_deferral_from_the_premerge_config_classes():
     """A pre-merge UNMATCHED unit's family is its own deferred bucket when it has one, and otherwise its survivor's phase-1 family. The bucket is decided from the pre-merge config classes: the ss03-only survivor stays deferred-ss03, although the merged unit with its ss04 sibling would be deferred-ss04. A matched unit gets no family."""
     capture, table, store = _folded_fixture()
-    facts = derive_premerge(capture, table, store)
-    assert dict(facts.families) == {
+    premerge = derive_premerge(capture, table, store)
+    assert dict(premerge.families) == {
         _index_of(capture, FOLD_WINDOW, "default"): "no-chain-gains",
         _index_of(capture, FOLD_WINDOW, "ss04"): "deferred-ss04",
         _index_of(capture, DEFERRED_WINDOW, "ss03"): "deferred-ss03",
@@ -144,9 +144,11 @@ def test_families_read_deferral_from_the_premerge_config_classes():
         _index_of(capture, MIXED_WINDOW, "ss04"): "deferred-ss04",
         _index_of(capture, STANDALONE_UNMATCHED, "default"): "seam-loss-withdrawal",
     }
-    assert [index for index, _family in facts.families] == sorted(index for index, _family in facts.families)
+    assert [index for index, _family in premerge.families] == sorted(
+        index for index, _family in premerge.families
+    )
     matched = {_index_of(capture, MIXED_WINDOW, "default"), _index_of(capture, STANDALONE_MATCHED, "default")}
-    assert matched.isdisjoint(index for index, _family in facts.families)
+    assert matched.isdisjoint(index for index, _family in premerge.families)
 
 
 def test_derive_premerge_reads_each_folded_rows_survivor_off_the_compaction():
@@ -279,7 +281,7 @@ def _example_table() -> tuple[UnitTable, dict[int, str | None], list[dict]]:
 
 
 def _write_shard(root: Path, records: list[dict]) -> dict:
-    """Write a minimal corpus with only what the census reads: the three classes `manifest_group` looks up by name (`CLASS_UNIT_COUNT_KEYS`) with the no-verdict flags and machine-approved histogram `invariant_group` reads, one shard holding `records`, and the manifest fields the sidecar copies into its stamp."""
+    """Write a minimal corpus with only what the review-facts reduction reads: the three classes `manifest_group` looks up by name (`CLASS_UNIT_COUNT_KEYS`) with the no-verdict flags and machine-approved histogram `invariant_group` reads, one shard holding `records`, and the manifest fields the sidecar copies into its stamp."""
     (root / "units").mkdir(parents=True, exist_ok=True)
     ids = ["boundary-echo", "dangling-anchor-dropped", "bare-name-live-join"]
     for position, class_id in enumerate(ids):
@@ -359,10 +361,10 @@ def _facts(pins: dict, generated_at: str = "2026-01-01T00:00:00Z") -> dict:
 
 
 def test_facts_round_trip(tmp_path):
-    facts = _facts(_pins(row_count=2))
-    write_facts(tmp_path, facts)
-    assert (tmp_path / census.FACTS_FILENAME).read_text(encoding="utf-8").endswith("}\n")
-    assert load_facts(tmp_path, {"generated_at": "2026-01-01T00:00:00Z"}) == facts
+    written = _facts(_pins(row_count=2))
+    write_facts(tmp_path, written)
+    assert (tmp_path / facts.FACTS_FILENAME).read_text(encoding="utf-8").endswith("}\n")
+    assert load_facts(tmp_path, {"generated_at": "2026-01-01T00:00:00Z"}) == written
 
 
 def test_load_facts_refuses_a_missing_wrong_format_or_orphaned_sidecar(tmp_path):
@@ -371,7 +373,7 @@ def test_load_facts_refuses_a_missing_wrong_format_or_orphaned_sidecar(tmp_path)
         load_facts(tmp_path, {"generated_at": "2026-01-01T00:00:00Z"})
 
     stale = _facts({})
-    stale["format"] = "ams-census-facts/0"
+    stale["format"] = "ams-review-facts/0"
     write_facts(tmp_path, stale)
     with pytest.raises(ValueError, match=FACTS_FORMAT):
         load_facts(tmp_path, {"generated_at": "2026-01-01T00:00:00Z"})
@@ -382,7 +384,7 @@ def test_load_facts_refuses_a_missing_wrong_format_or_orphaned_sidecar(tmp_path)
 
 
 def test_invariant_group_keeps_each_sources_own_order():
-    """The invariant block keeps each source's order: the classes and the no-verdict classes in manifest class order, the machine-approved classes in the order of the manifest's `by_class` histogram, and the families in the order `family_census` emits them (`FAMILY_ORDER`). A block whose order changed on every pass would make `invariant_delta` report reorders that mean nothing."""
+    """The invariant block keeps each source's order: the classes and the no-verdict classes in manifest class order, the machine-approved classes in the order of the manifest's `by_class` histogram, and the families in the order `family_counts` emits them (`FAMILY_ORDER`). A block whose order changed on every pass would make `invariant_delta` report reorders that mean nothing."""
     manifest = {
         "classes": [
             {"id": "boundary-echo", "no_verdict": True},
@@ -400,7 +402,7 @@ def test_invariant_group_keeps_each_sources_own_order():
 
 
 def test_build_facts_reduces_its_own_premerge_records(tmp_path):
-    """The sidecar's pins are reductions of the pre-merge records beside them, so a reader can recompute them from those records. The invariant block is reduced from the same manifest and family census as the volatile groups, so the two blocks cannot disagree."""
+    """The sidecar's pins are reductions of the pre-merge records beside them, so a reader can recompute them from those records. The invariant block is reduced from the same manifest and family counts as the volatile groups, so the two blocks cannot disagree."""
     table, config_notes, records = _example_table()
     manifest = _write_shard(tmp_path, records)
     capture = capture_premerge(
@@ -419,26 +421,26 @@ def test_build_facts_reduces_its_own_premerge_records(tmp_path):
         ink_flags="10",
         families=[(_index_of(capture, FOLD_WINDOW, "default"), "no-chain-gains")],
     )
-    facts = build_facts(manifest, table, config_notes, capture, premerge, row_count=2)
-    assert facts["format"] == FACTS_FORMAT
-    assert facts["corpus"]["generated_at"] == manifest["generated_at"]
-    volatile = facts["pins"]["volatile"]
+    built = build_facts(manifest, table, config_notes, capture, premerge, row_count=2)
+    assert built["format"] == FACTS_FORMAT
+    assert built["corpus"]["generated_at"] == manifest["generated_at"]
+    volatile = built["pins"]["volatile"]
     assert volatile["audit"] == {"row_count": 2, "units": 2}
     assert volatile["built"] == built_group(tmp_path, manifest)
     assert volatile["families"] == {"census": {"no-chain-gains": 1}, "total": 1}
     assert volatile["ink"] == ink_group_from_flags(capture.class_rows(), "10")
-    assert facts["pins"]["invariant"] == {
+    assert built["pins"]["invariant"] == {
         "classes": [meta["id"] for meta in manifest["classes"]],
         "machine_approved_classes": ["bare-name-live-join", "boundary-echo"],
         "no_verdict_classes": ["boundary-echo"],
         "families": ["no-chain-gains"],
     }
-    assert facts["premerge"]["ink_identical"] == "10"
-    assert facts["premerge"]["workload_digest"] == workload_digest(capture.grains())
+    assert built["premerge"]["ink_identical"] == "10"
+    assert built["premerge"]["workload_digest"] == workload_digest(capture.grains())
 
 
 def _cli_corpus(tmp_path: Path, pins: dict) -> Path:
-    """Write a corpus for the census CLI: a manifest whose class list and machine-approved histogram agree with the invariant block of `pins`, and a sidecar carrying `pins`."""
+    """Write a corpus for the review-facts CLI: a manifest whose class list and machine-approved histogram agree with the invariant block of `pins`, and a sidecar carrying `pins`."""
     corpus = tmp_path / "corpus"
     corpus.mkdir()
     invariant = pins["invariant"]
@@ -462,46 +464,46 @@ def _cli_corpus(tmp_path: Path, pins: dict) -> Path:
 def test_check_reads_the_sidecar_and_reports_per_key_mismatches(tmp_path, monkeypatch, capsys):
     """`--check --corpus DIR` compares that corpus's pins with the checked-in pins and prints one line per changed key. Both blocks are compared, so each key name starts with its block."""
     pins_path = tmp_path / "pins.json"
-    monkeypatch.setattr(census, "PINS_PATH", pins_path)
+    monkeypatch.setattr(facts, "PINS_PATH", pins_path)
     corpus = _cli_corpus(tmp_path, _pins(row_count=2))
 
     pins_path.write_text(json.dumps(_pins(row_count=2)), encoding="utf-8")
-    assert census.main(["--check", "--corpus", str(corpus)]) == 0
+    assert facts.main(["--check", "--corpus", str(corpus)]) == 0
 
     pins_path.write_text(json.dumps(_pins(row_count=1)), encoding="utf-8")
-    assert census.main(["--check", "--corpus", str(corpus)]) == 1
+    assert facts.main(["--check", "--corpus", str(corpus)]) == 1
     assert "  volatile.audit.row_count: pinned 1 != computed 2" in capsys.readouterr().err.splitlines()
 
 
 def test_update_copies_the_sidecars_volatile_block_and_reduces_the_invariant_again(tmp_path, monkeypatch):
-    """`--update` copies the sidecar's volatile block into the pins file unchanged and recomputes the invariant block from the corpus's manifest and the sidecar's family census. The file gets the invariant block's current shape even when an older build wrote the sidecar with a different one."""
+    """`--update` copies the sidecar's volatile block into the pins file unchanged and recomputes the invariant block from the corpus's manifest and the sidecar's family counts. The file gets the invariant block's current shape even when an older build wrote the sidecar with a different one."""
     pins_path = tmp_path / "pins.json"
-    monkeypatch.setattr(census, "PINS_PATH", pins_path)
-    monkeypatch.setattr(census, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(facts, "PINS_PATH", pins_path)
+    monkeypatch.setattr(facts, "REPO_ROOT", tmp_path)
     pins = _pins(row_count=2)
     stale = {"invariant": {"classes_count": 3}, "volatile": pins["volatile"]}
     corpus = _cli_corpus(tmp_path, pins)
     write_facts(corpus, _facts(stale))
-    assert census.main(["--update", "--corpus", str(corpus)]) == 0
+    assert facts.main(["--update", "--corpus", str(corpus)]) == 0
     assert json.loads(pins_path.read_text(encoding="utf-8")) == pins
 
 
 def test_from_scratch_recomputes_from_sources_without_the_sidecar(tmp_path, monkeypatch):
-    """`compute_pins(from_scratch=True)`, the `--from-scratch` path, recomputes the pre-merge groups from the source artifacts without reading census-facts.json, which this test makes unparsable. It returns the same two-block shape, with the invariant block's families taken from the recomputed families group."""
+    """`compute_pins(from_scratch=True)`, the `--from-scratch` path, recomputes the pre-merge groups from the source artifacts without reading review-facts.json, which this test makes unparsable. It returns the same two-block shape, with the invariant block's families taken from the recomputed families group."""
     _table, _config_notes, records = _example_table()
     corpus = tmp_path / "corpus"
     corpus.mkdir()
     manifest = _write_shard(corpus, records)
-    (corpus / census.FACTS_FILENAME).write_text("not json at all", encoding="utf-8")
-    monkeypatch.setattr(census, "audit_group", lambda repo_root=REPO_ROOT: {"audit": "sentinel"})
-    monkeypatch.setattr(census, "ink_group", lambda repo_root=REPO_ROOT: {"ink": "sentinel"})
+    (corpus / facts.FACTS_FILENAME).write_text("not json at all", encoding="utf-8")
+    monkeypatch.setattr(facts, "audit_group", lambda repo_root=REPO_ROOT: {"audit": "sentinel"})
+    monkeypatch.setattr(facts, "ink_group", lambda repo_root=REPO_ROOT: {"ink": "sentinel"})
     monkeypatch.setattr(
-        census,
+        facts,
         "families_group",
         lambda repo_root=REPO_ROOT: {"census": {"seam-loss-withdrawal": 3}, "total": 3},
     )
 
-    pins = census.compute_pins(corpus=corpus, from_scratch=True)
+    pins = facts.compute_pins(corpus=corpus, from_scratch=True)
     volatile = pins["volatile"]
     assert volatile["audit"] == {"audit": "sentinel"}
     assert volatile["ink"] == {"ink": "sentinel"}

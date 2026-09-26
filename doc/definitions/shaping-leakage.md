@@ -67,19 +67,19 @@ Every leak the human triage marked outright broken is an additive dangle or a mu
 
 ### 7. CI gates on bad leaks only, with overrides in both directions
 
-The bad-leak gates fail when a **bad** leak (a visible additive dangle, after overrides) is not already listed in `site/bad-leak-backlog.txt`. The benign census also fails `make test-leaks` when it changes (decision 8). Two author override channels sit on either side of the proxy verdict:
+The bad-leak gates fail when a **bad** leak (a visible additive dangle, after overrides) is not already listed in `site/bad-leak-backlog.txt`. The benign list also fails `make test-leaks` when it changes (decision 8). Two author override channels sit on either side of the proxy verdict:
 
 - **Force-benign**: a `before-<family>` / `after-<family>` cosmetic declaration on a stance (decision 6), or a per-signature allowlist entry (decision 11).
 - **Force-bad**: a per-signature blocklist entry for a swap the proxy reads as benign but the author finds ugly, so the agent treats it as a defect to fix.
 
 All visible leaks, bad and benign, are recorded for review. `test/test_isolation_leaks.py` has the gates.
 
-### 8. Depth is a coverage knob; bad is a gate, benign is a census
+### 8. Depth is a coverage knob; bad is a gate, benign is a reviewed list
 
 The definition sets no maximum depth: a leak is a leak at any sequence length. Depth only sets how far the sweep enumerates. Depth 3 is cheap enough for the everyday `make test`. Depth 4 is slower and runs in `make test-leaks`. Depth 5 and beyond is impractical.
 
 - The **bad** set is checked at depth 3 and depth 4 against the backlog. A new bad signature fails; a resolved one prints a notice to re-bless.
-- The **benign** set is a **census** snapshot (`site/benign-leak-census.txt`) checked only at depth 4. Any change, gained or lost, fails `test_benign_census_unchanged` in `make test-leaks` until `make leak-snapshot` re-blesses it. The default `make test` does not run it.
+- The **benign** set is a reviewed snapshot, the benign list (`site/benign-leak-list.txt`), checked only at depth 4. Any change, gained or lost, fails `test_benign_leak_list_unchanged` in `make test-leaks` until `make leak-snapshot` re-blesses it. The default `make test` does not run it.
 
 ### 9. The iteration loop is autonomous detect→fix→verify, commit-gated
 
@@ -102,11 +102,11 @@ The two override channels are keyed to fit their jobs:
 
 ### 12. The per-fix verify gate
 
-After applying a fix, the agent rebuilds, re-sweeps to the gate depth, and requires: (a) the targeted bad leak is gone; (b) no **new** bad leak appears anywhere in the swept set; and (c) full `make test` passes, so no real cursive join broke. Benign census changes are reported at the commit boundary and never block the loop. The depth-3 re-sweep takes about a second, so checking for new dangles on every iteration is cheap.
+After applying a fix, the agent rebuilds, re-sweeps to the gate depth, and requires: (a) the targeted bad leak is gone; (b) no **new** bad leak appears anywhere in the swept set; and (c) full `make test` passes, so no real cursive join broke. Benign list changes are reported at the commit boundary and never block the loop. The depth-3 re-sweep takes about a second, so checking for new dangles on every iteration is cheap.
 
 ## Build work this definition implies
 
 - Detection and the boundary-faithful reference (decisions 2 to 5): `find_leaks`, `find_visible_leaks`, `_scan_sequence`, and `_visual_status` in `tools/build_check_html.py`.
 - The bad/benign classifier and both override lists (decisions 6, 10, 11): `tools/leak_classify.py`, `site/leak-force-bad.yaml`, and `site/leak-force-benign.yaml`, checked against the human triage by `tools/leak_verdict_reconcile.py`.
-- The gates (decisions 7 and 8): `test/test_isolation_leaks.py`. `test_no_new_bad_isolation_leaks` runs at depth 3 in `make test`. `test_bad_leak_backlog_unchanged` and `test_benign_census_unchanged` run at depth 4 in `make test-leaks`. `tools/leak_snapshot.py` (`make leak-snapshot`) writes `site/bad-leak-backlog.txt` and `site/benign-leak-census.txt`.
+- The gates (decisions 7 and 8): `test/test_isolation_leaks.py`. `test_no_new_bad_isolation_leaks` runs at depth 3 in `make test`. `test_bad_leak_backlog_unchanged` and `test_benign_leak_list_unchanged` run at depth 4 in `make test-leaks`. `tools/leak_snapshot.py` (`make leak-snapshot`) writes `site/bad-leak-backlog.txt` and `site/benign-leak-list.txt`.
 - Not built: the autonomous detect→fix→verify loop with the per-fix verify gate (decisions 9 and 12). Its brief is `doc/definitions/shaping-leak-loop.md`.

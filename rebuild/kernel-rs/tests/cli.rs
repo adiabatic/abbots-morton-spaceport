@@ -867,10 +867,10 @@ fn a_replay_with_a_memo_directory_files_one_window_memo_per_configuration() {
     );
 }
 
-/// The replay's cache census through the binary. `--cache-census` leaves the answer lines byte for byte as the plain walk prints them. Without `--timings` it writes only `[c]` lines to stderr: for each configuration, the walk's own memo, every engine memo with the trace memo's ladder pool empty, an elimination-text size of zero, and the resident size after the walk. With `--timings`, a configuration's census lines come before its `replay[<config>]` phase line. Under a memo ceiling of a third of the walk's window count, each release reports the walk memo and the engine's memos under `release=<k>` with the resident size before and after, the walk reports its release count, and no `walk_memo` row exceeds the ceiling.
+/// The replay's cache stats through the binary. `--cache-stats` leaves the answer lines byte for byte as the plain walk prints them. Without `--timings` it writes only `[c]` lines to stderr: for each configuration, the walk's own memo, every engine memo with the trace memo's ladder pool empty, an elimination-text size of zero, and the resident size after the walk. With `--timings`, a configuration's cache-stats lines come before its `replay[<config>]` phase line. Under a memo ceiling of a third of the walk's window count, each release reports the walk memo and the engine's memos under `release=<k>` with the resident size before and after, the walk reports its release count, and no `walk_memo` row exceeds the ceiling.
 #[test]
-fn a_censused_replay_writes_its_census_to_stderr_and_leaves_the_answer_alone() {
-    let root = scratch("cli-replay-census");
+fn a_replay_with_cache_stats_writes_them_to_stderr_and_leaves_the_answer_alone() {
+    let root = scratch("cli-replay-cache-stats");
     let spec = spec_at(&root);
     let outdir = root.join("tables");
     let built = run(&[
@@ -895,17 +895,17 @@ fn a_censused_replay_writes_its_census_to_stderr_and_leaves_the_answer_alone() {
     let bare = replay(&[]);
     assert!(bare.status.success(), "{}", complaint(&bare));
     assert!(bare.stderr.is_empty(), "{}", complaint(&bare));
-    let censused = replay(&["--cache-census"]);
-    assert!(censused.status.success(), "{}", complaint(&censused));
+    let with_stats = replay(&["--cache-stats"]);
+    assert!(with_stats.status.success(), "{}", complaint(&with_stats));
     assert_eq!(
-        censused.stdout, bare.stdout,
+        with_stats.stdout, bare.stdout,
         "the answer lines are unchanged"
     );
-    let stderr = complaint(&censused);
+    let stderr = complaint(&with_stats);
     for line in stderr.lines() {
         assert!(
             line.starts_with("[c] "),
-            "a census without a clock writes only census lines: {line}"
+            "cache stats without a clock write only cache-stats lines: {line}"
         );
     }
     for (token, _) in CONFIGS {
@@ -917,17 +917,17 @@ fn a_censused_replay_writes_its_census_to_stderr_and_leaves_the_answer_alone() {
         ] {
             assert!(
                 stderr.lines().any(|line| line.starts_with(&prefix)),
-                "{prefix} is in the census: {stderr}"
+                "{prefix} is in the cache stats: {stderr}"
             );
         }
         let elimination = format!("[c] {token} elimination_text bytes=0");
         assert!(
             stderr.lines().any(|line| line == elimination),
-            "{elimination} is in the census: {stderr}"
+            "{elimination} is in the cache stats: {stderr}"
         );
     }
 
-    let timed = replay(&["--cache-census", "--timings"]);
+    let timed = replay(&["--cache-stats", "--timings"]);
     assert!(timed.status.success(), "{}", complaint(&timed));
     assert_eq!(timed.stdout, bare.stdout, "the answer lines are unchanged");
     let lines: Vec<String> = complaint(&timed).lines().map(str::to_owned).collect();
@@ -937,13 +937,13 @@ fn a_censused_replay_writes_its_census_to_stderr_and_leaves_the_answer_alone() {
             .iter()
             .position(|line| line.starts_with("[t] ") && timing_phase(line) == phase)
             .unwrap_or_else(|| panic!("{phase} is timed: {lines:?}"));
-        let censused = lines
+        let last_stats = lines
             .iter()
             .rposition(|line| line.starts_with(&format!("[c] {token} ")))
-            .unwrap_or_else(|| panic!("{token} is censused: {lines:?}"));
+            .unwrap_or_else(|| panic!("{token} has cache stats: {lines:?}"));
         assert!(
-            censused < clocked,
-            "{token}'s census rides ahead of its phase: {lines:?}"
+            last_stats < clocked,
+            "{token}'s cache stats ride ahead of its phase: {lines:?}"
         );
     }
 
@@ -952,7 +952,7 @@ fn a_censused_replay_writes_its_census_to_stderr_and_leaves_the_answer_alone() {
         .expect("default is answered");
     let ceiling = (walked.windows / 3).max(1);
     let ceiling_flag = format!("--memo-windows={ceiling}");
-    let released = replay(&["--cache-census", &ceiling_flag]);
+    let released = replay(&["--cache-stats", &ceiling_flag]);
     assert!(released.status.success(), "{}", complaint(&released));
     let stderr = complaint(&released);
     for prefix in [
@@ -963,14 +963,14 @@ fn a_censused_replay_writes_its_census_to_stderr_and_leaves_the_answer_alone() {
     ] {
         assert!(
             stderr.lines().any(|line| line.starts_with(prefix)),
-            "{prefix} is in the census: {stderr}"
+            "{prefix} is in the cache stats: {stderr}"
         );
     }
     let releases: u64 = stderr
         .lines()
         .find_map(|line| line.strip_prefix("[c] default releases count="))
         .and_then(|count| count.parse().ok())
-        .unwrap_or_else(|| panic!("the census counts default's releases: {stderr}"));
+        .unwrap_or_else(|| panic!("the cache stats count default's releases: {stderr}"));
     assert!(releases >= 1, "{stderr}");
     for line in stderr
         .lines()

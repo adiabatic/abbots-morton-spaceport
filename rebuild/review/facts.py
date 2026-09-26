@@ -1,4 +1,4 @@
-"""The review-corpus census: the counts and structural facts a corpus build reduces its state to, and the regenerator that writes them to rebuild/review-census-pins.json, the last accepted census. Every non-staging artifact-cycle pass rewrites that file from the corpus's census-facts.json sidecar and names what moved in its invariant block. Committing the rewritten file accepts the census. No gate checks the checked-in numbers, so a changed count is something to read, not a failure.
+"""The review facts: the counts and structural facts a corpus build reduces its state to, and the regenerator that writes them to rebuild/review-facts-pins.json, the last accepted review facts. Every non-staging artifact-cycle pass rewrites that file from the corpus's review-facts.json sidecar and names what moved in its invariant block. Committing the rewritten file accepts the new review facts. No gate checks the checked-in numbers, so a changed count is something to read, not a failure.
 
 The file has two blocks so the cycle can say what kind of change a pass made. `volatile` holds the manifest, built, audit, ink, and families groups, which change with every migrated letter. `invariant` holds the structural facts a person should review when they change: which classes the corpus ships, which classes the build machine-approves, which are exempt from individual verdicts, and which verdict families the corpus reaches. The invariant block repeats structure that the volatile groups' keys already carry. Both blocks come from one emission, so they cannot disagree, and the separate block lets `invariant_delta` name a new class or a new no-verdict exemption in one summary line and lets the cycle print a diff of that block alone. `rebuild/out/cycle_summary.json` also records the corpus's totals. The machine-approved and family lists are recorded nowhere else, because both are emergent: a class is machine-approved when the build approved at least one of its units through any channel, whatever the ledger declares. `reach` compares the ledger's declarations with them.
 
@@ -6,13 +6,13 @@ No test reads this file, since a build asserting the numbers it just wrote would
 
 The manifest and built groups are post-merge: they are read from a built corpus after the ink-duplicate fold. The audit, ink, and families groups count pre-merge units, the (codepoints, baseline, new) triples before the fold, which no corpus shard reports, so their class counts can differ from the manifest's. `audit.row_count` counts raw audit rows.
 
-The pre-merge groups come from the census-facts.json sidecar, which `build_m1` writes. It derives them from the pre-merge state it captured just before the fold and the phase-1 products it computes anyway (each post-merge unit's ink verdict and each UNMATCHED unit's verdict family), instead of shaping and enriching the whole corpus a second time. The census is then less independent of the build, but it takes milliseconds instead of minutes. `--from-scratch` recomputes the groups from the source inputs (TSV, ledger, fonts, spec) when an independent comparison is wanted. `derive_premerge` checks the derivation's assumptions: it fails on a default-novel UNMATCHED unit that was folded away and on an UNMATCHED unit with no family, and it writes one ink flag per captured unit.
+The pre-merge groups come from the review-facts.json sidecar, which `build_m1` writes. It derives them from the pre-merge state it captured just before the fold and the phase-1 products it computes anyway (each post-merge unit's ink verdict and each UNMATCHED unit's verdict family), instead of shaping and enriching the whole corpus a second time. The review facts are then less independent of the build, but it takes milliseconds instead of minutes. `--from-scratch` recomputes the groups from the source inputs (TSV, ledger, fonts, spec) when an independent comparison is wanted. `derive_premerge` checks the derivation's assumptions: it fails on a default-novel UNMATCHED unit that was folded away and on an UNMATCHED unit with no family, and it writes one ink flag per captured unit.
 
 Usage:
-    uv run python -m rebuild.review.census --update --corpus rebuild/out/review  # what every non-staging artifact-cycle pass runs
-    uv run python -m rebuild.review.census --check --corpus rebuild/out/review   # the manual comparison
-    uv run python -m rebuild.review.census            # --check, building a fresh temporary corpus first
-    uv run python -m rebuild.review.census --check --from-scratch
+    uv run python -m rebuild.review.facts --update --corpus rebuild/out/review  # what every non-staging artifact-cycle pass runs
+    uv run python -m rebuild.review.facts --check --corpus rebuild/out/review   # the manual comparison
+    uv run python -m rebuild.review.facts            # --check, building a fresh temporary corpus first
+    uv run python -m rebuild.review.facts --check --from-scratch
 """
 
 from __future__ import annotations
@@ -59,10 +59,10 @@ if TYPE_CHECKING:
     from rebuild.review.unit_store import UnitStore
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-PINS_PATH = REPO_ROOT / "rebuild" / "review-census-pins.json"
+PINS_PATH = REPO_ROOT / "rebuild" / "review-facts-pins.json"
 
-FACTS_FILENAME = "census-facts.json"
-FACTS_FORMAT = "ams-census-facts/3"
+FACTS_FILENAME = "review-facts.json"
+FACTS_FORMAT = "ams-review-facts/3"
 FACTS_REMEDY = "rebuild the corpus with: uv run python -m rebuild.review.build"
 
 AUDIT_PATH = REPO_ROOT / "rebuild" / "out" / "m1" / "divergence-audit.tsv"
@@ -95,13 +95,13 @@ def manifest_group(manifest: dict) -> dict:
     }
 
 
-def invariant_group(manifest: dict, families_census: dict[str, int]) -> dict:
+def invariant_group(manifest: dict, families: dict[str, int]) -> dict:
     """The invariant block: which classes the corpus ships, which the build machine-approves, which are exempt from individual verdicts, and which verdict families the corpus reaches, each in its source's order. The classes are listed, not counted, so `invariant_delta` can say which class appeared or went."""
     return {
         "classes": [meta["id"] for meta in manifest["classes"]],
         "machine_approved_classes": list(manifest["machine_approved"]["by_class"]),
         "no_verdict_classes": [meta["id"] for meta in manifest["classes"] if meta["no_verdict"]],
-        "families": list(families_census),
+        "families": list(families),
     }
 
 
@@ -118,7 +118,7 @@ def _named(ids: Sequence[str]) -> str:
 
 
 def invariant_delta(accepted: Mapping, current: Mapping) -> list[str]:
-    """The changes in the invariant block since the accepted census, one finding per list and direction (`classes +2 (a, b)`, `machine-approved -1 (c)`), in the block's key order. The list is empty only when nothing changed. A list with the same members in a new order is reported only as `reordered`, because its order comes from the ledger or the manifest and says nothing new about the corpus. A key that only one side has is reported as newly or no longer recorded, so a change to the block's shape does not read as a list of new classes."""
+    """The changes in the invariant block since the accepted review facts, one finding per list and direction (`classes +2 (a, b)`, `machine-approved -1 (c)`), in the block's key order. The list is empty only when nothing changed. A list with the same members in a new order is reported only as `reordered`, because its order comes from the ledger or the manifest and says nothing new about the corpus. A key that only one side has is reported as newly or no longer recorded, so a change to the block's shape does not read as a list of new classes."""
     findings: list[str] = []
     keys = list(accepted) + [key for key in current if key not in accepted]
     for key in keys:
@@ -146,7 +146,7 @@ def invariant_delta(accepted: Mapping, current: Mapping) -> list[str]:
 
 
 def invariant_diff(accepted: Mapping, current: Mapping) -> list[str]:
-    """The invariant block's unified diff, accepted against current, in the pins file's JSON formatting: the part of `git diff -- rebuild/review-census-pins.json` a reader needs, without the volatile hunks."""
+    """The invariant block's unified diff, accepted against current, in the pins file's JSON formatting: the part of `git diff -- rebuild/review-facts-pins.json` a reader needs, without the volatile hunks."""
     return list(
         difflib.unified_diff(
             json.dumps(accepted, indent=2).splitlines(),
@@ -337,24 +337,24 @@ def family_assignments(repo_root: Path = REPO_ROOT) -> list[str]:
     return [assign_family(enriched) for enriched in enricher.enrich_many(units)]
 
 
-def family_census(assignments: list[str]) -> dict[str, int]:
-    census: dict[str, int] = {}
+def family_counts(assignments: list[str]) -> dict[str, int]:
+    counts: dict[str, int] = {}
     for family in assignments:
-        census[family] = census.get(family, 0) + 1
+        counts[family] = counts.get(family, 0) + 1
     order = {family: index for index, family in enumerate(FAMILY_ORDER)}
-    return dict(sorted(census.items(), key=lambda item: (order.get(item[0], len(order)), item[0])))
+    return dict(sorted(counts.items(), key=lambda item: (order.get(item[0], len(order)), item[0])))
 
 
 def families_group(repo_root: Path = REPO_ROOT) -> dict:
-    census = family_census(family_assignments(repo_root))
-    return {"census": census, "total": sum(census.values())}
+    counts = family_counts(family_assignments(repo_root))
+    return {"census": counts, "total": sum(counts.values())}
 
 
-# --- the census-facts sidecar ---------------------------------------------------------
+# --- the review-facts sidecar ---------------------------------------------------------
 
 
-class CensusGrain(Protocol):
-    """The four fields the pre-merge census is defined over. A materialized `Unit` and a `PremergeSnapshot` row (`PremergeSnapshot.grains`) both satisfy it, so `workload_digest` can be taken from either."""
+class FactsGrain(Protocol):
+    """The four fields the pre-merge facts are defined over. A materialized `Unit` and a `PremergeSnapshot` row (`PremergeSnapshot.grains`) both satisfy it, so `workload_digest` can be taken from either."""
 
     @property
     def codepoints(self) -> str: ...
@@ -370,7 +370,7 @@ class CensusGrain(Protocol):
 
 
 class Grain(NamedTuple):
-    """One pre-merge unit's census fields. The snapshot yields one at a time for `workload_digest`."""
+    """One pre-merge unit's `FactsGrain` fields. The snapshot yields one at a time for `workload_digest`."""
 
     codepoints: str
     class_id: str
@@ -488,8 +488,8 @@ def capture_premerge(table: UnitTable) -> PremergeSnapshot:
     return PremergeSnapshot(table)
 
 
-def workload_digest(units: Iterable[CensusGrain]) -> str:
-    """A sha256 over the census fields of a unit sequence, in order. It identifies the unit list that the sidecar's ink flags and family indices refer to. The units are hashed one newline-separated line at a time, so the payload for millions of rows is never built as one string."""
+def workload_digest(units: Iterable[FactsGrain]) -> str:
+    """A sha256 over the `FactsGrain` fields of a unit sequence, in order. It identifies the unit list that the sidecar's ink flags and family indices refer to. The units are hashed one newline-separated line at a time, so the payload for millions of rows is never built as one string."""
     digest = hashlib.sha256()
     first = True
     for unit in units:
@@ -503,7 +503,7 @@ def workload_digest(units: Iterable[CensusGrain]) -> str:
 
 
 def derive_premerge(snapshot: PremergeSnapshot, table: UnitTable, store: UnitStore) -> PremergeFacts:
-    """Project the build's post-merge phase-1 products back onto the pre-merge units the census pins count. A unit that survived the fold reads its own row. A unit that was folded away reads the survivor the fold recorded for it (`PremergeSnapshot.rebase`): the ink flag from the store and the family from the table.
+    """Project the build's post-merge phase-1 products back onto the pre-merge units the review-facts pins count. A unit that survived the fold reads its own row. A unit that was folded away reads the survivor the fold recorded for it (`PremergeSnapshot.rebase`): the ink flag from the store and the family from the table.
 
     Both projections are exact. The fold groups units only when every config of every sibling gives one identical `InkComparator.signature`, which is the pair of run-order ink lists `config_diff` reads, so a folded sibling's delta and ink verdict equal its survivor's. A pre-merge UNMATCHED unit that is novel under the default config always leads its window's fold order, so it is its own survivor and its phase-1 family is on its own row. Every other UNMATCHED unit is deferred and took its bucket at capture. The assert below checks the second argument where it could fail: an UNMATCHED, undeferred row that was folded away.
     """
@@ -544,7 +544,7 @@ def derive_premerge(snapshot: PremergeSnapshot, table: UnitTable, store: UnitSto
 
 
 def ink_group_from_flags(class_rows: Iterable[tuple[str, bool]], flags: str) -> dict:
-    """The ink group computed from one '0'/'1' flag per pre-merge unit and that unit's (class, no-verdict) pair, both in capture order. It must match `ink_histogram` key for key, including the insertion order of `by_class`; rebuild/test_census_facts.py checks this on synthetic units. Neither side uses Junior equivalence or picture identity: the pre-merge census counts the ink verdict alone."""
+    """The ink group computed from one '0'/'1' flag per pre-merge unit and that unit's (class, no-verdict) pair, both in capture order. It must match `ink_histogram` key for key, including the insertion order of `by_class`; rebuild/test_review_facts.py checks this on synthetic units. Neither side uses Junior equivalence or picture identity: the pre-merge facts count the ink verdict alone."""
     machine_by_class: dict[str, int] = {}
     exempt = 0
     human = 0
@@ -570,8 +570,8 @@ def ink_group_from_flags(class_rows: Iterable[tuple[str, bool]], flags: str) -> 
 
 def families_group_from(assignments: list[str]) -> dict:
     """The families group over families already assigned, so a build can report the families phase 1 computed without enriching every UNMATCHED window again."""
-    census = family_census(assignments)
-    return {"census": census, "total": sum(census.values())}
+    counts = family_counts(assignments)
+    return {"census": counts, "total": sum(counts.values())}
 
 
 def built_group_from_memory(table: UnitTable, config_notes: Mapping[int, str | None]) -> dict:
@@ -608,7 +608,7 @@ def build_facts(
     premerge: PremergeFacts,
     row_count: int,
 ) -> dict:
-    """The sidecar payload: the finished pins the regenerator copies into the checked-in file, the pre-merge records they were reduced from, and the identity of the corpus that owns them. The pre-merge records let a reader re-reduce the pre-merge groups. Only rebuild/test_census_facts.py reads them."""
+    """The sidecar payload: the finished pins the regenerator copies into the checked-in file, the pre-merge records they were reduced from, and the identity of the corpus that owns them. The pre-merge records let a reader re-reduce the pre-merge groups. Only rebuild/test_review_facts.py reads them."""
     families = families_group_from([family for _index, family in premerge.families])
     return {
         "format": FACTS_FORMAT,
@@ -671,14 +671,14 @@ def _build_or_load_corpus(corpus: Path | None):
 
     scratch = REPO_ROOT / "tmp"
     scratch.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix="ams-census-corpus-", dir=scratch) as temp:
+    with tempfile.TemporaryDirectory(prefix="ams-review-facts-corpus-", dir=scratch) as temp:
         out_dir = Path(temp)
         manifest = build_m1(out_dir)
         yield out_dir, manifest
 
 
 def compute_pins(corpus: Path | None = None, repo_root: Path = REPO_ROOT, from_scratch: bool = False) -> dict:
-    """Both blocks of the pins. By default the volatile block is read from the corpus's census-facts.json sidecar, and the invariant block is reduced again from the corpus's manifest and the sidecar's family census, the same sources the build used, so the checked-in file has the block's current shape whichever build wrote the sidecar. With `from_scratch`, all five volatile groups are recomputed from the source artifacts, which shapes and enriches the corpus again."""
+    """Both blocks of the pins. By default the volatile block is read from the corpus's review-facts.json sidecar, and the invariant block is reduced again from the corpus's manifest and the sidecar's family counts, the same sources the build used, so the checked-in file has the block's current shape whichever build wrote the sidecar. With `from_scratch`, all five volatile groups are recomputed from the source artifacts, which shapes and enriches the corpus again."""
     if from_scratch:
         with _build_or_load_corpus(corpus) as (out_dir, manifest):
             families = families_group(repo_root)
@@ -741,7 +741,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--from-scratch",
         action="store_true",
-        help="recompute the audit/ink/families groups from sources instead of reading the corpus's census-facts.json sidecar — the slow, independent re-derivation",
+        help="recompute the audit/ink/families groups from sources instead of reading the corpus's review-facts.json sidecar — the slow, independent re-derivation",
     )
     args = parser.parse_args(argv)
 
@@ -757,12 +757,12 @@ def main(argv: list[str] | None = None) -> int:
     old = json.loads(PINS_PATH.read_text(encoding="utf-8"))
     mismatches = _mismatches(old, new)
     if mismatches:
-        print("census pins are stale:", file=sys.stderr)
+        print("review-facts pins are stale:", file=sys.stderr)
         for key, old_value, new_value in mismatches:
             print(f"  {key}: pinned {old_value!r} != computed {new_value!r}", file=sys.stderr)
-        print("Re-baseline with: uv run python -m rebuild.review.census --update", file=sys.stderr)
+        print("Re-baseline with: uv run python -m rebuild.review.facts --update", file=sys.stderr)
         return 1
-    print("census pins are current.", file=sys.stderr)
+    print("review-facts pins are current.", file=sys.stderr)
     return 0
 
 

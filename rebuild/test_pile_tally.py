@@ -230,15 +230,15 @@ def test_a_boundary_prints_the_documented_lines_sorted_largest_first():
     assert all(line.startswith(pile_tally.TALLY) for line in lines)
 
 
-def test_a_column_census_charges_a_shared_string_table_to_one_line():
+def test_a_column_size_estimate_charges_a_shared_string_table_to_one_line():
     """A packed pile's walked figure is its columns plus its string table, or its columns alone when another pile's line already holds the table (`holds_table=False`). The table is reported beside the packed figure in both cases, so the two readings differ only in `est_bytes`."""
     table = columns.StringTable()
     for value in ("ink", "picture", "junior"):
         table.id(value)
     rows = [array("I", [1, 2, 3]), bytearray(b"\x01\x02\x03")]
     strings = len("inkpicturejunior") + 3 * pile_tally.OFFSET_WIDTH
-    held = pile_tally.column_census(3, rows, table, 4)
-    shared = pile_tally.column_census(3, rows, table, 4, holds_table=False)
+    held = pile_tally.column_sizes(3, rows, table, 4)
+    shared = pile_tally.column_sizes(3, rows, table, 4, holds_table=False)
     assert held == pile_tally.Measure(3, 12 + 3 + 4 + strings, pile_tally.PackedCost(12 + 3 + 4, 3, strings))
     assert shared == pile_tally.Measure(3, 12 + 3 + 4, held.packed)
 

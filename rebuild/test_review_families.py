@@ -1,6 +1,6 @@
 """Tests for the verdict-family grouper (rebuild/review/families.py): the seam-gain and seam-loss branches of `assign_family` over hand-built stubs, and the determinism of an assignment over the frozen mini bundle.
 
-The partition of the live corpus is checked elsewhere. `census.derive_premerge` records one family for each UNMATCHED row of the pre-merge list and raises on a row that resolves to no family. The census reports how many windows each family holds, and the artifact cycle diffs those counts into rebuild/review-census-pins.json.
+The partition of the live corpus is checked elsewhere. `facts.derive_premerge` records one family for each UNMATCHED row of the pre-merge list and raises on a row that resolves to no family. The review facts report how many windows each family holds, and the artifact cycle diffs those counts into rebuild/review-facts-pins.json.
 """
 
 import warnings

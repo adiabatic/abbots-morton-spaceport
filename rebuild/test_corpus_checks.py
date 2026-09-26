@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from rebuild.review import app_index, census, drafts, unit_index
+from rebuild.review import app_index, drafts, facts, unit_index
 from rebuild.review import build as review_build
 from rebuild.review.audit import (
     ACCEPTANCE_CONFIGS,
@@ -334,7 +334,7 @@ def test_a_no_verdict_class_carrying_batches_fails_the_build():
 
 
 def _homed_corpus() -> tuple[dict, dict[str, list[dict]]]:
-    """Returns the fixture with its one homed seam made to look like the resolver's output: a `secondary_seams` census in the manifest, which marks the homes as resolver-assigned, a home window that is a substring of the bearer's window, and a primary pair on the home. The fixture ships without a census because its seam is placed by hand."""
+    """Returns the fixture with its one homed seam made to look like the resolver's output: a `secondary_seams` count record in the manifest, which marks the homes as resolver-assigned, a home window that is a substring of the bearer's window, and a primary pair on the home. The fixture ships without those counts because its seam is placed by hand."""
     manifest, shards = _corpus()
     manifest["secondary_seams"] = {
         "units_with_markers": 1,
@@ -653,7 +653,7 @@ def test_a_packed_row_is_the_projection_the_enricher_reads(tmp_path):
     assert pack.row("default", "E650:E652") is None
     assert pack.row("two", "E650:E652:E650:E652:E650") is None
     assert pack.row("two", "10000:E652") is None
-    assert pack.census() == (2, pack.census()[1]) and pack.census()[1] > 0
+    assert pack.sizes() == (2, pack.sizes()[1]) and pack.sizes()[1] > 0
     pack.close()
 
 
@@ -778,11 +778,11 @@ def test_a_served_unit_skips_check_unit_but_not_the_cross_unit_grain():
     _complaint(check_shards(manifest, shards, REPO_ROOT, served_ids={PLAIN_UNIT}), "in shard")
 
 
-# --- the census projection ----------------------------------------------------------------------
+# --- the review-facts projection ----------------------------------------------------------------
 
 
 def test_the_premerge_projection_answers_one_ink_flag_per_captured_unit():
-    """`ink_flags` has one entry per captured unit, at the pre-merge grain the census pins are defined over, so an index into it identifies a unit. The related claim that no unit with a family is ink-identical holds only for the real corpus, so `build_m1` asserts it instead of `derive_premerge`."""
+    """`ink_flags` has one entry per captured unit, at the pre-merge grain the review-facts pins are defined over, so an index into it identifies a unit. The related claim that no unit with a family is ink-identical holds only for the real corpus, so `build_m1` asserts it instead of `derive_premerge`."""
     rows = [
         AuditRow(
             "default",
@@ -795,14 +795,14 @@ def test_the_premerge_projection_answers_one_ink_flag_per_captured_unit():
         for codepoints in ("E650:E665", "E650:E652")
     ]
     table, _rows = load_table(rows, [], dict(LETTERS))
-    capture = census.capture_premerge(table)
+    capture = facts.capture_premerge(table)
     capture.rebase(table.compact())
     store = UnitStore(table.n, strings=table.strings)
     for ordinal in range(table.n):
         table.set_family(ordinal, "a-family")
-    facts = census.derive_premerge(capture, table, store)
-    assert len(facts.ink_flags) == facts.units == table.n == 2
-    assert [index for index, _family in facts.families] == [0, 1]
+    premerge = facts.derive_premerge(capture, table, store)
+    assert len(premerge.ink_flags) == premerge.units == table.n == 2
+    assert [index for index, _family in premerge.families] == [0, 1]
 
 
 # --- the two moments a build checks a fresh fragment at ----------------------------------------

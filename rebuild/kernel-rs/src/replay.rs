@@ -370,8 +370,8 @@ pub struct Replay<'i> {
     disagreed: HashSet<WindowKey>,
     /// How many times the walk has released its memos under the universe's ceiling.
     releases: u64,
-    /// For a walk with the census on, the configuration its lines report under and the `[c]` lines gathered at each release so far. `None` when the census is off.
-    census: Option<(String, Vec<String>)>,
+    /// For a walk with the cache stats on, the configuration its lines report under and the `[c]` lines gathered at each release so far. `None` when the cache stats are off.
+    cache_stats: Option<(String, Vec<String>)>,
 }
 
 impl<'i> Replay<'i> {
@@ -406,18 +406,18 @@ impl<'i> Replay<'i> {
             disagreements: Vec::new(),
             disagreed: HashSet::default(),
             releases: 0,
-            census: None,
+            cache_stats: None,
         }
     }
 
-    /// Turns the `--cache-census` diagnostic on for this walk, its lines reporting under `config`.
-    pub fn with_census(&mut self, config: &str) {
-        self.census = Some((config.to_owned(), Vec::new()));
+    /// Turns the `--cache-stats` diagnostic on for this walk, its lines reporting under `config`.
+    pub fn with_cache_stats(&mut self, config: &str) {
+        self.cache_stats = Some((config.to_owned(), Vec::new()));
     }
 
-    /// The census's `[c]` lines: the ones gathered at releases, then the current state of the walk memo and the walk's other tables, every engine memo, the elimination text they hold, the release count, and the process's resident size. Empty when the census is off or was already taken.
-    pub fn take_census(&mut self) -> Vec<String> {
-        let Some((config, mut lines)) = self.census.take() else {
+    /// The cache stats' `[c]` lines: the ones gathered at releases, then the current state of the walk memo and the walk's other tables, every engine memo, the elimination text they hold, the release count, and the process's resident size. Empty when the cache stats are off or were already taken.
+    pub fn take_cache_stats(&mut self) -> Vec<String> {
+        let Some((config, mut lines)) = self.cache_stats.take() else {
             return Vec::new();
         };
         let walk = [
@@ -445,7 +445,7 @@ impl<'i> Replay<'i> {
                 self.disagreed.capacity(),
             ),
         ];
-        let engine = self.engine.cache_census();
+        let engine = self.engine.cache_stats();
         for size in walk.iter().chain(&engine) {
             lines.push(size.line(&config));
         }
@@ -461,15 +461,15 @@ impl<'i> Replay<'i> {
         lines
     }
 
-    /// Clears the walk memo and the engine's memos. The pool, the labels, and the named disagreements stay. A window settled again afterward gets the same record under the same label, because the walk memo keys a window on its left's label and, by the fixpoint's partition premise (`fixpoint`'s `partition_complaint`), a label names one left state. Clearing keeps the walk memo's allocated buckets, so the memo does not grow through every capacity doubling again after each release. With the census on, it records the memos' sizes and the resident size before the release, and the resident size after it, under `release=<k>`.
+    /// Clears the walk memo and the engine's memos. The pool, the labels, and the named disagreements stay. A window settled again afterward gets the same record under the same label, because the walk memo keys a window on its left's label and, by the fixpoint's partition premise (`fixpoint`'s `partition_complaint`), a label names one left state. Clearing keeps the walk memo's allocated buckets, so the memo does not grow through every capacity doubling again after each release. With the cache stats on, it records the memos' sizes and the resident size before the release, and the resident size after it, under `release=<k>`.
     fn release(&mut self) {
         let release = self.releases + 1;
-        if let Some((config, lines)) = self.census.as_mut() {
+        if let Some((config, lines)) = self.cache_stats.as_mut() {
             let stage = format!("{config} release={release}");
             lines.push(
                 CacheSize::of("walk_memo", self.memo.len(), self.memo.capacity()).line(&stage),
             );
-            for size in self.engine.cache_census() {
+            for size in self.engine.cache_stats() {
                 lines.push(size.line(&stage));
             }
             lines.push(format!(
@@ -480,7 +480,7 @@ impl<'i> Replay<'i> {
         self.memo.clear();
         self.engine.release_memos();
         self.releases = release;
-        if let Some((config, lines)) = self.census.as_mut() {
+        if let Some((config, lines)) = self.cache_stats.as_mut() {
             lines.push(format!(
                 "[c] {config} release={release} resident_after_release kb={}",
                 resident_kb()
@@ -911,12 +911,12 @@ mod tests {
         let mut walk = replay(&index, &rules);
         walk.walk_universe(Universe::whole(3))
             .expect("the table is complete");
-        let census = walk.engine.cache_census();
+        let sizes = walk.engine.cache_stats();
         let row = |name: &str| {
-            census
+            sizes
                 .iter()
                 .find(|size| size.name == name)
-                .unwrap_or_else(|| panic!("the census reports {name}"))
+                .unwrap_or_else(|| panic!("the cache stats report {name}"))
                 .len
         };
         assert!(row("trace_cache") > 0);
@@ -964,7 +964,7 @@ mod tests {
             .collect()
     }
 
-    /// The `len` of every `walk_memo` row a census wrote, release rows and the end-of-walk row alike.
+    /// The `len` of every `walk_memo` row the cache stats wrote, release rows and the end-of-walk row alike.
     fn walk_memo_lens(lines: &[String]) -> Vec<usize> {
         lines
             .iter()
@@ -990,7 +990,7 @@ mod tests {
         }
     }
 
-    /// A walk under a memo ceiling returns what the uncapped walk returns: the same texts and skipped count, the same records seated in the same order under the same labels, and the uncapped seat and label for every window left in its memo. The ceilings tested release before every text (1), now and then (7), a few times (half the window count), and never (the window count plus the horizon, a ceiling at which the release rule never fires). A white-box pass walks each text from released memos and checks that each of its windows settles at the uncapped walk's seat and label, which covers every window of the universe. Only `windows` differs, because it counts each re-settle. The memo never holds more than the ceiling, or one text's windows when the ceiling is below the horizon. The census rows, taken at every release and at the end of the walk, show the same bound, and turning the census on does not change when releases happen.
+    /// A walk under a memo ceiling returns what the uncapped walk returns: the same texts and skipped count, the same records seated in the same order under the same labels, and the uncapped seat and label for every window left in its memo. The ceilings tested release before every text (1), now and then (7), a few times (half the window count), and never (the window count plus the horizon, a ceiling at which the release rule never fires). A white-box pass walks each text from released memos and checks that each of its windows settles at the uncapped walk's seat and label, which covers every window of the universe. Only `windows` differs, because it counts each re-settle. The memo never holds more than the ceiling, or one text's windows when the ceiling is below the horizon. The cache-stats rows, taken at every release and at the end of the walk, show the same bound, and turning the cache stats on does not change when releases happen.
     #[test]
     fn a_capped_walk_answers_every_text_an_uncapped_walk_answers() {
         let index = fixtures::mini();
@@ -1021,22 +1021,22 @@ mod tests {
         let (few, few_report) = capped(&index, &rules, universe, half);
         assert!(few.releases > 0);
         assert!(few_report.windows > whole.windows);
-        let mut censused = replay(&index, &rules);
-        censused.with_census("default");
-        let censused_report = censused
+        let mut with_stats = replay(&index, &rules);
+        with_stats.with_cache_stats("default");
+        let with_stats_report = with_stats
             .walk_universe(Universe {
                 memo_windows: Some(half),
                 ..universe
             })
             .expect("the table is complete under any ceiling");
         assert_eq!(
-            censused_report, few_report,
-            "the census moves no release point"
+            with_stats_report, few_report,
+            "the cache stats move no release point"
         );
-        let lens = walk_memo_lens(&censused.take_census());
+        let lens = walk_memo_lens(&with_stats.take_cache_stats());
         assert_eq!(
             lens.len() as u64,
-            censused.releases + 1,
+            with_stats.releases + 1,
             "one row per release and one at the end"
         );
         assert!(lens.iter().all(|len| *len <= half), "{lens:?}");

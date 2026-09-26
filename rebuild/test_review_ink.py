@@ -25,7 +25,7 @@ from rebuild.review.ink import (
     kern_neutral,
     rectilinear_cells,
     release_shape_memos,
-    shape_memo_census,
+    shape_memo_sizes,
     shaper_for,
     signature_digest,
 )
@@ -430,24 +430,24 @@ def test_shaper_for_rekeys_when_the_font_changes_on_disk(tmp_path):
 
 
 def test_the_shape_memo_reports_what_it_holds_and_releases_it_whole():
-    """`shape_memo_census` counts the entries all of `shaper_for`'s shapers hold, with an approximate byte figure that grows with the entries and is zero when there are none. A repeated shape is a memo hit and changes neither number. `release_shape_memos` empties every memo at once (the build calls it after each unit batch), and the next shape calls HarfBuzz again: the result is equal but is a new object, not the one the memo held."""
+    """`shape_memo_sizes` counts the entries all of `shaper_for`'s shapers hold, with an approximate byte figure that grows with the entries and is zero when there are none. A repeated shape is a memo hit and changes neither number. `release_shape_memos` empties every memo at once (the build calls it after each unit batch), and the next shape calls HarfBuzz again: the result is equal but is a new object, not the one the memo held."""
     release_shape_memos()
-    assert shape_memo_census() == (0, 0)
+    assert shape_memo_sizes() == (0, 0)
     shared = shaper_for(BEFORE_FONT)
     text = "".join(chr(value) for value in (0xE650, 0xE665, 0xE667))
     held = shared.shape(text)
-    one = shape_memo_census()
+    one = shape_memo_sizes()
     assert one.entries == 1 and one.approx_bytes > 0
     assert shared.shape(text) is held
-    assert shape_memo_census() == one
+    assert shape_memo_sizes() == one
     shared.shape(text, {"ss03": True, "kern": False})
-    two = shape_memo_census()
+    two = shape_memo_sizes()
     assert two.entries == 2 and two.approx_bytes > one.approx_bytes
     release_shape_memos()
-    assert shape_memo_census() == (0, 0)
+    assert shape_memo_sizes() == (0, 0)
     fresh = shared.shape(text)
     assert fresh == held and fresh is not held
-    assert shape_memo_census().entries == 1
+    assert shape_memo_sizes().entries == 1
 
 
 @pytest.fixture(scope="module")

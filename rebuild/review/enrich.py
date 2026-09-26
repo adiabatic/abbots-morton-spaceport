@@ -313,9 +313,9 @@ class Enricher:
             self._pack = SubsetPack.open(self.subset_pack, digests)
         return self._pack.row(config, codepoints)
 
-    def subset_pack_census(self) -> tuple[int, int]:
+    def subset_pack_sizes(self) -> tuple[int, int]:
         """The pack's rows and mapped bytes for the pile tally, or (0, 0) before it is opened."""
-        return self._pack.census() if self._pack is not None else (0, 0)
+        return self._pack.sizes() if self._pack is not None else (0, 0)
 
     def formed_spans(self, codepoint_values: tuple[int, ...]) -> list[tuple[int, int]]:
         tokens = tokens_from_codepoints(self.spec, codepoint_values)
@@ -843,9 +843,9 @@ def _find_home(
 def resolve_home_assignments(
     source: SeamHomeSource | list[SeamHomeUnit],
 ) -> tuple[dict[str, list[tuple[str | None, bool]]], dict[str, int]]:
-    """Resolve the home of every secondary seam in the corpus. For each unit with secondary seams, each seam gets (home or None, suppressed) in seam order, written back through `source.set_homes`, and the census is counted. A seam whose home is ink- or picture-identical is suppressed: the divergence is an invisible name-grain rename, so it gets no marker. A seam with no home keeps home None and stays visible, so it is never left unmarked.
+    """Resolve the home of every secondary seam in the corpus. For each unit with secondary seams, each seam gets (home or None, suppressed) in seam order, written back through `source.set_homes`, and the secondary-seam counts are tallied. A seam whose home is ink- or picture-identical is suppressed: the divergence is an invisible name-grain rename, so it gets no marker. A seam with no home keeps home None and stays visible, so it is never left unmarked.
 
-    The window index holds ordinals, and a unit is materialized only when it has a seam or is a candidate. A list of projections is wrapped in `_ListSource`, and only then is the returned dict filled, keyed by unit id for `apply_home_assignments`. A source that stores its own homes, such as the unit store, gets them through `set_homes`, and the dict is empty. The census has the same four counts either way.
+    The window index holds ordinals, and a unit is materialized only when it has a seam or is a candidate. A list of projections is wrapped in `_ListSource`, and only then is the returned dict filled, keyed by unit id for `apply_home_assignments`. A source that stores its own homes, such as the unit store, gets them through `set_homes`, and the dict is empty. The secondary-seam counts are the same four either way.
     """
     if isinstance(source, list):
         adapter = _ListSource(source)
@@ -856,7 +856,7 @@ def resolve_home_assignments(
     by_codepoints: dict[tuple[int, ...], list[int]] = {}
     for ordinal, window in reduced.windows():
         by_codepoints.setdefault(window, []).append(ordinal)
-    census = {
+    counts = {
         "units_with_markers": 0,
         "seams_homed": 0,
         "seams_homeless": 0,
@@ -872,20 +872,20 @@ def resolve_home_assignments(
         for pair in item.seam_pairs:
             home = _find_home(item, ordinal, pair, by_codepoints, reduced, held)
             if home is None:
-                census["seams_homeless"] += 1
+                counts["seams_homeless"] += 1
                 visible += 1
                 seam_assign.append((None, False))
             elif reduced.invisible(home):
-                census["seams_suppressed_invisible"] += 1
+                counts["seams_suppressed_invisible"] += 1
                 seam_assign.append((None, True))
             else:
-                census["seams_homed"] += 1
+                counts["seams_homed"] += 1
                 visible += 1
                 seam_assign.append((home, False))
         reduced.set_homes(ordinal, seam_assign)
         if visible:
-            census["units_with_markers"] += 1
-    return (adapter.assignments if adapter is not None else {}), census
+            counts["units_with_markers"] += 1
+    return (adapter.assignments if adapter is not None else {}), counts
 
 
 def apply_home_assignments(
@@ -899,11 +899,11 @@ def apply_home_assignments(
 
 
 def resolve_secondary_homes(enriched_units: list[EnrichedUnit]) -> dict[str, int]:
-    """Resolve the home of every secondary seam across the given units, set it on the seams in place, and return the census (`resolve_home_assignments` has the rules)."""
+    """Resolve the home of every secondary seam across the given units, set it on the seams in place, and return the secondary-seam counts (`resolve_home_assignments` has the rules)."""
     projections = [seam_home_projection(item) for item in enriched_units]
-    assignments, census = resolve_home_assignments(projections)
+    assignments, counts = resolve_home_assignments(projections)
     apply_home_assignments(enriched_units, assignments)
-    return census
+    return counts
 
 
 def _summarize(

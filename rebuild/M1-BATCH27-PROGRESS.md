@@ -42,7 +42,7 @@ uv run python -m rebuild.pipeline.coretext_smoke --font rebuild/out/m1/M1.otf
 make verdict-ready
 ```
 
-The ·Ye block in `rebuild/pipeline/smoke_sequences_m1.txt` lists the pair, break, ligature, yield, and boundary probes. Read the `invariant` block of `rebuild/review-census-pins.json` before accepting its generated diff.
+The ·Ye block in `rebuild/pipeline/smoke_sequences_m1.txt` lists the pair, break, ligature, yield, and boundary probes. Read the `invariant` block of `rebuild/review-facts-pins.json` before accepting its generated diff.
 
 ## Resume
 

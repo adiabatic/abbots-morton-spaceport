@@ -1,9 +1,9 @@
-"""Write the visible isolation leaks to a bad-leak backlog and a benign census.
+"""Write the visible isolation leaks to a bad-leak backlog and a benign list.
 
 `doc/definitions/shaping-leakage.md` defines a leak as a shape difference across a break, and `tools/leak_classify.py` labels each one bad or benign. Run as a script (`make leak-snapshot`), this module sweeps to depth 4, classifies every visible leak, and writes two files that together list all of them:
 
   * `site/bad-leak-backlog.txt`: the bad leaks (visible additive dangles). `test/test_isolation_leaks.py` fails on a bad leak missing from this file and only prints a notice for an entry that no longer occurs.
-  * `site/benign-leak-census.txt`: the benign leaks (subtractive trims, standalone-variant swaps, and cosmetic tucks). `make test-leaks` fails on any difference from this file, so a reviewer sees each change before it is re-blessed.
+  * `site/benign-leak-list.txt`: the benign leaks (subtractive trims, standalone-variant swaps, and cosmetic tucks). `make test-leaks` fails on any difference from this file, so a reviewer sees each change before it is re-blessed.
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parent.parent
 TEST_DIR = ROOT / "test"
 SITE_DIR = ROOT / "site"
 BAD_BACKLOG_PATH = SITE_DIR / "bad-leak-backlog.txt"
-BENIGN_CENSUS_PATH = SITE_DIR / "benign-leak-census.txt"
+BENIGN_LIST_PATH = SITE_DIR / "benign-leak-list.txt"
 
 if str(TEST_DIR) not in sys.path:
     sys.path.insert(0, str(TEST_DIR))
@@ -111,14 +111,14 @@ if __name__ == "__main__":
             blurb="Visible additive dangles the autonomous fix loop must drain. A NEW signature fails the gate; a resolved one is a re-bless notice.",
         )
     )
-    BENIGN_CENSUS_PATH.write_text(
+    BENIGN_LIST_PATH.write_text(
         format_snapshot(
             benign,
-            title=f"Benign isolation-leak census at depth {MAX_LEN}.",
+            title=f"Benign isolation-leak list at depth {MAX_LEN}.",
             blurb="The welcome faux-organic variation (subtractive trims, standalone-variant swaps, cosmetic tucks). Any change is surfaced for review.",
         )
     )
     print(
         f"Wrote {len(bad)} bad signatures to {BAD_BACKLOG_PATH.relative_to(ROOT)} "
-        f"and {len(benign)} benign to {BENIGN_CENSUS_PATH.relative_to(ROOT)}"
+        f"and {len(benign)} benign to {BENIGN_LIST_PATH.relative_to(ROOT)}"
     )

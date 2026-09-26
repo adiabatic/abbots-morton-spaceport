@@ -1,6 +1,6 @@
 """Classify the recorded leaks by whether the join contract can remove them.
 
-The emitter enforces the join contract with `_JoinContractRecorder` in `tools/quikscript_fea.py`, and doc/history/2026-06-03--leak-cleanup/leak-prevention-plan.md describes it. This module applies the contract's predicate from outside the emitter, reading only the built Senior `calt` FEA and the leak files `site/bad-leak-backlog.txt` and `site/benign-leak-census.txt`. The two can disagree for two reasons. This module tests joins with bare anchor Ys, while the emitter also counts the Ys a neighbor reaches in context. The emitter also counts a variant with no exit (forward) or no entry (backward) as joining, and this module has no such exemption. `tools/build_check_html.py` uses `classify` to group the leaks on site/check.html. Run as a script, the module writes the full breakdown to `tmp/leak-contract-report.txt`.
+The emitter enforces the join contract with `_JoinContractRecorder` in `tools/quikscript_fea.py`, and doc/history/2026-06-03--leak-cleanup/leak-prevention-plan.md describes it. This module applies the contract's predicate from outside the emitter, reading only the built Senior `calt` FEA and the leak files `site/bad-leak-backlog.txt` and `site/benign-leak-list.txt`. The two can disagree for two reasons. This module tests joins with bare anchor Ys, while the emitter also counts the Ys a neighbor reaches in context. The emitter also counts a variant with no exit (forward) or no entry (backward) as joining, and this module has no such exemption. `tools/build_check_html.py` uses `classify` to group the leaks on site/check.html. Run as a script, the module writes the full breakdown to `tmp/leak-contract-report.txt`.
 
 The predicate: a contextual substitution that selects variant `V` keeps a neighbor `N` only if `V` joins `N`, meaning `exit_ys(V) & entry_ys(N)` is non-empty for a follower and `exit_ys(N) & entry_ys(V)` for a predecessor. A non-joining neighbor is dropped unless `V` has a directional cosmetic modifier (`before-<fam>` for a follower, `after-<fam>` for a predecessor) that names the neighbor's family.
 
@@ -25,8 +25,8 @@ from leak_static_analysis import Rule, parse_calt  # noqa: E402
 from quikscript_shaping_helpers import _compiled_meta, _entry_ys, _exit_ys  # noqa: E402
 
 FEA_PATH = SITE_DIR / "AbbotsMortonSpaceportSansSenior-Regular.fea"
-# The bad backlog and the benign census together list every visible depth-4 leak.
-SNAPSHOT_PATHS = (SITE_DIR / "bad-leak-backlog.txt", SITE_DIR / "benign-leak-census.txt")
+# The bad backlog and the benign list together list every visible depth-4 leak.
+SNAPSHOT_PATHS = (SITE_DIR / "bad-leak-backlog.txt", SITE_DIR / "benign-leak-list.txt")
 DUMP_PATH = ROOT / "tmp" / "leak-contract-report.txt"
 
 Signature = tuple[str, str, str, str]  # (isolated_left, left_chosen, isolated_right, right_chosen)
@@ -94,7 +94,7 @@ class LeakVerdict:
 
 
 def parse_snapshot(paths: tuple[Path, ...] = SNAPSHOT_PATHS) -> list[tuple[Signature, str]]:
-    """Return `(signature, example label)` for each leak line in the given files, by default the bad backlog and the benign census. It parses lines as `leak_snapshot.parse_snapshot` does, without importing the shaping code that module needs."""
+    """Return `(signature, example label)` for each leak line in the given files, by default the bad backlog and the benign list. It parses lines as `leak_snapshot.parse_snapshot` does, without importing the shaping code that module needs."""
     out: list[tuple[Signature, str]] = []
     for path in paths:
         for raw in path.read_text().splitlines():

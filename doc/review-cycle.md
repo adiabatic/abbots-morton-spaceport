@@ -24,18 +24,18 @@ pkill -f 'rebuild\.review\.serve'
 
 ## What a pass does
 
-- It rebuilds the M1 font and tables, rebuilds the review corpus, runs the verdict update, refreshes the census pins, runs the gates, and compares the checked-in per-unit memory peaks with what this machine measured. On a green finish it prunes the regenerable outputs.
+- It rebuilds the M1 font and tables, rebuilds the review corpus, runs the verdict update, refreshes the review-facts pins, runs the gates, and compares the checked-in per-unit memory peaks with what this machine measured. On a green finish it prunes the regenerable outputs.
 - Every heavy stage is skipped when its green record shows its inputs are unchanged since its last green run, so a pass over unchanged inputs takes seconds. A gate that did not run is unverified, not waived: `make verdict-ready` reports NOT READY until it runs.
 - A green pass ends by running the readiness checklist, so nothing needs to run after it. `make verdict-ready` runs the same checklist on its own.
 - When only comparison-side inputs changed, the pass re-runs the gates over the artifacts already on disk instead of rebuilding them. `doc/testing.md` § Rerunning the gates without a build gives the recipe and lists those inputs.
 
-### The census
+### The review facts
 
-Every non-staging pass rewrites `rebuild/review-census-pins.json` from the census sidecar the corpus build writes, and compares the result with the copy in the git index. The checked-in file is the last accepted census, and committing the rewritten file accepts the new one. The summary's `census pins` line says what that commit would accept:
+Every non-staging pass rewrites `rebuild/review-facts-pins.json` from the review-facts sidecar the corpus build writes, and compares the result with the copy in the git index. The checked-in file holds the last accepted review facts, and committing the rewritten file accepts the new ones. The summary's `review facts` line says what that commit would accept:
 
 - The `volatile` block holds totals that change with every migrated letter. When only this block changed, the line reads `invariant unchanged`, no diff is printed, and `rebuild/out/cycle_summary.json` holds the corpus's totals.
-- The `invariant` block records which classes the corpus ships, which ones the build machine-approves, which are exempt from individual verdicts, and which verdict families the corpus reaches. When it changed, the line names the change (`classes +1 (…)`, `machine-approved -1 (…)`, `families +1 (…)`) and the block's own diff is printed under the census banner, without the volatile hunks. This is the diff to read carefully before committing.
-- The `census reach` line compares the ledger's `ink_identical` and `no_verdict` declarations with what the corpus reached. It reports how many classes approve units and which of those the ledger never declared, which declared classes approve none, and which ledger entries and exemptions no unit reached. Neither the ledger nor the pins shows this by itself. `census.reach` in `rebuild/review/census.py` is the authority, and `cycle_summary.json` stores the sets under `census_reach_sets`.
+- The `invariant` block records which classes the corpus ships, which ones the build machine-approves, which are exempt from individual verdicts, and which verdict families the corpus reaches. When it changed, the line names the change (`classes +1 (…)`, `machine-approved -1 (…)`, `families +1 (…)`) and the block's own diff is printed under the review-facts banner, without the volatile hunks. This is the diff to read carefully before committing.
+- The `census reach` line compares the ledger's `ink_identical` and `no_verdict` declarations with what the corpus reached. It reports how many classes approve units and which of those the ledger never declared, which declared classes approve none, and which ledger entries and exemptions no unit reached. Neither the ledger nor the pins shows this by itself. `facts.reach` in `rebuild/review/facts.py` is the authority, and `cycle_summary.json` stores the sets under `census_reach_sets`.
 
 ## Which hashes ignore prose
 

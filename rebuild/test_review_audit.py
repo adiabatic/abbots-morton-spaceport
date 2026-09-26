@@ -2,7 +2,7 @@
 
 None of it reads the live audit. Ordering, batch slicing, config order, and the one-render-group invariant are properties of `build_units` and `assign_batches` over any input, so the tests use the frozen mini workload under rebuild/review/fixtures/mini/, which holds real windows. Every build also checks that the dedupe loses no rows: `_CorpusCheck.finish` in rebuild/review/build.py compares the manifest's row total with the rows summed over its classes.
 
-The live counts change with every migrated letter, so they are not asserted here. The corpus build's census reports them, and the artifact cycle diffs them into rebuild/review-census-pins.json.
+The live counts change with every migrated letter, so they are not asserted here. The corpus build's review facts report them, and the artifact cycle diffs them into rebuild/review-facts-pins.json.
 """
 
 import sys
@@ -34,7 +34,7 @@ from rebuild.review.audit import (
     sort_for_triage,
     triage_key,
 )
-from rebuild.review.build import row_columns_census, signature_text, unit_table_census
+from rebuild.review.build import row_column_sizes, signature_text, unit_table_sizes
 from rebuild.review.columns import MappingPool, TuplePool
 from rebuild.review.enrich import LETTERS
 from rebuild.review.unit_store import UnitStore
@@ -245,10 +245,10 @@ def test_a_row_line_is_the_audit_line_it_was_read_from(tmp_path, mini_bundle):
         for index in range(unit.rows_start, unit.rows_start + unit.row_count)
     }
     assert lines == set(FIXTURE_AUDIT.splitlines()[1:])
-    census = row_columns_census(workload.rows)
-    assert census.count == 3 and census.packed is not None
-    assert census.est_bytes == census.packed.est_bytes and census.packed.string_bytes > 0
-    assert census.packed.strings == len(workload.table.strings)
+    sizes = row_column_sizes(workload.rows)
+    assert sizes.count == 3 and sizes.packed is not None
+    assert sizes.est_bytes == sizes.packed.est_bytes and sizes.packed.string_bytes > 0
+    assert sizes.packed.strings == len(workload.table.strings)
 
 
 def test_the_row_columns_refuse_a_config_vocabulary_wider_than_a_byte():
@@ -301,7 +301,7 @@ def test_the_row_sort_key_ranks_a_config_outside_a_grown_acceptance_tuple(monkey
 
 
 def test_the_dedupe_loses_no_rows(mini):
-    """Every audit row ends up under exactly one unit, and the units' runs cover the columns without gaps or overlap. The census reports the counts, so only the totals are asserted, plus that both sides are nonempty, since an empty audit would pass the sum trivially. On the live corpus, `_CorpusCheck.finish` checks the same row total on every build."""
+    """Every audit row ends up under exactly one unit, and the units' runs cover the columns without gaps or overlap. The review facts report the counts, so only the totals are asserted, plus that both sides are nonempty, since an empty audit would pass the sum trivially. On the live corpus, `_CorpusCheck.finish` checks the same row total on every build."""
     units = mini.units()
     assert mini.row_count > 0
     assert len(units) == mini.table.n > 0
@@ -522,7 +522,7 @@ def test_ink_duplicate_siblings_fold_to_one_unit(mini_bundle):
         ("qsPea.ss04", "qsMay.en-y0"),
     ]
     assert len(columns) == 7 and columns.orphaned == 3 and columns.live == 4
-    assert row_columns_census(columns).count == 4
+    assert row_column_sizes(columns).count == 4
     assert merged.baseline == ("qsPea", "qsMay.en-y0")
     assert merged.kinds == ("cell", "seam")
     assert merged.render_groups == (merged.configs,)
@@ -587,17 +587,17 @@ def test_units_whose_configs_render_differently_never_fold(mini_bundle):
 
 
 def test_the_name_tuples_are_released_after_phase_one(mini):
-    """The table holds each unit's `baseline` and `new` as ids into the name pool it shares with the row columns, until the build calls `release_names` after phase 1. Releasing drops both columns and the pool, the census no longer counts the pool's bytes, and a unit materialized afterward has empty name tuples."""
+    """The table holds each unit's `baseline` and `new` as ids into the name pool it shares with the row columns, until the build calls `release_names` after phase 1. Releasing drops both columns and the pool, `unit_table_sizes` drops the pool's bytes, and a unit materialized afterward has empty name tuples."""
     table = mini.table
     assert table.names is not None and table.names.sealed
     unit = table.unit(0)
     assert unit.baseline and unit.new and unit.baseline is table.baseline(0)
-    before = unit_table_census(table)
+    before = unit_table_sizes(table)
     assert before.packed is not None
     pooled = pile_tally.pool_bytes(table.names)
     columns = 2 * 4 * table.n
     table.release_names()
-    after = unit_table_census(table)
+    after = unit_table_sizes(table)
     assert after.packed is not None
     assert table.names is None and table.baseline(0) == () == table.new(0)
     assert table.unit(0).baseline == () == table.unit(0).new
@@ -605,10 +605,10 @@ def test_the_name_tuples_are_released_after_phase_one(mini):
     assert after.count == before.count == table.n
 
 
-def test_the_table_census_is_the_columns_bytes_and_the_pools_priced_beside_the_string_table(mini):
+def test_the_table_sizes_are_the_columns_bytes_and_the_pools_priced_beside_the_string_table(mini):
     """The table's `workload.units` reading is exact. The packed figure is the columns' bytes plus every pool's packed size, the string table is reported beside it, and the two summed are the walked figure. A compaction removes the folded rows' bytes from it."""
     table = mini.table
-    reading = unit_table_census(table)
+    reading = unit_table_sizes(table)
     assert reading.packed is not None
     columns = sum(len(column) * column.itemsize for column in table.columns())
     pools = sum(pile_tally.pool_bytes(pool) for pool in table.pools())
@@ -621,7 +621,7 @@ def test_the_table_census_is_the_columns_bytes_and_the_pools_priced_beside_the_s
     assert reading.packed.est_bytes / table.n < 200
     table.fold_into(1, 0)
     table.compact()
-    shrunk = unit_table_census(table)
+    shrunk = unit_table_sizes(table)
     assert shrunk.count == reading.count - 1 and shrunk.est_bytes < reading.est_bytes
 
 

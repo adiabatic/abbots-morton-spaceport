@@ -209,7 +209,7 @@ def test_conform_gate_fails_on_bare_false_pass():
 
 
 def test_classify_review_module_failures_are_hard():
-    """A failure in a review module is a hard failure like any other. The census pins are the cycle's output, not an assertion the suite reads."""
+    """A failure in a review module is a hard failure like any other. The review-facts pins are the cycle's output, not an assertion the suite reads."""
     stdout = "\n".join(
         [
             "FAILED rebuild/test_review_build.py::test_totals",
@@ -286,12 +286,12 @@ def test_dry_run_plan_default():
         "-m",
         "rebuild.tools.verdict_update",
     ]
-    assert by_name["census"].argv == [
+    assert by_name["review-facts"].argv == [
         "uv",
         "run",
         "python",
         "-m",
-        "rebuild.review.census",
+        "rebuild.review.facts",
         "--update",
         "--corpus",
         str(ac.REVIEW_OUT),
@@ -391,7 +391,7 @@ def test_dry_run_plan_runs_the_whole_verdict_update_as_one_step():
     plan = _plan(short_id="abc1234")
     names = [step.name for step in plan.steps]
     assert names.index("verdict-update") == names.index("corpus-build") + 1
-    assert names.index("census") == names.index("verdict-update") + 1
+    assert names.index("review-facts") == names.index("verdict-update") + 1
     argv = {step.name: step for step in plan.steps}["verdict-update"].argv
     assert argv is not None
     assert argv[:10] == [
@@ -983,8 +983,8 @@ def _verdict_update_ok(report, *, spawn, emit, registry, plan):
     return []
 
 
-def _census_clean(report, *, spawn, emit, registry, plan):
-    report.census_status = "updated (matches the last accepted census)"
+def _review_facts_clean(report, *, spawn, emit, registry, plan):
+    report.facts_status = "updated (matches the last accepted review facts)"
 
 
 def _job_costs_clean(report, *, spawn, emit, registry, plan):
@@ -1020,7 +1020,7 @@ def _patch_gate_fingerprints(monkeypatch):
 def _patch_build_chain(monkeypatch):
     monkeypatch.setattr(ac, "_do_corpus_build", _corpus_ok)
     monkeypatch.setattr(ac, "_do_verdict_update", _verdict_update_ok)
-    monkeypatch.setattr(ac, "_do_census", _census_clean)
+    monkeypatch.setattr(ac, "_do_review_facts", _review_facts_clean)
     monkeypatch.setattr(ac, "_do_job_costs", _job_costs_clean)
 
 
@@ -1032,7 +1032,7 @@ def test_a_failing_merge_fails_the_cycle(monkeypatch, capsys):
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
     monkeypatch.setattr(ac, "_do_corpus_build", _corpus_ok)
     monkeypatch.setattr(ac, "_do_verdict_update", failing)
-    monkeypatch.setattr(ac, "_do_census", _census_clean)
+    monkeypatch.setattr(ac, "_do_review_facts", _review_facts_clean)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
     monkeypatch.setattr(ac, "_gate_contracts_task", _contracts_green)
@@ -1573,7 +1573,7 @@ def test_summary_exact_under_out_of_order_completion(monkeypatch, capsys):
     monkeypatch.setattr(ac, "_do_run_m1", fake_run_m1)
     monkeypatch.setattr(ac, "_do_corpus_build", fake_corpus)
     monkeypatch.setattr(ac, "_do_verdict_update", _verdict_update_ok)
-    monkeypatch.setattr(ac, "_do_census", _census_clean)
+    monkeypatch.setattr(ac, "_do_review_facts", _review_facts_clean)
     monkeypatch.setattr(ac, "_gate_js_task", fake_js)
     monkeypatch.setattr(ac, "_gate_make_test_task", fake_make)
     monkeypatch.setattr(ac, "_gate_contracts_task", fake_contracts)
@@ -1828,7 +1828,7 @@ def test_failure_funnels_from_concurrent_branch(monkeypatch, capsys):
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
     monkeypatch.setattr(ac, "_do_corpus_build", fake_corpus)
     monkeypatch.setattr(ac, "_do_verdict_update", _verdict_update_ok)
-    monkeypatch.setattr(ac, "_do_census", _census_clean)
+    monkeypatch.setattr(ac, "_do_review_facts", _review_facts_clean)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     monkeypatch.setattr(ac, "_gate_make_test_task", fake_make)
     monkeypatch.setattr(ac, "_gate_contracts_task", _contracts_green)
@@ -2708,7 +2708,7 @@ def test_dry_run_renders_concurrency():
     assert "Lane rebuild-contracts" in text
     assert "Lane conform" in text
     assert "Lane kernel" not in text
-    assert "run_m1 -> submit gate:rebuild-contracts -> corpus-build -> verdict-update -> census" in text
+    assert "run_m1 -> submit gate:rebuild-contracts -> corpus-build -> verdict-update -> review-facts" in text
     assert "QUEUED behind gate:make-test (queue policy — one heavy pool at a time)" in text
     assert (
         f"Lane rebuild-contracts           : submitted beside the corpus build, -n {plan.contracts_workers} ({plan.contracts_reason});"
@@ -2788,8 +2788,8 @@ def test_review_out_staging_plan(monkeypatch, tmp_path):
     )
     by_name = {step.name: step for step in plan.steps}
     assert _argv(by_name["corpus-build"])[-2:] == ["--out", str(staged_out)]
-    assert by_name["census"].argv is None
-    assert by_name["census"].note == "SKIPPED (staging: the checked-in pins track the live corpus)"
+    assert by_name["review-facts"].argv is None
+    assert by_name["review-facts"].note == "SKIPPED (staging: the checked-in pins track the live corpus)"
     argv = _argv(by_name["verdict-update"])
     assert argv[argv.index("--corpus") + 1] == str(staged_out)
     assert plan.corpus_dir == staged_out
@@ -3538,7 +3538,7 @@ def test_the_plan_states_the_contracts_pool_width_on_its_lane_line():
     gated = _plan(ncores=10, total_bytes=BOX_32_GIB)
     text = _plan_text(gated)
     assert (
-        "Lane build[serial, main thread]  : run_m1 -> submit gate:rebuild-contracts -> corpus-build -> verdict-update -> census"
+        "Lane build[serial, main thread]  : run_m1 -> submit gate:rebuild-contracts -> corpus-build -> verdict-update -> review-facts"
         in text
     )
     assert (
@@ -4209,7 +4209,7 @@ def test_m1_artifacts_present(tmp_path):
 
 
 def test_rebuild_gate_closure_scope_and_exemptions(tmp_path):
-    """The test checks both edges of the closure. The paths in `cycle_paths.REBUILD_GATE_EXEMPT_PREFIXES` are files no test reads: the carried-verdict evidence, the JS-only jstests, the census pins the cycle rewrites mid-pass, and the contact allow-list, which only the defect gate reads, so adding a contact signature does not re-run the suite. The other edge is `REBUILD_GATE_HARNESS_PATHS`, the files the suite reads outside rebuild/ and glyph_data/. Only listed paths are included, so `tools/outside.py` stays out, and `doc/glyph-names.md` is included although other Markdown is filtered out."""
+    """The test checks both edges of the closure. The paths in `cycle_paths.REBUILD_GATE_EXEMPT_PREFIXES` are files no test reads: the carried-verdict evidence, the JS-only jstests, the review-facts pins the cycle rewrites mid-pass, and the contact allow-list, which only the defect gate reads, so adding a contact signature does not re-run the suite. The other edge is `REBUILD_GATE_HARNESS_PATHS`, the files the suite reads outside rebuild/ and glyph_data/. Only listed paths are included, so `tools/outside.py` stays out, and `doc/glyph-names.md` is included although other Markdown is filtered out."""
     assert "rebuild/m1-contact-allow.yaml" in cycle_paths.REBUILD_GATE_EXEMPT_PREFIXES
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
     (tmp_path / "rebuild" / "evidence").mkdir(parents=True)
@@ -4276,7 +4276,7 @@ def test_both_lane_fingerprints_ignore_prose_in_runes(lane, tmp_path):
 
 @pytest.mark.parametrize("lane", ac.REBUILD_LANES)
 def test_both_lane_fingerprints_ignore_prose_in_the_ledgers(lane, tmp_path):
-    """The closure includes the divergence ledger and the standing approvals, with prose-insensitive hashes like a rune's. Tests across the suite read the census facts and class ids from the divergence ledger and each rule's `match` from the standing approvals, never a `why` or `note`, so re-running the suite after a reword would reproduce the same result. Reclassifying a class or changing a rule's verdict still changes the key."""
+    """The closure includes the divergence ledger and the standing approvals, with prose-insensitive hashes like a rune's. Tests across the suite read the review facts and class ids from the divergence ledger and each rule's `match` from the standing approvals, never a `why` or `note`, so re-running the suite after a reword would reproduce the same result. Reclassifying a class or changing a rule's verdict still changes the key."""
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
     (tmp_path / "rebuild").mkdir()
     ledger = tmp_path / "rebuild" / "m1-divergences.yaml"
@@ -4753,12 +4753,12 @@ def test_a_standing_note_reword_moves_the_verdict_update_key_and_nothing_else(tm
         assert flipped[f"lane:{lane}"] != upstream[f"lane:{lane}"]
 
 
-def test_the_census_pins_are_outside_the_rebuild_closure(tmp_path):
-    """The census step rewrites the pins during a pass, so hashing them would change the gate's key before its green record is written on every pass that refreshes them. No test reads them, so they are exempt and a refresh leaves the key unchanged."""
+def test_the_review_facts_pins_are_outside_the_rebuild_closure(tmp_path):
+    """The review-facts step rewrites the pins during a pass, so hashing them would change the gate's key before its green record is written on every pass that refreshes them. No test reads them, so they are exempt and a refresh leaves the key unchanged."""
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
     (tmp_path / "rebuild").mkdir()
     (tmp_path / "rebuild" / "test_x.py").write_text("")
-    pins = tmp_path / "rebuild" / "review-census-pins.json"
+    pins = tmp_path / "rebuild" / "review-facts-pins.json"
     pins.write_text(json.dumps({"invariant": {"classes": 3}, "volatile": {"rows": 1}}))
     assert ac.rebuild_gate_closure_files(tmp_path) == ["rebuild/test_x.py"]
     before = {lane: ac.rebuild_lane_fingerprint(tmp_path, lane) for lane in ac.REBUILD_LANES}
@@ -4767,8 +4767,8 @@ def test_the_census_pins_are_outside_the_rebuild_closure(tmp_path):
         assert ac.rebuild_lane_fingerprint(tmp_path, lane) == before[lane]
 
 
-def test_dry_run_plan_skip_run_m1_and_corpus_still_runs_the_census():
-    """A pass with nothing to rebuild still runs the census step. The pins are the cycle's output, not a keyed stage, and refreshing them from the sidecar takes milliseconds."""
+def test_dry_run_plan_skip_run_m1_and_corpus_still_runs_the_review_facts():
+    """A pass with nothing to rebuild still runs the review-facts step. The pins are the cycle's output, not a keyed stage, and refreshing them from the sidecar takes milliseconds."""
     plan = _plan(
         skip_run_m1=True,
         run_m1_note="build inputs unchanged since the last green M1 build; --fresh overrides",
@@ -4779,7 +4779,7 @@ def test_dry_run_plan_skip_run_m1_and_corpus_still_runs_the_census():
     assert by_name["run_m1"].argv is None
     assert "SKIPPED (build inputs unchanged" in by_name["run_m1"].note
     assert by_name["corpus-build"].argv is None
-    assert _argv(by_name["census"])[-3:] == ["--update", "--corpus", str(ac.REVIEW_OUT)]
+    assert _argv(by_name["review-facts"])[-3:] == ["--update", "--corpus", str(ac.REVIEW_OUT)]
     assert by_name["verdict-update"].argv is not None
     assert by_name["gate:rebuild-contracts"].argv is not None
 
@@ -5432,15 +5432,15 @@ _LEDGER_YAML = """- id: boundary-echo
 """
 
 
-def _census_fixture(monkeypatch, tmp_path, *, accepted, current):
-    """The census step's inputs outside the real tree: the pins file standing in for what the refresh child just wrote, the index copy the step compares it with, and a three-entry ledger for the reach line."""
-    pins = tmp_path / "review-census-pins.json"
+def _review_facts_fixture(monkeypatch, tmp_path, *, accepted, current):
+    """The review-facts step's inputs outside the real tree: the pins file standing in for what the refresh child just wrote, the index copy the step compares it with, and a three-entry ledger for the reach line."""
+    pins = tmp_path / "review-facts-pins.json"
     pins.write_text(json.dumps(current, indent=2) + "\n")
     ledger = tmp_path / "m1-divergences.yaml"
     ledger.write_text(_LEDGER_YAML)
-    monkeypatch.setattr(ac, "CENSUS_PINS", pins)
+    monkeypatch.setattr(ac, "FACTS_PINS", pins)
     monkeypatch.setattr(ac, "DIVERGENCE_LEDGER", ledger)
-    monkeypatch.setattr(ac, "accepted_census", lambda: accepted)
+    monkeypatch.setattr(ac, "accepted_facts", lambda: accepted)
 
 
 def _moved_invariant() -> dict:
@@ -5455,19 +5455,19 @@ def _moved_invariant() -> dict:
     }
 
 
-def test_the_census_invariant_diff_prints_under_the_census_step_in_full(tmp_path, capsys, monkeypatch):
-    """When the invariant block moved, its diff is what a commit of the pins accepts, so it is printed in full: verbatim, with no step column in front so it can be copied, and without the volatile hunks. The diff is a substep of census, so its lines go to census's log and column, with no second banner and no log of its own."""
+def test_the_invariant_diff_prints_under_the_review_facts_step_in_full(tmp_path, capsys, monkeypatch):
+    """When the invariant block moved, its diff is what a commit of the pins accepts, so it is printed in full: verbatim, with no step column in front so it can be copied, and without the volatile hunks. The diff is a substep of review-facts, so its lines go to that step's log and column, with no second banner and no log of its own."""
     plan = _plan()
     log_dir = tmp_path / "logs"
     registry = ac._ChildRegistry()
     report = ac.CycleReport()
-    _census_fixture(monkeypatch, tmp_path, accepted=_ACCEPTED_PINS, current=_moved_invariant())
+    _review_facts_fixture(monkeypatch, tmp_path, accepted=_ACCEPTED_PINS, current=_moved_invariant())
 
     def spawn(name, argv, *, emit, registry, stream, **passthrough):
         return ac._run_step(name, [sys.executable, "-c", "pass"], emit=emit, registry=registry, stream=stream)
 
     with console.CycleConsole(steps=[step.name for step in plan.steps], log_dir=log_dir) as cycle_console:
-        ac._do_census(report, spawn=spawn, emit=cycle_console, registry=registry, plan=plan)
+        ac._do_review_facts(report, spawn=spawn, emit=cycle_console, registry=registry, plan=plan)
         assert cycle_console._open == {}
 
     out = capsys.readouterr().out
@@ -5475,9 +5475,9 @@ def test_the_census_invariant_diff_prints_under_the_census_step_in_full(tmp_path
     assert '+    "vie-baseline-entry-extension-dropped"' in out.splitlines()
     assert "row_count" not in out
     assert out.count("---- step ") == 1
-    assert report.census_status.startswith("invariant moved: ")
-    census_log = (log_dir / "01-census.log").read_text()
-    assert '+    "deferred-ss10"' in census_log.splitlines()
+    assert report.facts_status.startswith("invariant moved: ")
+    facts_log = (log_dir / "01-review-facts.log").read_text()
+    assert '+    "deferred-ss10"' in facts_log.splitlines()
     assert not (log_dir / "00-invariant-diff.log").exists()
 
 
@@ -5541,22 +5541,22 @@ def test_the_summary_table_carries_each_steps_detail_and_what_it_cost():
 
 
 def test_a_step_that_came_back_nonzero_never_reads_as_an_ok_row():
-    """The outcome column comes from each step's result (its exit status, or for run_m1 its gate result), not from whether the step took any time. Filled from seconds, it would read `ok` for every step that ran, including a run_m1 whose Manual pins failed and a corpus build whose child died. The two informational steps, census and job-costs, are the exception: neither gates anything, and each reports its failure in its own detail."""
+    """The outcome column comes from each step's result (its exit status, or for run_m1 its gate result), not from whether the step took any time. Filled from seconds, it would read `ok` for every step that ran, including a run_m1 whose Manual pins failed and a corpus build whose child died. The two informational steps, review-facts and job-costs, are the exception: neither gates anything, and each reports its failure in its own detail."""
     plan = _plan()
     report = ac.CycleReport()
     report.unmatched = 5
     report.pins_pass = False
     report.run_m1_failed = True
-    report.census_status = "update FAILED (exit 2) — informational"
+    report.facts_status = "update FAILED (exit 2) — informational"
     report.job_costs_status = "OVERRUN (a measured peak outruns its checked-in constant)"
-    report.step_seconds = {"run_m1": 9.0, "corpus-build": 3.0, "census": 1.0, "job-costs": 1.0}
-    report.step_returncodes = {"run_m1": 0, "corpus-build": 1, "census": 2, "job-costs": 1}
+    report.step_seconds = {"run_m1": 9.0, "corpus-build": 3.0, "review-facts": 1.0, "job-costs": 1.0}
+    report.step_returncodes = {"run_m1": 0, "corpus-build": 1, "review-facts": 2, "job-costs": 1}
 
     rows = {row.name: row for row in ac.summary_rows(report, plan, retention_ran=False)}
     assert rows["run_m1"].outcome == "FAILED"
     assert rows["run_m1"].detail == "5 unmatched, PINS FAILED"
     assert rows["corpus-build"].outcome == "FAILED"
-    assert rows["census"].outcome == "ok"
+    assert rows["review-facts"].outcome == "ok"
     assert rows["job-costs"].outcome == "ok"
 
 
@@ -5581,9 +5581,9 @@ def test_every_spawned_step_closes_with_its_own_detail_and_peak(capsys, tmp_path
     assert any("ok  15,903 units, 81,894 rows  rss 1.0G" in line for line in closing), closing
 
 
-def test_do_census_names_the_invariant_movement_and_reports_reach(monkeypatch, tmp_path):
-    """The census status names the invariant movement: which classes appeared, and which no-verdict exemptions and families came with them. Beside it, the reach line compares the ledger's declarations with the classes the corpus reached. Both go to the cycle log and to cycle_summary.json."""
-    _census_fixture(monkeypatch, tmp_path, accepted=_ACCEPTED_PINS, current=_moved_invariant())
+def test_do_review_facts_names_the_invariant_movement_and_reports_reach(monkeypatch, tmp_path):
+    """The review-facts status names the invariant movement: which classes appeared, and which no-verdict exemptions and families came with them. Beside it, the reach line compares the ledger's declarations with the classes the corpus reached. Both go to the cycle log and to cycle_summary.json."""
+    _review_facts_fixture(monkeypatch, tmp_path, accepted=_ACCEPTED_PINS, current=_moved_invariant())
     calls: list[str] = []
 
     def spawn(name, argv, *, emit, registry, stream):
@@ -5591,9 +5591,9 @@ def test_do_census_names_the_invariant_movement_and_reports_reach(monkeypatch, t
         return _step(name, 0)
 
     report = ac.CycleReport()
-    ac._do_census(report, spawn=spawn, emit=ac._Emitter(), registry=ac._ChildRegistry(), plan=_plan())
-    assert calls == ["census"]
-    assert report.census_status == (
+    ac._do_review_facts(report, spawn=spawn, emit=ac._Emitter(), registry=ac._ChildRegistry(), plan=_plan())
+    assert calls == ["review-facts"]
+    assert report.facts_status == (
         "invariant moved: classes +1 (vie-baseline-entry-extension-dropped);"
         " no-verdict +1 (vie-baseline-entry-extension-dropped); families +1 (deferred-ss10)"
         " — its diff is shown above; review it at commit time"
@@ -5605,28 +5605,30 @@ def test_do_census_names_the_invariant_movement_and_reports_reach(monkeypatch, t
     assert report.census_reach_sets is not None
     assert report.census_reach_sets["machine_approved_undeclared"] == ["boundary-echo"]
     payload = ac.cycle_summary_payload(report, [], _plan(), "ok")
-    assert payload["census_status"] == report.census_status
+    assert payload["facts_status"] == report.facts_status
     assert payload["census_reach"] == report.census_reach
     assert payload["census_reach_sets"] == report.census_reach_sets
 
 
-def test_do_census_says_the_invariant_is_unchanged_when_only_the_volatile_block_moved(monkeypatch, tmp_path):
+def test_do_review_facts_says_the_invariant_is_unchanged_when_only_the_volatile_block_moved(
+    monkeypatch, tmp_path
+):
     """When only the volatile block moved, as it does on nearly every letter batch, the status says the invariant is unchanged and no diff is printed. The totals are recorded in cycle_summary.json."""
     current = {**_ACCEPTED_PINS, "volatile": {"audit": {"row_count": 12, "units": 5}}}
-    _census_fixture(monkeypatch, tmp_path, accepted=_ACCEPTED_PINS, current=current)
+    _review_facts_fixture(monkeypatch, tmp_path, accepted=_ACCEPTED_PINS, current=current)
     printed: list[str] = []
     emit = ac._Emitter()
     monkeypatch.setattr(emit, "emit", printed.append)
 
     report = ac.CycleReport()
-    ac._do_census(
+    ac._do_review_facts(
         report,
         spawn=lambda name, argv, **kw: _step(name, 0),
         emit=emit,
         registry=ac._ChildRegistry(),
         plan=_plan(),
     )
-    assert report.census_status == (
+    assert report.facts_status == (
         "invariant unchanged (only the volatile totals moved; cycle_summary.json carries the corpus's)"
     )
     assert not any(line.startswith(("---", "+++", "@@")) for line in printed)
@@ -5634,28 +5636,30 @@ def test_do_census_says_the_invariant_is_unchanged_when_only_the_volatile_block_
     assert "unreached 1 (vie-baseline-entry-extension-dropped)" in report.census_reach
 
 
-def test_do_census_says_so_when_the_refresh_moved_nothing(monkeypatch, tmp_path):
-    _census_fixture(
+def test_do_review_facts_says_so_when_the_refresh_moved_nothing(monkeypatch, tmp_path):
+    _review_facts_fixture(
         monkeypatch, tmp_path, accepted=_ACCEPTED_PINS, current=json.loads(json.dumps(_ACCEPTED_PINS))
     )
 
     report = ac.CycleReport()
-    ac._do_census(
+    ac._do_review_facts(
         report,
         spawn=lambda name, argv, **kw: _step(name, 0),
         emit=ac._Emitter(),
         registry=ac._ChildRegistry(),
         plan=_plan(),
     )
-    assert report.census_status == "updated (matches the last accepted census)"
+    assert report.facts_status == "updated (matches the last accepted review facts)"
 
 
-def test_do_census_says_when_there_is_no_accepted_census_to_hold_the_pins_against(monkeypatch, tmp_path):
+def test_do_review_facts_says_when_there_are_no_accepted_facts_to_hold_the_pins_against(
+    monkeypatch, tmp_path
+):
     """An untracked pins file, or no git, leaves the step nothing to compare with. The reach line is still computed, since it needs only the ledger and the pins just written."""
-    _census_fixture(monkeypatch, tmp_path, accepted=None, current=_moved_invariant())
+    _review_facts_fixture(monkeypatch, tmp_path, accepted=None, current=_moved_invariant())
 
     report = ac.CycleReport()
-    ac._do_census(
+    ac._do_review_facts(
         report,
         spawn=lambda name, argv, **kw: _step(name, 0),
         emit=ac._Emitter(),
@@ -5663,30 +5667,30 @@ def test_do_census_says_when_there_is_no_accepted_census_to_hold_the_pins_agains
         plan=_plan(),
     )
     assert (
-        report.census_status
-        == "updated (no accepted census to compare against: the pins are not in the index)"
+        report.facts_status
+        == "updated (no accepted review facts to compare against: the pins are not in the index)"
     )
     assert report.census_reach.startswith("machine-approved: ")
 
 
-def test_do_census_reports_a_failed_refresh_and_compares_nothing():
-    """A refresh can fail on a corpus built before the census sidecar existed. The step is informational, so a failure compares and records nothing; the next pass that rebuilds the corpus writes the sidecar."""
+def test_do_review_facts_reports_a_failed_refresh_and_compares_nothing():
+    """A refresh can fail on a corpus built before the review-facts sidecar existed. The step is informational, so a failure compares and records nothing; the next pass that rebuilds the corpus writes the sidecar."""
     calls: list[str] = []
 
     def spawn(name, argv, *, emit, registry, stream):
         calls.append(name)
-        return _step(name, 2, stderr="no census-facts.json beside the manifest")
+        return _step(name, 2, stderr="no review-facts.json beside the manifest")
 
     report = ac.CycleReport()
-    ac._do_census(report, spawn=spawn, emit=ac._Emitter(), registry=ac._ChildRegistry(), plan=_plan())
-    assert calls == ["census"]
-    assert report.census_status == "update FAILED (exit 2) — informational"
+    ac._do_review_facts(report, spawn=spawn, emit=ac._Emitter(), registry=ac._ChildRegistry(), plan=_plan())
+    assert calls == ["review-facts"]
+    assert report.facts_status == "update FAILED (exit 2) — informational"
     assert report.census_reach == "not computed (the refresh failed)"
 
 
-def test_a_failed_census_refresh_never_fails_the_cycle(monkeypatch):
-    def census_dies(report, *, spawn, emit, registry, plan):
-        report.census_status = "update FAILED (exit 2) — informational"
+def test_a_failed_review_facts_refresh_never_fails_the_cycle(monkeypatch):
+    def review_facts_dies(report, *, spawn, emit, registry, plan):
+        report.facts_status = "update FAILED (exit 2) — informational"
 
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
@@ -5694,22 +5698,22 @@ def test_a_failed_census_refresh_never_fails_the_cycle(monkeypatch):
     monkeypatch.setattr(ac, "_gate_contracts_task", _contracts_green)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
     _patch_build_chain(monkeypatch)
-    monkeypatch.setattr(ac, "_do_census", census_dies)
+    monkeypatch.setattr(ac, "_do_review_facts", review_facts_dies)
 
     plan = _plan()
     report = ac.CycleReport()
     rc = ac._run_cycle(plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=lambda *a, **k: _step())
 
     assert rc == 0
-    assert report.census_status == "update FAILED (exit 2) — informational"
+    assert report.facts_status == "update FAILED (exit 2) — informational"
     assert json.loads(cycle_paths.CYCLE_SUMMARY.read_text())["failures"] == []
 
 
-def test_a_staging_pass_never_runs_the_census(monkeypatch, tmp_path):
-    """The checked-in pins describe the live corpus. A staging pass builds elsewhere, so refreshing the pins from it would replace the accepted census with the census of a corpus nobody serves."""
+def test_a_staging_pass_never_runs_the_review_facts(monkeypatch, tmp_path):
+    """The checked-in pins describe the live corpus. A staging pass builds elsewhere, so refreshing the pins from it would replace the accepted review facts with the facts of a corpus nobody serves."""
 
-    def census_must_not_run(*args, **kwargs):
-        raise AssertionError("a staging pass must not run the census")
+    def review_facts_must_not_run(*args, **kwargs):
+        raise AssertionError("a staging pass must not run the review-facts step")
 
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
@@ -5717,14 +5721,14 @@ def test_a_staging_pass_never_runs_the_census(monkeypatch, tmp_path):
     monkeypatch.setattr(ac, "_gate_contracts_task", _contracts_green)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
     _patch_build_chain(monkeypatch)
-    monkeypatch.setattr(ac, "_do_census", census_must_not_run)
+    monkeypatch.setattr(ac, "_do_review_facts", review_facts_must_not_run)
 
     plan = _plan(review_out=tmp_path / "staged")
     report = ac.CycleReport()
     rc = ac._run_cycle(plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=lambda *a, **k: _step())
 
     assert rc == 0
-    assert report.census_status == "skipped (staging: the checked-in pins track the live corpus)"
+    assert report.facts_status == "skipped (staging: the checked-in pins track the live corpus)"
     assert report.census_reach == "skipped (staging)"
 
 
@@ -5744,7 +5748,7 @@ def test_do_job_costs_reports_a_clean_check():
 
 
 def test_do_job_costs_diffs_the_constants_when_the_check_trips():
-    """When the check trips, the step asks `calibrate_budgets --moved` which constants differ from their values at `HEAD`, to learn whether one has already been re-seeded in the working tree (so the commit in hand is already the acceptance), and the status names each one. Unlike the census diff, this one runs only on a trip."""
+    """When the check trips, the step asks `calibrate_budgets --moved` which constants differ from their values at `HEAD`, to learn whether one has already been re-seeded in the working tree (so the commit in hand is already the acceptance), and the status names each one. Unlike the invariant diff, this one runs only on a trip."""
     calls: list[str] = []
     seen: dict[str, list[str]] = {}
 
@@ -5835,7 +5839,7 @@ def test_a_tripped_job_costs_check_never_fails_the_cycle(monkeypatch):
 
 
 def test_the_job_costs_check_runs_in_a_staging_pass_too(monkeypatch, tmp_path):
-    """The job-costs check runs in a staging pass, unlike the census. The pins track the live corpus, which a staging pass never writes, but every pass appends to the timings journal, and a staging pass's pool measurements are as valid as any."""
+    """The job-costs check runs in a staging pass, unlike the review-facts step. The pins track the live corpus, which a staging pass never writes, but every pass appends to the timings journal, and a staging pass's pool measurements are as valid as any."""
     ran: list[str] = []
 
     def job_costs_ran(report, *, spawn, emit, registry, plan):
@@ -5862,12 +5866,12 @@ def test_the_job_costs_check_runs_in_a_staging_pass_too(monkeypatch, tmp_path):
 
 
 def test_the_plan_checks_job_costs_after_the_gates():
-    """The check reads a journal that this pass's pools append to when they finish, so it runs after the gates join. Placed beside the census, it would report the previous pass's measurements."""
+    """The check reads a journal that this pass's pools append to when they finish, so it runs after the gates join. Placed beside the review-facts step, it would report the previous pass's measurements."""
     plan = _plan()
     names = [step.name for step in plan.steps]
     by_name = {step.name: step for step in plan.steps}
     assert names.index("job-costs") > names.index("gate:rebuild-contracts")
-    assert names.index("job-costs") > names.index("census")
+    assert names.index("job-costs") > names.index("review-facts")
     # Retention is a plan step but runs inside _finish, after this check, and the printed plan must list steps in the order they run.
     assert names.index("job-costs") < names.index("retention")
     assert _argv(by_name["job-costs"]) == [
@@ -5881,12 +5885,12 @@ def test_the_plan_checks_job_costs_after_the_gates():
 
 
 def test_the_plan_checks_job_costs_even_when_the_gates_are_skipped():
-    """The step is never skipped: --skip-gates suppresses only the `gate:` steps, and this step, like the census, is not one of them."""
+    """The step is never skipped: --skip-gates suppresses only the `gate:` steps, and this step, like the review-facts step, is not one of them."""
     assert _plan(skip_gates=True).runs("job-costs") is True
 
 
 def test_the_contracts_suite_is_submitted_before_the_corpus_build_starts(monkeypatch):
-    """The contracts suite is submitted after the run_m1 gate passes and before the corpus build starts, so it runs beside the build. The corpus fake waits until the suite's task has been invoked, which a submission after the build could never satisfy. The suite waits for nothing else, because the corpus, the carry, the merge and the census are not inputs to it; `test_the_rebuild_suite_is_skipped_when_run_m1_fails` checks the other bound."""
+    """The contracts suite is submitted after the run_m1 gate passes and before the corpus build starts, so it runs beside the build. The corpus fake waits until the suite's task has been invoked, which a submission after the build could never satisfy. The suite waits for nothing else, because the corpus, the carry, the merge and the review facts are not inputs to it; `test_the_rebuild_suite_is_skipped_when_run_m1_fails` checks the other bound."""
     contracts_invoked = threading.Event()
     order: list[str] = []
 
@@ -6094,7 +6098,7 @@ def test_dry_run_plan_skip_verdict_update_replaces_the_whole_step():
     assert by_name["verdict-update"].argv is None
     assert by_name["verdict-update"].note == f"SKIPPED ({ac.VERDICT_UPDATE_SKIP_NOTE})"
     assert plan.complaints_note == ac.VERDICT_UPDATE_SKIP_NOTE
-    assert by_name["census"].argv is not None
+    assert by_name["review-facts"].argv is not None
 
 
 def test_dry_run_plan_direct_merge_merges_the_master():
@@ -6335,14 +6339,14 @@ def test_main_skips_the_verdict_update_on_a_matching_record(tmp_path, monkeypatc
     assert "--merge-master" in row
 
 
-def test_main_runs_the_census_on_the_pass_that_skips_the_verdict_update(tmp_path, monkeypatch, capsys):
-    """The census always runs, even on a pass that skips the whole verdict update, because reading the sidecar and rewriting one small file is cheap."""
+def test_main_runs_the_review_facts_on_the_pass_that_skips_the_verdict_update(tmp_path, monkeypatch, capsys):
+    """The review-facts step always runs, even on a pass that skips the whole verdict update, because reading the sidecar and rewriting one small file is cheap."""
     _settled_repo(tmp_path, monkeypatch)
     ac.record_verdict_update_green("plu")
     assert ac.main(["--dry-run"]) == 0
     out = capsys.readouterr().out
     assert f"SKIPPED ({ac.VERDICT_UPDATE_SKIP_NOTE})" in _step_lines(out, "verdict-update")
-    assert "uv run python -m rebuild.review.census --update" in _step_lines(out, "census")
+    assert "uv run python -m rebuild.review.facts --update" in _step_lines(out, "review-facts")
 
 
 def test_main_never_skips_the_verdict_update_on_a_pass_that_writes_the_corpus(tmp_path, monkeypatch, capsys):
@@ -7019,7 +7023,7 @@ def _patch_timing_cycle(monkeypatch):
     monkeypatch.setattr(ac, "_do_run_m1", _spawning_run_m1)
     monkeypatch.setattr(ac, "_do_corpus_build", _spawning_corpus)
     monkeypatch.setattr(ac, "_do_verdict_update", _verdict_update_ok)
-    monkeypatch.setattr(ac, "_do_census", _census_clean)
+    monkeypatch.setattr(ac, "_do_review_facts", _review_facts_clean)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
     monkeypatch.setattr(ac, "_gate_contracts_task", _contracts_green)
@@ -7027,7 +7031,7 @@ def _patch_timing_cycle(monkeypatch):
 
 
 def test_green_cycle_journals_steps_then_one_run_line(monkeypatch, tmp_path):
-    """The journal gets one step line per spawned child, then one run line. job-costs spawns a child, so the timing wrapper records it, and a summary claiming the check ran can be matched against the journal. The stubbed verdict-update and census stages spawn nothing and get no line."""
+    """The journal gets one step line per spawned child, then one run line. job-costs spawns a child, so the timing wrapper records it, and a summary claiming the check ran can be matched against the journal. The stubbed verdict-update and review-facts stages spawn nothing and get no line."""
     _patch_timing_cycle(monkeypatch)
 
     journal_path = tmp_path / "timings.ndjson"
@@ -7103,7 +7107,7 @@ def test_run_cycle_promotes_before_it_reports_the_corpus_skipped(monkeypatch, tm
     """The promotion replaces the corpus build: nothing spawns under corpus-build, the reported totals come from the promoted manifest, and the step's seconds are on the report so its row reads `ok`, not `not run`."""
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
     monkeypatch.setattr(ac, "_do_verdict_update", _verdict_update_ok)
-    monkeypatch.setattr(ac, "_do_census", _census_clean)
+    monkeypatch.setattr(ac, "_do_review_facts", _review_facts_clean)
     monkeypatch.setattr(ac, "_do_job_costs", _job_costs_clean)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)

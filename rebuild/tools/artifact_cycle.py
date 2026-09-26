@@ -1,10 +1,10 @@
 """Run the commit-time artifact cycle in one command.
 
-The cycle recompiles M1.otf and checks it, rebuilds the review corpus in place, runs the verdict update over it, and refreshes the census pins from the corpus's census sidecar, naming what moved in their invariant block since the last accepted census. The checked-in pins are that census, so committing the rewritten file accepts a new one. It then runs the gates. Once they have joined and their pytest controllers have written this pass's per-worker peaks to the timings journal, it compares the checked-in per-unit peaks with what this machine measured (`rebuild.tools.calibrate_budgets --check`). It always ends with a summary table, even on failure.
+The cycle recompiles M1.otf and checks it, rebuilds the review corpus in place, runs the verdict update over it, and refreshes the review-facts pins from the corpus's review-facts sidecar, naming what moved in their invariant block since the last accepted review facts. The checked-in pins are those facts, so committing the rewritten file accepts new ones. It then runs the gates. Once they have joined and their pytest controllers have written this pass's per-worker peaks to the timings journal, it compares the checked-in per-unit peaks with what this machine measured (`rebuild.tools.calibrate_budgets --check`). It always ends with a summary table, even on failure.
 
 The terminal shows one banner per step with that step's description, the phases and counters its child prints, every warning, and a closing line. All child output is written under var/build-logs/<stamp>-<short sha>/: one log per step with stdout and stderr merged in arrival order, plan.txt, and a copy of the terminal output. var/build-logs/latest points at the newest run, and a failed step's log is replayed under its banner. rebuild.tools.console defines the line protocol children print and the renderer that reads it.
 
-The job-costs step never fails the pass, for the same reason the census pins are not a gate: a stale constant makes a pool the wrong width, which costs time but makes no artifact wrong. It is reported, and committing the re-seeded constant accepts it. When the check reports an overrun, the driver asks `calibrate_budgets --moved` which of those constants differ from their values at `HEAD`, so a constant already re-seeded shows up by name.
+The job-costs step never fails the pass, for the same reason the review-facts pins are not a gate: a stale constant makes a pool the wrong width, which costs time but makes no artifact wrong. It is reported, and committing the re-seeded constant accepts it. When the check reports an overrun, the driver asks `calibrate_budgets --moved` which of those constants differ from their values at `HEAD`, so a constant already re-seeded shows up by name.
 
 The verdict update is one step run by one child process, rebuild.tools.verdict_update. It carries prior verdicts forward onto the fresh manifest, merges the carried file into the live autosave (--no-merge opts out), writes echo-fill verdicts for the blanks in unanimously judged echo groups, writes standing-approval verdicts from the rules in rebuild/standing-approvals.yaml, merges each fill as it is written, repeats the echo pass until it writes nothing, and clusters the open complaints. The verdict update reads the build's per-unit index sidecar, and its one process holds one copy of it. Each of the verdict update's steps opens with a `[phase] <step>` line and closes with `[t] <step>`. The cycle console pairs the two into one line per step, and the cycle-timings journal reads the step's cost from the `[t]` line. The `[verdict-update] fixpoint:` and `[verdict-update] failed:` lines are results, not phases: `verdict_update_sections` starts a section at each `[phase]` line and closes it at either `[verdict-update]` line.
 
@@ -12,7 +12,7 @@ run_m1's exit status is its own gate's result, but this driver evaluates the thr
 
 This process, not its children, records each check's result in the timings journal. Every evaluated check (run_m1, conform, rebuild-contracts, make-test, js) appends one kind:"check" line tagged with this run, carrying the evaluator's outcome, not the process's exit code; `make cycle-timings ARGS='--by-outcome'` reads them. run_m1's CLI and make_test_gate record their own line when run by hand, so this driver sets its run id in the environment as AMS_CYCLE_RUN (cycle_timings.CYCLE_RUN_ENV), and those children record nothing when they inherit it. Each check invocation gets one line.
 
-gate:js and gate:make-test depend on no build artifact, so they start at t=0 in a small thread pool while the build steps run in sequence in the main thread. gate:conform (the exhaustive font-versus-settlement sweep at the per-edit horizon, `run_m1 --conform-only`) starts after the run_m1 gate passes, queued behind make-test by default. Its deeper form, `make conform-deep`, never runs in the cycle; the summary has one line saying whether the emitted lookup has a shape the last deep run did not shape. gate:rebuild-contracts runs every test under rebuild/, and none of them reads a live build artifact (rebuild/conftest.py's audit hook enforces this). A hand run uses every core. Under a cycle the suite is submitted with the conform lane, right after the run_m1 gate passes, and runs beside the corpus build at `contracts_pool_width`: the cores less the build's parent and its `corpus_job_budget` workers, set on that one child as PYTEST_XDIST_AUTO_NUM_WORKERS, so the pool and the build together run about one process per core. The suite reads nothing the build lane writes, the census pins included, so it waits for nothing downstream, and on a pass where every upstream stage skips it starts at t=0.
+gate:js and gate:make-test depend on no build artifact, so they start at t=0 in a small thread pool while the build steps run in sequence in the main thread. gate:conform (the exhaustive font-versus-settlement sweep at the per-edit horizon, `run_m1 --conform-only`) starts after the run_m1 gate passes, queued behind make-test by default. Its deeper form, `make conform-deep`, never runs in the cycle; the summary has one line saying whether the emitted lookup has a shape the last deep run did not shape. gate:rebuild-contracts runs every test under rebuild/, and none of them reads a live build artifact (rebuild/conftest.py's audit hook enforces this). A hand run uses every core. Under a cycle the suite is submitted with the conform lane, right after the run_m1 gate passes, and runs beside the corpus build at `contracts_pool_width`: the cores less the build's parent and its `corpus_job_budget` workers, set on that one child as PYTEST_XDIST_AUTO_NUM_WORKERS, so the pool and the build together run about one process per core. The suite reads nothing the build lane writes, the review-facts pins included, so it waits for nothing downstream, and on a pass where every upstream stage skips it starts at t=0.
 
 Under the default queue policy the gates run make-test, then conform, then rebuild-contracts, so only one heavy gate pool runs at a time, and the build steps run beside whichever one it is. Each pool's width comes from its budget function: the oracle (`sweep_job_budget`) splits its tables into row ranges and uses the cores within the memory limit ORACLE_SHARD_BYTES sets; the belt (`conform_job_budget`) runs one process per acceptance configuration wherever CONFORM_BELT_BYTES fits that many beside the build lane; and the corpus build (`corpus_job_budget`) gets the machine less what make-test holds. Two heavy pools side by side oversubscribe the cores roughly 2:1, and that contention was measured to roughly triple the rebuild suite's wall-clock time (`_gate_conform_task`'s docstring, commit b5881022), which is worse than running the same work in sequence. `--rebuild-pool overlap` runs the pools side by side anyway. The suite's width then also subtracts gate:make-test's pool, so it is no wider than under the queue policy: one worker on a ten- or twelve-core machine beside a cap-width build.
 
@@ -22,7 +22,7 @@ gate:make-test is skipped when its input closure is unchanged since its last gre
 
 The verdict update skips the same way, on rebuild/out/verdict-update-green.json. Each step of the verdict update is a pure function of the corpus, the verdicts master, the live store, the checked-in standing approvals, and its own code, so the key covers the corpus's inputs fingerprint and stamp, the master's path and bytes, the autosave's bytes, standing-approvals' bytes, and the verdict update's code (`verdict_update_code_paths` plus the review/ modules the verdict update runs). The master is in the key because the autosave's hash cannot see it: an export at the repo root can outrank the autosave in the auto-resolution and carry verdicts the store has never held. The code is in the key because no other fingerprint reads the verdict update's modules, and without it a fix to a fill's matcher or to the carry's join would be skipped. `verdict_update_code_paths` lists the verdict update's modules instead of all of rebuild/tools/, and rebuild/test_verdict_update_closure.py checks on every contracts run that the list covers the verdict update's import graph.
 
-The key is captured when the verdict update finishes, not at the end of the pass, so a store write during the census cannot be counted as part of a fixpoint nothing verified. The record is written later, after the complaint list step has also succeeded. The fixpoint is claimed only when the verdict update has observed it. The carry's merge gives echo-fill new agreement to read, and echo-fill only removes blanks, so it never creates work for standing-fill. But standing-fill runs last, and a standing fill can make an echo group unanimous while a blank member remains. Refusing the green whenever the standing merge changed anything would cost another full pass. In one process another echo pass costs about a second, so the verdict update repeats it until a pass writes nothing, and the green is recorded only after that pass.
+The key is captured when the verdict update finishes, not at the end of the pass, so a store write during the review-facts step cannot be counted as part of a fixpoint nothing verified. The record is written later, after the complaint list step has also succeeded. The fixpoint is claimed only when the verdict update has observed it. The carry's merge gives echo-fill new agreement to read, and echo-fill only removes blanks, so it never creates work for standing-fill. But standing-fill runs last, and a standing fill can make an echo group unanimous while a blank member remains. Refusing the green whenever the standing merge changed anything would cost another full pass. In one process another echo pass costs about a second, so the verdict update repeats it until a pass writes nothing, and the green is recorded only after that pass.
 
 The verdict-update skip also requires the corpus build to skip, which is what makes the stamp known before the pass runs. A flag that names a carry output disables the skip, since skipping would write nothing to that output.
 
@@ -32,7 +32,7 @@ Every other heavy stage skips on the same principle: a content fingerprint over 
 - gate:conform skips on conform-green.json, keyed on what the belt tests for, not on run_m1's closure: the emitted lookup's behavior classes, the font-compilation code and its tools/ closure, the uharfbuzz version, and the sweep horizon (`conform_skip_fingerprint`). A rune edit that creates no new rule shape leaves that key unchanged, because the crate's string replay inside run_m1 has already checked the new tables against the engine over every string.
 - The rebuild suite skips on rebuild-contracts-green.json, keyed by `rebuild_lane_fingerprint` over its closure: the repo files under rebuild/ and glyph_data/, the harness files in REBUILD_GATE_HARNESS_PATHS, conftest.py, pyproject.toml, uv.lock by its dependency pins, and the site fonts without their head and name tables. The closure contains no build artifact, so the suite can skip whether or not run_m1 rebuilt: an M1 rebuild writes only under rebuild/out, which the closure does not include. The record also stores each test's input closure, so a pass whose key changed runs only the tests whose closure the diff reaches; a rune edit reruns the tests that load the spec and nothing else. rebuild.tools.contracts_closure defines what a closure holds and when a test may be skipped, and runs the test whenever it cannot tell. rebuild.tools.rebuild_gate (`make test-rebuild`) writes the same record, so interactive and cycle greens share it.
 - corpus-build skips when the manifest's recorded inputs fingerprint equals the one a build would stamp now. A rebuild would then be byte-identical, including `generated_at` (the latest input mtime, floored), so the autosave stays aligned. When the live corpus does not match but a staged corpus does (the last cycle summary's `plan.review_out`, or var/staged-review), that directory is moved into rebuild/out/review with its stores instead (`corpus-promote`; `promotable_corpus` checks the preconditions). Every stamp inside a corpus depends only on content relative to its manifest, and the move keeps the `generated_at` a rebuild would reset.
-- The census step has no key and never skips: it reads the corpus build's census-facts.json sidecar and rewrites one small checked-in file in milliseconds.
+- The review-facts step has no key and never skips: it reads the corpus build's review-facts.json sidecar and rewrites one small checked-in file in milliseconds.
 
 The corpus skip applies only on passes where run_m1 skipped, and on a gates-only rerun when the Stage A record on disk already matches what that pass will write (`m1_stage_a_current`), because the corpus reads nothing else the pass writes. That happens on a contact-allow bless, the only comparison-side edit outside every Stage A component.
 
@@ -86,7 +86,7 @@ from typing import TYPE_CHECKING
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
-from rebuild.review import app_index, census, unit_index  # noqa: E402
+from rebuild.review import app_index, facts, unit_index  # noqa: E402
 from rebuild.review.audit import load_ledger  # noqa: E402
 from rebuild.tools import console, cycle_paths  # noqa: E402
 from rebuild.tools.green_record import (  # noqa: E402
@@ -107,7 +107,7 @@ REVIEW_OUT = ROOT / "rebuild" / "out" / "review"
 AUTOSAVE = ROOT / "verdicts-autosave.json"
 ECHO_FILL = ROOT / "verdicts-echo-fill.json"
 STANDING_FILL = ROOT / "verdicts-standing-fill.json"
-CENSUS_PINS = ROOT / "rebuild" / "review-census-pins.json"
+FACTS_PINS = ROOT / "rebuild" / "review-facts-pins.json"
 DIVERGENCE_LEDGER = ROOT / "rebuild" / "m1-divergences.yaml"
 CYCLE_TIMINGS = ROOT / "rebuild" / "out" / "cycle-timings.ndjson"
 BEHAVIOR_CLASSES = cycle_paths.M1_OUT / "behavior_classes.json"
@@ -134,7 +134,7 @@ _GATE_POOL_WORKERS = 6
 # The peak memory of one corpus-build worker, the divisor of the build's width (`corpus_job_budget`). A worker is a persistent spawn process that takes unit batches from the parent's hand-out queue (`_handout_width` in rebuild/review/build.py: the enricher's settlement batch, or a smaller spread of a small pile), enriches and drafts each unit, spools each fragment to disk as it is drafted so no EnrichedUnit outlives its batch (`_FragmentSpool`), and replies with the batch's projections and spool addresses. Nothing it holds grows with the corpus, the alphabet or the width. It holds its interpreter and shapers, whose shape memo is released at every batch boundary (`rebuild.review.ink.release_shape_memos`; `_MemoizedShaper`'s docstring records the measurement that showed an unreleased memo outgrowing everything else in a serial build). It holds one batch's units, projections and addresses, bounded by `PHASE1_HANDOUT_UNITS`, from the hand-out until the reply is pickled; the `SubsetRow`s for one batch's units; and the pages it touches of the baseline subset pack (rebuild/review/subset_pack.py), which the parent writes once before the pool starts and every worker maps read-only, so the page cache holds one copy per machine. The parent hands units out in configuration order (`_configuration_order` in rebuild/review/build.py), so a worker's touched pages are mostly one configuration's key range.
 # The seed is every width-eight pool on the mapped pack since the previous seed, on the 32 GiB machine and the 18-core 48 GiB machine (`doc/fleet.md`). On passes that draft units, workers peak at up to 0.52 GB on the 32 GiB machine over the qsYe corpus, and each pass's largest worker reads 0.42 to 0.48 GB on the 48 GiB machine. A served pass's workers read under 0.1 GB. For comparison, a width-six pool over the 32-letter corpus that held its subset tables in Python read 1.16 to 1.95 GB. The constant is the largest mapped-pack reading plus a quarter, rounded up to the hundredth, for the reason kernel_exec.DELTA_PEAK_BYTES rounds up: a cost that is too low pushes the machine into swap, while one that is too high only narrows the pool. A worker's peak depends on the batches it draws, not on the width, so a wider pool repeats the same reading. A new letter changes it only through what a batch holds (a window's rows and shapes), not through the tables, so every fleet machine stays at `CORPUS_JOBS_CAP` as letters are added (`test_the_shipped_corpus_divisor_holds_the_32_gib_box_at_the_cap_by_division` in rebuild/test_memory_budget.py checks this for the 32 GiB machine, and `test_both_fleet_boxes_keep_a_pooled_build_under_a_gated_cycle` in rebuild/test_artifact_cycle.py for the 48 GiB one). On a ten-core machine the cap-width pool leaves gate:rebuild-contracts one worker (`contracts_pool_width` discusses this). The corpus-worker row of `make job-costs` checks the constant against the kind:"pool" record rebuild/review/build.py writes for each pooled build. Every fleet machine runs the build pooled, so a machine with no rows has not been made serial by this width.
 CORPUS_WORKER_BYTES = 660_000_000
-# The peak memory of the corpus build's parent while its pool runs, subtracted from the machine's memory before dividing by CORPUS_WORKER_BYTES. The parent holds the workload table (`audit.UnitTable` in rebuild/review/audit.py: each unit's class, group, family, echo and cluster as ids into one string table, its config set, kinds, render groups and per-config class map as ids into pools of a few dozen values, its window parsed once into a `u16` side column, its run of audit rows and its triage position, all as fixed-width `array` columns over the unit's ordinal, well under 100 bytes a unit); the packed unit store (rebuild/review/unit_store.py) over the same ordinal and string table; the checker's identity dict; the census's pre-merge snapshot (`census.PremergeSnapshot`, columns over the pre-fold rows at 18 bytes a row, 23 after `rebase`); one fragment or one materialized `audit.Unit`; one batch of materialized records while a hand-out is being sent; and one batch reply in flight per worker. The hand-out and the replies are the only terms the width changes. The parent never holds a list of unit records at any phase (`UnitTable.unit` materializes one for a reader that needs it, and `units` is for the census CLI and the tests).
+# The peak memory of the corpus build's parent while its pool runs, subtracted from the machine's memory before dividing by CORPUS_WORKER_BYTES. The parent holds the workload table (`audit.UnitTable` in rebuild/review/audit.py: each unit's class, group, family, echo and cluster as ids into one string table, its config set, kinds, render groups and per-config class map as ids into pools of a few dozen values, its window parsed once into a `u16` side column, its run of audit rows and its triage position, all as fixed-width `array` columns over the unit's ordinal, well under 100 bytes a unit); the packed unit store (rebuild/review/unit_store.py) over the same ordinal and string table; the checker's identity dict; the review facts' pre-merge snapshot (`facts.PremergeSnapshot`, columns over the pre-fold rows at 18 bytes a row, 23 after `rebase`); one fragment or one materialized `audit.Unit`; one batch of materialized records while a hand-out is being sent; and one batch reply in flight per worker. The hand-out and the replies are the only terms the width changes. The parent never holds a list of unit records at any phase (`UnitTable.unit` materializes one for a reader that needs it, and `units` is for the review-facts CLI and the tests).
 # The unit store holds every per-unit product of phase 1 from the plan boundary to the cache write (the machine flags and ink deltas, the diff and cluster digests, the seam-home projection with its spans, names and rects, the secondary-home assignments, the fragment's spool or prior address, the shard address the write returns, the content and input keys, the policy file and the config note) as fixed-width `array` columns plus one string table over the vocabulary, not the corpus (the `[tally] … unit_store` line measures the table beside the columns). It materializes one unit at a time for the reduce step or a store line. A slotted state record, a spool-address object and a dict keyed by id hold the same facts in about six to twenty times the bytes, pile by pile: the `[tally]` lines of a pass under `AMS_CORPUS_MEMORY_TALLY=1` show the walked and packed bytes of each pile side by side, and that comparison is why the store uses columns. The table's `[tally] … workload.units` line compares the same way against 645.6 bytes a unit for a list of records.
 # Neither ink-signature table is in the plateau. The window-keyed table the ink-duplicate merge reads (`signatures` in rebuild/review/build.py) is released when that merge returns, in the load phase. The store's records (`signature_entries`) are held through the plan phase and released when the store is written: inline as the units phase opens on a serial build, and a few seconds into the units phase on a pooled build, when the `_SignatureWrite` thread that `build_m1` starts at that boundary finishes. So the records overlap the pool only for the length of that write. The load boundary's `signatures` tally line includes the table's strings, and the digest strings are shared with the records, so the release frees less than the sum of the two lines.
 # This figure covers the whole corpus-build step, not one phase. On a full-fresh pass the load phase holds the row columns (`audit.RowColumns`, five flat arrays over the audit's rows with their tuple pool, about 17 bytes a row), the table, the snapshot and both signature tables. The plateau holds the table, the store's columns, the identity dict and the snapshot, with the name tuples released at the units boundary (`UnitTable.release_names`). The `rss_now_gb=` token beside `rss_gb=` on each `[t] review.build` line gives a phase's own resident set, separate from the step's peak (`_phase_timing` in rebuild/review/build.py). On full-fresh and served passes alike the load boundary sets the peak: `rss_gb=` reaches the step's figure on the load line and does not rise after it, the load's `rss_now_gb=` is the pass's highest resident reading, and the plateau's boundaries read below it, by about 1.5 GB on a full-fresh pass and by more than 0.5 GB at the served units boundary. So the row columns and both signature tables beside the table set the step's peak, not the plateau's store.
@@ -722,11 +722,11 @@ def deep_sweep_status(root: Path = ROOT, horizon: int = DEEP_SWEEP_HORIZON_DEFAU
 
 
 def rebuild_gate_closure_files(root: Path) -> list[str] | None:
-    """Return every tracked or untracked-unignored repo file the rebuild pytest suite can read, the base of the suite's input closure. That is rebuild/ and glyph_data/ (without Markdown and the paths in `cycle_paths.REBUILD_GATE_EXEMPT_PREFIXES`: the carried-verdict evidence, the JS-only jstests, the census pins, and the contact allow-list), the root conftest.py, pyproject.toml and uv.lock, and the harness list REBUILD_GATE_HARNESS_PATHS. The harness list is what the suite reads outside those trees, and it is why the Markdown filter has an exception: the filter drops prose no test opens, but rebuild/test_review_enrich.py checks the corpus's letter table against doc/glyph-names.md.
+    """Return every tracked or untracked-unignored repo file the rebuild pytest suite can read, the base of the suite's input closure. That is rebuild/ and glyph_data/ (without Markdown and the paths in `cycle_paths.REBUILD_GATE_EXEMPT_PREFIXES`: the carried-verdict evidence, the JS-only jstests, the review-facts pins, and the contact allow-list), the root conftest.py, pyproject.toml and uv.lock, and the harness list REBUILD_GATE_HARNESS_PATHS. The harness list is what the suite reads outside those trees, and it is why the Markdown filter has an exception: the filter drops prose no test opens, but rebuild/test_review_enrich.py checks the corpus's letter table against doc/glyph-names.md.
 
     The harness list comes from an audit of every file the suite opens over a green run, not from the tree, and every entry has a named reader. rebuild/validation/pins.py collects its pin runs from the three site corpora and puts test/ on sys.path to import test/test_shaping.py, which reads postscript_glyph_names.yaml at the repo root and imports the tools/ compile modules. rebuild/review/drafts.build_corpus_index reads the same three corpora. The unit-cache environment stamp hashes tools/*.py whole, which is why the list has every tools/*.py file and not only the compile modules. rebuild/test_review_build.py checks the review corpus's feature descriptions against README.md's stylistic-set list.
 
-    The census pins are exempt because the suite does not read them and the census step rewrites them during the pass; including them would change the key of every pass that refreshes them. The allow-list is exempt because no test reads the live file (only a fake repo writes one), so a bless would re-run the whole suite for nothing. The divergence ledger and the standing approvals stay in, since tests read them, and `_closure_digest` gives them prose-insensitive hashes, so rewording a `why` or a `note` does not change the key while a structural edit does. None when git is unavailable, in which case the caller must run the gate.
+    The review-facts pins are exempt because the suite does not read them and the review-facts step rewrites them during the pass; including them would change the key of every pass that refreshes them. The allow-list is exempt because no test reads the live file (only a fake repo writes one), so a bless would re-run the whole suite for nothing. The divergence ledger and the standing approvals stay in, since tests read them, and `_closure_digest` gives them prose-insensitive hashes, so rewording a `why` or a `note` does not change the key while a structural edit does. None when git is unavailable, in which case the caller must run the gate.
     """
     try:
         result = subprocess.run(
@@ -1026,11 +1026,11 @@ def conform_gate_argv(jobs: int, horizon: int = CONFORM_HORIZON_DEFAULT) -> list
 STEP_DESCRIPTIONS = {
     "run_m1": "Builds the M1 tables for every settlement configuration in the Rust kernel (the ss10 overlay settles nothing and gets none), mints the glyphs, emits GSUB and GPOS, compiles the font, and reads it back. Then runs the defect gates, the Manual-pin gate, and the oracle over what it built.",
     "run_m1:gates-only": "Reruns the defect gates, the Manual-pin gate, and the oracle over the tables and font already on disk, rebuilding nothing. Taken when only comparison-side inputs moved since the last green build.",
-    "corpus-build": "Rebuilds the review corpus: every unit the tables reach is drafted, enriched, and checked, with cache-served units re-verified by content key. Writes the shards, manifest, and census sidecar that the app and the verdict update read.",
+    "corpus-build": "Rebuilds the review corpus: every unit the tables reach is drafted, enriched, and checked, with cache-served units re-verified by content key. Writes the shards, manifest, and review-facts sidecar that the app and the verdict update read.",
     "assets-refresh": "Overwrites the served copy of the review app's JS, CSS, and HTML and restamps only the manifest's static component. No shard or sidecar moves, so the open tab's store stays aligned.",
     "corpus-promote": "Moves the corpus a staging pass already built for these exact inputs into rebuild/out/review, unit store and signature store with it, and deletes the corpus it replaces. Two renames in this process; no unit is drafted, enriched, or checked.",
     "verdict-update": "Carries the verdicts master onto the new corpus by unit id, merges it into the store, and runs the echo and standing fills to their fixpoint. Ends by writing the complaint list of what still needs a human.",
-    "census": "Rewrites rebuild/review-census-pins.json from the census sidecar the corpus build emitted, names what moved in its invariant block against the last accepted census (diffing that block alone when it did), and holds the ledger's declarations against the classes the corpus reached. Committing the rewritten pins is how the census is accepted.",
+    "review-facts": "Rewrites rebuild/review-facts-pins.json from the review-facts sidecar the corpus build emitted, names what moved in its invariant block against the last accepted review facts (diffing that block alone when it did), and holds the ledger's declarations against the classes the corpus reached. Committing the rewritten pins is how the review facts are accepted.",
     "gates": "The four post-build gates, skipped together under --skip-gates.",
     "gate:js": "Runs the review app's node test suite over its JavaScript. Fast, and independent of every build artifact.",
     "gate:conform": "Shapes the compiled font with HarfBuzz over the swept texts and checks it against a fresh re-settlement window by window, the split-buffer check at horizon 4 included; the ss10 overlay takes its own two-letter arm against the bare rendering. The proof that HarfBuzz does what the tables say over every rule shape the lookup emits; that the tables are complete over the same texts is run_m1's string replay, on every build.",
@@ -1046,14 +1046,14 @@ def step_description(name: str) -> str:
     return STEP_DESCRIPTIONS.get(name, "")
 
 
-SUBSTEP_PARENTS = {"invariant-diff": "census", "job-costs-diff": "job-costs"}
+SUBSTEP_PARENTS = {"invariant-diff": "review-facts", "job-costs-diff": "job-costs"}
 
 
 @dataclass
 class Step:
     """One row of the plan. `skipped` is set explicitly instead of derived from `argv`, because `argv is None` also describes the retention and corpus-promote steps, which do real work in this process, and the `gates` placeholder, which stands for four steps. The run/skip column and the counts line use `skipped`, so a step that runs without spawning anything still shows as running.
 
-    The census's invariant diff, which the driver prints itself, and the job-costs diff it spawns are children of steps, not rows of the plan, and SUBSTEP_PARENTS names them. Registering one with the console writes its output to the parent's log, shows its lines under the parent's column, and keeps `_run_step` from opening a second banner for a step that is already open.
+    The review-facts step's invariant diff, which the driver prints itself, and the job-costs diff it spawns are children of steps, not rows of the plan, and SUBSTEP_PARENTS names them. Registering one with the console writes its output to the parent's log, shows its lines under the parent's column, and keeps `_run_step` from opening a second banner for a step that is already open.
     """
 
     name: str
@@ -1946,7 +1946,7 @@ def build_plan(
     if review_out is not None:
         plan.steps.append(
             Step(
-                "census",
+                "review-facts",
                 None,
                 "SKIPPED (staging: the checked-in pins track the live corpus)",
                 lane="build",
@@ -1956,18 +1956,18 @@ def build_plan(
     else:
         plan.steps.append(
             Step(
-                "census",
+                "review-facts",
                 [
                     "uv",
                     "run",
                     "python",
                     "-m",
-                    "rebuild.review.census",
+                    "rebuild.review.facts",
                     "--update",
                     "--corpus",
                     str(REVIEW_OUT),
                 ],
-                "then names what moved in the invariant block against the index copy, diffing that block alone — the pins are the last accepted census; commit them to accept this one",
+                "then names what moved in the invariant block against the index copy, diffing that block alone — the pins are the last accepted review facts; commit them to accept these",
                 lane="build",
             )
         )
@@ -2030,7 +2030,7 @@ def build_plan(
         Step(
             "job-costs",
             ["uv", "run", "python", "-m", "rebuild.tools.calibrate_budgets", "--check"],
-            "the checked-in per-unit peaks against what this box measured, once the gates have joined and this pass's own pool records are in the journal — a file read; committing a re-seeded constant is the acceptance, exactly as the census pins work",
+            "the checked-in per-unit peaks against what this box measured, once the gates have joined and this pass's own pool records are in the journal — a file read; committing a re-seeded constant is the acceptance, exactly as the review-facts pins work",
         )
     )
 
@@ -2125,7 +2125,7 @@ def resolve_short_id() -> str:
 
 
 def server_can_keep_running(*, skip_corpus: bool, writes_store: bool, promotes_corpus: bool = False) -> bool:
-    """Return whether a live review server can keep running through this pass. The app owns two things a cycle writes: the corpus's units and stamp (livereload watches every shard, and a restamped manifest orphans the tab's store) and the verdict store (merge_verdicts refuses to write it under a live server, because an open tab would write its copy back over the merge). So the answer depends on the plan's writes, not on a skip flag. A pass that rewrites no units and merges nothing into the store (a --no-carry pass, a --no-merge carry over an unchanged corpus, a pass with no artifact work) writes neither, so the review server keeps running and the open tab keeps working for the whole run. An assets refresh is such a pass: it rewrites no shard and leaves `generated_at` unchanged, so the tab's store stays aligned, and livereload reloads the tab onto the new app files. A corpus promotion sets the same skip flag but replaces every shard and the stamp in one rename, so `promotes_corpus` requires stopping the review server even when the store is untouched. Everything else the cycle writes is outside the served tree (the census pins, the m1 summaries, the carried file) or is read by the app only as status, which is meant to update during a pass."""
+    """Return whether a live review server can keep running through this pass. The app owns two things a cycle writes: the corpus's units and stamp (livereload watches every shard, and a restamped manifest orphans the tab's store) and the verdict store (merge_verdicts refuses to write it under a live server, because an open tab would write its copy back over the merge). So the answer depends on the plan's writes, not on a skip flag. A pass that rewrites no units and merges nothing into the store (a --no-carry pass, a --no-merge carry over an unchanged corpus, a pass with no artifact work) writes neither, so the review server keeps running and the open tab keeps working for the whole run. An assets refresh is such a pass: it rewrites no shard and leaves `generated_at` unchanged, so the tab's store stays aligned, and livereload reloads the tab onto the new app files. A corpus promotion sets the same skip flag but replaces every shard and the stamp in one rename, so `promotes_corpus` requires stopping the review server even when the store is untouched. Everything else the cycle writes is outside the served tree (the review-facts pins, the m1 summaries, the carried file) or is read by the app only as status, which is meant to update during a pass."""
     return skip_corpus and not promotes_corpus and not writes_store
 
 
@@ -2152,7 +2152,7 @@ def _render_concurrency(plan: Plan) -> list[str]:
         "",
         f"  Concurrency (pool policy: {plan.pool_policy}):",
         f"    Lane t0   [from t=0, background]  : {t0_lane}",
-        "    Lane build[serial, main thread]  : run_m1 -> submit gate:rebuild-contracts -> corpus-build -> verdict-update -> census",
+        "    Lane build[serial, main thread]  : run_m1 -> submit gate:rebuild-contracts -> corpus-build -> verdict-update -> review-facts",
     ]
     if plan.skip_conform:
         lines.append(
@@ -2299,7 +2299,7 @@ class CycleReport:
     standing_merge_status: str = "not run"
     standing_merge_lines: list[str] = field(default_factory=list)
     verdict_update_fixpoint: bool = False
-    census_status: str = "not run"
+    facts_status: str = "not run"
     census_reach: str = "not run"
     census_reach_sets: dict | None = None
     job_costs_status: str = "not run"
@@ -2842,11 +2842,11 @@ def _read_complaints(report: CycleReport, lines: list[str], returncode: int) -> 
     report.complaints_status = "done"
 
 
-def accepted_census() -> dict | None:
-    """Return the last accepted census: the git index copy of the pins, which the working tree's rewrite is compared with at commit time. Return None when the file is not in the index or git is unavailable."""
+def accepted_facts() -> dict | None:
+    """Return the last accepted review facts: the git index copy of the pins, which the working tree's rewrite is compared with at commit time. Return None when the file is not in the index or git is unavailable."""
     try:
         shown = subprocess.run(
-            ["git", "show", f":{CENSUS_PINS.relative_to(ROOT).as_posix()}"],
+            ["git", "show", f":{FACTS_PINS.relative_to(ROOT).as_posix()}"],
             cwd=ROOT,
             capture_output=True,
             text=True,
@@ -2859,49 +2859,49 @@ def accepted_census() -> dict | None:
     return json.loads(shown.stdout)
 
 
-def _do_census(
+def _do_review_facts(
     report: CycleReport, *, spawn, emit: console.CycleConsole, registry: _ChildRegistry, plan: Plan
 ) -> None:
-    """Rewrite the census pins from the corpus's census-facts.json sidecar and report what changed against the last accepted census (`accepted_census`). When only the volatile block changed, the status says the invariant is unchanged. When the invariant block changed, the status lists the changes (`census.invariant_delta`) and the invariant block's diff is printed under the banner without the volatile hunks. The volatile block changes with nearly every letter, so a full diff on every pass would teach a reader to ignore it.
+    """Rewrite the review-facts pins from the corpus's review-facts.json sidecar and report what changed against the last accepted review facts (`accepted_facts`). When only the volatile block changed, the status says the invariant is unchanged. When the invariant block changed, the status lists the changes (`facts.invariant_delta`) and the invariant block's diff is printed under the banner without the volatile hunks. The volatile block changes with nearly every letter, so a full diff on every pass would teach a reader to ignore it.
 
     The step also reports reach: the ledger's `ink_identical` and `no_verdict` declarations compared with the classes the corpus reached and machine-approved. Neither the ledger nor the pins shows on its own that a declared class went unreached or that an undeclared class started approving units.
 
     The step records no green and never fails the cycle. A failed refresh (for example over a corpus built before the sidecar existed) is reported and left for the next pass that rebuilds the corpus.
     """
-    refresh = spawn("census", plan.argv("census"), emit=emit, registry=registry, stream=False)
+    refresh = spawn("review-facts", plan.argv("review-facts"), emit=emit, registry=registry, stream=False)
     if refresh.returncode != 0:
-        report.census_status = f"update FAILED (exit {refresh.returncode}) — informational"
+        report.facts_status = f"update FAILED (exit {refresh.returncode}) — informational"
         report.census_reach = "not computed (the refresh failed)"
-        _close_step(emit, report, "census", refresh, "ok")
+        _close_step(emit, report, "review-facts", refresh, "ok")
         return
-    current = json.loads(CENSUS_PINS.read_text(encoding="utf-8"))
-    reached = census.reach(load_ledger(DIVERGENCE_LEDGER), current["invariant"])
+    current = json.loads(FACTS_PINS.read_text(encoding="utf-8"))
+    reached = facts.reach(load_ledger(DIVERGENCE_LEDGER), current["invariant"])
     report.census_reach = reached.describe()
     report.census_reach_sets = reached.as_json()
-    accepted = accepted_census()
+    accepted = accepted_facts()
     if accepted is None:
-        report.census_status = (
-            "updated (no accepted census to compare against: the pins are not in the index)"
+        report.facts_status = (
+            "updated (no accepted review facts to compare against: the pins are not in the index)"
         )
-        _close_step(emit, report, "census", refresh, "ok")
+        _close_step(emit, report, "review-facts", refresh, "ok")
         return
-    findings = census.invariant_delta(accepted.get("invariant", {}), current["invariant"])
+    findings = facts.invariant_delta(accepted.get("invariant", {}), current["invariant"])
     if findings:
         emit.substep(SUBSTEP_PARENTS["invariant-diff"], "invariant-diff")
-        for line in census.invariant_diff(accepted.get("invariant", {}), current["invariant"]):
+        for line in facts.invariant_diff(accepted.get("invariant", {}), current["invariant"]):
             emit.child_line("invariant-diff", console.STDOUT, line)
             emit.emit(line)
         emit.substep_end("invariant-diff")
-        report.census_status = (
+        report.facts_status = (
             f"invariant moved: {'; '.join(findings)} — its diff is shown above; review it at commit time"
         )
     elif accepted.get("volatile") != current.get("volatile"):
-        report.census_status = (
+        report.facts_status = (
             "invariant unchanged (only the volatile totals moved; cycle_summary.json carries the corpus's)"
         )
     else:
-        report.census_status = "updated (matches the last accepted census)"
-    _close_step(emit, report, "census", refresh, "ok")
+        report.facts_status = "updated (matches the last accepted review facts)"
+    _close_step(emit, report, "review-facts", refresh, "ok")
 
 
 _MOVED_CONSTANT = re.compile(r"^([A-Z][A-Z0-9_]*): ")
@@ -2912,7 +2912,7 @@ def _do_job_costs(
 ) -> None:
     """Compare the checked-in per-unit memory peaks with what this machine has measured (`calibrate_budgets --check`). Several pool widths are the machine's memory divided by one of these constants, so a stale constant makes a pool the wrong width. The step runs after the gates join because it reads the timings journal, which this pass's pools have just appended to.
 
-    It never fails the pass: a wrong width costs wall-clock time or swap but cannot make an artifact wrong. The summary line and `job_costs_ok` report an overrun, and committing the re-seeded constant accepts it, as committing the census pins accepts a census. A check that cannot run is reported as informational too.
+    It never fails the pass: a wrong width costs wall-clock time or swap but cannot make an artifact wrong. The summary line and `job_costs_ok` report an overrun, and committing the re-seeded constant accepts it, as committing the review-facts pins accepts the review facts. A check that cannot run is reported as informational too.
 
     On an overrun the step runs `calibrate_budgets --moved`, which prints each checked constant whose working-tree value differs from its value at `HEAD`, and the status names those constants as already moved. The comparison is of values, not of the files' text, so an uncommitted edit elsewhere in a constant's file moves nothing. It runs only on an overrun because only then does the reader need to know whether the acceptance is already drafted.
     """
@@ -3159,7 +3159,7 @@ def _verdict_update_settled(report: CycleReport) -> bool:
 def _record_gate_greens(
     report: CycleReport, plan: Plan, gate_keys: dict[str, str], emit: console.CycleConsole
 ) -> None:
-    """Write the green records of the gates that ran beside the build, after they joined. gate:conform's key is taken right after run_m1 finishes, where its skip is decided, and the rebuild suite's just before the corpus build, where the suite is submitted. Later steps cannot change either key: the corpus build writes only review output, which the suite's closure excludes, and the census pins are exempt from that closure. Each key is recomputed here before recording, so a source file edited while the gates ran is never recorded green. A red gate whose key matches its existing record deletes that record."""
+    """Write the green records of the gates that ran beside the build, after they joined. gate:conform's key is taken right after run_m1 finishes, where its skip is decided, and the rebuild suite's just before the corpus build, where the suite is submitted. Later steps cannot change either key: the corpus build writes only review output, which the suite's closure excludes, and the review-facts pins are exempt from that closure. Each key is recomputed here before recording, so a source file edited while the gates ran is never recorded green. A red gate whose key matches its existing record deletes that record."""
     key = gate_keys.get("conform")
     if key:
         if report.gate_conform_green is True:
@@ -3391,11 +3391,11 @@ def _run_cycle(
         if plan.complaints_note:
             report.complaints_status = f"skipped ({plan.complaints_note})"
         if plan.review_out is not None:
-            report.census_status = "skipped (staging: the checked-in pins track the live corpus)"
+            report.facts_status = "skipped (staging: the checked-in pins track the live corpus)"
             report.census_reach = "skipped (staging)"
-            emit.step_skipped("census", "staging: the checked-in pins track the live corpus")
+            emit.step_skipped("review-facts", "staging: the checked-in pins track the live corpus")
         else:
-            _do_census(report, spawn=spawn, emit=emit, registry=registry, plan=plan)
+            _do_review_facts(report, spawn=spawn, emit=emit, registry=registry, plan=plan)
         if (
             verdict_update_key
             and report.complaints_ok is True
@@ -3436,7 +3436,7 @@ def _deep_replay_report(root: Path | None = None) -> tuple[str, str]:
         return "unknown", f"could not be read ({exc!r})"
 
 
-INFORMATIONAL_STEPS = ("census", "job-costs")
+INFORMATIONAL_STEPS = ("review-facts", "job-costs")
 
 _CARRY_WROTE = re.compile(r"^wrote \S+: (\d+) carried onto manifest")
 _CARRY_QUEUE = re.compile(r"^human queue: (\d+) -> (\d+)")
@@ -3511,8 +3511,8 @@ def step_detail(report: CycleReport, name: str) -> str:
             merged = prose(report.merge_status)
             head = f"merge {merged}" if merged else ""
         return f"{head}; {report.complaints_status}" if head else ""
-    if name == "census":
-        return prose(report.census_status)
+    if name == "review-facts":
+        return prose(report.facts_status)
     if name == "job-costs":
         return prose(report.job_costs_status)
     if name == "retention":
@@ -3541,7 +3541,7 @@ def _close_step(
     result: _StepResult | None,
     outcome: str | None = None,
 ) -> None:
-    """Print a spawned step's closing line with its detail. `outcome` defaults to one derived from the child's exit status; callers that decide it otherwise pass their own (run_m1 decides from its summaries, and census and job-costs always pass `ok` because they gate nothing)."""
+    """Print a spawned step's closing line with its detail. `outcome` defaults to one derived from the child's exit status; callers that decide it otherwise pass their own (run_m1 decides from its summaries, and review-facts and job-costs always pass `ok` because they gate nothing)."""
     if outcome is None:
         outcome = "ok" if result is None or result.returncode == 0 else f"FAILED (exit {result.returncode})"
     detail = step_detail(report, STEP_ALIASES.get(name, name))
@@ -3564,7 +3564,7 @@ def _close_gate(
 def _step_outcome(report: CycleReport, plan: Plan, step: Step, *, retention_ran: bool) -> str:
     """Return the table's outcome for one step: `ok`, `FAILED`, `skipped`, or `not run`. The detail column carries anything more, and the plan block says why a step did not run.
 
-    A gate's outcome comes from its status string. Any other step that ran takes its outcome from run_m1's failure flag or the child's exit code, since having a recorded time only shows that it ran. A nonzero exit from census or job-costs (`INFORMATIONAL_STEPS`) is not a failure, because they gate nothing and their details report the problem.
+    A gate's outcome comes from its status string. Any other step that ran takes its outcome from run_m1's failure flag or the child's exit code, since having a recorded time only shows that it ran. A nonzero exit from review-facts or job-costs (`INFORMATIONAL_STEPS`) is not a failure, because they gate nothing and their details report the problem.
 
     Retention runs inside `_finish`, so it reads `not run` when an upstream failure ended the pass before retention, or a stop signal ended it before retention finished. It reads `FAILED` when retention raised, which `_finish` records in `retention_outcome`; the pass verdict stays green. A stop signal that lands after retention finished leaves the row reading as retention ended (`ok` or `FAILED`), because `_finish_interrupted` reads the same field. It reads `skipped` only when the plan ruled it out (`--keep-history`, a first run, or a staging pass).
     """
@@ -3638,7 +3638,7 @@ def summary_cycle_lines(report: CycleReport, plan: Plan, retention_lines: list[s
             + report.standing_merge_lines
         ),
         f"  complaint groups : {report.complaints_status}",
-        f"  census pins      : {report.census_status}",
+        f"  review facts     : {report.facts_status}",
         f"  census reach     : {report.census_reach}",
         f"  job costs        : {report.job_costs_status}",
         f"  deep sweep       : {deep_status} ({deep_note})",
@@ -3739,7 +3739,7 @@ def cycle_summary_payload(report: CycleReport, failures: list[str], plan: Plan, 
         "standing_fill_lines": list(report.standing_fill_lines),
         "standing_merge_status": report.standing_merge_status,
         "standing_merge_lines": list(report.standing_merge_lines),
-        "census_status": report.census_status,
+        "facts_status": report.facts_status,
         "census_reach": report.census_reach,
         "census_reach_sets": report.census_reach_sets,
         "job_costs_status": report.job_costs_status,
@@ -4002,7 +4002,7 @@ def run_retention(plan: Plan) -> RetentionResult:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Drive the commit-time artifact cycle: run_m1, corpus rebuild, carry, census pins, gates."
+        description="Drive the commit-time artifact cycle: run_m1, corpus rebuild, carry, review-facts pins, gates."
     )
     parser.add_argument(
         "--verdicts",

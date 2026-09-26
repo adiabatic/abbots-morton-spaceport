@@ -46,6 +46,7 @@ STEP_NAME_ALIASES = {
     "plumbing": "verdict-update",
     "surface-build": "corpus-build",
     "surface-promote": "corpus-promote",
+    "census": "review-facts",
 }
 POOL_UNIT_ALIASES = {"surface": "corpus"}
 

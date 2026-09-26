@@ -518,7 +518,7 @@ class CycleConsole:
             self._one_line(name, text)
 
     def substep(self, parent: str, name: str) -> None:
-        """Log a sub-step under another step. The census's invariant diff and the job-costs diff belong to steps without being plan steps, and this sends their lines to the parent's log and column without adding a keyword to the spawn signature."""
+        """Log a sub-step under another step. The review-facts step's invariant diff and the job-costs diff belong to steps without being plan steps, and this sends their lines to the parent's log and column without adding a keyword to the spawn signature."""
         with self._lock:
             self._substeps[name] = parent
 

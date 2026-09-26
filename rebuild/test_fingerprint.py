@@ -374,7 +374,7 @@ def _ledger_digest(path, text):
 
 
 def test_divergence_ledger_digest_ignores_prose_and_falls_back_to_bytes(tmp_path):
-    """Every ledger field except `why` moves the digest, since `audit.load_ledger`, `oracle.classify_divergence`, and the census read them: changing a class's status, its `no_verdict` flag, its count, or an exemplar, or adding a class. Rewording a `why`, editing a comment, or reformatting moves nothing. A malformed ledger digests to its raw bytes, so two broken drafts get different values."""
+    """Every ledger field except `why` moves the digest, since `audit.load_ledger`, `oracle.classify_divergence`, and the review facts read them: changing a class's status, its `no_verdict` flag, its count, or an exemplar, or adding a class. Rewording a `why`, editing a comment, or reformatting moves nothing. A malformed ledger digests to its raw bytes, so two broken drafts get different values."""
     path = tmp_path / "m1-divergences.yaml"
     parsed = _ledger_digest(path, LEDGER)
     assert _ledger_digest(path, REWORDED_CLASS) == parsed

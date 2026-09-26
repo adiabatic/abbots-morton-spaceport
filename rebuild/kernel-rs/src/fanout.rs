@@ -141,29 +141,29 @@ fn fold_timing_line(label: &str, elapsed: Duration) -> String {
     format!("[t] {label} {:.3}s", elapsed.as_secs_f64())
 }
 
-/// What a run writes to stderr besides its output: phase timings and the `--cache-census` lines. Both are off by default. A run with neither writes nothing to stderr on a clean exit. `_forward_stderr` in rebuild/pipeline/kernel_exec.py relies on this: when timings were not requested, it fails on any stderr after a clean exit.
+/// What a run writes to stderr besides its output: phase timings and the `--cache-stats` lines. Both are off by default. A run with neither writes nothing to stderr on a clean exit. `_forward_stderr` in rebuild/pipeline/kernel_exec.py relies on this: when timings were not requested, it fails on any stderr after a clean exit.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Report {
     pub timings: bool,
-    pub census: bool,
+    pub cache_stats: bool,
 }
 
 impl Report {
-    /// A report with timings as given and no census.
+    /// A report with timings as given and no cache stats.
     pub fn timed(timings: bool) -> Self {
         Self {
             timings,
-            census: false,
+            cache_stats: false,
         }
     }
 
     /// Whether this run writes nothing to stderr.
     pub fn silent(self) -> bool {
-        !self.timings && !self.census
+        !self.timings && !self.cache_stats
     }
 }
 
-/// Runs one configuration into `sink`: its fixpoint, then its stream. When asked, it returns the census's `[c]` lines followed by `enumerate[<config>]` and `emit[<config>]` timing lines. Errors carry no prefix; [`Failure`] says why.
+/// Runs one configuration into `sink`: its fixpoint, then its stream. When asked, it returns the cache stats' `[c]` lines followed by `enumerate[<config>]` and `emit[<config>]` timing lines. Errors carry no prefix; [`Failure`] says why.
 pub fn run_config(
     index: &SpecIndex,
     config: &Configuration<'_>,
@@ -174,15 +174,15 @@ pub fn run_config(
     let token = config.token;
     let timings = report.timings;
     let mut timed: Vec<String> = Vec::new();
-    let mut census: Vec<String> = Vec::new();
+    let mut stats: Vec<String> = Vec::new();
     let started = Instant::now();
-    let product = if report.census {
-        fixpoint::enumerate_censused(index, &config.features, modes, &mut census)
+    let product = if report.cache_stats {
+        fixpoint::enumerate_with_cache_stats(index, &config.features, modes, &mut stats)
     } else {
         fixpoint::enumerate_transitions(index, &config.features, modes)
     }
     .map_err(Failure::Refused)?;
-    timed.append(&mut census);
+    timed.append(&mut stats);
     if timings {
         timed.push(timing_line(
             &format!("enumerate[{token}]"),
@@ -482,7 +482,7 @@ pub fn run_configs_tables(
     Ok(seat_answers(answered, configs.len()))
 }
 
-/// Builds one configuration's tables on the current thread: [`enumerate_config_tables`] then [`finish_config_tables`]. The fixpoint reads what `seed` allows and writes `file`, when given, at its release point. The fold over the product builds the rule certificates with the enumeration's own [`WindowOptions`], so the formation guard is swept once. It writes the three artifact files and returns the digest. When asked, the timing lines are `enumerate[<config>]`, `memo[<config>]`, and `fold[<config>]`, after the census's `[c]` lines. The seeded fan-out calls the two halves separately so that `default`'s second half can run alongside the wave.
+/// Builds one configuration's tables on the current thread: [`enumerate_config_tables`] then [`finish_config_tables`]. The fixpoint reads what `seed` allows and writes `file`, when given, at its release point. The fold over the product builds the rule certificates with the enumeration's own [`WindowOptions`], so the formation guard is swept once. It writes the three artifact files and returns the digest. When asked, the timing lines are `enumerate[<config>]`, `memo[<config>]`, and `fold[<config>]`, after the cache stats' `[c]` lines. The seeded fan-out calls the two halves separately so that `default`'s second half can run alongside the wave.
 #[allow(clippy::too_many_arguments)]
 pub fn run_config_tables(
     index: &SpecIndex,
@@ -508,7 +508,7 @@ struct EnumeratedTables<'i> {
     timed: Vec<String>,
 }
 
-/// [`run_config_tables`]'s first half: the fixpoint over what the seed allows, writing the memo file at the release point when one is named, and keeping the finished memo behind an [`Arc`] when the seed asks. The timing lines are `enumerate[<config>]`, which excludes the memo write, and `memo[<config>]`, which is the write, after the census's `[c]` lines.
+/// [`run_config_tables`]'s first half: the fixpoint over what the seed allows, writing the memo file at the release point when one is named, and keeping the finished memo behind an [`Arc`] when the seed asks. The timing lines are `enumerate[<config>]`, which excludes the memo write, and `memo[<config>]`, which is the write, after the cache stats' `[c]` lines.
 fn enumerate_config_tables<'i>(
     index: &'i SpecIndex,
     config: &Configuration<'_>,
@@ -519,7 +519,7 @@ fn enumerate_config_tables<'i>(
 ) -> Result<EnumeratedTables<'i>, String> {
     let token = config.token;
     let mut timed: Vec<String> = Vec::new();
-    let mut census: Vec<String> = Vec::new();
+    let mut stats: Vec<String> = Vec::new();
     let started = Instant::now();
     let fixpoint::TablesEnumeration {
         product,
@@ -530,11 +530,11 @@ fn enumerate_config_tables<'i>(
         index,
         &config.features,
         modes,
-        report.census.then_some(&mut census),
+        report.cache_stats.then_some(&mut stats),
         seed,
         file,
     )?;
-    timed.append(&mut census);
+    timed.append(&mut stats);
     if report.timings {
         timed.push(timing_line(
             &format!("enumerate[{token}]"),
@@ -593,7 +593,7 @@ fn finish_config_tables(
     Ok(TableAnswer { digest, timed })
 }
 
-/// One configuration's string replay result: the walk's counts, and its census and timing lines when requested.
+/// One configuration's string replay result: the walk's counts, and its cache-stats and timing lines when requested.
 pub struct ReplayAnswer {
     pub report: replay::Report,
     pub timed: Vec<String>,
@@ -622,7 +622,7 @@ pub fn replay_memo_path(memo_dir: &Path, token: &str) -> PathBuf {
     memo_dir.join(format!("replay-windows-{token}.bin"))
 }
 
-/// Replays one configuration: reads its rules back and walks the universe. When asked, it returns the census's `[c]` lines and a `replay[<config>]` timing line. With a `memo_dir`, it then writes the window memo, timed as `replay_memo[<config>]`. The walk's clock stops before the census is taken, so the end-of-walk resident-size sample is not counted in the walk's time; the samples a censused walk takes at each release under the universe's ceiling are.
+/// Replays one configuration: reads its rules back and walks the universe. When asked, it returns the cache stats' `[c]` lines and a `replay[<config>]` timing line. With a `memo_dir`, it then writes the window memo, timed as `replay_memo[<config>]`. The walk's clock stops before the cache stats are taken, so the end-of-walk resident-size sample is not counted in the walk's time; the samples a walk with cache stats takes at each release under the universe's ceiling are.
 pub fn run_config_replay(
     index: &SpecIndex,
     config: &Configuration<'_>,
@@ -645,12 +645,12 @@ pub fn run_config_replay(
         ..EngineModes::default()
     };
     let mut walk = replay::Replay::new(index, config.features.clone(), engine_modes, &rules);
-    if report.census {
-        walk.with_census(token);
+    if report.cache_stats {
+        walk.with_cache_stats(token);
     }
     let walked = walk.walk_universe(universe)?;
     let elapsed = started.elapsed();
-    let mut timed = walk.take_census();
+    let mut timed = walk.take_cache_stats();
     if report.timings {
         timed.push(timing_line(&format!("replay[{token}]"), elapsed));
     }

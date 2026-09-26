@@ -1,4 +1,4 @@
-"""Tests for the packed unit store (`rebuild/review/unit_store.py`). Each accessor returns what the fold was given, in the shape the build's reduces and the store writer read: the `SeamHomeUnit` the home reduce compares, the `proj` and `seams` a store line carries, and the `CachedUnit` whose `record_line` matches the previous store's line byte for byte. The tests also cover the id index, the length checks, and the census.
+"""Tests for the packed unit store (`rebuild/review/unit_store.py`). Each accessor returns what the fold was given, in the shape the build's reduces and the store writer read: the `SeamHomeUnit` the home reduce compares, the `proj` and `seams` a store line carries, and the `CachedUnit` whose `record_line` matches the previous store's line byte for byte. The tests also cover the id index, the length checks, and the size estimate.
 
 Most tests fold synthetic projections and records. The one real workload is the checked-in mini bundle under `rebuild/review/fixtures/mini/`, whose projections the serial runner folds; no test reads a live artifact.
 """
@@ -474,8 +474,8 @@ def _string_bytes(store: UnitStore) -> tuple[int, int]:
     return len(strings), sum(len(string.encode()) + pile_tally.OFFSET_WIDTH for string in strings)
 
 
-def test_the_census_is_the_arrays_bytes_and_empty_homes_and_mismatches_cost_none():
-    """`census` reports the columns' bytes plus the mismatch lines as the packed figure, with the string table's counts beside it, and the packed figure plus the string table as the walked figure (`pile_tally.column_census`). A unit with no seam and no mismatch adds nothing to the seam side arrays, the home columns, or the mismatch dict."""
+def test_the_sizes_are_the_arrays_bytes_and_empty_homes_and_mismatches_cost_none():
+    """`sizes` reports the columns' bytes plus the mismatch lines as the packed figure, with the string table's counts beside it, and the packed figure plus the string table as the walked figure (`pile_tally.column_sizes`). A unit with no seam and no mismatch adds nothing to the seam side arrays, the home columns, or the mismatch dict."""
     store = UnitStore(2)
     seamless = _projection("seamless", seam_home=_seam_home("", (0xE652, 0xE670), seams=False))
     seamless = replace(seamless, seam_home=replace(seamless.seam_home, unit_id=seamless.unit_id))
@@ -500,7 +500,7 @@ def test_the_census_is_the_arrays_bytes_and_empty_homes_and_mismatches_cost_none
     )
     store.set_homes(0, [])
     assert store.seam_count(0) == 0
-    before = store.census()
+    before = store.sizes()
     strings, string_bytes = _string_bytes(store)
     assert before == pile_tally.Measure(
         2,
@@ -508,7 +508,7 @@ def test_the_census_is_the_arrays_bytes_and_empty_homes_and_mismatches_cost_none
         pile_tally.PackedCost(_column_bytes(store), strings, string_bytes),
     )
     store.fold_projection(_projection("seamed", mismatches=("a line",)), no_verdict=False, ordinal=1)
-    after = store.census()
+    after = store.sizes()
     strings, string_bytes = _string_bytes(store)
     lines = len("a line".encode()) + pile_tally.OFFSET_WIDTH
     assert after == pile_tally.Measure(
@@ -548,7 +548,7 @@ class _RecordingStore(UnitStore):
 
 
 def test_the_mini_bundle_folds_and_reads_back_every_projection(mini_bundle, tmp_path):
-    """The serial runner folds the mini bundle's real projections as it drafts them. Every accessor equals the folded projection, the source is the spool address the projection carries, the input key is the one the plan wrote, the index finds every id, and `windows` lists every unit's window. `census` counts only the columns' bytes, because the string table belongs to the workload table and is charged under `workload.units`. The permutation `sort_for_triage` returns equals a sort by `triage_key`, which uses the id string."""
+    """The serial runner folds the mini bundle's real projections as it drafts them. Every accessor equals the folded projection, the source is the spool address the projection carries, the input key is the one the plan wrote, the index finds every id, and `windows` lists every unit's window. `sizes` counts only the columns' bytes, because the string table belongs to the workload table and is charged under `workload.units`. The permutation `sort_for_triage` returns equals a sort by `triage_key`, which uses the id string."""
     workload = load_workload(MINI / "audit.tsv", mini_bundle.ledger, dict(LETTERS))
     table = workload.table
     store = _RecordingStore(table.n, strings=table.strings)
@@ -612,14 +612,14 @@ def test_the_mini_bundle_folds_and_reads_back_every_projection(mini_bundle, tmp_
         seams += store.seam_count(ordinal)
     assert seams, "the mini workload must hold seam-bearing units"
     assert [window for _, window in store.windows()] == [unit.codepoint_values for unit in units]
-    reading = store.census()
+    reading = store.sizes()
     strings, string_bytes = _string_bytes(store)
     assert reading == pile_tally.Measure(
         len(units),
         _column_bytes(store),
         pile_tally.PackedCost(_column_bytes(store), strings, string_bytes),
     )
-    restarted = store.emptied().census()
+    restarted = store.emptied().sizes()
     assert restarted.packed is not None and restarted.est_bytes == restarted.packed.est_bytes
     assert (restarted.packed.strings, restarted.packed.string_bytes) == (strings, string_bytes)
     class_order = {entry.id: index for index, entry in enumerate(workload.classes_present)}

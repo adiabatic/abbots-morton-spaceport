@@ -4,7 +4,7 @@
 //!
 //! The product depends only on the set of rows, not on the traversal order, at either grain. At label grain the dedup is by window key, and a hit reuses the recorded settled state because the left label is injective into the trace's inputs, so the fired set is a union over a window set that no order changes. At class grain a fiber's row is traced at the fiber's representative, its least member under the label order (the first entry of the fiber's sorted member list), whichever item reaches the fiber first and whatever subset of it that item's pins admit. The admitted members accumulate as a union across items, which is also order-independent. The worklist is LIFO with the `seen` check at pop time, so the traversal is a fixed function of the seeds, and the two permuted-seed tests below check order-independence at each grain.
 //!
-//! In the deep world with the deep-classes flag on, the deep slots enumerate at class grain: the same static option lists, their letters split into the outcome fibers of [`crate::fiber::DeepFiberDeriver`], one in-flight row per base and fiber identity accumulating the admitted members across items, successor pins carrying those member sets instead of singletons, and a content-addressed id per multi-member set in the product's `deep_classes` map. Two checks run with it. The echo check re-traces a second member of every multi-member row at the row's real left and requires the same row-visible record. `DeepPartitionCheck` runs over the finished product before it is returned. With the flag off, or in the pinned world where class grain cannot arise, only the label-grain path runs, and the deep slots still enumerate: the censuses and the filters decide which deep slots are live.
+//! In the deep world with the deep-classes flag on, the deep slots enumerate at class grain: the same static option lists, their letters split into the outcome fibers of [`crate::fiber::DeepFiberDeriver`], one in-flight row per base and fiber identity accumulating the admitted members across items, successor pins carrying those member sets instead of singletons, and a content-addressed id per multi-member set in the product's `deep_classes` map. Two checks run with it. The echo check re-traces a second member of every multi-member row at the row's real left and requires the same row-visible record. `DeepPartitionCheck` runs over the finished product before it is returned. With the flag off, or in the pinned world where class grain cannot arise, only the label-grain path runs, and the deep slots still enumerate: the rune sets and the filters decide which deep slots are live.
 //!
 //! One engine settles everything, and the two slot filters, the liveness probe and the fiber deriver all borrow it. The trace memo makes a re-reached window free, and `Engine::fired` becomes the product's `cited_provenance`, so a probe running on a second engine would silently drop entries from what the dead-policy gate sees as fired. For the same reason one liveness probe is lent to both filters and to the deriver.
 
@@ -12,7 +12,7 @@ use std::collections::BTreeSet;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
-use crate::census::{FourthSlotFilter, ThirdSlotFilter, fourth_slot_inputs, third_slot_inputs};
+use crate::deep_slots::{FourthSlotFilter, ThirdSlotFilter, fourth_slot_inputs, third_slot_inputs};
 use crate::engine::{CacheSize, Engine, EngineModes, Slots};
 use crate::error::SettleError;
 use crate::fiber::DeepFiberDeriver;
@@ -51,7 +51,7 @@ const SEED_KINDS: [TokenKind; 4] = [
 
 /// The world one enumeration runs in, and at which grain. Python reads the three flags from module-level defaults that environment variables override (`kernel_exec.SIMULATED_PROSPECT_DEFAULT`, `kernel_exec.VOTE_SLOTS_DEFAULT` and `kernel_exec.DEEP_CLASSES_DEFAULT`). This crate reads no environment, so the caller passes them, and [`Default`] is the shipping configuration. [`EnumerationModes::world_token`] names the world; a memo file's head carries it so a memo traced in one world is never read in another.
 ///
-/// Either engine mode on makes a deep world: both deep-slot censuses widen to every rune and the filters get their liveness probe. `deep_classes` only takes effect in a deep world. In the pinned world it is accepted and does nothing, because there is no fiber source to enumerate at class grain.
+/// Either engine mode on makes a deep world: both deep-slot rune sets widen to every rune and the filters get their liveness probe. `deep_classes` only takes effect in a deep world. In the pinned world it is accepted and does nothing, because there is no fiber source to enumerate at class grain.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct EnumerationModes {
     pub simulated_prospect: bool,
@@ -210,7 +210,7 @@ impl PendingDeepRow {
 
 /// One configuration's whole fixpoint, the value [`crate::fold::fold_product`] folds: the rows in key order, the deep-class map their class tokens resolve through, the cells they settle into, and the provenance the engine fired while tabulating. Serialized, it is `table.FixpointProduct`, which `kernel_exec.enumerate_transitions` parses. No build stage or tool calls it; only the rebuild suite exercises it.
 ///
-/// The engine is built here from `modes`, which also decide whether the censuses widen, whether the filters get their liveness probe, and whether the deep slots enumerate at class grain, because none of the three is meaningful without the others.
+/// The engine is built here from `modes`, which also decide whether the rune sets widen, whether the filters get their liveness probe, and whether the deep slots enumerate at class grain, because none of the three is meaningful without the others.
 pub fn enumerate_transitions(
     index: &SpecIndex,
     features: &[Sym],
@@ -236,33 +236,41 @@ pub struct TablesEnumeration<'i> {
     pub memo_write: Option<Duration>,
 }
 
-/// [`enumerate_transitions`] that also returns the [`WindowOptions`] it ran over, the census lines when `census` is given, and the engine's finished memo when the seed asks for it. The table build folds the product it holds, and the fold's certificates read the formation guard through the same options, whose verdict memo the worklist already filled, instead of sweeping the guard again. The seed lets one configuration's enumeration read another's settled windows ([`crate::memo`]). With a `file`, the finished memo is written there at the release point, after the engine's other memos are freed, so a configuration whose seed does not keep the memo holds none through its drain or its sort.
+/// [`enumerate_transitions`] that also returns the [`WindowOptions`] it ran over, the `--cache-stats` lines when `cache_stats` is given, and the engine's finished memo when the seed asks for it. The table build folds the product it holds, and the fold's certificates read the formation guard through the same options, whose verdict memo the worklist already filled, instead of sweeping the guard again. The seed lets one configuration's enumeration read another's settled windows ([`crate::memo`]). With a `file`, the finished memo is written there at the release point, after the engine's other memos are freed, so a configuration whose seed does not keep the memo holds none through its drain or its sort.
 pub fn enumerate_for_tables<'i>(
     index: &'i SpecIndex,
     features: &[Sym],
     modes: EnumerationModes,
-    census: Option<&mut Vec<String>>,
+    cache_stats: Option<&mut Vec<String>>,
     seed: Seed,
     file: Option<MemoFile>,
 ) -> Result<TablesEnumeration<'i>, String> {
-    enumerate_seeded(index, features, modes, contract_seeds, census, seed, file)
+    enumerate_seeded(
+        index,
+        features,
+        modes,
+        contract_seeds,
+        cache_stats,
+        seed,
+        file,
+    )
 }
 
-/// [`enumerate_transitions`] that also appends the `--cache-census` lines to `census`: each collection's length and capacity once the worklist finishes, the size of the elimination text the memos hold, the memo base hits in total and per base, and the process's resident size before the memo release, after it, after the memo file is written (when [`enumerate_for_tables`] names one), and after the sort. The caller writes the lines to stderr. None of this is computed unless asked for.
+/// [`enumerate_transitions`] that also appends the `--cache-stats` lines to `cache_stats`: each collection's length and capacity once the worklist finishes, the size of the elimination text the memos hold, the memo base hits in total and per base, and the process's resident size before the memo release, after it, after the memo file is written (when [`enumerate_for_tables`] names one), and after the sort. The caller writes the lines to stderr. None of this is computed unless asked for.
 ///
 /// Memory decisions in this crate come down to entry counts, and a count read from a live alphabet settles in one run what a struct-size argument can only estimate.
-pub fn enumerate_censused(
+pub fn enumerate_with_cache_stats(
     index: &SpecIndex,
     features: &[Sym],
     modes: EnumerationModes,
-    census: &mut Vec<String>,
+    cache_stats: &mut Vec<String>,
 ) -> Result<FixpointProduct, String> {
     enumerate_seeded(
         index,
         features,
         modes,
         contract_seeds,
-        Some(census),
+        Some(cache_stats),
         Seed::default(),
         None,
     )
@@ -275,7 +283,7 @@ fn enumerate_seeded<'i>(
     features: &[Sym],
     modes: EnumerationModes,
     seeds: fn(&WindowOptions<'_>) -> Vec<Item>,
-    mut census: Option<&mut Vec<String>>,
+    mut cache_stats: Option<&mut Vec<String>>,
     seed: Seed,
     file: Option<MemoFile>,
 ) -> Result<TablesEnumeration<'i>, String> {
@@ -448,7 +456,7 @@ fn enumerate_seeded<'i>(
                         }
                     }
                     for (boundary3, fiber3, admitted3) in slot3_entries {
-                        // The census check is applied here, not inside the deriver: a fiber's own `fourth_matters` is the raw filter result, and only the enumeration knows whether this input is in the depth-4 census.
+                        // The rune-set check is applied here, not inside the deriver: a fiber's own `fourth_matters` is the raw filter result, and only the enumeration knows whether this input is in the depth-4 rune set.
                         let slot4_entries: Vec<Slot4Entry> = match fiber3 {
                             Some(seat)
                                 if deep4_inputs.contains(&rune)
@@ -783,7 +791,7 @@ fn enumerate_seeded<'i>(
         );
     }
 
-    if let Some(lines) = census.as_mut() {
+    if let Some(lines) = cache_stats.as_mut() {
         lines.push(
             CacheSize::of("transitions", transitions.len(), transitions.capacity()).line(&config),
         );
@@ -803,7 +811,7 @@ fn enumerate_seeded<'i>(
             )
             .line(&config),
         );
-        for size in engine.cache_census() {
+        for size in engine.cache_stats() {
             lines.push(size.line(&config));
         }
         lines.push(format!(
@@ -838,7 +846,7 @@ fn enumerate_seeded<'i>(
         engine.release_memos();
         None
     };
-    if let Some(lines) = census.as_mut() {
+    if let Some(lines) = cache_stats.as_mut() {
         lines.push(format!(
             "[c] {config} resident_after_release kb={}",
             resident_kb()
@@ -859,7 +867,7 @@ fn enumerate_seeded<'i>(
     }
     let memo = memo.filter(|_| seed.keep_memo);
     if memo_write.is_some()
-        && let Some(lines) = census.as_mut()
+        && let Some(lines) = cache_stats.as_mut()
     {
         lines.push(format!(
             "[c] {config} resident_after_memo_write kb={}",
@@ -895,7 +903,7 @@ fn enumerate_seeded<'i>(
         })
         .collect();
     rows.sort_unstable_by_key(|row| row.labels().map(|label| ranks[label.0 as usize]));
-    if let Some(lines) = census.as_mut() {
+    if let Some(lines) = cache_stats.as_mut() {
         lines.push(format!(
             "[c] {config} resident_after_sort kb={}",
             resident_kb()
@@ -994,7 +1002,7 @@ fn retain_formed_before(
     Ok(kept)
 }
 
-/// This process's resident size in kibibytes, or `0` when `ps` gives no answer. It asks `ps` instead of the C library because the crate has no dependencies and declares no foreign functions for a diagnostic. It runs only on censused runs: a few times per table configuration, and twice per release plus once at the end of a replay.
+/// This process's resident size in kibibytes, or `0` when `ps` gives no answer. It asks `ps` instead of the C library because the crate has no dependencies and declares no foreign functions for a diagnostic. It runs only on runs that ask for `--cache-stats`: a few times per table configuration, and twice per release plus once at the end of a replay.
 pub(crate) fn resident_kb() -> u64 {
     let pid = std::process::id();
     std::process::Command::new("/bin/ps")
@@ -1173,7 +1181,7 @@ struct ContextPartition {
 ///
 /// It runs over the crate's own product before the stream is written, because the filters, fibers and option lists it consults are not in the stream. Everything it consults was already computed during enumeration: the two filters' memos are filled, every live context's fibers are derived, and `right4_options` returns the same list for the same inputs. The product's fired set is taken before this check runs, so the check adds no provenance.
 ///
-/// It checks, per base: the member sets of the observed r3 letter tokens are pairwise disjoint, and each lies inside the recomputed static option list and inside one fiber of its context's partition; right3 is not `#NA` exactly where the census and the third-slot filter say live; one slot deeper, r4 member sets are disjoint per base and r3 token, every member of an r3 token gets the same `fourth_slot_matters` result and the same computed r4 option list; and every class id resolves through the product's map, with every map entry used. Disjointness is checked per base, not per context, because worklist pins are per left state, so two bases in one context can admit nested subsets of one fiber. Coverage of the static option list is not checked, because pins exclude unreachable members, as label grain excludes their rows.
+/// It checks, per base: the member sets of the observed r3 letter tokens are pairwise disjoint, and each lies inside the recomputed static option list and inside one fiber of its context's partition; right3 is not `#NA` exactly where the rune set and the third-slot filter say live; one slot deeper, r4 member sets are disjoint per base and r3 token, every member of an r3 token gets the same `fourth_slot_matters` result and the same computed r4 option list; and every class id resolves through the product's map, with every map entry used. Disjointness is checked per base, not per context, because worklist pins are per left state, so two bases in one context can admit nested subsets of one fiber. Coverage of the static option list is not checked, because pins exclude unreachable members, as label grain excludes their rows.
 struct DeepPartitionCheck<'a, 'i> {
     engine: &'a mut Engine<'i>,
     options: &'a mut WindowOptions<'i>,
@@ -1337,7 +1345,7 @@ impl DeepPartitionCheck<'_, '_> {
                     "{key:?}: members disagree on the fourth_slot_matters verdict: {names:?}"
                 ));
             }
-            // The census gate is ANDed in here rather than inside the filter, which is the same split the enumeration makes when it decides whether a fiber's r4 groups become slot-4 entries.
+            // The rune-set gate is ANDed in here rather than inside the filter, which is the same split the enumeration makes when it decides whether a fiber's r4 groups become slot-4 entries.
             let fourth =
                 verdicts.into_iter().next().unwrap_or(false) && self.deep4_inputs.contains(&family);
             if &**product.labels.text(row.right4) == NA_LABEL {
@@ -1609,7 +1617,7 @@ mod tests {
         fixtures::index_of(&fixtures::dump(&fixtures::map(&entries), registry))
     }
 
-    /// A right condition testing each family in turn, one `then:` hop per name — the shape the deep censuses count hops on.
+    /// A right condition testing each family in turn, one `then:` hop per name — the shape the deep-slot rune sets count hops on.
     fn chain(families: &[&str]) -> String {
         let (head, rest) = families
             .split_first()
@@ -1644,7 +1652,7 @@ mod tests {
         fixtures::policy(&[("prefer", &fixtures::seq(records))])
     }
 
-    /// The pinned candidacy world that every fixture below is read in: `simulated_prospect` and `vote_slots` both off, so there is no deep world, the censuses are the chain censuses, and class grain cannot arise whatever `deep_classes` says.
+    /// The pinned candidacy world that every fixture below is read in: `simulated_prospect` and `vote_slots` both off, so there is no deep world, the rune sets are the chain sets, and class grain cannot arise whatever `deep_classes` says.
     const PINNED: EnumerationModes = EnumerationModes {
         simulated_prospect: false,
         vote_slots: false,
@@ -1840,7 +1848,7 @@ mod tests {
     }
 
     #[test]
-    fn the_deep_slots_split_only_the_windows_the_census_and_both_filters_admit() {
+    fn the_deep_slots_split_only_the_windows_the_rune_set_and_both_filters_admit() {
         let index = deep_alphabet();
         let product = product(&index);
         let deep: Vec<&str> = product
@@ -1851,7 +1859,7 @@ mod tests {
             .collect();
         assert!(
             !deep.is_empty() && deep.iter().all(|input| *input == "qsPea"),
-            "the censused input carries a third slot and nothing else does"
+            "the input in the rune set carries a third slot and nothing else does"
         );
         assert!(
             product
@@ -2468,13 +2476,13 @@ mod tests {
         .expect("ss03 closes from scratch")
         .product;
         let seeded_with = |excluded: Exclusion| {
-            let mut census: Vec<String> = Vec::new();
+            let mut stats: Vec<String> = Vec::new();
             let product = enumerate_seeded(
                 &index,
                 &[ss03],
                 modes,
                 contract_seeds,
-                Some(&mut census),
+                Some(&mut stats),
                 Seed {
                     bases: vec![MemoBase {
                         memo: Arc::clone(&memo),
@@ -2486,13 +2494,13 @@ mod tests {
             )
             .expect("ss03 closes over a base")
             .product;
-            let hits = census
+            let hits = stats
                 .iter()
                 .find_map(|line| line.strip_prefix("[c] ss03 memo_base_hits count="))
-                .expect("the census reports the base hits")
+                .expect("the cache stats report the base hits")
                 .parse::<u64>()
                 .expect("as a count");
-            assert!(census.contains(&format!("[c] ss03 memo_base_hits seat=0 count={hits}")));
+            assert!(stats.contains(&format!("[c] ss03 memo_base_hits seat=0 count={hits}")));
             (product, hits)
         };
         let (seeded, hits) = seeded_with(Exclusion::of(&index, unlocking_runes(&index, &[ss03])));

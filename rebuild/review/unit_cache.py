@@ -163,8 +163,8 @@ PIPELINE_NON_CORPUS_MODULES = frozenset(
 KERNEL_NON_CORPUS_MODULES = frozenset(
     {
         "artifacts.rs",
-        "census.rs",
         "certificate.rs",
+        "deep_slots.rs",
         "fanout.rs",
         "fiber.rs",
         "fixpoint.rs",
@@ -641,7 +641,7 @@ def signature_store_path(out_dir: Path) -> Path:
 def signature_environment(
     repo_root: Path, before_font: Path, after_helpers_digest: str
 ) -> fingerprint.EnvironmentStamp:
-    """Return the ink-signature store's whole-store stamp: what a signature reads that the per-entry keys do not cover. That is the comparator's code (`signature_code_paths`, the import closure of `rebuild.review.ink`), the before font outside its `head` and `name` tables (`_font_digest`), and the after font's non-family glyphs, cmap, and layout wiring. The code line covers only the comparator's closure, so an edit to the build driver, the census, the drafts, the kernel interface, or the crate leaves this store valid while `environment_stamp` invalidates the unit store. The module docstring lists the rest of what is left out. The comparator closure's per-file lines are recorded as the `comparator_code` detail, from the same read the digest is computed from."""
+    """Return the ink-signature store's whole-store stamp: what a signature reads that the per-entry keys do not cover. That is the comparator's code (`signature_code_paths`, the import closure of `rebuild.review.ink`), the before font outside its `head` and `name` tables (`_font_digest`), and the after font's non-family glyphs, cmap, and layout wiring. The code line covers only the comparator's closure, so an edit to the build driver, the review facts, the drafts, the kernel interface, or the crate leaves this store valid while `environment_stamp` invalidates the unit store. The module docstring lists the rest of what is left out. The comparator closure's per-file lines are recorded as the `comparator_code` detail, from the same read the digest is computed from."""
     root = Path(repo_root)
     code_lines = fingerprint.path_lines(root, signature_code_paths(root))
     lines = (

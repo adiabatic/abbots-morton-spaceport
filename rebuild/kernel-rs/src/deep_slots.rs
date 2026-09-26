@@ -1,8 +1,8 @@
-//! The deep-slot censuses and the two slot filters. Together they decide which windows the table enumerates split by a raw third or fourth lookahead token, and so which windows leave those slots at `#NA`. The filters' chain branch is here; their liveness branch is in [`crate::liveness`] and is ORed in below.
+//! The deep-slot rune sets and the two slot filters. Together they decide which windows the table enumerates split by a raw third or fourth lookahead token, and so which windows leave those slots at `#NA`. The filters' chain branch is here; their liveness branch is in [`crate::liveness`] and is ORed in below.
 //!
-//! The two checks run in series and answer different questions. The census is static and per rune. Only a rune's own `prefer` or `resolve` records receive the real deep slots (`Engine::prefer_favors` and `Engine::apply_resolution`), so a rune with no record chaining that far can never read them, and its windows keep `#NA` without any probing. The filter is per window and more precise: even a censused rune settles the same under every third token in a window where its chains have already answered definitely. [`Engine::cond_matches_right`] makes this decidable, because it returns `None` only when the verdict consulted a slot the window does not supply. So `None` over `(right1, right2, UNKNOWN, UNKNOWN)` means this window's answer depends on the third token, and `Some(_)` means it does not.
+//! The two checks run in series and answer different questions. The rune set is static and per rune. Only a rune's own `prefer` or `resolve` records receive the real deep slots (`Engine::prefer_favors` and `Engine::apply_resolution`), so a rune with no record chaining that far can never read them, and its windows keep `#NA` without any probing. The filter is per window and more precise: even a rune in the set settles the same under every third token in a window where its chains have already answered definitely. [`Engine::cond_matches_right`] makes this decidable, because it returns `None` only when the verdict consulted a slot the window does not supply. So `None` over `(right1, right2, UNKNOWN, UNKNOWN)` means this window's answer depends on the third token, and `Some(_)` means it does not.
 //!
-//! Both worlds are handled here. In the pinned world (`simulated_prospect` and `vote_slots` both off, so `deep_world` is false), the chain branch is the whole verdict and the two censuses are the depth-3 and depth-4 chain censuses. In the deep world, the raw deep tokens reach any input's window through the follower's replayed settlement or a vote's shifted slots. Both censuses then widen to every rune, and [`crate::liveness::ProspectLiveness`] is consulted wherever the chain branch says no. The caller passes the world in, as the `deep_world` flag of the two censuses and as a `Some(_)` liveness probe at the filters, because this crate has no environment to read defaults from.
+//! Both worlds are handled here. In the pinned world (`simulated_prospect` and `vote_slots` both off, so `deep_world` is false), the chain branch is the whole verdict and the two rune sets are the depth-3 and depth-4 chain sets. In the deep world, the raw deep tokens reach any input's window through the follower's replayed settlement or a vote's shifted slots. Both rune sets then widen to every rune, and [`crate::liveness::ProspectLiveness`] is consulted wherever the chain branch says no. The caller passes the world in, as the `deep_world` flag of the two rune sets and as a `Some(_)` liveness probe at the filters, because this crate has no environment to read defaults from.
 //!
 //! A filter is a struct with a memo, and it takes the engine per call instead of holding one. The fixpoint passes in the engine it settles with, because the probes share that engine's memo and its fired-pointer journal. A second engine would change the `cited_provenance` the build reports without any error. Taking `&mut Engine` per call makes this explicit: the fixpoint owns the one engine and lends it, and the borrow checker rejects a second mutable borrow. The liveness probe is lent the same way for the same reason.
 
@@ -63,7 +63,7 @@ pub fn third_slot_inputs(index: &SpecIndex, deep_world: bool) -> HashSet<Sym> {
     depth3_inputs(index)
 }
 
-/// [`third_slot_inputs`] one slot deeper: the depth-4 chain census in the pinned world, every rune in the deep world.
+/// [`third_slot_inputs`] one slot deeper: the depth-4 chain set in the pinned world, every rune in the deep world.
 pub fn fourth_slot_inputs(index: &SpecIndex, deep_world: bool) -> HashSet<Sym> {
     if deep_world {
         return index.runes().iter().map(|(name, _)| *name).collect();
@@ -73,7 +73,7 @@ pub fn fourth_slot_inputs(index: &SpecIndex, deep_world: bool) -> HashSet<Sym> {
 
 /// Each input's right conditions that chain at least `reach` slots on, `prefer` before `resolve` and in declaration order within each list. Each filter reads a window against this list.
 ///
-/// The inputs with a non-empty list are the census at the same reach, because both apply the same test to the same records. An input with no entry here is never live on the chain branch.
+/// The inputs with a non-empty list are the rune set at the same reach, because both apply the same test to the same records. An input with no entry here is never live on the chain branch.
 fn chains_at<'i>(index: &'i SpecIndex, reach: usize) -> HashMap<Sym, Vec<&'i Condition>> {
     let mut out: HashMap<Sym, Vec<&'i Condition>> = HashMap::default();
     for (name, rune) in index.runes() {
@@ -90,7 +90,7 @@ fn chains_at<'i>(index: &'i SpecIndex, reach: usize) -> HashMap<Sym, Vec<&'i Con
 
 /// Whether the raw third slot can decide an input's window, keyed on the three rune families `(input, right1, right2)`. The window's left is not read.
 ///
-/// The chain branch is true where some depth-3-reach `prefer` or `resolve` chain of the input's own rune is still unknown over `(right1, right2, UNKNOWN, UNKNOWN)`. `resolve` records receive all four raw slots in `Engine::apply_resolution`, so they are censused with the prefers. Where the chain branch says no and the caller passed a liveness probe, [`ProspectLiveness::third_live`] is the second branch: the slot is also live where some candidate's simulated follower choice, or some follower vote's verdict, changes with the third token.
+/// The chain branch is true where some depth-3-reach `prefer` or `resolve` chain of the input's own rune is still unknown over `(right1, right2, UNKNOWN, UNKNOWN)`. `resolve` records receive all four raw slots in `Engine::apply_resolution`, so they count toward the rune set with the prefers. Where the chain branch says no and the caller passed a liveness probe, [`ProspectLiveness::third_live`] is the second branch: the slot is also live where some candidate's simulated follower choice, or some follower vote's verdict, changes with the third token.
 pub struct ThirdSlotFilter<'i> {
     chains: HashMap<Sym, Vec<&'i Condition>>,
     verdicts: HashMap<(Sym, Sym, Sym), bool>,
@@ -221,7 +221,7 @@ mod tests {
     use crate::engine::EngineModes;
     use crate::index::fixtures;
 
-    /// A right condition that tests `families[0]` at its own slot and chains one `then:` hop per further name. The censuses count these hops, and the filters read a window against them.
+    /// A right condition that tests `families[0]` at its own slot and chains one `then:` hop per further name. The rune sets count these hops, and the filters read a window against them.
     fn chain(families: &[&str]) -> String {
         let (head, rest) = families
             .split_first()
@@ -273,9 +273,9 @@ mod tests {
         )
     }
 
-    /// A census as resolved names in sorted order, since a set of symbols has no order of its own.
-    fn sorted(index: &SpecIndex, census: &HashSet<Sym>) -> Vec<String> {
-        let mut out: Vec<String> = census
+    /// A rune set as resolved names in sorted order, since a set of symbols has no order of its own.
+    fn sorted(index: &SpecIndex, runes: &HashSet<Sym>) -> Vec<String> {
+        let mut out: Vec<String> = runes
             .iter()
             .map(|name| index.resolve(*name).to_owned())
             .collect();
@@ -283,8 +283,8 @@ mod tests {
         out
     }
 
-    /// The census fixture. `qsPea` chains two hops off a `prefer` and `qsTea` three off a `resolve`, so `qsPea` is in the depth-3 census only and `qsTea` is in both. `qsMay` chains one hop and also has a record with no right condition, so neither census admits it. `qsIt` chains two hops off a `refuse`, which never receives a deep slot.
-    fn census_spec() -> SpecIndex {
+    /// The rune-set fixture. `qsPea` chains two hops off a `prefer` and `qsTea` three off a `resolve`, so `qsPea` is in the depth-3 set only and `qsTea` is in both. `qsMay` chains one hop and also has a record with no right condition, so neither set admits it. `qsIt` chains two hops off a `refuse`, which never receives a deep slot.
+    fn deep_slot_spec() -> SpecIndex {
         let pea = rune(
             "qsPea",
             "prefer",
@@ -360,8 +360,8 @@ mod tests {
     }
 
     #[test]
-    fn the_censuses_count_prefer_and_resolve_chains_and_nothing_else() {
-        let index = census_spec();
+    fn the_rune_sets_count_prefer_and_resolve_chains_and_nothing_else() {
+        let index = deep_slot_spec();
         assert_eq!(
             sorted(&index, &depth3_inputs(&index)),
             ["qsPea", "qsTea"],
@@ -371,7 +371,7 @@ mod tests {
         assert_eq!(
             sorted(&index, &third_slot_inputs(&index, false)),
             sorted(&index, &depth3_inputs(&index)),
-            "the pinned world's pre-gate is the chain census itself"
+            "the pinned world's pre-gate is the chain set itself"
         );
         assert_eq!(
             sorted(&index, &fourth_slot_inputs(&index, false)),
@@ -379,23 +379,23 @@ mod tests {
         );
     }
 
-    /// In the deep world the pre-check admits every rune at both depths, whatever its own chains reach. A deep token reaches an uncensused input's window through the follower's replayed settlement or a vote's shifted slots, and only the per-window probe can tell whether it changed anything.
+    /// In the deep world the pre-check admits every rune at both depths, whatever its own chains reach. A deep token reaches the window of an input outside the chain sets through the follower's replayed settlement or a vote's shifted slots, and only the per-window probe can tell whether it changed anything.
     #[test]
     fn the_deep_world_admits_every_rune_at_both_depths() {
-        let index = census_spec();
+        let index = deep_slot_spec();
         let every = ["qsIt", "qsMay", "qsPea", "qsTea"];
         assert_eq!(sorted(&index, &third_slot_inputs(&index, true)), every);
         assert_eq!(sorted(&index, &fourth_slot_inputs(&index, true)), every);
         assert_eq!(third_slot_inputs(&index, true).len(), index.rune_count());
         assert!(
             fourth_slot_inputs(&index, true).is_superset(&fourth_slot_inputs(&index, false)),
-            "the pinned census is a subset of the widened one, so no window the pinned world split stops splitting"
+            "the pinned rune set is a subset of the widened one, so no window the pinned world split stops splitting"
         );
     }
 
     #[test]
     fn a_third_slot_is_live_only_where_the_chain_still_needs_it() {
-        let index = census_spec();
+        let index = deep_slot_spec();
         let mut engine = pinned(&index);
         let mut filter = ThirdSlotFilter::new(&index);
         let pea = fixtures::sym(&index, "qsPea");
@@ -426,13 +426,13 @@ mod tests {
         assert_eq!(
             filter.matters(&mut engine, None, may, tea, may),
             Ok(false),
-            "an uncensused input has no chains to consult and is never live on this arm"
+            "an input outside the rune set has no chains to consult and is never live on this arm"
         );
     }
 
     #[test]
     fn a_fourth_slot_reads_one_chain_hop_deeper_than_the_third() {
-        let index = census_spec();
+        let index = deep_slot_spec();
         let mut engine = pinned(&index);
         let mut filter = FourthSlotFilter::new(&index);
         let pea = fixtures::sym(&index, "qsPea");
@@ -453,7 +453,7 @@ mod tests {
         assert_eq!(
             filter.matters(&mut engine, None, pea, tea, may, it),
             Ok(false),
-            "qsPea's chain reaches two slots, which the depth-4 census does not admit"
+            "qsPea's chain reaches two slots, which the depth-4 set does not admit"
         );
     }
 

@@ -1,6 +1,6 @@
 """Tests for the review-app build: the §7 contract checker over rebuild/review/fixtures/ (the same checker `build_m1` runs over its own output), the config-note badge text, the app shell and its scripts, the assets refresh, the shard writer and the fresh spool, the pool records and the pile tally, the shape-memo release, `_write_json`, the triage export, and the table-diff build.
 
-No test here reads the live corpus. `build_m1` checks the per-unit and per-shard contracts over every unit it writes and fails the build on any violation, and what the manifest writer computes from its own inputs (the fingerprint, the feature descriptions, the sidebar order) needs no separate check. Two claims about a built corpus are tested elsewhere. The sidecars' byte addressing is tested in `rebuild/test_app_index.py` over a mini build, and the staging in `app_index.write_app_artifacts` and the currency check in `artifact_cycle.corpus_build_skippable` keep a shipped corpus from carrying a sidecar built for other shards. The ink-duplicate merge rests on the checks in `census.derive_premerge` and on `InkComparator.signature` ignoring glyph names, which `rebuild/test_review_ink.py` tests on the marker font; a count in rebuild/review-census-pins.json records that the merge ran on the corpus. The shipped ink deltas are covered by the build's verification sample, which re-shapes `VERIFICATION_SAMPLE` served windows on every build.
+No test here reads the live corpus. `build_m1` checks the per-unit and per-shard contracts over every unit it writes and fails the build on any violation, and what the manifest writer computes from its own inputs (the fingerprint, the feature descriptions, the sidebar order) needs no separate check. Two claims about a built corpus are tested elsewhere. The sidecars' byte addressing is tested in `rebuild/test_app_index.py` over a mini build, and the staging in `app_index.write_app_artifacts` and the currency check in `artifact_cycle.corpus_build_skippable` keep a shipped corpus from carrying a sidecar built for other shards. The ink-duplicate merge rests on the checks in `facts.derive_premerge` and on `InkComparator.signature` ignoring glyph names, which `rebuild/test_review_ink.py` tests on the marker font; a count in rebuild/review-facts-pins.json records that the merge ran on the corpus. The shipped ink deltas are covered by the build's verification sample, which re-shapes `VERIFICATION_SAMPLE` served windows on every build.
 """
 
 import copy
@@ -54,7 +54,7 @@ from rebuild.review.build import (
 )
 from rebuild.review.enrich import LETTERS, EnrichedUnit
 from rebuild.review.export import _triage_projection, build_triage, load_units, load_verdicts
-from rebuild.review.ink import shape_memo_census
+from rebuild.review.ink import shape_memo_sizes
 from rebuild.review.columns import StringTable, TuplePool
 from rebuild.review.unit_store import UnitStore
 from rebuild.tools import console, pile_tally
@@ -855,7 +855,7 @@ def test_a_pooled_build_counts_its_units_and_closes_every_phase_it_opens(
         "review.build plan",
         "review.build units",
         "review.build manifest+check",
-        "review.build census-facts",
+        "review.build review-facts",
         "review.build cache",
     ]
     assert [event.name for event in events if isinstance(event, console.Phase)] == phases
@@ -896,9 +896,9 @@ def test_a_pooled_build_counts_its_units_and_closes_every_phase_it_opens(
     assert sum(tallies[name]["worker.projections"] for name in boundaries) == total
     assert not _enrichment_piles(tallies)
     parent_only = _tally_lines(captured.out, parent=True)
-    assert list(parent_only) == ["load", "plan", "units", "manifest+check", "census-facts", "cache"]
+    assert list(parent_only) == ["load", "plan", "units", "manifest+check", "review-facts", "cache"]
     assert parent_only["load"]["signatures"] > 0
-    for boundary in ("plan", "units", "manifest+check", "census-facts", "cache"):
+    for boundary in ("plan", "units", "manifest+check", "review-facts", "cache"):
         assert "signatures" not in parent_only[boundary]
         assert parent_only[boundary]["unit_store"] == total
     assert parent_only["units"]["runner.subset_pack"] == 0
@@ -1066,7 +1066,7 @@ def _subsumed_piles(tallies: dict[str, dict[str, int]]) -> list[str]:
 def _store_lines_are_exact(
     text: str, pile: str = "unit_store", *, holds_table: bool = False
 ) -> dict[str, bool]:
-    """Return, per boundary, whether the named pile's tally line is exact: its walked figure (`est_bytes`) equals its `packed_bytes`, plus `string_bytes` on the one line that holds the shared string table (`holds_table`, the workload table's). This applies to the piles that report their own columns: the workload table (`workload.units`), the unit store, the audit's row columns (`workload.rows`), and the pre-merge snapshot (`census.premerge`). All four index one string table, which `pile_tally` prints beside each line rather than inside `packed_bytes`. The test compares these figures rather than the printed ratio, which on the table-holding line is `1.00` on the corpus but a few hundredths higher on the mini bundle."""
+    """Return, per boundary, whether the named pile's tally line is exact: its walked figure (`est_bytes`) equals its `packed_bytes`, plus `string_bytes` on the one line that holds the shared string table (`holds_table`, the workload table's). This applies to the piles that report their own columns: the workload table (`workload.units`), the unit store, the audit's row columns (`workload.rows`), and the pre-merge snapshot (`facts.premerge`). All four index one string table, which `pile_tally` prints beside each line rather than inside `packed_bytes`. The test compares these figures rather than the printed ratio, which on the table-holding line is `1.00` on the corpus but a few hundredths higher on the mini bundle."""
     exact: dict[str, bool] = {}
     for line in text.splitlines():
         match = re.match(
@@ -1141,20 +1141,20 @@ def test_a_serial_build_tallies_its_piles_at_every_phase_boundary_and_writes_the
     manifest = build(tallied)
     captured = capsys.readouterr()
     tallies = _tally_lines(captured.out)
-    assert list(tallies) == ["load", "plan", "units", "manifest+check", "census-facts", "cache"]
+    assert list(tallies) == ["load", "plan", "units", "manifest+check", "review-facts", "cache"]
     total = manifest["totals"]["units"]
     for boundary in tallies:
         assert tallies[boundary]["workload.units"] == total
-        assert tallies[boundary]["census.premerge"] >= total
+        assert tallies[boundary]["facts.premerge"] >= total
     assert tallies["load"]["workload.rows"] == manifest["totals"]["rows"]
     assert tallies["plan"]["workload.rows"] == 0
     assert "ink.shape_memo" in tallies["load"] and "signatures" in tallies["load"]
     assert tallies["load"]["signatures"] > 0
-    for boundary in ("plan", "units", "manifest+check", "census-facts", "cache"):
+    for boundary in ("plan", "units", "manifest+check", "review-facts", "cache"):
         assert "signatures" not in tallies[boundary]
     assert re.search(_SIGNATURE_NOTE, captured.err)
     assert tallies["plan"]["unit_cache.keys"] == total and tallies["plan"]["unit_cache.unplaced"] == 0
-    for boundary in ("plan", "units", "manifest+check", "census-facts", "cache"):
+    for boundary in ("plan", "units", "manifest+check", "review-facts", "cache"):
         assert tallies[boundary]["unit_store"] == total
     assert tallies["units"]["runner.subset_pack"] > 0
     assert tallies["manifest+check"]["checker.identity"] == total
@@ -1171,15 +1171,15 @@ def test_a_serial_build_tallies_its_piles_at_every_phase_boundary_and_writes_the
     assert packed["cache"].keys() >= {"unit_store", "checker.identity"}
     assert min(packed["units"][pile] for pile in ("workload.units", "unit_store")) > 0
     assert _store_lines_are_exact(captured.out) == {
-        boundary: True for boundary in ("plan", "units", "manifest+check", "census-facts", "cache")
+        boundary: True for boundary in ("plan", "units", "manifest+check", "review-facts", "cache")
     }
     assert _store_lines_are_exact(captured.out, "workload.rows")["load"]
     assert packed["load"]["workload.rows"] > 0
-    boundaries = ("load", "plan", "units", "manifest+check", "census-facts", "cache")
+    boundaries = ("load", "plan", "units", "manifest+check", "review-facts", "cache")
     assert _store_lines_are_exact(captured.out, "workload.units", holds_table=True) == {
         boundary: True for boundary in boundaries
     }
-    assert _store_lines_are_exact(captured.out, "census.premerge") == {
+    assert _store_lines_are_exact(captured.out, "facts.premerge") == {
         boundary: True for boundary in boundaries
     }
     assert (
@@ -1321,7 +1321,7 @@ def _spy_on_releases(monkeypatch) -> list[int]:
     release = review_build.release_shape_memos
 
     def spy() -> None:
-        seen.append(shape_memo_census().entries)
+        seen.append(shape_memo_sizes().entries)
         release()
 
     monkeypatch.setattr(review_build, "release_shape_memos", spy)
@@ -1342,7 +1342,7 @@ def test_an_in_process_build_releases_the_shape_memo_behind_each_batch(mini_bund
         jobs=1,
     )
     assert seen and max(seen) > 0
-    assert shape_memo_census().entries == 0
+    assert shape_memo_sizes().entries == 0
 
 
 def _drive_worker_in_thread(mini_bundle, out_dir: Path, chunks: list[list]) -> list[tuple]:
@@ -1446,7 +1446,7 @@ def test_a_pool_worker_releases_the_shape_memo_behind_each_batch(mini_bundle, mo
     assert replies[2] == ("ok",)
     assert _live_enriched_units() == 0
     assert len(seen) == len(chunks) and all(entries > 0 for entries in seen)
-    assert shape_memo_census().entries == 0
+    assert shape_memo_sizes().entries == 0
 
 
 def test_a_pool_worker_holds_one_batch_of_projections_and_addresses(
@@ -1542,7 +1542,7 @@ def _export_corpus():
 
 
 def test_the_machine_approved_classes_are_listed_in_the_manifests_class_order(mini_corpus):
-    """`by_class` is keyed in order of first appearance among the machine-approved units in triage order, so its classes follow the manifest's `classes`: ledger classes in ledger order, then the promoted verdict families in `families.FAMILY_ORDER`. They must not follow the workload table's load order, where an UNMATCHED unit sits by its lead-family pair without a family term. `census.invariant_group` publishes this order as `machine_approved_classes` in the census pins, so a build that walked the table in row order would change the pins' invariant block for no reason a reviewer could judge."""
+    """`by_class` is keyed in order of first appearance among the machine-approved units in triage order, so its classes follow the manifest's `classes`: ledger classes in ledger order, then the promoted verdict families in `families.FAMILY_ORDER`. They must not follow the workload table's load order, where an UNMATCHED unit sits by its lead-family pair without a family term. `facts.invariant_group` publishes this order as `machine_approved_classes` in the review-facts pins, so a build that walked the table in row order would change the pins' invariant block for no reason a reviewer could judge."""
     manifest = json.loads((mini_corpus / "manifest.json").read_text(encoding="utf-8"))
     by_class = list(manifest["machine_approved"]["by_class"])
     classes = [meta["id"] for meta in manifest["classes"]]

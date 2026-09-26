@@ -400,7 +400,7 @@ impl SettledPool {
         self.table.is_empty()
     }
 
-    /// How many the table has room for, which is what the cache census reports beside the length.
+    /// How many the table has room for, which is what the cache stats report beside the length.
     pub fn capacity(&self) -> usize {
         self.table.capacity()
     }
@@ -463,7 +463,7 @@ impl NotesPool {
         self.table.is_empty()
     }
 
-    /// How many the table has room for, which is what the cache census reports beside the length.
+    /// How many the table has room for, which is what the cache stats report beside the length.
     pub fn capacity(&self) -> usize {
         self.table.capacity()
     }

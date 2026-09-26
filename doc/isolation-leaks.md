@@ -4,14 +4,14 @@ The isolation-leaks section of `site/check.html` lists shaping leaks. A leak is 
 
 `tools/build_check_html.py` generates all of `site/check.html`. The isolation-leaks list is one of its four generated sections. The others are failing tests, corpus render diffs, and a depth-4 triage list that renders the leaks recorded in `site/bad-leak-backlog.txt`.
 
-## Gates: bad is a hard gate, benign is a census
+## Gates: bad is a hard gate, benign is a reviewed list
 
 Only a new **bad** leak is a defect. The gates run at two depths:
 
 - **Depth 3 (`make test`, fast).** `test/test_isolation_leaks.py::test_no_new_bad_isolation_leaks` asserts that every bad leak found at `--max-len 3` is in the approved backlog. This is the everyday gate.
-- **Depth 4 (`make test-leaks`, ≈1 min).** These tests are marked `slow`, which the default run excludes. `test_bad_leak_backlog_unchanged` is the same backlog gate at depth 4. `test_benign_census_unchanged` compares the benign set with `site/benign-leak-census.txt`.
+- **Depth 4 (`make test-leaks`, ≈1 min).** These tests are marked `slow`, which the default run excludes. `test_bad_leak_backlog_unchanged` is the same backlog gate at depth 4. `test_benign_leak_list_unchanged` compares the benign set with `site/benign-leak-list.txt`.
 
-The bad gate (`site/bad-leak-backlog.txt`) is **asymmetric**. A new bad signature fails, because a change added a dangle. A _resolved_ one only prints a re-bless notice, because the automated fix loop is expected to empty the backlog and should not fail the gate when it succeeds. The benign census is **symmetric**. Any change, gained or lost, fails the test so that it gets reviewed, although it is not a defect on its own. In either case, re-bless both files with `make leak-snapshot` and review the diff. The snapshot comparison takes the place of hand-written tests over letter tuples. `doc/history/2026-06-03--leak-cleanup/leak-investigation-findings.md` explains why no fixed depth can be proved complete (contextual `calt` rules chain across ≈600 lookups) and why a static FEA checker cannot reliably replace the sweep.
+The bad gate (`site/bad-leak-backlog.txt`) is **asymmetric**. A new bad signature fails, because a change added a dangle. A _resolved_ one only prints a re-bless notice, because the automated fix loop is expected to empty the backlog and should not fail the gate when it succeeds. The benign list is **symmetric**. Any change, gained or lost, fails the test so that it gets reviewed, although it is not a defect on its own. In either case, re-bless both files with `make leak-snapshot` and review the diff. The snapshot comparison takes the place of hand-written tests over letter tuples. `doc/history/2026-06-03--leak-cleanup/leak-investigation-findings.md` explains why no fixed depth can be proved complete (contextual `calt` rules chain across ≈600 lookups) and why a static FEA checker cannot reliably replace the sweep.
 
 ## Refresh the list
 

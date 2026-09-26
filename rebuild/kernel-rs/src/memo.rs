@@ -1401,12 +1401,12 @@ mod tests {
                     memo: Arc::new(previous),
                     excluded: edited.clone(),
                 }];
-                let mut census = Vec::new();
+                let mut stats = Vec::new();
                 let enumeration = enumerate_for_tables(
                     &after,
                     &features(&after),
                     EnumerationModes::default(),
-                    Some(&mut census),
+                    Some(&mut stats),
                     Seed {
                         bases: bases.clone(),
                         keep_memo: true,
@@ -1414,10 +1414,10 @@ mod tests {
                     None,
                 )
                 .expect("the edited spec closes over either base");
-                let hits = census
+                let hits = stats
                     .iter()
                     .find(|line| line.contains(" memo_base_hits count="))
-                    .expect("the census reports hits")
+                    .expect("the cache stats report hits")
                     .clone();
                 let own = enumeration.memo.expect("the fresh memo is kept");
                 let output = root.join(format!("{arm}-{token}.tsv"));

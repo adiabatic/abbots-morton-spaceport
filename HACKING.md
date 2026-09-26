@@ -48,12 +48,12 @@ A “shaping leak” is a letter changing shape across a pen-lift (a non-join) b
 The tools sort every visible leak into **bad** (a defect: a dangle) or **benign** (a subtractive trim, a standalone-variant swap, or an intended cosmetic tuck, the slightly hand-drawn variation we want). The sort is mechanical and is validated against your past triage, but it is a proxy: when it is wrong, you correct it with an override (below). The two sets live in two checked-in files:
 
 - `site/bad-leak-backlog.txt` — the defects still outstanding. This is the to-do list.
-- `site/benign-leak-census.txt` — the welcome variation. This is a census, not a defect list.
+- `site/benign-leak-list.txt` — the welcome variation. This is a list of accepted variation, not a defect list.
 
 ### When a gate complains
 
 - **`make test` fails with “NEW bad isolation leak(s)”.** A change you made added a dangle. Either fix it by making the break-facing edge subtractive (or reverting it) for that one context, with the recipes in the tweak-an-old-font-join skill (`.claude/skills/tweak-an-old-font-join/SKILL.md`), or, if you decide the new bad leak is acceptable, re-bless (next bullet) so it joins the backlog. Resolving an _existing_ backlog entry never fails the gate; it prints a “nice — re-bless” notice.
-- **`make test-leaks` (the deep, ≈1-minute gate) fails on the benign census.** The set of benign variation changed. This is informational, not a defect on its own, but read the diff so you _notice_ the set changing, then re-bless.
+- **`make test-leaks` (the deep, ≈1-minute gate) fails on the benign list.** The set of benign variation changed. This is informational, not a defect on its own, but read the diff so you _notice_ the set changing, then re-bless.
 - **Re-bless after any intended change:** `make leak-snapshot` regenerates both files. Always `git diff` them before committing. Reviewing that diff is the purpose of the gate.
 
 ### When the bad/benign call is wrong (overrides)
@@ -63,7 +63,7 @@ The proxy occasionally mislabels a leak. Correct it per signature instead of cha
 - `site/leak-force-bad.yaml` — a leak the proxy calls benign but you find ugly. Add its 4-tuple signature here and it counts as a defect.
 - `site/leak-force-benign.yaml` — a leak the proxy calls bad but you’ve decided is fine (a legitimate standalone variant). Add its signature here and it stops failing the gate.
 
-A signature is the `[isolated_left, left_chosen, isolated_right, right_chosen]` 4-tuple — copy it straight off the `:: *L a->b | *R c->d` line in the backlog or census. After editing either file, run `uv run python tools/leak_verdict_reconcile.py` to confirm the classifier still reconciles cleanly (it scores the proxy against your historical triage and prints precision/recall).
+A signature is the `[isolated_left, left_chosen, isolated_right, right_chosen]` 4-tuple — copy it straight off the `:: *L a->b | *R c->d` line in the backlog or the benign list. After editing either file, run `uv run python tools/leak_verdict_reconcile.py` to confirm the classifier still reconciles cleanly (it scores the proxy against your historical triage and prints precision/recall).
 
 ### Eyeballing leaks
 

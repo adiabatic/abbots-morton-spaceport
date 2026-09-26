@@ -959,7 +959,7 @@ def _leak_snapshot_section(items: list[tuple[Leak, IsolationLeakExample, str]]) 
         "        shape is the one you want. If it is, the leak is benign: add its\n"
         f"        signature to <code>{leak_classify.FORCE_BENIGN_PATH.relative_to(ROOT)}</code>\n"
         "        and re-run <code>make leak-snapshot</code>, which moves it to\n"
-        "        <code>site/benign-leak-census.txt</code>.\n"
+        "        <code>site/benign-leak-list.txt</code>.\n"
         f"       {scope_note}\n"
         f"       {fixed_note}\n"
         "      </p>\n"

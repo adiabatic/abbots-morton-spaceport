@@ -61,7 +61,7 @@ impl Pointer {
     }
 }
 
-/// One collection's length and capacity, as the `--cache-census` diagnostic reports it. Capacity beside length shows whether a table is large or mostly empty slack, which decides whether shrinking it would save memory.
+/// One collection's length and capacity, as the `--cache-stats` diagnostic reports it. Capacity beside length shows whether a table is large or mostly empty slack, which decides whether shrinking it would save memory.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CacheSize {
     pub name: &'static str,
@@ -79,7 +79,7 @@ impl CacheSize {
         }
     }
 
-    /// The line the census writes for it.
+    /// The line the cache stats write for it.
     pub fn line(&self, config: &str) -> String {
         format!(
             "[c] {config} {} len={} cap={}",
@@ -217,7 +217,7 @@ impl CandidateListPool {
         self.table.len()
     }
 
-    /// The table's capacity, which the cache census reports beside the length.
+    /// The table's capacity, which the cache stats report beside the length.
     fn capacity(&self) -> usize {
         self.table.capacity()
     }
@@ -276,7 +276,7 @@ impl EliminationListPool {
         self.table.len()
     }
 
-    /// The table's capacity, which the cache census reports beside the length.
+    /// The table's capacity, which the cache stats report beside the length.
     fn capacity(&self) -> usize {
         self.table.capacity()
     }
@@ -479,7 +479,7 @@ impl DeltaPool {
         self.table.len()
     }
 
-    /// The table's capacity, which the cache census reports beside the length.
+    /// The table's capacity, which the cache stats report beside the length.
     fn capacity(&self) -> usize {
         self.table.capacity()
     }
@@ -728,7 +728,7 @@ pub struct Engine<'i> {
     bases: Vec<MemoBase>,
     /// Per base, which of its delta seats this engine has already added to its fired set, so a second hit on the same base delta skips the set.
     base_fired: Vec<Vec<bool>>,
-    /// How many windows each base seat supplied, for the cache census.
+    /// How many windows each base seat supplied, for the cache stats.
     base_hits: Vec<u64>,
 }
 
@@ -892,8 +892,8 @@ impl<'i> Engine<'i> {
         Some(self.reads.get(entry.reads))
     }
 
-    /// Every memo this engine holds, as `--cache-census` reports them: each one's length and capacity. The rows follow the fields' declaration order, each memo's pools after its entries, so two runs' censuses line up row for row.
-    pub fn cache_census(&self) -> Vec<CacheSize> {
+    /// Every memo this engine holds, as `--cache-stats` reports them: each one's length and capacity. The rows follow the fields' declaration order, each memo's pools after its entries, so two runs' cache stats line up row for row.
+    pub fn cache_stats(&self) -> Vec<CacheSize> {
         let mut out = vec![
             CacheSize::of("fired", self.fired.len(), self.fired.capacity()),
             CacheSize::of("deltas", self.deltas.len(), self.deltas.capacity()),
@@ -5041,7 +5041,7 @@ mod tests {
     }
 
     #[test]
-    fn base_hit_census_tracks_trace_and_settled_reads_by_seat() {
+    fn base_hit_stats_track_trace_and_settled_reads_by_seat() {
         let index = firing_spec();
         let modes = EngineModes {
             trace_memo: true,

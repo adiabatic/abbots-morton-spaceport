@@ -5,9 +5,9 @@
 The tests run at two depths:
 
   * Depth 3, in `make test`: every live bad leak must be in the approved backlog.
-  * Depth 4, in `make test-leaks`: the same backlog check, plus a check that the benign leaks match the approved census.
+  * Depth 4, in `make test-leaks`: the same backlog check, plus a check that the benign leaks match the approved benign list.
 
-The bad check is asymmetric. A new bad signature fails, because a change introduced a dangle. A resolved one only prints a notice to re-bless, so fixing a leak does not fail the test. The benign check is symmetric: any change fails until `make leak-snapshot` re-blesses the census. `make leak-snapshot` regenerates both files.
+The bad check is asymmetric. A new bad signature fails, because a change introduced a dangle. A resolved one only prints a notice to re-bless, so fixing a leak does not fail the test. The benign check is symmetric: any change fails until `make leak-snapshot` re-blesses the benign list. `make leak-snapshot` regenerates both files.
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ sys.path.insert(0, str(ROOT / "tools"))
 
 from leak_snapshot import (  # noqa: E402
     BAD_BACKLOG_PATH,
-    BENIGN_CENSUS_PATH,
+    BENIGN_LIST_PATH,
     Signature,
     current_partition,
     parse_snapshot,
@@ -89,13 +89,11 @@ def test_bad_leak_backlog_unchanged() -> None:
 
 
 @pytest.mark.slow
-def test_benign_census_unchanged() -> None:
-    """The live benign leaks at depth 4 match the approved census. Any gained or lost benign leak fails until `make leak-snapshot` re-blesses the census, so a reviewer sees the change."""
-    if not BENIGN_CENSUS_PATH.exists():
-        pytest.fail(
-            f"Missing {BENIGN_CENSUS_PATH.relative_to(ROOT)} — generate it with `make leak-snapshot`."
-        )
-    approved = parse_snapshot(BENIGN_CENSUS_PATH.read_text())
+def test_benign_leak_list_unchanged() -> None:
+    """The live benign leaks at depth 4 match the approved benign list. Any gained or lost benign leak fails until `make leak-snapshot` re-blesses the benign list, so a reviewer sees the change."""
+    if not BENIGN_LIST_PATH.exists():
+        pytest.fail(f"Missing {BENIGN_LIST_PATH.relative_to(ROOT)} — generate it with `make leak-snapshot`.")
+    approved = parse_snapshot(BENIGN_LIST_PATH.read_text())
     _bad, benign = _partition(4)
 
     introduced = sorted(set(benign) - set(approved))
@@ -111,6 +109,6 @@ def test_benign_census_unchanged() -> None:
         body = "\n".join(f"  - {approved[sig]} :: {_sig_diff(sig)}" for sig in resolved)
         sections.append(f"{len(resolved)} benign leak(s) no longer occur:\n{body}")
     sections.append(
-        "Benign census changed (this is informational, not a defect). Regenerate with `make leak-snapshot` and review the diff."
+        "Benign list changed (this is informational, not a defect). Regenerate with `make leak-snapshot` and review the diff."
     )
     pytest.fail("\n\n".join(sections))

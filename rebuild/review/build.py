@@ -1,4 +1,4 @@
-"""Build the review app's output directory, rebuild/out/review/ (rebuild/REVIEW-PLAN.md §1.3). The build assembles units and precomputes their enrichment and, for every unit that takes a verdict, all three verdict drafts. It writes manifest.json, one unit shard per class (split into byte-capped parts when a class is too large for one file), the census-facts.json sidecar that the artifact cycle copies into the checked-in census pins, copies of both fonts, and the static app files. The `snapshot` subcommand writes an accepted-state baseline. `refresh-assets` copies the static app files over an existing corpus and restamps only that fingerprint component, without rebuilding any unit.
+"""Build the review app's output directory, rebuild/out/review/ (rebuild/REVIEW-PLAN.md §1.3). The build assembles units and precomputes their enrichment and, for every unit that takes a verdict, all three verdict drafts. It writes manifest.json, one unit shard per class (split into byte-capped parts when a class is too large for one file), the review-facts.json sidecar that the artifact cycle copies into the checked-in review-facts pins, copies of both fonts, and the static app files. The `snapshot` subcommand writes an accepted-state baseline. `refresh-assets` copies the static app files over an existing corpus and restamps only that fingerprint component, without rebuilding any unit.
 
 Usage:
     uv run python -m rebuild.review.build
@@ -33,7 +33,7 @@ from typing import BinaryIO, cast
 
 from rebuild.pipeline import fingerprint
 from rebuild.pipeline.baseline_subset import M1_ALPHABET
-from rebuild.review import app_index, census, families, tablediff, unit_cache, unit_index
+from rebuild.review import app_index, facts, families, tablediff, unit_cache, unit_index
 from rebuild.review.audit import (
     ACCEPTANCE_CONFIGS,
     BATCH_SIZE,
@@ -70,7 +70,7 @@ from rebuild.review.ink import (
     JuniorOracle,
     delta_digest,
     release_shape_memos,
-    shape_memo_census,
+    shape_memo_sizes,
     shaper_for,
     signature_digest,
 )
@@ -249,7 +249,7 @@ def _config_badge(
 
 
 def config_badge(unit_configs, full_configs) -> tuple[list[dict] | None, str | None]:
-    """Return the unit's config badge as (gate, note). The gate is the smallest conjunction of feature on/off constraints that selects exactly the configs the divergence applies under, one clause per constraint; the app draws each clause as a chip in that feature's color. The note is the clauses joined, kept as a string for the census histogram and for hover text.
+    """Return the unit's config badge as (gate, note). The gate is the smallest conjunction of feature on/off constraints that selects exactly the configs the divergence applies under, one clause per constraint; the app draws each clause as a chip in that feature's color. The note is the clauses joined, kept as a string for the review-facts histogram and for hover text.
 
     Both are None when the unit covers every non-ss10 config, which is the common case. When no conjunction of at most GATE_CONSTRAINT_CAP constraints selects exactly the set, the gate is None and the note is the literal "only under: <set>".
 
@@ -288,7 +288,7 @@ def _config_class_note(unit) -> str | None:
 def _machine_approved_meta(
     machine_units: Iterable[tuple[str, int, str]], junior_font: Path, repo_root: Path
 ) -> dict:
-    """Return the manifest's `machine_approved` record: unit and row totals across the three machine channels (ink-identical, picture-identical and junior-equivalent), unit counts per class (classes with none are omitted), and one sub-record per channel with its counts and verification method. `machine_units` yields one `(class_id, row_count, channel)` per machine-approved unit, in triage order. `by_class` keeps classes in first-appearance order, so they follow the manifest's class order: ledger classes, then the verdict families in `families.FAMILY_ORDER`. `census.invariant_group` publishes that order as the pins' `machine_approved_classes`, so it must not depend on the table's load order. The junior channel also records the Junior font it used, because the manifest's fonts block does not cover it: the app never renders it."""
+    """Return the manifest's `machine_approved` record: unit and row totals across the three machine channels (ink-identical, picture-identical and junior-equivalent), unit counts per class (classes with none are omitted), and one sub-record per channel with its counts and verification method. `machine_units` yields one `(class_id, row_count, channel)` per machine-approved unit, in triage order. `by_class` keeps classes in first-appearance order, so they follow the manifest's class order: ledger classes, then the verdict families in `families.FAMILY_ORDER`. `facts.invariant_group` publishes that order as the pins' `machine_approved_classes`, so it must not depend on the table's load order. The junior channel also records the Junior font it used, because the manifest's fonts block does not cover it: the app never renders it."""
     by_class: dict[str, int] = {}
     channels = {
         "ink_identical": {"units": 0, "rows": 0, "method": VERIFICATION_METHOD},
@@ -1109,8 +1109,8 @@ def _corpus_worker(conn, init: dict) -> None:
         drafter = Drafter(init["after_font"], repo_root=init["repo_root"], shaper_factory=shaper_for)
         tally = pile_tally.from_environment()
         if tally:
-            tally.hold_reading("worker.subset_pack", enricher.subset_pack_census)
-            tally.hold_reading("ink.shape_memo", shape_memo_census)
+            tally.hold_reading("worker.subset_pack", enricher.subset_pack_sizes)
+            tally.hold_reading("ink.shape_memo", shape_memo_sizes)
         spool: _FragmentSpool | None = None
         batches = 0
         while True:
@@ -1309,7 +1309,7 @@ class _FreshRunner:
     def hold_piles(self, tally: pile_tally.PileTally) -> None:
         """Register with the debug tally the one pile this runner holds in the parent: the serial path's subset-pack mapping, once its enricher exists. Pooled, the workers map the pack and tally it at their own batch boundaries, and the parent's reading stays at zero. The spool addresses are unit-store columns, which the store reports itself."""
         tally.hold_reading(
-            "runner.subset_pack", lambda: self._local[2].subset_pack_census() if self._local else (0, 0)
+            "runner.subset_pack", lambda: self._local[2].subset_pack_sizes() if self._local else (0, 0)
         )
 
     def _drive_phase1(self, store: UnitStore) -> None:
@@ -1532,7 +1532,7 @@ class _SidecarSpool:
 
 @dataclass(frozen=True)
 class _WrittenCorpus:
-    """What `_write_corpus` returns besides the manifest: how many units were written without parsing, and how many sidecar rows were respooled from the previous sidecars. The per-unit values the build reads after the fragments are gone are written into the unit store's columns during the write instead: each unit's `config_note`, which the census facts histogram, and its shard address and policy-draft file, which the unit-cache store records so the next build's plan can serve the fragment without walking the shard and check it without parsing it."""
+    """What `_write_corpus` returns besides the manifest: how many units were written without parsing, and how many sidecar rows were respooled from the previous sidecars. The per-unit values the build reads after the fragments are gone are written into the unit store's columns during the write instead: each unit's `config_note`, which the review facts histogram, and its shard address and policy-draft file, which the unit-cache store records so the next build's plan can serve the fragment without walking the shard and check it without parsing it."""
 
     manifest: dict
     verbatim: int
@@ -1540,7 +1540,7 @@ class _WrittenCorpus:
 
 
 class _StoreNotes(Mapping[int, str | None]):
-    """Each unit's `config_note` by ordinal, as `census.build_facts` reads it, read from the unit store's column instead of a separate dict. The census has each unit's ordinal at every lookup, so the column is indexed directly without any id lookup."""
+    """Each unit's `config_note` by ordinal, as `facts.build_facts` reads it, read from the unit store's column instead of a separate dict. The facts reduction has each unit's ordinal at every lookup, so the column is indexed directly without any id lookup."""
 
     __slots__ = ("_store",)
 
@@ -1602,7 +1602,7 @@ def _write_corpus(
     fragments: Callable[[Iterable[int]], Iterator[_Emission]],
     store: UnitStore,
     served: int,
-    seam_census: dict,
+    secondary_seam_counts: dict,
     echo_count: int,
     total_batches: int,
     batch_size: int,
@@ -1739,7 +1739,7 @@ def _write_corpus(
                 "echo_groups": echo_count,
             },
             "machine_approved": _machine_approved_meta(machine_units, junior_font, repo_root),
-            "secondary_seams": seam_census,
+            "secondary_seams": secondary_seam_counts,
             "classes": [meta_by_id[entry.id] for entry in classes],
             "build_command": BUILD_COMMAND,
             "serve_command": SERVE_COMMAND,
@@ -1767,29 +1767,29 @@ def _write_corpus(
     return _WrittenCorpus(manifest, verbatim, spool.respooled)
 
 
-def row_columns_census(rows: RowColumns | None) -> pile_tally.Measure:
-    """Return the row columns' exact reading for the debug tally (`pile_tally.column_census`): the live rows as the count, and the five arrays plus the tuple pool at its packed size (orphaned runs included) as the bytes. The string table the columns share with the workload table is printed beside them and counted under `workload.units`. After `release_rows` drops the columns the reading is empty, so the line still appears at every boundary after the load. The pool is sealed by the time a tally reads it, so beyond its packed size it holds only its id list, one pointer per tuple, and the tuples, which the workload table's units use as their `baseline` and `new` until `UnitTable.release_names`."""
+def row_column_sizes(rows: RowColumns | None) -> pile_tally.Measure:
+    """Return the row columns' exact reading for the debug tally (`pile_tally.column_sizes`): the live rows as the count, and the five arrays plus the tuple pool at its packed size (orphaned runs included) as the bytes. The string table the columns share with the workload table is printed beside them and counted under `workload.units`. After `release_rows` drops the columns the reading is empty, so the line still appears at every boundary after the load. The pool is sealed by the time a tally reads it, so beyond its packed size it holds only its id list, one pointer per tuple, and the tuples, which the workload table's units use as their `baseline` and `new` until `UnitTable.release_names`."""
     if rows is None:
         return pile_tally.Measure(0, 0, pile_tally.PackedCost(0, 0, 0))
-    return pile_tally.column_census(
+    return pile_tally.column_sizes(
         rows.live, rows.columns(), rows.table, pile_tally.pool_bytes(rows.names), holds_table=False
     )
 
 
-def unit_table_census(table: UnitTable) -> pile_tally.Measure:
+def unit_table_sizes(table: UnitTable) -> pile_tally.Measure:
     """Return the workload table's exact reading for the debug tally, under `workload.units`: the rows as the count, and as the bytes the table's arrays plus every pool a side column indexes at its packed size. The pools are the config and kind tuples, the render groups, the class maps, and the name tuples until `release_names` drops them, so the reading drops between the plan and units boundaries. The walked figure includes the string table and the packed figure prints it beside the rows. It is the build's only string table, which the row columns, the unit store and the pre-merge snapshot also index, so this is the one line that counts it. The line reads `ratio=1.00` on the corpus, since the table is columns; the only memory it adds past the plan is the pools and the string table, which includes the store's digests and cluster ids."""
     pools = sum(pile_tally.pool_bytes(pool) for pool in table.pools())
-    return pile_tally.column_census(table.n, table.columns(), table.strings, pools)
+    return pile_tally.column_sizes(table.n, table.columns(), table.strings, pools)
 
 
-def premerge_census(snapshot: census.PremergeSnapshot) -> pile_tally.Measure:
-    """Return the pre-merge snapshot's exact reading for the debug tally, under `census.premerge`: one row per pre-merge unit, with the snapshot's own columns (its window offsets only; the values are the table's) as the bytes. The string table it indexes is the workload table's, printed beside the rows and counted under `workload.units`."""
-    return pile_tally.column_census(snapshot.n, snapshot.columns(), snapshot.strings, holds_table=False)
+def premerge_sizes(snapshot: facts.PremergeSnapshot) -> pile_tally.Measure:
+    """Return the pre-merge snapshot's exact reading for the debug tally, under `facts.premerge`: one row per pre-merge unit, with the snapshot's own columns (its window offsets only; the values are the table's) as the bytes. The string table it indexes is the workload table's, printed beside the rows and counted under `workload.units`."""
+    return pile_tally.column_sizes(snapshot.n, snapshot.columns(), snapshot.strings, holds_table=False)
 
 
 @lru_cache(maxsize=None)
 def _packed_shape(pile: str) -> pile_tally.Shape:
-    """Return the packed row the debug tally measures one member of the named pile against (`pile_tally.hold(..., packed=)`; the pile_tally module docstring defines the terms). Each shape matches the record the parent holds, field for field: `unit_cache.ServedUnit` under `unit_cache.unplaced`, the input-key-to-id map under `unit_cache.keys`, and the checker's identity triple under `checker.identity`. The rest of the per-unit state is columns, measured exactly elsewhere: the workload table under `workload.units` (`unit_table_census`), the unit store under `unit_store`, the audit's row columns under `workload.rows`, and the pre-merge snapshot under `census.premerge`.
+    """Return the packed row the debug tally measures one member of the named pile against (`pile_tally.hold(..., packed=)`; the pile_tally module docstring defines the terms). Each shape matches the record the parent holds, field for field: `unit_cache.ServedUnit` under `unit_cache.unplaced`, the input-key-to-id map under `unit_cache.keys`, and the checker's identity triple under `checker.identity`. The rest of the per-unit state is columns, measured exactly elsewhere: the workload table under `workload.units` (`unit_table_sizes`), the unit store under `unit_store`, the audit's row columns under `workload.rows`, and the pre-merge snapshot under `facts.premerge`.
 
     The widths are the unit store's own. Each flag is a bit of one flag byte. A window is a count byte and a `u16` per codepoint, measured from the value since a window is two to four cells. A pair's two cell indices take two bytes. A span is two `u16`, and a seam-rect edge three `i32`. Every interned name (the class, the configs, the glyph and cell names, the seam tokens, the diff and delta digests, the cluster, the echo, a shard part's name, a policy file) is a `u32` id into one string table. A sha256 content or input key is its 32 raw bytes, and a content id the 8 raw bytes it is cut from (`unit_cache.unit_id_for`). Every variable-length field (names, deltas, seam rects, homes) is an offset and count into a side column, so an empty one costs the pair. The shape measures `mismatches` the same way, although the store keeps those lines as tuples in a dict keyed by ordinal.
 
@@ -1932,8 +1932,8 @@ def build_m1(
     rows = workload.rows
     assert rows is not None
     if tally:
-        tally.hold_reading("workload.units", lambda: unit_table_census(table))
-        tally.hold_reading("workload.rows", lambda: row_columns_census(workload.rows))
+        tally.hold_reading("workload.units", lambda: unit_table_sizes(table))
+        tally.hold_reading("workload.rows", lambda: row_column_sizes(workload.rows))
     if not table.n:
         raise SystemExit(
             f"{audit_path} records no divergent rows, so there is nothing to build a review corpus over"
@@ -1963,12 +1963,12 @@ def build_m1(
         return signatures[(format_codepoints(tuple(ord(ch) for ch in text)), config)]
 
     exempt_classes = {entry.id for entry in workload.ledger if entry.no_verdict}
-    premerge_capture = census.capture_premerge(table)
+    premerge_capture = facts.capture_premerge(table)
     signature_count = len(signatures)
     if tally:
         signature_reading = pile_tally.estimate(signatures)
         tally.hold_reading("signatures", lambda: signature_reading)
-        tally.hold_reading("census.premerge", lambda: premerge_census(premerge_capture))
+        tally.hold_reading("facts.premerge", lambda: premerge_sizes(premerge_capture))
     merge_ink_duplicate_units(table, rows, ink_sig, exempt_classes)
     del signatures, ink_sig
     # The merge marked the absorbed rows. Compacting drops them and renumbers the survivors, so from here a table row index is the unit's ordinal, which the unit store below uses too. The pre-merge snapshot records the compaction so it can find each pre-fold row's survivor.
@@ -1976,7 +1976,7 @@ def build_m1(
     present = table.classes_present()
     workload.classes_present = [entry for entry in workload.ledger if entry.id in present]
     if tally:
-        tally.hold_reading("ink.shape_memo", shape_memo_census)
+        tally.hold_reading("ink.shape_memo", shape_memo_sizes)
         tally.boundary("load")
         tally.release("signatures")
     _phase_timing(
@@ -2086,7 +2086,7 @@ def build_m1(
             ),
         )
         tally.hold("unit_cache.unplaced", unplaced, packed=_packed_shape("unit_cache.unplaced"))
-        tally.hold_reading("unit_store", store.census)
+        tally.hold_reading("unit_store", store.sizes)
         tally.boundary("plan")
     # The buffered records have been folded into the unit store or rejected, so they are freed here. Only a tallied pass keeps them, through the hold above.
     del unplaced
@@ -2156,7 +2156,7 @@ def build_m1(
 
         by_class = table.rows_by_class(order)
         # The home reduce reads the corpus through the store and writes each unit's homes back into it. The returned dict is filled only on the list path, so it is empty here.
-        _assignments, seam_census = resolve_home_assignments(store)
+        _assignments, secondary_seam_counts = resolve_home_assignments(store)
 
         # The sampled records were materialized before the reduces ran, so the fields the reduces assign (echo, cluster, class, homes) are passed to the recomputation explicitly.
         injections = {
@@ -2254,7 +2254,7 @@ def build_m1(
                 emissions_in,
                 store,
                 served,
-                seam_census,
+                secondary_seam_counts,
                 echo_count,
                 total_batches,
                 batch_size,
@@ -2286,9 +2286,9 @@ def build_m1(
         f"respooled {written.respooled:,} sidecar rows)",
     )
 
-    console.phase("review.build census-facts", file=sys.stderr)
+    console.phase("review.build review-facts", file=sys.stderr)
     phase = time.perf_counter()
-    premerge_facts = census.derive_premerge(premerge_capture, table, store)
+    premerge_facts = facts.derive_premerge(premerge_capture, table, store)
     # An UNMATCHED window is a new join under review, so it is never ink-identical. That holds for the real corpus, not for every input, so it is asserted here and not in `derive_premerge`, which tests call with synthetic inputs that give ink-identical units a family.
     families_on_identical = [
         index for index, _family in premerge_facts.families if premerge_facts.ink_flags[index] == "1"
@@ -2298,9 +2298,9 @@ def build_m1(
             f"{len(families_on_identical)} ink-identical pre-merge units carry a verdict family "
             f"(first at capture index {families_on_identical[0]})"
         )
-    census.write_facts(
+    facts.write_facts(
         out_dir,
-        census.build_facts(
+        facts.build_facts(
             manifest,
             table,
             _StoreNotes(store),
@@ -2310,8 +2310,8 @@ def build_m1(
         ),
     )
     if tally:
-        tally.boundary("census-facts")
-    _phase_timing("review.build census-facts", phase)
+        tally.boundary("review-facts")
+    _phase_timing("review.build review-facts", phase)
 
     # The store is written as a merge over the previous one. A unit whose fragment was copied verbatim to an unchanged address has the same record as in the previous store, so its line is copied from that store through a cursor that reads it in step. Every other unit's record (fresh, re-patched or moved) is built from the unit store's columns and the table's class, echo and ledger flags (`UnitStore.cached_unit`, no record materialized). Both stores list units in triage order, and every term of `audit.triage_key` is content-derived, so the cursor only reads forward.
     console.phase("review.build cache", file=sys.stderr)
@@ -2723,14 +2723,14 @@ def check_manifest(manifest: dict) -> list[str]:
                         isinstance(record.get("method"), str) and record.get("method"),
                         f"machine_approved.channels.{channel}.method must be a nonempty string",
                     )
-    seam_census = manifest.get("secondary_seams")
-    if seam_census is not None:
+    secondary_seam_counts = manifest.get("secondary_seams")
+    if secondary_seam_counts is not None:
         need(
-            isinstance(seam_census, dict)
+            isinstance(secondary_seam_counts, dict)
             and {"units_with_markers", "seams_homed", "seams_homeless", "seams_suppressed_invisible"}
-            == set(seam_census)
-            and all(isinstance(count, int) for count in seam_census.values()),
-            "secondary_seams must carry the four integer census counts",
+            == set(secondary_seam_counts)
+            and all(isinstance(count, int) for count in secondary_seam_counts.values()),
+            "secondary_seams must carry the four integer counts",
         )
     fonts = manifest.get("fonts")
     need(isinstance(fonts, dict) and set(fonts or ()) == {"before", "after"}, "fonts must map before/after")
@@ -3389,9 +3389,9 @@ class _CorpusCheck:
                 errors.append(f"unit {unit_id}: a secondary seam names itself as home")
             elif home not in seen_ids:
                 errors.append(f"unit {unit_id}: secondary seam home {home} is not a unit in this output")
-        seam_census = manifest.get("secondary_seams")
-        # The home relation can be checked only where the resolver assigned homes, which is where it wrote the census. A home's window must be contained in this unit's window, the home must have a primary pair, and it must show a visible change (a seam whose home has none is counted in `seams_suppressed_invisible` instead). A unit with no visible change must not carry a secondary seam.
-        if isinstance(seam_census, dict):
+        secondary_seam_counts = manifest.get("secondary_seams")
+        # The home relation can be checked only where the resolver assigned homes, which is where it wrote the counts. A home's window must be contained in this unit's window, the home must have a primary pair, and it must show a visible change (a seam whose home has none is counted in `seams_suppressed_invisible` instead). A unit with no visible change must not carry a secondary seam.
+        if isinstance(secondary_seam_counts, dict):
             for unit_id, home in self._seam_homes:
                 if home not in identity or unit_id not in identity:
                     continue
@@ -3409,14 +3409,16 @@ class _CorpusCheck:
                     errors.append(f"unit {unit_id}: secondary seam home {home} shows no visible change")
                 if identity[unit_id][2]:
                     errors.append(f"unit {unit_id}: a unit with no visible change carries a secondary seam")
-        if isinstance(seam_census, dict):
+        if isinstance(secondary_seam_counts, dict):
             for key, observed in (
                 ("units_with_markers", self._seam_units),
                 ("seams_homed", self._seams_homed),
                 ("seams_homeless", self._seams_homeless),
             ):
-                if seam_census.get(key) != observed:
-                    errors.append(f"secondary_seams.{key} {seam_census.get(key)} != {observed} in the shards")
+                if secondary_seam_counts.get(key) != observed:
+                    errors.append(
+                        f"secondary_seams.{key} {secondary_seam_counts.get(key)} != {observed} in the shards"
+                    )
         if self._repo_root is not None:
             for name in sorted(self._policy_files):
                 if not (Path(self._repo_root) / name).is_file():

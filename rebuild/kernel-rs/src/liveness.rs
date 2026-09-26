@@ -1,4 +1,4 @@
-//! The liveness branch of the two deep-slot filters: whether a raw third or fourth lookahead token can change the settled outcome of some reachable window at `(input, right1, right2)`. [`crate::census`] holds the chain branch and calls in here only where the chain branch says no. In the pinned world the chain branch is the whole verdict.
+//! The liveness branch of the two deep-slot filters: whether a raw third or fourth lookahead token can change the settled outcome of some reachable window at `(input, right1, right2)`. [`crate::deep_slots`] holds the chain branch and calls in here only where the chain branch says no. In the pinned world the chain branch is the whole verdict.
 //!
 //! The check has two stages because cheaper checks open far too many windows. Tracking which slots the recursion consults opens nearly everything, since it consults slots past the window almost everywhere. Stopping at follower-prospect variance still opens fifteen times as many as needed on the real spec (1,543 consulted triples have a prospect some token changes, and only 103 ever change a seat outcome). That is enough to push the emitted settlement lookup's subtable-offset headroom below the floor that read-back checks (`SUBTABLE_OFFSET_HEADROOM_FLOOR` in `rebuild/pipeline/readback.py`).
 //!
@@ -739,7 +739,7 @@ fn seat_outcome(
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use crate::census::ThirdSlotFilter;
+    use crate::deep_slots::ThirdSlotFilter;
     use crate::engine::EngineModes;
     use crate::fixpoint::{EnumerationModes, enumerate_transitions};
     use crate::index::fixtures;
@@ -878,7 +878,7 @@ pub(crate) mod tests {
         assert!(Rc::ptr_eq(&first, &second));
     }
 
-    /// The same shape as `prospect_spec` in `rebuild/pipeline/fixtures.py`. `qsPea` exits at both heights and prefers the x-height as a yielding tie-break. `qsTea` enters at both, is exitless when entered at the x-height, and gives up its baseline exit where the slots past it are `qsMay·qsIt`. An entered `qsMay` is exitless, so `qsTea` joining `qsMay` prevents that onward join, and `qsTea` declining allows it. No chain here reaches far enough to be censused, so every verdict below comes from the liveness branch alone.
+    /// The same shape as `prospect_spec` in `rebuild/pipeline/fixtures.py`. `qsPea` exits at both heights and prefers the x-height as a yielding tie-break. `qsTea` enters at both, is exitless when entered at the x-height, and gives up its baseline exit where the slots past it are `qsMay·qsIt`. An entered `qsMay` is exitless, so `qsTea` joining `qsMay` prevents that onward join, and `qsTea` declining allows it. No chain here reaches far enough to put its rune in a deep-slot rune set, so every verdict below comes from the liveness branch alone.
     pub(crate) fn prospect_spec() -> SpecIndex {
         let pea = letter(
             "qsPea",
@@ -1219,7 +1219,7 @@ pub(crate) mod tests {
         );
     }
 
-    /// A window no chain censuses, opened by the prospect branch alone: `qsPea`'s two exits tie where the third token makes `qsTea` give up its onward join, and the seat's prefer then decides differently.
+    /// A window outside every chain's deep-slot rune set, opened by the prospect branch alone: `qsPea`'s two exits tie where the third token makes `qsTea` give up its onward join, and the seat's prefer then decides differently.
     #[test]
     fn a_chain_dead_context_opens_on_the_prospect_arm() {
         let index = prospect_spec();

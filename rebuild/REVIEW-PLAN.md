@@ -2,7 +2,7 @@
 
 This is the design record for the treaty-diff review app: why the corpus has its shape, and the contracts it was built against. Its inputs are design §11, §8, §10.5 and §6.3. The app is built under `rebuild/out/review/` and served on port 7294.
 
-`rebuild/review/README.md` describes what the app does today: commands, keyboard map, triage flow, and the machine-approval and deduplication mechanisms. The checkers in `rebuild/review/build.py` are the executable contract. Counts are not kept here. The last accepted review census is `rebuild/review-census-pins.json`, which every artifact-cycle pass refreshes from the build's census sidecar (`uv run python -m rebuild.review.census --update` is the manual form). A build's totals (`totals`, `machine_approved`, and the `secondary_seams` census) are in `rebuild/out/review/manifest.json`, and `make verdict-ready` reports adjudication status. The `rebuild/review/*.py` module docstrings and the README cite this file's section numbers, so sections are never renumbered.
+`rebuild/review/README.md` describes what the app does today: commands, keyboard map, triage flow, and the machine-approval and deduplication mechanisms. The checkers in `rebuild/review/build.py` are the executable contract. Counts are not kept here. The last accepted review facts are `rebuild/review-facts-pins.json`, which every artifact-cycle pass refreshes from the build's review-facts sidecar (`uv run python -m rebuild.review.facts --update` is the manual form). A build's totals (`totals`, `machine_approved`, and the `secondary_seams` counts) are in `rebuild/out/review/manifest.json`, and `make verdict-ready` reports adjudication status. The `rebuild/review/*.py` module docstrings and the README cite this file's section numbers, so sections are never renumbered.
 
 ## 1. Architecture
 
@@ -26,7 +26,7 @@ rebuild/out/review/
   fonts/after.otf       copy of rebuild/out/m1/M1.otf
 ```
 
-The build also writes other files beside the manifest, among them the app sidecars (§7.4), the verdict update's unit index (`units-index.ndjson.gz`), the unit cache's store (`unit-cache.ndjson.gz`), and `census-facts.json`.
+The build also writes other files beside the manifest, among them the app sidecars (§7.4), the verdict update's unit index (`units-index.ndjson.gz`), the unit cache's store (`unit-cache.ndjson.gz`), and `review-facts.json`.
 
 A shard part is capped at `build.SHARD_PART_BYTES`. The app parses each file it fetches as one JavaScript string, and a body longer than V8's `String::kMaxLength` (2**29 − 24 bytes under pointer compression) reaches `JSON.parse` as an empty string instead of an error. A class that fits in one part keeps the bare name. A larger class is written as contiguous three-digit parts numbered from `000`, and the manifest's `shards` list names them in concatenation order.
 
@@ -75,7 +75,7 @@ Per-unit precomputed fields (full contract in §7): notation, before/after facts
 - has the same before and after outcomes at the corresponding positions (glyph identities, covering spans after offset adjustment, and seam tokens), and
 - has that seam as its own primary pair, so the same behavior is its primary judgment.
 
-Ties break to the lowest unit id. When the home is ink- or picture-identical, the marker is suppressed: the divergence is an invisible name-grain rename, and the page promises that unmarked regions have nothing visible to judge. When no home exists, the marker is still emitted with `home: null`, so it is never silently unmarked. The manifest's `secondary_seams` census counts units with visible markers, homed seams, home-less seams, and suppressed seams. The contract checker validates the field shape and that every named home is a unit in the output. The frontend draws each visible seam as a dimmer dashed band in both columns with a chip that links to the home, or reads “only here” for `home: null`, and never on machine-approved renderings. A home-less seam is judged in this unit, so the frontend also underlines its tokens on the notation and codepoints lines with a `.seam-mark` span in the band's dashed amber (§3.1).
+Ties break to the lowest unit id. When the home is ink- or picture-identical, the marker is suppressed: the divergence is an invisible name-grain rename, and the page promises that unmarked regions have nothing visible to judge. When no home exists, the marker is still emitted with `home: null`, so it is never silently unmarked. The manifest's `secondary_seams` record counts units with visible markers, homed seams, home-less seams, and suppressed seams. The contract checker validates the field shape and that every named home is a unit in the output. The frontend draws each visible seam as a dimmer dashed band in both columns with a chip that links to the home, or reads “only here” for `home: null`, and never on machine-approved renderings. A home-less seam is judged in this unit, so the frontend also underlines its tokens on the notation and codepoints lines with a `.seam-mark` span in the band's dashed amber (§3.1).
 
 ### 2.3 The general table-vs-table treaty-diff mode
 

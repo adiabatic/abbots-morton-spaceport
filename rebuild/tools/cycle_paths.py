@@ -36,7 +36,7 @@ CONFORM_SUMMARY = M1_OUT / "conform_summary.json"
 REBUILD_GATE_EXEMPT_PREFIXES = (
     "rebuild/evidence/",
     "rebuild/review/jstests/",
-    "rebuild/review-census-pins.json",
+    "rebuild/review-facts-pins.json",
     "rebuild/m1-contact-allow.yaml",
 )
 
