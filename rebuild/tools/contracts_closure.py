@@ -10,7 +10,7 @@ A test's closure is the union of these:
 
 Selection runs a test whenever skipping it cannot be shown safe. A test with no recorded closure runs, which covers a new or renamed test id. A test that spawned a child runs, because the hook sees nothing a subprocess or multiprocessing worker reads, with two exceptions. A `git` command that reads only the object store or a ref (`hermetic_child`) cannot see the diff. The M1 kernel and the `cargo build` that makes it (`kernel_child`) read only the crate's sources beyond the scratch files the parent wrote, so every tracked file under `KERNEL_PREFIX` is added to that test's closure. A diff that adds or removes any input runs the whole lane, because `Path.exists()` and `os.stat` raise no audit event and a test may depend on a directory listing or an existence check. A diff that touches a global label runs the whole lane. Any other test whose closure contains no changed file is skipped, because every input it reads is byte-identical to the run it passed.
 
-The record is stored in the lane's green record beside the key; `rebuild_gate` and the artifact cycle both write it through `record_payload`. `files` is the per-label digest map the selection diffs against: the lane's roster plus any path a test read outside it. `closures` holds `static` (module file to its import closure), `module_reads` (module file to what its body reads when imported), and `tests` (test id to its reads, its dynamically imported modules, whether it spawned the kernel, and whether it is unclosable). A narrowed run merges its sidecar into the previous record: tests that ran replace their entries, tests the selection skipped keep theirs, and ids the run did not collect are dropped.
+The record is stored in the lane's green record beside the key; `rebuild_gate` and the artifact cycle both write it through `record_payload`. `files` is the per-label digest map the selection diffs against: the lane's roster plus any path a test read outside it. `closures` holds `static` (module file to its import closure), `module_reads` (module file to what its body reads when imported), and `tests` (test id to its reads, its dynamically imported modules, whether it spawned the kernel, and whether its inputs are untraced). A narrowed run merges its sidecar into the previous record: tests that ran replace their entries, tests the selection skipped keep theirs, and ids the run did not collect are dropped.
 
 The recorder's helpers (read normalization, the two spawn checks, and the selection and sidecar files) are defined in `rebuild.tools.closure_record` and re-exported here. The conftests import that leaf module, not this one, because the selection functions here import the cycle driver, and through it rebuild/pipeline/ and rebuild/review/. `closure_of` adds the conftests' static import closures to every test's closure, so a conftest that imported this module would put a pipeline edit in every closure and no test could be skipped. `rebuild/test_contracts_closure.py` checks the conftests' import edges and that neither reaches a pipeline or review module.
 """
@@ -130,16 +130,21 @@ class ImportGraph:
         return frozenset(seen)
 
 
+def untraced_inputs(entry: dict) -> bool:
+    """Whether a recorded test entry started a child the hook cannot follow. A green record may spell the flag `unclosable`, which is read the same way."""
+    return bool(entry.get("untraced_inputs", entry.get("unclosable")))
+
+
 def test_file_of(nodeid: str) -> str:
     return nodeid.split("::", 1)[0]
 
 
 def closure_of(closures: dict, nodeid: str, kernel: frozenset[str] = frozenset()) -> frozenset[str] | None:
-    """Return one test's closure from a record, or None when the test must run: it is unclosable, it has no entry, or a static closure it needs is missing. `kernel` is the crate's files, added for a test that spawned the kernel."""
+    """Return one test's closure from a record, or None when the test must run: its inputs are untraced, it has no entry, or a static closure it needs is missing. `kernel` is the crate's files, added for a test that spawned the kernel."""
     entry = closures.get("tests", {}).get(nodeid)
     static = closures.get("static", {})
     module_reads = closures.get("module_reads", {})
-    if not isinstance(entry, dict) or entry.get("unclosable"):
+    if not isinstance(entry, dict) or untraced_inputs(entry):
         return None
     paths: set[str] = set(entry.get("reads", ()))
     if entry.get("kernel"):
@@ -226,7 +231,7 @@ def merge_closures(root: Path, previous: dict | None, sidecar: dict | None) -> d
                     set(entry.get("modules", ())) | {rel for rel in reads if rel.endswith(".py")}
                 ),
                 "kernel": bool(entry.get("kernel")),
-                "unclosable": bool(entry.get("unclosable")),
+                "untraced_inputs": untraced_inputs(entry),
             }
     graph = ImportGraph(root)
     modules: set[str] = set(CONFTEST_PATHS)

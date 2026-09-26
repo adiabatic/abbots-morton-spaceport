@@ -4,7 +4,7 @@ The suite is one lane, **contracts**: every test reads only checked-in inputs an
 
 A `sys.addaudithook` guard enforces the lane. It is installed once per process and is active only during the setup, call, and teardown of an item this conftest governs. While it is active, any audited file operation on a path under the live trees (`rebuild/out/`, all of `tmp/` and `var/`, the gate's exempt prefixes that are not source, and the root `verdicts-*` stores) raises `ContractsLaneViolation`, naming the test and the path. A phase that catches that exception still fails through `pytest_runtest_makereport`. The guard does not see subprocess children or `Path.exists()` and `os.stat`; `_audit` describes both gaps.
 
-The same hook records each contracts item's input closure. `rebuild.tools.contracts_closure` reads the record and decides when a closure lets a test be skipped. The recorder adds to an item's closure every repo file the item opens, including a font `uharfbuzz` maps (`_wrap_blob_reads` reports that read as an `open` event), and every module the item imports for the first time in this process. A child process makes the item unclosable, with two exceptions: the git commands `closure_record.hermetic_child` accepts, and the kernel or its cargo build (`closure_record.kernel_child`), which flags the item so the crate's sources are added to its closure. A multiprocessing worker raises no audit event, so `BaseProcess.start` is wrapped to report it. A file a module opens while its body is being imported is credited to that module (`_attribute_import_read`), so every test whose closure includes the module gets the read. What a fixture scoped wider than a function reads during its setup is credited to the fixture and added to every item that requests it, because the fixture sets up once, under a single item. `--closure-record PATH` makes the controller write every worker's closures to a sidecar at session end, and `--closure-skip PATH` deselects the contracts items a selection file names. The gate passes both options, and a bare `uv run pytest rebuild/` neither records nor skips.
+The same hook records each contracts item's input closure. `rebuild.tools.contracts_closure` reads the record and decides when a closure lets a test be skipped. The recorder adds to an item's closure every repo file the item opens, including a font `uharfbuzz` maps (`_wrap_blob_reads` reports that read as an `open` event), and every module the item imports for the first time in this process. A child process leaves the item's inputs untraced, with two exceptions: the git commands `closure_record.hermetic_child` accepts, and the kernel or its cargo build (`closure_record.kernel_child`), which flags the item so the crate's sources are added to its closure. A multiprocessing worker raises no audit event, so `BaseProcess.start` is wrapped to report it. A file a module opens while its body is being imported is credited to that module (`_attribute_import_read`), so every test whose closure includes the module gets the read. What a fixture scoped wider than a function reads during its setup is credited to the fixture and added to every item that requests it, because the fixture sets up once, under a single item. `--closure-record PATH` makes the controller write every worker's closures to a sidecar at session end, and `--closure-skip PATH` deselects the contracts items a selection file names. The gate passes both options, and a bare `uv run pytest rebuild/` neither records nor skips.
 
 The autouse fixture `_redirect_cycle_writes` points every cycle write under `tmp_path` for every test under rebuild/, so running the suite never changes a file in the working repo.
 
@@ -62,7 +62,7 @@ _FORBIDDEN_TREES = frozenset(prefix.rstrip(os.sep) for prefix in _FORBIDDEN if p
 _ROOT_PREFIX = str(REPO_ROOT) + os.sep
 # Events whose first argument is a path the process reads, which the closure records. os.scandir and os.listdir are checked for violations but not recorded, because a listing changes only when an input is added or removed, and that diff runs the whole lane.
 _READ_EVENTS = frozenset(("open", "shutil.copyfile", "shutil.copytree", "shutil.move"))
-# Every way this interpreter starts a child that the hook can see. Only a subprocess.Popen argv is passed to `closure_record.hermetic_child` and `kernel_child`, so the os.* events always mark the item unclosable.
+# Every way this interpreter starts a child that the hook can see. Only a subprocess.Popen argv is passed to `closure_record.hermetic_child` and `kernel_child`, so the os.* events always mark the item's inputs untraced.
 _SPAWN_EVENTS = frozenset(
     ("subprocess.Popen", "os.fork", "os.forkpty", "os.posix_spawn", "os.exec", "os.spawn", "os.system")
 )
@@ -127,7 +127,7 @@ class _Sink:
     reads: set[str] = field(default_factory=set)
     module_names: set[str] = field(default_factory=set)
     kernel: bool = False
-    unclosable: bool = False
+    untraced_inputs: bool = False
 
 
 class _Guard:
@@ -159,7 +159,7 @@ class _Guard:
 
     def spawn(self) -> None:
         for sink in self.sinks():
-            sink.unclosable = True
+            sink.untraced_inputs = True
 
     def kernel(self) -> None:
         for sink in self.sinks():
@@ -183,7 +183,7 @@ _worker_closures: list[dict] = []
 def _audit(event: str, args: tuple[object, ...]) -> None:
     """Check and record one audit event. It runs on every audited event in the process, so the inactive path stays cheap.
 
-    The guard has two gaps. A subprocess child runs without this hook, so nothing a test spawns is checked, which is why a spawn makes the item unclosable. `Path.exists()` and `os.stat` raise no audit event, so a contracts test may still ask whether a live artifact exists. The guard catches content reads, which are what would make a test depend on today's artifacts.
+    The guard has two gaps. A subprocess child runs without this hook, so nothing a test spawns is checked, which is why a spawn leaves the item's inputs untraced. `Path.exists()` and `os.stat` raise no audit event, so a contracts test may still ask whether a live artifact exists. The guard catches content reads, which are what would make a test depend on today's artifacts.
     """
     if event == "import":
         if args and isinstance(args[0], str):
@@ -268,12 +268,12 @@ def _finish_item(item: pytest.Item) -> None:
         "reads": sorted(reads),
         "modules": sorted(modules),
         "kernel": any(sink.kernel for sink in sinks),
-        "unclosable": any(sink.unclosable for sink in sinks),
+        "untraced_inputs": any(sink.untraced_inputs for sink in sinks),
     }
 
 
 def _wrap_process_start() -> None:
-    """Mark the item unclosable when it starts a multiprocessing worker. Under the spawn start method a worker starts through `_posixsubprocess.fork_exec` and raises no audit event, so the hook alone would treat a pooled build as closable. Every start method, `Pool`, and `ProcessPoolExecutor` go through `BaseProcess.start`."""
+    """Mark the item's inputs untraced when it starts a multiprocessing worker. Under the spawn start method a worker starts through `_posixsubprocess.fork_exec` and raises no audit event, so the hook alone would treat a pooled build's inputs as traced. Every start method, `Pool`, and `ProcessPoolExecutor` go through `BaseProcess.start`."""
     original = multiprocessing.process.BaseProcess.start
 
     def start(self, *args, **kwargs):
@@ -526,7 +526,7 @@ class MiniBundle:
 def mini_bundle(tmp_path_factory) -> MiniBundle:
     """Materialize the spec the mini bundle's rows settled under, once per session per worker, into pytest's temp root, and pack the bundle's subset tables beside it. The spec comes out of git from the tree and blob shas `rebuild/review/fixtures/mini/pin.json` records. Pass `spec_root` to `build_m1` or `load_spec`, `ledger` to `load_workload` or `load_ledger`, and `subset_pack` to `build_m1` and `Enricher`, and the settlement the enricher re-derives is the one the frozen rows were written under, whatever the working tree's runes say.
 
-    The git subprocesses are `git cat-file` and `git archive` by sha, which `closure_record.hermetic_child` accepts: the bytes they read are content-addressed and the pin file that names them is read in this process, so every test built on this fixture stays closable.
+    The git subprocesses are `git cat-file` and `git archive` by sha, which `closure_record.hermetic_child` accepts: the bytes they read are content-addressed and the pin file that names them is read in this process, so every test built on this fixture keeps traced inputs.
     """
     pin = announced_import("rebuild.review.fixtures.mini.pin")
     subset_pack = announced_import("rebuild.review.subset_pack")

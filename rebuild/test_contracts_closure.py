@@ -51,7 +51,7 @@ class TestHermeticChildren:
             None,
         ],
     )
-    def test_everything_else_is_unclosable(self, argv):
+    def test_everything_else_leaves_inputs_untraced(self, argv):
         assert not cc.hermetic_child(argv)
         assert not cc.kernel_child(argv)
 
@@ -174,10 +174,10 @@ BASE_FILES = {
     "rebuild/kernel-rs/src/engine.rs": "e",
 }
 TESTS = {
-    "rebuild/test_t.py::reads_a": {"reads": ["a.yaml"], "modules": [], "unclosable": False},
-    "rebuild/test_t.py::reads_b": {"reads": ["b.yaml"], "modules": [], "unclosable": False},
-    "rebuild/test_t.py::spawns": {"reads": [], "modules": [], "unclosable": True},
-    "rebuild/test_u.py::imports_m": {"reads": [], "modules": ["m.py"], "unclosable": False},
+    "rebuild/test_t.py::reads_a": {"reads": ["a.yaml"], "modules": [], "untraced_inputs": False},
+    "rebuild/test_t.py::reads_b": {"reads": ["b.yaml"], "modules": [], "untraced_inputs": False},
+    "rebuild/test_t.py::spawns": {"reads": [], "modules": [], "untraced_inputs": True},
+    "rebuild/test_u.py::imports_m": {"reads": [], "modules": ["m.py"], "untraced_inputs": False},
 }
 STATIC = {"m.py": ["m.py", "n.py"]}
 
@@ -191,12 +191,17 @@ class TestSelection:
         assert selection.known == 4
         assert not selection.reason
 
-    def test_an_unclosable_test_always_runs(self):
+    def test_a_test_with_untraced_inputs_always_runs(self):
         record = _record(BASE_FILES, TESTS, dict(STATIC))
         assert "rebuild/test_t.py::spawns" not in cc.select(record, {**BASE_FILES, "a.yaml": "9"}).skip
 
+    def test_a_record_that_spells_the_flag_unclosable_still_runs_the_test(self):
+        spawns = {"reads": [], "modules": [], "unclosable": True}
+        record = _record(BASE_FILES, {**TESTS, "rebuild/test_t.py::spawns": spawns}, dict(STATIC))
+        assert "rebuild/test_t.py::spawns" not in cc.select(record, {**BASE_FILES, "a.yaml": "9"}).skip
+
     def test_a_test_that_spawned_the_kernel_runs_on_a_crate_edit_and_on_nothing_else_new(self):
-        settles = {"reads": ["a.yaml"], "modules": [], "kernel": True, "unclosable": False}
+        settles = {"reads": ["a.yaml"], "modules": [], "kernel": True, "untraced_inputs": False}
         record = _record(BASE_FILES, {**TESTS, "rebuild/test_t.py::settles": settles}, dict(STATIC))
         crate_edit = cc.select(record, {**BASE_FILES, "rebuild/kernel-rs/src/engine.rs": "9"})
         assert "rebuild/test_t.py::settles" not in crate_edit.skip
@@ -249,10 +254,10 @@ class TestSelection:
         assert cc.select({"fingerprint": "fp", "files": BASE_FILES}, BASE_FILES).skip == frozenset()
         assert cc.select(None, BASE_FILES).skip == frozenset()
 
-    def test_nothing_moved_keeps_every_closable_test_off(self):
+    def test_nothing_moved_keeps_every_test_with_traced_inputs_off(self):
         record = _record(BASE_FILES, TESTS, dict(STATIC))
         selection = cc.select(record, dict(BASE_FILES))
-        assert selection.skip == {nodeid for nodeid, entry in TESTS.items() if not entry["unclosable"]}
+        assert selection.skip == {nodeid for nodeid, entry in TESTS.items() if not entry["untraced_inputs"]}
 
     def test_describe_says_what_runs(self):
         record = _record(BASE_FILES, TESTS, dict(STATIC))
@@ -284,9 +289,9 @@ class TestMerge:
             "static": {},
             "module_reads": {"pkg/b.py": ["old.yaml"]},
             "tests": {
-                "rebuild/test_t.py::kept_off": {"reads": ["k.yaml"], "modules": [], "unclosable": False},
-                "rebuild/test_t.py::ran": {"reads": ["stale.yaml"], "modules": [], "unclosable": False},
-                "rebuild/test_t.py::gone": {"reads": [], "modules": [], "unclosable": False},
+                "rebuild/test_t.py::kept_off": {"reads": ["k.yaml"], "modules": [], "untraced_inputs": False},
+                "rebuild/test_t.py::ran": {"reads": ["stale.yaml"], "modules": [], "untraced_inputs": False},
+                "rebuild/test_t.py::gone": {"reads": [], "modules": [], "untraced_inputs": False},
             },
         }
         sidecar = {
@@ -297,9 +302,9 @@ class TestMerge:
                     "reads": ["fresh.yaml", "pkg/c.py"],
                     "modules": ["pkg/lazy.py"],
                     "kernel": True,
-                    "unclosable": False,
+                    "untraced_inputs": False,
                 },
-                "rebuild/test_t.py::new": {"reads": [], "modules": [], "unclosable": True},
+                "rebuild/test_t.py::new": {"reads": [], "modules": [], "untraced_inputs": True},
             },
             "module_reads": {"pkg/b.py": ["new.yaml"], "elsewhere.py": ["x"]},
         }
@@ -312,7 +317,7 @@ class TestMerge:
         }
         assert merged["tests"]["rebuild/test_t.py::kept_off"]["reads"] == ["k.yaml"]
         assert merged["tests"]["rebuild/test_t.py::ran"]["reads"] == ["fresh.yaml", "pkg/c.py"]
-        assert merged["tests"]["rebuild/test_t.py::new"]["unclosable"] is True
+        assert merged["tests"]["rebuild/test_t.py::new"]["untraced_inputs"] is True
         assert merged["tests"]["rebuild/test_t.py::ran"]["kernel"] is True
         assert merged["tests"]["rebuild/test_t.py::kept_off"]["kernel"] is False
         assert set(merged["static"]) == {"rebuild/test_t.py", "pkg/lazy.py", "pkg/c.py", *cc.CONFTEST_PATHS}
@@ -332,7 +337,7 @@ class TestRecordPayload:
         cc.write_sidecar(
             sidecar,
             ["rebuild/test_t.py::t"],
-            {"rebuild/test_t.py::t": {"reads": ["extra.txt"], "modules": [], "unclosable": False}},
+            {"rebuild/test_t.py::t": {"reads": ["extra.txt"], "modules": [], "untraced_inputs": False}},
         )
         roster = {"rebuild/test_t.py": "t"}
         payload = cc.record_payload(synthetic_tree, dict(roster), roster, None, sidecar)
@@ -385,7 +390,7 @@ class TestTheGateNarrows:
                     Path(argv[argv.index("--closure-record") + 1]),
                     list(TESTS),
                     {
-                        nodeid: {"reads": ["a.yaml", "c.yaml"], "modules": [], "unclosable": False}
+                        nodeid: {"reads": ["a.yaml", "c.yaml"], "modules": [], "untraced_inputs": False}
                         for nodeid in TESTS
                         if nodeid not in skip
                     },
@@ -584,18 +589,18 @@ class TestTheRecorderEndToEnd:
         tests = payload["tests"]
         assert sorted(payload["collected"]) == sorted(tests)
         assert "glyph_data/runes/qsPea.yaml" in tests["test_child.py::test_plain_read"]["reads"]
-        assert not tests["test_child.py::test_plain_read"]["unclosable"]
+        assert not tests["test_child.py::test_plain_read"]["untraced_inputs"]
         assert "rebuild/review/fixtures/mini/M1.otf" in tests["test_child.py::test_font_blob"]["reads"]
-        assert not tests["test_child.py::test_font_blob"]["unclosable"]
+        assert not tests["test_child.py::test_font_blob"]["untraced_inputs"]
         for nodeid in ("test_child.py::test_first_fixture_user", "test_child.py::test_second_fixture_user"):
             assert MANIFEST in tests[nodeid]["reads"], nodeid
-            assert not tests[nodeid]["unclosable"]
-        assert not tests["test_child.py::test_hermetic_git_child"]["unclosable"]
+            assert not tests[nodeid]["untraced_inputs"]
+        assert not tests["test_child.py::test_hermetic_git_child"]["untraced_inputs"]
         assert not tests["test_child.py::test_hermetic_git_child"]["kernel"]
         assert tests["test_child.py::test_kernel_child"]["kernel"]
-        assert not tests["test_child.py::test_kernel_child"]["unclosable"]
-        assert tests["test_child.py::test_ordinary_child"]["unclosable"]
-        assert tests["test_child.py::test_multiprocessing_child"]["unclosable"]
+        assert not tests["test_child.py::test_kernel_child"]["untraced_inputs"]
+        assert tests["test_child.py::test_ordinary_child"]["untraced_inputs"]
+        assert tests["test_child.py::test_multiprocessing_child"]["untraced_inputs"]
         assert "rebuild/tools/pile_tally.py" in tests["test_child.py::test_dynamic_import"]["reads"]
 
     def test_a_selection_file_keeps_its_tests_off_and_they_stay_collected(

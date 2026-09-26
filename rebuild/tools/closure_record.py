@@ -10,7 +10,7 @@ import os
 from collections.abc import Iterable, Mapping
 from pathlib import Path
 
-SIDECAR_FORMAT = "ams-contracts-closures/1"
+SIDECAR_FORMAT = "ams-contracts-closures/2"
 SELECTION_FORMAT = "ams-contracts-selection/1"
 IGNORED_PREFIXES = (
     ".git/",
@@ -27,7 +27,7 @@ KERNEL_MANIFEST = KERNEL_PREFIX + "Cargo.toml"
 
 
 def hermetic_child(argv: object) -> bool:
-    """Whether a spawned command reads nothing from the working tree. The `git` subcommands in `HERMETIC_GIT_SUBCOMMANDS` read only the object store and refs (`cat-file` and `archive` by sha, `rev-parse` by ref or `HEAD:<path>`), so no file edit can change their output and a test that spawns one stays closable. Any other child makes the test unclosable: `git status`, `git ls-files`, and `git diff` read the index and the working tree, and a non-git child can read anything."""
+    """Whether a spawned command reads nothing from the working tree. The `git` subcommands in `HERMETIC_GIT_SUBCOMMANDS` read only the object store and refs (`cat-file` and `archive` by sha, `rev-parse` by ref or `HEAD:<path>`), so no file edit can change their output and a test that spawns one keeps traced inputs. Any other child leaves the test's inputs untraced: `git status`, `git ls-files`, and `git diff` read the index and the working tree, and a non-git child can read anything."""
     if not isinstance(argv, (list, tuple)) or len(argv) < 2:
         return False
     try:
@@ -48,7 +48,7 @@ def _argv_strings(argv: object) -> list[str] | None:
 
 
 def kernel_child(argv: object) -> bool:
-    """Whether a spawned command is the M1 kernel, or the `cargo build` of its crate that `kernel_exec.ensure_built` runs before a process first calls it. The kernel reads the files its argv names, which its parent wrote to a scratch directory from data the parent had already read, and its own binary, which is built from the crate's tracked sources. Cargo reads those sources and the registry crates the lockfile pins by hash. A test that spawns either is closable once the crate's files are added to its closure, which `closure_of` does for every entry flagged `kernel`."""
+    """Whether a spawned command is the M1 kernel, or the `cargo build` of its crate that `kernel_exec.ensure_built` runs before a process first calls it. The kernel reads the files its argv names, which its parent wrote to a scratch directory from data the parent had already read, and its own binary, which is built from the crate's tracked sources. Cargo reads those sources and the registry crates the lockfile pins by hash. A test that spawns either has traced inputs once the crate's files are added to its closure, which `closure_of` does for every entry flagged `kernel`."""
     strings = _argv_strings(argv)
     if strings is None:
         return False
