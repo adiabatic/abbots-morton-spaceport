@@ -564,7 +564,7 @@ def _check_plain_formation(plan: GsubPlan, lookup: Any, divergences: list[str]) 
 def _check_chokepoint(
     plan: GsubPlan, lookup: Any, lookups: list[Any], all_glyphs: frozenset[str], divergences: list[str]
 ) -> int:
-    """Check the ZWNJ chokepoint: one row that matches every entry-live raw glyph after a ZWNJ and substitutes its locked twin, so no letter after a word boundary can join leftward."""
+    """Check the ZWNJ chokepoint: one row that matches every entry-capable raw glyph after a ZWNJ and substitutes its locked twin, so no letter after a word boundary can join leftward."""
     stage = "zwnj chokepoint"
     rows, problems = _chain_rows(lookup, all_glyphs)
     for problem in problems:
@@ -580,7 +580,7 @@ def _check_chokepoint(
         divergences.append(f"{stage}: lookahead is {_slots_text(row.lookahead)}, expected none")
     if len(row.input) != 1 or row.input[0] != expected_input:
         divergences.append(
-            f"{stage}: the input class holds {sorted(row.input[0]) if len(row.input) == 1 else _slots_text(row.input)}, expected the {len(expected_input)} entry-live glyphs"
+            f"{stage}: the input class holds {sorted(row.input[0]) if len(row.input) == 1 else _slots_text(row.input)}, expected the {len(expected_input)} entry-capable glyphs"
         )
         return 0
     if len(row.records) != 1 or row.records[0][0] != 0:

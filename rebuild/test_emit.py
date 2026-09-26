@@ -131,8 +131,8 @@ class TestEmitGsub:
     def test_chokepoint_classes(self, spec, glyphs):
         plan = emit_gsub.emit_gsub(spec, {frozenset(): FakeDecision(_rules(spec, glyphs))}, glyphs=glyphs)
         fea = plan.fea_text
-        assert "sub uni200C @m1_entry_live' by @m1_entry_locked;" in fea
-        assert "qsTea_qsOy" not in fea.split("@m1_entry_live = [")[1].split("]")[0]
+        assert "sub uni200C @m1_entry_capable' by @m1_entry_locked;" in fea
+        assert "qsTea_qsOy" not in fea.split("@m1_entry_capable = [")[1].split("]")[0]
 
     def test_subtable_breaks_between_families(self, spec, glyphs):
         plan = emit_gsub.emit_gsub(spec, {frozenset(): FakeDecision(_rules(spec, glyphs))}, glyphs=glyphs)
@@ -328,7 +328,7 @@ class TestEmitGsub:
         assert "qsTea_qsOy.ss10" not in fea  # ligature runes never appear in a cmap buffer, so no twin
         formation = fea.split("lookup m1_formation {")[1].split("} m1_formation;")[0]
         assert ".ss10" not in formation
-        assert ".ss10" not in fea.split("@m1_entry_live = [")[1].split("]")[0]
+        assert ".ss10" not in fea.split("@m1_entry_capable = [")[1].split("]")[0]
         assert ".ss10" not in _settle_block(fea)
         assert ".ss10" not in fea.split("} m1_zwnj;")[1].split("lookup m1_settle useExtension {")[0]
         followers = fea.split("@m1_namer_short_followers = [")[1].split("]")[0].split()
@@ -497,22 +497,22 @@ class TestLateFormationGuardLines:
         # A one-member guard set is inlined by _ClassRegistry.ref, so the mini world defines no class for it.
         assert not [line for line in registry.definitions if "m1_form_guard" in line]
         assert guarded.index("    sub qsDay' qsUtter' uni200C by qsDay_qsUtter;") < guarded.index(one_slot)
-        see_released = [
+        see_partly_blocked = [
             "    ignore sub qsDay' qsUtter' qsSee uni200C;",
             "    sub qsDay' qsUtter' qsSee qsLow by qsDay_qsUtter;",
         ]
-        for line in see_released:
+        for line in see_partly_blocked:
             assert line in guarded
-        assert guarded.index(see_released[0]) < guarded.index(see_released[1])
-        assert guarded.index(see_released[1]) < guarded.index(one_slot)
+        assert guarded.index(see_partly_blocked[0]) < guarded.index(see_partly_blocked[1])
+        assert guarded.index(see_partly_blocked[1]) < guarded.index(one_slot)
         blanket = "    ignore sub qsDay' qsUtter' qsSee;"
         assert blanket in guarded
-        assert guarded.index(blanket) > guarded.index(see_released[1])
+        assert guarded.index(blanket) > guarded.index(see_partly_blocked[1])
         assert guarded.index(blanket) < guarded.index("    sub qsDay' qsUtter' by qsDay_qsUtter;")
         assert "ignore sub qsDay' qsUtter' qsSee;" in ignores
         assert "ignore sub qsDay' qsUtter' qsSee uni200C;" in ignores
 
-    def test_partially_blocked_follower_gets_a_two_slot_ignore(self, spec, guard_verdicts):
+    def test_letter_blocked_follower_gets_a_two_slot_ignore(self, spec, guard_verdicts):
         """A following ·Tea blocks the ligature only when a second ·Tea follows it, so it compiles to the two-slot ignore `qsTea qsTea` instead of joining the one-slot guard class. The shipped alphabet does not reach this branch."""
         registry = emit_gsub._ClassRegistry()
         guarded, _plain, ignores, _rows, _pairs = emit_gsub._formation_lines(spec, registry, guard_verdicts)

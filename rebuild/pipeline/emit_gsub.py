@@ -5,7 +5,7 @@ Lookups are defined in the order they must apply, because definition order fixes
 1. The ss10 isolated-input pre-empt: single substitutions from each letter's raw cmap glyph to its anchor-free `.ss10` twin. It comes first so that under ss10 it runs before formation. The twins appear in no formation sequence, marker line, chokepoint class, or settlement input, so under ss10 no ligature forms, nothing settles, and each letter keeps its own cluster.
 2. Formation: a type-4 lookup over the registry's ligature sequences. A ligature that the design section 5.7 late-formation guard ever blocks moves into its own chaining-context lookup, `m1_formation_guarded`, which runs first. Its generated `ignore sub` rows implement the guard over the two raw lookahead slots. ZWNJ-explicit forming rows come before them, because HarfBuzz skips a ZWNJ in contextual matching and a guard class could otherwise match across one. The verdicts come from one `guard-sweep` call to the kernel crate, which does not depend on the configuration, so formation can run before the marker substitutions.
 3. The stylistic-set marker substitutions: unconditional, one lookup per set, after formation so that turning on a set cannot undo a ligature. Composite markers represent several sets on at once.
-4. The ZWNJ chokepoint: `sub uni200C @m1_entry_live' by @m1_entry_locked`.
+4. The ZWNJ chokepoint: `sub uni200C @m1_entry_capable' by @m1_entry_locked`.
 5. One single-substitution lookup per distinct (input glyph, outcome) pair in the settlement rows, registered in no feature and referenced by name from those rows. feaLib resolves `lookup NAME` through a dict, while an inline `by` makes it rescan every rule since the last `subtable;` for a compatible inner lookup, which is quadratic in the rows per family.
 6. One settlement lookup, `m1_settle`, of chained-context rows of the form `sub <backtrack> X' lookup NAME <lookahead>;`, with a `subtable;` break between input families and positive rules only. It is marked `useExtension` so that its per-rule format-3 subtables sit behind 32-bit Extension offsets. Without it, the depth-4 rules push the uint16 subtable-offset headroom below `readback.SUBTABLE_OFFSET_HEADROOM_FLOOR`.
 7. The namer-dot calt, after settlement. It is emitted here because `tools/build_font.py`'s own namer-dot calt emits nothing for the mini font: `compile_font` passes no context sets, so there is no `shorts` set. Its follower class includes the ss10 twins of the Short letters, so the dot still lowers under ss10.
@@ -250,8 +250,8 @@ def _formation_lines(
     `guard_verdicts` is the crate's full `guard-sweep` result over the two raw slots after the sequence. For each follower of a ligature:
 
     - Blocked before every letter and every boundary: a one-slot `ignore sub` over a class of such followers.
-    - Blocked only before some letters, and before no boundary: a two-slot `ignore sub` over a class of those letters. A boundary or text edge in the second slot falls through to the forming fallback, which matches its False verdict.
-    - Blocked before every boundary but not before some letters: two-slot forming rows for the released letters, after a ZWNJ-explicit two-slot `ignore sub` and before a one-slot `ignore sub` that matches anything, text edge included.
+    - Blocked only before some letters, and before no boundary (a letter-blocked follower): a two-slot `ignore sub` over a class of those letters. A boundary or text edge in the second slot falls through to the forming fallback, which matches its False verdict.
+    - Blocked before every boundary but not before some letters (a partly blocked follower): two-slot forming rows for the released letters, after a ZWNJ-explicit two-slot `ignore sub` and before a one-slot `ignore sub` that matches anything, text edge included.
     - Blocked before some boundaries but not others: EmitError, because the lookup cannot express it.
 
     ZWNJ-explicit forming rows come before the `ignore sub` rows because HarfBuzz skips default-ignorables in contextual matching. Without them a guard class could match across a ZWNJ that the model treats as a boundary.
@@ -269,8 +269,8 @@ def _formation_lines(
         if not rune.sequence:
             continue
         full_followers: list[str] = []
-        partial_followers: list[tuple[str, tuple[str, ...]]] = []
-        released_followers: list[tuple[str, tuple[str, ...]]] = []
+        letter_blocked_followers: list[tuple[str, tuple[str, ...]]] = []
+        partly_blocked_followers: list[tuple[str, tuple[str, ...]]] = []
         for follower in letters:
             follower_token = RightToken("letter", follower)
             blocked_letters = tuple(
@@ -289,14 +289,14 @@ def _formation_lines(
                 full_followers.append(follower)
             elif all(blocked_boundaries):
                 released = tuple(sorted(set(letters) - set(blocked_letters)))
-                released_followers.append((follower, released))
+                partly_blocked_followers.append((follower, released))
             elif any(blocked_boundaries):
                 raise EmitError(
                     f"late-formation guard for {name} before {follower} blocks at some but not all boundary second slots — inexpressible in the pre-marker formation lookup"
                 )
             else:
-                partial_followers.append((follower, blocked_letters))
-        if not full_followers and not partial_followers and not released_followers:
+                letter_blocked_followers.append((follower, blocked_letters))
+        if not full_followers and not letter_blocked_followers and not partly_blocked_followers:
             plain_lines.append(f"    sub {' '.join(rune.sequence)} by {name};")
             plain_pairs.append((tuple(rune.sequence), name))
             continue
@@ -304,15 +304,15 @@ def _formation_lines(
         marked_input = " ".join(f"{part}'" for part in rune.sequence)
         guarded_lines.append(f"    sub {marked_input} uni200C by {name};")
         guarded_rows.append(FormationRow(sequence, (frozenset({"uni200C"}),), name))
-        for follower, _blocked in partial_followers:
+        for follower, _blocked in letter_blocked_followers:
             guarded_lines.append(f"    sub {marked_input} {follower} uni200C by {name};")
             guarded_rows.append(FormationRow(sequence, (frozenset({follower}), frozenset({"uni200C"})), name))
-        for follower, _released in released_followers:
+        for follower, _released in partly_blocked_followers:
             line = f"ignore sub {marked_input} {follower} uni200C;"
             guarded_lines.append(f"    {line}")
             guarded_rows.append(FormationRow(sequence, (frozenset({follower}), frozenset({"uni200C"})), None))
             ignores.append(line)
-        for follower, released in released_followers:
+        for follower, released in partly_blocked_followers:
             for second in released:
                 guarded_lines.append(f"    sub {marked_input} {follower} {second} by {name};")
                 guarded_rows.append(
@@ -324,13 +324,13 @@ def _formation_lines(
             guarded_lines.append(f"    {line}")
             guarded_rows.append(FormationRow(sequence, (frozenset(full_followers),), None))
             ignores.append(line)
-        for follower, blocked in partial_followers:
+        for follower, blocked in letter_blocked_followers:
             ref = registry.ref(blocked, f"m1_form_guard_{_fea_safe(name)}_{_fea_safe(follower)}")
             line = f"ignore sub {marked_input} {follower} {ref};"
             guarded_lines.append(f"    {line}")
             guarded_rows.append(FormationRow(sequence, (frozenset({follower}), frozenset(blocked)), None))
             ignores.append(line)
-        for follower, _released in released_followers:
+        for follower, _released in partly_blocked_followers:
             line = f"ignore sub {marked_input} {follower};"
             guarded_lines.append(f"    {line}")
             guarded_rows.append(FormationRow(sequence, (frozenset({follower}),), None))
@@ -340,7 +340,7 @@ def _formation_lines(
     return guarded_lines, plain_lines, ignores, guarded_rows, plain_pairs
 
 
-def _entry_live_members(spec: ResolvedSpec) -> list[str]:
+def _entry_capable_members(spec: ResolvedSpec) -> list[str]:
     members: list[str] = []
     for rune_name, rune in spec.runes.items():
         if not any(stance.surface.entries for stance in rune.stances.values()):
@@ -706,20 +706,18 @@ def emit_gsub(
     settle_lines = _settle_lines(grouped_rules, registry, outcome_lookups)
     rule_count = len(grouped_rules)
 
-    live_members = _entry_live_members(spec)
-    locked_members = [locked_glyph_name(name) for name in live_members]
+    capable_members = _entry_capable_members(spec)
+    locked_members = [locked_glyph_name(name) for name in capable_members]
 
     names_by_cell: dict[CellId, str] = {}
     if glyphs:
         names_by_cell = {cell: record.name for cell, record in glyphs.items()}
 
     parts: list[str] = []
-    parts.append(
-        "# Generated by rebuild/pipeline/emit_gsub.py — the section 7 transducer encoding. Do not hand-edit."
-    )
+    parts.append("# Generated by rebuild/pipeline/emit_gsub.py — the §7 GSUB encoding. Do not hand-edit.")
     parts.append("")
     parts.extend(registry.definitions)
-    parts.append(f"@m1_entry_live = [{' '.join(live_members)}];")
+    parts.append(f"@m1_entry_capable = [{' '.join(capable_members)}];")
     parts.append(f"@m1_entry_locked = [{' '.join(locked_members)}];")
     parts.append("")
 
@@ -748,7 +746,7 @@ def emit_gsub(
             f"\nlookup {lookup_name} {{\n" + "\n".join(per_feature_markers[feature]) + f"\n}} {lookup_name};"
         )
 
-    parts.append("\nlookup m1_zwnj {\n    sub uni200C @m1_entry_live' by @m1_entry_locked;\n} m1_zwnj;")
+    parts.append("\nlookup m1_zwnj {\n    sub uni200C @m1_entry_capable' by @m1_entry_locked;\n} m1_zwnj;")
     if outcome_blocks:
         parts.append("\n" + "\n".join(outcome_blocks))
     parts.append("\nlookup m1_settle useExtension {\n" + "\n".join(settle_lines) + "\n} m1_settle;")
@@ -798,7 +796,7 @@ def emit_gsub(
 
     fea = "\n".join(parts) + "\n"
 
-    named_glyphs: set[str] = set(live_members) | set(locked_members) | set(marker_glyphs)
+    named_glyphs: set[str] = set(capable_members) | set(locked_members) | set(marker_glyphs)
     named_glyphs.update(names_by_cell.values())
     named_glyphs.update(spec.runes)
     if ss10_twins:
@@ -815,7 +813,7 @@ def emit_gsub(
         class_definitions=list(registry.definitions),
         rule_count=rule_count,
         marker_glyphs=marker_glyphs,
-        locked_glyphs={locked_glyph_name(name): name for name in live_members},
+        locked_glyphs={locked_glyph_name(name): name for name in capable_members},
         named_glyphs=frozenset(named_glyphs),
         ss10_preempt=dict(ss10_twins) if ss10_twins else {},
         formation_guarded_rows=tuple(guarded_rows),
