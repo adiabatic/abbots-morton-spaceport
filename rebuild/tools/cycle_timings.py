@@ -42,6 +42,7 @@ FORMAT = "ams-cycle-timings/2"
 POOL_UNIT_ENV = "AMS_POOL_UNIT"
 # The variable that tells a spawned check a cycle is recording its check line. The cycle sets it to its run id and every child inherits it; the entry points that check it import the name from here.
 CYCLE_RUN_ENV = "AMS_CYCLE_RUN"
+STEP_NAME_ALIASES = {"plumbing": "verdict-update"}
 
 _RSS_TOKEN = re.compile(r"\brss_gb=(\d+(?:\.\d+)?)")
 _RSS_NOW_TOKEN = re.compile(r"\brss_now_gb=(\d+(?:\.\d+)?)")
@@ -256,7 +257,7 @@ class CycleTimings:
 
 
 def load_journal(path: Path) -> tuple[dict[str, dict], dict[str, list[dict]], list[str]]:
-    """Return the run lines by run id, the step lines by run id, and the run ids in first-seen order. Only "run" and "step" lines are read. Check lines are skipped even when they name a run, because a check is not a subprocess, its seconds may duplicate a step line's, and it must not create a run entry; `load_checks` reads them. Malformed lines are skipped, because concurrent writers can leave a torn line and one bad line must not make the history unreadable."""
+    """Return the run lines by run id, the step lines by run id, and the run ids in first-seen order. Only "run" and "step" lines are read. Check lines are skipped even when they name a run, because a check is not a subprocess, its seconds may duplicate a step line's, and it must not create a run entry; `load_checks` reads them. Malformed lines are skipped, because concurrent writers can leave a torn line and one bad line must not make the history unreadable. A step line whose name is a key of `STEP_NAME_ALIASES`, the name older lines give a step, is read under the step's current name, so `--by-step` and `calibrate_budgets` count its history as one step."""
     runs: dict[str, dict] = {}
     steps: dict[str, list[dict]] = {}
     order: list[str] = []
@@ -281,6 +282,9 @@ def load_journal(path: Path) -> tuple[dict[str, dict], dict[str, list[dict]], li
         if entry.get("kind") == "run":
             runs[run_id] = entry
         else:
+            name = entry.get("name")
+            if isinstance(name, str) and name in STEP_NAME_ALIASES:
+                entry["name"] = STEP_NAME_ALIASES[name]
             steps[run_id].append(entry)
     return runs, steps, order
 

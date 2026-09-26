@@ -279,12 +279,12 @@ def test_dry_run_plan_default():
         "--signature-jobs",
         str(plan.signature_jobs),
     ]
-    assert _argv(by_name["plumbing"])[:5] == [
+    assert _argv(by_name["verdict-update"])[:5] == [
         "uv",
         "run",
         "python",
         "-m",
-        "rebuild.tools.verdict_chain",
+        "rebuild.tools.verdict_update",
     ]
     assert by_name["census"].argv == [
         "uv",
@@ -342,7 +342,7 @@ def test_dry_run_plan_conform_jobs_cap():
             skip_gates=plan.skip_gates,
             skip_make_test=plan.skip_make_test,
             skip_surface=plan.skip_surface,
-            plumbing_runs=plan.runs("plumbing"),
+            verdict_update_runs=plan.runs("verdict-update"),
             pool_policy=plan.pool_policy,
             ncores=12,
             total_bytes=BOX_44_GB,
@@ -387,19 +387,19 @@ def test_dry_run_plan_skip_conform():
     assert by_name["gate:rebuild-contracts"].argv is not None
 
 
-def test_dry_run_plan_runs_the_whole_chain_as_one_step():
+def test_dry_run_plan_runs_the_whole_verdict_update_as_one_step():
     plan = _plan(short_id="abc1234")
     names = [step.name for step in plan.steps]
-    assert names.index("plumbing") == names.index("surface-build") + 1
-    assert names.index("census") == names.index("plumbing") + 1
-    argv = {step.name: step for step in plan.steps}["plumbing"].argv
+    assert names.index("verdict-update") == names.index("surface-build") + 1
+    assert names.index("census") == names.index("verdict-update") + 1
+    argv = {step.name: step for step in plan.steps}["verdict-update"].argv
     assert argv is not None
     assert argv[:10] == [
         "uv",
         "run",
         "python",
         "-m",
-        "rebuild.tools.verdict_chain",
+        "rebuild.tools.verdict_update",
         "--surface",
         str(ac.REVIEW_OUT),
         "--verdicts",
@@ -413,7 +413,7 @@ def test_dry_run_plan_runs_the_whole_chain_as_one_step():
 
 def test_dry_run_plan_no_merge_carries_and_stops():
     plan = _plan(no_merge=True)
-    step = {step.name: step for step in plan.steps}["plumbing"]
+    step = {step.name: step for step in plan.steps}["verdict-update"]
     assert step.argv is not None
     assert "--no-merge" in step.argv
     assert "--verdicts" in step.argv
@@ -423,7 +423,7 @@ def test_dry_run_plan_no_merge_carries_and_stops():
 
 def test_dry_run_plan_rehearsal_never_touches_the_autosave(tmp_path):
     plan = _plan(review_out=tmp_path / "reh")
-    step = {step.name: step for step in plan.steps}["plumbing"]
+    step = {step.name: step for step in plan.steps}["verdict-update"]
     assert step.argv is not None
     assert "--no-merge" in step.argv
     assert "--no-complaints" in step.argv
@@ -432,40 +432,40 @@ def test_dry_run_plan_rehearsal_never_touches_the_autosave(tmp_path):
     assert plan.do_merge is False
 
 
-def test_dry_run_plan_complaints_rides_inside_the_chain(tmp_path, monkeypatch):
+def test_dry_run_plan_complaints_rides_inside_the_verdict_update(tmp_path, monkeypatch):
     autosave = tmp_path / "verdicts-autosave.json"
     autosave.write_text("{}")
     monkeypatch.setattr(ac, "AUTOSAVE", autosave)
     plan = _plan()
     names = [step.name for step in plan.steps]
     assert "complaints" not in names
-    step = {step.name: step for step in plan.steps}["plumbing"]
+    step = {step.name: step for step in plan.steps}["verdict-update"]
     assert step.argv is not None
     assert "--no-complaints" not in step.argv
     assert "complaint docket" in step.note
     assert plan.complaints_note == ""
 
 
-def test_the_chain_is_told_to_skip_the_docket_on_rehearsal_first_run_and_a_missing_store(
+def test_the_verdict_update_is_told_to_skip_the_docket_on_rehearsal_first_run_and_a_missing_store(
     tmp_path, monkeypatch
 ):
     autosave = tmp_path / "verdicts-autosave.json"
     autosave.write_text("{}")
     monkeypatch.setattr(ac, "AUTOSAVE", autosave)
     rehearsal = _plan(review_out=tmp_path / "reh")
-    step = {step.name: step for step in rehearsal.steps}["plumbing"]
+    step = {step.name: step for step in rehearsal.steps}["verdict-update"]
     assert step.argv is not None and "--no-complaints" in step.argv
     assert "rehearsal" in rehearsal.complaints_note
 
     first = _plan(first_run=True, verdicts=None)
     by_name = {step.name: step for step in first.steps}
-    assert by_name["plumbing"].argv is None
-    assert "first run" in by_name["plumbing"].note
+    assert by_name["verdict-update"].argv is None
+    assert "first run" in by_name["verdict-update"].note
     assert "first run" in first.complaints_note
 
     monkeypatch.setattr(ac, "AUTOSAVE", tmp_path / "missing.json")
     absent = _plan()
-    step = {step.name: step for step in absent.steps}["plumbing"]
+    step = {step.name: step for step in absent.steps}["verdict-update"]
     assert step.argv is not None and "--no-complaints" in step.argv
     assert "no verdicts store" in absent.complaints_note
 
@@ -476,9 +476,9 @@ def test_the_docket_headline_is_scraped_and_never_fails_the_cycle(tmp_path, monk
     monkeypatch.setattr(ac, "AUTOSAVE", autosave)
     plan = _plan()
 
-    report, failures = _run_plumbing(
+    report, failures = _run_verdict_update(
         plan,
-        _chain_stdout(
+        _verdict_update_stdout(
             (
                 "complaints",
                 [
@@ -492,28 +492,32 @@ def test_the_docket_headline_is_scraped_and_never_fails_the_cycle(tmp_path, monk
     assert report.complaints_status.startswith("3 open complaints")
     assert report.complaints_ok is True
 
-    report, failures = _run_plumbing(plan, _chain_stdout(("complaints", ["no open complaints"])))
+    report, failures = _run_verdict_update(
+        plan, _verdict_update_stdout(("complaints", ["no open complaints"]))
+    )
     assert report.complaints_status == "no open complaints"
     assert report.complaints_ok is True
 
-    report, failures = _run_plumbing(
-        plan, _chain_stdout(("complaints", ["boom"]), failed="complaints"), returncode=2
+    report, failures = _run_verdict_update(
+        plan, _verdict_update_stdout(("complaints", ["boom"]), failed="complaints"), returncode=2
     )
     assert report.complaints_status == "FAILED (exit 2) — informational"
     assert report.complaints_ok is False
     assert failures == []
 
 
-def test_the_plumbing_row_counts_the_carry_and_the_summary_quotes_what_the_fills_wrote(tmp_path, monkeypatch):
-    """The chain runs as one child, so its steps reach this process only through the lines they print. The carry count and the human queue before and after become the row's figure. The other lines are quoted in the summary under the line they belong to, instead of appearing only in `cycle_summary.json` and the step's log."""
+def test_the_verdict_update_row_counts_the_carry_and_the_summary_quotes_what_the_fills_wrote(
+    tmp_path, monkeypatch
+):
+    """The verdict update runs as one child, so its steps reach this process only through the lines they print. The carry count and the human queue before and after become the row's figure. The other lines are quoted in the summary under the line they belong to, instead of appearing only in `cycle_summary.json` and the step's log."""
     autosave = tmp_path / "verdicts-autosave.json"
     autosave.write_text("{}")
     monkeypatch.setattr(ac, "AUTOSAVE", autosave)
     plan = _plan()
 
-    report, failures = _run_plumbing(
+    report, failures = _run_verdict_update(
         plan,
-        _chain_stdout(
+        _verdict_update_stdout(
             (
                 "carry",
                 [
@@ -532,7 +536,8 @@ def test_the_plumbing_row_counts_the_carry_and_the_summary_quotes_what_the_fills
     )
     assert failures == []
     assert (
-        ac.step_figure(report, "plumbing") == "15,903 carried, queue 81 -> 12; 3 open complaints in 2 groups"
+        ac.step_figure(report, "verdict-update")
+        == "15,903 carried, queue 81 -> 12; 3 open complaints in 2 groups"
     )
 
     block = ac.summary_cycle_lines(report, plan, [])
@@ -541,19 +546,19 @@ def test_the_plumbing_row_counts_the_carry_and_the_summary_quotes_what_the_fills
     assert "      wrote tmp/echo-fill.json: 4 echo-fill verdicts" in block
     assert "      merged 15903 verdicts into verdicts-autosave.json" in block
     carry = block.index("  carry output     : " + str(report.carry_out))
-    plumbing = next(index for index, line in enumerate(block) if line.startswith("  verdict plumbing"))
-    assert carry < block.index("      human queue: 81 -> 12 still needing fresh verdicts") < plumbing
+    verdict_update = next(index for index, line in enumerate(block) if line.startswith("  verdict update"))
+    assert carry < block.index("      human queue: 81 -> 12 still needing fresh verdicts") < verdict_update
 
 
-def test_the_plumbing_row_falls_back_to_the_merge_when_no_carry_ran(tmp_path, monkeypatch):
+def test_the_verdict_update_row_falls_back_to_the_merge_when_no_carry_ran(tmp_path, monkeypatch):
     """The store-only route runs no carry, because the surface did not change, so there is no carry count. The row reports the merge instead of staying blank."""
     autosave = tmp_path / "verdicts-autosave.json"
     autosave.write_text("{}")
     monkeypatch.setattr(ac, "AUTOSAVE", autosave)
     plan = _plan(store_only=True)
-    report, failures = _run_plumbing(
+    report, failures = _run_verdict_update(
         plan,
-        _chain_stdout(
+        _verdict_update_stdout(
             ("merge", ["merged 3 verdicts into verdicts-autosave.json"]),
             ("complaints", ["no open complaints"]),
         ),
@@ -562,10 +567,10 @@ def test_the_plumbing_row_falls_back_to_the_merge_when_no_carry_ran(tmp_path, mo
     assert ac.carry_figure(report.carry_lines) == ""
     assert report.carry_figures is None
     assert ac.cycle_summary_payload(report, [], plan, "ok")["carry"] is None
-    assert ac.step_figure(report, "plumbing") == "merge merged; no open complaints"
+    assert ac.step_figure(report, "verdict-update") == "merge merged; no open complaints"
 
 
-def test_dry_run_plan_skips_the_chain_without_a_carry():
+def test_dry_run_plan_skips_the_verdict_update_without_a_carry():
     no_carry = ac.build_plan(
         verdicts=None,
         no_carry=True,
@@ -574,7 +579,7 @@ def test_dry_run_plan_skips_the_chain_without_a_carry():
         first_run=False,
         short_id="abc",
     )
-    step = {step.name: step for step in no_carry.steps}["plumbing"]
+    step = {step.name: step for step in no_carry.steps}["verdict-update"]
     assert step.argv is None
     assert step.note == "SKIPPED (--no-carry)"
     first = ac.build_plan(
@@ -585,7 +590,7 @@ def test_dry_run_plan_skips_the_chain_without_a_carry():
         first_run=True,
         short_id="abc",
     )
-    step = {step.name: step for step in first.steps}["plumbing"]
+    step = {step.name: step for step in first.steps}["verdict-update"]
     assert step.argv is None
     assert step.note == "SKIPPED (first run)"
 
@@ -601,7 +606,7 @@ def test_dry_run_plan_no_carry():
     )
     assert plan.carry_out is None
     by_name = {step.name: step for step in plan.steps}
-    assert by_name["plumbing"].argv is None
+    assert by_name["verdict-update"].argv is None
 
 
 def test_dry_run_plan_first_run_skips_the_carry():
@@ -614,7 +619,7 @@ def test_dry_run_plan_first_run_skips_the_carry():
         short_id="0000000",
     )
     by_name = {step.name: step for step in plan.steps}
-    assert by_name["plumbing"].argv is None
+    assert by_name["verdict-update"].argv is None
     assert plan.carry_out is None
 
 
@@ -728,10 +733,10 @@ def test_the_plan_block_counts_its_steps_and_leaves_the_sweep_undecided():
     assert fresh_by_name["gate:conform"].note == ""
     assert fresh_by_name["gate:rebuild-contracts"].status == console.STATUS_RUN
     assert "–" not in console.counts_line(fresh_rows)
-    plumbing = {step.name: step for step in fresh.steps}["plumbing"].argv
-    assert plumbing is not None and "--fresh-standing-memo" in plumbing
-    settled_plumbing = {step.name: step for step in settled.steps}["plumbing"].argv
-    assert settled_plumbing is None or "--fresh-standing-memo" not in settled_plumbing
+    verdict_update = {step.name: step for step in fresh.steps}["verdict-update"].argv
+    assert verdict_update is not None and "--fresh-standing-memo" in verdict_update
+    settled_verdict_update = {step.name: step for step in settled.steps}["verdict-update"].argv
+    assert settled_verdict_update is None or "--fresh-standing-memo" not in settled_verdict_update
 
 
 def test_the_plan_block_leads_with_its_arithmetic_and_puts_the_paths_after_the_rows():
@@ -882,8 +887,8 @@ def _surface_ok(report, *, spawn, emit, registry, review_out, **_):
     return True
 
 
-def _chain_stdout(*sections, fixpoint=True, failed=None):
-    """Return a synthetic verdict_chain stdout: for each step, the `[phase] <step>` line, the step's own lines and the closing `[t] <step>` line, then the fixpoint or failure line. Those last two keep the chain's `[chain] ` prefix, which `plumbing_sections` uses to keep a `failed:` line out of the complaints section."""
+def _verdict_update_stdout(*sections, fixpoint=True, failed=None):
+    """Return a synthetic verdict_update stdout: for each step, the `[phase] <step>` line, the step's own lines and the closing `[t] <step>` line, then the fixpoint or failure line. Those last two keep the verdict update's `[verdict-update] ` prefix, which `verdict_update_sections` uses to keep a `failed:` line out of the complaints section."""
     lines = []
     for name, body in sections:
         lines.append(console.PHASE + name)
@@ -897,7 +902,7 @@ def _chain_stdout(*sections, fixpoint=True, failed=None):
     return "\n".join(lines) + "\n"
 
 
-_FULL_CHAIN = (
+_FULL_VERDICT_UPDATE = (
     (
         "carry",
         [
@@ -947,8 +952,8 @@ _FULL_CHAIN = (
 )
 
 
-def _run_plumbing(plan, stdout, returncode=0, spy=None):
-    """Run `_do_plumbing` over a canned stdout. The fake spawn passes every line through the emitter as `_run_step` does, so the terminal output is what a real pass would print."""
+def _run_verdict_update(plan, stdout, returncode=0, spy=None):
+    """Run `_do_verdict_update` over a canned stdout. The fake spawn passes every line through the emitter as `_run_step` does, so the terminal output is what a real pass would print."""
 
     def fake_spawn(name, argv, *, emit, registry, stream):
         if spy is not None:
@@ -958,20 +963,20 @@ def _run_plumbing(plan, stdout, returncode=0, spy=None):
         return _step(name, returncode, stdout=stdout)
 
     report = ac.CycleReport()
-    failures = ac._do_plumbing(
+    failures = ac._do_verdict_update(
         report, spawn=fake_spawn, emit=ac._Emitter(), registry=ac._ChildRegistry(), plan=plan
     )
     return report, failures
 
 
-def _plumbing_ok(report, *, spawn, emit, registry, plan):
+def _verdict_update_ok(report, *, spawn, emit, registry, plan):
     report.merge_status = "merged"
     report.echo_fill_status = "filled"
     report.echo_merge_status = "merged"
     report.standing_fill_status = "filled"
     report.standing_merge_status = "merged"
     report.standing_merge_lines = ["nothing changed: the autosave already holds all 3 verdicts"]
-    report.plumbing_fixpoint = True
+    report.verdict_update_fixpoint = True
     report.complaints_status = "no open complaints"
     report.complaints_ok = True
     report.carry_out = plan.carry_out
@@ -1014,7 +1019,7 @@ def _patch_gate_fingerprints(monkeypatch):
 
 def _patch_build_chain(monkeypatch):
     monkeypatch.setattr(ac, "_do_surface_build", _surface_ok)
-    monkeypatch.setattr(ac, "_do_plumbing", _plumbing_ok)
+    monkeypatch.setattr(ac, "_do_verdict_update", _verdict_update_ok)
     monkeypatch.setattr(ac, "_do_census", _census_clean)
     monkeypatch.setattr(ac, "_do_job_costs", _job_costs_clean)
 
@@ -1026,7 +1031,7 @@ def test_a_failing_merge_fails_the_cycle(monkeypatch, capsys):
 
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
     monkeypatch.setattr(ac, "_do_surface_build", _surface_ok)
-    monkeypatch.setattr(ac, "_do_plumbing", failing)
+    monkeypatch.setattr(ac, "_do_verdict_update", failing)
     monkeypatch.setattr(ac, "_do_census", _census_clean)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
@@ -1043,10 +1048,10 @@ def test_a_failing_merge_fails_the_cycle(monkeypatch, capsys):
 
 
 def test_nothing_runs_after_the_carry_fails():
-    """The chain stops at its first failing step, and the driver reports every later step as not run because none of them printed its `[phase]` line."""
-    report, failures = _run_plumbing(
+    """The verdict update stops at its first failing step, and the driver reports every later step as not run because none of them printed its `[phase]` line."""
+    report, failures = _run_verdict_update(
         _plan(),
-        _chain_stdout(("carry", ["boom"]), failed="carry"),
+        _verdict_update_stdout(("carry", ["boom"]), failed="carry"),
         returncode=1,
     )
     assert failures == ["carry_verdicts failed"]
@@ -1056,9 +1061,9 @@ def test_nothing_runs_after_the_carry_fails():
 
 
 def test_a_failing_echo_fill_stops_the_cascade():
-    report, failures = _run_plumbing(
+    report, failures = _run_verdict_update(
         _plan(),
-        _chain_stdout(*_FULL_CHAIN[:2], ("echo-fill", ["boom"]), failed="echo-fill"),
+        _verdict_update_stdout(*_FULL_VERDICT_UPDATE[:2], ("echo-fill", ["boom"]), failed="echo-fill"),
         returncode=1,
     )
     assert failures == ["echo-fill failed"]
@@ -1070,9 +1075,9 @@ def test_a_failing_echo_fill_stops_the_cascade():
 
 
 def test_a_failing_echo_merge_stops_the_cascade():
-    report, failures = _run_plumbing(
+    report, failures = _run_verdict_update(
         _plan(),
-        _chain_stdout(*_FULL_CHAIN[:3], ("echo-merge", ["boom"]), failed="echo-merge"),
+        _verdict_update_stdout(*_FULL_VERDICT_UPDATE[:3], ("echo-merge", ["boom"]), failed="echo-merge"),
         returncode=1,
     )
     assert failures == ["echo-merge failed"]
@@ -1083,9 +1088,11 @@ def test_a_failing_echo_merge_stops_the_cascade():
 
 
 def test_a_failing_standing_fill_stops_the_cascade():
-    report, failures = _run_plumbing(
+    report, failures = _run_verdict_update(
         _plan(),
-        _chain_stdout(*_FULL_CHAIN[:4], ("standing-fill", ["boom"]), failed="standing-fill"),
+        _verdict_update_stdout(
+            *_FULL_VERDICT_UPDATE[:4], ("standing-fill", ["boom"]), failed="standing-fill"
+        ),
         returncode=1,
     )
     assert failures == ["standing-fill failed"]
@@ -1097,14 +1104,14 @@ def test_a_failing_standing_fill_stops_the_cascade():
     ("rounds", "failed", "status"),
     [
         ([("echo-fill-2", ["boom"])], "echo-fill", "echo_fill_status"),
-        ([_FULL_CHAIN[6], ("echo-merge-2", ["boom"])], "echo-merge", "echo_merge_status"),
+        ([_FULL_VERDICT_UPDATE[6], ("echo-merge-2", ["boom"])], "echo-merge", "echo_merge_status"),
     ],
 )
 def test_a_later_echo_round_failure_leaves_the_first_round_reported_as_run(rounds, failed, status):
-    """The chain runs the standing fill and merge in the first round, so a failure in round 2 reports them as done and names the round that failed."""
-    report, failures = _run_plumbing(
+    """The verdict update runs the standing fill and merge in the first round, so a failure in round 2 reports them as done and names the round that failed."""
+    report, failures = _run_verdict_update(
         _plan(),
-        _chain_stdout(*_FULL_CHAIN[:6], *rounds, failed=rounds[-1][0]),
+        _verdict_update_stdout(*_FULL_VERDICT_UPDATE[:6], *rounds, failed=rounds[-1][0]),
         returncode=1,
     )
     assert failures == [f"{failed} round 2 failed"]
@@ -1119,9 +1126,11 @@ def test_a_later_echo_round_failure_leaves_the_first_round_reported_as_run(round
     assert {name: getattr(report, name) for name in statuses} == statuses
 
 
-def test_a_carry_only_chain_reports_the_fills_as_never_run():
-    """--no-merge and rehearsal both stop the chain after the carry, so the fills print no `[phase]` line and the summary reports them as not run."""
-    report, failures = _run_plumbing(_plan(no_merge=True), _chain_stdout(_FULL_CHAIN[0], fixpoint=False))
+def test_a_carry_only_verdict_update_reports_the_fills_as_never_run():
+    """--no-merge and rehearsal both stop the verdict update after the carry, so the fills print no `[phase]` line and the summary reports them as not run."""
+    report, failures = _run_verdict_update(
+        _plan(no_merge=True), _verdict_update_stdout(_FULL_VERDICT_UPDATE[0], fixpoint=False)
+    )
     assert failures == []
     assert report.merge_status == "not run"
     assert report.echo_fill_status == "not run"
@@ -1131,11 +1140,11 @@ def test_a_carry_only_chain_reports_the_fills_as_never_run():
 
 
 def test_the_driver_reads_a_line_per_step_out_of_one_child(capsys):
-    """One subprocess prints for all the chain's steps, and each step's summary lines are taken from that step's own section."""
+    """One subprocess prints for all the verdict update's steps, and each step's summary lines are taken from that step's own section."""
     spy: list = []
-    report, failures = _run_plumbing(_plan(), _chain_stdout(*_FULL_CHAIN), spy=spy)
+    report, failures = _run_verdict_update(_plan(), _verdict_update_stdout(*_FULL_VERDICT_UPDATE), spy=spy)
     assert failures == []
-    assert [name for name, _argv in spy] == ["plumbing"]
+    assert [name for name, _argv in spy] == ["verdict-update"]
 
     assert report.merge_status == "merged"
     assert any(line.startswith("merged 1 file(s)") for line in report.merge_lines)
@@ -1159,11 +1168,11 @@ def test_the_driver_reads_a_line_per_step_out_of_one_child(capsys):
     assert report.carry_figures == {"human": 60000, "key_hits": 51946, "unhit": 8054, "stranded": 12}
     assert ac.cycle_summary_payload(report, [], _plan(), "ok")["carry"] == report.carry_figures
     assert report.complaints_status == "no open complaints"
-    assert report.plumbing_fixpoint is True
+    assert report.verdict_update_fixpoint is True
 
 
 def test_standing_fill_news_keeps_rules_and_drops_steady_state_composed_pairs():
-    """Per-rule lines are kept at any count, so a newly added rule shows even at 0 filled. A composed pair's line is kept only when it filled or held something, which keeps the quadratic number of unchanged pair lines out of the console block and cycle_summary.json. The tripwire's WARNING is always kept. Both line formats are handled: the chain runs the fill with --open-only, which prints no already-verdicted column, while a dry run over the whole domain prints it."""
+    """Per-rule lines are kept at any count, so a newly added rule shows even at 0 filled. A composed pair's line is kept only when it filled or held something, which keeps the quadratic number of unchanged pair lines out of the console block and cycle_summary.json. The tripwire's WARNING is always kept. Both line formats are handled: the verdict update runs the fill with --open-only, which prints no already-verdicted column, while a dry run over the whole domain prints it."""
     news = ac._standing_fill_news
     assert news("wrote verdicts-standing-fill.json: 25 standing-approval verdicts onto manifest S1")
     assert news("quiet-rule: 0 filled, 12 already verdicted, 0 held for review by except_left")
@@ -1189,17 +1198,17 @@ def test_standing_fill_news_keeps_rules_and_drops_steady_state_composed_pairs():
 
 def test_a_later_echo_round_folds_into_the_first_rounds_lines():
     """The second echo round runs the same step again, so its lines are reported under the first round's name."""
-    stdout = _chain_stdout(
-        *_FULL_CHAIN[:6],
+    stdout = _verdict_update_stdout(
+        *_FULL_VERDICT_UPDATE[:6],
         ("echo-fill-2", ["wrote verdicts-echo-fill.json: 3 echo-fill verdicts onto manifest S1"]),
     )
-    report, _failures = _run_plumbing(_plan(), stdout)
+    report, _failures = _run_verdict_update(_plan(), stdout)
     assert len(report.echo_fill_lines) == 2
     assert report.echo_fill_lines[-1].startswith("wrote verdicts-echo-fill.json: 3 echo-fill verdicts")
 
 
 def test_the_disagreement_audit_reaches_the_console(capsys):
-    stdout = _chain_stdout(
+    stdout = _verdict_update_stdout(
         (
             "echo-fill",
             [
@@ -1213,7 +1222,7 @@ def test_the_disagreement_audit_reaches_the_console(capsys):
             ],
         )
     )
-    _run_plumbing(_plan(), stdout)
+    _run_verdict_update(_plan(), stdout)
     out = capsys.readouterr().out
     assert "warn 2 echo groups hold disagreeing verdicts" in out
     # The per-group listing stays in the step's log; the terminal shows only that a disagreement exists.
@@ -1223,11 +1232,11 @@ def test_the_disagreement_audit_reaches_the_console(capsys):
 def test_the_executor_spawns_the_argv_the_plan_holds():
     """build_plan writes each step's argv and the executor runs that list, so changing a step's argv changes what is spawned."""
     plan = _plan()
-    sentinel = ["uv", "run", "python", "sentinel-chain", "--only-here"]
-    {step.name: step for step in plan.steps}["plumbing"].argv = sentinel
+    sentinel = ["uv", "run", "python", "sentinel-verdict-update", "--only-here"]
+    {step.name: step for step in plan.steps}["verdict-update"].argv = sentinel
     spy: list = []
-    _run_plumbing(plan, _chain_stdout(*_FULL_CHAIN), spy=spy)
-    assert spy == [("plumbing", sentinel)]
+    _run_verdict_update(plan, _verdict_update_stdout(*_FULL_VERDICT_UPDATE), spy=spy)
+    assert spy == [("verdict-update", sentinel)]
 
 
 def test_gates_launch_before_run_m1_finishes(monkeypatch):
@@ -1563,7 +1572,7 @@ def test_summary_exact_under_out_of_order_completion(monkeypatch, capsys):
 
     monkeypatch.setattr(ac, "_do_run_m1", fake_run_m1)
     monkeypatch.setattr(ac, "_do_surface_build", fake_surface)
-    monkeypatch.setattr(ac, "_do_plumbing", _plumbing_ok)
+    monkeypatch.setattr(ac, "_do_verdict_update", _verdict_update_ok)
     monkeypatch.setattr(ac, "_do_census", _census_clean)
     monkeypatch.setattr(ac, "_gate_js_task", fake_js)
     monkeypatch.setattr(ac, "_gate_make_test_task", fake_make)
@@ -1818,7 +1827,7 @@ def test_failure_funnels_from_concurrent_branch(monkeypatch, capsys):
 
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
     monkeypatch.setattr(ac, "_do_surface_build", fake_surface)
-    monkeypatch.setattr(ac, "_do_plumbing", _plumbing_ok)
+    monkeypatch.setattr(ac, "_do_verdict_update", _verdict_update_ok)
     monkeypatch.setattr(ac, "_do_census", _census_clean)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     monkeypatch.setattr(ac, "_gate_make_test_task", fake_make)
@@ -2249,22 +2258,22 @@ class TestTheStandingFillWidth:
         solo = ac.standing_fill_derivation(skip_gates=True, ncores=10, total_bytes=BOX_32_GIB)
         assert f"less {format_gb(ac.STANDING_FILL_PARENT_BYTES)} GB co-resident" in solo
 
-    def test_the_plan_states_the_width_on_the_chains_argv_and_in_its_text(self):
+    def test_the_plan_states_the_width_on_the_verdict_updates_argv_and_in_its_text(self):
         """Every width is stated on the command line, including one, and the plan block gives its derivation as it does for the surface build."""
         for skip_gates in (False, True):
             plan = _plan(skip_gates=skip_gates, ncores=10, total_bytes=BOX_32_GIB)
             width = ac.standing_fill_jobs(skip_gates=skip_gates, ncores=10, total_bytes=BOX_32_GIB)
             by_name = {step.name: step for step in plan.steps}
-            argv = _argv(by_name["plumbing"])
+            argv = _argv(by_name["verdict-update"])
             assert argv[argv.index("--standing-fill-jobs") + 1] == str(width)
             assert plan.standing_fill_jobs == width
             text = _plan_text(plan)
-            assert "plumbing --standing-fill-jobs" in text
+            assert "verdict-update --standing-fill-jobs" in text
             assert (
                 ac.standing_fill_derivation(skip_gates=skip_gates, ncores=10, total_bytes=BOX_32_GIB) in text
             )
         small = _plan(ncores=2)
-        assert _argv({step.name: step for step in small.steps}["plumbing"])[-2:] == [
+        assert _argv({step.name: step for step in small.steps}["verdict-update"])[-2:] == [
             "--standing-fill-jobs",
             "1",
         ]
@@ -2282,7 +2291,7 @@ def _plan_conform_derivation(plan: ac.Plan, *, ncores: int, total_bytes: int) ->
         skip_gates=plan.skip_gates,
         skip_make_test=plan.skip_make_test,
         skip_surface=plan.skip_surface,
-        plumbing_runs=plan.runs("plumbing"),
+        verdict_update_runs=plan.runs("verdict-update"),
         pool_policy=plan.pool_policy,
         ncores=ncores,
         total_bytes=total_bytes,
@@ -2290,10 +2299,10 @@ def _plan_conform_derivation(plan: ac.Plan, *, ncores: int, total_bytes: int) ->
 
 
 class TestTheConformBeltWidth:
-    """The cycle sizes gate:conform's belt: one spawn process per acceptance configuration, each holding `CONFORM_BELT_BYTES`. The belt is submitted when run_m1's gate passes, so it runs beside the build lane's surface build or the plumbing step after it, and the larger of the two that the pass runs is subtracted from memory before the division."""
+    """The cycle sizes gate:conform's belt: one spawn process per acceptance configuration, each holding `CONFORM_BELT_BYTES`. The belt is submitted when run_m1's gate passes, so it runs beside the build lane's surface build or the verdict-update step after it, and the larger of the two that the pass runs is subtracted from memory before the division."""
 
     def test_the_surface_build_comes_off_the_box_before_the_division(self):
-        """Checked at the fit terms, where no machine size enters, for the same reason as the surface build's reservation: on no fleet machine does the subtraction change the belt's width. The surface term is the build's parent plus the workers `surface_job_budget` gives the same pass. A pass that runs the plumbing step without the build subtracts the chain parent and the refill pool `standing_fill_jobs` gives instead. gate:make-test's pool is added under the overlap policy only, because the queue policy makes the belt wait for make-test."""
+        """Checked at the fit terms, where no machine size enters, for the same reason as the surface build's reservation: on no fleet machine does the subtraction change the belt's width. The surface term is the build's parent plus the workers `surface_job_budget` gives the same pass. A pass that runs the verdict-update step without the build subtracts the verdict update's process and the refill pool `standing_fill_jobs` gives instead. gate:make-test's pool is added under the overlap policy only, because the queue policy makes the belt wait for make-test."""
         from rebuild.pipeline.conform import ACCEPTANCE_CONFIGS
 
         def surface(skip_make_test):
@@ -2301,17 +2310,19 @@ class TestTheConformBeltWidth:
                 skip_gates=False, skip_make_test=skip_make_test, ncores=9, total_bytes=BOX_48_GIB
             )
 
-        def plumbing(skip_make_test):
+        def verdict_update(skip_make_test):
             return ac.STANDING_FILL_PARENT_BYTES + ac.STANDING_FILL_WORKER_BYTES * ac.standing_fill_jobs(
                 skip_gates=False, skip_make_test=skip_make_test, ncores=9, total_bytes=BOX_48_GIB
             )
 
-        def terms(*, skip_make_test=False, skip_surface=False, plumbing_runs=False, pool_policy="queue"):
+        def terms(
+            *, skip_make_test=False, skip_surface=False, verdict_update_runs=False, pool_policy="queue"
+        ):
             return ac._conform_fit_terms(
                 skip_gates=False,
                 skip_make_test=skip_make_test,
                 skip_surface=skip_surface,
-                plumbing_runs=plumbing_runs,
+                verdict_update_runs=verdict_update_runs,
                 pool_policy=pool_policy,
                 ncores=9,
                 total_bytes=BOX_48_GIB,
@@ -2331,51 +2342,56 @@ class TestTheConformBeltWidth:
         )
         assert terms(skip_make_test=True) == (ac.CONFORM_BELT_BYTES, surface(True), configs)
 
-        assert 0 < plumbing(False) < surface(False)
-        assert terms(plumbing_runs=True) == (ac.CONFORM_BELT_BYTES, surface(False), configs)
-        assert terms(skip_surface=True, plumbing_runs=True) == (
+        assert 0 < verdict_update(False) < surface(False)
+        assert terms(verdict_update_runs=True) == (ac.CONFORM_BELT_BYTES, surface(False), configs)
+        assert terms(skip_surface=True, verdict_update_runs=True) == (
             ac.CONFORM_BELT_BYTES,
-            plumbing(False),
+            verdict_update(False),
             configs,
         )
-        assert terms(skip_surface=True, plumbing_runs=True, pool_policy="overlap") == (
+        assert terms(skip_surface=True, verdict_update_runs=True, pool_policy="overlap") == (
             ac.CONFORM_BELT_BYTES,
-            plumbing(False) + make_test,
+            verdict_update(False) + make_test,
             configs,
         )
-        assert terms(skip_surface=True, plumbing_runs=True, skip_make_test=True) == (
+        assert terms(skip_surface=True, verdict_update_runs=True, skip_make_test=True) == (
             ac.CONFORM_BELT_BYTES,
-            plumbing(True),
+            verdict_update(True),
             configs,
         )
 
     def test_the_larger_build_lane_step_is_the_one_that_comes_off(self):
-        """The belt starts beside the surface build, and a belt still running when the build finishes, or one the queue policy starts late, runs beside the plumbing step, so a pass that runs both subtracts the larger. The surface build stops at `SURFACE_JOBS_CAP` while the standing fill takes all the cores, so on a machine with enough cores the plumbing step is the larger and is the one subtracted."""
+        """The belt starts beside the surface build, and a belt still running when the build finishes, or one the queue policy starts late, runs beside the verdict-update step, so a pass that runs both subtracts the larger. The surface build stops at `SURFACE_JOBS_CAP` while the standing fill takes all the cores, so on a machine with enough cores the verdict-update step is the larger and is the one subtracted."""
         box: dict[str, Any] = dict(skip_gates=False, skip_make_test=False, total_bytes=BOX_48_GIB)
         wide: dict[str, Any] = dict(box, ncores=40)
         surface = ac.SURFACE_PARENT_BYTES + ac.SURFACE_WORKER_BYTES * ac.surface_job_budget(**wide)
-        plumbing = ac.STANDING_FILL_PARENT_BYTES + ac.STANDING_FILL_WORKER_BYTES * ac.standing_fill_jobs(
-            **wide
+        verdict_update = (
+            ac.STANDING_FILL_PARENT_BYTES + ac.STANDING_FILL_WORKER_BYTES * ac.standing_fill_jobs(**wide)
         )
-        assert plumbing > surface
-        assert ac._conform_build_lane(**wide, skip_surface=False, plumbing_runs=True) == (
-            "plumbing",
-            plumbing,
+        assert verdict_update > surface
+        assert ac._conform_build_lane(**wide, skip_surface=False, verdict_update_runs=True) == (
+            "verdict-update",
+            verdict_update,
         )
-        assert ac._conform_build_lane(**wide, skip_surface=False, plumbing_runs=False) == (
+        assert ac._conform_build_lane(**wide, skip_surface=False, verdict_update_runs=False) == (
             "surface-build",
             surface,
         )
         assert (
-            ac._conform_fit_terms(**wide, skip_surface=False, plumbing_runs=True, pool_policy="queue")[1]
-            == plumbing
+            ac._conform_fit_terms(**wide, skip_surface=False, verdict_update_runs=True, pool_policy="queue")[
+                1
+            ]
+            == verdict_update
         )
         narrow: dict[str, Any] = dict(box, ncores=9)
-        assert ac._conform_build_lane(**narrow, skip_surface=False, plumbing_runs=True)[0] == "surface-build"
-        assert ac._conform_build_lane(**narrow, skip_surface=True, plumbing_runs=False) == ("", 0)
+        assert (
+            ac._conform_build_lane(**narrow, skip_surface=False, verdict_update_runs=True)[0]
+            == "surface-build"
+        )
+        assert ac._conform_build_lane(**narrow, skip_surface=True, verdict_update_runs=False) == ("", 0)
 
     def test_both_fleet_boxes_run_the_belt_at_the_configuration_count(self):
-        """On the fleet machines (`doc/fleet.md`), the 48 GiB machines at twelve and eighteen cores and the 32 GiB machine at ten, the belt runs one worker per acceptance configuration beside a gated build lane (the surface build and the plumbing step) and beside the plumbing step alone, and the division never limits the width before the cap does. The capped budget cannot distinguish the cap from a division that equals it, so the uncapped division is also checked, and a change to the constant that narrows a fleet machine fails here. The suite does not catch a constant that is too low: only the conform-belt row of `make job-costs` compares it with the workers that ran."""
+        """On the fleet machines (`doc/fleet.md`), the 48 GiB machines at twelve and eighteen cores and the 32 GiB machine at ten, the belt runs one worker per acceptance configuration beside a gated build lane (the surface build and the verdict-update step) and beside the verdict-update step alone, and the division never limits the width before the cap does. The capped budget cannot distinguish the cap from a division that equals it, so the uncapped division is also checked, and a change to the constant that narrows a fleet machine fails here. The suite does not catch a constant that is too low: only the conform-belt row of `make job-costs` compares it with the workers that ran."""
         from rebuild.pipeline.conform import ACCEPTANCE_CONFIGS
         from rebuild.tools import memory_budget
 
@@ -2386,7 +2402,7 @@ class TestTheConformBeltWidth:
                     skip_gates=False,
                     skip_make_test=False,
                     skip_surface=skip_surface,
-                    plumbing_runs=True,
+                    verdict_update_runs=True,
                     pool_policy="queue",
                     ncores=ncores,
                     total_bytes=total_bytes,
@@ -2422,7 +2438,7 @@ class TestTheConformBeltWidth:
         assert _argv(by_name["run_m1"])[5:7] == ["--jobs", str(plan.sweep_jobs)]
 
     def test_the_plan_prints_the_belt_width_with_its_derivation(self):
-        """Every Lane conform line that runs the belt quotes its width, the constant it divides by, and the derivation over the flags the plan resolved. The co-resident term is the larger build-lane step, plus gate:make-test's pool under the overlap policy: the surface build when it runs and holds more than the plumbing step, the plumbing step when the build does not run or the step holds more. For a pass that runs neither, the line says so and prints no co-resident term unless gate:make-test's pool runs beside the belt."""
+        """Every Lane conform line that runs the belt quotes its width, the constant it divides by, and the derivation over the flags the plan resolved. The co-resident term is the larger build-lane step, plus gate:make-test's pool under the overlap policy: the surface build when it runs and holds more than the verdict-update step, the verdict-update step when the build does not run or the step holds more. For a pass that runs neither, the line says so and prints no co-resident term unless gate:make-test's pool runs beside the belt."""
         box: dict[str, Any] = dict(ncores=10, total_bytes=BOX_32_GIB)
         arms = {
             "queued": _plan(**box),
@@ -2433,7 +2449,7 @@ class TestTheConformBeltWidth:
         assert "gate:make-test not running, so no queueing" in _lane_conform_line(arms["make-test skipped"])
         assert "CO-RESIDENT with the pytest pools" in _lane_conform_line(arms["overlap"])
         for plan in arms.values():
-            assert plan.runs("plumbing")
+            assert plan.runs("verdict-update")
             line = _lane_conform_line(plan)
             derivation = _plan_conform_derivation(plan, **box)
             assert (
@@ -2450,7 +2466,7 @@ class TestTheConformBeltWidth:
             skip_gates=False,
             skip_make_test=False,
             skip_surface=False,
-            plumbing_runs=True,
+            verdict_update_runs=True,
             pool_policy="overlap",
             ncores=10,
             total_bytes=BOX_32_GIB,
@@ -2459,30 +2475,30 @@ class TestTheConformBeltWidth:
         assert f"less {format_gb(coresident)} GB co-resident" in _plan_conform_derivation(overlap, **box)
         assert "gate:make-test's pool" not in _lane_conform_line(arms["queued"])
 
-        beside_plumbing = _plan(skip_surface=True, surface_note="inputs unchanged", **box)
-        line = _lane_conform_line(beside_plumbing)
-        derivation = _plan_conform_derivation(beside_plumbing, **box)
-        workers = beside_plumbing.standing_fill_jobs
+        beside_verdict_update = _plan(skip_surface=True, surface_note="inputs unchanged", **box)
+        line = _lane_conform_line(beside_verdict_update)
+        derivation = _plan_conform_derivation(beside_verdict_update, **box)
+        workers = beside_verdict_update.standing_fill_jobs
         assert (
-            f"(--jobs {beside_plumbing.conform_jobs}; CONFORM_BELT_BYTES a belt worker, the surface build not running this pass, so beside the plumbing step's chain parent and its {workers} refill workers; "
+            f"(--jobs {beside_verdict_update.conform_jobs}; CONFORM_BELT_BYTES a belt worker, the surface build not running this pass, so beside the verdict update's process and its {workers} refill workers; "
             in line
         )
         assert line.endswith(f"; {derivation})")
-        plumbing = ac.STANDING_FILL_PARENT_BYTES + ac.STANDING_FILL_WORKER_BYTES * workers
-        assert f"less {format_gb(plumbing)} GB co-resident" in derivation
+        verdict_update = ac.STANDING_FILL_PARENT_BYTES + ac.STANDING_FILL_WORKER_BYTES * workers
+        assert f"less {format_gb(verdict_update)} GB co-resident" in derivation
 
         idle = {
             "skip_surface": True,
             "surface_note": "inputs unchanged",
-            "skip_plumbing": True,
-            "plumbing_note": "nothing moved",
+            "skip_verdict_update": True,
+            "verdict_update_note": "nothing moved",
         }
         alone = _plan(**idle, **box)
-        assert not alone.runs("plumbing")
+        assert not alone.runs("verdict-update")
         line = _lane_conform_line(alone)
         derivation = _plan_conform_derivation(alone, **box)
         assert (
-            f"(--jobs {alone.conform_jobs}; CONFORM_BELT_BYTES a belt worker, neither the surface build nor the plumbing step running this pass, so nothing co-resident; "
+            f"(--jobs {alone.conform_jobs}; CONFORM_BELT_BYTES a belt worker, neither the surface build nor the verdict-update step running this pass, so nothing co-resident; "
             in line
         )
         assert line.endswith(f"; {derivation})")
@@ -2497,7 +2513,7 @@ class TestTheConformBeltWidth:
         outweighed = _plan(**wide)
         line = _lane_conform_line(outweighed)
         assert (
-            f"CONFORM_BELT_BYTES a belt worker, the plumbing step outweighing the surface build, so beside the plumbing step's chain parent and its {outweighed.standing_fill_jobs} refill workers; "
+            f"CONFORM_BELT_BYTES a belt worker, the verdict-update step outweighing the surface build, so beside the verdict update's process and its {outweighed.standing_fill_jobs} refill workers; "
             in line
         )
         assert line.endswith(f"; {_plan_conform_derivation(outweighed, **wide)})")
@@ -2506,13 +2522,13 @@ class TestTheConformBeltWidth:
         """The plan line quotes the derivation, and it and the width come from the same three terms, so in every case the clause starts with the width it explains."""
         for total_bytes in (BOX_32_GIB, 20_000_000_000):
             for skip_make_test in (False, True):
-                for skip_surface, plumbing_runs in itertools.product((False, True), repeat=2):
+                for skip_surface, verdict_update_runs in itertools.product((False, True), repeat=2):
                     for pool_policy in ac.POOL_POLICIES:
                         kw: dict[str, Any] = dict(
                             skip_gates=False,
                             skip_make_test=skip_make_test,
                             skip_surface=skip_surface,
-                            plumbing_runs=plumbing_runs,
+                            verdict_update_runs=verdict_update_runs,
                             pool_policy=pool_policy,
                             ncores=10,
                             total_bytes=total_bytes,
@@ -2698,7 +2714,7 @@ def test_dry_run_renders_concurrency():
     assert "Lane rebuild-contracts" in text
     assert "Lane conform" in text
     assert "Lane kernel" not in text
-    assert "run_m1 -> submit gate:rebuild-contracts -> surface-build -> plumbing -> census" in text
+    assert "run_m1 -> submit gate:rebuild-contracts -> surface-build -> verdict-update -> census" in text
     assert "QUEUED behind gate:make-test (queue policy — one heavy pool at a time)" in text
     assert (
         f"Lane rebuild-contracts           : submitted beside the surface build, -n {plan.contracts_workers} ({plan.contracts_reason});"
@@ -2780,7 +2796,7 @@ def test_review_out_rehearsal_plan(monkeypatch, tmp_path):
     assert _argv(by_name["surface-build"])[-2:] == ["--out", str(rehearsal_out)]
     assert by_name["census"].argv is None
     assert by_name["census"].note == "SKIPPED (rehearsal: the checked-in pins track the live surface)"
-    argv = _argv(by_name["plumbing"])
+    argv = _argv(by_name["verdict-update"])
     assert argv[argv.index("--surface") + 1] == str(rehearsal_out)
     assert plan.surface_dir == rehearsal_out
     assert plan.review_out == rehearsal_out
@@ -2899,7 +2915,7 @@ def test_cycle_summary_payload_plan_block_and_argv():
         "refresh_assets": False,
         "promote_surface": None,
         "skip_contracts": False,
-        "skip_plumbing": False,
+        "skip_verdict_update": False,
         "review_out": None,
         "first_run": False,
         "short_id": "testid",
@@ -3528,7 +3544,7 @@ def test_the_plan_states_the_contracts_pool_width_on_its_lane_line():
     gated = _plan(ncores=10, total_bytes=BOX_32_GIB)
     text = _plan_text(gated)
     assert (
-        "Lane build[serial, main thread]  : run_m1 -> submit gate:rebuild-contracts -> surface-build -> plumbing -> census"
+        "Lane build[serial, main thread]  : run_m1 -> submit gate:rebuild-contracts -> surface-build -> verdict-update -> census"
         in text
     )
     assert (
@@ -4710,8 +4726,8 @@ def test_a_ledger_why_edit_restamps_the_surface_and_nothing_upstream(tmp_path):
         assert reclassified[f"lane:{lane}"] != upstream[f"lane:{lane}"]
 
 
-def test_a_standing_note_reword_moves_the_chain_and_nothing_else(tmp_path):
-    """The standing fill quotes a rule's `note` into every verdict note it writes, so rewording a note must change the plumbing key. The surface and every build key stay unchanged, and so does the lane key, because the tests read each rule's `match` and not its prose. Changing a rule's verdict must change the lane key and leave the run_m1 key unchanged."""
+def test_a_standing_note_reword_moves_the_verdict_update_key_and_nothing_else(tmp_path):
+    """The standing fill quotes a rule's `note` into every verdict note it writes, so rewording a note must change the verdict-update key. The surface and every build key stay unchanged, and so does the lane key, because the tests read each rule's `match` and not its prose. Changing a rule's verdict must change the lane key and leave the run_m1 key unchanged."""
     root = _fake_run_m1_root(tmp_path)
     subprocess.run(["git", "init", "-q"], cwd=root, check=True)
     (root / ".gitignore").write_text("rebuild/out/\n")
@@ -4724,13 +4740,13 @@ def test_a_standing_note_reword_moves_the_chain_and_nothing_else(tmp_path):
     surface = _stamped_surface(root)
     assert ac.surface_build_skippable(root, surface)
     upstream = _upstream_keys(root)
-    chain = ac.plumbing_skip_fingerprint(root, surface, master)
-    assert chain is not None
+    verdict_update_key = ac.verdict_update_skip_fingerprint(root, surface, master)
+    assert verdict_update_key is not None
 
     standing.write_text(
         "format: ams-standing-approvals/1\nrules:\n  - id: r1\n    verdict: approve\n    note: one, said at greater length\n"
     )
-    assert ac.plumbing_skip_fingerprint(root, surface, master) != chain
+    assert ac.verdict_update_skip_fingerprint(root, surface, master) != verdict_update_key
     assert ac.surface_build_skippable(root, surface)
     assert _upstream_keys(root) == upstream
 
@@ -4770,7 +4786,7 @@ def test_dry_run_plan_skip_run_m1_and_surface_still_runs_the_census():
     assert "SKIPPED (build inputs unchanged" in by_name["run_m1"].note
     assert by_name["surface-build"].argv is None
     assert _argv(by_name["census"])[-3:] == ["--update", "--surface", str(ac.REVIEW_OUT)]
-    assert by_name["plumbing"].argv is not None
+    assert by_name["verdict-update"].argv is not None
     assert by_name["gate:rebuild-contracts"].argv is not None
 
 
@@ -5551,7 +5567,7 @@ def test_a_step_that_came_back_nonzero_never_reads_as_an_ok_row():
 
 
 def test_every_spawned_step_closes_with_its_own_figure_and_peak(capsys, tmp_path):
-    """Each spawned step's closing line carries the figure its summary row will show and its peak memory. No stage knows its figure when its child exits (run_m1 reads three summaries, the surface build opens a manifest, the chain splits its sections), so the closing line is written by the stage that reads them."""
+    """Each spawned step's closing line carries the figure its summary row will show and its peak memory. No stage knows its figure when its child exits (run_m1 reads three summaries, the surface build opens a manifest, the verdict update splits its sections), so the closing line is written by the stage that reads them."""
     surface = _built_surface(tmp_path, units=15903, rows=81894, batches=16, echo_groups=402)
 
     def spawn(name, argv, *, emit, registry, stream, **passthrough):
@@ -5965,8 +5981,8 @@ def test_run_m1_failure_still_leaves_the_rebuild_suite_not_run(monkeypatch, caps
     assert "Manual-pin gate failed" in capsys.readouterr().out
 
 
-def test_plumbing_skip_fingerprint_moves_with_every_input(tmp_path):
-    """The plumbing key moves with every input. The standing approvals are hashed by raw bytes here, although the rebuild lanes give them a prose-insensitive hash: the fill copies each rule's `note` into the verdict note it writes, so a reworded note changes what the chain writes and must re-run it."""
+def test_verdict_update_skip_fingerprint_moves_with_every_input(tmp_path):
+    """The verdict-update key moves with every input. The standing approvals are hashed by raw bytes here, although the rebuild lanes give them a prose-insensitive hash: the fill copies each rule's `note` into the verdict note it writes, so a reworded note changes what the verdict update writes and must re-run it."""
     surface = tmp_path / "review"
     surface.mkdir()
     (surface / "manifest.json").write_text(
@@ -5977,32 +5993,32 @@ def test_plumbing_skip_fingerprint_moves_with_every_input(tmp_path):
     (tmp_path / "rebuild").mkdir()
     (tmp_path / "rebuild" / "standing-approvals.yaml").write_text("rules: []\n")
 
-    base = ac.plumbing_skip_fingerprint(tmp_path, surface, master)
+    base = ac.verdict_update_skip_fingerprint(tmp_path, surface, master)
     assert base is not None
-    assert ac.plumbing_skip_fingerprint(tmp_path, surface, master) == base
-    assert ac.plumbing_skip_fingerprint(tmp_path, surface, None) is None
+    assert ac.verdict_update_skip_fingerprint(tmp_path, surface, master) == base
+    assert ac.verdict_update_skip_fingerprint(tmp_path, surface, None) is None
 
     master.write_text('{"verdicts": []}')
-    assert ac.plumbing_skip_fingerprint(tmp_path, surface, master) != base
+    assert ac.verdict_update_skip_fingerprint(tmp_path, surface, master) != base
 
     master.write_text("{}")
     (tmp_path / "rebuild" / "standing-approvals.yaml").write_text("rules: [{}]\n")
-    assert ac.plumbing_skip_fingerprint(tmp_path, surface, master) != base
+    assert ac.verdict_update_skip_fingerprint(tmp_path, surface, master) != base
 
     (tmp_path / "rebuild" / "standing-approvals.yaml").write_text(
         "rules:\n  - id: r1\n    verdict: approve\n    note: one\n"
     )
-    noted = ac.plumbing_skip_fingerprint(tmp_path, surface, master)
+    noted = ac.verdict_update_skip_fingerprint(tmp_path, surface, master)
     (tmp_path / "rebuild" / "standing-approvals.yaml").write_text(
         "rules:\n  - id: r1\n    verdict: approve\n    note: two, at greater length\n"
     )
-    assert ac.plumbing_skip_fingerprint(tmp_path, surface, master) != noted
+    assert ac.verdict_update_skip_fingerprint(tmp_path, surface, master) != noted
 
     (tmp_path / "rebuild" / "standing-approvals.yaml").write_text("rules: []\n")
     (surface / "manifest.json").write_text(
         json.dumps({"generated_at": "2026-07-18T00:00:00Z", "inputs_fingerprint": {"runes": "aaa"}})
     )
-    assert ac.plumbing_skip_fingerprint(tmp_path, surface, master) != base
+    assert ac.verdict_update_skip_fingerprint(tmp_path, surface, master) != base
 
     (surface / "manifest.json").write_text(
         json.dumps(
@@ -6012,14 +6028,14 @@ def test_plumbing_skip_fingerprint_moves_with_every_input(tmp_path):
             }
         )
     )
-    assert ac.plumbing_skip_fingerprint(tmp_path, surface, master) == base
+    assert ac.verdict_update_skip_fingerprint(tmp_path, surface, master) == base
 
     (surface / "manifest.json").write_text(json.dumps({"generated_at": "2026-07-17T20:24:44Z"}))
-    assert ac.plumbing_skip_fingerprint(tmp_path, surface, master) is None
+    assert ac.verdict_update_skip_fingerprint(tmp_path, surface, master) is None
 
 
-def test_plumbing_skip_fingerprint_covers_the_chains_own_code(tmp_path):
-    """The plumbing key covers the chain's own code, which lives in rebuild/tools/, where no other fingerprint reads it. Without it, a fix to a fill's matcher would be skipped as already proven. artifact_cycle.py, cycle_timings.py, memory_budget.py and peak_rss.py share that directory but run no step of the chain, so editing one leaves the key unchanged; serve.py and review_server.py, which the chain imports, move it."""
+def test_verdict_update_skip_fingerprint_covers_its_own_code(tmp_path):
+    """The verdict-update key covers the verdict update's own code, which lives in rebuild/tools/, where no other fingerprint reads it. Without it, a fix to a fill's matcher would be skipped as already proven. artifact_cycle.py, cycle_timings.py, memory_budget.py and peak_rss.py share that directory but run no step of the verdict update, so editing one leaves the key unchanged; serve.py and review_server.py, which the verdict update imports, move it."""
     surface = tmp_path / "review"
     surface.mkdir()
     (surface / "manifest.json").write_text(
@@ -6035,34 +6051,34 @@ def test_plumbing_skip_fingerprint_covers_the_chains_own_code(tmp_path):
         (tools / name).write_text("x = 1\n")
     (tmp_path / "rebuild" / "review" / "serve.py").write_text("y = 1\n")
 
-    base = ac.plumbing_skip_fingerprint(tmp_path, surface, master)
+    base = ac.verdict_update_skip_fingerprint(tmp_path, surface, master)
     assert base is not None
     for edited in (tools / "echo_verdicts.py", tools / "standing_verdicts.py", tools / "carry_verdicts.py"):
         original = edited.read_text()
         edited.write_text("x = 2\n")
-        assert ac.plumbing_skip_fingerprint(tmp_path, surface, master) != base, edited.name
+        assert ac.verdict_update_skip_fingerprint(tmp_path, surface, master) != base, edited.name
         edited.write_text(original)
-    assert ac.plumbing_skip_fingerprint(tmp_path, surface, master) == base
+    assert ac.verdict_update_skip_fingerprint(tmp_path, surface, master) == base
 
     (tmp_path / "rebuild" / "review" / "serve.py").write_text("y = 2\n")
-    assert ac.plumbing_skip_fingerprint(tmp_path, surface, master) != base
+    assert ac.verdict_update_skip_fingerprint(tmp_path, surface, master) != base
 
     outside = ("artifact_cycle.py", "cycle_timings.py", "memory_budget.py", "peak_rss.py")
     for name in outside:
         (tools / name).write_text("x = 1\n")
-    unmoved = ac.plumbing_skip_fingerprint(tmp_path, surface, master)
+    unmoved = ac.verdict_update_skip_fingerprint(tmp_path, surface, master)
     for name in outside:
         (tools / name).write_text("x = 2\n")
-        assert ac.plumbing_skip_fingerprint(tmp_path, surface, master) == unmoved, name
+        assert ac.verdict_update_skip_fingerprint(tmp_path, surface, master) == unmoved, name
         (tools / name).write_text("x = 1\n")
 
     (tools / "review_server.py").write_text("x = 1\n")
-    probed = ac.plumbing_skip_fingerprint(tmp_path, surface, master)
+    probed = ac.verdict_update_skip_fingerprint(tmp_path, surface, master)
     (tools / "review_server.py").write_text("x = 2\n")
-    assert ac.plumbing_skip_fingerprint(tmp_path, surface, master) != probed
+    assert ac.verdict_update_skip_fingerprint(tmp_path, surface, master) != probed
 
 
-def test_plumbing_skip_fingerprint_sees_a_master_that_is_not_the_autosave(tmp_path):
+def test_verdict_update_skip_fingerprint_sees_a_master_that_is_not_the_autosave(tmp_path):
     """The master is in the key because the autosave's hash cannot see it: an export at the repo root can outrank the store in the auto-resolution and hold verdicts the store has never had."""
     surface = tmp_path / "review"
     surface.mkdir()
@@ -6072,38 +6088,38 @@ def test_plumbing_skip_fingerprint_sees_a_master_that_is_not_the_autosave(tmp_pa
     (tmp_path / "verdicts-autosave.json").write_text("{}")
     export = tmp_path / "verdicts-export.json"
     export.write_text('{"verdicts": [1]}')
-    before = ac.plumbing_skip_fingerprint(tmp_path, surface, export)
+    before = ac.verdict_update_skip_fingerprint(tmp_path, surface, export)
     export.write_text('{"verdicts": [1, 2]}')
-    assert ac.plumbing_skip_fingerprint(tmp_path, surface, export) != before
+    assert ac.verdict_update_skip_fingerprint(tmp_path, surface, export) != before
 
 
-def test_dry_run_plan_skip_plumbing_replaces_the_whole_chain():
-    plan = _plan(skip_plumbing=True, plumbing_note=ac.PLUMBING_SKIP_NOTE)
+def test_dry_run_plan_skip_verdict_update_replaces_the_whole_step():
+    plan = _plan(skip_verdict_update=True, verdict_update_note=ac.VERDICT_UPDATE_SKIP_NOTE)
     assert plan.carry_out is None
     by_name = {step.name: step for step in plan.steps}
-    assert by_name["plumbing"].argv is None
-    assert by_name["plumbing"].note == f"SKIPPED ({ac.PLUMBING_SKIP_NOTE})"
-    assert plan.complaints_note == ac.PLUMBING_SKIP_NOTE
+    assert by_name["verdict-update"].argv is None
+    assert by_name["verdict-update"].note == f"SKIPPED ({ac.VERDICT_UPDATE_SKIP_NOTE})"
+    assert plan.complaints_note == ac.VERDICT_UPDATE_SKIP_NOTE
     assert by_name["census"].argv is not None
 
 
 def test_dry_run_plan_store_only_merges_the_master():
-    """When the surface did not move, the carry would map every unit onto itself, and its re-prefixed notes could never outrank the store. So the chain merges the master directly: it is the one input the store's own hash cannot see."""
+    """When the surface did not move, the carry would map every unit onto itself, and its re-prefixed notes could never outrank the store. So the verdict update merges the master directly: it is the one input the store's own hash cannot see."""
     plan = _plan(store_only=True)
     by_name = {step.name: step for step in plan.steps}
     assert plan.carry_out is None
-    argv = _argv(by_name["plumbing"])
+    argv = _argv(by_name["verdict-update"])
     assert "--verdicts" not in argv
     assert argv[argv.index("--merge-master") + 1] == "v.json"
     assert "--no-merge" not in argv
     assert plan.do_merge
-    assert "the carry is the identity" in by_name["plumbing"].note
+    assert "the carry is the identity" in by_name["verdict-update"].note
 
 
 def test_dry_run_plan_store_only_still_honors_no_merge():
     plan = _plan(store_only=True, no_merge=True)
     by_name = {step.name: step for step in plan.steps}
-    assert "--no-merge" in _argv(by_name["plumbing"])
+    assert "--no-merge" in _argv(by_name["verdict-update"])
     assert not plan.do_merge
 
 
@@ -6112,13 +6128,13 @@ def test_the_store_only_report_still_names_the_frontier_carried_file(tmp_path, m
     carried.write_text("{}")
     monkeypatch.setattr(ac, "frontier_carry_out", lambda: carried)
     plan = _plan(store_only=True)
-    report, failures = _run_plumbing(plan, _chain_stdout(*_FULL_CHAIN[1:]))
+    report, failures = _run_verdict_update(plan, _verdict_update_stdout(*_FULL_VERDICT_UPDATE[1:]))
     assert failures == []
     assert report.carry_out == carried
 
 
 def test_frontier_carry_out_derives_the_stamp_aligned_frontier_from_disk(tmp_path, monkeypatch):
-    """The summary names the frontier by deriving it from disk the way its readers do, not from the plumbing green record: a later export with more effective verdicts outranks the file the last recorded pass wrote."""
+    """The summary names the frontier by deriving it from disk the way its readers do, not from the verdict-update green record: a later export with more effective verdicts outranks the file the last recorded pass wrote."""
     review = tmp_path / "rebuild" / "out" / "review"
     review.mkdir(parents=True)
     (review / "manifest.json").write_text(json.dumps({"generated_at": "S1"}))
@@ -6147,9 +6163,9 @@ def test_frontier_carry_out_derives_the_stamp_aligned_frontier_from_disk(tmp_pat
     assert ac.frontier_carry_out() is None
 
 
-def test_run_cycle_never_spawns_the_plumbing_when_skipped(monkeypatch, tmp_path):
+def test_run_cycle_never_spawns_the_verdict_update_when_skipped(monkeypatch, tmp_path):
     def must_not_run(*args, **kwargs):
-        raise AssertionError("the plumbing skip path must spawn nothing")
+        raise AssertionError("the verdict-update skip path must spawn nothing")
 
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
@@ -6158,30 +6174,30 @@ def test_run_cycle_never_spawns_the_plumbing_when_skipped(monkeypatch, tmp_path)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
     _patch_build_chain(monkeypatch)
     _patch_gate_fingerprints(monkeypatch)
-    monkeypatch.setattr(ac, "_do_plumbing", must_not_run)
-    monkeypatch.setattr(cycle_paths, "PLUMBING_GREEN", tmp_path / "plumbing-green.json")
+    monkeypatch.setattr(ac, "_do_verdict_update", must_not_run)
+    monkeypatch.setattr(cycle_paths, "VERDICT_UPDATE_GREEN", tmp_path / "verdict-update-green.json")
 
     carried = tmp_path / "verdicts-carried-abc.json"
     carried.write_text("{}")
     monkeypatch.setattr(ac, "frontier_carry_out", lambda: carried)
     plan = _plan(
-        skip_plumbing=True,
-        plumbing_note=ac.PLUMBING_SKIP_NOTE,
+        skip_verdict_update=True,
+        verdict_update_note=ac.VERDICT_UPDATE_SKIP_NOTE,
         record_greens=True,
     )
     report = ac.CycleReport()
     rc = ac._run_cycle(plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=lambda *a, **k: _step())
     assert rc == 0
-    note = f"skipped ({ac.PLUMBING_SKIP_NOTE})"
+    note = f"skipped ({ac.VERDICT_UPDATE_SKIP_NOTE})"
     assert report.merge_status == note
     assert report.echo_fill_status == note
     assert report.standing_merge_status == note
     assert report.complaints_status == note
     assert report.carry_out == carried
-    assert not (tmp_path / "plumbing-green.json").exists()
+    assert not (tmp_path / "verdict-update-green.json").exists()
 
 
-def test_run_cycle_records_the_plumbing_green_only_after_a_complete_chain(monkeypatch, tmp_path):
+def test_run_cycle_records_the_verdict_update_green_only_after_a_complete_run(monkeypatch, tmp_path):
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
@@ -6189,9 +6205,11 @@ def test_run_cycle_records_the_plumbing_green_only_after_a_complete_chain(monkey
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
     _patch_build_chain(monkeypatch)
     _patch_gate_fingerprints(monkeypatch)
-    green = tmp_path / "plumbing-green.json"
-    monkeypatch.setattr(cycle_paths, "PLUMBING_GREEN", green)
-    monkeypatch.setattr(ac, "plumbing_skip_fingerprint", lambda root=None, surface=None, master=None: "plu")
+    green = tmp_path / "verdict-update-green.json"
+    monkeypatch.setattr(cycle_paths, "VERDICT_UPDATE_GREEN", green)
+    monkeypatch.setattr(
+        ac, "verdict_update_skip_fingerprint", lambda root=None, surface=None, master=None: "plu"
+    )
 
     plan = _plan(record_greens=True)
     rc = ac._run_cycle(
@@ -6201,17 +6219,17 @@ def test_run_cycle_records_the_plumbing_green_only_after_a_complete_chain(monkey
     record = ac.read_green_record(green)
     assert record is not None
     assert record["fingerprint"] == "plu"
-    assert record["format"] == "ams-plumbing-green/1"
+    assert record["format"] == "ams-verdict-update-green/1"
 
     green.unlink()
 
     def complaints_broken(report, *, spawn, emit, registry, plan):
-        _plumbing_ok(report, spawn=spawn, emit=emit, registry=registry, plan=plan)
+        _verdict_update_ok(report, spawn=spawn, emit=emit, registry=registry, plan=plan)
         report.complaints_status = "FAILED (exit 2) — informational"
         report.complaints_ok = False
         return []
 
-    monkeypatch.setattr(ac, "_do_plumbing", complaints_broken)
+    monkeypatch.setattr(ac, "_do_verdict_update", complaints_broken)
     rc = ac._run_cycle(
         _plan(record_greens=True),
         ac.CycleReport(),
@@ -6226,7 +6244,7 @@ def test_run_cycle_records_the_plumbing_green_only_after_a_complete_chain(monkey
         report.standing_merge_status = "FAILED (exit 1)"
         return ["standing-merge failed"]
 
-    monkeypatch.setattr(ac, "_do_plumbing", standing_merge_fails)
+    monkeypatch.setattr(ac, "_do_verdict_update", standing_merge_fails)
     rc = ac._run_cycle(
         _plan(record_greens=True),
         ac.CycleReport(),
@@ -6238,12 +6256,12 @@ def test_run_cycle_records_the_plumbing_green_only_after_a_complete_chain(monkey
     assert not green.exists()
 
 
-def test_run_cycle_records_no_plumbing_green_until_the_chain_witnesses_its_fixpoint(monkeypatch, tmp_path):
-    """The plumbing green is recorded only when the chain reports a fixpoint. The chain runs the echo pass again after the standing merge and reports whether that pass would have written anything; if the chain stopped short of that, the next pass runs it again."""
+def test_run_cycle_records_no_verdict_update_green_until_it_witnesses_its_fixpoint(monkeypatch, tmp_path):
+    """The verdict-update green is recorded only when the verdict update reports a fixpoint. The verdict update runs the echo pass again after the standing merge and reports whether that pass would have written anything; if the verdict update stopped short of that, the next pass runs it again."""
 
     def unsettled(report, *, spawn, emit, registry, plan):
-        _plumbing_ok(report, spawn=spawn, emit=emit, registry=registry, plan=plan)
-        report.plumbing_fixpoint = False
+        _verdict_update_ok(report, spawn=spawn, emit=emit, registry=registry, plan=plan)
+        report.verdict_update_fixpoint = False
         return []
 
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
@@ -6253,11 +6271,13 @@ def test_run_cycle_records_no_plumbing_green_until_the_chain_witnesses_its_fixpo
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
     _patch_build_chain(monkeypatch)
     _patch_gate_fingerprints(monkeypatch)
-    monkeypatch.setattr(ac, "plumbing_skip_fingerprint", lambda root=None, surface=None, master=None: "plu")
-    green = tmp_path / "plumbing-green.json"
-    monkeypatch.setattr(cycle_paths, "PLUMBING_GREEN", green)
+    monkeypatch.setattr(
+        ac, "verdict_update_skip_fingerprint", lambda root=None, surface=None, master=None: "plu"
+    )
+    green = tmp_path / "verdict-update-green.json"
+    monkeypatch.setattr(cycle_paths, "VERDICT_UPDATE_GREEN", green)
 
-    monkeypatch.setattr(ac, "_do_plumbing", unsettled)
+    monkeypatch.setattr(ac, "_do_verdict_update", unsettled)
     rc = ac._run_cycle(
         _plan(record_greens=True),
         ac.CycleReport(),
@@ -6268,7 +6288,7 @@ def test_run_cycle_records_no_plumbing_green_until_the_chain_witnesses_its_fixpo
     assert rc == 0
     assert not green.exists()
 
-    monkeypatch.setattr(ac, "_do_plumbing", _plumbing_ok)
+    monkeypatch.setattr(ac, "_do_verdict_update", _verdict_update_ok)
     rc = ac._run_cycle(
         _plan(record_greens=True),
         ac.CycleReport(),
@@ -6280,65 +6300,75 @@ def test_run_cycle_records_no_plumbing_green_until_the_chain_witnesses_its_fixpo
     assert green.exists()
 
 
-def test_plumbing_settled_reads_the_chains_own_witness():
+def test_verdict_update_settled_reads_its_own_witness():
     report = ac.CycleReport()
-    assert ac._plumbing_settled(report) is False
-    report, _failures = _run_plumbing(_plan(), _chain_stdout(*_FULL_CHAIN, fixpoint=False))
-    assert ac._plumbing_settled(report) is False
-    report, _failures = _run_plumbing(_plan(), _chain_stdout(*_FULL_CHAIN))
-    assert ac._plumbing_settled(report) is True
+    assert ac._verdict_update_settled(report) is False
+    report, _failures = _run_verdict_update(
+        _plan(), _verdict_update_stdout(*_FULL_VERDICT_UPDATE, fixpoint=False)
+    )
+    assert ac._verdict_update_settled(report) is False
+    report, _failures = _run_verdict_update(_plan(), _verdict_update_stdout(*_FULL_VERDICT_UPDATE))
+    assert ac._verdict_update_settled(report) is True
 
 
 def _settled_repo(tmp_path, monkeypatch):
-    """A repo whose run_m1 and surface build both auto-skip: the converged pass, the only case the plumbing skip is offered on."""
+    """A repo whose run_m1 and surface build both auto-skip: the converged pass, the only case the verdict-update skip is offered on."""
     _unsettled_repo(tmp_path, monkeypatch)
     ac.record_green(cycle_paths.RUN_M1_GREEN, "key")
     monkeypatch.setattr(ac, "m1_artifacts_present", lambda root=None: True)
     monkeypatch.setattr(ac, "surface_build_skippable", lambda root=None: True)
     monkeypatch.setattr(ac, "conform_skip_fingerprint", lambda root=None, horizon=None: "no-match")
-    monkeypatch.setattr(cycle_paths, "PLUMBING_GREEN", tmp_path / "rebuild" / "out" / "plumbing-green.json")
-    monkeypatch.setattr(ac, "plumbing_skip_fingerprint", lambda root=None, surface=None, master=None: "plu")
+    monkeypatch.setattr(
+        cycle_paths, "VERDICT_UPDATE_GREEN", tmp_path / "rebuild" / "out" / "verdict-update-green.json"
+    )
+    monkeypatch.setattr(
+        ac, "verdict_update_skip_fingerprint", lambda root=None, surface=None, master=None: "plu"
+    )
 
 
-def test_main_skips_the_plumbing_on_a_matching_record(tmp_path, monkeypatch, capsys):
+def test_main_skips_the_verdict_update_on_a_matching_record(tmp_path, monkeypatch, capsys):
     _settled_repo(tmp_path, monkeypatch)
-    ac.record_plumbing_green("plu")
+    ac.record_verdict_update_green("plu")
     assert ac.main(["--dry-run"]) == 0
     out = capsys.readouterr().out
-    assert f"SKIPPED ({ac.PLUMBING_SKIP_NOTE})" in _step_lines(out, "plumbing")
+    assert f"SKIPPED ({ac.VERDICT_UPDATE_SKIP_NOTE})" in _step_lines(out, "verdict-update")
 
-    ac.record_plumbing_green("moved")
+    ac.record_verdict_update_green("moved")
     assert ac.main(["--dry-run"]) == 0
     out = capsys.readouterr().out
-    row = _step_lines(out, "plumbing")
-    assert "uv run python -m rebuild.tools.verdict_chain" in row
+    row = _step_lines(out, "verdict-update")
+    assert "uv run python -m rebuild.tools.verdict_update" in row
     assert "--merge-master" in row
 
 
-def test_main_runs_the_census_on_the_pass_that_skips_the_plumbing(tmp_path, monkeypatch, capsys):
-    """The census always runs, even on a pass that skips the whole verdict chain, because reading the sidecar and rewriting one small file is cheap."""
+def test_main_runs_the_census_on_the_pass_that_skips_the_verdict_update(tmp_path, monkeypatch, capsys):
+    """The census always runs, even on a pass that skips the whole verdict update, because reading the sidecar and rewriting one small file is cheap."""
     _settled_repo(tmp_path, monkeypatch)
-    ac.record_plumbing_green("plu")
+    ac.record_verdict_update_green("plu")
     assert ac.main(["--dry-run"]) == 0
     out = capsys.readouterr().out
-    assert f"SKIPPED ({ac.PLUMBING_SKIP_NOTE})" in _step_lines(out, "plumbing")
+    assert f"SKIPPED ({ac.VERDICT_UPDATE_SKIP_NOTE})" in _step_lines(out, "verdict-update")
     assert "uv run python -m rebuild.review.census --update" in _step_lines(out, "census")
 
 
-def test_main_never_skips_the_plumbing_on_a_pass_that_writes_the_surface(tmp_path, monkeypatch, capsys):
-    """The plumbing skip is offered only when the surface build is skipped, because only then is the manifest stamp the chain keys on known not to change during the pass."""
+def test_main_never_skips_the_verdict_update_on_a_pass_that_writes_the_surface(tmp_path, monkeypatch, capsys):
+    """The verdict-update skip is offered only when the surface build is skipped, because only then is the manifest stamp the verdict update keys on known not to change during the pass."""
     _unsettled_repo(tmp_path, monkeypatch)
-    monkeypatch.setattr(cycle_paths, "PLUMBING_GREEN", tmp_path / "rebuild" / "out" / "plumbing-green.json")
-    monkeypatch.setattr(ac, "plumbing_skip_fingerprint", lambda root=None, surface=None, master=None: "plu")
-    ac.record_plumbing_green("plu")
+    monkeypatch.setattr(
+        cycle_paths, "VERDICT_UPDATE_GREEN", tmp_path / "rebuild" / "out" / "verdict-update-green.json"
+    )
+    monkeypatch.setattr(
+        ac, "verdict_update_skip_fingerprint", lambda root=None, surface=None, master=None: "plu"
+    )
+    ac.record_verdict_update_green("plu")
     assert ac.main(["--dry-run"]) == 0
-    assert ac.PLUMBING_SKIP_NOTE not in capsys.readouterr().out
+    assert ac.VERDICT_UPDATE_SKIP_NOTE not in capsys.readouterr().out
 
 
-def test_main_never_skips_the_plumbing_under_fresh_or_a_partial_chain(tmp_path, monkeypatch, capsys):
-    """--fresh, --no-merge, --no-carry, a rehearsal and --carry-out each disable the plumbing skip. --carry-out is on the list because the skip writes no carried file, so the flag could not be honored."""
+def test_main_never_skips_the_verdict_update_under_fresh_or_a_partial_run(tmp_path, monkeypatch, capsys):
+    """--fresh, --no-merge, --no-carry, a rehearsal and --carry-out each disable the verdict-update skip. --carry-out is on the list because the skip writes no carried file, so the flag could not be honored."""
     _settled_repo(tmp_path, monkeypatch)
-    ac.record_plumbing_green("plu")
+    ac.record_verdict_update_green("plu")
     for argv in (
         ["--dry-run", "--fresh"],
         ["--dry-run", "--no-merge"],
@@ -6347,7 +6377,7 @@ def test_main_never_skips_the_plumbing_under_fresh_or_a_partial_chain(tmp_path, 
         ["--dry-run", "--carry-out", str(tmp_path / "carried.json")],
     ):
         assert ac.main(argv) == 0
-        assert ac.PLUMBING_SKIP_NOTE not in capsys.readouterr().out
+        assert ac.VERDICT_UPDATE_SKIP_NOTE not in capsys.readouterr().out
 
 
 def test_main_carries_a_master_stamped_for_another_surface_instead_of_merging_it(
@@ -6355,7 +6385,7 @@ def test_main_carries_a_master_stamped_for_another_surface_instead_of_merging_it
 ):
     """The store-only route passes the master to the merge unchanged, and the merge refuses any input stamped for another surface, so the route is taken only for a master stamped for the served surface. A pass stopped after the surface build and before the carry leaves the autosave stamped for the previous surface, and the next pass skips the build as unchanged; that pass plans the full carry, as does a pass given such a master by --verdicts. For the auto-resolved master, alignment comes from the resolution, whose line already names the older stamp, so the master is not parsed again and the declined-route note is not printed. A --verdicts master is checked with `master_stamped_for_surface`, and the note says why its carry runs. Once the autosave is restamped for the served surface, the store-only route is taken again."""
     _settled_repo(tmp_path, monkeypatch)
-    ac.record_plumbing_green("moved")
+    ac.record_verdict_update_green("moved")
     served = "2026-07-17T20:24:44Z"
     older = "2026-07-10T00:00:00Z"
     autosave = tmp_path / "verdicts-autosave.json"
@@ -6376,7 +6406,7 @@ def test_main_carries_a_master_stamped_for_another_surface_instead_of_merging_it
     for argv in (["--dry-run"], ["--dry-run", "--verdicts", str(export)]):
         assert ac.main(argv) == 0
         out = capsys.readouterr().out
-        row = _step_lines(out, "plumbing")
+        row = _step_lines(out, "verdict-update")
         assert "--verdicts" in row and "--carry-out" in row
         assert "--merge-master" not in row
         outs.append(out)
@@ -6389,7 +6419,7 @@ def test_main_carries_a_master_stamped_for_another_surface_instead_of_merging_it
     autosave.write_text(json.dumps(_verdicts_doc(served, ["u-1"])))
     assert ac.main(["--dry-run"]) == 0
     out = capsys.readouterr().out
-    assert "--merge-master" in _step_lines(out, "plumbing")
+    assert "--merge-master" in _step_lines(out, "verdict-update")
     assert ac.STORE_ONLY_DECLINED_NOTE not in out
     assert asked == [export]
 
@@ -6408,20 +6438,20 @@ def _assets_only_repo(tmp_path, monkeypatch):
 
 
 def test_main_refreshes_the_assets_when_only_the_static_component_moved(tmp_path, monkeypatch, capsys):
-    """An app JS/CSS/HTML edit plans a copy and a restamp, not a surface build. Downstream steps treat the pass as a skip: with a matching plumbing record the chain is skipped too, because the manifest line in the plumbing key leaves out the component the refresh rewrites."""
+    """An app JS/CSS/HTML edit plans a copy and a restamp, not a surface build. Downstream steps treat the pass as a skip: with a matching verdict-update record the verdict update is skipped too, because the manifest line in the verdict-update key leaves out the component the refresh rewrites."""
     _assets_only_repo(tmp_path, monkeypatch)
-    ac.record_plumbing_green("plu")
+    ac.record_verdict_update_green("plu")
     assert ac.main(["--dry-run"]) == 0
     out = capsys.readouterr().out
     assert "SKIPPED (only the review UI assets moved" in _step_lines(out, "surface-build")
     assert "uv run python -m rebuild.review.build refresh-assets" in _step_lines(out, "assets-refresh")
-    assert f"SKIPPED ({ac.PLUMBING_SKIP_NOTE})" in _step_lines(out, "plumbing")
+    assert f"SKIPPED ({ac.VERDICT_UPDATE_SKIP_NOTE})" in _step_lines(out, "verdict-update")
 
-    ac.record_plumbing_green("moved")
+    ac.record_verdict_update_green("moved")
     assert ac.main(["--dry-run"]) == 0
     out = capsys.readouterr().out
     assert "uv run python -m rebuild.review.build refresh-assets" in _step_lines(out, "assets-refresh")
-    assert "--merge-master" in _step_lines(out, "plumbing")
+    assert "--merge-master" in _step_lines(out, "verdict-update")
 
 
 def test_main_plans_no_assets_refresh_when_the_surface_already_matches(tmp_path, monkeypatch, capsys):
@@ -6513,9 +6543,9 @@ def test_stop_review_server_waits_for_the_port_to_come_free(monkeypatch):
 
 
 def test_main_keeps_the_review_server_running_on_the_settled_pass(tmp_path, monkeypatch, capsys):
-    """End to end through `main`: the pass that skips the surface and the plumbing keeps the review server running and never stops it."""
+    """End to end through `main`: the pass that skips the surface and the verdict update keeps the review server running and never stops it."""
     _settled_repo(tmp_path, monkeypatch)
-    ac.record_plumbing_green("plu")
+    ac.record_verdict_update_green("plu")
     monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: True)
     monkeypatch.setattr(
         ac, "stop_review_server", lambda timeout=ac.SERVER_STOP_TIMEOUT: pytest.fail("stopped")
@@ -6539,9 +6569,9 @@ def test_main_stops_the_server_when_the_pass_rebuilds_the_surface(tmp_path, monk
 
 
 def test_main_keeps_the_review_server_running_for_an_assets_refresh_pass(tmp_path, monkeypatch, capsys):
-    """An assets refresh moves no shard and no stamp, so the review server keeps running and livereload reloads the tab onto the new app shell. The same pass with a moved plumbing record writes the store, so without --stop-server it refuses."""
+    """An assets refresh moves no shard and no stamp, so the review server keeps running and livereload reloads the tab onto the new app shell. The same pass with a moved verdict-update record writes the store, so without --stop-server it refuses."""
     _assets_only_repo(tmp_path, monkeypatch)
-    ac.record_plumbing_green("plu")
+    ac.record_verdict_update_green("plu")
     monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: True)
     monkeypatch.setattr(
         ac, "stop_review_server", lambda timeout=ac.SERVER_STOP_TIMEOUT: pytest.fail("stopped")
@@ -6550,7 +6580,7 @@ def test_main_keeps_the_review_server_running_for_an_assets_refresh_pass(tmp_pat
     assert ac.main([]) == 0
     assert ac.SERVER_KEEPS_RUNNING_NOTE in capsys.readouterr().out
 
-    ac.record_plumbing_green("moved")
+    ac.record_verdict_update_green("moved")
     assert ac.main([]) == 2
     assert "REFUSING TO RUN" in capsys.readouterr().out
 
@@ -6580,14 +6610,14 @@ def test_main_promotes_a_current_rehearsal_instead_of_rebuilding(tmp_path, monke
     assert "assets-refresh" not in out
 
 
-def test_a_promoting_pass_runs_the_whole_chain(tmp_path, monkeypatch, capsys):
-    """A promoting pass runs the full chain. The plumbing skip and the store-only route both require an unmoved surface, and a promotion moves it and gives it a new stamp. So even with a matching plumbing record the chain runs the full carry, which puts the store's verdicts onto the promoted units by id, and the carry-source line says the master is stamped for the surface this pass replaces."""
+def test_a_promoting_pass_runs_the_whole_verdict_update(tmp_path, monkeypatch, capsys):
+    """A promoting pass runs the full verdict update. The verdict-update skip and the store-only route both require an unmoved surface, and a promotion moves it and gives it a new stamp. So even with a matching verdict-update record the verdict update runs the full carry, which puts the store's verdicts onto the promoted units by id, and the carry-source line says the master is stamped for the surface this pass replaces."""
     _rehearsal_repo(tmp_path, monkeypatch)
-    ac.record_plumbing_green("plu")
+    ac.record_verdict_update_green("plu")
     assert ac.main(["--dry-run"]) == 0
     out = capsys.readouterr().out
-    row = _step_lines(out, "plumbing")
-    assert "uv run python -m rebuild.tools.verdict_chain" in row
+    row = _step_lines(out, "verdict-update")
+    assert "uv run python -m rebuild.tools.verdict_update" in row
     assert "--verdicts" in row and "--carry-out" in row
     assert "--merge-master" not in row
     assert "SKIPPED" not in row
@@ -6867,7 +6897,7 @@ def test_finish_runs_retention_on_a_real_green_finish(monkeypatch):
 
 def test_retention_leaves_the_journal_and_stashes_alone_while_the_server_is_up(tmp_path, monkeypatch, capsys):
     """While the review server is up, retention leaves the journal and the stashes alone. The app appends to the journal as the reviewer works, and compact() rewrites the whole file around a read, so an append in between would be lost. The stash sweep reads the same journal to decide which stashes are still referenced, so it waits too. The carried-file sweep, which the app never writes, still runs."""
-    plan = _plan(skip_plumbing=True, plumbing_note=ac.PLUMBING_SKIP_NOTE)
+    plan = _plan(skip_verdict_update=True, verdict_update_note=ac.VERDICT_UPDATE_SKIP_NOTE)
     monkeypatch.setattr(ac, "ROOT", tmp_path)
     monkeypatch.setattr(ac, "REVIEW_OUT", tmp_path / "review")
     monkeypatch.setattr(cycle_paths, "DEEP_REPLAY_GREEN", tmp_path / "deep-replay-green.json")
@@ -6994,7 +7024,7 @@ def _spawning_surface(report, *, spawn, emit, registry, review_out, **_):
 def _patch_timing_cycle(monkeypatch):
     monkeypatch.setattr(ac, "_do_run_m1", _spawning_run_m1)
     monkeypatch.setattr(ac, "_do_surface_build", _spawning_surface)
-    monkeypatch.setattr(ac, "_do_plumbing", _plumbing_ok)
+    monkeypatch.setattr(ac, "_do_verdict_update", _verdict_update_ok)
     monkeypatch.setattr(ac, "_do_census", _census_clean)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
@@ -7003,7 +7033,7 @@ def _patch_timing_cycle(monkeypatch):
 
 
 def test_green_cycle_journals_steps_then_one_run_line(monkeypatch, tmp_path):
-    """The journal gets one step line per spawned child, then one run line. job-costs spawns a child, so the timing wrapper records it, and a summary claiming the check ran can be matched against the journal. The stubbed plumbing and census stages spawn nothing and get no line."""
+    """The journal gets one step line per spawned child, then one run line. job-costs spawns a child, so the timing wrapper records it, and a summary claiming the check ran can be matched against the journal. The stubbed verdict-update and census stages spawn nothing and get no line."""
     _patch_timing_cycle(monkeypatch)
 
     journal_path = tmp_path / "timings.ndjson"
@@ -7078,7 +7108,7 @@ def test_a_failed_assets_refresh_stops_the_pass_and_joins_the_suite_it_started(m
 def test_run_cycle_promotes_before_it_reports_the_surface_skipped(monkeypatch, tmp_path):
     """The promotion replaces the surface build: nothing spawns under surface-build, the reported totals come from the promoted manifest, and the step's seconds are on the report so its row reads `ok`, not `not run`."""
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
-    monkeypatch.setattr(ac, "_do_plumbing", _plumbing_ok)
+    monkeypatch.setattr(ac, "_do_verdict_update", _verdict_update_ok)
     monkeypatch.setattr(ac, "_do_census", _census_clean)
     monkeypatch.setattr(ac, "_do_job_costs", _job_costs_clean)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
@@ -7328,7 +7358,7 @@ def test_a_cycle_without_timings_still_evaluates_every_gate(monkeypatch):
 def test_main_hands_its_run_id_to_every_child_through_the_environment(tmp_path, monkeypatch):
     """`main` puts its run id in the environment, and every child inherits it. gate:make-test's wrapper and run_m1's CLI record their own check line unless this variable is set, so it keeps each check to one line. It is set on this process, not passed in a child's argv, because it must survive a Make recipe. The autouse fixture in rebuild/conftest.py removes it after the test, because a leftover run id would silence every check-recording test the worker ran next."""
     _settled_repo(tmp_path, monkeypatch)
-    ac.record_plumbing_green("plu")
+    ac.record_verdict_update_green("plu")
     monkeypatch.setenv(ct.CYCLE_RUN_ENV, "a-stale-run-id")
     monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: False)
     seen = {}
@@ -7346,7 +7376,7 @@ def test_main_hands_its_run_id_to_every_child_through_the_environment(tmp_path, 
 def test_main_runs_the_pass_under_the_stop_handlers(tmp_path, monkeypatch, _stop_dispositions):
     """`main` runs `_run_cycle` with SIGTERM and SIGHUP handlers that raise `CycleStopped`, so a signal that reaches only the driver still reaps the children, and it restores the previous handlers when the pass returns."""
     _settled_repo(tmp_path, monkeypatch)
-    ac.record_plumbing_green("plu")
+    ac.record_verdict_update_green("plu")
     monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: False)
     seen = {}
 
@@ -7368,7 +7398,7 @@ def test_main_runs_the_pass_under_the_stop_handlers(tmp_path, monkeypatch, _stop
 def test_main_mints_one_run_directory_and_points_latest_at_it(tmp_path, monkeypatch):
     """`main` creates one log directory per pass, named by stamp and short sha (what a summary cites), and points `latest` at it (what an agent tails while the pass runs)."""
     _settled_repo(tmp_path, monkeypatch)
-    ac.record_plumbing_green("plu")
+    ac.record_verdict_update_green("plu")
     monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: False)
     seen: dict[str, ac.Plan] = {}
 
@@ -7393,7 +7423,7 @@ def test_main_mints_one_run_directory_and_points_latest_at_it(tmp_path, monkeypa
 def test_main_copies_what_it_said_before_the_console_into_the_terminal_log(tmp_path, monkeypatch, capsys):
     """The carry-source line is printed before the plan is resolved and before the console exists. terminal.log is a copy of the terminal, so the line appears once in each."""
     _settled_repo(tmp_path, monkeypatch)
-    ac.record_plumbing_green("plu")
+    ac.record_verdict_update_green("plu")
     monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: False)
     seen: dict[str, ac.Plan] = {}
 
@@ -7439,7 +7469,7 @@ def test_prune_build_logs_keeps_the_newest_runs_and_never_the_pointer(tmp_path):
 
 def test_retention_prunes_the_build_logs_under_a_live_server_too(tmp_path, monkeypatch):
     """Retention prunes the build logs even while the review server is up: the app writes nothing there, unlike the stashes and the journal, which retention leaves alone under a live server."""
-    plan = _plan(skip_plumbing=True, plumbing_note=ac.PLUMBING_SKIP_NOTE)
+    plan = _plan(skip_verdict_update=True, verdict_update_note=ac.VERDICT_UPDATE_SKIP_NOTE)
     monkeypatch.setattr(ac, "ROOT", tmp_path)
     monkeypatch.setattr(ac, "REVIEW_OUT", tmp_path / "review")
     monkeypatch.setattr(cycle_paths, "DEEP_REPLAY_GREEN", tmp_path / "deep-replay-green.json")
@@ -7465,7 +7495,7 @@ def test_failing_cycle_still_journals_a_run_line(monkeypatch, tmp_path):
         return ["verdict merge failed"]
 
     _patch_timing_cycle(monkeypatch)
-    monkeypatch.setattr(ac, "_do_plumbing", failing_merge)
+    monkeypatch.setattr(ac, "_do_verdict_update", failing_merge)
 
     journal_path = tmp_path / "timings.ndjson"
     plan = _plan()

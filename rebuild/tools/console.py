@@ -2,9 +2,9 @@
 
 Everything written here is append-only: no color, ANSI escapes, spinners, or carriage returns. A redirect and a terminal get the same bytes, and `tail -f` never shows a line rewritten. Progress is a counter line, printed at most once per heartbeat window (60 seconds by default), instead of a progress bar. Counts carry thousand separators (`fmt_count`), durations use minutes and hours past a minute (`fmt_duration`), and peak memory is in decimal gigabytes, the unit `peak_rss` uses.
 
-The protocol is four line prefixes. `[phase] <name>` opens a stretch of work and `[t] <label> <secs>s` closes it, optionally followed by a space or tab and a tail. `[progress] <k>/<n> <unit>` is a counter, with `?` for an unknown total. `[warn] <text>` always reaches the terminal. The verdict chain's `[chain]` banner and its two result lines (fixpoint and failure) are defined here too, because the chain writes them and the cycle splits the chain's output on them. `INNER_LINE` is the one pattern for the `[t]` line; `cycle_timings` parses the journal with it, and `timing()` writes a line it matches.
+The protocol is four line prefixes. `[phase] <name>` opens a stretch of work and `[t] <label> <secs>s` closes it, optionally followed by a space or tab and a tail. `[progress] <k>/<n> <unit>` is a counter, with `?` for an unknown total. `[warn] <text>` always reaches the terminal. The verdict update's `[verdict-update]` banner and its two result lines (fixpoint and failure) are defined here too, because the verdict update writes them and the cycle splits its output on them. `INNER_LINE` is the one pattern for the `[t]` line; `cycle_timings` parses the journal with it, and `timing()` writes a line it matches.
 
-A `[phase]` line is surfaced when it arrives. A `[t]` line whose label matches an open phase closes it, and the surfaced line carries the child's measured duration and the tail. A `[t]` line with no open phase of that label, such as the crate's per-configuration enumerate lines, the oracle's per-configuration lines, or the chain's step timings, goes to the log only. This keeps a step that prints many timings from flooding the terminal without any producer knowing which of its timings the console shows.
+A `[phase]` line is surfaced when it arrives. A `[t]` line whose label matches an open phase closes it, and the surfaced line carries the child's measured duration and the tail. A `[t]` line with no open phase of that label, such as the crate's per-configuration enumerate lines, the oracle's per-configuration lines, or the verdict update's step timings, goes to the log only. This keeps a step that prints many timings from flooding the terminal without any producer knowing which of its timings the console shows.
 
 Every surfaced line carries its step name, the step's elapsed time, and the cycle's elapsed time, because several steps can be open at once.
 
@@ -12,7 +12,7 @@ pytest, node, and git do not print this protocol, so adapters read their output 
 
 Every line a child prints goes to that step's log, in arrival order, with stderr lines tagged; the terminal gets the console's rendering. A failed step replays its whole log under its own banner. The console writes each line in one call under one lock, so lines from overlapping children interleave but never split.
 
-This module imports nothing else from the repo. `rebuild.tools.verdict_chain` calls `phase()`, so this module is in the verdict plumbing's code closure, and anything it imported would be too. An edit to `cycle_timings` or a width module cannot change a verdict but would re-run the whole chain if it were in that closure. So `cycle_timings` imports `INNER_LINE` from here, and `fmt_rss` repeats the gigabyte divisor instead of importing `peak_rss`. `rebuild/test_console.py` checks the divisor matches and that this module has no repo imports, and `rebuild/test_plumbing_closure.py` checks the chain's closure.
+This module imports nothing else from the repo. `rebuild.tools.verdict_update` calls `phase()`, so this module is in the verdict update's code closure, and anything it imported would be too. An edit to `cycle_timings` or a width module cannot change a verdict but would re-run the whole verdict update if it were in that closure. So `cycle_timings` imports `INNER_LINE` from here, and `fmt_rss` repeats the gigabyte divisor instead of importing `peak_rss`. `rebuild/test_console.py` checks the divisor matches and that this module has no repo imports, and `rebuild/test_verdict_update_closure.py` checks the verdict update's closure.
 
 With `log_dir=None`, a `CycleConsole` does no `mkdir`, `open`, or symlink, so the driver's tests can build one without touching the repo; the rebuild suite's contracts lane audits every read and write against the live trees. In that mode a step's lines are kept in memory so a failure dump can replay them. With a log directory, they are read back from disk, so a full cycle's output never has to fit in the driver's memory.
 
@@ -40,9 +40,9 @@ WARN = "[warn] "
 
 INNER_LINE = re.compile(r"^\[t\] (.+?) (\d+(?:\.\d+)?)s(?:[ \t](.*))?$", re.MULTILINE)
 
-CHAIN_BANNER = "[chain] "
-FIXPOINT_LINE = CHAIN_BANNER + "fixpoint: "
-FAILED_LINE = CHAIN_BANNER + "failed: "
+VERDICT_UPDATE_BANNER = "[verdict-update] "
+FIXPOINT_LINE = VERDICT_UPDATE_BANNER + "fixpoint: "
+FAILED_LINE = VERDICT_UPDATE_BANNER + "failed: "
 
 STDOUT = "stdout"
 STDERR = "stderr"

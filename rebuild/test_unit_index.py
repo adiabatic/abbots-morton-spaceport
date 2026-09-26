@@ -1,4 +1,4 @@
-"""Tests for the per-unit index sidecar the surface build writes beside its manifest: that it is an accurate projection of the shards, that readers reject it when its stamp does not match the manifest on disk, and that the fallback to the shards returns the same records. The plumbing tools read units through the index whenever it is current, so a field that drops out of the projection raises no error: a standing rule stops matching and a blessed delta returns to the queue. These tests check every field of every unit against the shipped fixture shards."""
+"""Tests for the per-unit index sidecar the surface build writes beside its manifest: that it is an accurate projection of the shards, that readers reject it when its stamp does not match the manifest on disk, and that the fallback to the shards returns the same records. The verdict-update tools read units through the index whenever it is current, so a field that drops out of the projection raises no error: a standing rule stops matching and a blessed delta returns to the queue. These tests check every field of every unit against the shipped fixture shards."""
 
 from __future__ import annotations
 
@@ -115,7 +115,7 @@ def test_the_index_is_the_shards_field_for_field(tmp_path):
                 assert value == fragment.get(field), f"{record['id']}.{field}"
 
 
-def test_the_index_covers_every_field_the_plumbing_reads(tmp_path):
+def test_the_index_covers_every_field_the_verdict_update_reads(tmp_path):
     """The field set is written out rather than derived, so adding a field to the projection is an explicit change here, and removing one a tool reads fails here instead of in a fill that matches nothing."""
     surface = _fixture_surface(tmp_path)
     _write(surface)

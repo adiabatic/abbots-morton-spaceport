@@ -26,7 +26,7 @@ rebuild/out/review/
   fonts/after.otf       copy of rebuild/out/m1/M1.otf
 ```
 
-The build also writes other files beside the manifest, among them the app sidecars (§7.4), the plumbing's unit index (`units-index.ndjson.gz`), the unit cache's store (`unit-cache.ndjson.gz`), and `census-facts.json`.
+The build also writes other files beside the manifest, among them the app sidecars (§7.4), the verdict update's unit index (`units-index.ndjson.gz`), the unit cache's store (`unit-cache.ndjson.gz`), and `census-facts.json`.
 
 A shard part is capped at `build.SHARD_PART_BYTES`. The app parses each file it fetches as one JavaScript string, and a body longer than V8's `String::kMaxLength` (2**29 − 24 bytes under pointer compression) reaches `JSON.parse` as an empty string instead of an error. A class that fits in one part keeps the bare name. A larger class is written as contiguous three-digit parts numbered from `000`, and the manifest's `shards` list names them in concatenation order.
 

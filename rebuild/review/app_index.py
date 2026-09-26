@@ -1,6 +1,6 @@
 """The sidecar files the review app boots from: `app-units.ndjson.gz`, one row per human unit, and the locator pair, `app-locator.ndjson.gz`, a block table, over `app-locator-rows.ndjson.gz`, one address per machine-approved or no-verdict unit.
 
-The app reads these instead of the class shards so that a tab's memory grows with the review queue, not with the corpus. Loading the shards would hold every record, including `explain` and `drafts`, the two largest fields of a full fragment, which only the explain panel reads. An app-index row carries only the fields that the row label, the docket, search, echo groups, filters and progress read. `rebuild/test_app_index.py` checks `app_row` against the shards field by field, as `rebuild/test_unit_index.py` does for the plumbing's index.
+The app reads these instead of the class shards so that a tab's memory grows with the review queue, not with the corpus. Loading the shards would hold every record, including `explain` and `drafts`, the two largest fields of a full fragment, which only the explain panel reads. An app-index row carries only the fields that the row label, the docket, search, echo groups, filters and progress read. `rebuild/test_app_index.py` checks `app_row` against the shards field by field, as `rebuild/test_unit_index.py` does for the verdict update's index.
 
 In place of the dropped fields, each row carries the address of its own record in its class shard: the part index, byte offset and byte length, captured as `build._write_shard` wrote the shard. A card fetches its record with an HTTP Range request against the static file, with no server-side endpoint: the sample text, the pair band and the settled cells when the card is drawn, and the explain table when its panel opens. So `_write_shard`'s framing must keep every fragment addressable by byte offset: each fragment's bytes are a standalone JSON element, and they are pure ASCII, so a character offset is a byte offset.
 
@@ -30,7 +30,7 @@ LOCATOR_ROWS_NAME = "app-locator-rows.ndjson.gz"
 ARTIFACTS = ((APP_INDEX_NAME, APP_INDEX_FORMAT), (LOCATOR_NAME, LOCATOR_FORMAT))
 # Rows per gzip member of the locator's rows file. The app fetches one member with one Range request and decompresses it on its own, for a fold's next window or a deep link's candidate in one class. A row is about 120 bytes uncompressed, and a full member is about 18 KB gzipped (measured on the live surface's locator). The table has one line per member.
 LOCATOR_BLOCK_ROWS = 1024
-# Level 6, where `unit_index` uses level 1: the app fetches these files on every page load (`Cache-Control: no-store`), while the plumbing reads its index from local disk.
+# Level 6, where `unit_index` uses level 1: the app fetches these files on every page load (`Cache-Control: no-store`), while the verdict update reads its index from local disk.
 COMPRESS_LEVEL = 6
 
 _SLIMMED_FLAGS = (*MACHINE_CHANNELS, "no_verdict")

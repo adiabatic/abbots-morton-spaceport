@@ -3257,7 +3257,7 @@ def test_require_reach_counts_a_rule_whose_windows_are_all_verdicted_as_reaching
 
 
 def test_require_reach_refuses_when_a_rule_reaches_nothing(tmp_path, monkeypatch, capsys):
-    """A rule matching no window on this surface makes the run exit 1, so the plumbing step fails and `make verdict-ready` reports NOT READY. The fills from the rules that do reach are still written in full first, because they are correct and only the rules file is out of date."""
+    """A rule matching no window on this surface makes the run exit 1, so the verdict-update step fails and `make verdict-ready` reports NOT READY. The fills from the rules that do reach are still written in full first, because they are correct and only the rules file is out of date."""
     units = [canonical("u-1"), canonical("u-2")]
     code, payload = _invoke_main(
         tmp_path,
@@ -3272,9 +3272,10 @@ def test_require_reach_refuses_when_a_rule_reaches_nothing(tmp_path, monkeypatch
     assert [record["unit"] for record in payload["verdicts"]] == ["u-1", "u-2"]
     assert any(line.startswith(f"  REACHED NOTHING: {SHORTENED_RULE['id']} ") for line in lines)
     assert any(
-        line.startswith(f"  the plumbing refuses: {SHORTENED_RULE['id']} reached no window") for line in lines
+        line.startswith(f"  the verdict update refuses: {SHORTENED_RULE['id']} reached no window")
+        for line in lines
     )
-    assert not any(RULE["id"] in line for line in lines if line.startswith("  the plumbing refuses:"))
+    assert not any(RULE["id"] in line for line in lines if line.startswith("  the verdict update refuses:"))
 
 
 def test_without_require_reach_a_dead_rule_is_only_reported(tmp_path, monkeypatch, capsys):
@@ -3285,7 +3286,7 @@ def test_without_require_reach_a_dead_rule_is_only_reported(tmp_path, monkeypatc
     lines = capsys.readouterr().out.splitlines()
     assert code == 0
     assert any(line.startswith(f"  REACHED NOTHING: {SHORTENED_RULE['id']} ") for line in lines)
-    assert not any(line.startswith("  the plumbing refuses:") for line in lines)
+    assert not any(line.startswith("  the verdict update refuses:") for line in lines)
 
 
 def test_open_only_reads_the_except_left_vocabulary_off_the_whole_surface(tmp_path, monkeypatch, capsys):
@@ -7350,7 +7351,7 @@ def _repo_imports(module, path):
 
 def test_the_memo_code_roster_is_this_modules_import_closure():
     """The memo stamp hashes the repo code a decision runs through: `standing_verdicts` and every module it imports, directly or indirectly, except the pipeline modules. Edits to those change the unit keys or the stamp itself, not a decision (`fingerprint` computes the after-font digests the unit keys use). The test fails when a module the walk reaches is missing from `MEMO_CODE_MODULES`, and when the roster names a module the walk does not reach."""
-    from rebuild.test_plumbing_closure import _module_path
+    from rebuild.test_verdict_update_closure import _module_path
 
     seen = {}
     queue = ["rebuild.tools.standing_verdicts"]
@@ -7817,7 +7818,7 @@ def test_the_mini_bundle_reaches_a_composed_line_and_the_bundle_local_rule(
 
 @pytest.mark.parametrize("form", [(), ("--open-only", "--require-reach")])
 def test_the_memo_serves_the_mini_bundle_byte_for_byte(tmp_path, monkeypatch, capsys, mini_surface, form):
-    """The memo changes only the run time. Over a real build of the frozen mini bundle, under the checked-in rules and one bundle-local ink-delta rule, with a store holding a reject and an approve, the fills file, the exit code, and every report line are byte-identical across four runs: no memo, a cold run that writes one, a warm run served entirely from it, and a `--fresh-memo` run that ignores and rewrites it. The warm run's `memo:` line shows it computed nothing. Both the bare form and the verdict chain's `--open-only --require-reach` form are checked, and the latter's rollup reads the same decisions the narrowed pass made."""
+    """The memo changes only the run time. Over a real build of the frozen mini bundle, under the checked-in rules and one bundle-local ink-delta rule, with a store holding a reject and an approve, the fills file, the exit code, and every report line are byte-identical across four runs: no memo, a cold run that writes one, a warm run served entirely from it, and a `--fresh-memo` run that ignores and rewrites it. The warm run's `memo:` line shows it computed nothing. Both the bare form and the verdict update's `--open-only --require-reach` form are checked, and the latter's rollup reads the same decisions the narrowed pass made."""
     rules = _mini_rules(mini_surface, tmp_path / "rules.yaml")
     stamp = json.loads((mini_surface / "manifest.json").read_text())["generated_at"]
     human = [unit["id"] for unit in _human_units(mini_surface)]
@@ -7855,7 +7856,7 @@ def test_the_memo_serves_the_mini_bundle_byte_for_byte(tmp_path, monkeypatch, ca
 def test_a_rules_edit_recomputes_only_the_units_the_edit_can_reach(
     tmp_path, monkeypatch, capsys, mini_surface, form
 ):
-    """Over a real build of the frozen mini bundle, under the checked-in rules and the bundle-local ink-delta rule. With every note reworded, a warm run computes nothing and writes the same fills, exit code, and report lines as a run with no memo under the reworded rules, and every fill uses the new wording. With one composable rule appended, a warm run computes only the human units the appended rule has a candidate position in, and matches a run with no memo under the appended rules byte for byte. The appended rule is a copy of a checked-in rule that has candidates here, so the walk's refusal of two rules claiming one position changes the fills of every window it reaches. Both the bare form and the verdict chain's form are checked."""
+    """Over a real build of the frozen mini bundle, under the checked-in rules and the bundle-local ink-delta rule. With every note reworded, a warm run computes nothing and writes the same fills, exit code, and report lines as a run with no memo under the reworded rules, and every fill uses the new wording. With one composable rule appended, a warm run computes only the human units the appended rule has a candidate position in, and matches a run with no memo under the appended rules byte for byte. The appended rule is a copy of a checked-in rule that has candidates here, so the walk's refusal of two rules claiming one position changes the fills of every window it reaches. Both the bare form and the verdict update's form are checked."""
     seeded = sv.load_rules(_mini_rules(mini_surface, tmp_path / "seed.yaml"))
     human = _human_units(mini_surface)
     reworded = [dict(rule, note=rule["note"] + " (reworded)") for rule in seeded]
@@ -7910,7 +7911,7 @@ def test_a_rules_edit_recomputes_only_the_units_the_edit_can_reach(
 
 @pytest.mark.parametrize("form", [(), ("--open-only", "--require-reach")])
 def test_a_pooled_refill_is_the_serial_pass_byte_for_byte(tmp_path, monkeypatch, capsys, mini_surface, form):
-    """The pool changes only the run time, checked the same way as the memo. Over the frozen mini bundle, a cold run that refills its memo across a spawn pool of two writes the same fills, prints the same report and `memo:` line, and leaves the same memo bytes as the cold serial run, in both the bare form and the verdict chain's form. The test lowers the threshold so the bundle's misses start a pool, and shrinks the chunk so the pool gets many tasks. The parent's own `evaluate` fails for the pooled run, so every decision it counted came from a worker, whose spawned interpreter imports the module afresh without the patch. It is the only test in this file that starts a real multiprocessing pool, which the closure recorder marks unclosable, so it runs on every narrowed contracts-lane run."""
+    """The pool changes only the run time, checked the same way as the memo. Over the frozen mini bundle, a cold run that refills its memo across a spawn pool of two writes the same fills, prints the same report and `memo:` line, and leaves the same memo bytes as the cold serial run, in both the bare form and the verdict update's form. The test lowers the threshold so the bundle's misses start a pool, and shrinks the chunk so the pool gets many tasks. The parent's own `evaluate` fails for the pooled run, so every decision it counted came from a worker, whose spawned interpreter imports the module afresh without the patch. It is the only test in this file that starts a real multiprocessing pool, which the closure recorder marks unclosable, so it runs on every narrowed contracts-lane run."""
     rules = _mini_rules(mini_surface, tmp_path / "rules.yaml")
     stamp = json.loads((mini_surface / "manifest.json").read_text())["generated_at"]
     human = [unit["id"] for unit in _human_units(mini_surface)]

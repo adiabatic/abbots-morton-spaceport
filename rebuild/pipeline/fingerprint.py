@@ -10,7 +10,7 @@ The three human-reviewed ledgers have prose-insensitive digests, like the rune f
 
 - The contact allow-list is in no component, not even `data`. Only the defect gate reads it, so its digest (`contact_allow_digest`, under `CONTACT_ALLOW_LABEL`) is only in the artifact cycle's run_m1 skip key. Changing a signature re-runs that gate without restamping the surface or dropping the review unit cache. Each entry's `why` is left out of the digest.
 - The divergence ledger is in `data` and left out of `tables_value`. `divergence_ledger_digest` hashes every field except each class's `why`. The audit, the classifier, and the census read those fields, so changing one moves `data` and the run_m1 skip key, and the cycle re-runs the comparison over the tables and font on disk. The review build copies each class's `why` into the manifest's `classes[].why`, which `check_manifest` requires, so the `why` is hashed into the Stage B `explain_prose` component through `ledger_prose_lines`. Rewording a class's `why` costs a surface rebuild served from the unit cache and nothing else.
-- The standing approvals are in no component. `standing_approvals_digest` leaves out each rule's `note` and is used only by the artifact cycle's rebuild-lane closure. The plumbing key (`artifact_cycle.plumbing_skip_fingerprint`) hashes the file's raw bytes instead, because `standing_verdicts` copies a rule's `note` into every verdict it fills.
+- The standing approvals are in no component. `standing_approvals_digest` leaves out each rule's `note` and is used only by the artifact cycle's rebuild-lane closure. The verdict-update key (`artifact_cycle.verdict_update_skip_fingerprint`) hashes the file's raw bytes instead, because `standing_verdicts` copies a rule's `note` into every verdict it fills.
 
 `rune_file_digest` hashes a rune's parsed document instead of its bytes, with the prose removed: YAML comments and formatting, the ductus text, `notes`, and every `why`, refuse records' included. No build step reads any of these (the refuse `why` has one reader, described next), so editing them should not make the surface stale or re-run a cycle. The digest keeps every geometric and policy field, the ductus keys (motion names, which the lints check), and the presence of every prose field, because the schema requires `why` on some records.
 
@@ -118,7 +118,7 @@ REVIEW_NON_BUILD_MODULES = frozenset({"serve.py", "verdict_store.py", "status.py
 
 
 def review_code_paths(repo_root: Path) -> list[Path]:
-    """Return rebuild/review/*.py without `REVIEW_NON_BUILD_MODULES`, the modules the surface build never imports. Hashing one of those would force a full surface rebuild and drop the per-unit store for an edit the build cannot execute. serve.py is the dev server and verdict_store.py the store it keeps; status.py and journal.py belong to the verdict plumbing, and `artifact_cycle.plumbing_skip_fingerprint` hashes all four itself. export.py is a standalone CLI that turns exported verdicts into a triage YAML. rebuild/test_review_code_closure.py checks this set against build.py's import graph in both directions."""
+    """Return rebuild/review/*.py without `REVIEW_NON_BUILD_MODULES`, the modules the surface build never imports. Hashing one of those would force a full surface rebuild and drop the per-unit store for an edit the build cannot execute. serve.py is the dev server and verdict_store.py the store it keeps; status.py and journal.py belong to the verdict update, and `artifact_cycle.verdict_update_skip_fingerprint` hashes all four itself. export.py is a standalone CLI that turns exported verdicts into a triage YAML. rebuild/test_review_code_closure.py checks this set against build.py's import graph in both directions."""
     return sorted(
         path
         for path in (Path(repo_root) / "rebuild" / "review").glob("*.py")
@@ -505,7 +505,7 @@ def _projected_standing_rules(document: object) -> object:
 
 
 def standing_approvals_digest(path: Path) -> str:
-    """Return the standing approvals' digest without each rule's `note`. No component here includes it; only the artifact cycle's rebuild-lane closure uses it. The plumbing key hashes the file raw instead, because the standing fill copies each `note` into the verdicts it writes."""
+    """Return the standing approvals' digest without each rule's `note`. No component here includes it; only the artifact cycle's rebuild-lane closure uses it. The verdict-update key hashes the file raw instead, because the standing fill copies each `note` into the verdicts it writes."""
     return _projected_digest(path, _projected_standing_rules)
 
 

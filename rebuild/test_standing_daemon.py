@@ -365,7 +365,7 @@ def test_the_status_and_stop_verbs_report_the_held_surface(mini_surface, tmp_pat
 
 
 def test_a_caller_that_injects_units_is_never_served(mini_surface, tmp_path, capsys):
-    """The verdict chain passes `main` its own units. With --daemon always and a socket that nothing binds, both tools still run to completion in-process, which shows that a caller passing units never contacts the daemon."""
+    """The verdict update passes `main` its own units. With --daemon always and a socket that nothing binds, both tools still run to completion in-process, which shows that a caller passing units never contacts the daemon."""
     unbound = tmp_path / "nothing" / "daemon.sock"
     units = _human_units(mini_surface)
     rules = _mini_rules(mini_surface, tmp_path / "rules.yaml")

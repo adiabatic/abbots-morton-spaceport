@@ -33,7 +33,7 @@ LIVE_DELETION_TARGETS = (
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 GREEN_RECORDS = (
-    "PLUMBING_GREEN",
+    "VERDICT_UPDATE_GREEN",
     "CONFORM_GREEN",
     "REBUILD_CONTRACTS_GREEN",
     "RUN_M1_GREEN",

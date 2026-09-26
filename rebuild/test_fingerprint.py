@@ -405,7 +405,7 @@ def _standing_digest(path, text):
 
 
 def test_standing_approvals_digest_ignores_notes_and_falls_back_to_bytes(tmp_path):
-    """`verdict`, `match`, and `except_left` move the digest; a rule's `note` and the file's comments don't. Only the artifact cycle's rebuild-lane closure reads this digest. The plumbing key hashes the file raw, because the standing fill copies each `note` into the verdicts it writes. A malformed file digests to its raw bytes."""
+    """`verdict`, `match`, and `except_left` move the digest; a rule's `note` and the file's comments don't. Only the artifact cycle's rebuild-lane closure reads this digest. The verdict-update key hashes the file raw, because the standing fill copies each `note` into the verdicts it writes. A malformed file digests to its raw bytes."""
     path = tmp_path / "standing-approvals.yaml"
     parsed = _standing_digest(path, STANDING)
     assert _standing_digest(path, REWORDED_RULE) == parsed
@@ -728,7 +728,7 @@ def test_ledger_prose_lines_name_the_class(tmp_path):
 
 
 def test_the_standing_approvals_reach_no_fingerprint_component(tmp_path):
-    """No component includes the standing approvals, so neither a reworded note nor a changed rule changes `compute_all`, and neither can restamp the surface or drop the review unit cache. A rule change moves `standing_approvals_digest`, which the rebuild-lane closure uses. The plumbing key hashes the file raw, so a changed note moves that key too."""
+    """No component includes the standing approvals, so neither a reworded note nor a changed rule changes `compute_all`, and neither can restamp the surface or drop the review unit cache. A rule change moves `standing_approvals_digest`, which the rebuild-lane closure uses. The verdict-update key hashes the file raw, so a changed note moves that key too."""
     root = _fake_repo(tmp_path)
     rules = root / fingerprint.STANDING_APPROVALS_LABEL
     rules.write_text(STANDING)

@@ -63,13 +63,13 @@ A rule's except_left guard refuses the whole unit, never one position, so a guar
 
 Standing fills complement echo_verdicts.py. The echo fill copies the user's verdicts to units whose change is pixel-identical, while a standing rule applies a recorded decision to units the user has never seen, such as windows with new left letters created by later migrations, so those units never queue.
 
-Each fill record's `at` is the manifest's generated_at, so a human verdict recorded on this surface is newer and wins on merge. A parked unit carries a skip verdict, so it is not blank and is never filled. The verdict chain (rebuild/tools/verdict_chain.py) runs this after the echo fill and merges its file with merge_verdicts. The report also gives each rule's total reach, its own line plus its composed credit; the totals do not sum across rules, because a window two rules explain counts toward both.
+Each fill record's `at` is the manifest's generated_at, so a human verdict recorded on this surface is newer and wins on merge. A parked unit carries a skip verdict, so it is not blank and is never filled. The verdict update (rebuild/tools/verdict_update.py) runs this after the echo fill and merges its file with merge_verdicts. The report also gives each rule's total reach, its own line plus its composed credit; the totals do not sum across rules, because a window two rules explain counts toward both.
 
-Every decision depends only on the unit's index record, the two fonts' rendering of its window, and the rules file; the verdict store only decides which decisions become fills. `Decider.decide` computes the decision and `_decision_reach` aggregates a run from the decisions. The memo (`Memo`, the `--memo` flag, which the verdict chain passes) keeps decisions across passes, so a pass evaluates only the units whose key is new and the units a changed rule can reach. `unit_key`, `memo_environment`, `rules_roster`, and `Decider._serve` define the unit keys, the memo stamp, and when a stored decision is served. A stored decision holds rule ids and no note text, so a reworded note re-evaluates nothing and every fill quotes the new wording. When the misses reach `_STANDING_POOL_THRESHOLD`, `_prefill` decides them across a spawn pool at the width `--jobs` gives. The tool derives no width of its own; the verdict chain forwards the artifact cycle's. The fills and the report are byte-identical served or computed, pooled or serial, and rebuild/test_standing_verdicts.py checks this over the frozen mini bundle. The `--require-reach` rollup reads the same decisions, so its pass over the whole domain costs no second evaluation.
+Every decision depends only on the unit's index record, the two fonts' rendering of its window, and the rules file; the verdict store only decides which decisions become fills. `Decider.decide` computes the decision and `_decision_reach` aggregates a run from the decisions. The memo (`Memo`, the `--memo` flag, which the verdict update passes) keeps decisions across passes, so a pass evaluates only the units whose key is new and the units a changed rule can reach. `unit_key`, `memo_environment`, `rules_roster`, and `Decider._serve` define the unit keys, the memo stamp, and when a stored decision is served. A stored decision holds rule ids and no note text, so a reworded note re-evaluates nothing and every fill quotes the new wording. When the misses reach `_STANDING_POOL_THRESHOLD`, `_prefill` decides them across a spawn pool at the width `--jobs` gives. The tool derives no width of its own; the verdict update forwards the artifact cycle's. The fills and the report are byte-identical served or computed, pooled or serial, and rebuild/test_standing_verdicts.py checks this over the frozen mini bundle. The `--require-reach` rollup reads the same decisions, so its pass over the whole domain costs no second evaluation.
 
 A `--targeted` run is the form for authoring a rule. It takes the rule from `--explain` and extra units from `--unit`, evaluates only the rule's name-grain candidates (`_reachable`) plus the listed units, prints that rule's lines byte-identical to the whole-domain run's plus one line per listed unit (`targeted_report`), and writes neither a fill file nor the memo. The whole-domain run is the final pass and the cycle's form.
 
-With `--daemon auto|always|never` and `--socket PATH`, either form can be served by the standing daemon (rebuild/tools/standing_daemon.py, the authority on what it holds and when it declines), which runs this same `main` over the surface it holds and returns the streams and exit code byte-identical to an in-process run; rebuild/test_standing_daemon.py checks this over the mini bundle. The verdict chain calls `main` in process with a `unit_source` and is never served. A fill reads its unit source once, keeps only unit ids and decisions for the report, and spools pool misses to a temporary gzipped NDJSON file.
+With `--daemon auto|always|never` and `--socket PATH`, either form can be served by the standing daemon (rebuild/tools/standing_daemon.py, the authority on what it holds and when it declines), which runs this same `main` over the surface it holds and returns the streams and exit code byte-identical to an in-process run; rebuild/test_standing_daemon.py checks this over the mini bundle. The verdict update calls `main` in process with a `unit_source` and is never served. A fill reads its unit source once, keeps only unit ids and decisions for the report, and spools pool misses to a temporary gzipped NDJSON file.
 """
 
 import argparse
@@ -3017,7 +3017,7 @@ class Decider:
             self._release()
 
 
-# Below this many misses, starting a pool costs more than it saves. Startup (spawn, the module import, the rules, and two font loads) takes about 0.2 s per worker. A miss costs about 1.3 ms serially and about 11 us to pickle each way, which puts the break-even near five hundred misses at width four. A warm pass over unchanged rules computes tens of units and stays far below this; a pass that commits a rule reaching thousands of units goes above it. The plumbing rows in rebuild/out/cycle-timings.ndjson are where these rates were measured.
+# Below this many misses, starting a pool costs more than it saves. Startup (spawn, the module import, the rules, and two font loads) takes about 0.2 s per worker. A miss costs about 1.3 ms serially and about 11 us to pickle each way, which puts the break-even near five hundred misses at width four. A warm pass over unchanged rules computes tens of units and stays far below this; a pass that commits a rule reaching thousands of units goes above it. The verdict-update rows in rebuild/out/cycle-timings.ndjson are where these rates were measured.
 _STANDING_POOL_THRESHOLD = 2_000
 # Units per pooled task: large enough that pickling and messaging are a small part of the work, and small enough that tasks balance across the workers and a worker's peak is one chunk's windows, since each worker releases its context memos and its alignment cache after every chunk. STANDING_FILL_WORKER_BYTES in rebuild/tools/artifact_cycle.py is measured at this chunk width.
 _STANDING_POOL_CHUNK = 2_000
@@ -3354,12 +3354,12 @@ def main(
     parser.add_argument(
         "--require-reach",
         action="store_true",
-        help="after writing the fills, fail when any checked-in rule reaches no window of this surface — judged over the whole human domain with a blank store, so a rule whose every window a human has already judged still counts as reaching. The artifact cycle's form: a rule whose swath a rune change dissolved turns the plumbing step red, and `make verdict-ready` reads NOT READY, until the rule is deleted from the rules file or the form it waits for migrates.",
+        help="after writing the fills, fail when any checked-in rule reaches no window of this surface — judged over the whole human domain with a blank store, so a rule whose every window a human has already judged still counts as reaching. The artifact cycle's form: a rule whose swath a rune change dissolved turns the verdict-update step red, and `make verdict-ready` reads NOT READY, until the rule is deleted from the rules file or the form it waits for migrates.",
     )
     parser.add_argument(
         "--memo",
         metavar="PATH",
-        help="persist every unit's decision here, keyed on the unit's content key, its ink deltas and the after font's digests for the families its window names, under a stamp over the deciding code and the fonts, with each entry naming the rules that could speak for its unit; a later run with the same stamp evaluates the units whose key is new and the units a rule that moved since the memo was written can reach, and a reworded note re-evaluates nothing. The fills and the report are byte-identical served or computed. The verdict chain passes this; a dry run against candidate rules leaves it off so it never overwrites the chain's memo with another rules file's decisions.",
+        help="persist every unit's decision here, keyed on the unit's content key, its ink deltas and the after font's digests for the families its window names, under a stamp over the deciding code and the fonts, with each entry naming the rules that could speak for its unit; a later run with the same stamp evaluates the units whose key is new and the units a rule that moved since the memo was written can reach, and a reworded note re-evaluates nothing. The fills and the report are byte-identical served or computed. The verdict update passes this; a dry run against candidate rules leaves it off so it never overwrites the verdict update's memo with another rules file's decisions.",
     )
     parser.add_argument(
         "--fresh-memo",
@@ -3370,7 +3370,7 @@ def main(
         "--jobs",
         type=int,
         default=1,
-        help="how many worker processes decide the units the memo cannot serve, once that pile is deep enough to pay for a pool's startup; 1 is the serial pass. This tool derives no width of its own: the verdict chain forwards the artifact cycle's, priced there beside the gates the plumbing step shares the box with, and a hand run over the whole domain states the width the cycle's plan prints for the box (`make artifact-cycle ARGS='--dry-run'`, its `plumbing --standing-fill-jobs` line), served by the daemon or not. The fills, the memo and the report are byte-identical at any width.",
+        help="how many worker processes decide the units the memo cannot serve, once that pile is deep enough to pay for a pool's startup; 1 is the serial pass. This tool derives no width of its own: the verdict update forwards the artifact cycle's, priced there beside the gates the verdict-update step shares the box with, and a hand run over the whole domain states the width the cycle's plan prints for the box (`make artifact-cycle ARGS='--dry-run'`, its `verdict-update --standing-fill-jobs` line), served by the daemon or not. The fills, the memo and the report are byte-identical at any width.",
     )
     standing_client.add_arguments(parser)
     args = parser.parse_args(argv)
@@ -3535,7 +3535,7 @@ def main(
         ]
         if unreached:
             print(
-                f"  the plumbing refuses: {', '.join(unreached)} reached no window of this surface. There "
+                f"  the verdict update refuses: {', '.join(unreached)} reached no window of this surface. There "
                 "is no retired marker and no allowance for a rule that has run out of windows — delete it "
                 f"from {args.rules}, or leave it and this stays red until the form it waits for migrates."
             )

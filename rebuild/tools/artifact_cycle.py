@@ -1,12 +1,12 @@
 """Run the commit-time artifact cycle in one command.
 
-The cycle recompiles M1.otf and checks it, rebuilds the review surface in place, runs the verdict plumbing over it, and refreshes the census pins from the surface's census sidecar, naming what moved in their invariant block since the last accepted census. The checked-in pins are that census, so committing the rewritten file accepts a new one. It then runs the gates. Once they have joined and their pytest controllers have written this pass's per-worker peaks to the timings journal, it compares the checked-in per-unit peaks with what this machine measured (`rebuild.tools.calibrate_budgets --check`). It always ends with a summary table, even on failure.
+The cycle recompiles M1.otf and checks it, rebuilds the review surface in place, runs the verdict update over it, and refreshes the census pins from the surface's census sidecar, naming what moved in their invariant block since the last accepted census. The checked-in pins are that census, so committing the rewritten file accepts a new one. It then runs the gates. Once they have joined and their pytest controllers have written this pass's per-worker peaks to the timings journal, it compares the checked-in per-unit peaks with what this machine measured (`rebuild.tools.calibrate_budgets --check`). It always ends with a summary table, even on failure.
 
 The terminal shows one banner per step with that step's description, the phases and counters its child prints, every warning, and a closing line. All child output is written under var/build-logs/<stamp>-<short sha>/: one log per step with stdout and stderr merged in arrival order, plan.txt, and a copy of the terminal output. var/build-logs/latest points at the newest run, and a failed step's log is replayed under its banner. rebuild.tools.console defines the line protocol children print and the renderer that reads it.
 
 The job-costs step never fails the pass, for the same reason the census pins are not a gate: a stale constant makes a pool the wrong width, which costs time but makes no artifact wrong. It is reported, and committing the re-seeded constant accepts it. When the check reports an overrun, the driver asks `calibrate_budgets --moved` which of those constants differ from their values at `HEAD`, so a constant already re-seeded shows up by name.
 
-The plumbing is one step run by one child process, rebuild.tools.verdict_chain. It carries prior verdicts forward onto the fresh manifest, merges the carried file into the live autosave (--no-merge opts out), writes echo-fill verdicts for the blanks in unanimously judged echo groups, writes standing-approval verdicts from the rules in rebuild/standing-approvals.yaml, merges each fill as it is written, repeats the echo pass until it writes nothing, and clusters the open complaints. The chain reads the build's per-unit index sidecar, and its one process holds one copy of it. Each chain step opens with a `[phase] <step>` line and closes with `[t] <step>`. The cycle console pairs the two into one line per step, and the cycle-timings journal reads the step's cost from the `[t]` line. The `[chain] fixpoint:` and `[chain] failed:` lines are results, not phases: `plumbing_sections` starts a section at each `[phase]` line and closes it at either `[chain]` line.
+The verdict update is one step run by one child process, rebuild.tools.verdict_update. It carries prior verdicts forward onto the fresh manifest, merges the carried file into the live autosave (--no-merge opts out), writes echo-fill verdicts for the blanks in unanimously judged echo groups, writes standing-approval verdicts from the rules in rebuild/standing-approvals.yaml, merges each fill as it is written, repeats the echo pass until it writes nothing, and clusters the open complaints. The verdict update reads the build's per-unit index sidecar, and its one process holds one copy of it. Each of the verdict update's steps opens with a `[phase] <step>` line and closes with `[t] <step>`. The cycle console pairs the two into one line per step, and the cycle-timings journal reads the step's cost from the `[t]` line. The `[verdict-update] fixpoint:` and `[verdict-update] failed:` lines are results, not phases: `verdict_update_sections` starts a section at each `[phase]` line and closes it at either `[verdict-update]` line.
 
 run_m1's exit status is its own gate's result, but this driver evaluates the three summary JSONs it writes, so a build that died before its evaluator is reported by what it left behind. The gates are defect_errors, the Manual-pin gate (including its scope, so a gate that replayed nothing cannot pass), and multi_matched == 0.
 
@@ -20,11 +20,11 @@ The cycle runs no cross-language check, because the kernel crate is the only eng
 
 gate:make-test is skipped when its input closure is unchanged since its last green run. The closure is every tracked or untracked-unignored file that `make_test_exempt` does not exempt; that function's docstring argues each exemption from what the gate runs (make all, which runs build_font over glyph_data/*.yaml non-recursively, typst, pyright over tools/ test/ conftest.py, and pytest test/ site/). The Makefile itself is represented by what `make -n all` and `make -n test` print. Re-running the gate over an unchanged closure would cost about 15 CPU-minutes and check nothing. The last green fingerprint is in rebuild/out/make-test-green.json, written by rebuild.tools.make_test_gate (the `make test` entry point) on every green run, so interactive and cycle greens share one record and `make test` skips on the same test. cycle_summary.json also records the fingerprint the cycle ran or skipped against, for display only. The skip reads only the shared green record, so a green that make_test_gate deleted after a red run cannot come back from an older summary. The fingerprint covers file content only, so a system toolchain change such as a typst upgrade does not move it (pyright and pytest are pinned in uv.lock, which is in the closure). --force-make-test and --fresh spawn `make test FORCE=1` (`make_test_gate_argv`), because the wrapper decides its own skip with the predicate the plan uses (`make_test_skippable`), and a plain `make test` would skip on the closure the flag forced. The plan reserves the gate's cores and memory beside the surface build only when that predicate says the gate runs.
 
-The verdict plumbing skips the same way, on rebuild/out/plumbing-green.json. Every plumbing step is a pure function of the surface, the verdicts master, the live store, the checked-in standing approvals, and its own code, so the key covers the surface's inputs fingerprint and stamp, the master's path and bytes, the autosave's bytes, standing-approvals' bytes, and the chain's code (`plumbing_code_paths` plus the review/ modules the chain runs). The master is in the key because the autosave's hash cannot see it: an export at the repo root can outrank the autosave in the auto-resolution and carry verdicts the store has never held. The code is in the key because no other fingerprint reads the chain's modules, and without it a fix to a fill's matcher or to the carry's join would be skipped. `plumbing_code_paths` lists the chain's modules instead of all of rebuild/tools/, and rebuild/test_plumbing_closure.py checks on every contracts run that the list covers the chain's import graph.
+The verdict update skips the same way, on rebuild/out/verdict-update-green.json. Each step of the verdict update is a pure function of the surface, the verdicts master, the live store, the checked-in standing approvals, and its own code, so the key covers the surface's inputs fingerprint and stamp, the master's path and bytes, the autosave's bytes, standing-approvals' bytes, and the verdict update's code (`verdict_update_code_paths` plus the review/ modules the verdict update runs). The master is in the key because the autosave's hash cannot see it: an export at the repo root can outrank the autosave in the auto-resolution and carry verdicts the store has never held. The code is in the key because no other fingerprint reads the verdict update's modules, and without it a fix to a fill's matcher or to the carry's join would be skipped. `verdict_update_code_paths` lists the verdict update's modules instead of all of rebuild/tools/, and rebuild/test_verdict_update_closure.py checks on every contracts run that the list covers the verdict update's import graph.
 
-The key is captured when the chain finishes, not at the end of the pass, so a store write during the census cannot be counted as part of a fixpoint nothing verified. The record is written later, after the complaint docket step has also succeeded. The fixpoint is claimed only when the chain has observed it. The carry's merge gives echo-fill new agreement to read, and echo-fill only removes blanks, so it never creates work for standing-fill. But standing-fill runs last, and a standing fill can make an echo group unanimous while a blank member remains. Refusing the green whenever the standing merge changed anything would cost another full pass. In one process another echo pass costs about a second, so the chain repeats it until a pass writes nothing, and the green is recorded only after that pass.
+The key is captured when the verdict update finishes, not at the end of the pass, so a store write during the census cannot be counted as part of a fixpoint nothing verified. The record is written later, after the complaint docket step has also succeeded. The fixpoint is claimed only when the verdict update has observed it. The carry's merge gives echo-fill new agreement to read, and echo-fill only removes blanks, so it never creates work for standing-fill. But standing-fill runs last, and a standing fill can make an echo group unanimous while a blank member remains. Refusing the green whenever the standing merge changed anything would cost another full pass. In one process another echo pass costs about a second, so the verdict update repeats it until a pass writes nothing, and the green is recorded only after that pass.
 
-The plumbing skip also requires the surface build to skip, which is what makes the stamp known before the pass runs. A flag that names a carry output disables the skip, since skipping would write nothing to that output.
+The verdict-update skip also requires the surface build to skip, which is what makes the stamp known before the pass runs. A flag that names a carry output disables the skip, since skipping would write nothing to that output.
 
 Every other heavy stage skips on the same principle: a content fingerprint over the stage's input closure, and a green record written only after that content passed.
 
@@ -48,7 +48,7 @@ A pass whose surface did not change but whose store did has its own route. The c
 
 An edit confined to rebuild/review/static/ also has its own route. The copied app assets are the one surface input no unit depends on, so the pass copies them over the served copy and restamps that one fingerprint component (`assets-refresh`). Every shard, both sidecars, the unit-cache store and `generated_at` stay as they were, so nothing the tab is keyed on changes, the review server keeps running, and livereload reloads the tab with the new assets.
 
-A surface promotion is the opposite case under the same skip. The whole tree under the app is replaced by the rehearsal's and the stamp changes with it, so the pass stops the review server. Both the plumbing skip and the store-only route are off, because both assume the surface did not change, and here the store's verdicts must be carried onto the promoted units by id.
+A surface promotion is the opposite case under the same skip. The whole tree under the app is replaced by the rehearsal's and the stamp changes with it, so the pass stops the review server. Both the verdict-update skip and the store-only route are off, because both assume the surface did not change, and here the store's verdicts must be carried onto the promoted units by id.
 
 A pass that writes under the app needs the review server stopped. --stop-server (which `make review-cycle` passes) lets it terminate the server and wait until the port is free; without it the pass stops and prints how to proceed. Retention also writes: the app appends to the journal as verdicts are recorded, and a compaction rewrites the file around a read, so while a server is up the journal and the stash sweep that depends on it are left for a later pass.
 
@@ -115,8 +115,8 @@ JSTEST_DIR = ROOT / "rebuild" / "review" / "jstests"
 
 POOL_POLICIES = ("queue", "overlap")
 REBUILD_POOL_POLICY_DEFAULT = "queue"
-PLUMBING_SKIP_NOTE = "surface, verdicts master, live store, and standing approvals unchanged since the last complete plumbing pass; --fresh overrides"
-STORE_ONLY_DECLINED_NOTE = "The surface build is skipped, but the verdicts master is not stamped for the served surface and the merge would refuse it, so the plumbing carries it onto the served surface by unit id rather than merging it straight in."
+VERDICT_UPDATE_SKIP_NOTE = "surface, verdicts master, live store, and standing approvals unchanged since the last complete verdict-update pass; --fresh overrides"
+STORE_ONLY_DECLINED_NOTE = "The surface build is skipped, but the verdicts master is not stamped for the served surface and the merge would refuse it, so the verdict update carries it onto the served surface by unit id rather than merging it straight in."
 CONFORM_SKIP_NOTE = "no new rule shape, compile code or shaper since its last green sweep; --fresh overrides"
 CONFORM_MAYBE_NOTE = "runs unless run_m1 leaves the emitted lookup's behavior classes, the compile code and the shaper under the key of its last green sweep, in which case it is re-skipped after run_m1"
 UNDECIDED_UNTIL_RUN_M1 = {
@@ -144,10 +144,10 @@ SURFACE_WORKER_BYTES = 660_000_000
 SURFACE_PARENT_BYTES = 6_000_000_000
 # The surface build's limit other than memory. One parent process hands out the batches and merges every reply, and eight is the widest pool measured: on the 32 GiB machine the units phase's wall-clock time at width eight is its width-six time scaled by the ratio of the widths, over the same corpus (`make cycle-timings ARGS='--inner'` reports the `review.build units` phase), so the pool scales linearly up to the cap. Nothing past eight has been measured, so raising the cap needs a measurement first.
 SURFACE_JOBS_CAP = 8
-# The peak memory of one worker in the standing fill's refill pool, the divisor of that pool's width (`standing_fill_jobs`). A worker is a spawn process holding its interpreter, the rules, a `SlideContext` over the surface's font pair (two shapers), and one chunk of `_STANDING_POOL_CHUNK` units (rebuild/tools/standing_verdicts.py) with that chunk's shape and walk memos and its alignment cache. All three are emptied after every chunk, so the peak depends on the chunk, not on the pool's share of the units. The seed is three hand refills in the chain's form (`--open-only --require-reach`) with the memo dropped (`--fresh-memo`), each worker's resident set sampled every 0.1 s on the 18-core 48 GiB machine (`doc/fleet.md`). Two ran eighteen wide, and their thirty-six workers read 95 to 104 MB. One ran two wide, and its workers, which decided about fifty-eight chunks each, read 99 MB, so a worker's peak does not grow with the chunks it decides. The constant is more than three times the highest reading, because no journal row measures this worker: `make job-costs` has no standing-fill-worker row, since writing pool records from the fill would put cycle_timings and peak_rss into the memo's code stamp (`MEMO_CODE_MODULES`) and drop the memo on every width change. Re-measure by hand at the chunk width when the chunk size or what a decision holds changes. At this figure the cores, not memory, limit this pool on every fleet machine.
+# The peak memory of one worker in the standing fill's refill pool, the divisor of that pool's width (`standing_fill_jobs`). A worker is a spawn process holding its interpreter, the rules, a `SlideContext` over the surface's font pair (two shapers), and one chunk of `_STANDING_POOL_CHUNK` units (rebuild/tools/standing_verdicts.py) with that chunk's shape and walk memos and its alignment cache. All three are emptied after every chunk, so the peak depends on the chunk, not on the pool's share of the units. The seed is three hand refills in the verdict update's form (`--open-only --require-reach`) with the memo dropped (`--fresh-memo`), each worker's resident set sampled every 0.1 s on the 18-core 48 GiB machine (`doc/fleet.md`). Two ran eighteen wide, and their thirty-six workers read 95 to 104 MB. One ran two wide, and its workers, which decided about fifty-eight chunks each, read 99 MB, so a worker's peak does not grow with the chunks it decides. The constant is more than three times the highest reading, because no journal row measures this worker: `make job-costs` has no standing-fill-worker row, since writing pool records from the fill would put cycle_timings and peak_rss into the memo's code stamp (`MEMO_CODE_MODULES`) and drop the memo on every width change. Re-measure by hand at the chunk width when the chunk size or what a decision holds changes. At this figure the cores, not memory, limit this pool on every fleet machine.
 STANDING_FILL_WORKER_BYTES = 350_000_000
-# The peak memory of the plumbing step's parent while the standing fill's pool runs, subtracted from the machine's memory before dividing by STANDING_FILL_WORKER_BYTES. The parent holds every surface id, the human id/echo/notation projection, and the fill's rules, primed keys, decisions and memo. Full human records stream through the chain's steps. Refill misses go to a temporary gzipped spool, with at most one pool round of records in memory, bounded by the width times `_STANDING_POOL_CHUNK` (rebuild/tools/standing_verdicts.py). The complaint docket keeps compact grouping projections. A serial refill, and the memo check `_prefill` runs on every served unit, hold one unit's `SlideContext` memos and alignment-cache entries at a time, because `Decider._release` empties both after each unit.
-# The standing-fill-parent row of `make job-costs` reads the whole plumbing step through `peak_rss.reap_peak_rss_bytes`, and the chain reaches that peak after the fill, not during its pool: sampled every 0.1 s over two served passes that merge straight in on the 18-core 48 GiB machine (`doc/fleet.md`), the chain holds at most 2.06 GB during the standing fill and 2.74 GB in the complaint docket. A standalone fill over every unit puts the in-flight round at about 18 MB a worker: its parent reads 1.17 GB two wide and 1.45 GB eighteen wide. The seed is the highest step reading any fleet machine has recorded since the previous seed: 4.36 GB on the 32 GiB machine, over a carry across a rune edit (run 2ca8c2192122 at cb205186, with 709 verdicts stranded and three echo rounds). The 18-core 48 GiB machine reads 3.10 to 3.11 GB on carried served passes, 2.74 GB on served passes that merge straight in (6444755ee9aa, 169f78e7d20d, 376f72a5e4e7), 3.28 GB on a rules commit whose 1,219 misses are decided serially below `_STANDING_POOL_THRESHOLD` (8a407a3d83f4, 08a24101190c), and 2.19 and 2.33 GB on memo-drop passes pooled eighteen wide (6ec8760f21c2) and sixteen wide (27aa6ac52892). The constant is the seed plus more than a quarter, rounded up to the next whole gigabyte. No fleet width changes at this figure: the cores limit the refill pool, and the belt stays at its configuration count. Ids and decisions grow with the alphabet, and no rune edit has run through the chain on that 48 GiB machine yet, so watch the row as letters are added.
+# The peak memory of the verdict update's process while the standing fill's pool runs, subtracted from the machine's memory before dividing by STANDING_FILL_WORKER_BYTES. The parent holds every surface id, the human id/echo/notation projection, and the fill's rules, primed keys, decisions and memo. Full human records stream through the verdict update's steps. Refill misses go to a temporary gzipped spool, with at most one pool round of records in memory, bounded by the width times `_STANDING_POOL_CHUNK` (rebuild/tools/standing_verdicts.py). The complaint docket keeps compact grouping projections. A serial refill, and the memo check `_prefill` runs on every served unit, hold one unit's `SlideContext` memos and alignment-cache entries at a time, because `Decider._release` empties both after each unit.
+# The standing-fill-parent row of `make job-costs` reads the whole verdict-update step through `peak_rss.reap_peak_rss_bytes`, and the verdict update reaches that peak after the fill, not during its pool: sampled every 0.1 s over two served passes that merge straight in on the 18-core 48 GiB machine (`doc/fleet.md`), the verdict update holds at most 2.06 GB during the standing fill and 2.74 GB in the complaint docket. A standalone fill over every unit puts the in-flight round at about 18 MB a worker: its parent reads 1.17 GB two wide and 1.45 GB eighteen wide. The seed is the highest step reading any fleet machine has recorded since the previous seed: 4.36 GB on the 32 GiB machine, over a carry across a rune edit (run 2ca8c2192122 at cb205186, with 709 verdicts stranded and three echo rounds). The 18-core 48 GiB machine reads 3.10 to 3.11 GB on carried served passes, 2.74 GB on served passes that merge straight in (6444755ee9aa, 169f78e7d20d, 376f72a5e4e7), 3.28 GB on a rules commit whose 1,219 misses are decided serially below `_STANDING_POOL_THRESHOLD` (8a407a3d83f4, 08a24101190c), and 2.19 and 2.33 GB on memo-drop passes pooled eighteen wide (6ec8760f21c2) and sixteen wide (27aa6ac52892). The constant is the seed plus more than a quarter, rounded up to the next whole gigabyte. No fleet width changes at this figure: the cores limit the refill pool, and the belt stays at its configuration count. Ids and decisions grow with the alphabet, and no rune edit has run through the verdict update on that 48 GiB machine yet, so watch the row as letters are added.
 STANDING_FILL_PARENT_BYTES = 6_000_000_000
 # The peak memory of one oracle row-range worker, the divisor of the oracle's width (`sweep_job_budget`). A worker is a spawn process. It holds its interpreter, a HarfBuzz shaper over M1.otf, and the crate's formation surface. It holds the records of its own row range of its configuration's row store: one buffer of the range's record bytes with three packed arrays beside it (an offset and two ages a record), loaded without scanning the whole member (`oracle_cache.load_store`), so it holds its range's rows and not the configuration's. It maps its configuration's settle memo read-only on the first wave that reaches the crate, which every pass does, since the renewal slice re-derives one row in `oracle_cache.MAX_RECORD_AGE`. `conform._MemoStore` reads the file's own layout: the six id columns, the value column and the 2^k >= 2N-slot probe index are views over the mapping, 69.8 MB for a live memo of 2.6M windows (the `[t] settle_memo` lines count them). Those pages belong to the page cache, resident once per machine however many workers map the file, and count in a worker's resident set as its probes touch them: a store-warm walk probes the one row in twenty the store does not serve, and a store-cold walk probes nearly every row. On a pass after a family changed, the retirement fold reads the six id columns whole once (36.2 MB of the mapping, `conform._MemoStore.load` over `mask.moved`); the seed's passes ran on an unchanged tree, every `[t] settle_memo` line at stale=0, so that fold is outside the seed and inside the headroom. The worker's own heap holds the file's interned label and outcome tables, a dead byte and a reached byte a row, 0.005 GB at the load. Last, it holds the walk's state over the range: the chunk of rows in flight (`oracle.ORACLE_ROW_CHUNK`), the waves of windows the crate settles for it, and `windows`, the dict of entries the walk promotes from the mapping or settles fresh.
 # No range writes the memo file. Every range, whether or not its configuration is split, writes the windows it settled fresh as a part (`run_m1._shard_settle_memo`). The parent's absorb, one task per settlement configuration on this same pool, runs once every range has finished and the witness stage has returned (`run_m1.run_oracle`'s `memo_ready`). It holds the existing rows, the parts, the existing index and the writer's folded copies at once (`conform._write_settle_memo`), roughly the file's size plus the columns'. Its reading is recorded in the pool record beside the ranges' as `<config> absorb`. It is a process peak like the rest, so it reads at or above the range its worker ran before it. In every seed record, each of which has an absorb for every settlement configuration, it reads at a range's peak and never above the record's highest range.
@@ -157,7 +157,7 @@ STANDING_FILL_PARENT_BYTES = 6_000_000_000
 # The seed is four `run_m1 --gates-only` passes on the 32 GiB machine (`doc/fleet.md`), store-cold (`--fresh-oracle-cache`) and store-warm, at `--jobs 10` over fifteen ranges and at a stated `--jobs 12` over seventeen, which is the plan the 12-core M4 Pro Mac mini (48 GiB) chooses. Every worker holds its own range's records beside its mapped memo, and the five absorbs are recorded beside the ranges. The highest readings are 0.55 GB store-cold and 0.53 GB store-warm at width twelve, and 0.67 GB store-cold and 0.56 GB store-warm at width ten (the pool records finished between 2026-09-16T09:17:38Z and 09:20:58Z, their logs under `var/keep/rung263-4/`). The constant is the highest reading plus a quarter, rounded up to the tenth, because a cost that is too low pushes the machine into swap, and because the walk's state grows with the alphabet. The oracle-shard row of `make job-costs` checks it: `run_m1.run_oracle` writes one kind:"pool" record per fan-out, one observation per row range that ran, and the cycle's job-costs step runs the check. The rebuild suite checks the constant only against the cores, which cannot catch a figure that is too low. At this figure the cores, not memory, limit this pool on every fleet machine.
 ORACLE_SHARD_BYTES = 900_000_000
 # The peak memory of one belt worker, the divisor of gate:conform's width (`conform_job_budget`). A worker is a spawn process running `conform.conformance_config_worker` for one acceptance configuration. It holds its interpreter, a HarfBuzz `Shaper` over M1.otf, the spec's alphabet, splitters, glyph names and anchors, the section 5.7 verdict surface the parent passes down, and its configuration's settle memo, mapped read-only (`conform._MemoStore`) and walked with `promote=False`. The mapping's columns and probe index are page-cache pages, resident once per machine and counted in a worker's resident set as its probes touch them, which over a belt is nearly all of them. The heap holds the file's label and outcome tables plus a dead byte and a reached byte a row. The worker also holds `windows`, the dict of windows the walk settles fresh: empty on a warm memo, every window on a cold one, and the term that grows. The `ss10` overlay worker maps no memo and reads under a tenth of the constant. The belt's controller reads under a quarter of the constant and is covered by the reserve, not by a term of its own.
-# The seed is the `conform-belt` pool records of two machines in `doc/fleet.md`. On the 10-core M1 Pro 32 GiB MacBook Pro, three width-six hand `run_m1 --conform-only` belts finished between 2026-09-20T08:45:15Z and 09:28:24Z, their logs under `var/keep/issue-273/`: warm settlement workers read 0.383 to 0.388 GB, cold ones (memo files moved aside, so every window settles fresh) 0.911 to 0.916 GB, the `ss10` worker 0.061 to 0.063 GB, and the controller 0.28 GB. On the 18-core M5 Pro 48 GiB MacBook Pro, a cycle's gate:conform beside a live surface build and four hand belts finished between 2026-09-23T01:18:26Z and 01:43:38Z, their logs under `var/keep/issue-273/m5pro-48gib/`. The cycle's settlement workers, whose walks pruned the windows the witness stage had added to each memo and rewrote the file, read 0.382 to 0.384 GB. Warm hand workers at widths six and two read 0.231 to 0.237 GB. Cold ones read 0.904 to 0.933 GB at width six and 0.904 to 0.913 GB at width two, where a reused worker runs three configurations and keeps what the earlier ones left, yet reads no higher than a fresh one. The `ss10` worker reads 0.060 to 0.063 GB at width six, and the controller 0.28 GB. The constant is the highest reading, 0.933 GB, plus a quarter, rounded up to the tenth, because a cost that is too low pushes the machine into swap, and because the fresh-window dict grows with the window count, which `rebuild/scaling-ladder.txt` fits against letters and runes, so each new letter raises the cold reading. The conform-belt row of `make job-costs` checks it: `run_m1.run_font_conformance` writes one kind:"pool" record per pooled belt at `conform.BELT_HORIZON`, one observation per configuration. The gate:conform step peak is not used, because `peak_rss.reap_peak_rss_bytes` takes the maximum over the tree and so reads one process. Beside the build lane's larger step (the surface build's parent and workers, or the plumbing step's chain parent and refill pool, `_conform_build_lane`), memory does not limit this pool on any fleet machine at this figure; the acceptance-configuration count does.
+# The seed is the `conform-belt` pool records of two machines in `doc/fleet.md`. On the 10-core M1 Pro 32 GiB MacBook Pro, three width-six hand `run_m1 --conform-only` belts finished between 2026-09-20T08:45:15Z and 09:28:24Z, their logs under `var/keep/issue-273/`: warm settlement workers read 0.383 to 0.388 GB, cold ones (memo files moved aside, so every window settles fresh) 0.911 to 0.916 GB, the `ss10` worker 0.061 to 0.063 GB, and the controller 0.28 GB. On the 18-core M5 Pro 48 GiB MacBook Pro, a cycle's gate:conform beside a live surface build and four hand belts finished between 2026-09-23T01:18:26Z and 01:43:38Z, their logs under `var/keep/issue-273/m5pro-48gib/`. The cycle's settlement workers, whose walks pruned the windows the witness stage had added to each memo and rewrote the file, read 0.382 to 0.384 GB. Warm hand workers at widths six and two read 0.231 to 0.237 GB. Cold ones read 0.904 to 0.933 GB at width six and 0.904 to 0.913 GB at width two, where a reused worker runs three configurations and keeps what the earlier ones left, yet reads no higher than a fresh one. The `ss10` worker reads 0.060 to 0.063 GB at width six, and the controller 0.28 GB. The constant is the highest reading, 0.933 GB, plus a quarter, rounded up to the tenth, because a cost that is too low pushes the machine into swap, and because the fresh-window dict grows with the window count, which `rebuild/scaling-ladder.txt` fits against letters and runes, so each new letter raises the cold reading. The conform-belt row of `make job-costs` checks it: `run_m1.run_font_conformance` writes one kind:"pool" record per pooled belt at `conform.BELT_HORIZON`, one observation per configuration. The gate:conform step peak is not used, because `peak_rss.reap_peak_rss_bytes` takes the maximum over the tree and so reads one process. Beside the build lane's larger step (the surface build's parent and workers, or the verdict update's process and refill pool, `_conform_build_lane`), memory does not limit this pool on any fleet machine at this figure; the acceptance-configuration count does.
 CONFORM_BELT_BYTES = 1_200_000_000
 # The width of gate:make-test's pytest pool under a cycle, which the cycle passes to that child and reserves for: `surface_job_budget` subtracts two cores and this pool's memory. Without it the pool runs at `-n auto`, which the root conftest.py resolves to every core, while the build beside it is sized as if the pool held only its reservation.
 MAKE_TEST_POOL_WORKERS = 2
@@ -316,9 +316,9 @@ def make_test_closure_fingerprint(root: Path = ROOT) -> str | None:
     return digest.hexdigest()
 
 
-def record_plumbing_green(fingerprint: str, path: Path | None = None) -> None:
-    """Write the verdict plumbing's green record: the key alone, like every record `read_green_record` parses. A pass that needs the frontier derives it from disk (`frontier_carry_out`), because a later export could outrank a copy remembered here."""
-    record_green(path if path is not None else cycle_paths.PLUMBING_GREEN, fingerprint)
+def record_verdict_update_green(fingerprint: str, path: Path | None = None) -> None:
+    """Write the verdict update's green record: the key alone, like every record `read_green_record` parses. A pass that needs the frontier derives it from disk (`frontier_carry_out`), because a later export could outrank a copy remembered here."""
+    record_green(path if path is not None else cycle_paths.VERDICT_UPDATE_GREEN, fingerprint)
 
 
 def frontier_carry_out() -> Path | None:
@@ -397,7 +397,7 @@ REBUILD_GATE_HARNESS_PATHS = (
 
 
 def _closure_digest(root: Path, rel: str) -> str:
-    """Return one file's digest for the rebuild lane's closure. Rune YAMLs, the divergence ledger and the standing approvals get prose-insensitive hashes (`fingerprint.rune_file_digest`, `divergence_ledger_digest`, `standing_approvals_digest`), so a documentation edit does not re-run the gate. uv.lock is hashed by its dependency pins (`fingerprint.lock_digest`), so a version bump does not re-run it either while a changed pin does; no test reads the project's own block, and the pinned packages decide the interpreter the lane runs under. Leaving the prose out is safe because of what the tests read from those files. The contracts tests that load the live runes check structure, settlement outcomes and round-trip identity, and those that load the live ledgers read ids, `no_verdict`, `match` and the exemplar keys, never a `why` or a `note`. The only live readers of those fields are the surface's explain panel and the standing fill, and both are keyed elsewhere: the ledger's `why` in the Stage B `explain_prose` component, and the fill's copy of a rule's `note` in `plumbing_skip_fingerprint`, which hashes the file raw for that reason."""
+    """Return one file's digest for the rebuild lane's closure. Rune YAMLs, the divergence ledger and the standing approvals get prose-insensitive hashes (`fingerprint.rune_file_digest`, `divergence_ledger_digest`, `standing_approvals_digest`), so a documentation edit does not re-run the gate. uv.lock is hashed by its dependency pins (`fingerprint.lock_digest`), so a version bump does not re-run it either while a changed pin does; no test reads the project's own block, and the pinned packages decide the interpreter the lane runs under. Leaving the prose out is safe because of what the tests read from those files. The contracts tests that load the live runes check structure, settlement outcomes and round-trip identity, and those that load the live ledgers read ids, `no_verdict`, `match` and the exemplar keys, never a `why` or a `note`. The only live readers of those fields are the surface's explain panel and the standing fill, and both are keyed elsewhere: the ledger's `why` in the Stage B `explain_prose` component, and the fill's copy of a rule's `note` in `verdict_update_skip_fingerprint`, which hashes the file raw for that reason."""
     from rebuild.pipeline import fingerprint
 
     prose_insensitive = {
@@ -844,7 +844,7 @@ def promotable_surface(
 ) -> Path | None:
     """Return the rehearsal directory a live pass can move into rebuild/out/review instead of rebuilding, or None. A rehearsal (`--review-out`) writes a whole surface (shards, sidecars, unit store and signature store) where the live pass never reads, and the next live pass would otherwise rebuild the same bytes cold, because its own store is stamped for the pre-rehearsal environment. Candidates are checked in order: the `plan.review_out` the last cycle summary recorded (a repo-relative string, resolved against `root`), then `var/rehearsal-review` under `root`, the conventional directory (`--review-out` takes any path, but a rehearsal is expected to use that one). Every path derives from `root`, so a scratch repo never reads the live rehearsal.
 
-    A candidate is promotable when it is a directory other than the live one, on the live directory's filesystem (`os.replace` cannot cross filesystems, and a plan must never print a move it cannot make), when `surface_build_skippable` returns True for it (that function defines "reproduces these inputs byte for byte", including the after font and the three stamped sidecars), and when its `generated_at` is not older than the live surface's. The byte-identity check cannot supply the stamp condition: `generated_at` is the latest input mtime, not a build time (`_generated_at` in rebuild/review/build.py), so a rehearsal can have a stamp older than the surface it would replace, and merge_verdicts refuses a store stamped newer than the surface it merges onto. A backwards promotion would fail the plumbing step after the tree had already moved. An unreadable manifest rules the candidate out, which costs only a rebuild.
+    A candidate is promotable when it is a directory other than the live one, on the live directory's filesystem (`os.replace` cannot cross filesystems, and a plan must never print a move it cannot make), when `surface_build_skippable` returns True for it (that function defines "reproduces these inputs byte for byte", including the after font and the three stamped sidecars), and when its `generated_at` is not older than the live surface's. The byte-identity check cannot supply the stamp condition: `generated_at` is the latest input mtime, not a build time (`_generated_at` in rebuild/review/build.py), so a rehearsal can have a stamp older than the surface it would replace, and merge_verdicts refuses a store stamped newer than the surface it merges onto. A backwards promotion would fail the verdict-update step after the tree had already moved. An unreadable manifest rules the candidate out, which costs only a rebuild.
     """
     live_dir = live if live is not None else REVIEW_OUT
     summary = summary_path if summary_path is not None else root / "rebuild" / "out" / "cycle_summary.json"
@@ -909,9 +909,9 @@ def recover_superseded_surface(live: Path | None = None, *, delete: bool = True)
     return f"Put {superseded} back as the live surface; the promotion it stepped aside for did not finish."
 
 
-# The chain's code, listed by module instead of all of rebuild/tools/: the import closure of rebuild.tools.verdict_chain, which runs every step. rebuild/test_plumbing_closure.py checks the list against the walked import graph on every contracts run. This driver is not an entry point, because every argument it passes the chain names an input the key already hashes (the surface, the master, the store), a flag that disables the skip, or a width (`--standing-fill-jobs`) that cannot change the chain's output, and the chain parses its own flags in verdict_chain. The walk stops at the modules in `fingerprint.pipeline_code_paths`, because the key includes the pipeline_code component whole through its manifest line. The rebuild/tools/ modules the pipeline imports (memory_budget, peak_rss, lock_digest, site_fonts and others) are outside this list, which keeps fan-out widths and cost readings out of the verdict key.
-PLUMBING_ENTRY_POINTS = ("rebuild.tools.verdict_chain",)
-PLUMBING_TOOL_MODULES = (
+# The verdict update's code, listed by module instead of all of rebuild/tools/: the import closure of rebuild.tools.verdict_update, which runs every step. rebuild/test_verdict_update_closure.py checks the list against the walked import graph on every contracts run. This driver is not an entry point, because every argument it passes the verdict update names an input the key already hashes (the surface, the master, the store), a flag that disables the skip, or a width (`--standing-fill-jobs`) that cannot change the verdict update's output, and the verdict update parses its own flags in verdict_update. The walk stops at the modules in `fingerprint.pipeline_code_paths`, because the key includes the pipeline_code component whole through its manifest line. The rebuild/tools/ modules the pipeline imports (memory_budget, peak_rss, lock_digest, site_fonts and others) are outside this list, which keeps fan-out widths and cost readings out of the verdict key.
+VERDICT_UPDATE_ENTRY_POINTS = ("rebuild.tools.verdict_update",)
+VERDICT_UPDATE_TOOL_MODULES = (
     "carry_verdicts",
     "complaint_docket",
     "console",
@@ -921,19 +921,19 @@ PLUMBING_TOOL_MODULES = (
     "review_server",
     "standing_client",
     "standing_verdicts",
-    "verdict_chain",
+    "verdict_update",
     "verdict_notes",
 )
 
 
-def plumbing_code_paths(root: Path = ROOT) -> list[Path]:
-    return [Path(root) / "rebuild" / "tools" / f"{name}.py" for name in PLUMBING_TOOL_MODULES]
+def verdict_update_code_paths(root: Path = ROOT) -> list[Path]:
+    return [Path(root) / "rebuild" / "tools" / f"{name}.py" for name in VERDICT_UPDATE_TOOL_MODULES]
 
 
-def plumbing_skip_fingerprint(
+def verdict_update_skip_fingerprint(
     root: Path = ROOT, surface: Path | None = None, master: Path | None = None
 ) -> str | None:
-    """Return the content key over everything the verdict plumbing reads: the surface it resolves unit ids against, the verdicts master it carries forward, the live store it merges into, the checked-in standing approvals, and the chain's own code. The standing approvals are hashed by raw bytes, unlike the prose-insensitive hash the rebuild lane uses: `standing_verdicts` copies each rule's `note` into the verdict note of every fill it writes, so rewording a note changes the chain's output and must re-run it. Carry, merge, both fills with their merges, and the complaint docket are pure functions of these inputs, and the chain is idempotent once it has run, so a key matching the record a complete chain left means re-running it would write nothing new. The master is in the key because the autosave's hash cannot see it: an export at the repo root can outrank the autosave in the auto-resolution and carry verdicts the store has never held. The code is in the key for the same reason every other key includes its stage's code: a fix to a fill's matcher or to the carry's join must run, not be skipped. It is the chain's import closure (`plumbing_code_paths`, which a contracts test checks against the chain's import graph) plus the review/ modules the chain runs and the surface build does not: serve.py and verdict_store.py, through which merge_verdicts reads the store, and status.py and journal.py, which the merge and the readiness check run. review/'s build-side modules are covered by the manifest fingerprint's review_code. The manifest line leaves out `unit_index.ASSET_COMPONENTS`, because no chain step reads the copied app assets, and an assets refresh rewrites that field and must not re-run a chain whose real inputs are unchanged. None when the surface has no fingerprinted manifest or no master was resolved."""
+    """Return the content key over everything the verdict update reads: the surface it resolves unit ids against, the verdicts master it carries forward, the live store it merges into, the checked-in standing approvals, and the verdict update's own code. The standing approvals are hashed by raw bytes, unlike the prose-insensitive hash the rebuild lane uses: `standing_verdicts` copies each rule's `note` into the verdict note of every fill it writes, so rewording a note changes the verdict update's output and must re-run it. Carry, merge, both fills with their merges, and the complaint docket are pure functions of these inputs, and the verdict update is idempotent once it has run, so a key matching the record a complete verdict update left means re-running it would write nothing new. The master is in the key because the autosave's hash cannot see it: an export at the repo root can outrank the autosave in the auto-resolution and carry verdicts the store has never held. The code is in the key for the same reason every other key includes its stage's code: a fix to a fill's matcher or to the carry's join must run, not be skipped. It is the verdict update's import closure (`verdict_update_code_paths`, which a contracts test checks against the verdict update's import graph) plus the review/ modules the verdict update runs and the surface build does not: serve.py and verdict_store.py, through which merge_verdicts reads the store, and status.py and journal.py, which the merge and the readiness check run. review/'s build-side modules are covered by the manifest fingerprint's review_code. The manifest line leaves out `unit_index.ASSET_COMPONENTS`, because no step of the verdict update reads the copied app assets, and an assets refresh rewrites that field and must not re-run a verdict update whose real inputs are unchanged. None when the surface has no fingerprinted manifest or no master was resolved."""
     if master is None:
         return None
     surface_dir = surface if surface is not None else REVIEW_OUT
@@ -956,7 +956,7 @@ def plumbing_skip_fingerprint(
         f"master\t{master}\t{_sha256_path(Path(master))}",
         f"autosave\t{_sha256_path(root / 'verdicts-autosave.json')}",
         f"standing\t{_sha256_path(root / 'rebuild' / 'standing-approvals.yaml')}",
-        f"tools_code\t{fingerprint.hash_paths(root, plumbing_code_paths(root))}",
+        f"tools_code\t{fingerprint.hash_paths(root, verdict_update_code_paths(root))}",
         f"serve\t{_sha256_path(root / 'rebuild' / 'review' / 'serve.py')}",
         f"verdict_store\t{_sha256_path(root / 'rebuild' / 'review' / 'verdict_store.py')}",
         f"status\t{_sha256_path(root / 'rebuild' / 'review' / 'status.py')}",
@@ -1026,10 +1026,10 @@ def conform_gate_argv(jobs: int, horizon: int = CONFORM_HORIZON_DEFAULT) -> list
 STEP_DESCRIPTIONS = {
     "run_m1": "Builds the M1 tables for every settlement configuration in the Rust kernel (the ss10 overlay settles nothing and gets none), mints the glyphs, emits GSUB and GPOS, compiles the font, and reads it back. Then runs the defect gates, the Manual-pin gate, and the oracle over what it built.",
     "run_m1:gates-only": "Re-adjudicates the tables and font already on disk with the defect gates, the Manual-pin gate, and the oracle, rebuilding nothing. Taken when only comparison-side inputs moved since the last green build.",
-    "surface-build": "Rebuilds the review surface: every unit the tables reach is drafted, enriched, and checked, with cache-served units re-verified by content key. Writes the shards, manifest, and census sidecar that the app and the verdict plumbing read.",
+    "surface-build": "Rebuilds the review surface: every unit the tables reach is drafted, enriched, and checked, with cache-served units re-verified by content key. Writes the shards, manifest, and census sidecar that the app and the verdict update read.",
     "assets-refresh": "Overwrites the served copy of the review app's JS, CSS, and HTML and restamps only the manifest's static component. No shard or sidecar moves, so the open tab's store stays aligned.",
     "surface-promote": "Moves the surface a rehearsal already built for these exact inputs into rebuild/out/review, unit store and signature store with it, and deletes the surface it replaces. Two renames in this process; no unit is drafted, enriched, or checked.",
-    "plumbing": "Carries the verdicts master onto the new surface by unit id, merges it into the store, and runs the echo and standing fills to their fixpoint. Ends by writing the complaint docket of what still needs a human.",
+    "verdict-update": "Carries the verdicts master onto the new surface by unit id, merges it into the store, and runs the echo and standing fills to their fixpoint. Ends by writing the complaint docket of what still needs a human.",
     "census": "Rewrites rebuild/review-census-pins.json from the census sidecar the surface build emitted, names what moved in its invariant block against the last accepted census (diffing that block alone when it did), and holds the ledger's declarations against the classes the corpus reached. Committing the rewritten pins is how the census is accepted.",
     "gates": "The four post-build gates, skipped together under --skip-gates.",
     "gate:js": "Runs the review app's node test suite over its JavaScript. Fast, and independent of every build artifact.",
@@ -1091,9 +1091,9 @@ class Plan:
     contracts_files: dict[str, str] | None = None
     conform_note: str = ""
     conform_proven: bool = False
-    skip_plumbing: bool = False
-    plumbing_note: str = ""
-    plumbing_store_only: bool = False
+    skip_verdict_update: bool = False
+    verdict_update_note: str = ""
+    verdict_update_direct_merge: bool = False
     record_greens: bool = False
     pool_policy: str = REBUILD_POOL_POLICY_DEFAULT
     surface_jobs: int = 1
@@ -1451,22 +1451,22 @@ def _conform_build_lane(
     skip_gates: bool,
     skip_make_test: bool,
     skip_surface: bool,
-    plumbing_runs: bool,
+    verdict_update_runs: bool,
     ncores: int | None,
     total_bytes: int | None,
 ) -> tuple[str, int]:
-    """Return the build-lane step the belt runs beside, by plan step name, and the memory that step holds. The candidates are the surface build (its parent plus `surface_job_budget`'s workers) and the plumbing step (its chain parent plus `standing_fill_jobs`' refill pool). The one this pass runs that holds more is returned, the surface build on a tie, and `("", 0)` when the pass runs neither. Each figure comes from its own budget, so the belt's reservation matches the step's width. The belt can run beside either step: its lane is submitted when run_m1's gate passes, so it starts beside the surface build, and the plumbing step follows the build in the same lane, so a belt still running then, or one the queue policy starts late behind make-test, runs beside the plumbing step."""
+    """Return the build-lane step the belt runs beside, by plan step name, and the memory that step holds. The candidates are the surface build (its parent plus `surface_job_budget`'s workers) and the verdict-update step (the verdict update's process plus `standing_fill_jobs`' refill pool). The one this pass runs that holds more is returned, the surface build on a tie, and `("", 0)` when the pass runs neither. Each figure comes from its own budget, so the belt's reservation matches the step's width. The belt can run beside either step: its lane is submitted when run_m1's gate passes, so it starts beside the surface build, and the verdict-update step follows the build in the same lane, so a belt still running then, or one the queue policy starts late behind make-test, runs beside the verdict-update step."""
     steps: list[tuple[str, int]] = []
     if not skip_surface:
         surface_jobs = surface_job_budget(
             skip_gates=skip_gates, skip_make_test=skip_make_test, ncores=ncores, total_bytes=total_bytes
         )
         steps.append(("surface-build", SURFACE_PARENT_BYTES + SURFACE_WORKER_BYTES * surface_jobs))
-    if plumbing_runs:
+    if verdict_update_runs:
         fill_jobs = standing_fill_jobs(
             skip_gates=skip_gates, skip_make_test=skip_make_test, ncores=ncores, total_bytes=total_bytes
         )
-        steps.append(("plumbing", STANDING_FILL_PARENT_BYTES + STANDING_FILL_WORKER_BYTES * fill_jobs))
+        steps.append(("verdict-update", STANDING_FILL_PARENT_BYTES + STANDING_FILL_WORKER_BYTES * fill_jobs))
     return max(steps, key=lambda step: step[1], default=("", 0))
 
 
@@ -1475,7 +1475,7 @@ def _conform_fit_terms(
     skip_gates: bool,
     skip_make_test: bool,
     skip_surface: bool,
-    plumbing_runs: bool,
+    verdict_update_runs: bool,
     pool_policy: str,
     ncores: int | None,
     total_bytes: int | None,
@@ -1489,7 +1489,7 @@ def _conform_fit_terms(
         skip_gates=skip_gates,
         skip_make_test=skip_make_test,
         skip_surface=skip_surface,
-        plumbing_runs=plumbing_runs,
+        verdict_update_runs=verdict_update_runs,
         ncores=ncores,
         total_bytes=total_bytes,
     )
@@ -1506,14 +1506,14 @@ def conform_job_budget(
     skip_gates: bool = False,
     skip_make_test: bool = False,
     skip_surface: bool = False,
-    plumbing_runs: bool = False,
+    verdict_update_runs: bool = False,
     pool_policy: str = REBUILD_POOL_POLICY_DEFAULT,
     ncores: int | None = None,
     total_bytes: int | None = None,
 ) -> int:
-    """Return the `--jobs` the cycle passes gate:conform: how many belt workers, one spawn process per acceptance configuration (`run_m1.run_font_conformance`), run at once. It is memory, less the reserve, less what runs beside the belt, divided by CONFORM_BELT_BYTES, capped at the acceptance configurations and the cores, and floored at one (`_conform_fit_terms`). What runs beside it is whichever of the surface build and the plumbing step this pass runs that holds more (`_conform_build_lane`). The plumbing step's own width leaves the belt out, because this subtraction accounts for that overlap. `plumbing_runs` defaults to False because only the cycle's plan runs a plumbing step. gate:make-test's pool is subtracted under the overlap policy only, since the queue policy makes the belt wait for make-test. Two things share the machine with no memory estimate, and their bytes come out of the reserve: gate:rebuild-contracts' pool under the overlap policy, which is limited by cores and measured by no constant (`calibrate_budgets.UNITS`), and the build lane's other steps.
+    """Return the `--jobs` the cycle passes gate:conform: how many belt workers, one spawn process per acceptance configuration (`run_m1.run_font_conformance`), run at once. It is memory, less the reserve, less what runs beside the belt, divided by CONFORM_BELT_BYTES, capped at the acceptance configurations and the cores, and floored at one (`_conform_fit_terms`). What runs beside it is whichever of the surface build and the verdict-update step this pass runs that holds more (`_conform_build_lane`). The verdict-update step's own width leaves the belt out, because this subtraction accounts for that overlap. `verdict_update_runs` defaults to False because only the cycle's plan runs a verdict-update step. gate:make-test's pool is subtracted under the overlap policy only, since the queue policy makes the belt wait for make-test. Two things share the machine with no memory estimate, and their bytes come out of the reserve: gate:rebuild-contracts' pool under the overlap policy, which is limited by cores and measured by no constant (`calibrate_budgets.UNITS`), and the build lane's other steps.
 
-    CONFORM_BELT_BYTES is measured at the per-edit horizon (`conform.BELT_HORIZON`) only. A cycle run with a deeper `--conform-horizon` holds its windows in process and shares no memo, so the constant is not a measurement for it; deeper sweeps belong to `make conform-deep`. A hand `run_m1 --conform-only` uses the idle case (`skip_gates=True, skip_surface=True`, no plumbing step). A width of one runs the serial belt (`conform.run_conformance`). `ncores` and `total_bytes` are keywords so a test can compute the width for an invented machine.
+    CONFORM_BELT_BYTES is measured at the per-edit horizon (`conform.BELT_HORIZON`) only. A cycle run with a deeper `--conform-horizon` holds its windows in process and shares no memo, so the constant is not a measurement for it; deeper sweeps belong to `make conform-deep`. A hand `run_m1 --conform-only` uses the idle case (`skip_gates=True, skip_surface=True`, no verdict-update step). A width of one runs the serial belt (`conform.run_conformance`). `ncores` and `total_bytes` are keywords so a test can compute the width for an invented machine.
     """
     from rebuild.tools import memory_budget
 
@@ -1521,7 +1521,7 @@ def conform_job_budget(
         skip_gates=skip_gates,
         skip_make_test=skip_make_test,
         skip_surface=skip_surface,
-        plumbing_runs=plumbing_runs,
+        verdict_update_runs=verdict_update_runs,
         pool_policy=pool_policy,
         ncores=ncores,
         total_bytes=total_bytes,
@@ -1534,7 +1534,7 @@ def conform_job_derivation(
     skip_gates: bool = False,
     skip_make_test: bool = False,
     skip_surface: bool = False,
-    plumbing_runs: bool = False,
+    verdict_update_runs: bool = False,
     pool_policy: str = REBUILD_POOL_POLICY_DEFAULT,
     ncores: int | None = None,
     total_bytes: int | None = None,
@@ -1546,7 +1546,7 @@ def conform_job_derivation(
         skip_gates=skip_gates,
         skip_make_test=skip_make_test,
         skip_surface=skip_surface,
-        plumbing_runs=plumbing_runs,
+        verdict_update_runs=verdict_update_runs,
         pool_policy=pool_policy,
         ncores=ncores,
         total_bytes=total_bytes,
@@ -1557,7 +1557,7 @@ def conform_job_derivation(
 def _standing_fill_terms(
     *, skip_gates: bool, skip_make_test: bool, ncores: int | None
 ) -> tuple[int, int, int]:
-    """Return the standing fill pool's three terms for `standing_fill_jobs` and `standing_fill_derivation`: STANDING_FILL_WORKER_BYTES is the divisor, STANDING_FILL_PARENT_BYTES is subtracted first, and the cap is the cores, because no width is known past which this pool stops getting faster. Under a gated cycle gate:make-test's pool is subtracted as it is for the surface build: its bytes from memory and two cores from the cap. The plumbing step also starts beside gate:rebuild-contracts, whose pool no constant measures (`calibrate_budgets.UNITS`), so that pool is left out, and a pass that drops the standing-fill memo overuses memory for the pool's few tens of seconds. gate:conform's belt can also run beside this step. That overlap is subtracted on the belt's side (`_conform_build_lane`), so this width leaves the belt out."""
+    """Return the standing fill pool's three terms for `standing_fill_jobs` and `standing_fill_derivation`: STANDING_FILL_WORKER_BYTES is the divisor, STANDING_FILL_PARENT_BYTES is subtracted first, and the cap is the cores, because no width is known past which this pool stops getting faster. Under a gated cycle gate:make-test's pool is subtracted as it is for the surface build: its bytes from memory and two cores from the cap. The verdict-update step also starts beside gate:rebuild-contracts, whose pool no constant measures (`calibrate_budgets.UNITS`), so that pool is left out, and a pass that drops the standing-fill memo overuses memory for the pool's few tens of seconds. gate:conform's belt can also run beside this step. That overlap is subtracted on the belt's side (`_conform_build_lane`), so this width leaves the belt out."""
     from rebuild.tools import memory_budget
 
     cores = ncores or memory_budget.usable_cores()
@@ -1575,7 +1575,7 @@ def standing_fill_jobs(
     ncores: int | None = None,
     total_bytes: int | None = None,
 ) -> int:
-    """Return the `--standing-fill-jobs` the cycle passes the verdict chain, which forwards it to the standing fill as `--jobs`: memory, less the reserve and the chain parent, divided by one refill worker, capped at the cores (`_standing_fill_terms`). The width is computed here and nowhere else for two reasons. The fill's code is part of its memo's stamp, so arithmetic inside it would drop the memo on every edit to that arithmetic. And only the cycle knows which gates run beside the plumbing step. A served pass stays under the fill's pool threshold and starts no pool at any width, so this number costs it nothing."""
+    """Return the `--standing-fill-jobs` the cycle passes the verdict update, which forwards it to the standing fill as `--jobs`: memory, less the reserve and the verdict update's process, divided by one refill worker, capped at the cores (`_standing_fill_terms`). The width is computed here and nowhere else for two reasons. The fill's code is part of its memo's stamp, so arithmetic inside it would drop the memo on every edit to that arithmetic. And only the cycle knows which gates run beside the verdict-update step. A served pass stays under the fill's pool threshold and starts no pool at any width, so this number costs it nothing."""
     from rebuild.tools import memory_budget
 
     per_unit, coresident, cap = _standing_fill_terms(
@@ -1634,28 +1634,28 @@ def build_plan(
     contracts_files: dict[str, str] | None = None,
     conform_note: str = "",
     conform_proven: bool = False,
-    skip_plumbing: bool = False,
-    plumbing_note: str = "",
+    skip_verdict_update: bool = False,
+    verdict_update_note: str = "",
     store_only: bool = False,
     record_greens: bool = False,
     keep_history: bool = False,
     recipe_serves: bool = False,
 ) -> Plan:
-    do_carry = not no_carry and not first_run and not skip_plumbing and not store_only
+    do_carry = not no_carry and not first_run and not skip_verdict_update and not store_only
     resolved_carry_out: Path | None = None
     if do_carry:
         resolved_carry_out = (
             carry_out if carry_out is not None else ROOT / f"verdicts-carried-{short_id}.json"
         )
-    if skip_plumbing:
-        plumbing_step_note = f"SKIPPED ({plumbing_note})"
+    if skip_verdict_update:
+        verdict_update_step_note = f"SKIPPED ({verdict_update_note})"
     elif first_run:
-        plumbing_step_note = "SKIPPED (first run)"
+        verdict_update_step_note = "SKIPPED (first run)"
     elif not do_carry and not store_only:
-        plumbing_step_note = "SKIPPED (--no-carry)"
+        verdict_update_step_note = "SKIPPED (--no-carry)"
     else:
-        plumbing_step_note = ""
-    plumbing_runs = not plumbing_step_note
+        verdict_update_step_note = ""
+    verdict_update_runs = not verdict_update_step_note
 
     no_make_test = skip_gates or skip_make_test
     make_test_workers = make_test_pool_width(ncores=ncores)
@@ -1680,9 +1680,12 @@ def build_plan(
     fill_jobs = standing_fill_jobs(
         skip_gates=skip_gates, skip_make_test=skip_make_test, ncores=ncores, total_bytes=total_bytes
     )
-    fill_reason = "the standing fill's refill pool on a memo-drop pass, beside the chain parent; " + (
-        standing_fill_derivation(
-            skip_gates=skip_gates, skip_make_test=skip_make_test, ncores=ncores, total_bytes=total_bytes
+    fill_reason = (
+        "the standing fill's refill pool on a memo-drop pass, beside the verdict update's process; "
+        + (
+            standing_fill_derivation(
+                skip_gates=skip_gates, skip_make_test=skip_make_test, ncores=ncores, total_bytes=total_bytes
+            )
         )
     )
     contracts_workers = contracts_pool_width(
@@ -1707,7 +1710,7 @@ def build_plan(
         skip_gates=skip_gates,
         skip_make_test=skip_make_test,
         skip_surface=skip_surface,
-        plumbing_runs=plumbing_runs,
+        verdict_update_runs=verdict_update_runs,
         pool_policy=pool_policy,
         ncores=ncores,
         total_bytes=total_bytes,
@@ -1716,7 +1719,7 @@ def build_plan(
         skip_gates=skip_gates,
         skip_make_test=skip_make_test,
         skip_surface=skip_surface,
-        plumbing_runs=plumbing_runs,
+        verdict_update_runs=verdict_update_runs,
         ncores=ncores,
         total_bytes=total_bytes,
     )
@@ -1726,20 +1729,20 @@ def build_plan(
         conform_head = (
             f"CONFORM_BELT_BYTES a belt worker, beside the surface build's parent and its {surface_workers}"
         )
-    elif belt_beside == "plumbing":
+    elif belt_beside == "verdict-update":
         fill_workers = f"{fill_jobs} refill worker" + ("" if fill_jobs == 1 else "s")
         conform_head = (
             "CONFORM_BELT_BYTES a belt worker, "
             + (
                 "the surface build not running this pass, so "
                 if skip_surface
-                else "the plumbing step outweighing the surface build, so "
+                else "the verdict-update step outweighing the surface build, so "
             )
-            + f"beside the plumbing step's chain parent and its {fill_workers}"
+            + f"beside the verdict update's process and its {fill_workers}"
         )
     else:
         conform_head = (
-            "CONFORM_BELT_BYTES a belt worker, neither the surface build nor the plumbing step running this pass, so "
+            "CONFORM_BELT_BYTES a belt worker, neither the surface build nor the verdict-update step running this pass, so "
             + ("only gate:make-test's pool co-resident" if make_test_beside_belt else "nothing co-resident")
         )
     if belt_beside and make_test_beside_belt:
@@ -1748,7 +1751,7 @@ def build_plan(
         skip_gates=skip_gates,
         skip_make_test=skip_make_test,
         skip_surface=skip_surface,
-        plumbing_runs=plumbing_runs,
+        verdict_update_runs=verdict_update_runs,
         pool_policy=pool_policy,
         ncores=ncores,
         total_bytes=total_bytes,
@@ -1792,9 +1795,9 @@ def build_plan(
         contracts_files=contracts_files,
         conform_note=conform_note,
         conform_proven=conform_proven,
-        skip_plumbing=skip_plumbing,
-        plumbing_note=plumbing_note,
-        plumbing_store_only=store_only,
+        skip_verdict_update=skip_verdict_update,
+        verdict_update_note=verdict_update_note,
+        verdict_update_direct_merge=store_only,
         record_greens=record_greens,
         retention=do_retention,
         recipe_serves=recipe_serves,
@@ -1898,35 +1901,35 @@ def build_plan(
         plan.complaints_note = "rehearsal: reads the live autosave"
     elif first_run:
         plan.complaints_note = "first run: no verdicts to cluster"
-    elif skip_plumbing:
-        plan.complaints_note = plumbing_note
+    elif skip_verdict_update:
+        plan.complaints_note = verdict_update_note
     elif not AUTOSAVE.exists():
         plan.complaints_note = "no verdicts store"
 
-    if plumbing_step_note:
-        plan.steps.append(Step("plumbing", None, plumbing_step_note, lane="build", skipped=True))
+    if verdict_update_step_note:
+        plan.steps.append(Step("verdict-update", None, verdict_update_step_note, lane="build", skipped=True))
     else:
-        plumbing_argv = [
+        verdict_update_argv = [
             "uv",
             "run",
             "python",
             "-m",
-            "rebuild.tools.verdict_chain",
+            "rebuild.tools.verdict_update",
             "--surface",
             str(surface_dir),
         ]
         if do_carry:
             assert resolved_carry_out is not None
-            plumbing_argv += ["--verdicts", str(verdicts), "--carry-out", str(resolved_carry_out)]
+            verdict_update_argv += ["--verdicts", str(verdicts), "--carry-out", str(resolved_carry_out)]
         else:
-            plumbing_argv += ["--merge-master", str(verdicts)]
+            verdict_update_argv += ["--merge-master", str(verdicts)]
         if not do_merge:
-            plumbing_argv += ["--no-merge"]
+            verdict_update_argv += ["--no-merge"]
         if plan.complaints_note:
-            plumbing_argv += ["--no-complaints"]
+            verdict_update_argv += ["--no-complaints"]
         if fresh:
-            plumbing_argv += ["--fresh-standing-memo"]
-        plumbing_argv += ["--standing-fill-jobs", str(fill_jobs)]
+            verdict_update_argv += ["--fresh-standing-memo"]
+        verdict_update_argv += ["--standing-fill-jobs", str(fill_jobs)]
         if do_carry and not do_merge:
             note = (
                 "carry only (rehearsal: the live autosave is never written)"
@@ -1940,7 +1943,7 @@ def build_plan(
             )
         else:
             note = "carry -> merge -> echo fill -> standing fill -> the fills' fixpoint -> complaint docket, in one process"
-        plan.steps.append(Step("plumbing", plumbing_argv, note, lane="build"))
+        plan.steps.append(Step("verdict-update", verdict_update_argv, note, lane="build"))
 
     if review_out is not None:
         plan.steps.append(
@@ -2095,7 +2098,7 @@ def describe_carry_source(resolved: dict, root: Path, *, promoting: bool = False
 
 
 def master_stamped_for_surface(master: Path, surface: Path) -> bool:
-    """Return whether the verdicts master carries the surface's own stamp, read as merge_verdicts reads both: the master parsed whole as an ams-review-verdicts/1 document, and the stamp from the manifest's `generated_at`. This is the store-only route's precondition, because that route passes the master to the merge unchanged and the merge refuses any input stamped for another surface. `main` calls it for a master named by --verdicts. For an auto-resolved master the resolution's `aligned` already holds the answer, computed by `status.resolve_carry_source` from the same parse and stamp, so that master is not parsed twice. If a pass stops after the surface build writes a new surface and before the plumbing carries the store onto it, the store stays stamped for the previous surface and the next pass skips the build as unchanged. This returns False for that master, so the pass takes the full carry by unit id. An unreadable master also returns False, and the carry reports it."""
+    """Return whether the verdicts master carries the surface's own stamp, read as merge_verdicts reads both: the master parsed whole as an ams-review-verdicts/1 document, and the stamp from the manifest's `generated_at`. This is the store-only route's precondition, because that route passes the master to the merge unchanged and the merge refuses any input stamped for another surface. `main` calls it for a master named by --verdicts. For an auto-resolved master the resolution's `aligned` already holds the answer, computed by `status.resolve_carry_source` from the same parse and stamp, so that master is not parsed twice. If a pass stops after the surface build writes a new surface and before the verdict update carries the store onto it, the store stays stamped for the previous surface and the next pass skips the build as unchanged. This returns False for that master, so the pass takes the full carry by unit id. An unreadable master also returns False, and the carry reports it."""
     from rebuild.review.serve import parse_autosave_payload
 
     stamp = _manifest_stamp_at(surface)
@@ -2146,14 +2149,14 @@ def _render_concurrency(plan: Plan) -> list[str]:
         return [
             "",
             "  Concurrency (--skip-gates):",
-            f"    Lane build only; no gates; run_m1 sweeps --jobs {plan.sweep_jobs} ({plan.sweep_reason}) at --kernel-threads {'not passed (gates-only route)' if plan.reuse_run_m1 else plan.kernel_threads} and --replay-threads {'not passed (gates-only route)' if plan.reuse_run_m1 else plan.replay_threads}, surface-build --jobs {plan.surface_jobs} ({plan.surface_reason}), surface-build --signature-jobs {plan.signature_jobs} ({plan.signature_reason}), plumbing --standing-fill-jobs {plan.standing_fill_jobs} ({plan.standing_fill_reason})",
+            f"    Lane build only; no gates; run_m1 sweeps --jobs {plan.sweep_jobs} ({plan.sweep_reason}) at --kernel-threads {'not passed (gates-only route)' if plan.reuse_run_m1 else plan.kernel_threads} and --replay-threads {'not passed (gates-only route)' if plan.reuse_run_m1 else plan.replay_threads}, surface-build --jobs {plan.surface_jobs} ({plan.surface_reason}), surface-build --signature-jobs {plan.signature_jobs} ({plan.signature_reason}), verdict-update --standing-fill-jobs {plan.standing_fill_jobs} ({plan.standing_fill_reason})",
         ]
     t0_lane = "gate:js" if plan.skip_make_test else "gate:js, gate:make-test"
     lines = [
         "",
         f"  Concurrency (pool policy: {plan.pool_policy}):",
         f"    Lane t0   [from t=0, background]  : {t0_lane}",
-        "    Lane build[serial, main thread]  : run_m1 -> submit gate:rebuild-contracts -> surface-build -> plumbing -> census",
+        "    Lane build[serial, main thread]  : run_m1 -> submit gate:rebuild-contracts -> surface-build -> verdict-update -> census",
     ]
     if plan.skip_conform:
         lines.append(
@@ -2217,7 +2220,7 @@ def _render_concurrency(plan: Plan) -> list[str]:
     lines.append(f"    surface-build --jobs             : {plan.surface_jobs}  ({plan.surface_reason})")
     lines.append(f"    surface-build --signature-jobs   : {plan.signature_jobs}  ({plan.signature_reason})")
     lines.append(
-        f"    plumbing --standing-fill-jobs    : {plan.standing_fill_jobs}  ({plan.standing_fill_reason})"
+        f"    verdict-update --standing-fill-jobs : {plan.standing_fill_jobs}  ({plan.standing_fill_reason})"
     )
     return lines
 
@@ -2299,7 +2302,7 @@ class CycleReport:
     standing_fill_lines: list[str] = field(default_factory=list)
     standing_merge_status: str = "not run"
     standing_merge_lines: list[str] = field(default_factory=list)
-    plumbing_fixpoint: bool = False
+    verdict_update_fixpoint: bool = False
     census_status: str = "not run"
     census_reach: str = "not run"
     census_reach_sets: dict | None = None
@@ -2701,7 +2704,7 @@ def _do_surface_build(
     return True
 
 
-_PLUMBING_FAILURES = {
+_VERDICT_UPDATE_FAILURES = {
     "carry": "carry_verdicts failed",
     "merge": "verdict merge failed",
     "echo-fill": "echo-fill failed",
@@ -2711,8 +2714,8 @@ _PLUMBING_FAILURES = {
 }
 
 
-def plumbing_sections(text: str) -> dict[str, list[str]]:
-    """Split the verdict chain's output into sections at the `[phase] <step>` line each step starts with, so the summary can report each of the chain's steps although one subprocess runs them all. The chain's `[chain] fixpoint:` and `[chain] failed:` result lines close the open section without opening one, which keeps a `failed:` line out of the complaints section. Later echo rounds (`echo-fill-2` and so on) are merged into the first round's section."""
+def verdict_update_sections(text: str) -> dict[str, list[str]]:
+    """Split the verdict update's output into sections at the `[phase] <step>` line each step starts with, so the summary can report each of the verdict update's steps although one subprocess runs them all. Its `[verdict-update] fixpoint:` and `[verdict-update] failed:` result lines close the open section without opening one, which keeps a `failed:` line out of the complaints section. Later echo rounds (`echo-fill-2` and so on) are merged into the first round's section."""
     sections: dict[str, list[str]] = {}
     current: str | None = None
     for line in text.splitlines():
@@ -2733,7 +2736,7 @@ def _scrape(lines: list[str], keep) -> list[str]:
 
 
 def _standing_fill_news(line: str) -> bool:
-    """Return whether the summary keeps this line of the standing fill's output. It keeps the `wrote` line, the tripwire's WARNING (so an over-broad rule shows in cycle_summary.json), every per-rule line (so a newly added rule shows even at 0 filled), and the composed-pair lines that filled or held something. Composed-pair lines grow quadratically with the rule count, so the rest are left to `standing_probe --coverage`. The REACHED NOTHING lines are left out because `--require-reach` fails the step on such a rule, and the except_left vocabulary line is informational. The already-verdicted column is optional because the chain runs the fill with `--open-only`, which omits it, while a dry run over the whole domain prints it."""
+    """Return whether the summary keeps this line of the standing fill's output. It keeps the `wrote` line, the tripwire's WARNING (so an over-broad rule shows in cycle_summary.json), every per-rule line (so a newly added rule shows even at 0 filled), and the composed-pair lines that filled or held something. Composed-pair lines grow quadratically with the rule count, so the rest are left to `standing_probe --coverage`. The REACHED NOTHING lines are left out because `--require-reach` fails the step on such a rule, and the except_left vocabulary line is informational. The already-verdicted column is optional because the verdict update runs the fill with `--open-only`, which omits it, while a dry run over the whole domain prints it."""
     if line.startswith("wrote ") and "standing-approval verdicts" in line:
         return True
     if line.startswith("WARNING:"):
@@ -2747,16 +2750,16 @@ def _standing_fill_news(line: str) -> bool:
     return match is not None and (int(match.group(1)) > 0 or int(match.group(2)) > 0)
 
 
-def _do_plumbing(
+def _do_verdict_update(
     report: CycleReport, *, spawn, emit: console.CycleConsole, registry: _ChildRegistry, plan: Plan
 ) -> list[str]:
-    """Run the verdict chain as one child and fill the per-step report from its output. Return the failure messages for the cycle's failure list, one per failed step.
+    """Run the verdict update as one child and fill the per-step report from its output. Return the failure messages for the cycle's failure list, one per failed step.
 
     A failure in a later echo round (`echo-fill-2`, `echo-merge-3`, and so on) comes after the whole first round, standing fill and merge included, has run. Those steps keep their done words, and the failing step's status adds the round, as in `filled, round 2 FAILED (exit 1)`. Only a first-round failure marks the steps after it as not run.
     """
-    result = spawn("plumbing", plan.argv("plumbing"), emit=emit, registry=registry, stream=False)
+    result = spawn("verdict-update", plan.argv("verdict-update"), emit=emit, registry=registry, stream=False)
     report.carry_out = plan.carry_out if plan.carry_out is not None else frontier_carry_out()
-    sections = plumbing_sections(result.stdout)
+    sections = verdict_update_sections(result.stdout)
     failed = ""
     failed_round = 1
     for line in result.stdout.splitlines():
@@ -2766,7 +2769,7 @@ def _do_plumbing(
             if match := re.fullmatch(r"(.+)-(\d+)", failed):
                 failed, failed_round = match.group(1), int(match.group(2))
     later_round = failed_round > 1
-    report.plumbing_fixpoint = any(
+    report.verdict_update_fixpoint = any(
         line.startswith(console.FIXPOINT_LINE + "witnessed") for line in result.stdout.splitlines()
     )
 
@@ -2813,16 +2816,16 @@ def _do_plumbing(
             status += f", round {failed_round} FAILED (exit {result.returncode})"
         setattr(report, name.replace("-", "_") + "_status", status)
     failures: list[str] = []
-    if failed in _PLUMBING_FAILURES and later_round:
+    if failed in _VERDICT_UPDATE_FAILURES and later_round:
         failures.append(f"{failed} round {failed_round} failed")
-    elif failed in _PLUMBING_FAILURES:
-        failures.append(_PLUMBING_FAILURES[failed])
+    elif failed in _VERDICT_UPDATE_FAILURES:
+        failures.append(_VERDICT_UPDATE_FAILURES[failed])
     elif result.returncode != 0 and failed != "complaints":
-        failures.append(f"the verdict chain failed (exit {result.returncode})")
+        failures.append(f"the verdict update failed (exit {result.returncode})")
 
     if "complaints" in sections:
         _read_complaints(report, sections["complaints"], result.returncode if failed == "complaints" else 0)
-    _close_step(emit, report, "plumbing", result)
+    _close_step(emit, report, "verdict-update", result)
     return failures
 
 
@@ -2948,10 +2951,10 @@ def _do_job_costs(
     _close_step(emit, report, "job-costs", check, "ok")
 
 
-def _skip_plumbing(report: CycleReport, plan: Plan, emit: console.CycleConsole) -> None:
-    """Report the plumbing step as skipped, marking every chain step skipped. The carried file the last recorded pass wrote is still the stamp-aligned frontier, because the surface it was carried onto has not changed, so the report still names it."""
-    emit.step_skipped("plumbing", plan.plumbing_note)
-    note = f"skipped ({plan.plumbing_note})"
+def _skip_verdict_update(report: CycleReport, plan: Plan, emit: console.CycleConsole) -> None:
+    """Report the verdict-update step as skipped, marking each of its steps skipped. The carried file the last recorded pass wrote is still the stamp-aligned frontier, because the surface it was carried onto has not changed, so the report still names it."""
+    emit.step_skipped("verdict-update", plan.verdict_update_note)
+    note = f"skipped ({plan.verdict_update_note})"
     report.carry_out = frontier_carry_out()
     report.merge_status = note
     report.echo_fill_status = note
@@ -3152,9 +3155,9 @@ def _join_gates(
                 timings.record_check(gate)
 
 
-def _plumbing_settled(report: CycleReport) -> bool:
-    """Return whether the chain reached a fixpoint, which the plumbing green record claims. The chain prints its `fixpoint: witnessed` line only after an echo round writes nothing new. A standing merge that writes nothing would not be enough: a standing fill on one unit can make its echo group unanimous and leave a blank member that only another echo fill would fill."""
-    return report.plumbing_fixpoint
+def _verdict_update_settled(report: CycleReport) -> bool:
+    """Return whether the verdict update reached a fixpoint, which the verdict-update green record claims. The verdict update prints its `fixpoint: witnessed` line only after an echo round writes nothing new. A standing merge that writes nothing would not be enough: a standing fill on one unit can make its echo group unanimous and leave a blank member that only another echo fill would fill."""
+    return report.verdict_update_fixpoint
 
 
 def _record_gate_greens(
@@ -3379,14 +3382,16 @@ def _run_cycle(
             _record_gate_greens(report, plan, gate_keys, emit)
             return _finish(report, failures, plan, timings, emit)
 
-        plumbing_key: str | None = None
-        if plan.skip_plumbing:
-            _skip_plumbing(report, plan, emit)
-        elif plan.runs("plumbing"):
-            chain_failures = _do_plumbing(report, spawn=spawn, emit=emit, registry=registry, plan=plan)
-            failures.extend(chain_failures)
-            if not chain_failures and plan.do_merge and _plumbing_settled(report):
-                plumbing_key = plumbing_skip_fingerprint(ROOT, REVIEW_OUT, plan.verdicts)
+        verdict_update_key: str | None = None
+        if plan.skip_verdict_update:
+            _skip_verdict_update(report, plan, emit)
+        elif plan.runs("verdict-update"):
+            verdict_update_failures = _do_verdict_update(
+                report, spawn=spawn, emit=emit, registry=registry, plan=plan
+            )
+            failures.extend(verdict_update_failures)
+            if not verdict_update_failures and plan.do_merge and _verdict_update_settled(report):
+                verdict_update_key = verdict_update_skip_fingerprint(ROOT, REVIEW_OUT, plan.verdicts)
         if plan.complaints_note:
             report.complaints_status = f"skipped ({plan.complaints_note})"
         if plan.review_out is not None:
@@ -3395,8 +3400,13 @@ def _run_cycle(
             emit.step_skipped("census", "rehearsal: the checked-in pins track the live surface")
         else:
             _do_census(report, spawn=spawn, emit=emit, registry=registry, plan=plan)
-        if plumbing_key and report.complaints_ok is True and plan.record_greens and plan.review_out is None:
-            record_plumbing_green(plumbing_key)
+        if (
+            verdict_update_key
+            and report.complaints_ok is True
+            and plan.record_greens
+            and plan.review_out is None
+        ):
+            record_verdict_update_green(verdict_update_key)
 
         _join_gates(report, failures, js_fut, contracts_fut, conform_fut, make_fut, emit, timings)
         _record_gate_greens(report, plan, gate_keys, emit)
@@ -3438,7 +3448,7 @@ _CARRY_FIGURES = re.compile(r"^carry figures: human=(\d+) key_hits=(\d+) unhit=(
 
 
 def carry_figures(lines: list[str]) -> dict[str, int] | None:
-    """Parse the carry's `carry figures:` line: the human units on the new surface, how many a prior verdict matched, how many none matched, and how many prior verdicts matched no unit. The figures are written to the cycle summary and to the run line in the timings journal. Returns None when the carry printed no such line (the store-only route, a rehearsal, or a chain that failed before the carry)."""
+    """Parse the carry's `carry figures:` line: the human units on the new surface, how many a prior verdict matched, how many none matched, and how many prior verdicts matched no unit. The figures are written to the cycle summary and to the run line in the timings journal. Returns None when the carry printed no such line (the store-only route, a rehearsal, or a verdict update that failed before the carry)."""
     for line in lines:
         match = _CARRY_FIGURES.match(line)
         if match is not None:
@@ -3447,7 +3457,7 @@ def carry_figures(lines: list[str]) -> dict[str, int] | None:
 
 
 def carry_figure(lines: list[str]) -> str:
-    """Summarize the carry from its two headline lines: how many verdicts it carried onto the new surface, and the human queue before and after. The chain runs as one child with the carry as a step inside it, so these counts reach this process only as printed lines. Returns the empty string when the carry printed neither line (the store-only route, a rehearsal, or a chain that failed before the carry)."""
+    """Summarize the carry from its two headline lines: how many verdicts it carried onto the new surface, and the human queue before and after. The verdict update runs as one child with the carry as a step inside it, so these counts reach this process only as printed lines. Returns the empty string when the carry printed neither line (the store-only route, a rehearsal, or a verdict update that failed before the carry)."""
     carried = ""
     queue = ""
     for line in lines:
@@ -3499,7 +3509,7 @@ def step_figure(report: CycleReport, name: str) -> str:
         return prose(report.assets_status)
     if name == "surface-promote":
         return prose(report.promote_status)
-    if name == "plumbing":
+    if name == "verdict-update":
         head = carry_figure(report.carry_lines)
         if not head:
             merged = prose(report.merge_status)
@@ -3607,9 +3617,9 @@ def summary_rows(report: CycleReport, plan: Plan, *, retention_ran: bool) -> lis
 
 
 def summary_cycle_lines(report: CycleReport, plan: Plan, retention_lines: list[str]) -> list[str]:
-    """Return the summary lines below the table: output paths, the verdict chain's per-step status, the deep sweep and deep replay status, and what retention pruned.
+    """Return the summary lines below the table: output paths, the verdict update's per-step status, the deep sweep and deep replay status, and what retention pruned.
 
-    The lines scraped from the chain's output (by `_do_plumbing`, with `_standing_fill_news` for the standing fill) are indented under the carry and plumbing lines, so the summary shows what each carry, fill, and merge wrote and how the human queue changed.
+    The lines scraped from the verdict update's output (by `_do_verdict_update`, with `_standing_fill_news` for the standing fill) are indented under the carry and verdict-update lines, so the summary shows what each carry, fill, and merge wrote and how the human queue changed.
     """
 
     def show(value: object) -> str:
@@ -3623,7 +3633,7 @@ def summary_cycle_lines(report: CycleReport, plan: Plan, retention_lines: list[s
     lines = [
         f"  carry output     : {show(report.carry_out)}",
         *news(report.carry_lines),
-        f"  verdict plumbing : merge {report.merge_status}; echo-fill {report.echo_fill_status}; echo-merge {report.echo_merge_status}; standing-fill {report.standing_fill_status}; standing-merge {report.standing_merge_status}",
+        f"  verdict update   : merge {report.merge_status}; echo-fill {report.echo_fill_status}; echo-merge {report.echo_merge_status}; standing-fill {report.standing_fill_status}; standing-merge {report.standing_merge_status}",
         *news(
             report.merge_lines
             + report.echo_fill_lines
@@ -3757,7 +3767,7 @@ def cycle_summary_payload(report: CycleReport, failures: list[str], plan: Plan, 
             "refresh_assets": plan.refresh_assets,
             "promote_surface": _as_str(plan.promote_surface),
             "skip_contracts": plan.skip_contracts,
-            "skip_plumbing": plan.skip_plumbing,
+            "skip_verdict_update": plan.skip_verdict_update,
             "review_out": _as_str(plan.review_out),
             "first_run": plan.first_run,
             "short_id": plan.short_id,
@@ -4178,9 +4188,9 @@ def main(argv: list[str] | None = None) -> int:
             args.verdicts = resolved["path"]
             master_aligned = resolved["aligned"]
 
-    skip_plumbing = False
+    skip_verdict_update = False
     store_only = False
-    plumbing_note = ""
+    verdict_update_note = ""
     if (
         skip_surface
         and promote_from is None
@@ -4191,12 +4201,16 @@ def main(argv: list[str] | None = None) -> int:
         and not args.no_merge
         and args.carry_out is None
     ):
-        plumbing_key = plumbing_skip_fingerprint(ROOT, REVIEW_OUT, args.verdicts)
-        record = read_green_record(cycle_paths.PLUMBING_GREEN)
-        if plumbing_key is not None and record is not None and record["fingerprint"] == plumbing_key:
-            skip_plumbing = True
-            plumbing_note = PLUMBING_SKIP_NOTE
-        elif plumbing_key is not None and args.verdicts is not None:
+        verdict_update_key = verdict_update_skip_fingerprint(ROOT, REVIEW_OUT, args.verdicts)
+        record = read_green_record(cycle_paths.VERDICT_UPDATE_GREEN)
+        if (
+            verdict_update_key is not None
+            and record is not None
+            and record["fingerprint"] == verdict_update_key
+        ):
+            skip_verdict_update = True
+            verdict_update_note = VERDICT_UPDATE_SKIP_NOTE
+        elif verdict_update_key is not None and args.verdicts is not None:
             if master_aligned is None:
                 master_aligned = master_stamped_for_surface(args.verdicts, REVIEW_OUT)
                 if not master_aligned:
@@ -4235,8 +4249,8 @@ def main(argv: list[str] | None = None) -> int:
         contracts_files=contracts_files,
         conform_note=conform_note,
         conform_proven=auto_skip_conform,
-        skip_plumbing=skip_plumbing,
-        plumbing_note=plumbing_note,
+        skip_verdict_update=skip_verdict_update,
+        verdict_update_note=verdict_update_note,
         store_only=store_only,
         record_greens=not args.dry_run,
         keep_history=args.keep_history,

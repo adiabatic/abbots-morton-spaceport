@@ -239,7 +239,7 @@ def test_fmt_rss_reads_the_same_gigabyte_peak_rss_does():
 
 
 def test_console_imports_nothing_else_in_this_tree():
-    """The verdict chain calls `console.phase`, so console and everything it imports are in the plumbing key's code closure. An import of the timings journal or a width module would make an edit to it re-run the whole chain, although neither can change a verdict. rebuild/test_plumbing_closure.py catches the effect; this test points at the import line in console.py."""
+    """The verdict update calls `console.phase`, so console and everything it imports are in the verdict-update key's code closure. An import of the timings journal or a width module would make an edit to it re-run the whole verdict update, although neither can change a verdict. rebuild/test_verdict_update_closure.py catches the effect; this test points at the import line in console.py."""
     tree = ast.parse(pathlib.Path(console.__file__).read_text(encoding="utf-8"))
     reached = set()
     for node in ast.walk(tree):

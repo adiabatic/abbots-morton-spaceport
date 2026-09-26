@@ -139,12 +139,28 @@ def test_the_belt_cap_reads_the_acceptance_configurations_the_pipeline_defines()
     assert cb._acceptance_config_count(cb.ROOT / cb.CONFORM_SOURCE) == len(conform.ACCEPTANCE_CONFIGS)
 
 
-def test_a_plumbing_step_peak_prices_the_standing_fill_parent():
-    """The plumbing step peak is the max over the verdict chain and any refill workers, and only the standing-fill-parent row reads it. The refill pool writes no pool record, so no worker row gets observations from it."""
-    steps = {"r1": [_step("plumbing", 9_000_000_000)]}
+def test_a_verdict_update_step_peak_prices_the_standing_fill_parent():
+    """The verdict-update step peak is the max over the verdict update and any refill workers, and only the standing-fill-parent row reads it. The refill pool writes no pool record, so no worker row gets observations from it."""
+    steps = {"r1": [_step("verdict-update", 9_000_000_000)]}
     observed, _, _ = cb.observations(_unit("standing-fill-parent"), [], steps, host=HOST, recent=20)
-    assert [(item.peak_bytes, item.source) for item in observed] == [(9_000_000_000, "step:plumbing")]
-    assert all("plumbing" not in unit.step_names for unit in cb.UNITS if unit.name != "standing-fill-parent")
+    assert [(item.peak_bytes, item.source) for item in observed] == [(9_000_000_000, "step:verdict-update")]
+    assert all(
+        "verdict-update" not in unit.step_names for unit in cb.UNITS if unit.name != "standing-fill-parent"
+    )
+
+
+def test_the_standing_fill_parent_also_reads_the_journals_plumbing_rows(tmp_path):
+    """Older journal lines name the verdict-update step `plumbing`. `load_journal` reads them as `verdict-update`, so the standing-fill-parent row keeps their measured history."""
+    path = _journal(
+        tmp_path,
+        [_step("plumbing", 8_000_000_000, run="r1"), _step("verdict-update", 9_000_000_000, run="r2")],
+    )
+    _, steps, _ = cb.load_journal(path)
+    observed, _, _ = cb.observations(_unit("standing-fill-parent"), [], steps, host=HOST, recent=20)
+    assert sorted((item.peak_bytes, item.source) for item in observed) == [
+        (8_000_000_000, "step:verdict-update"),
+        (9_000_000_000, "step:verdict-update"),
+    ]
 
 
 def test_a_named_step_peak_supplies_an_observation():

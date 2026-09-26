@@ -90,7 +90,7 @@ def _complaint(errors: list[str], needle: str) -> None:
 
 
 def _sidecars(surface: Path) -> None:
-    """Writes the stamped sidecars the output check requires beside a manifest (the plumbing's unit index and the files in `app_index.ARTIFACTS`), so a test about one missing file does not also fail on the others."""
+    """Writes the stamped sidecars the output check requires beside a manifest (the verdict update's unit index and the files in `app_index.ARTIFACTS`), so a test about one missing file does not also fail on the others."""
     unit_index.write_index(surface, [])
     app_index.write_app_artifacts(surface, {}, {})
 
@@ -396,7 +396,7 @@ def test_a_picture_identical_home_fails_the_build_the_same_way():
 
 
 def test_a_missing_unit_index_fails_the_build(tmp_path):
-    """The plumbing reads the unit index, not the shards. A surface without an index, or with one stamped for another manifest, would make the next carry read stale data."""
+    """The verdict update reads the unit index, not the shards. A surface without an index, or with one stamped for another manifest, would make the next carry read stale data."""
     manifest = {"classes": [], "fonts": {}}
     (tmp_path / "index.html").write_text("")
     (tmp_path / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")

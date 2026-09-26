@@ -538,6 +538,27 @@ def test_load_journal_tolerates_junk_and_orphan_steps(tmp_path):
     assert steps["r2"] == []
 
 
+def test_load_journal_reads_a_plumbing_step_as_the_verdict_update(tmp_path):
+    """Older lines name the verdict-update step `plumbing`; `--by-step` counts them with the `verdict-update` lines as one step."""
+    path = tmp_path / "j.ndjson"
+    path.write_text(
+        "\n".join(
+            [
+                json.dumps({"kind": "step", "run": "r1", "name": "plumbing", "host": "h", "elapsed_s": 1.0}),
+                json.dumps(
+                    {"kind": "step", "run": "r2", "name": "verdict-update", "host": "h", "elapsed_s": 3.0}
+                ),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    _, steps, order = ct.load_journal(path)
+    assert [step["name"] for run in order for step in steps[run]] == ["verdict-update", "verdict-update"]
+    rows = [line for line in ct.render_by_step(steps, order, []) if line.startswith("verdict-update")]
+    assert len(rows) == 1 and rows[0].split()[2] == "2"
+
+
 def test_main_reports_a_missing_journal(tmp_path, capsys):
     assert ct.main(["--journal", str(tmp_path / "absent.ndjson")]) == 0
     out = capsys.readouterr().out

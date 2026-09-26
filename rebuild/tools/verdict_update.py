@@ -1,8 +1,8 @@
-"""Run the cycle's verdict plumbing in one process: carry, merge, echo fill, standing fill, their merges, a witnessed echo fixpoint, and the complaint docket.
+"""Run the cycle's verdict update in one process: carry, merge, echo fill, standing fill, their merges, a witnessed echo fixpoint, and the complaint docket.
 
 The first index walk keeps every surface id and, for human units, only the `echo_record` projection (id, echo group, notation). The carry reads that projection, and every echo round reuses it. The standing fill and the complaint docket each get a fresh stream of human index records, so full records stay in memory only for the step that reads them. Machine units' index lines contribute their ids without being parsed.
 
-The standing fill runs with `--open-only --require-reach`, its persistent memo, and the cycle's `--standing-fill-jobs` width. Each step opens with a `[phase]` line and closes with a `[t]` line; the failure and fixpoint lines use the `[chain]` prefix. The echo rounds after the standing merge spread what the standing fill wrote, and the echo output file holds the union of the fills from every round.
+The standing fill runs with `--open-only --require-reach`, its persistent memo, and the cycle's `--standing-fill-jobs` width. Each step opens with a `[phase]` line and closes with a `[t]` line; the failure and fixpoint lines use the `[verdict-update]` prefix. The echo rounds after the standing merge spread what the standing fill wrote, and the echo output file holds the union of the fills from every round.
 """
 
 from __future__ import annotations
@@ -37,7 +37,7 @@ MAX_ECHO_ROUNDS = 4
 
 
 def _run(name: str, call: Callable[[], int | None]) -> int:
-    """Run one step as a timed phase and return its exit code. A `SystemExit` (the echo fill's stamp check and the rules-file validation raise one) is converted to a code and its message printed, so the chain still prints its `[chain] failed:` line and the cycle can report the later steps as not run."""
+    """Run one step as a timed phase and return its exit code. A `SystemExit` (the echo fill's stamp check and the rules-file validation raise one) is converted to a code and its message printed, so the verdict update still prints its `[verdict-update] failed:` line and the cycle can report the later steps as not run."""
     console.phase(name)
     started = time.perf_counter()
     try:
@@ -85,7 +85,7 @@ def _merge(
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Run the artifact cycle's verdict plumbing in one process over streamed human index records and a reusable echo projection."
+        description="Run the artifact cycle's verdict update in one process over streamed human index records and a reusable echo projection."
     )
     parser.add_argument("--surface", type=pathlib.Path, default=SURFACE)
     parser.add_argument(
@@ -130,7 +130,9 @@ def main(argv: list[str] | None = None) -> int:
         help="carry only: never write the live store, and run neither fill nor the docket (the rehearsal form)",
     )
     parser.add_argument(
-        "--no-complaints", action="store_true", help="skip the complaint docket at the end of the chain"
+        "--no-complaints",
+        action="store_true",
+        help="skip the complaint docket at the end of the verdict update",
     )
     parser.add_argument("--complaints-out", type=pathlib.Path, default=complaint_docket.DATA_OUT)
     args = parser.parse_args(argv)

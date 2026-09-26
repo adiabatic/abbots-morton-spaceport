@@ -53,7 +53,7 @@ def main(
 ):
     """Write the carried verdicts file for the current surface.
 
-    `current_units` and `current_ids` are passed together or not at all. `current_units` is a single-pass stream of human unit records that need only an `id`, and `current_ids` holds every surface id, machine units included, for the stranded count. The verdict chain passes its echo records; a standalone run streams the human index and collects the ids in the same pass.
+    `current_units` and `current_ids` are passed together or not at all. `current_units` is a single-pass stream of human unit records that need only an `id`, and `current_ids` holds every surface id, machine units included, for the stranded count. The verdict update passes its echo records; a standalone run streams the human index and collects the ids in the same pass.
     """
     parser = argparse.ArgumentParser(
         description="Carry prior verdicts onto the live surface, landing each on the unit of the id it names."
