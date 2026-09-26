@@ -1,10 +1,11 @@
-"""Merge stamp-aligned ams-review-verdicts/1 files into verdicts-autosave.json without a browser, as the review app's Import dialog does: per unit, the record with the strictly newer `at` wins. The artifact cycle uses it to merge carried verdicts, and the app reads the result on boot or focus. The existing aligned autosave is always part of the union, so a merge never drops a verdict. An autosave stamped for another corpus is moved aside first (`stash_path_for`, as the review server's verdict store does). An input stamped for another corpus is refused; `carry_verdicts.py` moves verdicts between corpora, and there is no override. A merge that would write fails while the review server is listening, because an open tab would write its own store back over the result on its next focus; stop the server or pass --yes. `--restore-as-of --apply` has the same check. Every write is appended to verdicts-journal.ndjson (`rebuild.review.journal`), and `--restore-as-of` replays that journal to recover the store as of any recorded time.
+"""Merge stamp-aligned ams-review-verdicts/1 files into verdicts-autosave.json without a browser, as the review app's Import dialog does: per unit, the record with the strictly newer `at` wins. The artifact cycle uses it to merge carried verdicts, and the app reads the result on boot or focus. The existing aligned autosave is always part of the union, so a merge never drops a verdict. An autosave stamped for another corpus is moved aside first (`stash_path_for`, as the review server's verdict store does). An input stamped for another corpus is refused; `carry_verdicts.py` moves verdicts between corpora, and there is no override. A merge that would write fails while the review server is listening, because an open tab would write its own store back over the result on its next focus; stop the server or pass --yes. `--restore-as-of --apply` has the same check. Every write is appended to verdicts-journal.ndjson (`rebuild.review.journal`), and `--restore-as-of` replays that journal to recover the store as of any recorded time. `--rekey-map` moves a replayed store's unit ids through the id map `rebuild.tools.rekey_verdicts` writes, for a time before that re-key.
 
 Usage:
   uv run python -m rebuild.tools.merge_verdicts [FILES ...]     # no FILES: merge the fullest verdicts file verdict-ready names
   uv run python -m rebuild.tools.merge_verdicts --dry-run FILES ...
   uv run python -m rebuild.tools.merge_verdicts --list
   uv run python -m rebuild.tools.merge_verdicts --restore-as-of 2026-07-19T03:00 [--apply [--yes]]
+  uv run python -m rebuild.tools.merge_verdicts --restore-as-of 2026-07-19T03:00 --rekey-map var/keep/issue-357-rekey/unit-id-map.json
 """
 
 from __future__ import annotations
@@ -206,13 +207,36 @@ def run_merge(
     return 0
 
 
+def rekey_records(records: dict[str, dict], id_map: dict[str, str]) -> dict[str, dict]:
+    """Return the records with each unit id in `id_map` replaced by its target. When two records land on one unit, the newer `at` wins, as in a merge."""
+    moved: dict[str, dict] = {}
+    for unit, record in records.items():
+        target = id_map.get(unit, unit)
+        current = moved.get(target)
+        if current is None or (record.get("at") or "") > (current.get("at") or ""):
+            moved[target] = {**record, "unit": target}
+    return moved
+
+
 def run_restore(
-    as_of: str, *, autosave: Path, journal_path: Path, out: Path | None, apply: bool, yes: bool
+    as_of: str,
+    *,
+    autosave: Path,
+    journal_path: Path,
+    out: Path | None,
+    apply: bool,
+    yes: bool,
+    rekey_map: Path | None = None,
 ) -> int:
     stamp, records = journal.replay(journal_path, as_of=as_of)
     if stamp is None:
         print(f"ERROR: {_rel(journal_path)} holds no event at or before {as_of}; nothing to restore.")
         return 1
+    if rekey_map is not None:
+        id_map = json.loads(rekey_map.read_text(encoding="utf-8"))["renamed"]
+        moved = sum(1 for unit in records if unit in id_map)
+        records = rekey_records(records, id_map)
+        print(f"re-keyed {moved} of {len(records)} restored verdicts through {_rel(rekey_map)}")
     payload = journal.payload_for(stamp, records)
     if not apply:
         target = out if out is not None else ROOT / f"verdicts-restored-{_sanitize(as_of)}.json"
@@ -303,6 +327,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--out", type=Path, help="with --restore-as-of: where to write the reconstruction")
     parser.add_argument(
+        "--rekey-map",
+        type=Path,
+        help="with --restore-as-of: move the restored unit ids through this rebuild.tools.rekey_verdicts id map",
+    )
+    parser.add_argument(
         "--autosave", type=Path, default=AUTOSAVE, help="the live store (default: %(default)s)"
     )
     parser.add_argument(
@@ -323,6 +352,7 @@ def main(argv: list[str] | None = None) -> int:
             out=args.out,
             apply=args.apply,
             yes=args.yes,
+            rekey_map=args.rekey_map,
         )
     return run_merge(
         args.files,
