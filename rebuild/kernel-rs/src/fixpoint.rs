@@ -306,7 +306,7 @@ fn enumerate_from_seeds<'i>(
     );
     engine.attach_shared_memos(access.shared_memos);
     let config = feature_config_token(index, features.iter().copied());
-    let mut options = WindowOptions::new(index).map_err(complaint)?;
+    let mut options = WindowOptions::new(index).map_err(error_message)?;
     // Either engine mode makes a deep mode set. This is the only place the enumeration combines the two flags.
     let deep_modes = modes.simulated_prospect || modes.follower_prefer_slots;
     let deep_inputs = third_slot_inputs(index, deep_modes);
@@ -419,7 +419,7 @@ fn enumerate_from_seeds<'i>(
                             right1.letter(),
                             right2.letter(),
                         )
-                        .map_err(complaint)?;
+                        .map_err(error_message)?;
 
                 if deep3_live && let Some(deriver) = deriver.as_mut() {
                     let probe = liveness.as_mut().expect(
@@ -435,7 +435,7 @@ fn enumerate_from_seeds<'i>(
                             right1.letter(),
                             right2.letter(),
                         )
-                        .map_err(complaint)?;
+                        .map_err(error_message)?;
                     let mut slot3_entries: Vec<Slot3Entry> = Vec::new();
                     for &option in &context.boundary_options {
                         if right3_allowed
@@ -510,7 +510,7 @@ fn enumerate_from_seeds<'i>(
                                             labels.token(index, traced_r3_member),
                                             labels.slot(index, traced_r4_member),
                                         ];
-                                        return Err(partition_complaint(
+                                        return Err(partition_error(
                                             index,
                                             &labels.spelled(&display),
                                             record.left_settled.map(|seat| seats.get(seat)),
@@ -532,7 +532,7 @@ fn enumerate_from_seeds<'i>(
                                                 traced_r4_member.unwrap_or(EDGE),
                                             ),
                                         )
-                                        .map_err(complaint)?;
+                                        .map_err(error_message)?;
                                     pending_seats.insert(pending_key, pending_rows.len());
                                     pending_rows.push(PendingDeepRow {
                                         left_context: left.clone(),
@@ -572,7 +572,7 @@ fn enumerate_from_seeds<'i>(
                 let right3_slots: Vec<Option<RightToken>> = if deep3_live {
                     let mut candidates = options
                         .right3_options(right1, right2, follower_map.as_deref())
-                        .map_err(complaint)?;
+                        .map_err(error_message)?;
                     if let Some(restriction) = &right3_allowed {
                         candidates.retain(|option| restriction.contains(option));
                     }
@@ -595,7 +595,7 @@ fn enumerate_from_seeds<'i>(
                                         right2.letter(),
                                         third.letter(),
                                     )
-                                    .map_err(complaint)?
+                                    .map_err(error_message)?
                         }
                         None => false,
                     };
@@ -606,7 +606,7 @@ fn enumerate_from_seeds<'i>(
                                 right2,
                                 right3.expect("a live fourth slot has a concrete third"),
                             )
-                            .map_err(complaint)?
+                            .map_err(error_message)?
                             .into_iter()
                             .map(Some)
                             .collect()
@@ -630,7 +630,7 @@ fn enumerate_from_seeds<'i>(
                         // A worklist item with different slot restrictions can reach a window key already recorded. The recorded settled state is what a re-trace would return, because the left label is injective into the trace's inputs, so a hit goes straight to the successor enqueue, whose slot restrictions still differ per item. The left-state comparison checks that premise and fails only if `cell_label` stops being injective over settled lefts.
                         let settled = if let Some(existing) = transitions.get(&window_key) {
                             if existing.left_settled != left_seat {
-                                return Err(partition_complaint(
+                                return Err(partition_error(
                                     index,
                                     &labels.spelled(&window_key),
                                     existing.left_settled.map(|seat| seats.get(seat)),
@@ -650,7 +650,7 @@ fn enumerate_from_seeds<'i>(
                                         right4.unwrap_or(EDGE),
                                     ),
                                 )
-                                .map_err(complaint)?;
+                                .map_err(error_message)?;
                             transitions.insert(
                                 window_key,
                                 Row {
@@ -749,7 +749,7 @@ fn enumerate_from_seeds<'i>(
                     pending.token,
                     Slots::new(pending.right1, pending.right2, last3, traced_r4_member),
                 )
-                .map_err(complaint)?;
+                .map_err(error_message)?;
             if !pending.matches_stored_fields(&seats, &notes, &cross_check) {
                 return Err(member_mismatch(
                     index,
@@ -778,7 +778,7 @@ fn enumerate_from_seeds<'i>(
                         last4,
                     ),
                 )
-                .map_err(complaint)?;
+                .map_err(error_message)?;
             if !pending.matches_stored_fields(&seats, &notes, &cross_check) {
                 return Err(member_mismatch(
                     index,
@@ -1012,7 +1012,7 @@ fn retain_formed_before(
         let (next1, next2) = slots(option);
         if options
             .liga_formed_before(liga, next1, next2)
-            .map_err(complaint)?
+            .map_err(error_message)?
         {
             kept.push(option);
         }
@@ -1065,12 +1065,12 @@ fn boundary_left_label(kind: TokenKind) -> &'static str {
 }
 
 /// A settlement error as a one-line message. Every fixpoint error is a plain string, because the subcommand reports any of them by printing it to stderr and exiting with status 1.
-fn complaint(error: SettleError) -> String {
+fn error_message(error: SettleError) -> String {
     error.to_string()
 }
 
 /// The error for one window label reached from two different left states, which means `cell_label` no longer distinguishes those states. The left states are formatted by name, because a `Settled` printed structurally would name its heights by interning id.
-fn partition_complaint(
+fn partition_error(
     index: &SpecIndex,
     key: &[&str; 6],
     existing: Option<&Settled>,
@@ -1083,7 +1083,7 @@ fn partition_complaint(
     )
 }
 
-/// One left state as the partition complaint names it: the cell it settled into, the junction it committed, and the connector pixels on that junction.
+/// One left state as the partition error names it: the cell it settled into, the junction it committed, and the connector pixels on that junction.
 fn left_state_text(index: &SpecIndex, settled: Option<&Settled>) -> String {
     match settled {
         None => "a boundary left".to_owned(),
@@ -1256,7 +1256,7 @@ impl DeepPartitionCheck<'_, '_> {
                         right1,
                         right2,
                     )
-                    .map_err(complaint)?;
+                    .map_err(error_message)?;
             }
             if !live {
                 if &**product.labels.text(row.right3) != NA_LABEL {
@@ -1355,7 +1355,7 @@ impl DeepPartitionCheck<'_, '_> {
                             right2,
                             third,
                         )
-                        .map_err(complaint)?,
+                        .map_err(error_message)?,
                 );
             }
             if verdicts.len() > 1 {
@@ -1470,7 +1470,7 @@ impl DeepPartitionCheck<'_, '_> {
                 right1,
                 right2,
             )
-            .map_err(complaint)?;
+            .map_err(error_message)?;
         let mut static_letters: HashSet<Sym> = HashSet::default();
         let mut fiber_of: HashMap<Sym, usize> = HashMap::default();
         for (seat, fiber) in fibers.fibers.iter().enumerate() {
@@ -1505,7 +1505,7 @@ impl DeepPartitionCheck<'_, '_> {
         let options = self
             .options
             .right4_options(letter(right1), letter(right2), letter(third))
-            .map_err(complaint)?;
+            .map_err(error_message)?;
         let labels: Vec<String> = options
             .into_iter()
             .map(|option| right_token_label(index, option))
@@ -2244,10 +2244,10 @@ mod tests {
             ])],
             &[],
         );
-        let complaint = checked(&index, &product, &[]).expect_err("the map is empty");
+        let error = checked(&index, &product, &[]).expect_err("the map is empty");
         assert!(
-            complaint.ends_with(": right3 token #Cfeedfacefeed is not in the class map"),
-            "{complaint}"
+            error.ends_with(": right3 token #Cfeedfacefeed is not in the class map"),
+            "{error}"
         );
     }
 
@@ -2319,13 +2319,13 @@ mod tests {
             ])],
             &[(&token, &["qsPea", "qsTea"])],
         );
-        let complaint = checked(&index, &product, &[(LIVE, &[&["qsPea", "qsTea"]])])
+        let error = checked(&index, &product, &[(LIVE, &[&["qsPea", "qsTea"]])])
             .expect_err("the chain's last hop reads qsPea alone");
         assert!(
-            complaint.ends_with(
+            error.ends_with(
                 ": members disagree on the fourth_slot_matters verdict: [\"qsPea\", \"qsTea\"]"
             ),
-            "{complaint}"
+            "{error}"
         );
     }
 
@@ -2368,13 +2368,12 @@ mod tests {
             ])],
             &[(&token, &["qsPea", "qsTea"])],
         );
-        let complaint = checked(&index, &product, &[(LIVE, &[&["qsPea", "qsTea"]])]).expect_err(
+        let error = checked(&index, &product, &[(LIVE, &[&["qsPea", "qsTea"]])]).expect_err(
             "the qsPeaMay formation pair narrows one member's list and not the other's",
         );
         assert!(
-            complaint
-                .ends_with(": members induce different computed r4 option lists: qsPea vs qsTea"),
-            "{complaint}"
+            error.ends_with(": members induce different computed r4 option lists: qsPea vs qsTea"),
+            "{error}"
         );
     }
 
@@ -2673,17 +2672,17 @@ mod tests {
             &[("qsPea", pea), ("qsTea", tea), ("qsMay", may)],
             &registry(&[("baseline", "0"), ("floor", "0"), ("x-height", "5")]),
         );
-        let complaint = enumerate_transitions(&index, &[], PINNED).expect_err("the labels collide");
+        let error = enumerate_transitions(&index, &[], PINNED).expect_err("the labels collide");
         assert!(
-            complaint.starts_with(
+            error.starts_with(
                 "window [\"qsTea\", \"qsPea.half.ex-y0\", \"qsMay\", \"qsPea\", \"#NA\", \"#NA\"] reached from two left states sharing one label: "
             ),
-            "{complaint}"
+            "{error}"
         );
         assert!(
-            complaint.contains("qsPea.half.ex-y0 (junction floor, extension 0)")
-                && complaint.contains("qsPea.half.ex-y0 (junction baseline, extension 0)"),
-            "{complaint}"
+            error.contains("qsPea.half.ex-y0 (junction floor, extension 0)")
+                && error.contains("qsPea.half.ex-y0 (junction baseline, extension 0)"),
+            "{error}"
         );
     }
 }

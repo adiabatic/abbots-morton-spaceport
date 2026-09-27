@@ -111,7 +111,7 @@ pub fn replay_cases(
         if seat == 0 && line.starts_with("# ") {
             continue;
         }
-        let numbered = |complaint: String| format!("line {}: {complaint}", seat + 1);
+        let numbered = |error: String| format!("line {}: {error}", seat + 1);
         let case = parse_case(engine.index(), line).map_err(numbered)?;
         lines.push(replay_case(engine, &case, shape).map_err(numbered)?);
     }
@@ -631,12 +631,8 @@ mod tests {
         let mut engine = Engine::new(&index, Vec::new());
         let case = parse_case(&index, UNJOINED).expect("the case parses");
         for shape in [CaseResult::Trace, CaseResult::SettledOnly] {
-            let complaint =
-                replay_case(&mut engine, &case, shape).expect_err("no journal, no delta");
-            assert!(
-                complaint.contains("left no journaled fired delta"),
-                "{complaint}"
-            );
+            let error = replay_case(&mut engine, &case, shape).expect_err("no journal, no delta");
+            assert!(error.contains("left no journaled fired delta"), "{error}");
         }
     }
 
@@ -644,9 +640,9 @@ mod tests {
     fn a_name_the_spec_never_mentions_is_a_hard_error_and_not_a_case_result() {
         let index = fixtures::mini();
         let line = UNJOINED.replace("qsPea", "qsZoo");
-        let complaint = parse_case(&index, &line).expect_err("qsZoo is not in this spec");
+        let error = parse_case(&index, &line).expect_err("qsZoo is not in this spec");
         assert_eq!(
-            complaint,
+            error,
             "the input rune names qsZoo, which this spec never mentions"
         );
         let slot = UNJOINED.replace("qsTea", "qsZoo");

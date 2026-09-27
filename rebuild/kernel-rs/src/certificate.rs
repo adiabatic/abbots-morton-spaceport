@@ -283,7 +283,7 @@ pub fn certify(
             None if !spelled_any => {
                 let row = unreached.expect("a rule the replay handed rows to has at least one");
                 match unsupported_slot(rows, seat, rule, row, first_rows[seat].len()) {
-                    Some(complaint) => return Err(complaint),
+                    Some(error) => return Err(error),
                     None => return Ok(Vec::new()),
                 }
             }
@@ -956,12 +956,9 @@ mod tests {
             provenance: Vec::new(),
             joint: false,
         });
-        let complaint = first_match_rows(&rows, &rules, None, ROW_CAP, None)
+        let error = first_match_rows(&rows, &rules, None, ROW_CAP, None)
             .expect_err("the dead rule is refused");
-        assert!(
-            complaint.contains("no replayed row first-matches"),
-            "{complaint}"
-        );
+        assert!(error.contains("no replayed row first-matches"), "{error}");
     }
 
     /// A row no row chain reaches (here a real row re-keyed to a slot label that no earlier window carries) has an unsupported right slot, and the error names the rule, the row, and the slot. A product with a label the spec does not model gets the empty list instead.
@@ -1054,31 +1051,28 @@ mod tests {
         let first_rows = first_match_rows(&rows, &rules, None, ROW_CAP, Some(chains.dist()))
             .expect("the phantom's rule wins it");
         let mut options = WindowOptions::new(&index).expect("the fixture's options build");
-        let complaint = certify(&index, &mut options, &chains, &rows, &rules, &first_rows)
+        let error = certify(&index, &mut options, &chains, &rows, &rules, &first_rows)
             .expect_err("the phantom row has an unsupported right slot");
-        assert!(complaint.starts_with("rule 0 ("), "{complaint}");
+        assert!(error.starts_with("rule 0 ("), "{error}");
+        assert!(error.contains("has an unsupported right slot"), "{error}");
         assert!(
-            complaint.contains("has an unsupported right slot"),
-            "{complaint}"
-        );
-        assert!(
-            complaint.contains(&format!(
+            error.contains(&format!(
                 "({}, {}, {}, {}",
                 phantom_product.labels.text(phantom.input_glyph),
                 phantom_product.labels.text(phantom.left),
                 phantom_product.labels.text(phantom.right1),
                 phantom_product.labels.text(phantom.right2)
             )),
-            "{complaint}"
+            "{error}"
         );
-        assert!(complaint.contains("never produced"), "{complaint}");
+        assert!(error.contains("never produced"), "{error}");
         let label = product.labels.text(label);
         let unsupported = if slot == 0 {
             format!("rows settle to {label}, but none of them before")
         } else {
             format!("carries {label} at its")
         };
-        assert!(complaint.contains(&unsupported), "{complaint}");
+        assert!(error.contains(&unsupported), "{error}");
 
         let mut bench_row = product
             .transitions

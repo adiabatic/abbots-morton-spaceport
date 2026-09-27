@@ -922,14 +922,11 @@ mod tests {
     #[test]
     fn conflicting_demands_at_a_non_nested_overlap_refuse_to_guess() {
         let index = host_spec();
-        let complaint = picked(&index, &["self-entry-live", "right-it-by-two"])
+        let error = picked(&index, &["self-entry-live", "right-it-by-two"])
             .expect_err("by 1 and by 2 are different demands");
+        assert_eq!(error.kind(), crate::error::SettleErrorKind::Incomparable);
         assert_eq!(
-            complaint.kind(),
-            crate::error::SettleErrorKind::Incomparable
-        );
-        assert_eq!(
-            complaint.message(),
+            error.message(),
             "E-INCOMPARABLE: 2 records co-match one window with non-nested conditions and conflicting demands: qsHost.yaml:policy.extend.self-entry-live; qsHost.yaml:policy.extend.right-it-by-two. Record a resolve with migrated: provenance."
         );
     }
@@ -937,14 +934,14 @@ mod tests {
     #[test]
     fn a_record_with_no_provenance_is_described_by_its_kind() {
         let index = host_spec();
-        let complaint = picked(&index, &["no-provenance", "right-it-by-two"])
+        let error = picked(&index, &["no-provenance", "right-it-by-two"])
             .expect_err("by 3 and by 2 are different demands");
         assert!(
-            complaint
+            error
                 .message()
                 .contains("demands: extend; qsHost.yaml:policy.extend.right-it-by-two."),
             "{}",
-            complaint.message()
+            error.message()
         );
     }
 

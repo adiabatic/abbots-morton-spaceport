@@ -1123,9 +1123,9 @@ mod tests {
 
     #[test]
     fn a_boundary_token_with_no_rune_panics_when_read_as_a_letter() {
-        let complaint = std::panic::catch_unwind(|| UNKNOWN.letter())
+        let error = std::panic::catch_unwind(|| UNKNOWN.letter())
             .expect_err("reading a boundary token's rune is a kernel bug, not an outcome");
-        let message = complaint
+        let message = error
             .downcast_ref::<String>()
             .expect("the panic carries its sentence");
         assert_eq!(message, "unknown token has no rune");

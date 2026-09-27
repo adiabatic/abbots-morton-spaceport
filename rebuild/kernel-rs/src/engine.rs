@@ -3980,11 +3980,11 @@ mod tests {
             .left
             .as_ref()
             .expect("the fixture spells a left condition");
-        let complaint = engine
+        let error = engine
             .cond_matches_left(None, cond, &LeftContext::boundary(TokenKind::Edge), None)
             .expect_err("a left condition may not reach into the window");
         assert_eq!(
-            complaint.message(),
+            error.message(),
             "left conditions cannot carry then: (window depth, design section 3.4)"
         );
     }
@@ -4018,11 +4018,11 @@ mod tests {
             .right
             .as_ref()
             .expect("the fixture spells a right condition");
-        let complaint = engine
+        let error = engine
             .cond_matches_right(None, cond, &[EDGE, EDGE])
             .expect_err("stance is a left-only axis");
         assert_eq!(
-            complaint.message(),
+            error.message(),
             "right conditions are raw: stance/joined_at are left-only axes (design section 3.4)"
         );
     }
@@ -5797,14 +5797,14 @@ mod tests {
         )]);
         let index = ranking_spec(&pea_policy, &plain_policy());
         let mut engine = Engine::new(&index, no_features());
-        let complaint = settle_pea(
+        let error = settle_pea(
             &mut engine,
             Slots::pair(letter_token(&index, "qsTea"), letter_token(&index, "qsMay")),
         )
         .expect_err("equal records demanding disjoint stances cannot both be honored");
-        assert_eq!(complaint.kind(), SettleErrorKind::Ambiguous);
+        assert_eq!(error.kind(), SettleErrorKind::Ambiguous);
         assert_eq!(
-            complaint.message(),
+            error.message(),
             "E-AMBIGUOUS: prefer records demand different outcomes at non-nested specificity: qsPea.yaml:policy.prefer[0] vs qsPea.yaml:policy.prefer[1]"
         );
     }
@@ -5996,11 +5996,11 @@ mod tests {
     fn a_conflict_between_two_runes_prefers_prints_the_resolve_that_would_settle_it() {
         let index = conflicting_prefers_spec("[]");
         let mut engine = Engine::new(&index, no_features());
-        let complaint = settle_pea(&mut engine, conflicting_prefers_slots(&index))
+        let error = settle_pea(&mut engine, conflicting_prefers_slots(&index))
             .expect_err("neither rune's prefer contains the other's");
-        assert_eq!(complaint.kind(), SettleErrorKind::Incomparable);
+        assert_eq!(error.kind(), SettleErrorKind::Incomparable);
         assert_eq!(
-            complaint.message(),
+            error.message(),
             concat!(
                 "E-INCOMPARABLE: prefer records demand different outcomes at non-nested specificity: qsPea.yaml:policy.prefer[0] vs qsTea.yaml:policy.prefer[0].\n",
                 "  example window: qsPea qsTea qsMay\n",
@@ -6168,11 +6168,11 @@ mod tests {
         )]);
         let index = conflicting_prefers_spec(&empty_pick);
         let mut engine = Engine::new(&index, no_features());
-        let complaint = settle_pea(&mut engine, conflicting_prefers_slots(&index))
+        let error = settle_pea(&mut engine, conflicting_prefers_slots(&index))
             .expect_err("a pick naming no stance of this rune admits no survivor");
-        assert_eq!(complaint.kind(), SettleErrorKind::Incomparable);
+        assert_eq!(error.kind(), SettleErrorKind::Incomparable);
         assert_eq!(
-            complaint.message(),
+            error.message(),
             "E-INCOMPARABLE: resolve qsPea.yaml:policy.resolve[0] matched but its pick admits no surviving candidate"
         );
 
@@ -6198,10 +6198,10 @@ mod tests {
         ]);
         let index = conflicting_prefers_spec(&disagreeing);
         let mut engine = Engine::new(&index, no_features());
-        let complaint = settle_pea(&mut engine, conflicting_prefers_slots(&index))
+        let error = settle_pea(&mut engine, conflicting_prefers_slots(&index))
             .expect_err("two resolves cannot both name the winner");
         assert_eq!(
-            complaint.message(),
+            error.message(),
             "E-INCOMPARABLE: conflicting resolve records match one window: qsPea.yaml:policy.resolve[0]; qsPea.yaml:policy.resolve[1]"
         );
     }
@@ -7011,16 +7011,16 @@ mod tests {
     fn a_left_that_committed_a_junction_nothing_accepts_is_an_unaccepted_exit() {
         let index = ranking_spec(&plain_policy(), &plain_policy());
         let mut engine = Engine::new(&index, no_features());
-        let complaint = engine
+        let error = engine
             .transition_trace(
                 &committed_left(&index, 0),
                 letter_token(&index, "qsMay"),
                 Slots::pair(EDGE, EDGE),
             )
             .expect_err("qsMay enters at the baseline alone");
-        assert_eq!(complaint.kind(), SettleErrorKind::UnacceptedExit);
+        assert_eq!(error.kind(), SettleErrorKind::UnacceptedExit);
         assert_eq!(
-            complaint.message(),
+            error.message(),
             "E-UNACCEPTED-EXIT: qsPea.stroke.ex-y5 committed an exit at x-height but qsMay has no acceptor cell (the lookahead closure should have prevented this commitment)"
         );
     }
@@ -7036,22 +7036,22 @@ mod tests {
             &plain_policy(),
         )]);
         let mut engine = Engine::new(&index, no_features());
-        let complaint = settle_pea(&mut engine, Slots::pair(EDGE, EDGE))
+        let error = settle_pea(&mut engine, Slots::pair(EDGE, EDGE))
             .expect_err("the only stance requires an entry the run edge cannot give it");
-        assert_eq!(complaint.kind(), SettleErrorKind::Plain);
+        assert_eq!(error.kind(), SettleErrorKind::Plain);
         assert_eq!(
-            complaint.message(),
+            error.message(),
             "qsPea has no candidate cells at all in this window"
         );
 
-        let complaint = engine
+        let error = engine
             .transition_trace(
                 &LeftContext::boundary(TokenKind::Edge),
                 letter_token(&index, "qsIt"),
                 Slots::pair(EDGE, EDGE),
             )
             .expect_err("the registry knows qsIt, but this spec does not model it");
-        assert_eq!(complaint.kind(), SettleErrorKind::Plain);
-        assert_eq!(complaint.message(), "qsIt is not a modeled rune");
+        assert_eq!(error.kind(), SettleErrorKind::Plain);
+        assert_eq!(error.message(), "qsIt is not a modeled rune");
     }
 }

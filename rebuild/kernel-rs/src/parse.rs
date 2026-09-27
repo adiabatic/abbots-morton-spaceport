@@ -674,10 +674,10 @@ mod tests {
 
     #[test]
     fn another_format_marker_is_refused_by_name() {
-        let complaint = refusal(&MINIMAL.replace("ams-m1-spec/1", "ams-m1-spec/2"));
+        let error = refusal(&MINIMAL.replace("ams-m1-spec/1", "ams-m1-spec/2"));
         assert!(
-            complaint.contains("format marker is \"ams-m1-spec/2\""),
-            "{complaint}"
+            error.contains("format marker is \"ams-m1-spec/2\""),
+            "{error}"
         );
         let absent = refusal(&MINIMAL.replace("\"format\":\"ams-m1-spec/1\",", ""));
         assert!(absent.contains("format marker is absent"), "{absent}");
@@ -692,49 +692,45 @@ mod tests {
 
     #[test]
     fn a_missing_field_is_refused() {
-        let complaint = refusal(&MINIMAL.replace(",\"families\":{}", ""));
-        assert!(complaint.contains("missing [\"families\"]"), "{complaint}");
+        let error = refusal(&MINIMAL.replace(",\"families\":{}", ""));
+        assert!(error.contains("missing [\"families\"]"), "{error}");
     }
 
     #[test]
     fn an_unknown_field_is_refused() {
-        let complaint = refusal(&MINIMAL.replace("\"families\":{}", "\"families\":{},\"depth\":4"));
-        assert!(complaint.contains("unknown [\"depth\"]"), "{complaint}");
+        let error = refusal(&MINIMAL.replace("\"families\":{}", "\"families\":{},\"depth\":4"));
+        assert!(error.contains("unknown [\"depth\"]"), "{error}");
     }
 
     #[test]
     fn a_boolean_where_an_integer_is_declared_is_refused() {
-        let complaint =
-            refusal(&MINIMAL.replace("\"heights\":{}", "\"heights\":{\"baseline\":true}"));
+        let error = refusal(&MINIMAL.replace("\"heights\":{}", "\"heights\":{\"baseline\":true}"));
         assert!(
-            complaint.contains("expected an integer, got a boolean"),
-            "{complaint}"
+            error.contains("expected an integer, got a boolean"),
+            "{error}"
         );
     }
 
     #[test]
     fn an_integer_where_a_boolean_is_declared_is_refused() {
-        let complaint = refusal(&MINIMAL.replace(
+        let error = refusal(&MINIMAL.replace(
             "\"boundary_tokens\":{}",
             "\"boundary_tokens\":{\"space\":{\"codepoint\":32,\"splits_runs\":1}}",
         ));
         assert!(
-            complaint.contains("expected a boolean, got a number"),
-            "{complaint}"
+            error.contains("expected a boolean, got a number"),
+            "{error}"
         );
     }
 
     #[test]
     fn a_non_integer_number_is_refused() {
         for spelling in ["0.5", "1e2", "99999999999999999999"] {
-            let complaint = refusal(&MINIMAL.replace(
+            let error = refusal(&MINIMAL.replace(
                 "\"heights\":{}",
                 &format!("\"heights\":{{\"baseline\":{spelling}}}"),
             ));
-            assert!(
-                complaint.contains("expected an integer within i64"),
-                "{complaint}"
-            );
+            assert!(error.contains("expected an integer within i64"), "{error}");
         }
     }
 
@@ -748,26 +744,23 @@ mod tests {
             MINIMAL.replace("\"heights\":{}", "\"heights\":{\"baseline\":0}")
         );
         for spelling in ["-0.0", "0.0"] {
-            let complaint = refusal(&MINIMAL.replace(
+            let error = refusal(&MINIMAL.replace(
                 "\"heights\":{}",
                 &format!("\"heights\":{{\"baseline\":{spelling}}}"),
             ));
-            assert!(
-                complaint.contains("expected an integer within i64"),
-                "{complaint}"
-            );
+            assert!(error.contains("expected an integer within i64"), "{error}");
         }
     }
 
     #[test]
     fn a_provenance_that_is_not_a_pair_is_refused() {
-        let complaint = refusal(&SAMPLE.replace(
+        let error = refusal(&SAMPLE.replace(
             "[\"qsZoo.yaml\",\"policy.refuse[0]\"]",
             "[\"qsZoo.yaml\",\"policy.refuse[0]\",\"extra\"]",
         ));
         assert!(
-            complaint.contains("a provenance is a [file, path] pair"),
-            "{complaint}"
+            error.contains("a provenance is a [file, path] pair"),
+            "{error}"
         );
         let scalar = refusal(&SAMPLE.replace(
             "[\"qsZoo.yaml\",\"policy.refuse[0]\"]",
@@ -781,35 +774,29 @@ mod tests {
 
     #[test]
     fn a_tuple_of_the_wrong_arity_is_refused() {
-        let complaint = refusal(&SAMPLE.replace("\"ok\":[0,3]", "\"ok\":[0,3,5]"));
+        let error = refusal(&SAMPLE.replace("\"ok\":[0,3]", "\"ok\":[0,3,5]"));
         assert!(
-            complaint.contains("expected an array of 2 entries, got 3"),
-            "{complaint}"
+            error.contains("expected an array of 2 entries, got 3"),
+            "{error}"
         );
     }
 
     #[test]
     fn a_one_component_ligature_sequence_is_refused_where_a_bare_pair_is_taken() {
-        let complaint = refusal(&SAMPLE.replace(
+        let error = refusal(&SAMPLE.replace(
             "\"sequence\":[\"qsZoo\",\"qsAh\"]",
             "\"sequence\":[\"qsZoo\"]",
         ));
         assert!(
-            complaint.contains("a ligature sequence names at least two components"),
-            "{complaint}"
+            error.contains("a ligature sequence names at least two components"),
+            "{error}"
         );
-        assert!(
-            complaint.contains("runes.qsZoo_qsAh.sequence"),
-            "{complaint}"
-        );
+        assert!(error.contains("runes.qsZoo_qsAh.sequence"), "{error}");
     }
 
     #[test]
     fn a_refusal_names_where_in_the_tree_it_happened() {
-        let complaint = refusal(&SAMPLE.replace("\"y_offset\":-3", "\"y_offset\":\"deep\""));
-        assert!(
-            complaint.contains("runes.qsZoo.mono.y_offset"),
-            "{complaint}"
-        );
+        let error = refusal(&SAMPLE.replace("\"y_offset\":-3", "\"y_offset\":\"deep\""));
+        assert!(error.contains("runes.qsZoo.mono.y_offset"), "{error}");
     }
 }

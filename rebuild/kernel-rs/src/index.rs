@@ -1250,13 +1250,13 @@ mod tests {
     }
 
     #[test]
-    fn an_unresolvable_class_names_itself_in_the_complaint() {
+    fn an_unresolvable_class_names_itself_in_the_error() {
         let index = fixtures::mini();
         let stray = fixtures::sym(&index, "half");
-        let complaint = index
+        let error = index
             .class_members(stray, None)
             .expect_err("half is a stance, not a class");
-        assert_eq!(complaint.message(), "unknown class or group: 'half'");
+        assert_eq!(error.message(), "unknown class or group: 'half'");
     }
 
     #[test]

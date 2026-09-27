@@ -1,6 +1,6 @@
 //! The string replay behind the `replay-strings` subcommand. It walks every text up to the sweep's maximum length window by window, applies the folded rules first-match with each settled left fed forward, and checks each window's rule outcome against this engine's settlement of the same window. It restates `conform._SettledWindowWalk` and `witness._first_matching_rule` over the persisted rules instead of the compiled font. After read-back and the fold's partition assertion, the one data-dependent property left to check is completeness: a live raw window that the fixpoint left at `#NA` or never reached gets a wildcard or default rule in the font, and this walk compares that rule's result with the engine's.
 //!
-//! The walk reads a window as the conformance sweep's `conform._window_rights` does. The right slots are the raw labels of the formed token stream, out to the fourth slot. The first slot past the end is `#EDGE`, and every slot after a boundary, the edge, or `#NA` is `#NA`, because no record reads past a boundary. The engine receives the raw tokens themselves, padded with the edge, as `_SettledWindowWalk._rights` passes them. The left slot is the settled cell's label. The fixpoint's partition premise is that each such label names one left state, and `fixpoint`'s `partition_complaint` fails the build when it does not.
+//! The walk reads a window as the conformance sweep's `conform._window_rights` does. The right slots are the raw labels of the formed token stream, out to the fourth slot. The first slot past the end is `#EDGE`, and every slot after a boundary, the edge, or `#NA` is `#NA`, because no record reads past a boundary. The engine receives the raw tokens themselves, padded with the edge, as `_SettledWindowWalk._rights` passes them. The left slot is the settled cell's label. The fixpoint's partition premise is that each such label names one left state, and `fixpoint`'s `partition_error` fails the build when it does not.
 //!
 //! Ligatures form first, greedy and longest-first over the modeled sequences, and a match is skipped when the section 5.7 guard blocks it over the two raw tokens after it. This restates `settle.form_ligatures` over [`GuardState`], so the walk settles the token stream the emitted formation lookup produces.
 //!
@@ -461,7 +461,7 @@ impl<'i> Replay<'i> {
         lines
     }
 
-    /// Clears the walk memo and the engine's memos. The pool, the labels, and the named disagreements stay. A window settled again afterward gets the same record under the same label, because the walk memo keys a window on its left's label and, by the fixpoint's partition premise (`fixpoint`'s `partition_complaint`), a label names one left state. Clearing keeps the walk memo's allocated buckets, so the memo does not grow through every capacity doubling again after each release. With the cache stats on, it records the memos' sizes and the resident size before the release, and the resident size after it, under `release=<k>`.
+    /// Clears the walk memo and the engine's memos. The pool, the labels, and the named disagreements stay. A window settled again afterward gets the same record under the same label, because the walk memo keys a window on its left's label and, by the fixpoint's partition premise (`fixpoint`'s `partition_error`), a label names one left state. Clearing keeps the walk memo's allocated buckets, so the memo does not grow through every capacity doubling again after each release. With the cache stats on, it records the memos' sizes and the resident size before the release, and the resident size after it, under `release=<k>`.
     fn release(&mut self) {
         let release = self.releases + 1;
         if let Some((config, lines)) = self.cache_stats.as_mut() {
@@ -519,7 +519,7 @@ impl<'i> Replay<'i> {
                     raw.extend(seats.iter().map(|seat| alphabet[*seat]));
                     self.walk_text(&raw, &mut formed, &mut report)?;
                     if self.disagreements.len() >= NAMED_DISAGREEMENTS {
-                        return Err(self.complaint());
+                        return Err(self.error_message());
                     }
                 } else {
                     report.skipped += 1;
@@ -541,7 +541,7 @@ impl<'i> Replay<'i> {
         if self.disagreements.is_empty() {
             Ok(report)
         } else {
-            Err(self.complaint())
+            Err(self.error_message())
         }
     }
 
@@ -757,17 +757,17 @@ impl<'i> Replay<'i> {
         let rows = self.memo.len();
         let wide = labels + records > usize::from(u16::MAX) + 1;
         let width: usize = if wide { 4 } else { 2 };
-        let complain = |error: std::io::Error| format!("{}: {error}", path.display());
-        let file = std::fs::File::create(path).map_err(complain)?;
+        let fail = |error: std::io::Error| format!("{}: {error}", path.display());
+        let file = std::fs::File::create(path).map_err(fail)?;
         let mut out = std::io::BufWriter::with_capacity(1 << 20, file);
         writeln!(
             out,
             "# {MEMO_FORMAT}\t{{\"config\":{},\"max_length\":{max_length},\"rows\":{rows},\"labels\":{labels},\"records\":{records},\"width\":{width}}}",
             json_string(config)
         )
-        .map_err(complain)?;
+        .map_err(fail)?;
         for id in &table {
-            writeln!(out, "{}", self.labels.text(*id)).map_err(complain)?;
+            writeln!(out, "{}", self.labels.text(*id)).map_err(fail)?;
         }
         for seat in 0..records {
             writeln!(
@@ -775,7 +775,7 @@ impl<'i> Replay<'i> {
                 "{}",
                 settled_json(self.index, self.pool.get(SettledSeat::at(seat)))
             )
-            .map_err(complain)?;
+            .map_err(fail)?;
         }
         let label_count = u32::try_from(labels).expect("fewer labels than ids");
         let mut block: Vec<u8> = Vec::with_capacity(MEMO_BLOCK_ROWS * 7 * width);
@@ -815,13 +815,13 @@ impl<'i> Replay<'i> {
             );
             pending += 1;
             if pending == MEMO_BLOCK_ROWS {
-                out.write_all(&block).map_err(complain)?;
+                out.write_all(&block).map_err(fail)?;
                 block.clear();
                 pending = 0;
             }
         }
-        out.write_all(&block).map_err(complain)?;
-        out.flush().map_err(complain)
+        out.write_all(&block).map_err(fail)?;
+        out.flush().map_err(fail)
     }
 
     fn spell_window(&self, rune: Sym, left: u32, rights: [u32; 4]) -> String {
@@ -836,7 +836,7 @@ impl<'i> Replay<'i> {
         )
     }
 
-    fn complaint(&self) -> String {
+    fn error_message(&self) -> String {
         format!(
             "{} first-match-wins replay disagreement(s) over the swept texts: {}",
             self.disagreements.len(),
@@ -932,12 +932,12 @@ mod tests {
         let input = Rc::clone(&rules[0].input_glyph);
         rules[0].outcome = Rc::from(format!("{input}.perturbed").as_str());
         let mut walk = replay(&index, &rules);
-        let complaint = walk
+        let error = walk
             .walk_texts(TextSet::all(4))
             .expect_err("the perturbed rule disagrees");
-        assert!(complaint.contains("replay disagreement"), "{complaint}");
-        assert!(complaint.contains(".perturbed"), "{complaint}");
-        assert!(complaint.contains("at position"), "{complaint}");
+        assert!(error.contains("replay disagreement"), "{error}");
+        assert!(error.contains(".perturbed"), "{error}");
+        assert!(error.contains("at position"), "{error}");
     }
 
     /// One walk of the fixture over `text_set` under `ceiling`. The fixture's table has no disagreement at any ceiling.
@@ -1157,10 +1157,10 @@ mod tests {
             .expect("qsPea has a rule");
         perturbed[seat].outcome = Rc::from("qsPea.perturbed");
         let mut narrowed = replay(&index, &perturbed);
-        let complaint = narrowed
+        let error = narrowed
             .walk_texts(TextSet::naming(3, &[pea]))
             .expect_err("the disagreement lives in a text naming qsPea");
-        assert!(complaint.contains("qsPea.perturbed"), "{complaint}");
+        assert!(error.contains("qsPea.perturbed"), "{error}");
         let it = fixtures::sym(&index, "qsIt");
         let mut elsewhere = replay(&index, &perturbed);
         let _ = elsewhere.walk_texts(TextSet::naming(3, &[it]));

@@ -636,13 +636,13 @@ pub fn write_memo(
     let file =
         std::fs::File::create(path).map_err(|error| format!("{}: {error}", path.display()))?;
     let mut out = std::io::BufWriter::with_capacity(1 << 20, file);
-    let complain = |error: std::io::Error| format!("{}: {error}", path.display());
+    let fail = |error: std::io::Error| format!("{}: {error}", path.display());
     writeln!(
         out,
         "# {MEMO_FORMAT}\t{}\t{}\t{}",
         head.config, head.modes, head.stamp
     )
-    .map_err(complain)?;
+    .map_err(fail)?;
     for table in [
         &symbols.lines,
         &settled.lines,
@@ -651,7 +651,7 @@ pub fn write_memo(
         &reads.lines,
     ] {
         for line in table {
-            writeln!(out, "{line}").map_err(complain)?;
+            writeln!(out, "{line}").map_err(fail)?;
         }
     }
     let mut line = String::new();
@@ -695,9 +695,9 @@ pub fn write_memo(
             u8::from(row.joint_tiebreak),
             row.decided_stage.as_str()
         );
-        writeln!(out, "{line}").map_err(complain)?;
+        writeln!(out, "{line}").map_err(fail)?;
     }
-    out.flush().map_err(complain)
+    out.flush().map_err(fail)
 }
 
 /// The head of a memo file, read without the rest of it.
@@ -757,7 +757,7 @@ pub(crate) fn read_memo(
     keep: impl Fn(&TraceKey) -> bool,
 ) -> Result<MemoSnapshot, String> {
     let file = std::fs::File::open(path).map_err(|error| format!("{}: {error}", path.display()))?;
-    let complain = |number: usize, what: &str| format!("{}: line {number}: {what}", path.display());
+    let fail = |number: usize, what: &str| format!("{}: line {number}: {what}", path.display());
     let mut reader = std::io::BufReader::with_capacity(1 << 20, file);
     let mut window_lines = 0usize;
     loop {
@@ -785,9 +785,9 @@ pub(crate) fn read_memo(
     let mut lines = reader.lines().enumerate();
     let (_, head) = lines
         .next()
-        .ok_or_else(|| complain(1, "an empty file is not a memo"))?;
+        .ok_or_else(|| fail(1, "an empty file is not a memo"))?;
     let head = head.map_err(|error| format!("{}: {error}", path.display()))?;
-    let head = parse_head(&head).ok_or_else(|| complain(1, "not a memo head line"))?;
+    let head = parse_head(&head).ok_or_else(|| fail(1, "not a memo head line"))?;
     if head.config != expected.config || head.modes != expected.modes {
         return Err(format!(
             "{}: a memo for configuration {} with modes {}, not {} with {}",
@@ -813,13 +813,13 @@ pub(crate) fn read_memo(
             Some("Y") => {
                 let text = fields.next().unwrap_or_default();
                 if fields.next().is_some() {
-                    return Err(complain(number, "a symbol is one field"));
+                    return Err(fail(number, "a symbol is one field"));
                 }
                 symbols.push(index.sym_of(text));
             }
             Some("S") => {
                 if memo.settled.len() == TraceSettledSeat::CAPACITY {
-                    return Err(complain(
+                    return Err(fail(
                         number,
                         "a memo seats fewer than 65,536 settled records",
                     ));
@@ -828,11 +828,11 @@ pub(crate) fn read_memo(
                 let [rune, stance, entry, exit, adjustments, junction, extension] =
                     fields.as_slice()
                 else {
-                    return Err(complain(number, "a settled record has seven fields"));
+                    return Err(fail(number, "a settled record has seven fields"));
                 };
                 let extension: i64 = extension
                     .parse()
-                    .map_err(|_| complain(number, "an extension is a count"))?;
+                    .map_err(|_| fail(number, "an extension is a count"))?;
                 let parsed = (|| {
                     let adjustments: Vec<AdjustmentToken> = if *adjustments == "-" {
                         Vec::new()
@@ -861,14 +861,11 @@ pub(crate) fn read_memo(
             }
             Some("N") => {
                 if memo.notes.len() == TraceNotesSeat::CAPACITY {
-                    return Err(complain(
-                        number,
-                        "a memo seats fewer than 65,536 notes lists",
-                    ));
+                    return Err(fail(number, "a memo seats fewer than 65,536 notes lists"));
                 }
                 let text = fields.next().unwrap_or_default();
                 if fields.next().is_some() {
-                    return Err(complain(number, "a notes list is one field"));
+                    return Err(fail(number, "a notes list is one field"));
                 }
                 memo.notes.push(if text.is_empty() {
                     Vec::new()
@@ -879,7 +876,7 @@ pub(crate) fn read_memo(
             Some("D") => {
                 let text = fields.next().unwrap_or_default();
                 if fields.next().is_some() {
-                    return Err(complain(number, "a delta is one field"));
+                    return Err(fail(number, "a delta is one field"));
                 }
                 let parsed: Option<Vec<Pointer>> = if text.is_empty() {
                     Some(Vec::new())
@@ -901,7 +898,7 @@ pub(crate) fn read_memo(
             Some("R") => {
                 let text = fields.next().unwrap_or_default();
                 if fields.next().is_some() {
-                    return Err(complain(number, "a read set is one field"));
+                    return Err(fail(number, "a read set is one field"));
                 }
                 let parsed: Option<Vec<Read>> = if text.is_empty() {
                     Some(Vec::new())
@@ -943,44 +940,39 @@ pub(crate) fn read_memo(
                     stage,
                 ] = fields.as_slice()
                 else {
-                    return Err(complain(number, "a window has seventeen fields"));
+                    return Err(fail(number, "a window has seventeen fields"));
                 };
                 let left_kind = kind_of_letter(left_kind)
-                    .ok_or_else(|| complain(number, "a left kind is one of the six"))?;
+                    .ok_or_else(|| fail(number, "a left kind is one of the six"))?;
                 let left_extension: i16 = left_extension
                     .parse()
-                    .map_err(|_| complain(number, "a left extension is a count"))?;
+                    .map_err(|_| fail(number, "a left extension is a count"))?;
                 let (Some(settled_seat), Some(notes_seat), Some(delta_seat), Some(reads_seat)) = (
                     seat_at(settled_seat),
                     seat_at(notes_seat),
                     seat_at(delta_seat),
                     seat_at(reads_seat),
                 ) else {
-                    return Err(complain(number, "a seat is a count"));
+                    return Err(fail(number, "a seat is a count"));
                 };
                 let prospect: i64 = prospect
                     .parse()
                     .ok()
                     .filter(|term| (0..=1).contains(term))
-                    .ok_or_else(|| {
-                        complain(number, "a prospect is a junction count, zero or one")
-                    })?;
+                    .ok_or_else(|| fail(number, "a prospect is a junction count, zero or one"))?;
                 let joint_tiebreak = match *joint {
                     "0" => false,
                     "1" => true,
-                    _ => return Err(complain(number, "a joint flag is 0 or 1")),
+                    _ => return Err(fail(number, "a joint flag is 0 or 1")),
                 };
                 let decided_stage = DecidedStage::from_text(stage)
-                    .ok_or_else(|| complain(number, "a stage is one of the seven"))?;
+                    .ok_or_else(|| fail(number, "a stage is one of the seven"))?;
                 if settled_seat >= memo.settled.len()
                     || notes_seat >= memo.notes.len()
                     || delta_seat >= memo.deltas.len()
                     || reads_seat >= memo.reads.len()
                 {
-                    return Err(complain(
-                        number,
-                        "a seat names a record the file seated first",
-                    ));
+                    return Err(fail(number, "a seat names a record the file seated first"));
                 }
                 if !settled_usable[settled_seat]
                     || !delta_usable[delta_seat]
@@ -1034,7 +1026,7 @@ pub(crate) fn read_memo(
                     continue;
                 }
                 if records.len() == u32::MAX as usize {
-                    return Err(complain(number, "a memo holds fewer than 2^32 windows"));
+                    return Err(fail(number, "a memo holds fewer than 2^32 windows"));
                 }
                 records.push((
                     key,
@@ -1050,12 +1042,12 @@ pub(crate) fn read_memo(
                 ));
             }
             Some(other) => {
-                return Err(complain(
+                return Err(fail(
                     number,
                     &format!("{other:?} is not a line the memo format spells"),
                 ));
             }
-            None => return Err(complain(number, "an empty line")),
+            None => return Err(fail(number, "an empty line")),
         }
     }
     memo.entries = SnapshotEntries::from_records(records)
@@ -1606,8 +1598,8 @@ mod tests {
         let (_, memo) = enumerate_keeping(&index, &[], Vec::new());
         let path = scratch("memo-refusals").join("memo-default.tsv");
         write_memo(&index, &path, &head("default"), &memo, &[]).expect("the file writes");
-        let complaint = read_memo(&index, &path, &head("ss03"), |_| true).expect_err("refused");
-        assert!(complaint.contains("configuration default"), "{complaint}");
+        let error = read_memo(&index, &path, &head("ss03"), |_| true).expect_err("refused");
+        assert!(error.contains("configuration default"), "{error}");
         let text = std::fs::read_to_string(&path).expect("the file is text");
         let stale = text.replace("\nY\talt\n", "\nY\tgone\n");
         assert_ne!(
@@ -1630,7 +1622,7 @@ mod tests {
             head("default").modes,
             head("default").stamp
         );
-        for (line, capacity, complaint) in [
+        for (line, capacity, expected) in [
             (
                 "S\t0\t0\t-\t-\t-\t-\t0\n",
                 TraceSettledSeat::CAPACITY,
@@ -1653,7 +1645,7 @@ mod tests {
             std::fs::write(&path, &text).expect("rewritten");
             let refusal =
                 read_memo(&index, &path, &head("default"), |_| true).expect_err("refused");
-            assert!(refusal.contains(complaint), "{refusal}");
+            assert!(refusal.contains(expected), "{refusal}");
         }
     }
 
@@ -1712,7 +1704,7 @@ mod tests {
         let delta = memo.delta(entry).to_vec().into_boxed_slice();
         let reads = memo.reads(entry).to_vec().into_boxed_slice();
         let path = scratch("memo-union-range").join("memo-default.tsv");
-        for (distinct_records, complaint) in [
+        for (distinct_records, expected) in [
             (true, "a memo seats fewer than 65,536 settled records"),
             (false, "a memo seats fewer than 65,536 notes lists"),
         ] {
@@ -1776,7 +1768,7 @@ mod tests {
             assert_eq!(back.len(), TraceSettledSeat::CAPACITY);
             let refusal = write_memo(&index, &path, &head("default"), &own, &[carried(i16::MAX)])
                 .expect_err("a union past the range is refused");
-            assert!(refusal.contains(complaint), "{refusal}");
+            assert!(refusal.contains(expected), "{refusal}");
         }
     }
 

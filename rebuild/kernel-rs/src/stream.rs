@@ -305,7 +305,7 @@ pub fn emit_transitions(index: &SpecIndex, product: &FixpointProduct) -> Result<
     let mut bytes: Vec<u8> = Vec::new();
     match write_transitions(index, product, &mut bytes) {
         Ok(()) => Ok(String::from_utf8(bytes).expect("the emitter writes text")),
-        Err(WriteFailure::Refused(complaint)) => Err(complaint),
+        Err(WriteFailure::Refused(error)) => Err(error),
         Err(WriteFailure::Sink(error)) => {
             unreachable!("a growing byte buffer cannot refuse a write: {error}")
         }

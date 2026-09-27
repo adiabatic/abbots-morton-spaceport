@@ -1836,13 +1836,13 @@ mod tests {
             provenance: Vec::new(),
             joint: false,
         });
-        let complaint =
+        let error =
             assert_deep_class_unions(&product, &split).expect_err("half a class is a split");
         assert!(
-            complaint.contains("an emitted look3 class splits deep class"),
-            "{complaint}"
+            error.contains("an emitted look3 class splits deep class"),
+            "{error}"
         );
-        assert!(complaint.contains(&tokens[0]), "{complaint}");
+        assert!(error.contains(&tokens[0]), "{error}");
     }
 
     /// The reachable-cells cross-check fails when the product lists a cell that no row settles into.
@@ -1864,13 +1864,13 @@ mod tests {
             exit: None,
             adjustments: Vec::new(),
         });
-        let complaint =
+        let error =
             fold_product(&bench.index, product).expect_err("the extra cell is a disagreement");
         assert!(
-            complaint.starts_with("the product's reachable cells disagree with the fold rows': [("),
-            "{complaint}"
+            error.starts_with("the product's reachable cells disagree with the fold rows': [("),
+            "{error}"
         );
-        assert!(complaint.contains("'qsTea', 'full'"), "{complaint}");
+        assert!(error.contains("'qsTea', 'full'"), "{error}");
     }
 
     /// The rule fold's first error: two boundary lefts that settle differently would need two default rule groups, and with no backtrack to tell them apart the second group could never match.
@@ -1892,9 +1892,9 @@ mod tests {
             ],
             Vec::new(),
         );
-        let complaint = fold_product(&bench.index, product).expect_err("two default blocks");
+        let error = fold_product(&bench.index, product).expect_err("two default blocks");
         assert_eq!(
-            complaint,
+            error,
             "qsIt: boundary left contexts split across outcome blocks: [('#EDGE',), ('space',)]"
         );
     }
@@ -1923,8 +1923,8 @@ mod tests {
             ],
             Vec::new(),
         );
-        let complaint = fold_product(&bench.index, product).expect_err("nothing to sample");
-        assert_eq!(complaint, "qsIt: boundary lookaheads disagree: set()");
+        let error = fold_product(&bench.index, product).expect_err("nothing to sample");
+        assert_eq!(error, "qsIt: boundary lookaheads disagree: set()");
     }
 
     /// The fold relies on key order: an input's rows form one contiguous run and a left's rows one run inside it, so a product whose rows are not key-sorted would fold a left into two blocks. The key-order check returns an error message instead of a panic at whichever `expect` the duplicate reaches first.
@@ -1952,9 +1952,9 @@ mod tests {
             Vec::new(),
         );
         product.transitions.swap(1, 2);
-        let complaint = fold_product(&bench.index, product).expect_err("the rows are out of order");
+        let error = fold_product(&bench.index, product).expect_err("the rows are out of order");
         assert_eq!(
-            complaint,
+            error,
             "the product's rows are not in key order: ('qsIt', '#EDGE', 'qsTea', '#NA', '#NA', '#NA') follows ('qsIt', 'qsMay.x', 'qsTea', '#NA', '#NA', '#NA')"
         );
     }
@@ -1972,12 +1972,9 @@ mod tests {
                 )],
                 Vec::new(),
             );
-            let complaint =
+            let error =
                 fold_product(&bench.index, product).expect_err("the spec models no such rune");
-            assert_eq!(
-                complaint,
-                format!("{input}: the spec models no rune '{rune}'")
-            );
+            assert_eq!(error, format!("{input}: the spec models no rune '{rune}'"));
         }
     }
 

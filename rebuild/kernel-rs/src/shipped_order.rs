@@ -318,13 +318,13 @@ impl<'a> Walk<'a> {
                 }
             }
             if self.disagreements.len() >= NAMED_DISAGREEMENTS {
-                return Err(self.complaint());
+                return Err(self.error_message());
             }
         }
         if self.disagreements.is_empty() {
             Ok(report)
         } else {
-            Err(self.complaint())
+            Err(self.error_message())
         }
     }
 
@@ -397,7 +397,7 @@ impl<'a> Walk<'a> {
         )
     }
 
-    fn complaint(&self) -> String {
+    fn error_message(&self) -> String {
         format!(
             "{} shipped-order disagreement(s) over the table's rows: {}",
             self.disagreements.len(),
@@ -535,20 +535,17 @@ mod tests {
                 }
                 let mut order = decision.rules.clone();
                 order.swap(first, second);
-                if let Err(complaint) = walk(&decision, &order, &context) {
-                    found = Some(complaint);
+                if let Err(error) = walk(&decision, &order, &context) {
+                    found = Some(error);
                     break 'pairs;
                 }
             }
         }
-        let complaint = found.expect("some swap of the fixture's rules moves a row");
-        assert!(
-            complaint.contains("shipped-order disagreement"),
-            "{complaint}"
-        );
-        assert!(complaint.contains("default: row ("), "{complaint}");
-        assert!(complaint.contains("emitted rule "), "{complaint}");
-        assert!(complaint.contains("its table's rule "), "{complaint}");
+        let error = found.expect("some swap of the fixture's rules moves a row");
+        assert!(error.contains("shipped-order disagreement"), "{error}");
+        assert!(error.contains("default: row ("), "{error}");
+        assert!(error.contains("emitted rule "), "{error}");
+        assert!(error.contains("its table's rule "), "{error}");
     }
 
     /// Rows are renamed into the configuration's labels before matching: an order written with a copy's name passes once the context renames the raw label to the copy, and fails without the rename.
@@ -639,12 +636,12 @@ mod tests {
         );
         let split = [rule(&["qsTea"], "qsPea.split"), whole[0].clone()];
         let mut walk = Walk::new("default", &whole, &split, &context);
-        let complaint = walk
+        let error = walk
             .walk(&mut payload.as_bytes())
             .expect_err("one member is answered differently");
-        assert!(complaint.contains("tried at (qsTea, #NA)"), "{complaint}");
-        assert!(complaint.contains("emitted rule 0"), "{complaint}");
-        assert!(complaint.contains("qsPea.split"), "{complaint}");
+        assert!(error.contains("tried at (qsTea, #NA)"), "{error}");
+        assert!(error.contains("emitted rule 0"), "{error}");
+        assert!(error.contains("qsPea.split"), "{error}");
     }
 
     /// The context file's two record kinds parse, and any other line is an error naming its line number.
@@ -667,9 +664,9 @@ mod tests {
             read_context("").expect("empty is empty"),
             Context::default()
         );
-        let complaint =
+        let error =
             read_context("rename\tqsPea\tqsPea.ss03\nlabel\tx\n").expect_err("a stray record");
-        assert!(complaint.contains("line 2"), "{complaint}");
+        assert!(error.contains("line 2"), "{error}");
     }
 
     /// A payload that is not a windows enumeration, or a row without seven fields, is an error.
@@ -679,14 +676,14 @@ mod tests {
         let decision = table(&index, &[]);
         let context = context_of(&decision);
         let mut walk = Walk::new("default", &decision.rules, &decision.rules, &context);
-        let complaint = walk
+        let error = walk
             .walk(&mut "# something else\n".as_bytes())
             .expect_err("not an enumeration");
-        assert!(complaint.contains(WINDOWS_FORMAT), "{complaint}");
+        assert!(error.contains(WINDOWS_FORMAT), "{error}");
         let mut text = windows_text(&decision);
         text.push_str("qsPea\t#EDGE\n");
         let mut walk = Walk::new("default", &decision.rules, &decision.rules, &context);
-        let complaint = walk.walk(&mut text.as_bytes()).expect_err("a short row");
-        assert!(complaint.contains("not seven fields"), "{complaint}");
+        let error = walk.walk(&mut text.as_bytes()).expect_err("a short row");
+        assert!(error.contains("not seven fields"), "{error}");
     }
 }

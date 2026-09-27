@@ -362,8 +362,8 @@ fn main() -> ExitCode {
     };
     match outcome {
         Ok(()) => ExitCode::SUCCESS,
-        Err(complaint) => {
-            eprintln!("ams-m1-kernel: {complaint}");
+        Err(error) => {
+            eprintln!("ams-m1-kernel: {error}");
             ExitCode::from(1)
         }
     }
@@ -811,7 +811,7 @@ fn settle_cases(plan: &CasesPlan<'_>) -> Result<(), String> {
         cases::CaseResult::Trace
     };
     let lines = cases::replay_cases(&mut engine, &text, shape)
-        .map_err(|complaint| format!("{}: {complaint}", plan.cases))?;
+        .map_err(|error| format!("{}: {error}", plan.cases))?;
     write_lines(&lines)
 }
 
@@ -844,7 +844,7 @@ fn enumerate(plan: &EnumeratePlan<'_>) -> Result<(), String> {
         report,
     )
     .map_err(|failure| match failure {
-        fanout::Failure::Refused(complaint) => format!("{}: {complaint}", plan.spec),
+        fanout::Failure::Refused(error) => format!("{}: {error}", plan.spec),
         fanout::Failure::Sink(error) => format!("stdout: {error}"),
     })?;
     clock.extend(timed);
@@ -888,7 +888,7 @@ fn enumerate_configs(plan: &ConfigsPlan<'_>) -> Result<(), String> {
         workers,
         report,
     )
-    .map_err(|complaint| format!("{}: {complaint}", plan.spec))?
+    .map_err(|error| format!("{}: {error}", plan.spec))?
     {
         clock.extend(timed);
     }
@@ -954,7 +954,7 @@ fn build_tables(plan: &TablesPlan<'_>) -> Result<(), String> {
             memo_stamp: plan.memo_stamp.map(str::to_owned),
         },
     )
-    .map_err(|complaint| format!("{}: {complaint}", plan.spec))?;
+    .map_err(|error| format!("{}: {error}", plan.spec))?;
     let mut lines: Vec<String> = Vec::with_capacity(answers.len());
     for (config, answer) in plan.configs.iter().zip(answers) {
         lines.push(format!(
@@ -1027,7 +1027,7 @@ fn replay_strings(plan: &ReplayPlan<'_>) -> Result<(), String> {
         report,
         plan.memo_dir.map(Path::new),
     )
-    .map_err(|complaint| format!("{}: {complaint}", plan.spec))?;
+    .map_err(|error| format!("{}: {error}", plan.spec))?;
     let mut lines: Vec<String> = Vec::with_capacity(answers.len());
     for (config, answer) in plan.configs.iter().zip(answers) {
         lines.push(format!(
@@ -1051,11 +1051,11 @@ fn replay_emitted(plan: &EmittedPlan<'_>) -> Result<(), String> {
     let read =
         |path: &str| std::fs::read_to_string(path).map_err(|error| format!("{path}: {error}"));
     let table = artifacts::read_settlement_tsv(&read(plan.table)?)
-        .map_err(|complaint| format!("{}: {complaint}", plan.table))?;
+        .map_err(|error| format!("{}: {error}", plan.table))?;
     let order = artifacts::read_settlement_tsv(&read(plan.order)?)
-        .map_err(|complaint| format!("{}: {complaint}", plan.order))?;
+        .map_err(|error| format!("{}: {error}", plan.order))?;
     let context = shipped_order::read_context(&read(plan.context)?)
-        .map_err(|complaint| format!("{}: {complaint}", plan.context))?;
+        .map_err(|error| format!("{}: {error}", plan.context))?;
     let mut walk = shipped_order::Walk::new(plan.config, &table, &order, &context);
     let report = if plan.windows == "-" {
         walk.walk(&mut std::io::stdin().lock())
@@ -1064,7 +1064,7 @@ fn replay_emitted(plan: &EmittedPlan<'_>) -> Result<(), String> {
             .map_err(|error| format!("{}: {error}", plan.windows))?;
         walk.walk(&mut std::io::BufReader::with_capacity(1 << 20, file))
     }
-    .map_err(|complaint| format!("{}: {complaint}", plan.windows))?;
+    .map_err(|error| format!("{}: {error}", plan.windows))?;
     write_lines(&[format!(
         "{{\"config\":{},\"rows\":{},\"expanded\":{}}}",
         json_string(plan.config),
@@ -1153,13 +1153,13 @@ fn liveness_cases(plan: &LivenessPlan<'_>) -> Result<(), String> {
     );
     let text =
         std::fs::read_to_string(plan.keys).map_err(|error| format!("{}: {error}", plan.keys))?;
-    let mut scaffolding = LivenessScaffolding::new(&index)
-        .map_err(|complaint| format!("{}: {complaint}", plan.spec))?;
+    let mut scaffolding =
+        LivenessScaffolding::new(&index).map_err(|error| format!("{}: {error}", plan.spec))?;
     let mut lines: Vec<String> = Vec::new();
     for (seat, line) in text.lines().enumerate() {
         let answer = scaffolding
             .answer(&mut engine, line)
-            .map_err(|complaint| format!("{}: line {}: {complaint}", plan.keys, seat + 1))?;
+            .map_err(|error| format!("{}: line {}: {error}", plan.keys, seat + 1))?;
         lines.push(format!("{line}\t{answer}"));
     }
     write_lines(&lines)

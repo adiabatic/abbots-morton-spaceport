@@ -191,7 +191,7 @@ pub fn run_config(
     }
     let started = Instant::now();
     stream::write_transitions(index, &product, sink).map_err(|failure| match failure {
-        stream::WriteFailure::Refused(complaint) => Failure::Refused(complaint),
+        stream::WriteFailure::Refused(error) => Failure::Refused(error),
         stream::WriteFailure::Sink(error) => Failure::Sink(error),
     })?;
     if timings {
@@ -273,15 +273,15 @@ fn claim_all_leading<W: Sync, L, T: Send>(
     for outcome in claimed {
         match outcome {
             Ok(answered) => seated.extend(answered),
-            Err((seat, complaint)) => {
+            Err((seat, error)) => {
                 if failure.as_ref().is_none_or(|(worst, _)| seat < *worst) {
-                    failure = Some((seat, complaint));
+                    failure = Some((seat, error));
                 }
             }
         }
     }
     match failure {
-        Some((_, complaint)) => Err(complaint),
+        Some((_, error)) => Err(error),
         None => Ok((led, seated)),
     }
 }
@@ -313,9 +313,9 @@ fn claim_seats<W, T>(
         };
         match answer(item) {
             Ok(answered) => mine.push((*seat, answered)),
-            Err(complaint) => {
+            Err(error) => {
                 stop.store(true, Ordering::Relaxed);
-                return Err((*seat, complaint));
+                return Err((*seat, error));
             }
         }
     }
@@ -408,14 +408,14 @@ pub fn run_configs_tables(
                 .collect();
             let file = memo_file(&sharing, outdir, config.token, &mode_token, carried);
             run_config_tables(index, config, modes, outdir, inputs, report, access, file)
-                .map_err(|complaint| format!("{}: {complaint}", config.token))
+                .map_err(|error| format!("{}: {error}", config.token))
         });
     };
     let default = &configs[default_seat];
     let previous_default = load_previous_memo(index, &sharing, default.token, &mode_token, |key| {
         !edited.names(key)
     })
-    .map_err(|complaint| format!("{}: {complaint}", default.token))?;
+    .map_err(|error| format!("{}: {error}", default.token))?;
     let pending = enumerate_config_tables(
         index,
         default,
@@ -437,7 +437,7 @@ pub fn run_configs_tables(
                 .collect(),
         ),
     )
-    .map_err(|complaint| format!("{}: {complaint}", default.token))?;
+    .map_err(|error| format!("{}: {error}", default.token))?;
     let memo: Arc<MemoSnapshot> = Arc::clone(
         pending
             .memo
@@ -447,7 +447,7 @@ pub fn run_configs_tables(
     let rest = delta_worklist(index, configs, default_seat);
     let finish_default = || {
         finish_config_tables(index, default, outdir, inputs, report, pending)
-            .map_err(|complaint| format!("{}: {complaint}", default.token))
+            .map_err(|error| format!("{}: {error}", default.token))
     };
     let (default_answer, mut answered) =
         claim_all_leading(&rest, workers, finish_default, |work: &DeltaWork<'_>| {
@@ -477,7 +477,7 @@ pub fn run_configs_tables(
                 keep_memo: false,
             };
             run_config_tables(index, config, modes, outdir, inputs, report, access, file)
-                .map_err(|complaint| format!("{}: {complaint}", config.token))
+                .map_err(|error| format!("{}: {error}", config.token))
         })?;
     answered.push((default_seat, default_answer));
     Ok(seat_answers(answered, configs.len()))
@@ -614,7 +614,7 @@ pub fn run_configs_replay(
 ) -> Result<Vec<ReplayAnswer>, String> {
     claim_all(configs, workers, |config| {
         run_config_replay(index, config, modes, outdir, text_set, report, memo_dir)
-            .map_err(|complaint| format!("{}: {complaint}", config.token))
+            .map_err(|error| format!("{}: {error}", config.token))
     })
 }
 
@@ -639,7 +639,7 @@ pub fn run_config_replay(
     let text = std::fs::read_to_string(&settlement)
         .map_err(|error| format!("{}: {error}", settlement.display()))?;
     let rules = artifacts::read_settlement_tsv(&text)
-        .map_err(|complaint| format!("{}: {complaint}", settlement.display()))?;
+        .map_err(|error| format!("{}: {error}", settlement.display()))?;
     let engine_modes = EngineModes {
         simulated_prospect: modes.simulated_prospect,
         follower_prefer_slots: modes.follower_prefer_slots,
@@ -691,7 +691,7 @@ fn into_file(
     let mut file = std::fs::File::create(&path)
         .map_err(|error| format!("{}: {}: {error}", config.token, path.display()))?;
     run_config(index, config, modes, &mut file, report).map_err(|failure| match failure {
-        Failure::Refused(complaint) => format!("{}: {complaint}", config.token),
+        Failure::Refused(error) => format!("{}: {error}", config.token),
         Failure::Sink(error) => format!("{}: {}: {error}", config.token, path.display()),
     })
 }
@@ -920,22 +920,22 @@ mod tests {
         let outdir = scratch("fan-out-blocked");
         std::fs::create_dir_all(&outdir).expect("the scratch directory is makeable");
         block(&outdir, TOKENS[0]);
-        let complaint = run_configs(&index, &configs, SHIPPING, &outdir, 1, Report::timed(false))
+        let error = run_configs(&index, &configs, SHIPPING, &outdir, 1, Report::timed(false))
             .expect_err("a directory in a stream's place is not writable");
         assert!(
-            complaint.starts_with(&format!("{}: ", TOKENS[0])),
-            "the complaint names the configuration that failed: {complaint}"
+            error.starts_with(&format!("{}: ", TOKENS[0])),
+            "the error names the configuration that failed: {error}"
         );
         assert!(
-            complaint.contains(&format!("transitions-{}.ndjson", TOKENS[0])),
-            "and the file it failed on: {complaint}"
+            error.contains(&format!("transitions-{}.ndjson", TOKENS[0])),
+            "and the file it failed on: {error}"
         );
         std::fs::remove_dir_all(&outdir).expect("the scratch directory is removable");
     }
 
     /// With every stream path blocked and one worker per configuration, the run reports the error at the earliest list position, whichever worker reached it and however many others also failed. Position 0 is always claimed: the first claim takes it, and a worker stops claiming only after some worker has failed.
     #[test]
-    fn the_complaint_a_run_reports_is_the_earliest_seated_one() {
+    fn the_error_a_run_reports_is_the_earliest_seated_one() {
         let index = fixtures::mini();
         let configs = configurations(&index);
         let outdir = scratch("fan-out-all-blocked");
@@ -943,7 +943,7 @@ mod tests {
         for token in TOKENS {
             block(&outdir, token);
         }
-        let complaint = run_configs(
+        let error = run_configs(
             &index,
             &configs,
             SHIPPING,
@@ -953,8 +953,8 @@ mod tests {
         )
         .expect_err("no seat can write its stream");
         assert!(
-            complaint.starts_with(&format!("{}: ", TOKENS[0])),
-            "the earliest seat is the one reported: {complaint}"
+            error.starts_with(&format!("{}: ", TOKENS[0])),
+            "the earliest seat is the one reported: {error}"
         );
         std::fs::remove_dir_all(&outdir).expect("the scratch directory is removable");
     }
@@ -1204,7 +1204,7 @@ mod tests {
         let root = scratch("fan-out-tables-blocked");
         let alone = root.join("default-alone");
         block_settlement(&alone, TOKENS[0]);
-        let complaint = run_configs_tables(
+        let error = run_configs_tables(
             &index,
             &configs,
             SHIPPING,
@@ -1216,18 +1216,18 @@ mod tests {
         )
         .expect_err("a directory in the settlement table's place is not writable");
         assert!(
-            complaint.starts_with(&format!("{}: ", TOKENS[0])),
-            "the complaint names the configuration that failed: {complaint}"
+            error.starts_with(&format!("{}: ", TOKENS[0])),
+            "the error names the configuration that failed: {error}"
         );
         assert!(
-            complaint.contains(&format!("settlement-{}.tsv", TOKENS[0])),
-            "and the file it failed on: {complaint}"
+            error.contains(&format!("settlement-{}.tsv", TOKENS[0])),
+            "and the file it failed on: {error}"
         );
         let every = root.join("every-seat");
         for token in TOKENS {
             block_settlement(&every, token);
         }
-        let complaint = run_configs_tables(
+        let error = run_configs_tables(
             &index,
             &configs,
             SHIPPING,
@@ -1239,8 +1239,8 @@ mod tests {
         )
         .expect_err("no seat can write its settlement table");
         assert!(
-            complaint.starts_with(&format!("{}: ", TOKENS[0])),
-            "default's word wins over a delta that failed beside it: {complaint}"
+            error.starts_with(&format!("{}: ", TOKENS[0])),
+            "default's word wins over a delta that failed beside it: {error}"
         );
         std::fs::remove_dir_all(&root).expect("the scratch directory is removable");
     }
@@ -1267,7 +1267,7 @@ mod tests {
     fn a_failing_item_is_reported_at_the_seat_it_carries() {
         let work = [(3, "ss03"), (1, "ss09")];
         let met = std::sync::Barrier::new(2);
-        let complaint = claim_all_leading(
+        let error = claim_all_leading(
             &work,
             3,
             || Ok(()),
@@ -1277,7 +1277,7 @@ mod tests {
             },
         )
         .expect_err("both items fail");
-        assert_eq!(complaint, "ss09: blocked");
+        assert_eq!(error, "ss09: blocked");
     }
 
     /// The lead runs while another worker claims, which the test enforces with a barrier instead of relying on timing: with two workers and a worklist listed out of order, the lead waits at a barrier that the first item's answer also reaches, so the worker has claimed and started an item while the lead is still running. `default`'s fold relies on this overlap. The run returns both items' results with the positions they carry, and the lead's result separately. When both fail, the run returns the lead's error.
@@ -1304,7 +1304,7 @@ mod tests {
         assert_eq!(led, "lead");
         assert_eq!(seated, [(1, "ss09".to_owned()), (3, "ss03".to_owned())]);
         let met = std::sync::Barrier::new(2);
-        let complaint = claim_all_leading(
+        let error = claim_all_leading(
             &work,
             2,
             || {
@@ -1319,6 +1319,6 @@ mod tests {
             },
         )
         .expect_err("both seats fail");
-        assert_eq!(complaint, "lead: blocked");
+        assert_eq!(error, "lead: blocked");
     }
 }

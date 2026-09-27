@@ -43,7 +43,7 @@ fn run(arguments: &[&str]) -> Output {
 }
 
 /// A run's stderr, for the assertions that read it.
-fn complaint(output: &Output) -> String {
+fn stderr_of(output: &Output) -> String {
     String::from_utf8_lossy(&output.stderr).into_owned()
 }
 
@@ -90,7 +90,7 @@ fn a_fan_out_files_what_one_enumeration_writes_to_stdout() {
         assert!(
             fanned.status.success(),
             "the fan-out answers: {}",
-            complaint(&fanned)
+            stderr_of(&fanned)
         );
         for (token, features) in CONFIGS {
             let mut arguments = vec!["enumerate", word(&spec)];
@@ -99,7 +99,7 @@ fn a_fan_out_files_what_one_enumeration_writes_to_stdout() {
             assert!(
                 one.status.success(),
                 "and so does one enumeration: {}",
-                complaint(&one)
+                stderr_of(&one)
             );
             let filed = std::fs::read(outdir.join(format!("transitions-{token}.ndjson")))
                 .expect("every named configuration left a file behind");
@@ -122,7 +122,7 @@ fn a_clean_fan_out_says_nothing_at_all() {
         word(&root.join("streams")),
         "--configs=default,ss03",
     ]);
-    assert!(output.status.success(), "{}", complaint(&output));
+    assert!(output.status.success(), "{}", stderr_of(&output));
     assert!(output.stdout.is_empty(), "the answer here is the files");
     assert!(output.stderr.is_empty(), "and nothing else is said");
 }
@@ -140,7 +140,7 @@ fn the_timings_lines_are_the_shape_the_cycle_parses_in_the_order_named() {
         "--threads=4",
         "--timings",
     ]);
-    assert!(output.status.success(), "{}", complaint(&output));
+    assert!(output.status.success(), "{}", stderr_of(&output));
     assert!(output.stdout.is_empty(), "the answer is still the files");
     let stderr = String::from_utf8(output.stderr).expect("the timings are text");
     let phases: Vec<&str> = stderr.lines().map(timing_phase).collect();
@@ -176,7 +176,7 @@ fn a_malformed_command_line_is_a_two_and_an_unanswerable_one_is_a_one() {
             output.status.code(),
             Some(2),
             "{tail:?} is a usage error: {}",
-            complaint(&output)
+            stderr_of(&output)
         );
     }
     let unknown = run(&[
@@ -187,9 +187,9 @@ fn a_malformed_command_line_is_a_two_and_an_unanswerable_one_is_a_one() {
     ]);
     assert_eq!(unknown.status.code(), Some(1));
     assert!(
-        complaint(&unknown).contains("ss05"),
-        "the complaint names the feature this spec never mentions: {}",
-        complaint(&unknown)
+        stderr_of(&unknown).contains("ss05"),
+        "the error names the feature this spec never mentions: {}",
+        stderr_of(&unknown)
     );
 }
 
@@ -203,14 +203,14 @@ fn a_case_replay_writes_either_result_shape_and_the_liveness_verb_refuses_the_fl
     std::fs::write(&cases, format!("{case_line}\n"))
         .expect("the scratch directory takes a case file");
     let traced = run(&["settle-cases", word(&spec), word(&cases)]);
-    assert_eq!(traced.status.code(), Some(0), "{}", complaint(&traced));
+    assert_eq!(traced.status.code(), Some(0), "{}", stderr_of(&traced));
     let stdout = String::from_utf8_lossy(&traced.stdout);
     assert!(
         stdout.starts_with(&format!("{case_line}\t{{\"settled\":")),
         "{stdout}"
     );
     let settled = run(&["settle-cases", word(&spec), word(&cases), "--settled-only"]);
-    assert_eq!(settled.status.code(), Some(0), "{}", complaint(&settled));
+    assert_eq!(settled.status.code(), Some(0), "{}", stderr_of(&settled));
     assert_eq!(
         String::from_utf8_lossy(&settled.stdout),
         format!("{case_line}\tqsPea\thalf\t\t\t\t\t0\n")
@@ -221,7 +221,7 @@ fn a_case_replay_writes_either_result_shape_and_the_liveness_verb_refuses_the_fl
         word(&cases),
         "--settled-only",
     ]);
-    assert_eq!(refused.status.code(), Some(2), "{}", complaint(&refused));
+    assert_eq!(refused.status.code(), Some(2), "{}", stderr_of(&refused));
 }
 
 /// `guard-sweep --config=` writes one configuration's guard verdict map with as many rows as the default sweep over the feature powerset, and accepts `default` for the no-feature configuration. Each of these is a usage error (exit 2): an empty or non-canonical configuration token, as `--configs=` parses it; a repeated `--config=`; `--features=`, which this subcommand does not take; and any mode flag, because `guard.rs` fixes the guard's modes. A feature the spec never mentions fails the run (exit 1), as it does in `settle-cases`.
@@ -233,14 +233,14 @@ fn a_guard_sweep_answers_one_configuration_and_refuses_a_mode_flag() {
     assert!(
         quantified.status.success(),
         "the quantified sweep answers: {}",
-        complaint(&quantified)
+        stderr_of(&quantified)
     );
     for token in ["default", "ss03"] {
         let under = run(&["guard-sweep", word(&spec), &format!("--config={token}")]);
         assert!(
             under.status.success(),
             "and so does {token}'s: {}",
-            complaint(&under)
+            stderr_of(&under)
         );
         assert!(
             under.stderr.is_empty(),
@@ -272,15 +272,15 @@ fn a_guard_sweep_answers_one_configuration_and_refuses_a_mode_flag() {
             output.status.code(),
             Some(2),
             "{tail:?} is a usage error: {}",
-            complaint(&output)
+            stderr_of(&output)
         );
     }
     let unknown = run(&["guard-sweep", word(&spec), "--config=ss05"]);
     assert_eq!(unknown.status.code(), Some(1));
     assert!(
-        complaint(&unknown).contains("ss05"),
-        "the complaint names the feature this spec never mentions: {}",
-        complaint(&unknown)
+        stderr_of(&unknown).contains("ss05"),
+        "the error names the feature this spec never mentions: {}",
+        stderr_of(&unknown)
     );
 }
 
@@ -301,7 +301,7 @@ fn a_clean_fan_out_sweeps_the_streams_it_did_not_name() {
         word(&outdir),
         "--configs=default",
     ]);
-    assert!(output.status.success(), "{}", complaint(&output));
+    assert!(output.status.success(), "{}", stderr_of(&output));
     assert!(
         !stale.exists(),
         "the unnamed configuration's stream is gone"
@@ -329,7 +329,7 @@ fn a_seat_that_cannot_write_fails_the_run_naming_the_earliest_one() {
     ]);
     assert_eq!(output.status.code(), Some(1));
     assert!(output.stdout.is_empty(), "a failed run wrote no answer");
-    let said = complaint(&output);
+    let said = stderr_of(&output);
     assert!(
         said.contains("transitions-default.ndjson"),
         "the earliest seat is the one named: {said}"
@@ -354,7 +354,7 @@ fn a_table_build_files_three_artifacts_and_answers_one_digest_per_configuration(
         "--inputs=cli-stamp",
         "--threads=2",
     ]);
-    assert!(output.status.success(), "{}", complaint(&output));
+    assert!(output.status.success(), "{}", stderr_of(&output));
     assert!(output.stderr.is_empty(), "a clean build says nothing");
     let answers: Vec<String> = String::from_utf8(output.stdout)
         .expect("the digests are text")
@@ -409,7 +409,7 @@ fn a_table_build_sharing_defaults_memo_files_the_bytes_a_from_scratch_one_files(
         ];
         arguments.extend(extra);
         let output = run(&arguments);
-        assert!(output.status.success(), "{}", complaint(&output));
+        assert!(output.status.success(), "{}", stderr_of(&output));
         answers.push(String::from_utf8(output.stdout).expect("the digests are text"));
     }
     assert_eq!(answers[0], answers[1]);
@@ -457,7 +457,7 @@ fn a_build_reading_the_previous_memos_files_the_bytes_a_from_scratch_one_files()
         "--inputs=cli-stamp",
         "--memo-stamp=before",
     ]);
-    assert!(output.status.success(), "{}", complaint(&output));
+    assert!(output.status.success(), "{}", stderr_of(&output));
     for (token, _) in CONFIGS {
         assert!(previous.join(format!("memo-{token}.tsv")).is_file());
     }
@@ -473,7 +473,7 @@ fn a_build_reading_the_previous_memos_files_the_bytes_a_from_scratch_one_files()
         "--memo-stamp=after",
         "--timings",
     ]);
-    assert!(output.status.success(), "{}", complaint(&output));
+    assert!(output.status.success(), "{}", stderr_of(&output));
     let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
     let phases: Vec<&str> = stderr.lines().map(timing_phase).collect();
     assert!(phases.contains(&"memo[default]"), "{phases:?}");
@@ -485,7 +485,7 @@ fn a_build_reading_the_previous_memos_files_the_bytes_a_from_scratch_one_files()
         "--configs=default,ss03",
         "--inputs=cli-stamp",
     ]);
-    assert!(output.status.success(), "{}", complaint(&output));
+    assert!(output.status.success(), "{}", stderr_of(&output));
     for (token, _) in CONFIGS {
         for family in ["settlement", "joins", "windows"] {
             let name = format!("{family}-{token}.tsv");
@@ -523,7 +523,7 @@ fn a_build_reading_the_previous_memos_files_the_bytes_a_from_scratch_one_files()
         ];
         args.extend(extra);
         let output = run(&args);
-        assert!(output.status.success(), "{arm}: {}", complaint(&output));
+        assert!(output.status.success(), "{arm}: {}", stderr_of(&output));
         for token in tokens {
             for family in ["settlement", "joins", "windows"] {
                 let name = format!("{family}-{token}.tsv");
@@ -587,7 +587,7 @@ fn a_timed_table_build_names_the_enumerate_and_fold_phases_per_configuration() {
         "--threads=2",
         "--timings",
     ]);
-    assert!(output.status.success(), "{}", complaint(&output));
+    assert!(output.status.success(), "{}", stderr_of(&output));
     let stderr = String::from_utf8(output.stderr).expect("the timings are text");
     let phases: Vec<&str> = stderr.lines().map(timing_phase).collect();
     assert_eq!(
@@ -627,7 +627,7 @@ fn a_table_build_without_a_stamp_is_a_usage_error() {
             output.status.code(),
             Some(2),
             "{tail:?} is a usage error: {}",
-            complaint(&output)
+            stderr_of(&output)
         );
     }
 }
@@ -645,7 +645,7 @@ fn a_shipped_order_walk_answers_a_tables_rows_from_a_file_or_stdin() {
         "--configs=default,ss03",
         "--inputs=cli-stamp",
     ]);
-    assert!(built.status.success(), "{}", complaint(&built));
+    assert!(built.status.success(), "{}", stderr_of(&built));
     let table = outdir.join("settlement-ss03.tsv");
     let windows = outdir.join("windows-ss03.tsv");
     let context = root.join("context-ss03.tsv");
@@ -705,7 +705,7 @@ fn a_shipped_order_walk_answers_a_tables_rows_from_a_file_or_stdin() {
         &order_flag,
         &context_flag,
     ]);
-    assert!(output.status.success(), "{}", complaint(&output));
+    assert!(output.status.success(), "{}", stderr_of(&output));
     assert!(output.stderr.is_empty(), "a clean walk says nothing");
     assert_eq!(
         String::from_utf8_lossy(&output.stdout),
@@ -725,12 +725,12 @@ fn a_shipped_order_walk_answers_a_tables_rows_from_a_file_or_stdin() {
         .stdin(std::fs::File::open(&windows).expect("the enumeration opens"))
         .output()
         .expect("the binary runs on a pipe");
-    assert!(piped.status.success(), "{}", complaint(&piped));
+    assert!(piped.status.success(), "{}", stderr_of(&piped));
     assert_eq!(
         piped.stdout, output.stdout,
         "stdin and the file are one walk"
     );
-    let phases: Vec<&str> = complaint(&piped)
+    let phases: Vec<&str> = stderr_of(&piped)
         .lines()
         .map(timing_phase)
         .map(str::to_owned)
@@ -753,9 +753,9 @@ fn a_shipped_order_walk_answers_a_tables_rows_from_a_file_or_stdin() {
     ]);
     assert_eq!(refused.status.code(), Some(1));
     assert!(
-        complaint(&refused).contains("stray.tsv: context line 1"),
+        stderr_of(&refused).contains("stray.tsv: context line 1"),
         "{}",
-        complaint(&refused)
+        stderr_of(&refused)
     );
 
     let missing = run(&[
@@ -791,7 +791,7 @@ fn a_replay_with_a_memo_directory_files_one_window_memo_per_configuration() {
         "--configs=default,ss03",
         "--inputs=cli-stamp",
     ]);
-    assert!(built.status.success(), "{}", complaint(&built));
+    assert!(built.status.success(), "{}", stderr_of(&built));
     let bare = run(&[
         "replay-strings",
         word(&spec),
@@ -799,7 +799,7 @@ fn a_replay_with_a_memo_directory_files_one_window_memo_per_configuration() {
         "--configs=default,ss03",
         "--max-length=3",
     ]);
-    assert!(bare.status.success(), "{}", complaint(&bare));
+    assert!(bare.status.success(), "{}", stderr_of(&bare));
     assert!(
         std::fs::read_dir(&outdir)
             .expect("the tables directory lists")
@@ -822,7 +822,7 @@ fn a_replay_with_a_memo_directory_files_one_window_memo_per_configuration() {
         &memo_flag,
         "--timings",
     ]);
-    assert!(filed.status.success(), "{}", complaint(&filed));
+    assert!(filed.status.success(), "{}", stderr_of(&filed));
     assert_eq!(filed.stdout, bare.stdout, "the answer lines are unchanged");
     for (token, _) in CONFIGS {
         let path = memos.join(format!("replay-windows-{token}.bin"));
@@ -840,7 +840,7 @@ fn a_replay_with_a_memo_directory_files_one_window_memo_per_configuration() {
             "{head}"
         );
     }
-    let phases: Vec<String> = complaint(&filed)
+    let phases: Vec<String> = stderr_of(&filed)
         .lines()
         .map(|line| timing_phase(line).to_owned())
         .collect();
@@ -860,11 +860,11 @@ fn a_replay_with_a_memo_directory_files_one_window_memo_per_configuration() {
         "--max-length=3",
         &format!("--memo-dir={}", word(&blocker.join("inside"))),
     ]);
-    assert_eq!(refused.status.code(), Some(1), "{}", complaint(&refused));
+    assert_eq!(refused.status.code(), Some(1), "{}", stderr_of(&refused));
     assert!(
-        complaint(&refused).contains("default:") || complaint(&refused).contains("ss03:"),
+        stderr_of(&refused).contains("default:") || stderr_of(&refused).contains("ss03:"),
         "the refusal names the configuration: {}",
-        complaint(&refused)
+        stderr_of(&refused)
     );
     assert!(
         refused.stdout.is_empty(),
@@ -885,7 +885,7 @@ fn a_replay_with_cache_stats_writes_them_to_stderr_and_leaves_the_answer_alone()
         "--configs=default,ss03",
         "--inputs=cli-stamp",
     ]);
-    assert!(built.status.success(), "{}", complaint(&built));
+    assert!(built.status.success(), "{}", stderr_of(&built));
     let replay = |extra: &[&str]| {
         let mut arguments = vec![
             "replay-strings",
@@ -898,15 +898,15 @@ fn a_replay_with_cache_stats_writes_them_to_stderr_and_leaves_the_answer_alone()
         run(&arguments)
     };
     let bare = replay(&[]);
-    assert!(bare.status.success(), "{}", complaint(&bare));
-    assert!(bare.stderr.is_empty(), "{}", complaint(&bare));
+    assert!(bare.status.success(), "{}", stderr_of(&bare));
+    assert!(bare.stderr.is_empty(), "{}", stderr_of(&bare));
     let with_stats = replay(&["--cache-stats"]);
-    assert!(with_stats.status.success(), "{}", complaint(&with_stats));
+    assert!(with_stats.status.success(), "{}", stderr_of(&with_stats));
     assert_eq!(
         with_stats.stdout, bare.stdout,
         "the answer lines are unchanged"
     );
-    let stderr = complaint(&with_stats);
+    let stderr = stderr_of(&with_stats);
     for line in stderr.lines() {
         assert!(
             line.starts_with("[c] "),
@@ -933,9 +933,9 @@ fn a_replay_with_cache_stats_writes_them_to_stderr_and_leaves_the_answer_alone()
     }
 
     let timed = replay(&["--cache-stats", "--timings"]);
-    assert!(timed.status.success(), "{}", complaint(&timed));
+    assert!(timed.status.success(), "{}", stderr_of(&timed));
     assert_eq!(timed.stdout, bare.stdout, "the answer lines are unchanged");
-    let lines: Vec<String> = complaint(&timed).lines().map(str::to_owned).collect();
+    let lines: Vec<String> = stderr_of(&timed).lines().map(str::to_owned).collect();
     for (token, _) in CONFIGS {
         let phase = format!("replay[{token}]");
         let clocked = lines
@@ -958,8 +958,8 @@ fn a_replay_with_cache_stats_writes_them_to_stderr_and_leaves_the_answer_alone()
     let ceiling = (walked.windows / 3).max(1);
     let ceiling_flag = format!("--memo-windows={ceiling}");
     let released = replay(&["--cache-stats", &ceiling_flag]);
-    assert!(released.status.success(), "{}", complaint(&released));
-    let stderr = complaint(&released);
+    assert!(released.status.success(), "{}", stderr_of(&released));
+    let stderr = stderr_of(&released);
     for prefix in [
         "[c] default release=1 walk_memo len=",
         "[c] default release=1 trace_cache len=",
@@ -1039,7 +1039,7 @@ fn a_replay_with_a_memo_ceiling_answers_the_texts_an_uncapped_walk_answers() {
         "--configs=default,ss03",
         "--inputs=cli-stamp",
     ]);
-    assert!(built.status.success(), "{}", complaint(&built));
+    assert!(built.status.success(), "{}", stderr_of(&built));
     let replay = |extra: &[&str]| {
         let mut arguments = vec![
             "replay-strings",
@@ -1052,9 +1052,9 @@ fn a_replay_with_a_memo_ceiling_answers_the_texts_an_uncapped_walk_answers() {
         run(&arguments)
     };
     let bare = replay(&[]);
-    assert!(bare.status.success(), "{}", complaint(&bare));
+    assert!(bare.status.success(), "{}", stderr_of(&bare));
     let capped = replay(&["--memo-windows=1"]);
-    assert!(capped.status.success(), "{}", complaint(&capped));
+    assert!(capped.status.success(), "{}", stderr_of(&capped));
     let uncapped = answers(&bare);
     let released = answers(&capped);
     assert_eq!(
@@ -1074,7 +1074,7 @@ fn a_replay_with_a_memo_ceiling_answers_the_texts_an_uncapped_walk_answers() {
     let memos = root.join("memos");
     std::fs::create_dir_all(&memos).expect("the memo directory is makeable");
     let both = replay(&["--memo-windows=1", &format!("--memo-dir={}", word(&memos))]);
-    assert_eq!(both.status.code(), Some(2), "{}", complaint(&both));
+    assert_eq!(both.status.code(), Some(2), "{}", stderr_of(&both));
     assert!(
         both.stdout.is_empty(),
         "nothing reaches stdout on a refusal"
