@@ -2,7 +2,7 @@
 //!
 //! The walk renames every row of the configuration's enumeration into the labels the configuration's marker lookups produce, tries the emitted rules for the row's input in shipped order, and requires the first rule that matches to give the row's outcome (the input itself when no rule matches). A row whose shipped-order outcome differs from the table's is an error naming the configuration, the row, the emitted rule that fired, and the table's own rule.
 //!
-//! The walk checks every row, not a sample. The rows are the table's own, at the table's grain. Rows are renamed before matching because, under a configuration, every raw label of a rune whose capability the active sets change is renamed to its marker twin, and the emitted rules already use the twin names. A deep slot that holds a class token is checked against the whole class. When the rules are indexed, each deep slot of each emitted rule is compared with every class of the configuration. A class that a rule's slot contains entirely matches through its token. A class that the slot contains only in part makes the walk try the row once per member (once per member pair when both deep slots are classes), and each member's first match must give the row's outcome; the fiber construction makes that outcome the same for every member. `fold::assert_deep_class_unions` does not cover this case: it checks a configuration's own rules against its own classes, but the shipped lookup holds every configuration's rules, so a rule folded from another configuration's fiber partition can match part of a class. That is harmless only when the rule gives each member the row's outcome, which is what the member-by-member check verifies.
+//! The walk checks every row, not a sample. The rows are the table's own, at the table's grain. Rows are renamed before matching because, under a configuration, every raw label of a rune whose capability the active sets change is renamed to its marker copy, and the emitted rules already use the copy names. A deep slot that holds a class token is checked against the whole class. When the rules are indexed, each deep slot of each emitted rule is compared with every class of the configuration. A class that a rule's slot contains entirely matches through its token. A class that the slot contains only in part makes the walk try the row once per member (once per member pair when both deep slots are classes), and each member's first match must give the row's outcome; the fiber construction makes that outcome the same for every member. `fold::assert_deep_class_unions` does not cover this case: it checks a configuration's own rules against its own classes, but the shipped lookup holds every configuration's rules, so a rule folded from another configuration's fiber partition can match part of a class. That is harmless only when the rule gives each member the row's outcome, which is what the member-by-member check verifies.
 //!
 //! The walk is O(rows), with a bounded number of rules per input, and settles nothing: the tables already hold the settled outcomes, and the walk checks that the shipped lookup reproduces them. That makes it cheap enough to run on every build, keyed on the same inputs as the tables. The HarfBuzz conformance sweep also checks the shipped order, but its key (`artifact_cycle.conform_skip_fingerprint`) covers the compile code and the emitted lookup's behavior classes, not the runes, so it skips a rune edit that adds no new behavior class.
 
@@ -23,23 +23,23 @@ pub struct Report {
 /// How many disagreements a walk reports before it stops, so the error message stays short.
 const NAMED_DISAGREEMENTS: usize = 5;
 
-/// How one configuration's marker lookups relabel its table's rows. `renames` maps each raw label to the marker twin used under this configuration (`model.raw_rename_map`). `classes` lists the deep classes in the table's rows, each token with its members as raw labels (`DecisionTable.deep_classes`).
+/// How one configuration's marker lookups relabel its table's rows. `renames` maps each raw label to the marker copy used under this configuration (`model.raw_rename_map`). `classes` lists the deep classes in the table's rows, each token with its members as raw labels (`DecisionTable.deep_classes`).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Context {
     pub renames: Vec<(String, String)>,
     pub classes: Vec<(String, Vec<String>)>,
 }
 
-/// Parses a context file: one tab-separated record per line, either `rename<tab><raw><tab><twin>` or `class<tab><token><tab><member> <member> …`. Any other line is an error.
+/// Parses a context file: one tab-separated record per line, either `rename<tab><raw><tab><copy>` or `class<tab><token><tab><member> <member> …`. Any other line is an error.
 pub fn read_context(text: &str) -> Result<Context, String> {
     let mut context = Context::default();
     for (number, line) in text.lines().enumerate() {
         let fields: Vec<&str> = line.split('\t').collect();
         match fields.as_slice() {
-            ["rename", raw, twin] if !raw.is_empty() && !twin.is_empty() => {
+            ["rename", raw, copy] if !raw.is_empty() && !copy.is_empty() => {
                 context
                     .renames
-                    .push(((*raw).to_owned(), (*twin).to_owned()));
+                    .push(((*raw).to_owned(), (*copy).to_owned()));
             }
             ["class", token, members] if !token.is_empty() && !members.is_empty() => {
                 context.classes.push((
@@ -179,7 +179,7 @@ impl<'a> Walk<'a> {
         let renames: HashMap<u32, u32> = context
             .renames
             .iter()
-            .map(|(raw, twin)| (labels.intern(raw), labels.intern(twin)))
+            .map(|(raw, copy)| (labels.intern(raw), labels.intern(copy)))
             .collect();
         let classes: Vec<(u32, Vec<u32>)> = context
             .classes
@@ -198,7 +198,7 @@ impl<'a> Walk<'a> {
             .collect();
         let indexed = Order::new(&mut labels, order, &classes);
         let raw_labels: HashMap<u32, u32> =
-            renames.iter().map(|(raw, twin)| (*twin, *raw)).collect();
+            renames.iter().map(|(raw, copy)| (*copy, *raw)).collect();
         let representatives: HashMap<String, String> = context
             .classes
             .iter()
@@ -328,7 +328,7 @@ impl<'a> Walk<'a> {
         }
     }
 
-    /// Formats one disagreement: the row, the member pair it was tried at when a class was expanded, the table's outcome and the table rule that produced it, and the emitted rule that fired with its outcome. The table's rule is looked up with raw labels, using the member tried (or the class's first member) mapped back through the marker renames, because the table's rules name members and raw labels where the row names a class token and the stream names a twin.
+    /// Formats one disagreement: the row, the member pair it was tried at when a class was expanded, the table's outcome and the table rule that produced it, and the emitted rule that fired with its outcome. The table's rule is looked up with raw labels, using the member tried (or the class's first member) mapped back through the marker renames, because the table's rules name members and raw labels where the row names a class token and the stream names a copy.
     fn disagree(
         &self,
         raw: [&str; 7],
@@ -551,16 +551,16 @@ mod tests {
         assert!(complaint.contains("its table's rule "), "{complaint}");
     }
 
-    /// Rows are renamed into the configuration's labels before matching: an order written with a twin's name passes once the context renames the raw label to the twin, and fails without the rename.
+    /// Rows are renamed into the configuration's labels before matching: an order written with a copy's name passes once the context renames the raw label to the copy, and fails without the rename.
     #[test]
     fn a_rename_carries_the_rows_into_the_streams_labels() {
         let index = fixtures::mini();
         let decision = table(&index, &[]);
         let raw: Rc<str> = Rc::from("qsPea");
-        let twin: Rc<str> = Rc::from("qsPea.ss03");
+        let copy: Rc<str> = Rc::from("qsPea.ss03");
         let relabel = |label: &Rc<str>| {
             if *label == raw {
-                Rc::clone(&twin)
+                Rc::clone(&copy)
             } else {
                 Rc::clone(label)
             }
@@ -587,7 +587,7 @@ mod tests {
             .collect();
         let mut context = context_of(&decision);
         let without =
-            walk(&decision, &order, &context).expect_err("the raw rows miss the twin's rules");
+            walk(&decision, &order, &context).expect_err("the raw rows miss the copy's rules");
         assert!(without.contains("qsPea"), "{without}");
         context
             .renames

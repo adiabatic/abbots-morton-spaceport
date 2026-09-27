@@ -153,7 +153,7 @@ The review test modules never read the file. They check internal consistency and
 - **`policy.refuse[+]` on the settled cell**: any other unit with provenance gets a refuse of the cell's exit, or of its stance when it has no exit.
 - **`policy.prefer[+]` of the baseline exit**: a unit with no provenance gets a prefer for the baseline's exit at that position.
 
-A junction-identical unit whose baseline cell differs from the new cell only at adjustment grain (post-ZWNJ locked twins, bind pullbacks, non-summing suppressed extensions) has no one-line reversing edit and gets no policy draft. `export.py` still lists it in `policy_edits` with null fields, the unit's provenance, and a `no_mechanical_draft` explanation, so a rejected unit always appears in the triage YAML.
+A junction-identical unit whose baseline cell differs from the new cell only at adjustment grain (post-ZWNJ locked copies, bind pullbacks, non-summing suppressed extensions) has no one-line reversing edit and gets no policy draft. `export.py` still lists it in `policy_edits` with null fields, the unit's provenance, and a `no_mechanical_draft` explanation, so a rejected unit always appears in the triage YAML.
 
 ### Unmatched groups (UNMATCHED presentation)
 

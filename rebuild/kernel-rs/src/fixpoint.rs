@@ -1037,7 +1037,7 @@ fn singleton(token: RightToken) -> Allowed {
     Rc::new(BTreeSet::from([token]))
 }
 
-/// The display name of the ZWNJ chokepoint twin of a raw input glyph, `model.locked_glyph_name`. Public because the string replay labels an entry-bearing input after a ZWNJ the same way the enumeration does.
+/// The display name of the locked copy of a raw input glyph, `model.locked_glyph_name`. Public because the string replay labels an entry-bearing input after a ZWNJ the same way the enumeration does.
 pub fn locked_glyph_name(raw_name: &str) -> String {
     format!("{raw_name}.noentry")
 }
@@ -1845,7 +1845,7 @@ mod tests {
             .collect();
         assert!(
             locked.contains(&"qsPea.noentry") && locked.contains(&"qsMay"),
-            "the chokepoint twin is the entry-bearing input's label alone: {locked:?}"
+            "the locked copy is the entry-bearing input's label alone: {locked:?}"
         );
         assert!(!locked.contains(&"qsPea"));
         // The lock changes only the row's label: the trace settles the raw letter, whose cell is the one the outcome names.
@@ -1855,7 +1855,7 @@ mod tests {
                 .iter()
                 .filter(|row| &**product.labels.text(row.input_glyph) == "qsPea.noentry")
                 .all(|row| product.outcome(row).starts_with("qsPea.half")),
-            "the locked twin still settles as qsPea"
+            "the locked copy still settles as qsPea"
         );
         // Nothing else in the product carries the suffix: a ZWNJ at any other slot is an ordinary boundary.
         assert!(

@@ -1,6 +1,6 @@
 """GPOS emission: one cursive lookup for each height in `CURS_HEIGHT_YS` that has anchors (M1-PLAN section 5, Group 3).
 
-Each `curs` lookup registers every glyph with an anchor at that height. A glyph that enters or exits at another height gets a NULL anchor on that side. When `spec` is given, every locked twin also gets a NULL/NULL registration at each height where its rune declares an entry row; without `spec` these are skipped and the output says so in a comment. Coordinates are glyph-space pixels × 50, with x shifted by the one-pixel ink offset.
+Each `curs` lookup registers every glyph with an anchor at that height. A glyph that enters or exits at another height gets a NULL anchor on that side. When `spec` is given, every locked copy also gets a NULL/NULL registration at each height where its rune declares an entry row; without `spec` these are skipped and the output says so in a comment. Coordinates are glyph-space pixels × 50, with x shifted by the one-pixel ink offset.
 """
 
 from __future__ import annotations
@@ -43,7 +43,7 @@ def _entry_heights(spec: ResolvedSpec, rune_name: str) -> set[int]:
 def cursive_registrations(
     glyphs: Mapping[CellId, GlyphRecord], spec: ResolvedSpec | None = None
 ) -> dict[int, dict[str, Registration]]:
-    """Per registered height, every glyph's (entry, exit) anchor pair in font units. `emit_gpos` renders it and `rebuild/pipeline/readback.py` checks the compiled GPOS against it. An absent side is None, and a locked twin's coverage-only registration is (None, None)."""
+    """Per registered height, every glyph's (entry, exit) anchor pair in font units. `emit_gpos` renders it and `rebuild/pipeline/readback.py` checks the compiled GPOS against it. An absent side is None, and a locked copy's coverage-only registration is (None, None)."""
     per_height: dict[int, dict[str, Registration]] = {y: {} for y in CURS_HEIGHT_YS}
     for cell, record in glyphs.items():
         for y in CURS_HEIGHT_YS:
@@ -86,6 +86,6 @@ def emit_gpos(glyphs: Mapping[CellId, GlyphRecord], spec: ResolvedSpec | None = 
     header = ""
     if coverage_only_skipped:
         header = (
-            "# locked-twin NULL/NULL coverage-only registrations skipped: no spec supplied to emit_gpos.\n"
+            "# locked-copy NULL/NULL coverage-only registrations skipped: no spec supplied to emit_gpos.\n"
         )
     return header + "feature curs {\n" + "\n".join(blocks) + "\n} curs;\n"

@@ -24,7 +24,7 @@ E652 E670 200C E665       # Tea It ZWNJ May
 E665 200C E670 E652       # May ZWNJ It Tea
 E665 200C E652            # May ZWNJ Tea (the fixed ss03 leak)
 E665 0020 E652            # May space Tea
-200C E652 E670            # ZWNJ Tea It (locked twin settles its exit)
+200C E652 E670            # ZWNJ Tea It (locked copy settles its exit)
 200C E665 E670            # ZWNJ May It
 #
 # qsPea rows: the y6 chain, the dips, and boundary forms.
@@ -89,7 +89,7 @@ E658 E679                 # Fee Oy (x-height join into the opened loop)
 E667 E658                 # Low Fee (extended x-height join)
 E653 E67A E658            # Day+Utter Fee (the ligature's exit extended into Fee)
 E665 E658 E665            # May Fee May (the entered Fee cannot exit; the second junction breaks)
-200C E658                 # ZWNJ Fee (locked twin)
+200C E658                 # ZWNJ Fee (locked copy)
 E658 200C E665            # Fee ZWNJ May (exit severed)
 #
 # qsAh windows: baseline in, x-height out (the Short diagonal).
@@ -106,7 +106,7 @@ E676 E658                 # Ah Fee (extended x-height exit into the reversed loo
 E676 E652                 # Ah Tea (unjoined by default; extended x-height join under ss03)
 E676 E679                 # Ah Oy (unextended x-height join into the opened loop)
 E665 E676 E665            # May Ah May (joined on both sides: baseline in, extended x-height out)
-200C E676                 # ZWNJ Ah (locked twin)
+200C E676                 # ZWNJ Ah (locked copy)
 E676 200C E665            # Ah ZWNJ May (exit severed)
 #
 # qsI windows: baseline in, x-height out, and the tighter loop after Pea.
@@ -126,7 +126,7 @@ E675 E652                 # I Tea (unjoined by default; x-height entry under ss0
 E675 E670                 # I It (extended x-height exit)
 E650 E675 E665            # Pea I May (the smaller loop keeping its shape under an extended exit)
 E652 E679 E675            # Tea+Oy ligature into I (baseline join off the ligature)
-200C E675                 # ZWNJ I (locked twin)
+200C E675                 # ZWNJ I (locked copy)
 E675 200C E665            # I ZWNJ May (exit severed)
 #
 # qsRoe windows: the two-tipped short letter, entered at one height and leaving from the other.
@@ -151,7 +151,7 @@ E666 E668 E665            # No Roe May (entered at the x-height, so the exit has
 E666 E668 E666            # No Roe No (entered high, leaving low into the flipped No)
 E670 E668 E666            # It Roe No (extended baseline entry, x-height exit)
 E668 E67A E667            # Roe Utter Low (the "orally" window: break, then alt-Utter's baseline exit)
-200C E668                 # ZWNJ Roe (locked twin)
+200C E668                 # ZWNJ Roe (locked copy)
 E668 200C E665            # Roe ZWNJ May (exit severed)
 #
 # qsEt windows: the short diagonal, entered high on the left and leaving low on the right.
@@ -180,7 +180,7 @@ E672 E676                 # Et Ah (baseline join)
 E672 E67A                 # Et Utter (baseline join into the mono Utter)
 E672 E672                 # Et Et (no join)
 E653 E652 E672            # Day Tea Et (the Day-Tea-X family window)
-200C E672                 # ZWNJ Et (locked twin)
+200C E672                 # ZWNJ Et (locked copy)
 E672 200C E652            # Et ZWNJ Tea (exit severed)
 #
 # qsSee windows: the tall serpentine — entered at the baseline foot, exiting at the top, at the Short letters' top, or (entryless) at the baseline.
@@ -218,7 +218,7 @@ E65A E67A E652            # See+Utter Tea (break; ss03 extends into half-Tea)
 E65A E67A E667            # See+Utter Low (the guard un-forms so alt-Utter serves Low)
 E65A E67A E65A            # See+Utter See (the guard un-forms so alt-Utter serves See)
 E65A E65A                 # See See (no join)
-200C E65A                 # ZWNJ See (locked twin)
+200C E65A                 # ZWNJ See (locked copy)
 E65A 200C E652            # See ZWNJ Tea (exit severed)
 #
 # qsVie windows: the Deep bowl-and-descender — entered on the baseline bar, exiting (swept out of the descender) at the baseline toward a few receivers.
@@ -258,7 +258,7 @@ E659 E67A E652            # Vie+Utter Tea (break; ss03 extends into half-Tea)
 E659 E67A E667            # Vie+Utter Low (the guard un-forms so alt-Utter serves Low)
 E659 E67A E659            # Vie+Utter Vie (the guard un-forms so alt-Utter serves Vie)
 E659 200C E67A            # Vie ZWNJ Utter (formation severed)
-200C E659                 # ZWNJ Vie (locked twin)
+200C E659                 # ZWNJ Vie (locked copy)
 E659 200C E666            # Vie ZWNJ No (exit severed)
 00B7 E659                 # namer dot before Deep Vie (stays)
 #
@@ -303,7 +303,7 @@ E650 E67B E652            # Pea Out+Tea (the ligature entered at the baseline)
 E67B E652 E653            # Out+Tea Day (break: the ligature never exits)
 E67B E652 E668            # Out+Tea Roe (break: the ligature never exits)
 E67B 200C E652            # Out ZWNJ Tea (formation severed)
-200C E67B                 # ZWNJ Out (locked twin)
+200C E67B                 # ZWNJ Out (locked copy)
 E67B 200C E653            # Out ZWNJ Day (exit severed)
 00B7 E67B                 # namer dot lowers before Short Out
 
@@ -369,7 +369,7 @@ E65D E67A E667            # Jai+Utter Low (un-forms: alt-Utter takes the baselin
 E65D E67A E676            # Jai+Utter Ah (un-forms: alt-Utter takes the baseline join)
 E65D E67A E652            # Jai+Utter Tea (break at default; ss03 reaches half-Tea)
 E65D 200C E67A            # Jai ZWNJ Utter (formation severed)
-200C E65D                 # ZWNJ Jai (locked twin)
+200C E65D                 # ZWNJ Jai (locked copy)
 E65D 200C E652            # Jai ZWNJ Tea (exit severed)
 00B7 E65D                 # namer dot before Deep Jai
 
@@ -429,7 +429,7 @@ E677 E672                 # Awe Et (break)
 E677 E679                 # Awe Oy (break)
 E677 E65A E67A            # Awe See+Utter (break: the ligature takes no entry)
 E677 E652 E679            # Awe Tea+Oy (break: the ligature takes no entry)
-200C E677                 # ZWNJ Awe (locked twin)
+200C E677                 # ZWNJ Awe (locked copy)
 E677 200C E652            # Awe ZWNJ Tea (exit severed)
 00B7 E677                 # namer dot lowers before Short Awe
 
@@ -489,7 +489,7 @@ E678 E672                 # Ox Et (break)
 E678 E679                 # Ox Oy (break)
 E678 E65A E67A            # Ox See+Utter (break: the ligature takes no entry)
 E678 E652 E679            # Ox Tea+Oy (break: the ligature takes no entry)
-200C E678                 # ZWNJ Ox (locked twin)
+200C E678                 # ZWNJ Ox (locked copy)
 E678 200C E652            # Ox ZWNJ Tea (exit severed)
 00B7 E678                 # namer dot lowers before Short Ox
 
@@ -550,7 +550,7 @@ E673 E679                 # Eight Oy (break)
 E673 E65A E67A            # Eight See+Utter (break: the ligature takes no entry)
 E673 E652 E679            # Eight Tea+Oy (break: the ligature takes no entry)
 E652 E673 E652 E679       # Tea Eight Tea+Oy (the bare entry before the entryless ligature)
-200C E673                 # ZWNJ Eight (locked twin)
+200C E673                 # ZWNJ Eight (locked copy)
 E673 200C E652            # Eight ZWNJ Tea (exit severed)
 00B7 E673                 # namer dot lowers before Short Eight
 
@@ -605,7 +605,7 @@ E674 E679                 # At Oy (break)
 E674 E67A                 # At Utter (break)
 E674 E67B                 # At Out (break)
 E650 E674 E665            # Pea At May (At gives up its entry to join May at the baseline)
-200C E674                 # ZWNJ At (locked twin)
+200C E674                 # ZWNJ At (locked copy)
 E674 200C E653            # At ZWNJ Day (exit severed)
 00B7 E674                 # namer dot lowers before Short At
 
@@ -676,7 +676,7 @@ E67E E679                 # Ooze Oy (break)
 E67E E65A E67A            # Ooze See+Utter (break: the ligature takes no entry)
 E67E E65D E67A            # Ooze Jai+Utter (break: the ligature takes no entry)
 E67E E652 E679            # Ooze Tea+Oy (break: the ligature takes no entry)
-200C E67E                 # ZWNJ Ooze (locked twin)
+200C E67E                 # ZWNJ Ooze (locked copy)
 E67E 200C E652            # Ooze ZWNJ Tea (exit severed)
 00B7 E67E                 # namer dot lowers before Short Ooze
 
@@ -758,7 +758,7 @@ E651 E679                 # Bay Oy (break)
 E651 E65A E67A            # Bay See+Utter (break: the ligature takes no entry)
 E651 E65D E67A            # Bay Jai+Utter (break: the ligature takes no entry)
 E651 E652 E679            # Bay Tea+Oy (break: the ligature takes no entry)
-200C E651                 # ZWNJ Bay (locked twin)
+200C E651                 # ZWNJ Bay (locked copy)
 E651 200C E652            # Bay ZWNJ Tea (exit severed)
 00B7 E651                 # namer dot before Deep Bay (stays)
 
@@ -845,7 +845,7 @@ E654 E679                 # Key Oy (break)
 E654 E65A E67A            # Key See+Utter (break: the ligature takes no entry)
 E654 E65D E67A            # Key Jai+Utter (break: the ligature takes no entry)
 E654 E652 E679            # Key Tea+Oy (break: the ligature takes no entry)
-200C E654                 # ZWNJ Key (locked twin)
+200C E654                 # ZWNJ Key (locked copy)
 E654 200C E652            # Key ZWNJ Tea (exit severed)
 00B7 E654                 # namer dot before Tall Key (stays)
 
@@ -937,7 +937,7 @@ E655 E658                 # Gay Fee (break)
 E655 E672                 # Gay Et (break)
 E655 E65A E67A            # Gay See+Utter (break: the ligature takes no entry)
 E655 E652 E679            # Gay Tea+Oy (break: the ligature takes no entry)
-200C E655                 # ZWNJ Gay (locked twin)
+200C E655                 # ZWNJ Gay (locked copy)
 E655 200C E652            # Gay ZWNJ Tea (exit severed)
 00B7 E655                 # namer dot before Deep Gay (stays)
 
@@ -993,7 +993,7 @@ E650 E673 E656            # Pea Eight Thaw (entered Eight rides through)
 E655 E65D E656            # Gay Jai Thaw (the doubly-extended junction, then the extended exit into Thaw)
 E656 E670 E656            # Thaw It Thaw (It serves the second Thaw)
 E656 E652 E653            # Thaw Tea Day (Thaw stands aside; Tea keeps Day)
-200C E656                 # ZWNJ Thaw (locked twin)
+200C E656                 # ZWNJ Thaw (locked copy)
 E651 200C E656            # Bay ZWNJ Thaw (entry severed)
 00B7 E656                 # namer dot before Tall Thaw (stays)
 
@@ -1109,7 +1109,7 @@ E657 E67A E676            # They+Utter Ah (un-forms: alt-Utter takes the baselin
 E657 E67A E67B            # They+Utter Out (un-forms: alt-Utter takes the baseline join)
 E657 E67A E67E            # They+Utter Ooze (un-forms: alt-Utter takes the baseline join)
 E657 200C E67A            # They ZWNJ Utter (formation severed)
-200C E657                 # ZWNJ They (locked twin)
+200C E657                 # ZWNJ They (locked copy)
 E676 200C E657            # Ah ZWNJ They (entry severed)
 E657 200C E666            # They ZWNJ No (exit severed)
 00B7 E657                 # namer dot before Deep They (stays)
@@ -1224,11 +1224,11 @@ E657 E65B E666 E672       # `·They+Zoo | ·No ~x~ ·Et`
 E657 E65B E65B            # `·They+Zoo` and ·Zoo break
 E657 E65B E657 E65B       # Adjacent `·They+Zoo` ligatures break
 E657 200C E65B            # ZWNJ severs `·They+Zoo` formation
-200C E65B                 # Locked ·Zoo twin
+200C E65B                 # Locked ·Zoo copy
 200C E65B E665            # Locked ·Zoo keeps its baseline exit
 E651 200C E65B            # ZWNJ severs the entry from ·Bay
 E65B 200C E665            # ZWNJ severs the exit into ·May
-200C E657 E65B            # Locked `·They+Zoo` twin
+200C E657 E65B            # Locked `·They+Zoo` copy
 00B7 E65B                 # Namer dot before Deep ·Zoo
 00B7 E657 E65B            # Namer dot before Deep `·They+Zoo`
 
@@ -1322,7 +1322,7 @@ E659 E67A E65C            # `·Vie+Utter` and ·She break
 E65A E67A E65C            # `·See+Utter` and ·She break
 E65D E67A E65C            # `·J’ai+Utter` and ·She break
 E67B E652 E65C            # `·Out+Tea` and ·She break
-200C E65C                 # Locked ·She twin
+200C E65C                 # Locked ·She copy
 200C E65C E665            # Locked ·She keeps its baseline exit
 E65C 200C E665            # ZWNJ severs the exit into ·May
 00B7 E65C                 # Namer dot before Tall ·She
@@ -1413,7 +1413,7 @@ E65E E670 E653           # ·It·Day continuation after ·Cheer
 E651 E670 E65E           # Entered ·It reaches ·Cheer at the x-height
 E651 E655 E65E           # Entered ·Gay reaches ·Cheer at the x-height
 E65E E666 E672           # ·No·Et continuation after ·Cheer
-200C E65E                # Locked ·Cheer twin
+200C E65E                # Locked ·Cheer copy
 200C E65E E665           # Locked ·Cheer retains its baseline exit
 E665 200C E65E           # ZWNJ severs the entry from ·May
 E65E 200C E665           # ZWNJ severs the exit into ·May
@@ -1590,7 +1590,7 @@ E665 E65F E67A           # ·May before ·Jay+Utter: the one-pixel reach
 E676 E65F E67A           # ·Ah before ·Jay+Utter
 E67A E65F E67A           # ·Utter before ·Jay+Utter
 E653 E67A E65F E67A      # ·Day+Utter before ·Jay+Utter
-200C E65F                # Locked ·Jay twin
+200C E65F                # Locked ·Jay copy
 200C E65F E675           # Locked ·Jay keeps its extended baseline exit into ·I
 200C E65F E67A           # ·Jay+Utter after ZWNJ
 E65F 200C E67A           # ZWNJ severs the ligature
@@ -1707,7 +1707,7 @@ E660 E67B E658           # ·Ye into the swept-up ·Out before ·Fee
 E660 E666 E653           # ·Ye into the flipped ·No before ·Day
 E660 E668 E666           # ·Ye's baseline exit into ·Roe's extended lower tip, then high into ·No
 E660 E659 E676           # ·Ye into ·Vie's extended baseline entry, then ·Ah
-200C E660                # Locked ·Ye twin
+200C E660                # Locked ·Ye copy
 200C E660 E675           # Locked ·Ye keeps its extended baseline exit into ·I
 E660 200C E653           # ZWNJ severs the exit into ·Day
 E665 200C E660           # ZWNJ severs the entry from ·May

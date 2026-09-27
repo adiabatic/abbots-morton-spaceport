@@ -655,7 +655,7 @@ fn a_shipped_order_walk_answers_a_tables_rows_from_a_file_or_stdin() {
     )
     .expect("the context file is writable");
     let order = root.join("order.tsv");
-    let twin = |token: &str| match token {
+    let marker_copy = |token: &str| match token {
         "qsMay" => "qsMay.ss03".to_owned(),
         "qsMay.noentry" => "qsMay.ss03.noentry".to_owned(),
         other => other.to_owned(),
@@ -676,7 +676,7 @@ fn a_shipped_order_walk_answers_a_tables_rows_from_a_file_or_stdin() {
                     if column < 7 {
                         field
                             .split(' ')
-                            .map(twin)
+                            .map(marker_copy)
                             .collect::<Vec<String>>()
                             .join(" ")
                     } else {

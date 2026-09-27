@@ -11,8 +11,8 @@ from quikscript_ir import (
     family_names_from_compiled,
     resolve_compiled_name,
     resolve_known_glyph_names,
-    ss10_twin_name,
-    ss10_twins,
+    ss10_copy_name,
+    ss10_copies,
 )
 
 _ENTRY_EXTENSION_SUFFIXES = (
@@ -6686,17 +6686,17 @@ def emit_quikscript_ss(glyph_meta: dict[str, JoinGlyph], *, ss10_reverts_stances
 
 
 def emit_ss10_isolated_input(join_glyphs: dict[str, JoinGlyph]) -> str | None:
-    """Emit Senior's ss10: one lookup that substitutes every glyph of a letter that has a twin (`ss10_twins` in tools/quikscript_ir.py) by that anchor-free twin. The caller places it ahead of every other GSUB lookup of the join pipeline, so under ss10 the twins reach the gated stylistic sets and `calt` instead of the letters. No twin is in any of their rules, so no ligature forms, no stance is chosen, and no two glyphs attach."""
-    twin_bases = {meta.base_name for meta in ss10_twins(join_glyphs).values()}
+    """Emit Senior's ss10: one lookup that substitutes every glyph of a letter that has a copy (`ss10_copies` in tools/quikscript_ir.py) by that anchor-free copy. The caller places it ahead of every other GSUB lookup of the join pipeline, so under ss10 the copies reach the gated stylistic sets and `calt` instead of the letters. No copy is in any of their rules, so no ligature forms, no stance is chosen, and no two glyphs attach."""
+    copy_bases = {meta.base_name for meta in ss10_copies(join_glyphs).values()}
     rules = sorted(
-        (name, ss10_twin_name(meta.base_name))
+        (name, ss10_copy_name(meta.base_name))
         for name, meta in join_glyphs.items()
-        if meta.base_name in twin_bases
+        if meta.base_name in copy_bases
     )
     if not rules:
         return None
     lines = ["lookup ss10_isolated_input {"]
-    lines.extend(f"    sub {name} by {twin};" for name, twin in rules)
+    lines.extend(f"    sub {name} by {copy};" for name, copy in rules)
     lines.append("} ss10_isolated_input;")
     lines.append("")
     lines.append("feature ss10 {")

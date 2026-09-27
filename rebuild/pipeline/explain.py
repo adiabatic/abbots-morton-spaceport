@@ -64,7 +64,7 @@ class ExplainReport:
                 continue
             if trace.decided_stage == ISOLATED_OVERLAY_STAGE:
                 lines.append(
-                    f"  isolated overlay: the pre-empt renders the letter as its anchor-free twin before formation, so nothing settles and both junctions break   settled: {cell_label(self.spec, settled.cell)}"
+                    f"  isolated overlay: the ss10 input substitution renders the letter as its anchor-free copy before formation, so nothing settles and both junctions break   settled: {cell_label(self.spec, settled.cell)}"
                 )
                 continue
             lines.append(f"  candidates (join-count = left junction + own junction + optimistic prospect):")

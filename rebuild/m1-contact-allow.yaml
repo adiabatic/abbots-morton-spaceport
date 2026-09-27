@@ -9,10 +9,10 @@
   why: ·Oy·Tea joins at the baseline in the old font (baseline row E679:E652); the same tail beside a vertical stroke as ·Oy·It.
 
 - signature: contact:qsOy.sole.ex-y0.locked:qsIt.sole.en-y0:y1
-  why: The ZWNJ-locked twin of the blessed ·Oy·It off-junction contact; the drawing is identical to the bare cell's.
+  why: The ZWNJ-locked copy of the blessed ·Oy·It off-junction contact; the drawing is identical to the bare cell's.
 
 - signature: contact:qsOy.sole.ex-y0.locked:qsTea.full.en-y0:y1
-  why: The ZWNJ-locked twin of the blessed ·Oy·Tea off-junction contact.
+  why: The ZWNJ-locked copy of the blessed ·Oy·Tea off-junction contact.
 
 - signature: contact:qsOy.sole.en-y5.ex-y0:qsIt.sole.en-y0:y1
   why: The entered variant (·May·Oy·It, baseline row E665:E679:E670) of the blessed ·Oy·It off-junction contact; the open-on-the-left bitmap does not move the tail.
@@ -32,7 +32,7 @@
 - signature: contact:qsOy.sole.ex-y0:qsIt.sole.en-y0.ex-y5.ex-ext-1:y1
   why: The blessed ·Oy·It off-junction contact with ·It's x-height exit extended toward a following ·J'ai (baseline row E679:E670:E65D); the extension adds ink at y5 only, so the tail beside a vertical stroke is unchanged.
 - signature: contact:qsOy.sole.ex-y0.locked:qsIt.sole.en-y0.ex-y5.ex-ext-1:y1
-  why: The ZWNJ-locked twin of the extended-before-·J'ai ·Oy·It off-junction contact; identical drawing.
+  why: The ZWNJ-locked copy of the extended-before-·J'ai ·Oy·It off-junction contact; identical drawing.
 - signature: contact:qsOy.sole.en-y5.ex-y0:qsIt.sole.en-y0.ex-y5.ex-ext-1:y1
   why: The entered variant of the extended-before-·J'ai ·Oy·It off-junction contact.
 - signature: contact:qsOy.sole.en-y5.ex-y0:qsIt.sole.en-y0.ex-y5.ex-ext-1:y2
@@ -80,13 +80,13 @@
 - signature: contact:qsPea.half.en-y6.ex-y6:qsPea.half.en-y6.ex-y6:y7
   why: Mid-chain variant; the chain continues.
 - signature: contact:qsPea.half.ex-y6.locked:qsPea.full.en-y6:y7
-  why: ZWNJ-locked twin of the blessed ·Pea·Pea y6 off-junction contact.
+  why: ZWNJ-locked copy of the blessed ·Pea·Pea y6 off-junction contact.
 - signature: contact:qsPea.half.ex-y6.locked:qsPea.full.en-y6.ex-y0:y7
-  why: ZWNJ-locked twin; right ·Pea carries the baseline exit onward.
+  why: ZWNJ-locked copy; right ·Pea carries the baseline exit onward.
 - signature: contact:qsPea.half.ex-y6.locked:qsPea.half.en-y6.ex-y5:y7
-  why: ZWNJ-locked twin; right half ·Pea exits at the x-height.
+  why: ZWNJ-locked copy; right half ·Pea exits at the x-height.
 - signature: contact:qsPea.half.ex-y6.locked:qsPea.half.en-y6.ex-y6:y7
-  why: ZWNJ-locked twin; the chain continues.
+  why: ZWNJ-locked copy; the chain continues.
 
 # The old font joins ·It·(Day+Utter) at the baseline, into the half ligature (baseline row E670:E653:E67A, junctions y0,lig). These signatures are for an x-height join into the full ligature, where ·It's bar runs beside the ligature's ·Day downstroke on every row from y0 to y4. qsIt refuses its x-height exit before ·Day and ·Day+Utter, so the rebuild does not make this join either, and these entries match no current finding.
 - signature: contact:qsIt.sole.en-y0.ex-y5:qsDay_qsUtter.full.en-y5.ex-bind-pulled-back:y1
@@ -341,14 +341,14 @@
 - signature: dangle:qsUtter.mono.en-y0:exit:x-height
   why: ·Utter entered at the baseline keeps the same mono x-height terminal on a declined exit.
 - signature: dangle:qsUtter.mono.locked:exit:x-height
-  why: The ZWNJ-locked twin of ·Utter's mono x-height terminal; identical drawing.
+  why: The ZWNJ-locked copy of ·Utter's mono x-height terminal; identical drawing.
 
 - signature: dangle:qsI.loop:exit:x-height
   why: ·I's loop x-height terminal (the top-right flick at y5, reached diagonally from the loop's right side), drawn in every context by the old font, which has no unjoined form of ·I; the declined exit keeps it.
 - signature: dangle:qsI.loop.en-y0:exit:x-height
   why: ·I entered at the baseline keeps the same loop x-height terminal on a declined exit.
 - signature: dangle:qsI.loop.locked:exit:x-height
-  why: The ZWNJ-locked twin of ·I's loop x-height terminal; identical drawing.
+  why: The ZWNJ-locked copy of ·I's loop x-height terminal; identical drawing.
 - signature: dangle:qsI.smaller-loop.en-y0:exit:x-height
   why: The smaller loop that ·I uses after some baseline joins (qsI's `prefer` records name the letters) has the same x-height terminal; the smaller loop leaves the flick where it is.
 
@@ -362,7 +362,7 @@
 - signature: dangle:qsJai.sole.en-y5.en-con-2:exit:baseline
   why: The entry-contracted-by-two variant keeps the same bar terminal.
 - signature: dangle:qsJai.sole.locked:exit:baseline
-  why: The ZWNJ-locked twin of ·J'ai's bar terminal; identical drawing.
+  why: The ZWNJ-locked copy of ·J'ai's bar terminal; identical drawing.
 - signature: dangle:qsJai_qsUtter.sole:exit:x-height
   why: The ·J'ai·Utter ligature's crown terminal (·Utter's nub at y5), drawn unconditionally in the old font; the declined exit keeps it.
 - signature: dangle:qsJai_qsUtter.sole.en-y5:exit:x-height
@@ -372,7 +372,7 @@
 - signature: dangle:qsJai_qsUtter.sole.en-y5.en-con-2:exit:x-height
   why: The entry-contracted-by-two ligature keeps the same crown terminal.
 - signature: dangle:qsJai_qsUtter.sole.locked:exit:x-height
-  why: The ZWNJ-locked twin of the ligature's crown terminal; identical drawing.
+  why: The ZWNJ-locked copy of the ligature's crown terminal; identical drawing.
 
 # ·Awe's baseline tail is part of the letter whether or not the exit joins. The old font draws bare qsAwe with the full tail at every word edge and before every non-joining follower, and quikscript.yaml has no unjoined form. The tail's last pixel has no ink directly above or below it, so it does not pass the `unjoined: safe` check. There is one signature per entry, extension, and lock variant; all show the same terminal.
 - signature: dangle:qsAwe.sole:exit:baseline
@@ -382,7 +382,7 @@
 - signature: dangle:qsAwe.sole.en-y5.en-ext-1:exit:baseline
   why: The entry-extended-by-one variant (after ·Tea or ·He) keeps the same tail terminal; the extension touches the entry bar only.
 - signature: dangle:qsAwe.sole.locked:exit:baseline
-  why: The ZWNJ-locked twin of ·Awe's tail terminal; identical drawing.
+  why: The ZWNJ-locked copy of ·Awe's tail terminal; identical drawing.
 
 # ·Eight's diagonal tail terminal is part of the letter, as ·Awe's is. The old font draws bare qsEight with the full tail at every word edge and before every non-joining follower, and quikscript.yaml has no unjoined form. The tail's last pixel is reached diagonally and has no ink directly above or below it, so it does not pass the `unjoined: safe` check. There is one signature per entry, extension, and lock variant; all show the same terminal.
 - signature: dangle:qsEight.normal-sized-loop:exit:baseline
@@ -392,7 +392,7 @@
 - signature: dangle:qsEight.normal-sized-loop.en-y5.en-ext-1:exit:baseline
   why: The entry-extended-by-one variant (after ·Pea, ·Tea, or ·He) keeps the same tail terminal; the extension touches the entry bar only.
 - signature: dangle:qsEight.normal-sized-loop.locked:exit:baseline
-  why: The ZWNJ-locked twin of ·Eight's tail terminal; identical drawing.
+  why: The ZWNJ-locked copy of ·Eight's tail terminal; identical drawing.
 
 # ·Eight's bowl closes one column left of ·I's loop. On the ·Eight·I baseline join (baseline row E673:E675, junction y0) the bowl's right side at y4 touches the loop's left side, as in the old font. There is one signature per ·Eight exit variant and ·I onward-exit variant; the off-junction contact is the same in all of them.
 # The bare exit cell against each ·I variant.
@@ -402,13 +402,13 @@
   why: The same off-junction contact with ·I carrying its x-height exit onward; the exit is on the loop's right and leaves the left side alone.
 - signature: contact:qsEight.normal-sized-loop.ex-y0:qsI.loop.en-y0.ex-y5.ex-ext-1:y4
   why: The same off-junction contact with ·I's onward exit extended by one; the extension lengthens the y5 connector, not the loop's left side.
-# The ZWNJ-locked twins; the locked cell draws what the bare one draws.
+# The ZWNJ-locked copies; the locked cell draws what the bare one draws.
 - signature: contact:qsEight.normal-sized-loop.ex-y0.locked:qsI.loop.en-y0:y4
-  why: The ZWNJ-locked twin of the blessed bare ·Eight·I off-junction contact; identical drawing.
+  why: The ZWNJ-locked copy of the blessed bare ·Eight·I off-junction contact; identical drawing.
 - signature: contact:qsEight.normal-sized-loop.ex-y0.locked:qsI.loop.en-y0.ex-y5:y4
-  why: The locked twin with ·I exiting onward; identical drawing at the off-junction contact.
+  why: The locked copy with ·I exiting onward; identical drawing at the off-junction contact.
 - signature: contact:qsEight.normal-sized-loop.ex-y0.locked:qsI.loop.en-y0.ex-y5.ex-ext-1:y4
-  why: The locked twin with ·I's onward exit extended; identical drawing at the off-junction contact.
+  why: The locked copy with ·I's onward exit extended; identical drawing at the off-junction contact.
 # The entered variants (·May·Eight·I, baseline row E665:E673:E675); the x-height entry touches the entry bar and leaves the bowl's right side alone.
 - signature: contact:qsEight.normal-sized-loop.en-y5.ex-y0:qsI.loop.en-y0:y4
   why: The entered variant of the blessed ·Eight·I off-junction contact.
@@ -451,31 +451,31 @@
 - signature: contact:qsOx.sole.ex-y0:qsOut_qsTea.sole.en-y0:y1
   why: ·Ox into the ·Out·Tea ligature joins at the baseline in the old font (baseline row E678:E67B:E652); the ligature's entry is ·Out's, so the off-junction contact is the blessed ·Ox·Out one.
 
-# The ZWNJ-locked twins; the locked cell draws what the bare one draws.
+# The ZWNJ-locked copies; the locked cell draws what the bare one draws.
 - signature: contact:qsOx.sole.ex-y0.locked:qsTea.full.en-y0:y1
-  why: The ZWNJ-locked twin of the blessed ·Ox·Tea off-junction contact; the drawing is identical to the bare cell's.
+  why: The ZWNJ-locked copy of the blessed ·Ox·Tea off-junction contact; the drawing is identical to the bare cell's.
 - signature: contact:qsOx.sole.ex-y0.locked:qsIt.sole.en-y0:y1
-  why: The ZWNJ-locked twin of the blessed ·Ox·It off-junction contact; the drawing is identical to the bare cell's.
+  why: The ZWNJ-locked copy of the blessed ·Ox·It off-junction contact; the drawing is identical to the bare cell's.
 - signature: contact:qsOx.sole.ex-y0.locked:qsIt.sole.en-y0.ex-y0:y1
-  why: The ZWNJ-locked twin of the blessed ·Ox·It off-junction contact; the drawing is identical to the bare cell's.
+  why: The ZWNJ-locked copy of the blessed ·Ox·It off-junction contact; the drawing is identical to the bare cell's.
 - signature: contact:qsOx.sole.ex-y0.locked:qsIt.sole.en-y0.ex-y5:y1
-  why: The ZWNJ-locked twin of the blessed ·Ox·It off-junction contact; the drawing is identical to the bare cell's.
+  why: The ZWNJ-locked copy of the blessed ·Ox·It off-junction contact; the drawing is identical to the bare cell's.
 - signature: contact:qsOx.sole.ex-y0.locked:qsIt.sole.en-y0.ex-y5.ex-ext-1:y1
-  why: The ZWNJ-locked twin of the blessed ·Ox·It off-junction contact; the drawing is identical to the bare cell's.
+  why: The ZWNJ-locked copy of the blessed ·Ox·It off-junction contact; the drawing is identical to the bare cell's.
 - signature: contact:qsOx.sole.ex-y0.locked:qsUtter.mono.en-y0:y1
-  why: The ZWNJ-locked twin of the blessed ·Ox·Utter off-junction contact; the drawing is identical to the bare cell's.
+  why: The ZWNJ-locked copy of the blessed ·Ox·Utter off-junction contact; the drawing is identical to the bare cell's.
 - signature: contact:qsOx.sole.ex-y0.locked:qsUtter.mono.en-y0.ex-y5:y1
-  why: The ZWNJ-locked twin of the blessed ·Ox·Utter off-junction contact; the drawing is identical to the bare cell's.
+  why: The ZWNJ-locked copy of the blessed ·Ox·Utter off-junction contact; the drawing is identical to the bare cell's.
 - signature: contact:qsOx.sole.ex-y0.locked:qsUtter.mono.en-y0.ex-y5.ex-ext-1:y1
-  why: The ZWNJ-locked twin of the blessed ·Ox·Utter off-junction contact; the drawing is identical to the bare cell's.
+  why: The ZWNJ-locked copy of the blessed ·Ox·Utter off-junction contact; the drawing is identical to the bare cell's.
 - signature: contact:qsOx.sole.ex-y0.locked:qsOut.normal.en-y0:y1
-  why: The ZWNJ-locked twin of the blessed ·Ox·Out off-junction contact; the drawing is identical to the bare cell's.
+  why: The ZWNJ-locked copy of the blessed ·Ox·Out off-junction contact; the drawing is identical to the bare cell's.
 - signature: contact:qsOx.sole.ex-y0.locked:qsOut.swept-up.en-y0.ex-y5:y1
-  why: The ZWNJ-locked twin of the blessed ·Ox·Out off-junction contact; the drawing is identical to the bare cell's.
+  why: The ZWNJ-locked copy of the blessed ·Ox·Out off-junction contact; the drawing is identical to the bare cell's.
 - signature: contact:qsOx.sole.ex-y0.locked:qsOut.swept-up.en-y0.ex-y5.ex-ext-1:y1
-  why: The ZWNJ-locked twin of the blessed ·Ox·Out off-junction contact; the drawing is identical to the bare cell's.
+  why: The ZWNJ-locked copy of the blessed ·Ox·Out off-junction contact; the drawing is identical to the bare cell's.
 - signature: contact:qsOx.sole.ex-y0.locked:qsOut_qsTea.sole.en-y0:y1
-  why: The ZWNJ-locked twin of the blessed ·Ox·Out·Tea off-junction contact; the drawing is identical to the bare cell's.
+  why: The ZWNJ-locked copy of the blessed ·Ox·Out·Tea off-junction contact; the drawing is identical to the bare cell's.
 
 # The entered variants (·May·Ox, baseline row E665:E678, junction y5); the x-height entry leaves the tail alone.
 - signature: contact:qsOx.sole.en-y5.ex-y0:qsTea.full.en-y0:y1
@@ -536,7 +536,7 @@
 - signature: dangle:qsNo.loop.en-y5.en-ext-1:exit:x-height
   why: The extended-entry variant of ·No's loop x-height terminal; the entry extension does not move the exit nub.
 - signature: dangle:qsNo.loop.locked:exit:x-height
-  why: The ZWNJ-locked twin of ·No's loop x-height terminal; identical drawing.
+  why: The ZWNJ-locked copy of ·No's loop x-height terminal; identical drawing.
 - signature: dangle:qsNo.flipped:exit:baseline
   why: ·No's flipped baseline terminal (bottom-right nub at y0), drawn unconditionally in the old font; the declined exit keeps it.
 - signature: dangle:qsNo.flipped.en-y0:exit:baseline
@@ -549,7 +549,7 @@
 - signature: dangle:qsDay.full.en-y5.en-ext-1:exit:baseline
   why: The extended-entry variant of ·Day's full foot-hook terminal; the entry extension does not move the exit nub.
 - signature: dangle:qsDay.full.locked:exit:baseline
-  why: The ZWNJ-locked twin of ·Day's full foot-hook terminal; identical drawing.
+  why: The ZWNJ-locked copy of ·Day's full foot-hook terminal; identical drawing.
 - signature: dangle:qsDay.half.en-y0:exit:baseline
   why: ·Day's half foot-hook terminal (kick-up nub at y0) entered at the baseline, drawn unconditionally in the old font; the declined exit keeps it.
 - signature: dangle:qsDay.half.en-y0.en-ext-1:exit:baseline
@@ -562,7 +562,7 @@
 - signature: dangle:qsDay_qsUtter.full.en-y5.en-ext-1:exit:x-height
   why: The extended-entry variant of ·Day·Utter's full x-height terminal; the entry extension does not move the exit nub.
 - signature: dangle:qsDay_qsUtter.full.locked:exit:x-height
-  why: The ZWNJ-locked twin of ·Day·Utter's full x-height terminal; identical drawing.
+  why: The ZWNJ-locked copy of ·Day·Utter's full x-height terminal; identical drawing.
 - signature: dangle:qsDay_qsUtter.half.en-y0:exit:x-height
   why: The ·Day·Utter half ligature's x-height terminal (rising-stroke nub at y5) entered at the baseline, drawn unconditionally in the old font; the declined exit keeps it.
 - signature: dangle:qsDay_qsUtter.half.en-y0.en-ext-1:exit:x-height
@@ -581,7 +581,7 @@
 - signature: dangle:qsMay.loop.en-y5.en-ext-1:exit:x-height
   why: The extended-entry variant of ·May's loop x-height terminal entered at the x-height; the entry extension does not move the exit nub.
 - signature: dangle:qsMay.loop.locked:exit:x-height
-  why: The ZWNJ-locked twin of ·May's loop x-height terminal; identical drawing.
+  why: The ZWNJ-locked copy of ·May's loop x-height terminal; identical drawing.
 
 - signature: dangle:qsAh.sole:exit:x-height
   why: ·Ah's x-height terminal (top-right nub at y5), drawn unconditionally in the old font; the declined exit keeps it.
@@ -590,7 +590,7 @@
 - signature: dangle:qsAh.sole.en-y0.en-con-1:exit:x-height
   why: The contracted-entry variant of ·Ah keeps the same x-height terminal; the baseline contraction does not move the exit nub.
 - signature: dangle:qsAh.sole.locked:exit:x-height
-  why: The ZWNJ-locked twin of ·Ah's x-height terminal; identical drawing.
+  why: The ZWNJ-locked copy of ·Ah's x-height terminal; identical drawing.
 
 - signature: dangle:qsRoe.sole:exit:baseline
   why: ·Roe is one stroke whose two arms both end on the left. The rightmost ink on each arm's row is where the arm meets the bowl, three or four columns short of that row's exit anchor, and the bowl continues from it diagonally. That pixel has no ink directly above or below it, so `verify_unjoined_safe` reports it as reaching ink. The arms are part of the letter, and the old font has no unjoined form of ·Roe. Every `dangle:qsRoe.*` signature here is one of these two arms on a different cell.
@@ -643,17 +643,17 @@
 - signature: dangle:qsRoe.sole.ex-y0.ex-ext-1:exit:x-height
   why: The same, with the baseline exit reaching the extra column.
 - signature: dangle:qsRoe.sole.ex-y0.locked:exit:x-height
-  why: The ZWNJ-locked twin of the word-initial baseline-exiting cell; identical drawing.
+  why: The ZWNJ-locked copy of the word-initial baseline-exiting cell; identical drawing.
 - signature: dangle:qsRoe.sole.ex-y0.locked.ex-ext-1:exit:x-height
-  why: The locked twin with the extended baseline exit.
+  why: The locked copy with the extended baseline exit.
 - signature: dangle:qsRoe.sole.ex-y5:exit:baseline
   why: Word-initial ·Roe running its upper arm out over the bowl; the lower arm is the dangling one.
 - signature: dangle:qsRoe.sole.ex-y5.locked:exit:baseline
-  why: The ZWNJ-locked twin of the word-initial x-height-exiting cell; identical drawing.
+  why: The ZWNJ-locked copy of the word-initial x-height-exiting cell; identical drawing.
 - signature: dangle:qsRoe.sole.locked:exit:baseline
-  why: The ZWNJ-locked twin of the isolated drawing; both arms as drawn.
+  why: The ZWNJ-locked copy of the isolated drawing; both arms as drawn.
 - signature: dangle:qsRoe.sole.locked:exit:x-height
-  why: The upper arm on the locked twin.
+  why: The upper arm on the locked copy.
 
 - signature: contact:qsTea.full.en-y5.ex-y0:qsRoe.sole.en-y0:y5
   why: Under ss03 an x-height exiter carries ·Tea's full bar down past the x-height and on into ·Roe at the baseline (ss03 baseline row E658:E652:E668, junctions y5,y0). ·Roe's upper arm starts in the column beside the bar at y5, the off-junction contact the old font draws there.
@@ -703,7 +703,7 @@
 - signature: dangle:qsEt.sole.en-y5.en-ext-1:exit:baseline
   why: The extended-entry variant; the entry extension lengthens the top of the stroke, not the tail.
 - signature: dangle:qsEt.sole.locked:exit:baseline
-  why: The ZWNJ-locked twin of ·Et's baseline terminal; identical drawing.
+  why: The ZWNJ-locked copy of ·Et's baseline terminal; identical drawing.
 
 # ·See's declined-exit crest (E-DANGLE). The old font draws the crest's two-pixel rightward top bar in every context (isolated, word-final, and before a non-joining follower) and has no unjoined form of ·See. The bar ends horizontally, so it does not pass the `unjoined: safe` check; like ·Et's and ·Roe's terminals, it is part of the letter. The ·See·Utter ligature's x-height bar has the same shape.
 - signature: dangle:qsSee.normal:exit:top
@@ -711,7 +711,7 @@
 - signature: dangle:qsSee.normal.en-y0:exit:top
   why: ·See entered at the baseline keeps the same crest on a declined exit.
 - signature: dangle:qsSee.normal.locked:exit:top
-  why: The ZWNJ-locked twin of ·See's crest; identical drawing.
+  why: The ZWNJ-locked copy of ·See's crest; identical drawing.
 - signature: dangle:qsSee_qsUtter.sole:exit:x-height
   why: The ligature's x-height bar is drawn in every context, and the old font has no unjoined form of ·See·Utter, so a declined exit keeps it.
 
@@ -742,7 +742,7 @@
 - signature: dangle:qsVie_qsUtter.sole.en-y0.en-ext-1:exit:x-height
   why: The extended-entry variant; the entry extension lengthens the baseline bar, not the arm.
 - signature: dangle:qsVie_qsUtter.sole.locked:exit:x-height
-  why: The ZWNJ-locked twin of the ligature's arm; identical drawing.
+  why: The ZWNJ-locked copy of the ligature's arm; identical drawing.
 
 # Every baseline join into ·Out, and into the ·Out+Tea ligature, whose entry is the same ·Out foot. The entering stroke meets the (0,0) anchor while ·Out's foot rises from the junction, so the left letter's ink and the foot touch at y1, one row above the junction. The normal ·Out's foot leans away above y1, so that is its only touching row. The swept-up ·Out's foot and the ligature's foot stay upright through y2, so a left letter whose last column is also upright there touches them at y2 as well: ·It's bar, ·Pea's right downstroke, ·Tea's bar, the entered ·Oy's tail, and the ·Tea·Oy ligature's tail. The tail of the ·Oy with no entry turns left above y1, so it touches every ·Out form at y1 only. The old font draws these off-junction contacts on these joins, as it does for ·Oy·It. There is one signature per pair of left and right variants and per touching row.
 - signature: contact:qsIt.sole.en-y0.ex-y0:qsOut.normal.en-y0:y1
@@ -1117,11 +1117,11 @@
 - signature: contact:qsIt.sole.en-y0.ex-y0:qsOoze.sole.en-y0:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 - signature: contact:qsIt.sole.ex-y0.locked:qsOoze.sole.en-y0.ex-y0:y1
-  why: The ZWNJ-locked ·It·Ooze twin against the exiting ·Ooze cell; identical drawing.
+  why: The ZWNJ-locked ·It·Ooze copy against the exiting ·Ooze cell; identical drawing.
 - signature: contact:qsIt.sole.ex-y0.locked:qsOoze.sole.en-y0.ex-y0:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 - signature: contact:qsIt.sole.ex-y0.locked:qsOoze.sole.en-y0:y1
-  why: The ZWNJ-locked twin of the blessed ·It·Ooze off-junction contact; identical drawing.
+  why: The ZWNJ-locked copy of the blessed ·It·Ooze off-junction contact; identical drawing.
 - signature: contact:qsIt.sole.ex-y0.locked:qsOoze.sole.en-y0:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 - signature: contact:qsIt.sole.ex-y0:qsOoze.sole.en-y0.ex-y0:y1
@@ -1141,9 +1141,9 @@
 - signature: contact:qsOx.sole.en-y5.ex-y0:qsOoze.sole.en-y0:y1
   why: The x-height-entered variant of the blessed ·Ox·Ooze off-junction contact (·May·Ox·Ooze, baseline rows E665:E678:E67E); the tail is unchanged.
 - signature: contact:qsOx.sole.ex-y0.locked:qsOoze.sole.en-y0.ex-y0:y1
-  why: The ZWNJ-locked ·Ox·Ooze twin against the exiting ·Ooze cell; identical drawing.
+  why: The ZWNJ-locked ·Ox·Ooze copy against the exiting ·Ooze cell; identical drawing.
 - signature: contact:qsOx.sole.ex-y0.locked:qsOoze.sole.en-y0:y1
-  why: The ZWNJ-locked twin of the blessed ·Ox·Ooze off-junction contact; identical drawing.
+  why: The ZWNJ-locked copy of the blessed ·Ox·Ooze off-junction contact; identical drawing.
 - signature: contact:qsOx.sole.ex-y0:qsOoze.sole.en-y0.ex-y0:y1
   why: The ·Ox·Ooze off-junction contact with ·Ooze carrying its own baseline exit onward; the left leg does not move.
 - signature: contact:qsOx.sole.ex-y0:qsOoze.sole.en-y0:y1
@@ -1157,9 +1157,9 @@
 - signature: contact:qsOy.sole.en-y5.ex-y0:qsOoze.sole.en-y0:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 - signature: contact:qsOy.sole.ex-y0.locked:qsOoze.sole.en-y0.ex-y0:y1
-  why: The ZWNJ-locked ·Oy·Ooze twin against the exiting ·Ooze cell; identical drawing.
+  why: The ZWNJ-locked ·Oy·Ooze copy against the exiting ·Ooze cell; identical drawing.
 - signature: contact:qsOy.sole.ex-y0.locked:qsOoze.sole.en-y0:y1
-  why: The ZWNJ-locked twin of the blessed ·Oy·Ooze off-junction contact; identical drawing.
+  why: The ZWNJ-locked copy of the blessed ·Oy·Ooze off-junction contact; identical drawing.
 - signature: contact:qsOy.sole.ex-y0:qsOoze.sole.en-y0.ex-y0:y1
   why: The ·Oy·Ooze off-junction contact with ·Ooze carrying its own baseline exit onward; the left leg does not move.
 - signature: contact:qsOy.sole.ex-y0:qsOoze.sole.en-y0:y1
@@ -1181,11 +1181,11 @@
 - signature: contact:qsPea.full.en-y6.ex-y0:qsOoze.sole.en-y0:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 - signature: contact:qsPea.full.ex-y0.locked:qsOoze.sole.en-y0.ex-y0:y1
-  why: The ZWNJ-locked ·Pea·Ooze twin against the exiting ·Ooze cell; identical drawing.
+  why: The ZWNJ-locked ·Pea·Ooze copy against the exiting ·Ooze cell; identical drawing.
 - signature: contact:qsPea.full.ex-y0.locked:qsOoze.sole.en-y0.ex-y0:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 - signature: contact:qsPea.full.ex-y0.locked:qsOoze.sole.en-y0:y1
-  why: The ZWNJ-locked twin of the blessed ·Pea·Ooze off-junction contact; identical drawing.
+  why: The ZWNJ-locked copy of the blessed ·Pea·Ooze off-junction contact; identical drawing.
 - signature: contact:qsPea.full.ex-y0.locked:qsOoze.sole.en-y0:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 - signature: contact:qsPea.full.ex-y0:qsOoze.sole.en-y0.ex-y0:y1
@@ -1197,11 +1197,11 @@
 - signature: contact:qsPea.full.ex-y0:qsOoze.sole.en-y0:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 - signature: contact:qsSee.straightest.ex-y0.locked:qsOoze.sole.en-y0.ex-y0:y1
-  why: The ZWNJ-locked ·See·Ooze twin against the exiting ·Ooze cell; identical drawing.
+  why: The ZWNJ-locked ·See·Ooze copy against the exiting ·Ooze cell; identical drawing.
 - signature: contact:qsSee.straightest.ex-y0.locked:qsOoze.sole.en-y0.ex-y0:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 - signature: contact:qsSee.straightest.ex-y0.locked:qsOoze.sole.en-y0:y1
-  why: The ZWNJ-locked twin of the blessed ·See·Ooze off-junction contact; identical drawing.
+  why: The ZWNJ-locked copy of the blessed ·See·Ooze off-junction contact; identical drawing.
 - signature: contact:qsSee.straightest.ex-y0.locked:qsOoze.sole.en-y0:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 - signature: contact:qsSee.straightest.ex-y0:qsOoze.sole.en-y0.ex-y0:y1
@@ -1237,11 +1237,11 @@
 - signature: contact:qsTea.full.en-y8.ex-y0:qsOoze.sole.en-y0:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 - signature: contact:qsTea.full.ex-y0.locked:qsOoze.sole.en-y0.ex-y0:y1
-  why: The ZWNJ-locked ·Tea·Ooze twin against the exiting ·Ooze cell; identical drawing.
+  why: The ZWNJ-locked ·Tea·Ooze copy against the exiting ·Ooze cell; identical drawing.
 - signature: contact:qsTea.full.ex-y0.locked:qsOoze.sole.en-y0.ex-y0:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 - signature: contact:qsTea.full.ex-y0.locked:qsOoze.sole.en-y0:y1
-  why: The ZWNJ-locked twin of the blessed ·Tea·Ooze off-junction contact; identical drawing.
+  why: The ZWNJ-locked copy of the blessed ·Tea·Ooze off-junction contact; identical drawing.
 - signature: contact:qsTea.full.ex-y0.locked:qsOoze.sole.en-y0:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 - signature: contact:qsTea.full.ex-y0:qsOoze.sole.en-y0.ex-y0:y1
@@ -1260,7 +1260,7 @@
   why: ·Tea·Oy ligature into ·Ooze joins at the baseline in the old font (baseline row E652:E679:E67E); the ligature's tail is ·Oy's, so the off-junction contact is the blessed ·Oy·Ooze one.
 - signature: contact:qsTea_qsOy.sole.ex-y0:qsOoze.sole.en-y0:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
-# The exit side: ·Ooze's right leg against each blessed follower, from the bare exit cell, the entered cell, and the ZWNJ-locked twin.
+# The exit side: ·Ooze's right leg against each blessed follower, from the bare exit cell, the entered cell, and the ZWNJ-locked copy.
 - signature: contact:qsOoze.sole.en-y0.ex-y0:qsIt.sole.en-y0.ex-y0:y1
   why: The blessed ·Ooze·It off-junction contact with ·It carrying its own baseline exit onward; the exit side leaves the bar at y1 where it is. The entered ·Ooze (·X·Ooze·Y, entered at the baseline) draws the same right leg.
 - signature: contact:qsOoze.sole.en-y0.ex-y0:qsIt.sole.en-y0.ex-y0:y2
@@ -1412,7 +1412,7 @@
 - signature: dangle:qsBay.sole.en-y5:exit:baseline
   why: ·Bay entered at the x-height keeps the same closing-bar terminal on a declined exit.
 - signature: dangle:qsBay.sole.locked:exit:baseline
-  why: The ZWNJ-locked twin of ·Bay's closing-bar terminal; identical drawing.
+  why: The ZWNJ-locked copy of ·Bay's closing-bar terminal; identical drawing.
 
 # ·Key's baseline foot is unconditional letterform ink, like ·Awe's tail above: it has the same shape whether or not the exit joins. The old font draws bare qsKey with the full angle and its foot at every word edge and before every non-joining follower, and quikscript.yaml has no unjoined form. The foot's last pixel has no ink above it, so it fails the automatic `unjoined: safe` check (`geometry.verify_unjoined_safe`). The gate checks each entry and lock variant separately, so each has its own signature; all show the same terminal.
 - signature: dangle:qsKey.sole:exit:baseline
@@ -1420,12 +1420,12 @@
 - signature: dangle:qsKey.sole.en-y8:exit:baseline
   why: ·Key entered at the top keeps the same foot terminal on a declined exit.
 - signature: dangle:qsKey.sole.locked:exit:baseline
-  why: The ZWNJ-locked twin of ·Key's foot terminal; identical drawing.
+  why: The ZWNJ-locked copy of ·Key's foot terminal; identical drawing.
 
 - signature: dangle:qsShe.sole:exit:baseline
   why: ·She's curved foot is the old font's isolated drawing (baseline row E65C). Its rightmost baseline pixel continues diagonally into the upturned tip at y1, not vertically, so `geometry.verify_unjoined_safe` does not accept it; the declined exit keeps this ink as part of the letter.
 - signature: dangle:qsShe.sole.locked:exit:baseline
-  why: The ZWNJ-locked twin retains ·She's curved foot, as in baseline row 200C:E65C; the diagonal upturned tip is the same intentional letterform ink.
+  why: The ZWNJ-locked copy retains ·She's curved foot, as in baseline row 200C:E65C; the diagonal upturned tip is the same intentional letterform ink.
 
 - signature: dangle:qsCheer.sole:exit:baseline
   why: ·Cheer's horizontal baseline foot is part of its isolated drawing in the old font, as in baseline row E65E. A declined exit keeps that foot intact.
@@ -1434,7 +1434,7 @@
 - signature: dangle:qsCheer.sole.en-y5.en-ext-1:exit:baseline
   why: The x-height entry extension shifts ·Cheer's drawing and exit anchor together and leaves its baseline foot intact. The same foot follows the old font's `·Day+Utter.half` ligature in baseline row E650:E653:E67A:E65E.
 - signature: dangle:qsCheer.sole.locked:exit:baseline
-  why: The ZWNJ-locked twin keeps ·Cheer's baseline foot from the old font, as in baseline row 200C:E65E.
+  why: The ZWNJ-locked copy keeps ·Cheer's baseline foot from the old font, as in baseline row 200C:E65E.
 
 # ·Jay's baseline tick and the ·Jay·Utter ligature's crown are unconditional letterform ink with the same shape whether or not the exit joins. The old font draws bare qsJay and bare qsJay_qsUtter with the full tick and crown at every word edge and before every non-joining follower, and quikscript.yaml has no unjoined form. Neither the tick's last pixel nor the crown's continues vertically, so both fail the automatic `unjoined: safe` check (`geometry.verify_unjoined_safe`). The gate checks each entry, adjustment, and lock variant separately, so each has its own signature; all show the same terminal.
 - signature: dangle:qsJay.sole:exit:baseline
@@ -1446,7 +1446,7 @@
 - signature: dangle:qsJay.sole.en-y5.en-ext-1:exit:baseline
   why: The entry-extended-by-one variant keeps the same tick terminal; the extension touches the crown only (baseline row E670:E65F).
 - signature: dangle:qsJay.sole.locked:exit:baseline
-  why: The ZWNJ-locked twin of ·Jay's tick terminal; identical drawing (baseline row 200C:E65F).
+  why: The ZWNJ-locked copy of ·Jay's tick terminal; identical drawing (baseline row 200C:E65F).
 - signature: dangle:qsJay_qsUtter.sole:exit:x-height
   why: The ·Jay·Utter ligature's crown terminal (·Utter's nub at y5), drawn unconditionally in the old font (baseline row E65F:E67A); the declined exit keeps it.
 - signature: dangle:qsJay_qsUtter.sole.en-y5:exit:x-height
@@ -1456,7 +1456,7 @@
 - signature: dangle:qsJay_qsUtter.sole.en-y5.en-ext-1:exit:x-height
   why: The entry-extended-by-one ligature keeps the same crown terminal (baseline row E670:E65F:E67A).
 - signature: dangle:qsJay_qsUtter.sole.locked:exit:x-height
-  why: The ZWNJ-locked twin of the ligature's crown terminal; identical drawing.
+  why: The ZWNJ-locked copy of the ligature's crown terminal; identical drawing.
 
 # ·Gay's x-height exit places ·Jay's crown one column past ·Gay's stroke, and the two Deep descenders then share the pixel at ·Gay's column 4, two rows below the baseline, where ·Gay's loop wall meets ·Jay's (or the ligature's) descender. Above and below that pixel the two descenders stand side by side at y0, y-1, and y-3. Before ·Jay with no ligature they also do at y-2, because ·Jay's descender has ink in the column right of the shared pixel there. The old font places the same anchors with no adjustment (baseline rows E655:E65F and E655:E65F:E67A), so the shared pixel and the side-by-side rows are the old drawing. There is one signature per ·Gay entry, contraction, and lock variant, per ·Jay exit variant, and per finding; the junction is identical in all of them.
 - signature: contact:qsGay.sole.en-y0.ex-y5:qsJay.sole.en-y5:overlap
@@ -1706,11 +1706,11 @@
 - signature: dangle:qsGay.sole.ex-y0.ex-ext-1:exit:x-height
   why: The extended baseline exit moves no crown ink; the same terminal.
 - signature: dangle:qsGay.sole.ex-y0.locked:exit:x-height
-  why: The ZWNJ-locked twin of the baseline-exiting form; identical drawing.
+  why: The ZWNJ-locked copy of the baseline-exiting form; identical drawing.
 - signature: dangle:qsGay.sole.ex-y0.locked.ex-ext-1:exit:x-height
-  why: The ZWNJ-locked twin of the extended baseline-exiting form; identical drawing.
+  why: The ZWNJ-locked copy of the extended baseline-exiting form; identical drawing.
 - signature: dangle:qsGay.sole.locked:exit:x-height
-  why: The ZWNJ-locked twin of ·Gay's crown terminal; identical drawing.
+  why: The ZWNJ-locked copy of ·Gay's crown terminal; identical drawing.
 
 # The doubly-extended ·Gay ~x~ ·J'ai junction (·Gay's ex-ext-2 meeting ·J'ai's en-ext-2, both transcribed from the old font's derive pair) puts the two Deep descenders side by side: the right side of ·Gay's loop abuts ·J'ai's descender curl at y=-2, the off-junction contact the old font draws in every such window (baseline rows E655:E65D and E655:E65D:E67A carry the same advances). The contact is off-anchor because the junction is at y=5. There is one signature per entry, exit, and lock variant on either side, all the same off-junction contact.
 - signature: contact:qsGay.sole.en-y0.ex-y5.ex-ext-2:qsJai.sole.en-y5:y-2
@@ -1783,7 +1783,7 @@
 - signature: dangle:qsThey_qsUtter.sole.en-y5.en-ext-1:exit:x-height
   why: The entry-extended ligature keeps the same crown terminal; the extension touches the top only.
 - signature: dangle:qsThey_qsUtter.sole.locked:exit:x-height
-  why: The ZWNJ-locked twin of the ligature's crown terminal; identical drawing.
+  why: The ZWNJ-locked copy of the ligature's crown terminal; identical drawing.
 
 # ·I ~x~ ·They abuts with no connector, because the old font's `en-ext-1` after ·I adds its pixel on ·I's own last column and draws this composite: ·I's loop, which swings back left below the x-height, stands one column from ·They's down-stroke at y3, two rows under the y5 junction. The old font draws this off-junction contact in every ·I·They and ·I·They+Utter window (baseline rows E675:E657 and E675:E657:E67A carry the same advances). The gate checks each ·I stance, entry, and lock variant against each entered ·They and ligature cell separately; all show the same off-junction contact.
 - signature: contact:qsI.loop.en-y0.ex-y5:qsThey.sole.en-y5:y3
@@ -1803,7 +1803,7 @@
 - signature: contact:qsI.smaller-loop.en-y0.ex-y5:qsThey_qsUtter.sole.en-y5:y3
 - signature: contact:qsI.smaller-loop.en-y0.ex-y5:qsThey_qsUtter.sole.en-y5.ex-y5:y3
 
-# ·Zoo's below-baseline contacts keep the old font's off-junction contacts. Both letters' below-baseline drawings match the old glyphs when aligned at the junction. Entry contractions change only the crown, an entry extension moves the hook and its exit anchor together, and the locked twin keeps the same drawing.
+# ·Zoo's below-baseline contacts keep the old font's off-junction contacts. Both letters' below-baseline drawings match the old glyphs when aligned at the junction. Entry contractions change only the crown, an entry extension moves the hook and its exit anchor together, and the locked copy keeps the same drawing.
 - signature: contact:qsGay.sole.en-y5.ex-y0:qsZoo.half.en-y0:y-2
   why: The ·Gay loop abuts half-·Zoo's left descender at y=-2, as in baseline row E67A:E655:E65B; the follower's exit state leaves this off-junction contact unchanged.
 - signature: contact:qsGay.sole.en-y5.ex-y0:qsZoo.half.en-y0:y-1

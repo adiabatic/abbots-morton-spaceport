@@ -4,7 +4,7 @@
 //!
 //! Ligatures form first, greedy and longest-first over the modeled sequences, and a match is skipped when the section 5.7 guard blocks it over the two raw tokens after it. This restates `settle.form_ligatures` over [`GuardState`], so the walk settles the token stream the emitted formation lookup produces.
 //!
-//! The walk's memo is also the build's settle memo. After a passing walk, [`Replay::write_window_memo`] writes it per configuration: one row per distinct window, keyed on the input rune, the settled left, and the four raw rights, with every distinct settled record beside it. That is the key `conform._SettledWindowWalk` uses, in this crate's labels. The input is its `right_token_label`, or after a ZWNJ the chokepoint's locked name. The rights are raw labels. The left is a boundary label where the reach stops and otherwise an index into the record table, because `cell_label` and `geometry.display_name` are two formats of one function of the cell and the Python side converts an index to its own label. The marker renaming also happens on the Python side (`conform.absorb_replay_memo`, over `model.raw_rename_map`), so the crate never needs a configuration's marker names and the file holds only raw labels and record indexes. The file is uncompressed, like every file this crate writes, and `run_m1.run_replay_strings` reads and deletes it in the same phase.
+//! The walk's memo is also the build's settle memo. After a passing walk, [`Replay::write_window_memo`] writes it per configuration: one row per distinct window, keyed on the input rune, the settled left, and the four raw rights, with every distinct settled record beside it. That is the key `conform._SettledWindowWalk` uses, in this crate's labels. The input is its `right_token_label`, or after a ZWNJ the ZWNJ lock's locked name. The rights are raw labels. The left is a boundary label where the reach stops and otherwise an index into the record table, because `cell_label` and `geometry.display_name` are two formats of one function of the cell and the Python side converts an index to its own label. The marker renaming also happens on the Python side (`conform.absorb_replay_memo`, over `model.raw_rename_map`), so the crate never needs a configuration's marker names and the file holds only raw labels and record indexes. The file is uncompressed, like every file this crate writes, and `run_m1.run_replay_strings` reads and deletes it in the same phase.
 //!
 //! Within the walk, each window key is settled once per configuration, and every later occurrence is a memo lookup. When the text set sets a ceiling, the walk clears its memo and the engine's memos together before any text that could exceed it. A window met again after a release is settled again with the same result, because every memo here is a pure cache and a left label names one left state. A walk can write its memo only if it never released it. A miss costs one engine call in the same process, with no batched round trip and no shaper, which is why walking every text is affordable here and not in Python. The cost still grows with the number of distinct raw windows, which is the alphabet size to the power of the maximum length, so each build walks to the conformance sweep's maximum length (`run_m1.REPLAY_MAX_LENGTH`) and deeper walks belong to the periodic sweep. Under the window locality rule in `doc/rebuild-design.md` §10, a rune edit needs only the texts naming an edited family or a rune whose records read one, so `run_m1` passes those families and the walk skips every other text.
 
@@ -643,7 +643,7 @@ impl<'i> Replay<'i> {
         label
     }
 
-    /// The label an input has immediately after a ZWNJ: the chokepoint twin's label for an entry-bearing rune, which is the label the enumeration keys its rows under (`fixpoint`'s locked input), and the raw label for a rune the chokepoint never locks. This is the `.noentry` rename in `labels.formed_labels`, applied to the input slot only, because every right slot after a ZWNJ is `#NA`, so a letter after a ZWNJ never appears in one.
+    /// The label an input has immediately after a ZWNJ: the locked copy's label for an entry-bearing rune, which is the label the enumeration keys its rows under (`fixpoint`'s locked input), and the raw label for a rune the ZWNJ lock never replaces. This is the `.noentry` rename in `labels.formed_labels`, applied to the input slot only, because every right slot after a ZWNJ is `#NA`, so a letter after a ZWNJ never appears in one.
     fn locked_label(&mut self, rune: Sym, raw: u32) -> u32 {
         if !self.index.is_entry_bearing(rune) {
             return raw;
@@ -696,7 +696,7 @@ impl<'i> Replay<'i> {
     /// 3. One `settled_json` line per seated record, in seat order.
     /// 4. The rows, seven little-endian integers each, `u16` when every index fits and `u32` otherwise.
     ///
-    /// A row is the input label, the left, the four rights, and the record index. The input is the rune's raw label, or its locked name when the left is the ZWNJ and the chokepoint locks the rune. The left alone decides this, because every right slot after a ZWNJ is `#NA`, so a letter after a ZWNJ never appears in one. The left is a label index when its label stops the reach (the edge and the three boundaries), and otherwise the record's seat plus the label count, so both kinds share one column and the reader tells them apart by the label count in the head. Two seats with the same `cell_label` are written as the first, as the walk's own key already merged them. The rows are written in blocks, so the only large buffer beyond the memo is one block. A walk that released its memo under a ceiling returns an error before creating the file, because its memo holds only what it settled since the last release.
+    /// A row is the input label, the left, the four rights, and the record index. The input is the rune's raw label, or its locked name when the left is the ZWNJ and the ZWNJ lock replaces the rune. The left alone decides this, because every right slot after a ZWNJ is `#NA`, so a letter after a ZWNJ never appears in one. The left is a label index when its label stops the reach (the edge and the three boundaries), and otherwise the record's seat plus the label count, so both kinds share one column and the reader tells them apart by the label count in the head. Two seats with the same `cell_label` are written as the first, as the walk's own key already merged them. The rows are written in blocks, so the only large buffer beyond the memo is one block. A walk that released its memo under a ceiling returns an error before creating the file, because its memo holds only what it settled since the last release.
     pub fn write_window_memo(
         &mut self,
         path: &Path,
@@ -1354,7 +1354,7 @@ mod tests {
         assert_eq!(filed.head["rows"], filed.rows.len());
     }
 
-    /// The labels the Python conversion depends on. After a ZWNJ, an entry-bearing letter is written under its locked name and a letter the chokepoint never locks under its raw name, and the left of both is the ZWNJ's label. The file follows the key in making every slot after a boundary or the edge `#NA`.
+    /// The labels the Python conversion depends on. After a ZWNJ, an entry-bearing letter is written under its locked name and a letter the ZWNJ lock never replaces under its raw name, and the left of both is the ZWNJ's label. The file follows the key in making every slot after a boundary or the edge `#NA`.
     #[test]
     fn a_post_zwnj_input_is_filed_locked_and_nothing_reaches_past_a_boundary() {
         let index = fixtures::mini();
@@ -1412,7 +1412,7 @@ mod tests {
         );
         assert!(
             after_zwnj.iter().any(|row| row[0] == "qsIt"),
-            "a rune the chokepoint never locks keeps its raw name: {rows:?}"
+            "a rune the ZWNJ lock never replaces keeps its raw name: {rows:?}"
         );
         assert!(
             rows.iter()

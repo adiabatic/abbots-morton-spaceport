@@ -94,7 +94,7 @@ def _refusal(**when):
     return PolicyRecord("refuse", exit="baseline", when=When(right=Condition(family=("C",)), **when))
 
 
-def test_mapped_outgoing_contract_covers_boundaries_and_formation_preemption():
+def test_mapped_outgoing_contract_covers_boundaries_and_the_isolated_overlay():
     spec, raw = _world()
     spec = replace(
         spec, registry=replace(spec.registry, features={"ss10": FeatureInfo("taste", overlay="isolated")})
@@ -102,7 +102,7 @@ def test_mapped_outgoing_contract_covers_boundaries_and_formation_preemption():
     summary = validate_ligature_outgoing(spec, raw)
     assert summary["mappings"] == 1
     assert summary["configurations"] == ["default"]
-    assert summary["formation_preempted"] == ["ss10"]
+    assert summary["overlay_configurations"] == ["ss10"]
     assert summary["windows"] == (len(spec.runes) + 4) ** 2 * 4
 
 

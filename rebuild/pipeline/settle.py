@@ -108,7 +108,7 @@ ISOLATED_OVERLAY_STAGE = "isolated-overlay"
 
 
 def isolated_overlay_settled(spec: ResolvedSpec, tokens: Sequence[RightToken]) -> list[Settled]:
-    """Return the stream the `overlay: isolated` stylistic set (ss10) renders for raw tokens: each letter as its rune's default-stance cell with no entry, exit, or junction, and each boundary token as its boundary cell. Nothing settles under the overlay, because the emitted font's pre-empt lookup replaces every letter with its anchor-free twin before formation runs. Read-back checks on every build that no twin appears in a formation sequence, marker line, chokepoint class, or settlement input. So the stream depends only on the tokens and the spec, and no ligature forms: a ligature's components stay separate letters."""
+    """Return the stream the `overlay: isolated` stylistic set (ss10) renders for raw tokens: each letter as its rune's default-stance cell with no entry, exit, or junction, and each boundary token as its boundary cell. Nothing settles under the overlay, because the emitted font's ss10 input substitution replaces every letter with its anchor-free copy before formation runs. Read-back checks on every build that no copy appears in a formation sequence, marker line, ZWNJ lock class, or settlement input. So the stream depends only on the tokens and the spec, and no ligature forms: a ligature's components stay separate letters."""
     stream: list[Settled] = []
     for token in tokens:
         if token.kind != "letter":
@@ -154,7 +154,7 @@ def cell_label(spec: ResolvedSpec, cell: CellId) -> str:
 
 
 def is_entry_bearing(spec: ResolvedSpec, rune_name: str) -> bool:
-    """Whether the ZWNJ chokepoint locks this rune: some stance has a selectable declared entry row or an entry unlock. Features are ignored, as they are by the chokepoint."""
+    """Whether the ZWNJ lock replaces this rune: some stance has a selectable declared entry row or an entry unlock. Features are ignored, as they are by the ZWNJ lock."""
     rune = spec.runes[rune_name]
     for stance in rune.stances.values():
         if any(row.selectable for row in stance.surface.entries.values()):

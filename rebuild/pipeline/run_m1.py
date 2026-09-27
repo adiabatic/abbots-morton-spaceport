@@ -2,11 +2,11 @@
 
 First, `build_tables` builds the decision and join tables for every settlement configuration (`conform.SETTLEMENT_CONFIGS`) in one kernel-crate process. It enumerates and folds `default` first and each other configuration as a delta over `default`'s memo. As it folds each configuration it checks first-match-wins against the rows, writes the TSVs, writes one certificate per rule built from the table's row chains, and writes the window enumeration stamped with the fingerprint of its sources. `--conform-only` takes its glyph inventory from that enumeration and stops with an error when it is stale or missing. The payloads are packed on a background pool once their heads are read.
 
-Two branches then run over the tables. The table-only branch (`_run_table_gates`, on one background thread) runs the string replay (`run_replay_strings`, recorded in `replay_summary.json`), which walks every configuration's stored rules over every text up to `REPLAY_MAX_LENGTH` against the crate's own settlement, then the witness stage (`run_rule_witnesses`, recorded in `witness_summary.json`), which settles every certificate and checks that its rule fires. Beside those two it runs the shipped-order walk (`run_emitted_order`), where each configuration's walk waits for that configuration's pack. The glyph chain (`_run_glyph_chain`, on the calling thread) mints the glyphs (settled cells named by their cell labels, the raw cmap glyphs, the marker, chokepoint and ss10 twins, and the namer dot pair), runs the defect gates under the reviewed allow-list, emits GSUB and GPOS (also writing `behavior_classes.json`, the record key `rebuild/tools/deep_sweep.py` reads), compiles the font, and runs read-back (rebuild/pipeline/readback.py). Read-back re-parses the written font, checks it against the emitters' plan, and checks the GSUB's uint16 subtable-offset headroom against its floor in the same parse.
+Two branches then run over the tables. The table-only branch (`_run_table_gates`, on one background thread) runs the string replay (`run_replay_strings`, recorded in `replay_summary.json`), which walks every configuration's stored rules over every text up to `REPLAY_MAX_LENGTH` against the crate's own settlement, then the witness stage (`run_rule_witnesses`, recorded in `witness_summary.json`), which settles every certificate and checks that its rule fires. Beside those two it runs the shipped-order walk (`run_emitted_order`), where each configuration's walk waits for that configuration's pack. The glyph chain (`_run_glyph_chain`, on the calling thread) mints the glyphs (settled cells named by their cell labels, the raw cmap glyphs, the marker, locked and ss10 copies, and the namer dot pair), runs the defect gates under the reviewed allow-list, emits GSUB and GPOS (also writing `behavior_classes.json`, the record key `rebuild/tools/deep_sweep.py` reads), compiles the font, and runs read-back (rebuild/pipeline/readback.py). Read-back re-parses the written font, checks it against the emitters' plan, and checks the GSUB's uint16 subtable-offset headroom against its floor in the same parse.
 
 `main` then runs the Manual-pin gate and the oracle. The oracle starts once the string replay has returned, beside the witness stage, and writes to the settle memo files only after the witness stage's writes are on disk. `main` joins the table-only branch after the oracle, before it decides the run_m1 gate. The join raises the first failure in serial order (the packing, the replay, the witnesses, the shipped order), and any of those is raised in place of a glyph-chain failure, so a failing build reports what a serial build would.
 
-Settlement-lookup outcomes are `settle.cell_label` names, so the decision-table rules and the compiled glyph set use the same names. The raw cmap glyph for each rune is the bare rune name, drawn as the isolated cell with no curs anchors. Marker, chokepoint, and ss10 twins reuse that drawing. Under ss10 the pre-empt lookup replaces every letter's cmap glyph with its anchor-free `.ss10` twin before formation, so no ligature forms, nothing settles, each letter keeps its own cluster, and every junction is a break. That is why the overlay configuration (`conform.OVERLAY_CONFIGS`) has no table: read-back checks that the pre-empt covers every letter cmap glyph and that the twins appear in no other stage, the conformance sweep (gate:conform's exhaustive HarfBuzz sweep) sweeps the overlay at `conform.OVERLAY_MAX_LENGTH`, and the oracle compares its rows against the bare stream, using the twins' `hmtx` advances for positions.
+Settlement-lookup outcomes are `settle.cell_label` names, so the decision-table rules and the compiled glyph set use the same names. The raw cmap glyph for each rune is the bare rune name, drawn as the isolated cell with no curs anchors. Marker, locked, and ss10 copies reuse that drawing. Under ss10 the ss10 input substitution replaces every letter's cmap glyph with its anchor-free `.ss10` copy before formation, so no ligature forms, nothing settles, each letter keeps its own cluster, and every junction is a break. That is why the overlay configuration (`conform.OVERLAY_CONFIGS`) has no table: read-back checks that the ss10 input substitution covers every letter cmap glyph and that the copies appear in no other stage, the conformance sweep (gate:conform's exhaustive HarfBuzz sweep) sweeps the overlay at `conform.OVERLAY_MAX_LENGTH`, and the oracle compares its rows against the bare stream, using the copies' `hmtx` advances for positions.
 
 The split-buffer check runs inside gate:conform's sweep, at maximum length 4 on every build and at maximum length 5 or more through `make conform-deep`. Read-back's boundary-glyphs stage checks the ZWNJ glyph's zero advance and empty outline on the written font bytes, so the conformance sweep does not check them at every shaped slot.
 
@@ -65,7 +65,7 @@ from rebuild.pipeline.model import (
     ResolvedSpec,
     locked_glyph_name,
     relevant_marker_features,
-    ss10_twin_name,
+    ss10_copy_name,
 )
 from rebuild.pipeline.settle import FormationGuard, cell_label
 from rebuild.pipeline.spec_load import load_default_spec
@@ -480,10 +480,10 @@ def mint_cell_glyphs(
 def mint_raw_glyphs(
     spec: ResolvedSpec,
 ) -> tuple[dict[CellId, GlyphRecord], dict[CellId, GlyphRecord], dict[str, str]]:
-    """Return the bare cmap glyphs, the marker, chokepoint and ss10 twins, and the map from raw name to ss10 twin name for the ss10 pre-empt lookup. Raw glyphs are keyed under the synthetic `RAW_STANCE` so they never collide with a reachable settled cell that happens to be the isolated cell. Only letter runes with a code point get ss10 twins: ligature runes never appear in a cmap buffer, and boundary tokens are not runes. Only runes with an entry get chokepoint (`locked`) twins."""
+    """Return the bare cmap glyphs, the marker, locked and ss10 copies, and the map from raw name to ss10 copy name for the ss10 input substitution lookup. Raw glyphs are keyed under the synthetic `RAW_STANCE` so they never collide with a reachable settled cell that happens to be the isolated cell. Only letter runes with a code point get ss10 copies: ligature runes never appear in a cmap buffer, and boundary tokens are not runes. Only runes with an entry get locked copies."""
     bare: dict[CellId, GlyphRecord] = {}
-    twins: dict[CellId, GlyphRecord] = {}
-    ss10_twins: dict[str, str] = {}
+    copies: dict[CellId, GlyphRecord] = {}
+    ss10_copies: dict[str, str] = {}
     for rune_name, rune in spec.runes.items():
         isolated = geometry.isolated_cell(spec, rune_name)
         record = geometry.realize(spec, surface.resolve_cell(spec, isolated), name=rune_name)
@@ -492,21 +492,21 @@ def mint_raw_glyphs(
         bare[key] = stripped
 
         if not rune.sequence and rune.codepoint is not None:
-            twin_name = ss10_twin_name(rune_name)
-            twins[CellId(rune_name, RAW_STANCE, None, None, ("ss10",))] = replace(stripped, name=twin_name)
-            ss10_twins[rune_name] = twin_name
+            copy_name = ss10_copy_name(rune_name)
+            copies[CellId(rune_name, RAW_STANCE, None, None, ("ss10",))] = replace(stripped, name=copy_name)
+            ss10_copies[rune_name] = copy_name
 
         live_names = [rune_name]
         for marker_name in emit_gsub.marker_states(rune_name, relevant_marker_features(rune)):
-            twins[CellId(marker_name, RAW_STANCE, None, None, ())] = replace(stripped, name=marker_name)
+            copies[CellId(marker_name, RAW_STANCE, None, None, ())] = replace(stripped, name=marker_name)
             live_names.append(marker_name)
         if any(stance.surface.entries for stance in rune.stances.values()):
             for raw_name in live_names:
-                twin_name = locked_glyph_name(raw_name)
-                twins[CellId(rune_name, RAW_STANCE, None, None, ("locked", raw_name))] = replace(
-                    stripped, name=twin_name
+                copy_name = locked_glyph_name(raw_name)
+                copies[CellId(rune_name, RAW_STANCE, None, None, ("locked", raw_name))] = replace(
+                    stripped, name=copy_name
                 )
-    return bare, twins, ss10_twins
+    return bare, copies, ss10_copies
 
 
 def namer_dot_glyphs() -> dict[CellId, GlyphRecord]:
@@ -767,7 +767,7 @@ def _run_glyph_chain(spec: ResolvedSpec, tables: Mapping[str, tuple], out_dir: P
     console.phase("glyph_minting")
     start = time.perf_counter()
     cell_glyphs = mint_cell_glyphs(spec, tables)
-    bare, twins, ss10_twins = mint_raw_glyphs(spec)
+    bare, copies, ss10_copies = mint_raw_glyphs(spec)
     dots = namer_dot_glyphs()
     console.timing("glyph_minting", time.perf_counter() - start)
 
@@ -778,8 +778,8 @@ def _run_glyph_chain(spec: ResolvedSpec, tables: Mapping[str, tuple], out_dir: P
 
     console.phase("emit_gsub_gpos")
     start = time.perf_counter()
-    curs_glyphs = {**cell_glyphs, **bare, **twins}
-    gsub_plan = emit_gsub.emit_gsub(spec, tables, glyphs={**cell_glyphs, **bare}, ss10_twins=ss10_twins)
+    curs_glyphs = {**cell_glyphs, **bare, **copies}
+    gsub_plan = emit_gsub.emit_gsub(spec, tables, glyphs={**cell_glyphs, **bare}, ss10_copies=ss10_copies)
     classes = emit_gsub.behavior_classes(gsub_plan)
     (out_dir / "behavior_classes.json").write_text(
         json.dumps(

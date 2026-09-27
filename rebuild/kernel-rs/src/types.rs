@@ -281,7 +281,7 @@ impl Side {
 /// One generated `CellId.adjustments` token in the closed grammar `model.py` documents. It is an enum, not text, so a token cannot be misspelled. `model.parse_adjustment` reads the same grammar in Python, and [`adjustment_text`] writes the text both use.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum AdjustmentToken {
-    /// `locked`: the ZWNJ chokepoint twin, entry side severed.
+    /// `locked`: the locked copy, entry side severed.
     Locked,
     /// `en-ext-N` / `ex-ext-N`: same-row connector lengthening by N pixels.
     Extend(Side, i64),

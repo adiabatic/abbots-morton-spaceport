@@ -2,7 +2,7 @@
 
 `run_conformance` runs the conformance sweep. For each settlement configuration it shapes every text of length 1 to the maximum length (`SWEEP_MAX_LENGTH`, 4 by default) over the alphabet and compares the result with settlement: glyph names (`check_oracle`), split-buffer equivalence (`check_split_buffer`), and zero gaps at joins (`check_join_gaps`). This comparison uses no ledger, so any divergence is a compiler defect. `Shaper` shapes at the MONOTONE_CHARACTERS cluster level and reads glyph names through TTFont, because HarfBuzz's name API truncates them.
 
-The isolated-overlay configuration (ss10, `OVERLAY_CONFIGS`) has no settlement to compare against. Read-back checks on every build that the ss10 pre-empt covers every letter cmap glyph and that no twin appears in any formation sequence, marker line, chokepoint class, or settlement input. So under ss10 every letter renders as its twin at its `hmtx` advance, and nothing forms or attaches. The conformance sweep checks this at `OVERLAY_MAX_LENGTH`: single letters show that each letter maps to its twin, and pairs show that no pair forms, joins, or moves.
+The isolated-overlay configuration (ss10, `OVERLAY_CONFIGS`) has no settlement to compare against. Read-back checks on every build that the ss10 input substitution covers every letter cmap glyph and that no copy appears in any formation sequence, marker line, ZWNJ lock class, or settlement input. So under ss10 every letter renders as its copy at its `hmtx` advance, and nothing forms or attaches. The conformance sweep checks this at `OVERLAY_MAX_LENGTH`: single letters show that each letter maps to its copy, and pairs show that no pair forms, joins, or moves.
 
 The conformance sweep does not check rule coverage; other stages do. Read-back (rebuild/pipeline/readback.py) checks that the compiled font holds every emitted rule at its planned position. The crate's fold fails the table build on any rule that no replayed row first-matches (`fold::assert_outcome_partition`). The witness stage (`witness.check_rule_certificates`, run by `run_m1` over the certificates the crate writes beside the rules) settles a string that fires each rule. The crate's `replay-strings` subcommand (`rebuild/kernel-rs/src/replay.rs`, `run_m1.run_replay_strings`) checks enumeration completeness: whether each live raw window a string reaches is one the fixpoint enumerated with its slot restrictions satisfied, or one it left at `#NA` or never reached, which the font handles with a wildcard or default rule. It replays `_SettledWindowWalk` and `witness._first_matching_rule` over the persisted rules at `run_m1.REPLAY_MAX_LENGTH` on every build, over every text after a code or structure change and, after a rune edit, over the texts naming an edited rune or a rune whose records read one (`run_m1.replay_families`).
 
@@ -50,7 +50,7 @@ from rebuild.pipeline.model import (
     feature_config_token,
     isolated_overlay_active,
     raw_rename_map,
-    ss10_twin_name,
+    ss10_copy_name,
 )
 from rebuild.validation.rowmodel import Row, format_codepoints
 
@@ -65,7 +65,7 @@ ACCEPTANCE_CONFIGS = SETTLEMENT_CONFIGS + OVERLAY_CONFIGS
 # How many texts of one length the conformance sweep walks at a time. Each length's texts are streamed instead of listed, because at maximum length 5 the length-5 texts number in the millions, while one chunk's walk states cost tens of megabytes at any maximum length.
 TEXT_CHUNK = 65536
 SWEEP_MAX_LENGTH = 4
-# The overlay sweep's length, whatever the conformance sweep's maximum length. Single letters show that each cmap glyph maps to its twin, and pairs show that no pair forms, joins, or moves. Together with read-back's isolation check, that covers every text.
+# The overlay sweep's length, whatever the conformance sweep's maximum length. Single letters show that each cmap glyph maps to its copy, and pairs show that no pair forms, joins, or moves. Together with read-back's isolation check, that covers every text.
 OVERLAY_MAX_LENGTH = 2
 SETTLE_MEMO_FORMAT = "ams-settle-memo/3"
 SETTLE_MEMO_PART_FORMAT = "ams-settle-memo-part/1"
@@ -269,7 +269,7 @@ def _slot_signature(shaper: Shaper, glyph: dict) -> tuple:
 def check_split_buffer(
     text, config, features, shaper: Shaper, shaped, divergences, splitters: frozenset[str] = frozenset({ZWNJ})
 ) -> None:
-    """Check that the shaped buffer, with its splitter slots dropped, matches its splitter-separated segments shaped alone. Slots are compared on outline, advance, and offsets, not names, because the locked twins have the same bitmaps as the bare runes."""
+    """Check that the shaped buffer, with its splitter slots dropped, matches its splitter-separated segments shaped alone. Slots are compared on outline, advance, and offsets, not names, because the locked copies have the same bitmaps as the bare runes."""
     slots = {
         index
         for index, glyph in enumerate(shaped)
@@ -363,9 +363,9 @@ def anchors_in_font_units(glyphs_by_name: Mapping[str, GlyphRecord]) -> Callable
 
 
 def isolated_overlay_labels(spec: ResolvedSpec, tokens: Sequence[settle.RightToken]) -> list[str]:
-    """The glyph names an `overlay: isolated` taste set renders for raw tokens: each letter's anchor-free `.ss10` twin, and each boundary token's own glyph. There is one name per raw token, because the pre-empt substitutes the twins before formation, so no ligature forms."""
+    """The glyph names an `overlay: isolated` taste set renders for raw tokens: each letter's anchor-free `.ss10` copy, and each boundary token's own glyph. There is one name per raw token, because the ss10 input substitution replaces every letter with its copy before formation, so no ligature forms."""
     return [
-        ss10_twin_name(token.letter) if token.kind == "letter" else _BOUNDARY_KIND_LABELS[token.kind]
+        ss10_copy_name(token.letter) if token.kind == "letter" else _BOUNDARY_KIND_LABELS[token.kind]
         for token in tokens
     ]
 
@@ -405,7 +405,7 @@ class IsolatedOverlayWalk:
 
 
 class IsolatedOverlayShaper:
-    """HarfBuzz's output under the overlay, computed without shaping: each letter becomes its twin, each boundary character its glyph, and each slot sits at zero offset with its `hmtx` advance. The position comparison uses it for the overlay configuration. That is valid because the conformance sweep checks every overlay text up to `OVERLAY_MAX_LENGTH` against this output, and cursive attachment is pairwise, so a glyph no pair moves is moved by no text. The font lowers the namer dot before a Short twin, but this class always names it `periodcentered`. The constructor therefore raises when the two dot glyphs have different advances, since pen positions would then depend on more than the text."""
+    """HarfBuzz's output under the overlay, computed without shaping: each letter becomes its copy, each boundary character its glyph, and each slot sits at zero offset with its `hmtx` advance. The position comparison uses it for the overlay configuration. That is valid because the conformance sweep checks every overlay text up to `OVERLAY_MAX_LENGTH` against this output, and cursive attachment is pairwise, so a glyph no pair moves is moved by no text. The font lowers the namer dot before a Short copy, but this class always names it `periodcentered`. The constructor therefore raises when the two dot glyphs have different advances, since pen positions would then depend on more than the text."""
 
     def __init__(self, font_path: Path, spec: ResolvedSpec):
         from fontTools.ttLib import TTFont
@@ -466,7 +466,7 @@ def check_isolated_positions(text, config, shaper: Shaper, shaped, divergences) 
 def raw_labels(
     spec: ResolvedSpec, text: str, features: frozenset[str], guard_verdicts: settle.FormationGuard
 ) -> list[str]:
-    """The labels the settlement lookup sees for `text`, after formation, the marker renaming, and the ZWNJ chokepoint. Formation goes through `settle.form_ligatures`, so the section 5.7 late-formation guard applies here as it does in the kernel and the emitted lookup. `guard_verdicts` is the crate's verdicts for this spec (`kernel_exec.guard_sweep`), computed once by the caller."""
+    """The labels the settlement lookup sees for `text`, after formation, the marker renaming, and the ZWNJ lock. Formation goes through `settle.form_ligatures`, so the section 5.7 late-formation guard applies here as it does in the kernel and the emitted lookup. `guard_verdicts` is the crate's verdicts for this spec (`kernel_exec.guard_sweep`), computed once by the caller."""
     by_codepoint = {
         info.codepoint: name for name, info in spec.registry.families.items() if info.codepoint is not None
     }
@@ -1361,7 +1361,7 @@ def _ambiguous_ids(spelling: Sequence[str], used: Iterable[int]) -> set[int]:
 def absorb_replay_memo(dump: Path, memo: SettleMemoFile, spec: ResolvedSpec, config: str) -> int:
     """Write the crate's window memo for `config` (`kernel_exec.replay_memo_dump`, written by the `replay-strings` subcommand) as the configuration's settle memo file under `memo`'s stamp and family keys, and return the row count.
 
-    The dump names every window in the crate's form: the input as the raw rune name or its `.noentry` twin, the rights as raw labels, and the left as a boundary label or an index into its record table. This function converts that to the `formed_labels` form. Each label is renamed through `model.raw_rename_map` once, each record is decoded through `kernel_exec.settled_of_row` once, and each record's left label is its `geometry.display_name`. The conversion touches only a few thousand strings, and the rows pass through as integer columns: the walk's label table is the renamed label table followed by the records' display names, which is the id space the dump's left column already indexes.
+    The dump names every window in the crate's form: the input as the raw rune name or its `.noentry` locked copy, the rights as raw labels, and the left as a boundary label or an index into its record table. This function converts that to the `formed_labels` form. Each label is renamed through `model.raw_rename_map` once, each record is decoded through `kernel_exec.settled_of_row` once, and each record's left label is its `geometry.display_name`. The conversion touches only a few thousand strings, and the rows pass through as integer columns: the walk's label table is the renamed label table followed by the records' display names, which is the id space the dump's left column already indexes.
 
     A dump with another format token, a malformed head, another configuration, or a row byte count that does not match its head raises `KernelRunError` and writes nothing. Two crate keys can become one walk key only through two ids with the same label, so the row-level check runs only over rows that use such an id. If two such rows settle differently, this raises instead of writing the file, because a wrong memo would give wrong results, while a missing one only makes the readers settle the windows themselves.
     """

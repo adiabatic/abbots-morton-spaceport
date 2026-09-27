@@ -103,8 +103,8 @@ class TestNormalization:
         item.cell = cell
         assert conform.settled_names(spec, [item], {cell: "qsMay"}) == ["qsMay"]
 
-    def test_isolated_overlay_labels_render_one_twin_per_raw_token(self, spec):
-        """Under the overlay each component of a ligature renders as its own twin, because the ss10 pre-empt substitutes the twins before formation. A boundary token renders as its own glyph."""
+    def test_isolated_overlay_labels_render_one_copy_per_raw_token(self, spec):
+        """Under the overlay each component of a ligature renders as its own copy, because the ss10 input substitution replaces every letter with its copy before formation. A boundary token renders as its own glyph."""
         tokens = conform.isolated_overlay_tokens(spec, IT + TEA + OY + ZWNJ)
         assert conform.isolated_overlay_labels(spec, tokens) == [
             "qsIt.ss10",

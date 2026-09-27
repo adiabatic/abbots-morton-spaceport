@@ -31,7 +31,7 @@ def features_for_config(config: str) -> frozenset[str]:
 
 
 def formed_labels(spec: ResolvedSpec, formed: list[settle.RightToken], features: frozenset[str]) -> list[str]:
-    """Returns the formed stream's labels under the configuration's renaming: each letter becomes its marker twin when the configuration's features change its capability, and a letter that follows a ZWNJ and has an entry gets the `.noentry` suffix of the ZWNJ chokepoint. Labels are interned so that window keys built from many texts share one string per label."""
+    """Returns the formed stream's labels under the configuration's renaming: each letter becomes its marker copy when the configuration's features change its capability, and a letter that follows a ZWNJ and has an entry gets the `.noentry` suffix of the ZWNJ lock. Labels are interned so that window keys built from many texts share one string per label."""
     labels: list[str] = []
     for position, token in enumerate(formed):
         if token.kind != "letter":

@@ -71,7 +71,7 @@ _OUTCOME_BLOCK = re.compile(r"lookup (\S+) \{\n    sub (\S+) by (\S+);\n\} \1;")
 
 
 def _outcome_lookups(fea):
-    """The settlement outcome lookups as {(input glyph, outcome): name}, parsed from the FEA text between the chokepoint lookup and the settlement lookup."""
+    """The settlement outcome lookups as {(input glyph, outcome): name}, parsed from the FEA text between the ZWNJ lock lookup and the settlement lookup."""
     region = fea.split("} m1_zwnj;")[1].split("lookup m1_settle useExtension {")[0]
     return {(glyph, outcome): name for name, glyph, outcome in _OUTCOME_BLOCK.findall(region)}
 
@@ -128,7 +128,7 @@ class TestEmitGsub:
         assert "sub qsTea.ss02 by qsTea.ss02_ss03;" in fea
         assert "sub qsTea.ss02_ss03 by qsTea.ss02_ss03_ss05;" in fea
 
-    def test_chokepoint_classes(self, spec, glyphs):
+    def test_zwnj_lock_classes(self, spec, glyphs):
         plan = emit_gsub.emit_gsub(spec, {frozenset(): FakeDecision(_rules(spec, glyphs))}, glyphs=glyphs)
         fea = plan.fea_text
         assert "sub uni200C @m1_entry_capable' by @m1_entry_locked;" in fea
@@ -197,12 +197,12 @@ class TestEmitGsub:
             match = row_shape.match(row)
             assert match, row
             assert match.groups() == (rule.input_glyph, lookups[(rule.input_glyph, rule.outcome)])
-        chokepoint = fea.index("lookup m1_zwnj {")
+        zwnj_lock = fea.index("lookup m1_zwnj {")
         settlement = fea.index("lookup m1_settle useExtension {")
         for (glyph, outcome), name in lookups.items():
             block = f"lookup {name} {{\n    sub {glyph} by {outcome};\n}} {name};"
             assert fea.count(block) == 1
-            assert chokepoint < fea.index(block) < settlement
+            assert zwnj_lock < fea.index(block) < settlement
 
     def test_one_lookup_per_input_and_outcome_pair(self, spec, glyphs):
         plan = emit_gsub.emit_gsub(spec, {frozenset(): FakeDecision(_rules(spec, glyphs))}, glyphs=glyphs)
@@ -236,17 +236,17 @@ class TestEmitGsub:
         assert "m1_settle_" not in calt
         assert set(emit_gsub.behavior_classes(plan)) == TestBehaviorClasses.FIXTURE_TOKENS
 
-    def test_locked_twin_in_look3_raises(self, spec, glyphs):
+    def test_locked_copy_in_look3_raises(self, spec, glyphs):
         bad = [FakeRule("qsIt", None, ("qsMay",), None, "qsIt", provenance=(), look3=("qsTea.noentry",))]
         with pytest.raises(emit_gsub.EmitError):
             emit_gsub.emit_gsub(spec, {frozenset(): FakeDecision(bad)}, glyphs=glyphs)
 
-    def test_locked_twin_in_look4_raises(self, spec, glyphs):
+    def test_locked_copy_in_look4_raises(self, spec, glyphs):
         bad = [FakeRule("qsIt", None, ("qsMay",), None, "qsIt", provenance=(), look4=("qsTea.noentry",))]
         with pytest.raises(emit_gsub.EmitError):
             emit_gsub.emit_gsub(spec, {frozenset(): FakeDecision(bad)}, glyphs=glyphs)
 
-    def test_locked_twin_in_lookahead_raises(self, spec, glyphs):
+    def test_locked_copy_in_lookahead_raises(self, spec, glyphs):
         bad = [FakeRule("qsIt", None, ("qsTea.noentry",), None, "qsIt", provenance=())]
         with pytest.raises(emit_gsub.EmitError):
             emit_gsub.emit_gsub(spec, {frozenset(): FakeDecision(bad)}, glyphs=glyphs)
@@ -305,27 +305,27 @@ class TestEmitGsub:
         assert emit_gsub._config_name(frozenset({"ss03", "ss05"})) == "ss03+ss05"
         assert emit_gsub._config_name("ss10") == "ss10"
 
-    def test_ss10_preempt_defined_before_formation(self, spec, glyphs):
-        twins = {"qsIt": "qsIt.ss10", "qsMay": "qsMay.ss10", "qsTea": "qsTea.ss10", "qsOy": "qsOy.ss10"}
+    def test_ss10_input_defined_before_formation(self, spec, glyphs):
+        copies = {"qsIt": "qsIt.ss10", "qsMay": "qsMay.ss10", "qsTea": "qsTea.ss10", "qsOy": "qsOy.ss10"}
         plan = emit_gsub.emit_gsub(
-            spec, {frozenset(): FakeDecision(_rules(spec, glyphs))}, glyphs=glyphs, ss10_twins=twins
+            spec, {frozenset(): FakeDecision(_rules(spec, glyphs))}, glyphs=glyphs, ss10_copies=copies
         )
         fea = plan.fea_text
         assert fea.index("lookup m1_ss10_isolated_input {") < fea.index("lookup m1_formation {")
-        preempt = fea.split("lookup m1_ss10_isolated_input {")[1].split("} m1_ss10_isolated_input;")[0]
-        for raw_name, twin_name in twins.items():
-            assert f"sub {raw_name} by {twin_name};" in preempt
+        ss10_input = fea.split("lookup m1_ss10_isolated_input {")[1].split("} m1_ss10_isolated_input;")[0]
+        for raw_name, copy_name in copies.items():
+            assert f"sub {raw_name} by {copy_name};" in ss10_input
         assert "feature ss10 {\n    lookup m1_ss10_isolated_input;\n} ss10;" in fea
 
-    def test_ss10_twins_stay_out_of_the_join_pipeline(self, spec, glyphs):
-        twins = {"qsIt": "qsIt.ss10", "qsMay": "qsMay.ss10", "qsTea": "qsTea.ss10", "qsOy": "qsOy.ss10"}
+    def test_ss10_copies_stay_out_of_the_join_pipeline(self, spec, glyphs):
+        copies = {"qsIt": "qsIt.ss10", "qsMay": "qsMay.ss10", "qsTea": "qsTea.ss10", "qsOy": "qsOy.ss10"}
         plan = emit_gsub.emit_gsub(
-            spec, {frozenset(): FakeDecision(_rules(spec, glyphs))}, glyphs=glyphs, ss10_twins=twins
+            spec, {frozenset(): FakeDecision(_rules(spec, glyphs))}, glyphs=glyphs, ss10_copies=copies
         )
         fea = plan.fea_text
         assert "m1_ss10_unligate" not in fea
         assert "lookup m1_ss10_isolated {" not in fea
-        assert "qsTea_qsOy.ss10" not in fea  # ligature runes never appear in a cmap buffer, so no twin
+        assert "qsTea_qsOy.ss10" not in fea  # ligature runes never appear in a cmap buffer, so no copy
         formation = fea.split("lookup m1_formation {")[1].split("} m1_formation;")[0]
         assert ".ss10" not in formation
         assert ".ss10" not in fea.split("@m1_entry_capable = [")[1].split("]")[0]
@@ -376,12 +376,12 @@ class TestBehaviorClasses:
         assert set(emit_gsub.behavior_classes(plan)) == self.FIXTURE_TOKENS
         assert list(emit_gsub.behavior_classes(plan)) == sorted(self.FIXTURE_TOKENS)
 
-    def test_the_ss10_preempt_is_a_shape_of_its_own(self, spec, glyphs):
-        twins = {"qsIt": "qsIt.ss10", "qsMay": "qsMay.ss10", "qsTea": "qsTea.ss10", "qsOy": "qsOy.ss10"}
-        with_twins = emit_gsub.emit_gsub(
-            spec, {frozenset(): FakeDecision(_rules(spec, glyphs))}, glyphs=glyphs, ss10_twins=twins
+    def test_the_ss10_input_is_a_shape_of_its_own(self, spec, glyphs):
+        copies = {"qsIt": "qsIt.ss10", "qsMay": "qsMay.ss10", "qsTea": "qsTea.ss10", "qsOy": "qsOy.ss10"}
+        with_copies = emit_gsub.emit_gsub(
+            spec, {frozenset(): FakeDecision(_rules(spec, glyphs))}, glyphs=glyphs, ss10_copies=copies
         )
-        assert set(emit_gsub.behavior_classes(with_twins)) == self.FIXTURE_TOKENS | {"ss10-preempt"}
+        assert set(emit_gsub.behavior_classes(with_copies)) == self.FIXTURE_TOKENS | {"ss10-input"}
 
     def test_a_locked_input_and_a_backtrack_zwnj_each_mint_a_token(self, plan):
         grown = replace(
@@ -461,7 +461,7 @@ class TestEmitGpos:
         y8 = curs.split("lookup m1_cursive_y8 {")[1].split("}")[0]
         assert f"pos cursive {record.name} <anchor 50 400> <anchor NULL>;" in y8
 
-    def test_locked_twin_gets_a_null_null_registration(self, spec, glyphs):
+    def test_locked_copy_gets_a_null_null_registration(self, spec, glyphs):
         curs = emit_gpos.emit_gpos(glyphs, spec=spec)
         record = glyphs[CellId("qsTea", "full", None, None, ("locked",))]
         for y in (0, 5, 8):

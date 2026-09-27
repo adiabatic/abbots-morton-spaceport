@@ -1,4 +1,4 @@
-"""Read-back tests over a real build of the mini fixture spec. The fixture runs the whole emit and compile path, so the font under test has every stage the shipped font has: the ss10 pre-empt, the guarded and plain formation lookups, the marker lookups, the chokepoint, a packed settlement lookup, and the namer dot. A clean build must verify with zero divergences. Each corruption test edits the compiled font so it no longer matches the plan, and checks that read-back reports the mismatch under the right stage name."""
+"""Read-back tests over a real build of the mini fixture spec. The fixture runs the whole emit and compile path, so the font under test has every stage the shipped font has: the ss10 input substitution, the guarded and plain formation lookups, the marker lookups, the ZWNJ lock, a packed settlement lookup, and the namer dot. A clean build must verify with zero divergences. Each corruption test edits the compiled font so it no longer matches the plan, and checks that read-back reports the mismatch under the right stage name."""
 
 import pytest
 
@@ -23,10 +23,10 @@ def built(tmp_path_factory):
         config: kernel_exec.build_tables(spec, conform.features_for_config(config)) for config in CONFIGS
     }
     cell_glyphs = run_m1.mint_cell_glyphs(spec, tables)
-    bare, twins, ss10_twins = run_m1.mint_raw_glyphs(spec)
+    bare, copies, ss10_copies = run_m1.mint_raw_glyphs(spec)
     dots = run_m1.namer_dot_glyphs()
-    curs_glyphs = {**cell_glyphs, **bare, **twins}
-    gsub_plan = emit_gsub.emit_gsub(spec, tables, glyphs={**cell_glyphs, **bare}, ss10_twins=ss10_twins)
+    curs_glyphs = {**cell_glyphs, **bare, **copies}
+    gsub_plan = emit_gsub.emit_gsub(spec, tables, glyphs={**cell_glyphs, **bare}, ss10_copies=ss10_copies)
     gpos_fea = emit_gpos.emit_gpos(curs_glyphs, spec=spec)
     font_path = compile_font.build_mini_font(
         {**curs_glyphs, **dots},
@@ -34,15 +34,15 @@ def built(tmp_path_factory):
         tmp_path_factory.mktemp("m1-readback") / "M1Readback.otf",
     )
     cursive = emit_gpos.cursive_registrations(curs_glyphs, spec=spec)
-    return font_path, gsub_plan, cursive, ss10_twins
+    return font_path, gsub_plan, cursive, ss10_copies
 
 
 class TestOverlayCase:
-    """The conformance sweep's overlay case on the real mini font. Under ss10, HarfBuzz shapes every text up to `OVERLAY_MAX_LENGTH` as per-letter twins at zero offset with their `hmtx` advances, with nothing formed and nothing attached. `IsolatedOverlayShaper` returns the same result without shaping, which is what justifies the oracle's use of it."""
+    """The conformance sweep's overlay case on the real mini font. Under ss10, HarfBuzz shapes every text up to `OVERLAY_MAX_LENGTH` as per-letter copies at zero offset with their `hmtx` advances, with nothing formed and nothing attached. `IsolatedOverlayShaper` returns the same result without shaping, which is what justifies the oracle's use of it."""
 
     def test_the_overlay_case_passes_on_the_mini_font(self, built):
         spec = fixtures.mini_spec()
-        font_path, _plan, _cursive, _twins = built
+        font_path, _plan, _cursive, _copies = built
         result = conform._conformance_config(
             conform.Shaper(font_path),
             spec,
@@ -62,7 +62,7 @@ class TestOverlayCase:
         import itertools
 
         spec = fixtures.mini_spec()
-        font_path, _plan, _cursive, _twins = built
+        font_path, _plan, _cursive, _copies = built
         real = conform.Shaper(font_path)
         synthetic = conform.IsolatedOverlayShaper(font_path, spec)
         features = conform.features_for_config("ss10")
@@ -102,7 +102,7 @@ def _inner(subtable):
 def _corrupted_report(built, tmp_path, name, mutate):
     from fontTools.ttLib import TTFont
 
-    font_path, plan, cursive, _twins = built
+    font_path, plan, cursive, _copies = built
     out_path = tmp_path / f"{name}.otf"
     font = TTFont(str(font_path))
     try:
@@ -119,7 +119,7 @@ def _named(report, needle):
 
 class TestReadback:
     def test_a_clean_build_verifies(self, built):
-        font_path, plan, cursive, _twins = built
+        font_path, plan, cursive, _copies = built
         report = readback.verify_font(font_path, plan, cursive)
         assert report["divergences"] == []
         assert report["pass"]
@@ -128,10 +128,10 @@ class TestReadback:
         assert report["checked"]["cursive_anchors"]
 
     def test_the_isolation_claim_is_recorded_off_the_bytes(self, built):
-        """The isolation record: every letter cmap glyph has a twin, no twin appears at any position of another GSUB lookup except the namer-dot stage, and no twin has a cursive anchor. The record counts the positions it checked."""
+        """The isolation record: every letter cmap glyph has a copy, no copy appears at any position of another GSUB lookup except the namer-dot stage, and no copy has a cursive anchor. The record counts the positions it checked."""
         from fontTools.ttLib import TTFont
 
-        font_path, plan, cursive, twins = built
+        font_path, plan, cursive, copies = built
         report = readback.verify_font(font_path, plan, cursive)
         isolation = report["checked"]["isolation"]
         font = TTFont(str(font_path))
@@ -143,17 +143,17 @@ class TestReadback:
             }
         finally:
             font.close()
-        assert letters == set(twins)
+        assert letters == set(copies)
         assert isolation == {
             "cmap_letters": len(letters),
-            "twins": len(twins),
+            "copies": len(copies),
             "positions_checked": isolation["positions_checked"],
         }
         assert isolation["positions_checked"] > report["checked"]["settle_rules"]
-        assert report["checked"]["anchorless_twins"] == len(twins)
+        assert report["checked"]["anchorless_copies"] == len(copies)
 
     def test_the_plan_carries_every_stage_in_definition_order(self, built):
-        _font_path, plan, _cursive, twins = built
+        _font_path, plan, _cursive, copies = built
         assert plan.calt_stages == (
             "m1_formation_guarded",
             "m1_formation",
@@ -162,24 +162,24 @@ class TestReadback:
             "m1_namer_dot_word_start",
         )
         assert len(plan.settle_rules) == plan.rule_count > 0
-        assert plan.ss10_preempt == dict(twins)
+        assert plan.ss10_input == dict(copies)
         assert sorted(plan.marker_lines) == ["ss02", "ss03", "ss04", "ss05"]
         assert plan.formation_plain == ((("qsTea", "qsOy"), "qsTea_qsOy"),)
         assert plan.namer_dot_stage is not None and plan.namer_dot_stage[0] == "periodcentered"
 
-    def test_settlement_resolves_through_lookups_between_the_chokepoint_and_settlement(self, built):
-        """Every settlement rule's outcome is a single-substitution lookup that the emitter defines after the chokepoint and before the settlement lookup, and each one maps only its rule's input glyph. The lookups between those two stages are these, plus the one feaLib creates for the chokepoint's inline `by`, directly after the chokepoint."""
+    def test_settlement_resolves_through_lookups_between_the_zwnj_lock_and_settlement(self, built):
+        """Every settlement rule's outcome is a single-substitution lookup that the emitter defines after the ZWNJ lock and before the settlement lookup, and each one maps only its rule's input glyph. The lookups between those two stages are these, plus the one feaLib creates for the ZWNJ lock's inline `by`, directly after the ZWNJ lock."""
         from fontTools.ttLib import TTFont
 
         from rebuild.pipeline import pack_gsub
 
-        font_path, plan, _cursive, _twins = built
+        font_path, plan, _cursive, _copies = built
         font = TTFont(str(font_path))
         try:
             lookups = font["GSUB"].table.LookupList.Lookup
-            chokepoint = _stage_index(font, plan, "m1_zwnj")
+            zwnj_lock = _stage_index(font, plan, "m1_zwnj")
             settlement = _stage_index(font, plan, "m1_settle")
-            assert chokepoint + 1 < settlement
+            assert zwnj_lock + 1 < settlement
             sequences = pack_gsub.per_glyph_sequences(lookups[settlement])
             assert sequences
             reached: set[int] = set()
@@ -187,13 +187,13 @@ class TestReadback:
                 for rule in rules:
                     assert len(rule.records) == 1 and rule.records[0][0] == 0
                     index = rule.records[0][1]
-                    assert chokepoint < index < settlement
+                    assert zwnj_lock < index < settlement
                     reached.add(index)
                     inner = lookups[index]
                     assert inner.LookupType == 1 and inner.SubTableCount == 1
                     assert list(readback._single_mapping(inner) or {}) == [glyph]
-            assert reached == set(range(chokepoint + 2, settlement))
-            assert readback._single_mapping(lookups[chokepoint + 1]) is not None
+            assert reached == set(range(zwnj_lock + 2, settlement))
+            assert readback._single_mapping(lookups[zwnj_lock + 1]) is not None
             outcomes = {
                 (glyph, (readback._single_mapping(lookups[rule.records[0][1]]) or {})[glyph])
                 for glyph, rules in sequences.items()
@@ -208,7 +208,7 @@ class TestReadback:
         """The lookup and subtable counts from the raw GSUB byte walk match the decoded table's counts, which checks that the walk reads the right uint16 fields. The same parse records how many settlement subtables use formats 2 and 3."""
         from fontTools.ttLib import TTFont
 
-        font_path, plan, cursive, _twins = built
+        font_path, plan, cursive, _copies = built
         report = readback.verify_font(font_path, plan, cursive)
         budget = report["checked"]["gsub_budget"]
         font = TTFont(str(font_path))
@@ -227,7 +227,7 @@ class TestReadback:
 
     def test_the_boundary_glyphs_are_inert_on_the_bytes(self, built):
         """Checked once on the written font instead of at every shaped ZWNJ slot: no substituted position of any lookup admits a boundary glyph, `uni200C` has zero advance, and neither boundary glyph draws an outline."""
-        font_path, plan, cursive, _twins = built
+        font_path, plan, cursive, _copies = built
         report = readback.verify_font(font_path, plan, cursive)
         boundary = report["checked"]["boundary_glyphs"]
         assert boundary["substituted_positions"] > 0
@@ -237,7 +237,7 @@ class TestReadback:
         assert report["pass"]
 
     def test_verification_is_deterministic(self, built):
-        font_path, plan, cursive, _twins = built
+        font_path, plan, cursive, _copies = built
         assert readback.verify_font(font_path, plan, cursive) == readback.verify_font(
             font_path, plan, cursive
         )
@@ -338,7 +338,7 @@ class TestCorruptions:
             )
 
         report = _corrupted_report(built, tmp_path, "reordered-settle", mutate)
-        _font_path, plan, _cursive, _twins = built
+        _font_path, plan, _cursive, _copies = built
         assert not report["pass"]
         settled = _named(report, "settle:")
         assert settled and any("expected" in line for line in settled)
@@ -346,7 +346,7 @@ class TestCorruptions:
 
     def test_a_headroom_under_the_floor_is_a_divergence(self, built, monkeypatch):
         """Raising the floor above the uint16 range makes a clean font fall under it. That must be reported as a single named divergence, not raised as an exception."""
-        font_path, plan, cursive, _twins = built
+        font_path, plan, cursive, _copies = built
         monkeypatch.setattr(readback, "SUBTABLE_OFFSET_HEADROOM_FLOOR", 65_536)
         report = readback.verify_font(font_path, plan, cursive)
         assert not report["pass"]
@@ -356,7 +356,7 @@ class TestCorruptions:
 
     def test_the_report_counts_every_divergence_past_the_trimmed_list(self, built, monkeypatch):
         """When more divergences are found than `MAX_DIVERGENCES`, `divergences` holds the first ones and one line saying how many more, and `divergence_count` holds the total."""
-        font_path, plan, cursive, _twins = built
+        font_path, plan, cursive, _copies = built
         displaced = {
             y: {glyph: ((-1, -1), (-1, -1)) for glyph in registrations}
             for y, registrations in cursive.items()
@@ -371,7 +371,7 @@ class TestCorruptions:
         assert report["divergences"][-1] == f"… and {total - 1} more"
 
     def test_a_single_substitution_of_the_zwnj(self, built, tmp_path):
-        """A pre-empt lookup that substitutes the ZWNJ would replace a word boundary with a drawn letter. Read-back reports it without a shaping sweep."""
+        """An ss10 input substitution that substitutes the ZWNJ would replace a word boundary with a drawn letter. Read-back reports it without a shaping sweep."""
 
         def mutate(font, _plan):
             index = _feature_record(font, "GSUB", "ss10").Feature.LookupListIndex[0]
@@ -464,8 +464,8 @@ class TestCorruptions:
         assert not report["pass"]
         assert _named(report, "feature list:")
 
-    def test_a_letter_the_preempt_leaves_in_the_join_pipeline(self, built, tmp_path):
-        """A cmap letter with no twin would still form, settle and attach under ss10. The isolation stage finds it from the cmap and the pre-empt's mapping, independent of the plan."""
+    def test_a_letter_the_ss10_input_leaves_in_the_join_pipeline(self, built, tmp_path):
+        """A cmap letter with no copy would still form, settle and attach under ss10. The isolation stage finds it from the cmap and the ss10 input substitution's mapping, independent of the plan."""
 
         def mutate(font, plan):
             stray = next(iter(plan.marker_lines["ss03"].values()))
@@ -477,40 +477,40 @@ class TestCorruptions:
         named = _named(report, "isolation:")
         assert named and any("stay in the join pipeline" in line for line in named)
 
-    def test_a_twin_with_a_cmap_entry(self, built, tmp_path):
+    def test_a_copy_with_a_cmap_entry(self, built, tmp_path):
         def mutate(font, plan):
-            twin = next(iter(plan.ss10_preempt.values()))
+            copy = next(iter(plan.ss10_input.values()))
             for table in font["cmap"].tables:
-                table.cmap[0xE6FF] = twin
+                table.cmap[0xE6FF] = copy
 
-        report = _corrupted_report(built, tmp_path, "encoded-twin", mutate)
+        report = _corrupted_report(built, tmp_path, "encoded-copy", mutate)
         assert not report["pass"]
         named = _named(report, "isolation:")
         assert named and any("cmap entries of their own" in line for line in named)
 
-    def test_a_twin_in_a_formation_sequence(self, built, tmp_path):
+    def test_a_copy_in_a_formation_sequence(self, built, tmp_path):
         def mutate(font, plan):
             lookup = font["GSUB"].table.LookupList.Lookup[_stage_index(font, plan, "m1_formation")]
             subtable = _inner(lookup.SubTable[0])
-            subtable.ligatures[plan.ss10_preempt["qsTea"]] = subtable.ligatures["qsTea"]
+            subtable.ligatures[plan.ss10_input["qsTea"]] = subtable.ligatures["qsTea"]
 
-        report = _corrupted_report(built, tmp_path, "twin-forms", mutate)
+        report = _corrupted_report(built, tmp_path, "copy-forms", mutate)
         assert not report["pass"]
         named = _named(report, "isolation:")
-        assert named and any("forms" in line and "names a twin" in line for line in named)
+        assert named and any("forms" in line and "names a copy" in line for line in named)
 
-    def test_a_twin_in_a_marker_line(self, built, tmp_path):
+    def test_a_copy_in_a_marker_line(self, built, tmp_path):
         def mutate(font, plan):
             index = _feature_record(font, "GSUB", "ss03").Feature.LookupListIndex[0]
             mapping = _inner(font["GSUB"].table.LookupList.Lookup[index].SubTable[0]).mapping
-            mapping[plan.ss10_preempt["qsTea"]] = next(iter(plan.marker_lines["ss03"].values()))
+            mapping[plan.ss10_input["qsTea"]] = next(iter(plan.marker_lines["ss03"].values()))
 
-        report = _corrupted_report(built, tmp_path, "twin-marker", mutate)
+        report = _corrupted_report(built, tmp_path, "copy-marker", mutate)
         assert not report["pass"]
         named = _named(report, "isolation:")
-        assert named and any("substitutes a twin" in line for line in named)
+        assert named and any("substitutes a copy" in line for line in named)
 
-    def test_a_twin_in_the_chokepoint_class(self, built, tmp_path):
+    def test_a_copy_in_the_zwnj_lock_class(self, built, tmp_path):
         def mutate(font, plan):
             lookup = font["GSUB"].table.LookupList.Lookup[_stage_index(font, plan, "m1_zwnj")]
             inner = next(
@@ -519,28 +519,28 @@ class TestCorruptions:
                 if candidate.Format == 3
             )
             glyphs = inner.InputCoverage[0].glyphs
-            glyphs.append(plan.ss10_preempt["qsTea"])
+            glyphs.append(plan.ss10_input["qsTea"])
             glyphs.sort(key=font.getGlyphID)
 
-        report = _corrupted_report(built, tmp_path, "twin-chokepoint", mutate)
+        report = _corrupted_report(built, tmp_path, "copy-zwnj-lock", mutate)
         assert not report["pass"]
         named = _named(report, "isolation:")
-        assert named and any("input slot" in line and "admits a twin" in line for line in named)
+        assert named and any("input slot" in line and "admits a copy" in line for line in named)
 
-    def test_a_twin_with_a_cursive_anchor(self, built, tmp_path):
+    def test_a_copy_with_a_cursive_anchor(self, built, tmp_path):
         def mutate(font, plan):
             index = _feature_record(font, "GPOS", "curs").Feature.LookupListIndex[0]
             subtable = _inner(font["GPOS"].table.LookupList.Lookup[index].SubTable[0])
-            twin = plan.ss10_preempt["qsTea"]
-            subtable.Coverage.glyphs = sorted(set(subtable.Coverage.glyphs) | {twin}, key=font.getGlyphID)
+            copy = plan.ss10_input["qsTea"]
+            subtable.Coverage.glyphs = sorted(set(subtable.Coverage.glyphs) | {copy}, key=font.getGlyphID)
             record = subtable.EntryExitRecord[0]
-            subtable.EntryExitRecord.insert(subtable.Coverage.glyphs.index(twin), record)
+            subtable.EntryExitRecord.insert(subtable.Coverage.glyphs.index(copy), record)
             subtable.EntryExitCount = len(subtable.EntryExitRecord)
 
-        report = _corrupted_report(built, tmp_path, "anchored-twin", mutate)
+        report = _corrupted_report(built, tmp_path, "anchored-copy", mutate)
         assert not report["pass"]
         named = _named(report, "isolation:")
-        assert named and any("cursive anchors on twins" in line for line in named)
+        assert named and any("cursive anchors on copies" in line for line in named)
 
     def test_moving_a_cursive_anchor(self, built, tmp_path):
         def mutate(font, _plan):

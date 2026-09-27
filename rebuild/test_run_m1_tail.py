@@ -34,7 +34,7 @@ def _stub_chain(monkeypatch, events, *, on_compile=None, readback_pass=True):
     monkeypatch.setattr(
         run_m1.emit_gsub,
         "emit_gsub",
-        lambda spec, tables, glyphs, ss10_twins: SimpleNamespace(fea_text="", rule_count=0),
+        lambda spec, tables, glyphs, ss10_copies: SimpleNamespace(fea_text="", rule_count=0),
     )
     monkeypatch.setattr(run_m1.emit_gsub, "behavior_classes", lambda plan: [])
     monkeypatch.setattr(run_m1.emit_gpos, "emit_gpos", lambda glyphs, spec: "")

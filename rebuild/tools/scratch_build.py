@@ -63,21 +63,21 @@ def build_and_oracle(
     tables, _digests = run_m1.build_tables(spec, out_dir, configs=build_configs)
 
     cell_glyphs = run_m1.mint_cell_glyphs(spec, tables)
-    bare, twins, ss10_twins = run_m1.mint_raw_glyphs(spec)
+    bare, copies, ss10_copies = run_m1.mint_raw_glyphs(spec)
     dots = run_m1.namer_dot_glyphs()
 
     defect_report = run_m1._run_defect_gates(spec, tables, cell_glyphs)
 
-    gsub_plan = emit_gsub.emit_gsub(spec, tables, glyphs={**cell_glyphs, **bare}, ss10_twins=ss10_twins)
-    gpos_fea = emit_gpos.emit_gpos({**cell_glyphs, **bare, **twins}, spec=spec)
+    gsub_plan = emit_gsub.emit_gsub(spec, tables, glyphs={**cell_glyphs, **bare}, ss10_copies=ss10_copies)
+    gpos_fea = emit_gpos.emit_gpos({**cell_glyphs, **bare, **copies}, spec=spec)
     fea = gsub_plan.fea_text + "\n" + gpos_fea
-    all_glyphs = {**cell_glyphs, **bare, **twins, **dots}
+    all_glyphs = {**cell_glyphs, **bare, **copies, **dots}
     font_path = compile_font.build_mini_font(all_glyphs, fea, out_dir / "M1.otf")
 
     readback_report = readback.verify_font(
         font_path,
         gsub_plan,
-        emit_gpos.cursive_registrations({**cell_glyphs, **bare, **twins}, spec=spec),
+        emit_gpos.cursive_registrations({**cell_glyphs, **bare, **copies}, spec=spec),
     )
     (out_dir / "readback_summary.json").write_text(json.dumps(readback_report, indent=2) + "\n")
     if not readback_report["pass"]:

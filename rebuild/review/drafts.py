@@ -12,7 +12,7 @@ from typing import Any, Callable
 import yaml
 
 from rebuild.pipeline.labels import load_alias_map
-from rebuild.pipeline.model import SS10_TWIN_SUFFIX, CellId
+from rebuild.pipeline.model import SS10_COPY_SUFFIX, CellId
 from rebuild.pipeline.settle import is_boundary_settled
 from rebuild.pipeline.spec_load import _SchemaChecker
 from rebuild.review.enrich import (
@@ -277,10 +277,10 @@ class Drafter:
         except ValueError as error:
             return f"fail: unparseable: {error}"
         row = row_for(self.after_shaper, self.after_classifier, text, kern_neutral(features))
-        # Under ss10 the pre-empt lookup replaces every letter with its anchor-free `.ss10` twin, so every junction is already classified as a break. The expect checker knows letters by their bare cmap names, so the twin suffix is stripped too.
+        # Under ss10 the ss10 input substitution replaces every letter with its anchor-free `.ss10` copy, so every junction is already classified as a break. The expect checker knows letters by their bare cmap names, so the copy suffix is stripped too.
         row = replace(
             row,
-            glyphs=tuple("space" if g == "uni200C" else g.removesuffix(SS10_TWIN_SUFFIX) for g in row.glyphs),
+            glyphs=tuple("space" if g == "uni200C" else g.removesuffix(SS10_COPY_SUFFIX) for g in row.glyphs),
         )
         report = ReplayReport()
         errors: list[str] = []
@@ -392,7 +392,7 @@ class Drafter:
     def _baseline_cell_pin(
         self, enriched: EnrichedUnit, position: int, cell: CellId, why: str
     ) -> dict | None:
-        """The prefer record that pins the baseline cell on a name-grain divergence, where a refuse would break a join both fonts share. It exists when the alias map's cell for the baseline glyph differs from the new cell in its entry, exit, or stance. Differences only in adjustments (locked twins, bind pullbacks, suppressed extensions) have no one-line reversing edit and return None."""
+        """The prefer record that pins the baseline cell on a name-grain divergence, where a refuse would break a join both fonts share. It exists when the alias map's cell for the baseline glyph differs from the new cell in its entry, exit, or stance. Differences only in adjustments (locked copies, bind pullbacks, suppressed extensions) have no one-line reversing edit and return None."""
         span_start = enriched.after_spans[position][0]
         before_index = 0
         for index, (start, end) in enumerate(enriched.before_spans):

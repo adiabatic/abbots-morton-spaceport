@@ -50,10 +50,10 @@ def test_the_context_file_carries_the_marker_renaming_and_the_deep_classes(spec,
     _out_dir, tables = built
     decision, _joins = tables["ss03"]
     lines = emit_gsub.emitted_context_tsv(spec, "ss03", decision).splitlines()
-    renames = {raw: twin for kind, raw, twin in (line.split("\t") for line in lines) if kind == "rename"}
+    renames = {raw: copy for kind, raw, copy in (line.split("\t") for line in lines) if kind == "rename"}
     assert renames == model.raw_rename_map(spec, frozenset({"ss03"}))
     assert renames and all(
-        twin == f"{raw.split('.')[0]}.ss03{raw[len(raw.split('.')[0]):]}" for raw, twin in renames.items()
+        copy == f"{raw.split('.')[0]}.ss03{raw[len(raw.split('.')[0]):]}" for raw, copy in renames.items()
     )
     classed = dataclasses.replace(decision, deep_classes={"#Cabc": ("qsPea", "qsTea")})
     assert "class\t#Cabc\tqsPea qsTea" in emit_gsub.emitted_context_tsv(spec, "ss03", classed).splitlines()

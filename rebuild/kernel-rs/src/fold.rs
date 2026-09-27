@@ -1981,8 +1981,8 @@ mod tests {
         }
     }
 
-    /// The rows the two chokepoint tests fold: one committed left with a split on the second slot and an end-of-run row, and a default block of boundary lefts, ZWNJ included, whose end-of-run row settles to the bare input. That last row gives the identity guard a row to match. A slot-dropped row that settles to the input is an identity fallback the fold omits, so no shallower rule stands between a ZWNJ-backtrack row and the identity guard. If another rule already matched that row, the guard would be a rule no replayed row first-matches.
-    fn chokepoint(bench: &Bench, input: &str) -> FixpointProduct {
+    /// The rows the two ZWNJ lock tests fold: one committed left with a split on the second slot and an end-of-run row, and a default block of boundary lefts, ZWNJ included, whose end-of-run row settles to the bare input. That last row gives the identity guard a row to match. A slot-dropped row that settles to the input is an identity fallback the fold omits, so no shallower rule stands between a ZWNJ-backtrack row and the identity guard. If another rule already matched that row, the guard would be a rule no replayed row first-matches.
+    fn zwnj_lock(bench: &Bench, input: &str) -> FixpointProduct {
         let outcome = |suffix: &str| format!("{input}.{suffix}");
         let mut rows = vec![
             bench.row(
@@ -2038,9 +2038,9 @@ mod tests {
         bench.product(rows, Vec::new())
     }
 
-    /// An input the chokepoint never locks (`qsIt`, which is not entry-bearing) starts its rules with the default block replicated under an explicit `uni200C` backtrack, and ends that run with the identity guard, so no later rule with a backtrack class can match across a ZWNJ.
+    /// An input the ZWNJ lock never replaces (`qsIt`, which is not entry-bearing) starts its rules with the default block replicated under an explicit `uni200C` backtrack, and ends that run with the identity guard, so no later rule with a backtrack class can match across a ZWNJ.
     #[test]
-    fn an_input_the_chokepoint_never_locks_leads_its_rules_with_zwnj_guards() {
+    fn an_input_the_zwnj_lock_never_replaces_leads_its_rules_with_zwnj_guards() {
         let bench = Bench::new();
         assert!(
             !bench
@@ -2049,7 +2049,7 @@ mod tests {
             "the fixture stopped being the one this case needs"
         );
         let folded =
-            fold_product(&bench.index, chokepoint(&bench, "qsIt")).expect("the product folds");
+            fold_product(&bench.index, zwnj_lock(&bench, "qsIt")).expect("the product folds");
         let zwnj: Vec<Rc<str>> = vec![Rc::from("uni200C")];
         let guards = folded
             .decision
@@ -2078,9 +2078,9 @@ mod tests {
         );
     }
 
-    /// The same rows under a rune the chokepoint locks (`qsPea`) emit no `uni200C` backtrack, because after a ZWNJ that input enumerates under its locked twin's label. Its rule list is shorter than `qsIt`'s by the number of guards.
+    /// The same rows under a rune the ZWNJ lock replaces (`qsPea`) emit no `uni200C` backtrack, because after a ZWNJ that input enumerates under its locked copy's label. Its rule list is shorter than `qsIt`'s by the number of guards.
     #[test]
-    fn an_input_the_chokepoint_locks_gets_no_zwnj_guards() {
+    fn an_input_the_zwnj_lock_replaces_gets_no_zwnj_guards() {
         let bench = Bench::new();
         assert!(
             bench
@@ -2089,7 +2089,7 @@ mod tests {
             "the fixture stopped being the one this case needs"
         );
         let locked =
-            fold_product(&bench.index, chokepoint(&bench, "qsPea")).expect("the product folds");
+            fold_product(&bench.index, zwnj_lock(&bench, "qsPea")).expect("the product folds");
         let zwnj: Vec<Rc<str>> = vec![Rc::from("uni200C")];
         assert!(
             locked
@@ -2100,7 +2100,7 @@ mod tests {
         );
         assert_eq!(locked.decision.identity_guard_rules, 0);
         let never_locked =
-            fold_product(&bench.index, chokepoint(&bench, "qsIt")).expect("the product folds");
+            fold_product(&bench.index, zwnj_lock(&bench, "qsIt")).expect("the product folds");
         let guards = never_locked
             .decision
             .rules

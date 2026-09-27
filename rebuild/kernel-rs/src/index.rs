@@ -558,7 +558,7 @@ impl SpecIndex {
         }
     }
 
-    /// Whether the ZWNJ chokepoint locks this rune, as `settle.is_entry_bearing` computes it: some stance has a selectable declared entry row, or some stance has an entry unlock. Feature-blind, like the chokepoint itself. An unmodeled rune returns `false`, where Python raises `KeyError`; every call site checks first.
+    /// Whether the ZWNJ lock replaces this rune, as `settle.is_entry_bearing` computes it: some stance has a selectable declared entry row, or some stance has an entry unlock. Feature-blind, like the ZWNJ lock itself. An unmodeled rune returns `false`, where Python raises `KeyError`; every call site checks first.
     pub fn is_entry_bearing(&self, rune: Sym) -> bool {
         self.rune_seat(rune).is_some_and(|seat| {
             journal(Read::Rune(rune));

@@ -2,19 +2,19 @@
 
 Lookups are defined in the order they must apply, because definition order fixes their LookupList indices, and both HarfBuzz and CoreText apply lookups from different features in index order.
 
-1. The ss10 isolated-input pre-empt: single substitutions from each letter's raw cmap glyph to its anchor-free `.ss10` twin. It comes first so that under ss10 it runs before formation. The twins appear in no formation sequence, marker line, chokepoint class, or settlement input, so under ss10 no ligature forms, nothing settles, and each letter keeps its own cluster.
+1. The ss10 input substitution: single substitutions from each letter's raw cmap glyph to its anchor-free `.ss10` copy. It comes first so that under ss10 it runs before formation. The copies appear in no formation sequence, marker line, ZWNJ lock class, or settlement input, so under ss10 no ligature forms, nothing settles, and each letter keeps its own cluster.
 2. Formation: a type-4 lookup over the registry's ligature sequences. A ligature that the design section 5.7 late-formation guard ever blocks moves into its own chaining-context lookup, `m1_formation_guarded`, which runs first. Its generated `ignore sub` rows implement the guard over the two raw lookahead slots. ZWNJ-explicit forming rows come before them, because HarfBuzz skips a ZWNJ in contextual matching and a guard class could otherwise match across one. The verdicts come from one `guard-sweep` call to the kernel crate, which does not depend on the configuration, so formation can run before the marker substitutions.
 3. The stylistic-set marker substitutions: unconditional, one lookup per set, after formation so that turning on a set cannot undo a ligature. Composite markers represent several sets on at once.
-4. The ZWNJ chokepoint: `sub uni200C @m1_entry_capable' by @m1_entry_locked`.
+4. The ZWNJ lock: `sub uni200C @m1_entry_capable' by @m1_entry_locked`.
 5. One single-substitution lookup per distinct (input glyph, outcome) pair in the settlement rows, registered in no feature and referenced by name from those rows. feaLib resolves `lookup NAME` through a dict, while an inline `by` makes it rescan every rule since the last `subtable;` for a compatible inner lookup, which is quadratic in the rows per family.
 6. One settlement lookup, `m1_settle`, of chained-context rows of the form `sub <backtrack> X' lookup NAME <lookahead>;`, with a `subtable;` break between input families and positive rules only. It is marked `useExtension` so that its per-rule format-3 subtables sit behind 32-bit Extension offsets. Without it, the depth-4 rules push the uint16 subtable-offset headroom below `readback.SUBTABLE_OFFSET_HEADROOM_FLOOR`.
-7. The namer-dot calt, after settlement. It is emitted here because `tools/build_font.py`'s own namer-dot calt emits nothing for the mini font: `compile_font` passes no context sets, so there is no `shorts` set. Its follower class includes the ss10 twins of the Short letters, so the dot still lowers under ss10.
+7. The namer-dot calt, after settlement. It is emitted here because `tools/build_font.py`'s own namer-dot calt emits nothing for the mini font: `compile_font` passes no context sets, so there is no `shorts` set. Its follower class includes the ss10 copies of the Short letters, so the dot still lowers under ss10.
 
-The rules are read by duck typing against `table.Rule`: `input_glyph`, `backtrack`, `look1` to `look4` (tuples of glyph labels or None), `outcome`, `joint`, and `provenance`. `look3` and `look4` are read with `getattr`, so tables without them still work. A live `look3` compiles to a third lookahead class after `look2`, the raw third slot a depth-3 record reads, and a live `look4` to a fourth. The rule lists of all configurations in `tables_by_config` are folded into one by exact-duplicate union, after each configuration's raw labels are renamed to its marker twins (`model.raw_rename_map`). Two rules with the same window key and different outcomes raise EmitError.
+The rules are read by duck typing against `table.Rule`: `input_glyph`, `backtrack`, `look1` to `look4` (tuples of glyph labels or None), `outcome`, `joint`, and `provenance`. `look3` and `look4` are read with `getattr`, so tables without them still work. A live `look3` compiles to a third lookahead class after `look2`, the raw third slot a depth-3 record reads, and a live `look4` to a fourth. The rule lists of all configurations in `tables_by_config` are folded into one by exact-duplicate union, after each configuration's raw labels are renamed to its marker copies (`model.raw_rename_map`). Two rules with the same window key and different outcomes raise EmitError.
 
-Before returning, `emit_gsub` asserts that no locked twin or chokepoint output appears in a raw lookahead class, that every glyph a rule names is in the planned glyph set, that the only `ignore sub` rows are the namer-dot guard and the generated late-formation guard rows, and that every emitted row and every table rule are matched to each other (`_assert_fold_sources`).
+Before returning, `emit_gsub` asserts that no locked copy or ZWNJ lock output appears in a raw lookahead class, that every glyph a rule names is in the planned glyph set, that the only `ignore sub` rows are the namer-dot guard and the generated late-formation guard rows, and that every emitted row and every table rule are matched to each other (`_assert_fold_sources`).
 
-Besides the FEA text, the plan holds a structured copy of every stage: the pre-empt map, the guarded formation rows and plain ligatures, the per-feature marker substitutions, the settlement rows, the namer-dot row pair, and the calt lookup order. Each structured row is recorded where its FEA line is appended, so the two are always in the same order. `rebuild/pipeline/readback.py` checks the compiled font against this copy, and `behavior_classes` summarizes the HarfBuzz-facing shapes in it for the deep sweep. Nothing is parsed back out of the FEA text.
+Besides the FEA text, the plan holds a structured copy of every stage: the ss10 input map, the guarded formation rows and plain ligatures, the per-feature marker substitutions, the settlement rows, the namer-dot row pair, and the calt lookup order. Each structured row is recorded where its FEA line is appended, so the two are always in the same order. `rebuild/pipeline/readback.py` checks the compiled font against this copy, and `behavior_classes` summarizes the HarfBuzz-facing shapes in it for the deep sweep. Nothing is parsed back out of the FEA text.
 """
 
 from __future__ import annotations
@@ -50,7 +50,7 @@ _KNOWN_PLAN_FIELDS = frozenset(
         "marker_glyphs",
         "locked_glyphs",
         "named_glyphs",
-        "ss10_preempt",
+        "ss10_input",
         "formation_guarded_rows",
         "formation_plain",
         "marker_lines",
@@ -90,9 +90,9 @@ class GsubPlan:
     class_definitions: list[str] = field(default_factory=list)
     rule_count: int = 0
     marker_glyphs: dict[str, str] = field(default_factory=dict)  # marker glyph -> base raw glyph
-    locked_glyphs: dict[str, str] = field(default_factory=dict)  # locked twin -> raw glyph
+    locked_glyphs: dict[str, str] = field(default_factory=dict)  # locked copy -> raw glyph
     named_glyphs: frozenset[str] = frozenset()
-    ss10_preempt: dict[str, str] = field(default_factory=dict)  # raw cmap glyph -> .ss10 twin
+    ss10_input: dict[str, str] = field(default_factory=dict)  # raw cmap glyph -> .ss10 copy
     formation_guarded_rows: tuple[FormationRow, ...] = ()
     formation_plain: tuple[tuple[tuple[str, ...], str], ...] = ()  # (components, ligature)
     marker_lines: dict[str, dict[str, str]] = field(default_factory=dict)  # feature -> {source: target}
@@ -112,8 +112,8 @@ def behavior_classes(plan: GsubPlan) -> tuple[str, ...]:
                 f"GsubPlan grew a field the behavior-class enumeration does not know: {candidate.name} — teach behavior_classes its shape so the deep sweep's key covers it"
             )
     tokens: set[str] = set()
-    if plan.ss10_preempt:
-        tokens.add("ss10-preempt")
+    if plan.ss10_input:
+        tokens.add("ss10-input")
     sequences = [sequence for sequence, _ligature in plan.formation_plain]
     sequences += [row.sequence for row in plan.formation_guarded_rows]
     for sequence in sequences:
@@ -235,7 +235,7 @@ def _marker_lookups(
 
 
 def _marker_names(spec: ResolvedSpec) -> frozenset[str]:
-    """Every marker twin and its locked twin. A rule with one of these in a lookahead slot is sorted ahead of the bare-label rules that would otherwise match its windows first."""
+    """Every marker copy and its locked copy. A rule with one of these in a lookahead slot is sorted ahead of the bare-label rules that would otherwise match its windows first."""
     _per_feature, marker_glyphs, _pairs = _marker_lookups(spec)
     return frozenset(marker_glyphs) | frozenset(locked_glyph_name(name) for name in marker_glyphs)
 
@@ -471,7 +471,7 @@ def _ordered_settle_rules(rules: Iterable, marker_names: frozenset[str] = frozen
         by_input.setdefault(rule.input_glyph, []).append(rule)
     by_family: dict[str, list] = {}
     for input_glyph, input_rules in by_input.items():
-        # The first matching rule wins, so across the configuration fold, rules with a backtrack (a committed left or a ZWNJ guard) stay ahead of rules that drop the left slot at a boundary. Within each of those two blocks, a rule whose lookahead names a marker twin goes ahead of bare-label rules that would otherwise match its windows through a dropped slot. This is safe because the marker substitution is unconditional, so a marker label and the bare label it replaces never occur in the same stream. The sort is stable, so each configuration's own order is kept.
+        # The first matching rule wins, so across the configuration fold, rules with a backtrack (a committed left or a ZWNJ guard) stay ahead of rules that drop the left slot at a boundary. Within each of those two blocks, a rule whose lookahead names a marker copy goes ahead of bare-label rules that would otherwise match its windows through a dropped slot. This is safe because the marker substitution is unconditional, so a marker label and the bare label it replaces never occur in the same stream. The sort is stable, so each configuration's own order is kept.
         ordered = sorted(input_rules, key=lambda rule: (rule.backtrack is None, not mentions_marker(rule)))
         by_family.setdefault(input_glyph.split(".")[0], []).extend(ordered)
     return [rule for family_rules in by_family.values() for rule in family_rules]
@@ -599,8 +599,8 @@ def emitted_order_tsv(spec: ResolvedSpec, tables_by_config: Mapping) -> str:
 def emitted_context_tsv(spec: ResolvedSpec, config, decision) -> str:
     """The label context of one configuration for the crate's `replay-emitted` subcommand (`shipped_order::read_context`). It has a `rename` record for each raw label that the marker renaming changes under this configuration (`model.raw_rename_map`, the map `_fold_rules` uses), and a `class` record for each deep class in the table's rows, with its members as raw labels."""
     lines = [
-        f"rename\t{raw}\t{twin}"
-        for raw, twin in sorted(raw_rename_map(spec, _config_features(config)).items())
+        f"rename\t{raw}\t{copy}"
+        for raw, copy in sorted(raw_rename_map(spec, _config_features(config)).items())
     ]
     for token, members in sorted(getattr(decision, "deep_classes", {}).items()):
         lines.append(f"class\t{token}\t{' '.join(members)}")
@@ -656,9 +656,7 @@ def _assert_invariants(
                 continue
             leaked = set(slot) & locked
             if leaked:
-                raise EmitError(
-                    f"locked twin or chokepoint output in a raw lookahead class: {sorted(leaked)}"
-                )
+                raise EmitError(f"locked copy or ZWNJ lock output in a raw lookahead class: {sorted(leaked)}")
     missing: set[str] = set()
     for rule in rules:
         for name in (rule.input_glyph, rule.outcome):
@@ -689,10 +687,10 @@ def emit_gsub(
     spec: ResolvedSpec,
     tables_by_config: Mapping,
     glyphs: Mapping[CellId, GlyphRecord] | None = None,
-    ss10_twins: Mapping[str, str] | None = None,
+    ss10_copies: Mapping[str, str] | None = None,
     namer_dot: tuple[str, str] | None = ("periodcentered", "periodcentered.lowered"),
 ) -> GsubPlan:
-    """Emit the GSUB feature code and its structured plan. `glyphs` supplies the glyph names that the rules are checked against and the namer-dot follower class. Without it, the namer-dot stage is left out. `ss10_twins` maps raw cmap glyph names to their anchor-free `.ss10` twins for the ss10 pre-empt. Without it, the pre-empt is left out and the FEA says so in a comment."""
+    """Emit the GSUB feature code and its structured plan. `glyphs` supplies the glyph names that the rules are checked against and the namer-dot follower class. Without it, the namer-dot stage is left out. `ss10_copies` maps raw cmap glyph names to their anchor-free `.ss10` copies for the ss10 input substitution. Without it, the ss10 input substitution is left out and the FEA says so in a comment."""
     registry = _ClassRegistry()
     rules = _fold_rules(tables_by_config, spec)
     per_feature_markers, marker_glyphs, marker_pairs = _marker_lookups(spec)
@@ -721,12 +719,12 @@ def emit_gsub(
     parts.append(f"@m1_entry_locked = [{' '.join(locked_members)}];")
     parts.append("")
 
-    if ss10_twins:
-        preempt_lines = [
-            f"    sub {raw_name} by {twin_name};" for raw_name, twin_name in sorted(ss10_twins.items())
+    if ss10_copies:
+        ss10_input_lines = [
+            f"    sub {raw_name} by {copy_name};" for raw_name, copy_name in sorted(ss10_copies.items())
         ]
         parts.append(
-            "lookup m1_ss10_isolated_input {\n" + "\n".join(preempt_lines) + "\n} m1_ss10_isolated_input;"
+            "lookup m1_ss10_isolated_input {\n" + "\n".join(ss10_input_lines) + "\n} m1_ss10_isolated_input;"
         )
         parts.append("")
 
@@ -757,8 +755,8 @@ def emit_gsub(
         dot_glyph, lowered_glyph = namer_dot
         shorts = spec.registry.predicate_classes.get("shorts", frozenset())
         follower_names = {record_name for cell, record_name in names_by_cell.items() if cell.rune in shorts}
-        if ss10_twins:
-            follower_names.update(twin for raw_name, twin in ss10_twins.items() if raw_name in shorts)
+        if ss10_copies:
+            follower_names.update(copy for raw_name, copy in ss10_copies.items() if raw_name in shorts)
         followers = sorted(follower_names)
         if followers:
             namer_dot_stage = (dot_glyph, lowered_glyph, frozenset(followers))
@@ -789,18 +787,18 @@ def emit_gsub(
     for feature in sorted(feature_lookup_names):
         parts.append(f"\nfeature {feature} {{\n    lookup {feature_lookup_names[feature]};\n}} {feature};")
 
-    if ss10_twins:
+    if ss10_copies:
         parts.append("\nfeature ss10 {\n    lookup m1_ss10_isolated_input;\n} ss10;")
     else:
-        parts.append("\n# ss10 pre-empt skipped: no ss10 twin inventory supplied.")
+        parts.append("\n# ss10 input substitution skipped: no ss10 copy inventory supplied.")
 
     fea = "\n".join(parts) + "\n"
 
     named_glyphs: set[str] = set(capable_members) | set(locked_members) | set(marker_glyphs)
     named_glyphs.update(names_by_cell.values())
     named_glyphs.update(spec.runes)
-    if ss10_twins:
-        named_glyphs.update(ss10_twins.values())
+    if ss10_copies:
+        named_glyphs.update(ss10_copies.values())
     locked_set = frozenset(name for name in named_glyphs if ".noentry" in name) | frozenset(locked_members)
     allowed_ignores = (
         frozenset({f"ignore sub {namer_dot[0]}' uni200C;"}) if namer_dot is not None else frozenset()
@@ -815,7 +813,7 @@ def emit_gsub(
         marker_glyphs=marker_glyphs,
         locked_glyphs={locked_glyph_name(name): name for name in capable_members},
         named_glyphs=frozenset(named_glyphs),
-        ss10_preempt=dict(ss10_twins) if ss10_twins else {},
+        ss10_input=dict(ss10_copies) if ss10_copies else {},
         formation_guarded_rows=tuple(guarded_rows),
         formation_plain=tuple(plain_pairs),
         marker_lines={feature: dict(pairs) for feature, pairs in marker_pairs.items()},

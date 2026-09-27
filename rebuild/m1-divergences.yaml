@@ -26,7 +26,7 @@
   exemplars:
     - {config: default, codepoints: "200C:E670:E670", baseline: "space|qsIt.ex-y5|qsIt", new: "uni200C|qsIt.sole.locked|qsIt.sole"}
   why: |
-    A letter after a ZWNJ is word-initial in the new model (design section 3.4). The new model has no authored `.noentry` variants; the chokepoint mints locked twins instead, so every post-ZWNJ position differs at name grain (the old `<x>.noentry` or a leaked bare name, against the new `<cell>.locked`). The junctions agree, and the locked twin draws the same bitmap as the old `.noentry` glyph. boundary-window takes every ZWNJ row first, so this entry covers only the `.noentry` glyphs the old pipeline also mints after the namer dot. The entry is kept as the record of this ruling, which boundary-window cites.
+    A letter after a ZWNJ is word-initial in the new model (design section 3.4). The new model has no authored `.noentry` variants; the ZWNJ lock mints locked copies instead, so every post-ZWNJ position differs at name grain (the old `<x>.noentry` or a leaked bare name, against the new `<cell>.locked`). The junctions agree, and the locked copy draws the same bitmap as the old `.noentry` glyph. boundary-window takes every ZWNJ row first, so this entry covers only the `.noentry` glyphs the old pipeline also mints after the namer dot. The entry is kept as the record of this ruling, which boundary-window cites.
 
 - id: post-marker-ligature-formation
   status: intended
@@ -35,7 +35,7 @@
   exemplars:
     - {config: default, codepoints: "200C:E652:E679", baseline: "space|qsTea.noentry|qsOy (unformed)", new: "uni200C|qsTea_qsOy.sole.locked"}
   why: |
-    Ligature formation is unconditional and runs before the marker lookups and the chokepoint (the prototype's stage order), so ·Tea·Oy forms directly after a ZWNJ and under every stylistic set except ss10, whose pre-empt replaces every letter first. The old pipeline renames the lead letter first, so there the ligature never forms. Prototype divergence 5 / M1-PLAN expected class 6. Round-1 verdict: 32 approvals. The four "·May should use the loop stance" skip notes are superseded by the user's later choice: ·May settles on the loop stance with its full exit terminal and no pull-back. boundary-window takes the post-ZWNJ rows, so the classifier sends this entry the ·Tea·Oy rows under ss03 and the ·Day·Utter rows after the namer dot.
+    Ligature formation is unconditional and runs before the marker lookups and the ZWNJ lock (the prototype's stage order), so ·Tea·Oy forms directly after a ZWNJ and under every stylistic set except ss10, whose ss10 input substitution replaces every letter first. The old pipeline renames the lead letter first, so there the ligature never forms. Prototype divergence 5 / M1-PLAN expected class 6. Round-1 verdict: 32 approvals. The four "·May should use the loop stance" skip notes are superseded by the user's later choice: ·May settles on the loop stance with its full exit terminal and no pull-back. boundary-window takes the post-ZWNJ rows, so the classifier sends this entry the ·Tea·Oy rows under ss03 and the ·Day·Utter rows after the namer dot.
 
 - id: zwnj-follower-exit-restored
   status: reviewed-approved
@@ -44,7 +44,7 @@
   exemplars:
     - {config: default, codepoints: "200C:E665:E665:E670", baseline: "space|qsMay.noentry|qsMay.ex-ext-1|qsIt.en-y5.ex-y0 (break after the locked May)", new: "uni200C|qsMay.grounded-loop.ex-y0.locked|qsMay.loop.en-y0.ex-y5.ex-ext-1|qsIt.sole.en-y5 (y0 join gained)"}
   why: |
-    In the old font the `qsMay.noentry` stance has no exit anchor, so a post-ZWNJ ·May cannot join to the right at all. The chokepoint twin removes only the entry, because the ZWNJ break is the left junction, so the letter keeps its right-side joins. Design section 3.4: ZWNJ splits the run and does not take away the word-initial letter's joins. Round-1 verdict: 6 approvals. In u-0267's window the rejected en-ext-1 pixel went away when qsIt's halves entry-extension record was deleted, and the gained join remains. boundary-window takes every ZWNJ row first, so this entry covers only namer-dot rows, if any, where the old font's `.noentry` glyphs after the dot also lose their right-side joins. The entry is kept as the record of this ruling, which boundary-window cites.
+    In the old font the `qsMay.noentry` stance has no exit anchor, so a post-ZWNJ ·May cannot join to the right at all. The locked copy removes only the entry, because the ZWNJ break is the left junction, so the letter keeps its right-side joins. Design section 3.4: ZWNJ splits the run and does not take away the word-initial letter's joins. Round-1 verdict: 6 approvals. In u-0267's window the rejected en-ext-1 pixel went away when qsIt's halves entry-extension record was deleted, and the gained join remains. boundary-window takes every ZWNJ row first, so this entry covers only namer-dot rows, if any, where the old font's `.noentry` glyphs after the dot also lose their right-side joins. The entry is kept as the record of this ruling, which boundary-window cites.
 
 - id: zwnj-word-initial-junction-moved
   status: accepted-pending-review

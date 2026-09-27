@@ -1324,10 +1324,10 @@ def test_owe_fee_may_under_each_stylistic_set(feature_label, feature_items):
     ],
 )
 def test_ss10_forms_no_ligature_and_joins_nothing(letters):
-    """Under ss10 each letter shapes as its own anchor-free twin: no ligature forms and no two letters join."""
+    """Under ss10 each letter shapes as its own anchor-free copy: no ligature forms and no two letters join."""
     glyphs = _shape_qs(*letters, features=_SS10_FEATURE)
     assert _base_names(glyphs) == letters, f"ss10 must keep every letter separate; got {glyphs}"
-    assert all(glyph.endswith(".ss10") for glyph in glyphs), f"ss10 must use each letter's twin; got {glyphs}"
+    assert all(glyph.endswith(".ss10") for glyph in glyphs), f"ss10 must use each letter's copy; got {glyphs}"
     joined = [index for index in range(len(glyphs) - 1) if _pair_join_ys(glyphs, index)]
     assert not joined, f"ss10 must join nothing; got {glyphs}"
 

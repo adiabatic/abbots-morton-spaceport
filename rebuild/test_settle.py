@@ -136,7 +136,7 @@ ROWS = (
         (),
         ("qsMay.loop.ex-bind-pulled-back", "qsTea.half.ex-y5", "qsIt.sole.en-y5.en-ext-1"),
     ),
-    # ZWNJ splits the run, and an entry-bearing letter after it settles as its locked twin with no entry.
+    # ZWNJ splits the run, and an entry-bearing letter after it settles as its locked copy with no entry.
     ("qsIt zwnj qsTea", (), ("qsIt.sole", "uni200C", "qsTea.full.locked")),
     ("zwnj qsTea qsIt", (), ("uni200C", "qsTea.half.ex-y5.locked", "qsIt.sole.en-y5.en-ext-1")),
     ("zwnj qsMay qsTea", ("ss03",), ("uni200C", "qsMay.loop.ex-y5.locked.ex-ext-1", "qsTea.half.en-y5")),

@@ -324,15 +324,15 @@ def generate_kern_fea(
     kerning_groups: dict[str, list[str]],
     all_glyph_names: list[str],
     pixel_width: int,
-    twin_by_bare: dict[str, str] | None = None,
+    copy_by_bare: dict[str, str] | None = None,
 ) -> str:
-    """Emit the `kern` feature for `kerning_defs`. `twin_by_bare` maps each letter's bare glyph to its ss10 twin. A twin is kerned wherever its bare glyph is and nowhere else, whatever the rule's selectors match by name."""
-    twins = twin_by_bare or {}
-    twin_names = set(twins.values())
+    """Emit the `kern` feature for `kerning_defs`. `copy_by_bare` maps each letter's bare glyph to its ss10 copy. A copy is kerned wherever its bare glyph is and nowhere else, whatever the rule's selectors match by name."""
+    copies = copy_by_bare or {}
+    copy_names = set(copies.values())
 
-    def with_twins(glyphs: list[str]) -> list[str]:
-        kept = [g for g in glyphs if g not in twin_names]
-        return kept + [twins[g] for g in kept if g in twins]
+    def with_copies(glyphs: list[str]) -> list[str]:
+        kept = [g for g in glyphs if g not in copy_names]
+        return kept + [copies[g] for g in kept if g in copies]
 
     def matches_prefix(glyph: str, prefix: str) -> bool:
         return glyph == prefix or glyph.startswith(prefix + ".")
@@ -357,7 +357,7 @@ def generate_kern_fea(
             left_glyphs = [g for g in all_glyph_names if g not in excluded]
         if "except_left" in definition:
             left_glyphs = subtract_prefixes(left_glyphs, definition["except_left"])
-        left_glyphs = with_twins(left_glyphs)
+        left_glyphs = with_copies(left_glyphs)
         if not left_glyphs:
             continue
         if "right_group" in definition:
@@ -371,7 +371,7 @@ def generate_kern_fea(
             right_glyphs = definition["right"]
         if "except_right" in definition and "right_group" not in definition:
             right_glyphs = subtract_prefixes(right_glyphs, definition["except_right"])
-        right_glyphs = with_twins(right_glyphs)
+        right_glyphs = with_copies(right_glyphs)
         if not right_glyphs:
             continue
         value = definition["value"] * pixel_width
@@ -856,17 +856,17 @@ def _assemble_fea(
     glyph_data: GlyphData,
     inventory: _GlyphInventory,
     join_glyphs: dict[str, JoinGlyph],
-    ss10_twins: dict[str, JoinGlyph],
+    ss10_copies: dict[str, JoinGlyph],
     variant: str,
     pixel_width: int,
     pixel_height: int,
     senior_fea: str | None,
 ) -> str | None:
-    """Return the feature file a variant compiles, or None for mono, which copies Departure Mono's tables. `senior_fea` is the precomputed Senior join code (see `build_font`). When it is None, a Senior build emits its own. `ss10_twins` (empty outside Senior) are kerned like their bare glyphs and are in the namer-dot follower class like their bare glyphs."""
+    """Return the feature file a variant compiles, or None for mono, which copies Departure Mono's tables. `senior_fea` is the precomputed Senior join code (see `build_font`). When it is None, a Senior build emits its own. `ss10_copies` (empty outside Senior) are kerned like their bare glyphs and are in the namer-dot follower class like their bare glyphs."""
     is_proportional = variant != "mono"
     is_senior = variant == "senior"
     glyphs_def = inventory.glyphs_def
-    twin_by_bare = {meta.base_name: name for name, meta in ss10_twins.items()}
+    copy_by_bare = {meta.base_name: name for name, meta in ss10_copies.items()}
     fea_code_parts = []
 
     kerning_defs = glyph_data.get("kerning", {})
@@ -874,7 +874,7 @@ def _assemble_fea(
         kerning_groups = collect_kerning_groups(glyphs_def)
         fea_code_parts.append(
             generate_kern_fea(
-                kerning_defs, kerning_groups, list(glyphs_def.keys()), pixel_width, twin_by_bare
+                kerning_defs, kerning_groups, list(glyphs_def.keys()), pixel_width, copy_by_bare
             )
         )
 
@@ -900,7 +900,7 @@ def _assemble_fea(
             senior_kerning_defs = {f"senior_{i}": rule for i, rule in enumerate(senior_kerning_rules)}
             fea_code_parts.append(
                 generate_kern_fea(
-                    senior_kerning_defs, kerning_groups, list(glyphs_def.keys()), pixel_width, twin_by_bare
+                    senior_kerning_defs, kerning_groups, list(glyphs_def.keys()), pixel_width, copy_by_bare
                 )
             )
     elif is_proportional:
@@ -911,7 +911,7 @@ def _assemble_fea(
     if is_proportional:
         # The namer-dot calt goes last so its lookup runs after the join lookups. The join rules, some of which list `periodcentered` in `not_after`, see the dot unchanged, and the dot is lowered before a Short letter only after the join lookups have chosen that letter's stance. In Senior this is a second `feature calt {}` block, which feaLib merges with the first. In Junior it is the only calt.
         namer_dot_fea = _namer_dot_calt_fea(
-            glyph_data, {**join_glyphs, **ss10_twins}, inventory.glyph_order, inventory.name_to_codepoint
+            glyph_data, {**join_glyphs, **ss10_copies}, inventory.glyph_order, inventory.name_to_codepoint
         )
         if namer_dot_fea:
             fea_code_parts.append(namer_dot_fea)
@@ -948,7 +948,7 @@ def compile_senior_otl(
         glyph_data,
         inventory,
         compiled.join_glyphs,
-        compiled.ss10_twins,
+        compiled.ss10_copies,
         "senior",
         pixel_width,
         pixel_height,
@@ -1288,7 +1288,7 @@ def build_font(
         glyph_data,
         inventory,
         join_glyphs,
-        compiled.ss10_twins,
+        compiled.ss10_copies,
         variant,
         pixel_width,
         pixel_height,

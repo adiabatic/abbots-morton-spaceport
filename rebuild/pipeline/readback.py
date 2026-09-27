@@ -4,7 +4,7 @@ Between the FEA text and the written OTF lie feaLib's parse and its choice of lo
 
 On the same bytes it checks that the two word-boundary glyphs are inert. No substituted position of any lookup admits `uni200C` or `space`, `uni200C` has zero advance in `hmtx`, and neither glyph has an outline. A format-2 class 0 is resolved to every glyph its ClassDef does not name, so a rule that reaches a slot through class 0 is caught. gate:conform's sweep relies on this check and does not test the ZWNJ glyph's advance or outline in each shaped text.
 
-It also checks that the ss10 overlay is isolated (`_check_isolation`, `_check_anchorless_twins`). The ss10 pre-empt covers every letter cmap glyph, and no `.ss10` twin has its own cmap entry, appears in any formation sequence, marker line, chokepoint class, or settlement input, or carries a cursive anchor. So under ss10 nothing forms, settles, or attaches. That is why the overlay configuration needs no settlement table, why gate:conform's sweep covers it with texts of at most two letters, and why the oracle can compare it against the bare stream at the twins' `hmtx` advances.
+It also checks that the ss10 overlay is isolated (`_check_isolation`, `_check_anchorless_copies`). The ss10 input substitution covers every letter cmap glyph, and no `.ss10` copy has its own cmap entry, appears in any formation sequence, marker line, ZWNJ lock class, or settlement input, or carries a cursive anchor. So under ss10 nothing forms, settles, or attaches. That is why the overlay configuration needs no settlement table, why gate:conform's sweep covers it with texts of at most two letters, and why the oracle can compare it against the bare stream at the copies' `hmtx` advances.
 
 The stage is a structural comparison with the plan only. It does not simulate shaping: it does not apply lookups to a buffer, compose stages, or decide which of two competing rules wins. It checks `pack_gsub`'s repack on the written bytes by decompiling the settlement lookup through `pack_gsub.per_glyph_sequences` and comparing each input glyph's ordered rules with the plan. Ordered rules are compared per input glyph for settlement and per lead glyph for formation, because first-match-wins only orders rules that share an input glyph, and feaLib may regroup the others. feaLib compiles each chained-context ruleset in whichever of the three formats is smallest, so the guarded formation is format 1 in a small font and format 3 in the shipped one, and the settlement lookup arrives as a packed mix of formats 2 and 3.
 
@@ -345,21 +345,21 @@ def _check_isolation(
     plan: GsubPlan,
     lookups: list[Any],
     all_glyphs: frozenset[str],
-    preempt: Any,
+    ss10_input: Any,
     exempt: frozenset[int],
     divergences: list[str],
 ) -> dict:
-    """Check the GSUB half of the overlay's isolation. The pre-empt's mapping covers exactly the letter cmap glyphs (every cmap entry except the boundary glyphs and the namer dot), no twin has a cmap entry, and no twin appears at any position of any other GSUB lookup: the keys and values of every single substitution, every ligature's components and result, and every input slot of every chained-context rule, with a format-2 class 0 resolved to the glyphs its ClassDef does not name. `exempt` names the lookups allowed to see twins, which is only the namer-dot stage: its follower class holds the Short twins so that the dot still lowers under ss10. Backtrack and lookahead slots are not checked, because a twin there can never match: under ss10 every letter is a twin and no input slot admits one, and outside ss10 no twin is ever in the buffer. `_check_anchorless_twins` checks the GPOS half."""
+    """Check the GSUB half of the overlay's isolation. The ss10 input substitution's mapping covers exactly the letter cmap glyphs (every cmap entry except the boundary glyphs and the namer dot), no copy has a cmap entry, and no copy appears at any position of any other GSUB lookup: the keys and values of every single substitution, every ligature's components and result, and every input slot of every chained-context rule, with a format-2 class 0 resolved to the glyphs its ClassDef does not name. `exempt` names the lookups allowed to see copies, which is only the namer-dot stage: its follower class holds the Short copies so that the dot still lowers under ss10. Backtrack and lookahead slots are not checked, because a copy there can never match: under ss10 every letter is a copy and no input slot admits one, and outside ss10 no copy is ever in the buffer. `_check_anchorless_copies` checks the GPOS half."""
     stage = "isolation"
     cmap = font.getBestCmap() or {}
     boundary: set[str] = set(BOUNDARY_GLYPHS)
     if plan.namer_dot_stage is not None:
         boundary.add(plan.namer_dot_stage[0])
     letters = frozenset(name for name in cmap.values() if name not in boundary)
-    mapping = _single_mapping(preempt)
+    mapping = _single_mapping(ss10_input)
     if mapping is None:
-        divergences.append(f"{stage}: the pre-empt holds no single substitutions")
-        return {"cmap_letters": len(letters), "twins": 0, "positions_checked": 0}
+        divergences.append(f"{stage}: the ss10 input substitution holds no single substitutions")
+        return {"cmap_letters": len(letters), "copies": 0, "positions_checked": 0}
     uncovered = sorted(letters - set(mapping))
     if uncovered:
         divergences.append(
@@ -367,30 +367,32 @@ def _check_isolation(
         )
     stray = sorted(set(mapping) - letters)
     if stray:
-        divergences.append(f"{stage}: the pre-empt substitutes {stray[:5]}, which no codepoint reaches")
-    twins = frozenset(mapping.values())
-    encoded = sorted(twins & set(cmap.values()))
+        divergences.append(
+            f"{stage}: the ss10 input substitution replaces {stray[:5]}, which no codepoint reaches"
+        )
+    copies = frozenset(mapping.values())
+    encoded = sorted(copies & set(cmap.values()))
     if encoded:
-        divergences.append(f"{stage}: twins {encoded[:5]} carry cmap entries of their own")
+        divergences.append(f"{stage}: copies {encoded[:5]} carry cmap entries of their own")
     positions = 0
     for index, lookup in enumerate(lookups):
-        if lookup is preempt or index in exempt:
+        if lookup is ss10_input or index in exempt:
             continue
         for subtable in _unwrapped(lookup):
             kind = type(subtable).__name__
             if kind == "SingleSubst":
                 positions += len(subtable.mapping)
-                hit = sorted((set(subtable.mapping) | set(subtable.mapping.values())) & twins)
+                hit = sorted((set(subtable.mapping) | set(subtable.mapping.values())) & copies)
                 if hit:
-                    divergences.append(f"{stage}: lookup {index} substitutes a twin ({hit[:5]})")
+                    divergences.append(f"{stage}: lookup {index} substitutes a copy ({hit[:5]})")
             elif kind == "LigatureSubst":
                 for first, ligatures in subtable.ligatures.items():
                     for ligature in ligatures:
                         positions += 1
-                        hit = sorted(({first, *ligature.Component, ligature.LigGlyph}) & twins)
+                        hit = sorted(({first, *ligature.Component, ligature.LigGlyph}) & copies)
                         if hit:
                             divergences.append(
-                                f"{stage}: lookup {index} forms {' '.join((first, *ligature.Component))} -> {ligature.LigGlyph}, which names a twin ({hit[:5]})"
+                                f"{stage}: lookup {index} forms {' '.join((first, *ligature.Component))} -> {ligature.LigGlyph}, which names a copy ({hit[:5]})"
                             )
             elif kind == "ChainContextSubst":
                 rows, problems = _chain_rows(lookup, all_glyphs)
@@ -399,30 +401,30 @@ def _check_isolation(
                 for row_index, row in enumerate(rows):
                     for slot_index, slot in enumerate(row.input):
                         positions += 1
-                        hit = sorted(slot & twins)
+                        hit = sorted(slot & copies)
                         if hit:
                             divergences.append(
-                                f"{stage}: lookup {index} row {row_index} input slot {slot_index} admits a twin ({hit[:5]})"
+                                f"{stage}: lookup {index} row {row_index} input slot {slot_index} admits a copy ({hit[:5]})"
                             )
                 break
-    return {"cmap_letters": len(letters), "twins": len(twins), "positions_checked": positions}
+    return {"cmap_letters": len(letters), "copies": len(copies), "positions_checked": positions}
 
 
-def _check_anchorless_twins(gpos: Any, twins: frozenset[str], divergences: list[str]) -> int:
-    """Check the GPOS half of the overlay's isolation: no cursive-attachment subtable covers a twin, so a twin attaches to nothing and advances the pen by its `hmtx` advance alone. Returns the number of twins without anchors."""
+def _check_anchorless_copies(gpos: Any, copies: frozenset[str], divergences: list[str]) -> int:
+    """Check the GPOS half of the overlay's isolation: no cursive-attachment subtable covers a copy, so a copy attaches to nothing and advances the pen by its `hmtx` advance alone. Returns the number of copies without anchors."""
     stage = "isolation"
     anchored: set[str] = set()
     for index, lookup in enumerate(gpos.LookupList.Lookup or []):
         for subtable in _unwrapped(lookup):
             if type(subtable).__name__ != "CursivePos":
                 continue
-            hit = set(subtable.Coverage.glyphs) & twins
+            hit = set(subtable.Coverage.glyphs) & copies
             if hit:
                 anchored |= hit
                 divergences.append(
-                    f"{stage}: GPOS lookup {index} registers cursive anchors on twins {sorted(hit)[:5]}"
+                    f"{stage}: GPOS lookup {index} registers cursive anchors on copies {sorted(hit)[:5]}"
                 )
-    return len(twins - anchored)
+    return len(copies - anchored)
 
 
 def _feature_indices(table: Any) -> dict[str, list[int]]:
@@ -433,9 +435,9 @@ def _feature_indices(table: Any) -> dict[str, list[int]]:
 
 
 def _check_feature_list(plan: GsubPlan, gsub: Any, divergences: list[str]) -> dict[str, list[int]] | None:
-    """Check the GSUB feature registration the plan implies: calt always, one stylistic-set feature per marker lookup, and ss10 when the plan has a pre-empt. feaLib writes the feature records sorted by tag, so an unsorted list is also a divergence. Returns each tag's lookup indices, or None when the tags or their lookup counts do not match the plan."""
+    """Check the GSUB feature registration the plan implies: calt always, one stylistic-set feature per marker lookup, and ss10 when the plan has an ss10 input substitution. feaLib writes the feature records sorted by tag, so an unsorted list is also a divergence. Returns each tag's lookup indices, or None when the tags or their lookup counts do not match the plan."""
     tags = [record.FeatureTag for record in gsub.FeatureList.FeatureRecord or []]
-    expected = sorted(["calt", *plan.marker_lines] + (["ss10"] if plan.ss10_preempt else []))
+    expected = sorted(["calt", *plan.marker_lines] + (["ss10"] if plan.ss10_input else []))
     if sorted(tags) != expected:
         divergences.append(f"feature list: GSUB registers {sorted(tags)}, expected {expected}")
         return None
@@ -457,10 +459,10 @@ def _check_feature_list(plan: GsubPlan, gsub: Any, divergences: list[str]) -> di
 def _check_definition_order(
     plan: GsubPlan, indices: dict[str, list[int]], divergences: list[str]
 ) -> dict[str, int]:
-    """Check that the stages run in the order the emitters defined them, and return each calt stage's LookupList index. The order is the pre-empt first, so ss10 substitutes before formation; the formation stages; the marker substitutions, after formation so that enabling a set cannot undo a ligature; then the chokepoint, settlement, and the namer dot. Shapers apply lookups in LookupList order, so increasing indices are all this check needs."""
+    """Check that the stages run in the order the emitters defined them, and return each calt stage's LookupList index. The order is the ss10 input substitution first, so ss10 substitutes before formation; the formation stages; the marker substitutions, after formation so that enabling a set cannot undo a ligature; then the ZWNJ lock, settlement, and the namer dot. Shapers apply lookups in LookupList order, so increasing indices are all this check needs."""
     stages = dict(zip(plan.calt_stages, indices["calt"]))
     chain: list[tuple[str, int]] = []
-    if plan.ss10_preempt:
+    if plan.ss10_input:
         chain.append(("m1_ss10_isolated_input", indices["ss10"][0]))
     for name in plan.calt_stages:
         if name == "m1_zwnj":
@@ -561,11 +563,11 @@ def _check_plain_formation(plan: GsubPlan, lookup: Any, divergences: list[str]) 
     return len(formed)
 
 
-def _check_chokepoint(
+def _check_zwnj_lock(
     plan: GsubPlan, lookup: Any, lookups: list[Any], all_glyphs: frozenset[str], divergences: list[str]
 ) -> int:
-    """Check the ZWNJ chokepoint: one row that matches every entry-capable raw glyph after a ZWNJ and substitutes its locked twin, so no letter after a word boundary can join leftward."""
-    stage = "zwnj chokepoint"
+    """Check the ZWNJ lock: one row that matches every entry-capable raw glyph after a ZWNJ and substitutes its locked copy, so no letter after a word boundary can join leftward."""
+    stage = "zwnj lock"
     rows, problems = _chain_rows(lookup, all_glyphs)
     for problem in problems:
         divergences.append(f"{stage}: {problem}")
@@ -787,17 +789,19 @@ def verify_font(
             indices = _check_feature_list(plan, gsub, divergences)
             if indices is not None:
                 stages = _check_definition_order(plan, indices, divergences)
-                if plan.ss10_preempt:
-                    preempt = _stage_lookup(lookups, indices["ss10"][0], "ss10 pre-empt", divergences)
-                    if preempt is not None:
+                if plan.ss10_input:
+                    ss10_input = _stage_lookup(
+                        lookups, indices["ss10"][0], "ss10 input substitution", divergences
+                    )
+                    if ss10_input is not None:
                         checked["ss10_substitutions"] = _check_single_stage(
-                            "ss10 pre-empt", preempt, plan.ss10_preempt, divergences
+                            "ss10 input substitution", ss10_input, plan.ss10_input, divergences
                         )
                         exempt = frozenset(
                             index for name, index in stages.items() if name == "m1_namer_dot_word_start"
                         )
                         checked["isolation"] = _check_isolation(
-                            font, plan, lookups, all_glyphs, preempt, exempt, divergences
+                            font, plan, lookups, all_glyphs, ss10_input, exempt, divergences
                         )
                 marker_substitutions = 0
                 for feature in sorted(plan.marker_lines):
@@ -818,7 +822,7 @@ def verify_font(
                     elif stage_name == "m1_formation":
                         checked["plain_ligatures"] = _check_plain_formation(plan, lookup, divergences)
                     elif stage_name == "m1_zwnj":
-                        checked["chokepoint_members"] = _check_chokepoint(
+                        checked["zwnj_lock_members"] = _check_zwnj_lock(
                             plan, lookup, lookups, all_glyphs, divergences
                         )
                     elif stage_name == "m1_settle":
@@ -842,9 +846,9 @@ def verify_font(
             checked["gpos_features"] = len(gpos.FeatureList.FeatureRecord or [])
             checked["gpos_lookups_flag_checked"] = _check_lookup_flags(gpos, "GPOS", divergences)
             checked["cursive_anchors"] = _check_cursive(gpos, cursive, divergences)
-            if plan.ss10_preempt:
-                checked["anchorless_twins"] = _check_anchorless_twins(
-                    gpos, frozenset(plan.ss10_preempt.values()), divergences
+            if plan.ss10_input:
+                checked["anchorless_copies"] = _check_anchorless_copies(
+                    gpos, frozenset(plan.ss10_input.values()), divergences
                 )
     finally:
         font.close()

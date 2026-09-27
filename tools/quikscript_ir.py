@@ -3431,16 +3431,16 @@ def flatten_join_glyphs(join_glyphs: dict[str, JoinGlyph]) -> dict[str, GlyphDef
     return {glyph_name: _materialize_join_glyph(join_glyph) for glyph_name, join_glyph in join_glyphs.items()}
 
 
-SS10_TWIN_MODIFIER = "ss10"
+SS10_COPY_MODIFIER = "ss10"
 
 
-def ss10_twin_name(base_name: str) -> str:
-    """Return the name of a letter's ss10 twin: `qsDay.ss10` for qsDay."""
-    return f"{base_name}.{SS10_TWIN_MODIFIER}"
+def ss10_copy_name(base_name: str) -> str:
+    """Return the name of a letter's ss10 copy: `qsDay.ss10` for qsDay."""
+    return f"{base_name}.{SS10_COPY_MODIFIER}"
 
 
-def ss10_twins(join_glyphs: dict[str, JoinGlyph]) -> dict[str, JoinGlyph]:
-    """Return the ss10 twin of each letter that can join, keyed by twin name. A letter can join when a glyph of its family has a cursive anchor or when it is a ligature's component. A twin is drawn like the letter's bare glyph, with the same advance and the same kerning (`generate_kern_fea` in tools/build_font.py), but it has no cursive anchors, no cmap entry, and is in no join lookup. Under ss10 every glyph of such a letter becomes the letter's twin before any join lookup runs (`emit_ss10_isolated_input` in tools/quikscript_fea.py), so no ligature forms and no two glyphs attach."""
+def ss10_copies(join_glyphs: dict[str, JoinGlyph]) -> dict[str, JoinGlyph]:
+    """Return the ss10 copy of each letter that can join, keyed by copy name. A letter can join when a glyph of its family has a cursive anchor or when it is a ligature's component. A copy is drawn like the letter's bare glyph, with the same advance and the same kerning (`generate_kern_fea` in tools/build_font.py), but it has no cursive anchors, no cmap entry, and is in no join lookup. Under ss10 every glyph of such a letter becomes the letter's copy before any join lookup runs (`emit_ss10_isolated_input` in tools/quikscript_fea.py), so no ligature forms and no two glyphs attach."""
     joining = {
         meta.base_name for meta in join_glyphs.values() if meta.entry or meta.entry_curs_only or meta.exit
     }
@@ -3448,11 +3448,11 @@ def ss10_twins(join_glyphs: dict[str, JoinGlyph]) -> dict[str, JoinGlyph]:
         component for meta in join_glyphs.values() if len(meta.sequence) > 1 for component in meta.sequence
     )
     return {
-        ss10_twin_name(name): replace(
+        ss10_copy_name(name): replace(
             meta,
-            name=ss10_twin_name(name),
-            modifiers=(SS10_TWIN_MODIFIER,),
-            compat_assertions=_compat_assertions_from_modifiers([SS10_TWIN_MODIFIER], meta.traits),
+            name=ss10_copy_name(name),
+            modifiers=(SS10_COPY_MODIFIER,),
+            compat_assertions=_compat_assertions_from_modifiers([SS10_COPY_MODIFIER], meta.traits),
             entry=(),
             entry_curs_only=(),
             exit=(),
@@ -3785,6 +3785,6 @@ __all__ = [
     "get_base_glyph_name",
     "has_entry_preserving_exit_noentry_sibling",
     "resolve_known_glyph_names",
-    "ss10_twin_name",
-    "ss10_twins",
+    "ss10_copy_name",
+    "ss10_copies",
 ]

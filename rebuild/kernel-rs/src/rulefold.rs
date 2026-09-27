@@ -122,7 +122,7 @@ impl<'a> GroupRows<'a> {
     }
 }
 
-/// Folds one input's rows into its ordered rules. `rows` is the input's slice of the label-grain stream. `never_locked` is true when the input's rune is not entry-bearing (`SpecIndex::is_entry_bearing`), so the chokepoint never replaces it after a ZWNJ.
+/// Folds one input's rows into its ordered rules. `rows` is the input's slice of the label-grain stream. `never_locked` is true when the input's rune is not entry-bearing (`SpecIndex::is_entry_bearing`), so the ZWNJ lock never replaces it after a ZWNJ.
 pub fn rules_for_input(
     input_glyph: &Rc<str>,
     rows: &LabelRows<'_>,
@@ -197,7 +197,7 @@ pub fn rules_for_input(
         state.emit_group(&group, None, &mut default_rules)?;
     }
 
-    // An input the chokepoint never locks can follow a ZWNJ unchanged, and a rule with a backtrack class could match across the skipped ZWNJ. So when any committed rule has a backtrack class, the default block's rules are repeated with `uni200C` in the backtrack slot, ahead of every backtrack rule, followed by an identity rule. A lockable input needs none of this: after a ZWNJ it is its locked twin, whose rows are enumerated under the twin's own input label.
+    // An input the ZWNJ lock never replaces can follow a ZWNJ unchanged, and a rule with a backtrack class could match across the skipped ZWNJ. So when any committed rule has a backtrack class, the default block's rules are repeated with `uni200C` in the backtrack slot, ahead of every backtrack rule, followed by an identity rule. A lockable input needs none of this: after a ZWNJ it is its locked copy, whose rows are enumerated under the copy's own input label.
     let mut guards: Vec<Rule> = Vec::new();
     if never_locked
         && committed_rules.iter().any(|rule| {

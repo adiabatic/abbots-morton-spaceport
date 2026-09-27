@@ -2,7 +2,7 @@
 
 For each mapped stance, the check settles two single-stance versions of the ligature in the Rust engine: the ligature as authored, and the same ligature carrying the source stance's outgoing exits, unlocks, and applicable policy (with declared replacements standing in for excepted records). Both drop the stance's entry requirement and are settled after a boundary, so incoming requirements and the unformed trailing component's internal left neighbor do not affect the result. A formation guard that leaves the ligature unformed to keep an exit the ligature omits does not satisfy this check. The conformance sweep checks the built font's full contextual stream; this check checks each stance's outgoing declaration before the tables are built.
 
-The right-hand windows cover every modeled letter and boundary token in the first two slots, plus windows that satisfy each authored right-side condition chain, including each rune's chains shifted one slot right with that rune as the follower. The junction and its height must match, and a yield must stay a yield, so a local record that drops a join, moves it to another height, or joins where the source yields fails the build. Windows are settled through `kernel_exec.settle_windows`, which asks the crate for each window's settled record alone rather than its trace, in batches of `kernel_exec.SETTLE_WINDOW_BATCH`, with one pair of projected specs in memory at a time. A window the source projection refuses as `E-UNREACHABLE` is skipped, one only the ligature as authored refuses that way counts as having no junction, and any other refusal fails the check. Configurations under the isolated overlay pre-empt formation, so they are not checked and are listed in the summary's `formation_preempted`.
+The right-hand windows cover every modeled letter and boundary token in the first two slots, plus windows that satisfy each authored right-side condition chain, including each rune's chains shifted one slot right with that rune as the follower. The junction and its height must match, and a yield must stay a yield, so a local record that drops a join, moves it to another height, or joins where the source yields fails the build. Windows are settled through `kernel_exec.settle_windows`, which asks the crate for each window's settled record alone rather than its trace, in batches of `kernel_exec.SETTLE_WINDOW_BATCH`, with one pair of projected specs in memory at a time. A window the source projection refuses as `E-UNREACHABLE` is skipped, one only the ligature as authored refuses that way counts as having no junction, and any other refusal fails the check. Under the isolated overlay the ss10 input substitution runs before formation, so those configurations are not checked and are listed in the summary's `overlay_configurations`.
 """
 
 from __future__ import annotations
@@ -250,5 +250,5 @@ def validate_ligature_outgoing(spec: ResolvedSpec, rune_raws: Mapping[str, dict]
         "mappings": len(mappings),
         "windows": checked,
         "configurations": [name for name, _features in configs],
-        "formation_preempted": overlays,
+        "overlay_configurations": overlays,
     }
