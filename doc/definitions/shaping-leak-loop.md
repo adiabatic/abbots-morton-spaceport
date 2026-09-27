@@ -29,7 +29,6 @@ Some bad leaks are on the force-bad list, `site/leak-force-bad.yaml`, because th
 
 - **Persistent self-pacing loop.** Run it as a `/loop` (or the ralph-loop plugin) that re-enters across turns, picks the next backlog entry, runs the steps above, and continues until the backlog is empty or only force-bad or intractable entries remain. It needs no fixed interval.
 - **Batch, one approval at end.** Apply each _verified_ fix to the working tree but **never commit during the run**, because the project requires explicit approval for every commit. Keep a running log of what changed and of the bad count. When the loop stops, present the whole batch, the diff, and the re-blessed backlog for one approval. At that commit point, spawn a fresh sub-agent to draft commit-message suggestions.
-- **Depth 3 per fix, depth 4 once per batch.** Each fix’s verify re-sweeps at depth 3, the depth of the bad gate that `make test` runs (step 3), and `make test-leaks` sweeps depth 4 once, when the batch closes (step 5).
 
 ## Why fixes can’t be parallelized
 
