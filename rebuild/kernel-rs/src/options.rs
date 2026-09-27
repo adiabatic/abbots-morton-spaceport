@@ -139,7 +139,7 @@ pub fn raw_of(index: &SpecIndex, token: RightToken) -> RightToken {
 /// The per-build tables the right-slot option pipelines read, built once per spec from the spec and the guard, with the pipelines as its methods.
 pub struct WindowOptions<'i> {
     guard: GuardState<'i>,
-    /// Every modeled rune name, sorted by resolved string, as Python's `sorted(spec.runes)`. Sorting by symbol would be wrong: interning order depends on what the dump mentioned first, and this order reaches the emitted rows.
+    /// Every modeled rune name, sorted by resolved string, as Python's `sorted(spec.runes)`. Sorting by symbol would be wrong: interning order depends on what the dump mentioned first, and this order picks each deep-slot fiber's representative, the member its row is traced at ([`crate::fiber::Fiber::members`]).
     pub letters: Vec<Sym>,
     /// The letter tokens for [`WindowOptions::letters`], in that same order.
     pub right_letters: Vec<RightToken>,

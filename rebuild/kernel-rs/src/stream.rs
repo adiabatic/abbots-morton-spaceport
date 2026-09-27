@@ -241,7 +241,7 @@ pub enum WriteFailure {
 ///
 /// Every row's cells are looked up before the first byte is written, so, as in `write_transitions`, nothing is written for a product whose rows and cells disagree. The error message is that function's `PartitionError` message, Python tuple reprs included. A row's settled cell is checked before its left-settled cell because Python's list literal evaluates its two `settled_triple` calls in that order, so a row missing both is reported by its settled cell.
 ///
-/// The bytes are written a line at a time through one reused buffer. A configuration's stream is hundreds of megabytes, and building it as one `String`, with the reallocations as it grows, would cost that much memory for no benefit.
+/// The bytes are written a line at a time through one reused buffer. A live configuration's stream is over a gigabyte, and building it as one `String`, with the reallocations as it grows, would cost that much memory for no benefit.
 pub fn write_transitions(
     index: &SpecIndex,
     product: &FixpointProduct,
@@ -300,7 +300,7 @@ pub fn write_transitions(
     out.flush().map_err(WriteFailure::Sink)
 }
 
-/// [`write_transitions`] into a `String`, for tests that read the whole stream back. Only tests call it, because a configuration's stream is hundreds of megabytes.
+/// [`write_transitions`] into a `String`, for tests that read the whole stream back. Only tests call it, because a live configuration's stream is over a gigabyte.
 pub fn emit_transitions(index: &SpecIndex, product: &FixpointProduct) -> Result<String, String> {
     let mut bytes: Vec<u8> = Vec::new();
     match write_transitions(index, product, &mut bytes) {
@@ -500,7 +500,7 @@ pub(crate) fn python_tuple(items: &[String]) -> String {
 
 /// One string in Python's repr, the form error messages use for a tuple's members: single quotes unless the text contains a single quote and no double quote, backslash and the chosen quote escaped, tab, newline, and carriage return as `\t`, `\n`, and `\r`, and every other ASCII control character as `\xNN`.
 ///
-/// Non-ASCII characters pass through unchanged, which matches Python for every printable code point. A non-printable one would differ, but no authored name contains one: rune names, stance names, heights, and adjustment tokens all come from the ASCII vocabulary the dump's grammar accepts.
+/// Non-ASCII characters pass through unchanged, which matches Python for every printable code point. A non-printable one would differ, but no authored name contains one: `rebuild/schema/rune.schema.json`, which `spec_load` checks every rune against, admits only ASCII rune names, stance names, bitmap names, and heights, and an adjustment token is built from ASCII words, counts, and those bitmap names.
 pub(crate) fn python_repr(value: &str) -> String {
     let quote = if value.contains('\'') && !value.contains('"') {
         '"'

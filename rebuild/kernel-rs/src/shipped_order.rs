@@ -428,7 +428,7 @@ fn slot_name(slot: usize) -> &'static str {
     }
 }
 
-/// How many members of a slot an error message lists before it counts the rest. A committed-left block runs to hundreds of cells.
+/// How many members of a slot an error message lists before it counts the rest. A committed-left block's backtrack class can be far too long to list in full.
 const SPELLED_MEMBERS: usize = 4;
 
 /// Formats one rule for an error message: the input, the five slots (`any` for an unconstrained slot, and a long class cut to its first members), the outcome, and the first provenance pointer, which for an emitted rule names a table rule it was folded from.

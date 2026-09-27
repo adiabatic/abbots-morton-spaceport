@@ -98,7 +98,7 @@ pub struct MemoAccess {
 
 /// The content-addressed id one deep-slot member set carries, `table.deep_class_id`: `#C` plus the first twelve hex digits of the SHA-256 of the tab-joined members.
 ///
-/// Identical member sets share one id across contexts, configurations and builds, which is what keeps cross-config artifact comparison and the ss04 row-identity pin meaningful. The caller passes the members sorted by letter, as the emission sorts them, because the digest is over the joined text.
+/// Identical member sets share one id across contexts, configurations and builds, which is what keeps cross-config artifact comparison meaningful. The caller passes the members sorted by letter, as the emission sorts them, because the digest is over the joined text.
 pub fn deep_class_id(members: &[String]) -> String {
     let digest = sha256::digest_hex(members.join("\t").as_bytes());
     format!("{DEEP_CLASS_PREFIX}{}", &digest[..12])
@@ -299,7 +299,7 @@ fn enumerate_from_seeds<'i>(
             simulated_prospect: modes.simulated_prospect,
             follower_prefer_slots: modes.follower_prefer_slots,
             trace_memo: true,
-            // The rows read only the settled triple, the prospect, the joint tiebreak and the notes, never how a trace was decided, and the ranking costs more than every other explain-only allocation together.
+            // The rows read only the settled triple, the prospect, the joint tiebreak and the notes, never how a trace was decided.
             explain_ranking: false,
             ..EngineModes::default()
         },

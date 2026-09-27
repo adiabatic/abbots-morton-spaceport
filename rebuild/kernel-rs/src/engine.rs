@@ -169,7 +169,7 @@ struct PairingSets {
     only: Option<HashSet<(Sym, Sym)>>,
 }
 
-/// The index of one distinct candidate list in the candidate memo's list pool, stored in a memo entry in place of the list. A configuration's candidate memo holds fewer than half a million entries but only a few dozen distinct lists, so four bytes per entry replace a vector shared with hundreds of thousands of other entries (issue #167). [`CandidateListId::at`] and [`CandidateListId::index`] are the only conversions.
+/// The index of one distinct candidate list in the candidate memo's list pool, stored in a memo entry in place of the list. An instrumented run (issue #167) measured under half a million entries per configuration sharing a few dozen distinct lists, so four bytes per entry replace a vector that thousands of other entries repeat. [`CandidateListId::at`] and [`CandidateListId::index`] are the only conversions.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 struct CandidateListId(u32);
 
@@ -223,7 +223,7 @@ impl CandidateListPool {
     }
 }
 
-/// The index of one distinct elimination list in the candidate memo's elimination pool, stored in a memo entry in place of the list. The pool is keyed on the whole list (each elimination's stage, description and provenance), so explain mode, where descriptions are filled in, stays exact. In fixpoint mode the descriptions are empty, so a configuration's entries share a few dozen lists (issue #167).
+/// The index of one distinct elimination list in the candidate memo's elimination pool, stored in a memo entry in place of the list. The pool is keyed on the whole list (each elimination's stage, description and provenance), so explain mode, where descriptions are filled in, stays exact. In fixpoint mode the descriptions are empty, so the lists repeat across entries: issue #167's instrumented run measured a few dozen per configuration.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 struct EliminationListId(u32);
 
@@ -431,7 +431,7 @@ struct Applicable<'i> {
     favored: HashSet<Candidate>,
 }
 
-/// The index of one distinct fired delta in the engine's delta pool, stored in a memoized window, enumeration, prospect or closure entry in place of the delta. A configuration's million and more memoized windows journal a few tens of thousands of distinct deltas, so four bytes per entry replace a boxed slice shared with hundreds of other entries (issue #165). [`DeltaId::at`] and [`DeltaId::index`] are the only conversions.
+/// The index of one distinct fired delta in the engine's delta pool, stored in a memoized window, enumeration, prospect or closure entry in place of the delta. A configuration's memoized windows far outnumber the distinct deltas they journal (issue #165; `default`'s memo file lists both), so four bytes per entry replace a boxed slice that many other entries repeat. [`DeltaId::at`] and [`DeltaId::index`] are the only conversions.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct DeltaId(u32);
 
@@ -1901,11 +1901,11 @@ impl<'i> Engine<'i> {
     ///
     /// With `simulated_prospect` on (the default), the term is the follower's simulated transition: the follower's full settlement run one position over, with this candidate as the follower's left and the window shifted right. It scores 1 when the simulated winner has a junction. The recursion only moves right, over strictly fewer slots, and stops at the window edge, where a non-letter slot scores 0, so text past the window stays unknown. With the mode off (the section 5.7 guard's setting and the comparison state), the term is the optimistic candidacy estimate: 1 when any junction-bearing follower cell survives enumeration. That estimate respects refusals but ignores the follower's prefers and ordering.
     ///
-    /// A replayed settlement can raise where real settlement never would, for example on a prefer conflict or a definitely firing unlock scope in a window whose candidate never wins. A raising replay falls back to the candidacy estimate and counts in [`Engine::simulated_prospect_fallbacks`]. The fallback catches every [`SettleError`], including the unresolvable-class spec defect, which `spec_load` rejects long before settlement.
+    /// A replayed settlement can raise where real settlement never would, for example on a prefer conflict in a window whose candidate never wins. A raising replay falls back to the candidacy estimate and counts in [`Engine::simulated_prospect_fallbacks`]. The fallback catches every [`SettleError`], including the unresolvable-class spec defect, which `spec_load` rejects long before settlement.
     ///
     /// The memo stores a term beside the id of its fired delta, and with a trace memo in simulated mode it holds only the asks whose replayed settlement raised (issue #166). A settling replay's delta equals the trace memo's delta for the follower's window: the synthetic left journals nothing, and deduplicating what [`Engine::with_settled`] journaled (a replayed trace delta, or the raw firings the trace memo deduplicated into that same delta) gives that delta again. The trace memo already holds that entry, under a key without this candidate's entry, so the capture is discarded instead of stored ([`Engine::abort_capture`]). The next ask with this key reads the trace memo through `with_settled`, which replays the same first-fired sequence into the same enclosing capture at the same point. A raising replay is never stored in the trace memo, so its fallback is what this memo is for. Candidacy mode runs no replay and memoizes every ask, and so does simulated mode without a trace memo, where nothing else can answer the next ask.
     ///
-    /// A replayed settlement asked for while no window is being evaluated is a probe's ask. [`Engine::probe_prospect`] is the only caller that reaches the term that way, because the ranking asks only from inside a trace. Its follower window is settled through [`Engine::with_settled_unrecorded`]: read from the trace memo when the memo holds it, and not added when it does not (issue #168). The probes memoize their verdicts above this call on their own keys, so the window is asked for again only by a row whose ranking reaches the same shifted window. An instrumented run over the whole alphabet measured how rarely that happens: the probes' replays wrote well over a third of the trace memo's entries and nearly all were never read, and the fourth-slot probes' windows (a letter third and an unknown fourth, which a row reaches only past a live fourth slot) almost never. Recording them pushed the memo's bucket table past a power-of-two doubling at the whole alphabet, and leaving them out keeps it under. The replays that a probe's replay runs in turn are recorded as usual, since every ranking shares those windows.
+    /// A replayed settlement asked for while no window is being evaluated is a probe's ask. [`Engine::probe_prospect`] is the only caller that reaches the term that way, because the ranking asks only from inside a trace. Its follower window is settled through [`Engine::with_settled_unrecorded`]: read from the trace memo when the memo holds it, and not added when it does not (issue #168). The probes memoize their verdicts above this call on their own keys, so the window is asked for again only by a row whose ranking reaches the same shifted window. An instrumented run over the whole alphabet measured how rarely that happens: the probes' replays wrote well over a third of the trace memo's entries and nearly all were never read, and the fourth-slot probes' windows (a letter third and an unknown fourth, which a row reaches only past a live fourth slot) almost never. In that run, recording them pushed the memo's bucket table past a power-of-two doubling, and leaving them out kept it under. The replays that a probe's replay runs in turn are recorded as usual, since every ranking shares those windows.
     fn prospect(
         &mut self,
         rune_name: Sym,
@@ -6756,7 +6756,7 @@ mod tests {
         );
     }
 
-    /// A window in which the follower's replayed settlement raises. `qsTea` exits toward `qsPea`, whose two entry-only stances tie at every score and whose two prefer records each demand one of them. The simulated prospect's settlement of `qsPea` is therefore E-AMBIGUOUS, although `qsTea`'s own window settles. No sweep over the live alphabet reaches this: E-AMBIGUOUS is unauthored there, and an E-UNACCEPTED-EXIT replayed settlement cannot happen either, because the closure has already shown that the follower has cells.
+    /// A window in which the follower's replayed settlement raises. `qsTea` exits toward `qsPea`, whose two entry-only stances tie at every score and whose two prefer records each demand one of them. The simulated prospect's settlement of `qsPea` is therefore E-AMBIGUOUS, although `qsTea`'s own window settles. Sweeps over the live alphabet reach the fallback only through replays that raise E-UNACCEPTED-EXIT or E-INCOMPARABLE, never E-AMBIGUOUS.
     fn raising_follower_spec() -> SpecIndex {
         let conflicting = fixtures::policy(&[(
             "prefer",

@@ -146,7 +146,7 @@ impl<'i> ThirdSlotFilter<'i> {
         Ok(verdict)
     }
 
-    /// The number of distinct windows this filter has answered, which is the size of its verdict memo. Tests use it to check that a raise is not memoized and that a repeated window is answered from the memo. The memo matters because the liveness branch is expensive to evaluate twice.
+    /// The number of distinct windows this filter has answered, which is the size of its verdict memo. Tests use it to check that a raise is not memoized and that a repeated window is answered from the memo.
     pub fn answered(&self) -> usize {
         self.verdicts.len()
     }

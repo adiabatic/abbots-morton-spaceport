@@ -4,7 +4,7 @@
 //!
 //! The finalizer is required because of how hashbrown reads the hash: the low bits pick the bucket, and the top seven bits are the control byte it compares a group at a time. Without a finalizer, the last multiply carries each bit of the last word written only upward, so the low bits cannot see that word's high bits. Such a hasher measured far slower than SipHash on these keys, and the finalized one, whose every output bit depends on every input bit, measured far faster (`doc/rebuild-design.md` §14.1).
 //!
-//! Two consequences follow. Iteration order over these tables depends only on the keys and is the same in every process, where the standard tables reseed per process. Nothing reads that order, since every table that reaches output is drained and sorted first. And the hasher is not collision-resistant: a caller that could choose the keys could choose colliding ones. That does not matter for a build tool reading a spec this repository authors, but a crate fed untrusted input should use the standard hasher.
+//! Two consequences follow. Iteration order over these tables depends only on the keys and is the same in every process, where the standard tables reseed per process. No result depends on that order. Every table that reaches output is drained and sorted first, except the replay's window memo: [`crate::replay::Replay::write_window_memo`] writes its rows in table order, and the file's reader indexes them by window. And the hasher is not collision-resistant: a caller that could choose the keys could choose colliding ones. That does not matter for a build tool reading a spec this repository authors, but a crate fed untrusted input should use the standard hasher.
 
 use std::hash::{BuildHasherDefault, Hasher};
 
