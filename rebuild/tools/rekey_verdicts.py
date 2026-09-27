@@ -6,7 +6,7 @@ Two checks guard the pairs. `pre_rename_projection` applies the forward renames 
 
 The files it rewrites are the live autosave, every verdicts-*.json at the repository root stamped for the same corpus as the autosave (the stamp-aligned carried master and the fill files among them), every rebuild/evidence/verdicts-carried-*.json, and any file passed with `--verdicts`. Each record naming a pre-rename id moves to the post-rename id; a record already naming a unit on the corpus is left alone, and one naming neither is left alone and counted as unmatched, which blocks the write when the file is stamp-aligned and the id is a content id. Stamps, notes and `at` times are kept, so the carry that follows moves the verdicts onto the new corpus as it does any other store. Verdict records carry no duplicate-group or cluster id, and the `[carried u-…@file]` markers in notes record where a verdict came from, so they keep the ids they were written with. `--references` rewrites pre-rename unit ids in text files too, such as the unit ids rebuild/standing-approvals.yaml quotes in its notes.
 
-Every file is copied to a new directory under var/keep/issue-357-rekey/ before it is rewritten, with the journal's length and whether the re-key appends to the journal, and `--undo DIR` puts those copies back and, when it appended, truncates the journal to that length. The rewritten autosave is appended to verdicts-journal.ndjson as a base event (`journal.record_transition` with no previous stamp), because journal lines before it name pre-rename ids. The old-to-new id map of every unit whose id changed is written to var/keep/issue-357-rekey/unit-id-map.json, which `merge_verdicts --restore-as-of TIME --rekey-map` applies to a store it replays from before the re-key. A second run finds every verdict already current and writes nothing. It prints `rekey counts: seen=N rekeyed=N current=N unmatched=N` over all the files.
+Every file is copied to a new directory under var/keep/issue-357-rekey/ before it is rewritten, with the journal's length and whether the re-key appends to the journal, and `--undo DIR` puts those copies back and, when it appended, truncates the journal to that length. The rewritten autosave is appended to verdicts-journal.ndjson as a base event (`journal.record_transition` with no previous stamp), because journal lines before it name pre-rename ids. The old-to-new id map of every unit whose id changed is merged into var/keep/issue-357-rekey/unit-id-map.json (`merge_id_maps`): a later run, whose corpus may differ, adds its pairs to the ones already there instead of replacing them, and first copies the previous map beside it as unit-id-map-<time>.json. So the one map holds every pair any run wrote, and `merge_verdicts --restore-as-of TIME --rekey-map` applies it to a store it replays from before the re-key. Where two runs pair one pre-rename id with different units, the later run's unit wins and the tool names the clash; the earlier pair stays in the copy. A second run finds every verdict already current and writes nothing. It prints `rekey counts: seen=N rekeyed=N current=N unmatched=N` over all the files.
 
 Usage:
   uv run python -m rebuild.tools.rekey_verdicts --dry-run
@@ -273,8 +273,45 @@ def _journal_tail(path: Path, size: int) -> str:
         return hashlib.sha256(handle.read(size - start)).hexdigest()
 
 
+def _time_name() -> str:
+    return "".join(c if c.isalnum() or c in ".-" else "." for c in journal.now_stamp())
+
+
+def merge_id_maps(
+    previous: Mapping[str, Any] | None, corpus: str | None, renamed: Mapping[str, str]
+) -> tuple[dict[str, Any], list[str]]:
+    """Return the id map holding every pair of `previous` and of `renamed`, and the pre-rename ids the two pair with different units. A pair of `renamed` wins such a clash, because it names a unit of the corpus the next carry lands on. `corpora` lists the stamp of every corpus a run built the map from."""
+    earlier = previous.get("renamed") if isinstance(previous, Mapping) else None
+    entries: dict[str, str] = dict(earlier) if isinstance(earlier, Mapping) else {}
+    clashes = sorted(old for old, new in renamed.items() if entries.get(old, new) != new)
+    entries.update(renamed)
+    corpora: list[Any] = []
+    if isinstance(previous, Mapping):
+        listed = previous.get("corpora")
+        corpora = list(listed) if isinstance(listed, list) else [previous.get("corpus")]
+    if corpus not in corpora:
+        corpora.append(corpus)
+    payload = {
+        "format": MAP_FORMAT,
+        "corpus": corpus,
+        "corpora": corpora,
+        "renamed": dict(sorted(entries.items())),
+    }
+    return payload, clashes
+
+
+def _save_previous_map(map_path: Path, keep: Path) -> Path:
+    stem = f"{map_path.stem}-{_time_name()}"
+    target, count = keep / f"{stem}.json", 1
+    while target.exists():
+        count += 1
+        target = keep / f"{stem}-{count}.json"
+    shutil.copy2(map_path, target)
+    return target
+
+
 def _backup(root: Path, keep: Path, paths: list[Path], journal_path: Path, *, journaled: bool) -> Path:
-    target = keep / "".join(c if c.isalnum() or c in ".-" else "." for c in journal.now_stamp())
+    target = keep / _time_name()
     target.mkdir(parents=True, exist_ok=False)
     files = []
     for index, path in enumerate(paths):
@@ -418,11 +455,22 @@ def run(
         )
         return 1
     map_path = keep / MAP_NAME
-    map_payload = {"format": MAP_FORMAT, "corpus": corpus_stamp, "renamed": dict(sorted(renamed.items()))}
-    if _read_map(map_path) != map_payload:
+    previous = _read_map(map_path)
+    map_payload, clashes = merge_id_maps(previous, corpus_stamp, renamed)
+    if previous != map_payload:
         keep.mkdir(parents=True, exist_ok=True)
+        saved = _save_previous_map(map_path, keep) if map_path.exists() else None
+        if saved is not None:
+            print(f"copied the previous id map to {_rel(saved, root)}")
         _write_json(map_path, map_payload)
-        print(f"wrote {_rel(map_path, root)}: {len(renamed)} ids")
+        print(
+            f"wrote {_rel(map_path, root)}: {len(map_payload['renamed'])} ids, {len(renamed)} from this corpus"
+        )
+        if clashes and saved is not None:
+            print(
+                f"{len(clashes)} pre-rename id(s) pair with a different unit than in the previous map, whose copy "
+                f"{_rel(saved, root)} keeps the earlier pair: {', '.join(clashes[:10])}"
+            )
     if not targets:
         print("nothing to re-key: every verdict names a post-rename id or no unit on the corpus")
         return 0
