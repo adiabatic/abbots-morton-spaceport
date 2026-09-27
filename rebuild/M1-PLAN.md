@@ -150,7 +150,7 @@ policy:
   contract:
     - {stance: loop, entry: x-height, bind: pulled-back-stubless, when: {left: {family: qsFee}}, why: ·Fee's long reach-over absorbs the baseline stub; the redraw spans rows, so it is a bound shape, not arithmetic.}
       # `bind:` substitutes a hand-drawn alternative for same-row arithmetic; `trim: N` blanks ink on the receiving side instead. `stance: loop` is needed here because both ·May stances offer an x-height entry. This record exists only in `rebuild/pipeline/fixtures.py`: qsMay.yaml's x-height entry row binds `pulled-back-stubless` for every enterer, so the rune needs no such contract (§5).
-  resolve: []                      # where an E-INCOMPARABLE/E-AMBIGUOUS is decided, with migrated: provenance
+  resolve: []                      # settles a conflict between a prefer on this rune and one on another rune, as {against: {rune, id}, when, pick, why}; `migrated:` is optional and marks a resolve carried over wholesale from the old font
   groups: {}                       # rune-local sets: {union: [...], minus: [...]} over family literals, traits, classes
 ```
 
