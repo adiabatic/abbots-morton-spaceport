@@ -331,7 +331,7 @@ pub fn pick_most_specific<'r>(
         })
         .collect();
     Err(SettleError::Incomparable(format!(
-        "E-INCOMPARABLE: {} records co-match one window with non-nested conditions and conflicting demands: {}. Record a resolve with migrated: provenance.",
+        "E-INCOMPARABLE: {} records co-match one window with non-nested conditions and conflicting demands: {}. Settle it by editing the records: narrow one record's when: so the conditions nest (the narrower record wins) or no longer overlap, make the records demand the same thing, or remove one.",
         maximal.len(),
         described.join("; ")
     )))
@@ -932,7 +932,7 @@ mod tests {
         assert_eq!(error.kind(), crate::error::SettleErrorKind::Incomparable);
         assert_eq!(
             error.message(),
-            "E-INCOMPARABLE: 2 records co-match one window with non-nested conditions and conflicting demands: qsHost.yaml:policy.extend.self-entry-live; qsHost.yaml:policy.extend.right-it-by-two. Record a resolve with migrated: provenance."
+            "E-INCOMPARABLE: 2 records co-match one window with non-nested conditions and conflicting demands: qsHost.yaml:policy.extend.self-entry-live; qsHost.yaml:policy.extend.right-it-by-two. Settle it by editing the records: narrow one record's when: so the conditions nest (the narrower record wins) or no longer overlap, make the records demand the same thing, or remove one."
         );
     }
 
