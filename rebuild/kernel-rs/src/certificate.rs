@@ -2,11 +2,11 @@
 //!
 //! A rule can fire when some string reaches a window the rule first-matches, and the rows already record such a string for every window they hold. A row's successor is a row whose input is the row's right1, whose left is the row's outcome, and whose right1, right2, and right3 are the row's right2, right3, and right4, as far as both rows carry them. A start row is a row whose left is a boundary, reached by the text of that one boundary. A chain of successors from a start row to a row, a row chain, gives the inputs that put the row's left state in place, and the row's own slots give the right context settlement read. [`RowChains`] finds the shortest such chain for every row with one breadth-first pass over the rows in their key order.
 //!
-//! The chain fixes every token up to the row's last carried right slot, and only the tail after it is open. A surviving formation pair at the end of the stream still needs the section 5.7 guard's follower and second slot, and a formed ligature at the end still needs a next token before which it forms. This module completes that tail, checks that the completed window still first-matches the rule under the fold's first-match-wins, and returns one token stream per rule. The build writes them into the windows head, and `run_m1`'s witness stage settles each one through the crate and checks that its rule first-matches at some position. That check verifies the worklist's slot restrictions: a chain the worklist restricted wrongly would settle its certificate to a different rule. When no chain reaches any of a rule's rows, the worklist admitted a left state beside a right1 that no producing window had, and [`certify`] fails the build, naming the rule, the row, and the unsupported right slot.
+//! The chain fixes every token up to the row's last carried right slot, and only the tail after it is open. An unformed formation pair at the end of the stream still needs the section 5.7 guard's follower and second slot, and a formed ligature at the end still needs a next token before which it forms. This module completes that tail, checks that the completed window still first-matches the rule under the fold's first-match-wins, and returns one token stream per rule. The build writes them into the windows head, and `run_m1`'s witness stage settles each one through the crate and checks that its rule first-matches at some position. That check verifies the worklist's slot restrictions: a chain the worklist restricted wrongly would settle its certificate to a different rule. When no chain reaches any of a rule's rows, [`certify`] fails the build, naming the rule, the first such row, and why no chain reaches it: no producing window settled to the row's left before its input, or none carried one of its right slots (the worklist admitted a left state beside a right1 that no producing window had), or producers exist for all of them but none lies on a row chain itself.
 //!
 //! The chain is the shortest one, not the worklist's own, because the worklist is a stack. An item's first visitor is whatever the depth-first order reached it through, so those chains are thousands of letters long, and the witness stage would have to settle every letter. A breadth-first chain is as short as any text that reaches the row.
 //!
-//! Tail completion is a bounded search, because a token appended to satisfy one constraint can raise another: a follower that makes a pair survive can itself begin a surviving pair, and a ligature at the new end needs its own follower. Each step appends one token the first open constraint asks for and re-reads the whole stream. It tries boundaries first, because a boundary raises no new constraint, then letters in name order, up to `COMPLETION_DEPTH` appends. Several completions are kept per row and several rows per rule, because a concrete tail can make an earlier rule first-match the window, when that rule's deep class admits the tail's token where the row's `#NA` did not. The certificate is the first completion, of the first row in shortest-chain order, whose window the rule wins.
+//! Tail completion is a bounded search, because a token appended to satisfy one constraint can raise another: a follower that keeps a pair unformed can itself begin an unformed pair, and a ligature at the new end needs its own follower. Each step appends one token the first open constraint asks for and re-reads the whole stream. It tries boundaries first, because a boundary raises no new constraint, then letters in name order, up to `COMPLETION_DEPTH` appends. Several completions are kept per row and several rows per rule, because a concrete tail can make an earlier rule first-match the window, when that rule's deep class admits the tail's token where the row's `#NA` did not. The certificate is the first completion, of the first row in shortest-chain order, whose window the rule wins.
 //!
 //! A certificate does not show that HarfBuzz applies the rule; `gate:conform` checks that over the compiled font. A certificate shows that the rule is reachable under the kernel's own settlement. The fold's unreachable-rule check cannot show this, because it replays only the table's own rows, and a row is reachable only if its left state is.
 
@@ -224,9 +224,9 @@ fn partition(rows: &LabelRows<'_>, before: impl Fn(&[&str; 6]) -> bool) -> usize
 
 /// One certificate per rule, in rule order. Each is a token stream in the windows vocabulary: rune names for letters, and the three boundary glyph labels for boundaries. `first_rows` is the result of [`crate::fold::first_match_rows`]: the rows each rule first-matched under the replay, shortest chain first.
 ///
-/// The fold has already shown that a replayed row first-matches every rule, so a rule for which no row completes into a certificate means the worklist got a slot restriction wrong, and this returns an error naming the rule. There are two error messages, one for each way a row can fail. If no row chain reaches any of the rule's rows, `unsupported_slot` names the first row and the right slot no producer supports: the worklist admitted a left state beside a right1 that no producing window had. If a chain reaches a row but no completion of its tail gives a window the rule wins, the slot restrictions held and the constraint search found nothing.
+/// The fold has already shown that a replayed row first-matches every rule, so a rule for which no row completes into a certificate means the worklist got a slot restriction wrong, and this returns an error naming the rule. There are two kinds of error, one for each way a row can fail. If no row chain reaches any of the rule's rows, `unreached_rows_error` names the first row and why no chain reaches it: its left before its input, or one of its right slots, that no producer supports, or producers for all of them that lie on no row chain themselves. If a chain reaches a row but no completion of its tail gives a window the rule wins, the slot restrictions held and the constraint search found nothing.
 ///
-/// A hand-built test product can get an empty list instead of an error, in two cases: one of a rule's rows has a label the spec models no rune for, or an unreached row's left is no row's outcome. A build's product can do neither, because every label of an enumeration is a modeled rune or a boundary and every letter left is some window's outcome. `run_m1`'s witness stage fails a table whose certificate count differs from its rule count, so an empty list cannot reach a font; the errors here are the check meant to catch a build's unsupported right slot.
+/// A hand-built test product can get an empty list instead of an error, in two cases: one of a rule's rows has a label the spec models no rune for, or an unreached row's left is no row's outcome. A build's product can do neither, because every label of an enumeration is a modeled rune or a boundary and every letter left is some window's outcome. `run_m1`'s witness stage fails a table whose certificate count differs from its rule count, so an empty list cannot reach a font; the errors here are the check meant to catch a build's wrong slot restriction.
 pub fn certify(
     index: &SpecIndex,
     options: &mut WindowOptions<'_>,
@@ -282,7 +282,13 @@ pub fn certify(
             None if unspellable_any => return Ok(Vec::new()),
             None if !spelled_any => {
                 let row = unreached.expect("a rule the replay handed rows to has at least one");
-                match unsupported_slot(rows, rule_index, rule, row, first_rows[rule_index].len()) {
+                match unreached_rows_error(
+                    rows,
+                    rule_index,
+                    rule,
+                    row,
+                    first_rows[rule_index].len(),
+                ) {
                     Some(error) => return Err(error),
                     None => return Ok(Vec::new()),
                 }
@@ -300,8 +306,8 @@ pub fn certify(
     Ok(certificates)
 }
 
-/// The error message for a rule none of whose replayed rows lies on a row chain. It names the rule, the first such row, and its unsupported right slot. A producer of the row would be a row whose outcome is the row's left, whose right1 is the row's input, and whose right2, right3, and right4 equal the row's right1, right2, and right3 up to the first `#NA`. This filters the rows by those conditions in that order, and the first condition no row meets is the slot the worklist admitted without a window to produce it. Returns `None` when no row settles to the row's left at all. The worklist only admits a left it settled in some window, so that happens only in a hand-built product, which gets the empty certificate list.
-fn unsupported_slot(
+/// The error message for a rule none of whose replayed rows lies on a row chain. It names the rule, the first such row, and why no chain reaches that row. A producer of the row would be a row whose outcome is the row's left, whose right1 is the row's input, and whose right2, right3, and right4 equal the row's right1, right2, and right3 up to the first `#NA`. This filters the rows by those conditions in that order, and the first condition no row meets is what the worklist admitted without a window to produce it: the left before the input, or an unsupported right slot. When every condition has rows that meet it, no slot is unsupported, and the message says instead that none of those producers lies on a row chain. Returns `None` when no row settles to the row's left at all. The worklist only admits a left it settled in some window, so that happens only in a hand-built product, which gets the empty certificate list.
+fn unreached_rows_error(
     rows: &LabelRows<'_>,
     rule_index: usize,
     rule: &Rule,
@@ -316,38 +322,36 @@ fn unsupported_slot(
     if producers.is_empty() {
         return None;
     }
-    let mut sentence = String::new();
     producers.retain(|&other| rows.right1(other).as_ref() == input);
-    if producers.is_empty() {
-        sentence.push_str(&format!(
-            "rows settle to {left}, but none of them before {input}, so that left before this input was never produced"
-        ));
+    let finding = if producers.is_empty() {
+        format!(
+            "has a left no row produces before its input: rows settle to {left}, but none of them before {input}, so that left before this input was never produced"
+        )
     } else {
         let slots: [(&str, &str, &str); 3] = [
             (right1, "right1", "second"),
             (right2, "right2", "third"),
             (right3, "right3", "fourth"),
         ];
+        let mut unsupported: Option<String> = None;
         for (slot, (label, name, ordinal)) in slots.into_iter().enumerate() {
             if label == NA_LABEL {
                 break;
             }
             producers.retain(|&other| rows.key(other)[3 + slot] == label);
             if producers.is_empty() {
-                sentence.push_str(&format!(
-                    "rows settle to {left} before {input}, but none of them carries {label} at its {ordinal} slot, so {name} {label} beside that left was never produced"
+                unsupported = Some(format!(
+                    "has an unsupported right slot: rows settle to {left} before {input}, but none of them carries {label} at its {ordinal} slot, so {name} {label} beside that left was never produced"
                 ));
                 break;
             }
         }
-        if sentence.is_empty() {
-            sentence.push_str(
-                "its producers exist but none of them lies on a row chain from a start row itself",
-            );
-        }
-    }
+        unsupported.unwrap_or_else(|| {
+            "has producers for its left before its input and for every right slot it carries, but none of those producers lies on a row chain from a start row itself".to_owned()
+        })
+    };
     Some(format!(
-        "rule {rule_index} ({} -> {}) first-matches {count} replayed row(s) and none of them lies on a row chain from a start row; the first, ({}, {}, {}, {}, {}, {}), has an unsupported right slot: {sentence}",
+        "rule {rule_index} ({} -> {}) first-matches {count} replayed row(s) and none of them lies on a row chain from a start row; the first, ({}, {}, {}, {}, {}, {}), {finding}",
         rule.input_glyph, rule.outcome, key[0], key[1], key[2], key[3], key[4], key[5]
     ))
 }
@@ -457,7 +461,7 @@ enum Verdict {
     Needs(Vec<RightToken>),
 }
 
-/// Checks the formation constraints a post-formation token stream must satisfy for the raw replay to return the same stream, left to right, and reports the first one the stream does not satisfy. A surviving formation pair needs the section 5.7 guard to fire, which takes a follower the pair's unformed map names and a second slot that follower's allowed set admits. A formed ligature needs its own guard not to fire over the two raw tokens after it. A pair before a boundary always forms, so a boundary follower makes the stream [`Verdict::Dead`].
+/// Checks the formation constraints a post-formation token stream must satisfy for the raw replay to return the same stream, left to right, and reports the first one the stream does not satisfy. An unformed formation pair needs the section 5.7 guard to fire, which takes a follower the pair's unformed map names and a second slot that follower's allowed set admits. A formed ligature needs its own guard not to fire over the two raw tokens after it. A pair before a boundary always forms, so a boundary follower makes the stream [`Verdict::Dead`].
 fn open_constraint(
     index: &SpecIndex,
     options: &mut WindowOptions<'_>,
@@ -964,9 +968,9 @@ mod tests {
         assert!(error.contains("no replayed row first-matches"), "{error}");
     }
 
-    /// A row no row chain reaches (here a real row re-keyed to a slot label that no earlier window carries) has an unsupported right slot, and the error names the rule, the row, and the slot. A product with a label the spec does not model gets the empty list instead.
+    /// A row no row chain reaches (here a real row re-keyed to a left or right slot label that no earlier window carries) fails certification, and the error names the rule, the row, and the left or right slot no producer supports. A product with a label the spec does not model gets the empty list instead.
     #[test]
-    fn a_row_no_chain_reaches_has_an_unsupported_slot_and_an_unspellable_one_fails_nothing() {
+    fn a_row_no_chain_reaches_names_its_unproduced_slot_and_an_unspellable_one_fails_nothing() {
         let index = fixtures::mini();
         let product =
             enumerate_transitions(&index, &[], DEFAULT_MODES).expect("the fixpoint closes");
@@ -1056,9 +1060,8 @@ mod tests {
             .expect("the phantom's rule wins it");
         let mut options = WindowOptions::new(&index).expect("the fixture's options build");
         let error = certify(&index, &mut options, &chains, &rows, &rules, &first_rows)
-            .expect_err("the phantom row has an unsupported right slot");
+            .expect_err("no row chain reaches the phantom row");
         assert!(error.starts_with("rule 0 ("), "{error}");
-        assert!(error.contains("has an unsupported right slot"), "{error}");
         assert!(
             error.contains(&format!(
                 "({}, {}, {}, {}",
@@ -1071,12 +1074,20 @@ mod tests {
         );
         assert!(error.contains("never produced"), "{error}");
         let label = product.labels.text(label);
-        let unsupported = if slot == 0 {
-            format!("rows settle to {label}, but none of them before")
+        let finding = if slot == 0 {
+            format!(
+                "has a left no row produces before its input: rows settle to {label}, but none of them before"
+            )
         } else {
-            format!("carries {label} at its")
+            "has an unsupported right slot: rows settle to".to_owned()
         };
-        assert!(error.contains(&unsupported), "{error}");
+        assert!(error.contains(&finding), "{error}");
+        if slot != 0 {
+            assert!(
+                error.contains(&format!("carries {label} at its")),
+                "{error}"
+            );
+        }
 
         let mut bench_row = product
             .transitions
@@ -1117,6 +1128,71 @@ mod tests {
         let answer = certify(&index, &mut options, &chains, &rows, &rules, &first_rows)
             .expect("a hand-built product certifies nothing rather than failing");
         assert!(answer.is_empty());
+    }
+
+    /// A row whose only producer is itself (here a phantom row that settles to its own left and carries its own input in every right slot) has producers for its left and every right slot, yet no row chain reaches it, so the error says that and claims no unsupported slot.
+    #[test]
+    fn a_row_whose_producers_lie_on_no_chain_claims_no_unsupported_slot() {
+        let index = fixtures::mini();
+        let product =
+            enumerate_transitions(&index, &[], DEFAULT_MODES).expect("the fixpoint closes");
+        let mut rules = fold_product(&index, product.clone())
+            .expect("and folds")
+            .decision
+            .rules;
+        let mut looped = product
+            .transitions
+            .iter()
+            .find(|row| {
+                !boundaryish(product.labels.text(row.left))
+                    && !boundaryish(product.labels.text(row.right1))
+            })
+            .expect("a letter-left row")
+            .clone();
+        let mut looped_product = product.clone();
+        let left = looped_product.labels.intern("qsPhantom.looped");
+        looped.left = left;
+        looped.right1 = looped.input_glyph;
+        looped.right2 = looped.input_glyph;
+        looped.right3 = looped.input_glyph;
+        looped.right4 = looped.input_glyph;
+        let settled = looped_product.settled(&looped).clone();
+        looped.settled = SettledId::at(looped_product.settled_records.len());
+        looped_product.settled_records.push(settled);
+        looped_product.outcomes.push(left);
+        looped_product.transitions.push(looped.clone());
+        looped_product.transitions.sort_by(|a, b| {
+            a.key(&looped_product.labels)
+                .cmp(&b.key(&looped_product.labels))
+        });
+        rules.insert(
+            0,
+            Rule {
+                input_glyph: Rc::clone(looped_product.labels.text(looped.input_glyph)),
+                backtrack: Some(vec![Rc::from("qsPhantom.looped")]),
+                look1: None,
+                look2: None,
+                look3: None,
+                look4: None,
+                outcome: Rc::from("qsPhantom.looped"),
+                provenance: Vec::new(),
+                joint: false,
+            },
+        );
+        let fold_rows = expand(&looped_product);
+        let rows = LabelRows::new(&looped_product, &fold_rows);
+        let chains = checked_chains(&rows);
+        let first_rows = first_match_rows(&rows, &rules, None, ROW_CAP, Some(chains.dist()))
+            .expect("the looped row's rule wins it");
+        let mut options = WindowOptions::new(&index).expect("the fixture's options build");
+        let error = certify(&index, &mut options, &chains, &rows, &rules, &first_rows)
+            .expect_err("no row chain reaches the looped row");
+        assert!(error.starts_with("rule 0 ("), "{error}");
+        assert!(
+            error.contains("has producers for its left before its input and for every right slot it carries, but none of those producers lies on a row chain from a start row itself"),
+            "{error}"
+        );
+        assert!(!error.contains("unsupported"), "{error}");
     }
 
     /// On the mini fixture, every stream tail completion returns for a row's fixed tokens reads back as complete under the same constraint check.

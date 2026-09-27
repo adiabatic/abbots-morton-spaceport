@@ -22,7 +22,7 @@ pub const RIGHT_BOUNDARIES: [RightToken; 4] = [EDGE, SPACE, ZWNJ, NAMER_DOT];
 /// One `(lead, trail)` pair that appears adjacently in some rune's sequence. It keys both the formation-pair set and the unformed map.
 pub type FormationPair = (Sym, Sym);
 
-/// What one formation pair's unformed window allows, per follower. A plain follower maps to the right2 options under which the pair survives unformed. A follower that is itself a formed ligature fills both guard slots and maps to `None`, which restricts nothing. Under a lead-before-ligature pair, every follower maps to `None`. A follower absent from the map is one under which the pair does not survive at all.
+/// What one formation pair's unformed window allows, per follower. A plain follower maps to the right2 options under which the pair stays unformed. A follower that is itself a formed ligature fills both guard slots and maps to `None`, which restricts nothing. Under a lead-before-ligature pair, every follower maps to `None`. A follower absent from the map is one under which the pair never stays unformed.
 pub type FollowerMap = HashMap<Sym, Option<BTreeSet<RightToken>>>;
 
 /// Every adjacent `(lead, trail)` pair in every rune's sequence, plus, for each such pair, `(lead, L)` for every ligature `L` whose first component is `trail`. Callers only test membership.
@@ -48,7 +48,7 @@ pub fn formation_pairs(index: &SpecIndex) -> HashSet<FormationPair> {
     pairs
 }
 
-/// The §5.7 late-formation guard translated into the table's post-formation label space. For each formation pair, including the lead-before-ligature pairs of [`formation_pairs`], it maps each follower of the pair's trail to the right2 options under which the pair survives unformed ([`FollowerMap`]). The guard reads raw slots, so a ligature label at either slot is queried through its raw components: [`raw_of`] on the option side, and the follower's first two sequence entries on the follower side, the two raw slots its components fill, as in [`WindowOptions::liga_formed_before`].
+/// The §5.7 late-formation guard translated into the table's post-formation label space. For each formation pair, including the lead-before-ligature pairs of [`formation_pairs`], it maps each follower of the pair's trail to the right2 options under which the pair stays unformed ([`FollowerMap`]). The guard reads raw slots, so a ligature label at either slot is queried through its raw components: [`raw_of`] on the option side, and the follower's first two sequence entries on the follower side, the two raw slots its components fill, as in [`WindowOptions::liga_formed_before`].
 ///
 /// A follower whose allowed set is empty is left out, and a pair whose whole map is empty is not stored. The enumeration reads that absence as "this window is inadmissible outright", which differs from an empty allowance.
 pub fn unformed_formation_windows(
@@ -86,7 +86,7 @@ pub fn unformed_formation_windows(
         if !follower_map.is_empty() {
             out.insert(pair, Rc::new(follower_map));
         }
-        // The lead-before-ligature keys: for a follower ligature whose first component is this pair's trail, a bare lead survives directly before the formed follower only where this pair's own formation is blocked with the follower's second component in the first guard slot (raw lead·trail·second·F). Both guard slots are then filled, so the deeper slot restricts nothing and entries map to None, as for a formed-ligature follower above. The letters-keyed map cannot express survival before a boundary follower, so that case panics instead of silently narrowing.
+        // The lead-before-ligature keys: for a follower ligature whose first component is this pair's trail, a bare lead stays unformed directly before the formed follower only where this pair's own formation is blocked with the follower's second component in the first guard slot (raw lead·trail·second·F). Both guard slots are then filled, so the deeper slot restricts nothing and entries map to None, as for a formed-ligature follower above. The letters-keyed map cannot express an unformed pair before a boundary follower, so that case panics instead of silently narrowing.
         for (liga_name, liga_rune) in index.runes() {
             let Some(liga_sequence) = rune_sequence(liga_rune) else {
                 continue;
@@ -104,7 +104,7 @@ pub fn unformed_formation_windows(
             for boundary in right_boundaries {
                 assert!(
                     !guard.formation_blocked(*name, second, *boundary)?,
-                    "a lead-before-ligature formation pair survives before a boundary follower; the unformed map cannot key it"
+                    "a lead-before-ligature formation pair stays unformed before a boundary follower; the unformed map cannot key it"
                 );
             }
             if !lead_before_ligature_map.is_empty() {
@@ -426,7 +426,7 @@ mod tests {
 
     /// The little alphabet the option pipelines are read against.
     ///
-    /// `qsPea` and `qsTea` join at the baseline on both sides, so the trail of an unformed `qsPea`–`qsTea` pair can reach a follower. `qsMay` accepts a baseline entry and has no exit, so it is a plain follower that forms nothing. `qsPea_qsTea` has no entry and no exit, so it yields to its components almost everywhere, and as a follower its own formation consumes its entry. `qsPea_qsMay` is the mirror case: its trail has no exit, so its own pair survives nowhere, but it accepts a baseline entry, so a bare trail can still reach it as a follower.
+    /// `qsPea` and `qsTea` join at the baseline on both sides, so the trail of an unformed `qsPea`–`qsTea` pair can reach a follower. `qsMay` accepts a baseline entry and has no exit, so it is a plain follower that forms nothing. `qsPea_qsTea` has no entry and no exit, so it yields to its components almost everywhere, and as a follower its own formation consumes its entry. `qsPea_qsMay` is the mirror case: its trail has no exit, so its own pair always forms, but it accepts a baseline entry, so a bare trail can still reach it as a follower.
     fn alphabet() -> SpecIndex {
         let baseline = object(&[row("baseline")]);
         let pea = rune(
@@ -567,7 +567,7 @@ mod tests {
     fn an_unformed_map_tells_unrestricted_from_restricted_from_absent() {
         let index = alphabet();
         let options = WindowOptions::new(&index).expect("the static structures build");
-        // `qsPea_qsMay`'s own trail has no exit, so its pair survives under no follower and is never stored.
+        // `qsPea_qsMay`'s own trail has no exit, so its pair forms under every follower and is never stored.
         let mut keys = pair_names(
             &index,
             &options.unformed.keys().copied().collect::<HashSet<_>>(),
@@ -580,7 +580,7 @@ mod tests {
                 fixtures::sym(&index, "qsPea"),
                 fixtures::sym(&index, "qsTea"),
             ))
-            .expect("the pea-tea pair survives somewhere");
+            .expect("the pea-tea pair stays unformed somewhere");
         let every = [
             "edge",
             "namer-dot",
@@ -602,7 +602,7 @@ mod tests {
         assert_eq!(
             spelled(&index, map),
             [
-                // A plain follower carries the options it survives under; `qsTea` drops out under `qsPea` because that pair itself forms and the formed label accepts nothing.
+                // A plain follower carries the options the pair stays unformed under; `qsTea` drops out under `qsPea` because that pair itself forms and the formed label accepts nothing.
                 ("qsMay".to_owned(), Some(every.clone())),
                 ("qsPea".to_owned(), Some(without_tea)),
                 // A ligature follower the bare trail can still reach restricts nothing.
@@ -610,7 +610,7 @@ mod tests {
                 ("qsTea".to_owned(), Some(every)),
             ]
         );
-        // `qsPea_qsTea` is the third case: its own formation consumes the entry the trail would have reached, so the pair does not survive under it and it is absent from the map.
+        // `qsPea_qsTea` is the third case: its own formation consumes the entry the trail would have reached, so the pair never stays unformed under it and it is absent from the map.
         assert!(!map.contains_key(&fixtures::sym(&index, "qsPea_qsTea")));
     }
 
@@ -663,7 +663,7 @@ mod tests {
         let pea = letter(&index, "qsPea");
         let tea = letter(&index, "qsTea");
         let formed = letter(&index, "qsPea_qsTea");
-        // Filter one alone: `(qsPea, qsMay)` forms and survives nowhere, so `qsMay` cannot follow a `qsPea` at right2.
+        // Filter one alone: `(qsPea, qsMay)` always forms, so `qsMay` cannot follow a `qsPea` at right2.
         let plain = options
             .right3_options(tea, pea, None)
             .expect("the pipeline runs");
@@ -829,7 +829,7 @@ mod tests {
             let map = options
                 .unformed
                 .get(&(fixtures::sym(index, "qsPea"), fixtures::sym(index, "qsTea")))
-                .expect("the shared pair survives somewhere")
+                .expect("the shared pair stays unformed somewhere")
                 .clone();
             let mut names: Vec<String> = map
                 .keys()
@@ -838,7 +838,7 @@ mod tests {
             names.sort();
             names
         };
-        // Declared last, the three-part ligature's map replaces the other: it survives only where the raw stream continues with a `qsMay`, bare or as the first component of the formed three-part follower, since its own refusal leaves it nothing to reach that with.
+        // Declared last, the three-part ligature's map replaces the other: the pair stays unformed only where the raw stream continues with a `qsMay`, bare or as the first component of the formed three-part follower, since its own refusal leaves it nothing to reach that with.
         let index = shared_pair_alphabet(false);
         assert_eq!(followers(&index), ["qsMay", "qsMay_qsPea_qsTea"]);
         // With the two-part ligature declared last, its broader map is kept. The spec is the same; only the stored order differs.
@@ -861,7 +861,7 @@ mod tests {
                 fixtures::sym(&index, "qsPea"),
                 fixtures::sym(&index, "qsTea"),
             ))
-            .expect("the shared pair survives somewhere")
+            .expect("the shared pair stays unformed somewhere")
             .clone();
         // Behind the pair the raw stream holds the follower's first two components, `qsMay qsPea`, which form nothing. Its last two, `qsPea qsTea`, would form `qsPea_qsTea` and give the other verdict.
         let first_two = options
