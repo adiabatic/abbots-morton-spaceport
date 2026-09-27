@@ -13,14 +13,11 @@ A small hand-written `build_m1` corpus for tests to assert against. The units un
 
 A second fixture of a different kind: a slice of real build output, frozen so that tests of the build machinery need no live `rebuild/out/`. The module docstring of `mini/regenerate.py` says what the bundle holds, how its windows are chosen, why all of it is regenerated together, and how `pin.json` pins the spec its rows settled under. The docstrings in `mini/pin.py` say how `materialize` writes that spec out of git and how `_preserve_authored_outgoing` adapts a pinned schema to the current loader.
 
-These tests run against it at full xdist width instead of against the live `rebuild/out/`:
+A mini `build_m1` takes seconds, so every test that needs real build output reads the bundle at full xdist width instead of the live `rebuild/out/`: the review-corpus build with its unit cache, unit store, and sidecars; the audit ordering, enricher, drafter, ink comparisons, and table diff over the frozen windows; the standing-approval verdicts, probe, and daemon over a corpus built from the bundle; and the tests that need a real font, or a font and a spec that match each other, such as conform, the manual-pin gate, the oracle cache, and the font fingerprints. Each one reaches the bundle through the `mini_bundle`, `mini_corpus`, or `example_units` fixture in `rebuild/conftest.py` or through its own path to `rebuild/review/fixtures/mini/`, so this search lists every test module that reads it:
 
-- all of `rebuild/test_unit_cache.py` (a mini `build_m1` takes seconds), and the mini build that `rebuild/test_app_index.py` checks the sidecars against
-- the ordering and dedupe properties in `rebuild/test_review_audit.py`, and `test_assignment_is_deterministic` in `rebuild/test_review_unmatched_groups.py`
-- the enrich and drafts tests' example windows, through the `example_units` fixture in `rebuild/conftest.py`: which position the enricher judges and how the drafter words a record, over the frozen example windows
-- the ink comparisons in `rebuild/test_review_ink.py`, over the bundle's font and a stride through its workload
-- the table-diff build, the snapshot round trip, and the two example-text tests in `rebuild/test_review_tablediff.py`, which re-settle the frozen tables under the spec they were built from
-- the failing-pin tests of the manual-pin gate (`TestTheGateCanFail` in `rebuild/test_manual_pins.py`), which need a font and a spec that match each other
+```zsh
+git grep -l -E '/ "mini"|fixtures/mini|mini_bundle|mini_corpus|example_units' -- 'rebuild/test_*.py'
+```
 
 After a fresh `run_m1`, regenerate the whole bundle with:
 
