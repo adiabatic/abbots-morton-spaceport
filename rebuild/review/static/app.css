@@ -421,7 +421,7 @@ summary:focus-visible {
     }
 
     .type-preview-render {
-      /* Renders like the After sample cells, with kerning off, default features, and the checkerboard, so the preview compares directly with them. */
+      /* Renders like the After sample cells of the default render group, with kerning off, default features, and the checkerboard, so the preview compares directly with them. */
       font-family: var(--after-font);
       font-size: var(--font-size);
       line-height: 1.4;

@@ -57,7 +57,7 @@ def read_pin(pin_path: Path = PIN_PATH) -> dict:
 
 
 def _preserve_authored_outgoing(dest: Path) -> None:
-    """Adapt a pinned schema that has no `outgoing` stance property to the current loader. Such a schema means each ligature rune states its complete outgoing policy itself, so this adds an `outgoing` property that allows only a fixed exception and sets that exception on every stance of every rune with a `sequence`, including single-stance trailing components. It takes no policy or schema from the working tree. A pinned schema that already has `outgoing` is left unchanged."""
+    """Adapt a pinned schema that has no `outgoing` stance property to the current loader. Such a schema means each ligature rune states its complete outgoing policy itself, so this adds an `outgoing` property that allows only a fixed exception and sets that exception on every stance of every rune with a `sequence`, including a ligature whose trailing component has one stance, which the current loader would otherwise inherit from without a declaration. It takes no policy or schema from the working tree. A pinned schema that already has `outgoing` is left unchanged."""
     schema_path = dest / "rebuild/schema/rune.schema.json"
     schema = json.loads(schema_path.read_text(encoding="utf-8"))
     properties = schema["$defs"]["stance"]["properties"]

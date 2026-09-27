@@ -72,7 +72,7 @@ def _config_features(config: str) -> frozenset[str]:
 
 
 def _unmatched_configs(unit: UnitConfigs) -> list[str]:
-    """Return the configs in which the unit's window is UNMATCHED, or every config when `config_classes` is empty (a fully UNMATCHED triple)."""
+    """Return the configs in which the unit's window is UNMATCHED, or every config when `config_classes` is empty."""
     if unit.config_classes:
         return [config for config, cls in unit.config_classes.items() if cls == UNMATCHED]
     return list(unit.configs)

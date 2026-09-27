@@ -1162,7 +1162,7 @@ function updateCursorDom(scroll = true) {
   if (scroll) row.scrollIntoView({ block: 'start', behavior: reducedMotion.matches ? 'auto' : 'smooth' });
 }
 
-// Writes only when the text differs. Most calls pass unchanged counts, and assigning textContent, even the same text, invalidates layout for the whole batch grid.
+// Writes only when the text differs. Most calls pass unchanged counts, and assigning textContent, even the same text, replaces the node's children, which dirties layout.
 function setText(node, text) {
   if (node.textContent !== text) node.textContent = text;
 }
@@ -1621,7 +1621,7 @@ function syncFilterControls() {
   document.getElementById('filter-family').value = state.family ?? '';
   const configSelect = document.getElementById('filter-config');
   configSelect.value = state.config ?? '';
-  // Safari's native select popup does not show per-option tooltips, so the closed control also gets the selected option's title.
+  // The closed control also gets the selected option's title, so hovering it shows the selected config's gloss without opening the popup.
   configSelect.title = configSelect.selectedOptions[0]?.title ?? '';
   document.getElementById('filter-status').value = state.status ?? '';
   document.getElementById('show-machine').checked = state.machine === '1';
@@ -2766,7 +2766,6 @@ function wireEvents() {
     }
     const copy = event.target.closest('.copy-unit');
     if (copy && row) {
-      // A fold's records are kept only while its rows are on screen, so a row without one is left from a view that has since re-rendered; re-opening its fold loads it again.
       const unit = unitFor(row.dataset.unit);
       if (unit) copyToClipboard(copyPreamble(unit), copy);
       else toast(`${row.dataset.unit} is no longer loaded — re-open its fold and copy again.`);

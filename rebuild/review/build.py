@@ -593,7 +593,7 @@ def refresh_assets(out_dir: Path, repo_root: Path = REPO_ROOT) -> list[str]:
 def _write_json(path: Path, payload) -> None:
     """Write `payload` to `path` as indented ASCII JSON through a staging file that is renamed into place, streaming a non-empty list one element at a time.
 
-    The builds call it only for manifest.json, a dict that goes through `json.dumps` whole. Shards are written by `_ShardWriter`, which frames each fragment as the list path here frames an element, and the tests write shards through this function. Each list element is serialized inside a one-element list and the list's framing is stripped, so the C encoder writes the depth-1 indent (it handles `indent` for a one-shot dump on Python 3.14) and the bytes equal `json.dumps(payload, indent=1, ensure_ascii=True) + "\\n"`. Serializing a large list whole that way holds two full-size copies of the string at once, because the concatenation cannot resize the serialized string in place. `JSONEncoder.iterencode` would be simpler, but it uses the pure-Python encoder when it is not one-shot, which makes the write several times slower; stripping the framing adds about a sixth, about a second across the whole units directory.
+    The builds call it only for manifest.json, a dict that goes through `json.dumps` whole. Shards are written by `_ShardWriter`, which frames each fragment as the list path here frames an element, and the tests write shards through this function. Each list element is serialized inside a one-element list and the list's framing is stripped, so the C encoder writes the depth-1 indent (it handles `indent` for a one-shot dump on Python 3.14) and the bytes equal `json.dumps(payload, indent=1, ensure_ascii=True) + "\\n"`. Serializing a large list whole that way holds two full-size copies of the string at once, because the concatenation cannot resize the serialized string in place. `JSONEncoder.iterencode` would be simpler, but it uses the pure-Python encoder when it is not one-shot, which makes the write several times slower; stripping the framing adds under a third, a couple of seconds across the whole units directory.
 
     The staging file is needed because nothing downstream detects a half-written corpus file: a failed encode or a killed build must leave the previous file intact, not a truncated shard or an empty manifest.
     """
@@ -619,7 +619,7 @@ def _write_json(path: Path, payload) -> None:
 class _ShardWriter:
     """Write classes into byte-capped shard parts one fragment at a time, in the order the build passes them. `open` a class, `add` each fragment (or `add_byte_copied` the bytes of one the previous corpus already holds) and receive its (part index, byte start, byte length), `close` the class to get the relative paths the manifest lists in part order, and `commit` once every class is written. Between calls it holds only the open file handle and the running byte count, so no shard is assembled in the parent's memory.
 
-    The cap is for the browser. The app parses each part as one JSON string, and V8's `String::kMaxLength` under pointer compression is 2**29 - 24 bytes. When Blink cannot build a body that long it passes `JSON.parse` an empty string instead of an error, so an oversized shard shows up as "Unexpected end of JSON input" from a fetch that appeared to succeed. `SHARD_PART_BYTES` is half that limit, and the other half is headroom.
+    The cap is for the browser. The app reads each byte range it fetches, which never crosses a part, as one JavaScript string, and V8's `String::kMaxLength` on a 64-bit build is 2**29 - 24 characters, a byte each in this ASCII-only JSON. When Blink cannot build a body that long, `Response.text()` resolves to an empty string instead of an error, so every fragment in an oversized range fails to parse after a fetch that appeared to succeed, and the app reports each unit as "not where this page was told it would be — the corpus was rebuilt". `SHARD_PART_BYTES` is half that limit, and the other half is headroom.
 
     A class that fits in one part keeps the bare `units/<class-id>.json` name, so the small classes, the checked-in fixtures and the archived corpora do not change. A larger class is written as `units/<class-id>.000.json`, `units/<class-id>.001.json` and so on: numbered from zero with three digits, every part numbered, and never a bare name beside numbered ones. Both forms sort where `unit_index.class_shard_key` puts the class, because the character after the class id is `.` in both. A class opened with `numbered` uses the numbered form whatever its part count, so a part's path is final as soon as a fragment is added to it; the recomputed spool opens its class this way so that each address is final when the fragment is added.
 
@@ -840,7 +840,7 @@ def _cluster_id_from_repr(configs, class_id, diffs_repr: bytes) -> str:
 
 
 def _cluster_id(configs, class_id, diffs) -> str:
-    """Return the cluster id the in-app review queue groups blank units by: the duplicate-group key without the judged pair, so every duplicate group falls inside one cluster. The repr recipe must not change, so that recorded `c-` ids keep resolving."""
+    """Return the cluster id the in-app review queue groups blank units by: the duplicate-group key without the judged pair, so every duplicate group falls inside one cluster."""
     return _cluster_id_from_repr(configs, class_id, repr(diffs).encode())
 
 
@@ -963,7 +963,7 @@ def _verification_sample(cached: Sequence[int], seed: str, size: int = VERIFICAT
     return random.Random(seed).sample(cached, min(size, len(cached)))
 
 
-# Below this many misses, pool startup (spawn plus two font loads per worker) costs more than it saves against a serial pass through the parent's shared shapers. It was set from the measured rates in rebuild/out/cycle-timings.ndjson.
+# Below this many misses, pool startup (spawn plus two font loads per worker) costs more than it saves against a serial pass through the parent's shared shapers.
 _SIGNATURE_POOL_THRESHOLD = 20_000
 
 _signature_worker_state: dict = {}
@@ -1248,7 +1248,7 @@ class _RecomputeRunner:
         self._local: tuple | None = None
         self._procs: list = []
         self._conns: list = []
-        # The verification sample is worker work too, and it is all of the work when the cache supplied every unit. Sizing the pool on the recomputed units alone would make a no-change rebuild recompute its sample in the parent. That is slower (200 units serially against eight workers: measured 55.6 s against 42.4 s for the units phase of a fully cached build) and adds to the parent's peak, since the parent, which already holds the corpus's table and store, would also build an enricher, its shapers and their memos.
+        # The verification sample is worker work too, and it is all of the work when the cache supplied every unit. Sizing the pool on the recomputed units alone would make a no-change rebuild recompute its sample in the parent, which already holds the corpus's table and store and would also build an enricher, its shapers and their memos. On a fully cached build the two measure alike: 200 units serially and across eight workers each took 4.9 s for the units phase, and the load phase set the build's peak either way.
         workload_size = max(len(recomputed), len(self._verify))
         if jobs > 1 and workload_size > 1:
             nworkers = min(jobs, workload_size)
