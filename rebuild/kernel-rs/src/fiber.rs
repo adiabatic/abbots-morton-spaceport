@@ -6,7 +6,7 @@
 //! 2. The `fourth_slot_matters` verdict.
 //! 3. Where that verdict is true, the r4 option list [`WindowOptions::right4_options`] computes for this member. Because the key stores the computed list, a filter added to that pipeline without a key update makes [`crate::fixpoint`]'s partition assertion fail instead of silently splitting a fiber.
 //!
-//! The probed coordinates are bounded. Where the fourth slot is dead they are `(EDGE, UNKNOWN)`: an r4-dead member's row is traced only at `EDGE` and enqueues no r4 pin, so no letter in the fourth slot is read for it. Where `fourth_slot_matters` is true they are the whole probe alphabet followed by `UNKNOWN`. Those are the contexts where the input letter's settlement can change under a specific `(third, fourth)` pair, which is how the fibers account for the fourth-slot fallback counterexample ([`crate::liveness`]).
+//! The probed coordinates are bounded. Where the fourth slot is dead they are `(EDGE, UNKNOWN)`: an r4-dead member's row is traced only at `EDGE` and enqueues no r4 restriction, so no letter in the fourth slot is read for it. Where `fourth_slot_matters` is true they are the whole probe alphabet followed by `UNKNOWN`. Those are the contexts where the input letter's settlement can change under a specific `(third, fourth)` pair, which is how the fibers account for the fourth-slot fallback counterexample ([`crate::liveness`]).
 //!
 //! Parts 2 and 3 make the members of one r3 fiber share one r4 sub-enumeration, whose r4 fibers are the r4 option letters grouped by their probe results. Because the probe results depend on `t3`, the r4 partition is per `(context, r3 fiber)`, not per context. Grouping follows option-pipeline order: each boundary is its own singleton where it stands, and letters with the same column of the probe matrix share a group placed at its first member.
 //!
@@ -25,7 +25,7 @@ use crate::model::Sym;
 use crate::options::WindowOptions;
 use crate::types::{EDGE, LeftContext, RightToken, Settled, TokenKind, UNKNOWN};
 
-/// The coordinates an r4-dead member is probed at. The enumeration traces such a member's row only at `EDGE` and enqueues no r4 pin, so no letter in the fourth slot is ever read for it, and probing the whole alphabet would key the fiber on windows nothing reads.
+/// The coordinates an r4-dead member is probed at. The enumeration traces such a member's row only at `EDGE` and enqueues no r4 restriction, so no letter in the fourth slot is ever read for it, and probing the whole alphabet would key the fiber on windows nothing reads.
 const DEAD_FOURTH_COORDS: [RightToken; 2] = [EDGE, UNKNOWN];
 
 /// One probed window's stored row fields. A settled window keeps every field a row stores: the settled triple, the prospect, the joint-tiebreak flag, and the notes. The three error outcomes stay distinct, because a fiber that merged an E-INCOMPARABLE window with an unreachable one would merge outcomes the review corpus and the treaty fold tell apart.
@@ -62,7 +62,7 @@ pub struct Fiber {
 
 /// One live context's third-slot partition: the static option list's boundaries in their own order, and its letters as fibers, ordered by each fiber's first member.
 ///
-/// The boundaries are listed here so the enumeration does not derive them again: it walks them before the fibers and pins them the same way it pins a fiber's members. A boundary is always a class of one, so none is grouped.
+/// The boundaries are listed here so the enumeration does not derive them again: it walks them before the fibers and restricts them the same way it restricts a fiber's members. A boundary is always a class of one, so none is grouped.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ContextFibers {
     pub boundary_options: Vec<RightToken>,

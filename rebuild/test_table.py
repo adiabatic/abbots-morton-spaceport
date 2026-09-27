@@ -98,11 +98,11 @@ def replay(decision):
         f"{key}: settlement says {expected}, rules say {predicted}"
         for key, expected, predicted in failures[:5]
     )
-    never = [seat for seat in range(len(decision.rules)) if seat not in first]
+    unreachable = [seat for seat in range(len(decision.rules)) if seat not in first]
     assert first == set(range(len(decision.rules))), "; ".join(
         f"no replayed row first-matches {rule.input_glyph} "
         f"{(rule.backtrack, rule.look1, rule.look2, rule.look3, rule.look4)} -> {rule.outcome}"
-        for rule in (decision.rules[seat] for seat in never[:5])
+        for rule in (decision.rules[seat] for seat in unreachable[:5])
     )
 
 

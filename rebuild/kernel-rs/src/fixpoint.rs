@@ -1,10 +1,10 @@
 //! The table build's worklist fixpoint: it settles every window one configuration's alphabet can reach, once each, and returns the rows [`crate::fold`] folds into the two tables a build persists.
 //!
-//! A worklist item is a left state together with the pins it was reached under. A settled left is reachable only alongside the right1 that was the producing window's right2, because an entry refusal or an unlock conditioned on the follower makes any other combination contradictory: the left would never have committed there. The right2 allowed-set carries the producing window's enumerated right3 when it has one, and otherwise the late-formation guard's allowed second slots for a surviving formation pair, intersected with any right3 pin the producing window could not use. The right3 allowed-set carries a producing window's enumerated right4 the same way, which pins the successor windows of a left decided at depth 4 to the third lookahead that was actually behind them. `None` means unrestricted in both, and both sets compare by content.
+//! A worklist item is a left state together with the slot restrictions it was reached under. A settled left is reachable only alongside the right1 that was the producing window's right2, because an entry refusal or an unlock conditioned on the follower makes any other combination contradictory: the left would never have committed there. The right2 allowed-set carries the producing window's enumerated right3 when it has one, and otherwise the late-formation guard's allowed second slots for a surviving formation pair, intersected with any right3 restriction the producing window could not use. The right3 allowed-set carries a producing window's enumerated right4 the same way, which restricts the successor windows of a left decided at depth 4 to the third lookahead that was actually behind them. `None` means unrestricted in both, and both sets compare by content.
 //!
-//! The product depends only on the set of rows, not on the traversal order, at either grain. At label grain the dedup is by window key, and a hit reuses the recorded settled state because the left label is injective into the trace's inputs, so the fired set is a union over a window set that no order changes. At class grain a fiber's row is traced at the fiber's representative, its least member under the label order (the first entry of the fiber's sorted member list), whichever item reaches the fiber first and whatever subset of it that item's pins admit. The admitted members accumulate as a union across items, which is also order-independent. The worklist is LIFO with the `seen` check at pop time, so the traversal is a fixed function of the seeds, and the two permuted-seed tests below check order-independence at each grain.
+//! The product depends only on the set of rows, not on the traversal order, at either grain. At label grain the dedup is by window key, and a hit reuses the recorded settled state because the left label is injective into the trace's inputs, so the fired set is a union over a window set that no order changes. At class grain a fiber's row is traced at the fiber's representative, its least member under the label order (the first entry of the fiber's sorted member list), whichever item reaches the fiber first and whatever subset of it that item's slot restrictions admit. The admitted members accumulate as a union across items, which is also order-independent. The worklist is LIFO with the `seen` check at pop time, so the traversal is a fixed function of the seeds, and the two permuted-seed tests below check order-independence at each grain.
 //!
-//! In the deep world with the deep-classes flag on, the deep slots enumerate at class grain: the same static option lists, their letters split into the outcome fibers of [`crate::fiber::DeepFiberDeriver`], one in-flight row per base and fiber identity accumulating the admitted members across items, successor pins carrying those member sets instead of singletons, and a content-addressed id per multi-member set in the product's `deep_classes` map. Two checks run with it. The member cross-check re-traces a second member of every multi-member row at the row's actual left and requires the same stored row fields. `DeepPartitionCheck` runs over the finished product before it is returned. With the flag off, or in the pinned world where class grain cannot arise, only the label-grain path runs, and the deep slots still enumerate: the rune sets and the filters decide which deep slots are live.
+//! In the deep world with the deep-classes flag on, the deep slots enumerate at class grain: the same static option lists, their letters split into the outcome fibers of [`crate::fiber::DeepFiberDeriver`], one in-flight row per base and fiber identity accumulating the admitted members across items, successor slot restrictions carrying those member sets instead of singletons, and a content-addressed id per multi-member set in the product's `deep_classes` map. Two checks run with it. The member cross-check re-traces a second member of every multi-member row at the row's actual left and requires the same stored row fields. `DeepPartitionCheck` runs over the finished product before it is returned. With the flag off, or in the pinned world where class grain cannot arise, only the label-grain path runs, and the deep slots still enumerate: the rune sets and the filters decide which deep slots are live.
 //!
 //! One engine settles everything, and the two slot filters, the liveness probe and the fiber deriver all borrow it. The trace memo makes a re-reached window free, and `Engine::fired` becomes the product's `cited_provenance`, so a probe running on a second engine would silently drop entries from what the dead-policy gate sees as fired. For the same reason one liveness probe is lent to both filters and to the deriver.
 
@@ -104,7 +104,7 @@ pub fn deep_class_id(members: &[String]) -> String {
     format!("{DEEP_CLASS_PREFIX}{}", &digest[..12])
 }
 
-/// A worklist pin's allowed tokens: a set compared and hashed by content, so two items pinned to the same tokens are one item, behind an [`Rc`] so an item is cheap to clone into the `seen` set. The `BTreeSet` order is interning order and is never read.
+/// A slot restriction's allowed tokens: a set compared and hashed by content, so two items restricted to the same tokens are one item, behind an [`Rc`] so an item is cheap to clone into the `seen` set. The `BTreeSet` order is interning order and is never read.
 type Allowed = Rc<BTreeSet<RightToken>>;
 
 /// The six labels one window is keyed by, `table.Window.key`: the input glyph, the left, and the four right slots, each as the id the pool minted for its text.
@@ -134,7 +134,7 @@ impl LabelPool {
     }
 }
 
-/// One worklist item: the left state, the input rune, the right1 the left was reached alongside, and the two allowed-sets pinning the slots past it. Its equality is the `seen` key. A [`LeftContext`] holds a kind, a settled record and ordinals computed from that record, so its derived equality amounts to comparing the kind and the settled left.
+/// One worklist item: the left state, the input rune, the right1 the left was reached alongside, and the two allowed-sets restricting the slots past it. Its equality is the `seen` key. A [`LeftContext`] holds a kind, a settled record and ordinals computed from that record, so its derived equality amounts to comparing the kind and the settled left.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 struct Item {
     left: LeftContext,
@@ -158,7 +158,7 @@ fn prospect_byte(prospect: i64) -> i8 {
     i8::try_from(prospect).expect("a prospect is a junction count, zero or one")
 }
 
-/// One third-slot entry of a class-grain window: the boundary token when the entry is a boundary, the fiber's index in the context when it is a fiber, and the members this item's pins admitted.
+/// One third-slot entry of a class-grain window: the boundary token when the entry is a boundary, the fiber's index in the context when it is a fiber, and the members this item's slot restrictions admitted.
 type Slot3Entry = (Option<RightToken>, Option<usize>, Vec<RightToken>);
 
 /// One fourth-slot entry of a class-grain window: the r4 group, or `None` where the fourth slot is dead and the row carries `#NA` there.
@@ -169,7 +169,7 @@ type PendingKey = (Label, Label, Label, Label, Identity3, Slot4Entry);
 
 /// The third slot's identity inside a [`PendingKey`]: the boundary token for a boundary entry, and the fiber's full member list for a fiber.
 ///
-/// The members are the fiber's whole membership, not the admitted subset, so two worklist items whose pins admit different subsets of one fiber accumulate into a single row.
+/// The members are the fiber's whole membership, not the admitted subset, so two worklist items whose slot restrictions admit different subsets of one fiber accumulate into a single row.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 enum Identity3 {
     Boundary(RightToken),
@@ -178,7 +178,7 @@ enum Identity3 {
 
 /// One in-flight class-grain row: the representative trace's stored row fields, the r3 members accumulating across worklist items, and the frame the cross-check traces replay after the drain.
 ///
-/// The representative is the fiber's least member under the label order, the first entry of [`crate::fiber::Fiber::members`], whether or not the first item to reach the row admitted it. The r4 members carry no pins and so are complete from the first item, which is why they are a plain group here while the third slot's are a set.
+/// The representative is the fiber's least member under the label order, the first entry of [`crate::fiber::Fiber::members`], whether or not the first item to reach the row admitted it. The r4 members carry no slot restriction and so are complete from the first item, which is why they are a plain group here while the third slot's are a set.
 struct PendingDeepRow {
     left_context: LeftContext,
     left_label: Label,
@@ -391,8 +391,8 @@ fn enumerate_from_seeds<'i>(
                         option.kind() == TokenKind::Letter && map.contains_key(&option.letter())
                     });
                 }
-                if let Some(pin) = &right2_allowed {
-                    kept.retain(|option| pin.contains(option));
+                if let Some(restriction) = &right2_allowed {
+                    kept.retain(|option| restriction.contains(option));
                 }
                 if options.liga_sequences.contains_key(&rune) {
                     kept = retain_formed_before(&mut options, kept, rune, |option| {
@@ -440,7 +440,7 @@ fn enumerate_from_seeds<'i>(
                     for &option in &context.boundary_options {
                         if right3_allowed
                             .as_ref()
-                            .is_none_or(|pin| pin.contains(&option))
+                            .is_none_or(|restriction| restriction.contains(&option))
                         {
                             slot3_entries.push((Some(option), None, vec![option]));
                         }
@@ -453,7 +453,7 @@ fn enumerate_from_seeds<'i>(
                             .filter(|member| {
                                 right3_allowed
                                     .as_ref()
-                                    .is_none_or(|pin| pin.contains(member))
+                                    .is_none_or(|restriction| restriction.contains(member))
                             })
                             .collect();
                         if !admitted.is_empty() {
@@ -476,14 +476,14 @@ fn enumerate_from_seeds<'i>(
                             }
                             _ => vec![None],
                         };
-                        // The identity is the fiber's full member list, not the admitted subset, so two items whose pins admit different subsets of one fiber accumulate into one row.
+                        // The identity is the fiber's full member list, not the admitted subset, so two items whose slot restrictions admit different subsets of one fiber accumulate into one row.
                         let identity3 = match boundary3 {
                             Some(token) => Identity3::Boundary(token),
                             None => Identity3::Members(fiber3.map_or_else(Vec::new, |seat| {
                                 context.fibers[seat].members.clone()
                             })),
                         };
-                        // The row is traced at the fiber's least member whether or not this item's pins admit it. The fiber invariant makes every member's record the same, and tracing a fixed member makes the traced window set, and so the fired set, independent of which item reached the fiber first.
+                        // The row is traced at the fiber's least member whether or not this item's slot restrictions admit it. The fiber invariant makes every member's record the same, and tracing a fixed member makes the traced window set, and so the fired set, independent of which item reached the fiber first.
                         let traced_r3_member = match fiber3 {
                             Some(seat) => context.fibers[seat].members[0],
                             None => admitted3[0],
@@ -573,8 +573,8 @@ fn enumerate_from_seeds<'i>(
                     let mut candidates = options
                         .right3_options(right1, right2, follower_map.as_deref())
                         .map_err(complaint)?;
-                    if let Some(pin) = &right3_allowed {
-                        candidates.retain(|option| pin.contains(option));
+                    if let Some(restriction) = &right3_allowed {
+                        candidates.retain(|option| restriction.contains(option));
                     }
                     candidates.into_iter().map(Some).collect()
                 } else {
@@ -627,7 +627,7 @@ fn enumerate_from_seeds<'i>(
                             labels.slot(index, right3),
                             labels.slot(index, right4),
                         ];
-                        // A worklist item with different pins can reach a window key already recorded. The recorded settled state is what a re-trace would return, because the left label is injective into the trace's inputs, so a hit goes straight to the successor enqueue, whose pins still differ per item. The left-state comparison checks that premise and fails only if `cell_label` stops being injective over settled lefts.
+                        // A worklist item with different slot restrictions can reach a window key already recorded. The recorded settled state is what a re-trace would return, because the left label is injective into the trace's inputs, so a hit goes straight to the successor enqueue, whose slot restrictions still differ per item. The left-state comparison checks that premise and fails only if `cell_label` stops being injective over settled lefts.
                         let settled = if let Some(existing) = transitions.get(&window_key) {
                             if existing.left_settled != left_seat {
                                 return Err(partition_complaint(
@@ -671,12 +671,15 @@ fn enumerate_from_seeds<'i>(
                                 let from_map = follower_map
                                     .as_ref()
                                     .and_then(|map| map.get(&right2.letter()).cloned().flatten());
-                                // A right3 pin this window could not enumerate (the input is not deep) still names the raw token one past it, which is the successor's right2. Forward it, or a left decided at depth 4 gains follower windows no text can reach and the conform transition gate reports them as dead.
+                                // A right3 restriction this window could not enumerate (the input is not deep) still names the raw token one past it, which is the successor's right2. Forward it, or a left decided at depth 4 gains follower windows no text can reach and the conform transition gate reports them as dead.
                                 match (from_map, &right3_allowed) {
                                     (allowed, None) => allowed.map(Rc::new),
-                                    (None, Some(pin)) => Some(Rc::clone(pin)),
-                                    (Some(allowed), Some(pin)) => Some(Rc::new(
-                                        allowed.intersection(pin.as_ref()).copied().collect(),
+                                    (None, Some(restriction)) => Some(Rc::clone(restriction)),
+                                    (Some(allowed), Some(restriction)) => Some(Rc::new(
+                                        allowed
+                                            .intersection(restriction.as_ref())
+                                            .copied()
+                                            .collect(),
                                     )),
                                 }
                             };
@@ -970,7 +973,7 @@ fn enumerate_from_seeds<'i>(
     })
 }
 
-/// The seeds the fixpoint starts from: every letter against every boundary left, boundary-major, unpinned. The worklist pops them from the back.
+/// The seeds the fixpoint starts from: every letter against every boundary left, boundary-major, unrestricted. The worklist pops them from the back.
 fn contract_seeds(options: &WindowOptions<'_>) -> Vec<Item> {
     let mut seeds = Vec::with_capacity(SEED_KINDS.len() * options.letters.len());
     for kind in SEED_KINDS {
@@ -1029,7 +1032,7 @@ pub(crate) fn resident_kb() -> u64 {
         .unwrap_or(0)
 }
 
-/// One token as a pin's allowed-set.
+/// One token as a slot restriction's allowed-set.
 fn singleton(token: RightToken) -> Allowed {
     Rc::new(BTreeSet::from([token]))
 }
@@ -1116,7 +1119,7 @@ fn deep_label(
     token
 }
 
-/// The member a class row's cross-check re-traces: the last admitted member, or the first one when the last is the representative, since cross-checking the representative would re-trace the window the row already carries. A representative the pins never admitted is cross-checked against an admitted member, which still checks the fiber at an actual left.
+/// The member a class row's cross-check re-traces: the last admitted member, or the first one when the last is the representative, since cross-checking the representative would re-trace the window the row already carries. A representative the slot restrictions never admitted is cross-checked against an admitted member, which still checks the fiber at an actual left.
 fn cross_check_member(members: &[RightToken], representative: RightToken) -> RightToken {
     let last = members[members.len() - 1];
     if last == representative {
@@ -1198,7 +1201,7 @@ struct ContextPartition {
 ///
 /// It runs over the crate's own product before the stream is written, because the filters, fibers and option lists it consults are not in the stream. Everything it consults was already computed during enumeration: the two filters' memos are filled, every live context's fibers are derived, and `right4_options` returns the same list for the same inputs. The product's fired set is taken before this check runs, so the check adds no provenance.
 ///
-/// It checks, per base: the member sets of the observed r3 letter tokens are pairwise disjoint, and each lies inside the recomputed static option list and inside one fiber of its context's partition; right3 is not `#NA` exactly where the rune set and the third-slot filter say live; one slot deeper, r4 member sets are disjoint per base and r3 token, every member of an r3 token gets the same `fourth_slot_matters` result and the same computed r4 option list; and every class id resolves through the product's map, with every map entry used. Disjointness is checked per base, not per context, because worklist pins are per left state, so two bases in one context can admit nested subsets of one fiber. Coverage of the static option list is not checked, because pins exclude unreachable members, as label grain excludes their rows.
+/// It checks, per base: the member sets of the observed r3 letter tokens are pairwise disjoint, and each lies inside the recomputed static option list and inside one fiber of its context's partition; right3 is not `#NA` exactly where the rune set and the third-slot filter say live; one slot deeper, r4 member sets are disjoint per base and r3 token, every member of an r3 token gets the same `fourth_slot_matters` result and the same computed r4 option list; and every class id resolves through the product's map, with every map entry used. Disjointness is checked per base, not per context, because slot restrictions are per left state, so two bases in one context can admit nested subsets of one fiber. Coverage of the static option list is not checked, because slot restrictions exclude unreachable members, as label grain excludes their rows.
 struct DeepPartitionCheck<'a, 'i> {
     engine: &'a mut Engine<'i>,
     options: &'a mut WindowOptions<'i>,
@@ -1726,7 +1729,7 @@ mod tests {
         )
     }
 
-    /// The three-letter alphabet the deep slots and the pins are read against.
+    /// The three-letter alphabet the deep slots and the slot restrictions are read against.
     ///
     /// `qsPea` carries the only deep chain: a `prefer` whose right condition reaches three slots on, so `qsTea qsMay qsPea qsTea` is the one continuation that decides its window. The two stances it chooses between exit at different heights, which makes the choice visible one letter later: `qsTea` accepts an entry at either height, so the left the deep window commits is a different cell for each. `qsMay` accepts a baseline entry and offers no exit, so it ends every chain.
     fn deep_alphabet() -> SpecIndex {
@@ -1937,7 +1940,7 @@ mod tests {
     }
 
     #[test]
-    fn a_depth_four_left_pins_the_second_slot_of_the_window_after_its_successor() {
+    fn a_depth_four_left_restricts_the_second_slot_of_the_window_after_its_successor() {
         let index = deep_alphabet();
         let product = product(&index);
         // The left that only the fourth slot's one live token reaches: qsPea commits the x-height junction there and nowhere else, so qsTea's entry at that height identifies that continuation.
@@ -1947,9 +1950,9 @@ mod tests {
                 .map(|slots| slots.join(" "))
                 .collect::<Vec<String>>(),
             ["qsMay qsPea #NA #NA"],
-            "the successor's own second slot is pinned to the third lookahead that was enumerated behind it"
+            "the successor's own second slot is restricted to the third lookahead that was enumerated behind it"
         );
-        // The pin this window could not enumerate (qsTea is not deep, so it has no third slot to use it on) is forwarded to its own successor's second slot, which is the raw token one past that window.
+        // The restriction this window could not enumerate (qsTea is not deep, so it has no third slot to use it on) is forwarded to its own successor's second slot, which is the raw token one past that window.
         assert_eq!(
             slots_at(&product, "qsMay", "qsTea.plain.en-y5.ex-y0")
                 .iter()
@@ -1958,14 +1961,14 @@ mod tests {
             ["qsPea qsTea #NA #NA"],
             "without the forward this left would carry every second-slot option, and the extra windows are ones no text can reach"
         );
-        // The sibling left, for contrast: reached by many unpinned items, it carries the whole option list behind the same right1.
-        let unpinned: Vec<String> = slots_at(&product, "qsMay", "qsTea.plain.en-y0.ex-y0")
+        // The sibling left, for contrast: reached by many unrestricted items, it carries the whole option list behind the same right1.
+        let unrestricted: Vec<String> = slots_at(&product, "qsMay", "qsTea.plain.en-y0.ex-y0")
             .iter()
             .filter(|slots| slots[0] == "qsPea")
             .map(|slots| slots[1].clone())
             .collect();
         assert_eq!(
-            unpinned,
+            unrestricted,
             [
                 "#EDGE",
                 "periodcentered",

@@ -136,7 +136,7 @@ pub fn timing_line(label: &str, elapsed: Duration) -> String {
     format!("[t] {label} {:.1}s", elapsed.as_secs_f64())
 }
 
-/// One fold subphase's wall-clock time at millisecond precision, so a short subphase such as the prefix search does not round to zero.
+/// One fold subphase's wall-clock time at millisecond precision, so a short subphase such as the row-chain search does not round to zero.
 fn fold_timing_line(label: &str, elapsed: Duration) -> String {
     format!("[t] {label} {:.3}s", elapsed.as_secs_f64())
 }

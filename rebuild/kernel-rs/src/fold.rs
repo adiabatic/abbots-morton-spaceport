@@ -6,7 +6,7 @@
 //!
 //! Expansion order is `table.Window.key` order, reached without a global sort. The product's rows are already in key order, so rows sharing an (input, left, right1, right2) prefix are contiguous, and sorting each such run by its two deep labels leaves the whole vector in key order. The per-run sort is stable, so rows that tie on the full key keep their class-row order.
 //!
-//! The replay that checks the outcome partition also records, for each rule, up to [`crate::certificate::ROW_CAP`] of the replayed rows that first-match it, preferring the rows with the shortest producer chains. [`crate::certificate`] closes the chain of one of those rows into a string the rule first-matches at the row's own position. These certificates, one per rule, are written into the windows head beside the rules, and the witness stage settles each one to show that every rule is reachable.
+//! The replay that checks the outcome partition also records, for each rule, up to [`crate::certificate::ROW_CAP`] of the replayed rows that first-match it, preferring the rows with the shortest row chains. [`crate::certificate`] completes the chain of one of those rows into a string the rule first-matches at the row's own position. These certificates, one per rule, are written into the windows head beside the rules, and the witness stage settles each one to show that every rule is reachable.
 
 use std::ops::Range;
 use std::rc::Rc;
@@ -227,7 +227,7 @@ pub fn fold_with(
     fold_with_report(index, product, options, None)
 }
 
-/// [`fold_with`] with wall-clock reports for the prefix search (`prefixes`) and the outcome partition (`partition`). The phase names carry no configuration suffix, so the caller chooses the grouping and output format. [`fold_with`] reads no clocks.
+/// [`fold_with`] with wall-clock reports for the row-chain search (`prefixes`) and the outcome partition (`partition`). The phase names carry no configuration suffix, so the caller chooses the grouping and output format. [`fold_with`] reads no clocks.
 pub fn fold_with_profile(
     index: &SpecIndex,
     product: FixpointProduct,
@@ -323,7 +323,7 @@ fn fold_with_report(
     treaty_rows.sort();
 
     let started = report.is_some().then(Instant::now);
-    let prefixes = certificate::Prefixes::over(&rows);
+    let chains = certificate::RowChains::over(&rows);
     if let (Some(report), Some(started)) = (report.as_deref_mut(), started) {
         report("prefixes", started.elapsed());
     }
@@ -334,13 +334,13 @@ fn fold_with_report(
         &rules,
         Some(&replay_lefts),
         certificate::ROW_CAP,
-        Some(prefixes.dist()),
+        Some(chains.dist()),
     )?;
     if let (Some(report), Some(started)) = (report, started) {
         report("partition", started.elapsed());
     }
     assert_deep_class_unions(&product, &rules)?;
-    let certificates = certificate::certify(index, options, &prefixes, &rows, &rules, &first_rows)?;
+    let certificates = certificate::certify(index, options, &chains, &rows, &rules, &first_rows)?;
 
     let config = product.config.clone();
     let decision = DecisionTable {
@@ -563,9 +563,9 @@ fn assert_reachable_cells(
 ///
 /// The same pass records which rule each replayed row first-matches, and a rule that no replayed row reaches is an error just as an outcome mismatch is. Such a rule is dead GSUB, and the replay is where the fold learns which rule won each row. Recording it costs little, because the replay already stops at the first match.
 ///
-/// The reduced replay checks the same statement as the whole-table replay, for two reasons. A committed block's rules carry the whole block in `backtrack`, so every member of the block matches the same slots as the representative and its rows first-match the same rule. Replaying one member therefore decides the block. And every rule reachable only from a boundary left (the default rules, and the ZWNJ backtrack replicas and identity catch-all that [`crate::rulefold`] mints, since `uni200C` is boundaryish) is replayed against every member of the boundary block, which the reduction keeps whole. So a rule that is never first under the reduction is never first over the whole table either. `rebuild/test_table.py`'s `replay` checks both claims on the mini fixture with its own first-match-wins implementation.
+/// The reduced replay checks the same statement as the whole-table replay, for two reasons. A committed block's rules carry the whole block in `backtrack`, so every member of the block matches the same slots as the representative and its rows first-match the same rule. Replaying one member therefore decides the block. And every rule reachable only from a boundary left (the default rules, and the ZWNJ backtrack replicas and identity catch-all that [`crate::rulefold`] mints, since `uni200C` is boundaryish) is replayed against every member of the boundary block, which the reduction keeps whole. So a rule unreachable under the reduction is unreachable over the whole table too. `rebuild/test_table.py`'s `replay` checks both claims on the mini fixture with its own first-match-wins implementation.
 ///
-/// The fold runs this replay under the reduction (through [`first_match_rows`]), so `build-tables` fails on a never-first rule as it folds, and a Python caller sees a `KernelRunError`.
+/// The fold runs this replay under the reduction (through [`first_match_rows`]), so `build-tables` fails on an unreachable rule as it folds, and a Python caller sees a `KernelRunError`.
 pub fn assert_outcome_partition(
     rows: &LabelRows<'_>,
     rules: &[Rule],
@@ -761,25 +761,25 @@ fn first_match_rows_reference(
             failures.join("; ")
         ));
     }
-    let never: Vec<usize> = (0..rules.len())
+    let unreachable: Vec<usize> = (0..rules.len())
         .filter(|seat| first_rows[*seat].is_empty())
         .collect();
-    if never.is_empty() {
+    if unreachable.is_empty() {
         return Ok(first_rows);
     }
-    let listed: Vec<String> = never
+    let listed: Vec<String> = unreachable
         .iter()
         .take(5)
         .map(|seat| rule_repr(&rules[*seat]))
         .collect();
     Err(format!(
-        "{} rule(s) no replayed row first-matches: {}",
-        never.len(),
+        "{} unreachable rule(s), which no replayed row first-matches: {}",
+        unreachable.len(),
         listed.join("; ")
     ))
 }
 
-/// [`assert_outcome_partition`]'s replay, returning for every rule up to `keep` of the replayed rows that first-match it, as indices into `rows`. When `dist` ranks the rows ([`crate::certificate::Prefixes`]), these are the rows with the shortest producer chains, an unreached row ranking last. Otherwise they are the first rows in replay order. The errors are the assertion's: an outcome mismatch, or a rule no replayed row first-matches. The `IndexedMatcher` is built and dropped inside this call, so its build time and memory count toward the `partition` phase.
+/// [`assert_outcome_partition`]'s replay, returning for every rule up to `keep` of the replayed rows that first-match it, as indices into `rows`. When `dist` ranks the rows ([`crate::certificate::RowChains`]), these are the rows with the shortest row chains, an unreached row ranking last. Otherwise they are the first rows in replay order. The errors are the assertion's: an outcome mismatch, or a rule no replayed row first-matches. The `IndexedMatcher` is built and dropped inside this call, so its build time and memory count toward the `partition` phase.
 pub fn first_match_rows(
     rows: &LabelRows<'_>,
     rules: &[Rule],
@@ -844,20 +844,20 @@ pub fn first_match_rows(
             failures.join("; ")
         ));
     }
-    let never: Vec<usize> = (0..rules.len())
+    let unreachable: Vec<usize> = (0..rules.len())
         .filter(|seat| first_rows[*seat].is_empty())
         .collect();
-    if never.is_empty() {
+    if unreachable.is_empty() {
         return Ok(first_rows);
     }
-    let listed: Vec<String> = never
+    let listed: Vec<String> = unreachable
         .iter()
         .take(5)
         .map(|seat| rule_repr(&rules[*seat]))
         .collect();
     Err(format!(
-        "{} rule(s) no replayed row first-matches: {}",
-        never.len(),
+        "{} unreachable rule(s), which no replayed row first-matches: {}",
+        unreachable.len(),
         listed.join("; ")
     ))
 }
@@ -1051,7 +1051,7 @@ mod tests {
     }
 
     #[test]
-    fn production_proof_preserves_reference_prefixes_matches_rows_failures_and_certificates() {
+    fn production_proof_preserves_reference_row_chains_matches_rows_failures_and_certificates() {
         let (index, product, folded) = built();
         let fold_rows = expand(&product);
         let rows = LabelRows::new(&product, &fold_rows);
@@ -1067,15 +1067,15 @@ mod tests {
             );
         }
 
-        let reference_prefixes = certificate::Prefixes::over_reference(&rows);
-        let prefixes = certificate::Prefixes::over(&rows);
-        certificate::assert_same_prefixes(&reference_prefixes, &prefixes);
+        let reference_chains = certificate::RowChains::over_reference(&rows);
+        let chains = certificate::RowChains::over(&rows);
+        certificate::assert_same_chains(&reference_chains, &chains);
         let reference_rows = first_match_rows_reference(
             &rows,
             rules,
             Some(&folded.replay_lefts),
             certificate::ROW_CAP,
-            Some(reference_prefixes.dist()),
+            Some(reference_chains.dist()),
         )
         .expect("the reference replay accepts the folded rules");
         let production_rows = first_match_rows(
@@ -1083,7 +1083,7 @@ mod tests {
             rules,
             Some(&folded.replay_lefts),
             certificate::ROW_CAP,
-            Some(prefixes.dist()),
+            Some(chains.dist()),
         )
         .expect("the production replay accepts the folded rules");
         assert_eq!(reference_rows, production_rows);
@@ -1091,7 +1091,7 @@ mod tests {
         let reference_certificates = certificate::certify(
             &index,
             &mut options,
-            &reference_prefixes,
+            &reference_chains,
             &rows,
             rules,
             &reference_rows,
@@ -1120,14 +1120,14 @@ mod tests {
                     rules,
                     lefts,
                     certificate::ROW_CAP,
-                    Some(prefixes.dist()),
+                    Some(chains.dist()),
                 );
                 let production = first_match_rows(
                     &rows,
                     rules,
                     lefts,
                     certificate::ROW_CAP,
-                    Some(prefixes.dist()),
+                    Some(chains.dist()),
                 );
                 assert_eq!(
                     reference,
@@ -1161,7 +1161,7 @@ mod tests {
         let message = assert_outcome_partition(&rows, &rules, Some(&folded.replay_lefts))
             .expect_err("a rule no row reaches is refused");
         assert!(
-            message.contains("1 rule(s) no replayed row first-matches"),
+            message.contains("1 unreachable rule(s), which no replayed row first-matches"),
             "{message}"
         );
         assert!(message.contains("qsNever.loop"), "{message}");
