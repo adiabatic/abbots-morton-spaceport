@@ -1,4 +1,4 @@
-"""The cheap form of the deep sweep: the crate's `replay-strings` walk at one letter past the belt's maximum length, over the texts that name the runes whose content changed since the last recorded walk. Every per-edit gate walks at maximum length 4. At that length a text reaches a letter's third lookahead slot only behind a boundary on the left, and its fourth slot never, so a fault confined to the deep slots behind a letter on the left is invisible to all of them (§10's fault table in `doc/rebuild-design.md`, row 4). `make conform-deep` can see such a fault in hours of HarfBuzz sweeping. This tool sees it in minutes, because it settles only what an edit could have changed and shapes nothing.
+"""The cheap form of the deep sweep: the crate's `replay-strings` walk at one letter past the per-edit sweep's maximum length, over the texts that name the runes whose content changed since the last recorded walk. Every per-edit gate walks at maximum length 4. At that length a text reaches a letter's third lookahead slot only behind a boundary on the left, and its fourth slot never, so a fault confined to the deep slots behind a letter on the left is invisible to all of them (§10's fault table in `doc/rebuild-design.md`, row 4). `make conform-deep` can see such a fault in hours of HarfBuzz sweeping. This tool sees it in minutes, because it settles only what an edit could have changed and shapes nothing.
 
 It is not part of the per-edit path because of its cost. On the live alphabet, a walk over the texts that name one family costs each configuration several times what the build's own full replay at maximum length 4 costs (`make cycle-timings ARGS='--by-step'` reports every run under `replay-deep`, the check name this tool records itself under). Running it inside `run_m1` would multiply every rune-edit build's replay time. The cycle instead reports whether it is due beside the deep sweep (`artifact_cycle.deep_replay_status`), and `make replay-deep` runs it. The window ceiling (`DEEP_REPLAY_MEMO_WINDOWS`) keeps a walk's memory flat as the corpus grows, apart from the settled records and labels, which are never released and grow with the number of distinct records. At the measured ceiling every configuration walks at once on either fleet machine, which `rebuild/test_deep_replay.py` checks.
 
@@ -99,7 +99,7 @@ def withdraw_walked(record: dict | None, families: list[str] | None) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Walk the texts naming the runes that moved to one letter past the belt's maximum length, holding the tables to the engine, and record the walk."
+        description="Walk the texts naming the runes that moved to one letter past the per-edit sweep's maximum length, holding the tables to the engine, and record the walk."
     )
     parser.add_argument(
         "--max-length",

@@ -450,14 +450,14 @@ def test_record_pool_round_trips_through_load_pool_records(tmp_path):
     assert (records[0]["width"], records[1]["width"]) == (8, 4)
 
 
-def test_a_conform_belt_record_keys_its_workers_by_configuration(tmp_path):
-    """The belt's pool record keys its workers by acceptance configuration, and `gateway_order` sorts those keys by their digits: `default` has none and sorts first, and `ss03+ss05` reads as 305 and sorts last. Match a peak to its configuration by key, not by position."""
+def test_a_conform_sweep_record_keys_its_workers_by_configuration(tmp_path):
+    """The conformance sweep's pool record keys its workers by acceptance configuration, and `gateway_order` sorts those keys by their digits: `default` has none and sorts first, and `ss03+ss05` reads as 305 and sorts last. Match a peak to its configuration by key, not by position."""
     path = tmp_path / "j.ndjson"
     configs = ("default", "ss03", "ss04", "ss05", "ss03+ss05", "ss10")
     peaks = {config: 300_000_000 + index for index, config in enumerate(configs)}
-    ct.record_pool("conform-belt", width=6, worker_peaks=peaks, controller_peak_bytes=280_000_000, path=path)
+    ct.record_pool("conform-sweep", width=6, worker_peaks=peaks, controller_peak_bytes=280_000_000, path=path)
     (record,) = ct.load_pool_records(path)
-    assert record["unit"] == "conform-belt"
+    assert record["unit"] == "conform-sweep"
     assert record["width"] == 6
     assert record["controller_peak_rss_bytes"] == 280_000_000
     assert record["worker_peak_rss_bytes"] == peaks

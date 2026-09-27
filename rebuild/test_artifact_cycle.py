@@ -2308,7 +2308,7 @@ def _lane_conform_line(plan: ac.Plan) -> str:
 
 
 def _plan_conform_derivation(plan: ac.Plan, *, ncores: int, total_bytes: int) -> str:
-    """Return the belt's derivation over the flags the plan resolved, so the call matches what `build_plan` computed."""
+    """Return the conformance sweep's derivation over the flags the plan resolved, so the call matches what `build_plan` computed."""
     return ac.conform_job_derivation(
         skip_gates=plan.skip_gates,
         skip_make_test=plan.skip_make_test,
@@ -2320,11 +2320,11 @@ def _plan_conform_derivation(plan: ac.Plan, *, ncores: int, total_bytes: int) ->
     )
 
 
-class TestTheConformBeltWidth:
-    """The cycle sizes gate:conform's belt: one spawn process per acceptance configuration, each holding `CONFORM_BELT_BYTES`. The belt is submitted when run_m1's gate passes, so it runs beside the build lane's corpus build or the verdict-update step after it, and the larger of the two that the pass runs is subtracted from memory before the division."""
+class TestTheConformSweepWidth:
+    """The cycle sizes gate:conform's sweep: one spawn process per acceptance configuration, each holding `CONFORM_SWEEP_BYTES`. The conformance sweep is submitted when run_m1's gate passes, so it runs beside the build lane's corpus build or the verdict-update step after it, and the larger of the two that the pass runs is subtracted from memory before the division."""
 
     def test_the_corpus_build_comes_off_the_machine_before_the_division(self):
-        """Checked at the fit terms, where no machine size enters, for the same reason as the memory set aside beside the corpus build: on no fleet machine does the subtraction change the belt's width. The corpus term is the build's parent plus the workers `corpus_job_budget` gives the same pass. A pass that runs the verdict-update step without the build subtracts the verdict update's process and the refill pool `standing_fill_jobs` gives instead. gate:make-test's pool is added under the overlap policy only, because the queue policy makes the belt wait for make-test."""
+        """Checked at the fit terms, where no machine size enters, for the same reason as the memory set aside beside the corpus build: on no fleet machine does the subtraction change the conformance sweep's width. The corpus term is the build's parent plus the workers `corpus_job_budget` gives the same pass. A pass that runs the verdict-update step without the build subtracts the verdict update's process and the refill pool `standing_fill_jobs` gives instead. gate:make-test's pool is added under the overlap policy only, because the queue policy makes the conformance sweep wait for make-test."""
         from rebuild.pipeline.conform import ACCEPTANCE_CONFIGS
 
         def corpus(skip_make_test):
@@ -2349,39 +2349,39 @@ class TestTheConformBeltWidth:
             )
 
         configs = len(ACCEPTANCE_CONFIGS)
-        assert terms() == (ac.CONFORM_BELT_BYTES, corpus(False), configs)
-        assert terms(skip_corpus=True) == (ac.CONFORM_BELT_BYTES, 0, configs)
+        assert terms() == (ac.CONFORM_SWEEP_BYTES, corpus(False), configs)
+        assert terms(skip_corpus=True) == (ac.CONFORM_SWEEP_BYTES, 0, configs)
         make_test = ac._make_test_pool_bytes(skip_make_test=False, ncores=9)
         assert make_test > 0
-        assert terms(pool_policy="overlap") == (ac.CONFORM_BELT_BYTES, corpus(False) + make_test, configs)
-        assert terms(pool_policy="overlap", skip_corpus=True) == (ac.CONFORM_BELT_BYTES, make_test, configs)
+        assert terms(pool_policy="overlap") == (ac.CONFORM_SWEEP_BYTES, corpus(False) + make_test, configs)
+        assert terms(pool_policy="overlap", skip_corpus=True) == (ac.CONFORM_SWEEP_BYTES, make_test, configs)
         assert terms(pool_policy="overlap", skip_make_test=True) == (
-            ac.CONFORM_BELT_BYTES,
+            ac.CONFORM_SWEEP_BYTES,
             corpus(True),
             configs,
         )
-        assert terms(skip_make_test=True) == (ac.CONFORM_BELT_BYTES, corpus(True), configs)
+        assert terms(skip_make_test=True) == (ac.CONFORM_SWEEP_BYTES, corpus(True), configs)
 
         assert 0 < verdict_update(False) < corpus(False)
-        assert terms(verdict_update_runs=True) == (ac.CONFORM_BELT_BYTES, corpus(False), configs)
+        assert terms(verdict_update_runs=True) == (ac.CONFORM_SWEEP_BYTES, corpus(False), configs)
         assert terms(skip_corpus=True, verdict_update_runs=True) == (
-            ac.CONFORM_BELT_BYTES,
+            ac.CONFORM_SWEEP_BYTES,
             verdict_update(False),
             configs,
         )
         assert terms(skip_corpus=True, verdict_update_runs=True, pool_policy="overlap") == (
-            ac.CONFORM_BELT_BYTES,
+            ac.CONFORM_SWEEP_BYTES,
             verdict_update(False) + make_test,
             configs,
         )
         assert terms(skip_corpus=True, verdict_update_runs=True, skip_make_test=True) == (
-            ac.CONFORM_BELT_BYTES,
+            ac.CONFORM_SWEEP_BYTES,
             verdict_update(True),
             configs,
         )
 
     def test_the_larger_build_lane_step_is_the_one_that_comes_off(self):
-        """The belt starts beside the corpus build, and a belt still running when the build finishes, or one the queue policy starts late, runs beside the verdict-update step, so a pass that runs both subtracts the larger. The corpus build stops at `CORPUS_JOBS_CAP` while the standing fill takes all the cores, so on a machine with enough cores the verdict-update step is the larger and is the one subtracted."""
+        """The conformance sweep starts beside the corpus build, and a conformance sweep still running when the build finishes, or one the queue policy starts late, runs beside the verdict-update step, so a pass that runs both subtracts the larger. The corpus build stops at `CORPUS_JOBS_CAP` while the standing fill takes all the cores, so on a machine with enough cores the verdict-update step is the larger and is the one subtracted."""
         machine: dict[str, Any] = dict(skip_gates=False, skip_make_test=False, total_bytes=MACHINE_48_GIB)
         wide: dict[str, Any] = dict(machine, ncores=40)
         corpus = ac.CORPUS_PARENT_BYTES + ac.CORPUS_WORKER_BYTES * ac.corpus_job_budget(**wide)
@@ -2407,8 +2407,8 @@ class TestTheConformBeltWidth:
         )
         assert ac._conform_build_lane(**narrow, skip_corpus=True, verdict_update_runs=False) == ("", 0)
 
-    def test_both_fleet_machines_run_the_belt_at_the_configuration_count(self):
-        """On the fleet machines (`doc/fleet.md`), the 48 GiB machines at twelve and eighteen cores and the 32 GiB machine at ten, the belt runs one worker per acceptance configuration beside a gated build lane (the corpus build and the verdict-update step) and beside the verdict-update step alone, and the division never limits the width before the cap does. The capped budget cannot distinguish the cap from a division that equals it, so the uncapped division is also checked, and a change to the constant that narrows a fleet machine fails here. The suite does not catch a constant that is too low: only the conform-belt row of `make job-costs` compares it with the workers that ran."""
+    def test_both_fleet_machines_run_the_conform_sweep_at_the_configuration_count(self):
+        """On the fleet machines (`doc/fleet.md`), the 48 GiB machines at twelve and eighteen cores and the 32 GiB machine at ten, the conformance sweep runs one worker per acceptance configuration beside a gated build lane (the corpus build and the verdict-update step) and beside the verdict-update step alone, and the division never limits the width before the cap does. The capped budget cannot distinguish the cap from a division that equals it, so the uncapped division is also checked, and a change to the constant that narrows a fleet machine fails here. The suite does not catch a constant that is too low: only the conform-sweep row of `make job-costs` compares it with the workers that ran."""
         from rebuild.pipeline.conform import ACCEPTANCE_CONFIGS
         from rebuild.tools import memory_budget
 
@@ -2430,13 +2430,13 @@ class TestTheConformBeltWidth:
                 assert coresident > 0
                 assert (
                     memory_budget.how_many_fit(
-                        ac.CONFORM_BELT_BYTES, coresident_bytes=coresident, total_bytes=total_bytes
+                        ac.CONFORM_SWEEP_BYTES, coresident_bytes=coresident, total_bytes=total_bytes
                     )
                     > configs
                 )
 
-    def test_the_cores_and_the_configurations_cap_the_belt(self):
-        """A machine with memory to spare runs one worker per acceptance configuration, because a configuration is the belt's unit, and a machine with fewer cores than configurations runs one per core. Both bounds are in one `min()`, so a small cgroup allowance never widens the belt past the cores it may use."""
+    def test_the_cores_and_the_configurations_cap_the_conform_sweep(self):
+        """A machine with memory to spare runs one worker per acceptance configuration, because a configuration is the conformance sweep's unit, and a machine with fewer cores than configurations runs one per core. Both bounds are in one `min()`, so a small cgroup allowance never widens the conformance sweep past the cores it may use."""
         from rebuild.pipeline.conform import ACCEPTANCE_CONFIGS
 
         for ncores in (1, 2, 4, 6, 10, 12, 18):
@@ -2444,9 +2444,9 @@ class TestTheConformBeltWidth:
                 skip_corpus=True, ncores=ncores, total_bytes=1_000_000_000_000
             ) == min(ncores, len(ACCEPTANCE_CONFIGS))
 
-    def test_a_belt_width_of_one_is_stated_on_the_argv(self, monkeypatch):
-        """A machine where the pooled belt does not fit beside the corpus build floors at one, the serial belt, and the argv states that width like any other; without it run_m1 would use its own default, a width this plan did not budget. The oracle's width is a separate budget and stays above one."""
-        monkeypatch.setattr(ac, "CONFORM_BELT_BYTES", 10**12)
+    def test_a_conform_sweep_width_of_one_is_stated_on_the_argv(self, monkeypatch):
+        """A machine where the pooled conformance sweep does not fit beside the corpus build floors at one, the serial conformance sweep, and the argv states that width like any other; without it run_m1 would use its own default, a width this plan did not budget. The oracle's width is a separate budget and stays above one."""
+        monkeypatch.setattr(ac, "CONFORM_SWEEP_BYTES", 10**12)
         plan = _plan(ncores=12)
         by_name = {step.name: step for step in plan.steps}
         assert plan.conform_jobs == 1
@@ -2454,8 +2454,8 @@ class TestTheConformBeltWidth:
         assert plan.sweep_jobs > 1
         assert _argv(by_name["run_m1"])[5:7] == ["--jobs", str(plan.sweep_jobs)]
 
-    def test_the_plan_prints_the_belt_width_with_its_derivation(self):
-        """Every Lane conform line that runs the belt quotes its width, the constant it divides by, and the derivation over the flags the plan resolved. The co-resident term is the larger build-lane step, plus gate:make-test's pool under the overlap policy: the corpus build when it runs and holds more than the verdict-update step, the verdict-update step when the build does not run or the step holds more. For a pass that runs neither, the line says so and prints no co-resident term unless gate:make-test's pool runs beside the belt."""
+    def test_the_plan_prints_the_conform_sweep_width_with_its_derivation(self):
+        """Every Lane conform line that runs the conformance sweep quotes its width, the constant it divides by, and the derivation over the flags the plan resolved. The co-resident term is the larger build-lane step, plus gate:make-test's pool under the overlap policy: the corpus build when it runs and holds more than the verdict-update step, the verdict-update step when the build does not run or the step holds more. For a pass that runs neither, the line says so and prints no co-resident term unless gate:make-test's pool runs beside the conformance sweep."""
         machine: dict[str, Any] = dict(ncores=10, total_bytes=MACHINE_32_GIB)
         cases = {
             "queued": _plan(**machine),
@@ -2470,11 +2470,11 @@ class TestTheConformBeltWidth:
             line = _lane_conform_line(plan)
             derivation = _plan_conform_derivation(plan, **machine)
             assert (
-                f"(--jobs {plan.conform_jobs}; CONFORM_BELT_BYTES a belt worker, beside the corpus build's parent and its {plan.corpus_jobs} workers"
+                f"(--jobs {plan.conform_jobs}; CONFORM_SWEEP_BYTES a conformance-sweep worker, beside the corpus build's parent and its {plan.corpus_jobs} workers"
                 in line
             )
             assert line.endswith(f"; {derivation})")
-            assert f"at {format_gb(ac.CONFORM_BELT_BYTES)} GB each" in derivation
+            assert f"at {format_gb(ac.CONFORM_SWEEP_BYTES)} GB each" in derivation
             assert "less a reserve of" in derivation
             assert "GB co-resident" in derivation
         overlap = cases["overlap"]
@@ -2497,7 +2497,7 @@ class TestTheConformBeltWidth:
         derivation = _plan_conform_derivation(beside_verdict_update, **machine)
         workers = beside_verdict_update.standing_fill_jobs
         assert (
-            f"(--jobs {beside_verdict_update.conform_jobs}; CONFORM_BELT_BYTES a belt worker, the corpus build not running this pass, so beside the verdict update's process and its {workers} refill workers; "
+            f"(--jobs {beside_verdict_update.conform_jobs}; CONFORM_SWEEP_BYTES a conformance-sweep worker, the corpus build not running this pass, so beside the verdict update's process and its {workers} refill workers; "
             in line
         )
         assert line.endswith(f"; {derivation})")
@@ -2515,7 +2515,7 @@ class TestTheConformBeltWidth:
         line = _lane_conform_line(alone)
         derivation = _plan_conform_derivation(alone, **machine)
         assert (
-            f"(--jobs {alone.conform_jobs}; CONFORM_BELT_BYTES a belt worker, neither the corpus build nor the verdict-update step running this pass, so nothing co-resident; "
+            f"(--jobs {alone.conform_jobs}; CONFORM_SWEEP_BYTES a conformance-sweep worker, neither the corpus build nor the verdict-update step running this pass, so nothing co-resident; "
             in line
         )
         assert line.endswith(f"; {derivation})")
@@ -2530,7 +2530,7 @@ class TestTheConformBeltWidth:
         outweighed = _plan(**wide)
         line = _lane_conform_line(outweighed)
         assert (
-            f"CONFORM_BELT_BYTES a belt worker, the verdict-update step outweighing the corpus build, so beside the verdict update's process and its {outweighed.standing_fill_jobs} refill workers; "
+            f"CONFORM_SWEEP_BYTES a conformance-sweep worker, the verdict-update step outweighing the corpus build, so beside the verdict update's process and its {outweighed.standing_fill_jobs} refill workers; "
             in line
         )
         assert line.endswith(f"; {_plan_conform_derivation(outweighed, **wide)})")
@@ -2555,7 +2555,7 @@ class TestTheConformBeltWidth:
 
 
 def test_the_job_budgets_answer_the_cgroup_allowance_rather_than_the_hosts_core_count(monkeypatch):
-    """A CPU quota is invisible to `os.cpu_count()`, so the oracle, belt and corpus budgets read their cores through `memory_budget.usable_cores`. The test runs the real probe over a fixture cgroup root that allows two cores, which is below both `len(ACCEPTANCE_CONFIGS)` and `CORPUS_JOBS_CAP`, so each budget returns the allowance. Each call passes a terabyte of memory so that only the core count limits the width. An explicit `ncores` still takes precedence over the probe."""
+    """A CPU quota is invisible to `os.cpu_count()`, so the oracle, conformance-sweep and corpus budgets read their cores through `memory_budget.usable_cores`. The test runs the real probe over a fixture cgroup root that allows two cores, which is below both `len(ACCEPTANCE_CONFIGS)` and `CORPUS_JOBS_CAP`, so each budget returns the allowance. Each call passes a terabyte of memory so that only the core count limits the width. An explicit `ncores` still takes precedence over the probe."""
     from rebuild.pipeline.conform import ACCEPTANCE_CONFIGS
     from rebuild.tools import memory_budget
 
@@ -3822,7 +3822,7 @@ def test_run_m1_skip_fingerprint_moves_with_runes_and_subsets(tmp_path):
 
 
 def test_conform_skip_fingerprint_includes_max_length_and_the_behavior_classes(tmp_path):
-    """The belt's key is the deep sweep's key plus the maximum length. With no behavior-class sidecar it still returns a key, with a line marking the sidecar absent, so a caller that asks before any build has run gets a key instead of an exception. A sidecar, a new class in it, and the maximum length each change the key; the font's bytes do not."""
+    """The per-edit sweep's key is the deep sweep's key plus the maximum length. With no behavior-class sidecar it still returns a key, with a line marking the sidecar absent, so a caller that asks before any build has run gets a key instead of an exception. A sidecar, a new class in it, and the maximum length each change the key; the font's bytes do not."""
     (tmp_path / "rebuild" / "out" / "m1").mkdir(parents=True)
     base = ac.conform_skip_fingerprint(tmp_path, 5)
     assert ac.conform_skip_fingerprint(tmp_path, 5) == base
@@ -3958,7 +3958,7 @@ def test_the_divergence_ledger_line_ignores_prose(tmp_path):
 
 
 def test_a_comparison_side_edit_moves_the_run_key_and_leaves_the_sweeps_alone(tmp_path):
-    """The run_m1 key and the conform key cover different inputs. The belt shapes the compiled font and re-settles the windows beside it. It reads no ledger, allow-list, kern sidecar, baseline or oracle code, so editing any of those changes the run_m1 key and leaves the conform key alone. A rune edit, a crate edit, a uv.lock edit and the font's bytes also leave the conform key alone; the crate's string replay inside run_m1 covers rune and crate edits. A behavior class the lookup has not emitted before, the compile code, the tools/ files the compile runs, the uharfbuzz version and the maximum length each change it."""
+    """The run_m1 key and the conform key cover different inputs. The conformance sweep shapes the compiled font and re-settles the windows beside it. It reads no ledger, allow-list, kern sidecar, baseline or oracle code, so editing any of those changes the run_m1 key and leaves the conform key alone. A rune edit, a crate edit, a uv.lock edit and the font's bytes also leave the conform key alone; the crate's string replay inside run_m1 covers rune and crate edits. A behavior class the lookup has not emitted before, the compile code, the tools/ files the compile runs, the uharfbuzz version and the maximum length each change it."""
     root = _fake_run_m1_root(tmp_path)
     conform = ac.conform_skip_fingerprint(root, 4)
     run_key = ac.run_m1_skip_fingerprint(root)

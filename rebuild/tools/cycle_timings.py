@@ -8,7 +8,7 @@ A "step" line records one subprocess the cycle spawned: the driver's step name (
 
 A "run" line is written when a cycle finishes, including an interrupted one. It carries the host, cpu count, total memory, start and finish stamps, total wall seconds, the cycle summary's exit, failures, gates, plan, and argv, and the carry's counts (`artifact_cycle.carry_counts` parses them from the carry's own output line). The total memory is recorded because a step's peak read months later needs the size of the machine it ran on beside it.
 
-A "pool" line records one finished worker pool: its unit name, width, and the controller's and every worker's peak. A pytest controller writes one when AMS_POOL_UNIT (`POOL_UNIT_ENV`) is set, which the two gate wrappers and the cycle's rebuild-lane spawns do. run_m1's conform belt and oracle shards and the review build's signature and corpus pools write them too. `load_pool_records` reads them, and `make job-costs` compares the peaks with the checked-in per-worker constants.
+A "pool" line records one finished worker pool: its unit name, width, and the controller's and every worker's peak. A pytest controller writes one when AMS_POOL_UNIT (`POOL_UNIT_ENV`) is set, which the two gate wrappers and the cycle's rebuild-lane spawns do. run_m1's conformance sweep and oracle shards and the review build's signature and corpus pools write them too. `load_pool_records` reads them, and `make job-costs` compares the peaks with the checked-in per-worker constants.
 
 The reporter is `make cycle-timings` (`uv run python -m rebuild.tools.cycle_timings`). By default it shows recent runs with steps slowest first. `--inner` expands the phase lines. `--by-step` reports count, median, max, and latest seconds per step and host. `--by-outcome` reports, per check, how many times it ran, how it came out, and which test ids it failed on. `--journal` reads another journal, such as journals from two machines concatenated.
 
@@ -50,7 +50,7 @@ STEP_NAME_ALIASES = {
     "echo-fill": "duplicate-fill",
     "echo-merge": "duplicate-merge",
 }
-POOL_UNIT_ALIASES = {"surface": "corpus"}
+POOL_UNIT_ALIASES = {"surface": "corpus", "conform-belt": "conform-sweep"}
 
 _RSS_TOKEN = re.compile(r"\brss_gb=(\d+(?:\.\d+)?)")
 _RSS_NOW_TOKEN = re.compile(r"\brss_now_gb=(\d+(?:\.\d+)?)")

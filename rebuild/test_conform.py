@@ -1,4 +1,4 @@
-"""Tests for conform.py and the oracle stages that consume it: label normalization, the raw GSUB replay, the isolated overlay, alias and ledger matching, kern evaluation and the position comparison, the oracle's audit shards, row cache and row ranges, the belt's bookkeeping, and the memoized settle walk and its memo file, checked against settling the same texts without a memo. The belt at its full maximum length runs in run_m1 against the compiled M1 font. Settlement comes from the Rust crate, so these tests need a built kernel: the formation-guard sweep and the settle walk both call it."""
+"""Tests for conform.py and the oracle stages that consume it: label normalization, the raw GSUB replay, the isolated overlay, alias and ledger matching, kern evaluation and the position comparison, the oracle's audit shards, row cache and row ranges, the conformance sweep's bookkeeping, and the memoized settle walk and its memo file, checked against settling the same texts without a memo. The conformance sweep at its full maximum length runs in run_m1 against the compiled M1 font. Settlement comes from the Rust crate, so these tests need a built kernel: the formation-guard sweep and the settle walk both call it."""
 
 import gzip
 import hashlib
@@ -120,7 +120,7 @@ DOT = chr(0x00B7)
 
 
 class TestIsolatedOverlay:
-    """`OVERLAY_CONFIGS` is exactly the acceptance configurations whose features activate an `overlay: isolated` taste set, and `SETTLEMENT_CONFIGS` is the rest. For an overlay configuration the oracle and the belt take everything from the registry and the font's `hmtx`, and never call the crate."""
+    """`OVERLAY_CONFIGS` is exactly the acceptance configurations whose features activate an `overlay: isolated` taste set, and `SETTLEMENT_CONFIGS` is the rest. For an overlay configuration the oracle and the conformance sweep take everything from the registry and the font's `hmtx`, and never call the crate."""
 
     def test_the_rosters_partition_the_acceptance_set_by_the_registry(self, spec):
         from rebuild.pipeline.model import isolated_overlay_active
@@ -177,7 +177,7 @@ class TestIsolatedOverlay:
         assert divergent.new_junctions == ("break",)
 
     def test_the_overlay_case_sweeps_two_letters_and_never_reaches_the_crate(self, spec, monkeypatch):
-        """At any belt maximum length, the overlay case shapes every text of one or two alphabet symbols and nothing longer, and it never forms, settles, memoizes or calls the crate."""
+        """At any conformance-sweep maximum length, the overlay case shapes every text of one or two alphabet symbols and nothing longer, and it never forms, settles, memoizes or calls the crate."""
 
         def unreachable(*args, **kwargs):
             raise AssertionError("the overlay case reached the crate")
@@ -843,7 +843,7 @@ class TestConformanceMerge:
     def test_per_configuration_workers_merged_in_any_order_write_the_serial_report(
         self, spec, guard, tmp_path
     ):
-        """The pooled belt against the serial one, with no pool: each configuration's worker runs as a pool would run it, the results are taken in reverse order, reordered by acceptance configuration and merged, and the merged report must write the same bytes as `run_conformance`. A worker that built its shaper, alphabet or splitters differently from the serial path, or a merge in completion order, would fail here. Both paths run with no glyph mapping and the worker receives the guard, so neither the anchor check nor a worker's own guard sweep is tested."""
+        """The pooled conformance sweep against the serial one, with no pool: each configuration's worker runs as a pool would run it, the results are taken in reverse order, reordered by acceptance configuration and merged, and the merged report must write the same bytes as `run_conformance`. A worker that built its shaper, alphabet or splitters differently from the serial path, or a merge in completion order, would fail here. Both paths run with no glyph mapping and the worker receives the guard, so neither the anchor check nor a worker's own guard sweep is tested."""
         font = MINI / "M1.otf"
         finished = [
             conform.conformance_config_worker(spec, font, config, 2, None, guard, None)
@@ -2310,7 +2310,7 @@ class TestConformSummary:
 
 
 class _SilentShaper:
-    """A stand-in Shaper that records every text it is asked to shape and returns no glyphs. The belt then records one length divergence per text, and the split-buffer check finds no splitter slot. Tests read `shaped`."""
+    """A stand-in Shaper that records every text it is asked to shape and returns no glyphs. The conformance sweep then records one length divergence per text, and the split-buffer check finds no splitter slot. Tests read `shaped`."""
 
     def __init__(self):
         self.shaped: list[str] = []
@@ -2327,8 +2327,8 @@ class _SilentShaper:
         return ()
 
 
-class TestBeltEconomics:
-    """What the belt does over a short maximum length with a stand-in font: every text of every length up to the maximum length is shaped once, and the split-buffer check runs on exactly the texts that contain a splitter."""
+class TestSweepEconomics:
+    """What the conformance sweep does over a short maximum length with a stand-in font: every text of every length up to the maximum length is shaped once, and the split-buffer check runs on exactly the texts that contain a splitter."""
 
     MAX_LENGTH = 2
 
@@ -2357,7 +2357,7 @@ class TestBeltEconomics:
         assert all(len(text) <= self.MAX_LENGTH for text in shaper.shaped)
 
     def test_the_split_buffer_check_runs_on_the_texts_that_carry_a_splitter(self, spec, guard, monkeypatch):
-        """The belt runs the split-buffer check on every text that contains a splitter, comparing it with its segments shaped separately, and on no other text, since a text without a splitter is its own single segment. The ZWNJ slot's zero advance and empty outline are checked by read-back's boundary-glyphs stage, not by the belt."""
+        """The conformance sweep runs the split-buffer check on every text that contains a splitter, comparing it with its segments shaped separately, and on no other text, since a text without a splitter is its own single segment. The ZWNJ slot's zero advance and empty outline are checked by read-back's boundary-glyphs stage, not by the conformance sweep."""
         split_checked: list[str] = []
         monkeypatch.setattr(
             conform, "check_split_buffer", lambda text, *args, **kwargs: split_checked.append(text)
@@ -2639,7 +2639,7 @@ def _texts_to_depth(spec, max_length=3):
 
 
 class TestCrateEmittedSettleMemo:
-    """The string replay writes a window memo in the crate's label format, and `absorb_replay_memo` converts it into a settle memo file. The main test sweeps a walk over a file the crate wrote: a key converted wrongly misses instead of returning a wrong outcome, so the check on the label conversion is that the walk settles nothing (`fresh_windows`), and the check on outcomes is the settled stream against the unmemoized reference. The other tests hold the converted file to the same rules as one the belt writes (stamp, family keys, per-family retirement) and check the conversion's refusals."""
+    """The string replay writes a window memo in the crate's label format, and `absorb_replay_memo` converts it into a settle memo file. The main test sweeps a walk over a file the crate wrote: a key converted wrongly misses instead of returning a wrong outcome, so the check on the label conversion is that the walk settles nothing (`fresh_windows`), and the check on outcomes is the settled stream against the unmemoized reference. The other tests hold the converted file to the same rules as one the conformance sweep writes (stamp, family keys, per-family retirement) and check the conversion's refusals."""
 
     STAMP = "replay-stamp-a"
 
@@ -2687,7 +2687,7 @@ class TestCrateEmittedSettleMemo:
     def test_a_walk_that_promotes_nothing_answers_out_of_the_columns_alike(
         self, spec, guard, dumps_dir, tmp_path
     ):
-        """A walk built with `promote=False`, as the belt builds it, over the crate-written file settles every text to depth 3 from the store's columns, with the same streams and names as an unmemoized walk, no crate call and nothing added to `windows`. The rows it reached are exactly the distinct windows the reference walk memoized."""
+        """A walk built with `promote=False`, as the conformance sweep builds it, over the crate-written file settles every text to depth 3 from the store's columns, with the same streams and names as an unmemoized walk, no crate call and nothing added to `windows`. The rows it reached are exactly the distinct windows the reference walk memoized."""
         memo = self._memo(tmp_path)
         conform.absorb_replay_memo(kernel_exec.replay_memo_dump(dumps_dir, "default"), memo, spec, "default")
         texts = _texts_to_depth(spec, 3)
@@ -2762,7 +2762,7 @@ class TestCrateEmittedSettleMemo:
     def test_the_absorbed_file_carries_its_stamp_and_keys_and_retires_by_family(
         self, spec, guard, dumps_dir, tmp_path
     ):
-        """The converted file behaves under `StaleMask` like one the belt wrote: under the stamp and family keys it was written with every entry loads and none is stale, a change to one family's key retires exactly the entries whose windows name that family, and another stamp reads as no file."""
+        """The converted file behaves under `StaleMask` like one the conformance sweep wrote: under the stamp and family keys it was written with every entry loads and none is stale, a change to one family's key retires exactly the entries whose windows name that family, and another stamp reads as no file."""
         keys = {name: f"{name}@0" for name in spec.registry.families}
         memo = self._memo(tmp_path, keys=keys)
         entries = conform.absorb_replay_memo(
@@ -2897,7 +2897,7 @@ class TestDeepTokenIndex:
 
 
 class TestSettleMemoFile:
-    """The belt and the oracle walk the same texts per configuration, and the memo file lets the second of them settle nothing. Whichever walk settled windows the file lacked writes it, the next walk loads it lazily, and the left slot is keyed on the display name, so a walk with a glyph inventory and a walk without one share every key. A file under another stamp, or one that does not decode, costs the walk only the windows it would have settled anyway."""
+    """The conformance sweep and the oracle walk the same texts per configuration, and the memo file lets the second of them settle nothing. Whichever walk settled windows the file lacked writes it, the next walk loads it lazily, and the left slot is keyed on the display name, so a walk with a glyph inventory and a walk without one share every key. A file under another stamp, or one that does not decode, costs the walk only the windows it would have settled anyway."""
 
     STAMP = "tables-stamp-a"
 
@@ -3024,8 +3024,8 @@ class TestSettleMemoFile:
         second.walk_many(texts)
         assert second.memo_windows == 0 and second.fresh_windows == len(second.windows)
 
-    def test_the_belt_prunes_what_no_text_reaches_and_the_oracle_carries_it(self, spec, guard, tmp_path):
-        """Two walks over the same file with different responsibilities. The oracle's walk reaches only the windows of its rows, so it writes nothing when it settled nothing and would carry every loaded entry forward if it did. The belt's walk reaches every window any text produces, so it prunes what it never reached, and a window an edit has made unreachable leaves the file on the next sweep instead of staying in it indefinitely."""
+    def test_the_sweep_prunes_what_no_text_reaches_and_the_oracle_carries_it(self, spec, guard, tmp_path):
+        """Two walks over the same file with different responsibilities. The oracle's walk reaches only the windows of its rows, so it writes nothing when it settled nothing and would carry every loaded entry forward if it did. The conformance sweep's walk reaches every window any text produces, so it prunes what it never reached, and a window an edit has made unreachable leaves the file on the next sweep instead of staying in it indefinitely."""
         memo = self._memo(tmp_path)
         long_texts, short_texts = self._texts(spec, 3), self._texts(spec, 2)
         first = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
@@ -3041,11 +3041,11 @@ class TestSettleMemoFile:
         assert not oracle_side.save_memo()
         assert oracle_side.pruned_windows == 0 and memo.path.read_bytes() == written
 
-        belt_side = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo, promote=False)
-        belt_side.walk_many(short_texts)
-        assert not belt_side.windows and belt_side._cold.reached_count() == touched
-        assert belt_side.save_memo(prune=True)
-        assert belt_side.pruned_windows == total - touched
+        sweep_side = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo, promote=False)
+        sweep_side.walk_many(short_texts)
+        assert not sweep_side.windows and sweep_side._cold.reached_count() == touched
+        assert sweep_side.save_memo(prune=True)
+        assert sweep_side.pruned_windows == total - touched
 
         third = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
         third.walk_many(short_texts)
@@ -3134,7 +3134,7 @@ class TestSettleMemoFile:
     def test_a_pruning_walk_that_promotes_nothing_files_what_a_promoting_one_files(
         self, spec, guard, tmp_path
     ):
-        """Either way the belt writes one window-to-outcome map: a pruning walk that promoted every hit into `windows` writes `windows` in the order it reached them, and one that promoted nothing writes its fresh windows first and then the reached rows in the file's own order. The rows, the outcomes and `pruned_windows` are the same; only the order differs, and a load does not depend on order."""
+        """Either way the conformance sweep writes one window-to-outcome map: a pruning walk that promoted every hit into `windows` writes `windows` in the order it reached them, and one that promoted nothing writes its fresh windows first and then the reached rows in the file's own order. The rows, the outcomes and `pruned_windows` are the same; only the order differs, and a load does not depend on order."""
         seeded = self._memo(tmp_path)
         seed = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=seeded)
         seed.walk_many(self._texts(spec, 2))
@@ -3466,10 +3466,10 @@ class TestSettleMemoFile:
         assert [item.cell.rune for item in settled] == ["qsMay", "qsTea"]
         assert again.fresh_windows == len(refused)
 
-    def test_the_belt_writes_the_file_the_oracle_reads(self, spec, guard, tmp_path, monkeypatch, capsys):
-        """Both phases end to end, in the reverse of the cycle's order: the belt over the mini alphabet at maximum length 2 with a stand-in font, then the oracle over rows the belt swept, with `kernel_exec.settle_windows` replaced by a failure. Every window the oracle needs is already in the file, and each phase's `[t]` line shows which one wrote it."""
+    def test_the_sweep_writes_the_file_the_oracle_reads(self, spec, guard, tmp_path, monkeypatch, capsys):
+        """Both phases end to end, in the reverse of the cycle's order: the conformance sweep over the mini alphabet at maximum length 2 with a stand-in font, then the oracle over rows the conformance sweep swept, with `kernel_exec.settle_windows` replaced by a failure. Every window the oracle needs is already in the file, and each phase's `[t]` line shows which one wrote it."""
         memo = self._memo(tmp_path)
-        belt = conform._conformance_config(
+        swept = conform._conformance_config(
             _SilentShaper(),  # pyright: ignore[reportArgumentType]
             spec,
             "default",
@@ -3481,11 +3481,11 @@ class TestSettleMemoFile:
             guard,
             settle_memo=memo,
         )
-        assert belt.sequences and memo.path.is_file()
-        belt_line = [
+        assert swept.sequences and memo.path.is_file()
+        sweep_line = [
             line for line in capsys.readouterr().err.splitlines() if line.startswith("[t] settle_memo")
         ]
-        assert len(belt_line) == 1 and belt_line[0].endswith("written=yes")
+        assert len(sweep_line) == 1 and sweep_line[0].endswith("written=yes")
 
         tables = tmp_path / "tables"
         tables.mkdir()
@@ -3500,7 +3500,9 @@ class TestSettleMemoFile:
                 handle.write(row + "\n")
 
         def crate_is_gone(*args, **kwargs):
-            raise AssertionError("the oracle reached the crate for a window the belt had already settled")
+            raise AssertionError(
+                "the oracle reached the crate for a window the conformance sweep had already settled"
+            )
 
         monkeypatch.setattr(conform.kernel_exec, "settle_windows", crate_is_gone)
         result = oracle._compare_config(

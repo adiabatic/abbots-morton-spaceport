@@ -4,7 +4,7 @@ Several fan-out widths are the machine's memory divided by a measured per-unit p
 
 It reads measurements only from the cycle-timings journal. A `kind:"pool"` record gives one observation per worker, because the unit is one worker. A named `kind:"step"` record gives its `peak_rss_bytes`, which is the largest single process in the step's tree, because `peak_rss.reap_peak_rss_bytes` takes the max over the tree instead of the sum. That reading measures one unit only for some steps. For `run_m1` the widest process is the table-build child, which the kernel-build row checks, and for `corpus-build` it is the parent, which the corpus-parent row checks. It does not measure one unit for `gate:make-test`, whose tree also holds `make all` and `uv run pyright` beside the pool. Each `UNITS` entry states which sources count for it and why.
 
-Constants are read from their source files with `ast`, never imported. pytest loads every conftest under the module name `conftest`, so from under `rebuild/` a plain `import conftest` gets the wrong file, and `import rebuild.conftest` would execute a second copy of a file pytest has already loaded and installed its lane-audit hook from. `ast` executes nothing, and it keeps this tool from importing pytest or inheriting that file's `sys.path` edits. The width clauses read their other inputs the same way, so each prints the width its pool actually takes: the corpus rows read the jobs cap and each other's constant, and the conform-belt row reads its cap, the acceptance-configuration count, from the lengths of the configuration tuples in `rebuild/pipeline/conform.py` (`_acceptance_config_count`), along with the corpus constants its second width needs. The kernel row's width is narrowed by the configuration count and the cores in `run_m1._table_build_threads`, which this module does not compute, so that clause prints the memory arithmetic and names the narrowing in words.
+Constants are read from their source files with `ast`, never imported. pytest loads every conftest under the module name `conftest`, so from under `rebuild/` a plain `import conftest` gets the wrong file, and `import rebuild.conftest` would execute a second copy of a file pytest has already loaded and installed its lane-audit hook from. `ast` executes nothing, and it keeps this tool from importing pytest or inheriting that file's `sys.path` edits. The width clauses read their other inputs the same way, so each prints the width its pool actually takes: the corpus rows read the jobs cap and each other's constant, and the conform-sweep row reads its cap, the acceptance-configuration count, from the lengths of the configuration tuples in `rebuild/pipeline/conform.py` (`_acceptance_config_count`), along with the corpus constants its second width needs. The kernel row's width is narrowed by the configuration count and the cores in `run_m1._table_build_threads`, which this module does not compute, so that clause prints the memory arithmetic and names the narrowing in words.
 
 A peak above its constant means the constant is out of date. It does not mean an artifact is wrong: the cost is a pool of the wrong width, so the cycle does not fail on it. `--check` exits 1 for an overrun and 2 when the tool itself fails, because the artifact cycle reports an overrun on 1 and an informational line on any other nonzero code, and a crash reported as an overrun would report a measurement nobody took. After an overrun the cycle runs `--moved`, which compares each checked constant's value in the working tree with its value at `HEAD` and prints the ones that differ, so the cycle can say which constants have already been re-measured. The fix is to re-measure the constant and set it from the newer measurement; committing it accepts the new value, as committing `rebuild/review-facts-pins.json` accepts the review facts. The tolerance defaults to zero because each constant is already rounded up above its measured peaks, as its comment says: an estimate that is too low puts the machine into swap, while one that is too high only narrows a pool. A peak that reaches the constant has used all of that headroom. `--tolerance` is for a survey with `--host all`, not for relaxing the default.
 
@@ -38,7 +38,7 @@ CORPUS_WORKER_NAME = "CORPUS_WORKER_BYTES"
 STANDING_FILL_PARENT_NAME = "STANDING_FILL_PARENT_BYTES"
 STANDING_FILL_WORKER_NAME = "STANDING_FILL_WORKER_BYTES"
 ORACLE_SHARD_NAME = "ORACLE_SHARD_BYTES"
-CONFORM_BELT_NAME = "CONFORM_BELT_BYTES"
+CONFORM_SWEEP_NAME = "CONFORM_SWEEP_BYTES"
 CONFORM_SOURCE = "rebuild/pipeline/conform.py"
 
 
@@ -125,13 +125,13 @@ UNITS: tuple[Unit, ...] = (
         note="These pool records come from `run_m1.run_oracle`'s own fan-in rather than from a pytest controller: one record per oracle fan-out, one observation per row range that ran, each the range's worker's own peak as it returned it to the parent process. The run_m1 step peak is deliberately not admitted: that step's widest process is the table build's child, which the kernel-build row measures, and it would read a build's footprint as a shard's. The row is quiet on a machine the arithmetic narrows to `--jobs 1`, since the serial oracle starts no pool; a hand `run_m1 --gates-only` at any wider width puts an observation on the record.",
     ),
     Unit(
-        name="conform-belt",
-        constant=CONFORM_BELT_NAME,
+        name="conform-sweep",
+        constant=CONFORM_SWEEP_NAME,
         source=CORPUS_SOURCE,
-        pool_units=("conform-belt",),
+        pool_units=("conform-sweep",),
         step_names=(),
         step_caveat="",
-        note="These pool records come from `run_m1.run_font_conformance`'s own fan-in rather than from a pytest controller: one record per pooled belt at `conform.SWEEP_MAX_LENGTH`, one observation per acceptance configuration, each the configuration's worker's own peak as `run_m1._estimated_conformance_config` returned it to the parent process beside the result. A deeper sweep (`make conform-deep`, or a `--conform-max-length` past the belt's) runs the same pooled branch and writes nothing here, since its worker builds a memo over every text up to its maximum length in process and holds a different collection from the belt's. A reading is the worker process's high-water mark and `run_m1._spawn_pool` sets no `maxtasksperchild`, so below the acceptance-configuration count a configuration that runs second in a reused worker reads at or above the mark the one before it left, and the record measures the pool's shape rather than one configuration's cost. The gate:conform step peak is deliberately not admitted: `reap_peak_rss_bytes` maxes over the child's tree rather than summing it, so that step's peak reads one process and never the pool. The row is quiet on a pass whose gate:conform skips on its green, and at `--jobs 1`, since the serial belt starts no pool; a hand `run_m1 --conform-only` at any wider width puts observations on the record. The row checks `CONFORM_BELT_BYTES`, the divisor `artifact_cycle.conform_job_budget` divides the machine's memory by once the build lane's larger step is off it.",
+        note="These pool records come from `run_m1.run_font_conformance`'s own fan-in rather than from a pytest controller: one record per pooled conformance sweep at `conform.SWEEP_MAX_LENGTH`, one observation per acceptance configuration, each the configuration's worker's own peak as `run_m1._estimated_conformance_config` returned it to the parent process beside the result. A deeper sweep (`make conform-deep`, or a `--conform-max-length` past the per-edit sweep's) runs the same pooled branch and writes nothing here, since its worker builds a memo over every text up to its maximum length in process and holds a different collection from the per-edit sweep's. A reading is the worker process's high-water mark and `run_m1._spawn_pool` sets no `maxtasksperchild`, so below the acceptance-configuration count a configuration that runs second in a reused worker reads at or above the mark the one before it left, and the record measures the pool's shape rather than one configuration's cost. The gate:conform step peak is deliberately not admitted: `reap_peak_rss_bytes` maxes over the child's tree rather than summing it, so that step's peak reads one process and never the pool. The row is quiet on a pass whose gate:conform skips on its green, and at `--jobs 1`, since the serial conformance sweep starts no pool; a hand `run_m1 --conform-only` at any wider width puts observations on the record. The row checks `CONFORM_SWEEP_BYTES`, the divisor `artifact_cycle.conform_job_budget` divides the machine's memory by once the build lane's larger step is off it.",
     ),
     Unit(
         name="standing-fill-parent",
@@ -172,7 +172,7 @@ def _int_constant(path: Path, name: str) -> int:
 
 @functools.cache
 def _acceptance_config_count(path: Path) -> int:
-    """Return the number of acceptance configurations `path` defines: the summed lengths of its module-scope `SETTLEMENT_CONFIGS` and `OVERLAY_CONFIGS` tuples, which `conform.ACCEPTANCE_CONFIGS` concatenates, parsed with `ast` like the constants. It is the belt's width cap beside the cores. A missing name or a value that is not a literal tuple raises, because the report would otherwise state a wrong width."""
+    """Return the number of acceptance configurations `path` defines: the summed lengths of its module-scope `SETTLEMENT_CONFIGS` and `OVERLAY_CONFIGS` tuples, which `conform.ACCEPTANCE_CONFIGS` concatenates, parsed with `ast` like the constants. It is the conformance sweep's width cap beside the cores. A missing name or a value that is not a literal tuple raises, because the report would otherwise state a wrong width."""
     names = ("SETTLEMENT_CONFIGS", "OVERLAY_CONFIGS")
     lengths: dict[str, int] = {}
     tree = ast.parse(path.read_text(encoding="utf-8"))
@@ -184,13 +184,13 @@ def _acceptance_config_count(path: Path) -> int:
                 value = ast.literal_eval(node.value) if isinstance(node.value, ast.Tuple) else None
                 if not isinstance(value, tuple):
                     raise RuntimeError(
-                        f"{path} assigns {target.id} something other than a literal tuple: the conform-belt row reads the acceptance-configuration count off that tuple's length to state the belt's cap."
+                        f"{path} assigns {target.id} something other than a literal tuple: the conform-sweep row reads the acceptance-configuration count off that tuple's length to state the conformance sweep's cap."
                     )
                 lengths[target.id] = len(value)
     missing = [name for name in names if name not in lengths]
     if missing:
         raise RuntimeError(
-            f"{path} defines no {' or '.join(missing)}: the conform-belt row reads the acceptance-configuration count off those tuples to state the belt's cap. Point `CONFORM_SOURCE` at the file that defines them, or update this reader beside whatever moved them."
+            f"{path} defines no {' or '.join(missing)}: the conform-sweep row reads the acceptance-configuration count off those tuples to state the conformance sweep's cap. Point `CONFORM_SOURCE` at the file that defines them, or update this reader beside whatever moved them."
         )
     return sum(lengths.values())
 
@@ -486,7 +486,7 @@ def _sources_line(row: UnitRow) -> str | None:
 def _width_clause(unit: Unit, constant_bytes: int, *, total_bytes: int, cores: int, root: Path) -> str:
     """Return the width this constant implies on the given machine, computed the way the code that sizes that pool computes it.
 
-    The font suite's pool takes the cores without dividing by its constant, so the clause prints the cores and, beside them, the width memory would allow. The kernel's delta wave divides by `DELTA_PEAK_BYTES` after subtracting `DEFAULT_MEMO_BYTES`, and `run_m1._table_build_threads` then caps it at the configuration count and the cores, which the clause states in words. The corpus build subtracts its parent constant and divides by its worker constant, so neither corpus row is the whole width alone and each reads the other's constant. The standing fill's parent is subtracted the same way before dividing by `STANDING_FILL_WORKER_BYTES`. The conform belt divides by its own constant, capped at the acceptance-configuration count and the cores, and prints two widths: with the build lane idle, and beside a corpus build at the corpus build's width. None of these widths subtracts gate:make-test's pool; the corpus-worker and standing-fill clauses say so. Caps and sibling constants are read from `root`, like the constants, so a test can supply both the machine and the tree.
+    The font suite's pool takes the cores without dividing by its constant, so the clause prints the cores and, beside them, the width memory would allow. The kernel's delta wave divides by `DELTA_PEAK_BYTES` after subtracting `DEFAULT_MEMO_BYTES`, and `run_m1._table_build_threads` then caps it at the configuration count and the cores, which the clause states in words. The corpus build subtracts its parent constant and divides by its worker constant, so neither corpus row is the whole width alone and each reads the other's constant. The standing fill's parent is subtracted the same way before dividing by `STANDING_FILL_WORKER_BYTES`. The conformance sweep divides by its own constant, capped at the acceptance-configuration count and the cores, and prints two widths: with the build lane idle, and beside a corpus build at the corpus build's width. None of these widths subtracts gate:make-test's pool; the corpus-worker and standing-fill clauses say so. Caps and sibling constants are read from `root`, like the constants, so a test can supply both the machine and the tree.
     """
     if unit.name == "font-suite":
         allowed = memory_budget.describe_fit(constant_bytes, total_bytes=total_bytes)
@@ -516,7 +516,7 @@ def _width_clause(unit: Unit, constant_bytes: int, *, total_bytes: int, cores: i
             worker, coresident_bytes=constant_bytes, cap=cores, total_bytes=total_bytes
         )
         return f"the verdict update's process, the refill pool's parent, is subtracted from the machine's memory rather than divided into it; with it off, the refill pool runs {allowed} ({STANDING_FILL_WORKER_NAME}, measured by hand); under a gated cycle gate:make-test's pool is subtracted from the machine's memory before this division too, and two cores off the cap"
-    if unit.name == "conform-belt":
+    if unit.name == "conform-sweep":
         cap = min(_acceptance_config_count(root / CONFORM_SOURCE), cores)
         parent = _int_constant(root / CORPUS_SOURCE, CORPUS_PARENT_NAME)
         worker = _int_constant(root / CORPUS_SOURCE, CORPUS_WORKER_NAME)
@@ -530,7 +530,7 @@ def _width_clause(unit: Unit, constant_bytes: int, *, total_bytes: int, cores: i
         beside = memory_budget.describe_fit(
             constant_bytes, coresident_bytes=parent + corpus_width * worker, cap=cap, total_bytes=total_bytes
         )
-        return f"the belt runs {idle} with the build lane idle, and {beside} beside a corpus build of its parent and {corpus_width} workers"
+        return f"the conformance sweep runs {idle} with the build lane idle, and {beside} beside a corpus build of its parent and {corpus_width} workers"
     return memory_budget.describe_fit(constant_bytes, total_bytes=total_bytes)
 
 

@@ -104,39 +104,47 @@ def test_a_corpus_pool_record_calibrates_the_worker_constant():
     assert parent == []
 
 
-def test_a_conform_belt_pool_record_goes_to_the_belt_row_only():
-    """The belt and the oracle both fan out from run_m1 over the acceptance configurations, but a belt worker and an oracle range worker hold different data. Each row reads only its own pool's records, because a record read by the other row would misstate that row's peak."""
-    belt = _pool("conform-belt", [390_000_000, 920_000_000])
-    observed, _, _ = cb.observations(_unit("conform-belt"), [belt], {}, host=HOST, recent=20)
+def test_a_conform_sweep_pool_record_goes_to_the_sweep_row_only():
+    """The conformance sweep and the oracle both fan out from run_m1 over the acceptance configurations, but a conformance-sweep worker and an oracle range worker hold different data. Each row reads only its own pool's records, because a record read by the other row would misstate that row's peak."""
+    sweep = _pool("conform-sweep", [390_000_000, 920_000_000])
+    observed, _, _ = cb.observations(_unit("conform-sweep"), [sweep], {}, host=HOST, recent=20)
     assert [item.peak_bytes for item in observed] == [390_000_000, 920_000_000]
     assert {item.source for item in observed} == {"pool"}
-    oracle, _, _ = cb.observations(_unit("oracle-shard"), [belt], {}, host=HOST, recent=20)
+    oracle, _, _ = cb.observations(_unit("oracle-shard"), [sweep], {}, host=HOST, recent=20)
     assert oracle == []
     shard = _pool("oracle-shard", [560_000_000])
-    crossed, _, _ = cb.observations(_unit("conform-belt"), [shard], {}, host=HOST, recent=20)
+    crossed, _, _ = cb.observations(_unit("conform-sweep"), [shard], {}, host=HOST, recent=20)
     assert crossed == []
 
 
-def test_a_conform_step_peak_is_never_read_as_a_belt_worker():
+def test_the_conform_sweep_row_also_reads_the_journals_conform_belt_records(tmp_path):
+    """Older journal lines name the conformance sweep's pool `conform-belt`. `load_pool_records` reads them under the current name, so the conform-sweep row keeps its measured history."""
+    path = _journal(tmp_path, [_pool("conform-belt", [390_000_000]), _pool("conform-sweep", [420_000_000])])
+    pools = cb.load_pool_records(path)
+    observed, _, _ = cb.observations(_unit("conform-sweep"), pools, {}, host=HOST, recent=20)
+    assert sorted(item.peak_bytes for item in observed) == [390_000_000, 420_000_000]
+
+
+def test_a_conform_step_peak_is_never_read_as_a_sweep_worker():
     """`reap_peak_rss_bytes` takes the max over gate:conform's process tree, so the step peak measures one process, not the pool. No row reads it."""
     steps = {"r1": [_step("gate:conform", 3_000_000_000)]}
-    observed, _, _ = cb.observations(_unit("conform-belt"), [], steps, host=HOST, recent=20)
+    observed, _, _ = cb.observations(_unit("conform-sweep"), [], steps, host=HOST, recent=20)
     assert observed == []
     assert all("gate:conform" not in unit.step_names for unit in cb.UNITS)
 
 
-def test_an_overrun_of_the_belt_constant_trips_the_check(tmp_path, capsys):
-    """A belt worker peak above `CONFORM_BELT_BYTES` fails `--check` like an overrun of any other constant, because gate:conform's pool width is computed from it."""
-    over = _journal(tmp_path, [_pool("conform-belt", [CONSTANTS["conform-belt"] + 1])])
+def test_an_overrun_of_the_sweep_constant_trips_the_check(tmp_path, capsys):
+    """A conformance-sweep worker peak above `CONFORM_SWEEP_BYTES` fails `--check` like an overrun of any other constant, because gate:conform's pool width is computed from it."""
+    over = _journal(tmp_path, [_pool("conform-sweep", [CONSTANTS["conform-sweep"] + 1])])
     code, out = _run(capsys, over, "--check")
     assert code == 1
-    assert "re-measure CONFORM_BELT_BYTES in rebuild/tools/artifact_cycle.py" in out
-    under = _journal(tmp_path, [_pool("conform-belt", [CONSTANTS["conform-belt"] - 1])])
+    assert "re-measure CONFORM_SWEEP_BYTES in rebuild/tools/artifact_cycle.py" in out
+    under = _journal(tmp_path, [_pool("conform-sweep", [CONSTANTS["conform-sweep"] - 1])])
     assert _main(under, "--host", HOST, "--check") == 0
 
 
-def test_the_belt_cap_reads_the_acceptance_configurations_the_pipeline_defines():
-    """The belt's width clause is capped at the acceptance-configuration count, which `_acceptance_config_count` parses from `conform.py` without importing it. `run_m1.run_font_conformance` submits one worker task per acceptance configuration."""
+def test_the_sweep_cap_reads_the_acceptance_configurations_the_pipeline_defines():
+    """The conformance sweep's width clause is capped at the acceptance-configuration count, which `_acceptance_config_count` parses from `conform.py` without importing it. `run_m1.run_font_conformance` submits one worker task per acceptance configuration."""
     from rebuild.pipeline import conform
 
     assert cb._acceptance_config_count(cb.ROOT / cb.CONFORM_SOURCE) == len(conform.ACCEPTANCE_CONFIGS)
@@ -528,12 +536,12 @@ def test_the_width_clauses_answer_for_the_machine_and_the_tree_they_are_given(tm
         "the corpus build's parent is subtracted from the machine's memory rather than divided into it" in out
     )
     assert "the refill pool runs 12 at 2.00 GB each out of 48.00 GB total" in out
-    belt_block = out.split("\nconform-belt  ")[1].split("\n\n")[0]
-    belt_width = next(line for line in belt_block.splitlines() if line.startswith("  width here: "))
-    assert "capped at 4" in belt_width
-    assert "with the build lane idle" in belt_width
-    assert "less 25.00 GB co-resident" in belt_width
-    assert "beside a corpus build of its parent and 3 workers" in belt_width
+    sweep_block = out.split("\nconform-sweep  ")[1].split("\n\n")[0]
+    sweep_width = next(line for line in sweep_block.splitlines() if line.startswith("  width here: "))
+    assert "capped at 4" in sweep_width
+    assert "with the build lane idle" in sweep_width
+    assert "less 25.00 GB co-resident" in sweep_width
+    assert "beside a corpus build of its parent and 3 workers" in sweep_width
 
 
 def test_a_check_that_cannot_run_exits_apart_from_one_that_tripped(tmp_path, capsys, monkeypatch):

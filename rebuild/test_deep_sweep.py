@@ -1,4 +1,4 @@
-"""Tests for the on-demand deep sweep's decisions, with the sweep stubbed out: which inputs it refuses, what it records on a pass, what it clears on a failure, and the belt green record it writes. The sweep itself is `run_m1.run_font_conformance`, which the font-facing gates already exercise."""
+"""Tests for the on-demand deep sweep's decisions, with the sweep stubbed out: which inputs it refuses, what it records on a pass, what it clears on a failure, and the per-edit sweep's green record it writes. The sweep itself is `run_m1.run_font_conformance`, which the font-facing gates already exercise."""
 
 import json
 
@@ -70,15 +70,15 @@ def test_tables_stamped_asks_the_enumerations_own_stamp(monkeypatch):
     assert deep_sweep.tables_stamped() is True
 
 
-def test_a_max_length_below_the_belt_is_refused(bench, monkeypatch):
+def test_a_max_length_below_the_per_edit_sweep_is_refused(bench, monkeypatch):
     swept: list = []
     _stub_sweep(monkeypatch, {"pass": True, "divergences": 0}, swept)
-    with pytest.raises(SystemExit, match="shorter than the per-edit belt"):
+    with pytest.raises(SystemExit, match="shorter than the per-edit sweep"):
         deep_sweep.main(["--max-length", str(ac.CONFORM_MAX_LENGTH_DEFAULT - 1)])
     assert swept == []
 
 
-def test_a_green_run_records_its_max_length_and_hands_the_belt_its_green(bench, monkeypatch):
+def test_a_green_run_records_its_max_length_and_hands_the_per_edit_sweep_its_green(bench, monkeypatch):
     swept: list = []
     _stub_sweep(monkeypatch, {"pass": True, "divergences": 0}, swept)
     assert deep_sweep.main(["--max-length", "6", "--jobs", "3"]) == 0
@@ -88,9 +88,9 @@ def test_a_green_run_records_its_max_length_and_hands_the_belt_its_green(bench, 
     assert record["max_length"] == 6
     assert record["fingerprint"] == ac.deep_sweep_skip_fingerprint(bench)
     assert "class:namer-dot" in record["files"]
-    belt = ac.read_green_record(bench / "conform-green.json")
-    assert belt is not None
-    assert belt["fingerprint"] == ac.conform_skip_fingerprint(bench, ac.CONFORM_MAX_LENGTH_DEFAULT)
+    per_edit = ac.read_green_record(bench / "conform-green.json")
+    assert per_edit is not None
+    assert per_edit["fingerprint"] == ac.conform_skip_fingerprint(bench, ac.CONFORM_MAX_LENGTH_DEFAULT)
 
 
 def test_a_red_run_records_nothing_and_clears_a_contradicted_green(bench, monkeypatch):

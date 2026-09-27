@@ -8,7 +8,7 @@ The rows the oracle classifies are produced in conform.py. `_compare_row` and `_
 
 run_m1's parallel path splits the work into row ranges of one configuration's table (`OracleShard`, planned by `oracle_shard_plan` for the worker count). `oracle_config_worker` runs `_compare_config` over one range in its own process and writes its own audit segment under `oracle_audit_scratch` and its own store segment. `join_oracle_audit` and `oracle_cache.join_store_segments` join those in row order, and `merge_config_shards` sums the ranges' counts. The output is the same as the serial path's, because `_compare_config` addresses every row by its absolute index in the table: the store records, the scheduled re-derivation, and the verification samples all key on it.
 
-For the overlay configuration (ss10), no settlement table produces the new side. Its rows are walked by `conform.IsolatedOverlayWalk`, which returns every letter bare from the registry alone, and shaped by `conform.IsolatedOverlayShaper`, which uses the twins' `hmtx` advances instead of HarfBuzz. Read-back's isolation check and the belt's overlay sweep are what make both valid. So the old font's ss10 rows are compared with an all-bare stream, and no settlement or shaping runs for them.
+For the overlay configuration (ss10), no settlement table produces the new side. Its rows are walked by `conform.IsolatedOverlayWalk`, which returns every letter bare from the registry alone, and shaped by `conform.IsolatedOverlayShaper`, which uses the twins' `hmtx` advances instead of HarfBuzz. Read-back's isolation check and the conformance sweep over the overlay are what make both valid. So the old font's ss10 rows are compared with an all-bare stream, and no settlement or shaping runs for them.
 """
 
 from __future__ import annotations
@@ -230,7 +230,7 @@ def classify_divergence(row: DivergentRow) -> str | None:
         # A cell-grain class claims the ink is identical, and the position comparison is the test of that claim, so a row with a position mismatch must not take one. Such rows are left to the function predicates (`kern_out_of_scope`, `may_ligature_junction_loosened`).
         return None
     if {"0020", "200C"} & set(row.codepoints.split(":")):
-        # Design section 3.4: the new font renders each segment of a window split by a space or ZWNJ the same as that segment alone, and the belt's split-buffer check verifies this on every build. So a boundary row can diverge from the baseline only where the old font was inconsistent across the boundary, and every divergence inside a segment also appears on that segment's own row. Boundary rows need no review of their own and take this class ahead of every other.
+        # Design section 3.4: the new font renders each segment of a window split by a space or ZWNJ the same as that segment alone, and the conformance sweep's split-buffer check verifies this on every build. So a boundary row can diverge from the baseline only where the old font was inconsistent across the boundary, and every divergence inside a segment also appears on that segment's own row. Boundary rows need no review of their own and take this class ahead of every other.
         return "boundary-window"
     if row.config in OVERLAY_CONFIGS:
         # Under ss10 both fonts render every letter isolated, with no join and no ligature (the old font through its anchor-free `.ss10` twins, the rebuild through its pre-empt), so any other ss10 divergence is a regression and waits for review. Without this, a namer-dot ss10 row that ligates would take post-marker-ligature-formation.
@@ -607,7 +607,7 @@ def _compare_config(
     if not table_path.exists():
         result.notes.append(f"{config}: subset table missing at {table_path}")
         return result
-    # The oracle's rows are texts the belt also sweeps, so they settle through the belt's shared settle memo file (`settle_memo`). The rows of each chunk that need walking are settled in one `walk_many` call, and each row is compared with the stream that call returned. `_compare_row` reads cells, not glyph names, so the walk gets an empty `glyph_names`; its memo keys are the same either way. The overlay configuration's walk reads the registry and settles nothing.
+    # The oracle's rows are texts the conformance sweep also shapes, so they settle through the conformance sweep's shared settle memo file (`settle_memo`). The rows of each chunk that need walking are settled in one `walk_many` call, and each row is compared with the stream that call returned. `_compare_row` reads cells, not glyph names, so the walk gets an empty `glyph_names`; its memo keys are the same either way. The overlay configuration's walk reads the registry and settles nothing.
     walker: _SettledWindowWalk | IsolatedOverlayWalk
     if isolated_overlay_active(spec, features):
         walker = IsolatedOverlayWalk(spec)
@@ -787,7 +787,7 @@ def oracle_config_worker(
     guard_verdicts: settle.FormationGuard | None = None,
     shard: OracleShard | None = None,
 ) -> OracleConfigResult:
-    """Run `_compare_config` for one configuration, or one row range when `shard` is given, in a pool worker. Audit rows go to the range's segment under `audit_dir`, so the result carries only counts. When the caller passes no `guard_verdicts`, the worker runs the section 5.7 guard sweep itself, as the belt's worker does; the overlay configuration's worker forms nothing and skips it. A caller that fans out several ranges runs the sweep once and passes it to every range. The worker opens the row cache itself, through the same `open_row_cache` call the serial path makes, and reads and writes `settle_memo` itself, because a spawned worker inherits no open files. For a range of the pooled oracle, `settle_memo.write_path` is the range's own part, which the parent absorbs into the shared file after every range has finished and the witness stage has returned."""
+    """Run `_compare_config` for one configuration, or one row range when `shard` is given, in a pool worker. Audit rows go to the range's segment under `audit_dir`, so the result carries only counts. When the caller passes no `guard_verdicts`, the worker runs the section 5.7 guard sweep itself, as the conformance sweep's worker does; the overlay configuration's worker forms nothing and skips it. A caller that fans out several ranges runs the sweep once and passes it to every range. The worker opens the row cache itself, through the same `open_row_cache` call the serial path makes, and reads and writes `settle_memo` itself, because a spawned worker inherits no open files. For a range of the pooled oracle, `settle_memo.write_path` is the range's own part, which the parent absorbs into the shared file after every range has finished and the witness stage has returned."""
     shard = OracleShard(config) if shard is None else shard
     aliases = load_alias_map(alias_path)
     entries = yaml.safe_load(Path(ledger_path).read_text()) or []

@@ -1,4 +1,4 @@
-"""Tests for the green records and check lines run_m1 writes, plus its exit handling and the oracle and belt fan-in. An interactive run_m1, `--conform-only`, and `--gates-only` record the same green files the artifact cycle skips on, so a fix verified by hand is not verified again by the next cycle, and each records its result as a check line in the timings journal. The results come from artifact_cycle's evaluators (`evaluate_run_m1_gate`, `evaluate_conform_gate`). Unmatched oracle rows are not a failure, so a run that has them records a green and exits zero. `--gates-only` records run_m1's green only when a prior green exists and every input that moved since it is comparison-side (`artifact_cycle.gates_only_rerun`), so the next cycle can skip run_m1 after a ledger edit."""
+"""Tests for the green records and check lines run_m1 writes, plus its exit handling and the oracle and conformance-sweep fan-in. An interactive run_m1, `--conform-only`, and `--gates-only` record the same green files the artifact cycle skips on, so a fix verified by hand is not verified again by the next cycle, and each records its result as a check line in the timings journal. The results come from artifact_cycle's evaluators (`evaluate_run_m1_gate`, `evaluate_conform_gate`). Unmatched oracle rows are not a failure, so a run that has them records a green and exits zero. `--gates-only` records run_m1's green only when a prior green exists and every input that moved since it is comparison-side (`artifact_cycle.gates_only_rerun`), so the next cycle can skip run_m1 after a ledger edit."""
 
 import gzip
 import itertools
@@ -423,15 +423,15 @@ def test_the_conform_max_length_default_matches_the_cycle_driver(monkeypatch, tm
     assert swept == [ac.CONFORM_MAX_LENGTH_DEFAULT]
 
 
-def test_a_hand_conform_only_run_defaults_to_the_belts_budget(monkeypatch, tmp_path):
-    """A hand `--conform-only` shares the machine with no corpus build and no make-test pool, so its default is `conform_job_budget(skip_gates=True, skip_corpus=True)`, not the oracle's `sweep_job_budget()`, which a bare run uses. A stated `--jobs`, including 1, overrides the default. The stub sets the oracle's budget one above the belt's, so a default taken from the wrong budget fails even on a machine where the two are equal."""
+def test_a_hand_conform_only_run_defaults_to_the_conform_sweeps_budget(monkeypatch, tmp_path):
+    """A hand `--conform-only` shares the machine with no corpus build and no make-test pool, so its default is `conform_job_budget(skip_gates=True, skip_corpus=True)`, not the oracle's `sweep_job_budget()`, which a bare run uses. A stated `--jobs`, including 1, overrides the default. The stub sets the oracle's budget one above the conformance sweep's, so a default taken from the wrong budget fails even on a machine where the two are equal."""
     store = tmp_path / "conform-green.json"
     handed = []
-    belt = ac.conform_job_budget(skip_gates=True, skip_corpus=True)
+    conform_jobs = ac.conform_job_budget(skip_gates=True, skip_corpus=True)
     monkeypatch.setattr(cycle_paths, "CONFORM_GREEN", store)
     monkeypatch.setattr(ac, "conform_skip_fingerprint", lambda root=None, max_length=4: "fp-conform")
     monkeypatch.setattr(ac, "conform_skip_files", lambda root=None, max_length=4: {})
-    monkeypatch.setattr(ac, "sweep_job_budget", lambda ncores=None, total_bytes=None: belt + 1)
+    monkeypatch.setattr(ac, "sweep_job_budget", lambda ncores=None, total_bytes=None: conform_jobs + 1)
 
     def fake_sweep(max_length, jobs):
         handed.append(jobs)
@@ -441,7 +441,7 @@ def test_a_hand_conform_only_run_defaults_to_the_belts_budget(monkeypatch, tmp_p
     run_m1.main(["--conform-only"])
     run_m1.main(["--conform-only", "--jobs", "1"])
     run_m1.main(["--conform-only", "--jobs", "4"])
-    assert handed == [max(1, belt), 1, 4]
+    assert handed == [max(1, conform_jobs), 1, 4]
 
 
 class _FinishedFuture:
@@ -453,7 +453,7 @@ class _FinishedFuture:
 
 
 class _InlinePool:
-    """A stand-in for the spawn pool that runs each worker when it is submitted, so the oracle's row ranges and the belt's configurations run without a process per unit and without a build to sweep."""
+    """A stand-in for the spawn pool that runs each worker when it is submitted, so the oracle's row ranges and the conformance sweep's configurations run without a process per unit and without a build to sweep."""
 
     def __enter__(self):
         return self
@@ -794,8 +794,8 @@ class TestOracleFanIn:
             store = oracle_cache.load_store(promoted, stamps[config], f"{config}-digest", spec, keys)
             assert store is not None and store.rows == rows[config] and store.pass_ordinal == 1
 
-    def test_the_belts_pool_is_never_wider_than_the_acceptance_configurations(self):
-        """The cycle passes the belt a width already capped at the acceptance configuration count (`artifact_cycle.conform_job_budget`), but a hand `--jobs` can be any number, so `_spawn_pool` caps the pool at one process per configuration. A smaller number narrows the pool."""
+    def test_the_conform_sweeps_pool_is_never_wider_than_the_acceptance_configurations(self):
+        """The cycle passes the conformance sweep a width already capped at the acceptance configuration count (`artifact_cycle.conform_job_budget`), but a hand `--jobs` can be any number, so `_spawn_pool` caps the pool at one process per configuration. A smaller number narrows the pool."""
         wide = run_m1._spawn_pool(64, len(conform.ACCEPTANCE_CONFIGS))
         try:
             width = wide._max_workers  # pyright: ignore[reportAttributeAccessIssue]
@@ -847,7 +847,7 @@ class TestOracleFanIn:
 
 
 class TestConformFanIn:
-    """The belt's fan-in writes its workers' peak memory as a `conform-belt` pool record, writes none for a serial or deeper sweep, and writes the same report as the serial belt at any width. Only the sweep is stubbed (`conform._conformance_config`, which the serial path and every worker call), so the real wrapper, worker, `run_conformance`, and merge run in every mode."""
+    """The conformance sweep's fan-in writes its workers' peak memory as a `conform-sweep` pool record, writes none for a serial or deeper sweep, and writes the same report as the serial conformance sweep at any width. Only the sweep is stubbed (`conform._conformance_config`, which the serial path and every worker call), so the real wrapper, worker, `run_conformance`, and merge run in every mode."""
 
     @staticmethod
     def _swept(
@@ -899,10 +899,10 @@ class TestConformFanIn:
         monkeypatch.setattr(conform, "splitting_boundary_chars", lambda spec: frozenset())
         monkeypatch.setattr(conform, "_conformance_config", self._swept)
 
-    def test_a_pooled_belt_files_one_conform_belt_pool_record(self, monkeypatch, tmp_path):
-        """A pooled belt writes one record, at the pool's width, with one observation per acceptance configuration, under a unit name listed in `calibrate_budgets.UNITS`; a record under an unlisted name would be ignored, as if the belt had never run pooled on this machine. Every peak reading is distinct, and the inline pool runs each worker at submission in acceptance order before the controller reads its own peak, so a fan-in that recorded one configuration's peak under another, or the controller's under a worker, would fail."""
+    def test_a_pooled_sweep_files_one_conform_sweep_pool_record(self, monkeypatch, tmp_path):
+        """A pooled conformance sweep writes one record, at the pool's width, with one observation per acceptance configuration, under a unit name listed in `calibrate_budgets.UNITS`; a record under an unlisted name would be ignored, as if the conformance sweep had never run pooled on this machine. Every peak reading is distinct, and the inline pool runs each worker at submission in acceptance order before the controller reads its own peak, so a fan-in that recorded one configuration's peak under another, or the controller's under a worker, would fail."""
         self._pool(monkeypatch)
-        assert "conform-belt" in {name for unit in cb.UNITS for name in unit.pool_units}
+        assert "conform-sweep" in {name for unit in cb.UNITS for name in unit.pool_units}
         configs = conform.ACCEPTANCE_CONFIGS
         for jobs in (6, 2):
             monkeypatch.setattr(run_m1, "peak_rss_self_bytes", itertools.count(1).__next__)
@@ -911,22 +911,22 @@ class TestConformFanIn:
             records = ct.load_pool_records(ct.JOURNAL)[before:]
             assert len(records) == 1
             (record,) = records
-            assert record["unit"] == "conform-belt"
+            assert record["unit"] == "conform-sweep"
             assert record["width"] == min(jobs, len(configs))
             assert record["worker_peak_rss_bytes"] == {
                 config: index + 1 for index, config in enumerate(configs)
             }
             assert record["controller_peak_rss_bytes"] == len(configs) + 1
 
-    def test_a_serial_or_deep_belt_files_no_pool_record(self, monkeypatch, tmp_path):
-        """The serial belt starts no pool to measure. A deeper sweep's worker holds its maximum length's windows in memory, a different load from a belt worker's, so it must not be recorded as a belt worker."""
+    def test_a_serial_or_deep_sweep_files_no_pool_record(self, monkeypatch, tmp_path):
+        """The serial conformance sweep starts no pool to measure. A deeper sweep's worker holds its maximum length's windows in memory, a different load from a conformance-sweep worker's, so it must not be recorded as a conformance-sweep worker."""
         self._pool(monkeypatch)
         run_m1.run_font_conformance(out_dir=tmp_path, jobs=1)
         run_m1.run_font_conformance(out_dir=tmp_path, max_length=conform.SWEEP_MAX_LENGTH + 1, jobs=6)
         assert ct.load_pool_records(ct.JOURNAL) == []
 
-    def test_the_belt_writes_the_same_summary_at_every_width(self, monkeypatch, tmp_path):
-        """Width 1 runs `conform.run_conformance` and widths 2 and 6 run the pooled fan-in, whose futures resolve here in reverse. The report is byte-identical at all three widths, so changing the belt's width does not change its report."""
+    def test_the_sweep_writes_the_same_summary_at_every_width(self, monkeypatch, tmp_path):
+        """Width 1 runs `conform.run_conformance` and widths 2 and 6 run the pooled fan-in, whose futures resolve here in reverse. The report is byte-identical at all three widths, so changing the conformance sweep's width does not change its report."""
         self._pool(monkeypatch)
         written = {}
         for jobs in (1, 2, 6):
@@ -939,7 +939,7 @@ class TestConformFanIn:
         ]
 
     def test_the_estimated_worker_pickles_for_spawn(self):
-        """The inline pool never pickles what it runs, but a spawn pool pickles every submission by module and name, so a nested wrapper would pass every other test here and fail only on the first real pooled belt."""
+        """The inline pool never pickles what it runs, but a spawn pool pickles every submission by module and name, so a nested wrapper would pass every other test here and fail only on the first real pooled conformance sweep."""
         assert (
             pickle.loads(pickle.dumps(run_m1._estimated_conformance_config))
             is run_m1._estimated_conformance_config
