@@ -2635,7 +2635,7 @@ impl<'i> Engine<'i> {
                 );
                 extend = None;
             }
-            adjustments.extend(adjustment_tokens(Side::Entry, extend, contract));
+            adjustments.extend(adjustment_tokens(index, Side::Entry, extend, contract)?);
         }
         let mut extension = 0;
         if winner.junction.is_some() {
@@ -2671,7 +2671,7 @@ impl<'i> Engine<'i> {
             {
                 extension -= by;
             }
-            adjustments.extend(adjustment_tokens(Side::Exit, extend, contract));
+            adjustments.extend(adjustment_tokens(index, Side::Exit, extend, contract)?);
         } else if right.right1.kind() == TokenKind::Letter {
             adjustments.extend(self.unjoined_tokens(stance, winner.entry));
         }
@@ -3145,27 +3145,47 @@ fn note_applied(index: &SpecIndex, notes: &mut Vec<String>, record: Option<&Poli
     }
 }
 
-/// The adjustment tokens one side's chosen records produce, in grammar order: the extend's binding, then the extension, then the contract's binding, its trim, and, only when it has neither, its plain contraction. The extend's binding comes before its extension because geometry applies tokens in order and the binding is the drawing the connector arithmetic then lengthens. An extend of zero pixels produces no extension token, while a contract of zero pixels still produces its token: the extension is read for a nonzero value and the contraction for presence.
+/// The adjustment tokens one side's chosen extend and contract produce. Both records apply, so their pixels add up on the side. The tokens come in grammar order: the side's binding, then the extension, then the contract's trim and, only when the contract has neither a binding nor a trim, its plain contraction. The binding comes first, whichever record names it, because geometry applies tokens in order and the bound drawing is the one the connector arithmetic then lengthens or shortens. A side is drawn only one way, so two records that bind it to different drawings raise E-INCOMPARABLE, and two that bind the same drawing write it once. An extend of zero pixels produces no extension token, while a contract of zero pixels still produces its token: the extension is read for a nonzero value and the contraction for presence.
 fn adjustment_tokens(
+    index: &SpecIndex,
     side: Side,
     extend: Option<&PolicyRecord>,
     contract: Option<&PolicyRecord>,
-) -> Vec<AdjustmentToken> {
+) -> Result<Vec<AdjustmentToken>, SettleError> {
+    if let (Some(extend_record), Some(contract_record)) = (extend, contract)
+        && let (Some(extend_bind), Some(contract_bind)) = (extend_record.bind, contract_record.bind)
+        && extend_bind != contract_bind
+    {
+        let described = |record: &PolicyRecord| match &record.provenance {
+            Some(provenance) => provenance_pointer(index, provenance),
+            None => index.resolve(record.kind).to_owned(),
+        };
+        let side_name = match side {
+            Side::Entry => "entry",
+            Side::Exit => "exit",
+        };
+        return Err(SettleError::Incomparable(format!(
+            "E-INCOMPARABLE: an extend record and a contract record bind the {side_name} side to different drawings: {} binds {}; {} binds {}. A side is drawn only one way, so settle it by editing the records: bind the same drawing, drop one record's bind:, or narrow one record's when: so the two no longer co-match.",
+            described(extend_record),
+            index.resolve(extend_bind),
+            described(contract_record),
+            index.resolve(contract_bind),
+        )));
+    }
     let mut tokens: Vec<AdjustmentToken> = Vec::new();
-    if let Some(record) = extend {
-        if let Some(bind) = record.bind {
-            tokens.push(AdjustmentToken::Bind(side, bind));
-        }
-        if let Some(by) = record.by
-            && by != 0
-        {
-            tokens.push(AdjustmentToken::Extend(side, by));
-        }
+    if let Some(bind) = extend
+        .and_then(|record| record.bind)
+        .or_else(|| contract.and_then(|record| record.bind))
+    {
+        tokens.push(AdjustmentToken::Bind(side, bind));
+    }
+    if let Some(record) = extend
+        && let Some(by) = record.by
+        && by != 0
+    {
+        tokens.push(AdjustmentToken::Extend(side, by));
     }
     if let Some(record) = contract {
-        if let Some(bind) = record.bind {
-            tokens.push(AdjustmentToken::Bind(side, bind));
-        }
         if let Some(trim) = record.trim {
             tokens.push(AdjustmentToken::Trim(side, trim));
         }
@@ -3176,7 +3196,7 @@ fn adjustment_tokens(
             tokens.push(AdjustmentToken::Contract(side, by));
         }
     }
-    tokens
+    Ok(tokens)
 }
 
 /// The final tiebreak's sort key: realizing the junction beats declining it, a lower junction beats a higher one, and the exit row's declaration index decides the rest. Realizing the left junction is the same for every candidate, because entry binding is bilateral, so it is not part of the key.
@@ -6330,6 +6350,89 @@ mod tests {
         );
         assert_eq!(trace.settled.extension, 1);
         assert_eq!(trace.notes, ["qsPea.yaml:policy.extend[0]"]);
+    }
+
+    /// `qsPea`'s policy with one extend and one contract on its x-height exit, each carrying the caller's fields.
+    fn extend_and_contract_policy(extend: &[(&str, &str)], contract: &[(&str, &str)]) -> String {
+        let mut extend_fields = vec![("exit", "\"x-height\"")];
+        extend_fields.extend_from_slice(extend);
+        let mut contract_fields = vec![("exit", "\"x-height\"")];
+        contract_fields.extend_from_slice(contract);
+        fixtures::policy(&[
+            (
+                "extend",
+                &fixtures::seq(&[&pointed_record("extend", "qsPea", 0, &extend_fields)]),
+            ),
+            (
+                "contract",
+                &fixtures::seq(&[&pointed_record("contract", "qsPea", 0, &contract_fields)]),
+            ),
+        ])
+    }
+
+    fn settle_before_tea(pea_policy: &str) -> Result<Settled, SettleError> {
+        let index = ranking_spec(pea_policy, &plain_policy());
+        let mut engine = Engine::new(&index, no_features());
+        settle_pea(
+            &mut engine,
+            Slots::pair(letter_token(&index, "qsTea"), EDGE),
+        )
+        .map(|trace| trace.settled)
+    }
+
+    #[test]
+    fn an_extend_and_a_contract_on_one_side_both_apply() {
+        let policy = extend_and_contract_policy(&[("by", "2")], &[("by", "1")]);
+        let settled = settle_before_tea(&policy).expect("the fixture settles");
+        assert_eq!(
+            settled.cell.adjustments,
+            [
+                AdjustmentToken::Extend(Side::Exit, 2),
+                AdjustmentToken::Contract(Side::Exit, 1),
+            ]
+        );
+        assert_eq!(settled.extension, 1);
+    }
+
+    /// The contract's binding is written before the extend's extension, so the extend lengthens the drawing the contract binds instead of being replaced by it.
+    #[test]
+    fn a_bound_contract_spells_its_binding_before_the_extension() {
+        let policy = extend_and_contract_policy(&[("by", "1")], &[("bind", "\"raked\"")]);
+        let index = ranking_spec(&policy, &plain_policy());
+        let settled = settle_before_tea(&policy).expect("the fixture settles");
+        assert_eq!(
+            settled.cell.adjustments,
+            [
+                AdjustmentToken::Bind(Side::Exit, fixtures::sym(&index, "raked")),
+                AdjustmentToken::Extend(Side::Exit, 1),
+            ]
+        );
+        assert_eq!(settled.extension, 1);
+    }
+
+    #[test]
+    fn two_bindings_of_one_side_agree_or_raise() {
+        let same = extend_and_contract_policy(
+            &[("bind", "\"reaching\""), ("by", "1")],
+            &[("bind", "\"reaching\"")],
+        );
+        let index = ranking_spec(&same, &plain_policy());
+        let settled = settle_before_tea(&same).expect("one drawing twice is one binding");
+        assert_eq!(
+            settled.cell.adjustments,
+            [
+                AdjustmentToken::Bind(Side::Exit, fixtures::sym(&index, "reaching")),
+                AdjustmentToken::Extend(Side::Exit, 1),
+            ]
+        );
+        let different =
+            extend_and_contract_policy(&[("bind", "\"reaching\"")], &[("bind", "\"raked\"")]);
+        let error = settle_before_tea(&different).expect_err("a side is drawn only one way");
+        assert_eq!(error.kind(), SettleErrorKind::Incomparable);
+        assert_eq!(
+            error.message(),
+            "E-INCOMPARABLE: an extend record and a contract record bind the exit side to different drawings: qsPea.yaml:policy.extend[0] binds reaching; qsPea.yaml:policy.contract[0] binds raked. A side is drawn only one way, so settle it by editing the records: bind the same drawing, drop one record's bind:, or narrow one record's when: so the two no longer co-match."
+        );
     }
 
     /// [`ranking_spec`] without `qsPea`'s `flourish` stance and with no policy records. `qsTea`'s baseline exit binds the `pulled-back` drawing when unjoined instead of `safe`, and `qsTea.hook` carries the caller's `cells:` list.

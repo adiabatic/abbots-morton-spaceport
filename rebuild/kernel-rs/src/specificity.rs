@@ -951,7 +951,7 @@ mod tests {
     }
 
     #[test]
-    fn the_contract_versus_extend_overlap_resolves_by_membership() {
+    fn specificity_ranks_a_contract_and_an_extend_by_their_conditions_alone() {
         let index = host_spec();
         let host = Some(fixtures::sym(&index, HOST));
         let narrow = fixtures::contract(&index, HOST, "narrow-contract");
