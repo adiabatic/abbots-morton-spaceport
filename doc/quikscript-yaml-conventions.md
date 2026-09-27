@@ -10,7 +10,10 @@
   - `tools/suggest_scoped_anchor_selectors.py` lists candidates for narrowing, and `make review` renders the scoped-anchor review page.
 - Anchor selectors expand to every matching variant, so replacing a long family list with one can change the generated feature code or raise join warnings even when the source looks equivalent. A narrowing or a list replacement counts as a cleanup only after the check below shows no change.
 - When a narrow `after:` selector competes with a broad fallback such as a `context_set`, the narrow selector must win first.
-- Repeated `select` / `derive` lists are consolidated into `context_sets` in a separate cleanup pass (`doc/cleanup.md`). The check below shows whether a consolidation changed anything.
+- Repeated `select` / `derive` lists are consolidated into `context_sets` in a cleanup pass separate from normal authoring, which can leave them repeated.
+  - When the same list of `{family: qsX}` entries, or the same list with one or two differences, appears in more than one `select` / `derive` block, move it to a top-level entry under `context_sets` and reference it inline as `{context_set: some_name}`.
+  - A context set may reference other context sets, so a larger list can be built from smaller ones when that keeps the source clearer.
+  - A consolidation must not change the generated feature code, and the check below proves that it does not. A difference means some selector resolves differently, for example because two lists differed by an entry or a composition changed an order, and that is a shaping change to investigate before committing.
 
 ### Proving a selector change is a pure cleanup
 
