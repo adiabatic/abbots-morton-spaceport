@@ -1288,7 +1288,7 @@ def test_ss_gated_swap_adds_a_mismatch():
 def test_regression_075d485_fee_exits_xheight_before_utter():
     """075d485 — Fix ·Fee→·Utter and ·See→·At cursive connections.
 
-    qsFee.ex-y5 lists ``before: qsUtter`` and exits at y=5. In the real data at that commit, qsUtter's only y=5 entry was on a backward-pair override (``after: qsAh, qsTea``) that cannot follow qsFee. The fixture gives qsUtter no y=5 entry at all, which produces the same family-level mismatch.
+    qsFee.ex-y5 lists ``before: qsUtter`` and exits at y=5. In the real data at that commit, qsUtter's only y=5 entry was on a backward-pair override (``qsUtter.alt.prop.reaches-way-back``, ``calt_after: [qsFee, qsMay]``), so qsUtter never appeared in the emitter's ``entry_classes[5]`` and ·Fee's general forward rule could not fire before it. The fixture gives qsUtter no y=5 entry at all, which produces the same family-level mismatch.
     """
     qs_fee = _make_glyph(
         name="qsFee",

@@ -2698,7 +2698,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         )
         if mid_source != mid_base and not _meta(mid_source).entry:
             stripped_mid_stances.add(mid_source)
-        # An entryless ligature led by `mid_base` (`qsTea_qsOy`) also leaves `replacement_name`'s exit unjoined once `calt_liga` runs. Before `calt_liga` the lead is still a separate glyph, so without this the guard would block the promotion even though the source's `.ex-noentry` override, whose `before` lists the ligature, removes the exit after ligation. Adding the ligature gives it the same opt-out the guard already grants for `noentry_after` ligatures.
+        # An entryless ligature led by `mid_base` (`qsTea_qsOy`) also leaves `replacement_name`'s exit unjoined once `calt_liga` runs. Before `calt_liga` the lead is still a separate glyph, so without this the guard would block the promotion even though the source's `.ex-noentry` override, whose `before` lists the ligature, removes the exit after ligation.
         for lig_name, components in ligatures_by_first_component.get(mid_base, ()):
             if components and components[0] == mid_base and not _meta(lig_name).entry:
                 stripped_mid_stances.add(lig_name)
@@ -3053,7 +3053,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         def _entry_preserving_followers(mid_base: str) -> set[str]:
             """Return the followers (third glyph of `source' mid follower`) before which `mid` keeps its entry, so the strip guard should leave them out.
 
-            They are the `before` followers of each forward pair override of `mid_base` that has an entry meeting the replacement's exit and whose `not_after` doesn't list the replacement. Such an override fires either on the stance `mid` takes from a backward upgrade, sorting before the entry-stripping override because it has more modifiers, or directly on bare `mid_base` after a predecessor that exits at its entry Y.
+            They are the `before` followers of each forward pair override of `mid_base` that has an entry meeting the replacement's exit and whose `not_after` doesn't list the replacement. Such an override fires either on the stance `mid` takes from a backward upgrade, when `_backward_pair_sort_key` puts it before the entry-stripping override (its `en-*` modifier usually gives it more modifiers), or directly on bare `mid_base` after a predecessor that exits at its entry Y.
             """
             preserved: set[str] = set()
             if not replacement_exit_ys:
@@ -3354,7 +3354,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         `fwd_pair_variant` is replaced because its entry doesn't fit the preceding glyph; `default_replacement` is the backward replacement for that glyph. When `fwd_pair_variant` has an exit-extension suffix, the result is the first that applies:
 
         1. `default_replacement`, when ``default_replacement + ext_suffix`` exists but some follower family in `fwd_pair_variant`'s `before` has no entry at its exit Y, so the extension would reach toward nothing. In ·May·It·Owe, qsOwe never enters at the baseline, so ``qsIt.en-y5.ex-y0.ex-ext-1`` would leave its last pixel unjoined. The entryless-sibling fallback is skipped too, because it would only move that ink to the predecessor's side.
-        2. ``default_replacement + ext_suffix``, when its exit Y is one that `fwd_pair_variant`'s base takes before those followers when shaped in isolation (`_isolated_exit_ys_for_fwd_pair_variant`), even if its bitmap differs from `fwd_pair_variant`'s. This keeps ``·Ah ·It ·Zoo`` matching ``·It ·Zoo`` on the ·It side: ``qsIt.en-y5.ex-y0.ex-ext-1``, not an entryless sibling.
+        2. ``default_replacement + ext_suffix``, when its exit Y is one that `fwd_pair_variant`'s base takes before those followers when shaped in isolation (`_isolated_exit_ys_for_fwd_pair_variant`), even if its bitmap differs from `fwd_pair_variant`'s.
         3. ``default_replacement + ext_suffix``, when its exit Ys are compatible with `fwd_pair_variant`'s and its bitmap and y offset match.
         4. An entryless, non-`.noentry`, ungated sibling of `fwd_pair_variant` with the same extension suffix, exit Ys, bitmap, and y offset, whose exit every follower family accepts (``qsTea.ex-y0.ex-ext-1`` for ``qsTea.en-y8.ex-y0.ex-ext-1``). It drops the entry that doesn't fit and keeps the extension into the next glyph.
         5. `default_replacement` otherwise.
@@ -4693,12 +4693,12 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
             bk_fwd_excl_seq = plan.bk_fwd_exclusion_sequences
             lines.append("")
             lines.append(f"    lookup calt_{safe} {{")
-            # HarfBuzz treats ZWNJ as a default-ignorable glyph and would otherwise allow this backward-context lookup to match across a ZWNJ. Mentioning uni200C in an ignore rule forces it into the lookup's coverage so HarfBuzz stops skipping it.
+            # HarfBuzz treats ZWNJ as a default-ignorable glyph and would otherwise allow this backward-context lookup to match across a ZWNJ. HarfBuzz skips a default-ignorable glyph in context only when it doesn't match the rule's glyph at that position, so an ignore rule that names uni200C matches the ZWNJ and stops the lookup there.
             for fwd_variant in sorted(fwd_exit_only):
                 lines.append(f"        ignore sub uni200C {fwd_variant}';")
             for entry_y in sorted(relevant.keys()):
                 excluded = sorted(_expand_exclusions(exclusions.get(entry_y, [])))
-                # Repeat the `not_before` exclusions of `relevant[entry_y]` (and the IR-derived `bk_fwd_exclusion_sequences`) here. Without them, an earlier `calt_fwd_*` lookup rewrites the bare base to an entryless `fwd_variant`, and this lookup then upgrades it to `relevant[entry_y]`, which has the entry anchor, whatever the follower, undoing `not_before`. When there are `not_before` exclusions (`excl_tokens`), the sub also gets a lookahead of every `@entry_y*` class whose Y is in `fwd_used_ys`. That puts the `not_before` ignore rules and the sub in the same compiled subtable, and the upgrade still fires for followers (such as bare qsIt at entry_y=0) whose entry Y differs from the target's exit Y.
+                # Repeat the `not_before` exclusions of `relevant[entry_y]` (and the IR-derived `bk_fwd_exclusion_sequences`) here. Without them, an earlier `calt_fwd_*` lookup rewrites the bare base to an entryless `fwd_variant`, and this lookup then upgrades it to `relevant[entry_y]`, which has the entry anchor, whatever the follower, undoing `not_before`. When there are `not_before` exclusions (`excl_tokens`), the sub also gets a lookahead of every `@entry_y*` class whose Y is in `fwd_used_ys`, so it fires only before a follower that has or can take an entry at one of those Ys, including followers (such as bare qsIt at entry_y=0) whose entry Y differs from the target's exit Y.
                 fwd_excl = bk_fwd_excl.get(base_name, {}).get(entry_y)
                 fwd_excl_sequences = bk_fwd_excl_seq.get(base_name, {}).get(entry_y, [])
                 excl_tokens = _excl_tokens(fwd_excl, fwd_excl_sequences)
@@ -4737,7 +4737,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                                 lines.append(
                                     f"        ignore sub @exit_y{entry_y} {fwd_variant}' [{right_list}];"
                                 )
-                    # The neighbor join filter does not narrow `sub_la`. This rule adds an entry for the predecessor join, and `sub_la` (when present) only requires some entry-bearing follower and keeps the `not_before` ignore rules in the same subtable. Narrowing it to followers that join `relevant[entry_y]`'s exit would test the follower join, which this rule does not decide. An exit dangle this rule leaves is outside the per-rule filter's reach (Phase 4 of doc/history/2026-06-03--leak-cleanup/leak-prevention-plan.md).
+                    # The neighbor join filter does not narrow `sub_la`. This rule adds an entry for the predecessor join, and `sub_la` (when present) only requires a follower that has or can take an entry. Narrowing it to followers that join `relevant[entry_y]`'s exit would test the follower join, which this rule does not decide. An exit dangle this rule leaves is outside the per-rule filter's reach (Phase 4 of doc/history/2026-06-03--leak-cleanup/leak-prevention-plan.md).
                     lines.append(
                         f"        sub @exit_y{entry_y} {fwd_variant}'{sub_la} by {relevant[entry_y]};"
                     )
@@ -5844,7 +5844,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
     if ligatures:
         from itertools import product
 
-        # Ligatures are formed inside `calt`, after `calt_cycle`'s stance selection, instead of in `liga`. A forward `calt` rule can then change a component first (e.g. qsUtter -> qsUtter.alt in ·Day·Utter·Low), which stops the `qsDay qsUtter` ligature from matching. Putting these rules in `liga` would run ligation as its own feature pass and lose that ordering.
+        # Ligatures are formed inside `calt`, after `calt_cycle`'s stance selection, instead of in `liga`. A forward `calt` rule can then change a component first (e.g. qsUtter -> qsUtter.alt in ·Day·Utter·Low), which stops the `qsDay qsUtter` ligature from matching. HarfBuzz applies `calt` and `liga` lookups together in lookup-index order, so the lookups of a separate `liga` block would run before or after all of `calt`'s, not between `calt_cycle` and the post-liga cleanup.
         # A name built by appending a suffix (`lig_name + ".half"`, `actual_lig + ".ex-ext-1"`) lacks the anchor modifiers `_synthesize_anchor_modifiers` adds (e.g. `qsDay_qsUtter.half` compiles as `qsDay_qsUtter.half.en-y0.ex-y5`), so `resolve_compiled_name` rewrites it to the compiled name before the lookup in `glyph_names`.
         _lig_family_names = family_names_from_compiled(glyph_names)
         _lig_available_names = frozenset(glyph_names)
@@ -6460,7 +6460,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 (prior_stance, successor_stance, target_stance)
             )
 
-    # An entry-extension stance that also has an exit modifier (e.g. `qsRoe.ex-y0.en-ext-1-at-5`) has its `select.after` cleared, so the loop above skips it. It needs the same demotion: after a prior whose exit is at the wrong Y for its entry, its entry can't join. Copy each rule onto the stance's siblings that add modifiers to it, with the same target. The target has no exit, so the demoted glyph also gives up its follower join.
+    # An entry-extension stance that also has an exit modifier (e.g. `qsRoe.ex-y0.en-ext-1-at-5`) has its `select.after` cleared, so the loop above skips it. It needs the same demotion: after a prior whose exit is at the wrong Y for its entry, its entry can't join. Copy each rule onto the stance's siblings that add modifiers to it, with the same target. The target has none of the modifiers the sibling adds, so the demoted glyph drops them too; when the target has no exit, as for `qsRoe.ex-y0.en-ext-1-at-5`, it also gives up its follower join.
     for successor_base in sorted(successor_demote_by_base):
         sibling_rules: list[tuple[str, str, str]] = []
         for prior_stance, successor_stance, target_stance in successor_demote_by_base[successor_base]:

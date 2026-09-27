@@ -56,7 +56,7 @@ ENTITY_DEC_RE = re.compile(r"&#(\d+);")
 
 ENTRYLESS_MARKERS = (".noentry", ".ex-noentry", ".nonjoining-left")
 
-# The trait kinds the cross-product pass enumerates. `half` is left out because it interacts more with join geometry (·He has a `shared_kern_entangled` skip). The code handles any kind the same way, so enabling it means adding it to this tuple.
+# The trait kinds the cross-product pass enumerates. `half` is left out because it interacts more with join geometry. The code handles any kind the same way, so enabling it means adding it to this tuple.
 ALT_COMBINATION_KINDS = ("alt",)
 
 

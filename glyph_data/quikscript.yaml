@@ -196,7 +196,7 @@ predecessor_demote_overrides:
 - predecessor_stance: qsExcite.en-y0.ex-y0.before-vertical.after-baseline-letter
   trigger_stance: qsTea_qsOy
   isolated_form: qsExcite.en-y0.noexit
-  # ·They's `before-may` baseline-exit stance, entered at the x-height from ·Ah or ·I, is a cosmetic tuck for ·May. The neighbor join filter's cosmetic opt-out lets it stay before every follower, so before a non-·May follower across a break its baseline exit dangles. These entries revert it to `qsThey.en-y5` (or `qsThey.en-y5.en-ext-1`), which keeps the x-height entry and drops the exit. They are keyed on non-·May follower stances, so the ·They·May tuck is unaffected.
+  # ·They's `before-may` baseline-exit stance, entered at the x-height from ·Ah or ·I, is a cosmetic tuck for ·May. The forward upgrade from `qsThey.en-y5` (`calt_upgrade_qsThey_ex-y0_before-may_en-y5`) honors the stance's `not_before` but not its `before`, so it selects the stance before any follower with a baseline entry, and when a later lookup leaves that follower on a stance without one, the baseline exit dangles across the break. These entries revert it to `qsThey.en-y5` (or `qsThey.en-y5.en-ext-1`), which keeps the x-height entry and drops the exit. They are keyed on non-·May follower stances, so the ·They·May tuck is unaffected.
 - predecessor_stance: qsThey.ex-y0.before-may.en-y5
   trigger_stance: qsDay_qsEat
   isolated_form: qsThey.en-y5
@@ -570,7 +570,7 @@ trailing_demote_overrides:
 - leader_stance: qsIt.en-y0.ex-noentry.before-day-exam.en-ext-1
   trailing_stance: qsDay.half
   isolated_form: qsDay
-  # ·No.alt is reached through a `calt_cycle` backward upgrade that exits at the baseline, but a trailing ·J’ai may already have taken its x-height entry from bare ·No, which exits at the x-height. ·No.alt and ·J’ai never join (·No.alt exits at y0; ·J’ai enters only at y5), so ·J’ai reverts to its isolated form once ·No.alt is in the buffer.
+  # ·No.alt, which exits at the baseline, is also reached after `calt_cycle`, through `calt_post_pair_bk_qsNo`, which repeats ·No's backward substitution for a predecessor that takes its baseline exit late (·Roe·J’ai·No·J’ai). By then a trailing ·J’ai may already have taken its x-height entry from bare ·No, which exits at the x-height. ·No.alt and ·J’ai never join (·No.alt exits at y0; ·J’ai enters only at y5), so ·J’ai reverts to its isolated form once ·No.alt is in the buffer.
 - {leader_stance: qsNo.alt.en-y0.ex-y0, trailing_stance: qsJai.en-y5.ex-y0, isolated_form: qsJai}
   # Backward entries toward a leader that does not join them. The trailing stance has no exit, so reverting it to bare loses nothing. These are ·Excite's entry-only `en-y0.noexit` after ·Excite, ·It, ·J’ai, or ·No, none of which joins its baseline entry, and ·Owe's entry-only `en-y5` after ·May's exitless `en-y5` and after ·No.alt.
 - {leader_stance: qsExcite, trailing_stance: qsExcite.en-y0.noexit, isolated_form: qsExcite}
@@ -922,7 +922,7 @@ glyph_families:
         inherits: entry_top
         anchors: {exit: [1, 0]}
         select:
-          # Exclude ·It for the same reason `exit_baseline` does: ·Tea and ·It are both vertical, and two adjacent verticals joined at the baseline render as one extra-thick stroke (see ·He's `exit_baseline`). Without this, in ·See·Tea·It·It the chain of contextual substitutions moves ·Tea to a baseline exit into ·It instead of keeping the x-height join.
+          # Exclude ·It for the same reason `exit_baseline` does: ·Tea and ·It are both vertical, and two adjacent verticals joined at the baseline render as one extra-thick stroke (see ·He's `exit_baseline`). Without this, in ·See·Tea·It·It the chain of contextual substitutions moves ·Tea to a baseline exit into ·It (`·Tea ~b~ ·It`) instead of breaking there (`·Tea | ·It`).
           not_before: [family: qsThaw, family: qsExcite, family: qsExam, family: qsIt]
         modifiers: [ex-y0]
       entry_baseline:
@@ -2057,7 +2057,7 @@ glyph_families:
           - {family: qsExcite}
         modifiers: [ex-y0]
       entry_baseline:
-        # Full ·He receiving a baseline entry from a preceding baseline-exit letter, like ·Tea's `entry_baseline` and ·Ye's: an entry-only stance gated by `not_after` with no positive `after`, so it runs in `calt_cycle` and gives way to a forward baseline join. ·He's stroke runs straight down the leftmost column, so an incoming baseline stroke fills the only space a rightward exit could use. ·He joins on one side only and prefers the follower when a baseline join is possible on both sides, so this stance has no exit. The `not_after` list names every letter except those whose baseline exit meets ·He's left edge without an extended stroke. It excludes the flat-bottomed letters that cannot reach an entry that swings in from the left, every letter with no baseline exit, and the letters with wide baseline exits (·Vie, ·May, ·No, ·Excite, ·Utter, and others), whose extended exit stance would dangle when ·He joins forward instead. Those letters reach toward ·He from their own stances (suppressed there) instead of feeding this one.
+        # Full ·He receiving a baseline entry from a preceding baseline-exit letter, like ·Tea's `entry_baseline` and ·Ye's: an entry-only stance gated by `not_after` with no positive `after`, so it runs in `calt_cycle` and gives way to a forward baseline join. ·He's stroke runs straight down the leftmost column, so an incoming baseline stroke fills the only space a rightward exit could use. ·He joins on one side only and prefers the follower when a baseline join is possible on both sides, so this stance has no exit. The `not_after` list names every letter except those whose baseline exit meets ·He's left edge without an extended stroke. It excludes the flat-bottomed letters that cannot reach an entry that swings in from the left, every letter with no baseline exit, and the letters with wide baseline exits (·Vie, ·May, ·No, ·Excite, ·Utter, and others), whose extended exit stance would dangle when ·He joins forward instead. None of those letters joins ·He: a `before` or `not_before` on their baseline-exit stances, or an `ignore` rule the emitter derives from this list, keeps a following ·He from selecting such a stance. A stance their predecessor selects, such as ·No.alt after ·It, still exits at the baseline before ·He.
         shape: prop
         anchors: {entry: [0, 0]}
         select:

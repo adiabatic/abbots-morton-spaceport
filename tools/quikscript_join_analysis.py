@@ -897,7 +897,7 @@ def _ligature_component_propagates_context(
     opposite_family: str,
     side: str,
 ) -> bool:
-    # `_add_entry_contraction_variants`, `_add_entry_extension_variants`, and the exit-side helpers in `quikscript_ir` copy a component's contract or extend rule onto the matching ligature variant but leave that variant's own `after` / `before` empty, because the copied context is intersected with the base ligature's empty context. `calt_liga` still forms that variant whenever the component's rule fires, so accept it when the component family has a matching rule whose targets include `opposite_family`. The lead component decides the entry side and the trailing component the exit side.
+    # `_add_entry_contraction_variants`, `_add_entry_extension_variants`, and the exit-side helpers in `quikscript_ir` copy a component's contract or extend rule onto the matching ligature variant but leave that variant's own `after` / `before` empty: `_compatible_generated_context` intersects the copied context with the ligature stance's own, and the ligature stances that take a component's rule declare none. `calt_liga` still forms that variant whenever the component's rule fires, so accept it when the component family has a matching rule whose targets include `opposite_family`. The lead component decides the entry side and the trailing component the exit side.
     # As in `expand_selectors_for_ligatures`, a target `qsZ` also matches when `opposite_family` is a ligature whose component next to the candidate is `qsZ` (its trailing component on the entry side, its lead component on the exit side), because context lookups run before ligation.
     if source_meta is None or not source_meta.sequence:
         return False
@@ -987,7 +987,7 @@ def _effective_exit_x(meta: JoinGlyph, anchor_x: int, right_family: str | None) 
 
 
 def _effective_entry_x(meta: JoinGlyph, anchor_x: int, left_family: str | None) -> int:
-    # `extend_entry_after` prepends ink to the receiver's bitmap, capped by the original gap — modeling that without the bitmap rewrite would over-correct, so skip it.
+    # `extend_entry_after` adds `by` pixels of ink left of the receiver's leftmost ink in the entry row and widens the bitmap only by what the blank columns there cannot hold, so it never widens the gap. Modeling it as an anchor shift without that ink would widen the gap by `by`, so skip it.
     if left_family is None:
         return anchor_x
     if meta.contract_entry_after and left_family in meta.contract_entry_after.targets:
@@ -1927,7 +1927,7 @@ def _predecessor_visually_reaches(
 def _bases_with_stripped_fwd_per_y(
     reachability: _FwdStripReachability,
 ) -> dict[int, frozenset[str]]:
-    """Map each Y to the bare bases whose forward substitution at Y gives a stance with no entry at Y while another variant of the base has an entry at Y. The first condition is what leaves the predecessor's exit with nothing to join. The second is what puts the bare base in the predecessor's @entry_y class. A pair-override replacement whose ink at Y starts in the same column as an entry-bearing variant's is skipped."""
+    """Map each Y to the bare bases whose forward substitution at Y gives a stance with no entry at Y while another variant of the base has an entry at Y. The first condition is what leaves the predecessor's exit with nothing to join. The second is necessary for the bare base to be in the predecessor's @entry_y class, where `_analyze_quikscript_joins` in `quikscript_fea` puts a bare base that enters at Y or has a backward replacement entering at Y. A pair-override replacement whose ink at Y starts in the same column as an entry-bearing variant's is skipped."""
     glyph_meta = reachability.glyph_meta
     by_y: dict[int, set[str]] = {}
     family_entry_ys_by_base: dict[str, set[int]] = {}

@@ -888,7 +888,7 @@ def _assemble_fea(
             fea_code_parts.append(mark_fea)
 
     if is_senior:
-        # The Senior FEA is the same for Regular and Bold, and emitting it takes ≈3.2s, so `main()` emits it once and passes it as `senior_fea`. A caller that builds a Senior font directly, such as a test, gets it emitted here.
+        # The Senior FEA is the same for Regular and Bold, and emitting it takes ≈1.8s, so `main()` emits it once and passes it as `senior_fea`. A caller that builds a Senior font directly, such as a test, gets it emitted here.
         if senior_fea is None:
             senior_fea = build_senior_fea(glyph_data, join_glyphs, pixel_width, pixel_height)
         if senior_fea:
@@ -1313,7 +1313,7 @@ def build_font(
             else:
                 print(f"  Feature code unchanged: {fea_path}")
 
-    # The mono build has no feature code of its own. It copies Departure Mono's layout tables so DM's shaping (ccmp, marks, kerning) works for the DM glyphs. The Quikscript letters are in none of these lookups.
+    # The mono build has no feature code of its own. It copies Departure Mono's layout tables so DM's shaping (its substitutions, such as ccmp and locl, and its mark positioning) works for the DM glyphs. The Quikscript letters are in none of these lookups.
     if variant == "mono":
         assert fea_code is None, "mono build should emit no authored FEA; DM owns its OTL"
         dm_font = TTFont(str(_DEPARTURE_MONO_OTF))
@@ -1398,7 +1398,7 @@ def _build_one_font(
     senior_fea: str | None = None,
     senior_otl: CompiledSeniorOTL | None = None,
 ) -> None:
-    # Pool worker entry point. Each worker reloads the glyph data from disk (≈125 ms) so the parent does not have to pickle it. The Senior jobs receive the shared compiled glyph set, feature code, and layout tables.
+    # Pool worker entry point. Each worker reloads the glyph data from disk (≈15 ms) so the parent does not have to pickle it. The Senior jobs receive the shared compiled glyph set, feature code, and layout tables.
     _install_warning_hook()
     glyph_data = load_glyph_data(Path(input_path_str))
     build_font(

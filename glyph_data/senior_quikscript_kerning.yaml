@@ -8,13 +8,13 @@
 #
 # Left side, pick one:
 #   left_family: [qsPea, ...]   # expands to the bare family glyph plus every contextual variant (qsPea, qsPea.en-y0, ...)
-#   left_stance: [qsNo.alt, ...]  # like left_family but matches a stance sub-family: qsNo.alt and qsNo.alt.*, not qsNo or qsNo.en-ext-1 (override rule)
+#   left_stance: [qsNo.alt, ...]  # like left_family but matches a stance sub-family: qsNo.alt and qsNo.alt.*, not qsNo or qsNo.en-ext-1 (site/kerning.html writes the stance side of a junction override this way)
 #   left: [qsPea, ...]          # explicit glyph names, no variant expansion
 #   (omit all)                  # every glyph except those whose `kerning:` list names this rule's key, `senior_<index>`
 #
 # Right side, pick one:
 #   right_family: [qsTea, ...]  # expands to the bare family glyph plus every contextual variant
-#   right_stance: [qsNo.alt, ...] # like right_family but matches a stance sub-family (override rule)
+#   right_stance: [qsNo.alt, ...] # like right_family but matches a stance sub-family (site/kerning.html writes the stance side of a junction override this way)
 #   right: [qsTea, ...]         # explicit glyph names, no variant expansion
 #   right_group: noentry        # kerns the left glyphs when a ZWNJ follows; the rule is skipped when no glyph name ends in `.noentry`
 #

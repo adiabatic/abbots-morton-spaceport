@@ -880,7 +880,7 @@ def _collect_it_day_baseline_uses_half_day_failures(
 ) -> list[str]:
     """Flag every surround where ·It does not join its predecessor at the baseline and ·It·Day does not shape as ``·It ~b~ ·Day.half``.
 
-    An ·It that joins its predecessor at the baseline exits at the x-height; otherwise it exits at the baseline. ·Day's full stance enters at the x-height, where ·It·Day must not join (``test_it_day_never_joins_at_xheight``), so a baseline-exiting ·It can join ·Day only through ·Day's half stance, which enters at the baseline. A word-initial ·It counts as not joining its predecessor. Surrounds where ·It joins its predecessor at the baseline are skipped.
+    By default, an ·It that joins its predecessor at the baseline can exit only at the x-height; any other ·It can exit at the baseline. ·Day's full stance enters at the x-height, where ·It·Day must not join (``test_it_day_never_joins_at_xheight``), so a baseline-exiting ·It can join ·Day only through ·Day's half stance, which enters at the baseline. A word-initial ·It counts as not joining its predecessor. Surrounds where ·It joins its predecessor at the baseline are skipped.
 
     The expect is checked with ``parse_expect`` and ``_try_interpretation``. The surrounds and ``before_first_only`` work as in ``_collect_pair_must_not_join_regardless_of_what_comes_before_or_after``.
     """
@@ -1759,9 +1759,9 @@ def test_see_out_xheight_exit_only_when_next_receives_at_xheight(before_first: s
 
 
 def test_see_out_plus_0px_xheight_exit_stance_wins_word_final_by_declared_precedence():
-    """·Out has two x-height exit stances after ·See: the +0px x-height exit stance (`before-other`, as in ·See·Out·Oy) and the +1px one (`before-fee`, as in ·See·Out·Fee). Both are reverse upgrades with no lookahead, so the lookup emitted first also takes a word-final ·Out. The +0px stance's `terminal_default` flag puts its lookup first even though `before-other` sorts after `before-fee`. If that flag is dropped, or a sibling that sorts earlier is added, a word-final ·Out can take the +1px stance and this test fails.
+    """·Out has two x-height exit stances after ·See: the +0px x-height exit stance (`before-other`, as in ·See·Out·Oy) and the +1px one (`before-fee`, as in ·See·Out·Fee). Both are reverse upgrades with no lookahead, and `before-fee` ignores only a following ·It, so if its lookup ran first, ·See·Out·Oy would take the +1px stance. The +0px stance's `terminal_default` flag puts its lookup first, whatever order the two stances are declared in.
 
-    Word-final ·See·Out ends up with the entry-trimmed after-·See stance, which has no x-height exit.
+    Word-final ·See·Out never takes an x-height exit stance, so neither reverse upgrade reaches it: it ends up with the entry-trimmed after-·See stance, which has no x-height exit.
     """
     word_final = _shape(_qs_text("qsSee", "qsOut"))
     assert word_final[-1] == "qsOut.en-y0.after-see.en-trim-1", word_final
@@ -3124,7 +3124,7 @@ _DAY_PAIR_LIGATURES = frozenset(
 def _letters_that_cannot_carry_a_baseline_join_to_the_xheight() -> list[tuple[str, str]]:
     """Return the plain letters whose variants enter at both y=0 and y=5 but none of which enters at y=0 and exits at y=5. Such a letter cannot carry qsWay.half's y=0 exit on to a follower that enters only at y=5.
 
-    Letters that enter only at y=0 (such as ·Ah, ·Exam, and ·Excite) are excluded: the 1-glyph rule `sub qsWay' @entry_only_y0 by qsWay.half.ex-y0;` picks half-·Way before them, which is correct.
+    Letters that enter only at y=0 (such as ·Ah, ·Exam, and ·Excite) are excluded: the 1-glyph rule in `calt_fwd_qsWay`, `sub qsWay' [...] by qsWay.half.ex-y0;` over a subset of `@entry_only_y0`, picks half-·Way before ·Ah and ·Exam, which is correct, and half-·Way's `not_before` lists ·Excite.
     """
     meta_map = _compiled_meta()
     variants_by_base: dict[str, list] = {}
@@ -4496,7 +4496,7 @@ def test_left_pair_before_zwnj_is_unaffected_by_right_context(after_first: str):
     )
 
 
-# The early `calt_trailing_demote` lookups (`_emit_trailing_demote_lookups("calt_trailing_demote")` in tools/quikscript_fea.py) are required alongside the final `calt_final_trailing_demote` ones. In `<word-boundary> ·Excite ·No ·X`, the word-initial ·Excite has no exit, so ·No takes its `qsNo.alt.en-y0.ex-y0` backward upgrade and ·X takes a baseline entry to join it. ·No then reverts to bare `qsNo`, which exits only at the x-height, and leaves ·X's entry unmatched. The early trailing demote reverts ·X to bare in an earlier round. The final trailing demote runs before ·No's last demote (`calt_final2_pred_demote_qsNo`), so it cannot catch this case. The depth-4 isolation-leak gate cannot reach this 5-glyph context, so this test is the only check on these three cases.
+# The early `calt_trailing_demote` lookups (`_emit_trailing_demote_lookups("calt_trailing_demote")` in tools/quikscript_fea.py) are required alongside the final `calt_final_trailing_demote` ones. In `<word-boundary> ·Excite ·No ·X`, the word-initial ·Excite has no exit, yet ·No takes its `qsNo.alt.en-y0.ex-y0` backward upgrade and ·X takes a baseline entry to join it; after the ·They+Zoo ligature forms, ·Excite reverts to bare and has no exit either. The early `calt_trailing_demote_qsNo` reverts ·No to bare `qsNo`, which exits only at the x-height and leaves ·X's entry unmatched, and the final trailing demote then reverts ·X to bare. Each pass runs its lookups in the order of the trailing letter's name, so within one pass ·X's lookup (·Day, ·Excite, ·Gay) runs while ·No is still joined to it. The depth-4 isolation-leak gate cannot reach these 5-character contexts, so this test is the only check on these three cases.
 @pytest.mark.parametrize(
     "prefix, trailing",
     [

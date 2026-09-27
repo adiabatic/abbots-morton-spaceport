@@ -668,7 +668,7 @@ def _normalize_source_modifiers(
     return tuple(modifiers)
 
 
-# HarfBuzz reads CFF1 PostScript names truncated to 63 bytes, so two stances whose names share a 63-byte prefix collide at shaping time. The cap applies only to a stance's base compiled name. Generated variants (`.noentry`, `.en-ext-1`, …) can still exceed it, but they are usually not the glyphs a plain-text shape produces. Lower the cap if a real collision appears.
+# HarfBuzz's `glyph_to_string` truncates glyph names to 63 bytes, so two stances whose names share a 63-byte prefix read as one name to anything that names shaped glyphs through it. The cap applies only to a stance's base compiled name. Generated variants (`.noentry`, `.en-ext-1`, …) can still exceed it; `rebuild/test_extractor.py` pins the ones that do, and `test/quikscript_shaping_helpers.py` and the rebuild's shapers read full names through fontTools. Lower the cap if a real collision appears.
 _SYNTHESIZED_NAME_LENGTH_CAP = 63
 
 
@@ -3611,7 +3611,7 @@ def _inherit_ligature_entries_from_lead(
 
     A ligature stance that declares its own entry keeps it and gets a ``LigatureEntryInheritanceWarning`` saying whether inheritance would give the same anchor, a different one, or none (the lead has no candidate stance, or the bitmaps do not align).
 
-    Stances with a trait (``qsDay_qsUtter.half``) are skipped, because their entry differs from the lead's: a half lead exits at the baseline, not the x-height. Writing ``entry: null`` in the ligature's anchors also skips it with no warning, for a ligature that has no entry even though its lead does.
+    Stances with a trait (``qsDay_qsUtter.half``) are skipped, because their entry follows the lead's trait stance, not the lead's base: ``qsDay_qsUtter.half`` enters at the baseline like ``qsDay.half``, where ``qsDay`` enters at the x-height. Writing ``entry: null`` in the ligature's anchors also skips it with no warning, for a ligature that has no entry even though its lead does.
     """
     updated = dict(join_glyphs)
     for name, glyph in sorted(join_glyphs.items()):
@@ -3690,7 +3690,7 @@ def has_entry_preserving_exit_noentry_sibling(
     base_to_variants: dict[str, set[str]],
     join_glyphs: dict[str, JoinGlyph],
 ) -> bool:
-    """True if ``l_meta`` has an ``ex-noentry`` sibling: a stance with the same entry anchors, no exit, no selectors, and ``l_meta``'s modifiers with the ``ex-*`` ones replaced by ``ex-noentry``. When a following ``noentry_after`` glyph voids the join, the post-liga cleanup can switch to that sibling, so ``l_meta`` needs no ``not_before`` for it."""
+    """True if ``l_meta`` has an ``ex-noentry`` sibling: a stance with the same entry anchors, no exit, no selectors, and ``l_meta``'s modifiers with the ``ex-*`` ones replaced by ``ex-noentry``. When a following ``noentry_after`` ligature voids the join, the post-liga cleanup can switch to that sibling, so ``l_meta`` needs no ``not_before`` for it."""
     expected_modifiers = frozenset(m for m in l_meta.modifiers if not m.startswith("ex-")) | {"ex-noentry"}
     for sibling_name in base_to_variants.get(l_meta.base_name, frozenset()):
         sibling = join_glyphs.get(sibling_name)
