@@ -709,7 +709,7 @@ fn a_shipped_order_walk_answers_a_tables_rows_from_a_file_or_stdin() {
     assert!(output.stderr.is_empty(), "a clean walk says nothing");
     assert_eq!(
         String::from_utf8_lossy(&output.stdout),
-        format!("{{\"config\":\"ss03\",\"rows\":{rows},\"expanded\":0}}\n")
+        format!("{{\"config\":\"ss03\",\"rows\":{rows},\"checked_per_member\":0}}\n")
     );
 
     let piped = std::process::Command::new(KERNEL)

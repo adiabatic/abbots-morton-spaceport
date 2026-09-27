@@ -17,7 +17,7 @@ use crate::replay::Labels;
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Report {
     pub rows: u64,
-    pub expanded: u64,
+    pub checked_per_member: u64,
 }
 
 /// How many disagreements a walk reports before it stops, so the error message stays short.
@@ -67,7 +67,7 @@ struct EmittedRule {
 
 /// The rule, slot, and class token where a deep slot rejected a class token it contains in part, after every earlier slot matched. It tells the caller to try the row member by member.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct Split {
+struct PartialClass {
     seat: usize,
     slot: usize,
     token: u32,
@@ -76,14 +76,14 @@ struct Split {
 /// The emitted rules grouped by input label, each input's rules in shipped order, and the (rule, slot, class token) triples where the slot contains the class in part, so that [`Order::first`] can tell a partial class match from a plain miss.
 struct Order {
     by_input: HashMap<u32, Vec<EmittedRule>>,
-    splits: HashSet<(usize, usize, u32)>,
+    partial_classes: HashSet<(usize, usize, u32)>,
 }
 
 impl Order {
-    /// Indexes the emitted rules. Every class of the configuration is compared with every deep slot: a class the slot contains entirely is added to the slot as its token, and a class it contains in part is recorded as a split.
+    /// Indexes the emitted rules. Every class of the configuration is compared with every deep slot: a class the slot contains entirely is added to the slot as its token, and a class it contains in part is recorded as a partial class.
     fn new(labels: &mut Labels, rules: &[Rule], classes: &[(u32, Vec<u32>)]) -> Self {
         let mut by_input: HashMap<u32, Vec<EmittedRule>> = HashMap::default();
-        let mut splits: HashSet<(usize, usize, u32)> = HashSet::default();
+        let mut partial_classes: HashSet<(usize, usize, u32)> = HashSet::default();
         for (seat, rule) in rules.iter().enumerate() {
             let input = labels.intern(&rule.input_glyph);
             let mut slot = |members: &Option<Vec<std::rc::Rc<str>>>| {
@@ -115,7 +115,7 @@ impl Order {
                     if inside == members.len() {
                         whole.push(*token);
                     } else if inside > 0 {
-                        splits.insert((seat, index, *token));
+                        partial_classes.insert((seat, index, *token));
                     }
                 }
                 if !whole.is_empty() {
@@ -130,11 +130,14 @@ impl Order {
                 outcome,
             });
         }
-        Self { by_input, splits }
+        Self {
+            by_input,
+            partial_classes,
+        }
     }
 
-    /// The first emitted rule for `input` whose five slots match `window`, or `None` when no rule matches. When a deep slot rejects a class token it contains in part, after every earlier slot matched, this returns that [`Split`] so the caller can expand the row.
-    fn first(&self, input: u32, window: [u32; 5]) -> Result<Option<&EmittedRule>, Split> {
+    /// The first emitted rule for `input` whose five slots match `window`, or `None` when no rule matches. When a deep slot rejects a class token it contains in part, after every earlier slot matched, this returns that [`PartialClass`] so the caller can check the row member by member.
+    fn first(&self, input: u32, window: [u32; 5]) -> Result<Option<&EmittedRule>, PartialClass> {
         'rules: for rule in self.by_input.get(&input).map_or(&[][..], Vec::as_slice) {
             for (index, (slot, label)) in rule.slots.iter().zip(window).enumerate() {
                 let Some(members) = slot else {
@@ -143,8 +146,8 @@ impl Order {
                 if members.binary_search(&label).is_ok() {
                     continue;
                 }
-                if index >= 3 && self.splits.contains(&(rule.seat, index, label)) {
-                    return Err(Split {
+                if index >= 3 && self.partial_classes.contains(&(rule.seat, index, label)) {
+                    return Err(PartialClass {
                         seat: rule.seat,
                         slot: index,
                         token: label,
@@ -279,7 +282,7 @@ impl<'a> Walk<'a> {
                     }
                 }
                 Err(_) => {
-                    report.expanded += 1;
+                    report.checked_per_member += 1;
                     let members3 = self
                         .classes
                         .get(&right3)
@@ -293,13 +296,13 @@ impl<'a> Walk<'a> {
                     'members: for member3 in &members3 {
                         for member4 in &members4 {
                             let concrete = [left, right1, right2, *member3, *member4];
-                            let fired = self.order.first(input, concrete).map_err(|split| {
+                            let fired = self.order.first(input, concrete).map_err(|partial| {
                                 format!(
                                     "{}: emitted rule {} turns {} away at its {} as a class, though it is a member label",
                                     self.config,
-                                    split.seat,
-                                    self.labels.text(split.token),
-                                    slot_name(split.slot)
+                                    partial.seat,
+                                    self.labels.text(partial.token),
+                                    slot_name(partial.slot)
                                 )
                             })?;
                             let fired = fired.map(|rule| (rule.seat, rule.outcome));
@@ -328,7 +331,7 @@ impl<'a> Walk<'a> {
         }
     }
 
-    /// Formats one disagreement: the row, the member pair it was tried at when a class was expanded, the table's outcome and the table rule that produced it, and the emitted rule that fired with its outcome. The table's rule is looked up with raw labels, using the member tried (or the class's first member) mapped back through the marker renames, because the table's rules name members and raw labels where the row names a class token and the stream names a copy.
+    /// Formats one disagreement: the row, the member pair it was tried at when the row was checked member by member, the table's outcome and the table rule that produced it, and the emitted rule that fired with its outcome. The table's rule is looked up with raw labels, using the member tried (or the class's first member) mapped back through the marker renames, because the table's rules name members and raw labels where the row names a class token and the stream names a copy.
     fn disagree(
         &self,
         raw: [&str; 7],
@@ -517,7 +520,7 @@ mod tests {
             .expect("the table reads itself back");
         assert_eq!(report.rows as usize, decision.transitions.len());
         assert!(report.rows > 0);
-        assert_eq!(report.expanded, 0);
+        assert_eq!(report.checked_per_member, 0);
     }
 
     /// Swapping two rules of one input, so that a row the later rule matched is now matched by the earlier one, produces an error naming the configuration, the row, the emitted rule that fired, and the table's own rule.
@@ -594,7 +597,7 @@ mod tests {
 
     /// When an emitted lookahead class contains one of the configuration's deep classes only in part, the row is tried member by member: a rule that gives every member the row's outcome passes, and one that gives a member a different outcome is reported with that member. The rules are built by hand because the fixture's alphabet is too small to produce a multi-member class.
     #[test]
-    fn a_split_deep_class_is_tried_member_by_member() {
+    fn a_partial_deep_class_is_tried_member_by_member() {
         let rule = |look3: &[&str], outcome: &str| Rule {
             input_glyph: Rc::from("qsPea"),
             backtrack: None,
@@ -619,7 +622,7 @@ mod tests {
             report,
             Report {
                 rows: 1,
-                expanded: 0
+                checked_per_member: 0
             }
         );
         let benign = [rule(&["qsPea"], "qsPea.whole"), whole[0].clone()];
@@ -631,17 +634,17 @@ mod tests {
             report,
             Report {
                 rows: 1,
-                expanded: 1
+                checked_per_member: 1
             }
         );
-        let split = [rule(&["qsTea"], "qsPea.split"), whole[0].clone()];
-        let mut walk = Walk::new("default", &whole, &split, &context);
+        let partial = [rule(&["qsTea"], "qsPea.partial"), whole[0].clone()];
+        let mut walk = Walk::new("default", &whole, &partial, &context);
         let error = walk
             .walk(&mut payload.as_bytes())
             .expect_err("one member is answered differently");
         assert!(error.contains("tried at (qsTea, #NA)"), "{error}");
         assert!(error.contains("emitted rule 0"), "{error}");
-        assert!(error.contains("qsPea.split"), "{error}");
+        assert!(error.contains("qsPea.partial"), "{error}");
     }
 
     /// The context file's two record kinds parse, and any other line is an error naming its line number.

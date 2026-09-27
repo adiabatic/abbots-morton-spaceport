@@ -28,7 +28,7 @@ def _first_matching_rule(
     right4: str,
     representatives: Mapping[str, str] | None = None,
 ) -> int | None:
-    """Return the index of the first of the configuration's renamed rules that matches one window, as the emitted FEA does, or None. A deep slot holding a class token is tested through its renamed representative member (`representatives`, the map a `conform._DeepTokenIndex` holds). That is exact, and a raw member label matches the same rules, because `fold::assert_deep_class_unions` checks that every emitted look class holds all of a token's members or none."""
+    """Return the index of the first of the configuration's renamed rules that matches one window, as the emitted FEA does, or None. A deep slot holding a class token is tested through its renamed representative member (`representatives`, the map a `conform._DeepTokenIndex` holds). That is exact, and a raw member label matches the same rules, because `fold::assert_deep_class_unions` checks that every emitted lookahead class holds all of a token's members or none."""
     if representatives:
         right3 = representatives.get(right3, right3)
         right4 = representatives.get(right4, right4)

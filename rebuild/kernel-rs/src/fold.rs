@@ -887,7 +887,7 @@ fn slot_repr(slot: &Option<Vec<Rc<str>>>) -> String {
     }
 }
 
-/// Checks that every emitted look3/look4 class, among the rules that match a class row's near slots, contains that row's deep class either whole or not at all. This makes conform's rule-membership tests, which test one representative member per deep class, exact.
+/// Checks that every emitted lookahead class in look3 or look4, among the rules that match a class row's near slots, contains that row's deep class either whole or not at all. This makes conform's rule-membership tests, which test one representative member per deep class, exact.
 pub fn assert_deep_class_unions(product: &FixpointProduct, rules: &[Rule]) -> Result<(), String> {
     if product.deep_classes.is_empty() {
         return Ok(());
@@ -925,7 +925,7 @@ pub fn assert_deep_class_unions(product: &FixpointProduct, rules: &[Rule]) -> Re
             if let (Some(set3), Some(look3)) = (set3, &rule.look3) {
                 let inside = intersection(set3, look3);
                 if !inside.is_empty() && inside.len() != set3.len() {
-                    return Err(split_class(
+                    return Err(partial_class(
                         row,
                         &product.labels,
                         product.labels.text(row.right3),
@@ -948,7 +948,7 @@ pub fn assert_deep_class_unions(product: &FixpointProduct, rules: &[Rule]) -> Re
                 if reaches {
                     let inside = intersection(set4, look4);
                     if !inside.is_empty() && inside.len() != set4.len() {
-                        return Err(split_class(
+                        return Err(partial_class(
                             row,
                             &product.labels,
                             product.labels.text(row.right4),
@@ -979,7 +979,7 @@ fn intersection<'a>(set: &HashSet<&'a str>, look: &[Rc<str>]) -> Vec<&'a str> {
     inside
 }
 
-fn split_class(
+fn partial_class(
     row: &TransitionRow,
     labels: &LabelPool,
     token: &str,
@@ -990,7 +990,7 @@ fn split_class(
     let mut all: Vec<&str> = whole.iter().copied().collect();
     all.sort_unstable();
     format!(
-        "{}: an emitted {slot} class splits deep class {token} at {}: {} of {}",
+        "{}: an emitted {slot} class holds only part of deep class {token} at {}: {} of {}",
         labels.text(row.input_glyph),
         key_repr(row.key(labels)),
         python_str_list(inside),
@@ -1819,13 +1819,13 @@ mod tests {
 
     /// The deep-class union check passes on the folded rules and fails on an added rule whose look3 class holds one member of a two-member deep class. Such a class would make conform's one-member membership test unreliable.
     #[test]
-    fn a_rule_that_splits_a_deep_class_is_refused() {
+    fn a_rule_that_holds_part_of_a_deep_class_is_refused() {
         let (bench, product, tokens) = deep_bench();
         let folded = fold_product(&bench.index, product.clone()).expect("the product folds");
         assert_deep_class_unions(&product, &folded.decision.rules)
             .expect("the emitted classes are whole");
-        let mut split = folded.decision.rules.clone();
-        split.push(Rule {
+        let mut partial = folded.decision.rules.clone();
+        partial.push(Rule {
             input_glyph: Rc::from("qsIt"),
             backtrack: None,
             look1: None,
@@ -1836,10 +1836,10 @@ mod tests {
             provenance: Vec::new(),
             joint: false,
         });
-        let error =
-            assert_deep_class_unions(&product, &split).expect_err("half a class is a split");
+        let error = assert_deep_class_unions(&product, &partial)
+            .expect_err("half a class is a partial class");
         assert!(
-            error.contains("an emitted look3 class splits deep class"),
+            error.contains("an emitted look3 class holds only part of deep class"),
             "{error}"
         );
         assert!(error.contains(&tokens[0]), "{error}");

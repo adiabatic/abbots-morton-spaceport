@@ -915,7 +915,7 @@ def test_parse_inner_timings_finds_every_label_when_two_branches_interleave():
             "[phase] compile_font",
             "[t] pack_windows[ss04] 7.1s",
             "[t] compile_font 10.3s",
-            "[t] emitted_order[ss04] 8.6s rows=7623532 expanded=182",
+            "[t] emitted_order[ss04] 8.6s rows=7623532 checked_per_member=182",
             "[t] readback 1.0s",
             "[t] replay_strings 26.1s rss_gb=16.13",
             "replay_strings: maximum length 4, every text",

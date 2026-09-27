@@ -446,7 +446,7 @@ class TestThePacking:
             assert release[config].is_set(), f"{config}'s walk started before its pack was released"
             assert windows.is_file(), f"{config}'s walk started before its pack was on disk"
             walked.append(config)
-            return {"rows": 1, "expanded": 0}
+            return {"rows": 1, "checked_per_member": 0}
 
         monkeypatch.setattr(kernel_exec, "replay_emitted", replay_emitted)
         failures: list = []
@@ -489,7 +489,7 @@ class TestThePacking:
             assert full.wait(timeout=20), f"{config}'s walk never saw {width} walkers in flight at once"
             with lock:
                 inside["count"] -= 1
-            return {"rows": 1, "expanded": 0}
+            return {"rows": 1, "checked_per_member": 0}
 
         monkeypatch.setattr(kernel_exec, "replay_emitted", replay_emitted)
         try:

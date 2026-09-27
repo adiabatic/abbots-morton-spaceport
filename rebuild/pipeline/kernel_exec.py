@@ -547,7 +547,7 @@ def replay_emitted(
     context: Path,
     timings: bool = False,
 ) -> dict[str, int]:
-    """Walk one configuration's packed window enumeration against the shipped settlement order with the crate's `replay-emitted` subcommand (`rebuild/kernel-rs/src/shipped_order.rs`). Returns `{rows, expanded}` on a clean walk, where `expanded` counts the rows tried member by member because an emitted lookahead class contained their deep class only in part. `windows` is the `.gz` the build packed (`table.windows_path`). It is decompressed here and streamed to the subcommand's standard input, because the crate reads the plain payload and has no decompressor. `table` is the configuration's settlement TSV, `order` the file `emit_gsub.emitted_order_tsv` writes, and `context` the one `emit_gsub.emitted_context_tsv` writes. A disagreement raises `EmittedOrderDisagreement` with the crate's message; every other failure raises `KernelRunError`."""
+    """Walk one configuration's packed window enumeration against the shipped settlement order with the crate's `replay-emitted` subcommand (`rebuild/kernel-rs/src/shipped_order.rs`). Returns `{rows, checked_per_member}` on a clean walk, where `checked_per_member` counts the rows tried member by member because an emitted lookahead class contained their deep class only in part. `windows` is the `.gz` the build packed (`table.windows_path`). It is decompressed here and streamed to the subcommand's standard input, because the crate reads the plain payload and has no decompressor. `table` is the configuration's settlement TSV, `order` the file `emit_gsub.emitted_order_tsv` writes, and `context` the one `emit_gsub.emitted_context_tsv` writes. A disagreement raises `EmittedOrderDisagreement` with the crate's message; every other failure raises `KernelRunError`."""
     ensure_built()
     arguments = [
         str(BINARY),
@@ -620,13 +620,13 @@ def replay_emitted(
         raise KernelRunError(f"the kernel's replay-emitted answer is not one JSON line: {error}") from None
     if (
         not isinstance(answer, dict)
-        or set(answer) != {"config", "rows", "expanded"}
+        or set(answer) != {"config", "rows", "checked_per_member"}
         or answer["config"] != config
     ):
         raise KernelRunError(
-            f"replay-emitted answered {answer!r} where a {{config: {config!r}, rows, expanded}} line was asked for"
+            f"replay-emitted answered {answer!r} where a {{config: {config!r}, rows, checked_per_member}} line was asked for"
         )
-    return {key: int(answer[key]) for key in ("rows", "expanded")}
+    return {key: int(answer[key]) for key in ("rows", "checked_per_member")}
 
 
 def _forward_stderr(

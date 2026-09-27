@@ -145,7 +145,7 @@ class DecisionTable:
         return members if members is not None else (token,)
 
     def token_representative(self, token: str) -> str:
-        """Return the first member of a class id, else the label itself: one concrete label to put in a deep slot. This is exact for rule-membership tests, because `fold::assert_deep_class_unions` checks that every emitted look class holds all of a token's members or none."""
+        """Return the first member of a class id, else the label itself: one concrete label to put in a deep slot. This is exact for rule-membership tests, because `fold::assert_deep_class_unions` checks that every emitted lookahead class holds all of a token's members or none."""
         members = self.deep_classes.get(token)
         return members[0] if members else token
 
