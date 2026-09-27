@@ -127,7 +127,7 @@ impl Slots {
 /// The tail [`Engine::cond_matches_right`] walks once a `then:` chain runs past the supplied slots.
 const UNKNOWN_TAIL: [RightToken; 1] = [UNKNOWN];
 
-/// The modes an engine is built with. The crate reads no environment, so the caller passes them. [`Default`] is the shipping configuration.
+/// The modes an engine is built with. The crate reads no environment, so the caller passes them. [`Default`] gives the default modes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct EngineModes {
     /// The follower prefer's slots past `right1` when `follower_prefer_slots` is off. `UNKNOWN` is the optimistic comparison state. The section 5.7 guard's engines set it to `EDGE`, so a follower prefer that needs deeper text than the guard's verdict is keyed on can never change a formation verdict.
@@ -727,7 +727,7 @@ pub struct Engine<'i> {
 }
 
 impl<'i> Engine<'i> {
-    /// An engine over one spec and one feature configuration, in the shipping modes: `simulated_prospect` and `follower_prefer_slots` on, the follower prefer's deep slot `UNKNOWN`, and no trace memo.
+    /// An engine over one spec and one feature configuration, in the default modes: `simulated_prospect` and `follower_prefer_slots` on, the follower prefer's deep slot `UNKNOWN`, and no trace memo.
     pub fn new(index: &'i SpecIndex, features: impl IntoIterator<Item = Sym>) -> Self {
         Self::with_modes(index, features, EngineModes::default())
     }

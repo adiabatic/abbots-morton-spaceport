@@ -264,7 +264,7 @@ def test_cap_and_slot_arity_are_tied():
 
 
 class TestDepthThreeTablesSynthetic:
-    """Tests the lazily enumerated third lookahead slot over the reach-2 chain from `tea_chain_spec`: only the chain-bearing input's windows split the third slot, the split rows compile to three-slot rules ordered ahead of their shallower fallbacks, `replay` passes with the extra slot, and the fourth slot stays unsplit. The live alphabet's own depth-3 and depth-4 chain records are checked in the crate at every `run_m1` table build: a prefer conflict raises E-INCOMPARABLE or E-AMBIGUOUS, `fold::assert_outcome_partition` checks first-match-wins, and either failure reaches Python as a `KernelRunError`. The class uses `candidacy_tables` because under the shipping simulated-prospect default every input becomes a candidate for deep slots, and this class tests the chain case alone."""
+    """Tests the lazily enumerated third lookahead slot over the reach-2 chain from `tea_chain_spec`: only the chain-bearing input's windows split the third slot, the split rows compile to three-slot rules ordered ahead of their shallower fallbacks, `replay` passes with the extra slot, and the fourth slot stays unsplit. The live alphabet's own depth-3 and depth-4 chain records are checked in the crate at every `run_m1` table build: a prefer conflict raises E-INCOMPARABLE or E-AMBIGUOUS, `fold::assert_outcome_partition` checks first-match-wins, and either failure reaches Python as a `KernelRunError`. The class uses `candidacy_tables` because under the default simulated-prospect mode every input becomes a candidate for deep slots, and this class tests the chain case alone."""
 
     @pytest.fixture(scope="class")
     def synthetic_spec(self):

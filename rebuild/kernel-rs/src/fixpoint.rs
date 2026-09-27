@@ -49,7 +49,7 @@ const SEED_KINDS: [TokenKind; 4] = [
     TokenKind::NamerDot,
 ];
 
-/// The mode set one enumeration runs under, and at which grain. Python reads the three flags from module-level defaults that environment variables override (`kernel_exec.SIMULATED_PROSPECT_DEFAULT`, `kernel_exec.FOLLOWER_PREFER_SLOTS_DEFAULT` and `kernel_exec.DEEP_CLASSES_DEFAULT`). This crate reads no environment, so the caller passes them, and [`Default`] is the shipping configuration. [`EnumerationModes::token`] names the mode set; a memo file's head carries it so a memo traced under one mode set is never read under another.
+/// The mode set one enumeration runs under, and at which grain. Python reads the three flags from module-level defaults that environment variables override (`kernel_exec.SIMULATED_PROSPECT_DEFAULT`, `kernel_exec.FOLLOWER_PREFER_SLOTS_DEFAULT` and `kernel_exec.DEEP_CLASSES_DEFAULT`). This crate reads no environment, so the caller passes them, and [`Default`] gives the default modes. [`EnumerationModes::token`] names the mode set; a memo file's head carries it so a memo traced under one mode set is never read under another.
 ///
 /// Either engine mode on makes a deep mode set: both deep-slot rune sets widen to every rune and the filters get their liveness probe. `deep_classes` only takes effect in a deep mode set. With both engine modes off, the mode set is the pinned one: `deep_classes` is accepted there and does nothing, because there is no fiber source to enumerate at class grain.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

@@ -477,7 +477,7 @@ mod tests {
     use crate::fold::{DecisionTable, fold_product};
     use crate::index::{SpecIndex, fixtures};
 
-    const SHIPPING: EnumerationModes = EnumerationModes {
+    const DEFAULT_MODES: EnumerationModes = EnumerationModes {
         simulated_prospect: true,
         follower_prefer_slots: true,
         deep_classes: true,
@@ -485,7 +485,7 @@ mod tests {
 
     fn table(index: &SpecIndex, features: &[Sym]) -> DecisionTable {
         let product =
-            enumerate_transitions(index, features, SHIPPING).expect("the fixpoint closes");
+            enumerate_transitions(index, features, DEFAULT_MODES).expect("the fixpoint closes");
         fold_product(index, product).expect("and folds").decision
     }
 

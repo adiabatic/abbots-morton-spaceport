@@ -6,7 +6,7 @@ Each alphabet size runs as one kernel child, `build-tables --configs=default --t
 
 The report gives the consecutive-pair exponents against runes, then a least-squares fit of ln count on ln size over the whole series, against runes and against letters. Quote the whole-series fit and say which size it is against. A single pair varies by a large fraction of the threshold because of ordinary scatter and because of which letters that size added. A rune exponent is the letter exponent times `d ln letters / d ln runes`, and the nested series moves that factor from below 1 to above 1 as it stops adding ligatures and starts adding letters. The threshold, in this fitted form, is about 4.5 against letters, which is the same threshold as about 5.5 against runes. A fit past it means skipping work (the coverage settings in `doc/rebuild-design.md` §14.1) is due before the next batch, in any language.
 
-Positional arguments are the rune counts to cut alphabets at, which need not be sizes of the series, and default to `scaling_series.series_sizes`. `AMS_SCALING_DUMP=<dir>` keeps each size's spec dump and the artifacts its child wrote instead of deleting them with a temporary directory; `kernel_all_configs.py --spec <dir>/spec-rN.json` then times the enumeration at that size, in every settlement configuration or in the ones `--configs` names. `AMS_SCALING_BINARY=<path>` measures that binary as it is instead of building the crate, which is how a build at another revision is measured. `AMS_DEEP_CLASSES=0`, `AMS_SIMULATED_PROSPECT=0` and `AMS_FOLLOWER_PREFER_SLOTS=0` reach the child through `kernel_exec.mode_flags()`, and each row's `modes` names the flags passed, or `shipping defaults` when none were.
+Positional arguments are the rune counts to cut alphabets at, which need not be sizes of the series, and default to `scaling_series.series_sizes`. `AMS_SCALING_DUMP=<dir>` keeps each size's spec dump and the artifacts its child wrote instead of deleting them with a temporary directory; `kernel_all_configs.py --spec <dir>/spec-rN.json` then times the enumeration at that size, in every settlement configuration or in the ones `--configs` names. `AMS_SCALING_BINARY=<path>` measures that binary as it is instead of building the crate, which is how a build at another revision is measured. `AMS_DEEP_CLASSES=0`, `AMS_SIMULATED_PROSPECT=0` and `AMS_FOLLOWER_PREFER_SLOTS=0` reach the child through `kernel_exec.mode_flags()`, and each row's `modes` names the flags passed, or `default modes` when none were.
 
 Each row prints as its size finishes, and the whole set is written to `rebuild/out/scaling-series.json`. `rebuild/scaling-series.txt` is the checked-in record of the last run, the rows and the report as printed, and the add-a-new-letter checklist refreshes it after every migration batch. Run from the repo root: `uv run python -m rebuild.tools.scaling_sweep [k ...] | tee rebuild/scaling-series.txt`.
 """
@@ -192,7 +192,7 @@ def main() -> int:
                 "enumerate_s": run["phases"].get("enumerate[default]"),
                 "fold_s": run["phases"].get("fold[default]"),
                 "rss_high_water_gb": None if rss is None else round(peak_rss.bytes_to_gb(rss), 2),
-                "modes": " ".join(kernel_exec.mode_flags()) or "shipping defaults",
+                "modes": " ".join(kernel_exec.mode_flags()) or "default modes",
                 "digest": run["digest"],
             }
             rows.append(row)

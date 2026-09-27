@@ -625,7 +625,7 @@ mod tests {
     use crate::types::{NotesId, SettledId};
     use std::rc::Rc;
 
-    const SHIPPING: EnumerationModes = EnumerationModes {
+    const DEFAULT_MODES: EnumerationModes = EnumerationModes {
         simulated_prospect: true,
         follower_prefer_slots: true,
         deep_classes: true,
@@ -819,7 +819,7 @@ mod tests {
     fn row_chains_match_the_reference_in_every_mode_set() {
         let index = fixtures::mini();
         for modes in [
-            SHIPPING,
+            DEFAULT_MODES,
             EnumerationModes {
                 simulated_prospect: true,
                 follower_prefer_slots: true,
@@ -854,7 +854,8 @@ mod tests {
     #[test]
     fn every_row_of_the_fixture_is_reached_by_a_short_chain_the_rows_fix() {
         let index = fixtures::mini();
-        let product = enumerate_transitions(&index, &[], SHIPPING).expect("the fixpoint closes");
+        let product =
+            enumerate_transitions(&index, &[], DEFAULT_MODES).expect("the fixpoint closes");
         let fold_rows = expand(&product);
         let rows = LabelRows::new(&product, &fold_rows);
         let chains = checked_chains(&rows);
@@ -884,7 +885,8 @@ mod tests {
     #[test]
     fn every_rule_of_the_fixture_carries_a_certificate_it_first_matches() {
         let index = fixtures::mini();
-        let product = enumerate_transitions(&index, &[], SHIPPING).expect("the fixpoint closes");
+        let product =
+            enumerate_transitions(&index, &[], DEFAULT_MODES).expect("the fixpoint closes");
         let folded = fold_product(&index, product.clone()).expect("and folds");
         let decision = &folded.decision;
         assert_eq!(decision.certificates.len(), decision.rules.len());
@@ -940,7 +942,8 @@ mod tests {
     #[test]
     fn a_rule_no_row_first_matches_is_refused_before_certification() {
         let index = fixtures::mini();
-        let product = enumerate_transitions(&index, &[], SHIPPING).expect("the fixpoint closes");
+        let product =
+            enumerate_transitions(&index, &[], DEFAULT_MODES).expect("the fixpoint closes");
         let folded = fold_product(&index, product.clone()).expect("and folds");
         let fold_rows = expand(&product);
         let rows = LabelRows::new(&product, &fold_rows);
@@ -965,7 +968,8 @@ mod tests {
     #[test]
     fn a_row_no_chain_reaches_has_an_unsupported_slot_and_an_unspellable_one_fails_nothing() {
         let index = fixtures::mini();
-        let product = enumerate_transitions(&index, &[], SHIPPING).expect("the fixpoint closes");
+        let product =
+            enumerate_transitions(&index, &[], DEFAULT_MODES).expect("the fixpoint closes");
         let mut rules = fold_product(&index, product.clone())
             .expect("and folds")
             .decision
@@ -1120,7 +1124,8 @@ mod tests {
     fn a_completed_stream_raises_no_open_constraint() {
         let index = fixtures::mini();
         let mut options = WindowOptions::new(&index).expect("the fixture's options build");
-        let product = enumerate_transitions(&index, &[], SHIPPING).expect("the fixpoint closes");
+        let product =
+            enumerate_transitions(&index, &[], DEFAULT_MODES).expect("the fixpoint closes");
         let fold_rows = expand(&product);
         let rows = LabelRows::new(&product, &fold_rows);
         let chains = checked_chains(&rows);

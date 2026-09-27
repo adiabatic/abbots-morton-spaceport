@@ -1020,8 +1020,8 @@ mod tests {
     use crate::types::{NotesId, SettledId};
     use std::cell::RefCell;
 
-    /// The shipping modes, which the fixture is folded in.
-    const SHIPPING: EnumerationModes = EnumerationModes {
+    /// The default modes, which the fixture is folded in.
+    const DEFAULT_MODES: EnumerationModes = EnumerationModes {
         simulated_prospect: true,
         follower_prefer_slots: true,
         deep_classes: true,
@@ -1030,7 +1030,7 @@ mod tests {
     /// The mini fixture's fixpoint and the tables it folds into.
     fn built() -> (SpecIndex, FixpointProduct, Folded) {
         let index = fixtures::mini();
-        let product = enumerate_transitions(&index, &[], SHIPPING)
+        let product = enumerate_transitions(&index, &[], DEFAULT_MODES)
             .expect("the fixture's fixpoint closes and settles");
         let folded = fold_product(&index, product.clone()).expect("and folds");
         (index, product, folded)

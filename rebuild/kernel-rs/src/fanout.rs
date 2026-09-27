@@ -728,7 +728,7 @@ mod tests {
     use crate::index::fixtures;
 
     /// The default modes (the [`EnumerationModes`] default), under which the deep slots enumerate at class grain. The tests below check byte-identity across schedules under these modes.
-    const SHIPPING: EnumerationModes = EnumerationModes {
+    const DEFAULT_MODES: EnumerationModes = EnumerationModes {
         simulated_prospect: true,
         follower_prefer_slots: true,
         deep_classes: true,
@@ -778,8 +778,14 @@ mod tests {
     /// The bytes `enumerate` writes for one configuration: [`run_config`] into a buffer instead of stdout.
     fn enumerated(index: &SpecIndex, config: &Configuration<'_>) -> String {
         let mut sink: Vec<u8> = Vec::new();
-        run_config(index, config, SHIPPING, &mut sink, Report::timed(false))
-            .expect("the fixture's fixpoint closes and serializes");
+        run_config(
+            index,
+            config,
+            DEFAULT_MODES,
+            &mut sink,
+            Report::timed(false),
+        )
+        .expect("the fixture's fixpoint closes and serializes");
         String::from_utf8(sink).expect("a transitions stream is text")
     }
 
@@ -806,7 +812,7 @@ mod tests {
             let timed = run_configs(
                 &index,
                 &configs,
-                SHIPPING,
+                DEFAULT_MODES,
                 &outdir,
                 workers,
                 Report::timed(false),
@@ -837,7 +843,7 @@ mod tests {
             let timed = run_configs(
                 &index,
                 &configs,
-                SHIPPING,
+                DEFAULT_MODES,
                 &outdir,
                 workers,
                 Report::timed(true),
@@ -872,8 +878,15 @@ mod tests {
         let index = fixtures::mini();
         let configs = configurations(&index);
         let outdir = scratch("fan-out-untimed");
-        let timed = run_configs(&index, &configs, SHIPPING, &outdir, 2, Report::timed(false))
-            .expect("every configuration answers");
+        let timed = run_configs(
+            &index,
+            &configs,
+            DEFAULT_MODES,
+            &outdir,
+            2,
+            Report::timed(false),
+        )
+        .expect("every configuration answers");
         assert!(timed.iter().all(Vec::is_empty));
         std::fs::remove_dir_all(&outdir).expect("the scratch directory is removable");
     }
@@ -920,8 +933,15 @@ mod tests {
         let outdir = scratch("fan-out-blocked");
         std::fs::create_dir_all(&outdir).expect("the scratch directory is makeable");
         block(&outdir, TOKENS[0]);
-        let error = run_configs(&index, &configs, SHIPPING, &outdir, 1, Report::timed(false))
-            .expect_err("a directory in a stream's place is not writable");
+        let error = run_configs(
+            &index,
+            &configs,
+            DEFAULT_MODES,
+            &outdir,
+            1,
+            Report::timed(false),
+        )
+        .expect_err("a directory in a stream's place is not writable");
         assert!(
             error.starts_with(&format!("{}: ", TOKENS[0])),
             "the error names the configuration that failed: {error}"
@@ -946,7 +966,7 @@ mod tests {
         let error = run_configs(
             &index,
             &configs,
-            SHIPPING,
+            DEFAULT_MODES,
             &outdir,
             configs.len(),
             Report::timed(false),
@@ -971,8 +991,15 @@ mod tests {
             .expect("the scratch directory takes a file");
         let bystander = outdir.join("manifest.json");
         std::fs::write(&bystander, "{}\n").expect("and another that is not a stream");
-        run_configs(&index, &configs, SHIPPING, &outdir, 2, Report::timed(false))
-            .expect("every configuration answers");
+        run_configs(
+            &index,
+            &configs,
+            DEFAULT_MODES,
+            &outdir,
+            2,
+            Report::timed(false),
+        )
+        .expect("every configuration answers");
         assert!(
             !stale.exists(),
             "the unnamed configuration's stream is gone"
@@ -990,8 +1017,15 @@ mod tests {
         let index = fixtures::mini();
         let configs = configurations(&index);
         let outdir = scratch("fan-out-no-workers");
-        let timed = run_configs(&index, &configs, SHIPPING, &outdir, 0, Report::timed(false))
-            .expect("the run happens");
+        let timed = run_configs(
+            &index,
+            &configs,
+            DEFAULT_MODES,
+            &outdir,
+            0,
+            Report::timed(false),
+        )
+        .expect("the run happens");
         assert_eq!(timed.len(), configs.len());
         for config in &configs {
             assert!(transitions_path(&outdir, config.token).exists());
@@ -1084,7 +1118,7 @@ mod tests {
                 let answers = run_configs_tables(
                     &index,
                     &configs,
-                    SHIPPING,
+                    DEFAULT_MODES,
                     &outdir,
                     INPUTS,
                     workers,
@@ -1153,7 +1187,7 @@ mod tests {
             let answers = run_configs_tables(
                 &index,
                 &configs,
-                SHIPPING,
+                DEFAULT_MODES,
                 &outdir,
                 INPUTS,
                 workers,
@@ -1207,7 +1241,7 @@ mod tests {
         let error = run_configs_tables(
             &index,
             &configs,
-            SHIPPING,
+            DEFAULT_MODES,
             &alone,
             INPUTS,
             2,
@@ -1230,7 +1264,7 @@ mod tests {
         let error = run_configs_tables(
             &index,
             &configs,
-            SHIPPING,
+            DEFAULT_MODES,
             &every,
             INPUTS,
             2,

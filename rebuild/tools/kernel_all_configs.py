@@ -8,7 +8,7 @@ It writes only the spec dump and the transition streams, both under rebuild/out/
 
 Only the child is measured. `/usr/bin/time` wraps the invocation for the peak resident set (`peak_rss.parse_time_output` reads both the Darwin form in bytes and the Linux form in KiB), `resource.getrusage(RUSAGE_CHILDREN)` deltas give the CPU time, and the wall-clock time covers the whole invocation. The `[t]` lines and `/usr/bin/time`'s report share one stderr capture. On a machine without `/usr/bin/time` the peak is null.
 
-The kernel enumerates under the mode set `kernel_exec.mode_flags()` describes, the same flags `run_m1` passes, so `AMS_SIMULATED_PROSPECT`, `AMS_FOLLOWER_PREFER_SLOTS` and `AMS_DEEP_CLASSES` change this measurement as they change a build. Every row records the flags in `modes`, or `shipping defaults` when none is set, as `scaling_sweep.py` prints it.
+The kernel enumerates under the mode set `kernel_exec.mode_flags()` describes, the same flags `run_m1` passes, so `AMS_SIMULATED_PROSPECT`, `AMS_FOLLOWER_PREFER_SLOTS` and `AMS_DEEP_CLASSES` change this measurement as they change a build. Every row records the flags in `modes`, or `default modes` when none is set, as `scaling_sweep.py` prints it.
 
 Each configuration holds its working set until it has emitted, so a parallel run needs roughly the serial peak times the number of configurations in flight. Lower `--threads` on a machine with less memory than that.
 
@@ -161,7 +161,7 @@ def main() -> int:
         "mode": args.mode,
         "threads": threads,
         "threads_requested": requested,
-        "modes": " ".join(kernel_exec.mode_flags()) or "shipping defaults",
+        "modes": " ".join(kernel_exec.mode_flags()) or "default modes",
         "runes": runes,
         "spec": str(spec_path),
         "binary": str(binary),

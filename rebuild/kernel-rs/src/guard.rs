@@ -571,10 +571,10 @@ mod tests {
 
     #[test]
     fn the_guard_engines_pin_the_modes_the_defaults_leave_on() {
-        let shipping = EngineModes::default();
-        assert!(shipping.simulated_prospect, "the default modes simulate");
+        let defaults = EngineModes::default();
+        assert!(defaults.simulated_prospect, "the default modes simulate");
         assert!(
-            shipping.follower_prefer_slots,
+            defaults.follower_prefer_slots,
             "and read a follower prefer's slots shifted"
         );
         let baseline = object(&[row("baseline", &[])]);

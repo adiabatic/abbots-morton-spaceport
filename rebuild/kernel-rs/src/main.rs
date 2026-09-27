@@ -6,7 +6,7 @@
 //!
 //! Three make targets build and check the crate. `make kernel-build` compiles the release binary the Python side runs. `make kernel-check` runs `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, and `cargo test`. `make kernel-gate` is the target to run after a kernel-semantics change; it runs `kernel-check` and nothing else. Beyond the crate's own tests, gate:conform checks settlement by shaping every swept text through HarfBuzz and comparing the result with this kernel's per-window settlement.
 //!
-//! The CLI takes positional arguments and scans flags by hand, with no argument parser. stdout carries the answer and nothing else. The three mode flags are written as negations of the shipping configuration (`--candidacy-prospect`, `--follower-prefer-slots-off`, `--deep-classes-off`), so a bare invocation runs what ships and every departure from it shows in the command line:
+//! The CLI takes positional arguments and scans flags by hand, with no argument parser. stdout carries the answer and nothing else. The three mode flags are written as negations of the default modes (`--candidacy-prospect`, `--follower-prefer-slots-off`, `--deep-classes-off`), so a bare invocation runs the default modes and every departure from them shows in the command line:
 //!
 //! - `ams-m1-kernel spec-echo <spec>` writes the canonical dump plus one newline.
 //! - `ams-m1-kernel settle-cases <spec> <cases> [--features=a,b,…] [--settled-only] [--candidacy-prospect] [--follower-prefer-slots-off]` settles a plain-text case file through one engine, in file order. Each line of the file is one tab-separated window, as `kernel_exec.case_line` writes it. Each output line is the case line, a tab, and the case result: the whole trace as JSON (`kernel_exec.trace_of` reads it), or with `--settled-only` the settled record as seven tab-separated fields (`kernel_exec._settled_of_fields` reads it). A window that raises a settlement error gets an ordinary output line, the same `{"raise":…,"message":…}` object in either shape, and does not change the exit status.
@@ -47,7 +47,7 @@ use ams_m1_kernel::{artifacts, cases, emit, fanout, guard, parse, shipped_order}
 
 const USAGE: &str = "usage: ams-m1-kernel spec-echo <spec>\n       ams-m1-kernel settle-cases <spec> <cases> [--features=a,b] [--settled-only] [--candidacy-prospect] [--follower-prefer-slots-off]\n       ams-m1-kernel guard-sweep <spec> [--config=default|ss03+ss05]\n       ams-m1-kernel enumerate <spec> [--features=a,b] [--candidacy-prospect] [--follower-prefer-slots-off] [--deep-classes-off] [--timings] [--cache-stats]\n       ams-m1-kernel enumerate-configs <spec> <outdir> --configs=default,ss03 [--threads=N] [--candidacy-prospect] [--follower-prefer-slots-off] [--deep-classes-off] [--timings] [--cache-stats]\n       ams-m1-kernel build-tables <spec> <outdir> --configs=default,ss03 --inputs=<stamp> [--threads=N] [--no-default-memo-sharing] [--previous-memos=<dir> [--edited=qsPea,qsTea] [--moved-classes=a,b]] [--memo-stamp=<text>] [--candidacy-prospect] [--follower-prefer-slots-off] [--deep-classes-off] [--timings] [--cache-stats]\n       ams-m1-kernel replay-strings <spec> <outdir> --configs=default,ss03 --max-length=N [--families=qsPea,qsTea] [--memo-dir=<dir> | --memo-windows=N] [--threads=N] [--candidacy-prospect] [--follower-prefer-slots-off] [--timings] [--cache-stats]\n       ams-m1-kernel replay-emitted <windows> --config=default --table=<settlement.tsv> --order=<order.tsv> --context=<context.tsv> [--timings]\n       ams-m1-kernel liveness-cases <spec> <keys> [--features=a,b] [--candidacy-prospect] [--follower-prefer-slots-off]";
 
-/// The flags and positionals a command line named, before the subcommand checks its positional count. The three mode flags are written as negations because all three modes are on in the shipping configuration.
+/// The flags and positionals a command line named, before the subcommand checks its positional count. The three mode flags are written as negations because the default modes turn all three on.
 struct Flags<'a> {
     positionals: Vec<&'a str>,
     features: Vec<&'a str>,
@@ -1637,7 +1637,7 @@ mod tests {
         assert!(enumerated(&["spec.json", "--memo-windows=5"]).is_none());
     }
 
-    /// A bare invocation runs the shipping configuration at every subcommand.
+    /// A bare invocation runs the default modes at every subcommand.
     #[test]
     fn a_bare_command_line_names_the_default_modes() {
         let plan = enumerated(&["spec.json"]).expect("one positional is enough");
