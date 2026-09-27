@@ -15,7 +15,7 @@ An agent picking this up should be able to execute it phase by phase, stopping a
 
 ## The derived join contract
 
-A non-join is `exit_ys(left) & entry_ys(right) == set()` — exactly `_pair_join_ys` in `test/quikscript_shaping_helpers.py`, and `joins()` / `any_join()` in `tools/leak_static_analysis.py` (reuse these; do not re-derive). `JoinGlyph` already exposes the anchor Ys (`tools/quikscript_ir.py`, the `entry` / `entry_curs_only` / `exit` fields and their Y helpers around line 119), so the contract is _derived_, not authored.
+A non-join is `exit_ys(left) & entry_ys(right) == set()` — exactly `_pair_join_ys` in `test/quikscript_shaping_helpers.py`, and `joins()` / `any_join()` in `tools/leak_static_analysis.py` (reuse these; do not re-derive). `JoinGlyph` already exposes the anchor Ys (`tools/quikscript_ir.py`, the `entry` / `entry_curs_only` / `exit` fields and their Y helpers), so the contract is _derived_, not authored.
 
 The rule the emitter must enforce, for every contextual `calt` substitution that selects a variant `V` of base `B`:
 
@@ -23,11 +23,11 @@ The rule the emitter must enforce, for every contextual `calt` substitution that
 - A _backward_ rule `sub [preds] B' by V` (predecessor-driven) may keep a predecessor `P` only if `P` can exit-join `V` — `exit_ys(P) & entry_ys(V) != set()`.
 - Any follower/predecessor that fails the test is a cross-break shape dependency. Drop it from the rule’s context (or refuse to emit that rule), unless the cosmetic opt-out below applies.
 
-The contract is symmetric and applies to both the substitution side (`calt`, this brief) and, in spirit, the positioning side (`curs`, `_emit_quikscript_curs` around line 6050) — but scope this phase to `calt` substitution leaks only. The `curs`-anchor leaks (same bitmap, different exit/entry anchor) are a smaller, separate class; note them as follow-up, do not bundle them.
+The contract is symmetric and applies to both the substitution side (`calt`, this brief) and, in spirit, the positioning side (`curs`, `_emit_quikscript_curs`) — but scope this phase to `calt` substitution leaks only. The `curs`-anchor leaks (same bitmap, different exit/entry anchor) are a smaller, separate class; note them as follow-up, do not bundle them.
 
 ## The cosmetic opt-out (no new YAML)
 
-Some cross-break shape changes are intentional cosmetic tucks the design wants — `qsAt.ex-y0.before-may`, `qsExcite…before-vertical`, and similar. Approach: do _not_ add a YAML flag. Instead, treat the existing `before-<family>` / `after-<family>` modifier on a form as the opt-out signal: a variant `V` whose `modifiers` include `before-<fam>` (resp. `after-<fam>`) is an author-declared cosmetic interaction with that family, so it is _allowed_ to be selected for a non-joining `<fam>` neighbor. Read the modifier set from `JoinGlyph.modifiers` (`tools/quikscript_ir.py:65`).
+Some cross-break shape changes are intentional cosmetic tucks the design wants — `qsAt.ex-y0.before-may`, `qsExcite…before-vertical`, and similar. Approach: do _not_ add a YAML flag. Instead, treat the existing `before-<family>` / `after-<family>` modifier on a form as the opt-out signal: a variant `V` whose `modifiers` include `before-<fam>` (resp. `after-<fam>`) is an author-declared cosmetic interaction with that family, so it is _allowed_ to be selected for a non-joining `<fam>` neighbor. Read the modifier set from `JoinGlyph.modifiers` (`tools/quikscript_ir.py`).
 
 Every allowed cosmetic interaction must then show up in `site/isolation-leak-snapshot.txt` (it is, by definition, a visible cross-break difference). So after enforcement, the snapshot’s remaining entries should be exactly: the cosmetic opt-outs plus the emergent leaks the contract cannot reach. That is the reviewed, enumerated set the investigation doc promised — not a discovery problem.
 
@@ -35,7 +35,7 @@ If you find a cross-break selection that is neither joining nor a `before-X`/`af
 
 ## Prerequisite: make the emitter instrumentable
 
-`_emit_quikscript_calt` (`tools/quikscript_fea.py:2028`) is ≈4,000 lines of nested closures sharing outer state, so you cannot test the contract in isolation against it as-is. Before enforcing anything, extract the candidate-selection points into inspectable form. The selection happens in three nested helpers: `_emit_fwd_general` (`:3526`), `_emit_bk_general` (`:4022`), and `_emit_fwd_pairs` (`:3203`); the upstream analysis that decides what each can select is `_analyze_quikscript_joins` (`:157`) and `_populate_exit_reachability` (`:807`).
+`_emit_quikscript_calt` (`tools/quikscript_fea.py`) is ≈4,000 lines of nested closures sharing outer state, so you cannot test the contract in isolation against it as-is. Before enforcing anything, extract the candidate-selection points into inspectable form. The selection happens in three nested helpers: `_emit_fwd_general`, `_emit_bk_general`, and `_emit_fwd_pairs`; the upstream analysis that decides what each can select is `_analyze_quikscript_joins` and `_populate_exit_reachability`.
 
 Acceptance gate for this step: byte-identical FEA. Run `make snapshot-before` on the current commit, do the extraction, run `make all`, then `diff site/before/AbbotsMortonSpaceportSansSenior-Regular.fea site/AbbotsMortonSpaceportSansSenior-Regular.fea` (or `sha1sum` the six OTFs in each directory). Any divergence means the extraction changed behavior — fix it before proceeding. This mirrors the scoped-anchor cleanup protocol in the repo’s AGENTS.md.
 
@@ -60,7 +60,7 @@ Acceptance gates, all required:
 
 ## Phase 3 (optional follow-on): retire the reactive machinery the contract subsumes
 
-Once the contract holds, parts of the hand-curated leak-patching machinery become dead weight: `_PENDING_BK_ENTRY_GUARDS` and `_PENDING_LIGA_ENTRY_GUARDS` (`tools/quikscript_join_analysis.py:92`, `:135`), `_collect_noentry_shape_leak_warnings` (`:476`), and portions of the ZWNJ firewall and strip guards in the emitter. Remove only what the contract provably subsumes, one table at a time, each gated by byte-diff (`make snapshot-before`) plus `make test` plus `make test-leaks`. Do not batch these; a removed guard that was load-bearing will resurface as a snapshot regression, and you want to know exactly which removal caused it.
+Once the contract holds, parts of the hand-curated leak-patching machinery become dead weight: `_PENDING_BK_ENTRY_GUARDS` and `_PENDING_LIGA_ENTRY_GUARDS` (`tools/quikscript_join_analysis.py`), `_collect_noentry_shape_leak_warnings` (same file), and portions of the ZWNJ firewall and strip guards in the emitter. Remove only what the contract provably subsumes, one table at a time, each gated by byte-diff (`make snapshot-before`) plus `make test` plus `make test-leaks`. Do not batch these; a removed guard that was load-bearing will resurface as a snapshot regression, and you want to know exactly which removal caused it.
 
 ## Phase 4 (high payoff): the downstream-revalidation (second-order) contract
 
