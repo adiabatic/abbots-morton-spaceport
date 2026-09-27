@@ -871,7 +871,7 @@ class _UnitProjection:
 def _phase1_unit(
     unit, comparator, oracle, enricher, drafter: Drafter, report, spool: _FragmentSpool | None = None
 ) -> tuple[_UnitProjection, dict, list[str]]:
-    """Do one unit's per-unit work: the ink flags and deltas, the enrichment, the drafted fragment (`unit_to_json`), and the drafting-time contract check over it (`check_unit` at `DRAFTED`). Returns the projection the parent's whole-corpus passes read, the fragment, and the check's complaints, which the caller passes to the write so the build fails there in the same list as the write-time check. With a `spool`, the fragment is spooled as it is drafted and its address is put on the projection; the verification sample passes none and patches the fragment it holds. The deltas go onto the fragment and the projection, never onto the unit, whose `ink_deltas` stays the shared empty mapping in every process. The check runs in whichever process drafts, so the pooled and serial paths check the same way. Drafting here, before the parent's whole-corpus passes, keeps the batch's shapes in the memo for the drafter's replay."""
+    """Do one unit's per-unit work: the ink flags and deltas, the enrichment, the drafted fragment (`unit_to_json`), and the drafting-time contract check over it (`check_unit` at `DRAFTED`). Returns the projection the parent's whole-corpus passes read, the fragment, and the check's errors, which the caller passes to the write so the build fails there in the same list as the write-time check. With a `spool`, the fragment is spooled as it is drafted and its address is put on the projection; the verification sample passes none and patches the fragment it holds. The deltas go onto the fragment and the projection, never onto the unit, whose `ink_deltas` stays the shared empty mapping in every process. The check runs in whichever process drafts, so the pooled and serial paths check the same way. Drafting here, before the parent's whole-corpus passes, keeps the batch's shapes in the memo for the drafter's replay."""
     text = "".join(chr(value) for value in unit.codepoint_values)
     diffs = tuple(comparator.config_diff(text, config) for config in unit.configs)
     unit.ink_identical = comparator.ink_identical(text, unit.configs)
@@ -925,7 +925,7 @@ def _recompute_fragment(
     unit, injection, comparator, oracle, enricher, drafter: Drafter, report
 ) -> tuple[str, tuple[tuple[str, str], ...]]:
     """Recompute one sampled cached unit from nothing and patch it as the write patches a recomputed fragment. The parent's global fields (duplicate group, cluster, promoted class, primary units) are injected onto the unit copy first, because the copy was taken before the whole-corpus passes ran. `report` is the unit's result from its chunk's single `Enricher.explain_units` pass (`_released_batches`), settled from the unit's own codepoints and configuration and not read from the cache. Passing it in avoids settling each sampled unit on its own, which would cost one `settle-cases` process per position. Returns the recomputed content key and ink deltas, which the caller compares with what the cache supplied; the id follows from the key."""
-    projection, fragment, _complaints = _phase1_unit(unit, comparator, oracle, enricher, drafter, report)
+    projection, fragment, _errors = _phase1_unit(unit, comparator, oracle, enricher, drafter, report)
     unit.duplicate_group, unit.cluster, unit.class_id, junction_assign = injection
     check_stamp(
         patch_fragment(
@@ -1088,7 +1088,7 @@ class _SignatureWrite:
 def _corpus_worker(conn, init: dict) -> None:
     """Run one persistent corpus worker, answering the parent's messages on `conn` until `stop`. Workers are started with spawn only, because uharfbuzz and fontTools C objects are not fork-safe and `drafts._import_test_shaping` sets a module-global singleton.
 
-    A `phase1` message carries one batch of units from the parent's queue and the spool's class name. For each unit the worker runs config_diff, enrichment, drafting and the drafting-time contract check, releasing the shape memo after each settlement batch (`_phase1_batches`). It spools each fragment as it is drafted (`_FragmentSpool`, opened on the first batch and kept across batches), so no EnrichedUnit outlives its batch. It replies `batch` with the batch's projections, each carrying its fragment's spool address and the unit's ordinal, and the check's complaints (`check_unit` at `DRAFTED`, capped at `CONTRACT_ERRORS_SHOWN`), and keeps nothing after the reply, so it holds one batch's units and projections at a time. `phase1-done` closes the spool and replies `ok`; the parent reads the fragments back by address itself. `verify` recomputes phase 1 and the patch for cached units, which this worker never enriched, and replies with each one's content key and freshly computed ink deltas. `stop` replies with the worker's peak RSS.
+    A `phase1` message carries one batch of units from the parent's queue and the spool's class name. For each unit the worker runs config_diff, enrichment, drafting and the drafting-time contract check, releasing the shape memo after each settlement batch (`_phase1_batches`). It spools each fragment as it is drafted (`_FragmentSpool`, opened on the first batch and kept across batches), so no EnrichedUnit outlives its batch. It replies `batch` with the batch's projections, each carrying its fragment's spool address and the unit's ordinal, and the check's errors (`check_unit` at `DRAFTED`, capped at `CONTRACT_ERRORS_SHOWN`), and keeps nothing after the reply, so it holds one batch's units and projections at a time. `phase1-done` closes the spool and replies `ok`; the parent reads the fragments back by address itself. `verify` recomputes phase 1 and the patch for cached units, which this worker never enriched, and replies with each one's content key and freshly computed ink deltas. `stop` replies with the worker's peak RSS.
 
     Each `batch` reply is sent as its batch finishes, so the parent can print progress while the pool is still working. `verify` sends no progress, since it covers only a couple of hundred units.
     """
@@ -1124,21 +1124,21 @@ def _corpus_worker(conn, init: dict) -> None:
                     spool = _FragmentSpool(init["out_dir"], message[2])
                 batches += 1
                 results: list[_UnitProjection] = []
-                complaints: list[str] = []
+                contract_errors: list[str] = []
                 for unit_batch, reports in _phase1_batches(enricher, message[1]):
                     for unit, report in zip(unit_batch, reports):
                         projection, _fragment, errors = _phase1_unit(
                             unit, comparator, oracle, enricher, drafter, report, spool
                         )
                         results.append(projection)
-                        _keep_complaints(complaints, errors)
+                        _keep_contract_errors(contract_errors, errors)
                 if tally:
                     tally.hold("worker.projections", results)
                     tally.boundary(f"{message[2]}/phase1-{batches}")
-                conn.send(("batch", results, complaints))
+                conn.send(("batch", results, contract_errors))
                 if tally:
                     tally.release("worker.projections")
-                del message, results, complaints
+                del message, results, contract_errors
             elif message[0] == "phase1-done":
                 if spool is not None:
                     spool.close()
@@ -1162,8 +1162,8 @@ def _corpus_worker(conn, init: dict) -> None:
         conn.close()
 
 
-def _keep_complaints(kept: list[str], found: Sequence[str]) -> None:
-    """Append a fragment's drafting-time complaints to `kept`, up to the `CONTRACT_ERRORS_SHOWN` the write prints. A build in which every fragment fails is stopped by its first page of complaints, so neither a worker's reply nor the parent's list grows with the corpus."""
+def _keep_contract_errors(kept: list[str], found: Sequence[str]) -> None:
+    """Append a fragment's drafting-time errors to `kept`, up to the `CONTRACT_ERRORS_SHOWN` the write prints. A build in which every fragment fails is stopped by its first page of errors, so neither a worker's reply nor the parent's list grows with the corpus."""
     room = CONTRACT_ERRORS_SHOWN - len(kept)
     if room > 0:
         kept.extend(found[:room])
@@ -1209,7 +1209,7 @@ def _phase_timing(label: str, started: float, note: str = "") -> None:
 
 
 class _RecomputeRunner:
-    """Run phase 1 over the units the cache could not supply: in-process when `jobs` is 1, across persistent spawn workers otherwise, with the same per-unit work either way, so serial and parallel builds share every whole-corpus pass and are byte-identical. The parent keeps the triage order and every order-sensitive whole-corpus pass (the index and its batches, unmatched-group promotion, duplicate grouping, primary-unit resolution) and takes each recomputed unit's id from the projection its drafting stamped. The runner enriches, drafts and runs the drafting-time contract check (`_phase1_unit`). It spools each fragment as it is drafted (`_FragmentSpool`, under `out_dir`) so no EnrichedUnit outlives its batch on either path, loads each projection into the parent's unit store as it arrives (`phase1`), keeps the check's complaints in `contract_errors` for the write, and returns fragments one at a time through `fragment`, read from the spool at the address the store holds, as a cached fragment is read from the previous corpus.
+    """Run phase 1 over the units the cache could not supply: in-process when `jobs` is 1, across persistent spawn workers otherwise, with the same per-unit work either way, so serial and parallel builds share every whole-corpus pass and are byte-identical. The parent keeps the triage order and every order-sensitive whole-corpus pass (the index and its batches, unmatched-group promotion, duplicate grouping, primary-unit resolution) and takes each recomputed unit's id from the projection its drafting stamped. The runner enriches, drafts and runs the drafting-time contract check (`_phase1_unit`). It spools each fragment as it is drafted (`_FragmentSpool`, under `out_dir`) so no EnrichedUnit outlives its batch on either path, loads each projection into the parent's unit store as it arrives (`phase1`), keeps the check's errors in `contract_errors` for the write, and returns fragments one at a time through `fragment`, read from the spool at the address the store holds, as a cached fragment is read from the previous corpus.
 
     Pooled, every worker draws batches from one queue (`_handout_width` units at a time, one batch in flight per worker) instead of owning a fixed share, so which worker drafts which unit depends on timing and changes no output byte: `OutlineIntern` keys by shape, not by first-seen order, the parent loads each projection into its ordinal's row, and every order-dependent whole-corpus pass runs in the parent over the whole store. The queue is in configuration order (`_configuration_order`), so a worker's consecutive batches share a configuration. Its baseline rows come from the subset pack the parent writes before the pool starts (`subset_pack`, mapped read-only by every worker and shared through the page cache), its lookups mostly stay in one configuration's key range, and most batches settle under one configuration. The verification sample is split into contiguous slices of the same order for the same reason. A worker holds its interpreter and shapers, one batch's units, projections and addresses, the rows materialized for that batch, and the pages of the mapping it has touched; `CORPUS_WORKER_BYTES` in rebuild/tools/artifact_cycle.py estimates that peak. `close` deletes the spool however the build ends.
     """
@@ -1288,7 +1288,7 @@ class _RecomputeRunner:
                         unit, comparator, oracle, enricher, drafter, report, spool
                     )
                     _load_recomputed(store, table, projection)
-                    _keep_complaints(self.contract_errors, errors)
+                    _keep_contract_errors(self.contract_errors, errors)
                 done += len(unit_batch)
                 self._count(done)
             spool.close()
@@ -1314,7 +1314,7 @@ class _RecomputeRunner:
         )
 
     def _drive_phase1(self, store: UnitStore) -> None:
-        """Hand the recomputed units to the pool one batch at a time and load each reply as it arrives, instead of collecting from one worker at a time, so progress reaches the terminal while the phase runs. Each worker starts with one batch and has at most one in flight, so a worker holds one batch of units and the parent holds at most one reply per worker. `wait` returns the connections that have data. A `batch` reply's projections are loaded into `store` and its complaints into `contract_errors`, the reply is dropped, and that worker gets the next batch, materialized from the table and the store as it is sent, or the end marker once the queue is empty. The phase ends when every worker has answered the end marker with `ok`. The printed count is the sum of the batches loaded. An `error` reply raises here, and `close()` drains the replies queued behind it."""
+        """Hand the recomputed units to the pool one batch at a time and load each reply as it arrives, instead of collecting from one worker at a time, so progress reaches the terminal while the phase runs. Each worker starts with one batch and has at most one in flight, so a worker holds one batch of units and the parent holds at most one reply per worker. `wait` returns the connections that have data. A `batch` reply's projections are loaded into `store` and its errors into `contract_errors`, the reply is dropped, and that worker gets the next batch, materialized from the table and the store as it is sent, or the end marker once the queue is empty. The phase ends when every worker has answered the end marker with `ok`. The printed count is the sum of the batches loaded. An `error` reply raises here, and `close()` drains the replies queued behind it."""
         table = self._table
         handouts = batched(_configuration_order(self._recomputed, table), self._handout)
         names = {conn: f"w{index}" for index, conn in enumerate(self._conns)}
@@ -1336,7 +1336,7 @@ class _RecomputeRunner:
                 if reply[0] == "batch":
                     for projection in reply[1]:
                         _load_recomputed(store, table, projection)
-                    _keep_complaints(self.contract_errors, reply[2])
+                    _keep_contract_errors(self.contract_errors, reply[2])
                     done += len(reply[1])
                     del reply
                     self._count(done)
@@ -2807,7 +2807,7 @@ def _is_delta_digest(token) -> bool:
 DRAFTED = "drafted"
 PATCHED = "patched"
 CHECKED_AT = (DRAFTED, PATCHED)
-# How many lines of a failing contract check the build prints. It also caps how many drafting-time complaints each worker, and the parent, carries to the write.
+# How many lines of a failing contract check the build prints. It also caps how many drafting-time errors each worker, and the parent, carries to the write.
 CONTRACT_ERRORS_SHOWN = 20
 
 

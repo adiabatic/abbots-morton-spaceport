@@ -147,7 +147,7 @@ class KernelBuildError(RuntimeError):
 
 
 class KernelRunError(RuntimeError):
-    """The binary refused the invocation, exited nonzero, complained on a clean exit, or left a stream unwritten."""
+    """The binary refused the invocation, exited nonzero, reported an error on a clean exit, or left a stream unwritten."""
 
 
 def cargo_build() -> None:

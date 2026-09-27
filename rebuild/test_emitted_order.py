@@ -65,7 +65,7 @@ def test_the_context_file_carries_the_marker_renaming_and_the_deep_classes(spec,
 def test_the_stage_answers_every_row_of_every_configuration(spec, built):
     out_dir, tables = built
     summary = run_m1.run_emitted_order(spec, tables, out_dir)
-    assert summary["pass"], summary["complaint"]
+    assert summary["pass"], summary["error"]
     assert list(summary["configs"]) == list(conform.SETTLEMENT_CONFIGS)
     assert summary["rules"] == len(emit_gsub.fold_settle_rules(spec, tables))
     for config, (decision, _joins) in tables.items():
@@ -75,7 +75,7 @@ def test_the_stage_answers_every_row_of_every_configuration(spec, built):
 
 
 def test_an_order_that_answers_a_row_differently_is_refused_naming_the_row(spec, built, monkeypatch):
-    """A rule with an outcome no table wrote is put first in the shipped order, so the first row it matches gets the wrong outcome. The summary's `complaint` names the configuration, the row, the emitted rule that fired, and the table's own rule."""
+    """A rule with an outcome no table wrote is put first in the shipped order, so the first row it matches gets the wrong outcome. The summary's `error` names the configuration, the row, the emitted rule that fired, and the table's own rule."""
     out_dir, tables = built
     ordered = emit_gsub._ordered_settle_rules
 
@@ -97,12 +97,12 @@ def test_an_order_that_answers_a_row_differently_is_refused_naming_the_row(spec,
     monkeypatch.setattr(emit_gsub, "_assert_fold_sources", lambda rules, tables: None)
     summary = run_m1.run_emitted_order(spec, tables, out_dir)
     assert not summary["pass"]
-    complaint = summary["complaint"]
-    assert "shipped-order disagreement" in complaint
-    assert "emitted rule 0" in complaint
-    assert ".perturbed" in complaint
-    assert "its table's rule" in complaint
-    assert ": row (" in complaint
+    error = summary["error"]
+    assert "shipped-order disagreement" in error
+    assert "emitted rule 0" in error
+    assert ".perturbed" in error
+    assert "its table's rule" in error
+    assert ": row (" in error
 
 
 def test_the_kernel_interface_refuses_a_missing_enumeration(spec, built, tmp_path):

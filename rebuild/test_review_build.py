@@ -162,7 +162,7 @@ def _fixture_unit(*, ink_identical: bool) -> dict:
 
 
 def test_check_unit_requires_a_well_formed_ink_deltas_map():
-    """Checks that `ink_deltas` is required and well formed: a mapping whose keys are among the unit's configs and whose values are `d-` plus twelve lowercase hex digits. Each break is repaired before the next, and the repaired unit passes, so every complaint comes from the field under test."""
+    """Checks that `ink_deltas` is required and well formed: a mapping whose keys are among the unit's configs and whose values are `d-` plus twelve lowercase hex digits. Each break is repaired before the next, and the repaired unit passes, so every error comes from the field under test."""
     unit = _fixture_unit(ink_identical=False)
     assert check_unit(unit, "m1-audit") == []
     good = unit["ink_deltas"]
@@ -1390,10 +1390,10 @@ def _refuting_every_pin(monkeypatch) -> None:
     monkeypatch.setattr(review_build, "unit_to_json", refuted)
 
 
-def test_a_pool_worker_answers_with_the_complaints_of_the_fragments_it_drafted(
+def test_a_pool_worker_answers_with_the_errors_of_the_fragments_it_drafted(
     mini_bundle, monkeypatch, tmp_path
 ):
-    """The worker runs the drafting-time contract check over every fragment it drafts and returns the complaints on the `batch` reply, beside the projections and addresses, so a drafting-side violation reaches the parent as data in the `contract check failed` list, not as a traceback. Over the bundle as shipped the complaints are empty. With every human fragment's pin refuted they name `drafts.pin.syntax` once per human unit in the batch, up to `CONTRACT_ERRORS_SHOWN`. The worker runs in a thread because the pool is spawn-only and a monkeypatch does not reach a spawned worker. Projections are matched to units by `input_key`, which the cache plan assigns and `load_workload` leaves empty, so the test gives each unit one first."""
+    """The worker runs the drafting-time contract check over every fragment it drafts and returns the errors on the `batch` reply, beside the projections and addresses, so a drafting-side violation reaches the parent as data in the `contract check failed` list, not as a traceback. Over the bundle as shipped the errors are empty. With every human fragment's pin refuted they name `drafts.pin.syntax` once per human unit in the batch, up to `CONTRACT_ERRORS_SHOWN`. The worker runs in a thread because the pool is spawn-only and a monkeypatch does not reach a spawned worker. Projections are matched to units by `input_key`, which the cache plan assigns and `load_workload` leaves empty, so the test gives each unit one first."""
     chunks = _two_chunks(mini_bundle)
     for index, unit in enumerate(unit for chunk in chunks for unit in chunk):
         unit.input_key = f"k{index}"

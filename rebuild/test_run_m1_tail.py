@@ -17,12 +17,12 @@ STAMP = "tail-test"
 CONFIGS = conform.SETTLEMENT_CONFIGS
 MACHINE_32_GIB = 34_359_738_368
 TABLES = {config: (SimpleNamespace(rules=()), SimpleNamespace(rows=())) for config in CONFIGS}
-GREEN_REPLAY = {"pass": True, "complaint": None, "max_length": run_m1.REPLAY_MAX_LENGTH, "families": None}
+GREEN_REPLAY = {"pass": True, "error": None, "max_length": run_m1.REPLAY_MAX_LENGTH, "families": None}
 GREEN_WITNESSES = {"pass": True, "failures": [], "configs": {}}
-GREEN_EMITTED = {"pass": True, "complaint": None, "configs": {}}
-RED_REPLAY = {**GREEN_REPLAY, "pass": False, "complaint": "(qsPea, …) settlement says one thing"}
+GREEN_EMITTED = {"pass": True, "error": None, "configs": {}}
+RED_REPLAY = {**GREEN_REPLAY, "pass": False, "error": "(qsPea, …) settlement says one thing"}
 RED_WITNESSES = {**GREEN_WITNESSES, "pass": False, "failures": ["default rule 0: never fires"]}
-RED_EMITTED = {**GREEN_EMITTED, "pass": False, "complaint": "default: row (qsPea, …) answered by rule 3"}
+RED_EMITTED = {**GREEN_EMITTED, "pass": False, "error": "default: row (qsPea, …) answered by rule 3"}
 
 
 def _stub_chain(monkeypatch, events, *, on_compile=None, readback_pass=True):
@@ -352,7 +352,7 @@ class TestMain:
             run_m1.main([])
         assert "oracle" not in events
 
-    def test_a_red_walk_under_a_green_chain_and_oracle_is_the_builds_complaint(self, monkeypatch, tmp_path):
+    def test_a_red_walk_under_a_green_chain_and_oracle_is_the_builds_error(self, monkeypatch, tmp_path):
         events: list = []
         _stub_main(monkeypatch, tmp_path, events, emitted=RED_EMITTED)
         with pytest.raises(SystemExit, match="shipped settlement order"):

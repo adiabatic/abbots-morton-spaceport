@@ -482,9 +482,9 @@ def test_the_contract_check_refuses_a_sidecar_stamped_for_another_manifest(tmp_p
     (corpus / "index.html").write_text("<html></html>", encoding="utf-8")
     unit_index.write_index(corpus, [])
     (corpus / "manifest.json").write_text("{}\n", encoding="utf-8")
-    complaints = _check_output_files(corpus, {"classes": [], "fonts": {}})
+    errors = _check_output_files(corpus, {"classes": [], "fonts": {}})
     for name, _fmt in app_index.ARTIFACTS:
-        assert any(f"{name} is unreadable or stamped for another manifest" in line for line in complaints)
+        assert any(f"{name} is unreadable or stamped for another manifest" in line for line in errors)
 
 
 # --- what a real build writes ------------------------------------------------------------------------

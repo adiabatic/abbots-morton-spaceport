@@ -85,7 +85,7 @@ def _one(unit_id: str = PLAIN_UNIT) -> dict:
     return _unit(shards, unit_id)
 
 
-def _complaint(errors: list[str], needle: str) -> None:
+def _expect_error(errors: list[str], needle: str) -> None:
     assert any(needle in error for error in errors), errors
 
 
@@ -180,7 +180,7 @@ def test_an_any_of_candidate_that_does_not_parse_is_never_drafted(monkeypatch, m
 def test_a_policy_draft_naming_a_file_that_is_not_in_the_repo_fails_the_build():
     manifest, shards = _corpus()
     _unit(shards, PLAIN_UNIT)["drafts"]["policy"]["file"] = "glyph_data/runes/qsNotAletter.yaml"
-    _complaint(check_shards(manifest, shards, REPO_ROOT), "which is not a file in the repo")
+    _expect_error(check_shards(manifest, shards, REPO_ROOT), "which is not a file in the repo")
 
 
 # --- the slim machine-approved and no-verdict shape ----------------------------------------------
@@ -193,7 +193,7 @@ def test_a_slim_unit_carrying_explain_material_fails_the_build(key):
     unit = _one(SLIM_UNIT)
     assert key not in unit
     unit[key] = _one()[key]
-    _complaint(check_unit(unit), f"omit {key}")
+    _expect_error(check_unit(unit), f"omit {key}")
 
 
 @pytest.mark.parametrize("key", SLIM_OMITTED_KEYS)
@@ -201,20 +201,20 @@ def test_a_slim_unit_carrying_an_emptied_field_fails_the_build(key):
     """A slim fragment omits these keys; it never sets them to null. The app would read a null field on a slim fragment as a full record with a blank field."""
     unit = _one(SLIM_UNIT)
     unit[key] = None
-    _complaint(check_unit(unit), f"omit {key}")
+    _expect_error(check_unit(unit), f"omit {key}")
 
 
 @pytest.mark.parametrize("key", SLIM_OMITTED_KEYS)
 def test_a_human_unit_without_its_explain_material_fails_the_build(key):
     unit = _one()
     del unit[key]
-    _complaint(check_unit(unit), key)
+    _expect_error(check_unit(unit), key)
 
 
 def test_a_human_unit_with_drafts_null_fails_the_build():
     unit = _one()
     unit["drafts"] = None
-    _complaint(check_unit(unit), "drafts must carry pin/policy/any_of")
+    _expect_error(check_unit(unit), "drafts must carry pin/policy/any_of")
 
 
 @pytest.mark.parametrize("flag", ("picture_identical", "junior_equivalent", "no_verdict"))
@@ -225,7 +225,7 @@ def test_every_machine_check_and_the_exemption_take_the_slim_shape(flag):
     unit.update(ink_identical=False, ink_deltas=deltas, **{flag: True})
     assert check_unit(unit) == []
     unit["drafts"] = _one()["drafts"]
-    _complaint(check_unit(unit), "omit drafts")
+    _expect_error(check_unit(unit), "omit drafts")
 
 
 # --- the fields the app draws ------------------------------------------------------------------
@@ -234,27 +234,27 @@ def test_every_machine_check_and_the_exemption_take_the_slim_shape(flag):
 def test_a_summary_without_its_new_clause_fails_the_build():
     unit = _one()
     unit["summary"] = "The ·Tea·Oy ligature forms."
-    _complaint(check_unit(unit), "summary must open with the New: clause")
+    _expect_error(check_unit(unit), "summary must open with the New: clause")
 
 
 def test_a_multiline_summary_fails_the_build():
     unit = _one()
     unit["summary"] = unit["summary"] + "\nand another thing"
-    _complaint(check_unit(unit), "summary must be one line")
+    _expect_error(check_unit(unit), "summary must be one line")
 
 
 def test_a_unit_whose_configs_render_two_ways_fails_the_build():
     unit = _one()
     configs = unit["configs"]
     unit["render_groups"] = [{"configs": configs[:1]}, {"configs": configs[1:]}]
-    _complaint(check_unit(unit), "exactly one render group")
+    _expect_error(check_unit(unit), "exactly one render group")
 
 
 @pytest.mark.parametrize("side", ("before", "after"))
 def test_a_highlight_reaching_past_the_run_fails_the_build(side):
     unit = _one()
     unit["highlight"][side]["x_max"] = unit["highlight"][side]["advance_total"] + 1
-    _complaint(check_unit(unit), f"highlight.{side} must satisfy")
+    _expect_error(check_unit(unit), f"highlight.{side} must satisfy")
 
 
 def test_a_secondary_junction_rect_reaching_past_the_run_fails_the_build():
@@ -262,13 +262,13 @@ def test_a_secondary_junction_rect_reaching_past_the_run_fails_the_build():
     unit["secondary_junctions"][0]["after"]["x_max"] = (
         unit["secondary_junctions"][0]["after"]["advance_total"] + 1
     )
-    _complaint(check_unit(unit), "secondary_junctions[0].after must satisfy")
+    _expect_error(check_unit(unit), "secondary_junctions[0].after must satisfy")
 
 
 def test_a_gate_clause_the_manifest_does_not_gloss_fails_the_build():
     manifest, shards = _corpus()
     _unit(shards, PLAIN_UNIT)["config_gate"][0]["feature"] = "ss99"
-    _complaint(check_shards(manifest, shards), "feature_descriptions does not gloss")
+    _expect_error(check_shards(manifest, shards), "feature_descriptions does not gloss")
 
 
 # --- the grains that only exist across units ----------------------------------------------------
@@ -277,7 +277,7 @@ def test_a_gate_clause_the_manifest_does_not_gloss_fails_the_build():
 def test_a_duplicate_group_spanning_two_config_sets_fails_the_build():
     manifest, shards = _corpus()
     _unit(shards, DUPLICATE_MATE)["duplicate_group"] = _unit(shards, PLAIN_UNIT)["duplicate_group"]
-    _complaint(check_shards(manifest, shards), "one group spans")
+    _expect_error(check_shards(manifest, shards), "one group spans")
 
 
 def test_a_duplicate_group_spanning_two_clusters_fails_the_build():
@@ -285,54 +285,54 @@ def test_a_duplicate_group_spanning_two_clusters_fails_the_build():
     left, right = _unit(shards, DUPLICATE_MATE), _unit(shards, THIRD_UNIT)
     right["duplicate_group"] = left["duplicate_group"]
     right["cluster"] = "c-0badc0de"
-    _complaint(check_shards(manifest, shards), "spans two clusters")
+    _expect_error(check_shards(manifest, shards), "spans two clusters")
 
 
 def test_a_cluster_spanning_two_classes_fails_the_build():
     manifest, shards = _corpus()
     _unit(shards, JUNCTION_BEARER)["cluster"] = _unit(shards, DUPLICATE_MATE)["cluster"]
-    _complaint(check_shards(manifest, shards), "one signature spans")
+    _expect_error(check_shards(manifest, shards), "one signature spans")
 
 
 def test_human_unit_ids_out_of_triage_order_fails_the_build():
     """`human_unit_ids` lists the human units in triage order (class, group, window, id). A fragment carries no position, so the checker derives the order from the fragments with `triage_key` and compares the manifest with it."""
     manifest, shards = _corpus()
     manifest["human_unit_ids"] = list(reversed(manifest["human_unit_ids"]))
-    _complaint(check_shards(manifest, shards), "not the triage-ordered sequence")
+    _expect_error(check_shards(manifest, shards), "not the triage-ordered sequence")
 
 
 def test_a_class_claiming_a_batch_its_units_do_not_occupy_fails_the_build():
     manifest, shards = _corpus()
     manifest["classes"][0]["batches"] = [0, 4]
-    _complaint(check_shards(manifest, shards), "are not the slices")
+    _expect_error(check_shards(manifest, shards), "are not the slices")
 
 
 def test_a_batch_count_the_index_does_not_bear_out_fails_the_build():
     manifest, shards = _corpus()
     manifest["totals"]["batches"] = 7
-    _complaint(check_shards(manifest, shards), "totals.batches does not count")
+    _expect_error(check_shards(manifest, shards), "totals.batches does not count")
 
 
 def test_a_fragment_carrying_a_batch_fails_the_build():
     """A fragment's bytes depend only on its content and the ledger, which is what lets a cached fragment be copied unchanged. A batch is a position in the queue, so it is recorded in the manifest's index."""
     unit = _one()
     unit["batch"] = 0
-    _complaint(check_unit(unit), "carries no batch")
+    _expect_error(check_unit(unit), "carries no batch")
 
 
 def test_an_id_that_is_not_its_stamps_fails_the_build():
     """The id is the content key's first 64 bits in base58. The check fails a fragment whose id belongs to different content than its stamp, and an id of any other form."""
     unit = _one()
     unit["id"] = _one(DUPLICATE_MATE)["id"]
-    _complaint(check_unit(unit), "must be the content key's own")
+    _expect_error(check_unit(unit), "must be the content key's own")
     unit["id"] = "u-0000"
-    _complaint(check_unit(unit), "base58")
+    _expect_error(check_unit(unit), "base58")
 
 
 def test_a_no_verdict_class_carrying_batches_fails_the_build():
     manifest, shards = _corpus()
     manifest["classes"][0]["no_verdict"] = True
-    _complaint(check_shards(manifest, shards), "no-verdict class must carry no batches")
+    _expect_error(check_shards(manifest, shards), "no-verdict class must carry no batches")
 
 
 # --- the secondary-junction primary unit relation -----------------------------------------------------------
@@ -362,7 +362,7 @@ def test_a_resolver_shaped_primary_unit_passes():
 def test_a_primary_unit_that_is_not_a_substring_window_fails_the_build():
     manifest, shards = _corpus_with_primary_unit()
     _unit(shards, PRIMARY_UNIT)["codepoints"] = "E652:E670"
-    _complaint(check_shards(manifest, shards), "is not a substring window")
+    _expect_error(check_shards(manifest, shards), "is not a substring window")
 
 
 def test_a_primary_unit_with_no_primary_pair_fails_the_build():
@@ -370,7 +370,7 @@ def test_a_primary_unit_with_no_primary_pair_fails_the_build():
     primary_unit = _unit(shards, PRIMARY_UNIT)
     primary_unit["pair"] = None
     primary_unit["pair_codepoints"] = None
-    _complaint(check_shards(manifest, shards), "has no primary pair")
+    _expect_error(check_shards(manifest, shards), "has no primary pair")
 
 
 def test_a_primary_unit_with_nothing_to_see_fails_the_build():
@@ -382,7 +382,7 @@ def test_a_primary_unit_with_nothing_to_see_fails_the_build():
     primary_unit["duplicate_group"] = None
     primary_unit["cluster"] = None
     manifest["human_unit_ids"] = [uid for uid in manifest["human_unit_ids"] if uid != PRIMARY_UNIT]
-    _complaint(check_shards(manifest, shards), "shows no visible change")
+    _expect_error(check_shards(manifest, shards), "shows no visible change")
 
 
 def test_a_picture_identical_primary_unit_fails_the_build_the_same_way():
@@ -394,7 +394,7 @@ def test_a_picture_identical_primary_unit_fails_the_build_the_same_way():
     primary_unit["duplicate_group"] = None
     primary_unit["cluster"] = None
     manifest["human_unit_ids"] = [uid for uid in manifest["human_unit_ids"] if uid != PRIMARY_UNIT]
-    _complaint(check_shards(manifest, shards), "shows no visible change")
+    _expect_error(check_shards(manifest, shards), "shows no visible change")
 
 
 # --- the files beside the manifest --------------------------------------------------------------
@@ -405,21 +405,21 @@ def test_a_missing_unit_index_fails_the_build(tmp_path):
     manifest = {"classes": [], "fonts": {}}
     (tmp_path / "index.html").write_text("")
     (tmp_path / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
-    _complaint(_check_output_files(tmp_path, manifest), "units-index.ndjson.gz is missing")
+    _expect_error(_check_output_files(tmp_path, manifest), "units-index.ndjson.gz is missing")
     _sidecars(tmp_path)
     assert _check_output_files(tmp_path, manifest) == []
     (tmp_path / "manifest.json").write_text("{}\n", encoding="utf-8")
-    _complaint(_check_output_files(tmp_path, {"classes": [], "fonts": {}}), "stamped for another manifest")
+    _expect_error(_check_output_files(tmp_path, {"classes": [], "fonts": {}}), "stamped for another manifest")
 
 
 def test_a_missing_or_empty_shard_fails_the_build(tmp_path):
     manifest = json.loads((FIXTURES / "manifest.json").read_text(encoding="utf-8"))
-    _complaint(_check_output_files(tmp_path, manifest), "is missing")
+    _expect_error(_check_output_files(tmp_path, manifest), "is missing")
     (tmp_path / "units").mkdir()
     for meta in manifest["classes"]:
         for part in unit_index.class_shards(meta):
             (tmp_path / part).write_bytes(b"")
-    _complaint(_check_output_files(tmp_path, manifest), "is empty")
+    _expect_error(_check_output_files(tmp_path, manifest), "is empty")
 
 
 def _split_first_class(corpus: Path) -> None:
@@ -456,12 +456,12 @@ def test_every_part_of_a_split_class_must_be_present_and_non_empty(tmp_path):
     (tmp_path / "index.html").write_text("")
     (tmp_path / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
     _sidecars(tmp_path)
-    _complaint(_check_output_files(tmp_path, manifest), "units/big.000.json is missing")
+    _expect_error(_check_output_files(tmp_path, manifest), "units/big.000.json is missing")
     (tmp_path / "units").mkdir()
     (tmp_path / "units" / "big.000.json").write_text("[]", encoding="utf-8")
-    _complaint(_check_output_files(tmp_path, manifest), "units/big.001.json is missing")
+    _expect_error(_check_output_files(tmp_path, manifest), "units/big.001.json is missing")
     (tmp_path / "units" / "big.001.json").write_bytes(b"")
-    _complaint(_check_output_files(tmp_path, manifest), "units/big.001.json is empty")
+    _expect_error(_check_output_files(tmp_path, manifest), "units/big.001.json is empty")
     (tmp_path / "units" / "big.001.json").write_text("[]", encoding="utf-8")
     assert _check_output_files(tmp_path, manifest) == []
 
@@ -488,7 +488,7 @@ def test_a_font_copy_that_is_not_its_source_fails_the_build(tmp_path):
     (tmp_path / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
     _sidecars(tmp_path)
     assert _check_output_files(tmp_path, manifest) == []
-    _complaint(_check_output_files(tmp_path, manifest, REPO_ROOT), "as it stands on disk")
+    _expect_error(_check_output_files(tmp_path, manifest, REPO_ROOT), "as it stands on disk")
 
 
 def test_a_build_without_its_baseline_subset_tables_refuses_before_it_starts(tmp_path):
@@ -552,7 +552,7 @@ def test_a_font_that_moved_since_load_fails_the_copy(tmp_path):
     assert str(MINI_FONT) in str(raised.value)
 
 
-def test_a_manifest_with_no_classes_draws_no_complaint():
+def test_a_manifest_with_no_classes_draws_no_error():
     """`check_manifest` accepts an empty `classes` list. The build exits before it would write one (see the tests above), and a checker that failed on it would fail on the rebuild's intended end state."""
     manifest, _shards = _corpus()
     manifest["classes"] = []
@@ -777,10 +777,10 @@ def test_a_cached_unit_skips_check_unit_but_not_the_cross_unit_grain():
     """`cached_ids` skips `check_unit` for a cached fragment, whose stamp already covers the per-unit predicates. The predicates that relate a unit to its shard and to other units still run over every unit, cached or not."""
     manifest, shards = _corpus()
     _unit(shards, PLAIN_UNIT)["drafts"]["pin"]["syntax"] = "fail: Expected glyph token at pos 0"
-    _complaint(check_shards(manifest, shards, REPO_ROOT), "drafts.pin.syntax")
+    _expect_error(check_shards(manifest, shards, REPO_ROOT), "drafts.pin.syntax")
     assert check_shards(manifest, shards, REPO_ROOT, cached_ids={PLAIN_UNIT}) == []
     _unit(shards, PLAIN_UNIT)["class"] = "a-class-of-its-own"
-    _complaint(check_shards(manifest, shards, REPO_ROOT, cached_ids={PLAIN_UNIT}), "in shard")
+    _expect_error(check_shards(manifest, shards, REPO_ROOT, cached_ids={PLAIN_UNIT}), "in shard")
 
 
 # --- the review-facts projection ----------------------------------------------------------------
@@ -829,7 +829,7 @@ def _broken(unit: dict, key: str) -> list[dict]:
 
 @pytest.mark.parametrize("mode", ("m1-audit", "table-diff"))
 def test_the_two_check_moments_partition_the_whole_contract(mode):
-    """`check_unit` has two named subsets, and running `DRAFTED` then `PATCHED` must equal running it whole. For every fixture unit as shipped, and with each key in turn deleted or set to a wrong value, the two subsets' complaints concatenate to the full check's list in order and never overlap. A predicate that ran at both moments or at neither fails this test."""
+    """`check_unit` has two named subsets, and running `DRAFTED` then `PATCHED` must equal running it whole. For every fixture unit as shipped, and with each key in turn deleted or set to a wrong value, the two subsets' errors concatenate to the full check's list in order and never overlap. A predicate that ran at both moments or at neither fails this test."""
     for unit in _fixture_units():
         variants = [unit] + [broken for key in list(unit) for broken in _broken(unit, key)]
         for variant in variants:
@@ -841,7 +841,7 @@ def test_the_two_check_moments_partition_the_whole_contract(mode):
 
 
 def test_every_scaffold_key_is_either_compared_by_check_scaffold_or_checked_by_patched():
-    """Every key `unit_scaffold` writes is either checked by `check_scaffold` at the write (`_CHECKED_SCAFFOLD_KEYS`, so the drafting-time check read the same value that ships) or is one of the two keys the parent's whole-corpus passes assign after drafting, `duplicate_group` and `cluster`, and no key is both. Deleting or corrupting `duplicate_group`, `cluster`, or `secondary_junctions` (which the patch also writes) draws no complaint from `DRAFTED`. A wrong value in any of them draws one from `PATCHED`, and so does a missing `duplicate_group` or `cluster`. A key added to the scaffold fails this test until it is assigned to one side."""
+    """Every key `unit_scaffold` writes is either checked by `check_scaffold` at the write (`_CHECKED_SCAFFOLD_KEYS`, so the drafting-time check read the same value that ships) or is one of the two keys the parent's whole-corpus passes assign after drafting, `duplicate_group` and `cluster`, and no key is both. Deleting or corrupting `duplicate_group`, `cluster`, or `secondary_junctions` (which the patch also writes) draws no error from `DRAFTED`. A wrong value in any of them draws one from `PATCHED`, and so does a missing `duplicate_group` or `cluster`. A key added to the scaffold fails this test until it is assigned to one side."""
     scaffold_keys = _SCAFFOLD_HEAD + _SCAFFOLD_TAIL
     patched_only = {"duplicate_group", "cluster"}
     assert set(_CHECKED_SCAFFOLD_KEYS) | patched_only == set(scaffold_keys)
@@ -853,9 +853,9 @@ def test_every_scaffold_key_is_either_compared_by_check_scaffold_or_checked_by_p
             without, wrong = _broken(unit, key)
             assert check_unit(without, at=(DRAFTED,)) == []
             assert check_unit(wrong, at=(DRAFTED,)) == []
-            _complaint(check_unit(wrong, at=(PATCHED,)), key)
+            _expect_error(check_unit(wrong, at=(PATCHED,)), key)
             if key in patched_only:
-                _complaint(check_unit(without, at=(PATCHED,)), f"{key} must be present")
+                _expect_error(check_unit(without, at=(PATCHED,)), f"{key} must be present")
 
 
 def _build_mini(out: Path, mini_bundle) -> None:

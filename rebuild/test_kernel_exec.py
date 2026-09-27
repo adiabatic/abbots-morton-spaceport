@@ -133,20 +133,20 @@ class TestTheInvocationInterface:
 
     def test_a_missing_binary_names_the_recipe_that_builds_one(self, monkeypatch, tmp_path):
         monkeypatch.setattr(kernel_exec, "BINARY", tmp_path / "ams-m1-kernel")
-        with pytest.raises(kernel_exec.KernelRunError) as complaint:
+        with pytest.raises(kernel_exec.KernelRunError) as raised:
             kernel_exec.enumerate_configs(
                 tmp_path / "spec.json", tmp_path / "streams", ["default"], threads=1
             )
-        assert "make kernel-build" in str(complaint.value)
+        assert "make kernel-build" in str(raised.value)
 
     def test_a_machine_without_cargo_names_the_remedy(self, monkeypatch):
         def absent(*arguments, **rest):
             raise FileNotFoundError("cargo")
 
         monkeypatch.setattr(kernel_exec.subprocess, "run", absent)
-        with pytest.raises(kernel_exec.KernelBuildError) as complaint:
+        with pytest.raises(kernel_exec.KernelBuildError) as raised:
             kernel_exec.cargo_build()
-        assert "Rust toolchain" in str(complaint.value)
+        assert "Rust toolchain" in str(raised.value)
 
     def test_the_crate_is_built_once_per_process(self, monkeypatch):
         """`ensure_built` runs `cargo_build` once per process. `_BUILT` is a module attribute so a test can reset it."""
@@ -208,11 +208,11 @@ class TestTheInvocationInterface:
             stderr = b""
 
         monkeypatch.setattr(kernel_exec, "_run_kernel", lambda *arguments, **rest: Finished())
-        with pytest.raises(SettleError) as complaint:
+        with pytest.raises(SettleError) as raised:
             kernel_exec.settle_windows(SPEC, [case], frozenset())
-        assert complaint.value.bucket == "E-UNREACHABLE"
-        assert str(complaint.value) == message
-        assert not isinstance(complaint.value, kernel_exec.KernelRunError)
+        assert raised.value.bucket == "E-UNREACHABLE"
+        assert str(raised.value) == message
+        assert not isinstance(raised.value, kernel_exec.KernelRunError)
         with pytest.raises(SettleError) as traced:
             kernel_exec.settle_cases(SPEC, [case], frozenset(), decode=kernel_exec.trace_of)
         assert traced.value.bucket == "E-UNREACHABLE"
@@ -1090,7 +1090,7 @@ class TestTheReplayStage:
             "structure": structure,
             "runes": dict(runes),
             "pass": True,
-            "complaint": None,
+            "error": None,
         }
         record.update(overrides)
         return record
@@ -1290,21 +1290,19 @@ class TestTheReplayStage:
             )
 
         def minting_fails(spec, tables):
-            raise RuntimeError("the chain's own complaint")
+            raise RuntimeError("the chain's own error")
 
         monkeypatch.setattr(kernel_exec, "replay_strings", replay_strings)
         monkeypatch.setattr(run_m1, "replay_structure_stamp", lambda spec, root=None: "s1")
         monkeypatch.setattr(run_m1.fingerprint, "rune_digests", lambda root: {})
         summary = run_m1.run_replay_strings(SPEC, tmp_path, "stamp")
         assert not summary["pass"]
-        assert "qsPea" in summary["complaint"]
+        assert "qsPea" in summary["error"]
         assert run_m1.read_replay_record(tmp_path) == summary
         assert run_m1.replay_families(SPEC, summary, "s1", {}) is None
 
         monkeypatch.setattr(run_m1, "build_tables", lambda spec, out_dir, **rest: ({}, {}))
-        monkeypatch.setattr(
-            run_m1, "run_emitted_order", lambda *args, **rest: {"pass": True, "complaint": None}
-        )
+        monkeypatch.setattr(run_m1, "run_emitted_order", lambda *args, **rest: {"pass": True, "error": None})
         monkeypatch.setattr(run_m1, "mint_cell_glyphs", minting_fails)
         with pytest.raises(SystemExit, match="tables incomplete"):
             run_m1.run(out_dir=tmp_path, spec=SPEC, inputs="stamp")

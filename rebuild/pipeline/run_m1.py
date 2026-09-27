@@ -570,7 +570,7 @@ def _emitted_order_stage(
     console.timing("emitted_order", time.perf_counter() - start)
     if not emitted["pass"]:
         raise SystemExit(
-            f"the shipped settlement order answers a row differently from its table: {emitted['complaint']}"
+            f"the shipped settlement order answers a row differently from its table: {emitted['error']}"
         )
 
 
@@ -602,7 +602,7 @@ def _run_table_gates(
             console.timing("replay_strings", time.perf_counter() - start, rss_token(process_peak_rss_bytes()))
             console.say(f"replay_strings: maximum length {replay['max_length']}, {walked}")
             if not replay["pass"]:
-                raise SystemExit(f"the string replay found the tables incomplete: {replay['complaint']}")
+                raise SystemExit(f"the string replay found the tables incomplete: {replay['error']}")
             state.replay_ready.set()
 
             console.phase("rule_witnesses")
@@ -938,7 +938,7 @@ def run_replay_strings(
         "structure": structure,
         "runes": runes,
         "pass": True,
-        "complaint": None,
+        "error": None,
     }
     try:
         if families is None or families:
@@ -955,7 +955,7 @@ def run_replay_strings(
                 )
             except kernel_exec.ReplayDisagreement as error:
                 summary["pass"] = False
-                summary["complaint"] = str(error)
+                summary["error"] = str(error)
         if emitting and summary["pass"]:
             with _spawn_pool(threads, len(memos)) as pool:
                 absorbs = {
@@ -963,9 +963,9 @@ def run_replay_strings(
                     for config, memo in memos.items()
                 }
                 for config, future in absorbs.items():
-                    entries, seconds, complaint = future.result()
-                    if complaint is not None:
-                        console.warn(complaint)
+                    entries, seconds, error = future.result()
+                    if error is not None:
+                        console.warn(error)
                     else:
                         console.timing(f"settle_memo_emit {config}", seconds, f"entries={entries}")
     finally:
@@ -1059,7 +1059,7 @@ def run_emitted_order(
 
     configs = [config for config in conform.SETTLEMENT_CONFIGS if config in tables]
     threads = _core_bound_threads(len(configs))
-    summary: dict = {"pass": True, "configs": {}, "complaint": None}
+    summary: dict = {"pass": True, "configs": {}, "error": None}
     with tempfile.TemporaryDirectory() as scratch:
         directory = Path(scratch)
         order = directory / "emitted-order.tsv"
@@ -1096,7 +1096,7 @@ def run_emitted_order(
                     config, answer = finished.result()
                 except kernel_exec.EmittedOrderDisagreement as error:
                     summary["pass"] = False
-                    summary["complaint"] = str(error)
+                    summary["error"] = str(error)
                     for other in futures:
                         other.cancel()
                     break
@@ -1934,12 +1934,12 @@ def main(argv: list[str] | None = None) -> None:
         gates.join()
     except (SystemExit, readback.ReadbackError, emit_gsub.EmitError, conform.WitnessError) as error:
         red = gates.first_red() if gates is not None else None
-        complaint: BaseException = error if red is None else red
+        failure: BaseException = error if red is None else red
         _settle_green(RUN_M1_GREEN, before, False, run_m1_key, "run_m1")
-        _record_cli_check(_failed_check("run_m1", str(complaint)), started)
-        if isinstance(complaint, SystemExit):
-            raise complaint
-        raise SystemExit(str(complaint))
+        _record_cli_check(_failed_check("run_m1", str(failure)), started)
+        if isinstance(failure, SystemExit):
+            raise failure
+        raise SystemExit(str(failure))
     finally:
         if gates is not None:
             gates.close()
