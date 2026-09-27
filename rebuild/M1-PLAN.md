@@ -346,10 +346,12 @@ def emit_gsub(spec, tables_by_config: Mapping[frozenset[str], DecisionTable], gl
     # touch to its marker copy (and <rune>.noentry to <marker>.noentry). _fold_rules renames each
     # configuration's rules through it before the exact-duplicate union, which is what makes the fold
     # conflict-free (a conflict raises EmitError). _ordered_settle_rules then orders each input's merged rules:
-    # backtracked rules first, and within each block, rules whose lookahead names a marker copy before
-    # bare-label rules. That is sound because marker substitution is unconditional, so a marker label and the
-    # bare label it replaces never appear in the same stream. conform.absorb_replay_memo reads the crate's
-    # window labels through the same map.
+    # the crate's ZWNJ backtrack-slot guards first, then the other backtracked rules, then the rest, and within
+    # each block, rules whose lookahead names a marker copy or uni200C before the other rules. That is sound
+    # because marker substitution is unconditional, so a marker label and the bare label it replaces never
+    # appear in the same stream, and it keeps the crate's guards-first order and each table's boundary-first
+    # order, which a rune the ZWNJ lock leaves raw needs under HarfBuzz's ZWNJ skip. conform.absorb_replay_memo
+    # reads the crate's window labels through the same map.
     # Asserted: no locked copy or ZWNJ lock output in any raw lookahead class; every named glyph exists; every
     # table rule of every configuration folds into exactly one emitted row (_assert_fold_sources); per-rule
     # provenance comments.

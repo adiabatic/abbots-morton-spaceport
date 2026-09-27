@@ -459,20 +459,32 @@ def _fold_rules(tables_by_config: Mapping, spec: ResolvedSpec | None = None) -> 
 def _ordered_settle_rules(rules: Iterable, marker_names: frozenset[str] = frozenset()) -> list:
     """The folded rules in the order the settlement lines are emitted, which is the order read-back expects per input glyph and the order the shipped lookup matches in."""
 
+    def lookahead(rule) -> tuple:
+        return (rule.look1, rule.look2, getattr(rule, "look3", None), getattr(rule, "look4", None))
+
     def mentions_marker(rule) -> bool:
-        return any(
-            label in marker_names
-            for slot in (rule.look1, rule.look2, getattr(rule, "look3", None), getattr(rule, "look4", None))
-            for label in slot or ()
-        )
+        return any(label in marker_names for slot in lookahead(rule) for label in slot or ())
+
+    def names_zwnj(rule) -> bool:
+        return any("uni200C" in (slot or ()) for slot in lookahead(rule))
+
+    def zwnj_guard(rule) -> bool:
+        return "uni200C" in (rule.backtrack or ())
 
     by_input: dict[str, list] = {}
     for rule in rules:
         by_input.setdefault(rule.input_glyph, []).append(rule)
     by_family: dict[str, list] = {}
     for input_glyph, input_rules in by_input.items():
-        # The first matching rule wins, so across the configuration fold, rules with a backtrack (a committed left or a ZWNJ guard) stay ahead of rules that drop the left slot at a boundary. Within each of those two blocks, a rule whose lookahead names a marker copy goes ahead of bare-label rules that would otherwise match its windows through a dropped slot. This is safe because the marker substitution is unconditional, so a marker label and the bare label it replaces never occur in the same stream. The sort is stable, so each configuration's own order is kept.
-        ordered = sorted(input_rules, key=lambda rule: (rule.backtrack is None, not mentions_marker(rule)))
+        # The first matching rule wins, and HarfBuzz skips a ZWNJ that a class does not name, in the backtrack as in the lookahead, while the ZWNJ lock leaves a rune with no entry raw after a ZWNJ. So the order keeps three blocks, as `rulefold.rs` does: the ZWNJ backtrack-slot guards, then the committed rules, then the rules that drop the left slot at a boundary; a committed rule shipped ahead of the guards would match such an input from the letter before its ZWNJ. Within each block, a rule whose lookahead names a marker copy goes ahead of bare-label rules that would otherwise match its windows through a dropped slot; a marker label and the bare label it replaces never occur in the same stream, because the marker substitution is unconditional. A rule whose lookahead names uni200C goes up with them, since a join row shipped ahead of its table's boundary row would match such a rune across the ZWNJ. The fold appends each configuration's rows in table order and every marker copy belongs to one configuration, so the stable sort keeps each table's guards-first and boundary-first order.
+        ordered = sorted(
+            input_rules,
+            key=lambda rule: (
+                rule.backtrack is None,
+                not zwnj_guard(rule),
+                not (mentions_marker(rule) or names_zwnj(rule)),
+            ),
+        )
         by_family.setdefault(input_glyph.split(".")[0], []).extend(ordered)
     return [rule for family_rules in by_family.values() for rule in family_rules]
 

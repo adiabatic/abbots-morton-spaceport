@@ -305,6 +305,24 @@ class TestEmitGsub:
         assert emit_gsub._config_name(frozenset({"ss03", "ss05"})) == "ss03+ss05"
         assert emit_gsub._config_name("ss10") == "ss10"
 
+    def test_zwnj_guards_and_boundary_rows_stay_ahead_of_the_rows_their_tables_put_after_them(self, spec):
+        boundary = ("uni200C", "space", "periodcentered")
+        table = FakeDecision(
+            [
+                FakeRule("qsTea", ("uni200C",), ("qsMay",), None, "qsTea.full"),
+                FakeRule("qsTea", ("uni200C",), None, None, "qsTea"),
+                FakeRule("qsTea", ("qsMay.loop",), ("qsMay",), boundary, "qsTea.full"),
+                FakeRule("qsTea", ("qsMay.loop",), None, None, "qsTea.half"),
+                FakeRule("qsTea", None, ("qsMay",), boundary, "qsTea.full"),
+                FakeRule("qsTea", None, ("qsMay",), ("qsIt", "qsOy"), "qsTea.half"),
+                FakeRule("qsTea", None, ("qsMay",), None, "qsTea.full"),
+            ]
+        )
+        order = emit_gsub.ordered_fold(spec, {frozenset(): table, frozenset({"ss04"}): table})
+        at = [(rule.backtrack, rule.look1, rule.look2) for rule in order].index
+        assert at((("uni200C",), None, None)) < at((("qsMay.loop",), ("qsMay",), boundary))
+        assert at((None, ("qsMay",), boundary)) < at((None, ("qsMay",), ("qsIt.ss04", "qsOy")))
+
     def test_ss10_input_defined_before_formation(self, spec, glyphs):
         copies = {"qsIt": "qsIt.ss10", "qsMay": "qsMay.ss10", "qsTea": "qsTea.ss10", "qsOy": "qsOy.ss10"}
         plan = emit_gsub.emit_gsub(
