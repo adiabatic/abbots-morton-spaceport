@@ -570,12 +570,12 @@ mod tests {
     }
 
     #[test]
-    fn the_guard_engines_pin_the_modes_the_shipping_world_leaves_on() {
+    fn the_guard_engines_pin_the_modes_the_defaults_leave_on() {
         let shipping = EngineModes::default();
-        assert!(shipping.simulated_prospect, "the shipping world simulates");
+        assert!(shipping.simulated_prospect, "the default modes simulate");
         assert!(
             shipping.follower_prefer_slots,
-            "and reads a follower prefer's slots shifted"
+            "and read a follower prefer's slots shifted"
         );
         let baseline = object(&[row("baseline", &[])]);
         let unlocks = fixtures::seq(&[&unlock("ss03"), &unlock("ss05")]);

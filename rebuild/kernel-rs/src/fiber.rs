@@ -10,7 +10,7 @@
 //!
 //! Parts 2 and 3 make the members of one r3 fiber share one r4 sub-enumeration, whose r4 fibers are the r4 option letters grouped by their probe results. Because the probe results depend on `t3`, the r4 partition is per `(context, r3 fiber)`, not per context. Grouping follows option-pipeline order: each boundary is its own singleton where it stands, and letters with the same column of the probe matrix share a group placed at its first member.
 //!
-//! The deriver asks for the raw filter verdict `fourth_slot_matters(family, right1, right2, t3)`, not that verdict ANDed with the depth-4 rune set. The fixpoint applies the rune set (`deep4_inputs`) separately when it decides whether a fiber's r4 groups become slot-4 entries, and the partition assertion does the same. In the deep world the rune set is every rune, so the AND changes nothing there; the pinned-world assertions still read it.
+//! The deriver asks for the raw filter verdict `fourth_slot_matters(family, right1, right2, t3)`, not that verdict ANDed with the depth-4 rune set. The fixpoint applies the rune set (`deep4_inputs`) separately when it decides whether a fiber's r4 groups become slot-4 entries, and the partition assertion does the same. In a deep mode set the rune set is every rune, so the AND changes nothing there; the assertions in the pinned mode set still read it.
 //!
 //! The probes run on the build's own tracing engine, so their traces go into the shared memo and their fired pointers into `Engine::fired`, as the liveness probes' do. The one assumption taken from elsewhere instead of probed is the left-class assumption in [`ProspectLiveness::representative_lefts`]: that every left sharing a representative's left-condition signature settles a follower alike. The fixpoint's member cross-check tests it on every build at actual lefts, actual entries, and actual adjustments.
 
@@ -87,7 +87,7 @@ impl DeepFiberDeriver {
     ///
     /// The fixpoint asks only for contexts whose third slot is live. The deriver does not check this, because the caller has already computed that verdict.
     ///
-    /// The fourth-slot filter gets the liveness probe only when the engine's modes make a deep world, which is the rule the fixpoint follows when it calls the same filter ([`crate::deep_slots`]). A deriver only runs in a deep world, so the probe is always passed in practice.
+    /// The fourth-slot filter gets the liveness probe only when the engine's modes make a deep mode set, which is the rule the fixpoint follows when it calls the same filter ([`crate::deep_slots`]). A deriver only runs in a deep mode set, so the probe is always passed in practice.
     #[allow(clippy::too_many_arguments)]
     pub fn context(
         &mut self,
@@ -121,7 +121,7 @@ impl DeepFiberDeriver {
         let lefts = liveness.representative_lefts(engine, family)?;
         let mut full_coords: Vec<RightToken> = liveness.probe_tokens().as_ref().clone();
         full_coords.push(UNKNOWN);
-        let deep_world = engine.simulated_prospect() || engine.follower_prefer_slots();
+        let deep_modes = engine.simulated_prospect() || engine.follower_prefer_slots();
 
         let mut seats: HashMap<Rc<FiberKey>, usize> = HashMap::default();
         let mut grouped: Vec<(Rc<FiberKey>, Vec<RightToken>)> = Vec::new();
@@ -131,7 +131,7 @@ impl DeepFiberDeriver {
             }
             let fourth_matters = fourth.matters(
                 engine,
-                deep_world.then_some(&mut *liveness),
+                deep_modes.then_some(&mut *liveness),
                 family,
                 right1,
                 right2,

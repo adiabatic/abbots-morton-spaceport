@@ -58,12 +58,12 @@ impl Default for MemoSharing {
     }
 }
 
-/// A previous build's memo for one configuration, read from the previous memo directory and filtered through `keep`, or `None` when the directory has no file for it. A file that exists but belongs to another configuration or world is an error, because the caller named the previous memo directory so that it would be read.
+/// A previous build's memo for one configuration, read from the previous memo directory and filtered through `keep`, or `None` when the directory has no file for it. A file that exists but belongs to another configuration or mode set is an error, because the caller named the previous memo directory so that it would be read.
 fn load_previous_memo(
     index: &SpecIndex,
     sharing: &MemoSharing,
     token: &str,
-    world: &str,
+    modes: &str,
     keep: impl Fn(&crate::engine::TraceKey) -> bool,
 ) -> Result<Option<Arc<MemoSnapshot>>, String> {
     let Some(dir) = &sharing.previous_memos else {
@@ -75,7 +75,7 @@ fn load_previous_memo(
     }
     let expected = MemoHead {
         config: token.to_owned(),
-        world: world.to_owned(),
+        modes: modes.to_owned(),
         stamp: String::new(),
     };
     read_memo(index, &path, &expected, keep).map(|memo| Some(Arc::new(memo)))
@@ -86,14 +86,14 @@ fn memo_file(
     sharing: &MemoSharing,
     outdir: &Path,
     token: &str,
-    world: &str,
+    modes: &str,
     carried: Vec<SharedMemo>,
 ) -> Option<MemoFile> {
     sharing.memo_stamp.as_ref().map(|stamp| MemoFile {
         path: memo_path(outdir, token),
         head: MemoHead {
             config: token.to_owned(),
-            world: world.to_owned(),
+            modes: modes.to_owned(),
             stamp: stamp.clone(),
         },
         carried,
@@ -384,7 +384,7 @@ pub fn run_configs_tables(
     sharing: MemoSharing,
 ) -> Result<Vec<TableAnswer>, String> {
     std::fs::create_dir_all(outdir).map_err(|error| format!("{}: {error}", outdir.display()))?;
-    let world = modes.world_token();
+    let mode_token = modes.token();
     let edited = Exclusion::of(index, sharing.edited.iter().copied())
         .with_classes(sharing.moved_classes.iter().copied());
     let default_seat = sharing
@@ -394,7 +394,7 @@ pub fn run_configs_tables(
         .filter(|_| configs.len() > 1);
     let Some(default_seat) = default_seat else {
         return claim_all(configs, workers, |config| {
-            let previous = load_previous_memo(index, &sharing, config.token, &world, |key| {
+            let previous = load_previous_memo(index, &sharing, config.token, &mode_token, |key| {
                 !edited.names(key)
             })?;
             let access = MemoAccess {
@@ -406,13 +406,13 @@ pub fn run_configs_tables(
             let carried = shared_behind(previous.as_ref(), edited.clone())
                 .into_iter()
                 .collect();
-            let file = memo_file(&sharing, outdir, config.token, &world, carried);
+            let file = memo_file(&sharing, outdir, config.token, &mode_token, carried);
             run_config_tables(index, config, modes, outdir, inputs, report, access, file)
                 .map_err(|complaint| format!("{}: {complaint}", config.token))
         });
     };
     let default = &configs[default_seat];
-    let previous_default = load_previous_memo(index, &sharing, default.token, &world, |key| {
+    let previous_default = load_previous_memo(index, &sharing, default.token, &mode_token, |key| {
         !edited.names(key)
     })
     .map_err(|complaint| format!("{}: {complaint}", default.token))?;
@@ -431,7 +431,7 @@ pub fn run_configs_tables(
             &sharing,
             outdir,
             default.token,
-            &world,
+            &mode_token,
             shared_behind(previous_default.as_ref(), edited.clone())
                 .into_iter()
                 .collect(),
@@ -454,9 +454,10 @@ pub fn run_configs_tables(
             let config = work.config;
             let unlocking = &work.unlocking;
             let behind_unlocking = Exclusion::of(index, unlocking.iter().copied());
-            let previous_own = load_previous_memo(index, &sharing, config.token, &world, |key| {
-                behind_unlocking.names(key) && !edited.names(key)
-            })?;
+            let previous_own =
+                load_previous_memo(index, &sharing, config.token, &mode_token, |key| {
+                    behind_unlocking.names(key) && !edited.names(key)
+                })?;
             let mut shared = vec![SharedMemo {
                 memo: Arc::clone(&memo),
                 excluded: behind_unlocking,
@@ -470,7 +471,7 @@ pub fn run_configs_tables(
             let carried = shared_behind(previous_own.as_ref(), edited.clone())
                 .into_iter()
                 .collect();
-            let file = memo_file(&sharing, outdir, config.token, &world, carried);
+            let file = memo_file(&sharing, outdir, config.token, &mode_token, carried);
             let access = MemoAccess {
                 shared_memos: shared,
                 keep_memo: false,
@@ -599,7 +600,7 @@ pub struct ReplayAnswer {
     pub timed: Vec<String>,
 }
 
-/// Replays every configuration's persisted rules over `text_set`, at most `workers` at a time. Each configuration reads `<outdir>/settlement-<config>.tsv` back, walks the text set, and checks the rules' first-match result against the engine's own settlement, window by window. The engine gets the enumeration's two world flags but not `deep_classes`, since a replay settles single windows, which have no grain. With a `memo_dir`, each passing walk writes its window memo there as `replay-windows-<config>.bin` ([`replay::Replay::write_window_memo`]). A walk that fails writes nothing. A walk that released its memo under the text set's ceiling fails instead of writing, and the `replay-strings` CLI rejects `--memo-dir` with `--memo-windows`, so no command line can request that.
+/// Replays every configuration's persisted rules over `text_set`, at most `workers` at a time. Each configuration reads `<outdir>/settlement-<config>.tsv` back, walks the text set, and checks the rules' first-match result against the engine's own settlement, window by window. The engine gets the enumeration's two engine mode flags but not `deep_classes`, since a replay settles single windows, which have no grain. With a `memo_dir`, each passing walk writes its window memo there as `replay-windows-<config>.bin` ([`replay::Replay::write_window_memo`]). A walk that fails writes nothing. A walk that released its memo under the text set's ceiling fails instead of writing, and the `replay-strings` CLI rejects `--memo-dir` with `--memo-windows`, so no command line can request that.
 #[allow(clippy::too_many_arguments)]
 pub fn run_configs_replay(
     index: &SpecIndex,
@@ -726,7 +727,7 @@ mod tests {
     use super::*;
     use crate::index::fixtures;
 
-    /// The shipping world (the [`EnumerationModes`] default), in which the deep slots enumerate at class grain. The tests below check byte-identity across schedules in this world.
+    /// The default modes (the [`EnumerationModes`] default), under which the deep slots enumerate at class grain. The tests below check byte-identity across schedules under these modes.
     const SHIPPING: EnumerationModes = EnumerationModes {
         simulated_prospect: true,
         follower_prefer_slots: true,

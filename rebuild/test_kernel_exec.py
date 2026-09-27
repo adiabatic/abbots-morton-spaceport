@@ -49,29 +49,29 @@ def products():
 
 
 class TestTheInvocationInterface:
-    def test_the_world_flags_reflect_the_python_side_defaults(self, monkeypatch):
-        for _flag, module, attribute in kernel_exec.WORLD_FLAGS:
+    def test_the_mode_flags_reflect_the_python_side_defaults(self, monkeypatch):
+        for _flag, module, attribute in kernel_exec.MODE_FLAGS:
             monkeypatch.setattr(module, attribute, True)
-        assert kernel_exec.world_flags() == []
-        for _flag, module, attribute in kernel_exec.WORLD_FLAGS:
+        assert kernel_exec.mode_flags() == []
+        for _flag, module, attribute in kernel_exec.MODE_FLAGS:
             monkeypatch.setattr(module, attribute, False)
-        assert kernel_exec.world_flags() == [flag for flag, _module, _attribute in kernel_exec.WORLD_FLAGS]
+        assert kernel_exec.mode_flags() == [flag for flag, _module, _attribute in kernel_exec.MODE_FLAGS]
 
     def test_one_default_switched_off_carries_one_flag(self, monkeypatch):
-        for _flag, module, attribute in kernel_exec.WORLD_FLAGS:
+        for _flag, module, attribute in kernel_exec.MODE_FLAGS:
             monkeypatch.setattr(module, attribute, True)
-        flag, module, attribute = kernel_exec.WORLD_FLAGS[1]
+        flag, module, attribute = kernel_exec.MODE_FLAGS[1]
         monkeypatch.setattr(module, attribute, False)
-        assert kernel_exec.world_flags() == [flag]
+        assert kernel_exec.mode_flags() == [flag]
 
     def test_settlement_flags_exclude_the_enumerations_deep_grain(self, monkeypatch):
-        for _flag, module, attribute in kernel_exec.WORLD_FLAGS:
+        for _flag, module, attribute in kernel_exec.MODE_FLAGS:
             monkeypatch.setattr(module, attribute, False)
         assert kernel_exec.settlement_flags() == ["--candidacy-prospect", "--follower-prefer-slots-off"]
         assert "--deep-classes-off" not in kernel_exec.settlement_flags()
 
     def test_settle_cases_batches_case_lines_with_canonical_features_and_modes(self, monkeypatch, tmp_path):
-        """The cases file holds only the case lines, one per line. The argv carries the sorted feature list and the world flags. Each output line is its case line, a tab, and the case result, which decodes to parsed JSON by default."""
+        """The cases file holds only the case lines, one per line. The argv carries the sorted feature list and the mode flags. Each output line is its case line, a tab, and the case result, which decodes to parsed JSON by default."""
         case = kernel_exec.case_line(LeftContext("edge"), RightToken("letter", "qsMay"), (EDGE,) * 4)
         calls = []
 
@@ -85,7 +85,7 @@ class TestTheInvocationInterface:
             return Finished()
 
         monkeypatch.setattr(kernel_exec, "_run_kernel", run)
-        for _flag, module, attribute in kernel_exec.WORLD_FLAGS:
+        for _flag, module, attribute in kernel_exec.MODE_FLAGS:
             monkeypatch.setattr(module, attribute, False)
         got = kernel_exec._settle_cases(
             tmp_path / "spec.json",
@@ -158,7 +158,7 @@ class TestTheInvocationInterface:
         kernel_exec.ensure_built()
         assert builds == [1]
 
-    def test_a_named_mode_overrides_the_processs_own_world(self, monkeypatch, tmp_path):
+    def test_a_named_mode_overrides_the_processs_own_mode_set(self, monkeypatch, tmp_path):
         """A `SettlementModes` passed to `_settle_cases` overrides the module defaults in both directions. With every default on, modes that turn both off add `--candidacy-prospect` and `--follower-prefer-slots-off`. With every default off, modes that turn both on add no flag."""
         case = kernel_exec.case_line(LeftContext("edge"), RightToken("letter", "qsMay"), (EDGE,) * 4)
         calls = []
@@ -173,7 +173,7 @@ class TestTheInvocationInterface:
             return Finished()
 
         monkeypatch.setattr(kernel_exec, "_run_kernel", run)
-        for _flag, module, attribute in kernel_exec.WORLD_FLAGS:
+        for _flag, module, attribute in kernel_exec.MODE_FLAGS:
             monkeypatch.setattr(module, attribute, True)
         kernel_exec._settle_cases(
             tmp_path / "spec.json",
@@ -183,7 +183,7 @@ class TestTheInvocationInterface:
             kernel_exec.SettlementModes(simulated_prospect=False, follower_prefer_slots=False),
         )
         assert calls[0][4:] == ["--candidacy-prospect", "--follower-prefer-slots-off"]
-        for _flag, module, attribute in kernel_exec.WORLD_FLAGS:
+        for _flag, module, attribute in kernel_exec.MODE_FLAGS:
             monkeypatch.setattr(module, attribute, False)
         kernel_exec._settle_cases(
             tmp_path / "spec.json",
@@ -505,7 +505,7 @@ def test_the_enumeration_tokens_name_every_flag_that_is_on(
 
 
 def test_the_tables_stamp_appends_exactly_the_enumeration_tokens(monkeypatch):
-    """`run_m1.tables_inputs` appends exactly the tokens `kernel_exec.enumeration_tokens` returns. `run_m1.previous_memos` (the memo head's world) and `run_m1.locality_lines` read the same function, so a new engine flag reaches all three."""
+    """`run_m1.tables_inputs` appends exactly the tokens `kernel_exec.enumeration_tokens` returns. `run_m1.previous_memos` (the memo head's mode set) and `run_m1.locality_lines` read the same function, so a new engine flag reaches all three."""
     monkeypatch.setattr(run_m1.fingerprint, "tables_value", lambda repo_root: "sources")
     assert run_m1.tables_inputs() == "+".join(["sources", *kernel_exec.enumeration_tokens()])
 
@@ -839,12 +839,12 @@ class TestTheMemoStamp:
 
     def test_previous_memos_reads_only_memos_whose_head_and_stamp_hold(self, tmp_path):
         stamp = run_m1.memo_stamp(SPEC)
-        world = "+".join(kernel_exec.enumeration_tokens())
+        modes = "+".join(kernel_exec.enumeration_tokens())
         wrong = json.dumps({**json.loads(stamp), "structure": "elsewhere"})
         for config, head in (
-            ("default", f"# {kernel_exec.MEMO_FORMAT}\tdefault\t{world}\t{stamp}\n"),
-            ("ss03", f"# {kernel_exec.MEMO_FORMAT}\tss03\t{world}\t{wrong}\n"),
-            ("ss04", f"# {kernel_exec.MEMO_FORMAT}\tss04\tanother-world\t{stamp}\n"),
+            ("default", f"# {kernel_exec.MEMO_FORMAT}\tdefault\t{modes}\t{stamp}\n"),
+            ("ss03", f"# {kernel_exec.MEMO_FORMAT}\tss03\t{modes}\t{wrong}\n"),
+            ("ss04", f"# {kernel_exec.MEMO_FORMAT}\tss04\tanother-mode-set\t{stamp}\n"),
         ):
             with gzip.open(kernel_exec.memo_path(tmp_path, config), "wt") as handle:
                 handle.write(head)
@@ -858,13 +858,13 @@ class TestTheMemoStamp:
     def test_previous_memos_reads_only_the_configurations_the_build_names(self, tmp_path):
         """A narrowed build unpacks only its own configurations' memos and collects edited runes only from them. The default, the whole settlement set, reads every usable memo and collects edited runes from all of them."""
         stamp = run_m1.memo_stamp(SPEC)
-        world = "+".join(kernel_exec.enumeration_tokens())
+        modes = "+".join(kernel_exec.enumeration_tokens())
         recorded = json.loads(stamp)
         rune = next(iter(recorded["runes"]))
         behind = json.dumps({**recorded, "runes": {**recorded["runes"], rune: "another-digest"}})
         for config, head in (
-            ("default", f"# {kernel_exec.MEMO_FORMAT}\tdefault\t{world}\t{stamp}\n"),
-            ("ss03", f"# {kernel_exec.MEMO_FORMAT}\tss03\t{world}\t{behind}\n"),
+            ("default", f"# {kernel_exec.MEMO_FORMAT}\tdefault\t{modes}\t{stamp}\n"),
+            ("ss03", f"# {kernel_exec.MEMO_FORMAT}\tss03\t{modes}\t{behind}\n"),
         ):
             with gzip.open(kernel_exec.memo_path(tmp_path, config), "wt") as handle:
                 handle.write(head)
@@ -892,9 +892,9 @@ class TestTheMemoStamp:
     def test_a_memo_damaged_after_a_readable_head_is_skipped_and_left_in_place(self, tmp_path):
         """A readable head followed by a gzip member whose deflate data is zeroed passes the head check, then raises `zlib.error` during unpacking, so `previous_memos` drops its partial plain file and reads no memo."""
         stamp = run_m1.memo_stamp(SPEC)
-        world = "+".join(kernel_exec.enumeration_tokens())
+        modes = "+".join(kernel_exec.enumeration_tokens())
         packed = kernel_exec.memo_path(tmp_path, "default")
-        head = f"# {kernel_exec.MEMO_FORMAT}\tdefault\t{world}\t{stamp}\n"
+        head = f"# {kernel_exec.MEMO_FORMAT}\tdefault\t{modes}\t{stamp}\n"
         packed.write_bytes(gzip.compress(head.encode()) + gzip.compress(b"")[:10] + bytes(4096))
         assert kernel_exec.read_memo_head(packed) is not None
         assert run_m1.previous_memos(tmp_path, stamp, tmp_path / "previous") is None
@@ -1127,7 +1127,7 @@ class TestTheReplayStage:
         monkeypatch.setattr(run_m1, "REPLAY_MAX_LENGTH", run_m1.REPLAY_MAX_LENGTH + 1)
         assert run_m1.replay_structure_stamp(SPEC) != base
         monkeypatch.setattr(run_m1, "REPLAY_MAX_LENGTH", run_m1.REPLAY_MAX_LENGTH - 1)
-        monkeypatch.setattr(kernel_exec, "enumeration_tokens", lambda: ["other-world"])
+        monkeypatch.setattr(kernel_exec, "enumeration_tokens", lambda: ["other-mode-set"])
         assert run_m1.replay_structure_stamp(SPEC) != base
 
     def test_the_stage_records_what_it_walked_and_walks_the_delta_next_time(self, monkeypatch, tmp_path):

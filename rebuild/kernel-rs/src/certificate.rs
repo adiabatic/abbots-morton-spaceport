@@ -816,7 +816,7 @@ mod tests {
 
     /// The production search matches the reference search with deep classes on and off and with each simulated-prospect and follower-prefer-slot setting.
     #[test]
-    fn row_chains_match_the_reference_in_every_enumeration_world() {
+    fn row_chains_match_the_reference_in_every_mode_set() {
         let index = fixtures::mini();
         for modes in [
             SHIPPING,

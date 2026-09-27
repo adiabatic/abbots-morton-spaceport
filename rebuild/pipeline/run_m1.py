@@ -209,15 +209,15 @@ class PreviousMemos:
 def previous_memos(
     out_dir: Path, stamp: str, scratch: Path, configs: Sequence[str] = conform.SETTLEMENT_CONFIGS
 ) -> PreviousMemos | None:
-    """Unpack into `scratch` the previous build's memos under `out_dir` that this build may read, or return None when there are none. Each named configuration's packed memo is read for its head, checked against this process's world and against `stamp` through `memo_edited`, and unpacked for the crate only if both pass. The edited runes are the union over every memo unpacked, so a rune that one memo cannot be trusted for is served by no memo. Only the memos of `configs` are read, because the crate reads only the memos of the configurations it builds; a narrowed build therefore unpacks only its own configurations' memos, and a memo that narrowed builds never rewrite cannot add every rune changed since the last whole build to the union. A memo whose head, stamp, or gzip stream fails is left in place and not read, and this build's own memo replaces it."""
-    world = "+".join(kernel_exec.enumeration_tokens()) or "pinned"
+    """Unpack into `scratch` the previous build's memos under `out_dir` that this build may read, or return None when there are none. Each named configuration's packed memo is read for its head, checked against this process's mode set and against `stamp` through `memo_edited`, and unpacked for the crate only if both pass. The edited runes are the union over every memo unpacked, so a rune that one memo cannot be trusted for is served by no memo. Only the memos of `configs` are read, because the crate reads only the memos of the configurations it builds; a narrowed build therefore unpacks only its own configurations' memos, and a memo that narrowed builds never rewrite cannot add every rune changed since the last whole build to the union. A memo whose head, stamp, or gzip stream fails is left in place and not read, and this build's own memo replaces it."""
+    modes = "+".join(kernel_exec.enumeration_tokens()) or "pinned"
     edited: set[str] = set()
     moved_classes: set[str] = set()
     unpacked = False
     for config in configs:
         packed = kernel_exec.memo_path(out_dir, config)
         head = kernel_exec.read_memo_head(packed)
-        if head is None or head.config != config or head.world != world:
+        if head is None or head.config != config or head.modes != modes:
             continue
         moved = memo_edited(head.stamp, stamp)
         if moved is None:

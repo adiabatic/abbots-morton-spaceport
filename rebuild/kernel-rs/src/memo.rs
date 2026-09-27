@@ -2,7 +2,7 @@
 //!
 //! This is how the per-configuration delta enumeration works. `default` enumerates first and returns its memo as a [`MemoSnapshot`]. Every other configuration's engine takes that snapshot as a [`SharedMemo`] whose [`Exclusion`] names the configuration's unlocking runes ([`unlocking_runes`]), runs the same worklist from the same seeds in the same order, and reads from the shared memo every window whose key names no unlocking rune and whose evaluation read none. The worklist is not seeded: each traversal re-derives reachability, because the memo records what a window settles to, never whether the window exists. So a cell that another configuration reaches first, or reaches only there, is still found. The fired journal carries over as it does for a hit on the engine's own memo: a shared memo entry stores the delta its evaluation journaled and a hit replays it, so a delta configuration's `cited_provenance` is the union over the windows it visited, as in a from-scratch enumeration.
 //!
-//! The same rule carries a memo across builds. A table build writes each configuration's finished memo beside its tables as `memo-<config>.tsv` ([`write_memo`]), and the next build reads it back as a shared memo whose exclusion names every rune edited in between ([`read_memo`]). A window naming no edited rune settles as it did last time, and only the rest are traced. The file holds every window the memo holds, not only the rows' windows: it includes the probe windows the liveness and fiber derivations trace, with their synthetic lefts and unknown coordinates. So those derivations, which quantify over the whole alphabet, run every build and are read from the shared memo wherever a probe names no edited rune, and a verdict that aggregates over every letter stays exact without being stored. `run_m1` decides which runes count as edited and whether the file may be read at all. The head carries the configuration, the world and an opaque stamp the writer chose. The crate fails on a file whose configuration or world is not the one asked for; the stamp, with the structure it names and the rune digests it records, is read only on the Python side.
+//! The same rule carries a memo across builds. A table build writes each configuration's finished memo beside its tables as `memo-<config>.tsv` ([`write_memo`]), and the next build reads it back as a shared memo whose exclusion names every rune edited in between ([`read_memo`]). A window naming no edited rune settles as it did last time, and only the rest are traced. The file holds every window the memo holds, not only the rows' windows: it includes the probe windows the liveness and fiber derivations trace, with their synthetic lefts and unknown coordinates. So those derivations, which quantify over the whole alphabet, run every build and are read from the shared memo wherever a probe names no edited rune, and a verdict that aggregates over every letter stays exact without being stored. `run_m1` decides which runes count as edited and whether the file may be read at all. The head carries the configuration, the mode set and an opaque stamp the writer chose. The crate fails on a file whose configuration or mode set is not the one asked for; the stamp, with the structure it names and the rune digests it records, is read only on the Python side.
 //!
 //! Which windows a shared memo may answer is decided by what each entry's evaluation read. While a capture is open, the index journals every rune whose resolved content and every predicate class whose membership its accessors return ([`crate::index`]), and the entry stores that set beside its fired delta. An [`Exclusion`] naming runes and classes therefore rejects the entries that read one of them. A window whose deep slots name a rune its evaluation never consulted can still be read from the shared memo when that rune changes, and a class whose membership changed invalidates only the windows that consulted it. The six runes a key names are also rejected, as a redundant check on the journal: over-invalidation costs a trace, and under-invalidation costs a wrong table.
 //!
@@ -345,11 +345,11 @@ pub fn unlocking_runes(index: &SpecIndex, features: &[Sym]) -> HashSet<Sym> {
 /// The marker on a memo file's head line. A file with any other marker is a different format.
 pub const MEMO_FORMAT: &str = "ams-m1-memo/1";
 
-/// What a memo file's head records: the configuration it was traced under, the world it was traced in (the enumeration's semantics tokens, [`crate::fixpoint::EnumerationModes::world_token`]), and the stamp its writer chose. The crate checks the first two. The stamp is opaque here; `run_m1` reads it to decide which runes changed.
+/// What a memo file's head records: the configuration it was traced under, the mode set it was traced under (the enumeration's semantics tokens, [`crate::fixpoint::EnumerationModes::token`]), and the stamp its writer chose. The crate checks the first two. The stamp is opaque here; `run_m1` reads it to decide which runes changed.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MemoHead {
     pub config: String,
-    pub world: String,
+    pub modes: String,
     pub stamp: String,
 }
 
@@ -640,7 +640,7 @@ pub fn write_memo(
     writeln!(
         out,
         "# {MEMO_FORMAT}\t{}\t{}\t{}",
-        head.config, head.world, head.stamp
+        head.config, head.modes, head.stamp
     )
     .map_err(complain)?;
     for table in [
@@ -719,11 +719,11 @@ fn parse_head(line: &str) -> Option<MemoHead> {
     let rest = line.strip_prefix(&format!("# {MEMO_FORMAT}\t"))?;
     let mut fields = rest.splitn(3, '\t');
     let config = fields.next()?.to_owned();
-    let world = fields.next()?.to_owned();
+    let modes = fields.next()?.to_owned();
     let stamp = fields.next()?.to_owned();
     Some(MemoHead {
         config,
-        world,
+        modes,
         stamp,
     })
 }
@@ -741,7 +741,7 @@ fn seat_at(text: &str) -> Option<usize> {
     text.parse().ok()
 }
 
-/// One memo file read back as a snapshot over this spec, keeping only the windows `keep` admits. A first byte scan counts the window lines so the record vector is allocated once instead of growing by doubling during a large load; capacity left unused by rejected windows is released when the records are boxed. The head's configuration and world must match `expected`'s; the stamp is the caller's concern and is not read.
+/// One memo file read back as a snapshot over this spec, keeping only the windows `keep` admits. A first byte scan counts the window lines so the record vector is allocated once instead of growing by doubling during a large load; capacity left unused by rejected windows is released when the records are boxed. The head's configuration and mode set must match `expected`'s; the stamp is the caller's concern and is not read.
 ///
 /// Some windows are dropped instead of failing the read, because each names something that changed and the caller's exclusion would reject it anyway:
 ///
@@ -788,14 +788,14 @@ pub(crate) fn read_memo(
         .ok_or_else(|| complain(1, "an empty file is not a memo"))?;
     let head = head.map_err(|error| format!("{}: {error}", path.display()))?;
     let head = parse_head(&head).ok_or_else(|| complain(1, "not a memo head line"))?;
-    if head.config != expected.config || head.world != expected.world {
+    if head.config != expected.config || head.modes != expected.modes {
         return Err(format!(
-            "{}: a memo for configuration {} in world {}, not {} in {}",
+            "{}: a memo for configuration {} with modes {}, not {} with {}",
             path.display(),
             head.config,
-            head.world,
+            head.modes,
             expected.config,
-            expected.world
+            expected.modes
         ));
     }
     let placeholder = boundary_settled(index.vocab(), TokenKind::Edge);
@@ -1103,7 +1103,7 @@ mod tests {
     fn head(config: &str) -> MemoHead {
         MemoHead {
             config: config.to_owned(),
-            world: EnumerationModes::default().world_token(),
+            modes: EnumerationModes::default().token(),
             stamp: "stamp-under-test".to_owned(),
         }
     }
@@ -1627,7 +1627,7 @@ mod tests {
         let path = scratch("memo-seat-range").join("memo-default.tsv");
         let head_line = format!(
             "# {MEMO_FORMAT}\tdefault\t{}\t{}\n",
-            head("default").world,
+            head("default").modes,
             head("default").stamp
         );
         for (line, capacity, complaint) in [

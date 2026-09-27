@@ -375,7 +375,7 @@ pub struct Replay<'i> {
 }
 
 impl<'i> Replay<'i> {
-    /// A walk over `rules` in the world `modes` names, for the features one configuration resolved to. The engine keeps its trace memo, because the text set reaches the same windows many times, and a memo hit replays the window's fired delta, so a warm engine returns what a cold one would. It keeps no ranking, because the walk reads only the settled record.
+    /// A walk over `rules` under the mode set `modes` names, for the features one configuration resolved to. The engine keeps its trace memo, because the text set reaches the same windows many times, and a memo hit replays the window's fired delta, so a warm engine returns what a cold one would. It keeps no ranking, because the walk reads only the settled record.
     pub fn new(
         index: &'i SpecIndex,
         features: Vec<Sym>,

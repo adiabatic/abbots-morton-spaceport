@@ -2,7 +2,7 @@
 //!
 //! The two checks run in series and answer different questions. The rune set is static and per rune. Only a rune's own `prefer` or `resolve` records receive the real deep slots (`Engine::prefer_favors` and `Engine::apply_resolution`), so a rune with no record chaining that far can never read them, and its windows keep `#NA` without any probing. The filter is per window and more precise: even a rune in the set settles the same under every third token in a window where its chains have already answered definitely. [`Engine::cond_matches_right`] makes this decidable, because it returns `None` only when the verdict consulted a slot the window does not supply. So `None` over `(right1, right2, UNKNOWN, UNKNOWN)` means this window's answer depends on the third token, and `Some(_)` means it does not.
 //!
-//! Both worlds are handled here. In the pinned world (`simulated_prospect` and `follower_prefer_slots` both off, so `deep_world` is false), the chain branch is the whole verdict and the two rune sets are the depth-3 and depth-4 chain sets. In the deep world, the raw deep tokens reach any input's window through the follower's replayed settlement or a follower prefer's shifted slots. Both rune sets then widen to every rune, and [`crate::liveness::ProspectLiveness`] is consulted wherever the chain branch says no. The caller passes the world in, as the `deep_world` flag of the two rune sets and as a `Some(_)` liveness probe at the filters, because this crate has no environment to read defaults from.
+//! Both kinds of mode set are handled here. In the pinned mode set (`simulated_prospect` and `follower_prefer_slots` both off, so `deep_modes` is false), the chain branch is the whole verdict and the two rune sets are the depth-3 and depth-4 chain sets. In a deep mode set, the raw deep tokens reach any input's window through the follower's replayed settlement or a follower prefer's shifted slots. Both rune sets then widen to every rune, and [`crate::liveness::ProspectLiveness`] is consulted wherever the chain branch says no. The caller passes the mode set in, as the `deep_modes` flag of the two rune sets and as a `Some(_)` liveness probe at the filters, because this crate has no environment to read defaults from.
 //!
 //! A filter is a struct with a memo, and it takes the engine per call instead of holding one. The fixpoint passes in the engine it settles with, because the probes share that engine's memo and its fired-pointer journal. A second engine would change the `cited_provenance` the build reports without any error. Taking `&mut Engine` per call makes this explicit: the fixpoint owns the one engine and lends it, and the borrow checker rejects a second mutable borrow. The liveness probe is lent the same way for the same reason.
 
@@ -55,17 +55,17 @@ pub fn depth4_inputs(index: &SpecIndex) -> HashSet<Sym> {
 
 /// The inputs whose windows can have a live third slot. The fixpoint applies this before asking [`ThirdSlotFilter`] about each window.
 ///
-/// In the pinned world only an own-rune depth-3 chain reads the slot, so this is [`depth3_inputs`]. In the deep world the raw third token can decide any input's window through the follower's replayed settlement or a follower prefer's shifted slots, so every rune is admitted and the per-window probe does all the pruning.
-pub fn third_slot_inputs(index: &SpecIndex, deep_world: bool) -> HashSet<Sym> {
-    if deep_world {
+/// In the pinned mode set only an own-rune depth-3 chain reads the slot, so this is [`depth3_inputs`]. In a deep mode set the raw third token can decide any input's window through the follower's replayed settlement or a follower prefer's shifted slots, so every rune is admitted and the per-window probe does all the pruning.
+pub fn third_slot_inputs(index: &SpecIndex, deep_modes: bool) -> HashSet<Sym> {
+    if deep_modes {
         return index.runes().iter().map(|(name, _)| *name).collect();
     }
     depth3_inputs(index)
 }
 
-/// [`third_slot_inputs`] one slot deeper: the depth-4 chain set in the pinned world, every rune in the deep world.
-pub fn fourth_slot_inputs(index: &SpecIndex, deep_world: bool) -> HashSet<Sym> {
-    if deep_world {
+/// [`third_slot_inputs`] one slot deeper: the depth-4 chain set in the pinned mode set, every rune in a deep mode set.
+pub fn fourth_slot_inputs(index: &SpecIndex, deep_modes: bool) -> HashSet<Sym> {
+    if deep_modes {
         return index.runes().iter().map(|(name, _)| *name).collect();
     }
     depth4_inputs(index)
@@ -107,7 +107,7 @@ impl<'i> ThirdSlotFilter<'i> {
 
     /// Whether this window has a live third slot, memoized per window. The engine and the liveness probe are the fixpoint's own, lent for the call; the module doc says why neither may be a second instance.
     ///
-    /// `liveness` is `None` only in the pinned world, where no mode reads deep tokens beyond the chains. When it is `Some(_)`, it is consulted only after the chain branch says no, because the chain branch is cheap and its answer is final. A probe that does not run fires nothing, so consulting it earlier would journal provenance the build should not record.
+    /// `liveness` is `None` only in the pinned mode set, where no mode reads deep tokens beyond the chains. When it is `Some(_)`, it is consulted only after the chain branch says no, because the chain branch is cheap and its answer is final. A probe that does not run fires nothing, so consulting it earlier would journal provenance the build should not record.
     pub fn matters(
         &mut self,
         engine: &mut Engine<'_>,
@@ -259,7 +259,7 @@ mod tests {
         ))
     }
 
-    /// An engine in the pinned world: `simulated_prospect` and `follower_prefer_slots` both off, so the filters' chain branch is the whole verdict.
+    /// An engine in the pinned mode set: `simulated_prospect` and `follower_prefer_slots` both off, so the filters' chain branch is the whole verdict.
     fn pinned(index: &SpecIndex) -> Engine<'_> {
         Engine::with_modes(
             index,
@@ -371,7 +371,7 @@ mod tests {
         assert_eq!(
             sorted(&index, &third_slot_inputs(&index, false)),
             sorted(&index, &depth3_inputs(&index)),
-            "the pinned world's pre-gate is the chain set itself"
+            "in the pinned mode set, the pre-gate is the chain set itself"
         );
         assert_eq!(
             sorted(&index, &fourth_slot_inputs(&index, false)),
@@ -379,9 +379,9 @@ mod tests {
         );
     }
 
-    /// In the deep world the pre-check admits every rune at both depths, whatever its own chains reach. A deep token reaches the window of an input outside the chain sets through the follower's replayed settlement or a follower prefer's shifted slots, and only the per-window probe can tell whether it changed anything.
+    /// In a deep mode set the pre-check admits every rune at both depths, whatever its own chains reach. A deep token reaches the window of an input outside the chain sets through the follower's replayed settlement or a follower prefer's shifted slots, and only the per-window probe can tell whether it changed anything.
     #[test]
-    fn the_deep_world_admits_every_rune_at_both_depths() {
+    fn a_deep_mode_set_admits_every_rune_at_both_depths() {
         let index = deep_slot_spec();
         let every = ["qsIt", "qsMay", "qsPea", "qsTea"];
         assert_eq!(sorted(&index, &third_slot_inputs(&index, true)), every);
@@ -389,7 +389,7 @@ mod tests {
         assert_eq!(third_slot_inputs(&index, true).len(), index.rune_count());
         assert!(
             fourth_slot_inputs(&index, true).is_superset(&fourth_slot_inputs(&index, false)),
-            "the pinned rune set is a subset of the widened one, so no window the pinned world split stops splitting"
+            "the chain rune set is a subset of the widened one, so no window split in the pinned mode set stops splitting"
         );
     }
 

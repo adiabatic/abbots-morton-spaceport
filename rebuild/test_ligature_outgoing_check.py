@@ -28,7 +28,7 @@ from rebuild.pipeline.model import (
 from rebuild.pipeline.settle import EDGE, RightToken, SettleError
 
 
-def _world(
+def _scenario(
     *,
     outgoing=None,
     source_refuse=(),
@@ -95,7 +95,7 @@ def _refusal(**when):
 
 
 def test_mapped_outgoing_contract_covers_boundaries_and_the_isolated_overlay():
-    spec, raw = _world()
+    spec, raw = _scenario()
     spec = replace(
         spec, registry=replace(spec.registry, features={"ss10": FeatureInfo("taste", overlay="isolated")})
     )
@@ -108,7 +108,7 @@ def test_mapped_outgoing_contract_covers_boundaries_and_the_isolated_overlay():
 
 def test_unformed_component_internal_left_refusal_cannot_hide_a_lost_join():
     internal = _refusal(left=Condition(family=("A",)))
-    spec, raw = _world(source_refuse=(internal,), local_refuse=(_refusal(),))
+    spec, raw = _scenario(source_refuse=(internal,), local_refuse=(_refusal(),))
     assert kernel_exec.guard_sweep(spec)[("AB", RightToken("letter", "C"), EDGE)] is False
     with pytest.raises(
         LigatureOutgoingError, match=r"AB.stances.joined.outgoing: lost baseline.*B.hook.*right=\[C"
@@ -117,14 +117,14 @@ def test_unformed_component_internal_left_refusal_cannot_hide_a_lost_join():
 
 
 def test_guard_yielding_does_not_excuse_a_missing_mapped_exit():
-    spec, raw = _world(missing=True)
+    spec, raw = _scenario(missing=True)
     assert kernel_exec.guard_sweep(spec)[("AB", RightToken("letter", "C"), EDGE)] is True
     with pytest.raises(LigatureOutgoingError, match="lost baseline"):
         validate_ligature_outgoing(spec, raw)
 
 
 def test_explicit_surface_exception_accepts_an_intentionally_absent_exit():
-    spec, raw = _world(
+    spec, raw = _scenario(
         missing=True,
         outgoing={
             "stance": "hook",
@@ -135,12 +135,12 @@ def test_explicit_surface_exception_accepts_an_intentionally_absent_exit():
 
 
 def test_blanket_outgoing_exception_skips_the_mapping():
-    spec, raw = _world(missing=True, outgoing={"exception": "The trailing component is redrawn."})
+    spec, raw = _scenario(missing=True, outgoing={"exception": "The trailing component is redrawn."})
     assert validate_ligature_outgoing(spec, raw)["mappings"] == 0
 
 
 def test_lost_join_is_checked_under_capability_features():
-    spec, raw = _world(local_refuse=(_refusal(feature="ss03"),))
+    spec, raw = _scenario(local_refuse=(_refusal(feature="ss03"),))
     spec = replace(spec, registry=replace(spec.registry, features={"ss03": FeatureInfo("capability")}))
     with pytest.raises(LigatureOutgoingError, match="under ss03"):
         validate_ligature_outgoing(spec, raw)
@@ -154,7 +154,7 @@ def test_matching_source_yield_is_preserved():
         mode="absolute",
         when=When(right=Condition(family=("C",))),
     )
-    spec, raw = _world(source_prefer=(preference,), local_prefer=(replace(preference, stance="joined"),))
+    spec, raw = _scenario(source_prefer=(preference,), local_prefer=(replace(preference, stance="joined"),))
     assert validate_ligature_outgoing(spec, raw)["windows"] > 0
 
 
@@ -166,7 +166,7 @@ def test_lost_source_yield_is_reported_when_the_ligature_joins():
         mode="absolute",
         when=When(right=Condition(family=("C",))),
     )
-    spec, raw = _world(source_prefer=(preference,))
+    spec, raw = _scenario(source_prefer=(preference,))
     with pytest.raises(LigatureOutgoingError, match=r"lost outgoing yield.*right=\[C"):
         validate_ligature_outgoing(spec, raw)
 
@@ -181,13 +181,13 @@ def test_deeper_authored_chain_is_in_the_probe_domain():
             right=Condition(family=("C",), then=Condition(family=("A",), then=Condition(family=("C",))))
         ),
     )
-    spec, raw = _world(local_prefer=(preference,))
+    spec, raw = _scenario(local_prefer=(preference,))
     with pytest.raises(LigatureOutgoingError, match=r"right=\[C A C edge\]"):
         validate_ligature_outgoing(spec, raw)
 
 
 def test_a_boundary_sensitive_local_refusal_is_reported_at_that_boundary():
-    spec, raw = _world(local_refuse=(_refusal(left=Condition(is_token="zwnj")),))
+    spec, raw = _scenario(local_refuse=(_refusal(left=Condition(is_token="zwnj")),))
     with pytest.raises(LigatureOutgoingError, match="left=zwnj"):
         validate_ligature_outgoing(spec, raw)
 
@@ -206,7 +206,7 @@ def test_explicit_policy_replacement_preserves_the_local_yield():
         "exceptions": {"policy.prefer[0]": "The ligature yields before another follower."},
         "replacements": {"policy.prefer[0]": "policy.prefer[0]"},
     }
-    spec, raw = _world(source_prefer=(source,), local_prefer=(local,), outgoing=declaration)
+    spec, raw = _scenario(source_prefer=(source,), local_prefer=(local,), outgoing=declaration)
     assert validate_ligature_outgoing(spec, raw)["mappings"] == 1
 
 
@@ -222,7 +222,7 @@ def test_replacement_local_groups_are_distinct_from_inherited_source_groups():
         "replacements": {"policy.prefer[0]": "policy.prefer[0]"},
     }
     inherited_refusal = replace(refusal, stance="joined", when=When(right=Condition(klass=("B.followers",))))
-    spec, raw = _world(
+    spec, raw = _scenario(
         source_refuse=(refusal,),
         source_prefer=(preference,),
         local_refuse=(inherited_refusal,),
@@ -254,7 +254,7 @@ def test_follower_policy_chains_are_shifted_into_the_probe_window():
             right=Condition(family=("A",), then=Condition(family=("C",), then=Condition(family=("B",))))
         ),
     )
-    spec, _raw = _world(source_prefer=(preference,))
+    spec, _raw = _scenario(source_prefer=(preference,))
     windows = set(_right_windows(spec))
     letter = lambda name: RightToken("letter", name)
     assert (letter("B"), letter("A"), letter("C"), EDGE) in windows
@@ -277,7 +277,7 @@ def _refusing_kernel(monkeypatch, bucket):
 
 @pytest.mark.parametrize("bucket", ["E-INCOMPARABLE", "E-AMBIGUOUS"])
 def test_ranking_errors_cannot_pass_as_missing_capability(monkeypatch, bucket):
-    spec, raw = _world()
+    spec, raw = _scenario()
     _refusing_kernel(monkeypatch, bucket)
     with pytest.raises(SettleError) as error:
         validate_ligature_outgoing(spec, raw)
@@ -285,7 +285,7 @@ def test_ranking_errors_cannot_pass_as_missing_capability(monkeypatch, bucket):
 
 
 def test_an_unreachable_window_is_tolerated(monkeypatch):
-    spec, raw = _world()
+    spec, raw = _scenario()
     _refusing_kernel(monkeypatch, "E-UNREACHABLE")
     assert validate_ligature_outgoing(spec, raw)["windows"] > 0
 
@@ -300,7 +300,7 @@ def test_windows_are_settled_as_settled_records_in_window_batches(monkeypatch):
 
     monkeypatch.setattr(kernel_exec, "_settle_cases", recording)
     monkeypatch.setattr(kernel_exec, "SETTLE_WINDOW_BATCH", 100)
-    spec, raw = _world()
+    spec, raw = _scenario()
     windows = validate_ligature_outgoing(spec, raw)["windows"]
     assert all(settled_only for _size, settled_only in calls)
     assert max(size for size, _settled_only in calls) == 100
@@ -320,7 +320,7 @@ def test_a_join_that_survives_at_another_height_is_reported_as_moved():
         when=When(right=Condition(family=("D",))),
     )
     local_refusal = PolicyRecord("refuse", exit="x-height", when=When(right=Condition(family=("D",))))
-    spec, raw = _world(
+    spec, raw = _scenario(
         source_exits=exits,
         source_prefer=(preference,),
         local_prefer=(replace(preference, stance="joined"),),
@@ -340,8 +340,8 @@ def test_every_ligature_stance_is_held_to_its_own_inherited_records():
         when=When(right=Condition(family=("C",))),
     )
     both = tuple(replace(preference, stance=name) for name in ("joined", "second"))
-    spec, raw = _world(stances=("joined", "second"), source_prefer=(preference,), local_prefer=both)
+    spec, raw = _scenario(stances=("joined", "second"), source_prefer=(preference,), local_prefer=both)
     assert validate_ligature_outgoing(spec, raw)["mappings"] == 2
-    spec, raw = _world(stances=("joined", "second"), source_prefer=(preference,), local_prefer=both[:1])
+    spec, raw = _scenario(stances=("joined", "second"), source_prefer=(preference,), local_prefer=both[:1])
     with pytest.raises(LigatureOutgoingError, match=r"AB.stances.second.outgoing: lost outgoing yield"):
         validate_ligature_outgoing(spec, raw)

@@ -23,7 +23,7 @@ SPEC = fixtures.mini_spec()
 
 
 def candidacy_tables(spec, features):
-    """Builds tables in the pinned world (`simulated_prospect` and `follower_prefer_slots` both off), whatever the shipping defaults are. In this world a deep slot opens only for an input whose own `then:` chains reach it, which is what the lazy-enumeration tests below check. `kernel_exec.world_flags` reads these module defaults at call time and passes them to the kernel. `MonkeyPatch.setattr` fails on a missing attribute, so a renamed default fails here instead of being set on a name nothing reads."""
+    """Builds tables in the pinned mode set (`simulated_prospect` and `follower_prefer_slots` both off), whatever the default modes are. In this mode set a deep slot opens only for an input whose own `then:` chains reach it, which is what the lazy-enumeration tests below check. `kernel_exec.mode_flags` reads these module defaults at call time and passes them to the kernel. `MonkeyPatch.setattr` fails on a missing attribute, so a renamed default fails here instead of being set on a name nothing reads."""
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr(kernel_exec, "SIMULATED_PROSPECT_DEFAULT", False)
         patch.setattr(kernel_exec, "FOLLOWER_PREFER_SLOTS_DEFAULT", False)
@@ -31,7 +31,7 @@ def candidacy_tables(spec, features):
 
 
 def chain_inputs(spec, reach):
-    """Returns the runes whose own prefer or resolve records can read a slot `reach` past the input's first lookahead. A `then:` hop advances one slot, and an `except:` entry tests its parent's slot, so its hops count from there. The kernel computes the same sets while enumerating (`deep_slots::depth3_inputs` and `depth4_inputs`); this is the test's own statement of which inputs the pinned world may split on a deep slot."""
+    """Returns the runes whose own prefer or resolve records can read a slot `reach` past the input's first lookahead. A `then:` hop advances one slot, and an `except:` entry tests its parent's slot, so its hops count from there. The kernel computes the same sets while enumerating (`deep_slots::depth3_inputs` and `depth4_inputs`); this is the test's own statement of which inputs may be split on a deep slot in the pinned mode set."""
 
     def hops(condition):
         reaches = [1 + hops(condition.then)] if condition.then is not None else [0]
@@ -467,7 +467,7 @@ class TestProspectLiveSlots:
     def prospect_spec(self):
         return fixtures.prospect_spec()
 
-    def test_flag_off_keeps_the_chain_only_world(self, prospect_spec):
+    def test_flag_off_keeps_only_the_chain_slots(self, prospect_spec):
         decision, _joins = candidacy_tables(prospect_spec, frozenset())
         assert all(row.right3 == NA_LABEL for row in decision.transitions)
 
@@ -490,7 +490,7 @@ class TestDeepClasses:
     """Tests class-grain enumeration, where deep slots hold outcome fibers that `expanded_transitions` expands back to labels. The `test_class_and_label_expansion_equality_*` tests build one spec with `DEEP_CLASSES_DEFAULT` on and off (off runs the kernel's label-grain path, which uses no fiber code) and assert the same expanded rows, rules, identity-guard count, reachable cells, cited provenance, and join rows. `test_actual_lefts_agree_with_the_left_class_assumption` settles every member of every multi-member row at the row's settled left, one window at a time, so a fiber whose members settle differently there fails."""
 
     @pytest.fixture()
-    def deep_world(self, monkeypatch):
+    def deep_modes(self, monkeypatch):
         monkeypatch.setattr(kernel_exec, "SIMULATED_PROSPECT_DEFAULT", True)
         return None
 
@@ -556,7 +556,7 @@ class TestDeepClasses:
         self._assert_builds_equal(class_decision, class_joins, label_decision, label_joins)
 
     def test_class_and_label_expansion_equality_on_the_prospect_spec(
-        self, deep_world, prospect_spec, monkeypatch
+        self, deep_modes, prospect_spec, monkeypatch
     ):
         class_decision, class_joins, label_decision, label_joins = self._both_builds(
             prospect_spec, monkeypatch
@@ -564,7 +564,7 @@ class TestDeepClasses:
         assert class_decision.deep_classes
         self._assert_builds_equal(class_decision, class_joins, label_decision, label_joins)
 
-    def test_the_pinned_world_stays_label_grain(self):
+    def test_the_pinned_mode_set_stays_label_grain(self):
         decision, _joins = candidacy_tables(SPEC, frozenset())
         assert not decision.deep_classes
 
@@ -582,9 +582,9 @@ class TestDeepClasses:
         ids=["prospect", "synthetic-depth4"],
     )
     def test_actual_lefts_agree_with_the_left_class_assumption(
-        self, request, deep_world, spec_fixture, expect_r4
+        self, request, deep_modes, spec_fixture, expect_r4
     ):
-        """Asserts that for every multi-member deep-class token in the enumeration, every member traces the same at the row's settled left: the same settled cell, prospect, joint tiebreak, and notes. The classes come from the enumeration and the traces from `settle-cases`, so a class whose members settle differently at the actual left fails here. The test reads the enumeration product (`kernel_exec.enumerate_transitions`) because the tables drop each row's settled left. All member windows go to one `settle_cases` call, in the world the enumeration ran in. The prospect spec creates no r4 classes, so the synthetic depth-4 spec is the case that checks r4 classes (per context and r3 class) at actual lefts, and the `checked4` assertion fails if it stops creating them."""
+        """Asserts that for every multi-member deep-class token in the enumeration, every member traces the same at the row's settled left: the same settled cell, prospect, joint tiebreak, and notes. The classes come from the enumeration and the traces from `settle-cases`, so a class whose members settle differently at the actual left fails here. The test reads the enumeration product (`kernel_exec.enumerate_transitions`) because the tables drop each row's settled left. All member windows go to one `settle_cases` call, under the mode set the enumeration ran under. The prospect spec creates no r4 classes, so the synthetic depth-4 spec is the case that checks r4 classes (per context and r3 class) at actual lefts, and the `checked4` assertion fails if it stops creating them."""
         from rebuild.pipeline.settle import EDGE, LeftContext, RightToken
 
         spec = request.getfixturevalue(spec_fixture)

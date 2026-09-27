@@ -4,7 +4,7 @@
 //!
 //! The product depends only on the set of rows, not on the traversal order, at either grain. At label grain the dedup is by window key, and a hit reuses the recorded settled state because the left label is injective into the trace's inputs, so the fired set is a union over a window set that no order changes. At class grain a fiber's row is traced at the fiber's representative, its least member under the label order (the first entry of the fiber's sorted member list), whichever item reaches the fiber first and whatever subset of it that item's slot restrictions admit. The admitted members accumulate as a union across items, which is also order-independent. The worklist is LIFO with the `seen` check at pop time, so the traversal is a fixed function of the seeds, and the two permuted-seed tests below check order-independence at each grain.
 //!
-//! In the deep world with the deep-classes flag on, the deep slots enumerate at class grain: the same static option lists, their letters split into the outcome fibers of [`crate::fiber::DeepFiberDeriver`], one in-flight row per base and fiber identity accumulating the admitted members across items, successor slot restrictions carrying those member sets instead of singletons, and a content-addressed id per multi-member set in the product's `deep_classes` map. Two checks run with it. The member cross-check re-traces a second member of every multi-member row at the row's actual left and requires the same stored row fields. `DeepPartitionCheck` runs over the finished product before it is returned. With the flag off, or in the pinned world where class grain cannot arise, only the label-grain path runs, and the deep slots still enumerate: the rune sets and the filters decide which deep slots are live.
+//! In a deep mode set with the deep-classes flag on, the deep slots enumerate at class grain: the same static option lists, their letters split into the outcome fibers of [`crate::fiber::DeepFiberDeriver`], one in-flight row per base and fiber identity accumulating the admitted members across items, successor slot restrictions carrying those member sets instead of singletons, and a content-addressed id per multi-member set in the product's `deep_classes` map. Two checks run with it. The member cross-check re-traces a second member of every multi-member row at the row's actual left and requires the same stored row fields. `DeepPartitionCheck` runs over the finished product before it is returned. With the flag off, or in the pinned mode set, where class grain cannot arise, only the label-grain path runs, and the deep slots still enumerate: the rune sets and the filters decide which deep slots are live.
 //!
 //! One engine settles everything, and the two slot filters, the liveness probe and the fiber deriver all borrow it. The trace memo makes a re-reached window free, and `Engine::fired` becomes the product's `cited_provenance`, so a probe running on a second engine would silently drop entries from what the dead-policy gate sees as fired. For the same reason one liveness probe is lent to both filters and to the deriver.
 
@@ -49,9 +49,9 @@ const SEED_KINDS: [TokenKind; 4] = [
     TokenKind::NamerDot,
 ];
 
-/// The world one enumeration runs in, and at which grain. Python reads the three flags from module-level defaults that environment variables override (`kernel_exec.SIMULATED_PROSPECT_DEFAULT`, `kernel_exec.FOLLOWER_PREFER_SLOTS_DEFAULT` and `kernel_exec.DEEP_CLASSES_DEFAULT`). This crate reads no environment, so the caller passes them, and [`Default`] is the shipping configuration. [`EnumerationModes::world_token`] names the world; a memo file's head carries it so a memo traced in one world is never read in another.
+/// The mode set one enumeration runs under, and at which grain. Python reads the three flags from module-level defaults that environment variables override (`kernel_exec.SIMULATED_PROSPECT_DEFAULT`, `kernel_exec.FOLLOWER_PREFER_SLOTS_DEFAULT` and `kernel_exec.DEEP_CLASSES_DEFAULT`). This crate reads no environment, so the caller passes them, and [`Default`] is the shipping configuration. [`EnumerationModes::token`] names the mode set; a memo file's head carries it so a memo traced under one mode set is never read under another.
 ///
-/// Either engine mode on makes a deep world: both deep-slot rune sets widen to every rune and the filters get their liveness probe. `deep_classes` only takes effect in a deep world. In the pinned world it is accepted and does nothing, because there is no fiber source to enumerate at class grain.
+/// Either engine mode on makes a deep mode set: both deep-slot rune sets widen to every rune and the filters get their liveness probe. `deep_classes` only takes effect in a deep mode set. With both engine modes off, the mode set is the pinned one: `deep_classes` is accepted there and does nothing, because there is no fiber source to enumerate at class grain.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct EnumerationModes {
     pub simulated_prospect: bool,
@@ -70,8 +70,8 @@ impl Default for EnumerationModes {
 }
 
 impl EnumerationModes {
-    /// The world's name as `kernel_exec.enumeration_tokens` forms it: each enabled flag's token, `+`-joined, or `pinned` when none is on, so Python and Rust name a world with the same string.
-    pub fn world_token(self) -> String {
+    /// The mode set's name as `kernel_exec.enumeration_tokens` forms it: each enabled flag's token, `+`-joined, or `pinned` when both engine modes are off, so Python and Rust name a mode set with the same string.
+    pub fn token(self) -> String {
         let mut tokens: Vec<&str> = Vec::new();
         if self.simulated_prospect {
             tokens.push("simulated-prospect");
@@ -153,7 +153,7 @@ struct Row {
     joint: bool,
 }
 
-/// The prospect term as a row stores it. The engine returns an `i64` because its join-count arithmetic sums these terms, but the term itself is zero or one (whether the follower's junction is claimed) in either candidacy world, so it fits in a byte. A wider value means the engine is no longer returning a count, and the conversion panics.
+/// The prospect term as a row stores it. The engine returns an `i64` because its join-count arithmetic sums these terms, but the term itself is zero or one (whether the follower's junction is claimed) with the prospect simulated or not, so it fits in a byte. A wider value means the engine is no longer returning a count, and the conversion panics.
 fn prospect_byte(prospect: i64) -> i8 {
     i8::try_from(prospect).expect("a prospect is a junction count, zero or one")
 }
@@ -282,7 +282,7 @@ pub fn enumerate_with_cache_stats(
     .map(|enumeration| enumeration.product)
 }
 
-/// [`enumerate_transitions`] with the seeds passed in, so a test can permute the seed order and check that the product does not change. Production always passes [`contract_seeds`]. The permuted-seed tests cover both the pinned world and class grain, where each fiber's row is traced at its least member regardless of which item reaches it first.
+/// [`enumerate_transitions`] with the seeds passed in, so a test can permute the seed order and check that the product does not change. Production always passes [`contract_seeds`]. The permuted-seed tests cover both the pinned mode set and class grain, where each fiber's row is traced at its least member regardless of which item reaches it first.
 fn enumerate_from_seeds<'i>(
     index: &'i SpecIndex,
     features: &[Sym],
@@ -307,14 +307,14 @@ fn enumerate_from_seeds<'i>(
     engine.attach_shared_memos(access.shared_memos);
     let config = feature_config_token(index, features.iter().copied());
     let mut options = WindowOptions::new(index).map_err(complaint)?;
-    // Either engine mode makes a deep world. This is the only place the enumeration combines the two flags.
-    let deep_world = modes.simulated_prospect || modes.follower_prefer_slots;
-    let deep_inputs = third_slot_inputs(index, deep_world);
-    let deep4_inputs = fourth_slot_inputs(index, deep_world);
+    // Either engine mode makes a deep mode set. This is the only place the enumeration combines the two flags.
+    let deep_modes = modes.simulated_prospect || modes.follower_prefer_slots;
+    let deep_inputs = third_slot_inputs(index, deep_modes);
+    let deep4_inputs = fourth_slot_inputs(index, deep_modes);
     let mut third_slot_matters = ThirdSlotFilter::new(index);
     let mut fourth_slot_matters = FourthSlotFilter::new(index);
-    let mut liveness = deep_world.then(|| ProspectLiveness::new(index));
-    let class_grain = modes.deep_classes && deep_world;
+    let mut liveness = deep_modes.then(|| ProspectLiveness::new(index));
+    let class_grain = modes.deep_classes && deep_modes;
     let mut deriver = class_grain.then(DeepFiberDeriver::new);
 
     let mut labels = LabelPool::default();
@@ -422,9 +422,9 @@ fn enumerate_from_seeds<'i>(
                         .map_err(complaint)?;
 
                 if deep3_live && let Some(deriver) = deriver.as_mut() {
-                    let probe = liveness
-                        .as_mut()
-                        .expect("class grain is a deep world, where the liveness probe exists");
+                    let probe = liveness.as_mut().expect(
+                        "class grain needs a deep mode set, where the liveness probe exists",
+                    );
                     let context = deriver
                         .context(
                             &mut engine,
@@ -1672,7 +1672,7 @@ mod tests {
         fixtures::policy(&[("prefer", &fixtures::seq(records))])
     }
 
-    /// The pinned candidacy world that every fixture below is read in: `simulated_prospect` and `follower_prefer_slots` both off, so there is no deep world, the rune sets are the chain sets, and class grain cannot arise whatever `deep_classes` says.
+    /// Every fixture below is read in the pinned mode set: `simulated_prospect` and `follower_prefer_slots` both off, so the mode set is not a deep one, the rune sets are the chain sets, and class grain cannot arise whatever `deep_classes` says.
     const PINNED: EnumerationModes = EnumerationModes {
         simulated_prospect: false,
         follower_prefer_slots: false,
@@ -2160,7 +2160,7 @@ mod tests {
 
     /// Runs the partition check over a hand-built product, with each live context's fiber partition given instead of derived.
     ///
-    /// In a real build every live context has already been derived when the check runs, so the cache is filled and the deriver is never called. Giving the partition supplies what the enumeration would have cached, and it lets these checks run in the pinned world, where there is no liveness probe and the filters use their chain branch alone.
+    /// In a real build every live context has already been derived when the check runs, so the cache is filled and the deriver is never called. Giving the partition supplies what the enumeration would have cached, and it lets these checks run in the pinned mode set, where there is no liveness probe and the filters use their chain branch alone.
     fn checked(
         index: &SpecIndex,
         product: &FixpointProduct,
@@ -2386,7 +2386,7 @@ mod tests {
     }
 
     #[test]
-    fn a_permuted_seed_order_reaches_the_same_pinned_world_product() {
+    fn a_permuted_seed_order_reaches_the_same_product_in_the_pinned_mode_set() {
         let index = deep_alphabet();
         let contract = enumerate_from_seeds(
             &index,
@@ -2586,7 +2586,7 @@ mod tests {
         let path = memo_path(&dir, "ss03");
         let head = MemoHead {
             config: "ss03".to_owned(),
-            world: modes.world_token(),
+            modes: modes.token(),
             stamp: "release-point".to_owned(),
         };
         let filed = enumerate_from_seeds(

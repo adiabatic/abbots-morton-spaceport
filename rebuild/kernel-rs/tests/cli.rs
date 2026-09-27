@@ -226,7 +226,7 @@ fn a_case_replay_writes_either_result_shape_and_the_liveness_verb_refuses_the_fl
 
 /// `guard-sweep --config=` writes one configuration's guard verdict map with as many rows as the default sweep over the feature powerset, and accepts `default` for the no-feature configuration. Each of these is a usage error (exit 2): an empty or non-canonical configuration token, as `--configs=` parses it; a repeated `--config=`; `--features=`, which this subcommand does not take; and any mode flag, because `guard.rs` fixes the guard's modes. A feature the spec never mentions fails the run (exit 1), as it does in `settle-cases`.
 #[test]
-fn a_guard_sweep_answers_one_configuration_and_refuses_a_world_flag() {
+fn a_guard_sweep_answers_one_configuration_and_refuses_a_mode_flag() {
     let root = scratch("cli-guard");
     let spec = spec_at(&root);
     let quantified = run(&["guard-sweep", word(&spec)]);
@@ -766,7 +766,7 @@ fn a_shipped_order_walk_answers_a_tables_rows_from_a_file_or_stdin() {
         &order_flag,
     ]);
     assert_eq!(missing.status.code(), Some(2));
-    let worldly = run(&[
+    let with_mode_flag = run(&[
         "replay-emitted",
         word(&windows),
         "--config=ss03",
@@ -775,7 +775,7 @@ fn a_shipped_order_walk_answers_a_tables_rows_from_a_file_or_stdin() {
         &context_flag,
         "--follower-prefer-slots-off",
     ]);
-    assert_eq!(worldly.status.code(), Some(2));
+    assert_eq!(with_mode_flag.status.code(), Some(2));
 }
 
 /// The replay's window memo through the binary: `--memo-dir=` writes one `replay-windows-<config>.bin` per configuration with the head `replay::MEMO_FORMAT` names. The answer lines are the bytes the same walk prints without the flag, a walk without the flag writes no memo, a timed run reports the memo phase beside the walk, and a directory the walk cannot write into fails the run naming the configuration.

@@ -34,7 +34,7 @@ def _name_to_codepoint(spec) -> dict[str, int]:
 
 
 def _traces(spec, requests, *, modes=None):
-    """Settles a table of windows in one batch: one guard sweep, ligature formation against it, then one `kernel_exec.settle_sequences` call. That call invokes the kernel once per token position per feature configuration for every `SETTLE_CASE_BATCH_SIZE` windows, instead of once per row. `modes` selects a settlement world other than the process's own."""
+    """Settles a table of windows in one batch: one guard sweep, ligature formation against it, then one `kernel_exec.settle_sequences` call. That call invokes the kernel once per token position per feature configuration for every `SETTLE_CASE_BATCH_SIZE` windows, instead of once per row. `modes` selects a settlement mode set other than the process's own."""
     guard = kernel_exec.guard_sweep(spec)
     formed = [
         (form_ligatures(spec, tokens_from_codepoints(spec, codepoints), guard), frozenset(features))
@@ -295,7 +295,7 @@ def test_simulated_prospect_sees_the_follower_yield_the_promised_join(prospect_s
 
 
 def test_simulated_prospect_bottoms_out_at_the_window_edge(prospect_settled):
-    """With two letters and nothing after them, the simulated prospect has no follower transition to run, so both worlds settle the window the same way. `engine.rs`'s `the_prospect_bottoms_out_at_the_window_edge_where_both_modes_agree` checks that the third term is zero there, which the settled cells returned here do not show."""
+    """With two letters and nothing after them, the simulated prospect has no follower transition to run, so both mode sets settle the window the same way. `engine.rs`'s `the_prospect_bottoms_out_at_the_window_edge_where_both_modes_agree` checks that the third term is zero there, which the settled cells returned here do not show."""
     assert prospect_settled[("A B", False)] == prospect_settled[("A B", True)]
 
 

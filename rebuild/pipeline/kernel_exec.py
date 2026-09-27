@@ -1,6 +1,6 @@
 """The kernel interface: the Python side of the Rust kernel. It builds the binary, runs the table build and the stream fan-out, reads the section 5.7 guard verdicts, settles batched windows for explain, review, conform and the tests, runs the string and shipped-order replays, and returns single-configuration products and tables to callers other than `run_m1`. It lives in the pipeline because the pipeline calls it. The `rebuild/tools/kernel_*.py` scripts are separate measurement harnesses.
 
-The semantics defaults live here beside the flags that pass them to the kernel. `SIMULATED_PROSPECT_DEFAULT` and `FOLLOWER_PREFER_SLOTS_DEFAULT` control settlement, and `DEEP_CLASSES_DEFAULT` controls enumeration. Each is a module attribute read at call time, so a process sets them through the environment and a test can monkeypatch them. A caller that wants a different world builds a `SettlementModes` and passes it to `settle_cases`, `settle_windows` or `settle_sequences`.
+The semantics defaults live here beside the flags that pass them to the kernel. `SIMULATED_PROSPECT_DEFAULT` and `FOLLOWER_PREFER_SLOTS_DEFAULT` control settlement, and `DEEP_CLASSES_DEFAULT` controls enumeration. Each is a module attribute read at call time, so a process sets them through the environment and a test can monkeypatch them. A caller that wants a different mode set builds a `SettlementModes` and passes it to `settle_cases`, `settle_windows` or `settle_sequences`.
 
 The build is `cargo build --release` against the crate's manifest. Release is the only profile anything in the repository runs: the pipeline and the spec-echo test in `rebuild/test_kernel_io.py` both run `target/release/ams-m1-kernel`, and a debug binary is too slow to substitute for it. A machine without `cargo` gets a `KernelBuildError` that says how to install it. `ensure_built` builds once per process, and every caller in the process shares that build.
 
@@ -101,18 +101,18 @@ TIMEOUT = 1800
 LOCK_PATH = MANIFEST.parent / "target" / ".ams-kernel-relink.lock"
 # How many lines of a failed build's stderr the exception includes: cargo reports the error in its last few lines, after the full compilation log.
 BUILD_TAIL_LINES = 20
-# On by default: the third join-count term is scored by the follower's simulated transition instead of junction-bearing candidacy. `AMS_SIMULATED_PROSPECT=0` turns it off for a comparison run, and run_m1's spawn-pool workers inherit that through the environment. It is read at call time, so a test may monkeypatch it; a caller that wants one named world regardless passes `SettlementModes`.
+# On by default: the third join-count term is scored by the follower's simulated transition instead of junction-bearing candidacy. `AMS_SIMULATED_PROSPECT=0` turns it off for a comparison run, and run_m1's spawn-pool workers inherit that through the environment. It is read at call time, so a test may monkeypatch it; a caller that wants one named mode set regardless passes `SettlementModes`.
 SIMULATED_PROSPECT_DEFAULT = os.environ.get("AMS_SIMULATED_PROSPECT", "1") != "0"
 # On by default: follower prefers are evaluated over the settled position's real shifted slots (follower prefer right1 = position right2, right2 = position right3, right3 = position right4) instead of pinning every slot past the follower prefer's own right1 to UNKNOWN, so a chained follower prefer resolves inside the window instead of firing optimistically wherever its then: hop read the pin. `AMS_FOLLOWER_PREFER_SLOTS=0` is the comparison state. It is a module attribute read at call time, like SIMULATED_PROSPECT_DEFAULT.
 FOLLOWER_PREFER_SLOTS_DEFAULT = os.environ.get("AMS_FOLLOWER_PREFER_SLOTS", "1") != "0"
-# On by default: deep window slots are enumerated at class grain, one row per outcome fiber, expanded back to labels for every fold-side consumer. It is a kernel invocation flag passed by `world_flags` like the two defaults above, read at call time, with `AMS_DEEP_CLASSES=0` the label-grain comparison state. `class_grain` states the grain rule the crate applies.
+# On by default: deep window slots are enumerated at class grain, one row per outcome fiber, expanded back to labels for every fold-side consumer. It is a kernel invocation flag passed by `mode_flags` like the two defaults above, read at call time, with `AMS_DEEP_CLASSES=0` the label-grain comparison state. `class_grain` states the grain rule the crate applies.
 DEEP_CLASSES_DEFAULT = os.environ.get("AMS_DEEP_CLASSES", "1") != "0"
-# The semantics flags a fixpoint's shape depends on, each as (the kernel flag that turns it off, the module holding the default, the attribute name). The module is named instead of closed over so a later call reads a monkeypatched attribute. Only a flag that is off appears on the command line, so the shipping world invokes the subcommand with none.
+# The semantics flags a fixpoint's shape depends on, each as (the kernel flag that turns it off, the module holding the default, the attribute name). The module is named instead of closed over so a later call reads a monkeypatched attribute. Only a flag that is off appears on the command line, so the default modes invoke the subcommand with none.
 SETTLEMENT_FLAGS = (
     ("--candidacy-prospect", sys.modules[__name__], "SIMULATED_PROSPECT_DEFAULT"),
     ("--follower-prefer-slots-off", sys.modules[__name__], "FOLLOWER_PREFER_SLOTS_DEFAULT"),
 )
-WORLD_FLAGS = (
+MODE_FLAGS = (
     *SETTLEMENT_FLAGS,
     ("--deep-classes-off", sys.modules[__name__], "DEEP_CLASSES_DEFAULT"),
 )
@@ -220,14 +220,14 @@ def ensure_built() -> None:
     _BUILT = True
 
 
-def world_flags() -> list[str]:
-    """The mode flags that make the kernel enumerate this process's world: one per default that is off. The defaults are read at call time. `run_m1.tables_inputs` stamps the same three settings through `enumeration_tokens`, so an enumeration made with a flag on is never mistaken for one made with it off."""
-    return [flag for flag, module, attribute in WORLD_FLAGS if not getattr(module, attribute)]
+def mode_flags() -> list[str]:
+    """The mode flags that make the kernel enumerate under this process's mode set: one per default that is off. The defaults are read at call time. `run_m1.tables_inputs` stamps the same three settings through `enumeration_tokens`, so an enumeration made with a flag on is never mistaken for one made with it off."""
+    return [flag for flag, module, attribute in MODE_FLAGS if not getattr(module, attribute)]
 
 
 @dataclass(frozen=True)
 class SettlementModes:
-    """One named settlement world, for a caller that wants a world other than its process's. `current()` returns the process's own, read from the module defaults at call time. `flags()` returns the command-line flags for the two booleans, written and ordered by `SETTLEMENT_FLAGS`. Passing an explicit pair lets a caller, such as a test, choose a world without changing the module defaults every other caller in the process reads."""
+    """One named settlement mode set, for a caller that wants a mode set other than its process's. `current()` returns the process's own, read from the module defaults at call time. `flags()` returns the command-line flags for the two booleans, written and ordered by `SETTLEMENT_FLAGS`. Passing an explicit pair lets a caller, such as a test, choose a mode set without changing the module defaults every other caller in the process reads."""
 
     simulated_prospect: bool
     follower_prefer_slots: bool
@@ -247,19 +247,19 @@ class SettlementModes:
 
 
 def settlement_flags(modes: SettlementModes | None = None) -> list[str]:
-    """The two mode flags every direct settlement invocation takes, for `modes` or for this process's world. Deep-class grain applies only to enumeration, so it is not in this list."""
+    """The two mode flags every direct settlement invocation takes, for `modes` or for this process's mode set. Deep-class grain applies only to enumeration, so it is not in this list."""
     if modes is None:
         modes = SettlementModes.current()
     return modes.flags()
 
 
 def class_grain() -> bool:
-    """Whether this process's enumeration splits deep slots into outcome fibers, restating the crate's grain rule for Python callers. `AMS_DEEP_CLASSES` asks for class grain, but fibers exist only where a deep token can change an outcome. In the pinned candidacy world, with neither the simulated prospect nor the shifted follower prefer slots, nothing can, and the crate enumerates at label grain whatever the flag says. `enumeration_tokens` reads this, because the stamp on a serialized enumeration must distinguish the two grains."""
+    """Whether this process's enumeration splits deep slots into outcome fibers, restating the crate's grain rule for Python callers. `AMS_DEEP_CLASSES` asks for class grain, but fibers exist only where a deep token can change an outcome. In the pinned mode set, with neither the simulated prospect nor the shifted follower prefer slots, nothing can, and the crate enumerates at label grain whatever the flag says. `enumeration_tokens` reads this, because the stamp on a serialized enumeration must distinguish the two grains."""
     return DEEP_CLASSES_DEFAULT and (SIMULATED_PROSPECT_DEFAULT or FOLLOWER_PREFER_SLOTS_DEFAULT)
 
 
 def enumeration_tokens() -> list[str]:
-    """The semantics tokens a stamp over this process's enumeration must include, in stamp order: the simulated prospect, the shifted follower prefer slots and the class-grain deep slots, each present only while it is on. Each changes settlement semantics or enumeration grain without changing a hashed source, so a key over the sources alone would treat an enumeration made with a flag on as current in a process with it off, and the reverse. `run_m1.tables_inputs` appends these to the tables' stamp, `run_m1.previous_memos` joins them into the memo head's world, and `run_m1.locality_lines` includes them in the memo stamp, so the three agree."""
+    """The semantics tokens a stamp over this process's enumeration must include, in stamp order: the simulated prospect, the shifted follower prefer slots and the class-grain deep slots, each present only while it is on. Each changes settlement semantics or enumeration grain without changing a hashed source, so a key over the sources alone would treat an enumeration made with a flag on as current in a process with it off, and the reverse. `run_m1.tables_inputs` appends these to the tables' stamp, `run_m1.previous_memos` joins them into the memo head's mode set, and `run_m1.locality_lines` includes them in the memo stamp, so the three agree."""
     tokens: list[str] = []
     if SIMULATED_PROSPECT_DEFAULT:
         tokens.append("simulated-prospect")
@@ -309,7 +309,7 @@ def enumerate_configs(
         str(out_dir),
         f"--configs={','.join(configs)}",
         f"--threads={threads}",
-        *world_flags(),
+        *mode_flags(),
     ]
     if timings:
         arguments.append("--timings")
@@ -357,7 +357,7 @@ def build_table_files(
 
     One process handles every named configuration because the configurations after `default` are enumerated as deltas over it. `default` enumerates first and keeps its trace memo. Each other configuration reads that memo for every window whose key names none of its own unlocking runes and whose settlement read none of them, and settles only the rest, `threads` worker slots at a time, with `default`'s fold in one of them. `rebuild/kernel-rs/src/memo.rs` gives the argument; the window locality rule, applied across configurations, makes the shared results exact. `default_memo_sharing=False` enumerates every configuration from scratch, and `rebuild/test_kernel_exec.py` checks that it writes the same bytes as the delta build.
 
-    The memo is also carried across builds. `previous_memos` is a directory of a previous build's plain `memo-<config>.tsv` files. They are read with `edited` (the runes whose content changed since) and `moved_classes` (the predicate classes whose membership changed) excluded, so a window whose settlement read none of them settles as it did then. The crate's read journal records what each entry read (`rebuild/kernel-rs/src/index.rs`). `memo_stamp` is the stamp this build writes its own plain `memo-<config>.tsv` files under, beside the tables; `run_m1.build_tables` packs them into `.gz` artifacts. Python decides which files may be read and which runes count as edited (`run_m1.previous_memos`), from the stamp in each head; the crate checks only that a file matches its configuration and world.
+    The memo is also carried across builds. `previous_memos` is a directory of a previous build's plain `memo-<config>.tsv` files. They are read with `edited` (the runes whose content changed since) and `moved_classes` (the predicate classes whose membership changed) excluded, so a window whose settlement read none of them settles as it did then. The crate's read journal records what each entry read (`rebuild/kernel-rs/src/index.rs`). `memo_stamp` is the stamp this build writes its own plain `memo-<config>.tsv` files under, beside the tables; `run_m1.build_tables` packs them into `.gz` artifacts. Python decides which files may be read and which runes count as edited (`run_m1.previous_memos`), from the stamp in each head; the crate checks only that a file matches its configuration and mode set.
 
     The digests are returned on stdout, one JSON object per line in the order the configurations were named, because a digest is a value the caller keeps and reports, not a separate artifact. Raises `KernelRunError` for every kind of failure the CLI contract distinguishes, and for a clean exit whose output names a different set of configurations from the one requested.
     """
@@ -369,7 +369,7 @@ def build_table_files(
         f"--configs={','.join(configs)}",
         f"--inputs={inputs}",
         f"--threads={threads}",
-        *world_flags(),
+        *mode_flags(),
     ]
     if not default_memo_sharing:
         arguments.append("--no-default-memo-sharing")
@@ -419,10 +419,10 @@ def memo_path(out_dir: Path, config: str) -> Path:
 
 @dataclass(frozen=True)
 class MemoHead:
-    """What a memo file's head line records: the configuration and world it was traced in, which the crate checks the file against, and the opaque stamp its writer chose, which `run_m1.previous_memos` passes to `run_m1.memo_edited`."""
+    """What a memo file's head line records: the configuration and mode set it was traced under, which the crate checks the file against, and the opaque stamp its writer chose, which `run_m1.previous_memos` passes to `run_m1.memo_edited`."""
 
     config: str
-    world: str
+    modes: str
     stamp: str
 
 
@@ -746,7 +746,7 @@ def settle_cases(
     modes: SettlementModes | None = None,
     decode=None,
 ) -> list:
-    """Settle a batch of windows through the crate in one invocation. The cases are case lines (`case_line` builds one), and each case result is the crate's whole trace. Without `decode`, the list holds each window's parsed result, which `trace_of` reads into a `TransitionTrace`. With `decode`, it holds what `decode` returned for each parsed result (`settle_sequences` wants a trace or a refusal), decoded once per distinct result in the batch (`_settle_cases`), so a caller that wants one model value per window never builds a list of result dictionaries. A caller that wants only the settled record should use `settle_windows`, which asks the crate for that record instead of a trace. `modes` names the settlement world; without it the process's defaults apply."""
+    """Settle a batch of windows through the crate in one invocation. The cases are case lines (`case_line` builds one), and each case result is the crate's whole trace. Without `decode`, the list holds each window's parsed result, which `trace_of` reads into a `TransitionTrace`. With `decode`, it holds what `decode` returned for each parsed result (`settle_sequences` wants a trace or a refusal), decoded once per distinct result in the batch (`_settle_cases`), so a caller that wants one model value per window never builds a list of result dictionaries. A caller that wants only the settled record should use `settle_windows`, which asks the crate for that record instead of a trace. `modes` names the settlement mode set; without it the process's defaults apply."""
     if decode is None:
         return _settle_batch(spec, cases, features, modes, _json_result)
     return _settle_batch(spec, cases, features, modes, lambda text: decode(_json_result(text)))

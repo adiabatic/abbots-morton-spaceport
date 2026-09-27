@@ -2473,7 +2473,7 @@ class TestSettledWindowWalk:
         assert any(matched is not None for _window, matched in replayed)
 
     def test_synthetic_depth4_replay_carries_rules_and_a_genuine_index(self):
-        """Class tokens at depth 4 with real rules and a real index: the mini spec plus a reach-3 chain on ·Tea, built in the shipping world, creates an r4 class at the ·Tea·May·May·May windows. `witness._matched_windows`, which the witness stage uses, must resolve the labels to that class token and match rules against it, and the walk must still settle those texts correctly."""
+        """Class tokens at depth 4 with real rules and a real index: the mini spec plus a reach-3 chain on ·Tea, built under the default modes, creates an r4 class at the ·Tea·May·May·May windows. `witness._matched_windows`, which the witness stage uses, must resolve the labels to that class token and match rules against it, and the walk must still settle those texts correctly."""
         import dataclasses
 
         from rebuild.pipeline import fixtures, model

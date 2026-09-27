@@ -92,7 +92,7 @@ impl LabelPool {
 
 /// Everything one configuration's fixpoint produces, the counterpart of `table.FixpointProduct`. The rows arrive sorted on [`TransitionRow::key`], and the stream keeps that order. The fold's expansion and its per-input rule fold rely on that order, and `fold::assert_key_sorted` fails on a product that is out of it.
 ///
-/// On the Python side `cells` and `cited_provenance` are `frozenset`s and `deep_classes` is a `Mapping`. Here they are vectors, and the writer puts them in canonical order: `cells` and `cited_provenance` are sorted with repeats removed, and `deep_classes` is sorted by token. `deep_classes` is empty at label grain and in the pinned world, and the head includes it either way.
+/// On the Python side `cells` and `cited_provenance` are `frozenset`s and `deep_classes` is a `Mapping`. Here they are vectors, and the writer puts them in canonical order: `cells` and `cited_provenance` are sorted with repeats removed, and `deep_classes` is sorted by token. `deep_classes` is empty at label grain and in the pinned mode set, and the head includes it either way.
 ///
 /// `seats` and `notes` have no Python counterpart. They are the tables that each row's [`SettledSeat`]s and [`NotesSeat`] index: one entry per distinct settled record and one per distinct provenance list, each in the order the fixpoint first reached it. [`FixpointProduct::settled`], [`FixpointProduct::left_settled`], and [`FixpointProduct::provenance`] read a row's values back; Python's `Transition` holds all three by value. The label pool and the outcome table (indexed by settled seat) pass unchanged into the decision table.
 #[derive(Clone, Debug, Default, Eq)]

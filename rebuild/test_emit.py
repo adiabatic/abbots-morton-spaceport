@@ -494,7 +494,7 @@ class TestLateFormationGuardLines:
         one_slot = f"    ignore sub qsDay' qsUtter' {' '.join(full_followers)};"
         assert one_slot in guarded
         assert one_slot.strip() in ignores
-        # A one-member guard set is inlined by _ClassRegistry.ref, so the mini world defines no class for it.
+        # A one-member guard set is inlined by _ClassRegistry.ref, so the mini spec defines no class for it.
         assert not [line for line in registry.definitions if "m1_form_guard" in line]
         assert guarded.index("    sub qsDay' qsUtter' uni200C by qsDay_qsUtter;") < guarded.index(one_slot)
         see_partly_blocked = [
