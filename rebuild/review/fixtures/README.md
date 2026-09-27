@@ -11,11 +11,7 @@ A small hand-written `build_m1` corpus for tests to assert against. The units un
 
 ## `mini/` — the frozen mini-M1 bundle
 
-A second fixture of a different kind: a slice of real build output, frozen so that tests of the build machinery need no live `rebuild/out/`. It holds:
-
-- `audit.tsv`, the divergence audit filtered to every window drawn from ·Pea, ·Tea, ·Day, ·Roe, and the boundary tokens, plus every window in `regenerate.EXAMPLE_WINDOWS`, the example windows the review tests name by codepoint
-- a `baseline-<config>.subset.tsv.gz` slice for each acceptance config and no other
-- `M1.otf`, and the default settlement and join tables
+A second fixture of a different kind: a slice of real build output, frozen so that tests of the build machinery need no live `rebuild/out/`. The module docstring of `mini/regenerate.py` says what the bundle holds, how its windows are chosen, why all of it is regenerated together, and how `pin.json` pins the spec its rows settled under. The docstrings in `mini/pin.py` say how `materialize` writes that spec out of git and how `_preserve_authored_outgoing` adapts a pinned schema to the current loader.
 
 These tests run against it at full xdist width instead of against the live `rebuild/out/`:
 
@@ -26,19 +22,11 @@ These tests run against it at full xdist width instead of against the live `rebu
 - the table-diff build, the snapshot round trip, and the two example-text tests in `rebuild/test_review_tablediff.py`, which re-settle the frozen tables under the spec they were built from
 - the failing-pin tests of the manual-pin gate (`TestTheGateCanFail` in `rebuild/test_manual_pins.py`), which need a font and a spec that match each other
 
-When an example window stops selecting any audit row, regeneration fails and names it, so the lost window is found there and not in a test failure after a later rune edit.
-
-It also holds `pin.json`: the tree and blob shas of the paths in `pin.PINNED_PATHS` (`mini/pin.py`) at the commit the bundle was regenerated on. The `mini_bundle` fixture in `rebuild/conftest.py` writes those objects out of git into a session temp directory, and every mini-bundle test passes that directory to `build_m1` as its `spec_root` and reads its ledger from there. So the enricher re-derives the settlement these rows were written under, a rune edit cannot fail the contracts lane, and there is no second copy of the runes in the tree to edit by mistake. The pin is content-addressed, so a rebase that leaves those files' bytes unchanged keeps it valid. A pin whose objects the repository no longer holds fails and names the command that regenerates the bundle. Everything else in a mini build comes from the repo root (the fingerprints, the git head, the manifest's relative paths, the corpus the pin drafts are validated against), because those describe the checkout and not the workload.
-
-When the pinned schema has no `outgoing` stance property, `pin._preserve_authored_outgoing` adds one that allows only an exception, and declares that exception on every stance of every frozen ligature rune. It takes no rules from the working tree, and a pinned schema that already has `outgoing` is left unchanged. This keeps the frozen font and tables paired with the behavior their runes declared, under the current loader.
-
-All of the bundle must be regenerated together. A subset slice from one build beside a font from another, or a pin from a third, would make the enricher report glyph disagreements caused by the bundle. Regeneration fails when the pinned paths have uncommitted edits, since the pin names committed objects, and when the live build was not made from the tree as it stands. After a fresh `run_m1`, run:
+After a fresh `run_m1`, regenerate the whole bundle with:
 
 ```zsh
 uv run python rebuild/review/fixtures/mini/regenerate.py
 ```
-
-That script defines what the bundle holds and how the filter is drawn.
 
 ## Growing it
 
