@@ -83,9 +83,7 @@ The definition sets no maximum depth: a leak is a leak at any sequence length. D
 
 ### 9. The leak-fixing loop is unattended detect→fix→verify, commit-gated
 
-Every bad leak is an additive dangle, and its fix is always **subtractive**: for the offending context only, make the break-facing edge subtractive or revert it to the isolated or trimmed stance. The existing mechanisms do this: `not_before` to stop the additive stance being selected, `contract_exit_before` / `contract_entry_after`, an `ex-noentry` trim, or a `predecessor_demote_overrides` / `trailing_demote_overrides` row.
-
-The agent runs the loop unattended: sweep, classify, fix each bad leak, rebuild, re-sweep, and confirm that the bad leak is gone, no real join broke, and no new bad leak appeared. It stops before committing, because the project requires explicit approval for every commit.
+The agent detects, fixes, and verifies bad leaks on its own, and stops before committing, because the project requires explicit approval for every commit. Every bad leak is an additive dangle (decision 6), so a fix is **subtractive** and applies only to the offending context. `doc/definitions/shaping-leak-loop.md` has the procedure and the mechanisms a fix uses.
 
 ### 10. One verdict per break: bad iff any changed stance is an additive dangle
 
@@ -102,7 +100,7 @@ The two override lists are keyed to fit their jobs:
 
 ### 12. The per-fix verify gate
 
-After applying a fix, the agent rebuilds, re-sweeps to the gate depth, and requires: (a) the targeted bad leak is gone; (b) no **new** bad leak appears anywhere in the swept set; and (c) full `make test` passes, so no real cursive join broke. Benign list changes are reported at the commit boundary and never block the loop. The depth-3 re-sweep takes about a second, so checking for new dangles on every iteration is cheap.
+A fix is kept only if it removes the targeted bad leak, adds no bad leak anywhere, and breaks no real cursive join. A change to the benign list is reported with the batch and never blocks a fix. `doc/definitions/shaping-leak-loop.md` has the gate’s checks and the depth each one sweeps.
 
 ## Build work this definition implies
 
