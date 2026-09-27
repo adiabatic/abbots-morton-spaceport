@@ -537,33 +537,33 @@ def test_the_default_configuration_enumerates_at_class_grain(products):
 
 class TestTheKernelInvocation:
     def test_a_caller_with_nowhere_to_write_still_gets_its_tables(self, tmp_path, monkeypatch):
-        """A caller with no `out_dir` gets the tables and leaves no files: the kernel writes into a temporary directory, and the call returns each configuration's decision head and treaty rows."""
+        """A caller with no `out_dir` gets the tables and leaves no files: the kernel writes into a temporary directory, and the call returns each configuration's decision head and join rows."""
         monkeypatch.chdir(tmp_path)
         tables, digests = run_m1.build_tables(SPEC)
         assert list(tables) == list(conform.SETTLEMENT_CONFIGS)
         assert list(digests) == list(conform.SETTLEMENT_CONFIGS)
-        assert all(decision.rules and treaty.rows for decision, treaty in tables.values())
+        assert all(decision.rules and joins.rows for decision, joins in tables.values())
         assert not sorted(tmp_path.iterdir())
 
     def test_a_narrowed_build_answers_for_the_configurations_it_was_asked_for(self, tmp_path):
-        """With `configs=["default"]`, both returned mappings hold only `default`, with rules and treaty rows, and the out dir holds `default`'s TSVs and no file naming another configuration. The crate receives the narrowed list; the whole-set result is not filtered afterward."""
+        """With `configs=["default"]`, both returned mappings hold only `default`, with rules and join rows, and the out dir holds `default`'s TSVs and no file naming another configuration. The crate receives the narrowed list; the whole-set result is not filtered afterward."""
         out_dir = tmp_path / "one"
         tables, digests = run_m1.build_tables(SPEC, out_dir, inputs=STAMP, configs=["default"])
         assert list(tables) == ["default"] and list(digests) == ["default"]
-        decision, treaty = tables["default"]
-        assert decision.rules and treaty.rows
+        decision, joins = tables["default"]
+        assert decision.rules and joins.rows
         assert (out_dir / "settlement-default.tsv").is_file()
-        assert (out_dir / "treaties-default.tsv").is_file()
+        assert (out_dir / "joins-default.tsv").is_file()
         others = [config for config in conform.ACCEPTANCE_CONFIGS if config != "default"]
         assert not [path.name for path in out_dir.iterdir() if any(other in path.name for other in others)]
 
     def test_a_narrowed_build_files_the_bytes_the_whole_set_files(self, tmp_path):
-        """`default` built alone writes the same settlement and treaty TSVs, byte for byte, and reports the same digest as `default` built with the whole settlement set. `rebuild/tools/scratch_build.py --configs default` relies on this when it reads only `default`'s rows."""
+        """`default` built alone writes the same settlement and join TSVs, byte for byte, and reports the same digest as `default` built with the whole settlement set. `rebuild/tools/scratch_build.py --configs default` relies on this when it reads only `default`'s rows."""
         one, every = tmp_path / "one", tmp_path / "every"
         _tables, narrowed = run_m1.build_tables(SPEC, one, inputs=STAMP, configs=["default"])
         _tables, whole = run_m1.build_tables(SPEC, every, inputs=STAMP)
         assert narrowed["default"] == whole["default"]
-        for name in ("settlement-default.tsv", "treaties-default.tsv"):
+        for name in ("settlement-default.tsv", "joins-default.tsv"):
             assert (one / name).read_bytes() == (every / name).read_bytes(), name
 
     def _observe_build(self, monkeypatch, tmp_path, asked, configs=None):
@@ -628,7 +628,7 @@ class TestTheKernelInvocation:
     def test_a_build_reading_the_previous_memos_files_the_bytes_a_from_scratch_build_files(
         self, tmp_path, monkeypatch
     ):
-        """A build of an edited spec into a directory holding the previous build's memos reads them, with the edited rune named, and writes the same packed windows, settlement TSVs, and treaty TSVs, byte for byte, as a build of the edited spec into an empty directory. It also leaves its own memos under the edited spec's stamp."""
+        """A build of an edited spec into a directory holding the previous build's memos reads them, with the edited rune named, and writes the same packed windows, settlement TSVs, and join TSVs, byte for byte, as a build of the edited spec into an empty directory. It also leaves its own memos under the edited spec's stamp."""
         asked = []
         asked_classes = []
         real = kernel_exec.build_table_files
@@ -674,7 +674,7 @@ class TestTheKernelInvocation:
             assert head is not None and head.stamp == run_m1.memo_stamp(edited)
 
     def test_a_configuration_delta_files_the_bytes_a_from_scratch_build_files(self, tmp_path):
-        """Every configuration after `default`, enumerated as a delta over `default`'s memo, writes the same settlement TSV, treaty TSV, and window enumeration, byte for byte, and returns the same digest as the same configuration enumerated on its own (the window locality rule applied across configurations). The mini fixture's `ss03` unlocks a half-·Tea x-height entry, so the delta has windows to share and windows to settle itself. The memo-sharing run claims its deltas heaviest-first (`fanout::delta_worklist`), and its results must still match the from-scratch run configuration by configuration."""
+        """Every configuration after `default`, enumerated as a delta over `default`'s memo, writes the same settlement TSV, join TSV, and window enumeration, byte for byte, and returns the same digest as the same configuration enumerated on its own (the window locality rule applied across configurations). The mini fixture's `ss03` unlocks a half-·Tea x-height entry, so the delta has windows to share and windows to settle itself. The memo-sharing run claims its deltas heaviest-first (`fanout::delta_worklist`), and its results must still match the from-scratch run configuration by configuration."""
         spec_path = tmp_path / "spec.json"
         kernel_io.write_spec(SPEC, spec_path)
         kernel_exec.ensure_built()
@@ -690,7 +690,7 @@ class TestTheKernelInvocation:
             )
         assert answers["sharing"] == answers["scratch"]
         for config in conform.SETTLEMENT_CONFIGS:
-            for family in ("settlement", "treaties", "windows"):
+            for family in ("settlement", "joins", "windows"):
                 name = f"{family}-{config}.tsv"
                 assert (tmp_path / "sharing" / name).read_bytes() == (
                     tmp_path / "scratch" / name

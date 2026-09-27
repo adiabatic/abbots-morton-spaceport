@@ -1783,7 +1783,7 @@ def test_table_diff_build(tmp_path):
     new_dir = tmp_path / "new"
     old_dir.mkdir()
     new_dir.mkdir()
-    for name in ("settlement-default.tsv", "treaties-default.tsv"):
+    for name in ("settlement-default.tsv", "joins-default.tsv"):
         shutil.copyfile(MINI / name, old_dir / name)
         shutil.copyfile(MINI / name, new_dir / name)
     settlement = (new_dir / "settlement-default.tsv").read_text().splitlines()

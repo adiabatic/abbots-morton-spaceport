@@ -4,13 +4,13 @@ The semantics defaults live here beside the flags that pass them to the kernel. 
 
 The build is `cargo build --release` against the crate's manifest. Release is the only profile anything in the repository runs: the pipeline and the spec-echo test in `rebuild/test_kernel_io.py` both run `target/release/ams-m1-kernel`, and a debug binary is too slow to substitute for it. A machine without `cargo` gets a `KernelBuildError` that says how to install it. `ensure_built` builds once per process, and every caller in the process shares that build.
 
-`build_table_files` is what `run_m1` calls. One `build-tables` process enumerates every settlement configuration and folds each in place. It writes each configuration's settlement TSV, treaty TSV and plain window enumeration, and returns the table digest of each configuration's pair of tables. No transition stream is written, because the fold reads the product the worklist still holds; that saves writing, reading and parsing several hundred megabytes per configuration. The configurations after `default` are deltas over it. `default` enumerates first and keeps its trace memo, and each other configuration reads that memo for every window whose key names none of its own unlocking runes and whose settlement read none of them, and traces only the rest. The memo is also carried across builds in the `memo-<config>.tsv.gz` files packed beside the tables. The next build reuses a memoized window only if its settlement read no rune whose content has changed and no predicate class whose membership has changed. `rebuild/kernel-rs/src/memo.rs` gives the argument, and `run_m1.previous_memos` decides which files may be read.
+`build_table_files` is what `run_m1` calls. One `build-tables` process enumerates every settlement configuration and folds each in place. It writes each configuration's settlement TSV, join TSV and plain window enumeration, and returns the table digest of each configuration's pair of tables. No transition stream is written, because the fold reads the product the worklist still holds; that saves writing, reading and parsing several hundred megabytes per configuration. The configurations after `default` are deltas over it. `default` enumerates first and keeps its trace memo, and each other configuration reads that memo for every window whose key names none of its own unlocking runes and whose settlement read none of them, and traces only the rest. The memo is also carried across builds in the `memo-<config>.tsv.gz` files packed beside the tables. The next build reuses a memoized window only if its settlement read no rune whose content has changed and no predicate class whose membership has changed. `rebuild/kernel-rs/src/memo.rs` gives the argument, and `run_m1.previous_memos` decides which files may be read.
 
 `enumerate_configs` is the stream fan-out. One process enumerates every named configuration and writes each one's transition stream to its own file. Nothing on the build's path calls it; `enumerate_transitions` and the tests do.
 
 The table build's width is limited by memory, because a live configuration holds its whole working set until it has emitted. `DELTA_PEAK_BYTES` is the peak of one delta. `KERNEL_THREADS_DEFAULT` is `memory_budget.how_many_fit` over it: the machine's memory, less the reserve that policy states, less `DEFAULT_MEMO_BYTES` for the `default` memo snapshots kept alive for the wave, divided by one delta and floored at one. It is computed once at import. A larger machine, or a container limited by its cgroup, gets its own width without editing a constant. `AMS_KERNEL_THREADS` overrides the arithmetic in either direction. The artifacts are byte-identical at any width, so the override changes only memory use. Callers cap the width at the number of settlement configurations (`conform.SETTLEMENT_CONFIGS`; the overlay configuration is never enumerated) and at the usable cores. The string replay after a build has its own divisor, `REPLAY_PEAK_BYTES`. `replay_threads_default` divides by it with nothing subtracted first, because the replay's engines are built after the build process has exited and no memo outlives it. `AMS_REPLAY_THREADS` overrides it.
 
-`build_tables` and `enumerate_transitions` are the single-configuration forms, and neither writes anything that outlives the call. Each dumps one spec to a scratch directory. `build_tables` runs `build-tables` into that directory and reads the two tables back through `table.read_windows` and `table.read_treaty_tsv`. `enumerate_transitions` enumerates the raw product as a stream and parses it into a `table.FixpointProduct`. Only tests call either.
+`build_tables` and `enumerate_transitions` are the single-configuration forms, and neither writes anything that outlives the call. Each dumps one spec to a scratch directory. `build_tables` runs `build-tables` into that directory and reads the two tables back through `table.read_windows` and `table.read_join_tsv`. `enumerate_transitions` enumerates the raw product as a stream and parses it into a `table.FixpointProduct`. Only tests call either.
 
 `guard_sweep` runs `guard-sweep` once and returns the complete mapping from `(ligature, first raw slot, second raw slot)` to the configuration-independent formation verdict. It is memoized per spec identity, so a process sweeps a spec once however many callers ask. `guard_sweep_under` returns the same mapping for one named configuration instead of quantifying over the powerset. It is not memoized, because only tests read it; they compare each configuration's verdicts with the quantified ones.
 
@@ -40,7 +40,7 @@ from pathlib import Path
 
 from rebuild.pipeline import kernel_io, settle, table
 from rebuild.pipeline.model import CellId, Provenance, ResolvedSpec, Settled, feature_config_token
-from rebuild.pipeline.table import DecisionTable, FixpointProduct, TreatyTable
+from rebuild.pipeline.table import DecisionTable, FixpointProduct, JoinTable
 from rebuild.tools import memory_budget
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -351,7 +351,7 @@ def build_table_files(
     moved_classes: Sequence[str] = (),
     memo_stamp: str | None = None,
 ) -> dict[str, str]:
-    """Every named configuration folded in the crate: its settlement TSV, its treaty TSV, its plain window enumeration stamped `inputs`, and the table digest of the pair, returned as `{config: digest}`.
+    """Every named configuration folded in the crate: its settlement TSV, its join TSV, its plain window enumeration stamped `inputs`, and the table digest of the pair, returned as `{config: digest}`.
 
     This is `enumerate-configs` plus the fold in one process, so there is no stream between them: the fold runs on the product the worklist still holds. The windows payload is written uncompressed because the crate depends only on serde_json, and `run_m1.build_tables` packs it into the `.gz` artifact.
 
@@ -1201,8 +1201,8 @@ def enumerate_transitions(spec: ResolvedSpec, features: frozenset[str]) -> Fixpo
         return read_stream(next(iter(streams.values())))
 
 
-def build_tables(spec: ResolvedSpec, features: frozenset[str]) -> tuple[DecisionTable, TreatyTable]:
-    """One configuration's decision and treaty tables, in memory, leaving no files: one `build-tables` process over a scratch spec dump, then the windows payload and the treaty TSV read back. The rows are read in full here, unlike on the build's own path, because a caller of this function wants the table, and the table is fixture-sized; `run_m1.build_tables` builds the live alphabet's. The crate raises its own errors during enumeration and folding (E-UNACCEPTED-EXIT, and the fold's checks listed in `rebuild/kernel-rs/src/fold.rs`), so a returned table has passed them."""
+def build_tables(spec: ResolvedSpec, features: frozenset[str]) -> tuple[DecisionTable, JoinTable]:
+    """One configuration's decision and join tables, in memory, leaving no files: one `build-tables` process over a scratch spec dump, then the windows payload and the join TSV read back. The rows are read in full here, unlike on the build's own path, because a caller of this function wants the table, and the table is fixture-sized; `run_m1.build_tables` builds the live alphabet's. The crate raises its own errors during enumeration and folding (E-UNACCEPTED-EXIT, and the fold's checks listed in `rebuild/kernel-rs/src/fold.rs`), so a returned table has passed them."""
     with tempfile.TemporaryDirectory() as scratch:
         directory = Path(scratch)
         spec_path = directory / "spec.json"
@@ -1213,4 +1213,4 @@ def build_tables(spec: ResolvedSpec, features: frozenset[str]) -> tuple[Decision
         build_table_files(spec_path, tables, [config], inputs=UNSTAMPED_WINDOWS, threads=1)
         with (tables / f"windows-{config}.tsv").open("rt", encoding="utf-8") as handle:
             _stamp, decision = table.read_windows(handle)
-        return decision, table.read_treaty_tsv(tables / f"treaties-{config}.tsv")
+        return decision, table.read_join_tsv(tables / f"joins-{config}.tsv")

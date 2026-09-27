@@ -1,10 +1,10 @@
-"""The decision-table and treaty-table data model, and the readers and digests for the table artifacts the crate writes (rebuild/M1-PLAN.md §5, Group 2).
+"""The decision-table and join-table data model, and the readers and digests for the table artifacts the crate writes (rebuild/M1-PLAN.md §5, Group 2).
 
-The crate under `rebuild/kernel-rs` builds both tables and nothing here folds. `src/fixpoint.rs` enumerates the windows. `src/fold.rs` and `src/rulefold.rs` hold the prospect-divergence pass, the per-input rule fold, and the treaty fold, and `src/artifacts.rs` writes the settlement TSV, the treaty TSV, and the windows payload. `run_m1.build_tables` reads its rules, reachable cells, and treaty rows back through `read_windows` and `read_treaty_tsv`. `rebuild/test_table.py` replays the crate's rules against its rows on the mini fixture as an independent check of the fold, and `gate:conform` checks that the compiled font agrees with settlement.
+The crate under `rebuild/kernel-rs` builds both tables and nothing here folds. `src/fixpoint.rs` enumerates the windows. `src/fold.rs` and `src/rulefold.rs` hold the prospect-divergence pass, the per-input rule fold, and the join fold, and `src/artifacts.rs` writes the settlement TSV, the join TSV, and the windows payload. `run_m1.build_tables` reads its rules, reachable cells, and join rows back through `read_windows` and `read_join_tsv`. `rebuild/test_table.py` replays the crate's rules against its rows on the mini fixture as an independent check of the fold, and `gate:conform` checks that the compiled font agrees with settlement.
 
 The kernel tabulates settlement over every (settled left, rune, right1, right2) window reachable for one feature configuration, by fixpoint over reachable left states, so the table is exact. Windows that formation makes impossible are left out, except that a ligature's component pair is enumerated where the §5.7 late-formation guard blocks the ligature. A window with a formed ligature as its input or at right1 is enumerated only where that ligature's guard does not block. A ZWNJ-locked entry-bearing input is enumerated under its chokepoint twin's name (`model.locked_glyph_name`).
 
-Rows carry two deep slots, `right3` and `right4`. The kernel splits a window by the third raw token only where both nearer slots are letters and the window's outcome can still depend on that token, and by the fourth token likewise one slot deeper. Elsewhere the slot holds `#NA`. The crate's `deep_slots.rs` and `liveness.rs` decide which windows are split. In the pinned world only runes with a `prefer` or `resolve` record whose right chain reaches the slot can be split. Under the simulated prospect or the follower prefer slots every rune can be. Under class grain (`kernel_exec.class_grain`) a deep slot holds a class id (`deep_class_id`) standing for the letters that settle identically there, listed in `deep_classes`. Class rows are expanded back to labels before folding (`expanded_transitions` on this side), and the fold, the joint-flag pass, the treaty fold, and the rules all read that expanded stream, so `Rule` objects hold labels only. doc/rebuild-design.md §3.4 describes the deep slots. `_assert_window_arity` checks at import that `Transition` and `Rule` have `model.RIGHT_WINDOW_SLOTS` right slots.
+Rows carry two deep slots, `right3` and `right4`. The kernel splits a window by the third raw token only where both nearer slots are letters and the window's outcome can still depend on that token, and by the fourth token likewise one slot deeper. Elsewhere the slot holds `#NA`. The crate's `deep_slots.rs` and `liveness.rs` decide which windows are split. In the pinned world only runes with a `prefer` or `resolve` record whose right chain reaches the slot can be split. Under the simulated prospect or the follower prefer slots every rune can be. Under class grain (`kernel_exec.class_grain`) a deep slot holds a class id (`deep_class_id`) standing for the letters that settle identically there, listed in `deep_classes`. Class rows are expanded back to labels before folding (`expanded_transitions` on this side), and the fold, the joint-flag pass, the join fold, and the rules all read that expanded stream, so `Rule` objects hold labels only. doc/rebuild-design.md §3.4 describes the deep slots. `_assert_window_arity` checks at import that `Transition` and `Rule` have `model.RIGHT_WINDOW_SLOTS` right slots.
 
 `src/rulefold.rs` specifies how each input's rows are compressed into rules and the order of those rules. The crate checks the rules by replaying the rows against them under first-match-wins (`fold::assert_outcome_partition`).
 
@@ -71,7 +71,7 @@ class Window:
 
 @dataclass(frozen=True, slots=True)
 class Transition(Window):
-    """A window plus the fields only the fold reads: the settled cells the treaty table is folded from, the optimistic prospect the joint flag is scored against, and the provenance pointers the rule fold copies onto rules."""
+    """A window plus the fields only the fold reads: the settled cells the join table is folded from, the optimistic prospect the joint flag is scored against, and the provenance pointers the rule fold copies onto rules."""
 
     settled: Settled
     left_settled: Settled | None
@@ -110,7 +110,7 @@ _assert_window_arity(RIGHT_WINDOW_SLOTS)
 
 
 @dataclass(frozen=True, slots=True)
-class TreatyRow:
+class JoinRow:
     left: str
     right: str
     junction: str  # a height name or "break"
@@ -196,38 +196,36 @@ class DecisionTable:
 
 
 @dataclass
-class TreatyTable:
+class JoinTable:
     config: str
-    rows: tuple[TreatyRow, ...] = ()
+    rows: tuple[JoinRow, ...] = ()
 
     def write_tsv(self, path: Path) -> None:
-        lines = [f"# treaty table, config {self.config}", "left\tright\tjunction\textension\tkern"]
+        lines = [f"# join table, config {self.config}", "left\tright\tjunction\textension\tkern"]
         for row in self.rows:
             lines.append("\t".join((row.left, row.right, row.junction, str(row.extension), str(row.kern))))
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("\n".join(lines) + "\n")
 
 
-TREATY_COLUMNS = ("left", "right", "junction", "extension", "kern")
+JOIN_COLUMNS = ("left", "right", "junction", "extension", "kern")
 
 
-def read_treaty_tsv(path: Path) -> TreatyTable:
-    """Read a treaty TSV back: the inverse of `TreatyTable.write_tsv`. The kernel's `build-tables` subcommand writes the file, and the build reads it back because deriving the treaty table again would repeat the fixpoint. Raises OSError when the file is missing and ValueError when it is not a treaty table in this format."""
+def read_join_tsv(path: Path) -> JoinTable:
+    """Read a join TSV back: the inverse of `JoinTable.write_tsv`. The kernel's `build-tables` subcommand writes the file, and the build reads it back because deriving the join table again would repeat the fixpoint. Raises OSError when the file is missing and ValueError when it is not a join table in this format."""
     lines = path.read_text().splitlines()
-    if not lines or not lines[0].startswith("# treaty table, config "):
-        raise ValueError(f"{path}: not a treaty table")
-    if len(lines) < 2 or tuple(lines[1].split("\t")) != TREATY_COLUMNS:
-        raise ValueError(f"{path}: treaty columns are not {TREATY_COLUMNS}")
+    if not lines or not lines[0].startswith("# join table, config "):
+        raise ValueError(f"{path}: not a join table")
+    if len(lines) < 2 or tuple(lines[1].split("\t")) != JOIN_COLUMNS:
+        raise ValueError(f"{path}: join columns are not {JOIN_COLUMNS}")
     rows = []
     for number, line in enumerate(lines[2:], 3):
         fields = line.split("\t")
-        if len(fields) != len(TREATY_COLUMNS):
-            raise ValueError(
-                f"{path}: line {number} has {len(fields)} fields, expected {len(TREATY_COLUMNS)}"
-            )
+        if len(fields) != len(JOIN_COLUMNS):
+            raise ValueError(f"{path}: line {number} has {len(fields)} fields, expected {len(JOIN_COLUMNS)}")
         left, right, junction, extension, kern = fields
-        rows.append(TreatyRow(left, right, junction, int(extension), int(kern)))
-    return TreatyTable(config=lines[0].removeprefix("# treaty table, config "), rows=tuple(rows))
+        rows.append(JoinRow(left, right, junction, int(extension), int(kern)))
+    return JoinTable(config=lines[0].removeprefix("# join table, config "), rows=tuple(rows))
 
 
 WINDOWS_FORMAT = "ams-m1-windows/2"
@@ -321,8 +319,8 @@ def windows_digest(decision: DecisionTable) -> str:
     return digest.hexdigest()
 
 
-def table_digest(decision: DecisionTable, treaty: TreatyTable) -> str:
-    """Return a hash of everything one configuration's build produces: the ordered rules with their provenance and joint flags, every stored window row, the treaty rows, the reachable cells, the cited provenance, and the identity-guard count. Two builds that should agree, such as before and after a port or a refactor, are compared with this digest. `windows_digest` is narrower: it leaves out the treaty, the cells, the cited provenance, and the guard count, so it answers only whether the settlement rows changed. The deep-class map is not hashed separately, because class ids are content-addressed, so a changed member set changes the ids in the rows that cite it."""
+def table_digest(decision: DecisionTable, joins: JoinTable) -> str:
+    """Return a hash of everything one configuration's build produces: the ordered rules with their provenance and joint flags, every stored window row, the join rows, the reachable cells, the cited provenance, and the identity-guard count. Two builds that should agree, such as before and after a port or a refactor, are compared with this digest. `windows_digest` is narrower: it leaves out the join rows, the cells, the cited provenance, and the guard count, so it answers only whether the settlement rows changed. The deep-class map is not hashed separately, because class ids are content-addressed, so a changed member set changes the ids in the rows that cite it."""
     h = hashlib.sha256()
     h.update(f"config\t{decision.config}\n".encode())
     for rule in decision.rules:
@@ -350,16 +348,16 @@ def table_digest(decision: DecisionTable, treaty: TreatyTable) -> str:
             ).encode()
             + b"\n"
         )
-    h.update(b"--treaty--\n")
-    for treaty_row in treaty.rows:
+    h.update(b"--joins--\n")
+    for join_row in joins.rows:
         h.update(
             "\t".join(
                 (
-                    treaty_row.left,
-                    treaty_row.right,
-                    treaty_row.junction,
-                    str(treaty_row.extension),
-                    str(treaty_row.kern),
+                    join_row.left,
+                    join_row.right,
+                    join_row.junction,
+                    str(join_row.extension),
+                    str(join_row.kern),
                 )
             ).encode()
             + b"\n"

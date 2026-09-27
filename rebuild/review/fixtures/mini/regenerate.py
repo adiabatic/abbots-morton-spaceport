@@ -7,7 +7,7 @@ The bundle holds:
 - `audit.tsv`, the live divergence audit filtered to the union of two sets: every window drawn from `LETTERS` and `BOUNDARIES`, and every window in `EXAMPLE_WINDOWS`, which the tests in `rebuild/test_review_enrich.py` and `rebuild/test_review_drafts.py` name by codepoint. Regeneration fails when a window in `EXAMPLE_WINDOWS` selects no row, so a lost example is found here and not in a test failure after a later rune edit.
 - `baseline-<config>.subset.tsv.gz` for each of `conform.ACCEPTANCE_CONFIGS` and no other configuration, sliced to the same windows. The live build directory can also hold subset tables for other configurations, which nothing reads.
 - `M1.otf`, a copy of the after font the slices were extracted against.
-- `settlement-default.tsv` and `treaties-default.tsv`, which `rebuild/test_review_tablediff.py` and the table-diff build test use as real tables beside a real font.
+- `settlement-default.tsv` and `joins-default.tsv`, which `rebuild/test_review_tablediff.py` and the table-diff build test use as real tables beside a real font.
 - `pin.json`, the tree and blob shas of `pin.PINNED_PATHS` at the commit this ran on.
 
 All of it must be regenerated together. A slice from one build beside a font from another, or a pin from a third, would make the enricher report glyph disagreements caused by the bundle and not by the code.
@@ -127,7 +127,7 @@ def main() -> int:
                             if line.startswith("#") or line.split("\t", 1)[0] in windows:
                                 sink.write(line)
     shutil.copyfile(LIVE / "M1.otf", HERE / "M1.otf")
-    for table in ("settlement-default.tsv", "treaties-default.tsv"):
+    for table in ("settlement-default.tsv", "joins-default.tsv"):
         shutil.copyfile(LIVE / table, HERE / table)
     record = pin.write_pin()
     print(

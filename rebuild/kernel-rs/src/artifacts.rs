@@ -1,10 +1,10 @@
-//! Produces the four outputs of one configuration's fold: `settlement-<config>.tsv`, `treaties-<config>.tsv`, the windows enumeration, and the table digest ([`table_digest`]). Separators, the `-` for an absent slot, and every ordering match the writers and readers in `rebuild/pipeline/table.py`. `rebuild/test_windows.py` reads a built artifact back through `table.read_windows` and `table.read_treaty_tsv`, writes it again with `DecisionTable.write_tsv` and `TreatyTable.write_tsv`, and requires the same bytes and the same `table.table_digest`.
+//! Produces the four outputs of one configuration's fold: `settlement-<config>.tsv`, `joins-<config>.tsv`, the windows enumeration, and the table digest ([`table_digest`]). Separators, the `-` for an absent slot, and every ordering match the writers and readers in `rebuild/pipeline/table.py`. `rebuild/test_windows.py` reads a built artifact back through `table.read_windows` and `table.read_join_tsv`, writes it again with `DecisionTable.write_tsv` and `JoinTable.write_tsv`, and requires the same bytes and the same `table.table_digest`.
 //!
 //! The windows payload is written uncompressed. `run_m1._pack_windows` gzips it into `windows-<config>.tsv.gz` with a zeroed timestamp. This keeps the compressor out of the crate, whose only dependency is serde_json, and makes the decompressed bytes the artifact's identity.
 //!
 //! The digest is not written to a file. `build-tables` prints it on stdout as one JSON line per configuration, and the caller keeps it. No other step reads it, and a file would be one more copy that could go stale.
 //!
-//! [`table_digest`] feeds SHA-256 section by section and reuses one line buffer for the window, treaty, and cell rows, so its memory does not grow with the number of windows. Writing and hashing the windows share the row formatter but are separate passes.
+//! [`table_digest`] feeds SHA-256 section by section and reuses one line buffer for the window, join, and cell rows, so its memory does not grow with the number of windows. Writing and hashing the windows share the row formatter but are separate passes.
 
 use std::fmt::Write as _;
 use std::io::Write as _;
@@ -12,7 +12,7 @@ use std::path::Path;
 use std::rc::Rc;
 
 use crate::emit::{escape_into, json_string};
-use crate::fold::{DecisionTable, Rule, TreatyTable};
+use crate::fold::{DecisionTable, JoinTable, Rule};
 use crate::hash::HashSet;
 use crate::index::SpecIndex;
 use crate::sha256;
@@ -159,11 +159,11 @@ fn slot_members(text: &str) -> Option<Vec<Rc<str>>> {
     Some(text.split(' ').map(Rc::from).collect())
 }
 
-/// `TreatyTable.write_tsv`.
-pub fn treaty_tsv(treaty: &TreatyTable) -> String {
-    let mut out = format!("# treaty table, config {}\n", treaty.config);
+/// `JoinTable.write_tsv`.
+pub fn join_tsv(joins: &JoinTable) -> String {
+    let mut out = format!("# join table, config {}\n", joins.config);
     out.push_str("left\tright\tjunction\textension\tkern\n");
-    for row in &treaty.rows {
+    for row in &joins.rows {
         let _ = writeln!(
             out,
             "{}\t{}\t{}\t{}\t{}",
@@ -323,10 +323,10 @@ fn rule_json(rule: &Rule) -> String {
     out
 }
 
-/// `table.table_digest`: one hash that shows whether two builds of one configuration agree on the ordered rules with their provenance and joint flags, every enumerated window row, the treaty rows, the reachable cells, the cited provenance, and the identity-guard count.
+/// `table.table_digest`: one hash that shows whether two builds of one configuration agree on the ordered rules with their provenance and joint flags, every enumerated window row, the join rows, the reachable cells, the cited provenance, and the identity-guard count.
 ///
 /// Only the cells section uses Python reprs instead of tab-joined text: an absent height is the string `None` and the adjustments are a tuple repr, because the Python function interpolates the dataclass fields into an f-string.
-pub fn table_digest(index: &SpecIndex, decision: &DecisionTable, treaty: &TreatyTable) -> String {
+pub fn table_digest(index: &SpecIndex, decision: &DecisionTable, joins: &JoinTable) -> String {
     let mut digest = sha256::Sha256::new();
     let mut line = String::new();
     let _ = writeln!(&mut line, "config\t{}", decision.config);
@@ -341,8 +341,8 @@ pub fn table_digest(index: &SpecIndex, decision: &DecisionTable, treaty: &Treaty
         window_line_into(&mut line, row, decision);
         digest.update(line.as_bytes());
     }
-    digest.update(b"--treaty--\n");
-    for row in &treaty.rows {
+    digest.update(b"--joins--\n");
+    for row in &joins.rows {
         line.clear();
         let _ = writeln!(
             &mut line,

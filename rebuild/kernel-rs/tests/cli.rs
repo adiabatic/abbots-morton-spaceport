@@ -367,7 +367,7 @@ fn a_table_build_files_three_artifacts_and_answers_one_digest_per_configuration(
             answer.starts_with(&format!("{{\"config\":\"{token}\",\"digest\":\"")),
             "the answer names its configuration in the order it was asked for: {answer}"
         );
-        for family in ["settlement", "treaties"] {
+        for family in ["settlement", "joins"] {
             let path = outdir.join(format!("{family}-{token}.tsv"));
             let text = std::fs::read_to_string(&path).expect("every family lands");
             assert!(text.starts_with(&format!(
@@ -414,7 +414,7 @@ fn a_table_build_sharing_defaults_memo_files_the_bytes_a_from_scratch_one_files(
     }
     assert_eq!(answers[0], answers[1]);
     for (token, _) in CONFIGS {
-        for family in ["settlement", "treaties", "windows"] {
+        for family in ["settlement", "joins", "windows"] {
             let name = format!("{family}-{token}.tsv");
             assert_eq!(
                 std::fs::read(shared.join(&name)).expect("the memo-sharing build wrote it"),
@@ -487,7 +487,7 @@ fn a_build_reading_the_previous_memos_files_the_bytes_a_from_scratch_one_files()
     ]);
     assert!(output.status.success(), "{}", complaint(&output));
     for (token, _) in CONFIGS {
-        for family in ["settlement", "treaties", "windows"] {
+        for family in ["settlement", "joins", "windows"] {
             let name = format!("{family}-{token}.tsv");
             assert_eq!(
                 std::fs::read(reusing.join(&name))
@@ -525,7 +525,7 @@ fn a_build_reading_the_previous_memos_files_the_bytes_a_from_scratch_one_files()
         let output = run(&args);
         assert!(output.status.success(), "{arm}: {}", complaint(&output));
         for token in tokens {
-            for family in ["settlement", "treaties", "windows"] {
+            for family in ["settlement", "joins", "windows"] {
                 let name = format!("{family}-{token}.tsv");
                 assert_eq!(
                     std::fs::read(outdir.join(&name))
@@ -569,7 +569,7 @@ fn a_build_reading_the_previous_memos_files_the_bytes_a_from_scratch_one_files()
 fn family_word(family: &str) -> &str {
     match family {
         "settlement" => "settlement",
-        _ => "treaty",
+        _ => "join",
     }
 }
 

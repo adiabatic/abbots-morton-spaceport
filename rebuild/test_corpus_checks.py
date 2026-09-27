@@ -526,7 +526,7 @@ def test_identical_table_directories_refuse_to_diff(tmp_path):
     new_dir = tmp_path / "new"
     old_dir.mkdir()
     new_dir.mkdir()
-    for name in ("settlement-default.tsv", "treaties-default.tsv"):
+    for name in ("settlement-default.tsv", "joins-default.tsv"):
         shutil.copyfile(MINI / name, old_dir / name)
         shutil.copyfile(MINI / name, new_dir / name)
     with pytest.raises(SystemExit) as raised:

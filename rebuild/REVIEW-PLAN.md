@@ -1,6 +1,6 @@
 # Review corpus plan (design §11, first workload: the M1 migration baseline diff)
 
-This is the design record for the treaty-diff review app: why the corpus has its shape, and the contracts it was built against. Its inputs are design §11, §8, §10.5 and §6.3. The app is built under `rebuild/out/review/` and served on port 7294.
+This is the design record for the table-diff review app: why the corpus has its shape, and the contracts it was built against. Its inputs are design §11, §8, §10.5 and §6.3. The app is built under `rebuild/out/review/` and served on port 7294.
 
 `rebuild/review/README.md` describes what the app does today: commands, keyboard map, triage flow, and the machine-approval and deduplication mechanisms. The checkers in `rebuild/review/build.py` are the executable contract. Counts are not kept here. The last accepted review facts are `rebuild/review-facts-pins.json`, which every artifact-cycle pass refreshes from the build's review-facts sidecar (`uv run python -m rebuild.review.facts --update` is the manual form). A build's totals (`totals`, `machine_approved`, and the `secondary_junctions` counts) are in `rebuild/out/review/manifest.json`, and `make verdict-ready` reports adjudication status. The `rebuild/review/*.py` module docstrings and the README cite this file's section numbers, so sections are never renumbered.
 
@@ -8,7 +8,7 @@ This is the design record for the treaty-diff review app: why the corpus has its
 
 ### 1.1 Source layout (checked-in, under `rebuild/review/`)
 
-`rebuild/review/` is a package; the README's “Source layout” bullet lists its files. Two ingestion front ends produce the same unit model. `audit.py` (M1 mode) loads `rebuild/out/m1/divergence-audit.tsv` and `rebuild/m1-divergences.yaml`, dedupes the rows to units, and orders them. `tablediff.py` (table-diff mode, §2.3) diffs two settlement/treaty table directories by key. Everything after ingestion is the same in both modes: enrichment, the three verdict drafters, the ink comparison, the generation CLI, and the triage-YAML export.
+`rebuild/review/` is a package; the README's “Source layout” bullet lists its files. Two ingestion front ends produce the same unit model. `audit.py` (M1 mode) loads `rebuild/out/m1/divergence-audit.tsv` and `rebuild/m1-divergences.yaml`, dedupes the rows to units, and orders them. `tablediff.py` (table-diff mode, §2.3) diffs two settlement/join table directories by key. Everything after ingestion is the same in both modes: enrichment, the three verdict drafters, the ink comparison, the generation CLI, and the triage-YAML export.
 
 The server, `serve.py`, runs the same livereload server and no-store static handler as `tools/serve.py`, over `rebuild/out/review/`, and adds the `/autosave` and `/status` endpoints. `rebuild/review/fixtures/` holds a hand-written miniature corpus (a `manifest.json` and two unit shards) that satisfies the §7 contract, so the frontend and the contract checker can run without a build. Python tests are `rebuild/test_review_*.py` and their neighbors (§5.1). The pure ES modules have `node --test` tests under `rebuild/review/jstests/`.
 
@@ -77,15 +77,15 @@ Per-unit precomputed fields (full contract in §7): notation, before/after facts
 
 Ties break to the lowest unit id. When the primary unit is ink- or picture-identical, the marker is suppressed: the divergence is an invisible name-grain rename, and the page promises that unmarked regions have nothing visible to judge. When no primary unit exists, the marker is still emitted with `primary_unit: null`, so it is never silently unmarked. The manifest's `secondary_junctions` record counts units with visible markers, junctions with a primary unit, junctions without one, and suppressed junctions. The contract checker validates the field shape and that every named primary unit is a unit in the output. The frontend draws each visible junction as a dimmer dashed band in both columns with a chip that links to the primary unit, or reads “only here” for `primary_unit: null`, and never on machine-approved renderings. A junction with no primary unit is judged in this unit, so the frontend also underlines its tokens on the notation and codepoints lines with a `.junction-mark` span in the band's dashed amber (§3.1).
 
-### 2.3 The general table-vs-table treaty-diff mode
+### 2.3 The general table-vs-table diff mode
 
 `tablediff.py` implements design §8's diff as the second input shape behind the same unit model:
 
-- Settlement key (`config`, `input`, `backtrack`, and up to four lookahead classes) → (`outcome`, `joint`, `provenance`); treaty key (`config`, `left`, `right`) → (`junction`, `extension`, `kern`).
+- Settlement key (`config`, `input`, `backtrack`, and up to four lookahead classes) → (`outcome`, `joint`, `provenance`); join key (`config`, `left`, `right`) → (`junction`, `extension`, `kern`).
 - Rows are classified as added, removed, or changed. Removals and additions that share (`config`, `input`) are paired, so a re-partitioned context renders as one regrouped row. Settlement changes that move only provenance go to a low-priority bucket.
 - Every changed row needs an example text to render. `tablediff.ExampleIndex` settles every sequence up to depth 5 per config, shortest first, and records the first sequence that matches each row.
 - Both the diff and the snapshot read only the tables of configurations in `tablediff.SETTLED_CONFIGS` (the settled configurations, without the ss10 overlay), so a table left under the name of a configuration the build does not settle is never diffed or accepted.
-- A **baseline snapshot** is what the `snapshot` subcommand writes: the per-config `settlement-*.tsv` and `treaties-*.tsv`, the OTF they shipped with, and a `snapshot.json` recording sha256s, source paths, and the repo HEAD. To accept a state after review, re-run `snapshot` over the new tables; the next migration's `--baseline` points at it. This follows the `site/before/` workflow.
+- A **baseline snapshot** is what the `snapshot` subcommand writes: the per-config `settlement-*.tsv` and `joins-*.tsv`, the OTF they shipped with, and a `snapshot.json` recording sha256s, source paths, and the repo HEAD. To accept a state after review, re-run `snapshot` over the new tables; the next migration's `--baseline` points at it. This follows the `site/before/` workflow.
 
 Both modes produce the same shard JSON. The frontend reads the mode only from the manifest's `mode` field and the class metadata: table-diff units carry bucket ids (`added`, `removed`, `regrouped`, `changed`, `provenance-only`) in place of ledger class ids.
 

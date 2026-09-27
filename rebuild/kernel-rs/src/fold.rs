@@ -1,4 +1,4 @@
-//! The table build's fold, run in the crate on the product the worklist just produced: the class-grain rows expanded to label grain, the prospect-divergence flag pass over that expansion, the per-input rule fold ([`crate::rulefold`]), the treaty fold, and the assertions the build checks its tables against.
+//! The table build's fold, run in the crate on the product the worklist just produced: the class-grain rows expanded to label grain, the prospect-divergence flag pass over that expansion, the per-input rule fold ([`crate::rulefold`]), the join fold, and the assertions the build checks its tables against.
 //!
 //! This is the only implementation of the fold. `rebuild/pipeline/table.py` keeps the data model, the artifact readers and the digests. Three independent checks cover the fold. Byte-identity of the artifacts [`crate::artifacts`] writes against a stamped baseline catches a change in rule order, which is the shipped GSUB order. `rebuild/test_table.py` replays these rules against these rows on the mini fixture with its own first-match-wins implementation. `gate:conform` shapes the compiled font with HarfBuzz on every cycle and compares the result with this crate's per-window settlement.
 //!
@@ -66,9 +66,9 @@ impl Rule {
     }
 }
 
-/// One treaty row, `table.TreatyRow`: the two settled cells a junction joins, the height it joins at (or `break`), and the connector pixels the junction carries. `kern` is always zero and is written anyway, because the TSV has the column.
+/// One join row, `table.JoinRow`: the two settled cells a junction joins, the height it joins at (or `break`), and the connector pixels the junction carries. `kern` is always zero and is written anyway, because the TSV has the column.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub struct TreatyRow {
+pub struct JoinRow {
     pub left: Rc<str>,
     pub right: Rc<str>,
     pub junction: String,
@@ -100,11 +100,11 @@ impl DecisionTable {
     }
 }
 
-/// One configuration's treaty table, `table.TreatyTable`.
+/// One configuration's join table, `table.JoinTable`.
 #[derive(Debug)]
-pub struct TreatyTable {
+pub struct JoinTable {
     pub config: String,
-    pub rows: Vec<TreatyRow>,
+    pub rows: Vec<JoinRow>,
 }
 
 /// What one configuration's fold produced: its two tables, and the lefts the reduced replay covered.
@@ -113,7 +113,7 @@ pub struct TreatyTable {
 #[derive(Debug)]
 pub struct Folded {
     pub decision: DecisionTable,
-    pub treaty: TreatyTable,
+    pub joins: JoinTable,
     pub replay_lefts: ReplayLefts,
 }
 
@@ -216,7 +216,7 @@ pub fn fold_product(index: &SpecIndex, product: FixpointProduct) -> Result<Folde
     fold_with(index, product, &mut options)
 }
 
-/// One configuration's two tables, folded from the product the worklist produced. The steps run in this order: the key-order check, the expansion and the prospect pass, the rule fold, the reachable-cells cross-check, the treaty fold, the reduced first-match-wins replay, the deep-class union check, and last the certificates. Each check returns an error where its invariant does not hold.
+/// One configuration's two tables, folded from the product the worklist produced. The steps run in this order: the key-order check, the expansion and the prospect pass, the rule fold, the reachable-cells cross-check, the join fold, the reduced first-match-wins replay, the deep-class union check, and last the certificates. Each check returns an error where its invariant does not hold.
 ///
 /// `options` is the enumeration's own, so the certificates read the formation guard's verdicts from the memo the worklist already filled instead of sweeping them again.
 pub fn fold_with(
@@ -310,9 +310,9 @@ fn fold_with_report(
         }
     }
     // Sort on the whole row: two rows tying on (left, right, junction) would otherwise come out in hash-set order.
-    let mut treaty_rows: Vec<TreatyRow> = seen
+    let mut join_rows: Vec<JoinRow> = seen
         .into_iter()
-        .map(|(left, right, junction, extension)| TreatyRow {
+        .map(|(left, right, junction, extension)| JoinRow {
             left,
             right,
             junction,
@@ -320,7 +320,7 @@ fn fold_with_report(
             kern: 0,
         })
         .collect();
-    treaty_rows.sort();
+    join_rows.sort();
 
     let started = report.is_some().then(Instant::now);
     let chains = certificate::RowChains::over(&rows);
@@ -357,9 +357,9 @@ fn fold_with_report(
     };
     Ok(Folded {
         decision,
-        treaty: TreatyTable {
+        joins: JoinTable {
             config,
-            rows: treaty_rows,
+            rows: join_rows,
         },
         replay_lefts,
     })
@@ -514,7 +514,7 @@ fn input_runs(rows: &LabelRows<'_>) -> Vec<(usize, usize)> {
     runs
 }
 
-/// How far one settled cell's own adjustments move its entry. The treaty fold adds this to the left's extension.
+/// How far one settled cell's own adjustments move its entry. The join fold adds this to the left's extension.
 fn entry_extension(cell: &CellId) -> i64 {
     let mut total = 0;
     for token in &cell.adjustments {
@@ -1030,11 +1030,11 @@ mod tests {
     }
 
     #[test]
-    fn the_fixtures_fixpoint_folds_into_rules_windows_and_treaty_rows() {
+    fn the_fixtures_fixpoint_folds_into_rules_windows_and_join_rows() {
         let (_index, _product, folded) = built();
         assert!(!folded.decision.rules.is_empty());
         assert!(!folded.decision.transitions.is_empty());
-        assert!(!folded.treaty.rows.is_empty());
+        assert!(!folded.joins.rows.is_empty());
         assert!(!folded.decision.cited_provenance.is_empty());
     }
 
@@ -1310,11 +1310,11 @@ mod tests {
         assert!(before.iter().zip(&after).all(|(was, now)| *now || !*was));
     }
 
-    /// The treaty rows are sorted and distinct, at least one break row has extension 0, and `kern` is always 0.
+    /// The join rows are sorted and distinct, at least one break row has extension 0, and `kern` is always 0.
     #[test]
-    fn the_treaty_rows_are_sorted_and_distinct() {
+    fn the_join_rows_are_sorted_and_distinct() {
         let (_index, _product, folded) = built();
-        let rows = &folded.treaty.rows;
+        let rows = &folded.joins.rows;
         let mut sorted = rows.clone();
         sorted.sort();
         assert_eq!(rows, &sorted);
@@ -1337,13 +1337,13 @@ mod tests {
             artifacts::settlement_tsv(&twice.decision)
         );
         assert_eq!(
-            artifacts::treaty_tsv(&folded.treaty),
-            artifacts::treaty_tsv(&twice.treaty)
+            artifacts::join_tsv(&folded.joins),
+            artifacts::join_tsv(&twice.joins)
         );
-        let whole = artifacts::table_digest(&index, &folded.decision, &folded.treaty);
+        let whole = artifacts::table_digest(&index, &folded.decision, &folded.joins);
         assert_eq!(
             whole,
-            artifacts::table_digest(&index, &twice.decision, &twice.treaty)
+            artifacts::table_digest(&index, &twice.decision, &twice.joins)
         );
         let mut fewer_rules = twice.decision;
         fewer_rules.rules.pop();
@@ -1356,8 +1356,8 @@ mod tests {
         fewer_rows.transitions.pop();
         let digests: HashSet<String> = [
             whole,
-            artifacts::table_digest(&index, &fewer_rules, &folded.treaty),
-            artifacts::table_digest(&index, &fewer_rows, &folded.treaty),
+            artifacts::table_digest(&index, &fewer_rules, &folded.joins),
+            artifacts::table_digest(&index, &fewer_rows, &folded.joins),
         ]
         .into_iter()
         .collect();
@@ -1462,7 +1462,7 @@ mod tests {
             rows
         }
 
-        /// The bench cell with the given adjustments, so two rows under one left can have different entry extensions and produce two treaty rows that tie on (left, right, junction).
+        /// The bench cell with the given adjustments, so two rows under one left can have different entry extensions and produce two join rows that tie on (left, right, junction).
         fn adjusted(&self, adjustments: Vec<AdjustmentToken>) -> CellId {
             CellId {
                 adjustments,
@@ -1470,7 +1470,7 @@ mod tests {
             }
         }
 
-        /// One row whose left committed a junction. The treaty fold skips rows without `left_settled`, and [`Bench::row`] leaves it absent, so a product of those rows folds into no treaty rows.
+        /// One row whose left committed a junction. The join fold skips rows without `left_settled`, and [`Bench::row`] leaves it absent, so a product of those rows folds into no join rows.
         fn joined(&self, labels: [&str; 7], cell: CellId, left_extension: i64) -> TransitionRow {
             let mut row = self.row(labels, 0, false);
             row.settled = self.seat(
@@ -2114,9 +2114,9 @@ mod tests {
         );
     }
 
-    /// Two treaty rows that tie on (left, right, junction) are ordered by the whole row. No live treaty table has such a tie (every `treaties-<config>.tsv` has as many distinct triples as rows), but a sort on the triple alone would leave a tied pair in hash-set order.
+    /// Two join rows that tie on (left, right, junction) are ordered by the whole row. No live join table has such a tie (every `joins-<config>.tsv` has as many distinct triples as rows), but a sort on the triple alone would leave a tied pair in hash-set order.
     #[test]
-    fn treaty_rows_tying_on_the_triple_are_ordered_by_the_whole_row() {
+    fn join_rows_tying_on_the_triple_are_ordered_by_the_whole_row() {
         let bench = Bench::new();
         let extended = bench.adjusted(vec![AdjustmentToken::Extend(Side::Entry, 2)]);
         let contracted = bench.adjusted(vec![AdjustmentToken::Contract(Side::Entry, 3)]);
@@ -2141,7 +2141,7 @@ mod tests {
         );
         let folded = fold_product(&bench.index, product).expect("the tied product folds");
         let rows: Vec<(&str, &str, &str, i64)> = folded
-            .treaty
+            .joins
             .rows
             .iter()
             .map(|row| {
@@ -2192,8 +2192,8 @@ mod tests {
         .expect("and so does the one counting its cell twice");
         assert_eq!(twice.decision.cells.len(), 2);
         assert_eq!(
-            artifacts::table_digest(&bench.index, &once.decision, &once.treaty),
-            artifacts::table_digest(&bench.index, &twice.decision, &twice.treaty)
+            artifacts::table_digest(&bench.index, &once.decision, &once.joins),
+            artifacts::table_digest(&bench.index, &twice.decision, &twice.joins)
         );
     }
 }

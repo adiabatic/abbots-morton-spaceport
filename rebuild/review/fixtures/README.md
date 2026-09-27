@@ -15,7 +15,7 @@ A second fixture of a different kind: a slice of real build output, frozen so th
 
 - `audit.tsv`, the divergence audit filtered to every window drawn from ·Pea, ·Tea, ·Day, ·Roe, and the boundary tokens, plus every window in `regenerate.EXAMPLE_WINDOWS`, the example windows the review tests name by codepoint
 - a `baseline-<config>.subset.tsv.gz` slice for each acceptance config and no other
-- `M1.otf`, and the default settlement and treaty tables
+- `M1.otf`, and the default settlement and join tables
 
 These tests run against it at full xdist width instead of against the live `rebuild/out/`:
 

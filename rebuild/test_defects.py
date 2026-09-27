@@ -1,4 +1,4 @@
-"""Defect-gate tests over the fixture spec, with small duck-typed stand-ins for the decision and treaty tables."""
+"""Defect-gate tests over the fixture spec, with small duck-typed stand-ins for the decision and join tables."""
 
 import textwrap
 from dataclasses import dataclass, field
@@ -25,7 +25,7 @@ class FakeRule:
 
 
 @dataclass(frozen=True)
-class FakeTreatyRow:
+class FakeJoinRow:
     left: CellId | None
     right: CellId | None
     join: str | None
@@ -43,7 +43,7 @@ class FakeDecision:
 
 
 @dataclass
-class FakeTreaty:
+class FakeJoinTable:
     rows: tuple = ()
 
 
@@ -58,7 +58,7 @@ def _realize(spec, rune, stance, entry, exit, adjustments=(), **kwargs):
 
 
 def _tables(rules=(), rows=()):
-    return {frozenset(): (FakeDecision(rules=list(rules)), FakeTreaty(rows=tuple(rows)))}
+    return {frozenset(): (FakeDecision(rules=list(rules)), FakeJoinTable(rows=tuple(rows)))}
 
 
 def _cite_all_policy(spec):
@@ -203,7 +203,7 @@ class TestUnrealized:
     def test_gap_zero_join_passes(self, spec):
         left_cell, left = _realize(spec, "qsIt", "sole", None, "baseline")
         right_cell, right = _realize(spec, "qsMay", "loop", "baseline", "x-height")
-        rows = [FakeTreatyRow(left=left_cell, right=right_cell, join="baseline", extension=0)]
+        rows = [FakeJoinRow(left=left_cell, right=right_cell, join="baseline", extension=0)]
         report = defects.run_gates(
             spec, _tables(rules=[_cite_all_policy(spec)], rows=rows), {left_cell: left, right_cell: right}
         )
@@ -219,7 +219,7 @@ class TestUnrealized:
             convention_exempt=("exit",),
         )
         right_cell, right = _realize(spec, "qsMay", "loop", "baseline", "x-height")
-        rows = [FakeTreatyRow(left=left_cell, right=right_cell, join="baseline", extension=0)]
+        rows = [FakeJoinRow(left=left_cell, right=right_cell, join="baseline", extension=0)]
         report = defects.run_gates(
             spec, _tables(rules=[_cite_all_policy(spec)], rows=rows), {left_cell: left, right_cell: right}
         )
@@ -230,7 +230,7 @@ class TestExtensionBand:
     def test_extension_within_band_passes(self, spec):
         left_cell, left = _realize(spec, "qsMay", "loop", None, "x-height", ["ex-ext-1"])
         right_cell, right = _realize(spec, "qsIt", "sole", "x-height", "baseline")
-        rows = [FakeTreatyRow(left=left_cell, right=right_cell, join="x-height", extension=1)]
+        rows = [FakeJoinRow(left=left_cell, right=right_cell, join="x-height", extension=1)]
         report = defects.run_gates(
             spec, _tables(rules=[_cite_all_policy(spec)], rows=rows), {left_cell: left, right_cell: right}
         )
@@ -240,7 +240,7 @@ class TestExtensionBand:
     def test_extension_beyond_every_band_flags(self, spec):
         left_cell, left = _realize(spec, "qsMay", "loop", None, "x-height", ["ex-ext-2"])
         right_cell, right = _realize(spec, "qsIt", "sole", "x-height", "baseline", ["en-ext-1"])
-        rows = [FakeTreatyRow(left=left_cell, right=right_cell, join="x-height", extension=3)]
+        rows = [FakeJoinRow(left=left_cell, right=right_cell, join="x-height", extension=3)]
         report = defects.run_gates(
             spec, _tables(rules=[_cite_all_policy(spec)], rows=rows), {left_cell: left, right_cell: right}
         )
@@ -249,7 +249,7 @@ class TestExtensionBand:
     def test_extension_with_no_authored_record_fails(self, spec):
         left_cell, left = _realize(spec, "qsTea_qsOy", "sole", None, "baseline", ["ex-ext-1"])
         right_cell, right = _realize(spec, "qsOy", "sole", None, None)
-        rows = [FakeTreatyRow(left=left_cell, right=right_cell, join="baseline", extension=1)]
+        rows = [FakeJoinRow(left=left_cell, right=right_cell, join="baseline", extension=1)]
         glyphs = {left_cell: left, right_cell: right}
         right_entry = GlyphRecord(name=right.name, bitmap=right.bitmap, y_offset=right.y_offset, entry=(0, 0))
         glyphs[right_cell] = right_entry
@@ -263,7 +263,7 @@ class TestContact:
         right_cell = CellId("qsMay", "loop", "baseline", None, ())
         left = GlyphRecord(name="l", bitmap=("##",), y_offset=0, exit=(1, 0), convention_exempt=("exit",))
         right = GlyphRecord(name="r", bitmap=("##",), y_offset=0, entry=(0, 0), convention_exempt=("entry",))
-        rows = [FakeTreatyRow(left=left_cell, right=right_cell, join="baseline")]
+        rows = [FakeJoinRow(left=left_cell, right=right_cell, join="baseline")]
         report = defects.run_gates(
             spec, _tables(rules=[_cite_all_policy(spec)], rows=rows), {left_cell: left, right_cell: right}
         )
@@ -279,7 +279,7 @@ class TestContact:
         right = GlyphRecord(
             name="r", bitmap=("#", "#", "#"), y_offset=0, entry=(0, 0), convention_exempt=("entry",)
         )
-        rows = [FakeTreatyRow(left=left_cell, right=right_cell, join="baseline")]
+        rows = [FakeJoinRow(left=left_cell, right=right_cell, join="baseline")]
         report = defects.run_gates(
             spec,
             _tables(rules=[_cite_all_policy(spec)], rows=rows),
@@ -296,7 +296,7 @@ class TestContact:
         right = GlyphRecord(
             name="r", bitmap=("#", "#"), y_offset=0, entry=(0, 0), convention_exempt=("entry",)
         )
-        rows = [FakeTreatyRow(left=left_cell, right=right_cell, join="baseline")]
+        rows = [FakeJoinRow(left=left_cell, right=right_cell, join="baseline")]
         report = defects.run_gates(
             spec, _tables(rules=[_cite_all_policy(spec)], rows=rows), {left_cell: left, right_cell: right}
         )
@@ -308,7 +308,7 @@ class TestContact:
     def test_clean_join_has_no_contact(self, spec):
         left_cell, left = _realize(spec, "qsTea", "full", None, "baseline")
         right_cell, right = _realize(spec, "qsMay", "loop", "baseline", "x-height")
-        rows = [FakeTreatyRow(left=left_cell, right=right_cell, join="baseline", extension=0)]
+        rows = [FakeJoinRow(left=left_cell, right=right_cell, join="baseline", extension=0)]
         report = defects.run_gates(
             spec, _tables(rules=[_cite_all_policy(spec)], rows=rows), {left_cell: left, right_cell: right}
         )

@@ -1028,12 +1028,12 @@ class TestGatesOnly:
         )
 
     def _build(self, monkeypatch, tmp_path, ran, *, report=None):
-        """Stubs the build this pass reuses: the font the stamp covers, the treaty tables the defect gate reads beside the enumeration, the minting, the defect gate (returning `report`), and the Stage A rewrite."""
+        """Stubs the build this pass reuses: the font the stamp covers, the join tables the defect gate reads beside the enumeration, the minting, the defect gate (returning `report`), and the Stage A rewrite."""
         (tmp_path / "M1.otf").write_bytes(b"font")
         monkeypatch.setattr(run_m1, "OUT_DIR", tmp_path)
         monkeypatch.setattr(run_m1, "load_default_spec", lambda: object())
         monkeypatch.setattr(run_m1, "run_ligature_outgoing", lambda spec: {})
-        monkeypatch.setattr(run_m1.table_module, "read_treaty_tsv", lambda path: f"treaty {path.name}")
+        monkeypatch.setattr(run_m1.table_module, "read_join_tsv", lambda path: f"joins {path.name}")
         monkeypatch.setattr(run_m1, "mint_cell_glyphs", lambda spec, tables: {})
         monkeypatch.setattr(
             run_m1,
@@ -1093,8 +1093,8 @@ class TestGatesOnly:
         assert "no readable" in str(error.value)
         assert _checks() == []
 
-    def test_it_refuses_a_treaty_table_the_defect_gate_cannot_read(self, monkeypatch, tmp_path):
-        """The defect gate reads the treaty tables beside the enumeration, so a matching stamp over a treaty table that will not parse means the build is only partly on disk. The pass exits with an error naming the file instead of a traceback from the gate."""
+    def test_it_refuses_a_join_table_the_defect_gate_cannot_read(self, monkeypatch, tmp_path):
+        """The defect gate reads the join tables beside the enumeration, so a matching stamp over a join table that will not parse means the build is only partly on disk. The pass exits with an error naming the file instead of a traceback from the gate."""
         ran = self._reuse(monkeypatch, {"ss06": "decision"})
         self._build(monkeypatch, tmp_path, ran)
         self._summary(tmp_path)
@@ -1103,10 +1103,10 @@ class TestGatesOnly:
         def refuse(path):
             raise OSError("truncated")
 
-        monkeypatch.setattr(run_m1.table_module, "read_treaty_tsv", refuse)
+        monkeypatch.setattr(run_m1.table_module, "read_join_tsv", refuse)
         with pytest.raises(SystemExit) as error:
             run_m1.run_gates_only(out_dir=tmp_path)
-        assert "treaties-ss06.tsv is missing or unreadable" in str(error.value)
+        assert "joins-ss06.tsv is missing or unreadable" in str(error.value)
 
     def test_it_runs_the_guards_then_the_defect_gate_then_the_pins_then_the_oracle(
         self, monkeypatch, tmp_path, capsys

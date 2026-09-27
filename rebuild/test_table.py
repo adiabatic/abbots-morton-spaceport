@@ -1,6 +1,6 @@
-"""Tests the decision and treaty tables the crate builds (`kernel_exec.build_tables`) from the mini fixture spec: the enumeration's shape, rule ordering, joint flags, per-configuration differences, the deep-class collapse, stable TSV output, and that rewording a refusal's `why` changes no table. A refusal's `why` is the only rune prose the crate reads, and only the ranking shows it.
+"""Tests the decision and join tables the crate builds (`kernel_exec.build_tables`) from the mini fixture spec: the enumeration's shape, rule ordering, joint flags, per-configuration differences, the deep-class collapse, stable TSV output, and that rewording a refusal's `why` changes no table. A refusal's `why` is the only rune prose the crate reads, and only the ranking shows it.
 
-The crate builds every table here, and every check is an independent Python reading of it. `replay` implements first-match-wins separately from the crate, so it can catch a fold mistake that the fold's own `assert_outcome_partition` check shares. Claims that need the enumerated rows the artifacts drop, or a fold to mutate, are tested in the crate: `fold::tests::the_reduced_replay_catches_what_the_whole_table_replay_catches`, `the_prospect_pass_raises_joints_and_clears_none`, `treaty_rows_tying_on_the_triple_are_ordered_by_the_whole_row`, `a_rule_that_splits_a_deep_class_is_refused` and `a_product_whose_cells_disagree_with_its_rows_is_refused`, and for E-UNACCEPTED-EXIT `engine::tests::a_left_that_committed_a_junction_nothing_accepts_is_an_unaccepted_exit`.
+The crate builds every table here, and every check is an independent Python reading of it. `replay` implements first-match-wins separately from the crate, so it can catch a fold mistake that the fold's own `assert_outcome_partition` check shares. Claims that need the enumerated rows the artifacts drop, or a fold to mutate, are tested in the crate: `fold::tests::the_reduced_replay_catches_what_the_whole_table_replay_catches`, `the_prospect_pass_raises_joints_and_clears_none`, `join_rows_tying_on_the_triple_are_ordered_by_the_whole_row`, `a_rule_that_splits_a_deep_class_is_refused` and `a_product_whose_cells_disagree_with_its_rows_is_refused`, and for E-UNACCEPTED-EXIT `engine::tests::a_left_that_committed_a_junction_nothing_accepts_is_an_unaccepted_exit`.
 
 The depth-3 and depth-4 classes run over synthetic ·Tea chains that `tea_chain_spec` adds to the mini spec, because the fixture has no chain of its own. The crate checks the live alphabet's own chain records at every table build.
 """
@@ -16,7 +16,7 @@ from rebuild.pipeline.table import (
     BOUNDARY_LOOKAHEAD_CLASS,
     BOUNDARYISH,
     NA_LABEL,
-    TreatyRow,
+    JoinRow,
 )
 
 SPEC = fixtures.mini_spec()
@@ -107,14 +107,14 @@ def replay(decision):
 
 
 def test_the_ordered_rules_predict_every_enumerated_row(default_tables):
-    decision, _treaty = default_tables
+    decision, _joins = default_tables
     replay(decision)
     assert decision.rules
     assert decision.transitions
 
 
 def test_reachable_cells_cover_the_known_settlements(default_tables):
-    decision, _treaty = default_tables
+    decision, _joins = default_tables
     labels = {
         f"{cell.rune}.{cell.stance}" + ("." + ".".join(cell.adjustments) if cell.adjustments else "")
         for cell in decision.reachable_cells()
@@ -125,7 +125,7 @@ def test_reachable_cells_cover_the_known_settlements(default_tables):
 
 
 def test_transition_outcomes_match_settlement_examples(default_tables):
-    decision, _treaty = default_tables
+    decision, _joins = default_tables
     by_key = {row.key: row for row in decision.transitions}
     row = by_key[("qsIt", "#EDGE", "qsMay", "#EDGE", "#NA", "#NA")]
     assert row.outcome == "qsIt.sole.ex-y0"
@@ -136,7 +136,7 @@ def test_transition_outcomes_match_settlement_examples(default_tables):
 
 
 def test_formation_impossible_windows_are_excluded(default_tables):
-    decision, _treaty = default_tables
+    decision, _joins = default_tables
     for row in decision.transitions:
         assert not (row.input_glyph.split(".")[0] == "qsTea" and row.right1 == "qsOy")
         assert not (row.right1 == "qsTea" and row.right2 == "qsOy")
@@ -144,7 +144,7 @@ def test_formation_impossible_windows_are_excluded(default_tables):
 
 def test_boundary_rows_lead_their_groups(default_tables):
     # Within one (input, backtrack) group, a boundary rule (uni200C explicit in its first lookahead class) precedes every letter-lookahead rule, and the fallback with no lookahead comes last.
-    decision, _treaty = default_tables
+    decision, _joins = default_tables
     groups: dict[tuple, list] = {}
     for rule in decision.rules:
         groups.setdefault((rule.input_glyph, rule.backtrack), []).append(rule)
@@ -166,8 +166,8 @@ def test_boundary_rows_lead_their_groups(default_tables):
 
 def test_ss04_joins_it_at_the_baseline_on_both_sides_after_day(default_tables):
     """·It's ss04 unlock of the baseline/baseline pairing requires `left: qsDay`, so it takes effect only in a spec that has ·Day, which the fixture spec does. The test reads `expanded_transitions`, so it compares window rows however deep classes group them. With ss04 on, every row whose outcome changes is an ·It row after a ·Day cell and changes to the ·It joined at the baseline on both sides, every row the table gains has that ·It as its left, no row or outcome is lost, and the deep classes are unchanged."""
-    decision, _treaty = default_tables
-    ss04_decision, _ss04_treaty = build_tables(SPEC, frozenset({"ss04"}))
+    decision, _joins = default_tables
+    ss04_decision, _ss04_joins = build_tables(SPEC, frozenset({"ss04"}))
     replay(ss04_decision)
     both_sides_baseline = "qsIt.sole.en-y0.ex-y0.ex-ext-1"
     default_outcomes = {row.outcome for row in decision.transitions}
@@ -187,44 +187,42 @@ def test_ss04_joins_it_at_the_baseline_on_both_sides_after_day(default_tables):
 
 
 def test_ss03_table_differs_and_validates(ss03_tables):
-    decision, _treaty = ss03_tables
+    decision, _joins = ss03_tables
     replay(decision)
     outcomes = {row.outcome for row in decision.transitions}
     assert "qsTea.half.en-y5" in outcomes
 
 
-def test_treaty_rows_carry_junction_and_summed_extension(default_tables):
-    _decision, treaty = default_tables
+def test_join_rows_carry_junction_and_summed_extension(default_tables):
+    _decision, joins = default_tables
     assert (
-        TreatyRow(left="qsMay.loop.ex-y5.ex-ext-1", right="qsIt.sole.en-y5", junction="x-height", extension=1)
-        in treaty.rows
+        JoinRow(left="qsMay.loop.ex-y5.ex-ext-1", right="qsIt.sole.en-y5", junction="x-height", extension=1)
+        in joins.rows
     )
     assert (
-        TreatyRow(
-            left="qsTea.full.ex-y0", right="qsMay.loop.en-y0.en-ext-1", junction="baseline", extension=1
-        )
-        in treaty.rows
+        JoinRow(left="qsTea.full.ex-y0", right="qsMay.loop.en-y0.en-ext-1", junction="baseline", extension=1)
+        in joins.rows
     )
-    assert any(row.junction == "break" and row.extension == 0 for row in treaty.rows)
-    assert all(row.kern == 0 for row in treaty.rows)
+    assert any(row.junction == "break" and row.extension == 0 for row in joins.rows)
+    assert all(row.kern == 0 for row in joins.rows)
 
 
 def test_tsv_artifacts_are_diff_stable(default_tables, tmp_path):
-    decision, treaty = default_tables
+    decision, joins = default_tables
     first = tmp_path / "settlement-a.tsv"
     second = tmp_path / "settlement-b.tsv"
     decision.write_tsv(first)
     decision.write_tsv(second)
     assert first.read_text() == second.read_text()
-    treaty_path = tmp_path / "treaties.tsv"
-    treaty.write_tsv(treaty_path)
-    lines = treaty_path.read_text().splitlines()
+    joins_path = tmp_path / "joins.tsv"
+    joins.write_tsv(joins_path)
+    lines = joins_path.read_text().splitlines()
     assert lines[1] == "left\tright\tjunction\textension\tkern"
     assert lines[2:] == sorted(lines[2:])
 
 
 def test_joint_rows_accessor(default_tables):
-    decision, _treaty = default_tables
+    decision, _joins = default_tables
     joints = decision.joint_rows()
     assert isinstance(joints, frozenset)
     for index in joints:
@@ -232,13 +230,13 @@ def test_joint_rows_accessor(default_tables):
 
 
 def test_cited_provenance_records_demonstrably_firing_policy(default_tables, ss03_tables):
-    decision, _treaty = default_tables
+    decision, _joins = default_tables
     # qsTea's refusal of a baseline entry into full ·Tea fires only inside the lookahead closure (it keeps ·It·Tea broken), so its citation shows that firings inside the closure are recorded as well as direct-window ones.
     assert "glyph_data/runes/qsTea.yaml:policy.refuse[0]" in decision.cited_provenance
     # qsMay's first exit extension produces ex-ext-1 on ·May·It in the default configuration; qsIt's entry extension after halves produces en-ext-1 on ·Tea·It.
     assert "glyph_data/runes/qsMay.yaml:policy.extend[0]" in decision.cited_provenance
     assert "glyph_data/runes/qsIt.yaml:policy.extend[0]" in decision.cited_provenance
-    ss03_decision, _ss03_treaty = ss03_tables
+    ss03_decision, _ss03_joins = ss03_tables
     # The ss03-gated reach toward half-·Tea and the half-·Tea entry unlock fire only under ss03.
     assert "glyph_data/runes/qsMay.yaml:policy.extend[1]" in ss03_decision.cited_provenance
     assert "glyph_data/runes/qsMay.yaml:policy.extend[1]" not in decision.cited_provenance
@@ -247,14 +245,14 @@ def test_cited_provenance_records_demonstrably_firing_policy(default_tables, ss0
 
 def test_the_fixture_spec_splits_no_third_slot():
     assert chain_inputs(SPEC, 2) == frozenset()
-    decision, _treaty = candidacy_tables(SPEC, frozenset())
+    decision, _joins = candidacy_tables(SPEC, frozenset())
     assert all(row.right3 == NA_LABEL for row in decision.transitions)
     assert all(rule.look3 is None for rule in decision.rules)
 
 
 def test_the_fixture_spec_splits_no_fourth_slot():
     assert chain_inputs(SPEC, 3) == frozenset()
-    decision, _treaty = candidacy_tables(SPEC, frozenset())
+    decision, _joins = candidacy_tables(SPEC, frozenset())
     assert all(row.right4 == NA_LABEL for row in decision.transitions)
     assert all(rule.look4 is None for rule in decision.rules)
 
@@ -274,7 +272,7 @@ class TestDepthThreeTablesSynthetic:
 
     @pytest.fixture(scope="class")
     def synthetic_decision(self, synthetic_spec):
-        decision, _treaty = candidacy_tables(synthetic_spec, frozenset())
+        decision, _joins = candidacy_tables(synthetic_spec, frozenset())
         return decision
 
     def test_the_synthetic_chain_is_the_only_deep_input(self, synthetic_spec, synthetic_decision):
@@ -366,7 +364,7 @@ class TestDepthFourTablesSynthetic:
 
     @pytest.fixture(scope="class")
     def synthetic_decision(self, synthetic_spec):
-        decision, _treaty = candidacy_tables(synthetic_spec, frozenset())
+        decision, _joins = candidacy_tables(synthetic_spec, frozenset())
         return decision
 
     def test_the_synthetic_chain_is_the_only_deep_input(self, synthetic_spec):
@@ -454,7 +452,7 @@ class TestDepthFourTablesSynthetic:
 
 
 def test_rule_provenance_carries_yaml_pointers(default_tables):
-    decision, _treaty = default_tables
+    decision, _joins = default_tables
     pointers = {
         item for rule in decision.rules for item in rule.provenance if item.startswith("glyph_data/runes/")
     }
@@ -470,12 +468,12 @@ class TestProspectLiveSlots:
         return fixtures.prospect_spec()
 
     def test_flag_off_keeps_the_chain_only_world(self, prospect_spec):
-        decision, _treaty = candidacy_tables(prospect_spec, frozenset())
+        decision, _joins = candidacy_tables(prospect_spec, frozenset())
         assert all(row.right3 == NA_LABEL for row in decision.transitions)
 
     def test_flag_on_opens_exactly_the_sensitive_window(self, prospect_spec, monkeypatch):
         monkeypatch.setattr(kernel_exec, "SIMULATED_PROSPECT_DEFAULT", True)
-        decision, _treaty = build_tables(prospect_spec, frozenset())
+        decision, _joins = build_tables(prospect_spec, frozenset())
         replay(decision)
         split = {
             row.right3: row.outcome
@@ -489,7 +487,7 @@ class TestProspectLiveSlots:
 
 
 class TestDeepClasses:
-    """Tests class-grain enumeration, where deep slots hold outcome fibers that `expanded_transitions` expands back to labels. The `test_class_and_label_expansion_equality_*` tests build one spec with `DEEP_CLASSES_DEFAULT` on and off (off runs the kernel's label-grain path, which uses no fiber code) and assert the same expanded rows, rules, identity-guard count, reachable cells, cited provenance, and treaty rows. `test_actual_lefts_agree_with_the_left_class_assumption` settles every member of every multi-member row at the row's settled left, one window at a time, so a fiber whose members settle differently there fails."""
+    """Tests class-grain enumeration, where deep slots hold outcome fibers that `expanded_transitions` expands back to labels. The `test_class_and_label_expansion_equality_*` tests build one spec with `DEEP_CLASSES_DEFAULT` on and off (off runs the kernel's label-grain path, which uses no fiber code) and assert the same expanded rows, rules, identity-guard count, reachable cells, cited provenance, and join rows. `test_actual_lefts_agree_with_the_left_class_assumption` settles every member of every multi-member row at the row's settled left, one window at a time, so a fiber whose members settle differently there fails."""
 
     @pytest.fixture()
     def deep_world(self, monkeypatch):
@@ -523,12 +521,12 @@ class TestDeepClasses:
 
     def _both_builds(self, spec, monkeypatch):
         monkeypatch.setattr(kernel_exec, "DEEP_CLASSES_DEFAULT", True)
-        class_decision, class_treaty = build_tables(spec, frozenset())
+        class_decision, class_joins = build_tables(spec, frozenset())
         monkeypatch.setattr(kernel_exec, "DEEP_CLASSES_DEFAULT", False)
-        label_decision, label_treaty = build_tables(spec, frozenset())
-        return class_decision, class_treaty, label_decision, label_treaty
+        label_decision, label_joins = build_tables(spec, frozenset())
+        return class_decision, class_joins, label_decision, label_joins
 
-    def _assert_builds_equal(self, class_decision, class_treaty, label_decision, label_treaty):
+    def _assert_builds_equal(self, class_decision, class_joins, label_decision, label_joins):
         assert not label_decision.deep_classes
         expanded = list(class_decision.expanded_transitions())
         assert [(r.key, r.outcome) for r in expanded] == [
@@ -538,40 +536,40 @@ class TestDeepClasses:
         assert class_decision.identity_guard_rules == label_decision.identity_guard_rules
         assert class_decision.reachable_cells() == label_decision.reachable_cells()
         assert class_decision.cited_provenance == label_decision.cited_provenance
-        assert class_treaty.rows == label_treaty.rows
+        assert class_joins.rows == label_joins.rows
 
     def test_class_and_label_expansion_equality_on_the_mini_spec(self, monkeypatch):
-        class_decision, class_treaty, label_decision, label_treaty = self._both_builds(SPEC, monkeypatch)
+        class_decision, class_joins, label_decision, label_joins = self._both_builds(SPEC, monkeypatch)
         assert class_decision.deep_classes
         assert len(class_decision.transitions) < len(label_decision.transitions)
-        self._assert_builds_equal(class_decision, class_treaty, label_decision, label_treaty)
+        self._assert_builds_equal(class_decision, class_joins, label_decision, label_joins)
 
     def test_class_and_label_expansion_equality_on_the_synthetic_depth4_spec(
         self, synthetic_depth4_spec, monkeypatch
     ):
-        class_decision, class_treaty, label_decision, label_treaty = self._both_builds(
+        class_decision, class_joins, label_decision, label_joins = self._both_builds(
             synthetic_depth4_spec, monkeypatch
         )
         assert any(
             row.right4 in class_decision.deep_classes for row in class_decision.transitions
         ), "the synthetic reach-3 chain should mint an r4 class"
-        self._assert_builds_equal(class_decision, class_treaty, label_decision, label_treaty)
+        self._assert_builds_equal(class_decision, class_joins, label_decision, label_joins)
 
     def test_class_and_label_expansion_equality_on_the_prospect_spec(
         self, deep_world, prospect_spec, monkeypatch
     ):
-        class_decision, class_treaty, label_decision, label_treaty = self._both_builds(
+        class_decision, class_joins, label_decision, label_joins = self._both_builds(
             prospect_spec, monkeypatch
         )
         assert class_decision.deep_classes
-        self._assert_builds_equal(class_decision, class_treaty, label_decision, label_treaty)
+        self._assert_builds_equal(class_decision, class_joins, label_decision, label_joins)
 
     def test_the_pinned_world_stays_label_grain(self):
-        decision, _treaty = candidacy_tables(SPEC, frozenset())
+        decision, _joins = candidacy_tables(SPEC, frozenset())
         assert not decision.deep_classes
 
     def test_class_ids_are_content_addressed(self, default_tables):
-        decision, _treaty = default_tables
+        decision, _joins = default_tables
         for token, members in decision.deep_classes.items():
             assert token == table.deep_class_id(members)
             assert members == tuple(sorted(members))
@@ -687,14 +685,14 @@ def refusal_sentences(spec, window):
 
 
 def test_a_refuse_why_rewording_leaves_the_tables_byte_identical_and_reaches_the_explain(tmp_path):
-    """Checks the assumption behind `fingerprint.rune_file_digest` leaving out a refusal's `why`: the crate reads that text only when it builds a ranking. Rewording it leaves the decision TSV, the treaty TSV, and `table.table_digest` unchanged, while the explain output's refusal message shows the new words and not the old ones. The test compares the TSV bytes as well as the digest, because the artifacts are what a stamp describes."""
+    """Checks the assumption behind `fingerprint.rune_file_digest` leaving out a refusal's `why`: the crate reads that text only when it builds a ranking. Rewording it leaves the decision TSV, the join TSV, and `table.table_digest` unchanged, while the explain output's refusal message shows the new words and not the old ones. The test compares the TSV bytes as well as the digest, because the artifacts are what a stamp describes."""
     spec = fixtures.mini_spec()
     reworded = refuse_reworded_spec(spec, "qsIt", REFUSE_WHY_MARKER)
     tables = {"before": build_tables(spec, frozenset()), "after": build_tables(reworded, frozenset())}
-    for name, (decision, treaty) in tables.items():
+    for name, (decision, joins) in tables.items():
         decision.write_tsv(tmp_path / f"{name}-decision.tsv")
-        treaty.write_tsv(tmp_path / f"{name}-treaty.tsv")
-    for artifact in ("decision", "treaty"):
+        joins.write_tsv(tmp_path / f"{name}-joins.tsv")
+    for artifact in ("decision", "joins"):
         assert (tmp_path / f"before-{artifact}.tsv").read_bytes() == (
             tmp_path / f"after-{artifact}.tsv"
         ).read_bytes()

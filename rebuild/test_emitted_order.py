@@ -48,7 +48,7 @@ def test_the_order_file_is_the_fold_in_fea_order_naming_its_sources(spec, built)
 
 def test_the_context_file_carries_the_marker_renaming_and_the_deep_classes(spec, built):
     _out_dir, tables = built
-    decision, _treaty = tables["ss03"]
+    decision, _joins = tables["ss03"]
     lines = emit_gsub.emitted_context_tsv(spec, "ss03", decision).splitlines()
     renames = {raw: twin for kind, raw, twin in (line.split("\t") for line in lines) if kind == "rename"}
     assert renames == model.raw_rename_map(spec, frozenset({"ss03"}))
@@ -68,7 +68,7 @@ def test_the_stage_answers_every_row_of_every_configuration(spec, built):
     assert summary["pass"], summary["complaint"]
     assert list(summary["configs"]) == list(conform.SETTLEMENT_CONFIGS)
     assert summary["rules"] == len(emit_gsub.fold_settle_rules(spec, tables))
-    for config, (decision, _treaty) in tables.items():
+    for config, (decision, _joins) in tables.items():
         assert summary["configs"][config]["rows"] > 0
         assert summary["configs"][config]["rows"] >= len(decision.rules)
     assert (out_dir / run_m1.EMITTED_ORDER_SUMMARY).is_file()
@@ -107,7 +107,7 @@ def test_an_order_that_answers_a_row_differently_is_refused_naming_the_row(spec,
 
 def test_the_kernel_interface_refuses_a_missing_enumeration(spec, built, tmp_path):
     out_dir, tables = built
-    decision, _treaty = tables["default"]
+    decision, _joins = tables["default"]
     order = tmp_path / "order.tsv"
     order.write_text(emit_gsub.emitted_order_tsv(spec, tables))
     context = tmp_path / "context.tsv"

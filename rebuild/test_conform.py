@@ -1084,7 +1084,7 @@ class TestOracleAudit:
                 for pattern in (
                     "baseline-*.subset.tsv.gz",
                     "settlement-*.tsv",
-                    "treaties-*.tsv",
+                    "joins-*.tsv",
                     "windows-*.tsv.gz",
                     "transitions-*.ndjson",
                     "*.json",

@@ -98,10 +98,10 @@ class TestRoundTrip:
         assert table_module.windows_digest(stripped) == table_module.windows_digest(built)
 
     def test_two_builds_of_one_spec_write_the_same_bytes(self, build_a, build_b):
-        """Two whole builds of one spec write byte-identical settlement TSVs, treaty TSVs, and windows files. The check runs over whole builds because the crate writes the TSVs and the windows payload, and the Python side adds only the gzip wrapper with a zeroed timestamp."""
+        """Two whole builds of one spec write byte-identical settlement TSVs, join TSVs, and windows files. The check runs over whole builds because the crate writes the TSVs and the windows payload, and the Python side adds only the gzip wrapper with a zeroed timestamp."""
         first, _tables, _digests = build_a
         for config in conform.SETTLEMENT_CONFIGS:
-            for name in (f"settlement-{config}.tsv", f"treaties-{config}.tsv"):
+            for name in (f"settlement-{config}.tsv", f"joins-{config}.tsv"):
                 assert (first / name).read_bytes() == (build_b / name).read_bytes(), name
             packed = table_module.windows_path(first, config)
             assert packed.read_bytes() == table_module.windows_path(build_b, config).read_bytes(), config
@@ -217,16 +217,16 @@ class TestFingerprintGuard:
 
 
 class TestBuildStageHandoff:
-    """`run_m1.build_tables` returns each configuration's enumeration head and treaty rows, and writes the full enumeration to disk under the stamp of its sources. The window rows never enter the parent process, so the parent holds only what `read_windows(windows=False)` returns."""
+    """`run_m1.build_tables` returns each configuration's enumeration head and join rows, and writes the full enumeration to disk under the stamp of its sources. The window rows never enter the parent process, so the parent holds only what `read_windows(windows=False)` returns."""
 
     def test_a_stamped_build_serializes_every_settlement_configuration_and_keeps_none(self, build_a):
         out_dir, tables, digests = build_a
         assert list(tables) == list(conform.SETTLEMENT_CONFIGS)
         assert list(digests) == list(conform.SETTLEMENT_CONFIGS)
-        for config, (decision, treaty) in tables.items():
+        for config, (decision, joins) in tables.items():
             assert decision.transitions == ()
             assert decision.rules
-            assert treaty.rows and treaty.config == config
+            assert joins.rows and joins.config == config
             inputs, loaded = table_module.read_windows(table_module.windows_path(out_dir, config))
             assert inputs == "fp-sources"
             assert loaded.rules == decision.rules
@@ -257,7 +257,7 @@ class TestBuildStageHandoff:
         assert unsettled not in conform.ACCEPTANCE_CONFIGS
         stale = [
             tmp_path / f"settlement-{unsettled}.tsv",
-            tmp_path / f"treaties-{unsettled}.tsv",
+            tmp_path / f"joins-{unsettled}.tsv",
             table_module.windows_path(tmp_path, unsettled),
         ]
         for path in stale:
@@ -265,7 +265,7 @@ class TestBuildStageHandoff:
         assert "ss03" in conform.SETTLEMENT_CONFIGS
         kept = [
             tmp_path / "settlement-ss03.tsv",
-            tmp_path / "treaties-ss03.tsv",
+            tmp_path / "joins-ss03.tsv",
             table_module.windows_path(tmp_path, "ss03"),
         ]
         for path in kept:
@@ -278,12 +278,12 @@ class TestBuildStageHandoff:
 
     @pytest.mark.parametrize("config", conform.SETTLEMENT_CONFIGS)
     def test_the_crates_artifacts_are_what_this_sides_writers_write_back(self, build_a, tmp_path, config):
-        """The crate writes both TSVs, and the Python writers and `table_digest` must reproduce them. The test reads the enumeration and the treaty rows back, writes them again, and requires the same bytes and the digest the crate reported. A difference in rule order between the two sides shows up in the settlement TSV, whose order is the shipped GSUB order."""
+        """The crate writes both TSVs, and the Python writers and `table_digest` must reproduce them. The test reads the enumeration and the join rows back, writes them again, and requires the same bytes and the digest the crate reported. A difference in rule order between the two sides shows up in the settlement TSV, whose order is the shipped GSUB order."""
         out_dir, _tables, digests = build_a
         _inputs, decision = table_module.read_windows(table_module.windows_path(out_dir, config))
-        treaty = table_module.read_treaty_tsv(out_dir / f"treaties-{config}.tsv")
+        joins = table_module.read_join_tsv(out_dir / f"joins-{config}.tsv")
         decision.write_tsv(tmp_path / f"settlement-{config}.tsv")
-        treaty.write_tsv(tmp_path / f"treaties-{config}.tsv")
-        for name in (f"settlement-{config}.tsv", f"treaties-{config}.tsv"):
+        joins.write_tsv(tmp_path / f"joins-{config}.tsv")
+        for name in (f"settlement-{config}.tsv", f"joins-{config}.tsv"):
             assert (tmp_path / name).read_bytes() == (out_dir / name).read_bytes(), name
-        assert digests[config] == table_module.table_digest(decision, treaty)
+        assert digests[config] == table_module.table_digest(decision, joins)

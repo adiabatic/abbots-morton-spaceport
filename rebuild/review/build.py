@@ -2392,7 +2392,7 @@ def _table_diff_unit_json(
     """One table-diff entry's fragment, with the same content identity an m1-audit unit has: it is built with `id` and `content_key` None, stamped with the hash of its carry projection, and given `unit_cache.unit_id_for` of that stamp as its id."""
     example_text = entry.example_text
     gate, note = config_badge((entry.config,), full_configs)
-    if entry.table == "treaty":
+    if entry.table == "join":
         old = entry.old
         new = entry.new
         before = {
@@ -2406,10 +2406,10 @@ def _table_diff_unit_json(
         }
         diff_positions = [0, 1]
         pair = {"left": 0, "right": 1}
-        explain = _treaty_explain(entry)
+        explain = _join_explain(entry)
         provenance: list[str] = []
         summary = (
-            f"The treaty row for {entry.key.label()} is {entry.bucket} under {entry.config}; "
+            f"The join row for {entry.key.label()} is {entry.bucket} under {entry.config}; "
             "old and new values are in the explain panel."
         )
     else:
@@ -2494,8 +2494,8 @@ def _settlement_explain(entry: tablediff.SettlementDiffEntry) -> str:
     return "\n".join(lines)
 
 
-def _treaty_explain(entry: tablediff.TreatyDiffEntry) -> str:
-    lines = [f"treaty diff ({entry.bucket}), config {entry.config}", f"  pair: {entry.key.label()}"]
+def _join_explain(entry: tablediff.JoinDiffEntry) -> str:
+    lines = [f"join diff ({entry.bucket}), config {entry.config}", f"  pair: {entry.key.label()}"]
     if entry.old is not None:
         lines.append(
             f"    old: junction {entry.old.junction}, extension {entry.old.extension}, kern {entry.old.kern}"

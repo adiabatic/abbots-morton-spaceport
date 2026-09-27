@@ -44,7 +44,7 @@ def _letters(spec):
 
 @pytest.mark.parametrize("config", CONFIGS)
 def test_every_rule_of_the_mini_tables_is_certified(spec, tables, guard, config):
-    decision, _treaty = tables[config]
+    decision, _joins = tables[config]
     assert len(decision.certificates) == len(decision.rules)
     assert all(decision.certificates)
     report = witness.check_rule_certificates(spec, conform.features_for_config(config), decision, guard)
@@ -55,7 +55,7 @@ def test_every_rule_of_the_mini_tables_is_certified(spec, tables, guard, config)
 
 def test_a_certificate_naming_the_wrong_text_is_reported(spec, tables, guard):
     """The check settles a certificate and reads which rule fires, so a certificate replaced by a letter that is not the rule's input fails with the rule's index, and every other rule is still checked."""
-    decision, _treaty = tables["default"]
+    decision, _joins = tables["default"]
     letters = _letters(spec)
     index, foreign = next(
         (index, rune)
@@ -78,7 +78,7 @@ def test_a_certificate_the_registry_refuses_is_reported_against_its_rule_under_a
     spec, tables, guard, tmp_path, monkeypatch
 ):
     """A certificate text the registry will not tokenize fails only its own rule, not the whole stage. The walk restricted to the certificates' asks meets the refusal while it computes those asks, before the prefill, and the check goes on to witness every other rule against the shared file and reports the refused rule. When the restriction stops early like this, the whole file is loaded, which the served count shows."""
-    decision, _treaty = tables["default"]
+    decision, _joins = tables["default"]
     memo = conform.SettleMemoFile(tmp_path / "settle-memo-default.bin", "stamp")
     pile = sorted({witness._token_text(spec, tokens) for tokens in decision.certificates})
     seed = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
@@ -108,7 +108,7 @@ def test_a_certificate_the_registry_refuses_is_reported_against_its_rule_under_a
 
 def test_a_rule_with_no_certificate_vouches_for_nothing(spec, tables, guard):
     """A rule appended without a certificate leaves the table with fewer certificates than rules. Such a table fails whole and is not checked in part, because nothing says which rule lacks its certificate."""
-    decision, _treaty = tables["default"]
+    decision, _joins = tables["default"]
     dead = Rule(
         input_glyph="qsMay",
         backtrack=("qsNever.loop",),
@@ -213,9 +213,9 @@ def test_a_restricted_walk_settles_a_text_outside_its_asks_fresh_and_alike(spec,
 
 
 def test_the_witness_stage_names_the_failing_rule(spec, tables, tmp_path):
-    decision, treaty = tables["default"]
+    decision, joins = tables["default"]
     poisoned = dataclasses.replace(decision, certificates=decision.certificates[:-1])
-    summary = run_m1.run_rule_witnesses(spec, {"default": (poisoned, treaty)}, tmp_path, None)
+    summary = run_m1.run_rule_witnesses(spec, {"default": (poisoned, joins)}, tmp_path, None)
     assert not summary["pass"]
     assert summary["configs"]["default"]["witnessed"] == 0
     assert "certificate(s) for" in summary["failures"][0]
@@ -225,7 +225,7 @@ def test_mini_spec_emitted_rules_all_fold_from_certified_rules(spec, tables, gua
     """On the fixture, both mini tables are certified rule for rule, and every row the fold emits names sources among those certified rules, exactly one row per rule."""
     emitted = emit_gsub.fold_settle_rules(spec, tables)
     certified = {}
-    for config, (decision, _treaty) in tables.items():
+    for config, (decision, _joins) in tables.items():
         report = witness.check_rule_certificates(spec, conform.features_for_config(config), decision, guard)
         assert report.passed, report.failures
         certified[config] = set(report.witnessed)
@@ -235,5 +235,5 @@ def test_mini_spec_emitted_rules_all_fold_from_certified_rules(spec, tables, gua
     for (config, index), count in sorted(sourced.items()):
         assert count == 1, f"{config} rule {index} is the source of {count} emitted rows"
         assert index in certified[config], f"{config} rule {index} sources an emitted row uncertified"
-    for config, (decision, _treaty) in tables.items():
+    for config, (decision, _joins) in tables.items():
         assert {index for name, index in sourced if name == config} == set(range(len(decision.rules)))

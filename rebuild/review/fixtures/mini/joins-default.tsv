@@ -1,4 +1,4 @@
-# treaty table, config default
+# join table, config default
 left	right	junction	extension	kern
 qsAh.sole	qsAh.sole	break	0	0
 qsAh.sole	qsAh.sole.ex-y5	break	0	0

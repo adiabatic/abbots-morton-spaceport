@@ -349,14 +349,14 @@ fn delta_worklist<'c>(
     work
 }
 
-/// One configuration's table build result: the digest [`artifacts::table_digest`] computes over its decision and treaty tables, and its timing lines.
+/// One configuration's table build result: the digest [`artifacts::table_digest`] computes over its decision and join tables, and its timing lines.
 #[derive(Debug)]
 pub struct TableAnswer {
     pub digest: String,
     pub timed: Vec<String>,
 }
 
-/// Builds every configuration's settlement table, treaty table, window file, and digest under `outdir`, running at most `workers` at once. Each configuration reads the memos `sharing` allows and writes the memo file `sharing` asks for.
+/// Builds every configuration's settlement table, join table, window file, and digest under `outdir`, running at most `workers` at once. Each configuration reads the memos `sharing` allows and writes the memo file `sharing` asks for.
 ///
 /// When `default_memo_sharing` is on and the set has the no-feature configuration and at least one other:
 ///
@@ -581,12 +581,12 @@ fn finish_config_tables(
     };
     let settlement = outdir.join(format!("settlement-{token}.tsv"));
     write_text(&settlement, &artifacts::settlement_tsv(&folded.decision))?;
-    let treaties = outdir.join(format!("treaties-{token}.tsv"));
-    write_text(&treaties, &artifacts::treaty_tsv(&folded.treaty))?;
+    let joins = outdir.join(format!("joins-{token}.tsv"));
+    write_text(&joins, &artifacts::join_tsv(&folded.joins))?;
     let windows = outdir.join(format!("windows-{token}.tsv"));
     artifacts::write_windows(index, &folded.decision, inputs, &windows)
         .map_err(|error| format!("{}: {error}", windows.display()))?;
-    let digest = artifacts::table_digest(index, &folded.decision, &folded.treaty);
+    let digest = artifacts::table_digest(index, &folded.decision, &folded.joins);
     if report.timings {
         timed.push(timing_line(&format!("fold[{token}]"), started.elapsed()));
     }
@@ -1014,7 +1014,7 @@ mod tests {
 
     /// The files one configuration's table build writes, read back as bytes: the three tables, plus the memo file when the build had a stamp.
     fn table_files(outdir: &Path, token: &str, memo: bool) -> Vec<(String, Vec<u8>)> {
-        let mut names: Vec<String> = ["settlement", "treaties", "windows"]
+        let mut names: Vec<String> = ["settlement", "joins", "windows"]
             .iter()
             .map(|family| format!("{family}-{token}.tsv"))
             .collect();

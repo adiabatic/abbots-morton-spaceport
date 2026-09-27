@@ -1,4 +1,4 @@
-"""Diff two directories of settlement and treaty tables for the review corpus's table-diff mode (rebuild/REVIEW-PLAN.md §2.3, design §8). Rows are matched by key, removals and additions that share an input are paired into one regrouped entry, and settlement changes that move only provenance go to the low-priority `provenance-only` bucket, which sorts last. `ExampleIndex` finds an example text for each entry by settling every short sequence, and `write_snapshot` writes the baseline a later diff compares against."""
+"""Diff two directories of settlement and join tables for the review corpus's table-diff mode (rebuild/REVIEW-PLAN.md §2.3, design §8). Rows are matched by key, removals and additions that share an input are paired into one regrouped entry, and settlement changes that move only provenance go to the low-priority `provenance-only` bucket, which sorts last. `ExampleIndex` finds an example text for each entry by settling every short sequence, and `write_snapshot` writes the baseline a later diff compares against."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ SETTLED_CONFIGS = tuple(config for config in ACCEPTANCE_CONFIGS if config != "ss
 DIFF_BUCKETS = ("added", "removed", "regrouped", "changed", "provenance-only")
 
 BUCKET_WHY = {
-    "added": "Settlement/treaty rows present only in the new tables: behavior the baseline never produced.",
+    "added": "Settlement/join rows present only in the new tables: behavior the baseline never produced.",
     "removed": "Rows present only in the baseline tables: behavior the new tables no longer produce.",
     "regrouped": "A re-partitioned context: removals and additions sharing (config, input), rendered as one regrouped row.",
     "changed": "Rows whose key exists in both tables with a different outcome, junction, extension, or kern.",
@@ -55,7 +55,7 @@ class SettlementValue:
 
 
 @dataclass(frozen=True)
-class TreatyKey:
+class JoinKey:
     config: str
     left: str
     right: str
@@ -65,7 +65,7 @@ class TreatyKey:
 
 
 @dataclass(frozen=True)
-class TreatyValue:
+class JoinValue:
     junction: str
     extension: int
     kern: int
@@ -88,14 +88,14 @@ class SettlementDiffEntry(_DiffEntryBase):
 
 
 @dataclass(kw_only=True)
-class TreatyDiffEntry(_DiffEntryBase):
-    table: Literal["treaty"] = "treaty"
-    key: TreatyKey
-    old: TreatyValue | None
-    new: TreatyValue | None
+class JoinDiffEntry(_DiffEntryBase):
+    table: Literal["join"] = "join"
+    key: JoinKey
+    old: JoinValue | None
+    new: JoinValue | None
 
 
-DiffEntry = SettlementDiffEntry | TreatyDiffEntry
+DiffEntry = SettlementDiffEntry | JoinDiffEntry
 
 
 def _parse_set(token: str) -> frozenset[str] | None:
@@ -133,15 +133,15 @@ def load_settlement(path: Path) -> dict[SettlementKey, SettlementValue]:
     return rows
 
 
-def load_treaty(path: Path) -> dict[TreatyKey, TreatyValue]:
-    rows: dict[TreatyKey, TreatyValue] = {}
-    config = _config_from_path(path, "treaties-")
+def load_joins(path: Path) -> dict[JoinKey, JoinValue]:
+    rows: dict[JoinKey, JoinValue] = {}
+    config = _config_from_path(path, "joins-")
     with open(path, encoding="utf-8") as handle:
         for line in handle:
             if line.startswith("#") or line.startswith("left\t") or not line.strip():
                 continue
             left, right, junction, extension, kern = line.rstrip("\n").split("\t")
-            rows[TreatyKey(config, left, right)] = TreatyValue(junction, int(extension), int(kern))
+            rows[JoinKey(config, left, right)] = JoinValue(junction, int(extension), int(kern))
     return rows
 
 
@@ -214,21 +214,21 @@ def diff_settlement(
     return entries
 
 
-def diff_treaty(
-    old: dict[TreatyKey, TreatyValue], new: dict[TreatyKey, TreatyValue], config: str
-) -> list[TreatyDiffEntry]:
-    entries: list[TreatyDiffEntry] = []
+def diff_joins(
+    old: dict[JoinKey, JoinValue], new: dict[JoinKey, JoinValue], config: str
+) -> list[JoinDiffEntry]:
+    entries: list[JoinDiffEntry] = []
     for key in old:
         if key in new:
             if old[key] != new[key]:
                 entries.append(
-                    TreatyDiffEntry(bucket="changed", config=config, key=key, old=old[key], new=new[key])
+                    JoinDiffEntry(bucket="changed", config=config, key=key, old=old[key], new=new[key])
                 )
         else:
-            entries.append(TreatyDiffEntry(bucket="removed", config=config, key=key, old=old[key], new=None))
+            entries.append(JoinDiffEntry(bucket="removed", config=config, key=key, old=old[key], new=None))
     for key in new:
         if key not in old:
-            entries.append(TreatyDiffEntry(bucket="added", config=config, key=key, old=None, new=new[key]))
+            entries.append(JoinDiffEntry(bucket="added", config=config, key=key, old=None, new=new[key]))
     return entries
 
 
@@ -241,9 +241,9 @@ def diff_dirs(baseline_dir: Path, new_dir: Path, configs: list[str] | None = Non
         old_settlement = _load_if_exists(baseline_dir / f"settlement-{config}.tsv", load_settlement)
         new_settlement = _load_if_exists(new_dir / f"settlement-{config}.tsv", load_settlement)
         entries.extend(diff_settlement(old_settlement, new_settlement, config))
-        old_treaty = _load_if_exists(baseline_dir / f"treaties-{config}.tsv", load_treaty)
-        new_treaty = _load_if_exists(new_dir / f"treaties-{config}.tsv", load_treaty)
-        entries.extend(diff_treaty(old_treaty, new_treaty, config))
+        old_joins = _load_if_exists(baseline_dir / f"joins-{config}.tsv", load_joins)
+        new_joins = _load_if_exists(new_dir / f"joins-{config}.tsv", load_joins)
+        entries.extend(diff_joins(old_joins, new_joins, config))
     order = {bucket: index for index, bucket in enumerate(DIFF_BUCKETS)}
     entries.sort(key=lambda entry: (order[entry.bucket], entry.config, entry.table, entry.key.label()))
     return entries
@@ -257,7 +257,7 @@ def _load_if_exists(path: Path, loader):
 
 
 class ExampleIndex:
-    """Settle every sequence of letters and boundaries up to `max_depth` under one configuration and index the results two ways: per-position context tuples (input, settled left, raw right1 through right4) for settlement-row example texts, and adjacent settled-label pairs for treaty-row example texts. Sequences are enumerated shortest first and in codepoint order, and each index keeps the first sequence it sees, so an example text is always a shortest one. Each depth is sent to the crate `chunk` sequences at a time, and `kernel_exec.settle_sequences` settles each batch in waves, one per position, so the kernel is called per wave rather than per text. The sweep covers every text, so some are expected to fail: a sequence whose ligature formation or labeling raises, or that the kernel rejects, is skipped, and the rest of its batch is kept."""
+    """Settle every sequence of letters and boundaries up to `max_depth` under one configuration and index the results two ways: per-position context tuples (input, settled left, raw right1 through right4) for settlement-row example texts, and adjacent settled-label pairs for join-row example texts. Sequences are enumerated shortest first and in codepoint order, and each index keeps the first sequence it sees, so an example text is always a shortest one. Each depth is sent to the crate `chunk` sequences at a time, and `kernel_exec.settle_sequences` settles each batch in waves, one per position, so the kernel is called per wave rather than per text. The sweep covers every text, so some are expected to fail: a sequence whose ligature formation or labeling raises, or that the kernel rejects, is skipped, and the rest of its batch is kept."""
 
     EDGE = "#EDGE"
     NA = "#NA"
@@ -357,15 +357,15 @@ class ExampleIndex:
                 best = codepoints
         return best
 
-    def example_treaty(self, key: TreatyKey) -> tuple[int, ...] | None:
+    def example_join(self, key: JoinKey) -> tuple[int, ...] | None:
         return self.pairs.get((key.left, key.right))
 
     def attach(self, entries: list[DiffEntry]) -> None:
         for entry in entries:
             if entry.config != self.config or entry.example_text is not None:
                 continue
-            if entry.table == "treaty":
-                entry.example_text = self.example_treaty(entry.key)
+            if entry.table == "join":
+                entry.example_text = self.example_join(entry.key)
             else:
                 keys = [member.key for member in entry.paired] or [entry.key]
                 for key in keys:
@@ -379,11 +379,11 @@ class ExampleIndex:
 
 
 def write_snapshot(tables_dir: Path, font: Path, to: Path, repo_root: Path | None = None) -> dict:
-    """Copy the per-config settlement/treaty TSVs and the OTF they shipped with into an accepted-state directory the next migration diffs against, with sha256s, source paths, and the repo HEAD recorded in snapshot.json. Only the tables of configurations in `SETTLED_CONFIGS` are copied, so tables left behind by a configuration the build does not settle never become part of the accepted state."""
+    """Copy the per-config settlement/join TSVs and the OTF they shipped with into an accepted-state directory the next migration diffs against, with sha256s, source paths, and the repo HEAD recorded in snapshot.json. Only the tables of configurations in `SETTLED_CONFIGS` are copied, so tables left behind by a configuration the build does not settle never become part of the accepted state."""
     tables_dir, font, to = Path(tables_dir), Path(font), Path(to)
     to.mkdir(parents=True, exist_ok=True)
     files: dict[str, dict] = {}
-    for prefix in ("settlement-", "treaties-"):
+    for prefix in ("settlement-", "joins-"):
         for source in sorted(tables_dir.glob(f"{prefix}*.tsv")):
             if _config_from_path(source, prefix) not in SETTLED_CONFIGS:
                 continue

@@ -1,14 +1,14 @@
 """The design section 9 defect gates over the M1 subset (M1-PLAN section 5, Group 3).
 
-`run_gates` checks the decision and treaty tables and the realized glyph records before any font exists. Errors fail the build and flags are only reported. Every defect carries a signature. A defect whose signature is in the `allow` set (the reviewed entries of `rebuild/m1-contact-allow.yaml`) is reported as blessed instead of as an error or flag. The dead-policy check produces lists, not defects, and takes no allow set.
+`run_gates` checks the decision and join tables and the realized glyph records before any font exists. Errors fail the build and flags are only reported. Every defect carries a signature. A defect whose signature is in the `allow` set (the reviewed entries of `rebuild/m1-contact-allow.yaml`) is reported as blessed instead of as an error or flag. The dead-policy check produces lists, not defects, and takes no allow set.
 
-`tables_by_config` maps each feature configuration to a `(DecisionTable, TreatyTable)` pair, as `kernel_exec.build_tables` returns, or to one object that serves as both. From the decision side this module reads `cited_provenance` and each rule's `provenance`, for the dead-policy check. From the treaty side it reads `rows`. Each row gives `left` and `right` (a CellId, a cell label or glyph name, or None at a boundary), the join height under `join`, `junction`, or `height` (None or "break" for a break), and `extension`, the summed connector pixels on the junction.
+`tables_by_config` maps each feature configuration to a `(DecisionTable, JoinTable)` pair, as `kernel_exec.build_tables` returns, or to one object that serves as both. From the decision side this module reads `cited_provenance` and each rule's `provenance`, for the dead-policy check. From the join table it reads `rows`. Each row gives `left` and `right` (a CellId, a cell label or glyph name, or None at a boundary), the join height under `join`, `junction`, or `height` (None or "break" for a break), and `extension`, the summed connector pixels on the junction.
 
-The extension-band check is coarse because a treaty row does not say which extend record applied. A junction with a positive summed extension is checked against every band that an extend record on either rune declares at the junction's side and height, whatever its `when:`. An extension below every band, or on a junction where no record declares a band, is an error. Any other extension outside every band is a flag.
+The extension-band check is coarse because a join row does not say which extend record applied. A junction with a positive summed extension is checked against every band that an extend record on either rune declares at the junction's side and height, whatever its `when:`. An extension below every band, or on a junction where no record declares a band, is an error. Any other extension outside every band is a flag.
 
 E-ANCHOR is checked only here. `_check_anchors` checks the live, non-exempt sides of every realized record against the drawing that record ships. `_check_coverage_only_anchors` checks the `selectable: false` rows, which realize into no cell, against their stance's base drawing. A row's `x_off_convention` flag exempts that side alone, and a `trim` adjustment exempts the side it trimmed. An `anchor:` signature in the allow set blesses an E-ANCHOR finding like any other.
 
-The dead-policy check splits unexercised records by scope. A record is exercised when its provenance is cited. The settlement engine cites the provenance of every record that fired while tabulating a configuration (refusals that removed a candidate, including inside the lookahead closure, unlocks that granted a capability, row scopes that admitted a side, and extends, contracts, and prefers that shaped a committed cell), and the table exposes them as `DecisionTable.cited_provenance`. Rule and treaty-row provenance strings are added to the cited set too. An unexercised record is waiting on unmigrated letters when one of its `when:` conditions names only families that are not modeled runes. A row scope is waiting on unmigrated letters when every one of its conditions names only such families. Otherwise the record or scope is unused: it waits on no unmigrated letter and still never fires. `run_m1` writes both lists to `pipeline_summary.json`, as `waiting_on_unmigrated` and `unused_records`, and neither fails the build.
+The dead-policy check splits unexercised records by scope. A record is exercised when its provenance is cited. The settlement engine cites the provenance of every record that fired while tabulating a configuration (refusals that removed a candidate, including inside the lookahead closure, unlocks that granted a capability, row scopes that admitted a side, and extends, contracts, and prefers that shaped a committed cell), and the table exposes them as `DecisionTable.cited_provenance`. Rule and join-row provenance strings are added to the cited set too. An unexercised record is waiting on unmigrated letters when one of its `when:` conditions names only families that are not modeled runes. A row scope is waiting on unmigrated letters when every one of its conditions names only such families. Otherwise the record or scope is unused: it waits on no unmigrated letter and still never fires. `run_m1` writes both lists to `pipeline_summary.json`, as `waiting_on_unmigrated` and `unused_records`, and neither fails the build.
 """
 
 from __future__ import annotations
@@ -50,14 +50,14 @@ class DefectReport:
             raise AssertionError("defect gates failed:\n" + "\n".join(lines))
 
 
-def _decision_and_treaty(value) -> tuple[object, object]:
+def _decision_and_joins(value) -> tuple[object, object]:
     if isinstance(value, (tuple, list)) and len(value) == 2:
         return value[0], value[1]
     return value, value
 
 
-def _treaty_rows(treaty) -> Iterable:
-    return getattr(treaty, "rows", ())
+def _join_rows(joins) -> Iterable:
+    return getattr(joins, "rows", ())
 
 
 def _row_join(row):
@@ -187,7 +187,7 @@ def _check_coverage_only_anchors(report: DefectReport, allow: frozenset[str], sp
                     )
 
 
-def _check_treaties(
+def _check_joins(
     report: DefectReport,
     allow: frozenset[str],
     spec: ResolvedSpec,
@@ -197,8 +197,8 @@ def _check_treaties(
     seen: set[tuple] = set()
     index = _endpoint_index(glyphs)
     for config, value in tables_by_config.items():
-        _decision, treaty = _decision_and_treaty(value)
-        for row in _treaty_rows(treaty):
+        _decision, joins = _decision_and_joins(value)
+        for row in _join_rows(joins):
             left = _resolve_endpoint(getattr(row, "left", None), glyphs, index)
             right = _resolve_endpoint(getattr(row, "right", None), glyphs, index)
             join = _row_join(row)
@@ -343,12 +343,12 @@ def _when_axes(spec: ResolvedSpec, rune_name: str, when: When | None) -> list[se
 def _check_dead_policy(report: DefectReport, spec: ResolvedSpec, tables_by_config: Mapping) -> None:
     cited: set[str] = set()
     for value in tables_by_config.values():
-        decision, treaty = _decision_and_treaty(value)
+        decision, joins = _decision_and_joins(value)
         cited.update(str(item) for item in getattr(decision, "cited_provenance", ()) or ())
         for rule in getattr(decision, "rules", ()):
             for item in getattr(rule, "provenance", ()) or ():
                 cited.add(str(item))
-        for row in _treaty_rows(treaty):
+        for row in _join_rows(joins):
             for item in getattr(row, "provenance", ()) or ():
                 cited.add(str(item))
 
@@ -408,7 +408,7 @@ def run_gates(
     _check_dangle(report, allow, glyphs)
     _check_anchors(report, allow, glyphs)
     _check_coverage_only_anchors(report, allow, spec)
-    _check_treaties(report, allow, spec, tables_by_config, glyphs)
+    _check_joins(report, allow, spec, tables_by_config, glyphs)
     _check_dead_policy(report, spec, tables_by_config)
     report.notes.append(
         f"gates ran over {len(glyphs)} glyphs and {len(tables_by_config)} configurations; "

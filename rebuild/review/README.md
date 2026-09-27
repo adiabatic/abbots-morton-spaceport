@@ -1,4 +1,4 @@
-# Treaty-diff review corpus
+# Table-diff review corpus
 
 ## TL;DR
 

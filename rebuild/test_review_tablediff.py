@@ -1,6 +1,6 @@
-"""Tests for the table-vs-table treaty-diff mode: added, removed, and changed classification on synthetic table pairs, pairing of removals and additions into regrouped rows, provenance-only demotion, example-text search that re-settles to the changed row, and the snapshot round trip.
+"""Tests for the table-vs-table diff mode: added, removed, and changed classification on synthetic table pairs, pairing of removals and additions into regrouped rows, provenance-only demotion, example-text search that re-settles to the changed row, and the snapshot round trip.
 
-The two example-text tests re-settle real settlement rows and treaty pairs from the frozen mini-M1 bundle's tables and check that the outcome comes back. They settle under the spec `mini_bundle` materializes, which is the spec those tables were built from, so they test `ExampleIndex` and not the current rules. The classification, round-trip, and self-diff tests use the synthetic pair or the same bundle.
+The two example-text tests re-settle real settlement rows and join-row pairs from the frozen mini-M1 bundle's tables and check that the outcome comes back. They settle under the spec `mini_bundle` materializes, which is the spec those tables were built from, so they test `ExampleIndex` and not the current rules. The classification, round-trip, and self-diff tests use the synthetic pair or the same bundle.
 """
 
 import warnings
@@ -34,13 +34,13 @@ qsPea\tuni200C\t-\t-\tqsPea.full.locked\t-\tnew-pointer
 qsTea\tqsOy.sole.ex-y0\t-\t-\tqsTea.full.en-y0\t-\t
 """
 
-TREATY_OLD = """# treaty table, config default
+JOINS_OLD = """# join table, config default
 left\tright\tjunction\textension\tkern
 qsIt.sole\tqsIt.sole\tbreak\t0\t0
 qsTea.half.ex-y5\tqsIt.sole.en-y5\ty5\t0\t0
 """
 
-TREATY_NEW = """# treaty table, config default
+JOINS_NEW = """# join table, config default
 left\tright\tjunction\textension\tkern
 qsIt.sole\tqsIt.sole\tbreak\t0\t0
 qsTea.half.ex-y5\tqsIt.sole.en-y5\ty5\t1\t0
@@ -56,8 +56,8 @@ def table_dirs(tmp_path):
     new_dir.mkdir()
     (old_dir / "settlement-default.tsv").write_text(SETTLEMENT_OLD)
     (new_dir / "settlement-default.tsv").write_text(SETTLEMENT_NEW)
-    (old_dir / "treaties-default.tsv").write_text(TREATY_OLD)
-    (new_dir / "treaties-default.tsv").write_text(TREATY_NEW)
+    (old_dir / "joins-default.tsv").write_text(JOINS_OLD)
+    (new_dir / "joins-default.tsv").write_text(JOINS_NEW)
     return old_dir, new_dir
 
 
@@ -80,12 +80,12 @@ def test_diff_classifies_buckets(table_dirs):
     removed = [entry for entry in by_bucket["removed"] if entry.table == "settlement"]
     assert [entry.key.input for entry in removed] == ["qsMay"]
 
-    treaty_changed = [entry for entry in by_bucket["changed"] if entry.table == "treaty"]
-    assert len(treaty_changed) == 1
-    assert treaty_changed[0].old.extension == 0
-    assert treaty_changed[0].new.extension == 1
-    treaty_added = [entry for entry in by_bucket["added"] if entry.table == "treaty"]
-    assert [entry.key.left for entry in treaty_added] == ["qsOy.sole.ex-y0"]
+    joins_changed = [entry for entry in by_bucket["changed"] if entry.table == "join"]
+    assert len(joins_changed) == 1
+    assert joins_changed[0].old.extension == 0
+    assert joins_changed[0].new.extension == 1
+    joins_added = [entry for entry in by_bucket["added"] if entry.table == "join"]
+    assert [entry.key.left for entry in joins_added] == ["qsOy.sole.ex-y0"]
 
 
 def test_regrouped_pairs_removals_with_additions_sharing_input(table_dirs):
@@ -200,13 +200,13 @@ def test_example_text_resettles_to_the_settlement_row(example_index):
         assert value.outcome in labels, (key.label(), value.outcome, labels)
 
 
-def test_example_text_resettles_to_the_treaty_pair(example_index):
-    """Every example text the index returns for a frozen treaty row settles to that row's left and right as adjacent cells, explained in one `explain_many` call."""
+def test_example_text_resettles_to_the_join_row_pair(example_index):
+    """Every example text the index returns for a frozen join row settles to that row's left and right as adjacent cells, explained in one `explain_many` call."""
     spec, index = example_index
-    rows = tablediff.load_treaty(MINI / "treaties-default.tsv")
+    rows = tablediff.load_joins(MINI / "joins-default.tsv")
     asked = []
     for key in list(rows)[::25]:
-        example_text = index.example_treaty(key)
+        example_text = index.example_join(key)
         if example_text is not None:
             asked.append((key, example_text))
     assert len(asked) >= 5
@@ -227,7 +227,7 @@ def test_example_text_attach_fills_entries(example_index, table_dirs):
 
 
 def test_snapshot_round_trip(tmp_path):
-    """`write_snapshot` copies a table directory's settlement and treaty TSVs and the font, records their sha256s, and the copy diffs empty against its source. The table directory is the frozen mini-M1 bundle, which has real tables and a real font."""
+    """`write_snapshot` copies a table directory's settlement and join TSVs and the font, records their sha256s, and the copy diffs empty against its source. The table directory is the frozen mini-M1 bundle, which has real tables and a real font."""
     snapshot_dir = tmp_path / "accepted"
     snapshot = tablediff.write_snapshot(MINI, MINI / "M1.otf", snapshot_dir, REPO_ROOT)
     assert (snapshot_dir / "snapshot.json").exists()
@@ -248,11 +248,11 @@ def test_a_diff_ignores_tables_of_a_configuration_outside_the_settled_set(table_
     for unsettled in ("ss02+ss03", *conform.OVERLAY_CONFIGS):
         assert unsettled not in conform.SETTLEMENT_CONFIGS
         (old_dir / f"settlement-{unsettled}.tsv").write_text(SETTLEMENT_OLD)
-        (old_dir / f"treaties-{unsettled}.tsv").write_text(TREATY_OLD)
+        (old_dir / f"joins-{unsettled}.tsv").write_text(JOINS_OLD)
         (new_dir / f"settlement-{unsettled}.tsv").write_text(SETTLEMENT_NEW)
-        (new_dir / f"treaties-{unsettled}.tsv").write_text(TREATY_NEW)
+        (new_dir / f"joins-{unsettled}.tsv").write_text(JOINS_NEW)
     (new_dir / "settlement-ss02.tsv").write_text(SETTLEMENT_NEW)
-    (new_dir / "treaties-ss02.tsv").write_text(TREATY_NEW)
+    (new_dir / "joins-ss02.tsv").write_text(JOINS_NEW)
     assert tablediff.table_configs(old_dir) == tablediff.table_configs(new_dir) == ["default"]
     assert {entry.config for entry in tablediff.diff_dirs(old_dir, new_dir)} == {"default"}
 
@@ -262,13 +262,13 @@ def test_a_snapshot_leaves_out_tables_of_a_configuration_outside_the_settled_set
     _old_dir, new_dir = table_dirs
     for unsettled in ("ss02+ss03", *conform.OVERLAY_CONFIGS):
         (new_dir / f"settlement-{unsettled}.tsv").write_text(SETTLEMENT_NEW)
-        (new_dir / f"treaties-{unsettled}.tsv").write_text(TREATY_NEW)
+        (new_dir / f"joins-{unsettled}.tsv").write_text(JOINS_NEW)
     font = tmp_path / "M1.otf"
     font.write_bytes(b"font")
     snapshot_dir = tmp_path / "accepted"
     snapshot = tablediff.write_snapshot(new_dir, font, snapshot_dir, REPO_ROOT)
-    assert sorted(snapshot["files"]) == ["M1.otf", "settlement-default.tsv", "treaties-default.tsv"]
+    assert sorted(snapshot["files"]) == ["M1.otf", "joins-default.tsv", "settlement-default.tsv"]
     assert sorted(path.name for path in snapshot_dir.glob("*.tsv")) == [
+        "joins-default.tsv",
         "settlement-default.tsv",
-        "treaties-default.tsv",
     ]

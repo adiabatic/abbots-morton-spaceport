@@ -1,6 +1,6 @@
 """The M1 integration driver: runs the full pipeline over the real rune files and writes the `doc/rebuild-design.md` §8 artifacts under rebuild/out/m1/.
 
-First, `build_tables` builds the decision and treaty tables for every settlement configuration (`conform.SETTLEMENT_CONFIGS`) in one kernel-crate process. It enumerates and folds `default` first and each other configuration as a delta over `default`'s memo. As it folds each configuration it checks first-match-wins against the rows, writes the TSVs, writes one certificate per rule built from the table's row chains, and writes the window enumeration stamped with the fingerprint of its sources. `--conform-only` takes its glyph inventory from that enumeration and stops with an error when it is stale or missing. The payloads are packed on a background pool once their heads are read.
+First, `build_tables` builds the decision and join tables for every settlement configuration (`conform.SETTLEMENT_CONFIGS`) in one kernel-crate process. It enumerates and folds `default` first and each other configuration as a delta over `default`'s memo. As it folds each configuration it checks first-match-wins against the rows, writes the TSVs, writes one certificate per rule built from the table's row chains, and writes the window enumeration stamped with the fingerprint of its sources. `--conform-only` takes its glyph inventory from that enumeration and stops with an error when it is stale or missing. The payloads are packed on a background pool once their heads are read.
 
 Two branches then run over the tables. The table-only branch (`_run_table_gates`, on one background thread) runs the string replay (`run_replay_strings`, recorded in `replay_summary.json`), which walks every configuration's stored rules over every text up to `REPLAY_MAX_LENGTH` against the crate's own settlement, then the witness stage (`run_rule_witnesses`, recorded in `witness_summary.json`), which settles every certificate and checks that its rule fires. Beside those two it runs the shipped-order walk (`run_emitted_order`), where each configuration's walk waits for that configuration's pack. The glyph chain (`_run_glyph_chain`, on the calling thread) mints the glyphs (settled cells named by their cell labels, the raw cmap glyphs, the marker, chokepoint and ss10 twins, and the namer dot pair), runs the defect gates under the reviewed allow-list, emits GSUB and GPOS (also writing `behavior_classes.json`, the record key `rebuild/tools/deep_sweep.py` reads), compiles the font, and runs read-back (rebuild/pipeline/readback.py). Read-back re-parses the written font, checks it against the emitters' plan, and checks the GSUB's uint16 subtable-offset headroom against its floor in the same parse.
 
@@ -339,11 +339,11 @@ def build_tables(
     packing: Packing | None = None,
     configs: Sequence[str] = conform.SETTLEMENT_CONFIGS,
 ) -> tuple[dict[str, tuple], dict[str, str]]:
-    """Build the decision and treaty tables for the named settlement configurations, all of them unless `configs` narrows the set. The resolved spec is dumped once, then one crate `build-tables` process (`kernel_exec.build_table_files`) enumerates `default`'s fixpoint and folds it, then enumerates each other configuration as a delta over `default`'s finished memo and folds it as it finishes. The crate writes the settlement TSV, the treaty TSV and the window enumeration itself; nothing is folded on the Python side.
+    """Build the decision and join tables for the named settlement configurations, all of them unless `configs` narrows the set. The resolved spec is dumped once, then one crate `build-tables` process (`kernel_exec.build_table_files`) enumerates `default`'s fixpoint and folds it, then enumerates each other configuration as a delta over `default`'s finished memo and folds it as it finishes. The crate writes the settlement TSV, the join TSV and the window enumeration itself; nothing is folded on the Python side.
 
     A narrowed set is for `rebuild/tools/scratch_build.py`, which searches for a record to change. The crate writes only the configurations it is asked for and deletes nothing, so a narrowed build into a directory another build wrote leaves that build's files for the other settlement configurations in place. `scratch_build.scratch_out_dir` keeps such builds out of `rebuild/out/m1`. A set that does not include `default` enumerates each member from scratch, since there is no finished memo to build a delta over. The build and the artifact cycle ask for the whole set. Overlay configurations get no tables. Any table files named for a configuration outside `conform.SETTLEMENT_CONFIGS`, an overlay configuration's or one that has left the set, are removed first (`stale_table_files`), so a whole-set build leaves only its own tables in the directory.
 
-    Per configuration, Python reads the enumeration's head back for the rules, the reachable cells and the fired provenance every downstream stage needs, parses the treaty TSV back for the defect gates, and packs the plain window payload into its `.gz` artifact. The head reads run on a thread pool at the table build's width once the crate has exited, and this call waits for them. The packing (`_pack_config`, memo file included) runs on a `Packing` pool at `_core_bound_threads` width, one packer per configuration up to the cores, whatever the crate's width, because a packer holds only a zlib stream and a copy buffer and the compressor releases the interpreter lock. When `packing` is passed, the tables are returned as soon as the heads are read, and the caller waits on each pack through `Packing.wait` and closes the pool. Without it, packing finishes before the return.
+    Per configuration, Python reads the enumeration's head back for the rules, the reachable cells and the fired provenance every downstream stage needs, parses the join TSV back for the defect gates, and packs the plain window payload into its `.gz` artifact. The head reads run on a thread pool at the table build's width once the crate has exited, and this call waits for them. The packing (`_pack_config`, memo file included) runs on a `Packing` pool at `_core_bound_threads` width, one packer per configuration up to the cores, whatever the crate's width, because a packer holds only a zlib stream and a copy buffer and the compressor releases the interpreter lock. When `packing` is passed, the tables are returned as soon as the heads are read, and the caller waits on each pack through `Packing.wait` and closes the pool. Without it, packing finishes before the return.
 
     A build with an `out_dir` also reuses its trace memos across builds. `previous_memos` reads the previous build's `memo-<config>.tsv.gz` files for the configurations this build names, unpacks those whose stamp still matches, and names the runes whose content changed as edited, so a window naming no edited rune settles as it did last time. This build's own memos are packed under the same names, stamped with `memo_stamp` over the spec in hand. A caller with no `out_dir` reads and writes no memo.
 
@@ -398,7 +398,7 @@ def build_tables(
             payload = tables_dir / f"windows-{config}.tsv"
             with payload.open("rt", encoding="utf-8") as handle:
                 _stamp, decision = table_module.read_windows(handle, windows=False)
-            treaty = table_module.read_treaty_tsv(tables_dir / f"treaties-{config}.tsv")
+            joins = table_module.read_join_tsv(tables_dir / f"joins-{config}.tsv")
             if out_dir is None:
                 payload.unlink()
             else:
@@ -407,7 +407,7 @@ def build_tables(
                     functools.partial(_pack_config, tables_dir, config, inputs is not None),
                     len(configs),
                 )
-            return config, (decision, treaty)
+            return config, (decision, joins)
 
         try:
             with ThreadPoolExecutor(max_workers=threads) as heads:
@@ -429,7 +429,7 @@ def config_table_files(tables_dir: Path, config: str) -> tuple[Path, ...]:
     """Return the three table files a settlement configuration writes under `tables_dir`, named for `config`."""
     return (
         tables_dir / f"settlement-{config}.tsv",
-        tables_dir / f"treaties-{config}.tsv",
+        tables_dir / f"joins-{config}.tsv",
         table_module.windows_path(tables_dir, config),
     )
 
@@ -439,7 +439,7 @@ def stale_table_files(tables_dir: Path) -> list[Path]:
     tables_dir = Path(tables_dir)
     configs = {
         path.name.removeprefix(prefix).removesuffix(suffix)
-        for prefix, suffix in (("settlement-", ".tsv"), ("treaties-", ".tsv"), ("windows-", ".tsv.gz"))
+        for prefix, suffix in (("settlement-", ".tsv"), ("joins-", ".tsv"), ("windows-", ".tsv.gz"))
         for path in tables_dir.glob(f"{prefix}*{suffix}")
     }
     return [
@@ -813,7 +813,7 @@ def _run_glyph_chain(spec: ResolvedSpec, tables: Mapping[str, tuple], out_dir: P
 
     summary = {
         "configs": list(tables),
-        "rules_per_config": {config: len(decision.rules) for config, (decision, _treaty) in tables.items()},
+        "rules_per_config": {config: len(decision.rules) for config, (decision, _joins) in tables.items()},
         "settled_cell_glyphs": len(cell_glyphs),
         "total_glyphs": len(all_glyphs),
         "gsub_rule_count": gsub_plan.rule_count,
@@ -1689,12 +1689,12 @@ def run_gates_only(out_dir: Path = OUT_DIR, jobs: int = 1, fresh_cache: bool = F
 
     tables: dict[str, tuple] = {}
     for config, decision in serialized.items():
-        treaty_path = out_dir / f"treaties-{config}.tsv"
+        joins_path = out_dir / f"joins-{config}.tsv"
         try:
-            tables[config] = (decision, table_module.read_treaty_tsv(treaty_path))
+            tables[config] = (decision, table_module.read_join_tsv(joins_path))
         except (OSError, ValueError) as error:
             raise SystemExit(
-                f"{treaty_path} is missing or unreadable ({error}) — the defect gate reads the treaty tables beside the enumeration, so this pass cannot rerun the gates over this build; run `uv run python -m rebuild.pipeline.run_m1` first"
+                f"{joins_path} is missing or unreadable ({error}) — the defect gate reads the join tables beside the enumeration, so this pass cannot rerun the gates over this build; run `uv run python -m rebuild.pipeline.run_m1` first"
             )
 
     console.phase("defect_gates")
