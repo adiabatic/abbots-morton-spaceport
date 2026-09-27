@@ -110,7 +110,7 @@ In the app, a unit in a group with more than one member shows a "duplicate ×N" 
 
 The app's fill fires only on verdicts recorded in the app. For carried verdicts, the artifact cycle's verdict update runs `rebuild/tools/duplicate_verdicts.py`, which fills the blank members of every group whose recorded verdicts agree and prints every group whose verdicts disagree, so a blank whose group already has an agreed carried verdict is filled before the corpus is served.
 
-The same pass stores each unit's per-config delta digests as `ink_deltas` (`ink.delta_digest`). An `ink_deltas` rule in `rebuild/standing-approvals.yaml` matches them, so a blessed change never waits for review again in any window where it is the whole visible change, and the combined match in `rebuild/tools/standing_verdicts.py` covers a window that combines two or more blessed changes.
+The corpus build stores each unit's per-config delta digests as `ink_deltas` (`ink.delta_digest`). An `ink_deltas` rule in `rebuild/standing-approvals.yaml` matches them, so a blessed change never waits for review again in any window where it is the whole visible change, and the combined match in `rebuild/tools/standing_verdicts.py` covers a window that combines two or more blessed changes. When a blessed delta changes shape, re-derive the rule's digest from the `deltas` that `rebuild/tools/standing_probe.py` prints for a unit showing it; never edit a digest by hand.
 
 ### The artifact cycle mechanized
 
