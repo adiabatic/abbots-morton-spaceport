@@ -1,4 +1,4 @@
-"""Unit tests for the §13.1 validation suite (rebuild/BASELINE-PLAN.md §7).
+"""Unit tests for the §13.1 validation suite (rebuild/baseline/README.md, Validation).
 
 Every expected shaping outcome here is either pinned in the corpus or was checked against the built Senior Sans font (`validation.shaping.SENIOR_FONT`) when the test was written. The tests record current behavior, not intended behavior.
 

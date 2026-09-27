@@ -81,7 +81,7 @@ M1_ALPHABET = frozenset(
     }
 )
 
-_IDENTITY_REMEDY = "the acceptance gate covers it by running default alone, which holds only while the two filter to the same rows; if it has genuinely diverged, add it to ACCEPTANCE_CONFIGS in rebuild/pipeline/conform.py (what the ·Owe migration needs, BASELINE-PLAN section 5) and drop it from DEFAULT_COVERED_CONFIGS here"
+_IDENTITY_REMEDY = "the acceptance gate covers it by running default alone, which holds only while the two filter to the same rows; if it has genuinely diverged, add it to ACCEPTANCE_CONFIGS in rebuild/pipeline/conform.py (what the ·Owe migration needs, the Configurations section of rebuild/baseline/README.md) and drop it from DEFAULT_COVERED_CONFIGS here"
 
 _EXTRACT_REMEDY = "re-extract with `uv run python -m rebuild.baseline.cli extract --all --out rebuild/out` then `uv run python -m rebuild.baseline.cli summarize --out rebuild/out`, or rebuild the font the tables were extracted from (the header's git_sha names the commit it was built at; the site font is `make all` output)"
 

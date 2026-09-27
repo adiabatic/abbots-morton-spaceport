@@ -1,4 +1,4 @@
-"""Check that baseline extraction output is byte-identical across two runs (rebuild/BASELINE-PLAN.md §2 and §3).
+"""Check that baseline extraction output is byte-identical across two runs (the determinism rules and the row order in rebuild/baseline/README.md).
 
 Usage:
     uv run python rebuild/check_determinism.py [--config default] [--lengths 1,2]

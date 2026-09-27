@@ -1,4 +1,4 @@
-"""Junction classification per rebuild/BASELINE-PLAN.md §4: follow the built font's GPOS `curs` feature to its per-height cursive lookups, and classify a pair of adjacent output glyphs by whether the left glyph has an exit and the right glyph an entry in the same lookup."""
+"""Junction classification per rebuild/baseline/README.md (Junction classification): follow the built font's GPOS `curs` feature to its per-height cursive lookups, and classify a pair of adjacent output glyphs by whether the left glyph has an exit and the right glyph an entry in the same lookup."""
 
 from __future__ import annotations
 

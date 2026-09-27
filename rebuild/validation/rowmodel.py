@@ -1,4 +1,4 @@
-"""Row model and table I/O for the §13.1 baseline, per rebuild/BASELINE-PLAN.md §3.
+"""Row model and table I/O for the §13.1 baseline, per the table format in rebuild/baseline/README.md.
 
 This is the validation suite's copy of the row format; the extractor's is rebuild/baseline/model.py. The TSV format is the interface between them: any table the extractor writes parses here, and a Row serialized here is byte-identical to the extractor's serialization of the same shaping outcome.
 """
@@ -35,7 +35,7 @@ CONFIGS: dict[str, dict[str, bool]] = {
 
 
 def config_token_for_features(features: dict[str, bool] | None) -> str | None:
-    """Return the plan §5 config token for a feature dict, or None when the configuration is outside the covered set."""
+    """Return the `CONFIGS` token for a feature dict, or None when the configuration is outside the covered set."""
     enabled = sorted(name for name, on in (features or {}).items() if on)
     token = "+".join(enabled) if enabled else "default"
     return token if token in CONFIGS else None
@@ -95,7 +95,7 @@ def open_table(path: Path | str) -> IO[str]:
 
 
 def read_header(path: Path | str) -> dict[str, str]:
-    """Parse the table's leading comment lines (plan §3) into a key-to-value dict. The version line, which has no colon, is stored under "tool"."""
+    """Parse the table's leading comment lines (the header rebuild/baseline/README.md specifies) into a key-to-value dict. The version line, which has no colon, is stored under "tool"."""
     header: dict[str, str] = {}
     with open_table(path) as fh:
         for line in fh:

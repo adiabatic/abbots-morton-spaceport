@@ -1,4 +1,4 @@
-"""The extractor's row model for the section 13.1 baseline: the Row dataclass, TSV serialization and parsing, canonical row order, the configuration registry, and header rendering. The validation suite keeps its own copy of the row format and configuration registry in rebuild/validation/rowmodel.py; the TSV format in rebuild/BASELINE-PLAN.md §3 is the interface between the two."""
+"""The extractor's row model for the section 13.1 baseline: the Row dataclass, TSV serialization and parsing, canonical row order, the configuration registry, and header rendering. The validation suite keeps its own copy of the row format and configuration registry in rebuild/validation/rowmodel.py; the TSV format that rebuild/baseline/README.md specifies (Table format) is the interface between the two."""
 
 from __future__ import annotations
 
@@ -91,7 +91,7 @@ def render_header(
     tool_version: str = TOOL_VERSION,
     subset: str | None = None,
 ) -> list[str]:
-    """Return a baseline table's header lines in their fixed order (plan section 3). The optional subset line marks a smoke run (--limit or --sample) so a partial table cannot be mistaken for the full baseline."""
+    """Return a baseline table's header lines in their fixed order (rebuild/baseline/README.md, Table format). The optional subset line marks a smoke run (--limit or --sample) so a partial table cannot be mistaken for the full baseline."""
     lines = [
         f"# baseline-extract v{tool_version}",
         f"# git_sha: {git_sha}",
