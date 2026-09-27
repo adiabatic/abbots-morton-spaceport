@@ -84,7 +84,7 @@ policy:
   - entry: baseline
     when:
       left: {family: qsIt}
-    why: ·It never joins to itself. Retires the round-1 entered-it-baseline-join-gain approvals and deliberately forgoes the old font's lone real ·It·It chain (ss04, before ·Utter).
+    why: ·It never joins to itself.
   - exit: x-height
     when:
       right:
