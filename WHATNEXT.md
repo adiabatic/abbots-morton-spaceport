@@ -12,7 +12,9 @@ The rebuild migrates the cursive-join engine rune by rune and checks each batch 
 
 ## Open questions from the requirements
 
-`doc/core-idea.md` records the rebuild’s requirements, and `doc/rebuild-design.md` settles the questions its interviews raised, except the ones below.
+`doc/core-idea.md` records the rebuild’s requirements, and `doc/rebuild-design.md` settles the questions its interviews raised and keeps to its decisions, except the ones below.
+
+**Does each rune’s own ductus gate its migration, in place of finishing all of the ductus first?** Core-idea makes finishing the whole ductus a precondition for the rewrite (its section “The stance set’s truth is held jointly by ductus _and_ bitmaps”), and `doc/rebuild-design.md` §3.1 makes each rune’s migration wait on that rune’s own ductus instead. §15 item 10 records the departure and what the per-rune order gives up. The departure waits on the author’s sign-off.
 
 **Can a stylistic set lift a refusal?** In core-idea a stylistic set adds capability: an unlock enables a join that no stance declares by default, as ss05 does for ·Tea’s both-baseline pairing after ·Et, and taste vetoes are a separate layer on top of what is allowed. Whether a set can also lift a veto is undecided. The rune grammar cannot express such a lift: a `when:` condition’s `feature:` names a single active `ssNN` (`featureTag` in `rebuild/schema/rune.schema.json`), so a `refuse` can be limited to configurations where a set is on, but never to those where it is off.
 
