@@ -43,6 +43,15 @@ Git holds the history, so a checked-in note earns its place only by recording th
 - In this repository only: multiline commit messages are fine, though not mandatory, and no worktrees unless explicitly asked.
 - Commit messages describe the author/reader experience ("Make tables.html store state in the URL, not localStorage") or how the letters look different ("Reduce the half-·He extension at the x-height", "Don't join ·Way·Thaw ever"), never the mechanism.
 
+## Workflows
+
+- When using a workflow to do a bunch of things (say, a bunch of GitHub sub-issues), ignore the “don’t commit” instruction and commit at will.
+- Feel free to use worktrees to parallelize work when using a workflow to do a bunch of things.
+- When using workflows to do things, make sure to clean up generated files in between tasks.
+- When using a workflow with multiple steps, add a way for me to signal “gracefully finish the sub-issues you’re working on, but don’t start any more”.
+- Use as many sub-agents as you like in a workflow, but no more than 12 total runnning concurrently at a time (I don’t want to run out of my 5h limit and get paused). Don’t skimp on testing/judging/verifying-type agents. If that means the best idea is to fix sub-issues one at a time, then do that.
+- Don’t forget closing keywords in the body of a commit that’s designed to fix a GitHub Issue.
+
 ## Prose style
 
 - Use American English in code and comments, even though The Manual and other parts of the project are British.
