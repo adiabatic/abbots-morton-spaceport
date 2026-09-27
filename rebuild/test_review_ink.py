@@ -122,7 +122,7 @@ def test_rectilinear_cells_refuses_an_off_grid_coordinate():
 
 
 def test_rectilinear_cells_refuses_an_unclosed_contour():
-    """A contour that is never closed returns None instead of an empty picture. Both shipped pens close every contour, so an open one means the outline is not the kind this rasterizer handles."""
+    """A contour that is never closed returns None instead of an empty picture. The before and after fonts are both CFF, which has no open contours, so an open one means the outline is not the kind this rasterizer handles."""
     outline = (("moveTo", ((0, 0),)), ("lineTo", ((100, 0),)), ("lineTo", ((100, 150),)))
     assert rectilinear_cells(outline) is None
 
@@ -475,6 +475,6 @@ def test_junior_oracle_only_judges_ss10_only_units(oracle):
 
 
 def test_junior_oracle_refuses_the_lowered_namer_dot(oracle):
-    """The known counterexample, the `· ◊ZWNJ ·X·Y` boundary windows: Junior draws the namer dot lowered (periodcentered.lowered) where the rebuild's ss10 run draws the plain dot, so the placed ink differs and the oracle leaves the unit to a human."""
+    """The known counterexample, the `· ◊ZWNJ ·X·Y` boundary windows whose ·X is Short: Junior draws the namer dot lowered (periodcentered.lowered) where the rebuild's ss10 run draws the plain dot, so the placed ink differs and the oracle leaves the unit to a human."""
     text = "".join(chr(value) for value in (0x00B7, 0x200C, 0xE666, 0xE653))
     assert oracle.approves(("ss10",), text) is False

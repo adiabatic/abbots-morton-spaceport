@@ -147,7 +147,7 @@ def test_a_recompiled_font_reuses_the_untouched_units_and_matches_a_from_scratch
 
 
 def _with_a_version_bump(source: Path, target: Path) -> Path:
-    """Copy the font with `head.fontRevision` and every `name` record changed, as `make all` changes both site fonts on a version bump. This change must move neither whole-store stamp."""
+    """Copy the font with `head.fontRevision` and every `name` record changed, which covers the version fields `make all` changes in both site fonts on a version bump (`head.fontRevision` and the `version` name record). This change must move neither whole-store stamp."""
     font = TTFont(str(source))
     head = font["head"]
     head.fontRevision = head.fontRevision + 0.001  # pyright: ignore[reportAttributeAccessIssue]

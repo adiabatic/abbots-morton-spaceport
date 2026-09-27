@@ -396,7 +396,7 @@ class TestAliasAndLedger:
         }
 
     def test_a_two_plus_match_comes_back_in_ledger_order_from_either_end(self):
-        """A row that matches a class entry and an unconditional entry takes its two hits from two buckets, and the list still comes back in ledger order whichever entry the ledger lists first. The run_m1 gate requires zero multi-matched rows on the live ledger, so no other test checks this order."""
+        """A row that matches a class entry and an unconditional entry takes its two hits from two buckets, and the list still comes back in ledger order whichever entry the ledger lists first. The run_m1 gate requires zero multi-matched rows on the live ledger, so no passing build exercises this order."""
         row = conform.DivergentRow(
             config="default",
             codepoints="E650:E665",
@@ -1427,7 +1427,7 @@ def _cache_rederived(rows: int, pass_ordinal: int) -> set[int]:
 
 
 def _position_bench(spec, tmp_path: Path, ledger_entries: str = _INK_IDENTICAL_LEDGER):
-    """The position comparison's test bench. Its rows are the frozen mini bundle's default-table rows that use only mini-spec letters and boundaries, with real old-font positions and glyph names, plus three hand-made ·Tea·May rows at the end: the bundle has no adjacent ·Tea·May pair, and the rune edit these tests share changes that pair. The alias map is all-pending, so every row diverges, and the ledger's one ink-identical entry matches every row, so every row without a ligation or junction divergence enters the position comparison. The font is the bundle's frozen `M1.otf`, the after font the rows were extracted against."""
+    """The position comparison's test bench. Its rows are the frozen mini bundle's default-table rows that use only mini-spec letters and boundaries, with real old-font positions and glyph names, plus three hand-made ·Tea·May rows at the end: the bundle has no adjacent ·Tea·May pair, and the rune edit these tests share changes that pair. The alias map is all-pending, so every row diverges, and the ledger's one ink-identical entry matches every row, so every row without a ligation or junction divergence enters the position comparison. The font is the bundle's frozen `M1.otf`, the after font of the build the rows were sliced from."""
     letters = {rune.codepoint for rune in spec.runes.values() if rune.codepoint is not None}
     boundaries = {token.codepoint for token in spec.registry.boundary_tokens.values()}
     rows: list[str] = []

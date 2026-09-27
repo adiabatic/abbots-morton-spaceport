@@ -118,7 +118,7 @@ RETAG_CLASS = "dangling-anchor-dropped"
 def _edited_audit(tmp_path: Path) -> Path:
     """Return the mini audit with one window dropped and one moved to another ledger class. Dropping a window shifts the triage positions, and so the batches, of the units after it. Retagging a window changes its class and so its duplicate-group key. An incremental rebuild must recompute both, not only patch units in place.
 
-    The retag uses a matched class rather than UNMATCHED for a data reason: `derive_premerge` refuses an ink-identical window that claims an unmatched group, which is true of the live corpus (every UNMATCHED window is a real new join under review) but not of a window a test declares UNMATCHED by editing a TSV. Every row of the window moves together, since two matched classes on one triple is a classification bug the loader raises on.
+    The retag uses a matched class rather than UNMATCHED for a data reason: `build_m1` refuses an ink-identical window that claims an unmatched group, which is true of the live corpus (every UNMATCHED window is a real new join under review) but not of a window a test declares UNMATCHED by editing a TSV. Every row of the window moves together, since two matched classes on one triple is a classification bug the loader raises on.
     """
     lines = MINI_AUDIT.read_text(encoding="utf-8").splitlines()
     header, rows = lines[0], lines[1:]

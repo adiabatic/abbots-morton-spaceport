@@ -2233,7 +2233,7 @@ class TestTheCorpusBuildWidth:
         )
 
     def test_the_floor_answers_one_on_a_machine_that_cannot_hold_a_worker(self):
-        """A machine with no memory left after its reserve floors at one in both cases. Width one is the serial build: there is no pool, and every fragment exists once instead of twice."""
+        """A machine with no memory left after its reserve floors at one in both cases. Width one is the serial build: the parent runs the units phase itself instead of handing it to a worker pool."""
         assert ac.corpus_job_budget(skip_gates=True, ncores=12, total_bytes=8_000_000_000) == 1
         assert ac.corpus_job_budget(skip_gates=False, ncores=12, total_bytes=8_000_000_000) == 1
 
@@ -3724,7 +3724,7 @@ def test_the_pool_width_is_handed_to_the_make_test_child_and_to_no_other(monkeyp
 
 
 def test_the_rebuild_suite_names_its_pool_to_its_own_child(monkeypatch):
-    """The suite's pytest controller records its per-worker peaks in the timings journal under the pool name in `AMS_POOL_UNIT`, and `make job-costs` reports the suite's measurements under that name. The cycle runs the suite as plain pytest, not through `rebuild_gate.py`, so the cycle sets the name itself. It sets it on the suite's child only, because on `os.environ` every other child would inherit it and record its measurements under the wrong pool. The same child also gets its width, the cores the corpus build leaves, which the pool record's `width` then reports."""
+    """The suite's pytest controller records its per-worker peaks in the timings journal under the pool name in `AMS_POOL_UNIT`, and `make job-costs` reports the suite's measurements under that name. The cycle runs the suite as plain pytest, not through `rebuild_gate.py`, so the cycle sets the name itself. It sets it on the suite's child only, because on `os.environ` every other child would inherit it and record its measurements under the wrong pool. The same child also gets its width, `contracts_pool_width`, which the pool record's `width` then reports."""
     # When the cycle's contracts gate runs this suite, AMS_POOL_UNIT is already set in this process. Clear it so the `os.environ` check below starts from a known absence.
     monkeypatch.delenv("AMS_POOL_UNIT", raising=False)
     seen: dict[str, dict[str, str] | None] = {}
@@ -4356,7 +4356,7 @@ def test_both_lane_fingerprints_ignore_prose_in_the_ledgers(lane, tmp_path):
 
 @pytest.mark.parametrize("lane", ac.REBUILD_LANES)
 def test_every_harness_file_moves_both_lane_keys(lane, tmp_path):
-    """Every file in `REBUILD_GATE_HARNESS_PATHS` is read under `pytest rebuild/`: collecting the suite imports test/test_shaping.py in every process, and the tools/ compile modules with it. So editing any of them must change the lane key instead of skipping on a green record that did not see the edit."""
+    """Every file in `REBUILD_GATE_HARNESS_PATHS` is read under `pytest rebuild/`: the tests that replay or draft data-expect pins import test/test_shaping.py, and the tools/ compile modules with it, and `rebuild_gate_closure_files` names the reader of every other entry. So editing any of them must change the lane key instead of skipping on a green record that did not see the edit."""
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
     for rel in ac.REBUILD_GATE_HARNESS_PATHS:
         harness_file = tmp_path / rel
@@ -6153,7 +6153,7 @@ def test_dry_run_plan_skip_verdict_update_replaces_the_whole_step():
 
 
 def test_dry_run_plan_direct_merge_merges_the_master():
-    """When the corpus did not move, the carry would map every unit onto itself, and its re-prefixed notes could never outrank the store. So the verdict update merges the master directly: it is the one input the store's own hash cannot see."""
+    """When the corpus did not move, the carry would map every unit onto itself and keep each record's `at`, which is all the merge ranks by. So the verdict update skips the carry and merges the master directly: it is the one input the store's own hash cannot see."""
     plan = _plan(direct_merge=True)
     by_name = {step.name: step for step in plan.steps}
     assert plan.carry_out is None
@@ -6308,7 +6308,7 @@ def test_run_cycle_records_the_verdict_update_green_only_after_a_complete_run(mo
 
 
 def test_run_cycle_records_no_verdict_update_green_until_it_reaches_its_fixpoint(monkeypatch, tmp_path):
-    """The verdict-update green is recorded only when the verdict update reports a fixpoint. The verdict update runs the duplicate-fill pass again after the standing merge and reports whether that pass would have written anything; if the verdict update stopped short of that, the next pass runs it again."""
+    """The verdict-update green is recorded only when the verdict update reports a fixpoint. The verdict update reruns the duplicate-fill pass after the standing merge until a round fills nothing, up to `MAX_DUPLICATE_ROUNDS` rounds in all, and reports whether it got there; if the verdict update stopped short of that, the next pass runs it again."""
 
     def unsettled(report, *, spawn, emit, registry, plan):
         _verdict_update_ok(report, spawn=spawn, emit=emit, registry=registry, plan=plan)

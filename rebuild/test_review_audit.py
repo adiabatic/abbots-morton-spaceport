@@ -260,7 +260,7 @@ def test_the_row_columns_refuse_a_config_vocabulary_wider_than_a_byte():
 
 
 def test_build_units_seals_the_tuple_pool_once_its_columns_are_written():
-    """The pool's tuple-to-id dict is needed only while the rows are read, and it is the largest thing the pool holds, so `build_units` seals the pool when the rows end. The ids still name their tuples, which the units hold as their own name tuples, and a later `id` call raises."""
+    """The pool's tuple-to-id dict is needed only while the rows are read, and apart from the tuples themselves it is the largest thing the pool holds, so `build_units` seals the pool when the rows end. The ids still name their tuples, which the units hold as their own name tuples, and a later `id` call raises."""
     names = TuplePool()
     rows = [AuditRow("default", "E650:E665", ("cell",), "UNMATCHED", ("a", "b"), ("c",))]
     (unit,), columns = build_units(rows, [], dict(LETTERS), names)

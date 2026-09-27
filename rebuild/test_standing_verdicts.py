@@ -7753,7 +7753,7 @@ def test_a_vanished_rule_is_taken_off_the_entries_it_was_matched_on(
 
 
 def test_the_combined_gate_turning_on_drops_every_entry(tmp_path, monkeypatch, capsys, slide_fonts):
-    """The combined match is on for the whole run once the file has two combinable rules. So going from one to two re-evaluates every entry, even where the second rule has no candidate. This is the one edit that changes a window's decision without touching a rule that has a candidate in it. A third run under the same two rules serves everything."""
+    """The combined match is on for the whole run once the file has two combinable rules. So going from one to two re-evaluates every entry, even where the second rule has no candidate, and going back to one does the same. A third run under the same two rules serves everything."""
     runs = _warm_runs(
         tmp_path,
         monkeypatch,

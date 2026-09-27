@@ -4,7 +4,7 @@ It is not part of the per-edit path because of its cost. On the live alphabet, a
 
 The green record (`cycle_paths.DEEP_REPLAY_GREEN`) stores every rune's prose-insensitive digest and the maximum length walked. The next walk covers the runes whose digest changed since, closed under `spec_load.rune_closure` (every rune whose records read a changed rune's content), which the window locality rule in `doc/rebuild-design.md` permits. The record also stores the replay structure stamp, but the stamp never widens the walk: a code or structure change is for the deep sweep over every text, and the cycle's deep-sweep line reports it. A walk that finds a disagreement withdraws what the record claims for the runes it walked (`withdraw_walked`). After a family walk the status reports the walked runes due and the next bare walk covers them again; after a full replay the record is gone and the status reports `never-run`.
 
-Run as: uv run python -m rebuild.tools.deep_replay, or through `make replay-deep`. `--families` names the runes to walk instead of reading them from the record. `--all` walks every text, which on the live alphabet is an overnight run.
+Run as: uv run python -m rebuild.tools.deep_replay, or through `make replay-deep`. `--families` names the runes to walk instead of reading them from the record. `--all` walks every text, which on the live alphabet takes minutes on the 18-core M5 Pro (`doc/fleet.md`).
 """
 
 from __future__ import annotations
@@ -115,7 +115,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--all",
         action="store_true",
-        help="walk every text rather than the moved runes' texts; an overnight run on the live alphabet",
+        help="walk every text rather than the moved runes' texts; a run of minutes on the live alphabet",
     )
     parser.add_argument(
         "--threads",

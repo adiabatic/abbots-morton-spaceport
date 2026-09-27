@@ -8,7 +8,7 @@ A `[phase]` line is surfaced when it arrives. A `[t]` line whose label matches a
 
 Every surfaced line carries its step name, the step's elapsed time, and the cycle's elapsed time, because several steps can be open at once.
 
-pytest, node, and git do not print this protocol, so adapters read their output into the same events. A pytest percent marker becomes a `Progress`, a pytest `FAILED`/`ERROR` summary line or a TAP `not ok` becomes a `Warn`, and `warning_events` runs on every step to catch the two warning shapes Python prints. The adapters strip ANSI first, because pytest colors its summary when `FORCE_COLOR` is set, as it is under the agent harness.
+pytest, node, and git do not print this protocol, so adapters read their output into the same events. A pytest percent marker becomes a `Progress`, a pytest `FAILED`/`ERROR` summary line or a TAP `not ok` becomes a `Warn`, and `warning_events` runs on every step to catch the two warning shapes Python prints. The adapters strip ANSI first, because pytest colors its summary when `FORCE_COLOR` is set, even into a pipe.
 
 Every line a child prints goes to that step's log, in arrival order, with stderr lines tagged; the terminal gets the console's rendering. A failed step replays its whole log under its own banner. The console writes each line in one call under one lock, so lines from overlapping children interleave but never split.
 
@@ -224,7 +224,7 @@ def _parse_progress(body: str) -> Progress | None:
 
 
 def pytest_events(line: str) -> Event | None:
-    """Return a pytest output line as an event: a summary `FAILED `/`ERROR ` line becomes a `Warn`, and the percent marker on a progress line becomes a `Progress`. ANSI escapes are stripped first, because pytest colors its summary when `FORCE_COLOR` is set, as it is under the agent harness."""
+    """Return a pytest output line as an event: a summary `FAILED `/`ERROR ` line becomes a `Warn`, and the percent marker on a progress line becomes a `Progress`. ANSI escapes are stripped first, because pytest colors its summary when `FORCE_COLOR` is set, even into a pipe."""
     text = _ANSI_SGR.sub("", line).rstrip()
     if text.startswith(("FAILED ", "ERROR ")):
         return Warn(text)

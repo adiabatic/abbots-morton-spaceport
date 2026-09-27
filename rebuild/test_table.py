@@ -231,7 +231,7 @@ def test_joint_rows_accessor(default_tables):
 
 def test_cited_provenance_records_demonstrably_firing_policy(default_tables, ss03_tables):
     decision, _joins = default_tables
-    # qsTea's refusal of a baseline entry into full ·Tea fires only inside the lookahead closure (it keeps ·It·Tea broken), so its citation shows that firings inside the closure are recorded as well as direct-window ones.
+    # qsTea's refusal of a baseline entry into full ·Tea fires only inside the lookahead closure (it keeps an entered ·It·Tea broken), so its citation shows that firings inside the closure are recorded as well as direct-window ones.
     assert "glyph_data/runes/qsTea.yaml:policy.refuse[0]" in decision.cited_provenance
     # qsMay's first exit extension produces ex-ext-1 on ·May·It in the default configuration; qsIt's entry extension after halves produces en-ext-1 on ·Tea·It.
     assert "glyph_data/runes/qsMay.yaml:policy.extend[0]" in decision.cited_provenance
@@ -461,7 +461,7 @@ def test_rule_provenance_carries_yaml_pointers(default_tables):
 
 
 class TestProspectLiveSlots:
-    """Tests the prospect case of deep-slot enumeration: with the simulated prospect on, a window whose follower's simulated settlement a raw deep token can change enumerates that slot, and no other window does. With it off, only an own-rune chain opens a slot. The kernel decides which slots are live; these tests check the table that results."""
+    """Tests the prospect case of deep-slot enumeration: with the simulated prospect on, a window where a raw deep token changes the input's own outcome through the follower's simulated settlement enumerates that slot, and only that token's rows settle differently. With it off, only an own-rune chain opens a slot. The kernel decides which slots are live; these tests check the table that results."""
 
     @pytest.fixture()
     def prospect_spec(self):

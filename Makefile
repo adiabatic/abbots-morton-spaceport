@@ -160,7 +160,7 @@ kernel-gate: kernel-check
 conform-deep:
 	uv run python -m rebuild.tools.deep_sweep $(ARGS)
 
-# The cheaper form of the deep sweep: the crate's string replay at one letter past the build's maximum length, over the texts that name the runes whose content changed since the last recorded walk (ARGS='--families qsPea,qsTea' names them, ARGS='--all' walks every text overnight, ARGS='--status' asks whether it is due). Its green record is keyed on rune content, so a rune edit makes it due, and the artifact cycle reports that each pass. It is not a cycle gate because of its cost, which rebuild/tools/deep_replay.py states. A green `make conform-deep` at this depth also refreshes it.
+# The cheaper form of the deep sweep: the crate's string replay at one letter past the build's maximum length, over the texts that name the runes whose content changed since the last recorded walk (ARGS='--families qsPea,qsTea' names them, ARGS='--all' walks every text in minutes, ARGS='--status' asks whether it is due). Its green record is keyed on rune content, so a rune edit makes it due, and the artifact cycle reports that each pass. It is not a cycle gate because of its cost, which rebuild/tools/deep_replay.py states. A green `make conform-deep` at this depth also refreshes it.
 replay-deep:
 	uv run python -m rebuild.tools.deep_replay $(ARGS)
 

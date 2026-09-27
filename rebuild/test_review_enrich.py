@@ -102,7 +102,7 @@ def test_pair_codepoints_covers_the_pairs_codepoint_span(enricher, units_by_key)
 
 
 def test_position_only_mismatch_marks_the_boundary_without_a_pair(enricher, units_by_key):
-    # A position-only unit whose mismatch kerning explains: an advance-only one-pixel mismatch on the letter beside the boundary, with no cell- or junction-grain divergence. The mark is placed on the ◊ZWNJ beside the mismatch, and pair stays None so no sample band is highlighted.
+    # A position-only unit whose mismatch the position comparison marks kern-attributable because a ZWNJ precedes it, though no kern applies: an advance-only one-pixel mismatch on the letter beside the boundary, with no cell- or junction-grain divergence. The mark is placed on the ◊ZWNJ beside the mismatch, and pair stays None so no sample band is highlighted.
     enriched = enricher.enrich(units_by_key[("E650:200C:E676:E665", "default")])
     assert enriched.pair is None
     assert enriched.diff_positions == ()
@@ -134,7 +134,7 @@ def test_known_halves_extension_unit(enricher, units_by_key):
 
 
 def test_annotation_grain_renames_do_not_anchor_the_pair(enricher, units_by_key):
-    # ·It·Utter·It·May: position 1 is a bare-name ·Utter rename with an identical drawing, and the ink change (a dropped non-summing extension) is at the ·It·May junction. The pair anchors on the ink-visible positions. The rename stays in diff_positions without a secondary junction, and the summary describes the anchored position.
+    # ·It·Utter·It·May: position 1 is a bare-name ·Utter rename with an identical drawing, and the ink change is at the ·It·May junction, where both of the old font's extensions (·It's exit and ·May's entry) are dropped. The pair anchors on the ink-visible positions. The rename stays in diff_positions without a secondary junction, and the summary describes the anchored position.
     unit = units_by_key[("E670:E67A:E670:E665", "default")]
     enriched = enricher.enrich(unit)
     assert enriched.before_glyphs[1] == "qsUtter"

@@ -83,7 +83,7 @@ ROWS = (
     ("qsTea qsMay", (), ("qsTea.full.ex-y0", "qsMay.loop.en-y0.en-ext-1")),
     # qsMay's baseline exit refuses qsTea (the old font breaks ·May·Tea while ·May·May joins, and the loop top touching the bar is an off-anchor contact), so ·May does not join and renders its pulled-back unjoined drawing.
     ("qsMay qsTea", (), ("qsMay.loop.ex-bind-pulled-back", "qsTea.full")),
-    # Under ss03 the x-height path scores equal and the declared order: (loop before grounded-loop) decides.
+    # Under ss03, half ·Tea's x-height entry unlocks after ·May, so ·May ~x~ ·Tea.half is the window's only join and wins on the join count.
     ("qsMay qsTea", ("ss03",), ("qsMay.loop.ex-y5.ex-ext-1", "qsTea.half.en-y5")),
     # The optimistic third term of the join count gains the second join. qsMay's two one-pixel exit extensions (the self-entry-live one and the one toward a list that includes qsIt) both match without E-INCOMPARABLE.
     (
@@ -109,7 +109,7 @@ ROWS = (
     ("qsIt qsIt", (), ("qsIt.sole", "qsIt.sole")),
     # qsPea joins followers through the half motion's x-height dip; the halves-class entry extension excepts qsPea, so qsIt takes no en-ext here.
     ("qsPea qsIt", (), ("qsPea.half.ex-y5", "qsIt.sole.en-y5")),
-    # The y6 chain keeps all four heights live.
+    # ·Pea.half ~6~ ·Pea is the only y6 join these rows check.
     ("qsPea qsPea", (), ("qsPea.half.ex-y6", "qsPea.full.en-y6")),
     ("qsPea qsPea qsIt", (), ("qsPea.half.ex-y6", "qsPea.half.en-y6.ex-y5", "qsIt.sole.en-y5")),
     ("qsMay qsPea", (), ("qsMay.loop.ex-y5", "qsPea.full.en-y5")),
@@ -573,7 +573,7 @@ def test_the_guard_reads_letters_only_and_indexes_the_verdict_map_it_was_given(r
         guard_blocks(real_guard, "qsDay_qsUtter", RightToken("letter", "qsNotARune"), EDGE)
 
 
-# Ligature-transparent left scopes (`spec_load._expand_ligature_lefts`): a family named in an entry `from:` scope also admits every registered ligature whose sequence ends in that family. So the rejected windows u-121942 and u-121944 settle the half ·Pea after ·See+Utter as they do after a bare ·Utter, and the follower's join takes effect. The ·No row checks the approved divergence (u-119404, u-135614): full ·Pea joins flipped ·No at the baseline after every qsUtter-trailing left.
+# Ligature-transparent left scopes (`spec_load._expand_ligature_lefts`): a family named in an entry `from:` scope also admits every registered ligature whose sequence ends in that family. So the windows the review rejected settle the half ·Pea after ·See+Utter as they do after a bare ·Utter, and the follower's join takes effect. The ·No row checks an approved divergence: full ·Pea joins flipped ·No at the baseline after every qsUtter-trailing left.
 
 
 LIGATURE_TRANSPARENT_PEA_ROWS = (

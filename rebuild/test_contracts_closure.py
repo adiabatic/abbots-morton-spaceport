@@ -567,7 +567,7 @@ def test_dynamic_import():
 
 
 def _child(pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch, *args: str):
-    """The child's kernel is a script named like the kernel binary under the pytester root, because `kernel_child` decides by argv. Building the real kernel here, after pytester has pointed `HOME` at a scratch directory, would make cargo rebuild it against an empty registry, and every other worker would then rebuild it again."""
+    """The child's kernel is a script named like the kernel binary under the pytester root, because `kernel_child` decides by argv. Building the real kernel here, after pytester has pointed `HOME` at a scratch directory, would make cargo rebuild it against an empty registry, and the next build under the real `HOME` would rebuild it again."""
     monkeypatch.setenv("PYTHONPATH", str(REPO_ROOT))
     pytester.makeconftest(CHILD_CONFTEST.format(root=str(REPO_ROOT)))
     pytester.makepyfile(test_child=CHILD_TESTS.format(root=str(REPO_ROOT)))
