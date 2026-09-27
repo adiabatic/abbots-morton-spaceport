@@ -3,7 +3,7 @@
 ## Roadmap and open decisions
 
 - `WHATNEXT.md` is the live frontier: what ought to happen next and the open forks. Read it when a task needs that context.
-  - When work lands, edit its state in place and delete what it supersedes. It is never a log; its “Keeping this file honest” block is the rule.
+  - When work lands, edit its state in place and delete what it supersedes. It is never a log.
 
 ## Note-taking and the rebuild logs
 
