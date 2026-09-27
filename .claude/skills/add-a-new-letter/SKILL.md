@@ -1,59 +1,60 @@
 ---
 name: add-a-new-letter
-description: Migrate one letter into the M1 rebuild alphabet as a single "Add ·X" batch — gather the old font's pair evidence with the bundled tool, author the rune file and neighbor scopes, grow the alphabet and the ledgers, extend the smoke set, run the gates, and land the commit. Use when the user asks to add or migrate a letter (or "the next letter") into the rebuild.
+description: Migrate one letter into the M1 rebuild alphabet as a single "Add ·X" batch. Gather the old font's pair evidence with the bundled tool, author the rune file and the neighbors' scopes, add the letter to the alphabet and the ledgers, extend the smoke set, run the gates, and make the commit. Use when the user asks to add or migrate a letter (or "the next letter") into the rebuild.
 argument-hint: "[letter]"
 ---
 
-The user wants one more letter in the rebuild's alphabet. A letter addition is one batch landing as one commit titled `Add ·X` (`git log --oneline --grep='^Add ·'`); its record is the commit plus the rune's `why:` fields, never a report. Before writing anything, read the two or three most recent `Add ·X` commits end to end — they are the living template, and each batch refined the pattern. The binding rules live in `doc/rebuild-design.md` (§4 the five-step record rubric, §13 step 3 the record conversion) and `rebuild/M1-PLAN.md` (§3 the rune-file template, §8 the ductus protocol); don't re-derive or restate what they already say.
+The user wants one more letter in the rebuild's alphabet. A letter addition is one batch, committed as one commit titled `Add ·X` (`git log --oneline --grep='^Add ·'`). Its record is the commit plus the rune's `why:` fields, never a report. Before writing anything, read the two or three most recent `Add ·X` commits in full. They are the current template, and each batch refined the pattern. The authoritative rules are in `doc/rebuild-design.md` (§4 the five-step decision procedure for classifying records, §13 step 3 the record conversion) and `rebuild/M1-PLAN.md` (§3 the rune-file template, §8 the ductus drafting protocol). Don't re-derive or restate what they already say.
 
-The design calls are the user's. Where the old record forks — which bitmaps become stances, which joins yield, whether an old exit tuck is really the receiver's entry contraction — present the evidence and ask, then record each ruling under "Recorded design overrides" in the batch progress file.
+The user makes the design decisions. Where the old record can be converted in more than one way (which bitmaps become stances, which joins yield, whether an old exit tuck is really the receiver's entry contraction), present the evidence and ask. Then record each decision under "Recorded design overrides" in the batch progress file.
 
 ## Hard rules
 
-- Never author `why:` in `glyph_data/runes/` — that field is the user's voice. The agent-written `why:` homes are `rebuild/m1-contact-allow.yaml` and `rebuild/m1-divergences.yaml` only.
-- Scope every entry `from:` and exit `toward:` list from the baseline's actual joined junctions. Start with the pair map, then scan all in-scope triples and quadruples in every non-overlay acceptance configuration: a predecessor's contextual exit can reach a different entry row than its isolated pair exposes. Complete both neighboring scopes from those rows; FEA reconnaissance is never the authority, because some joins use GPOS anchors alone.
-- A rune is gated on its ductus: every stance names a motion, and any motion prose not carried byte-for-byte from the old YAML gets `# DRAFT — pending author sign-off` on its key line.
-- Behavior ground truth outranks a literal reading of the old YAML: when they disagree, transcribe faithfully and let the gates arbitrate — divergences land in the ledger with evidence, never as silent spec edits.
-- Before adding an ink-identical class for a form-name difference, compare the placed ink over all candidate windows. The position comparison catches moved origins and advances, but an unrelated shape change can keep both unchanged; exclude such windows from the class.
-- Never commit without approval; at the commit point, spawn a fresh sub-agent for commit-message suggestions. Subject `Add ·X`; the body describes how the letters now look and join, not the mechanism.
-- Detach the long steps and never single-thread pytest — `doc/running-long-steps.md` carries the detach recipe and the hung-run traps, and `doc/parallelism.md` the width rules.
+- Never write `why:` in `glyph_data/runes/`. That field holds the user's rationale in the user's own words. The only files where an agent writes `why:` are `rebuild/m1-contact-allow.yaml` and `rebuild/m1-divergences.yaml`.
+- Scope every entry `from:` and exit `toward:` list from the junctions that actually join in the baseline. Start with the pair map, then scan all in-scope triples and quadruples in every non-overlay acceptance configuration, because a predecessor's contextual exit can reach a different entry row than its isolated pair shows. Complete both neighbors' scopes from those rows. Reading the FEA is never the authority, because some joins use GPOS anchors alone.
+- A rune is gated on its ductus. Every stance names a motion, and any motion prose not copied byte-for-byte from the old YAML gets `# DRAFT — pending author sign-off` on its key line.
+- The old font's behavior takes precedence over a literal reading of the old YAML. When they disagree, transcribe faithfully and let the gates decide. A divergence goes into the ledger with evidence, never into an unrecorded spec edit.
+- Before adding an ink-identical class for a form-name difference, compare the placed ink over all candidate windows. The position comparison catches moved origins and advances, but an unrelated shape change can leave both unchanged; exclude such windows from the class.
+- Never commit without approval. At the commit point, spawn a fresh sub-agent for commit-message suggestions. The subject is `Add ·X`, and the body describes how the letters look and join after the change, not the mechanism.
+- Detach the long steps, and never single-thread pytest. `doc/running-long-steps.md` has the detach recipe and how to judge whether a run is hung, and `doc/parallelism.md` has the width rules.
 
 ## 0 — orient
 
-- Resolve the letter and codepoint via `doc/glyph-names.md`. If the user didn't name one, just pick an unmigrated letter without putting much thought into it at all — any codepoint missing from `M1_ALPHABET` will do; don't deliberate and don't ask.
-- Read the old record: the family's entry in `glyph_data/quikscript.yaml` (bitmaps, stances, anchors, `select`/`derive`, notes, ductus). Classify each piece with the design doc's rubric: neighbor-summoned → prefer/refuse/row scope; anchor-only difference → cell; join-localized ink → binding; reach toward one neighbor → extend; a different pen motion → stance.
-- Sweep for standing obligations: grep the qs-name across `glyph_data/runes/` and `rebuild/*.yaml`, and list the open GitHub issues labeled for it (`gh issue list --label 'waits on ·X'`; delete the label once the letter lands). Issues pre-record work for several letters (dormant contracts to re-adjudicate, unused records that come alive, from-list tails to re-verify), and migrated runes may already carry records waiting on this unmigrated family that go live now. The ·Tea·Day tight bond is re-checked at every migration: a letter that can exit into ·Tea almost certainly needs the yielding prefer (qsJai's record verbatim, as on qsAwe/qsOx/qsEight/qsOoze) plus an oracle spot-check that its ·Utter·Tea·Day windows land old-font.
-- Formation closure: check `rebuild/script.yaml`'s ligature sequences — every ligature both of whose components are now migrated gets its own rune file in the same batch (qsOut brought qsOut_qsTea; qsJai brought qsJai_qsUtter).
-- Run the bundled evidence tool (last section) and keep its output at hand; every later step consumes a section of it.
+- Look up the letter and codepoint in `doc/glyph-names.md`. If the user didn't name one, pick an unmigrated letter without putting much thought into it: any codepoint missing from `M1_ALPHABET` will do. Don't deliberate and don't ask.
+- Read the old record: the family's entry in `glyph_data/quikscript.yaml` (bitmaps, stances, anchors, `select`/`derive`, notes, ductus). Classify each piece with the design doc's §4 decision procedure: differs only in which neighbors select it → prefer/refuse/row scope; anchor-only difference → cell; ink that differs only at a join → binding; reach toward one neighbor → extend; a different pen motion → stance.
+- Look for work already recorded against this letter. Grep the qs-name across `glyph_data/runes/` and `rebuild/*.yaml`, and list the open GitHub issues labeled for it (`gh issue list --label 'waits on ·X'`; delete the label once the letter is committed). Issues record work in advance for several letters (inactive contracts to re-adjudicate, unused records that take effect, `from:` list members to re-verify). Migrated runes may already hold records that wait on this unmigrated family and take effect with this migration.
+- Every migration re-checks that a word-final ·Tea·Day pair keeps its join ahead of the joins around it (the `why:` on qsNo's and qsUtter's ·Tea·Day prefers). A letter that can exit into ·Tea almost certainly needs the yielding prefer (qsJai's record verbatim, as on qsAwe/qsOx/qsEight/qsOoze), plus an oracle spot-check that its ·Utter·Tea·Day windows match the old font.
+- Ligatures: check `rebuild/script.yaml`'s ligature sequences. Every ligature whose two components are both migrated once this letter is added gets its own rune file in the same batch (the `Add ·Out` commit includes qsOut_qsTea, and the `Add ·J’ai` commit includes qsJai_qsUtter).
+- Run the bundled evidence tool (last section) and keep its output available. Every later step uses a section of it.
 
 ## 1 — grow the alphabet
 
-Add the codepoint to `M1_ALPHABET` in `rebuild/pipeline/baseline_subset.py`. Nothing else here: `run_m1` refilters the subset tables itself (`ensure_fresh`), and it refuses to start while any subset-row glyph name lacks an `rebuild/m1-aliases.yaml` entry, naming the missing names — an entry may map to `pending` mid-migration.
+Add the codepoint to `M1_ALPHABET` in `rebuild/pipeline/baseline_subset.py`. This step needs nothing else. `run_m1` refilters the subset tables itself (`ensure_fresh`). It refuses to start while any glyph name in a subset row lacks a `rebuild/m1-aliases.yaml` entry, and it lists the missing names. An entry may map to `pending` while the migration is in progress.
 
 ## 2 — author the rune file(s)
 
-`glyph_data/runes/qsX.yaml`, a ligature in its own file after its lead. The template is M1-PLAN §3; the nearest precedent is the latest Add commit whose letter shares the shape (Short single-stance letter: qsOoze; contextual stances: qsAt; ligature: qsJai_qsUtter). What repeatedly matters:
+Write `glyph_data/runes/qsX.yaml`; a ligature goes in its own file after its lead. The template is M1-PLAN §3. The nearest precedent is the latest Add commit whose letter has the same kind of shape (a Short single-stance letter: qsOoze; contextual stances: qsAt; a ligature: qsJai_qsUtter). Points that come up repeatedly:
 
-- Bitmaps verbatim from the old YAML — double-quoted rows, bare trailing `#` markers on the rows at glyph-space y 5 and 0.
-- Rune files use the structural YAML style (everything block, three flow leaf shapes); finish with `uv run python tools/reflow_yaml.py` and expect a no-op.
-- `from:`/`toward:` members in code-point order, from the evidence tool's join map completed against the longer baseline windows. A pair-map omission is not a refusal: verify contextual join heights before closing a row's scope. Left-facing lists are ligature-transparent automatically — never hand-add `qsA_qsX` lefts; naming a ligature literally is for carving it out.
-- Old `derive` directives touching the letter become `extend:`/`contract:` records — and expect the qsJai lesson: an old exit tuck that removes ink across rows is usually rewritten as the receiver's own entry contraction, not as a contract on this side.
+- Copy bitmaps verbatim from the old YAML: double-quoted rows, with bare trailing `#` markers on the rows at glyph-space y 5 and 0.
+- Rune files follow `tools/reflow_yaml.py`'s structural rule (every collection in block style except three flow leaf shapes). Finish with `uv run python tools/reflow_yaml.py` and expect a no-op.
+- List `from:`/`toward:` members in code-point order, taken from the evidence tool's join map and completed against the longer baseline windows. A partner missing from the pair map is not a refusal: verify contextual join heights before closing a row's scope. Left-facing lists automatically include ligatures (they are ligature-transparent), so never add `qsA_qsX` lefts by hand. Name a ligature explicitly only to exclude it.
+- Old `derive` directives that involve the letter become `extend:`/`contract:` records. As with qsJai, expect that an old exit tuck that removes ink across rows is usually rewritten as the receiver's own entry contraction, not as a contract on this side.
 
 ## 3 — neighbors and ledgers
 
-- Neighbor runes: every migrated family the old font joins into or out of this letter widens its own `toward:`/`from:` list — the evidence tool's two pair sections are exactly this worklist, one side each.
-- ss10: the old font draws the letter under ss10 as its anchor-free `qsX.ss10` copy, so `rebuild/m1-aliases.yaml` gets a `qsX.ss10` entry that copies the bare family's entry (the file's conventions header says a `.ss10` name denotes what the bare name denotes), placed after that family's last entry. `classify_divergence` grows an arm only for a genuinely new kind of change; most letters add no ledger class, and ss10 needs none, since the classifier gives no ss10 row off a boundary a class.
+- Neighbor runes: every migrated family that the old font joins into or out of this letter adds the letter to its own `toward:`/`from:` list. The evidence tool's two pair sections are this worklist, one section per side.
+- ss10: the old font draws the letter under ss10 as its anchor-free `qsX.ss10` copy, so `rebuild/m1-aliases.yaml` gets a `qsX.ss10` entry that copies the bare family's entry (the file's conventions header says a `.ss10` name denotes what the bare name denotes), placed after that family's last entry. `classify_divergence` gets a new branch only for a new kind of change. Most letters add no ledger class, and ss10 needs none, because the classifier gives no class to an ss10 row that is not a boundary window.
 - `rebuild/m1-contact-allow.yaml`: each off-anchor-contact error on an off-junction contact the old font already draws gets a signature plus an agent-written `why:` in the pattern of the surrounding entries.
-- `rebuild/pipeline/smoke_sequences_m1.txt`: add the codepoint to the header list, then a block modeled on the latest letter's — isolation, every joining left, every joining right, the breaks, ligature junctions both ways, the yield chains, the ZWNJ locked copy, an exit severed by ZWNJ, the namer dot.
-- `rebuild/test_review_enrich.py::test_subset_tables_iterate` checks containment over the frozen mini bundle, so a migration needs no test-count edit. The evidence tool's printed subset growth is evidence about the live tables; `baseline_subset.ensure_fresh` owns their refresh.
+- `rebuild/pipeline/smoke_sequences_m1.txt`: add the codepoint to the header list, then a block modeled on the latest letter's. The block covers isolation, every joining left, every joining right, the breaks, ligature junctions both ways, the yield chains, the ZWNJ locked copy, an exit severed by ZWNJ, and the namer dot.
+- `rebuild/test_review_enrich.py::test_subset_tables_iterate` checks containment over the frozen mini bundle, so a migration needs no test-count edit. The subset growth the evidence tool prints is information about the live tables, and `baseline_subset.ensure_fresh` refreshes them.
 
 ## 4 — batch scratch and WHATNEXT
 
-Create `rebuild/M1-BATCH<n+1>-PROGRESS.md` (n = the newest existing batch) holding only what the note-taking rules allow: what's parked, recorded design overrides, the verification recipe, resume commands. Delete an older batch file only if its review session has closed, lifting survivors into WHATNEXT.md. Update WHATNEXT's frontier paragraph in place, and edit or delete any letter-keyed bullet this migration discharges.
+Create `rebuild/M1-BATCH<n+1>-PROGRESS.md` (n = the newest existing batch), holding only what the note-taking rules allow: what's parked, recorded design overrides, the verification recipe, and the resume commands. Delete an older batch file only if its review session has closed, and move its remaining pointers to open work into WHATNEXT.md. Update WHATNEXT's next-step paragraph in place, and edit or delete any bullet about a letter that this migration completes.
 
 ## 5 — verify
 
-The batch recipe, in order (each open batch file carries the same shape):
+The verification recipe, in order (each open batch file has a recipe of the same form):
 
 ```zsh
 uv run pytest rebuild/test_spec_load.py -n auto --dist worksteal
@@ -65,15 +66,15 @@ make artifact-cycle
 make verdict-ready
 ```
 
-- `--jobs` defaults to the `sweep_job_budget()` width the artifact cycle already passes, so a bare run sizes itself to the box. Detach `make artifact-cycle`.
-- The probe run is one invocation carrying a set of windows: every joining pair in both directions, the yield chains, and must-not-move neighbors, printed as one block per window in argument order — every divergence from the old font must be one the user designed.
-- Green looks like: defects 0/0, conform exact, read-back clean with its GSUB headroom inside the floor, Manual pins clean; the oracle-unmatched delta is the score — new rows either disappear with your records or land under existing ledger classes as designed divergences.
-- `make prettier` after any Python edit. Review `git diff -- rebuild/review-facts-pins.json` at commit time — anything moving in its `invariant` block wants real attention.
-- Re-run the scaling series (`uv run python -m rebuild.tools.scaling_sweep | tee rebuild/scaling-series.txt`, which refreshes the checked-in record) and read the whole-series fit against the threshold in `scaling_sweep.py`'s docstring — a tripped threshold goes to the speed-up tracker, not this batch.
+- `run_m1`'s `--jobs` defaults to the `sweep_job_budget()` width the artifact cycle passes, so a run without the flag sizes itself to the machine. Detach `make artifact-cycle`.
+- The probe run is one invocation that takes a set of windows: every joining pair in both directions, the yield chains, and neighbors that must not change. It prints one block per window in argument order. Every divergence from the old font must be one the user designed.
+- A green result is defects 0/0, the conformance sweep exact, the read-back clean with its GSUB offset headroom at or above the floor, and the Manual pins clean. The change in the oracle's unmatched rows is the measure of the batch: each new row either disappears with your records or falls under an existing ledger class as a designed divergence.
+- Run `make prettier` after any Python edit. Review `git diff -- rebuild/review-facts-pins.json` at commit time, and read any change in its `invariant` block carefully.
+- Re-run the scaling series (`uv run python -m rebuild.tools.scaling_sweep | tee rebuild/scaling-series.txt`, which refreshes the checked-in record) and compare the whole-series fit with the threshold in `scaling_sweep.py`'s docstring. A fit past the threshold is work for the speed-up tracking issue, not for this batch.
 
-## 6 — land and hand off
+## 6 — commit and hand off
 
-Show the diff, present the sub-agent's commit-message candidates, wait for the go-ahead, land everything as the single `Add ·X` commit. Afterward the user runs `make review-cycle` and adjudicates the new units in a review session — preparing one is `/prepare-review-queue`'s job and consuming its verdicts is `/just-verdicted-now-what`'s. The batch closes when its review session does; only then does its progress file go.
+Show the diff, present the sub-agent's commit-message candidates, wait for the go-ahead, and commit everything as the single `Add ·X` commit. Afterward the user runs `make review-cycle` and adjudicates the new units in a review session. `/prepare-review-queue` prepares the session, and `/just-verdicted-now-what` acts on its verdicts. The batch closes when its review session closes, and only then is its progress file deleted.
 
 ## The bundled evidence tool
 
@@ -81,4 +82,9 @@ Show the diff, present the sub-agent's commit-message candidates, wait for the g
 uv run python .claude/skills/add-a-new-letter/letter_evidence.py ·Zoo
 ```
 
-Accepts `·Zoo`, `Zoo`, `qsZoo`, or `E65B`; scans all eleven full baseline tables in about a minute. Its sections map one-to-one onto the work: the LEFT/RIGHT pair maps are the `toward:`/`from:` scope evidence and the outline of the smoke block (partners marked `*` are unmigrated — recording one is evidence waiting on an unmigrated letter, to re-verify at that partner's migration); the compiled-forms inventory is the stance worklist (a `.half`/`.alt`/contextual name means a stance or cell to model, `en-con`/`en-trim`/`en-ext`/`ex-ext` names mean contraction and extension records); the alias worklist is what `run_m1`'s completeness gate will demand, available before the first build; and the subset-growth line describes the expected live-table growth.
+It accepts `·Zoo`, `Zoo`, `qsZoo`, or `E65B`, and scans every full baseline table (one per configuration in `CONFIGS` in `rebuild/baseline/model.py`) in about a minute. Each section of its output corresponds to one part of the work:
+
+- The LEFT and RIGHT pair maps are the evidence for the `toward:` and `from:` scopes, and the outline of the smoke block. Partners marked `*` are unmigrated. A join with one of them may be recorded, but it waits on an unmigrated letter: re-verify it when that partner is migrated.
+- The compiled-forms inventory is the stance worklist. A `.half`, `.alt`, or contextual name means a stance or cell to model, and `en-con`/`en-trim`/`en-ext`/`ex-ext` names mean contraction and extension records.
+- The alias worklist is what `run_m1`'s completeness gate will require, available before the first build.
+- The subset-growth line gives the expected growth of the live tables.

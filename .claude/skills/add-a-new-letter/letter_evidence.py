@@ -1,10 +1,10 @@
-"""Old-font evidence for one letter's migration, read straight off the full baseline tables under rebuild/out/.
+"""Old-font evidence for one letter's migration, read directly from the full baseline tables under rebuild/out/.
 
-One pass over every baseline-<config>.tsv.gz collects, for the named letter: the pair-level join map in both directions (the definitive scope evidence for the rune file's entry `from:` and exit `toward:` lists — never scope those from FEA reconnaissance, which misses bare-carrier joins); the old compiled forms the letter takes across the rows that will join the oracle subset (the contextual-stance worklist, `.noentry` variants included); the alias worklist (names in those rows with no rebuild/m1-aliases.yaml entry yet — the same list run_m1's completeness gate would print, available before the first build); and the default-config subset growth, ending in the row count the live subset table should reach after the migration.
+One pass over every baseline-<config>.tsv.gz collects four things for the named letter. The first is the pair-level join map in both directions, which is the authoritative scope evidence for the rune file's entry `from:` and exit `toward:` lists. Never scope those lists from FEA reconnaissance, which misses joins the bare glyph makes through its GPOS anchors alone. The second is the old compiled forms the letter takes across the rows that will join the oracle subset: the contextual-stance worklist, `.noentry` variants included. The third is the alias worklist: the names in those rows with no rebuild/m1-aliases.yaml entry yet. It is the same list run_m1's completeness gate would print, available before the first build. The fourth is the default-config subset growth, ending in the row count the live subset table should reach after the migration.
 
-"Would-be subset rows" are the rows whose codepoints all sit in M1_ALPHABET plus the named letter, which is exactly the set the letter's migration adds to rebuild/out/m1/baseline-*.subset.tsv.gz. Partners marked with * are not yet in M1_ALPHABET: a join against one is evidence waiting on an unmigrated letter — legal to record in a `from:`/`toward:` list, but re-verify it when that partner migrates.
+"Would-be subset rows" are the rows whose codepoints are all in M1_ALPHABET plus the named letter, which is exactly the set of rows the letter's migration adds to rebuild/out/m1/baseline-*.subset.tsv.gz. Partners marked with * are not yet in M1_ALPHABET. A join with one of them waits on an unmigrated letter: it may be recorded in a `from:`/`toward:` list, but re-verify it when that partner is migrated.
 
-Usage, from the repo root (a scan of all eleven tables takes on the order of a minute):
+Usage, from the repo root (a scan of every table takes about a minute):
 
     uv run python .claude/skills/add-a-new-letter/letter_evidence.py ·Ooze
 
@@ -77,7 +77,7 @@ def alias_keys() -> set[str]:
 
 
 def subset_default_rows(hexcp: str) -> tuple[int, int] | None:
-    """(total non-comment rows, rows already involving hexcp). The second number is nonzero when a stale artifact from an earlier alphabet experiment already carries the letter — without subtracting it, the growth prediction would double-count."""
+    """(total non-comment rows, rows already involving hexcp). The second number is nonzero when a stale artifact from an earlier alphabet experiment already contains the letter. Without subtracting those rows, the growth prediction would count them twice."""
     if not SUBSET_DEFAULT.exists():
         return None
     count = 0
@@ -104,7 +104,7 @@ def scan(hexcp: str, alphabet_hex: frozenset[str]) -> tuple[
     )
     if not tables:
         sys.exit(
-            f"no baseline-*.tsv.gz under {BASELINE_DIR} — the baseline extraction has not run on this machine"
+            f"no baseline-*.tsv.gz under {BASELINE_DIR}: the baseline extraction has not run on this machine"
         )
     pairs: dict[tuple[str, str], dict[str, tuple[str, str]]] = defaultdict(dict)
     variants: dict[str, tuple[int, str, str]] = {}
@@ -211,14 +211,14 @@ def main(argv: list[str] | None = None) -> None:
 
     print_pair_section(
         "left",
-        f"{qs_name} on the LEFT: its exit side, feeding the exit rows' toward: lists",
+        f"{qs_name} on the LEFT: its exit side, evidence for the exit rows' toward: lists",
         pairs,
         names_by_codepoint,
         all_configs,
     )
     print_pair_section(
         "right",
-        f"{qs_name} on the RIGHT: its entry side, feeding the entry rows' from: lists",
+        f"{qs_name} on the RIGHT: its entry side, evidence for the entry rows' from: lists",
         pairs,
         names_by_codepoint,
         all_configs,
@@ -252,7 +252,7 @@ def main(argv: list[str] | None = None) -> None:
         current, already = counted
         if already:
             print(
-                f"  (the on-disk subset already carries {already} rows involving {qs_name} — a stale artifact built with the letter in the alphabet; predicting from the {current - already} rows without it)"
+                f"  (the on-disk subset already has {already} rows involving {qs_name}, a stale artifact built with the letter in the alphabet; the prediction uses the {current - already} rows without them)"
             )
         print(f"  current subset total: {current}; after migration expect {current - already + added}")
 

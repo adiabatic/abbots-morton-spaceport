@@ -4,8 +4,8 @@ description: Bump the font's minor version in glyph_data/metadata.yaml and pypro
 ---
 
 1. Increment the minor version in both files. The formats differ:
-   - `glyph_data/metadata.yaml` uses `X.YYY` — increment by `.001` (e.g., `10.000` to `10.001`).
-   - `pyproject.toml` uses `X.Y.Z` — increment the middle number (e.g., `10.0.0` to `10.1.0`).
+   - `glyph_data/metadata.yaml` uses `X.YYY`; increment it by `.001` (e.g., `10.000` to `10.001`).
+   - `pyproject.toml` uses `X.Y.Z`; increment the middle number (e.g., `10.0.0` to `10.1.0`).
 2. Refresh the lockfile:
 
    ```sh
