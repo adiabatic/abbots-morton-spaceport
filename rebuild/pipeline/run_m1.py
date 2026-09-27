@@ -106,7 +106,7 @@ def _without_prose(payload):
 
 
 def rune_content_digests(spec: ResolvedSpec) -> dict[str, str]:
-    """Return each modeled rune's SHA-256 over its resolved content: the rune's part of the spec dump the crate reads (`kernel_io.rune_payload`), without `PROSE_KEYS`. It hashes the resolved rune instead of the file because the engine reads the resolved rune: a cross-file `against:` target's content is copied into the record that names it, and a ligature registration rewrites every left condition its trailing component reaches. So the digest changes when what the engine reads of the rune changes, and the memo needs no `spec_load.rune_closure` pass over it. It works for any spec, a fixture's included, so the memo stamp is one function of the spec in hand."""
+    """Return each modeled rune's SHA-256 over its resolved content: the rune's part of the spec dump the crate reads (`kernel_io.rune_payload`), without `PROSE_KEYS`. It hashes the resolved rune instead of the file because the engine reads the resolved rune: a ligature carries the outgoing stroke it inherits from its trailing component, and a ligature registration rewrites every left condition its trailing component reaches. So the digest changes when what the engine reads of the rune changes. A cross-file `against:` holds only its target rune's name and an optional record id, and the engine consults it only where a prefer of that rune collides with one of the resolving rune's, in a window that names both, so the target's own digest covers it. The memo therefore needs no `spec_load.rune_closure` pass over the digests. It works for any spec, a fixture's included, so the memo stamp is one function of the spec in hand."""
     return {
         name: hashlib.sha256(
             json.dumps(
@@ -833,7 +833,7 @@ RUNE_LABEL_PREFIX = "glyph_data/runes/"
 
 
 def locality_lines(spec: ResolvedSpec, root: Path = REPO_ROOT) -> list[str]:
-    """Return the whole-store half of the window-locality key (`doc/rebuild-design.md` §10) as lines: the non-rune data the tables' stamp covers (the script registry, the schema, the punctuation), the build side of the pipeline code and the crate, the engine's semantics tokens, the cross-rune structure `spec_load.spec_structure_digest` covers (the alphabet and its ligature sequences, the predicate classes' membership, the resolved rune-local groups), and the capability features. While these are unchanged, a window's result depends only on the runes it names. The string replay's stamp and the memo stamp are both built from these lines."""
+    """Return the whole-store half of the window-locality key (`doc/rebuild-design.md` §10) as lines: the non-rune data the tables' stamp covers (the script registry, the schemas, the punctuation), the build side of the pipeline code and the crate, the engine's semantics tokens, the cross-rune structure `spec_load.spec_structure_digest` covers (the alphabet and its ligature sequences, the predicate classes' membership, the resolved rune-local groups), and the capability features. While these are unchanged, a window's result depends only on the runes it names. The string replay's stamp and the memo stamp are both built from these lines."""
     from rebuild.pipeline import spec_load
 
     lines = [line for line in fingerprint.table_data_lines(root) if not line.startswith(RUNE_LABEL_PREFIX)]

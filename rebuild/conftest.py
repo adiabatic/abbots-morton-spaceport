@@ -44,7 +44,7 @@ GREEN_RECORDS = (
 REBUILD_DIR = Path(__file__).resolve().parent
 MINI = REBUILD_DIR / "review" / "fixtures" / "mini"
 LANES = ("contracts",)
-# Collection skips the crate, whose target/ tree is nearly every entry the walk would otherwise visit, and the build output. Every visited entry costs each xdist worker a `collect_ignore` lookup on each conftest, and on CPython 3.13+ a module attribute miss formats its error through getcwd(), so without these entries the walk is most of a narrowed run's fixed startup cost.
+# Collection skips the crate, whose target/ tree is nearly every entry the walk would otherwise visit, and the build output. Every visited entry costs each xdist worker a `collect_ignore_glob` lookup that misses on each conftest, since none defines it, and on CPython 3.13+ a module attribute miss formats its error through getcwd() when sys.path[0] is empty, as it is in xdist's `python -c` workers, so without these entries the walk is most of a narrowed run's fixed startup cost.
 collect_ignore = ["kernel-rs", "out"]
 # The live trees: rebuild/out/, all of tmp/ and var/, the root verdicts-* stores, and the rebuild gate's exempt prefixes, minus `_EXEMPT_SOURCE`. The gate exempts rebuild/evidence/ and the review-facts pins because they are regenerated state, but it exempts rebuild/review/jstests/ (the JS suite) and rebuild/m1-contact-allow.yaml (read only by the defect gate) only because it has no reason to hash them. Those two are checked-in source, which a contracts test may read. A test that needs a scratch directory takes `tmp_path`.
 _EXEMPT_SOURCE = ("rebuild/review/jstests/", "rebuild/m1-contact-allow.yaml")

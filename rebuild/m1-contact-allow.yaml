@@ -894,7 +894,7 @@
 - signature: contact:qsTea_qsOy.sole.ex-y0:qsOut_qsTea.sole.en-y0:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 
-# The ·See·Out fusion at the baseline, in three defect formats: an E-CONTACT overlap, an E-CONTACT side-by-side row at y2, and an E-UNREALIZED junction gap. ·See keeps its whole straighter tail, whose left-kicking last pixel fills the junction row. ·Out's raked redraws are one column shorter and entry-trimmed, so the leg fuses into the tail at (3, 1), one row above the baseline, and ·Out has no ink on the junction row. One row higher, at y2, the tail sits one column left of ·Out's leg. The overlap is the fusion, and the empty ·Out junction row is why `junction_gap` finds no ink there. The old font's `ex-con-1` on ·See is a tuck that keeps the tail's ink, so this reproduces the old font's fused ·See·Out and every after-·See form is pixel-identical to it (the see-out-fusion-renamed class in rebuild/m1-divergences.yaml).
+# The ·See·Out fusion at the baseline, in three defect formats: an E-CONTACT overlap, an E-CONTACT side-by-side row at y2, and an E-UNREALIZED junction gap. ·See keeps its whole straighter tail, whose left-kicking last pixel fills the junction row. ·Out's raked redraws are entry-trimmed, so ·Out has no ink on the junction row, and the leg's lowest pixel, directly above the junction, fuses into the tail at (2, 1) in ·See's bitmap, one row above the baseline. One row higher, at y2, the tail sits one column left of ·Out's leg. The overlap is the fusion, and the empty ·Out junction row is why `junction_gap` finds no ink there. The old font's `ex-con-1` on ·See is a tuck that keeps the tail's ink, so this reproduces the old font's fused ·See·Out and every after-·See form is pixel-identical to it (the see-out-fusion-renamed class in rebuild/m1-divergences.yaml).
 - signature: contact:qsSee.straighter.ex-y0:qsOut.normal.en-y0.en-bind-raked.en-trim-1:overlap
 - signature: contact:qsSee.straighter.ex-y0:qsOut.normal.en-y0.en-bind-raked.en-trim-1:y2
   why: The pair in the `:overlap` signature above also touches at y2, off the junction row.
@@ -1712,7 +1712,7 @@
 - signature: dangle:qsGay.sole.locked:exit:x-height
   why: The ZWNJ-locked copy of ·Gay's crown terminal; identical drawing.
 
-# The doubly-extended ·Gay ~x~ ·J'ai junction (·Gay's ex-ext-2 meeting ·J'ai's en-ext-2, both transcribed from the old font's derive pair) puts the two Deep descenders side by side: the right side of ·Gay's loop abuts ·J'ai's descender curl at y=-2, the off-junction contact the old font draws in every such window (baseline rows E655:E65D and E655:E65D:E67A carry the same advances). The contact is off-anchor because the junction is at y=5. There is one signature per entry, exit, and lock variant on either side, all the same off-junction contact.
+# These signatures are for a ·Gay ~x~ ·J'ai junction that extends only ·Gay's x-height exit, by two. That puts the two Deep descenders side by side: the right side of ·Gay's loop abuts ·J'ai's descender curl at y=-2. The contact is off-anchor because the junction is at y=5. The old font extends both sides by two (qsGay's `extend_exit_before` and qsJai's `extend_entry_after` in quikscript.yaml), which leaves a blank column between the loop and the curl (baseline rows E655:E65D and E655:E65D:E67A). qsGay extends its x-height exit by three before ·J'ai and ·J'ai+Utter, which draws the old font's composite, so the rebuild does not make this junction and these entries match no current finding. There is one signature per entry, exit, and lock variant on either side.
 - signature: contact:qsGay.sole.en-y0.ex-y5.ex-ext-2:qsJai.sole.en-y5:y-2
 - signature: contact:qsGay.sole.en-y0.ex-y5.ex-ext-2:qsJai.sole.en-y5.ex-y0:y-2
 - signature: contact:qsGay.sole.en-y0.ex-y5.ex-ext-2:qsJai.sole.en-y5.ex-y0.ex-ext-1:y-2
@@ -1763,7 +1763,7 @@
 - signature: contact:qsThey.sole.ex-y5.locked:qsIt.sole.en-y5.ex-y0:y4
 - signature: contact:qsThey.sole.ex-y5.locked:qsIt.sole.en-y5.ex-y0.ex-ext-1:y4
 
-# Entered ·They lifts its hook to the baseline anchor from y=-1. Before a Deep follower whose foot also sits below the baseline (half-·Day or the half ·Day+Utter ligature), the hook's last pixel and that descender stand side by side one row under the y0 junction. The old font draws this off-junction contact in every such window (baseline rows E676:E657:E653 and E676:E657:E653:E67A carry the same advances). The gate checks each entry variant against each follower variant separately; all show the same off-junction contact.
+# Entered ·They lifts its hook to the baseline anchor from y=-1. Before a Deep follower whose foot also sits below the baseline (half-·Day or the half ·Day+Utter ligature), the hook's last pixel and that descender stand side by side one row under the y0 junction. The old font draws this off-junction contact in every such window (baseline rows E676:E657:E653 and E676:E657:E653:E67A, whose composites are pixel-identical to the rebuild's). The gate checks each entry variant against each follower variant separately; all show the same off-junction contact.
 - signature: contact:qsThey.sole.en-y5.ex-y0:qsDay.half.en-y0:y-1
 - signature: contact:qsThey.sole.en-y5.ex-y0:qsDay.half.en-y0.ex-y0:y-1
 - signature: contact:qsThey.sole.en-y5.ex-y0:qsDay_qsUtter.half.en-y0:y-1
@@ -1785,7 +1785,7 @@
 - signature: dangle:qsThey_qsUtter.sole.locked:exit:x-height
   why: The ZWNJ-locked copy of the ligature's crown terminal; identical drawing.
 
-# ·I ~x~ ·They abuts with no connector, because the old font's `en-ext-1` after ·I adds its pixel on ·I's own last column and draws this composite: ·I's loop, which swings back left below the x-height, stands one column from ·They's down-stroke at y3, two rows under the y5 junction. The old font draws this off-junction contact in every ·I·They and ·I·They+Utter window (baseline rows E675:E657 and E675:E657:E67A carry the same advances). The gate checks each ·I stance, entry, and lock variant against each entered ·They and ligature cell separately; all show the same off-junction contact.
+# The old font's `en-ext-1` on ·They after ·I adds its pixel on ·I's own last column, so its `·I ~x~ ·They` and `·I ~x~ ·They+Utter` abut with no connector and draw this composite: ·I's loop, which swings back left below the x-height, stands one column from ·They's down-stroke at y3, two rows under the y5 junction. The old font draws this off-junction contact in every ·I·They and ·I·They+Utter window (baseline rows E675:E657 and E675:E657:E67A), and the rebuild's `·I ~x~ ·They+Utter` composite is pixel-identical to it. Before an unligated ·They, qsI extends its x-height exit by one, which leaves a blank column at y3, so the entries whose right cell is a qsThey.sole cell match no current finding. The gate checks each ·I stance, entry, and lock variant against each entered ·They and ligature cell separately.
 - signature: contact:qsI.loop.en-y0.ex-y5:qsThey.sole.en-y5:y3
 - signature: contact:qsI.loop.en-y0.ex-y5:qsThey.sole.en-y5.ex-y0:y3
 - signature: contact:qsI.loop.en-y0.ex-y5:qsThey_qsUtter.sole.en-y5:y3

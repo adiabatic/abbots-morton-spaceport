@@ -708,7 +708,7 @@ def store_header(
 
 
 def _open_member(raw: IO[bytes]) -> gzip.GzipFile:
-    """Open one gzip member over `raw` with the settings every member of a store uses: the mtime fixed at zero, so identical passes write identical bytes, and compression level 1, because a store is written once and read once per run and a higher level would add seconds to every cycle."""
+    """Open one gzip member over `raw` with the settings every member of a store uses: the mtime fixed at zero, so identical passes write identical bytes, and compression level 1, because a store is written once and read once per row range and a higher level would add compression time to every cycle."""
     return gzip.GzipFile(filename="", fileobj=raw, mode="wb", mtime=0, compresslevel=1)
 
 

@@ -97,7 +97,7 @@ def replay_threads_default(*, coresident_bytes: float = 0, total_bytes: int | No
 # Computed once at import, so it is a plain module attribute that a parametrize list can read at import and a test can monkeypatch. `AMS_TOTAL_MEMORY_BYTES` therefore reaches it only from the environment the interpreter started in, not from a fixture. This is the solo width, with nothing co-resident but `default`'s memo, which is what a bare `run_m1` uses; the cycle computes its own through `artifact_cycle.kernel_threads_budget`.
 KERNEL_THREADS_DEFAULT = kernel_threads_default()
 TIMEOUT = 1800
-# Every `cargo build` replaces the binary in target/release (it removes the file, then hard-links the new one in) even when nothing recompiled, so a build in one process can make another process's exec miss the file for an instant. This lock orders the two: a build holds it exclusively for the whole `cargo build`, and an invocation holds it shared for the spawn only, never for the run.
+# On macOS, where cargo copies the binary into target/release instead of hard-linking it, every `cargo build` replaces it there (it removes the file, then copies the new one in) even when nothing recompiled, so a build in one process can make another process's exec miss the file for an instant. This lock orders the two: a build holds it exclusively for the whole `cargo build`, and an invocation holds it shared for the spawn only, never for the run.
 LOCK_PATH = MANIFEST.parent / "target" / ".ams-kernel-relink.lock"
 # How many lines of a failed build's stderr the exception includes: cargo reports the error in its last few lines, after the full compilation log.
 BUILD_TAIL_LINES = 20
@@ -131,7 +131,7 @@ MEMO_FORMAT = "ams-m1-memo/1"
 # The stamp for a window enumeration that is not kept. `build-tables` always writes the windows payload, whose head is where a caller reads the rules and cells back from, and always requires a stamp for that head. A caller with no fingerprint over the rune files has no stamp to give, so it passes this word and deletes the payload after reading it instead of packing it, and the word never reaches an artifact.
 UNSTAMPED_WINDOWS = "unstamped"
 
-# One scratch dump per live spec, keyed on identity. Each entry holds the spec itself so its id cannot be reused while the entry exists. A dump costs a few milliseconds and a couple of hundred kilobytes, which the settlement functions would otherwise pay on every invocation. The cap is small because the callers that matter hold one spec, and eviction deletes the directory.
+# One scratch dump per live spec, keyed on identity. Each entry holds the spec itself so its id cannot be reused while the entry exists. A dump costs about ten milliseconds and a couple of hundred kilobytes, which the settlement functions would otherwise pay on every invocation. The cap is small because the callers that matter hold one spec, and eviction deletes the directory.
 _SPEC_DUMPS: OrderedDict[int, tuple[ResolvedSpec, tempfile.TemporaryDirectory, Path]] = OrderedDict()
 _SPEC_DUMPS_CAP = 4
 _SPEC_DUMPS_LOCK = threading.Lock()
@@ -1156,7 +1156,7 @@ def _guard_verdicts(spec: ResolvedSpec, spec_path: Path, config: str | None = No
 
 
 def guard_sweep(spec: ResolvedSpec) -> FormationGuard:
-    """The crate's complete configuration-independent section 5.7 guard verdicts for `spec`, parsed into Python model tokens. One `guard-sweep` invocation runs per spec identity per process, however many callers ask. The sweep takes about a fifth of a second and has a few thousand entries, and formation comes before every other stage, so a corpus build, an emitter and a walker in one process would otherwise each spawn for the same result. The returned mapping is the memo's own and is shared; treat it as read-only and copy it before changing it."""
+    """The crate's complete configuration-independent section 5.7 guard verdicts for `spec`, parsed into Python model tokens. One `guard-sweep` invocation runs per spec identity per process, however many callers ask. The first sweep in a process takes about a fifth of a second and a repeat about a twentieth, and the mapping has one entry per ligature, first-slot rune and second-slot token. Formation comes before every other stage, so a corpus build, an emitter and a walker in one process would otherwise each spawn for the same result. The returned mapping is the memo's own and is shared; treat it as read-only and copy it before changing it."""
     key = id(spec)
     with _GUARD_SWEEPS_LOCK:
         held = _GUARD_SWEEPS.get(key)

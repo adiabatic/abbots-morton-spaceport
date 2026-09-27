@@ -121,7 +121,7 @@ def _verify_served_positions(
 
 
 class KernEvaluator:
-    """Evaluates glyph_data/senior_quikscript_kerning.yaml for pairs of old glyph names, so sidecar kerns can be added back before a baseline position comparison. Family keys match by name prefix against the pair, as the sidecar documents. Each value depends only on the pair and the sidecar is read once, so values are memoized per pair: the oracle asks about a few thousand distinct pairs across millions of slots, and scanning every sidecar rule for each slot took most of the position comparison's time."""
+    """Evaluates glyph_data/senior_quikscript_kerning.yaml for pairs of old glyph names, so sidecar kerns can be added back before a baseline position comparison. Family keys match by name prefix against the pair, as the sidecar documents. Each value depends only on the pair and the sidecar is read once, so values are memoized per pair: a configuration's rows repeat each distinct pair across hundreds of slots on average, and scanning every sidecar rule for each slot took most of the position comparison's time."""
 
     def __init__(self, sidecar_path: Path):
         self._values: dict[tuple[str, str], int] = {}

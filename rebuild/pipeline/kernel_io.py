@@ -246,7 +246,7 @@ def write_transitions(product: FixpointProduct, path: Path) -> None:
 
 
 def read_transitions(source: Path | IO[str]) -> FixpointProduct:
-    """Reads a `write_transitions` stream back into an equal `FixpointProduct`. Every label (glyph names, heights, class tokens, provenance pointers) is interned to one string object, as `table.read_windows` does, and equal settled (cell, junction, extension) triples share one `Settled`. A stream repeats a small vocabulary on every row, and without this pooling a parsed product takes several times the memory of the one the fixpoint built. Raises OSError when the file is absent and ValueError when it is not a stream this build understands.
+    """Reads a `write_transitions` stream back into an equal `FixpointProduct`. Every label (glyph names, heights, class tokens, provenance pointers) is interned to one string object, as `table.read_windows` does, and equal settled (cell, junction, extension) triples share one `Settled`. A stream repeats a small vocabulary on every row, and without this pooling a parsed product holds a separate copy of each label and settled triple for every row that repeats it. Raises OSError when the file is absent and ValueError when it is not a stream this build understands.
 
     A `Path` is opened as gzip. An open text stream is read as it is, which lets `kernel_exec.read_stream` read the crate's plain ndjson output without compressing it first.
     """
