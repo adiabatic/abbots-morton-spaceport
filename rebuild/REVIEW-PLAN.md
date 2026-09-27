@@ -67,7 +67,7 @@ Units are ordered for triage by ledger class in the ledger's file order, then by
 
 ### 2.2 Encoding: sharded JSON, everything precomputed
 
-Decision: **one `manifest.json` plus one JSON shard per ledger class, with everything computed at build time.** A unit runs to about 1.5–3 KB with its explain text and drafts, so a single JSON file for the whole corpus would be too large to load at once. Each worker batches its settle and explain work through the Rust kernel before it enriches the units. Provenance, junctions, highlight offsets, and all three verdict drafts are computed at build time. The browser does not compute any of them; it renders and collects verdicts. There is no server-side logic and no explain endpoint.
+Decision: **one `manifest.json` plus one JSON shard per ledger class, with everything computed at build time.** A unit with its explain text and drafts runs to several kilobytes, so a single JSON file for the whole corpus would be too large to load at once. Each worker batches its settle and explain work through the Rust kernel before it enriches the units. Provenance, junctions, highlight offsets, and all three verdict drafts are computed at build time. The browser does not compute any of them; it renders and collects verdicts. There is no server-side logic and no explain endpoint.
 
 The app boots from a slim index of the human units (§7.4). The index leaves out everything a card draws from the unit's own record: `explain`, `provenance`, and `drafts`, and also the sample text, the pair band, and the settled cells. When a card renders, and when its explain panel opens, the app reads the record with an HTTP Range request against the shard the build wrote, using the byte span in the index row. The directory stays static, and the tab holds the queue, not the corpus.
 
@@ -345,7 +345,7 @@ Field semantics:
 - `summary` is the always-visible one-line summary in rune-name notation. `explain` is preformatted display text.
 - `stylistic_set` is `null` or the space-separated, zero-padded form (`"02 05"`).
 - `content_key` (m1-audit mode, required) is the sha256 of the unit's carry projection (`unit_cache.carry_content_hash`). The unit's id is derived from it (§2.1), and the unit cache compares it with the stamp in its store before it reuses a fragment.
-- All strings are NFC, and all keys are snake_case.
+- All strings are NFC, and all field names are snake_case. `ink_deltas` and `config_classes` are keyed by configuration name (`ss03+ss05`).
 
 The shards under `rebuild/review/fixtures/` hold a handful of hand-written units that cover the contract's branches; `test_fixture_units_exercise_the_contract_branches` in `rebuild/test_review_build.py` lists the branches. The same checker validates the fixtures and real output.
 

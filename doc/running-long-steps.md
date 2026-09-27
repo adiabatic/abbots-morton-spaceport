@@ -1,6 +1,6 @@
 # Running the long steps
 
-A full `make artifact-cycle` pass takes longer than ten minutes, and an agent harness usually kills a backgrounded shell after about ten minutes whatever its progress, which stops the cycle partway through a gate. A bare M1 build is shorter, and the heavy gates (the rebuild suite and the conform sweep) add a few minutes to a `make review-cycle` pass. Run any pass that includes the heavy gates detached from the tool's lifetime. `make cycle-timings ARGS='--by-step'` records what each step costs on this machine (`doc/fleet.md` names the machines); read it before choosing a watcher's timeout and before deciding a run is hung.
+A full `make artifact-cycle` pass takes longer than ten minutes. An agent harness caps a foreground shell command at about ten minutes and can kill a backgrounded one whatever its progress, which stops the cycle partway through a gate. A bare M1 build is shorter, and the heavy gates (the rebuild suite and the conform sweep) add a few minutes to a `make review-cycle` pass. Run any pass that includes the heavy gates detached from the tool's lifetime. `make cycle-timings ARGS='--by-step'` records what each step costs on this machine (`doc/fleet.md` names the machines); read it before choosing a watcher's timeout and before deciding a run is hung.
 
 ## Detach
 

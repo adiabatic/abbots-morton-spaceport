@@ -11,7 +11,7 @@ Only a new **bad** leak is a defect. The gates run at two depths:
 - **Depth 3 (`make test`, fast).** `test/test_isolation_leaks.py::test_no_new_bad_isolation_leaks` asserts that every bad leak found at `--max-len 3` is in the approved backlog. This is the everyday gate.
 - **Depth 4 (`make test-leaks`, ≈1 min).** These tests are marked `slow`, which the default run excludes. `test_bad_leak_backlog_unchanged` is the same backlog gate at depth 4. `test_benign_leak_list_unchanged` compares the benign set with `site/benign-leak-list.txt`.
 
-The bad gate (`site/bad-leak-backlog.txt`) is **asymmetric**. A new bad signature fails, because a change added a dangle. A _resolved_ one only prints a re-bless notice, because the leak-fixing loop (not built) is meant to empty the backlog and should not fail the gate when it succeeds. The benign list is **symmetric**. Any change, gained or lost, fails the test so that it gets reviewed, although it is not a defect on its own. In either case, re-bless both files with `make leak-snapshot` and review the diff. The snapshot comparison takes the place of hand-written tests over letter tuples. `doc/history/2026-06-03--leak-cleanup/leak-investigation-findings.md` explains why no fixed depth can be proved complete (contextual `calt` rules chain across ≈600 lookups) and why a static FEA checker cannot reliably replace the sweep.
+The bad gate (`site/bad-leak-backlog.txt`) is **asymmetric**. A new bad signature fails, because a change added a dangle. A _resolved_ one only prints a re-bless notice, because the leak-fixing loop (not built) is meant to empty the backlog and should not fail the gate when it succeeds. The benign list is **symmetric**. Any change, gained or lost, fails the test so that it gets reviewed, although it is not a defect on its own. In either case, re-bless both files with `make leak-snapshot` and review the diff. The snapshot comparison takes the place of hand-written tests over letter tuples. `doc/history/2026-06-03--leak-cleanup/leak-investigation-findings.md` explains why no fixed depth can be proved complete (contextual `calt` rules chain across hundreds of lookups) and why a static FEA checker cannot reliably replace the sweep.
 
 ## Refresh the list
 
@@ -27,7 +27,7 @@ To regenerate only the HTML (without rebuilding the fonts) and to control the sw
 uv run python tools/build_check_html.py --max-len 3
 ```
 
-`--max-len 3` is the default (about half a second). Pairs alone miss leaks that need context, such as `·Zoo ·It ·Utter`, where a third letter exposes a leak at an earlier break: the trailing ·Utter changes which variant the middle ·It takes when the right half is shaped on its own, so the `·Zoo | ·It` break differs only once ·Utter is in the sweep.
+`--max-len 3` is the default, and its sweep takes about a second. Pairs alone miss leaks that need context, such as `·Zoo ·It ·Utter`, where a third letter exposes a leak at an earlier break: the trailing ·Utter changes which variant the middle ·It takes when the right half is shaped on its own, so the `·Zoo | ·It` break differs only once ·Utter is in the sweep.
 
 Raise `--max-len` if a leak appears only with more context. Each step multiplies the cost by roughly the sweep alphabet’s size (the 44 letters plus the two boundary tokens). `--max-len 4`, the slow gate’s depth, takes around a minute, and `--max-len 5` is impractical.
 
@@ -39,7 +39,7 @@ Open `site/check.html` and scroll to the **Auto-generated: isolation leaks** sec
 
 | Column                   | What it shows                                                                                                           |
 | ------------------------ | ----------------------------------------------------------------------------------------------------------------------- |
-| Sequence                 | English-style label with a `\|` marking the leaky break, plus the glyph diff `qsX → qsX.variant`                        |
+| Sequence                 | The letters’ `·Name` labels with a `\|` marking the leaky break, plus the glyph diff `qsX → qsX.variant`                |
 | In context               | The full sequence shaped as one buffer (what real text gets)                                                            |
 | Halves shaped separately | The same letters split at the break into two `display: inline-block` halves, so HarfBuzz shapes each side independently |
 

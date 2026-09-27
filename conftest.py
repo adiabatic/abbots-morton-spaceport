@@ -64,7 +64,7 @@ def pytest_configure(config: pytest.Config) -> None:
         return
     if config.getoption("dist", "no") == "no":
         return
-    # A rebuild-only run skips `make all` while the site fonts are present: that suite shapes against the fonts its closure fingerprint already hashed, and rebuilding them would churn the mtimes the review-corpus fixture cache depends on or test bytes nobody fingerprinted. With no font build to overlap, the pyright check is deferred for pytest_sessionfinish to join, so it runs beside the xdist pool instead of before it.
+    # A rebuild-only run skips `make all` while the site fonts are present: that suite shapes against the fonts its closure fingerprint already hashed, and rebuilding them would test bytes nobody fingerprinted. With no font build to overlap, the pyright check is deferred for pytest_sessionfinish to join, so it runs beside the xdist pool instead of before it.
     from rebuild.tools import pyright_gate
 
     pyright = pyright_gate.begin(os.environ, ROOT, env=_make_env())
