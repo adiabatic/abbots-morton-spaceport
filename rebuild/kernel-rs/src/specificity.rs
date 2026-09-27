@@ -1,12 +1,17 @@
 //! The §6.2 extensional specificity order, and its only implementation. Settlement uses it for every ranking question: the order prefers apply in, which extend or contract record supplies a window's adjustment, and whether two records that match the same window conflict.
 //!
-//! A record's specificity is the set of windows its `when:` matches. Each constrained axis expands to its concrete match set over the finite registry. Record A outranks B when A's set is a subset of B's on every axis B constrains, and a strict subset on at least one. This makes a literal family list, a predicate class, and a mixed literal-plus-class condition comparable without special cases: within an axis, narrowness is set inclusion after expansion, so no code needs to know that `qsTea` is a member of some class. Extend or contract records that match the same window, overlap without nesting, and demand different things raise E-INCOMPARABLE ([`pick_most_specific`]), because the kernel does not guess which one the author meant.
+//! A record's specificity is its match set: every combination of axis values its `when:` admits, in a product space with one axis per [`AxisKey`]. Record A outranks B when A's set is a strict subset of B's. Equal sets are [`Ordering::Equal`], and every other pair is [`Ordering::Incomparable`], two records with disjoint sets included. Extend or contract records that match the same window, overlap without nesting, and demand different things raise E-INCOMPARABLE ([`pick_most_specific`]), because the kernel does not guess which one the author meant.
+//!
+//! Each constrained axis expands to its concrete match set over the finite registry. An unconstrained axis stands for every value, so it is wider than any list, even one that names every value the registry declares. Within an axis, narrowness is therefore set inclusion after expansion, which makes a literal family list, a predicate class, and a mixed literal-plus-class condition comparable without special cases: no code needs to know that `qsTea` is a member of some class. The axes are independent by definition, so the space also holds combinations no window presents, such as a family on a slot that holds a boundary, and the order is exact relative to this per-axis model, not to the windows the alphabet produces.
 //!
 //! [`AxisKey`] identifies an axis by side, `then:` depth, and condition axis. The depth is a counter, not a flag, because a fact stated two hops out and the same fact stated one hop out are different constraints. Treating them as one would let a record outrank another that only resembles it.
 //!
-//! Evaluation is stratified: predicate-class membership comes pre-resolved from the registry through [`SpecIndex::class_members`], so expanding a policy condition never calls back into settlement. `except:` is the one approximation. A carve-out that constrains anything besides the family axis is ignored, which over-approximates the match set. That can only push a pair toward INCOMPARABLE, so the kernel reports a conflict instead of guessing.
+//! `except:` is subtracted exactly. An entry that names only families, through `family:` or `class:`, narrows its condition's family axis ([`family_set`]). Any other entry, one that constrains another axis, carries a `then:` chain, or nests an `except:` of its own, is expanded the same way at the slot its condition tests, with its hops reading the slots after it as they do in the matcher, and subtracted from the whole match set ([`match_set`]). The result is a union of boxes, each box one value set per axis. A condition that lists no family of its own but carries a family-only `except:` starts from the registry's letter families, so its match set leaves out the boundary slots the matcher lets through.
+//!
+//! Evaluation is stratified: predicate-class membership comes pre-resolved from the registry through [`SpecIndex::class_members`], so expanding a policy condition never calls back into settlement.
 
-use std::collections::BTreeSet;
+use std::borrow::Cow;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::error::SettleError;
 use crate::hash::{HashMap, HashSet};
@@ -54,8 +59,189 @@ pub enum AxisKey {
     Feature,
 }
 
-/// Every constrained axis of one `when:`, expanded. A missing key means the axis is unconstrained, so it stands for every value, not for the empty set. [`compare_axes`] depends on this.
+/// Every constrained axis of one `when:`, expanded. A missing key means the axis is unconstrained, so it stands for every value, not for the empty set. [`compare_axes`] depends on this. It leaves out every `except:` entry that reaches past the family axis, which [`match_set`] subtracts.
 pub type AxisSets = HashMap<AxisKey, BTreeSet<Sym>>;
+
+/// The values one axis of a box admits: the listed ones, or every value but the listed ones. Subtracting a carve-out from an unconstrained axis leaves the second form, which is never empty, because an unconstrained axis is wider than any list.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Values {
+    Only(BTreeSet<Sym>),
+    AllBut(BTreeSet<Sym>),
+}
+
+/// What a box admits on an axis it does not constrain.
+static EVERY: Values = Values::AllBut(BTreeSet::new());
+
+impl Values {
+    fn is_empty(&self) -> bool {
+        matches!(self, Values::Only(listed) if listed.is_empty())
+    }
+
+    fn meet(&self, other: &Values) -> Values {
+        match (self, other) {
+            (Values::Only(a), Values::Only(b)) => {
+                Values::Only(a.intersection(b).copied().collect())
+            }
+            (Values::Only(listed), Values::AllBut(dropped))
+            | (Values::AllBut(dropped), Values::Only(listed)) => {
+                Values::Only(listed.difference(dropped).copied().collect())
+            }
+            (Values::AllBut(a), Values::AllBut(b)) => Values::AllBut(a.union(b).copied().collect()),
+        }
+    }
+
+    fn without(&self, other: &Values) -> Values {
+        match (self, other) {
+            (Values::Only(a), Values::Only(b)) => Values::Only(a.difference(b).copied().collect()),
+            (Values::Only(a), Values::AllBut(b)) => {
+                Values::Only(a.intersection(b).copied().collect())
+            }
+            (Values::AllBut(a), Values::Only(b)) => Values::AllBut(a.union(b).copied().collect()),
+            (Values::AllBut(a), Values::AllBut(b)) => {
+                Values::Only(b.difference(a).copied().collect())
+            }
+        }
+    }
+}
+
+/// One box of a match set: the values each axis admits. A missing key admits every value, as in [`AxisSets`].
+pub type AxisBox = BTreeMap<AxisKey, Values>;
+
+/// A record's match set, as [`match_set`] expands it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum MatchSet {
+    /// One box, for a `when:` whose every `except:` entry narrows the family axis alone. No axis is empty.
+    Axes(AxisSets),
+    /// A union of boxes, each admitting at least one combination. An empty union is the empty set.
+    Boxes(Vec<AxisBox>),
+}
+
+impl MatchSet {
+    fn boxes(&self) -> Cow<'_, [AxisBox]> {
+        match self {
+            MatchSet::Axes(axes) => Cow::Owned(boxed(axes.clone())),
+            MatchSet::Boxes(boxes) => Cow::Borrowed(boxes),
+        }
+    }
+}
+
+/// Expand a `when:` to its match set: the box [`axis_sets`] describes, minus every `except:` entry that reaches past the family axis, each expanded at the slot it tests. Nothing here is cached: every call reads class membership through [`SpecIndex::class_members`], so the settlement capture open around the call journals what the ranking read.
+pub fn match_set(
+    index: &SpecIndex,
+    when: &When,
+    owner: Option<Sym>,
+) -> Result<MatchSet, SettleError> {
+    let axes = axis_sets(index, when, owner)?;
+    let carved = [when.left.as_ref(), when.right.as_ref()]
+        .into_iter()
+        .flatten()
+        .any(carves_past_family);
+    if !carved && !axes.values().any(BTreeSet::is_empty) {
+        return Ok(MatchSet::Axes(axes));
+    }
+    let mut boxes = boxed(axes);
+    subtract_carves(
+        index,
+        &mut boxes,
+        when.left.as_ref(),
+        owner,
+        WhenSide::Left,
+        0,
+    )?;
+    subtract_carves(
+        index,
+        &mut boxes,
+        when.right.as_ref(),
+        owner,
+        WhenSide::Right,
+        0,
+    )?;
+    Ok(MatchSet::Boxes(boxes))
+}
+
+/// Whether some `except:` entry on `cond` or down its `then:` chain reaches past the family axis, which makes the match set more than the one box its axes describe.
+fn carves_past_family(cond: &Condition) -> bool {
+    cond.except_
+        .iter()
+        .any(|excepted| !condition_constrains_only_family(excepted))
+        || cond.then.as_deref().is_some_and(carves_past_family)
+}
+
+/// Subtract from `boxes` every `except:` entry on `cond` and down its `then:` chain that [`family_set`] leaves out. An entry tests the slot its condition tests, at `depth` on `side`, with its own hops reading the slots after it, as the matcher's `except:` does.
+fn subtract_carves(
+    index: &SpecIndex,
+    boxes: &mut Vec<AxisBox>,
+    cond: Option<&Condition>,
+    owner: Option<Sym>,
+    side: WhenSide,
+    depth: u32,
+) -> Result<(), SettleError> {
+    let Some(cond) = cond else {
+        return Ok(());
+    };
+    for excepted in &cond.except_ {
+        if condition_constrains_only_family(excepted) {
+            continue;
+        }
+        let mut carved = AxisSets::default();
+        side_axes(index, Some(excepted), owner, side, depth, &mut carved)?;
+        let mut carved = boxed(carved);
+        subtract_carves(index, &mut carved, Some(excepted), owner, side, depth)?;
+        *boxes = subtract(std::mem::take(boxes), &carved);
+    }
+    subtract_carves(index, boxes, cond.then.as_deref(), owner, side, depth + 1)
+}
+
+/// The one box `axes` describes, or no box when some axis admits nothing.
+fn boxed(axes: AxisSets) -> Vec<AxisBox> {
+    if axes.values().any(BTreeSet::is_empty) {
+        return Vec::new();
+    }
+    vec![
+        axes.into_iter()
+            .map(|(key, listed)| (key, Values::Only(listed)))
+            .collect(),
+    ]
+}
+
+/// `boxes` minus the union `carved`, as a union of boxes.
+fn subtract(mut boxes: Vec<AxisBox>, carved: &[AxisBox]) -> Vec<AxisBox> {
+    for cut in carved {
+        let mut kept = Vec::with_capacity(boxes.len());
+        for whole in &boxes {
+            box_minus(whole, cut, &mut kept);
+        }
+        boxes = kept;
+    }
+    boxes
+}
+
+/// One box minus another, pushed onto `out` as disjoint boxes: for each axis `cut` constrains, the part of `whole` outside `cut` on that axis and inside it on every axis visited before. A box that misses `cut` on some axis is kept whole.
+fn box_minus(whole: &AxisBox, cut: &AxisBox, out: &mut Vec<AxisBox>) {
+    if cut
+        .iter()
+        .any(|(key, carved)| admitted(whole, key).meet(carved).is_empty())
+    {
+        out.push(whole.clone());
+        return;
+    }
+    let mut rest = whole.clone();
+    for (key, carved) in cut {
+        let values = admitted(&rest, key);
+        let outside = values.without(carved);
+        let inside = values.meet(carved);
+        if !outside.is_empty() {
+            let mut piece = rest.clone();
+            piece.insert(*key, outside);
+            out.push(piece);
+        }
+        rest.insert(*key, inside);
+    }
+}
+
+fn admitted<'b>(region: &'b AxisBox, key: &AxisKey) -> &'b Values {
+    region.get(key).unwrap_or(&EVERY)
+}
 
 /// Expand every constrained axis of a `when:` to its concrete match set. `owner` is the rune whose local groups a `class:` reference may resolve through.
 pub fn axis_sets(
@@ -128,7 +314,7 @@ fn side_axes(
     side_axes(index, cond.then.as_deref(), owner, side, depth + 1, axes)
 }
 
-/// The family-axis match set, or `None` when the axis is unconstrained. `family:` and `class:` on one condition intersect. `except:` entries that constrain only the family axis are subtracted. An entry that constrains any other axis is ignored, because modeling it would need the window, which is not available here.
+/// The family-axis match set, or `None` when the axis is unconstrained. `family:` and `class:` on one condition intersect. `except:` entries that constrain only the family axis are subtracted, from the registry's letter families when the condition lists none of its own. Every other entry is left to [`match_set`], which subtracts it from the whole match set.
 fn family_set(
     index: &SpecIndex,
     cond: &Condition,
@@ -196,12 +382,28 @@ pub fn outranks(
     owner_a: Option<Sym>,
     owner_b: Option<Sym>,
 ) -> Result<Ordering, SettleError> {
-    let axes_a = axis_sets(index, &a.when, owner_a)?;
-    let axes_b = axis_sets(index, &b.when, owner_b)?;
-    Ok(compare_axes(&axes_a, &axes_b))
+    let set_a = match_set(index, &a.when, owner_a)?;
+    let set_b = match_set(index, &b.when, owner_b)?;
+    Ok(compare_match_sets(&set_a, &set_b))
 }
 
-/// Compares two records' already-expanded axes. The ranking stage compares every applicable record with every other, so a caller can expand each record's axes once and call this for each pair instead of re-expanding each `when:` per pair.
+/// Orders two already-expanded match sets by inclusion: A is inside B when A minus B is empty. Two single boxes go to [`compare_axes`]. The ranking stage compares every applicable record with every other, so a caller can expand each record's match set once and call this for each pair instead of re-expanding each `when:` per pair.
+pub fn compare_match_sets(a: &MatchSet, b: &MatchSet) -> Ordering {
+    if let (MatchSet::Axes(a), MatchSet::Axes(b)) = (a, b) {
+        return compare_axes(a, b);
+    }
+    let (a, b) = (a.boxes(), b.boxes());
+    let b_within = subtract(b.to_vec(), &a).is_empty();
+    let a_within = subtract(a.into_owned(), &b).is_empty();
+    match (a_within, b_within) {
+        (true, true) => Ordering::Equal,
+        (true, false) => Ordering::AOutranks,
+        (false, true) => Ordering::BOutranks,
+        (false, false) => Ordering::Incomparable,
+    }
+}
+
+/// Compares two single-box match sets given as their axes: the order on two records whose every `except:` entry narrows the family axis alone. One box lies inside another exactly when, on every axis the outer box constrains, the inner box's values lie inside the outer box's, so the comparison runs axis by axis. It answers what [`compare_match_sets`] answers on the same boxes as long as no axis is empty, and [`match_set`] never hands it one that is.
 pub fn compare_axes(a: &AxisSets, b: &AxisSets) -> Ordering {
     let mut a_le_b = true;
     let mut b_le_a = true;
@@ -370,6 +572,13 @@ mod tests {
     fn host_spec() -> SpecIndex {
         let halves = fixtures::names(&["halves-that-exit-at-x-height"]);
         let tea = fixtures::names(&["qsTea"]);
+        let it_then_may = fixtures::condition(&[
+            ("family", &fixtures::names(&["qsIt"])),
+            (
+                "then",
+                &fixtures::condition(&[("family", &fixtures::names(&["qsMay"]))]),
+            ),
+        ]);
         let extends = [
             authored("left-tea", &[("when", &left(&[("family", &tea)]))]),
             authored("left-class", &[("when", &left(&[("klass", &halves)]))]),
@@ -432,48 +641,70 @@ mod tests {
                 )],
             ),
             authored(
-                "left-class-carved-chain",
+                "right-it-carved-chain",
                 &[(
                     "when",
-                    &left(&[
-                        ("klass", &halves),
+                    &right(&[
+                        ("family", &fixtures::names(&["qsIt"])),
+                        ("except_", &fixtures::seq(&[&it_then_may])),
+                    ]),
+                )],
+            ),
+            authored(
+                "right-it-or-tea-carved-chain",
+                &[(
+                    "when",
+                    &right(&[
+                        ("family", &fixtures::names(&["qsIt", "qsTea"])),
+                        ("except_", &fixtures::seq(&[&it_then_may])),
+                    ]),
+                )],
+            ),
+            authored(
+                "right-it-or-tea-carved-back",
+                &[(
+                    "when",
+                    &right(&[
+                        ("family", &fixtures::names(&["qsIt", "qsTea"])),
                         (
                             "except_",
                             &fixtures::seq(&[&fixtures::condition(&[
-                                ("family", &fixtures::names(&["qsPea"])),
-                                (
-                                    "then",
-                                    &fixtures::condition(&[(
-                                        "family",
-                                        &fixtures::names(&["qsMay"]),
-                                    )]),
-                                ),
+                                ("family", &fixtures::names(&["qsIt"])),
+                                ("except_", &fixtures::seq(&[&it_then_may])),
                             ])]),
                         ),
                     ]),
                 )],
             ),
             authored(
-                "right-it-carved-chain",
+                "right-it-then-may",
+                &[("when", &fixtures::when(&[("right", &it_then_may)]))],
+            ),
+            authored(
+                "right-tea-then-carved",
                 &[(
                     "when",
                     &right(&[
-                        ("family", &fixtures::names(&["qsIt"])),
+                        ("family", &tea),
                         (
-                            "except_",
-                            &fixtures::seq(&[&fixtures::condition(&[
-                                ("family", &fixtures::names(&["qsIt"])),
-                                (
-                                    "then",
+                            "then",
+                            &fixtures::condition(&[(
+                                "except_",
+                                &fixtures::seq(&[
                                     &fixtures::condition(&[(
                                         "family",
-                                        &fixtures::names(&["qsMay"]),
+                                        &fixtures::names(&["qsPea"]),
                                     )]),
-                                ),
-                            ])]),
+                                    &it_then_may,
+                                ]),
+                            )]),
                         ),
                     ]),
                 )],
+            ),
+            authored(
+                "right-tea-it-may",
+                &[("when", &right(&[("family", &tea), ("then", &it_then_may)]))],
             ),
             authored(
                 "left-liga",
@@ -729,39 +960,76 @@ mod tests {
     }
 
     #[test]
-    fn a_multi_axis_except_is_ignored_rather_than_guessed_at() {
+    fn a_multi_axis_except_subtracts_only_where_every_axis_matches() {
         let index = host_spec();
         assert_eq!(
             axes_of(&index, "left-class-carved-multi-axis"),
             axes_of(&index, "left-class"),
-            "the carve-out constrains a stance too, so it subtracts nothing"
+            "the carve-out constrains a stance too, so it narrows no single axis"
         );
         assert_eq!(
             ranked(&index, "left-class-carved-multi-axis", "left-class"),
-            Ordering::Equal
+            Ordering::AOutranks,
+            "it still removes qsPea in its half stance"
+        );
+        assert_eq!(
+            ranked(&index, "left-class-carved", "left-class-carved-multi-axis"),
+            Ordering::AOutranks,
+            "carving out every qsPea removes more than carving out the half one"
         );
     }
 
     #[test]
-    fn an_except_entry_carrying_a_chain_adds_no_axis_and_subtracts_nothing() {
+    fn an_except_entry_carrying_a_chain_subtracts_only_what_its_chain_matches() {
         let index = host_spec();
-        assert_eq!(
-            axes_of(&index, "left-class-carved-chain"),
-            axes_of(&index, "left-class"),
-            "the carve-out hangs a `then:` hop off its family, so it is ignored rather than subtracted"
-        );
-        assert_eq!(
-            ranked(&index, "left-class-carved-chain", "left-class"),
-            Ordering::Equal
-        );
         assert_eq!(
             axes_of(&index, "right-it-carved-chain"),
             axes_of(&index, "right-it"),
-            "and only a condition's own spine keys an axis, so the carve-out's chain adds none"
+            "only a condition's own spine keys an axis, so the carve-out's chain adds none"
         );
         assert_eq!(
             ranked(&index, "right-it-carved-chain", "right-it"),
-            Ordering::Equal
+            Ordering::AOutranks,
+            "qsIt before qsMay is carved out, so the carved record is a strict subset"
+        );
+    }
+
+    #[test]
+    fn a_chain_carve_out_that_leaves_records_overlapping_without_nesting_is_incomparable() {
+        let index = host_spec();
+        assert_eq!(
+            ranked(&index, "right-it-or-tea-carved-chain", "right-it"),
+            Ordering::Incomparable,
+            "qsTea is only in the carved record, and qsIt before qsMay only in right-it"
+        );
+    }
+
+    #[test]
+    fn a_nested_except_gives_back_what_its_parent_carve_out_took() {
+        let index = host_spec();
+        assert_eq!(
+            ranked(&index, "right-it-then-may", "right-it-or-tea-carved-back"),
+            Ordering::AOutranks,
+            "the carve-out takes qsIt except before qsMay, so qsIt before qsMay stays in"
+        );
+        assert_eq!(
+            ranked(
+                &index,
+                "right-it-or-tea-carved-back",
+                "right-it-or-tea-carved-chain"
+            ),
+            Ordering::Incomparable,
+            "one record keeps qsIt only before qsMay and the other keeps it only before anything else"
+        );
+    }
+
+    #[test]
+    fn an_except_entry_inside_a_then_hop_subtracts_at_that_hop() {
+        let index = host_spec();
+        assert_eq!(
+            ranked(&index, "right-tea-it-may", "right-tea-then-carved"),
+            Ordering::Incomparable,
+            "the hop's carve-out removes exactly qsTea, qsIt, qsMay, so the two sets are disjoint"
         );
     }
 
@@ -999,5 +1267,39 @@ mod tests {
             compare_axes(&AxisSets::default(), &AxisSets::default()),
             Ordering::Equal
         );
+    }
+
+    #[test]
+    fn the_axis_by_axis_comparison_answers_what_the_subtraction_answers() {
+        let index = host_spec();
+        let ids = [
+            "left-tea",
+            "left-class",
+            "left-tea-and-class",
+            "left-tea-joined",
+            "left-class-carved",
+            "left-tea-may",
+            "left-tea-it",
+            "left-liga-and-parts",
+            "right-it",
+            "keyed-none",
+            "right-boundary",
+            "right-chain",
+            "right-chain-shallow",
+            "self-entry-live",
+            "unconstrained",
+        ];
+        for a in ids {
+            for b in ids {
+                let (axes_a, axes_b) = (axes_of(&index, a), axes_of(&index, b));
+                let boxes_a = MatchSet::Boxes(boxed(axes_a.clone()));
+                let boxes_b = MatchSet::Boxes(boxed(axes_b.clone()));
+                assert_eq!(
+                    compare_match_sets(&boxes_a, &boxes_b),
+                    compare_axes(&axes_a, &axes_b),
+                    "{a} against {b}"
+                );
+            }
+        }
     }
 }

@@ -497,7 +497,7 @@ mod tests {
         );
     }
 
-    /// Neither the live spec nor the mini spec produces either specificity raise (`E-INCOMPARABLE`, `E-AMBIGUOUS`), so no sweep reaches this mapping and only this test checks it.
+    /// Neither the live spec nor the mini spec settles a window to either specificity raise (`E-INCOMPARABLE`, `E-AMBIGUOUS`), so no sweep reaches this mapping and only this test checks it. A simulated prospect's replay can raise one, but the prospect's fallback catches it, so it never becomes a case result.
     #[test]
     fn the_four_raise_kinds_bucket_into_the_corpuss_three() {
         assert_eq!(

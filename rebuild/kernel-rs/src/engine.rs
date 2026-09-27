@@ -2236,21 +2236,22 @@ impl<'i> Engine<'i> {
         if applicable.is_empty() {
             return Ok(survivors.to_vec());
         }
-        // Comparing precomputed axes gives the same result as `specificity::outranks` on each pair, without re-expanding each record's `when:` per pair.
-        let mut axes = Vec::with_capacity(applicable.len());
+        // Comparing precomputed match sets gives the same result as `specificity::outranks` on each pair, without re-expanding each record's `when:` per pair.
+        let mut sets = Vec::with_capacity(applicable.len());
         for entry in &applicable {
-            axes.push(specificity::axis_sets(
+            sets.push(specificity::match_set(
                 index,
                 &entry.record.when,
                 Some(entry.owner),
             )?);
         }
         let mut outranked_by: Vec<usize> = Vec::with_capacity(applicable.len());
-        for (position, own) in axes.iter().enumerate() {
+        for (position, own) in sets.iter().enumerate() {
             let mut beaten = 0;
-            for (other_position, other) in axes.iter().enumerate() {
+            for (other_position, other) in sets.iter().enumerate() {
                 if other_position != position
-                    && specificity::compare_axes(other, own) == specificity::Ordering::AOutranks
+                    && specificity::compare_match_sets(other, own)
+                        == specificity::Ordering::AOutranks
                 {
                     beaten += 1;
                 }
@@ -6756,7 +6757,7 @@ mod tests {
         );
     }
 
-    /// A window in which the follower's replayed settlement raises. `qsTea` exits toward `qsPea`, whose two entry-only stances tie at every score and whose two prefer records each demand one of them. The simulated prospect's settlement of `qsPea` is therefore E-AMBIGUOUS, although `qsTea`'s own window settles. Sweeps over the live alphabet reach the fallback only through replays that raise E-UNACCEPTED-EXIT or E-INCOMPARABLE, never E-AMBIGUOUS.
+    /// A window in which the follower's replayed settlement raises. `qsTea` exits toward `qsPea`, whose two entry-only stances tie at every score and whose two prefer records each demand one of them. The simulated prospect's settlement of `qsPea` is therefore E-AMBIGUOUS, although `qsTea`'s own window settles. The live alphabet reaches the fallback this way too: qsEight's `policy.prefer[0]` and `policy.prefer[1]` have disjoint match sets but both apply in a replayed ·Eight·Tea·It whose next slot is unknown, so the replay raises E-AMBIGUOUS.
     fn raising_follower_spec() -> SpecIndex {
         let conflicting = fixtures::policy(&[(
             "prefer",

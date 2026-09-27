@@ -490,7 +490,7 @@ impl SpecIndex {
         self.sym_of(&format!("{}{UNJOINED_SUFFIX}", self.resolve(height)))
     }
 
-    /// Every family the registry declares, modeled or not. An `except:` subtracts from this set when its condition has no family axis of its own.
+    /// Every family the registry declares, modeled or not. The specificity order subtracts a family-only `except:` from this set when its condition has no family axis of its own.
     pub fn families(&self) -> &BTreeSet<Sym> {
         &self.families
     }
