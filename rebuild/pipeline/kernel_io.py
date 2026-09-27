@@ -198,7 +198,7 @@ def read_spec(path: Path) -> ResolvedSpec:
 def write_transitions(product: FixpointProduct, path: Path) -> None:
     """Writes one configuration's fixpoint product as an `ams-m1-transitions/1` stream, laid out as the module docstring describes. The head holds the configuration, the reachable cells, the deep-class map, and the cited provenance. Raises `PartitionError` when a row's settled or left-settled cell is not among the product's cells. Two writes of one product produce identical files."""
     cells = sorted(product.cells, key=_cell_key)
-    seats = {cell: seat for seat, cell in enumerate(cells)}
+    head_indexes = {cell: head_index for head_index, cell in enumerate(cells)}
     head = {
         "config": product.config,
         "cells": [[cell.rune, cell.stance, cell.entry, cell.exit, list(cell.adjustments)] for cell in cells],
@@ -206,13 +206,13 @@ def write_transitions(product: FixpointProduct, path: Path) -> None:
         "cited_provenance": sorted(product.cited_provenance),
     }
 
-    def seated(settled: Settled, row: Transition, relation: str) -> list[Any]:
-        seat = seats.get(settled.cell)
-        if seat is None:
+    def settled_triple(settled: Settled, row: Transition, relation: str) -> list[Any]:
+        head_index = head_indexes.get(settled.cell)
+        if head_index is None:
             raise PartitionError(
                 f"the transition {row.key} {relation} {_cell_key(settled.cell)}, which the product does not count among its reachable cells"
             )
-        return [seat, settled.junction, settled.extension]
+        return [head_index, settled.junction, settled.extension]
 
     body = "".join(
         json.dumps(
@@ -224,11 +224,11 @@ def write_transitions(product: FixpointProduct, path: Path) -> None:
                 row.right3,
                 row.right4,
                 row.outcome,
-                seated(row.settled, row, "settles into"),
+                settled_triple(row.settled, row, "settles into"),
                 (
                     None
                     if row.left_settled is None
-                    else seated(row.left_settled, row, "carries the left-settled cell")
+                    else settled_triple(row.left_settled, row, "carries the left-settled cell")
                 ),
                 row.joint,
                 row.prospect,
@@ -283,11 +283,11 @@ def _transitions_of(handle: IO[str], name: str) -> FixpointProduct:
     settled_pool: dict[tuple[int, str | None, int], Settled] = {}
 
     def settled_of(triple: list[Any]) -> Settled:
-        seat, junction, extension = triple
-        key = (seat, junction, extension)
+        head_index, junction, extension = triple
+        key = (head_index, junction, extension)
         settled = settled_pool.get(key)
         if settled is None:
-            settled = Settled(cells[seat], optional(junction), extension)
+            settled = Settled(cells[head_index], optional(junction), extension)
             settled_pool[key] = settled
         return settled
 

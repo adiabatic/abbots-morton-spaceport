@@ -107,11 +107,11 @@ pub fn replay_cases(
     shape: CaseResult,
 ) -> Result<Vec<String>, String> {
     let mut lines = Vec::new();
-    for (seat, line) in text.lines().enumerate() {
-        if seat == 0 && line.starts_with("# ") {
+    for (position, line) in text.lines().enumerate() {
+        if position == 0 && line.starts_with("# ") {
             continue;
         }
-        let numbered = |error: String| format!("line {}: {error}", seat + 1);
+        let numbered = |error: String| format!("line {}: {error}", position + 1);
         let case = parse_case(engine.index(), line).map_err(numbered)?;
         lines.push(replay_case(engine, &case, shape).map_err(numbered)?);
     }

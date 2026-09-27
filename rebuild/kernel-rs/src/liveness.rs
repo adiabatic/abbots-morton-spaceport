@@ -809,9 +809,11 @@ pub(crate) mod tests {
     }
 
     /// One `prefer` record with the provenance pointer a real one carries, so the notes a fiber key records are the notes a build would record.
-    fn prefer(rune: &str, seat: usize, overrides: &[(&str, &str)]) -> String {
-        let pointer =
-            fixtures::names(&[&format!("{rune}.yaml"), &format!("policy.prefer[{seat}]")]);
+    fn prefer(rune: &str, position: usize, overrides: &[(&str, &str)]) -> String {
+        let pointer = fixtures::names(&[
+            &format!("{rune}.yaml"),
+            &format!("policy.prefer[{position}]"),
+        ]);
         let mut fields: Vec<(&str, &str)> =
             vec![("kind", "\"prefer\""), ("provenance", pointer.as_str())];
         fields.extend_from_slice(overrides);

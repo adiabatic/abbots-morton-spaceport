@@ -21,7 +21,7 @@ use crate::hash::{HashMap, HashSet};
 use crate::index::SpecIndex;
 use crate::model::Sym;
 use crate::types::{
-    EDGE, LeftContext, RightToken, Settled, SettledPool, SettledSeat, TokenKind, cell_label,
+    EDGE, LeftContext, RightToken, Settled, SettledId, SettledPool, TokenKind, cell_label,
     settled_json,
 };
 
@@ -67,10 +67,10 @@ impl<'a> TextSet<'a> {
 
 /// The sweep's alphabet, after `labels.spec_alphabet`: every modeled letter with a code point and every registered boundary token, in code point order. The texts are walked in this order, so disagreements are found in it too. A rune's code point is its own record's, or its registry family's when the record has none; `labels.spec_alphabet` reads only the record's. Where both are set they agree, because `spec_load` rejects a rune whose code point differs from its family's.
 pub fn alphabet(index: &SpecIndex) -> Result<Vec<RightToken>, String> {
-    let mut seated: Vec<(i64, RightToken)> = Vec::new();
+    let mut by_codepoint: Vec<(i64, RightToken)> = Vec::new();
     for (name, _) in index.runes() {
         if let Some(codepoint) = codepoint_of(index, *name) {
-            seated.push((
+            by_codepoint.push((
                 codepoint,
                 index.letter(*name).expect("a modeled rune has a token"),
             ));
@@ -85,13 +85,13 @@ pub fn alphabet(index: &SpecIndex) -> Result<Vec<RightToken>, String> {
                     index.resolve(*name)
                 )
             })?;
-        seated.push((
+        by_codepoint.push((
             token.codepoint,
             RightToken::of_kind(kind).expect("a boundary kind has a token"),
         ));
     }
-    seated.sort_by_key(|(codepoint, _)| *codepoint);
-    Ok(seated.into_iter().map(|(_, token)| token).collect())
+    by_codepoint.sort_by_key(|(codepoint, _)| *codepoint);
+    Ok(by_codepoint.into_iter().map(|(_, token)| token).collect())
 }
 
 /// One modeled rune's code point: its own record's, else its registry family's.
@@ -107,12 +107,12 @@ fn codepoint_of(index: &SpecIndex, name: Sym) -> Option<i64> {
     })
 }
 
-/// Which alphabet seats a text must contain to name one of `families`: a letter's own seat, and for a ligature the seats of its components. A text containing the ligature's sequence names the ligature, and a text containing any component is a superset that is cheap to test. A family with neither a code point nor a sequence is named by no text.
-fn wanted_seats(index: &SpecIndex, alphabet: &[RightToken], families: &[Sym]) -> Vec<bool> {
+/// Which alphabet positions a text must contain to name one of `families`: a letter's own position, and for a ligature the positions of its components. A text containing the ligature's sequence names the ligature, and a text containing any component is a superset that is cheap to test. A family with neither a code point nor a sequence is named by no text.
+fn wanted_positions(index: &SpecIndex, alphabet: &[RightToken], families: &[Sym]) -> Vec<bool> {
     let mut wanted = vec![false; alphabet.len()];
     let mut mark = |rune: Sym| {
-        if let Some(seat) = alphabet.iter().position(|token| token.rune() == Some(rune)) {
-            wanted[seat] = true;
+        if let Some(position) = alphabet.iter().position(|token| token.rune() == Some(rune)) {
+            wanted[position] = true;
         }
     };
     for family in families {
@@ -237,8 +237,8 @@ impl Labels {
         for boundary in ["space", "uni200C", "periodcentered"] {
             labels.intern(boundary);
         }
-        for seat in 0..labels.texts.len() {
-            labels.boundaryish[seat] = true;
+        for id in 0..labels.texts.len() {
+            labels.boundaryish[id] = true;
         }
         labels
     }
@@ -346,10 +346,10 @@ const MEMO_BLOCK_ROWS: usize = 1 << 14;
 /// One memoized window: the input rune, the settled left's label, and the four right labels, `#NA` after a boundary or the edge.
 type WindowKey = (Sym, u32, [u32; 4]);
 
-/// A memoized window's result: the seat of the settled record and the label the next window's left slot reads.
+/// A memoized window's result: the id of the settled record and the label the next window's left slot reads.
 #[derive(Clone, Copy)]
 struct Outcome {
-    seat: crate::types::SettledSeat,
+    id: crate::types::SettledId,
     label: u32,
 }
 
@@ -362,7 +362,7 @@ pub struct Replay<'i> {
     rules: RuleIndex,
     memo: HashMap<WindowKey, Outcome>,
     pool: SettledPool,
-    seat_labels: Vec<u32>,
+    id_labels: Vec<u32>,
     input_labels: HashMap<Sym, u32>,
     locked_labels: HashMap<Sym, u32>,
     disagreements: Vec<String>,
@@ -400,7 +400,7 @@ impl<'i> Replay<'i> {
             rules,
             memo: HashMap::default(),
             pool: SettledPool::default(),
-            seat_labels: Vec::new(),
+            id_labels: Vec::new(),
             input_labels: HashMap::default(),
             locked_labels: HashMap::default(),
             disagreements: Vec::new(),
@@ -424,9 +424,9 @@ impl<'i> Replay<'i> {
             CacheSize::of("walk_memo", self.memo.len(), self.memo.capacity()),
             CacheSize::of("walk_pool", self.pool.len(), self.pool.capacity()),
             CacheSize::of(
-                "walk_seat_labels",
-                self.seat_labels.len(),
-                self.seat_labels.capacity(),
+                "walk_id_labels",
+                self.id_labels.len(),
+                self.id_labels.capacity(),
             ),
             CacheSize::of("walk_labels", self.labels.len(), self.labels.capacity()),
             CacheSize::of(
@@ -496,18 +496,18 @@ impl<'i> Replay<'i> {
         }
         let wanted = text_set
             .families
-            .map(|families| wanted_seats(self.index, &alphabet, families));
+            .map(|families| wanted_positions(self.index, &alphabet, families));
         let mut report = Report::default();
-        let mut seats: Vec<usize> = Vec::new();
+        let mut positions: Vec<usize> = Vec::new();
         let mut raw: Vec<RightToken> = Vec::new();
         let mut formed: Vec<RightToken> = Vec::new();
         for length in 1..=text_set.max_length {
-            seats.clear();
-            seats.resize(length, 0);
+            positions.clear();
+            positions.resize(length, 0);
             loop {
                 let named = wanted
                     .as_ref()
-                    .is_none_or(|wanted| seats.iter().any(|seat| wanted[*seat]));
+                    .is_none_or(|wanted| positions.iter().any(|position| wanted[*position]));
                 if named {
                     if let Some(ceiling) = text_set.memo_windows
                         && !self.memo.is_empty()
@@ -516,7 +516,7 @@ impl<'i> Replay<'i> {
                         self.release();
                     }
                     raw.clear();
-                    raw.extend(seats.iter().map(|seat| alphabet[*seat]));
+                    raw.extend(positions.iter().map(|position| alphabet[*position]));
                     self.walk_text(&raw, &mut formed, &mut report)?;
                     if self.disagreements.len() >= NAMED_DISAGREEMENTS {
                         return Err(self.error_message());
@@ -526,12 +526,12 @@ impl<'i> Replay<'i> {
                 }
                 let mut advanced = false;
                 for slot in (0..length).rev() {
-                    seats[slot] += 1;
-                    if seats[slot] < alphabet.len() {
+                    positions[slot] += 1;
+                    if positions[slot] < alphabet.len() {
                         advanced = true;
                         break;
                     }
-                    seats[slot] = 0;
+                    positions[slot] = 0;
                 }
                 if !advanced {
                     break;
@@ -580,7 +580,7 @@ impl<'i> Replay<'i> {
                         0 => LeftContext::boundary(TokenKind::Edge),
                         _ => match previous {
                             Some(outcome) => {
-                                LeftContext::letter(self.index, self.pool.get(outcome.seat).clone())
+                                LeftContext::letter(self.index, self.pool.get(outcome.id).clone())
                             }
                             None => LeftContext::boundary(formed[at - 1].kind()),
                         },
@@ -601,7 +601,7 @@ impl<'i> Replay<'i> {
                                 spell_text(self.index, raw)
                             )
                         })?;
-                    let outcome = self.seat(&settled);
+                    let outcome = self.intern(&settled);
                     report.windows += 1;
                     let input = if at > 0 && formed[at - 1] == RightToken::Zwnj {
                         self.locked_label(rune, labels[at])
@@ -676,16 +676,16 @@ impl<'i> Replay<'i> {
         rights
     }
 
-    /// The seat and label of one settled record. The label is interned when the record is first seated.
-    fn seat(&mut self, settled: &Settled) -> Outcome {
-        let seat = self.pool.seat(settled);
-        if seat.index() == self.seat_labels.len() {
+    /// The id and label of one settled record. The label is interned with the record, the first time the record is seen.
+    fn intern(&mut self, settled: &Settled) -> Outcome {
+        let id = self.pool.intern(settled);
+        if id.index() == self.id_labels.len() {
             let label = self.labels.intern(&cell_label(self.index, &settled.cell));
-            self.seat_labels.push(label);
+            self.id_labels.push(label);
         }
         Outcome {
-            seat,
-            label: self.seat_labels[seat.index()],
+            id,
+            label: self.id_labels[id.index()],
         }
     }
 
@@ -693,10 +693,10 @@ impl<'i> Replay<'i> {
     ///
     /// 1. A `# ams-m1-replay-memo/1<tab><head json>` line naming the configuration, the maximum length, the row count, the label and record counts, and the column width.
     /// 2. The label table, one referenced label per line in id order.
-    /// 3. One `settled_json` line per seated record, in seat order.
+    /// 3. One `settled_json` line per interned record, in id order.
     /// 4. The rows, seven little-endian integers each, `u16` when every index fits and `u32` otherwise.
     ///
-    /// A row is the input label, the left, the four rights, and the record index. The input is the rune's raw label, or its locked name when the left is the ZWNJ and the ZWNJ lock replaces the rune. The left alone decides this, because every right slot after a ZWNJ is `#NA`, so a letter after a ZWNJ never appears in one. The left is a label index when its label stops the reach (the edge and the three boundaries), and otherwise the record's seat plus the label count, so both kinds share one column and the reader tells them apart by the label count in the head. Two seats with the same `cell_label` are written as the first, as the walk's own key already merged them. The rows are written in blocks, so the only large buffer beyond the memo is one block. A walk that released its memo under a ceiling returns an error before creating the file, because its memo holds only what it settled since the last release.
+    /// A row is the input label, the left, the four rights, and the record index. The input is the rune's raw label, or its locked name when the left is the ZWNJ and the ZWNJ lock replaces the rune. The left alone decides this, because every right slot after a ZWNJ is `#NA`, so a letter after a ZWNJ never appears in one. The left is a label index when its label stops the reach (the edge and the three boundaries), and otherwise the record's id plus the label count, so both kinds share one column and the reader tells them apart by the label count in the head. Two ids with the same `cell_label` are written as the first, as the walk's own key already merged them. The rows are written in blocks, so the only large buffer beyond the memo is one block. A walk that released its memo under a ceiling returns an error before creating the file, because its memo holds only what it settled since the last release.
     pub fn write_window_memo(
         &mut self,
         path: &Path,
@@ -724,9 +724,9 @@ impl<'i> Replay<'i> {
             let locked = self.locked_label(rune, raw);
             inputs.insert(rune, (raw, locked));
         }
-        let mut seat_of_label: HashMap<u32, usize> = HashMap::default();
-        for (seat, label) in self.seat_labels.iter().enumerate() {
-            seat_of_label.entry(*label).or_insert(seat);
+        let mut id_of_label: HashMap<u32, usize> = HashMap::default();
+        for (id, label) in self.id_labels.iter().enumerate() {
+            id_of_label.entry(*label).or_insert(id);
         }
         let input_of = |rune: Sym, left: u32| -> Result<u32, String> {
             let (raw, locked) = inputs.get(&rune).copied().ok_or_else(|| {
@@ -769,11 +769,11 @@ impl<'i> Replay<'i> {
         for id in &table {
             writeln!(out, "{}", self.labels.text(*id)).map_err(fail)?;
         }
-        for seat in 0..records {
+        for id in 0..records {
             writeln!(
                 out,
                 "{}",
-                settled_json(self.index, self.pool.get(SettledSeat::at(seat)))
+                settled_json(self.index, self.pool.get(SettledId::at(id)))
             )
             .map_err(fail)?;
         }
@@ -796,13 +796,13 @@ impl<'i> Replay<'i> {
             let left_column = if self.labels.stops_reach(*left) {
                 compact[*left as usize]
             } else {
-                let seat = seat_of_label.get(left).copied().ok_or_else(|| {
+                let id = id_of_label.get(left).copied().ok_or_else(|| {
                     format!(
-                        "the settled left {} names no seated record",
+                        "the settled left {} names no interned record",
                         self.labels.text(*left)
                     )
                 })?;
-                label_count + u32::try_from(seat).expect("a seat is a u32")
+                label_count + u32::try_from(id).expect("an id is a u32")
             };
             push(&mut block, input);
             push(&mut block, left_column);
@@ -811,7 +811,7 @@ impl<'i> Replay<'i> {
             }
             push(
                 &mut block,
-                u32::try_from(outcome.seat.index()).expect("a seat is a u32"),
+                u32::try_from(outcome.id.index()).expect("an id is a u32"),
             );
             pending += 1;
             if pending == MEMO_BLOCK_ROWS {
@@ -957,10 +957,10 @@ mod tests {
         (walk, report)
     }
 
-    /// The records a walk seated, in seat order.
-    fn seated(walk: &Replay<'_>) -> Vec<Settled> {
+    /// The records a walk interned, in id order.
+    fn interned(walk: &Replay<'_>) -> Vec<Settled> {
         (0..walk.pool.len())
-            .map(|seat| walk.pool.get(SettledSeat::at(seat)).clone())
+            .map(|id| walk.pool.get(SettledId::at(id)).clone())
             .collect()
     }
 
@@ -978,19 +978,19 @@ mod tests {
             .collect()
     }
 
-    /// Every window in `walk`'s memo has the seat and label `uncapped`'s memo has for it.
+    /// Every window in `walk`'s memo has the id and label `uncapped`'s memo has for it.
     fn memo_agrees(walk: &Replay<'_>, uncapped: &Replay<'_>, at: &str) {
         for (key, outcome) in &walk.memo {
             let expected = uncapped
                 .memo
                 .get(key)
                 .unwrap_or_else(|| panic!("{at}: a window the uncapped walk never reached"));
-            assert_eq!(outcome.seat, expected.seat, "{at}");
+            assert_eq!(outcome.id, expected.id, "{at}");
             assert_eq!(outcome.label, expected.label, "{at}");
         }
     }
 
-    /// A walk under a memo ceiling returns what the uncapped walk returns: the same texts and skipped count, the same records seated in the same order under the same labels, and the uncapped seat and label for every window left in its memo. The ceilings tested release before every text (1), now and then (7), a few times (half the window count), and never (the window count plus the maximum length, a ceiling at which the release rule never fires). A white-box pass walks each text from released memos and checks that each of its windows settles at the uncapped walk's seat and label, which covers every window of the text set. Only `windows` differs, because it counts each re-settle. The memo never holds more than the ceiling, or one text's windows when the ceiling is below the maximum length. The cache-stats rows, taken at every release and at the end of the walk, show the same bound, and turning the cache stats on does not change when releases happen.
+    /// A walk under a memo ceiling returns what the uncapped walk returns: the same texts and skipped count, the same records interned in the same order under the same labels, and the uncapped id and label for every window left in its memo. The ceilings tested release before every text (1), now and then (7), a few times (half the window count), and never (the window count plus the maximum length, a ceiling at which the release rule never fires). A white-box pass walks each text from released memos and checks that each of its windows settles at the uncapped walk's id and label, which covers every window of the text set. Only `windows` differs, because it counts each re-settle. The memo never holds more than the ceiling, or one text's windows when the ceiling is below the maximum length. The cache-stats rows, taken at every release and at the end of the walk, show the same bound, and turning the cache stats on does not change when releases happen.
     #[test]
     fn a_capped_walk_answers_every_text_an_uncapped_walk_answers() {
         let index = fixtures::mini();
@@ -1050,8 +1050,8 @@ mod tests {
             let at = format!("at {ceiling}");
             assert_eq!(report.texts, whole.texts, "{at}");
             assert_eq!(report.skipped, whole.skipped, "{at}");
-            assert_eq!(seated(walk), seated(&uncapped), "{at}");
-            assert_eq!(walk.seat_labels, uncapped.seat_labels, "{at}");
+            assert_eq!(interned(walk), interned(&uncapped), "{at}");
+            assert_eq!(walk.id_labels, uncapped.id_labels, "{at}");
             assert_eq!(walk.labels.texts, uncapped.labels.texts, "{at}");
             assert_eq!(walk.input_labels, uncapped.input_labels, "{at}");
             memo_agrees(walk, &uncapped, &at);
@@ -1151,11 +1151,11 @@ mod tests {
         assert_eq!(report.skipped, without_pea);
 
         let mut perturbed = folded_rules(&index);
-        let seat = perturbed
+        let position = perturbed
             .iter()
             .position(|rule| &*rule.input_glyph == "qsPea")
             .expect("qsPea has a rule");
-        perturbed[seat].outcome = Rc::from("qsPea.perturbed");
+        perturbed[position].outcome = Rc::from("qsPea.perturbed");
         let mut narrowed = replay(&index, &perturbed);
         let error = narrowed
             .walk_texts(TextSet::naming(3, &[pea]))
@@ -1166,7 +1166,7 @@ mod tests {
         let _ = elsewhere.walk_texts(TextSet::naming(3, &[it]));
     }
 
-    /// A ligature is named through its components' seats, so a walk narrowed to the ligature still reaches every text that could form it. The ligature has no code point, so it has no seat of its own.
+    /// A ligature is named through its components' positions, so a walk narrowed to the ligature still reaches every text that could form it. The ligature has no code point, so it has no position of its own.
     #[test]
     fn a_ligature_family_is_named_through_its_components() {
         let baseline = fixtures::map(&[("baseline", &fixtures::row("baseline", &[]))]);
@@ -1211,10 +1211,10 @@ mod tests {
         assert_eq!(
             tokens.len(),
             4,
-            "two boundaries and two letters; the ligature has no seat"
+            "two boundaries and two letters; the ligature has no position"
         );
         let liga = fixtures::sym(&index, "qsPea_qsTea");
-        let wanted = wanted_seats(&index, &tokens, &[liga]);
+        let wanted = wanted_positions(&index, &tokens, &[liga]);
         let pea = tokens
             .iter()
             .position(|token| *token == fixtures::letter(&index, "qsPea"))
@@ -1224,7 +1224,7 @@ mod tests {
             .position(|token| *token == fixtures::letter(&index, "qsTea"))
             .expect("qsTea is in the alphabet");
         assert!(wanted[pea] && wanted[tea]);
-        assert_eq!(wanted.iter().filter(|seat| **seat).count(), 2);
+        assert_eq!(wanted.iter().filter(|wanted| **wanted).count(), 2);
     }
 
     /// A scratch directory of this module's own under `target/`, cleared first.
@@ -1292,7 +1292,7 @@ mod tests {
         }
     }
 
-    /// The written memo covers everything the walk settled: one row per window the report counted, a head row count that agrees, every input and right inside the label table, every left inside the label table or the record table after it, and every record index seated.
+    /// The written memo covers everything the walk settled: one row per window the report counted, a head row count that agrees, every input and right inside the label table, every left inside the label table or the record table after it, and every value inside the record table.
     #[test]
     fn the_window_memo_files_one_row_per_settled_window_inside_its_tables() {
         let index = fixtures::mini();
@@ -1315,9 +1315,12 @@ mod tests {
         assert!(labels > 0 && records > 0);
         for row in &filed.rows {
             assert!(row[0] < labels, "the input is a label");
-            assert!(row[1] < labels + records, "the left is a label or a seat");
+            assert!(
+                row[1] < labels + records,
+                "the left is a label or a record id"
+            );
             assert!(row[2..6].iter().all(|right| *right < labels));
-            assert!(row[6] < records, "the value is a seated record");
+            assert!(row[6] < records, "the value is an interned record");
         }
         assert!(!filed.labels.iter().any(String::is_empty));
         assert!(filed.labels.iter().any(|label| label == EDGE_LABEL));
@@ -1392,7 +1395,7 @@ mod tests {
             words.push(if (row[1] as usize) < filed.labels.len() {
                 filed.labels[row[1] as usize].clone()
             } else {
-                format!("seat:{}", row[1] as usize - filed.labels.len())
+                format!("id:{}", row[1] as usize - filed.labels.len())
             });
             words.extend(
                 row[2..6]
@@ -1438,9 +1441,9 @@ mod tests {
         }
     }
 
-    /// A left is written as a label when its label stops the reach and as a seat otherwise, and a seat's record round-trips through `settled_json` to the record the walk seated under the label it keyed on.
+    /// A left is written as a label when its label stops the reach and as an id otherwise, and an id's record round-trips through `settled_json` to the record the walk interned under the label it keyed on.
     #[test]
-    fn a_left_is_a_boundary_label_where_the_reach_stops_and_a_seat_otherwise() {
+    fn a_left_is_a_boundary_label_where_the_reach_stops_and_an_id_otherwise() {
         let index = fixtures::mini();
         let rules = folded_rules(&index);
         let mut walk = replay(&index, &rules);
@@ -1451,7 +1454,7 @@ mod tests {
             .expect("the memo files");
         let filed = read_memo(&path);
         let labels = filed.labels.len() as u32;
-        let mut seated = 0;
+        let mut interned = 0;
         let mut boundaries = 0;
         for row in &filed.rows {
             if row[1] < labels {
@@ -1462,24 +1465,24 @@ mod tests {
                 );
                 boundaries += 1;
             } else {
-                let seat = (row[1] - labels) as usize;
+                let id = (row[1] - labels) as usize;
                 let value: serde_json::Value =
-                    serde_json::from_str(&filed.records[seat]).expect("a record line is JSON");
+                    serde_json::from_str(&filed.records[id]).expect("a record line is JSON");
                 let record = crate::cases::parse_settled_json(&index, &value)
                     .expect("a record line reads back as a settled record");
-                assert_eq!(&record, walk.pool.get(SettledSeat::at(seat)));
+                assert_eq!(&record, walk.pool.get(SettledId::at(id)));
                 assert_eq!(
                     cell_label(&index, &record.cell),
-                    walk.labels.text(walk.seat_labels[seat])
+                    walk.labels.text(walk.id_labels[id])
                 );
-                seated += 1;
+                interned += 1;
             }
         }
-        assert!(seated > 0 && boundaries > 0);
-        for (seat, line) in filed.records.iter().enumerate() {
+        assert!(interned > 0 && boundaries > 0);
+        for (id, line) in filed.records.iter().enumerate() {
             let value: serde_json::Value = serde_json::from_str(line).expect("JSON");
             let record = crate::cases::parse_settled_json(&index, &value).expect("reads back");
-            assert_eq!(&record, walk.pool.get(SettledSeat::at(seat)));
+            assert_eq!(&record, walk.pool.get(SettledId::at(id)));
         }
     }
 

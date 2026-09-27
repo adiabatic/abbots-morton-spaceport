@@ -60,7 +60,7 @@ pub fn read_context(text: &str) -> Result<Context, String> {
 
 /// One emitted rule prepared for matching: its index in the shipped order, the five context slots as sorted label ids (`None` for an unconstrained slot, and with the tokens of classes the slot contains entirely added), and the outcome's id.
 struct EmittedRule {
-    seat: usize,
+    position: usize,
     slots: [Option<Vec<u32>>; 5],
     outcome: u32,
 }
@@ -68,7 +68,7 @@ struct EmittedRule {
 /// The rule, slot, and class token where a deep slot rejected a class token it contains in part, after every earlier slot matched. It tells the caller to try the row member by member.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct PartialClass {
-    seat: usize,
+    position: usize,
     slot: usize,
     token: u32,
 }
@@ -84,7 +84,7 @@ impl Order {
     fn new(labels: &mut Labels, rules: &[Rule], classes: &[(u32, Vec<u32>)]) -> Self {
         let mut by_input: HashMap<u32, Vec<EmittedRule>> = HashMap::default();
         let mut partial_classes: HashSet<(usize, usize, u32)> = HashSet::default();
-        for (seat, rule) in rules.iter().enumerate() {
+        for (position, rule) in rules.iter().enumerate() {
             let input = labels.intern(&rule.input_glyph);
             let mut slot = |members: &Option<Vec<std::rc::Rc<str>>>| {
                 members.as_ref().map(|members| {
@@ -115,7 +115,7 @@ impl Order {
                     if inside == members.len() {
                         whole.push(*token);
                     } else if inside > 0 {
-                        partial_classes.insert((seat, index, *token));
+                        partial_classes.insert((position, index, *token));
                     }
                 }
                 if !whole.is_empty() {
@@ -125,7 +125,7 @@ impl Order {
             }
             let outcome = labels.intern(&rule.outcome);
             by_input.entry(input).or_default().push(EmittedRule {
-                seat,
+                position,
                 slots,
                 outcome,
             });
@@ -146,9 +146,13 @@ impl Order {
                 if members.binary_search(&label).is_ok() {
                     continue;
                 }
-                if index >= 3 && self.partial_classes.contains(&(rule.seat, index, label)) {
+                if index >= 3
+                    && self
+                        .partial_classes
+                        .contains(&(rule.position, index, label))
+                {
                     return Err(PartialClass {
-                        seat: rule.seat,
+                        position: rule.position,
                         slot: index,
                         token: label,
                     });
@@ -275,7 +279,7 @@ impl<'a> Walk<'a> {
             let window = [left, right1, right2, right3, right4];
             match self.order.first(input, window) {
                 Ok(fired) => {
-                    let fired = fired.map(|rule| (rule.seat, rule.outcome));
+                    let fired = fired.map(|rule| (rule.position, rule.outcome));
                     if fired.map_or(input, |(_, answer)| answer) != outcome {
                         let sentence = self.disagree(raw, None, fired, &by_input);
                         self.disagreements.push(sentence);
@@ -300,12 +304,12 @@ impl<'a> Walk<'a> {
                                 format!(
                                     "{}: emitted rule {} turns {} away at its {} as a class, though it is a member label",
                                     self.config,
-                                    partial.seat,
+                                    partial.position,
                                     self.labels.text(partial.token),
                                     slot_name(partial.slot)
                                 )
                             })?;
-                            let fired = fired.map(|rule| (rule.seat, rule.outcome));
+                            let fired = fired.map(|rule| (rule.position, rule.outcome));
                             if fired.map_or(input, |(_, answer)| answer) != outcome {
                                 let sentence = self.disagree(
                                     raw,
@@ -355,12 +359,17 @@ impl<'a> Walk<'a> {
         let own = first_match(by_input, [raw[0], raw[1], raw[2], raw[3], right3, right4])
             .map_or_else(
                 || "no rule of its own table".to_owned(),
-                |seat| format!("its table's rule {seat} ({})", rule_repr(&self.table[seat])),
+                |position| {
+                    format!(
+                        "its table's rule {position} ({})",
+                        rule_repr(&self.table[position])
+                    )
+                },
             );
         let shipped = match fired {
-            Some((seat, answer)) => format!(
-                "emitted rule {seat} ({}) fires first and answers {}",
-                rule_repr(&self.shipped[seat]),
+            Some((position, answer)) => format!(
+                "emitted rule {position} ({}) fires first and answers {}",
+                rule_repr(&self.shipped[position]),
                 self.labels.text(answer)
             ),
             None => "no emitted rule matches, so the input stands".to_owned(),

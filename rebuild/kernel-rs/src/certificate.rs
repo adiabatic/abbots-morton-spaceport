@@ -237,12 +237,12 @@ pub fn certify(
 ) -> Result<Vec<Vec<String>>, String> {
     let by_input = rules_by_input(rules);
     let mut certificates: Vec<Vec<String>> = Vec::with_capacity(rules.len());
-    for (seat, rule) in rules.iter().enumerate() {
+    for (rule_index, rule) in rules.iter().enumerate() {
         let mut found: Option<Vec<RightToken>> = None;
         let mut spelled_any = false;
         let mut unspellable_any = false;
         let mut unreached: Option<usize> = None;
-        'rows: for &row in &first_rows[seat] {
+        'rows: for &row in &first_rows[rule_index] {
             let (tokens, position) = match fixed_tokens(index, chains, rows, row) {
                 Ok(Some(fixed)) => fixed,
                 Ok(None) => {
@@ -266,7 +266,7 @@ pub fn certify(
                     rows.left(row),
                 );
                 let spelled: [&str; 6] = [&key[0], &key[1], &key[2], &key[3], &key[4], &key[5]];
-                if first_match(&by_input, spelled) == Some(seat) {
+                if first_match(&by_input, spelled) == Some(rule_index) {
                     found = Some(candidate);
                     break 'rows;
                 }
@@ -282,17 +282,17 @@ pub fn certify(
             None if unspellable_any => return Ok(Vec::new()),
             None if !spelled_any => {
                 let row = unreached.expect("a rule the replay handed rows to has at least one");
-                match unsupported_slot(rows, seat, rule, row, first_rows[seat].len()) {
+                match unsupported_slot(rows, rule_index, rule, row, first_rows[rule_index].len()) {
                     Some(error) => return Err(error),
                     None => return Ok(Vec::new()),
                 }
             }
             None => {
                 return Err(format!(
-                    "rule {seat} ({} -> {}) first-matches {} replayed row(s) but none of them completes into a string it first-matches; the worklist's slot restrictions for those rows do not hold",
+                    "rule {rule_index} ({} -> {}) first-matches {} replayed row(s) but none of them completes into a string it first-matches; the worklist's slot restrictions for those rows do not hold",
                     rule.input_glyph,
                     rule.outcome,
-                    first_rows[seat].len()
+                    first_rows[rule_index].len()
                 ));
             }
         }
@@ -303,7 +303,7 @@ pub fn certify(
 /// The error message for a rule none of whose replayed rows lies on a row chain. It names the rule, the first such row, and its unsupported right slot. A producer of the row would be a row whose outcome is the row's left, whose right1 is the row's input, and whose right2, right3, and right4 equal the row's right1, right2, and right3 up to the first `#NA`. This filters the rows by those conditions in that order, and the first condition no row meets is the slot the worklist admitted without a window to produce it. Returns `None` when no row settles to the row's left at all. The worklist only admits a left it settled in some window, so that happens only in a hand-built product, which gets the empty certificate list.
 fn unsupported_slot(
     rows: &LabelRows<'_>,
-    seat: usize,
+    rule_index: usize,
     rule: &Rule,
     row: usize,
     count: usize,
@@ -347,7 +347,7 @@ fn unsupported_slot(
         }
     }
     Some(format!(
-        "rule {seat} ({} -> {}) first-matches {count} replayed row(s) and none of them lies on a row chain from a start row; the first, ({}, {}, {}, {}, {}, {}), has an unsupported right slot: {sentence}",
+        "rule {rule_index} ({} -> {}) first-matches {count} replayed row(s) and none of them lies on a row chain from a start row; the first, ({}, {}, {}, {}, {}, {}), has an unsupported right slot: {sentence}",
         rule.input_glyph, rule.outcome, key[0], key[1], key[2], key[3], key[4], key[5]
     ))
 }
@@ -622,7 +622,7 @@ mod tests {
     use crate::fold::{FoldRow, expand, first_match_rows, fold_product};
     use crate::index::fixtures;
     use crate::stream::{FixpointProduct, Label, LabelPool, TransitionRow};
-    use crate::types::{NotesSeat, SettledSeat};
+    use crate::types::{NotesId, SettledId};
     use std::rc::Rc;
 
     const SHIPPING: EnumerationModes = EnumerationModes {
@@ -638,7 +638,7 @@ mod tests {
         production
     }
 
-    /// A compact hand-built label-row stream. Each row gets its own outcome seat; the row-chain searches read no settled record or cell, so those product tables stay empty.
+    /// A compact hand-built label-row stream. Each row gets its own outcome id; the row-chain searches read no settled record or cell, so those product tables stay empty.
     fn chain_fixture(records: &[[&str; 7]]) -> (FixpointProduct, Vec<FoldRow>) {
         let mut labels = LabelPool::default();
         let mut outcomes = Vec::with_capacity(records.len());
@@ -646,7 +646,7 @@ mod tests {
         for record in records {
             let [input_glyph, left, right1, right2, right3, right4, outcome] =
                 (*record).map(|text| labels.intern(text));
-            let settled = SettledSeat::at(outcomes.len());
+            let settled = SettledId::at(outcomes.len());
             outcomes.push(outcome);
             transitions.push(TransitionRow {
                 input_glyph,
@@ -657,7 +657,7 @@ mod tests {
                 right4,
                 settled,
                 left_settled: None,
-                provenance: NotesSeat::at(0),
+                provenance: NotesId::at(0),
                 prospect: 0,
                 joint: false,
             });
@@ -671,15 +671,15 @@ mod tests {
             deep_classes: Vec::new(),
             cited_provenance: Vec::new(),
             cells: Vec::new(),
-            seats: Vec::new(),
+            settled_records: Vec::new(),
             notes: vec![Vec::new()],
         };
         let fold = product
             .transitions
             .iter()
             .enumerate()
-            .map(|(seat, row)| FoldRow {
-                seat: seat as u32,
+            .map(|(class_row, row)| FoldRow {
+                class_row: class_row as u32,
                 right3: Rc::clone(product.labels.text(row.right3)),
                 right4: Rc::clone(product.labels.text(row.right4)),
                 joint: false,
@@ -901,7 +901,7 @@ mod tests {
         )
         .expect("the replay the build ran");
         let by_input = rules_by_input(&decision.rules);
-        for (seat, certificate) in decision.certificates.iter().enumerate() {
+        for (rule_index, certificate) in decision.certificates.iter().enumerate() {
             assert!(certificate.len() <= 16, "{certificate:?}");
             let tokens: Vec<RightToken> = certificate
                 .iter()
@@ -911,7 +911,7 @@ mod tests {
                         .expect("and never the edge or #NA")
                 })
                 .collect();
-            let (row, position) = first_rows[seat]
+            let (row, position) = first_rows[rule_index]
                 .iter()
                 .find_map(|&row| {
                     let (fixed, position) = fixed_tokens(&index, &chains, &rows, row)
@@ -930,7 +930,7 @@ mod tests {
             let spelled: [&str; 6] = [&key[0], &key[1], &key[2], &key[3], &key[4], &key[5]];
             assert_eq!(
                 first_match(&by_input, spelled),
-                Some(seat),
+                Some(rule_index),
                 "{certificate:?}"
             );
         }
@@ -1018,8 +1018,8 @@ mod tests {
         }
         let mut phantom_product = product.clone();
         let settled = phantom_product.settled(&phantom).clone();
-        phantom.settled = SettledSeat::at(phantom_product.seats.len());
-        phantom_product.seats.push(settled);
+        phantom.settled = SettledId::at(phantom_product.settled_records.len());
+        phantom_product.settled_records.push(settled);
         let outcome = phantom_product.labels.intern("qsPhantom.unsupported");
         phantom_product.outcomes.push(outcome);
         phantom_product.transitions.push(phantom.clone());
@@ -1086,8 +1086,8 @@ mod tests {
         let mut bench = product.clone();
         bench_row.right2 = bench.labels.intern("qsNever");
         let settled = bench.settled(&bench_row).clone();
-        bench_row.settled = SettledSeat::at(bench.seats.len());
-        bench.seats.push(settled);
+        bench_row.settled = SettledId::at(bench.settled_records.len());
+        bench.settled_records.push(settled);
         let outcome = bench.labels.intern("qsPhantom.unsupported");
         bench.outcomes.push(outcome);
         bench.transitions.push(bench_row.clone());

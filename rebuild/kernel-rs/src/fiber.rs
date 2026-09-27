@@ -123,7 +123,7 @@ impl DeepFiberDeriver {
         full_coords.push(UNKNOWN);
         let deep_modes = engine.simulated_prospect() || engine.follower_prefer_slots();
 
-        let mut seats: HashMap<Rc<FiberKey>, usize> = HashMap::default();
+        let mut ids: HashMap<Rc<FiberKey>, usize> = HashMap::default();
         let mut grouped: Vec<(Rc<FiberKey>, Vec<RightToken>)> = Vec::new();
         for third in static_options {
             if third.kind() != TokenKind::Letter {
@@ -161,10 +161,10 @@ impl DeepFiberDeriver {
                 options4,
                 probe,
             });
-            match seats.get(&key) {
-                Some(&seat) => grouped[seat].1.push(third),
+            match ids.get(&key) {
+                Some(&id) => grouped[id].1.push(third),
                 None => {
-                    seats.insert(Rc::clone(&key), grouped.len());
+                    ids.insert(Rc::clone(&key), grouped.len());
                     grouped.push((key, vec![third]));
                 }
             }
@@ -221,7 +221,7 @@ fn r4_groups(key: &FiberKey, full_coords: &[RightToken]) -> Vec<Vec<RightToken>>
     let coord_index: HashMap<RightToken, usize> = full_coords
         .iter()
         .enumerate()
-        .map(|(seat, coord)| (*coord, seat))
+        .map(|(position, coord)| (*coord, position))
         .collect();
     let mut ordered: Vec<Vec<RightToken>> = Vec::new();
     let mut by_column: HashMap<Vec<&FiberRecord>, usize> = HashMap::default();
@@ -230,8 +230,8 @@ fn r4_groups(key: &FiberKey, full_coords: &[RightToken]) -> Vec<Vec<RightToken>>
             ordered.push(vec![option]);
             continue;
         }
-        let seat = coord_index[&option];
-        let column: Vec<&FiberRecord> = key.probe.iter().map(|row| &row[seat]).collect();
+        let position = coord_index[&option];
+        let column: Vec<&FiberRecord> = key.probe.iter().map(|row| &row[position]).collect();
         match by_column.get(&column) {
             Some(&bucket) => ordered[bucket].push(option),
             None => {
@@ -292,9 +292,11 @@ mod tests {
         fixtures::policy(&[])
     }
 
-    fn prefer(rune: &str, seat: usize, overrides: &[(&str, &str)]) -> String {
-        let pointer =
-            fixtures::names(&[&format!("{rune}.yaml"), &format!("policy.prefer[{seat}]")]);
+    fn prefer(rune: &str, position: usize, overrides: &[(&str, &str)]) -> String {
+        let pointer = fixtures::names(&[
+            &format!("{rune}.yaml"),
+            &format!("policy.prefer[{position}]"),
+        ]);
         let mut fields: Vec<(&str, &str)> =
             vec![("kind", "\"prefer\""), ("provenance", pointer.as_str())];
         fields.extend_from_slice(overrides);
@@ -903,8 +905,8 @@ mod tests {
         let ambiguous = record(&mut engine, &edge, input, window("qsIt"));
         let unreachable = record(&mut engine, &committed, input, window("qsPea"));
         let four = [&settled, &incomparable, &ambiguous, &unreachable];
-        for (seat, own) in four.iter().enumerate() {
-            for other in &four[seat + 1..] {
+        for (position, own) in four.iter().enumerate() {
+            for other in &four[position + 1..] {
                 assert_ne!(own, other);
             }
         }

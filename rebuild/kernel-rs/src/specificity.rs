@@ -291,14 +291,19 @@ pub fn pick_most_specific<'r>(
         "pick_most_specific reads records and owners in parallel"
     );
     let mut maximal: Vec<&'r PolicyRecord> = Vec::new();
-    for (seat, record) in records.iter().enumerate() {
+    for (position, record) in records.iter().enumerate() {
         let mut beaten = false;
-        for (other_seat, other) in records.iter().enumerate() {
+        for (other_position, other) in records.iter().enumerate() {
             if std::ptr::eq(*other, *record) {
                 continue;
             }
-            if outranks(index, other, record, owners[other_seat], owners[seat])?
-                == Ordering::AOutranks
+            if outranks(
+                index,
+                other,
+                record,
+                owners[other_position],
+                owners[position],
+            )? == Ordering::AOutranks
             {
                 beaten = true;
                 break;

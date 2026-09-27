@@ -79,7 +79,7 @@ pub struct JoinRow {
 #[derive(Debug)]
 /// One configuration's decision table, `table.DecisionTable` as the fold produces it: the class-grain rows with the fold's joint flags, the ordered rules, and the head fields the windows artifact and its readers use.
 ///
-/// The decision table keeps the product's label pool and settled-seat outcome table, through which windows and digests resolve a row's six labels and its outcome. Settled records and provenance lists are needed only while folding, so they are not kept.
+/// The decision table keeps the product's label pool and settled-id outcome table, through which windows and digests resolve a row's six labels and its outcome. Settled records and provenance lists are needed only while folding, so they are not kept.
 pub struct DecisionTable {
     pub config: String,
     pub transitions: Vec<TransitionRow>,
@@ -120,9 +120,9 @@ pub struct Folded {
 /// The lefts a first-match-wins replay has to cover, per input glyph.
 pub type ReplayLefts = HashMap<Rc<str>, HashSet<Rc<str>>>;
 
-/// One label-grain row: the index (`seat`) of the class row it expanded from, its two deep labels, and the joint flag the prospect pass sets. Everything else about the row is read from the class row.
+/// One label-grain row: the index (`class_row`) of the class row it expanded from, its two deep labels, and the joint flag the prospect pass sets. Everything else about the row is read from the class row.
 pub struct FoldRow {
-    pub seat: u32,
+    pub class_row: u32,
     pub right3: Rc<str>,
     pub right4: Rc<str>,
     pub joint: bool,
@@ -157,7 +157,7 @@ impl<'a> LabelRows<'a> {
     }
 
     pub fn base(&self, row: usize) -> &'a TransitionRow {
-        &self.product.transitions[self.fold[row].seat as usize]
+        &self.product.transitions[self.fold[row].class_row as usize]
     }
 
     pub fn input_glyph(&self, row: usize) -> &'a Rc<str> {
@@ -249,7 +249,7 @@ fn fold_with_report(
     let mut class_joint: Vec<bool> = product.transitions.iter().map(|row| row.joint).collect();
     for row in &fold_rows {
         if row.joint {
-            class_joint[row.seat as usize] = true;
+            class_joint[row.class_row as usize] = true;
         }
     }
     for (row, joint) in product.transitions.iter_mut().zip(&class_joint) {
@@ -277,7 +277,7 @@ fn fold_with_report(
         replay_lefts.insert(input_glyph, folded.replay_lefts);
     }
 
-    assert_reachable_cells(index, &rows, &product.seats, &product.cells)?;
+    assert_reachable_cells(index, &rows, &product.settled_records, &product.cells)?;
 
     let entry_extensions: HashMap<&CellId, i64> = product
         .cells
@@ -407,7 +407,7 @@ pub fn expand(product: &FixpointProduct) -> Vec<FoldRow> {
             end += 1;
         }
         let run = expanded.len();
-        for (seat, row) in rows.iter().enumerate().take(end).skip(start) {
+        for (class_row, row) in rows.iter().enumerate().take(end).skip(start) {
             let own3 = std::slice::from_ref(product.labels.text(row.right3));
             let own4 = std::slice::from_ref(product.labels.text(row.right4));
             let members3 = members
@@ -419,7 +419,7 @@ pub fn expand(product: &FixpointProduct) -> Vec<FoldRow> {
             for right3 in members3 {
                 for right4 in members4 {
                     expanded.push(FoldRow {
-                        seat: seat as u32,
+                        class_row: class_row as u32,
                         right3: Rc::clone(right3),
                         right4: Rc::clone(right4),
                         joint: row.joint,
@@ -442,11 +442,11 @@ fn near_slots(row: &TransitionRow) -> [Label; 4] {
 
 /// Compares every row's optimistic prospect with the follower's actual settled choice and flags divergent rows joint (design section 6.1 step 4.2).
 ///
-/// A row's followers are the rows whose (left, input, right1) is the row's own (outcome, right1, right2). When the row carries a right3, only the followers whose right2 is that label count, and when it carries a right4, only those whose right3 is that label. The expansion is in key order, so the rows sharing an (input, left, right1) are one contiguous run, sorted by right2. The index maps each run to its range of the expansion. A row that carries a right3 narrows the range to that label's rows by binary search, and a row whose right3 is `#NA` walks the whole range. Either way, a carried right4 is checked against each follower's right3. The pass reads only the junction each follower settled (through the product's `seats` table), never a follower's joint flag, so the order the rows are visited in does not change the result, and the flags are applied together at the end.
+/// A row's followers are the rows whose (left, input, right1) is the row's own (outcome, right1, right2). When the row carries a right3, only the followers whose right2 is that label count, and when it carries a right4, only those whose right3 is that label. The expansion is in key order, so the rows sharing an (input, left, right1) are one contiguous run, sorted by right2. The index maps each run to its range of the expansion. A row that carries a right3 narrows the range to that label's rows by binary search, and a row whose right3 is `#NA` walks the whole range. Either way, a carried right4 is checked against each follower's right3. The pass reads only the junction each follower settled (through the product's `settled_records` table), never a follower's joint flag, so the order the rows are visited in does not change the result, and the flags are applied together at the end.
 fn flag_prospect_joints(product: &FixpointProduct, fold: &mut [FoldRow]) {
     let class = &product.transitions;
     let prefix_of = |row: &FoldRow| {
-        let [input, left, right1, _] = near_slots(&class[row.seat as usize]);
+        let [input, left, right1, _] = near_slots(&class[row.class_row as usize]);
         [left, input, right1]
     };
     let mut prefixes: HashMap<[Label; 3], Range<usize>> = HashMap::default();
@@ -461,11 +461,11 @@ fn flag_prospect_joints(product: &FixpointProduct, fold: &mut [FoldRow]) {
         start = end;
     }
     let mut flagged: Vec<u32> = Vec::new();
-    for (seat, row) in fold.iter().enumerate() {
+    for (position, row) in fold.iter().enumerate() {
         if row.joint {
             continue;
         }
-        let base = &class[row.seat as usize];
+        let base = &class[row.class_row as usize];
         if boundaryish(product.labels.text(base.right1))
             || boundaryish(product.labels.text(base.right2))
         {
@@ -477,8 +477,11 @@ fn flag_prospect_joints(product: &FixpointProduct, fold: &mut [FoldRow]) {
         };
         let mut followers = &fold[prefix.clone()];
         if &*row.right3 != NA_LABEL {
-            let right2 =
-                |follower: &FoldRow| &**product.labels.text(class[follower.seat as usize].right2);
+            let right2 = |follower: &FoldRow| {
+                &**product
+                    .labels
+                    .text(class[follower.class_row as usize].right2)
+            };
             let start = followers.partition_point(|follower| right2(follower) < &*row.right3);
             let end = followers.partition_point(|follower| right2(follower) <= &*row.right3);
             followers = &followers[start..end];
@@ -487,15 +490,19 @@ fn flag_prospect_joints(product: &FixpointProduct, fold: &mut [FoldRow]) {
             if &*row.right4 != NA_LABEL && follower.right3 != row.right4 {
                 return false;
             }
-            let followed = &class[follower.seat as usize];
-            i8::from(product.seats[followed.settled.index()].junction.is_some()) != base.prospect
+            let followed = &class[follower.class_row as usize];
+            i8::from(
+                product.settled_records[followed.settled.index()]
+                    .junction
+                    .is_some(),
+            ) != base.prospect
         });
         if diverges {
-            flagged.push(seat as u32);
+            flagged.push(position as u32);
         }
     }
-    for seat in flagged {
-        fold[seat as usize].joint = true;
+    for position in flagged {
+        fold[position as usize].joint = true;
     }
 }
 
@@ -527,15 +534,15 @@ fn entry_extension(cell: &CellId) -> i64 {
     total
 }
 
-/// Checks that the two grains agree: the set of cells the fold rows settle into, read through the product's seat table, equals the product's `cells`.
+/// Checks that the two grains agree: the set of cells the fold rows settle into, read through the product's settled table, equals the product's `cells`.
 fn assert_reachable_cells(
     index: &SpecIndex,
     rows: &LabelRows<'_>,
-    seats: &[Settled],
+    settled_records: &[Settled],
     cells: &[CellId],
 ) -> Result<(), String> {
     let folded: HashSet<&CellId> = (0..rows.len())
-        .map(|row| &seats[rows.base(row).settled.index()].cell)
+        .map(|row| &settled_records[rows.base(row).settled.index()].cell)
         .collect();
     let counted: HashSet<&CellId> = cells.iter().collect();
     if folded == counted {
@@ -577,18 +584,18 @@ pub fn assert_outcome_partition(
 /// The rules grouped by the input they rewrite, each with its index in the table, in table order.
 pub fn rules_by_input(rules: &[Rule]) -> HashMap<&str, Vec<(usize, &Rule)>> {
     let mut by_input: HashMap<&str, Vec<(usize, &Rule)>> = HashMap::default();
-    for (seat, rule) in rules.iter().enumerate() {
+    for (position, rule) in rules.iter().enumerate() {
         by_input
             .entry(&rule.input_glyph)
             .or_default()
-            .push((seat, rule));
+            .push((position, rule));
     }
     by_input
 }
 
 /// First-match-wins over one window's six labels: the index of the input's first rule whose five constrained slots all admit the labels at them, or `None` when no rule matches and the input is left unchanged. This is the semantics the emitted lookup compiles to. The certificates and the shipped-order walk use this function. The fold's replay uses `IndexedMatcher`, which the tests check against it.
 pub fn first_match(by_input: &HashMap<&str, Vec<(usize, &Rule)>>, key: [&str; 6]) -> Option<usize> {
-    for (seat, rule) in by_input.get(key[0]).map_or(&[][..], Vec::as_slice) {
+    for (position, rule) in by_input.get(key[0]).map_or(&[][..], Vec::as_slice) {
         if rule
             .slots()
             .iter()
@@ -600,7 +607,7 @@ pub fn first_match(by_input: &HashMap<&str, Vec<(usize, &Rule)>>, key: [&str; 6]
         {
             continue;
         }
-        return Some(*seat);
+        return Some(*position);
     }
     None
 }
@@ -608,7 +615,7 @@ pub fn first_match(by_input: &HashMap<&str, Vec<(usize, &Rule)>>, key: [&str; 6]
 const LINEAR_CLASS_MAX: usize = 8;
 
 struct IndexedRule {
-    seat: usize,
+    position: usize,
     slots: [Option<Box<[u32]>>; 5],
 }
 
@@ -624,7 +631,7 @@ impl<'a> IndexedMatcher<'a> {
     fn new(rows: &LabelRows<'a>, rules: &[Rule]) -> Self {
         let mut labels = rows.product.labels.clone();
         let mut by_input: HashMap<u32, Vec<IndexedRule>> = HashMap::default();
-        for (seat, rule) in rules.iter().enumerate() {
+        for (position, rule) in rules.iter().enumerate() {
             let input = labels.intern(&rule.input_glyph).0;
             let slots = rule.slots().map(|slot| {
                 slot.as_ref().map(|members| {
@@ -640,7 +647,7 @@ impl<'a> IndexedMatcher<'a> {
             by_input
                 .entry(input)
                 .or_default()
-                .push(IndexedRule { seat, slots });
+                .push(IndexedRule { position, slots });
         }
         Self {
             rows: *rows,
@@ -669,7 +676,7 @@ impl<'a> IndexedMatcher<'a> {
             {
                 continue;
             }
-            return Some(rule.seat);
+            return Some(rule.position);
         }
         None
     }
@@ -720,18 +727,18 @@ fn first_match_rows_reference(
             continue;
         }
         let mut predicted: &str = key[0];
-        if let Some(seat) = first_match(&by_input, key) {
-            predicted = &rules[seat].outcome;
+        if let Some(position) = first_match(&by_input, key) {
+            predicted = &rules[position].outcome;
             match dist {
                 None => {
-                    if first_rows[seat].len() < keep {
-                        first_rows[seat].push(row);
+                    if first_rows[position].len() < keep {
+                        first_rows[position].push(row);
                     }
                 }
                 Some(dist) => {
                     let rank = dist[row];
-                    let kept = &mut first_rows[seat];
-                    let ranked = &mut ranks[seat];
+                    let kept = &mut first_rows[position];
+                    let ranked = &mut ranks[position];
                     if kept.len() < keep || rank < *ranked.last().expect("a full list has a last") {
                         let at = ranked.partition_point(|held| *held <= rank);
                         ranked.insert(at, rank);
@@ -762,7 +769,7 @@ fn first_match_rows_reference(
         ));
     }
     let unreachable: Vec<usize> = (0..rules.len())
-        .filter(|seat| first_rows[*seat].is_empty())
+        .filter(|position| first_rows[*position].is_empty())
         .collect();
     if unreachable.is_empty() {
         return Ok(first_rows);
@@ -770,7 +777,7 @@ fn first_match_rows_reference(
     let listed: Vec<String> = unreachable
         .iter()
         .take(5)
-        .map(|seat| rule_repr(&rules[*seat]))
+        .map(|position| rule_repr(&rules[*position]))
         .collect();
     Err(format!(
         "{} unreachable rule(s), which no replayed row first-matches: {}",
@@ -803,18 +810,18 @@ pub fn first_match_rows(
             continue;
         }
         let mut predicted: &str = input;
-        if let Some(seat) = matcher.first_match(row) {
-            predicted = &rules[seat].outcome;
+        if let Some(position) = matcher.first_match(row) {
+            predicted = &rules[position].outcome;
             match dist {
                 None => {
-                    if first_rows[seat].len() < keep {
-                        first_rows[seat].push(row);
+                    if first_rows[position].len() < keep {
+                        first_rows[position].push(row);
                     }
                 }
                 Some(dist) => {
                     let rank = dist[row];
-                    let kept = &mut first_rows[seat];
-                    let ranked = &mut ranks[seat];
+                    let kept = &mut first_rows[position];
+                    let ranked = &mut ranks[position];
                     if kept.len() < keep || rank < *ranked.last().expect("a full list has a last") {
                         let at = ranked.partition_point(|held| *held <= rank);
                         ranked.insert(at, rank);
@@ -845,7 +852,7 @@ pub fn first_match_rows(
         ));
     }
     let unreachable: Vec<usize> = (0..rules.len())
-        .filter(|seat| first_rows[*seat].is_empty())
+        .filter(|position| first_rows[*position].is_empty())
         .collect();
     if unreachable.is_empty() {
         return Ok(first_rows);
@@ -853,7 +860,7 @@ pub fn first_match_rows(
     let listed: Vec<String> = unreachable
         .iter()
         .take(5)
-        .map(|seat| rule_repr(&rules[*seat]))
+        .map(|position| rule_repr(&rules[*position]))
         .collect();
     Err(format!(
         "{} unreachable rule(s), which no replayed row first-matches: {}",
@@ -1010,7 +1017,7 @@ mod tests {
     use crate::artifacts;
     use crate::fixpoint::{EnumerationModes, deep_class_id, enumerate_transitions};
     use crate::index::fixtures;
-    use crate::types::{NotesSeat, SettledSeat};
+    use crate::types::{NotesId, SettledId};
     use std::cell::RefCell;
 
     /// The shipping modes, which the fixture is folded in.
@@ -1193,22 +1200,22 @@ mod tests {
         let rows = LabelRows::new(&product, &fold_rows);
         let rules = &folded.decision.rules;
         let mut perturbations: Vec<Vec<Rule>> = Vec::new();
-        for seat in 0..rules.len() {
+        for position in 0..rules.len() {
             let mut dropped = rules.clone();
-            dropped.remove(seat);
+            dropped.remove(position);
             perturbations.push(dropped);
         }
-        for seat in 0..rules.len() - 1 {
+        for position in 0..rules.len() - 1 {
             let mut swapped = rules.clone();
-            swapped.swap(seat, seat + 1);
+            swapped.swap(position, position + 1);
             perturbations.push(swapped);
         }
-        for seat in 0..rules.len() {
-            if rules[seat].look1.is_none() {
+        for position in 0..rules.len() {
+            if rules[position].look1.is_none() {
                 continue;
             }
             let mut widened = rules.clone();
-            widened[seat].look1 = None;
+            widened[position].look1 = None;
             perturbations.push(widened);
         }
         let mut noticed = 0;
@@ -1265,20 +1272,23 @@ mod tests {
         let mut saw_boundary = false;
         for (_input, _backtrack, rules) in &groups {
             let leading: Vec<usize> = (0..rules.len())
-                .filter(|seat| {
-                    rules[*seat].look1.as_ref() == Some(&boundary) && rules[*seat].look2.is_none()
+                .filter(|position| {
+                    rules[*position].look1.as_ref() == Some(&boundary)
+                        && rules[*position].look2.is_none()
                 })
                 .collect();
             let lettered: Vec<usize> = (0..rules.len())
-                .filter(|seat| {
-                    rules[*seat]
+                .filter(|position| {
+                    rules[*position]
                         .look1
                         .as_ref()
                         .is_some_and(|look| look != &boundary)
                 })
                 .collect();
             let fallback: Vec<usize> = (0..rules.len())
-                .filter(|seat| rules[*seat].look1.is_none() && rules[*seat].look2.is_none())
+                .filter(|position| {
+                    rules[*position].look1.is_none() && rules[*position].look2.is_none()
+                })
                 .collect();
             if let (Some(first), Some(letter)) = (leading.first(), lettered.first()) {
                 saw_boundary = true;
@@ -1371,7 +1381,7 @@ mod tests {
         index: SpecIndex,
         cell: CellId,
         junction: crate::model::Sym,
-        seats: RefCell<Vec<Settled>>,
+        settled_records: RefCell<Vec<Settled>>,
         labels: RefCell<LabelPool>,
         outcomes: RefCell<Vec<Label>>,
     }
@@ -1391,21 +1401,21 @@ mod tests {
                 index,
                 cell,
                 junction,
-                seats: RefCell::new(Vec::new()),
+                settled_records: RefCell::new(Vec::new()),
                 labels: RefCell::new(LabelPool::default()),
                 outcomes: RefCell::new(Vec::new()),
             }
         }
 
         /// Appends a settled record and its outcome to the bench's tables, which every product the bench builds carries, and returns its index.
-        fn seat(&self, settled: Settled, outcome: &str) -> SettledSeat {
-            let mut seats = self.seats.borrow_mut();
-            let seat = SettledSeat::at(seats.len());
-            seats.push(settled);
+        fn push_settled(&self, settled: Settled, outcome: &str) -> SettledId {
+            let mut settled_records = self.settled_records.borrow_mut();
+            let id = SettledId::at(settled_records.len());
+            settled_records.push(settled);
             self.outcomes
                 .borrow_mut()
                 .push(self.labels.borrow_mut().intern(outcome));
-            seat
+            id
         }
 
         /// One row from its six key labels and its outcome label, the prospect its trace claimed, and whether it committed a junction.
@@ -1421,7 +1431,7 @@ mod tests {
                 right2,
                 right3,
                 right4,
-                settled: self.seat(
+                settled: self.push_settled(
                     Settled {
                         cell: self.cell.clone(),
                         junction: joins.then_some(self.junction),
@@ -1430,7 +1440,7 @@ mod tests {
                     labels[6],
                 ),
                 left_settled: None,
-                provenance: NotesSeat::at(0),
+                provenance: NotesId::at(0),
                 prospect,
                 joint: false,
             }
@@ -1473,7 +1483,7 @@ mod tests {
         /// One row whose left committed a junction. The join fold skips rows without `left_settled`, and [`Bench::row`] leaves it absent, so a product of those rows folds into no join rows.
         fn joined(&self, labels: [&str; 7], cell: CellId, left_extension: i64) -> TransitionRow {
             let mut row = self.row(labels, 0, false);
-            row.settled = self.seat(
+            row.settled = self.push_settled(
                 Settled {
                     cell,
                     junction: None,
@@ -1481,7 +1491,7 @@ mod tests {
                 },
                 labels[6],
             );
-            row.left_settled = Some(self.seat(
+            row.left_settled = Some(self.push_settled(
                 Settled {
                     cell: self.cell.clone(),
                     junction: Some(self.junction),
@@ -1516,7 +1526,7 @@ mod tests {
                 deep_classes,
                 cited_provenance: Vec::new(),
                 cells,
-                seats: self.seats.borrow().clone(),
+                settled_records: self.settled_records.borrow().clone(),
                 labels,
                 outcomes: self.outcomes.borrow().clone(),
                 notes: vec![Vec::new()],
@@ -1610,7 +1620,7 @@ mod tests {
         let flagged: Vec<(&str, &str, &str, bool)> = rows
             .iter()
             .map(|row| {
-                let base = &product.transitions[row.seat as usize];
+                let base = &product.transitions[row.class_row as usize];
                 (
                     &**product.labels.text(base.input_glyph),
                     &**product.labels.text(base.right2),

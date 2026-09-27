@@ -100,8 +100,8 @@ impl<'i> GuardState<'i> {
             None => (right1, right2),
         };
         let mut verdict = true;
-        for seat in 0..self.engines.len() {
-            if !Self::blocked_under(&mut self.engines[seat], liga, right1, right2)? {
+        for position in 0..self.engines.len() {
+            if !Self::blocked_under(&mut self.engines[position], liga, right1, right2)? {
                 verdict = false;
                 break;
             }
@@ -237,8 +237,8 @@ fn combinations(features: &[Sym], size: usize) -> Vec<Vec<Sym>> {
         return Vec::new();
     }
     let mut out: Vec<Vec<Sym>> = Vec::new();
-    for (seat, feature) in features.iter().enumerate() {
-        for tail in combinations(&features[seat + 1..], size - 1) {
+    for (position, feature) in features.iter().enumerate() {
+        for tail in combinations(&features[position + 1..], size - 1) {
             let mut combination = Vec::with_capacity(size);
             combination.push(*feature);
             combination.extend(tail);
@@ -481,12 +481,12 @@ mod tests {
         let quantified = verdicts(&quantified);
         let maps = maps.each_ref().map(|map| verdicts(map));
         let mut disagreements = 0;
-        for (seat, (key, blocked)) in quantified.iter().enumerate() {
+        for (position, (key, blocked)) in quantified.iter().enumerate() {
             let under_each: Vec<bool> = maps
                 .iter()
                 .map(|map| {
-                    assert_eq!(map[seat].0, *key, "every map walks the same order");
-                    map[seat].1
+                    assert_eq!(map[position].0, *key, "every map walks the same order");
+                    map[position].1
                 })
                 .collect();
             assert_eq!(*blocked, under_each.iter().all(|blocked| *blocked), "{key}");
@@ -609,7 +609,7 @@ mod tests {
     }
 
     #[test]
-    fn the_powerset_runs_size_ascending_and_by_seat_within_a_size() {
+    fn the_powerset_runs_size_ascending_and_by_position_within_a_size() {
         // `combinations` orders by position in the list it is given, not by symbol, so the list here is out of interning order.
         let mut symbols = Interner::new();
         let [three, seven, eleven] = ["ss03", "ss07", "ss11"].map(|name| symbols.intern(name));

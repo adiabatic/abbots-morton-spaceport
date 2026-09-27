@@ -6,7 +6,7 @@
 //!
 //! Each cell is written once, in the head, and every row names its settled cell by its index there. That index is a position in [`cell_key`] order, which is why this writer, not the fixpoint, sorts the cells. A row whose cell is not among the product's reachable cells is an error here, matching the `PartitionError` that `write_transitions` raises.
 //!
-//! The product's own index tables are separate from the head's cell indexes and are never written. A row holds its settled record and its left neighbor's as a [`SettledSeat`] each, indexing [`FixpointProduct::seats`], which lists each distinct settled record in the order the fixpoint first reached it. A row's provenance is a [`NotesSeat`] into [`FixpointProduct::notes`]. The writer resolves a row's seat to the record and the record's cell to its head index, and writes the provenance list the notes seat names, in the order the trace recorded it. The head's cell vocabulary in `_cell_key` order is part of the format Python reads; the seat table only saves memory inside the crate.
+//! The product's own index tables are separate from the head's cell indexes and are never written. A row holds its settled record and its left neighbor's as a [`SettledId`] each, indexing [`FixpointProduct::settled_records`], which lists each distinct settled record in the order the fixpoint first reached it. A row's provenance is a [`NotesId`] into [`FixpointProduct::notes`]. The writer resolves a row's id to the record and the record's cell to its head index, and writes the provenance list the notes id names, in the order the trace recorded it. The head's cell vocabulary in `_cell_key` order is part of the format Python reads; the settled table only saves memory inside the crate.
 
 use std::collections::BTreeSet;
 use std::fmt::Write as _;
@@ -17,7 +17,7 @@ use crate::emit::{escape_into, json_string};
 use crate::hash::{HashMap, HashSet};
 use crate::index::SpecIndex;
 use crate::model::Sym;
-use crate::types::{CellId, NotesSeat, Settled, SettledSeat, adjustment_text};
+use crate::types::{CellId, NotesId, Settled, SettledId, adjustment_text};
 
 /// The format marker on the head line, `kernel_io.TRANSITIONS_FORMAT`. A stream with any other marker is a different format.
 pub const TRANSITIONS_FORMAT: &str = "ams-m1-transitions/1";
@@ -61,7 +61,7 @@ impl LabelPool {
     fn mint(&mut self, shared: Rc<str>) -> Label {
         let id = Label(
             u32::try_from(self.texts.len())
-                .expect("a configuration's distinct labels number in the tens of thousands, nowhere near the u32 ids can seat"),
+                .expect("a configuration's distinct labels number in the tens of thousands, nowhere near the u32 ids can index"),
         );
         self.ids.insert(Rc::clone(&shared), id);
         self.texts.push(shared);
@@ -94,7 +94,7 @@ impl LabelPool {
 ///
 /// On the Python side `cells` and `cited_provenance` are `frozenset`s and `deep_classes` is a `Mapping`. Here they are vectors, and the writer puts them in canonical order: `cells` and `cited_provenance` are sorted with repeats removed, and `deep_classes` is sorted by token. `deep_classes` is empty at label grain and in the pinned mode set, and the head includes it either way.
 ///
-/// `seats` and `notes` have no Python counterpart. They are the tables that each row's [`SettledSeat`]s and [`NotesSeat`] index: one entry per distinct settled record and one per distinct provenance list, each in the order the fixpoint first reached it. [`FixpointProduct::settled`], [`FixpointProduct::left_settled`], and [`FixpointProduct::provenance`] read a row's values back; Python's `Transition` holds all three by value. The label pool and the outcome table (indexed by settled seat) pass unchanged into the decision table.
+/// `settled_records` and `notes` have no Python counterpart. They are the tables that each row's [`SettledId`]s and [`NotesId`] index: one entry per distinct settled record and one per distinct provenance list, each in the order the fixpoint first reached it. [`FixpointProduct::settled`], [`FixpointProduct::left_settled`], and [`FixpointProduct::provenance`] read a row's values back; Python's `Transition` holds all three by value. The label pool and the outcome table (indexed by settled id) pass unchanged into the decision table.
 #[derive(Clone, Debug, Default, Eq)]
 pub struct FixpointProduct {
     pub config: String,
@@ -104,7 +104,7 @@ pub struct FixpointProduct {
     pub deep_classes: Vec<(String, Vec<String>)>,
     pub cited_provenance: Vec<String>,
     pub cells: Vec<CellId>,
-    pub seats: Vec<Settled>,
+    pub settled_records: Vec<Settled>,
     pub notes: Vec<Vec<String>>,
 }
 
@@ -115,7 +115,7 @@ impl PartialEq for FixpointProduct {
             && self.deep_classes == other.deep_classes
             && self.cited_provenance == other.cited_provenance
             && self.cells == other.cells
-            && self.seats == other.seats
+            && self.settled_records == other.settled_records
             && self.notes == other.notes
             && self.transitions.len() == other.transitions.len()
             && self
@@ -135,19 +135,19 @@ impl PartialEq for FixpointProduct {
 }
 
 impl FixpointProduct {
-    /// A row's outcome. It is stored per settled seat, so every row with that seat shares it.
+    /// A row's outcome. It is stored per settled id, so every row with that id shares it.
     pub fn outcome(&self, row: &TransitionRow) -> &Rc<str> {
         self.labels.text(self.outcomes[row.settled.index()])
     }
 
     /// The record one row settled into.
     pub fn settled(&self, row: &TransitionRow) -> &Settled {
-        &self.seats[row.settled.index()]
+        &self.settled_records[row.settled.index()]
     }
 
     /// The record the row's left neighbor settled into: present for a letter on the left and for the boundary cells the fold records, absent otherwise.
     pub fn left_settled(&self, row: &TransitionRow) -> Option<&Settled> {
-        row.left_settled.map(|seat| &self.seats[seat.index()])
+        row.left_settled.map(|id| &self.settled_records[id.index()])
     }
 
     /// The provenance pointers one row's trace recorded, in first-seen order, which is the order the rule fold joins them in.
@@ -165,9 +165,9 @@ pub struct TransitionRow {
     pub right2: Label,
     pub right3: Label,
     pub right4: Label,
-    pub settled: SettledSeat,
-    pub left_settled: Option<SettledSeat>,
-    pub provenance: NotesSeat,
+    pub settled: SettledId,
+    pub left_settled: Option<SettledId>,
+    pub provenance: NotesId,
     pub prospect: i8,
     pub joint: bool,
 }
@@ -239,7 +239,7 @@ pub enum WriteFailure {
 
 /// Writes one product to `sink` as the whole stream, as `kernel_io.write_transitions` does without the gzip: the `# ams-m1-transitions/1<tab><head json>` line, then one compact JSON array per transition in the product's order, each line ending in a newline.
 ///
-/// Every row's cells are looked up before the first byte is written, so, as in `write_transitions`, nothing is written for a product whose rows and cells disagree. The error message is that function's `PartitionError` message, Python tuple reprs included. A row's settled cell is checked before its left-settled cell because Python's list literal evaluates its two `seated` calls in that order, so a row missing both is reported by its settled cell.
+/// Every row's cells are looked up before the first byte is written, so, as in `write_transitions`, nothing is written for a product whose rows and cells disagree. The error message is that function's `PartitionError` message, Python tuple reprs included. A row's settled cell is checked before its left-settled cell because Python's list literal evaluates its two `settled_triple` calls in that order, so a row missing both is reported by its settled cell.
 ///
 /// The bytes are written a line at a time through one reused buffer. A configuration's stream is hundreds of megabytes, and building it as one `String`, with the reallocations as it grows, would cost that much memory for no benefit.
 pub fn write_transitions(
@@ -256,25 +256,25 @@ pub fn write_transitions(
     // Deduplicate across the whole list. The sort compares only `cell_key`, so equal cells are guaranteed to be adjacent only if `cell_key` is injective, which this writer does not assume.
     let mut counted: HashSet<&CellId> = HashSet::default();
     cells.retain(|(_, cell)| counted.insert(*cell));
-    let seats: HashMap<&CellId, usize> = cells
+    let head_indexes: HashMap<&CellId, usize> = cells
         .iter()
         .enumerate()
-        .map(|(seat, (_, cell))| (*cell, seat))
+        .map(|(head_index, (_, cell))| (*cell, head_index))
         .collect();
 
     for row in &product.transitions {
-        seat_of(
+        head_index_of(
             index,
-            &seats,
+            &head_indexes,
             product.settled(row),
             row.key(&product.labels),
             "settles into",
         )
         .map_err(WriteFailure::Refused)?;
         if let Some(left) = product.left_settled(row) {
-            seat_of(
+            head_index_of(
                 index,
-                &seats,
+                &head_indexes,
                 left,
                 row.key(&product.labels),
                 "carries the left-settled cell",
@@ -293,7 +293,7 @@ pub fn write_transitions(
     out.write_all(line.as_bytes()).map_err(WriteFailure::Sink)?;
     for row in &product.transitions {
         line.clear();
-        row_into(&mut line, index, &seats, product, row).map_err(WriteFailure::Refused)?;
+        row_into(&mut line, index, &head_indexes, product, row).map_err(WriteFailure::Refused)?;
         line.push('\n');
         out.write_all(line.as_bytes()).map_err(WriteFailure::Sink)?;
     }
@@ -367,7 +367,7 @@ fn cell_json(index: &SpecIndex, cell: &CellId) -> String {
 fn row_into(
     out: &mut String,
     index: &SpecIndex,
-    seats: &HashMap<&CellId, usize>,
+    head_indexes: &HashMap<&CellId, usize>,
     product: &FixpointProduct,
     row: &TransitionRow,
 ) -> Result<(), String> {
@@ -381,7 +381,7 @@ fn row_into(
     settled_into(
         out,
         index,
-        seats,
+        head_indexes,
         product.settled(row),
         row.key(&product.labels),
         "settles into",
@@ -391,7 +391,7 @@ fn row_into(
         Some(left) => settled_into(
             out,
             index,
-            seats,
+            head_indexes,
             left,
             row.key(&product.labels),
             "carries the left-settled cell",
@@ -410,14 +410,14 @@ fn row_into(
 fn settled_into(
     out: &mut String,
     index: &SpecIndex,
-    seats: &HashMap<&CellId, usize>,
+    head_indexes: &HashMap<&CellId, usize>,
     settled: &Settled,
     key: [&str; 6],
     relation: &str,
 ) -> Result<(), String> {
-    let seat = seat_of(index, seats, settled, key, relation)?;
+    let head_index = head_index_of(index, head_indexes, settled, key, relation)?;
     out.push('[');
-    let _ = write!(out, "{seat}");
+    let _ = write!(out, "{head_index}");
     out.push(',');
     height_into(out, index, settled.junction);
     out.push(',');
@@ -427,14 +427,14 @@ fn settled_into(
 }
 
 /// One settled cell's index in the head. A cell without one is an error in `write_transitions`'s message format: the row named by its six-label key and the cell by its `_cell_key` tuple, both as Python reprs.
-fn seat_of(
+fn head_index_of(
     index: &SpecIndex,
-    seats: &HashMap<&CellId, usize>,
+    head_indexes: &HashMap<&CellId, usize>,
     settled: &Settled,
     key: [&str; 6],
     relation: &str,
 ) -> Result<usize, String> {
-    seats.get(&settled.cell).copied().ok_or_else(|| {
+    head_indexes.get(&settled.cell).copied().ok_or_else(|| {
         format!(
             "the transition {} {relation} {}, which the product does not count among its reachable cells",
             key_repr(key),
@@ -452,8 +452,8 @@ fn height_into(out: &mut String, index: &SpecIndex, height: Option<Sym>) {
 
 fn strings_into(out: &mut String, values: &[String]) {
     out.push('[');
-    for (seat, value) in values.iter().enumerate() {
-        if seat > 0 {
+    for (position, value) in values.iter().enumerate() {
+        if position > 0 {
             out.push(',');
         }
         escape_into(out, value);
@@ -558,7 +558,7 @@ mod tests {
                 boundary_cell(index.vocab(), TokenKind::Space),
                 tea_locked(index),
             ],
-            seats: seated(index),
+            settled_records: settled_table(index),
             notes: noted(),
             outcomes: outcomes(&mut labels),
             labels,
@@ -625,8 +625,8 @@ mod tests {
         ]
     }
 
-    /// The seat table the three worked rows index: their five distinct settled records, in the order the rows below use them.
-    fn seated(index: &SpecIndex) -> Vec<Settled> {
+    /// The settled table the three worked rows index: their five distinct settled records, in the order the rows below use them.
+    fn settled_table(index: &SpecIndex) -> Vec<Settled> {
         vec![
             Settled {
                 cell: pea_cell(index),
@@ -697,9 +697,9 @@ mod tests {
             right2: labels.intern("#NA"),
             right3: labels.intern("#NA"),
             right4: labels.intern("#NA"),
-            settled: SettledSeat::at(0),
+            settled: SettledId::at(0),
             left_settled: None,
-            provenance: NotesSeat::at(0),
+            provenance: NotesId::at(0),
             prospect: 0,
             joint: false,
         }
@@ -713,9 +713,9 @@ mod tests {
             right2: labels.intern("qsMay"),
             right3: labels.intern("qsPea"),
             right4: labels.intern("#NA"),
-            settled: SettledSeat::at(1),
-            left_settled: Some(SettledSeat::at(2)),
-            provenance: NotesSeat::at(1),
+            settled: SettledId::at(1),
+            left_settled: Some(SettledId::at(2)),
+            provenance: NotesId::at(1),
             prospect: 3,
             joint: true,
         }
@@ -729,9 +729,9 @@ mod tests {
             right2: labels.intern("#EDGE"),
             right3: labels.intern("#NA"),
             right4: labels.intern("#NA"),
-            settled: SettledSeat::at(3),
-            left_settled: Some(SettledSeat::at(4)),
-            provenance: NotesSeat::at(2),
+            settled: SettledId::at(3),
+            left_settled: Some(SettledId::at(4)),
+            provenance: NotesId::at(2),
             prospect: -2,
             joint: false,
         }
@@ -742,7 +742,7 @@ mod tests {
     fn a_product_writes_the_head_and_the_rows_python_writes() {
         let index = fixtures::mini();
         let stream =
-            emit_transitions(&index, &worked_product(&index)).expect("every cell is seated");
+            emit_transitions(&index, &worked_product(&index)).expect("every cell has a head index");
         assert_eq!(
             stream,
             concat!(
@@ -761,7 +761,7 @@ mod tests {
             config: "default".to_owned(),
             ..FixpointProduct::default()
         };
-        let stream = emit_transitions(&index, &product).expect("nothing to seat");
+        let stream = emit_transitions(&index, &product).expect("nothing to index");
         assert_eq!(
             stream,
             "# ams-m1-transitions/1\t{\"config\":\"default\",\"cells\":[],\"deep_classes\":[],\"cited_provenance\":[]}\n"
@@ -794,12 +794,12 @@ mod tests {
                     adjustments: Vec::new(),
                 },
             ],
-            seats: seated(&index),
+            settled_records: settled_table(&index),
             notes: noted(),
             outcomes: outcomes(&mut labels),
             labels,
         };
-        let stream = emit_transitions(&index, &product).expect("every cell is seated");
+        let stream = emit_transitions(&index, &product).expect("every cell has a head index");
         assert_eq!(
             stream,
             concat!(
@@ -819,7 +819,7 @@ mod tests {
             deep_classes: Vec::new(),
             cited_provenance: Vec::new(),
             cells: vec![pea_cell(&index)],
-            seats: seated(&index),
+            settled_records: settled_table(&index),
             notes: noted(),
             outcomes: outcomes(&mut labels),
             labels,
@@ -840,7 +840,7 @@ mod tests {
             deep_classes: Vec::new(),
             cited_provenance: Vec::new(),
             cells: vec![tea_locked(&index)],
-            seats: seated(&index),
+            settled_records: settled_table(&index),
             notes: noted(),
             outcomes: outcomes(&mut labels),
             labels,
@@ -853,7 +853,7 @@ mod tests {
 
     /// Python's `cells` is a `frozenset`, so a cell listed twice gets one index and one head entry here too. Otherwise the indexes would depend on how the fixpoint listed what the format treats as a set.
     #[test]
-    fn a_cell_the_product_counts_twice_takes_one_seat() {
+    fn a_cell_the_product_counts_twice_takes_one_head_index() {
         let index = fixtures::mini();
         let mut product = worked_product(&index);
         product.cells.push(pea_cell(&index));

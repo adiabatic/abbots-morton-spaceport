@@ -1156,10 +1156,10 @@ fn liveness_cases(plan: &LivenessPlan<'_>) -> Result<(), String> {
     let mut scaffolding =
         LivenessScaffolding::new(&index).map_err(|error| format!("{}: {error}", plan.spec))?;
     let mut lines: Vec<String> = Vec::new();
-    for (seat, line) in text.lines().enumerate() {
+    for (position, line) in text.lines().enumerate() {
         let answer = scaffolding
             .answer(&mut engine, line)
-            .map_err(|error| format!("{}: line {}: {error}", plan.keys, seat + 1))?;
+            .map_err(|error| format!("{}: line {}: {error}", plan.keys, position + 1))?;
         lines.push(format!("{line}\t{answer}"));
     }
     write_lines(&lines)
@@ -1262,15 +1262,15 @@ fn verdict(live: bool) -> String {
 /// Resolves a key's rune names against the spec. A name the spec does not model is an error, not a `dead` answer, because the key was written for a different spec.
 fn families<const N: usize>(index: &SpecIndex, names: [&&str; N]) -> Result<[Sym; N], String> {
     let mut out = [None; N];
-    for (seat, name) in names.iter().enumerate() {
-        out[seat] = Some(
+    for (position, name) in names.iter().enumerate() {
+        out[position] = Some(
             index
                 .sym_of(name)
                 .filter(|rune| index.is_modeled(*rune))
                 .ok_or_else(|| format!("{name} is not a rune this spec models"))?,
         );
     }
-    Ok(out.map(|rune| rune.expect("every seat was filled before the loop ended")))
+    Ok(out.map(|rune| rune.expect("every position was filled before the loop ended")))
 }
 
 /// One context's fiber partition as compact JSON: the boundary options, then one object per fiber with its members, its fourth-slot verdict, and its r4 groups.

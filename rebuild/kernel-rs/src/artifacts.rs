@@ -102,7 +102,7 @@ pub fn read_settlement_tsv(text: &str) -> Result<Vec<Rule>, String> {
         return Err("not a settlement table: the second line is not the column line".to_owned());
     }
     let mut rules: Vec<Rule> = Vec::new();
-    for (seat, line) in lines.enumerate() {
+    for (position, line) in lines.enumerate() {
         let fields: Vec<&str> = line.split('\t').collect();
         let [
             input,
@@ -118,7 +118,7 @@ pub fn read_settlement_tsv(text: &str) -> Result<Vec<Rule>, String> {
         else {
             return Err(format!(
                 "settlement row {} has {} tab-separated fields, expected 9",
-                seat + 1,
+                position + 1,
                 fields.len()
             ));
         };
@@ -128,7 +128,7 @@ pub fn read_settlement_tsv(text: &str) -> Result<Vec<Rule>, String> {
             other => {
                 return Err(format!(
                     "settlement row {} has joint flag {other:?}, expected joint or -",
-                    seat + 1
+                    position + 1
                 ));
             }
         };
@@ -175,15 +175,15 @@ pub fn join_tsv(joins: &JoinTable) -> String {
 
 /// The cells of one table, sorted by `table._cell_key` and deduplicated, as the windows head and the digest both list them. The deduplication matches `DecisionTable._cells`, which is a `frozenset`.
 fn sorted_cells<'a>(index: &SpecIndex, cells: &'a [CellId]) -> Vec<&'a CellId> {
-    let mut seated: Vec<(crate::stream::CellKey, &CellId)> = cells
+    let mut keyed: Vec<(crate::stream::CellKey, &CellId)> = cells
         .iter()
         .map(|cell| (cell_key(index, cell), cell))
         .collect();
-    seated.sort_by(|left, right| left.0.cmp(&right.0));
+    keyed.sort_by(|left, right| left.0.cmp(&right.0));
     // Deduplicate across the whole list, as `stream::write_transitions` does. The sort key is the label view, and an adjacent-only dedup would be correct only if `_cell_key` were injective, which this code does not assume.
     let mut counted: HashSet<&CellId> = HashSet::default();
-    seated.retain(|(_, cell)| counted.insert(*cell));
-    seated.into_iter().map(|(_, cell)| cell).collect()
+    keyed.retain(|(_, cell)| counted.insert(*cell));
+    keyed.into_iter().map(|(_, cell)| cell).collect()
 }
 
 /// Writes the uncompressed windows payload to `path`: a head line with the format marker and a JSON head, the column line, then one row per enumerated window.
@@ -299,8 +299,8 @@ fn rule_json(rule: &Rule) -> String {
             None => out.push_str("null"),
             Some(members) => {
                 out.push('[');
-                for (seat, member) in members.iter().enumerate() {
-                    if seat > 0 {
+                for (position, member) in members.iter().enumerate() {
+                    if position > 0 {
                         out.push(',');
                     }
                     escape_into(&mut out, member);
@@ -312,8 +312,8 @@ fn rule_json(rule: &Rule) -> String {
     out.push(',');
     escape_into(&mut out, &rule.outcome);
     out.push_str(",[");
-    for (seat, pointer) in rule.provenance.iter().enumerate() {
-        if seat > 0 {
+    for (position, pointer) in rule.provenance.iter().enumerate() {
+        if position > 0 {
             out.push(',');
         }
         escape_into(&mut out, pointer);

@@ -94,17 +94,17 @@ impl Sha256 {
 /// Processes one 64-byte block: builds the message schedule, runs the 64 rounds, and adds the result into the state.
 fn compress(state: &mut [u32; 8], block: &[u8]) {
     let mut schedule = [0u32; 64];
-    for (seat, word) in block.as_chunks::<4>().0.iter().enumerate() {
-        schedule[seat] = u32::from_be_bytes(*word);
+    for (index, word) in block.as_chunks::<4>().0.iter().enumerate() {
+        schedule[index] = u32::from_be_bytes(*word);
     }
-    for seat in 16..64 {
-        let near = schedule[seat - 15];
-        let far = schedule[seat - 2];
+    for index in 16..64 {
+        let near = schedule[index - 15];
+        let far = schedule[index - 2];
         let sigma0 = near.rotate_right(7) ^ near.rotate_right(18) ^ (near >> 3);
         let sigma1 = far.rotate_right(17) ^ far.rotate_right(19) ^ (far >> 10);
-        schedule[seat] = schedule[seat - 16]
+        schedule[index] = schedule[index - 16]
             .wrapping_add(sigma0)
-            .wrapping_add(schedule[seat - 7])
+            .wrapping_add(schedule[index - 7])
             .wrapping_add(sigma1);
     }
     // `work[0]` through `work[7]` are the standard's working variables a through h.
@@ -131,8 +131,8 @@ fn compress(state: &mut [u32; 8], block: &[u8]) {
             work[6],
         ];
     }
-    for (seat, value) in work.iter().enumerate() {
-        state[seat] = state[seat].wrapping_add(*value);
+    for (index, value) in work.iter().enumerate() {
+        state[index] = state[index].wrapping_add(*value);
     }
 }
 

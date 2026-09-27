@@ -22,8 +22,8 @@ use crate::model::{
 use crate::specificity;
 use crate::types::{
     AdjustmentToken, Candidate, CandidateOrdinals, CellId, DecidedStage, Elimination,
-    EliminationStage, LeftContext, NotesPool, NotesSeat, PackedKinds, RankedCandidate, RightToken,
-    Settled, SettledPool, SettledSeat, Side, TokenKind, TraceRanking, TransitionTrace, UNKNOWN,
+    EliminationStage, LeftContext, NotesId, NotesPool, PackedKinds, RankedCandidate, RightToken,
+    Settled, SettledId, SettledPool, Side, TokenKind, TraceRanking, TransitionTrace, UNKNOWN,
     Vocab, boundary_settled, cell_label, provenance_pointer, word_position,
 };
 
@@ -169,12 +169,12 @@ struct PairingSets {
     only: Option<HashSet<(Sym, Sym)>>,
 }
 
-/// The index of one distinct candidate list in the candidate memo's list pool, stored in a memo entry in place of the list. A configuration's candidate memo holds fewer than half a million entries but only a few dozen distinct lists, so four bytes per entry replace a vector shared with hundreds of thousands of other entries (issue #167). [`CandidateListSeat::at`] and [`CandidateListSeat::index`] are the only conversions.
+/// The index of one distinct candidate list in the candidate memo's list pool, stored in a memo entry in place of the list. A configuration's candidate memo holds fewer than half a million entries but only a few dozen distinct lists, so four bytes per entry replace a vector shared with hundreds of thousands of other entries (issue #167). [`CandidateListId::at`] and [`CandidateListId::index`] are the only conversions.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-struct CandidateListSeat(u32);
+struct CandidateListId(u32);
 
-impl CandidateListSeat {
-    /// The seat for the pool's `index`-th list.
+impl CandidateListId {
+    /// The id for the pool's `index`-th list.
     fn at(index: usize) -> Self {
         Self(
             u32::try_from(index)
@@ -182,37 +182,37 @@ impl CandidateListSeat {
         )
     }
 
-    /// The seat as the pool's index.
+    /// The id as the pool's index.
     fn index(self) -> usize {
         self.0 as usize
     }
 }
 
-/// The table the candidate memo stores its candidate lists in, shaped like [`NotesPool`]: each distinct list once, in first-seen order, with its seat. A hit clones the list out of the table.
+/// The table the candidate memo stores its candidate lists in, shaped like [`NotesPool`]: each distinct list once, in first-seen order, with its id. A hit clones the list out of the table.
 #[derive(Clone, Debug, Default)]
 struct CandidateListPool {
-    seats: HashMap<Vec<Candidate>, CandidateListSeat>,
+    ids: HashMap<Vec<Candidate>, CandidateListId>,
     table: Vec<Vec<Candidate>>,
 }
 
 impl CandidateListPool {
-    /// This list's seat, minted the first time the list is seen. The list is passed owned: a miss keeps the allocation and a hit drops it.
-    fn seat(&mut self, candidates: Vec<Candidate>) -> CandidateListSeat {
-        if let Some(&seat) = self.seats.get(candidates.as_slice()) {
-            return seat;
+    /// This list's id, minted the first time the list is seen. The list is passed owned: a miss keeps the allocation and a hit drops it.
+    fn intern(&mut self, candidates: Vec<Candidate>) -> CandidateListId {
+        if let Some(&id) = self.ids.get(candidates.as_slice()) {
+            return id;
         }
-        let seat = CandidateListSeat::at(self.table.len());
-        self.seats.insert(candidates.clone(), seat);
+        let id = CandidateListId::at(self.table.len());
+        self.ids.insert(candidates.clone(), id);
         self.table.push(candidates);
-        seat
+        id
     }
 
-    /// The list one seat names.
-    fn get(&self, seat: CandidateListSeat) -> &[Candidate] {
-        &self.table[seat.index()]
+    /// The list one id names.
+    fn get(&self, id: CandidateListId) -> &[Candidate] {
+        &self.table[id.index()]
     }
 
-    /// How many distinct lists have been seated.
+    /// How many distinct lists have been interned.
     fn len(&self) -> usize {
         self.table.len()
     }
@@ -225,10 +225,10 @@ impl CandidateListPool {
 
 /// The index of one distinct elimination list in the candidate memo's elimination pool, stored in a memo entry in place of the list. The pool is keyed on the whole list (each elimination's stage, description and provenance), so explain mode, where descriptions are filled in, stays exact. In fixpoint mode the descriptions are empty, so a configuration's entries share a few dozen lists (issue #167).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-struct EliminationListSeat(u32);
+struct EliminationListId(u32);
 
-impl EliminationListSeat {
-    /// The seat for the pool's `index`-th list.
+impl EliminationListId {
+    /// The id for the pool's `index`-th list.
     fn at(index: usize) -> Self {
         Self(
             u32::try_from(index)
@@ -236,7 +236,7 @@ impl EliminationListSeat {
         )
     }
 
-    /// The seat as the pool's index.
+    /// The id as the pool's index.
     fn index(self) -> usize {
         self.0 as usize
     }
@@ -245,33 +245,33 @@ impl EliminationListSeat {
 /// The table the candidate memo stores its elimination lists in, shaped like [`CandidateListPool`].
 #[derive(Clone, Debug, Default)]
 struct EliminationListPool {
-    seats: HashMap<Vec<Elimination>, EliminationListSeat>,
+    ids: HashMap<Vec<Elimination>, EliminationListId>,
     table: Vec<Vec<Elimination>>,
 }
 
 impl EliminationListPool {
-    /// This list's seat, minted the first time the list is seen. The list is passed owned: a miss keeps the allocation and a hit drops it without copying a description.
-    fn seat(&mut self, eliminations: Vec<Elimination>) -> EliminationListSeat {
-        if let Some(&seat) = self.seats.get(eliminations.as_slice()) {
-            return seat;
+    /// This list's id, minted the first time the list is seen. The list is passed owned: a miss keeps the allocation and a hit drops it without copying a description.
+    fn intern(&mut self, eliminations: Vec<Elimination>) -> EliminationListId {
+        if let Some(&id) = self.ids.get(eliminations.as_slice()) {
+            return id;
         }
-        let seat = EliminationListSeat::at(self.table.len());
-        self.seats.insert(eliminations.clone(), seat);
+        let id = EliminationListId::at(self.table.len());
+        self.ids.insert(eliminations.clone(), id);
         self.table.push(eliminations);
-        seat
+        id
     }
 
-    /// The list one seat names.
-    fn get(&self, seat: EliminationListSeat) -> &[Elimination] {
-        &self.table[seat.index()]
+    /// The list one id names.
+    fn get(&self, id: EliminationListId) -> &[Elimination] {
+        &self.table[id.index()]
     }
 
-    /// Every distinct list once, in seat order. [`Engine::elimination_text_bytes`] measures these, since a list is held once however many entries name it.
+    /// Every distinct list once, in id order. [`Engine::elimination_text_bytes`] measures these, since a list is held once however many entries name it.
     fn lists(&self) -> &[Vec<Elimination>] {
         &self.table
     }
 
-    /// How many distinct lists have been seated.
+    /// How many distinct lists have been interned.
     fn len(&self) -> usize {
         self.table.len()
     }
@@ -282,16 +282,16 @@ impl EliminationListPool {
     }
 }
 
-/// What the candidate memo holds per window: seats for the candidate list, the elimination list, the fired delta and the read set, sixteen bytes with no heap. An instrumented run of an earlier layout, which kept the lists and the delta on the heap per entry, measured fewer than half a million entries per configuration sharing a few dozen distinct candidate lists, a few dozen distinct elimination lists and a few thousand distinct deltas (issue #167). The delta lets a hit replay the records the enumeration fired. Without it, a window that hits this key would leave those records looking dead.
+/// What the candidate memo holds per window: ids for the candidate list, the elimination list, the fired delta and the read set, sixteen bytes with no heap. An instrumented run of an earlier layout, which kept the lists and the delta on the heap per entry, measured fewer than half a million entries per configuration sharing a few dozen distinct candidate lists, a few dozen distinct elimination lists and a few thousand distinct deltas (issue #167). The delta lets a hit replay the records the enumeration fired. Without it, a window that hits this key would leave those records looking dead.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct CandidatesEntry {
-    candidates: CandidateListSeat,
-    eliminations: EliminationListSeat,
-    delta: DeltaSeat,
-    reads: ReadsSeat,
+    candidates: CandidateListId,
+    eliminations: EliminationListId,
+    delta: DeltaId,
+    reads: ReadsId,
 }
 
-/// The candidate memo and its two list pools, released together because a seat means nothing without the table it indexes. The delta seat resolves through [`Engine::deltas`], which every memo shares, so each distinct delta is held once.
+/// The candidate memo and its two list pools, released together because an id means nothing without the table it indexes. The delta id resolves through [`Engine::deltas`], which every memo shares, so each distinct delta is held once.
 #[derive(Clone, Debug, Default)]
 struct CandidatesMemo {
     entries: HashMap<CandidatesKey, CandidatesEntry>,
@@ -431,12 +431,12 @@ struct Applicable<'i> {
     favored: HashSet<Candidate>,
 }
 
-/// The index of one distinct fired delta in the engine's delta pool, stored in a memoized window, enumeration, prospect or closure entry in place of the delta. A configuration's million and more memoized windows journal a few tens of thousands of distinct deltas, so four bytes per entry replace a boxed slice shared with hundreds of other entries (issue #165). [`DeltaSeat::at`] and [`DeltaSeat::index`] are the only conversions.
+/// The index of one distinct fired delta in the engine's delta pool, stored in a memoized window, enumeration, prospect or closure entry in place of the delta. A configuration's million and more memoized windows journal a few tens of thousands of distinct deltas, so four bytes per entry replace a boxed slice shared with hundreds of other entries (issue #165). [`DeltaId::at`] and [`DeltaId::index`] are the only conversions.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub(crate) struct DeltaSeat(u32);
+pub(crate) struct DeltaId(u32);
 
-impl DeltaSeat {
-    /// The seat for the pool's `index`-th delta.
+impl DeltaId {
+    /// The id for the pool's `index`-th delta.
     pub(crate) fn at(index: usize) -> Self {
         Self(
             u32::try_from(index)
@@ -444,37 +444,37 @@ impl DeltaSeat {
         )
     }
 
-    /// The seat as the pool's index.
+    /// The id as the pool's index.
     pub(crate) fn index(self) -> usize {
         self.0 as usize
     }
 }
 
-/// The table every memoized fired delta is stored in, shaped like [`NotesPool`]: each distinct delta once, in first-journaled order, with its seat. A replay reads the delta from the table.
+/// The table every memoized fired delta is stored in, shaped like [`NotesPool`]: each distinct delta once, in first-journaled order, with its id. A replay reads the delta from the table.
 #[derive(Clone, Debug, Default)]
 struct DeltaPool {
-    seats: HashMap<Box<[Pointer]>, DeltaSeat>,
+    ids: HashMap<Box<[Pointer]>, DeltaId>,
     table: Vec<Box<[Pointer]>>,
 }
 
 impl DeltaPool {
-    /// This delta's seat, minted the first time the delta is journaled. The delta is passed owned because its capture is closed: a miss keeps the allocation and a hit drops it.
-    fn seat(&mut self, delta: Box<[Pointer]>) -> DeltaSeat {
-        if let Some(&seat) = self.seats.get(&*delta) {
-            return seat;
+    /// This delta's id, minted the first time the delta is journaled. The delta is passed owned because its capture is closed: a miss keeps the allocation and a hit drops it.
+    fn intern(&mut self, delta: Box<[Pointer]>) -> DeltaId {
+        if let Some(&id) = self.ids.get(&*delta) {
+            return id;
         }
-        let seat = DeltaSeat::at(self.table.len());
-        self.seats.insert(delta.clone(), seat);
+        let id = DeltaId::at(self.table.len());
+        self.ids.insert(delta.clone(), id);
         self.table.push(delta);
-        seat
+        id
     }
 
-    /// The delta one seat names.
-    fn get(&self, seat: DeltaSeat) -> &[Pointer] {
-        &self.table[seat.index()]
+    /// The delta one id names.
+    fn get(&self, id: DeltaId) -> &[Pointer] {
+        &self.table[id.index()]
     }
 
-    /// How many distinct deltas have been seated.
+    /// How many distinct deltas have been interned.
     fn len(&self) -> usize {
         self.table.len()
     }
@@ -485,11 +485,11 @@ impl DeltaPool {
     }
 }
 
-/// The index of one distinct read set in the engine's reads pool, stored in every memoized evaluation in place of the runes and classes it read (issue #184). A configuration's memoized evaluations share a few tens of thousands of distinct sets, so each set is stored once, like a delta. [`ReadsSeat::at`] and [`ReadsSeat::index`] are the only conversions.
+/// The index of one distinct read set in the engine's reads pool, stored in every memoized evaluation in place of the runes and classes it read (issue #184). A configuration's memoized evaluations share a few tens of thousands of distinct sets, so each set is stored once, like a delta. [`ReadsId::at`] and [`ReadsId::index`] are the only conversions.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub(crate) struct ReadsSeat(u32);
+pub(crate) struct ReadsId(u32);
 
-impl ReadsSeat {
+impl ReadsId {
     pub(crate) fn at(index: usize) -> Self {
         Self(
             u32::try_from(index)
@@ -505,23 +505,23 @@ impl ReadsSeat {
 /// The table every memoized read set is stored in, shaped like [`DeltaPool`].
 #[derive(Clone, Debug, Default)]
 struct ReadsPool {
-    seats: HashMap<Box<[Read]>, ReadsSeat>,
+    ids: HashMap<Box<[Read]>, ReadsId>,
     table: Vec<Box<[Read]>>,
 }
 
 impl ReadsPool {
-    fn seat(&mut self, reads: Box<[Read]>) -> ReadsSeat {
-        if let Some(&seat) = self.seats.get(&*reads) {
-            return seat;
+    fn intern(&mut self, reads: Box<[Read]>) -> ReadsId {
+        if let Some(&id) = self.ids.get(&*reads) {
+            return id;
         }
-        let seat = ReadsSeat::at(self.table.len());
-        self.seats.insert(reads.clone(), seat);
+        let id = ReadsId::at(self.table.len());
+        self.ids.insert(reads.clone(), id);
         self.table.push(reads);
-        seat
+        id
     }
 
-    fn get(&self, seat: ReadsSeat) -> &[Read] {
-        &self.table[seat.index()]
+    fn get(&self, id: ReadsId) -> &[Read] {
+        &self.table[id.index()]
     }
 
     fn len(&self) -> usize {
@@ -539,84 +539,84 @@ struct Captured {
     reads: Box<[Read]>,
 }
 
-/// A [`SettledSeat`] narrowed to two bytes for a [`TraceEntry`] (issue #266), which panics past its range instead of wrapping. It is a separate type because the shared seat must stay four bytes wide: its `NonZeroU32` niche keeps a fixpoint product row's `Option<SettledSeat>` at four bytes ([`crate::fixpoint`]), and a product holds every record a whole fixpoint reaches. This memo holds only what one engine traced, and `default`'s memo file names a few hundred distinct settled records. The integer is the index plus one, so the range is [`TraceSettledSeat::CAPACITY`] records. [`TraceSettledSeat::at`] and [`TraceSettledSeat::index`] are the conversions, and [`TraceSettledSeat::widen`] returns the pool's own seat.
+/// A [`SettledId`] narrowed to two bytes for a [`TraceEntry`] (issue #266), which panics past its range instead of wrapping. It is a separate type because the shared id must stay four bytes wide: its `NonZeroU32` niche keeps a fixpoint product row's `Option<SettledId>` at four bytes ([`crate::fixpoint`]), and a product holds every record a whole fixpoint reaches. This memo holds only what one engine traced, and `default`'s memo file names a few hundred distinct settled records. The integer is the index plus one, so the range is [`TraceSettledId::CAPACITY`] records. [`TraceSettledId::at`] and [`TraceSettledId::index`] are the conversions, and [`TraceSettledId::widen`] returns the pool's own id.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub(crate) struct TraceSettledSeat(NonZeroU16);
+pub(crate) struct TraceSettledId(NonZeroU16);
 
-impl TraceSettledSeat {
-    /// How many records a trace memo can seat: every index whose successor fits in a `u16`.
+impl TraceSettledId {
+    /// How many records a trace memo can index: every index whose successor fits in a `u16`.
     pub(crate) const CAPACITY: usize = u16::MAX as usize;
 
-    /// The seat for the pool's `index`-th record, or `None` past the range. The memo reader uses this and rejects a file past the range instead of panicking.
+    /// The id for the pool's `index`-th record, or `None` past the range. The memo reader uses this and rejects a file past the range instead of panicking.
     pub(crate) fn try_at(index: usize) -> Option<Self> {
         let raw = u16::try_from(index.checked_add(1)?).ok()?;
         NonZeroU16::new(raw).map(Self)
     }
 
-    /// The seat for the pool's `index`-th record. Panics past the range instead of wrapping.
+    /// The id for the pool's `index`-th record. Panics past the range instead of wrapping.
     pub(crate) fn at(index: usize) -> Self {
-        Self::try_at(index).expect("a trace memo seats fewer than 65,536 distinct settled records")
+        Self::try_at(index).expect("a trace memo holds fewer than 65,536 distinct settled records")
     }
 
-    /// The seat as the pool's index.
+    /// The id as the pool's index.
     pub(crate) fn index(self) -> usize {
         usize::from(self.0.get()) - 1
     }
 
-    /// The pool's own seat for the record this one names.
-    pub(crate) fn widen(self) -> SettledSeat {
-        SettledSeat::at(self.index())
+    /// The pool's own id for the record this one names.
+    pub(crate) fn widen(self) -> SettledId {
+        SettledId::at(self.index())
     }
 }
 
-/// A [`NotesSeat`] narrowed to two bytes for a [`TraceEntry`], like [`TraceSettledSeat`], with the same conversions and the same panic past [`TraceNotesSeat::CAPACITY`] lists.
+/// A [`NotesId`] narrowed to two bytes for a [`TraceEntry`], like [`TraceSettledId`], with the same conversions and the same panic past [`TraceNotesId::CAPACITY`] lists.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub(crate) struct TraceNotesSeat(NonZeroU16);
+pub(crate) struct TraceNotesId(NonZeroU16);
 
-impl TraceNotesSeat {
-    /// How many lists a trace memo can seat: every index whose successor fits in a `u16`.
+impl TraceNotesId {
+    /// How many lists a trace memo can index: every index whose successor fits in a `u16`.
     pub(crate) const CAPACITY: usize = u16::MAX as usize;
 
-    /// The seat for the pool's `index`-th list, or `None` past the range.
+    /// The id for the pool's `index`-th list, or `None` past the range.
     pub(crate) fn try_at(index: usize) -> Option<Self> {
         let raw = u16::try_from(index.checked_add(1)?).ok()?;
         NonZeroU16::new(raw).map(Self)
     }
 
-    /// The seat for the pool's `index`-th list. Panics past the range instead of wrapping.
+    /// The id for the pool's `index`-th list. Panics past the range instead of wrapping.
     pub(crate) fn at(index: usize) -> Self {
-        Self::try_at(index).expect("a trace memo seats fewer than 65,536 distinct notes lists")
+        Self::try_at(index).expect("a trace memo holds fewer than 65,536 distinct notes lists")
     }
 
-    /// The seat as the pool's index.
+    /// The id as the pool's index.
     pub(crate) fn index(self) -> usize {
         usize::from(self.0.get()) - 1
     }
 
-    /// The pool's own seat for the list this one names.
-    pub(crate) fn widen(self) -> NotesSeat {
-        NotesSeat::at(self.index())
+    /// The pool's own id for the list this one names.
+    pub(crate) fn widen(self) -> NotesId {
+        NotesId::at(self.index())
     }
 }
 
 /// What the trace memo holds per window: two-byte indexes into the memo's settled and notes pools, four-byte indexes into [`Engine::deltas`] and the engine's reads pool, and one byte packing the prospect, the joint flag and the stage. That is sixteen bytes at four-byte alignment, with no heap. Packing the three fields into a byte saves nothing alone, because the alignment pads it. The two-byte indexes are what take the entry from twenty bytes to sixteen. An instrumented run of an earlier layout (issue #165), which held the whole [`TransitionTrace`] and a boxed delta per entry, measured over a million entries per configuration naming a couple of hundred distinct settled records, about a hundred distinct notes lists and a few tens of thousands of distinct deltas. The ranking is stored separately in [`TraceMemo::rankings`], because only an engine built with [`EngineModes::explain_ranking`] has one, and neither the fixpoint nor the string replay is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct TraceEntry {
-    pub(crate) settled: TraceSettledSeat,
-    pub(crate) notes: TraceNotesSeat,
-    pub(crate) delta: DeltaSeat,
-    pub(crate) reads: ReadsSeat,
+    pub(crate) settled: TraceSettledId,
+    pub(crate) notes: TraceNotesId,
+    pub(crate) delta: DeltaId,
+    pub(crate) reads: ReadsId,
     /// The prospect bit at the bottom (the term is a junction count of zero or one), the joint flag above it, and the stage's ordinal, at most six, from bit two up. [`TraceEntry::prospect`], [`TraceEntry::joint_tiebreak`] and [`TraceEntry::decided_stage`] read them back.
     packed: u8,
 }
 
 impl TraceEntry {
-    /// One entry over its four seats and the three packed fields. The prospect is passed as the `i64` the ranking sums, and a value outside zero or one panics.
+    /// One entry over its four ids and the three packed fields. The prospect is passed as the `i64` the ranking sums, and a value outside zero or one panics.
     pub(crate) fn new(
-        settled: TraceSettledSeat,
-        notes: TraceNotesSeat,
-        delta: DeltaSeat,
-        reads: ReadsSeat,
+        settled: TraceSettledId,
+        notes: TraceNotesId,
+        delta: DeltaId,
+        reads: ReadsId,
         prospect: i64,
         joint_tiebreak: bool,
         decided_stage: DecidedStage,
@@ -651,7 +651,7 @@ impl TraceEntry {
     }
 }
 
-/// The window memo and its fired journal, with the settled and notes pools its entries index. The delta is a seat in the entry, not a second map on the same twenty-byte key, which would cost the key and its hash-table slack again for a value only read with its trace. It resolves through [`Engine::deltas`] because the candidate, closure and prospect memos store their deltas in the same table (issue #167). The pools belong to the memo, not to a fixpoint, because the memo lives no longer than a fixpoint and is released as one piece. `rankings` uses the same key and is filled only when the engine records rankings, so a fixpoint's memo has no ranking slot per entry, and an explain-mode hit returns the ranking its miss recorded.
+/// The window memo and its fired journal, with the settled and notes pools its entries index. The delta is an id in the entry, not a second map on the same twenty-byte key, which would cost the key and its hash-table slack again for a value only read with its trace. It resolves through [`Engine::deltas`] because the candidate, closure and prospect memos store their deltas in the same table (issue #167). The pools belong to the memo, not to a fixpoint, because the memo lives no longer than a fixpoint and is released as one piece. `rankings` uses the same key and is filled only when the engine records rankings, so a fixpoint's memo has no ranking slot per entry, and an explain-mode hit returns the ranking its miss recorded.
 #[derive(Clone, Debug, Default)]
 struct TraceMemo {
     entries: HashMap<TraceKey, TraceEntry>,
@@ -661,17 +661,11 @@ struct TraceMemo {
 }
 
 impl TraceMemo {
-    /// Record one settled window: the trace's settled record and notes stored in the pools, the ranking stored separately when the trace has one, and the seats of the delta and read set the capture journaled.
-    fn insert(
-        &mut self,
-        key: TraceKey,
-        trace: &TransitionTrace,
-        delta: DeltaSeat,
-        reads: ReadsSeat,
-    ) {
+    /// Record one settled window: the trace's settled record and notes stored in the pools, the ranking stored separately when the trace has one, and the ids of the delta and read set the capture journaled.
+    fn insert(&mut self, key: TraceKey, trace: &TransitionTrace, delta: DeltaId, reads: ReadsId) {
         let entry = TraceEntry::new(
-            TraceSettledSeat::at(self.settled.seat(&trace.settled).index()),
-            TraceNotesSeat::at(self.notes.seat(trace.notes.clone()).index()),
+            TraceSettledId::at(self.settled.intern(&trace.settled).index()),
+            TraceNotesId::at(self.notes.intern(trace.notes.clone()).index()),
             delta,
             reads,
             trace.prospect,
@@ -708,25 +702,25 @@ pub struct Engine<'i> {
     fired: HashSet<Pointer>,
     fired_log: Option<Vec<Pointer>>,
     capture_starts: Vec<usize>,
-    /// The table every memoized fired delta is stored in, whichever memo journaled it. The trace, candidate, prospect and closure memos all hold [`DeltaSeat`]s into it, so a delta journaled by several memos is held once. It belongs to the engine because the closure and prospect memos store entries in every mode. Outside trace-memo mode nothing is journaled and there is no trace memo, and those two memos store the empty delta here, so the pool never grows past that one delta (issue #167). [`Engine::release_memos`] resets the pool with every memo that indexes it, so no seat outlives its table.
+    /// The table every memoized fired delta is stored in, whichever memo journaled it. The trace, candidate, prospect and closure memos all hold [`DeltaId`]s into it, so a delta journaled by several memos is held once. It belongs to the engine because the closure and prospect memos store entries in every mode. Outside trace-memo mode nothing is journaled and there is no trace memo, and those two memos store the empty delta here, so the pool never grows past that one delta (issue #167). [`Engine::release_memos`] resets the pool with every memo that indexes it, so no id outlives its table.
     deltas: DeltaPool,
     /// The table every memoized read set is stored in (issue #184): the runes and classes an evaluation read from the spec, journaled by the index's accessors while the capture was open ([`crate::index`]), so a memo entry records which runes and classes its result depends on. Released with the delta pool, and detached into a snapshot with it.
     reads: ReadsPool,
     /// Where the read journal stood when each open capture began, one per open capture beside [`Engine::capture_starts`].
     read_starts: Vec<usize>,
-    /// Each small memo stores its fired delta beside its verdict, as a seat into [`Engine::deltas`], instead of in a second map on the same key: the delta is only read with its verdict, and a second table would pay for the key and its hash-table slack twice.
-    closure_cache: HashMap<ClosureKey, (bool, DeltaSeat, ReadsSeat)>,
+    /// Each small memo stores its fired delta beside its verdict, as an id into [`Engine::deltas`], instead of in a second map on the same key: the delta is only read with its verdict, and a second table would pay for the key and its hash-table slack twice.
+    closure_cache: HashMap<ClosureKey, (bool, DeltaId, ReadsId)>,
     candidates_cache: CandidatesMemo,
-    /// The prospect memo: the term as an `i8`, since it is zero or one, beside the seats of its fired delta and read set (issue #166). With a trace memo in simulated-prospect mode it holds only the asks whose replayed settlement raised. A settling ask's answer is one field of a window the trace memo holds, so [`Engine::prospect`] skips the entry and reads the trace memo on the next ask. A probe's ask, whose window the trace memo also skips (issue #168), settles the window again, which the probes' own memos make rare.
-    prospect_cache: HashMap<ProspectKey, (i8, DeltaSeat, ReadsSeat)>,
+    /// The prospect memo: the term as an `i8`, since it is zero or one, beside the ids of its fired delta and read set (issue #166). With a trace memo in simulated-prospect mode it holds only the asks whose replayed settlement raised. A settling ask's answer is one field of a window the trace memo holds, so [`Engine::prospect`] skips the entry and reads the trace memo on the next ask. A probe's ask, whose window the trace memo also skips (issue #168), settles the window again, which the probes' own memos make rare.
+    prospect_cache: HashMap<ProspectKey, (i8, DeltaId, ReadsId)>,
     exit_sources_cache: HashMap<StanceId, (Vec<ExitSource<'i>>, Vec<Pointer>)>,
     pairing_sets: HashMap<StanceId, PairingSets>,
     explain_ranking: bool,
-    /// The window memo, present only in trace-memo mode. It is the engine's largest collection and sets the enumeration's peak memory, which is why its entries are seats into the [`TraceMemo`] pools instead of whole traces (issue #165). A hit rebuilds the trace from the pools, and the caller sees the same trace a stored one would give.
+    /// The window memo, present only in trace-memo mode. It is the engine's largest collection and sets the enumeration's peak memory, which is why its entries are ids into the [`TraceMemo`] pools instead of whole traces (issue #165). A hit rebuilds the trace from the pools, and the caller sees the same trace a stored one would give.
     trace_cache: Option<TraceMemo>,
     /// Finished memos of other enumerations this engine may read, in lookup order, each behind an exclusion that says which keys it may not supply ([`crate::memo`]). A window the engine's own memo misses is looked up here before it is settled. A hit is returned, with its delta replayed, as an own hit is, but is not copied into the own memo: the shared memos are read-only across a whole fan-out, and copying each hit would rebuild the memory the sharing saves.
     shared_memos: Vec<SharedMemo>,
-    /// Per shared memo, which of its delta seats this engine has already added to its fired set, so a second hit on the same shared delta skips the set.
+    /// Per shared memo, which of its delta ids this engine has already added to its fired set, so a second hit on the same shared delta skips the set.
     shared_memo_fired: Vec<Vec<bool>>,
     /// How many windows each shared memo supplied, in lookup order, for the cache stats.
     shared_memo_hits: Vec<u64>,
@@ -790,11 +784,11 @@ impl<'i> Engine<'i> {
     }
 
     /// How many windows each shared memo supplied, in lookup order, since they were attached.
-    pub fn shared_memo_hits_by_seat(&self) -> &[u64] {
+    pub fn shared_memo_hits_by_id(&self) -> &[u64] {
         &self.shared_memo_hits
     }
 
-    /// Detach this engine's trace memo: the entries compacted into an immutable array, with the tables their seats index and every fired delta and read set the engine stored. The candidate, closure and prospect memos are released before compaction, as [`Engine::release_memos`] releases them, because they index the delta table that leaves with the snapshot. The live trace map is consumed and freed before the array is partitioned and sorted. Returns `None` for an engine without a trace memo. The shared memos are not included: a snapshot holds only what this engine settled, and a caller that wants the union reads the shared memos beside it.
+    /// Detach this engine's trace memo: the entries compacted into an immutable array, with the tables their ids index and every fired delta and read set the engine stored. The candidate, closure and prospect memos are released before compaction, as [`Engine::release_memos`] releases them, because they index the delta table that leaves with the snapshot. The live trace map is consumed and freed before the array is partitioned and sorted. Returns `None` for an engine without a trace memo. The shared memos are not included: a snapshot holds only what this engine settled, and a caller that wants the union reads the shared memos beside it.
     pub fn take_memo(&mut self) -> Option<MemoSnapshot> {
         let memo = self.trace_cache.take()?;
         let deltas = std::mem::take(&mut self.deltas);
@@ -849,7 +843,7 @@ impl<'i> Engine<'i> {
 
     /// Drop every memo this engine holds, keeping the fired set and the small per-stance tables. After a fixpoint's last trace comes a drain and sort of the whole product, and keeping the window memos alive through it would set the enumeration's peak memory.
     ///
-    /// Every memo is a pure cache: each entry replays the pointers its computation fired, so after a release the next evaluation fires them again, and no later result changes. A caller that reports the fired set, such as the table fixpoint, reads [`Engine::fired`] before releasing, so evaluations after the release are left out of the report. Each memo's pools go with its entries, since a seat means nothing without its table, and the delta and reads pools go with every memo that indexes them.
+    /// Every memo is a pure cache: each entry replays the pointers its computation fired, so after a release the next evaluation fires them again, and no later result changes. A caller that reports the fired set, such as the table fixpoint, reads [`Engine::fired`] before releasing, so evaluations after the release are left out of the report. Each memo's pools go with its entries, since an id means nothing without its table, and the delta and reads pools go with every memo that indexes them.
     pub fn release_memos(&mut self) {
         self.trace_cache = self.trace_cache.as_ref().map(|_| TraceMemo::default());
         self.candidates_cache = CandidatesMemo::default();
@@ -1352,10 +1346,10 @@ impl<'i> Engine<'i> {
             .exits
             .iter()
             .enumerate()
-            .map(|(seat, (height, row))| ExitSource {
+            .map(|(position, (height, row))| ExitSource {
                 height: *height,
                 row: Some(row),
-                index: seat,
+                index: position,
             })
             .collect();
         let mut fired: Vec<Pointer> = Vec::new();
@@ -1500,7 +1494,7 @@ impl<'i> Engine<'i> {
 
     /// Every pair candidate this rune offers in this window (a cell of the rune with the junction state it offers toward the next position), appending each eliminated candidate's reason to `eliminations` when that is given.
     ///
-    /// The memo runs only in trace-memo mode: outside it there is no journal, so an entry could carry no delta to replay and a hit would lose the firings of its first evaluation. An entry holds four seats (issue #167), so a hit clones the candidate list out of the memo's pool, extends the caller's eliminations from the pool, and replays the delta and the read set.
+    /// The memo runs only in trace-memo mode: outside it there is no journal, so an entry could carry no delta to replay and a hit would lose the firings of its first evaluation. An entry holds four ids (issue #167), so a hit clones the candidate list out of the memo's pool, extends the caller's eliminations from the pool, and replays the delta and the read set.
     pub fn candidates(
         &mut self,
         left: &LeftContext,
@@ -1542,10 +1536,10 @@ impl<'i> Engine<'i> {
                 let Captured { delta, reads } = self.end_capture();
                 let memo = &mut self.candidates_cache;
                 let entry = CandidatesEntry {
-                    candidates: memo.candidates.seat(out),
-                    eliminations: memo.eliminations.seat(local),
-                    delta: self.deltas.seat(delta),
-                    reads: self.reads.seat(reads),
+                    candidates: memo.candidates.intern(out),
+                    eliminations: memo.eliminations.intern(local),
+                    delta: self.deltas.intern(delta),
+                    reads: self.reads.intern(reads),
                 };
                 memo.entries.insert(key, entry);
                 entry
@@ -1558,7 +1552,7 @@ impl<'i> Engine<'i> {
         Ok(memo.candidates.get(entry.candidates).to_vec())
     }
 
-    /// The candidate memo's key. The rune's ordinal is the only lookup here. The rune field has a seat for every registered family, so this panics only for a name the registry has no family for. A registered but unmodeled rune panics in the enumeration itself.
+    /// The candidate memo's key. The rune's ordinal is the only lookup here. The rune field has an ordinal for every registered family, so this panics only for a name the registry has no family for. A registered but unmodeled rune panics in the enumeration itself.
     fn candidates_key(
         index: &SpecIndex,
         left: &LeftContext,
@@ -1568,7 +1562,7 @@ impl<'i> Engine<'i> {
     ) -> CandidatesKey {
         let rune = index.rune_ordinal(rune_name).unwrap_or_else(|| {
             panic!(
-                "{} is no registered family, so it holds no seat in the memo's rune field",
+                "{} is no registered family, so it has no ordinal in the memo's rune field",
                 index.resolve(rune_name)
             )
         });
@@ -1596,23 +1590,23 @@ impl<'i> Engine<'i> {
         };
         let index = self.index();
         let vocab = index.vocab();
-        let seat = index.rune_seat(rune_name).unwrap_or_else(|| {
+        let position = index.rune_position(rune_name).unwrap_or_else(|| {
             panic!(
                 "{} is not a modeled rune, exactly as spec.runes[…] raises KeyError",
                 index.resolve(rune_name)
             )
         });
-        let rune = index.rune_at(seat);
+        let rune = index.rune_at(position);
         let committed = if left.kind == TokenKind::Letter {
             left.settled.as_ref().and_then(|settled| settled.junction)
         } else {
             None
         };
         let mut out: Vec<Candidate> = Vec::new();
-        for (stance_seat, (stance_name, stance)) in rune.stances.iter().enumerate() {
+        for (stance_position, (stance_name, stance)) in rune.stances.iter().enumerate() {
             let id = StanceId::new(
-                seat,
-                u32::try_from(stance_seat)
+                position,
+                u32::try_from(stance_position)
                     .expect("a rune declares far fewer than four billion stances"),
             );
             let order_index = index.order_index(id);
@@ -1806,7 +1800,7 @@ impl<'i> Engine<'i> {
 
     /// The left a follower would settle against if this candidate won: the candidate's cell with no adjustments and no extension, which is everything the follower's enumeration reads. It is built on every call, not memoized: construction moves two arguments, creates an empty `Vec` without allocating, and reuses the candidate's ordinals, so a memo lookup on code that runs this often would cost more than it saves.
     fn synthetic_left(rune_name: Sym, candidate: Candidate) -> LeftContext {
-        LeftContext::seated(
+        LeftContext::with_ordinals(
             Settled {
                 cell: CellId {
                     rune: rune_name,
@@ -1858,8 +1852,8 @@ impl<'i> Engine<'i> {
             let result = !self
                 .candidates(&synthetic_left, follower, right2, UNKNOWN, None)?
                 .is_empty();
-            let delta = self.deltas.seat(Box::default());
-            let reads = self.reads.seat(Box::default());
+            let delta = self.deltas.intern(Box::default());
+            let reads = self.reads.intern(Box::default());
             self.closure_cache.insert(key, (result, delta, reads));
             return Ok(result);
         }
@@ -1872,8 +1866,8 @@ impl<'i> Engine<'i> {
             }
         };
         let Captured { delta, reads } = self.end_capture();
-        let delta = self.deltas.seat(delta);
-        let reads = self.reads.seat(reads);
+        let delta = self.deltas.intern(delta);
+        let reads = self.reads.intern(reads);
         self.closure_cache.insert(key, (result, delta, reads));
         Ok(result)
     }
@@ -1909,7 +1903,7 @@ impl<'i> Engine<'i> {
     ///
     /// A replayed settlement can raise where real settlement never would, for example on a prefer conflict or a definitely firing unlock scope in a window whose candidate never wins. A raising replay falls back to the candidacy estimate and counts in [`Engine::simulated_prospect_fallbacks`]. The fallback catches every [`SettleError`], including the unresolvable-class spec defect, which `spec_load` rejects long before settlement.
     ///
-    /// The memo stores a term beside the seat of its fired delta, and with a trace memo in simulated mode it holds only the asks whose replayed settlement raised (issue #166). A settling replay's delta equals the trace memo's delta for the follower's window: the synthetic left journals nothing, and deduplicating what [`Engine::with_settled`] journaled (a replayed trace delta, or the raw firings the trace memo deduplicated into that same delta) gives that delta again. The trace memo already holds that entry, under a key without this candidate's entry, so the capture is discarded instead of stored ([`Engine::abort_capture`]). The next ask with this key reads the trace memo through `with_settled`, which replays the same first-fired sequence into the same enclosing capture at the same point. A raising replay is never stored in the trace memo, so its fallback is what this memo is for. Candidacy mode runs no replay and memoizes every ask, and so does simulated mode without a trace memo, where nothing else can answer the next ask.
+    /// The memo stores a term beside the id of its fired delta, and with a trace memo in simulated mode it holds only the asks whose replayed settlement raised (issue #166). A settling replay's delta equals the trace memo's delta for the follower's window: the synthetic left journals nothing, and deduplicating what [`Engine::with_settled`] journaled (a replayed trace delta, or the raw firings the trace memo deduplicated into that same delta) gives that delta again. The trace memo already holds that entry, under a key without this candidate's entry, so the capture is discarded instead of stored ([`Engine::abort_capture`]). The next ask with this key reads the trace memo through `with_settled`, which replays the same first-fired sequence into the same enclosing capture at the same point. A raising replay is never stored in the trace memo, so its fallback is what this memo is for. Candidacy mode runs no replay and memoizes every ask, and so does simulated mode without a trace memo, where nothing else can answer the next ask.
     ///
     /// A replayed settlement asked for while no window is being evaluated is a probe's ask. [`Engine::probe_prospect`] is the only caller that reaches the term that way, because the ranking asks only from inside a trace. Its follower window is settled through [`Engine::with_settled_unrecorded`]: read from the trace memo when the memo holds it, and not added when it does not (issue #168). The probes memoize their verdicts above this call on their own keys, so the window is asked for again only by a row whose ranking reaches the same shifted window. An instrumented run over the whole alphabet measured how rarely that happens: the probes' replays wrote well over a third of the trace memo's entries and nearly all were never read, and the fourth-slot probes' windows (a letter third and an unknown fourth, which a row reaches only past a live fourth slot) almost never. Recording them pushed the memo's bucket table past a power-of-two doubling at the whole alphabet, and leaving them out keeps it under. The replays that a probe's replay runs in turn are recorded as usual, since every ranking shares those windows.
     fn prospect(
@@ -1952,11 +1946,11 @@ impl<'i> Engine<'i> {
                 right2: slots.right2.letter_ordinal(),
             }
         };
-        if let Some(&(cached, seat, reads)) = self.prospect_cache.get(&key) {
+        if let Some(&(cached, delta_id, reads)) = self.prospect_cache.get(&key) {
             replay_into(
                 &mut self.fired_log,
                 &self.capture_starts,
-                self.deltas.get(seat),
+                self.deltas.get(delta_id),
             );
             crate::index::journal_extend(self.reads.get(reads));
             return Ok(i64::from(cached));
@@ -1986,10 +1980,10 @@ impl<'i> Engine<'i> {
         } else {
             (Box::default(), Box::default())
         };
-        let seat = self.deltas.seat(delta);
-        let reads = self.reads.seat(reads);
+        let delta_id = self.deltas.intern(delta);
+        let reads = self.reads.intern(reads);
         let prospect = i8::try_from(result).expect("a prospect is a junction count, zero or one");
-        self.prospect_cache.insert(key, (prospect, seat, reads));
+        self.prospect_cache.insert(key, (prospect, delta_id, reads));
         Ok(result)
     }
 
@@ -2252,10 +2246,10 @@ impl<'i> Engine<'i> {
             )?);
         }
         let mut outranked_by: Vec<usize> = Vec::with_capacity(applicable.len());
-        for (seat, own) in axes.iter().enumerate() {
+        for (position, own) in axes.iter().enumerate() {
             let mut beaten = 0;
-            for (other_seat, other) in axes.iter().enumerate() {
-                if other_seat != seat
+            for (other_position, other) in axes.iter().enumerate() {
+                if other_position != position
                     && specificity::compare_axes(other, own) == specificity::Ordering::AOutranks
                 {
                     beaten += 1;
@@ -2264,16 +2258,16 @@ impl<'i> Engine<'i> {
             outranked_by.push(beaten);
         }
         let mut ordered: Vec<usize> = (0..applicable.len()).collect();
-        ordered.sort_by_key(|seat| outranked_by[*seat]);
+        ordered.sort_by_key(|position| outranked_by[*position]);
 
         let mut current = survivors.to_vec();
         let mut applied: Vec<OwnedRecord<'i>> = Vec::new();
-        for seat in ordered {
+        for position in ordered {
             let Applicable {
                 owner,
                 record,
                 favored,
-            } = &applicable[seat];
+            } = &applicable[position];
             let (owner, record) = (*owner, *record);
             let narrowed: Vec<Candidate> = current
                 .iter()
@@ -2698,7 +2692,7 @@ impl<'i> Engine<'i> {
 
     /// Settle one window, returning the full trace the table builder and the explain CLI read.
     ///
-    /// In trace-memo mode the result is memoized over the reduced left key. The kernel reads the left only through its kind and the settled cell's rune, stance, junction and extension: condition matching reads the rune and stance, the stroke axis the committed junction, the scoring the junction's presence, and the same-junction suppression the extension. It never reads the left cell's entry or adjustments, so two lefts differing only there share one entry. The memo holds seats, not traces, so a hit is rebuilt from the memo's pools, returns what its miss returned, and replays the miss's fired delta. A window the own memo misses is looked up in the shared memos next and answered from the first one that holds and admits it. Only then is it settled. Raising windows are never cached: the E-UNACCEPTED-EXIT message includes the left's full label, which the key does not, and the liveness probes that hit settlement errors memoize their own verdicts above this call.
+    /// In trace-memo mode the result is memoized over the reduced left key. The kernel reads the left only through its kind and the settled cell's rune, stance, junction and extension: condition matching reads the rune and stance, the stroke axis the committed junction, the scoring the junction's presence, and the same-junction suppression the extension. It never reads the left cell's entry or adjustments, so two lefts differing only there share one entry. The memo holds ids, not traces, so a hit is rebuilt from the memo's pools, returns what its miss returned, and replays the miss's fired delta. A window the own memo misses is looked up in the shared memos next and answered from the first one that holds and admits it. Only then is it settled. Raising windows are never cached: the E-UNACCEPTED-EXIT message includes the left's full label, which the key does not, and the liveness probes that hit settlement errors memoize their own verdicts above this call.
     pub fn transition_trace(
         &mut self,
         left: &LeftContext,
@@ -2731,18 +2725,18 @@ impl<'i> Engine<'i> {
             crate::index::journal_extend(self.reads.get(entry.reads));
             return Ok(trace);
         }
-        if let Some((seat, shared, entry)) = shared_memo_entry(&self.shared_memos, &key) {
+        if let Some((id, shared, entry)) = shared_memo_entry(&self.shared_memos, &key) {
             let trace = shared.memo.trace(entry);
             replay_shared(
                 &mut self.fired,
                 &mut self.fired_log,
                 &self.capture_starts,
-                &mut self.shared_memo_fired[seat],
+                &mut self.shared_memo_fired[id],
                 entry.delta,
                 shared.memo.delta(entry),
             );
             crate::index::journal_extend(shared.memo.reads(entry));
-            self.shared_memo_hits[seat] += 1;
+            self.shared_memo_hits[id] += 1;
             return Ok(trace);
         }
         self.begin_capture();
@@ -2754,8 +2748,8 @@ impl<'i> Engine<'i> {
             }
         };
         let Captured { delta, reads } = self.end_capture();
-        let delta = self.deltas.seat(delta);
-        let reads = self.reads.seat(reads);
+        let delta = self.deltas.intern(delta);
+        let reads = self.reads.intern(reads);
         self.trace_cache
             .as_mut()
             .expect("the memo is what brought us here")
@@ -2818,18 +2812,18 @@ impl<'i> Engine<'i> {
             crate::index::journal_extend(self.reads.get(entry.reads));
             return Some(answer);
         }
-        let (seat, shared, entry) = shared_memo_entry(&self.shared_memos, &key)?;
+        let (id, shared, entry) = shared_memo_entry(&self.shared_memos, &key)?;
         let answer = read(shared.memo.settled(entry));
         replay_shared(
             &mut self.fired,
             &mut self.fired_log,
             &self.capture_starts,
-            &mut self.shared_memo_fired[seat],
+            &mut self.shared_memo_fired[id],
             entry.delta,
             shared.memo.delta(entry),
         );
         crate::index::journal_extend(shared.memo.reads(entry));
-        self.shared_memo_hits[seat] += 1;
+        self.shared_memo_hits[id] += 1;
         Some(answer)
     }
 
@@ -3043,13 +3037,13 @@ fn shared_memo_entry<'b>(
     shared_memos: &'b [SharedMemo],
     key: &TraceKey,
 ) -> Option<(usize, &'b SharedMemo, TraceEntry)> {
-    shared_memos.iter().enumerate().find_map(|(seat, shared)| {
+    shared_memos.iter().enumerate().find_map(|(id, shared)| {
         shared
             .memo
             .entries
             .get(key)
             .filter(|entry| shared.excluded.admits(key, shared.memo.reads(**entry)))
-            .map(|&entry| (seat, shared, entry))
+            .map(|&entry| (id, shared, entry))
     })
 }
 
@@ -3064,21 +3058,21 @@ fn replay_into(fired_log: &mut Option<Vec<Pointer>>, capture_starts: &[usize], d
     log.extend_from_slice(delta);
 }
 
-/// Replay a shared memo entry's fired delta the same way, except that the shared memo's pointers were journaled by another engine, so the fired set holds them only after this engine has replayed that delta seat once. `replayed` has one flag per delta seat of the shared memo.
+/// Replay a shared memo entry's fired delta the same way, except that the shared memo's pointers were journaled by another engine, so the fired set holds them only after this engine has replayed that delta id once. `replayed` has one flag per delta id of the shared memo.
 fn replay_shared(
     fired: &mut HashSet<Pointer>,
     fired_log: &mut Option<Vec<Pointer>>,
     capture_starts: &[usize],
     replayed: &mut [bool],
-    seat: DeltaSeat,
+    id: DeltaId,
     delta: &[Pointer],
 ) {
     if delta.is_empty() {
         return;
     }
-    if !replayed[seat.index()] {
+    if !replayed[id.index()] {
         fired.extend(delta.iter().copied());
-        replayed[seat.index()] = true;
+        replayed[id.index()] = true;
     }
     replay_into(fired_log, capture_starts, delta);
 }
@@ -4289,9 +4283,9 @@ mod tests {
 
         let plain = Engine::new(&spec, no_features());
         let featured = Engine::new(&spec, [fixtures::sym(&spec, "ss03")]);
-        let gate = |engine: &Engine<'_>, seat: usize, entry: Option<Sym>, slots: Slots| {
+        let gate = |engine: &Engine<'_>, position: usize, entry: Option<Sym>, slots: Slots| {
             engine
-                .when_matches(None, &refusals[seat].when, &edge, entry, None, slots)
+                .when_matches(None, &refusals[position].when, &edge, entry, None, slots)
                 .expect("the fixture raises nothing")
         };
         assert_eq!(gate(&plain, 0, None, Slots::pair(EDGE, EDGE)), Some(false));
@@ -4371,18 +4365,18 @@ mod tests {
     }
 
     /// The `when:` of one [`deep_chain_spec`] refusal.
-    fn chain_when(index: &SpecIndex, seat: usize) -> &When {
+    fn chain_when(index: &SpecIndex, position: usize) -> &When {
         &index
             .rune(fixtures::sym(index, "qsPea"))
             .expect("qsPea is modeled")
             .policy
-            .refuse[seat]
+            .refuse[position]
             .when
     }
 
     /// The right condition of one [`deep_chain_spec`] refusal.
-    fn chain_condition(index: &SpecIndex, seat: usize) -> &Condition {
-        chain_when(index, seat)
+    fn chain_condition(index: &SpecIndex, position: usize) -> &Condition {
+        chain_when(index, position)
             .right
             .as_ref()
             .expect("every deep-chain refusal spells a right condition")
@@ -4531,9 +4525,9 @@ mod tests {
         let tea = letter_token(&index, "qsTea");
         let may = letter_token(&index, "qsMay");
         let it = letter_token(&index, "qsIt");
-        let gate = |seat: usize, slots: Slots| {
+        let gate = |position: usize, slots: Slots| {
             engine
-                .when_matches(None, chain_when(&index, seat), &edge, None, None, slots)
+                .when_matches(None, chain_when(&index, position), &edge, None, None, slots)
                 .expect("the fixture raises nothing")
         };
         assert_eq!(gate(0, Slots::new(tea, may, it, UNKNOWN)), Some(true));
@@ -4907,10 +4901,10 @@ mod tests {
             for joint_tiebreak in [false, true] {
                 for stage in DecidedStage::ALL {
                     let entry = TraceEntry::new(
-                        TraceSettledSeat::at(3),
-                        TraceNotesSeat::at(5),
-                        DeltaSeat::at(7),
-                        ReadsSeat::at(11),
+                        TraceSettledId::at(3),
+                        TraceNotesId::at(5),
+                        DeltaId::at(7),
+                        ReadsId::at(11),
                         prospect,
                         joint_tiebreak,
                         stage,
@@ -4930,31 +4924,31 @@ mod tests {
         }
     }
 
-    /// A two-byte index covers every pool index below its `CAPACITY`. The last one widens to the pool's own seat, and `try_at` returns `None` for the first index past the range instead of wrapping to a low seat.
+    /// A two-byte index covers every pool index below its `CAPACITY`. The last one widens to the pool's own id, and `try_at` returns `None` for the first index past the range instead of wrapping to a low id.
     #[test]
-    fn a_trace_seat_covers_its_range_and_wraps_past_none_of_it() {
-        let last = TraceSettledSeat::CAPACITY - 1;
-        assert_eq!(TraceSettledSeat::at(last).widen(), SettledSeat::at(last));
-        assert_eq!(TraceNotesSeat::at(last).widen(), NotesSeat::at(last));
-        assert_eq!(TraceSettledSeat::at(0).index(), 0);
-        assert_eq!(TraceNotesSeat::at(0).index(), 0);
-        assert!(TraceSettledSeat::try_at(TraceSettledSeat::CAPACITY).is_none());
-        assert!(TraceNotesSeat::try_at(TraceNotesSeat::CAPACITY).is_none());
-        assert!(TraceSettledSeat::try_at(usize::MAX).is_none());
+    fn a_trace_id_covers_its_range_and_wraps_past_none_of_it() {
+        let last = TraceSettledId::CAPACITY - 1;
+        assert_eq!(TraceSettledId::at(last).widen(), SettledId::at(last));
+        assert_eq!(TraceNotesId::at(last).widen(), NotesId::at(last));
+        assert_eq!(TraceSettledId::at(0).index(), 0);
+        assert_eq!(TraceNotesId::at(0).index(), 0);
+        assert!(TraceSettledId::try_at(TraceSettledId::CAPACITY).is_none());
+        assert!(TraceNotesId::try_at(TraceNotesId::CAPACITY).is_none());
+        assert!(TraceSettledId::try_at(usize::MAX).is_none());
     }
 
-    /// `TraceSettledSeat::at` panics past the `u16` range instead of wrapping.
+    /// `TraceSettledId::at` panics past the `u16` range instead of wrapping.
     #[test]
     #[should_panic(expected = "fewer than 65,536 distinct settled records")]
     fn a_settled_table_past_the_range_raises_at_the_mint() {
-        let _ = TraceSettledSeat::at(TraceSettledSeat::CAPACITY);
+        let _ = TraceSettledId::at(TraceSettledId::CAPACITY);
     }
 
-    /// `TraceNotesSeat::at` panics past the `u16` range instead of wrapping.
+    /// `TraceNotesId::at` panics past the `u16` range instead of wrapping.
     #[test]
     #[should_panic(expected = "fewer than 65,536 distinct notes lists")]
     fn a_notes_table_past_the_range_raises_at_the_mint() {
-        let _ = TraceNotesSeat::at(TraceNotesSeat::CAPACITY);
+        let _ = TraceNotesId::at(TraceNotesId::CAPACITY);
     }
 
     /// `TraceEntry::new` panics on a prospect other than zero or one instead of truncating it into the bit.
@@ -4962,22 +4956,22 @@ mod tests {
     #[should_panic(expected = "a prospect is a junction count, zero or one")]
     fn a_prospect_past_one_raises_at_the_entry() {
         let _ = TraceEntry::new(
-            TraceSettledSeat::at(0),
-            TraceNotesSeat::at(0),
-            DeltaSeat::at(0),
-            ReadsSeat::at(0),
+            TraceSettledId::at(0),
+            TraceNotesId::at(0),
+            DeltaId::at(0),
+            ReadsId::at(0),
             2,
             false,
             DecidedStage::Order,
         );
     }
 
-    /// A candidate memo entry is four seats in sixteen bytes with no heap allocation, under a fourteen-byte key. A closure memo value is its result and two seats in twelve bytes.
+    /// A candidate memo entry is four ids in sixteen bytes with no heap allocation, under a fourteen-byte key. A closure memo value is its result and two ids in twelve bytes.
     #[test]
     fn a_memoized_enumeration_is_sixteen_bytes_under_a_fourteen_byte_key() {
         assert_eq!(std::mem::size_of::<CandidatesEntry>(), 16);
         assert_eq!(std::mem::size_of::<CandidatesKey>(), 14);
-        assert_eq!(std::mem::size_of::<(bool, DeltaSeat, ReadsSeat)>(), 12);
+        assert_eq!(std::mem::size_of::<(bool, DeltaId, ReadsId)>(), 12);
     }
 
     /// Two trace keys with the same ordinals that differ only in one slot's kind, or only in the left's kind, compare unequal and hash differently.
@@ -5055,7 +5049,7 @@ mod tests {
     }
 
     #[test]
-    fn shared_memo_hit_stats_track_trace_and_settled_reads_by_seat() {
+    fn shared_memo_hit_stats_track_trace_and_settled_reads_by_id() {
         let index = firing_spec();
         let modes = EngineModes {
             trace_memo: true,
@@ -5090,13 +5084,13 @@ mod tests {
             .collect();
         let mut engine = Engine::with_modes(&index, [ss03], modes);
         engine.attach_shared_memos(shared.clone());
-        assert_eq!(engine.shared_memo_hits_by_seat(), &[0, 0]);
+        assert_eq!(engine.shared_memo_hits_by_id(), &[0, 0]);
         for slots in windows {
             engine
                 .transition_trace(&left, token, slots)
                 .expect("the shared memo answers the trace");
         }
-        assert_eq!(engine.shared_memo_hits_by_seat(), &[1, 1]);
+        assert_eq!(engine.shared_memo_hits_by_id(), &[1, 1]);
         for slots in windows {
             assert!(
                 engine
@@ -5104,30 +5098,30 @@ mod tests {
                     .is_some()
             );
         }
-        assert_eq!(engine.shared_memo_hits_by_seat(), &[2, 2]);
+        assert_eq!(engine.shared_memo_hits_by_id(), &[2, 2]);
         assert_eq!(engine.shared_memo_hits(), 4);
         assert_eq!(
             engine.shared_memo_hits(),
-            engine.shared_memo_hits_by_seat().iter().sum::<u64>()
+            engine.shared_memo_hits_by_id().iter().sum::<u64>()
         );
         engine.take_memo().expect("the reader journals");
         engine.release_memos();
-        assert_eq!(engine.shared_memo_hits_by_seat(), &[2, 2]);
+        assert_eq!(engine.shared_memo_hits_by_id(), &[2, 2]);
         engine
             .transition_trace(&left, token, windows[1])
             .expect("retained shared memos still answer after releasing own memos");
-        assert_eq!(engine.shared_memo_hits_by_seat(), &[2, 3]);
+        assert_eq!(engine.shared_memo_hits_by_id(), &[2, 3]);
         engine.attach_shared_memos(shared);
-        assert_eq!(engine.shared_memo_hits_by_seat(), &[0, 0]);
+        assert_eq!(engine.shared_memo_hits_by_id(), &[0, 0]);
         assert_eq!(engine.shared_memo_hits(), 0);
         engine.attach_shared_memos(Vec::new());
-        assert!(engine.shared_memo_hits_by_seat().is_empty());
+        assert!(engine.shared_memo_hits_by_id().is_empty());
         assert_eq!(engine.shared_memo_hits(), 0);
     }
 
-    /// Two windows that enumerate the same lists share one seat in each pool, and an entry's lists read back from the pools as its miss returned them, descriptions included. `elimination_text_bytes` counts each description the pool holds once, not once per entry that names it.
+    /// Two windows that enumerate the same lists share one id in each pool, and an entry's lists read back from the pools as its miss returned them, descriptions included. `elimination_text_bytes` counts each description the pool holds once, not once per entry that names it.
     #[test]
-    fn windows_with_the_same_lists_share_one_seat_into_each_pool() {
+    fn windows_with_the_same_lists_share_one_id_in_each_pool() {
         let index = firing_spec();
         let mut engine = Engine::with_modes(
             &index,
@@ -5172,9 +5166,9 @@ mod tests {
         assert!(engine.elimination_text_bytes() < per_entry);
     }
 
-    /// An engine without trace-memo mode journals nothing, so every closure memo value holds the seat of the empty delta and the delta pool holds only that one delta.
+    /// An engine without trace-memo mode journals nothing, so every closure memo value holds the id of the empty delta and the delta pool holds only that one delta.
     #[test]
-    fn a_journal_less_engine_seats_only_the_empty_delta() {
+    fn a_journal_less_engine_interns_only_the_empty_delta() {
         let index = firing_spec();
         let mut engine = Engine::new(&index, [fixtures::sym(&index, "ss03")]);
         engine
@@ -5366,10 +5360,17 @@ mod tests {
     }
 
     /// One policy record with a provenance pointer, so notes and error messages have a name to print.
-    fn pointed_record(kind: &str, rune: &str, seat: usize, overrides: &[(&str, &str)]) -> String {
+    fn pointed_record(
+        kind: &str,
+        rune: &str,
+        position: usize,
+        overrides: &[(&str, &str)],
+    ) -> String {
         let quoted = quoted(kind);
-        let pointer =
-            fixtures::names(&[&format!("{rune}.yaml"), &format!("policy.{kind}[{seat}]")]);
+        let pointer = fixtures::names(&[
+            &format!("{rune}.yaml"),
+            &format!("policy.{kind}[{position}]"),
+        ]);
         let mut fields: Vec<(&str, &str)> =
             vec![("kind", quoted.as_str()), ("provenance", pointer.as_str())];
         fields.extend_from_slice(overrides);
@@ -5600,11 +5601,11 @@ mod tests {
         let records: Vec<String> = ["full", "half"]
             .into_iter()
             .enumerate()
-            .map(|(seat, name)| {
+            .map(|(position, name)| {
                 pointed_record(
                     "prefer",
                     "qsPea",
-                    seat,
+                    position,
                     &[
                         ("stance", &quoted(name)),
                         ("cell", r#"{"exit":"none"}"#),
@@ -6732,7 +6733,7 @@ mod tests {
     #[test]
     fn a_memoized_prospect_is_eight_bytes_under_an_eighteen_byte_key() {
         assert_eq!(std::mem::size_of::<ProspectKey>(), 18);
-        assert_eq!(std::mem::size_of::<(i8, DeltaSeat)>(), 8);
+        assert_eq!(std::mem::size_of::<(i8, DeltaId)>(), 8);
     }
 
     /// Under a trace memo, when the follower's replayed settlement succeeds, the trace memo keeps the follower's window and the prospect memo keeps no entry. A second window asking the same prospects reads them through the trace memo and journals the same delta as the first. When the replayed settlement raises, the prospect memo keeps the fallback estimate, and the second window's asks hit that entry instead of settling the follower again.
@@ -6815,7 +6816,7 @@ mod tests {
         );
     }
 
-    /// Without a trace memo, or in candidacy mode, no trace memo entry can answer the next ask, so the prospect memo keeps every ask. Outside trace-memo mode each entry holds the seat of the empty delta, because nothing was journaled.
+    /// Without a trace memo, or in candidacy mode, no trace memo entry can answer the next ask, so the prospect memo keeps every ask. Outside trace-memo mode each entry holds the id of the empty delta, because nothing was journaled.
     #[test]
     fn a_prospect_with_no_trace_memo_behind_it_is_memoized_however_it_was_answered() {
         let index = prospect_spec();
@@ -6832,7 +6833,7 @@ mod tests {
             simulating
                 .prospect_cache
                 .values()
-                .all(|&(_, seat, _)| simulating.deltas.get(seat).is_empty())
+                .all(|&(_, id, _)| simulating.deltas.get(id).is_empty())
         );
         let mut estimating = Engine::with_modes(
             &index,

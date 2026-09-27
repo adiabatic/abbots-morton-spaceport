@@ -1421,7 +1421,7 @@ def absorb_replay_memo(dump: Path, memo: SettleMemoFile, spec: ResolvedSpec, con
         if max(max(columns[slot]) for slot in (0, 2, 3, 4, 5)) >= label_count:
             raise kernel_exec.KernelRunError(f"{dump} indexes a label past its table")
         if max(columns[1]) >= len(labels) or max(columns[6]) >= record_count:
-            raise kernel_exec.KernelRunError(f"{dump} indexes a seat past its table")
+            raise kernel_exec.KernelRunError(f"{dump} indexes a record past its table")
         ambiguous_lefts = _ambiguous_ids(labels, set(columns[1]))
         ambiguous_slots = _ambiguous_ids(
             labels, set().union(*(set(columns[slot]) for slot in (0, 2, 3, 4, 5)))

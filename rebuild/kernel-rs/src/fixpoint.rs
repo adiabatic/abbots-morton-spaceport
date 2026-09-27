@@ -25,7 +25,7 @@ use crate::options::{FollowerMap, WindowOptions};
 use crate::sha256;
 use crate::stream::{FixpointProduct, Label, LabelPool, TransitionRow, feature_config_token};
 use crate::types::{
-    CellId, EDGE, LeftContext, NotesPool, NotesSeat, RightToken, Settled, SettledPool, SettledSeat,
+    CellId, EDGE, LeftContext, NotesId, NotesPool, RightToken, Settled, SettledId, SettledPool,
     TokenKind, TransitionTrace, cell_label,
 };
 
@@ -146,9 +146,9 @@ struct Item {
 
 /// A recorded window's fields other than the six labels that key it (the rest of `table.Transition`). The settled records and the provenance are indexes into the run's [`SettledPool`] and [`NotesPool`]: a configuration reaches millions of rows but only a few thousand distinct records, so holding each record by value would copy its heap allocations into hundreds of thousands of rows. The prospect fits in a byte. The row is sixteen bytes, two of them padding, with no heap allocation of its own. The outcome is not stored: it is the settled cell's label, resolved once per settled record when the product is built.
 struct Row {
-    settled: SettledSeat,
-    left_settled: Option<SettledSeat>,
-    provenance: NotesSeat,
+    settled: SettledId,
+    left_settled: Option<SettledId>,
+    provenance: NotesId,
     prospect: i8,
     joint: bool,
 }
@@ -191,9 +191,9 @@ struct PendingDeepRow {
     members4: Slot4Entry,
     traced_r3_member: RightToken,
     traced_r4_member: Option<RightToken>,
-    settled: SettledSeat,
-    left_settled: Option<SettledSeat>,
-    provenance: NotesSeat,
+    settled: SettledId,
+    left_settled: Option<SettledId>,
+    provenance: NotesId,
     prospect: i8,
     joint: bool,
 }
@@ -202,11 +202,11 @@ impl PendingDeepRow {
     /// Whether a cross-check trace's record matches the representative's in the four fields a row stores: the settled triple and the notes (each read back through its pool), the prospect, and the joint-tiebreak flag. The ranking that reached them is not compared because the row does not store it.
     fn matches_stored_fields(
         &self,
-        seats: &SettledPool,
+        settled_pool: &SettledPool,
         notes: &NotesPool,
         cross_check: &TransitionTrace,
     ) -> bool {
-        cross_check.settled == *seats.get(self.settled)
+        cross_check.settled == *settled_pool.get(self.settled)
             && cross_check.prospect == i64::from(self.prospect)
             && cross_check.joint_tiebreak == self.joint
             && cross_check.notes == notes.get(self.provenance)
@@ -318,12 +318,12 @@ fn enumerate_from_seeds<'i>(
     let mut deriver = class_grain.then(DeepFiberDeriver::new);
 
     let mut labels = LabelPool::default();
-    let mut seats = SettledPool::default();
+    let mut settled_pool = SettledPool::default();
     let mut notes = NotesPool::default();
     let mut transitions: HashMap<WindowKey, Row> = HashMap::default();
     // The in-flight class-grain rows in creation order, which the member cross-check walks, and a map from each row's key to its index.
     let mut pending_rows: Vec<PendingDeepRow> = Vec::new();
-    let mut pending_seats: HashMap<PendingKey, usize> = HashMap::default();
+    let mut pending_ids: HashMap<PendingKey, usize> = HashMap::default();
     let mut seen: HashSet<Item> = HashSet::default();
     let mut worklist = seeds(&options);
 
@@ -355,8 +355,10 @@ fn enumerate_from_seeds<'i>(
             labels.intern(boundary_left_label(left.kind))
         };
         // A letter left is the settled record of a row already recorded, so past the seeds this lookup always hits. It runs once per item, and each window the item reaches compares the resulting index as an integer.
-        let left_seat: Option<SettledSeat> =
-            left.settled.as_ref().map(|settled| seats.seat(settled));
+        let left_id: Option<SettledId> = left
+            .settled
+            .as_ref()
+            .map(|settled| settled_pool.intern(settled));
         // The trace reads the raw letter whatever the label says: locking is a property of the glyph the emitted lookup substitutes, not of what settles.
         let token = index
             .letter(rune)
@@ -445,7 +447,7 @@ fn enumerate_from_seeds<'i>(
                             slot3_entries.push((Some(option), None, vec![option]));
                         }
                     }
-                    for (seat, fiber) in context.fibers.iter().enumerate() {
+                    for (position, fiber) in context.fibers.iter().enumerate() {
                         let admitted: Vec<RightToken> = fiber
                             .members
                             .iter()
@@ -457,17 +459,17 @@ fn enumerate_from_seeds<'i>(
                             })
                             .collect();
                         if !admitted.is_empty() {
-                            slot3_entries.push((None, Some(seat), admitted));
+                            slot3_entries.push((None, Some(position), admitted));
                         }
                     }
                     for (boundary3, fiber3, admitted3) in slot3_entries {
                         // The rune-set check is applied here, not inside the deriver: a fiber's own `fourth_matters` is the raw filter result, and only the enumeration knows whether this input is in the depth-4 rune set.
                         let slot4_entries: Vec<Slot4Entry> = match fiber3 {
-                            Some(seat)
+                            Some(position)
                                 if deep4_inputs.contains(&rune)
-                                    && context.fibers[seat].fourth_matters =>
+                                    && context.fibers[position].fourth_matters =>
                             {
-                                context.fibers[seat]
+                                context.fibers[position]
                                     .r4_groups
                                     .iter()
                                     .cloned()
@@ -479,13 +481,13 @@ fn enumerate_from_seeds<'i>(
                         // The identity is the fiber's full member list, not the admitted subset, so two items whose slot restrictions admit different subsets of one fiber accumulate into one row.
                         let identity3 = match boundary3 {
                             Some(token) => Identity3::Boundary(token),
-                            None => Identity3::Members(fiber3.map_or_else(Vec::new, |seat| {
-                                context.fibers[seat].members.clone()
+                            None => Identity3::Members(fiber3.map_or_else(Vec::new, |position| {
+                                context.fibers[position].members.clone()
                             })),
                         };
                         // The row is traced at the fiber's least member whether or not this item's slot restrictions admit it. The fiber invariant makes every member's record the same, and tracing a fixed member makes the traced window set, and so the fired set, independent of which item reached the fiber first.
                         let traced_r3_member = match fiber3 {
-                            Some(seat) => context.fibers[seat].members[0],
+                            Some(position) => context.fibers[position].members[0],
                             None => admitted3[0],
                         };
                         for members4 in slot4_entries {
@@ -498,10 +500,10 @@ fn enumerate_from_seeds<'i>(
                                 identity3.clone(),
                                 members4.clone(),
                             );
-                            let settled = match pending_seats.get(&pending_key) {
-                                Some(&seat) => {
-                                    let record = &mut pending_rows[seat];
-                                    if record.left_settled != left_seat {
+                            let settled = match pending_ids.get(&pending_key) {
+                                Some(&id) => {
+                                    let record = &mut pending_rows[id];
+                                    if record.left_settled != left_id {
                                         let display: WindowKey = [
                                             input_label,
                                             left_label,
@@ -513,12 +515,12 @@ fn enumerate_from_seeds<'i>(
                                         return Err(partition_error(
                                             index,
                                             &labels.spelled(&display),
-                                            record.left_settled.map(|seat| seats.get(seat)),
+                                            record.left_settled.map(|id| settled_pool.get(id)),
                                             left.settled.as_ref(),
                                         ));
                                     }
                                     record.admitted3.extend(admitted3.iter().copied());
-                                    seats.get(record.settled).clone()
+                                    settled_pool.get(record.settled).clone()
                                 }
                                 None => {
                                     let trace = engine
@@ -533,7 +535,7 @@ fn enumerate_from_seeds<'i>(
                                             ),
                                         )
                                         .map_err(error_message)?;
-                                    pending_seats.insert(pending_key, pending_rows.len());
+                                    pending_ids.insert(pending_key, pending_rows.len());
                                     pending_rows.push(PendingDeepRow {
                                         left_context: left.clone(),
                                         left_label,
@@ -546,9 +548,9 @@ fn enumerate_from_seeds<'i>(
                                         members4: members4.clone(),
                                         traced_r3_member,
                                         traced_r4_member,
-                                        settled: seats.seat(&trace.settled),
-                                        left_settled: left_seat,
-                                        provenance: notes.seat(trace.notes),
+                                        settled: settled_pool.intern(&trace.settled),
+                                        left_settled: left_id,
+                                        provenance: notes.intern(trace.notes),
                                         prospect: prospect_byte(trace.prospect),
                                         joint: trace.joint_tiebreak,
                                     });
@@ -629,15 +631,15 @@ fn enumerate_from_seeds<'i>(
                         ];
                         // A worklist item with different slot restrictions can reach a window key already recorded. The recorded settled state is what a re-trace would return, because the left label is injective into the trace's inputs, so a hit goes straight to the successor enqueue, whose slot restrictions still differ per item. The left-state comparison checks that premise and fails only if `cell_label` stops being injective over settled lefts.
                         let settled = if let Some(existing) = transitions.get(&window_key) {
-                            if existing.left_settled != left_seat {
+                            if existing.left_settled != left_id {
                                 return Err(partition_error(
                                     index,
                                     &labels.spelled(&window_key),
-                                    existing.left_settled.map(|seat| seats.get(seat)),
+                                    existing.left_settled.map(|id| settled_pool.get(id)),
                                     left.settled.as_ref(),
                                 ));
                             }
-                            seats.get(existing.settled).clone()
+                            settled_pool.get(existing.settled).clone()
                         } else {
                             let trace = engine
                                 .transition_trace(
@@ -654,9 +656,9 @@ fn enumerate_from_seeds<'i>(
                             transitions.insert(
                                 window_key,
                                 Row {
-                                    settled: seats.seat(&trace.settled),
-                                    left_settled: left_seat,
-                                    provenance: notes.seat(trace.notes),
+                                    settled: settled_pool.intern(&trace.settled),
+                                    left_settled: left_id,
+                                    provenance: notes.intern(trace.notes),
                                     prospect: prospect_byte(trace.prospect),
                                     joint: trace.joint_tiebreak,
                                 },
@@ -750,13 +752,13 @@ fn enumerate_from_seeds<'i>(
                     Slots::new(pending.right1, pending.right2, last3, traced_r4_member),
                 )
                 .map_err(error_message)?;
-            if !pending.matches_stored_fields(&seats, &notes, &cross_check) {
+            if !pending.matches_stored_fields(&settled_pool, &notes, &cross_check) {
                 return Err(member_mismatch(
                     index,
                     &labels.spelled(&window_key),
                     last3,
                     pending,
-                    seats.get(pending.settled),
+                    settled_pool.get(pending.settled),
                     notes.get(pending.provenance),
                     &cross_check,
                 ));
@@ -779,13 +781,13 @@ fn enumerate_from_seeds<'i>(
                     ),
                 )
                 .map_err(error_message)?;
-            if !pending.matches_stored_fields(&seats, &notes, &cross_check) {
+            if !pending.matches_stored_fields(&settled_pool, &notes, &cross_check) {
                 return Err(member_mismatch(
                     index,
                     &labels.spelled(&window_key),
                     last4,
                     pending,
-                    seats.get(pending.settled),
+                    settled_pool.get(pending.settled),
                     notes.get(pending.provenance),
                     &cross_check,
                 ));
@@ -814,7 +816,9 @@ fn enumerate_from_seeds<'i>(
             CacheSize::of("transitions", transitions.len(), transitions.capacity()).line(&config),
         );
         lines.push(CacheSize::of("seen", seen.len(), seen.capacity()).line(&config));
-        lines.push(CacheSize::of("settled_seats", seats.len(), seats.capacity()).line(&config));
+        lines.push(
+            CacheSize::of("settled_ids", settled_pool.len(), settled_pool.capacity()).line(&config),
+        );
         lines.push(CacheSize::of("notes", notes.len(), notes.capacity()).line(&config));
         lines.push(CacheSize::of("labels", labels.len(), labels.capacity()).line(&config));
         lines.push(
@@ -822,12 +826,7 @@ fn enumerate_from_seeds<'i>(
                 .line(&config),
         );
         lines.push(
-            CacheSize::of(
-                "pending_seats",
-                pending_seats.len(),
-                pending_seats.capacity(),
-            )
-            .line(&config),
+            CacheSize::of("pending_ids", pending_ids.len(), pending_ids.capacity()).line(&config),
         );
         for size in engine.cache_stats() {
             lines.push(size.line(&config));
@@ -840,9 +839,9 @@ fn enumerate_from_seeds<'i>(
             "[c] {config} shared_memo_hits count={}",
             engine.shared_memo_hits()
         ));
-        for (seat, count) in engine.shared_memo_hits_by_seat().iter().enumerate() {
+        for (id, count) in engine.shared_memo_hits_by_id().iter().enumerate() {
             lines.push(format!(
-                "[c] {config} shared_memo_hits seat={seat} count={count}"
+                "[c] {config} shared_memo_hits id={id} count={count}"
             ));
         }
         lines.push(format!(
@@ -894,8 +893,8 @@ fn enumerate_from_seeds<'i>(
     }
 
     // A row's outcome is its settled cell's label, so it is interned once per settled record here instead of once per row in the worklist. Every settled record is a cell some row settled into, so no unused label is interned.
-    let seat_table = seats.into_table();
-    let outcomes: Vec<Label> = seat_table
+    let settled_table = settled_pool.into_table();
+    let outcomes: Vec<Label> = settled_table
         .iter()
         .map(|settled| labels.intern_owned(cell_label(index, &settled.cell)))
         .collect();
@@ -928,12 +927,12 @@ fn enumerate_from_seeds<'i>(
         ));
     }
     // The product's cells are a set. Deduplicating here instead of in the emitter clones one cell per settled record instead of one per row. A row's settled index is checked first because most rows share an index already seen, and an integer set answers that without touching the cell.
-    let mut seen_seats: HashSet<SettledSeat> = HashSet::default();
+    let mut seen_ids: HashSet<SettledId> = HashSet::default();
     let mut counted: HashSet<&CellId> = HashSet::default();
     let mut cells: Vec<CellId> = Vec::new();
     for row in &rows {
-        if seen_seats.insert(row.settled) {
-            let cell = &seat_table[row.settled.index()].cell;
+        if seen_ids.insert(row.settled) {
+            let cell = &settled_table[row.settled.index()].cell;
             if counted.insert(cell) {
                 cells.push(cell.clone());
             }
@@ -947,7 +946,7 @@ fn enumerate_from_seeds<'i>(
         deep_classes,
         cited_provenance,
         cells,
-        seats: seat_table,
+        settled_records: settled_table,
         notes: notes.into_table(),
     };
     if let Some(deriver) = deriver.as_mut() {
@@ -1473,10 +1472,10 @@ impl DeepPartitionCheck<'_, '_> {
             .map_err(error_message)?;
         let mut static_letters: HashSet<Sym> = HashSet::default();
         let mut fiber_of: HashMap<Sym, usize> = HashMap::default();
-        for (seat, fiber) in fibers.fibers.iter().enumerate() {
+        for (position, fiber) in fibers.fibers.iter().enumerate() {
             for member in &fiber.members {
                 static_letters.insert(member.letter());
-                fiber_of.insert(member.letter(), seat);
+                fiber_of.insert(member.letter(), position);
             }
         }
         self.contexts.insert(
@@ -1525,10 +1524,10 @@ impl DeepPartitionCheck<'_, '_> {
         };
         let mut static_letters: HashSet<Sym> = HashSet::default();
         let mut fiber_of: HashMap<Sym, usize> = HashMap::default();
-        for (seat, fiber) in fibers.iter().enumerate() {
+        for (position, fiber) in fibers.iter().enumerate() {
             for member in *fiber {
                 static_letters.insert(named(member));
-                fiber_of.insert(named(member), seat);
+                fiber_of.insert(named(member), position);
             }
         }
         self.contexts.insert(
@@ -1567,7 +1566,7 @@ mod tests {
     /// A row is fourteen bytes of fields padded to sixteen, and its optional left index takes four bytes whether present or absent. A `TransitionRow` adds six four-byte labels and is padded to forty.
     #[test]
     fn a_row_is_its_fields_and_no_padding() {
-        assert_eq!(std::mem::size_of::<Option<SettledSeat>>(), 4);
+        assert_eq!(std::mem::size_of::<Option<SettledId>>(), 4);
         assert_eq!(std::mem::size_of::<Row>(), 16);
         assert_eq!(std::mem::size_of::<TransitionRow>(), 40);
     }
@@ -2082,9 +2081,9 @@ mod tests {
                     right2,
                     right3,
                     right4,
-                    settled: SettledSeat::at(0),
+                    settled: SettledId::at(0),
                     left_settled: None,
-                    provenance: NotesSeat::at(0),
+                    provenance: NotesId::at(0),
                     prospect: 0,
                     joint: false,
                 }
@@ -2519,7 +2518,7 @@ mod tests {
                 .expect("the cache stats report the shared memo hits")
                 .parse::<u64>()
                 .expect("as a count");
-            assert!(stats.contains(&format!("[c] ss03 shared_memo_hits seat=0 count={hits}")));
+            assert!(stats.contains(&format!("[c] ss03 shared_memo_hits id=0 count={hits}")));
             (product, hits)
         };
         let (over_shared, hits) =

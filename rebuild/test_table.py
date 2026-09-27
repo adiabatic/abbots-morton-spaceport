@@ -72,13 +72,13 @@ def ss03_tables():
 def replay(decision):
     """Replays every expanded row against the crate's ordered rules under first-match-wins, and asserts that the rules predict each row's outcome and that every rule is the first match for some row. The crate checks the same two claims as it folds (`fold::assert_outcome_partition`, over one left per block). This implementation is independent, so a fold that derived wrong rules and replayed them with the same mistake would pass its own check and fail this one. It replays the whole table at label grain, which a fixture can afford and a live configuration cannot. The crate replays a subset of these rows, so a rule it found first for some row is first here too."""
     rules_by_input: dict[str, list] = {}
-    for seat, rule in enumerate(decision.rules):
-        rules_by_input.setdefault(rule.input_glyph, []).append((seat, rule))
+    for position, rule in enumerate(decision.rules):
+        rules_by_input.setdefault(rule.input_glyph, []).append((position, rule))
     failures = []
     first: set[int] = set()
     for row in decision.expanded_transitions():
         predicted = row.input_glyph
-        for seat, rule in rules_by_input.get(row.input_glyph, ()):
+        for position, rule in rules_by_input.get(row.input_glyph, ()):
             if rule.backtrack is not None and row.left not in rule.backtrack:
                 continue
             if rule.look1 is not None and row.right1 not in rule.look1:
@@ -90,7 +90,7 @@ def replay(decision):
             if rule.look4 is not None and row.right4 not in rule.look4:
                 continue
             predicted = rule.outcome
-            first.add(seat)
+            first.add(position)
             break
         if predicted != row.outcome:
             failures.append((row.key, row.outcome, predicted))
@@ -98,11 +98,11 @@ def replay(decision):
         f"{key}: settlement says {expected}, rules say {predicted}"
         for key, expected, predicted in failures[:5]
     )
-    unreachable = [seat for seat in range(len(decision.rules)) if seat not in first]
+    unreachable = [position for position in range(len(decision.rules)) if position not in first]
     assert first == set(range(len(decision.rules))), "; ".join(
         f"no replayed row first-matches {rule.input_glyph} "
         f"{(rule.backtrack, rule.look1, rule.look2, rule.look3, rule.look4)} -> {rule.outcome}"
-        for rule in (decision.rules[seat] for seat in unreachable[:5])
+        for rule in (decision.rules[position] for position in unreachable[:5])
     )
 
 

@@ -312,8 +312,8 @@ impl Parser {
     ) -> Result<Vec<T>, IngestError> {
         let items = sequence(value)?;
         let mut parsed = Vec::with_capacity(items.len());
-        for (seat, item) in items.iter().enumerate() {
-            parsed.push(read(self, item).map_err(|error| error.at(seat.to_string()))?);
+        for (position, item) in items.iter().enumerate() {
+            parsed.push(read(self, item).map_err(|error| error.at(position.to_string()))?);
         }
         Ok(parsed)
     }

@@ -22,20 +22,20 @@ use crate::types::{RightToken, UNJOINED_SUFFIX, Vocab};
 /// One memo-key field's value: a symbol's position, counted from one, in the table this index builds for that field. The rune field's table is the modeled runes in declaration order, then the registry's other families. The stance field's table is every stance name in first-declaration order. The entry and junction fields' tables are every height the spec can put in that field. Each field holds one of a handful of symbols, so two bytes are enough where a [`Sym`] takes four, and `NonZeroU16` keeps zero free so that `Option<Ordinal>` is also two bytes. An ordinal is meaningful only with the index that minted it, and the `*_at_ordinal` methods map it back to the symbol. Each table covers its own field alone, so a stance ordinal does not depend on the rune beside it, and a case can pair a left of one rune with another rune's stance, as a forged case does.
 pub type Ordinal = NonZeroU16;
 
-/// The ordinal for a table's `seat`-th entry: `seat + 1`, which keeps zero free for the niche. The conversion to `u16` is checked.
-fn ordinal_at(seat: usize) -> Ordinal {
-    let raw = u16::try_from(seat)
+/// The ordinal for a table's `index`-th entry: `index + 1`, which keeps zero free for the niche. The conversion to `u16` is checked.
+fn ordinal_at(index: usize) -> Ordinal {
+    let raw = u16::try_from(index)
         .ok()
-        .and_then(|seat| seat.checked_add(1))
+        .and_then(|index| index.checked_add(1))
         .expect("a memo key field names at most 65,535 distinct symbols");
-    Ordinal::new(raw).expect("a seat's successor is never zero")
+    Ordinal::new(raw).expect("an index's successor is never zero")
 }
 
 /// A height's ordinal in one of the two height tables. A linear scan, because the table holds only a few heights and a few comparisons cost less than one hash.
 fn height_ordinal(table: &[Sym], height: Sym) -> Option<Ordinal> {
     table
         .iter()
-        .position(|seated| *seated == height)
+        .position(|held| *held == height)
         .map(ordinal_at)
 }
 
@@ -62,7 +62,7 @@ fn gather_heights(table: &mut Vec<Sym>, runes: &Table<Rune>, entry: bool) {
     }
 }
 
-/// One stance's identity within a spec: the rune's declaration seat and the stance's seat inside it. The engine's exit-sources and pairing-set caches key on it.
+/// One stance's identity within a spec: the rune's declaration position and the stance's position inside it. The engine's exit-sources and pairing-set caches key on it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct StanceId {
     pub rune: u32,
@@ -70,7 +70,7 @@ pub struct StanceId {
 }
 
 impl StanceId {
-    /// The identity of the stance at seat `stance` inside the rune at seat `rune`, both in declaration order, as a caller iterating `rune.stances` has them.
+    /// The identity of the stance at position `stance` inside the rune at position `rune`, both in declaration order, as a caller iterating `rune.stances` has them.
     pub fn new(rune: u32, stance: u32) -> Self {
         Self { rune, stance }
     }
@@ -155,7 +155,7 @@ pub struct SpecIndex {
     group_owner: HashMap<Sym, u32>,
     boundary_tokens: HashMap<Sym, u32>,
     empty: BTreeSet<Sym>,
-    /// The rune-field ordinal table: the modeled runes in declaration order, so a modeled rune's ordinal is its seat counted from one, then every registry family the spec does not model, in registry order. The unmodeled families are included because a slot may name a registered letter the spec does not model yet, and the engine reads that slot as an unmodeled family. [`SpecIndex::rune_ordinals`] maps each name to its ordinal.
+    /// The rune-field ordinal table: the modeled runes in declaration order, so a modeled rune's ordinal is its position counted from one, then every registry family the spec does not model, in registry order. The unmodeled families are included because a slot may name a registered letter the spec does not model yet, and the engine reads that slot as an unmodeled family. [`SpecIndex::rune_ordinals`] maps each name to its ordinal.
     rune_field: Vec<Sym>,
     rune_ordinals: HashMap<Sym, Ordinal>,
     /// The stance-field ordinal table: every stance name some rune declares, in the order the runes first declare them. [`SpecIndex::stance_ordinals`] is the mint over it.
@@ -192,25 +192,25 @@ impl SpecIndex {
             HashMap::with_capacity_and_hasher(spec.root.runes.len(), Default::default());
         let mut rune_index = Vec::with_capacity(spec.root.runes.len());
         let mut group_owner: HashMap<Sym, u32> = HashMap::default();
-        for (seat, (name, rune)) in spec.root.runes.iter().enumerate() {
-            let seat =
-                u32::try_from(seat).expect("a spec dump models far fewer than four billion runes");
-            runes.insert(*name, seat);
+        for (position, (name, rune)) in spec.root.runes.iter().enumerate() {
+            let position = u32::try_from(position)
+                .expect("a spec dump models far fewer than four billion runes");
+            runes.insert(*name, position);
             let mut groups =
                 HashMap::with_capacity_and_hasher(rune.policy.groups.len(), Default::default());
             for (group, members) in rune.policy.groups.iter() {
                 groups.insert(*group, members.iter().copied().collect());
-                group_owner.entry(*group).or_insert(seat);
+                group_owner.entry(*group).or_insert(position);
             }
             rune_index.push(RuneIndex {
                 stances: rune
                     .stances
                     .iter()
                     .enumerate()
-                    .map(|(stance_seat, (stance_name, _))| {
+                    .map(|(stance_position, (stance_name, _))| {
                         (
                             *stance_name,
-                            u32::try_from(stance_seat)
+                            u32::try_from(stance_position)
                                 .expect("a rune declares far fewer than four billion stances"),
                         )
                     })
@@ -236,7 +236,7 @@ impl SpecIndex {
         let rune_ordinals: HashMap<Sym, Ordinal> = rune_field
             .iter()
             .enumerate()
-            .map(|(seat, name)| (*name, ordinal_at(seat)))
+            .map(|(position, name)| (*name, ordinal_at(position)))
             .collect();
         let mut stance_field: Vec<Sym> = Vec::new();
         for (_, rune) in spec.root.runes.iter() {
@@ -249,7 +249,7 @@ impl SpecIndex {
         let stance_ordinals: HashMap<Sym, Ordinal> = stance_field
             .iter()
             .enumerate()
-            .map(|(seat, name)| (*name, ordinal_at(seat)))
+            .map(|(position, name)| (*name, ordinal_at(position)))
             .collect();
         let declared: Vec<Sym> = registry.heights.iter().map(|(height, _)| *height).collect();
         let mut entry_heights = declared.clone();
@@ -288,10 +288,10 @@ impl SpecIndex {
                 .boundary_tokens
                 .iter()
                 .enumerate()
-                .map(|(seat, (name, _))| {
+                .map(|(position, (name, _))| {
                     (
                         *name,
-                        u32::try_from(seat)
+                        u32::try_from(position)
                             .expect("a registry declares far fewer than four billion tokens"),
                     )
                 })
@@ -341,26 +341,27 @@ impl SpecIndex {
         self.rune_index.len()
     }
 
-    /// A rune's declaration seat, or `None` when the name is not modeled.
-    pub fn rune_seat(&self, name: Sym) -> Option<u32> {
+    /// A rune's declaration position, or `None` when the name is not modeled.
+    pub fn rune_position(&self, name: Sym) -> Option<u32> {
         self.runes.get(&name).copied()
     }
 
     /// One rune by name — `spec.runes.get(name)`.
     pub fn rune(&self, name: Sym) -> Option<&Rune> {
-        self.rune_seat(name).map(|seat| self.rune_at(seat))
+        self.rune_position(name)
+            .map(|position| self.rune_at(position))
     }
 
-    /// One rune by declaration seat.
-    pub fn rune_at(&self, seat: u32) -> &Rune {
-        let (name, rune) = self.rune_entry(seat);
+    /// One rune by declaration position.
+    pub fn rune_at(&self, position: u32) -> &Rune {
+        let (name, rune) = self.rune_entry(position);
         journal(Read::Rune(*name));
         rune
     }
 
-    /// One rune's name by declaration seat.
-    pub fn rune_name_at(&self, seat: u32) -> Sym {
-        self.rune_entry(seat).0
+    /// One rune's name by declaration position.
+    pub fn rune_name_at(&self, position: u32) -> Sym {
+        self.rune_entry(position).0
     }
 
     /// Whether this spec models the rune: `name in spec.runes`, the check that guards every letter-token read.
@@ -368,7 +369,7 @@ impl SpecIndex {
         self.runes.contains_key(&name)
     }
 
-    /// A rune's ordinal in the rune field of a memo key — a modeled rune's declaration seat counted from one, an unmodeled family's seat past the modeled runes — or `None` for a name the registry knows no family by.
+    /// A rune's ordinal in the rune field of a memo key — a modeled rune's declaration position counted from one, an unmodeled family's position past the modeled runes — or `None` for a name the registry knows no family by.
     pub fn rune_ordinal(&self, name: Sym) -> Option<Ordinal> {
         self.rune_ordinals.get(&name).copied()
     }
@@ -416,10 +417,10 @@ impl SpecIndex {
 
     /// One stance's identity, or `None` when the rune or the stance is absent.
     pub fn stance_id(&self, rune: Sym, stance: Sym) -> Option<StanceId> {
-        let seat = self.rune_seat(rune)?;
+        let position = self.rune_position(rune)?;
         journal(Read::Rune(rune));
-        let stance_seat = *self.rune_index[seat as usize].stances.get(&stance)?;
-        Some(StanceId::new(seat, stance_seat))
+        let stance_position = *self.rune_index[position as usize].stances.get(&stance)?;
+        Some(StanceId::new(position, stance_position))
     }
 
     /// One stance by identity.
@@ -435,9 +436,9 @@ impl SpecIndex {
     }
 
     /// How many stances a rune declares.
-    pub fn stance_count(&self, seat: u32) -> usize {
-        journal(Read::Rune(self.rune_name_at(seat)));
-        self.rune_index[seat as usize].order_index.len()
+    pub fn stance_count(&self, position: u32) -> usize {
+        journal(Read::Rune(self.rune_name_at(position)));
+        self.rune_index[position as usize].order_index.len()
     }
 
     /// The stance's rank in its rune's declared order, which the `Order` ranking stage reads after the yielding prefers. Computed when the index is built.
@@ -458,16 +459,16 @@ impl SpecIndex {
             .or_else(|| rune.stances.iter().next().map(|(name, _)| *name))
     }
 
-    /// One entry row with its declaration seat — `stance.surface.entries.get(height)`, plus the index the enumeration numbers rows by.
+    /// One entry row with its declaration position — `stance.surface.entries.get(height)`, plus the index the enumeration numbers rows by.
     pub fn entry_row(&self, id: StanceId, height: Sym) -> Option<(usize, &SurfaceRow)> {
-        let seat = *self.rows(id).entries.get(&height)?;
-        Some((seat, row_at(&self.stance(id).surface.entries, seat)))
+        let position = *self.rows(id).entries.get(&height)?;
+        Some((position, row_at(&self.stance(id).surface.entries, position)))
     }
 
-    /// One exit row with its declaration seat — `stance.surface.exits.get(height)`, plus the exit index the final tiebreak reads last.
+    /// One exit row with its declaration position — `stance.surface.exits.get(height)`, plus the exit index the final tiebreak reads last.
     pub fn exit_row(&self, id: StanceId, height: Sym) -> Option<(usize, &SurfaceRow)> {
-        let seat = *self.rows(id).exits.get(&height)?;
-        Some((seat, row_at(&self.stance(id).surface.exits, seat)))
+        let position = *self.rows(id).exits.get(&height)?;
+        Some((position, row_at(&self.stance(id).surface.exits, position)))
     }
 
     /// Whether the stance declares an exit at this height: `height in stance.surface.exits`. An unlock exit counts only at a height the stance does not declare.
@@ -496,11 +497,11 @@ impl SpecIndex {
 
     /// One boundary token's registry record.
     pub fn boundary_token(&self, name: Sym) -> Option<&BoundaryToken> {
-        let seat = *self.boundary_tokens.get(&name)?;
+        let position = *self.boundary_tokens.get(&name)?;
         self.registry()
             .boundary_tokens
             .iter()
-            .nth(seat as usize)
+            .nth(position as usize)
             .map(|(_, token)| token)
     }
 
@@ -513,9 +514,9 @@ impl SpecIndex {
 
     /// One rune's local group membership.
     pub fn rune_group(&self, rune: Sym, name: Sym) -> Option<&BTreeSet<Sym>> {
-        let seat = self.rune_seat(rune)?;
+        let position = self.rune_position(rune)?;
         journal(Read::Rune(rune));
-        self.rune_index[seat as usize].groups.get(&name)
+        self.rune_index[position as usize].groups.get(&name)
     }
 
     /// Resolve a `class:` reference to family names: registry predicate classes first, then the owning rune's local groups, then the group of that name on the first rune in declaration order that declares one.
@@ -531,15 +532,15 @@ impl SpecIndex {
             return Ok(members);
         }
         if let Some(owner) = owner
-            && let Some(seat) = self.rune_seat(owner)
-            && let Some(members) = self.rune_index[seat as usize].groups.get(&name)
+            && let Some(position) = self.rune_position(owner)
+            && let Some(members) = self.rune_index[position as usize].groups.get(&name)
         {
             journal(Read::Rune(owner));
             return Ok(members);
         }
-        if let Some(seat) = self.group_owner.get(&name) {
-            journal(Read::Rune(self.rune_name_at(*seat)));
-            return Ok(&self.rune_index[*seat as usize].groups[&name]);
+        if let Some(position) = self.group_owner.get(&name) {
+            journal(Read::Rune(self.rune_name_at(*position)));
+            return Ok(&self.rune_index[*position as usize].groups[&name]);
         }
         Err(SettleError::Plain(format!(
             "unknown class or group: '{}'",
@@ -549,10 +550,10 @@ impl SpecIndex {
 
     /// Every stroke a rune offers on a selectable entry row, across its stances — the set a right-side `stroke:` condition tests membership in. An unmodeled rune has none rather than raising, because a condition may name one.
     pub fn entry_strokes(&self, rune: Sym) -> &BTreeSet<Sym> {
-        match self.rune_seat(rune) {
-            Some(seat) => {
+        match self.rune_position(rune) {
+            Some(position) => {
                 journal(Read::Rune(rune));
-                &self.rune_index[seat as usize].entry_strokes
+                &self.rune_index[position as usize].entry_strokes
             }
             None => &self.empty,
         }
@@ -560,19 +561,19 @@ impl SpecIndex {
 
     /// Whether the ZWNJ lock replaces this rune, as `settle.is_entry_bearing` computes it: some stance has a selectable declared entry row, or some stance has an entry unlock. Feature-blind, like the ZWNJ lock itself. An unmodeled rune returns `false`, where Python raises `KeyError`; every call site checks first.
     pub fn is_entry_bearing(&self, rune: Sym) -> bool {
-        self.rune_seat(rune).is_some_and(|seat| {
+        self.rune_position(rune).is_some_and(|position| {
             journal(Read::Rune(rune));
-            self.rune_index[seat as usize].entry_bearing
+            self.rune_index[position as usize].entry_bearing
         })
     }
 
-    fn rune_entry(&self, seat: u32) -> &(Sym, Rune) {
+    fn rune_entry(&self, position: u32) -> &(Sym, Rune) {
         self.spec
             .root
             .runes
             .iter()
-            .nth(seat as usize)
-            .expect("a rune seat comes from this index and is in range")
+            .nth(position as usize)
+            .expect("a rune position comes from this index and is in range")
     }
 
     fn stance_entry(&self, id: StanceId) -> &(Sym, Stance) {
@@ -580,7 +581,7 @@ impl SpecIndex {
             .stances
             .iter()
             .nth(id.stance as usize)
-            .expect("a stance seat comes from this index and is in range")
+            .expect("a stance position comes from this index and is in range")
     }
 
     fn rows(&self, id: StanceId) -> &StanceIndex {
@@ -588,11 +589,11 @@ impl SpecIndex {
     }
 }
 
-fn row_at(rows: &Table<SurfaceRow>, seat: usize) -> &SurfaceRow {
+fn row_at(rows: &Table<SurfaceRow>, position: usize) -> &SurfaceRow {
     rows.iter()
-        .nth(seat)
+        .nth(position)
         .map(|(_, row)| row)
-        .expect("a row seat comes from this index and is in range")
+        .expect("a row position comes from this index and is in range")
 }
 
 fn row_index(stance: &Stance) -> StanceIndex {
@@ -602,14 +603,14 @@ fn row_index(stance: &Stance) -> StanceIndex {
             .entries
             .iter()
             .enumerate()
-            .map(|(seat, (height, _))| (*height, seat))
+            .map(|(position, (height, _))| (*height, position))
             .collect(),
         exits: stance
             .surface
             .exits
             .iter()
             .enumerate()
-            .map(|(seat, (height, _))| (*height, seat))
+            .map(|(position, (height, _))| (*height, position))
             .collect(),
     }
 }
@@ -630,7 +631,7 @@ fn order_indices(rune: &Rune) -> Vec<usize> {
         .map(|(name, _)| {
             order
                 .iter()
-                .position(|seat| seat == name)
+                .position(|held| held == name)
                 .expect("every stance is either named in the order or appended to it")
         })
         .collect()
@@ -1115,11 +1116,11 @@ mod tests {
         assert!(index.is_modeled(tea));
         assert_eq!(index.rune_count(), 4);
         assert_eq!(index.rune(tea).expect("qsTea is modeled").name, tea);
-        let seat = index.rune_seat(tea).expect("qsTea has a seat");
-        assert_eq!(index.rune_name_at(seat), tea);
-        assert_eq!(index.stance_count(seat), 2);
+        let position = index.rune_position(tea).expect("qsTea has a position");
+        assert_eq!(index.rune_name_at(position), tea);
+        assert_eq!(index.stance_count(position), 2);
         let names: Vec<&str> = index
-            .rune_at(seat)
+            .rune_at(position)
             .stances
             .iter()
             .map(|(name, _)| index.resolve(*name))
@@ -1128,7 +1129,7 @@ mod tests {
         let half = index
             .stance_id(tea, fixtures::sym(&index, "half"))
             .expect("qsTea declares half");
-        assert_eq!(half, StanceId::new(seat, 0));
+        assert_eq!(half, StanceId::new(position, 0));
         assert_eq!(index.resolve(index.stance_name(half)), "half");
         assert_eq!(index.resolve(index.stance(half).motion), "flat");
         assert_eq!(index.stance_id(tea, fixtures::sym(&index, "solo")), None);
@@ -1136,7 +1137,7 @@ mod tests {
     }
 
     #[test]
-    fn a_surface_row_carries_the_seat_the_enumeration_numbers_it_by() {
+    fn a_surface_row_carries_the_position_the_enumeration_numbers_it_by() {
         let index = fixtures::mini();
         let tea = fixtures::sym(&index, "qsTea");
         let half = index
@@ -1144,26 +1145,26 @@ mod tests {
             .expect("qsTea declares half");
         let baseline = fixtures::sym(&index, "baseline");
         let x_height = fixtures::sym(&index, "x-height");
-        let (seat, row) = index
+        let (position, row) = index
             .entry_row(half, baseline)
             .expect("half enters at the baseline");
-        assert_eq!(seat, 0);
+        assert_eq!(position, 0);
         assert!(row.selectable);
         assert_eq!(
             index.resolve(row.stroke.expect("the row names a stroke")),
             "horizontal"
         );
-        let (seat, row) = index
+        let (position, row) = index
             .entry_row(half, x_height)
             .expect("half enters at the x-height too");
-        assert_eq!(seat, 1);
+        assert_eq!(position, 1);
         assert!(!row.selectable);
         assert_eq!(
-            index.exit_row(half, x_height).map(|(seat, _)| seat),
+            index.exit_row(half, x_height).map(|(position, _)| position),
             Some(0)
         );
         assert_eq!(
-            index.exit_row(half, baseline).map(|(seat, _)| seat),
+            index.exit_row(half, baseline).map(|(position, _)| position),
             Some(1)
         );
         assert!(index.declares_exit(half, baseline));
@@ -1177,13 +1178,13 @@ mod tests {
     }
 
     #[test]
-    fn the_order_index_keeps_the_seat_a_name_that_is_not_a_stance_occupies() {
+    fn the_order_index_keeps_the_position_a_name_that_is_not_a_stance_occupies() {
         let index = fixtures::mini();
         let tea = fixtures::sym(&index, "qsTea");
-        let seat = index.rune_seat(tea).expect("qsTea has a seat");
-        // policy.order is ["ghost", "full"]: ghost takes seat 0 without being a stance, full takes 1, and half is appended.
-        assert_eq!(index.order_index(StanceId::new(seat, 1)), 1);
-        assert_eq!(index.order_index(StanceId::new(seat, 0)), 2);
+        let position = index.rune_position(tea).expect("qsTea has a position");
+        // policy.order is ["ghost", "full"]: ghost takes position 0 without being a stance, full takes 1, and half is appended.
+        assert_eq!(index.order_index(StanceId::new(position, 1)), 1);
+        assert_eq!(index.order_index(StanceId::new(position, 0)), 2);
         assert_eq!(
             index.resolve(index.default_stance(tea).expect("qsTea has an order")),
             "ghost"
@@ -1194,9 +1195,9 @@ mod tests {
     fn a_rune_with_no_declared_order_ranks_its_stances_in_declaration_order() {
         let index = fixtures::mini();
         let may = fixtures::sym(&index, "qsMay");
-        let seat = index.rune_seat(may).expect("qsMay has a seat");
-        assert_eq!(index.order_index(StanceId::new(seat, 0)), 0);
-        assert_eq!(index.order_index(StanceId::new(seat, 1)), 1);
+        let position = index.rune_position(may).expect("qsMay has a position");
+        assert_eq!(index.order_index(StanceId::new(position, 0)), 0);
+        assert_eq!(index.order_index(StanceId::new(position, 1)), 1);
         assert_eq!(
             index.resolve(index.default_stance(may).expect("qsMay has stances")),
             "bare"
@@ -1363,11 +1364,11 @@ mod tests {
     fn each_key_field_mints_an_injective_ordinal_that_reads_back() {
         let index = fixtures::mini();
         let mut rune_ordinals = BTreeSet::new();
-        for (seat, (name, _)) in index.runes().iter().enumerate() {
+        for (position, (name, _)) in index.runes().iter().enumerate() {
             let ordinal = index
                 .rune_ordinal(*name)
                 .expect("a modeled rune has an ordinal");
-            assert_eq!(usize::from(ordinal.get()), seat + 1);
+            assert_eq!(usize::from(ordinal.get()), position + 1);
             assert_eq!(index.rune_at_ordinal(ordinal), *name);
             assert_eq!(
                 index.letter(*name),

@@ -22,17 +22,17 @@ pub struct Interner {
 }
 
 impl Sym {
-    /// The symbol for the pool's `seat`-th string. Its integer is `seat + 1`, which keeps zero free for `None`.
-    fn at(seat: usize) -> Self {
-        let raw = u32::try_from(seat)
+    /// The symbol for the pool's `index`-th string. Its integer is `index + 1`, which keeps zero free for `None`.
+    fn at(index: usize) -> Self {
+        let raw = u32::try_from(index)
             .ok()
-            .and_then(|seat| seat.checked_add(1))
+            .and_then(|index| index.checked_add(1))
             .expect("a spec dump interns far fewer than four billion strings");
-        Self(NonZeroU32::new(raw).expect("a seat's successor is never zero"))
+        Self(NonZeroU32::new(raw).expect("an index's successor is never zero"))
     }
 
-    /// The seat this symbol's text sits at in the pool that minted it.
-    fn seat(self) -> usize {
+    /// The index this symbol's text sits at in the pool that minted it.
+    fn index(self) -> usize {
         (self.0.get() - 1) as usize
     }
 }
@@ -54,17 +54,17 @@ impl Interner {
         minted
     }
 
-    /// The text `symbol` stands for. An out-of-range symbol panics. An in-range symbol minted by another interner silently resolves to whatever this pool holds at that seat, which is why a [`Spec`] carries its own `Interner`.
+    /// The text `symbol` stands for. An out-of-range symbol panics. An in-range symbol minted by another interner silently resolves to whatever this pool holds at that index, which is why a [`Spec`] carries its own `Interner`.
     pub fn resolve(&self, symbol: Sym) -> &str {
-        &self.strings[symbol.seat()]
+        &self.strings[symbol.index()]
     }
 
-    /// Every symbol the pool has minted with its text, in minting order. Callers enumerate a pool through this so that none depends on where the seats start.
+    /// Every symbol the pool has minted with its text, in minting order. Callers enumerate a pool through this so that none depends on where the indexes start.
     pub fn iter(&self) -> impl Iterator<Item = (Sym, &str)> {
         self.strings
             .iter()
             .enumerate()
-            .map(|(seat, text)| (Sym::at(seat), text.as_str()))
+            .map(|(index, text)| (Sym::at(index), text.as_str()))
     }
 
     /// How many distinct strings the pool holds.

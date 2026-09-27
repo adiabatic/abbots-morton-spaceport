@@ -345,14 +345,14 @@ pub struct Settled {
     pub extension: i64,
 }
 
-/// The index of one distinct [`Settled`] record in a product's table, stored in a row in place of the record. A configuration reaches millions of rows but only a few thousand distinct settled records. Storing the record by value would copy it, with its heap-allocated adjustments, into hundreds of thousands of rows; a seat names it in four bytes, and comparing two rows' settled records is one integer comparison. A seat means nothing without its table, so it is used only inside a product and never written to the stream. The stream writer resolves the seat through the table and writes the cell's index in the stream head.
+/// The index of one distinct [`Settled`] record in a product's table, stored in a row in place of the record. A configuration reaches millions of rows but only a few thousand distinct settled records. Storing the record by value would copy it, with its heap-allocated adjustments, into hundreds of thousands of rows; an id names it in four bytes, and comparing two rows' settled records is one integer comparison. An id means nothing without its table, so it is used only inside a product and never written to the stream. The stream writer resolves the id through the table and writes the cell's index in the stream head.
 ///
-/// The integer is the index plus one, in a `NonZeroU32`, for the same reason as [`Sym`]: a row's left seat is absent for a boundary left, and the zero niche keeps `Option<SettledSeat>` at four bytes where `Option<u32>` takes eight. [`SettledSeat::at`] and [`SettledSeat::index`] are the only conversions, and nothing else reads the integer.
+/// The integer is the index plus one, in a `NonZeroU32`, for the same reason as [`Sym`]: a row's left id is absent for a boundary left, and the zero niche keeps `Option<SettledId>` at four bytes where `Option<u32>` takes eight. [`SettledId::at`] and [`SettledId::index`] are the only conversions, and nothing else reads the integer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct SettledSeat(NonZeroU32);
+pub struct SettledId(NonZeroU32);
 
-impl SettledSeat {
-    /// The seat for the table's `index`-th record.
+impl SettledId {
+    /// The id for the table's `index`-th record.
     pub fn at(index: usize) -> Self {
         let raw = u32::try_from(index)
             .ok()
@@ -361,37 +361,37 @@ impl SettledSeat {
         Self(NonZeroU32::new(raw).expect("an index's successor is never zero"))
     }
 
-    /// The seat as the table's index.
+    /// The id as the table's index.
     pub fn index(self) -> usize {
         (self.0.get() - 1) as usize
     }
 }
 
-/// The table that gives each of one fixpoint's settled records a seat: each distinct record once, in the order the enumeration first reached it, with its seat. The map returns a record's seat and the table returns a seat's record. Together they hold two copies of a few thousand records, against the millions of rows the seats stand in for.
+/// The table that gives each of one fixpoint's settled records an id: each distinct record once, in the order the enumeration first reached it, with its id. The map returns a record's id and the table returns an id's record. Together they hold two copies of a few thousand records, against the millions of rows the ids stand in for.
 #[derive(Clone, Debug, Default)]
 pub struct SettledPool {
-    seats: HashMap<Settled, SettledSeat>,
+    ids: HashMap<Settled, SettledId>,
     table: Vec<Settled>,
 }
 
 impl SettledPool {
-    /// This record's seat, created the first time the record is seen and looked up in the map afterward.
-    pub fn seat(&mut self, settled: &Settled) -> SettledSeat {
-        if let Some(&seat) = self.seats.get(settled) {
-            return seat;
+    /// This record's id, created the first time the record is seen and looked up in the map afterward.
+    pub fn intern(&mut self, settled: &Settled) -> SettledId {
+        if let Some(&id) = self.ids.get(settled) {
+            return id;
         }
-        let seat = SettledSeat::at(self.table.len());
-        self.seats.insert(settled.clone(), seat);
+        let id = SettledId::at(self.table.len());
+        self.ids.insert(settled.clone(), id);
         self.table.push(settled.clone());
-        seat
+        id
     }
 
-    /// The record one seat names.
-    pub fn get(&self, seat: SettledSeat) -> &Settled {
-        &self.table[seat.index()]
+    /// The record one id names.
+    pub fn get(&self, id: SettledId) -> &Settled {
+        &self.table[id.index()]
     }
 
-    /// How many distinct records have seats.
+    /// How many distinct records have ids.
     pub fn len(&self) -> usize {
         self.table.len()
     }
@@ -405,18 +405,18 @@ impl SettledPool {
         self.table.capacity()
     }
 
-    /// The table alone, which is the part a product keeps. From here on seats resolve by index, and nothing after the fixpoint creates one.
+    /// The table alone, which is the part a product keeps. From here on ids resolve by index, and nothing after the fixpoint creates one.
     pub fn into_table(self) -> Vec<Settled> {
         self.table
     }
 }
 
-/// The index of one distinct provenance list in a product's table, stored in a row as its provenance. A row's notes name the records that eliminated, preferred, and adjusted at its window, in first-seen order. A configuration's millions of rows share a few thousand distinct lists, so a row that owned its list would duplicate a vector and one heap string per pointer across hundreds of thousands of rows; a seat names the list in four bytes. The rule fold reads a sample row's list through the table.
+/// The index of one distinct provenance list in a product's table, stored in a row as its provenance. A row's notes name the records that eliminated, preferred, and adjusted at its window, in first-seen order. A configuration's millions of rows share a few thousand distinct lists, so a row that owned its list would duplicate a vector and one heap string per pointer across hundreds of thousands of rows; an id names the list in four bytes. The rule fold reads a sample row's list through the table.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct NotesSeat(u32);
+pub struct NotesId(u32);
 
-impl NotesSeat {
-    /// The seat for the table's `index`-th list.
+impl NotesId {
+    /// The id for the table's `index`-th list.
     pub fn at(index: usize) -> Self {
         Self(
             u32::try_from(index)
@@ -424,37 +424,37 @@ impl NotesSeat {
         )
     }
 
-    /// The seat as the table's index.
+    /// The id as the table's index.
     pub fn index(self) -> usize {
         self.0 as usize
     }
 }
 
-/// The table that gives each of one fixpoint's provenance lists a seat, built like [`SettledPool`] for the same reason: each distinct list once, in the order the enumeration first traced it, with its seat.
+/// The table that gives each of one fixpoint's provenance lists an id, built like [`SettledPool`] for the same reason: each distinct list once, in the order the enumeration first traced it, with its id.
 #[derive(Clone, Debug, Default)]
 pub struct NotesPool {
-    seats: HashMap<Vec<String>, NotesSeat>,
+    ids: HashMap<Vec<String>, NotesId>,
     table: Vec<Vec<String>>,
 }
 
 impl NotesPool {
-    /// This list's seat, created the first time a trace carries the list and looked up in the map afterward. The list is passed by value because its trace is finished with it: a miss keeps the allocation, a hit drops it, and neither copies a string.
-    pub fn seat(&mut self, notes: Vec<String>) -> NotesSeat {
-        if let Some(&seat) = self.seats.get(notes.as_slice()) {
-            return seat;
+    /// This list's id, created the first time a trace carries the list and looked up in the map afterward. The list is passed by value because its trace is finished with it: a miss keeps the allocation, a hit drops it, and neither copies a string.
+    pub fn intern(&mut self, notes: Vec<String>) -> NotesId {
+        if let Some(&id) = self.ids.get(notes.as_slice()) {
+            return id;
         }
-        let seat = NotesSeat::at(self.table.len());
-        self.seats.insert(notes.clone(), seat);
+        let id = NotesId::at(self.table.len());
+        self.ids.insert(notes.clone(), id);
         self.table.push(notes);
-        seat
+        id
     }
 
-    /// The list one seat names.
-    pub fn get(&self, seat: NotesSeat) -> &[String] {
-        &self.table[seat.index()]
+    /// The list one id names.
+    pub fn get(&self, id: NotesId) -> &[String] {
+        &self.table[id.index()]
     }
 
-    /// How many distinct lists have seats.
+    /// How many distinct lists have ids.
     pub fn len(&self) -> usize {
         self.table.len()
     }
@@ -518,7 +518,7 @@ impl LeftContext {
     }
 
     /// A letter left whose ordinals the caller already has, such as a candidate's, for the synthetic left a follower is settled against.
-    pub fn seated(settled: Settled, ordinals: LeftOrdinals) -> Self {
+    pub fn with_ordinals(settled: Settled, ordinals: LeftOrdinals) -> Self {
         Self {
             kind: TokenKind::Letter,
             settled: Some(settled),

@@ -2791,20 +2791,20 @@ class TestCrateEmittedSettleMemo:
         )
 
     def test_two_crate_keys_that_collapse_to_one_walk_key_must_agree(self, spec, guard, dumps_dir, tmp_path):
-        """Two left-slot seats whose cells have the same display name form one walk key. Rows keyed on either seat absorb as one row when they agree (the dump counts two, the file holds one), and a dump where they disagree is refused whole."""
+        """Two left-slot record ids whose cells have the same display name form one walk key. Rows keyed on either id absorb as one row when they agree (the dump counts two, the file holds one), and a dump where they disagree is refused whole."""
         head, labels, records, _ = _dump_parts(kernel_exec.replay_memo_dump(dumps_dir, "default"))
         record = json.loads(records[0])
         twin = json.dumps({**record, "extension": record["extension"] + 1}, separators=(",", ":")).encode()
         names = [line.decode() for line in labels]
         edge, na, pea, tea = (names.index(label) for label in ("#EDGE", "#NA", "qsPea", "qsTea"))
-        seat = len(labels)
+        record_id = len(labels)
         dump = tmp_path / "collapsing.bin"
         _write_dump(
             dump,
             head,
             labels,
             [records[0], twin],
-            [(pea, seat, tea, edge, na, na, 0), (pea, seat + 1, tea, edge, na, na, 0)],
+            [(pea, record_id, tea, edge, na, na, 0), (pea, record_id + 1, tea, edge, na, na, 0)],
         )
         memo = self._memo(tmp_path)
         assert conform.absorb_replay_memo(dump, memo, spec, "default") == 2
@@ -2816,7 +2816,7 @@ class TestCrateEmittedSettleMemo:
             head,
             labels,
             [records[0], twin],
-            [(pea, seat, tea, edge, na, na, 0), (pea, seat + 1, tea, edge, na, na, 1)],
+            [(pea, record_id, tea, edge, na, na, 0), (pea, record_id + 1, tea, edge, na, na, 1)],
         )
         refused = self._memo(tmp_path / "refused")
         with pytest.raises(kernel_exec.KernelRunError, match="two ways"):

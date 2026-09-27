@@ -312,7 +312,7 @@ fn a_clean_fan_out_sweeps_the_streams_it_did_not_name() {
 
 /// A configuration whose stream cannot be written fails the whole run, and the error names the earliest configuration in `--configs` order, not whichever worker failed first. The first configuration is always started, so with every stream blocked the run names it every time.
 #[test]
-fn a_seat_that_cannot_write_fails_the_run_naming_the_earliest_one() {
+fn a_configuration_that_cannot_write_fails_the_run_naming_the_earliest_one() {
     let root = scratch("cli-blocked");
     let spec = spec_at(&root);
     let outdir = root.join("streams");
@@ -332,7 +332,7 @@ fn a_seat_that_cannot_write_fails_the_run_naming_the_earliest_one() {
     let said = stderr_of(&output);
     assert!(
         said.contains("transitions-default.ndjson"),
-        "the earliest seat is the one named: {said}"
+        "the earliest configuration is the one named: {said}"
     );
     assert!(
         !said.contains("transitions-ss03.ndjson"),

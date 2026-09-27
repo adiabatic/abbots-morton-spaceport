@@ -230,12 +230,12 @@ fn claim_all<T: Send>(
 ) -> Result<Vec<T>, String> {
     let work: Vec<(usize, &Configuration<'_>)> = configs.iter().enumerate().collect();
     claim_all_leading(&work, workers, || Ok(()), |config| answer(config))
-        .map(|((), seated)| seat_answers(seated, configs.len()))
+        .map(|((), placed)| place_answers(placed, configs.len()))
 }
 
 /// [`claim_all`]'s scheduler over any worklist, with one of the `workers` slots taken by `lead`. The other workers are spawned first. Then `lead` runs on the calling thread inside the pool's scope, and afterward that thread joins the claim loop. The pool is therefore `workers` wide including the lead, and the other workers are already claiming while the lead runs.
 ///
-/// Each worklist item carries the position its result belongs at, and results come back as `(position, result)` pairs, so a caller can order its worklist by cost and still place every result where it was listed ([`seat_answers`] turns the pairs into a list). The first failure stops further claims. The error returned is from the failed item with the earliest carried position, which may differ from the earliest claimed.
+/// Each worklist item carries the position its result belongs at, and results come back as `(position, result)` pairs, so a caller can order its worklist by cost and still place every result where it was listed ([`place_answers`] turns the pairs into a list). The first failure stops further claims. The error returned is from the failed item with the earliest carried position, which may differ from the earliest claimed.
 ///
 /// `lead` needs no `Send` bound, and neither does its result, which is why this function exists: the table build's enumerated product holds `Rc`s and cannot cross threads, so `default`'s fold has to finish on the thread that enumerated it while the workers claim deltas. A failing lead stops further claims as a failing worker does, and its error takes precedence over any worker's.
 fn claim_all_leading<W: Sync, L, T: Send>(
@@ -250,11 +250,11 @@ fn claim_all_leading<W: Sync, L, T: Send>(
     let answer = &answer;
     let (led, claimed) = std::thread::scope(|scope| {
         let handles: Vec<_> = (0..spawned)
-            .map(|_| scope.spawn(|| claim_seats(work, &next, &stop, answer)))
+            .map(|_| scope.spawn(|| claim_items(work, &next, &stop, answer)))
             .collect();
         let led = lead();
         let own = if led.is_ok() {
-            claim_seats(work, &next, &stop, answer)
+            claim_items(work, &next, &stop, answer)
         } else {
             stop.store(true, Ordering::Relaxed);
             Ok(Vec::new())
@@ -268,38 +268,38 @@ fn claim_all_leading<W: Sync, L, T: Send>(
         (led, claimed)
     });
     let led = led?;
-    let mut seated: Vec<(usize, T)> = Vec::with_capacity(work.len());
+    let mut placed: Vec<(usize, T)> = Vec::with_capacity(work.len());
     let mut failure: Option<(usize, String)> = None;
     for outcome in claimed {
         match outcome {
-            Ok(answered) => seated.extend(answered),
-            Err((seat, error)) => {
-                if failure.as_ref().is_none_or(|(worst, _)| seat < *worst) {
-                    failure = Some((seat, error));
+            Ok(answered) => placed.extend(answered),
+            Err((listed, error)) => {
+                if failure.as_ref().is_none_or(|(worst, _)| listed < *worst) {
+                    failure = Some((listed, error));
                 }
             }
         }
     }
     match failure {
         Some((_, error)) => Err(error),
-        None => Ok((led, seated)),
+        None => Ok((led, placed)),
     }
 }
 
 /// Turns `(position, result)` pairs into one result per position, in position order. A run that reported no failure has a result for every position, since claiming stops only on a failure or at the end of the list.
-fn seat_answers<T>(answered: Vec<(usize, T)>, seats: usize) -> Vec<T> {
-    let mut seated: Vec<Option<T>> = (0..seats).map(|_| None).collect();
-    for (seat, one) in answered {
-        seated[seat] = Some(one);
+fn place_answers<T>(answered: Vec<(usize, T)>, count: usize) -> Vec<T> {
+    let mut placed: Vec<Option<T>> = (0..count).map(|_| None).collect();
+    for (listed, one) in answered {
+        placed[listed] = Some(one);
     }
-    seated
+    placed
         .into_iter()
-        .map(|one| one.expect("a run with no failure seated every configuration"))
+        .map(|one| one.expect("a run with no failure placed every configuration"))
         .collect()
 }
 
 /// One worker's loop: claim the next item, run it, and repeat until the list is exhausted or any worker has failed. Each result is paired with its item's position. A failure sets the stop flag and is returned with its position, which [`claim_all_leading`] compares to pick the earliest.
-fn claim_seats<W, T>(
+fn claim_items<W, T>(
     work: &[(usize, W)],
     next: &AtomicUsize,
     stop: &AtomicBool,
@@ -308,14 +308,14 @@ fn claim_seats<W, T>(
     let mut mine: Vec<(usize, T)> = Vec::new();
     while !stop.load(Ordering::Relaxed) {
         let position = next.fetch_add(1, Ordering::Relaxed);
-        let Some((seat, item)) = work.get(position) else {
+        let Some((listed, item)) = work.get(position) else {
             break;
         };
         match answer(item) {
-            Ok(answered) => mine.push((*seat, answered)),
+            Ok(answered) => mine.push((*listed, answered)),
             Err(error) => {
                 stop.store(true, Ordering::Relaxed);
-                return Err((*seat, error));
+                return Err((*listed, error));
             }
         }
     }
@@ -328,24 +328,24 @@ struct DeltaWork<'c> {
     unlocking: HashSet<Sym>,
 }
 
-/// The wave's worklist: every configuration except the one at `default_seat`, each paired with its list position, sorted by unlocking-rune count, largest first, with list position as the tie-break.
+/// The wave's worklist: every configuration except the one at `default_position`, each paired with its list position, sorted by unlocking-rune count, largest first, with list position as the tie-break.
 ///
 /// The count estimates how long a delta traces on its own: a delta whose features unlock more runes can use less of `default`'s memo and enumerates more itself. The estimate only has to separate the memo-heavy deltas from the cheap ones. Claiming the heavy ones first ends the wave sooner when the machine runs fewer workers than there are deltas, because a heavy delta claimed last would run alone while the other workers sit idle. Claim order cannot change the output: each delta reads only `default`'s snapshot and the previous build's files, never another delta's output, and each result is placed by its list position.
 fn delta_worklist<'c>(
     index: &SpecIndex,
     configs: &'c [Configuration<'c>],
-    default_seat: usize,
+    default_position: usize,
 ) -> Vec<(usize, DeltaWork<'c>)> {
     let mut work: Vec<(usize, DeltaWork<'c>)> = configs
         .iter()
         .enumerate()
-        .filter(|(seat, _)| *seat != default_seat)
-        .map(|(seat, config)| {
+        .filter(|(listed, _)| *listed != default_position)
+        .map(|(listed, config)| {
             let unlocking = unlocking_runes(index, &config.features);
-            (seat, DeltaWork { config, unlocking })
+            (listed, DeltaWork { config, unlocking })
         })
         .collect();
-    work.sort_by_key(|(seat, work)| (Reverse(work.unlocking.len()), *seat));
+    work.sort_by_key(|(listed, work)| (Reverse(work.unlocking.len()), *listed));
     work
 }
 
@@ -387,12 +387,12 @@ pub fn run_configs_tables(
     let mode_token = modes.token();
     let edited = Exclusion::of(index, sharing.edited.iter().copied())
         .with_classes(sharing.moved_classes.iter().copied());
-    let default_seat = sharing
+    let default_position = sharing
         .default_memo_sharing
         .then(|| configs.iter().position(|config| config.features.is_empty()))
         .flatten()
         .filter(|_| configs.len() > 1);
-    let Some(default_seat) = default_seat else {
+    let Some(default_position) = default_position else {
         return claim_all(configs, workers, |config| {
             let previous = load_previous_memo(index, &sharing, config.token, &mode_token, |key| {
                 !edited.names(key)
@@ -411,7 +411,7 @@ pub fn run_configs_tables(
                 .map_err(|error| format!("{}: {error}", config.token))
         });
     };
-    let default = &configs[default_seat];
+    let default = &configs[default_position];
     let previous_default = load_previous_memo(index, &sharing, default.token, &mode_token, |key| {
         !edited.names(key)
     })
@@ -444,7 +444,7 @@ pub fn run_configs_tables(
             .as_ref()
             .expect("a kept memo comes back from a trace-memo enumeration"),
     );
-    let rest = delta_worklist(index, configs, default_seat);
+    let rest = delta_worklist(index, configs, default_position);
     let finish_default = || {
         finish_config_tables(index, default, outdir, inputs, report, pending)
             .map_err(|error| format!("{}: {error}", default.token))
@@ -479,8 +479,8 @@ pub fn run_configs_tables(
             run_config_tables(index, config, modes, outdir, inputs, report, access, file)
                 .map_err(|error| format!("{}: {error}", config.token))
         })?;
-    answered.push((default_seat, default_answer));
-    Ok(seat_answers(answered, configs.len()))
+    answered.push((default_position, default_answer));
+    Ok(place_answers(answered, configs.len()))
 }
 
 /// Builds one configuration's tables on the current thread: [`enumerate_config_tables`] then [`finish_config_tables`]. The fixpoint reads what `access` allows and writes `file`, when given, at its release point. The fold over the product builds the rule certificates with the enumeration's own [`WindowOptions`], so the formation guard is swept once. It writes the three artifact files and returns the digest. When asked, the timing lines are `enumerate[<config>]`, `memo[<config>]`, and `fold[<config>]`, after the cache stats' `[c]` lines. The memo-sharing fan-out calls the two halves separately so that `default`'s second half can run alongside the wave.
@@ -935,7 +935,7 @@ mod tests {
 
     /// With every stream path blocked and one worker per configuration, the run reports the error at the earliest list position, whichever worker reached it and however many others also failed. Position 0 is always claimed: the first claim takes it, and a worker stops claiming only after some worker has failed.
     #[test]
-    fn the_error_a_run_reports_is_the_earliest_seated_one() {
+    fn the_error_a_run_reports_is_the_earliest_listed_one() {
         let index = fixtures::mini();
         let configs = configurations(&index);
         let outdir = scratch("fan-out-all-blocked");
@@ -951,10 +951,10 @@ mod tests {
             configs.len(),
             Report::timed(false),
         )
-        .expect_err("no seat can write its stream");
+        .expect_err("no configuration can write its stream");
         assert!(
             error.starts_with(&format!("{}: ", TOKENS[0])),
-            "the earliest seat is the one reported: {error}"
+            "the earliest configuration is the one reported: {error}"
         );
         std::fs::remove_dir_all(&outdir).expect("the scratch directory is removable");
     }
@@ -1223,7 +1223,7 @@ mod tests {
             error.contains(&format!("settlement-{}.tsv", TOKENS[0])),
             "and the file it failed on: {error}"
         );
-        let every = root.join("every-seat");
+        let every = root.join("every-configuration");
         for token in TOKENS {
             block_settlement(&every, token);
         }
@@ -1237,7 +1237,7 @@ mod tests {
             Report::timed(false),
             MemoSharing::default(),
         )
-        .expect_err("no seat can write its settlement table");
+        .expect_err("no configuration can write its settlement table");
         assert!(
             error.starts_with(&format!("{}: ", TOKENS[0])),
             "default's word wins over a delta that failed beside it: {error}"
@@ -1251,11 +1251,11 @@ mod tests {
         let index = fixtures::mini();
         let configs = permuting(&index);
         let work = delta_worklist(&index, &configs, 0);
-        let seated: Vec<(usize, &str)> = work
+        let placed: Vec<(usize, &str)> = work
             .iter()
-            .map(|(seat, work)| (*seat, work.config.token))
+            .map(|(listed, work)| (*listed, work.config.token))
             .collect();
-        assert_eq!(seated, [(2, "ss03"), (1, "ss09")]);
+        assert_eq!(placed, [(2, "ss03"), (1, "ss09")]);
         let may = fixtures::sym(&index, "qsMay");
         assert_eq!(work[0].1.unlocking.len(), 1);
         assert!(work[0].1.unlocking.contains(&may));
@@ -1264,7 +1264,7 @@ mod tests {
 
     /// A failing item's error is reported at the position the item carries, not the order it was claimed in. The test uses a barrier instead of relying on timing: over a worklist listed out of order, each item fails only after both items reach the barrier, so both are claimed before either failure stops claiming, whichever of the three workers claims them. The run reports the position-1 item's error although the position-3 item was claimed first.
     #[test]
-    fn a_failing_item_is_reported_at_the_seat_it_carries() {
+    fn a_failing_item_is_reported_at_the_position_it_carries() {
         let work = [(3, "ss03"), (1, "ss09")];
         let met = std::sync::Barrier::new(2);
         let error = claim_all_leading(
@@ -1285,7 +1285,7 @@ mod tests {
     fn a_lead_runs_beside_the_worker_that_claims_while_it_does() {
         let work = [(3, "ss03"), (1, "ss09")];
         let met = std::sync::Barrier::new(2);
-        let (led, mut seated) = claim_all_leading(
+        let (led, mut placed) = claim_all_leading(
             &work,
             2,
             || {
@@ -1300,9 +1300,9 @@ mod tests {
             },
         )
         .expect("both items answer");
-        seated.sort_by_key(|(seat, _)| *seat);
+        placed.sort_by_key(|(listed, _)| *listed);
         assert_eq!(led, "lead");
-        assert_eq!(seated, [(1, "ss09".to_owned()), (3, "ss03".to_owned())]);
+        assert_eq!(placed, [(1, "ss09".to_owned()), (3, "ss03".to_owned())]);
         let met = std::sync::Barrier::new(2);
         let error = claim_all_leading(
             &work,
@@ -1318,7 +1318,7 @@ mod tests {
                 Err::<(), _>(format!("{token}: blocked"))
             },
         )
-        .expect_err("both seats fail");
+        .expect_err("the lead and both items fail");
         assert_eq!(error, "lead: blocked");
     }
 }

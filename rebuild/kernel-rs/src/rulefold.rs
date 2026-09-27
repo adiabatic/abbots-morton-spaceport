@@ -57,8 +57,8 @@ fn signature_blocks<K: Eq + Hash>(
 
 /// Compares a key's leading labels with `prefix`. Every lookup and range search in a group uses this comparison.
 fn compare(held: &[Rc<str>; 4], prefix: &[&Rc<str>]) -> Ordering {
-    for (seat, wanted) in prefix.iter().enumerate() {
-        let order = Ord::cmp(&held[seat], *wanted);
+    for (position, wanted) in prefix.iter().enumerate() {
+        let order = Ord::cmp(&held[position], *wanted);
         if order != Ordering::Equal {
             return order;
         }
@@ -96,7 +96,7 @@ impl<'a> GroupRows<'a> {
         self.keys
             .binary_search_by(|(held, _)| compare(held, &key))
             .ok()
-            .map(|seat| self.keys[seat].1)
+            .map(|position| self.keys[position].1)
     }
 
     /// The half-open range of rows whose first labels are `prefix`, which the sort leaves contiguous.
@@ -513,10 +513,10 @@ impl Emission {
                     let mut block4_outcomes: Vec<&str> = block_r4s
                         .iter()
                         .map(|r4| {
-                            let seat = group
+                            let row = group
                                 .at([&r1_block[0], &r2_block[0], &r3_block[0], r4])
-                                .expect("a fourth label taken from this prefix seats a row");
-                            &**rows.outcome(seat)
+                                .expect("a fourth label taken from this prefix names a row");
+                            &**rows.outcome(row)
                         })
                         .collect();
                     block4_outcomes.sort_unstable();
@@ -524,7 +524,7 @@ impl Emission {
                     if block4_outcomes.len() == 1 {
                         let sample = group
                             .at([&r1_block[0], &r2_block[0], &r3_block[0], &block_r4s[0]])
-                            .expect("the first fourth label of this prefix seats a row");
+                            .expect("the first fourth label of this prefix names a row");
                         let out_label = Rc::clone(rows.outcome(sample));
                         if r3_block.iter().any(|label| boundaryish(label)) {
                             if r3_letters.len() + count_boundaryish(r3_block) != r3_block.len() {
@@ -601,7 +601,7 @@ impl Emission {
                     for r4_block in &r4_blocks {
                         let sample = group
                             .at([&r1_block[0], &r2_block[0], &r3_block[0], &r4_block[0]])
-                            .expect("a fourth block's first label seats a row of this prefix");
+                            .expect("a fourth block's first label names a row of this prefix");
                         let out_label = Rc::clone(rows.outcome(sample));
                         let r4_letters = letters_of(r4_block);
                         if r4_block.iter().any(|label| boundaryish(label)) {

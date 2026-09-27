@@ -126,8 +126,8 @@ mod tests {
                 SettleErrorKind::Plain,
             ]
         );
-        for (seat, kind) in kinds.iter().enumerate() {
-            for other in &kinds[seat + 1..] {
+        for (position, kind) in kinds.iter().enumerate() {
+            for other in &kinds[position + 1..] {
                 assert_ne!(kind, other);
             }
         }

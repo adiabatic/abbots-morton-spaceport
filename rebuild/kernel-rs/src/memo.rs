@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::engine::{
-    DeltaSeat, Pointer, ReadsSeat, TraceEntry, TraceKey, TraceNotesSeat, TraceSettledSeat,
+    DeltaId, Pointer, ReadsId, TraceEntry, TraceKey, TraceNotesId, TraceSettledId,
 };
 use crate::hash::{FastHasher, HashMap, HashSet};
 use crate::index::{Read, SpecIndex};
@@ -188,7 +188,7 @@ impl std::ops::Index<&TraceKey> for SnapshotEntries {
     }
 }
 
-/// One engine's finished trace memo: compact immutable entries and the four tables their seats index. The tables are the engine memo's own pools flattened, so an entry read through the snapshot resolves as it did in the engine that recorded it. The live engine's memo is a hash map; the snapshot has no hash-table slack or control bytes.
+/// One engine's finished trace memo: compact immutable entries and the four tables their ids index. The tables are the engine memo's own pools flattened, so an entry read through the snapshot resolves as it did in the engine that recorded it. The live engine's memo is a hash map; the snapshot has no hash-table slack or control bytes.
 #[derive(Debug, Default)]
 pub struct MemoSnapshot {
     pub(crate) entries: SnapshotEntries,
@@ -361,42 +361,42 @@ pub fn memo_path(dir: &Path, token: &str) -> PathBuf {
     dir.join(format!("memo-{token}.tsv"))
 }
 
-/// The file's `Y` table while it is written. A symbol gets its seat the first time a window, a record or a pointer names it, so every rune, stance, height and pointer half is written once as text and every later mention is an integer.
+/// The file's `Y` table while it is written. A symbol gets its id the first time a window, a record or a pointer names it, so every rune, stance, height and pointer half is written once as text and every later mention is an integer.
 struct Symbols {
-    seats: HashMap<Sym, u32>,
+    ids: HashMap<Sym, u32>,
     lines: Vec<String>,
 }
 
 impl Symbols {
     fn new() -> Self {
         Self {
-            seats: HashMap::default(),
+            ids: HashMap::default(),
             lines: Vec::new(),
         }
     }
 
-    fn seat(&mut self, index: &SpecIndex, symbol: Sym) -> u32 {
-        if let Some(&seat) = self.seats.get(&symbol) {
-            return seat;
+    fn intern(&mut self, index: &SpecIndex, symbol: Sym) -> u32 {
+        if let Some(&id) = self.ids.get(&symbol) {
+            return id;
         }
-        let seat =
+        let id =
             u32::try_from(self.lines.len()).expect("a memo file names fewer than 2^32 symbols");
-        self.seats.insert(symbol, seat);
+        self.ids.insert(symbol, id);
         self.lines.push(format!("Y\t{}", index.resolve(symbol)));
-        seat
+        id
     }
 
     fn optional(&mut self, index: &SpecIndex, symbol: Option<Sym>) -> String {
         symbol.map_or_else(
             || "-".to_owned(),
-            |symbol| self.seat(index, symbol).to_string(),
+            |symbol| self.intern(index, symbol).to_string(),
         )
     }
 
-    /// One slot as the file writes it: `#` and the kind's first letter for a non-letter, the rune's symbol seat for a letter.
+    /// One slot as the file writes it: `#` and the kind's first letter for a non-letter, the rune's symbol id for a letter.
     fn slot(&mut self, index: &SpecIndex, kind: TokenKind, rune: Option<Sym>) -> String {
         match rune {
-            Some(rune) => self.seat(index, rune).to_string(),
+            Some(rune) => self.intern(index, rune).to_string(),
             None => format!("#{}", kind_letter(kind)),
         }
     }
@@ -423,34 +423,34 @@ fn kind_of_letter(letter: &str) -> Option<TokenKind> {
     .find(|kind| kind_letter(*kind).to_string() == letter)
 }
 
-/// The file's interning of one kind of record while it is written: each distinct value once, at the seat of its `S`, `N`, `D` or `R` line.
+/// The file's interning of one kind of record while it is written: each distinct value once, at the id of its `S`, `N`, `D` or `R` line.
 struct FileTable<T> {
-    seats: HashMap<T, u32>,
+    ids: HashMap<T, u32>,
     lines: Vec<String>,
 }
 
 impl<T: std::hash::Hash + Eq + Clone> FileTable<T> {
     fn new() -> Self {
         Self {
-            seats: HashMap::default(),
+            ids: HashMap::default(),
             lines: Vec::new(),
         }
     }
 
-    fn seat(
+    fn intern(
         &mut self,
         value: &T,
         spell: impl FnOnce(&T) -> Result<String, String>,
     ) -> Result<u32, String> {
-        if let Some(&seat) = self.seats.get(value) {
-            return Ok(seat);
+        if let Some(&id) = self.ids.get(value) {
+            return Ok(id);
         }
-        let seat =
-            u32::try_from(self.lines.len()).expect("a memo file seats fewer than 2^32 records");
+        let id =
+            u32::try_from(self.lines.len()).expect("a memo file holds fewer than 2^32 records");
         let line = spell(value)?;
-        self.seats.insert(value.clone(), seat);
+        self.ids.insert(value.clone(), id);
         self.lines.push(line);
-        Ok(seat)
+        Ok(id)
     }
 }
 
@@ -467,8 +467,8 @@ fn settled_line(index: &SpecIndex, symbols: &mut Symbols, settled: &Settled) -> 
     };
     format!(
         "S\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
-        symbols.seat(index, cell.rune),
-        symbols.seat(index, cell.stance),
+        symbols.intern(index, cell.rune),
+        symbols.intern(index, cell.stance),
         symbols.optional(index, cell.entry),
         symbols.optional(index, cell.exit),
         adjustments,
@@ -483,21 +483,21 @@ fn delta_line(index: &SpecIndex, symbols: &mut Symbols, pointers: &[Pointer]) ->
         .map(|pointer| {
             format!(
                 "{}:{}",
-                symbols.seat(index, pointer.file),
-                symbols.seat(index, pointer.path)
+                symbols.intern(index, pointer.file),
+                symbols.intern(index, pointer.path)
             )
         })
         .collect();
     format!("D\t{}", spelled.join(&LIST_SEPARATOR.to_string()))
 }
 
-/// One read set as its `R` line: `r` and a rune's symbol seat, or `c` and a class's.
+/// One read set as its `R` line: `r` and a rune's symbol id, or `c` and a class's.
 fn reads_line(index: &SpecIndex, symbols: &mut Symbols, reads: &[Read]) -> String {
     let spelled: Vec<String> = reads
         .iter()
         .map(|read| match read {
-            Read::Rune(rune) => format!("r{}", symbols.seat(index, *rune)),
-            Read::Class(class) => format!("c{}", symbols.seat(index, *class)),
+            Read::Rune(rune) => format!("r{}", symbols.intern(index, *rune)),
+            Read::Class(class) => format!("c{}", symbols.intern(index, *class)),
         })
         .collect();
     format!("R\t{}", spelled.join(&LIST_SEPARATOR.to_string()))
@@ -513,10 +513,10 @@ fn notes_line(list: &[String]) -> Result<String, String> {
     Ok(format!("N\t{}", list.join(&LIST_SEPARATOR.to_string())))
 }
 
-/// One window of the file while it is written: the key by reference; four seats, which hold the source's pool seats until the first pass overwrites them with the file's seats; the three bytes of the entry that the `E` line writes; and the index of the source that holds the window. A row is thirty-two bytes at align eight, and the `const` below checks that size so an added field cannot widen it unnoticed. One row per window of the union lives from the collection loop until the last byte is written, in a vector reserved once at the summed source entry counts, which the union cannot exceed, so no push reallocates. Issue #264 explains why the four seats are not packed into one `u64` and why the entry's three bytes are copied here instead of fetched again at write time.
+/// One window of the file while it is written: the key by reference; four ids, which hold the source's pool ids until the first pass overwrites them with the file's ids; the three bytes of the entry that the `E` line writes; and the index of the source that holds the window. A row is thirty-two bytes at align eight, and the `const` below checks that size so an added field cannot widen it unnoticed. One row per window of the union lives from the collection loop until the last byte is written, in a vector reserved once at the summed source entry counts, which the union cannot exceed, so no push reallocates. Issue #264 explains why the four ids are not packed into one `u64` and why the entry's three bytes are copied here instead of fetched again at write time.
 struct Row<'a> {
     key: &'a TraceKey,
-    seats: [u32; 4],
+    ids: [u32; 4],
     prospect: i8,
     joint_tiebreak: bool,
     decided_stage: DecidedStage,
@@ -525,9 +525,9 @@ struct Row<'a> {
 
 const _: () = assert!(std::mem::size_of::<Row<'static>>() == 32);
 
-/// A pool seat as a [`Row`] holds it. The conversion is checked, as every seat mint is, so an index past `u32` panics instead of writing a wrong file.
-fn pool_seat(index: usize) -> u32 {
-    u32::try_from(index).expect("a memo pool seats fewer than 2^32 records")
+/// A pool id as a [`Row`] holds it. The conversion is checked, as every id mint is, so an index past `u32` panics instead of writing a wrong file.
+fn pool_id(index: usize) -> u32 {
+    u32::try_from(index).expect("a memo pool holds fewer than 2^32 records")
 }
 
 /// The memo file one configuration's build writes: its path, its head, and the shared memos whose admitted windows are written with its own, so the file is the union a later build reads. [`crate::fixpoint::enumerate_for_tables`] writes it at the enumeration's release point, from the finished snapshot the engine returns after freeing its other memos and before that snapshot is dropped, so a configuration that does not keep its memo for other enumerations (`keep_memo`) holds none past its enumeration.
@@ -537,7 +537,7 @@ pub struct MemoFile {
     pub carried: Vec<SharedMemo>,
 }
 
-/// Writes one configuration's memo as `memo-<config>.tsv`: the head line, then five tables, then one `E` line per window. The tables are `Y` for every symbol the file names, `S` for the settled records, `N` for the notes lists, `D` for the fired deltas and `R` for the read sets, each seated in file order, with list members separated by [`LIST_SEPARATOR`]. An `E` line names its key by symbol seats, then its four record seats, its prospect, its joint flag and its stage.
+/// Writes one configuration's memo as `memo-<config>.tsv`: the head line, then five tables, then one `E` line per window. The tables are `Y` for every symbol the file names, `S` for the settled records, `N` for the notes lists, `D` for the fired deltas and `R` for the read sets, each interned in file order, with list members separated by [`LIST_SEPARATOR`]. An `E` line names its key by symbol ids, then its four record ids, its prospect, its joint flag and its stage.
 ///
 /// The windows are `own`'s, then every window of each carried shared memo that its exclusion admits and that no earlier source both holds and admits, so the file is the union a later build may read, with each window written once. They are written in key order, so two builds of the same memo write the same file. Every name is written as text once, in the `Y` table, because a symbol's integer is this spec's interning order and the next spec's may differ. The windows are streamed to the file, and per window only one [`Row`] is held until the last byte is written, because a configuration's memo holds millions of windows.
 ///
@@ -560,8 +560,8 @@ pub fn write_memo(
                 .map(|shared| (&*shared.memo, &shared.excluded)),
         )
         .collect();
-    let held_earlier = |seat: usize, key: &TraceKey| {
-        sources[..seat].iter().any(|(memo, excluded)| {
+    let held_earlier = |position: usize, key: &TraceKey| {
+        sources[..position].iter().any(|(memo, excluded)| {
             memo.entries
                 .get(key)
                 .is_some_and(|entry| excluded.admits(key, memo.reads(*entry)))
@@ -569,19 +569,20 @@ pub fn write_memo(
     };
     let mut rows: Vec<Row<'_>> =
         Vec::with_capacity(sources.iter().map(|(memo, _)| memo.len()).sum());
-    for (seat, (memo, excluded)) in sources.iter().enumerate() {
-        let source = u16::try_from(seat).expect("a memo is written from fewer than 2^16 sources");
+    for (position, (memo, excluded)) in sources.iter().enumerate() {
+        let source =
+            u16::try_from(position).expect("a memo is written from fewer than 2^16 sources");
         for (key, entry) in memo.entries.iter() {
-            if !excluded.admits(key, memo.reads(*entry)) || held_earlier(seat, key) {
+            if !excluded.admits(key, memo.reads(*entry)) || held_earlier(position, key) {
                 continue;
             }
             rows.push(Row {
                 key,
-                seats: [
-                    pool_seat(entry.settled.index()),
-                    pool_seat(entry.notes.index()),
-                    pool_seat(entry.delta.index()),
-                    pool_seat(entry.reads.index()),
+                ids: [
+                    pool_id(entry.settled.index()),
+                    pool_id(entry.notes.index()),
+                    pool_id(entry.delta.index()),
+                    pool_id(entry.reads.index()),
                 ],
                 prospect: entry.prospect(),
                 joint_tiebreak: entry.joint_tiebreak(),
@@ -596,42 +597,42 @@ pub fn write_memo(
     let mut notes: FileTable<Vec<String>> = FileTable::new();
     let mut deltas: FileTable<Box<[Pointer]>> = FileTable::new();
     let mut reads: FileTable<Box<[Read]>> = FileTable::new();
-    // Two passes over the same order: the first seats every symbol and record so the tables can go out ahead of the windows that name them, the second streams the windows.
+    // Two passes over the same order: the first interns every symbol and record so the tables can go out ahead of the windows that name them, the second streams the windows.
     for row in &mut rows {
         let (memo, _) = sources[usize::from(row.source)];
         let key = row.key;
         for ordinal in key.runes_named() {
-            symbols.seat(index, index.rune_at_ordinal(ordinal));
+            symbols.intern(index, index.rune_at_ordinal(ordinal));
         }
         if let Some(stance) = key.left_stance {
-            symbols.seat(index, index.stance_at_ordinal(stance));
+            symbols.intern(index, index.stance_at_ordinal(stance));
         }
         if let Some(junction) = key.left_junction {
-            symbols.seat(index, index.junction_at_ordinal(junction));
+            symbols.intern(index, index.junction_at_ordinal(junction));
         }
-        let settled_seat = settled.seat(&memo.settled[row.seats[0] as usize], |record| {
+        let settled_id = settled.intern(&memo.settled[row.ids[0] as usize], |record| {
             Ok(settled_line(index, &mut symbols, record))
         })?;
-        if TraceSettledSeat::try_at(settled_seat as usize).is_none() {
+        if TraceSettledId::try_at(settled_id as usize).is_none() {
             return Err(format!(
-                "{}: a memo seats fewer than 65,536 settled records",
+                "{}: a memo holds fewer than 65,536 settled records",
                 path.display()
             ));
         }
-        let notes_seat = notes.seat(&memo.notes[row.seats[1] as usize], |list| notes_line(list))?;
-        if TraceNotesSeat::try_at(notes_seat as usize).is_none() {
+        let notes_id = notes.intern(&memo.notes[row.ids[1] as usize], |list| notes_line(list))?;
+        if TraceNotesId::try_at(notes_id as usize).is_none() {
             return Err(format!(
-                "{}: a memo seats fewer than 65,536 notes lists",
+                "{}: a memo holds fewer than 65,536 notes lists",
                 path.display()
             ));
         }
-        let delta_seat = deltas.seat(&memo.deltas[row.seats[2] as usize], |delta| {
+        let delta_id = deltas.intern(&memo.deltas[row.ids[2] as usize], |delta| {
             Ok(delta_line(index, &mut symbols, delta))
         })?;
-        let reads_seat = reads.seat(&memo.reads[row.seats[3] as usize], |list| {
+        let reads_id = reads.intern(&memo.reads[row.ids[3] as usize], |list| {
             Ok(reads_line(index, &mut symbols, list))
         })?;
-        row.seats = [settled_seat, notes_seat, delta_seat, reads_seat];
+        row.ids = [settled_id, notes_id, delta_id, reads_id];
     }
     let file =
         std::fs::File::create(path).map_err(|error| format!("{}: {error}", path.display()))?;
@@ -674,7 +675,7 @@ pub fn write_memo(
                     .map(|junction| index.junction_at_ordinal(junction))
             ),
             key.left_extension,
-            symbols.seat(index, index.rune_at_ordinal(key.token))
+            symbols.intern(index, index.rune_at_ordinal(key.token))
         );
         for slot in 0..4 {
             let _ = write!(
@@ -687,10 +688,10 @@ pub fn write_memo(
                 )
             );
         }
-        let [settled_seat, notes_seat, delta_seat, reads_seat] = row.seats;
+        let [settled_id, notes_id, delta_id, reads_id] = row.ids;
         let _ = write!(
             line,
-            "\t{settled_seat}\t{notes_seat}\t{delta_seat}\t{reads_seat}\t{}\t{}\t{}",
+            "\t{settled_id}\t{notes_id}\t{delta_id}\t{reads_id}\t{}\t{}\t{}",
             row.prospect,
             u8::from(row.joint_tiebreak),
             row.decided_stage.as_str()
@@ -728,16 +729,16 @@ fn parse_head(line: &str) -> Option<MemoHead> {
     })
 }
 
-/// A seat in the file's symbol table resolved to this spec's symbol: `None` for an absent field (`-`), and `Err` for a malformed seat, a seat the table never assigned, or a name this spec never interned.
+/// An id in the file's symbol table resolved to this spec's symbol: `None` for an absent field (`-`), and `Err` for a malformed id, an id the table never assigned, or a name this spec never interned.
 fn symbol_at(table: &[Option<Sym>], text: &str) -> Result<Option<Sym>, ()> {
     if text == "-" {
         return Ok(None);
     }
-    let seat: usize = text.parse().map_err(|_| ())?;
-    table.get(seat).copied().flatten().map(Some).ok_or(())
+    let id: usize = text.parse().map_err(|_| ())?;
+    table.get(id).copied().flatten().map(Some).ok_or(())
 }
 
-fn seat_at(text: &str) -> Option<usize> {
+fn id_at(text: &str) -> Option<usize> {
     text.parse().ok()
 }
 
@@ -747,7 +748,7 @@ fn seat_at(text: &str) -> Option<usize> {
 ///
 /// - a window naming a symbol this spec never interned: a rune, stance or height that left the spec, or a pointer whose record did;
 /// - a window naming a rune the registry knows no family by, a stance name no rune declares, or a height no junction field holds, because the key stores each as its field's [`crate::index::Ordinal`] and this spec's index has none for it;
-/// - a window seated on a settled record whose cell no left of this spec keys ([`LeftOrdinals::of`]), so that a stale record cannot reach a left, or whose adjustment tokens this spec cannot parse.
+/// - a window that names a settled record whose cell no left of this spec keys ([`LeftOrdinals::of`]), so that a stale record cannot reach a left, or whose adjustment tokens this spec cannot parse.
 ///
 /// A line the format does not define fails the read with an error naming the line.
 pub(crate) fn read_memo(
@@ -818,10 +819,10 @@ pub(crate) fn read_memo(
                 symbols.push(index.sym_of(text));
             }
             Some("S") => {
-                if memo.settled.len() == TraceSettledSeat::CAPACITY {
+                if memo.settled.len() == TraceSettledId::CAPACITY {
                     return Err(fail(
                         number,
-                        "a memo seats fewer than 65,536 settled records",
+                        "a memo holds fewer than 65,536 settled records",
                     ));
                 }
                 let fields: Vec<&str> = fields.collect();
@@ -860,8 +861,8 @@ pub(crate) fn read_memo(
                     .push(parsed.unwrap_or_else(|| placeholder.clone()));
             }
             Some("N") => {
-                if memo.notes.len() == TraceNotesSeat::CAPACITY {
-                    return Err(fail(number, "a memo seats fewer than 65,536 notes lists"));
+                if memo.notes.len() == TraceNotesId::CAPACITY {
+                    return Err(fail(number, "a memo holds fewer than 65,536 notes lists"));
                 }
                 let text = fields.next().unwrap_or_default();
                 if fields.next().is_some() {
@@ -931,10 +932,10 @@ pub(crate) fn read_memo(
                     slot2,
                     slot3,
                     slot4,
-                    settled_seat,
-                    notes_seat,
-                    delta_seat,
-                    reads_seat,
+                    settled_id,
+                    notes_id,
+                    delta_id,
+                    reads_id,
                     prospect,
                     joint,
                     stage,
@@ -947,13 +948,13 @@ pub(crate) fn read_memo(
                 let left_extension: i16 = left_extension
                     .parse()
                     .map_err(|_| fail(number, "a left extension is a count"))?;
-                let (Some(settled_seat), Some(notes_seat), Some(delta_seat), Some(reads_seat)) = (
-                    seat_at(settled_seat),
-                    seat_at(notes_seat),
-                    seat_at(delta_seat),
-                    seat_at(reads_seat),
+                let (Some(settled_id), Some(notes_id), Some(delta_id), Some(reads_id)) = (
+                    id_at(settled_id),
+                    id_at(notes_id),
+                    id_at(delta_id),
+                    id_at(reads_id),
                 ) else {
-                    return Err(fail(number, "a seat is a count"));
+                    return Err(fail(number, "an id is a count"));
                 };
                 let prospect: i64 = prospect
                     .parse()
@@ -967,16 +968,14 @@ pub(crate) fn read_memo(
                 };
                 let decided_stage = DecidedStage::from_text(stage)
                     .ok_or_else(|| fail(number, "a stage is one of the seven"))?;
-                if settled_seat >= memo.settled.len()
-                    || notes_seat >= memo.notes.len()
-                    || delta_seat >= memo.deltas.len()
-                    || reads_seat >= memo.reads.len()
+                if settled_id >= memo.settled.len()
+                    || notes_id >= memo.notes.len()
+                    || delta_id >= memo.deltas.len()
+                    || reads_id >= memo.reads.len()
                 {
-                    return Err(fail(number, "a seat names a record the file seated first"));
+                    return Err(fail(number, "an id names a record the file interned first"));
                 }
-                if !settled_usable[settled_seat]
-                    || !delta_usable[delta_seat]
-                    || !reads_usable[reads_seat]
+                if !settled_usable[settled_id] || !delta_usable[delta_id] || !reads_usable[reads_id]
                 {
                     continue;
                 }
@@ -1031,10 +1030,10 @@ pub(crate) fn read_memo(
                 records.push((
                     key,
                     TraceEntry::new(
-                        TraceSettledSeat::at(settled_seat),
-                        TraceNotesSeat::at(notes_seat),
-                        DeltaSeat::at(delta_seat),
-                        ReadsSeat::at(reads_seat),
+                        TraceSettledId::at(settled_id),
+                        TraceNotesId::at(notes_id),
+                        DeltaId::at(delta_id),
+                        ReadsId::at(reads_id),
                         prospect,
                         joint_tiebreak,
                         decided_stage,
@@ -1100,12 +1099,12 @@ mod tests {
         }
     }
 
-    fn entry_with_notes(seat: usize) -> TraceEntry {
+    fn entry_with_notes(id: usize) -> TraceEntry {
         TraceEntry::new(
-            TraceSettledSeat::at(0),
-            TraceNotesSeat::at(seat),
-            DeltaSeat::at(0),
-            ReadsSeat::at(0),
+            TraceSettledId::at(0),
+            TraceNotesId::at(id),
+            DeltaId::at(0),
+            ReadsId::at(0),
             0,
             false,
             DecidedStage::Order,
@@ -1129,8 +1128,8 @@ mod tests {
                 expected.insert(key, entry);
             }
         }
-        for seat in 0..128 {
-            let entry = entry_with_notes(seat);
+        for id in 0..128 {
+            let entry = entry_with_notes(id);
             records.push((template, entry));
             expected.insert(template, entry);
         }
@@ -1612,11 +1611,11 @@ mod tests {
         assert!(!back.is_empty());
     }
 
-    /// A file with more settled records or notes lists than a trace entry's two-byte index can address fails at the first line past the range, naming that line, instead of wrapping the seat. A file with exactly the range reads.
+    /// A file with more settled records or notes lists than a trace entry's two-byte index can address fails at the first line past the range, naming that line, instead of wrapping the id. A file with exactly the range reads.
     #[test]
-    fn a_memo_seating_more_than_a_trace_seat_names_is_refused() {
+    fn a_memo_with_more_records_than_a_trace_id_can_index_is_refused() {
         let index = fixtures::mini();
-        let path = scratch("memo-seat-range").join("memo-default.tsv");
+        let path = scratch("memo-id-range").join("memo-default.tsv");
         let head_line = format!(
             "# {MEMO_FORMAT}\tdefault\t{}\t{}\n",
             head("default").modes,
@@ -1625,13 +1624,13 @@ mod tests {
         for (line, capacity, expected) in [
             (
                 "S\t0\t0\t-\t-\t-\t-\t0\n",
-                TraceSettledSeat::CAPACITY,
-                "line 65537: a memo seats fewer than 65,536 settled records",
+                TraceSettledId::CAPACITY,
+                "line 65537: a memo holds fewer than 65,536 settled records",
             ),
             (
                 "N\t\n",
-                TraceNotesSeat::CAPACITY,
-                "line 65537: a memo seats fewer than 65,536 notes lists",
+                TraceNotesId::CAPACITY,
+                "line 65537: a memo holds fewer than 65,536 notes lists",
             ),
         ] {
             let mut text = head_line.clone();
@@ -1690,7 +1689,7 @@ mod tests {
 
     /// The same range at the writer: a union with more distinct settled records or notes lists than a trace entry's two-byte index can address fails at the write, naming the file, instead of producing a file the next build would reject. A union at exactly the range writes and reads back whole. Each source here is within the range on its own, so only the union exceeds it.
     #[test]
-    fn a_union_seating_more_than_a_trace_seat_names_is_refused_at_the_write() {
+    fn a_union_with_more_records_than_a_trace_id_can_index_is_refused_at_the_write() {
         let index = fixtures::mini();
         let (_, memo) = enumerate_keeping(&index, &[], Vec::new());
         let (key, entry) = memo
@@ -1705,8 +1704,8 @@ mod tests {
         let reads = memo.reads(entry).to_vec().into_boxed_slice();
         let path = scratch("memo-union-range").join("memo-default.tsv");
         for (distinct_records, expected) in [
-            (true, "a memo seats fewer than 65,536 settled records"),
-            (false, "a memo seats fewer than 65,536 notes lists"),
+            (true, "a memo holds fewer than 65,536 settled records"),
+            (false, "a memo holds fewer than 65,536 notes lists"),
         ] {
             let build = |extensions: std::ops::RangeInclusive<i16>| {
                 let mut built = MemoSnapshot::default();
@@ -1718,7 +1717,7 @@ mod tests {
                 } else {
                     built.settled.push(record.clone());
                 }
-                for (seat, extension) in extensions.enumerate() {
+                for (id, extension) in extensions.enumerate() {
                     if distinct_records {
                         built.settled.push(Settled {
                             extension: i64::from(extension),
@@ -1729,18 +1728,14 @@ mod tests {
                     }
                     let mut window = key;
                     window.left_extension = extension;
-                    let (settled_seat, notes_seat) = if distinct_records {
-                        (seat, 0)
-                    } else {
-                        (0, seat)
-                    };
+                    let (settled_id, notes_id) = if distinct_records { (id, 0) } else { (0, id) };
                     records.push((
                         window,
                         TraceEntry::new(
-                            TraceSettledSeat::at(settled_seat),
-                            TraceNotesSeat::at(notes_seat),
-                            DeltaSeat::at(0),
-                            ReadsSeat::at(0),
+                            TraceSettledId::at(settled_id),
+                            TraceNotesId::at(notes_id),
+                            DeltaId::at(0),
+                            ReadsId::at(0),
                             0,
                             false,
                             DecidedStage::Order,
@@ -1765,29 +1760,29 @@ mod tests {
             .expect("a union at the range writes");
             let back = read_memo(&index, &path, &head("default"), |_| true)
                 .expect("a file at the range reads");
-            assert_eq!(back.len(), TraceSettledSeat::CAPACITY);
+            assert_eq!(back.len(), TraceSettledId::CAPACITY);
             let refusal = write_memo(&index, &path, &head("default"), &own, &[carried(i16::MAX)])
                 .expect_err("a union past the range is refused");
             assert!(refusal.contains(expected), "{refusal}");
         }
     }
 
-    /// A settled record naming a cell no left of this spec keys drops the windows seated on it while the rest read. Here the record's stance seat points at a rune's name, which the spec interns but which has no stance ordinal.
+    /// A settled record naming a cell no left of this spec keys drops the windows that name it while the rest read. Here the record's stance id points at a rune's name, which the spec interns but which has no stance ordinal.
     #[test]
-    fn a_window_seated_on_a_record_no_left_keys_is_dropped() {
+    fn a_window_naming_a_record_no_left_keys_is_dropped() {
         let index = fixtures::mini();
         let (_, memo) = enumerate_keeping(&index, &[], Vec::new());
         let path = scratch("memo-stale-record").join("memo-default.tsv");
         write_memo(&index, &path, &head("default"), &memo, &[]).expect("the file writes");
         let text = std::fs::read_to_string(&path).expect("the file is text");
-        let seat_of = |name: &str| {
+        let id_of = |name: &str| {
             text.lines()
                 .filter_map(|line| line.strip_prefix("Y\t"))
                 .position(|symbol| symbol == name)
                 .expect("the memo names it")
                 .to_string()
         };
-        let (half, pea) = (seat_of("half"), seat_of("qsPea"));
+        let (half, pea) = (id_of("half"), id_of("qsPea"));
         let mut moved = 0;
         let stale: Vec<String> = text
             .lines()
@@ -1800,7 +1795,7 @@ mod tests {
                 fields.join("\t")
             })
             .collect();
-        assert!(moved > 0, "the memo seats a record in the half stance");
+        assert!(moved > 0, "the memo holds a record in the half stance");
         std::fs::write(&path, stale.join("\n") + "\n").expect("rewritten");
         let back = read_memo(&index, &path, &head("default"), |_| true).expect("still reads");
         assert!(back.len() < memo.len());
