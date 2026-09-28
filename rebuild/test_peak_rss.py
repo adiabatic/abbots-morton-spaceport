@@ -94,6 +94,16 @@ def test_the_footprint_counts_what_a_process_touches_and_reads_another_live_proc
     assert peak_rss.footprint_bytes(child.pid) is None
 
 
+def test_the_swap_in_use_is_what_the_machine_states():
+    """On Linux the swap in use is `/proc/meminfo`'s total less its free, and a text without both fields reads None. Where there is a source, the live reading is a byte count."""
+    meminfo = "MemTotal:       16384000 kB\nSwapTotal:       4194304 kB\nSwapFree:        1048576 kB\n"
+    assert peak_rss.meminfo_swap_used_bytes(meminfo) == 3145728 * 1024
+    assert peak_rss.meminfo_swap_used_bytes("SwapTotal:       4194304 kB\n") is None
+    if sys.platform == "darwin" or sys.platform.startswith("linux"):
+        used = peak_rss.swap_used_bytes()
+        assert used is not None and used >= 0
+
+
 def test_reap_returns_the_child_peak_and_sets_returncode():
     proc = subprocess.Popen([sys.executable, "-c", "x = bytearray(64 * 1024 * 1024)"])
     peak = peak_rss.reap_peak_rss_bytes(proc)

@@ -6,6 +6,8 @@
 
 Resident set under-reads a process under memory pressure: on Darwin the pages the compressor holds and the pages swapped out count in neither the resident set nor `ru_maxrss`. `footprint_bytes` and `peak_footprint_bytes` read what the process costs the machine instead, for any live pid this user owns. On Darwin that is `proc_pid_rusage`'s `rusage_info_v4` through `ctypes`: `ri_phys_footprint` now and `ri_lifetime_max_phys_footprint` over the process's life, the figures Activity Monitor and `top` report as memory. On Linux the current figure is `/proc/<pid>/status`'s `VmRSS` plus `VmSwap` and the peak is its `VmHWM`, a resident peak that leaves out what was swapped out. Elsewhere the current figure is None and the peak falls back to `ru_maxrss` for this process and None for another.
 
+`swap_used_bytes` is the machine's swap in use, for a report to show beside a pool's footprint so a run short of memory is visible in its log: Darwin's `vm.swapusage` through `sysctlbyname`, or `/proc/meminfo`'s `SwapTotal` less `SwapFree` on Linux. It lags and does not fall back when the pressure ends, which is why `memory_budget` never sizes a pool from it.
+
 The module imports only the standard library, so the pipeline, the corpus build and `tools/build_font.py` (through `memory_budget`) can import it without adding any other module to their import closures.
 """
 
@@ -22,6 +24,7 @@ _BSD_TIME_RSS = re.compile(r"^\s*(\d+)\s+maximum resident set size", re.MULTILIN
 _GNU_TIME_RSS = re.compile(r"maximum resident set size[^:]*:\s*(\d+)", re.IGNORECASE)
 _RUSAGE_INFO_V4 = 4
 _STATUS_KIB = re.compile(r"^(VmRSS|VmSwap|VmHWM):\s*(\d+)\s*kB\s*$", re.MULTILINE)
+_MEMINFO_SWAP_KIB = re.compile(r"^(SwapTotal|SwapFree):\s*(\d+)\s*kB\s*$", re.MULTILINE)
 
 
 class _RusageInfoV4(ctypes.Structure):
@@ -67,6 +70,16 @@ class _RusageInfoV4(ctypes.Structure):
     ]
 
 
+class _XswUsage(ctypes.Structure):
+    _fields_ = [
+        ("xsu_total", ctypes.c_uint64),
+        ("xsu_avail", ctypes.c_uint64),
+        ("xsu_used", ctypes.c_uint64),
+        ("xsu_pagesize", ctypes.c_uint32),
+        ("xsu_encrypted", ctypes.c_int),
+    ]
+
+
 def _darwin_rusage(pid: int) -> _RusageInfoV4 | None:
     try:
         libc = ctypes.CDLL(None, use_errno=True)
@@ -109,6 +122,33 @@ def peak_footprint_bytes(pid: int | None = None, platform: str = sys.platform) -
     if peak is not None:
         return peak
     return peak_rss_self_bytes() if pid is None or pid == os.getpid() else None
+
+
+def meminfo_swap_used_bytes(text: str) -> int | None:
+    """Return the swap in use that a `/proc/meminfo` text states, `SwapTotal` less `SwapFree`, in bytes, or None when it states neither."""
+    fields = {name: int(kib) * 1024 for name, kib in _MEMINFO_SWAP_KIB.findall(text)}
+    if "SwapTotal" not in fields or "SwapFree" not in fields:
+        return None
+    return fields["SwapTotal"] - fields["SwapFree"]
+
+
+def swap_used_bytes(platform: str = sys.platform) -> int | None:
+    """Return the swap this machine has in use now, in bytes, or None when it cannot be read. The module docstring names the source on each platform."""
+    if platform == "darwin":
+        try:
+            libc = ctypes.CDLL(None, use_errno=True)
+            usage = _XswUsage()
+            size = ctypes.c_size_t(ctypes.sizeof(usage))
+            if libc.sysctlbyname(b"vm.swapusage", ctypes.byref(usage), ctypes.byref(size), None, 0) != 0:
+                return None
+        except OSError, AttributeError:
+            return None
+        return int(usage.xsu_used)
+    try:
+        with open("/proc/meminfo", encoding="ascii") as handle:
+            return meminfo_swap_used_bytes(handle.read())
+    except OSError, ValueError:
+        return None
 
 
 def maxrss_to_bytes(ru_maxrss: int, platform: str = sys.platform) -> int:

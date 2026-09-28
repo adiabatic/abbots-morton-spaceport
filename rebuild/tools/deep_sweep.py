@@ -6,6 +6,10 @@ The per-edit sweep's split-buffer check (every text split at a boundary shapes t
 
 Each acceptance configuration runs `conform.conformance_config_worker` in a spawn process of its own (`run_sweep`), one configuration per process, so no configuration starts in a worker that still holds what an earlier one allocated. A settlement configuration's walk shares no memo file at this depth and keeps every distinct window it settled until its last text, so a worker's windows grow through the whole walk, and its footprint peaks at the window dict's last doubling late in the walk, when it briefly holds the old and new tables together. The width is therefore fixed before anything is spawned, from the windows each worker holds at its end, priced so that it covers that peak: `window_bound` counts the windows a settlement worker can hold at the requested maximum length, `settlement_worker_bytes` prices them, and `sweep_width` fits that many workers into the machine's memory. When even one settlement worker does not fit, `memory_shortfall` says so before anything is spawned: a warning when it exceeds the memory less the reserve, and a refusal without a stated width when it exceeds the machine's memory in all. The ss10 overlay holds no windows, only what every worker holds before its walk (`DEEP_SWEEP_BASE_BYTES`). The parent holds the spec, the glyph inventory and the guard verdicts, well inside the reserve, as the per-edit sweep's controller does. Each worker returns its peak footprint (`peak_rss.peak_footprint_bytes`), and the run's check line in the cycle-timings journal records every worker's peak beside its estimate, so a real run can be held against the estimate.
 
+While the workers run, the parent prints a progress report every 20 minutes (`REPORT_SECONDS_DEFAULT`; `AMS_DEEP_SWEEP_REPORT_SECONDS` sets another interval for a debugging run). Each worker writes the count of texts it has shaped into its configuration's slot of a shared array after each chunk of `conform.TEXT_CHUNK` texts, and its pid and the clock time it started into two others; the arrays reach the spawn workers through the pool's initializer, the one way a spawn process can inherit shared memory. One slot has one writer and the parent only reads, so no lock is taken, and the hot loop pays one store per chunk. A worker prints nothing. The parent reads the slots every `SAMPLE_SECONDS`, and each report states, in total and then per configuration, the texts shaped out of the texts to shape (`config_texts`, counted before any worker starts), the time elapsed, the rate since the last report, the estimated finish, and each worker's footprint (`peak_rss.footprint_bytes`) with the machine's swap in use (`peak_rss.swap_used_bytes`). `SweepProgress` says how the estimate is computed.
+
+The total is a `[progress] <k>/<n> texts` counter line in `console`'s protocol, and the rest of the report rides on the same line: `console.parse_line` reads the counter's two bare counts and takes everything after them as the unit, which the artifact cycle's console reprints verbatim after the counts, which it formats with `console.fmt_count`. The two counts stay bare because the parser reads only digits there; every other count and duration in the report goes through `fmt_count` and `fmt_duration`. Each configuration gets a `deep sweep[<config>]: ` line after it, which is not a protocol line, so the cycle's console logs it without surfacing it, as it does the per-configuration peak lines at the end, while `tail -f` shows every line. Making them counter lines too would not show them: the console keeps only the latest counter of a burst and surfaces it a heartbeat later.
+
 A green run also refreshes gate:conform's green record, when the per-edit sweep's key did not change during the run, because an exhaustive sweep at depth N covers every text the per-edit sweep at depth 4 shapes. The next cycle can then skip the per-edit sweep. At or past the deep replay's maximum length it also refreshes the deep replay's record (`rebuild.tools.deep_replay`), because it settles every text it shapes against the tables in the font. That record holds the rune digests read before the sweep started, which are the runes the swept font was built from, and the refresh is skipped when a rune changed while the sweep ran.
 
 Run as: uv run python -m rebuild.tools.deep_sweep, or through `make conform-deep`.
@@ -14,15 +18,17 @@ Run as: uv run python -m rebuild.tools.deep_sweep, or through `make conform-deep
 from __future__ import annotations
 
 import argparse
+import heapq
 import json
+import math
 import multiprocessing
 import os
 import sys
 import time
-from collections import Counter
-from collections.abc import Mapping
-from concurrent.futures import ProcessPoolExecutor, as_completed
-from dataclasses import dataclass
+from collections import Counter, deque
+from collections.abc import Callable, Collection, Mapping, MutableSequence, Sequence
+from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
+from dataclasses import dataclass, field
 from functools import cache
 from pathlib import Path
 
@@ -54,6 +60,16 @@ SUMMARY_NAME = "deep_sweep_summary.json"
 CHECK = "conform-deep"
 
 JOBS_ENV = "AMS_DEEP_SWEEP_JOBS"
+
+REPORT_ENV = "AMS_DEEP_SWEEP_REPORT_SECONDS"
+
+REPORT_SECONDS_DEFAULT = 20 * 60.0
+
+# How often the parent reads the workers' counters between reports. A count is dated to the first reading that shows it, so it is late by at most this much, against walks that run for hours and chunks that take seconds. A configuration's start is the clock time its worker recorded, so a worker that finishes between two readings, as the ss10 overlay's does, still has its duration.
+SAMPLE_SECONDS = 5.0
+
+# The share of a configuration's texts that the rate its estimate uses spans (`smoothed_rate`). A walk's rate changes as it moves through the alphabet: it takes the letters in order in the first position, one after another across its longest texts, and the letters' rules cost different amounts to settle and shape. A tenth of the texts spans several first letters, so one costly letter moves the rate little, while the rate still trails the walk by only a twentieth of it, half the window.
+RATE_WINDOW_SHARE = 0.1
 
 # What one settlement worker holds per window at its peak, the variable term of its need (`settlement_worker_bytes`). The walk keeps `conform._SettledWindowWalk.windows`, a dict from a six-label key tuple to a shared outcome, and shares no settle memo at a deep length, so it holds one key tuple and one dict entry for every distinct window it settled, until its walk ends. Labels and outcomes are interned and shared, so nothing else grows with the windows. The dict doubles its tables when it passes two thirds of its slots, and for that moment it holds the old tables and the new ones together, so a worker's peak is that transient at the last doubling, not its size at the end of the walk. Per window held, the peak is highest when the walk ends just past a doubling.
 # Measured on the 18-core M5 Pro 48 GiB MacBook Pro (`doc/fleet.md`) on the alphabet with ·Ye, reading footprint (`peak_rss.peak_footprint_bytes`) with nothing else running and no swap in use, by the probe `var/keep/issue-480/measure_worker.py`, whose logs are beside it. Every acceptance configuration at maximum length 4, each in a fresh spawn worker with no settle memo, peaks at 0.662 to 0.701 GB over 2,909,666 to 2,911,159 windows (`len4-full/`). `default` alone at maximum length 5, walked without shaping, peaks at 16.93 GB at its doubling past 89,478,485 windows, from 11.41 GB just before it, and ends at 14.75 GB over 96,040,858 windows (`len5-walk-default/`). Shaping adds nothing per window: at 2,058,625 windows the full length-4 worker reads 0.42 GB against the walk's 0.49 GB. That walk ends just past a doubling, so its peak is the worst case per window. The 9.86 to 9.90 GB a worker that `make conform-deep` was seen holding partway through a run swapping at six jobs (issue #480) is a lower bound on the same peak, read hours before the walk's end.
@@ -200,6 +216,234 @@ def stated_jobs() -> int | None:
         ) from None
 
 
+def report_seconds() -> float:
+    """Return the interval between progress reports: what `AMS_DEEP_SWEEP_REPORT_SECONDS` states, or REPORT_SECONDS_DEFAULT when it is unset. A value that is not a positive, finite decimal number of seconds raises, as `stated_jobs` does for its own variable."""
+    stated = os.environ.get(REPORT_ENV)
+    if stated is None:
+        return REPORT_SECONDS_DEFAULT
+    try:
+        seconds = float(stated)
+    except ValueError:
+        seconds = math.nan
+    if not (math.isfinite(seconds) and seconds > 0):
+        raise RuntimeError(
+            f"{REPORT_ENV}={stated!r} is not an interval: it takes a positive decimal number of seconds between progress reports"
+        )
+    return seconds
+
+
+def config_texts(spec: ResolvedSpec, max_length: int) -> dict[str, int]:
+    """Return how many texts each acceptance configuration's worker shapes: every text of one letter up to its maximum length over the spec's alphabet, which is `max_length` for a settlement configuration and `conform.OVERLAY_MAX_LENGTH` for an overlay. It is the `sequences` count each worker returns, known before any worker starts."""
+    size = len(conform.spec_alphabet(spec))
+    return {
+        config: sum(
+            size**length
+            for length in range(
+                1, (conform.OVERLAY_MAX_LENGTH if config in conform.OVERLAY_CONFIGS else max_length) + 1
+            )
+        )
+        for config in conform.ACCEPTANCE_CONFIGS
+    }
+
+
+def smoothed_rate(samples: Sequence[tuple[float, int]], window: float) -> float | None:
+    """Return the texts a second between the newest sample and the newest one at least `window` texts before it, or the oldest sample when none is that far back, or None when the samples span no time or no texts. A sample is a (seconds, texts shaped) reading, oldest first."""
+    if len(samples) < 2:
+        return None
+    end_time, end_done = samples[-1]
+    start_time, start_done = samples[0]
+    for moment, done in samples:
+        if done > end_done - window:
+            break
+        start_time, start_done = moment, done
+    if end_time <= start_time or end_done <= start_done:
+        return None
+    return (end_done - start_done) / (end_time - start_time)
+
+
+def schedule_finish(
+    running: Mapping[str, float], queued: Sequence[tuple[str, float]], slots: int
+) -> dict[str, float]:
+    """Return the seconds from now at which each configuration finishes, given the seconds each running one has left, each queued one's whole duration in the order the pool takes them, and the pool's slots. Each queued configuration starts in the slot that frees first, a free slot at once, as `ProcessPoolExecutor` hands out work in submission order."""
+    finishes = dict(running)
+    slot_free = sorted(running.values()) + [0.0] * max(0, slots - len(running))
+    heapq.heapify(slot_free)
+    for config, seconds in queued:
+        finishes[config] = heapq.heappop(slot_free) + seconds
+        heapq.heappush(slot_free, finishes[config])
+    return finishes
+
+
+@dataclass
+class _Walk:
+    texts: int
+    overlay: bool
+    samples: deque[tuple[float, int]] = field(default_factory=deque)
+    first: tuple[float, int] | None = None
+    marked: tuple[float, int] | None = None
+    finished: float | None = None
+
+    @property
+    def done(self) -> int:
+        return self.samples[-1][1] if self.samples else 0
+
+    @property
+    def running(self) -> bool:
+        return self.first is not None and self.finished is None
+
+
+def _per_second(start: tuple[float, int], end: tuple[float, int]) -> float | None:
+    return (end[1] - start[1]) / (end[0] - start[0]) if end[0] > start[0] else None
+
+
+def _fmt_rate(rate: float | None) -> str:
+    return "no rate yet" if rate is None else f"{console.fmt_count(round(rate))} texts/s"
+
+
+def _fmt_finish(seconds: float | None, wall: float) -> str:
+    if seconds is None:
+        return "finish not yet estimated"
+    return f"finishing in {console.fmt_duration(seconds)}, at {time.strftime('%a %H:%M', time.localtime(wall + seconds))}"
+
+
+class SweepProgress:
+    """The parent's record of each configuration's walk, and the progress report built from it. Every time is on the parent's monotonic clock; a worker's start, which the worker records on the wall clock, is converted to it at the reading that finds it (`run_sweep`).
+
+    The estimate is a schedule, not the total rate extrapolated: the pool runs `slots` configurations at once and the settlement configurations can take more than one round, so a total rate would stand for configurations that have not started and misjudge when a round ends. A running configuration has its remaining texts left at its own rate, taken over the last `RATE_WINDOW_SHARE` of its texts (`smoothed_rate`), once it has shaped that many. A queued configuration takes its whole count at the rate of its kind (settlement or overlay): the texts of the configurations of that kind over their durations, a finished one's as it ran and a running one's elapsed time plus its remaining texts at its own rate. The kinds are kept apart because the overlay's texts are few and short, while all the settlement configurations walk the same texts. `schedule_finish` then places the queued configurations, in the order the pool takes them, into the slots as they free, and the run ends when the last slot does.
+
+    A configuration that has shaped less than the window has a rate of its own that still carries its start, the worker's setup and the short texts first, so it takes its kind's rate too. A kind's rate counts only the configurations that are finished or have a rate over the whole window. Only when there are none, as while the first configuration of a kind covers its first window, does it count the rates the running ones have made so far. A configuration whose kind has no rate at all leaves the finish unestimated.
+    """
+
+    def __init__(
+        self, texts: Mapping[str, int], overlays: Collection[str], slots: int, started: float
+    ) -> None:
+        self.walks = {
+            config: _Walk(texts=count, overlay=config in overlays) for config, count in texts.items()
+        }
+        self.slots = slots
+        self.started = started
+        self.marked: tuple[float, int] | None = None
+
+    def observe(self, config: str, done: int, now: float, began: float | None = None) -> None:
+        """Record that `config`'s worker is running and has shaped `done` texts, as read at `now`, and that it started at `began` when that is known. A count is kept only when it changes, so it is dated to the first reading that shows it."""
+        walk = self.walks[config]
+        if walk.finished is not None:
+            return
+        if walk.first is None:
+            walk.first = (now, done) if began is None else (min(began, now), 0)
+            walk.samples.append(walk.first)
+        if done == walk.done:
+            return
+        walk.samples.append((now, done))
+        window = RATE_WINDOW_SHARE * walk.texts
+        while len(walk.samples) > 2 and walk.samples[1][1] <= done - window:
+            walk.samples.popleft()
+
+    def finish(self, config: str, now: float, done: int, began: float | None = None) -> None:
+        """Record that `config`'s worker returned at `now` having shaped `done` texts, and started at `began` when that is known and no reading saw it running."""
+        walk = self.walks[config]
+        if walk.first is None:
+            walk.first = (now if began is None else min(began, now), 0)
+        walk.samples.append((now, done))
+        walk.finished = now
+
+    def running(self, config: str) -> bool:
+        return self.walks[config].running
+
+    def _rate(self, walk: _Walk, *, whole_window: bool) -> float | None:
+        """Return `walk`'s smoothed rate, or None when it has none, or when `whole_window` asks for a rate over the whole window and its samples do not span one yet."""
+        window = RATE_WINDOW_SHARE * walk.texts
+        if whole_window and not (walk.samples and walk.samples[0][1] <= walk.done - window):
+            return None
+        return smoothed_rate(walk.samples, window)
+
+    def kind_rate(self, overlay: bool, now: float) -> float | None:
+        """Return the texts a second of the configurations of one kind that have started, as the class docstring describes: their texts over their durations, a finished one's as it ran and a running one's elapsed time plus its remaining texts at its own rate. The running ones count only with a rate over the whole window, unless no configuration of the kind qualifies; the result is None when none has a rate at all."""
+        for whole_window in (True, False):
+            texts = seconds = 0.0
+            for walk in self.walks.values():
+                if walk.overlay != overlay or walk.first is None:
+                    continue
+                if walk.finished is not None:
+                    duration = walk.finished - walk.first[0]
+                else:
+                    rate = self._rate(walk, whole_window=whole_window)
+                    if rate is None:
+                        continue
+                    duration = now - walk.first[0] + (walk.texts - walk.done) / rate
+                if duration > 0:
+                    texts += walk.texts
+                    seconds += duration
+            if seconds > 0:
+                return texts / seconds
+        return None
+
+    def estimate(self, now: float) -> tuple[dict[str, float | None], float | None]:
+        """Return the seconds from `now` at which each unfinished configuration finishes, and at which the whole sweep does, by the schedule the class docstring describes. A configuration without an estimate maps to None; so does every queued one, and the sweep, when any unfinished configuration lacks one."""
+        running: dict[str, float | None] = {}
+        queued: list[tuple[str, float | None]] = []
+        for config, walk in self.walks.items():
+            if walk.finished is not None:
+                continue
+            if walk.first is None:
+                rate = self.kind_rate(walk.overlay, now)
+                queued.append((config, None if rate is None else walk.texts / rate))
+                continue
+            rate = self._rate(walk, whole_window=True) or self.kind_rate(walk.overlay, now)
+            running[config] = None if rate is None else (walk.texts - walk.done) / rate
+        known_running = {config: left for config, left in running.items() if left is not None}
+        known_queued = [(config, seconds) for config, seconds in queued if seconds is not None]
+        if len(known_running) < len(running) or len(known_queued) < len(queued):
+            return {**running, **{config: None for config, _ in queued}}, None
+        finishes = schedule_finish(known_running, known_queued, self.slots)
+        return dict(finishes), max(finishes.values(), default=0.0)
+
+    def report(
+        self, now: float, wall: float, footprints: Mapping[str, int | None], swap: int | None
+    ) -> list[str]:
+        """Return one progress report as of `now`, with `wall` the clock time at `now` for the finish's time of day: the total counter line, then one line per configuration in submission order. `footprints` maps each running configuration to its worker's footprint, None where it could not be read, and `swap` is the machine's swap in use. Each rate since the last report is from this record's previous report, or from the start of the sweep or of the configuration when there was none."""
+        finishes, total_finish = self.estimate(now)
+        done = sum(walk.done for walk in self.walks.values())
+        texts = sum(walk.texts for walk in self.walks.values())
+        since = "since the start" if self.marked is None else "since the last report"
+        readable = [footprint for footprint in footprints.values() if footprint is not None]
+        workers = (
+            f"{len(readable)} {'worker holds' if len(readable) == 1 else 'workers hold'} {peak_rss.format_gb(sum(readable))} GB"
+            if readable
+            else "no worker footprint readable"
+        )
+        held = "swap unreadable" if swap is None else f"{peak_rss.format_gb(swap)} GB of swap in use"
+        lines = [
+            f"{console.PROGRESS}{done}/{texts} texts, {console.fmt_duration(now - self.started)} elapsed, "
+            f"{_fmt_rate(_per_second(self.marked or (self.started, 0), (now, done)))} {since}, "
+            f"{_fmt_finish(total_finish, wall)}, {workers}, {held}"
+        ]
+        for config, walk in self.walks.items():
+            counts = (
+                f"deep sweep[{config}]: {console.fmt_count(walk.done)}/{console.fmt_count(walk.texts)} texts"
+            )
+            if walk.first is None:
+                lines.append(f"{counts}, queued, {_fmt_finish(finishes.get(config), wall)}")
+            elif walk.finished is not None:
+                lines.append(f"{counts}, finished in {console.fmt_duration(walk.finished - walk.first[0])}")
+            else:
+                own_since = "since the last report" if walk.marked is not None else "since it started"
+                rate = _per_second(walk.marked or walk.first, (now, walk.done))
+                footprint = footprints.get(config)
+                holds = (
+                    "footprint unreadable"
+                    if footprint is None
+                    else f"holding {peak_rss.format_gb(footprint)} GB"
+                )
+                lines.append(
+                    f"{counts}, running for {console.fmt_duration(now - walk.first[0])}, "
+                    f"{_fmt_rate(rate)} {own_since}, {_fmt_finish(finishes.get(config), wall)}, {holds}"
+                )
+                walk.marked = (now, walk.done)
+        self.marked = (now, done)
+        return lines
+
+
 def tables_stamped() -> bool:
     """Return whether the serialized enumeration under rebuild/out/m1 was produced from the sources on disk, by the same `tables_inputs()` stamp `run_font_conformance` checks. It checks the artifacts themselves, not a record of a past run, so tables from a `--gates-only` pass or from another machine qualify the same way as a local build."""
     return run_m1.serialized_tables(run_m1.OUT_DIR, run_m1.tables_inputs()) is not None
@@ -237,33 +481,100 @@ def plan_sweep(max_length: int) -> SweepPlan:
     return SweepPlan(spec=spec, glyphs=glyphs, windows=windows, bound_seconds=time.perf_counter() - started)
 
 
-def _config_worker(spec, font_path: Path, config: str, max_length: int, glyphs, guard_verdicts):
-    """Run one configuration's sweep in its own process and return the result with the process's peak footprint, read just before it returns."""
-    result = conform.conformance_config_worker(spec, font_path, config, max_length, glyphs, guard_verdicts)
+_COUNTERS: tuple[MutableSequence[int], MutableSequence[int], MutableSequence[float]] | None = None
+
+
+def _attach_counters(
+    shaped: MutableSequence[int], pids: MutableSequence[int], began: MutableSequence[float]
+) -> None:
+    """The pool's initializer: keep the shared arrays a worker writes its count, pid, and start into."""
+    global _COUNTERS
+    _COUNTERS = (shaped, pids, began)
+
+
+def _counter_writer(slot: int) -> Callable[[int], None] | None:
+    """Record this process's start and pid in `slot` and return the function that stores its count of texts shaped there, or None outside a pool that attached the arrays. The start is written first, since the parent reads it once it sees the pid."""
+    if _COUNTERS is None:
+        return None
+    shaped, pids, began = _COUNTERS
+    began[slot] = time.time()
+    pids[slot] = os.getpid()
+
+    def store(count: int) -> None:
+        shaped[slot] = count
+
+    return store
+
+
+def _config_worker(spec, font_path: Path, config: str, max_length: int, glyphs, guard_verdicts, slot: int):
+    """Run one configuration's sweep in its own process, storing its count of texts shaped in its `slot` of the shared array after each chunk, and return the result with the process's peak footprint, read just before it returns."""
+    result = conform.conformance_config_worker(
+        spec, font_path, config, max_length, glyphs, guard_verdicts, progress=_counter_writer(slot)
+    )
     peak = peak_rss.peak_footprint_bytes()
     return result, peak if peak is not None else peak_rss.peak_rss_self_bytes()
 
 
-def run_sweep(plan: SweepPlan, max_length: int, jobs: int) -> tuple[dict, dict[str, int]]:
-    """Sweep every acceptance configuration at `max_length`, `jobs` at a time, one spawn process per configuration, and return the summary `run_m1.run_font_conformance` returns with each configuration's worker peak. The overlay is submitted first, so when it shares a slot it finishes before a settlement configuration takes that slot. The §5.7 guard verdicts are computed once here and passed to every worker."""
+def run_sweep(
+    plan: SweepPlan, max_length: int, jobs: int, report_every: float = REPORT_SECONDS_DEFAULT
+) -> tuple[dict, dict[str, int]]:
+    """Sweep every acceptance configuration at `max_length`, `jobs` at a time, one spawn process per configuration, and return the summary `run_m1.run_font_conformance` returns with each configuration's worker peak. The overlay is submitted first, so when it shares a slot it finishes before a settlement configuration takes that slot. The §5.7 guard verdicts are computed once here and passed to every worker. A progress report is printed every `report_every` seconds while any worker runs, as the module docstring describes."""
     kernel_exec.ensure_built()
     guard_verdicts = kernel_exec.guard_sweep(plan.spec)
     font_path = run_m1.OUT_DIR / "M1.otf"
     order = conform.OVERLAY_CONFIGS + conform.SETTLEMENT_CONFIGS
+    texts = config_texts(plan.spec, max_length)
     collected: dict[str, conform.ConformanceConfigResult] = {}
     peaks: dict[str, int] = {}
+    context = multiprocessing.get_context("spawn")
+    shaped = context.RawArray("q", len(order))
+    pids = context.RawArray("q", len(order))
+    began = context.RawArray("d", len(order))
+    progress = SweepProgress(
+        {config: texts[config] for config in order}, conform.OVERLAY_CONFIGS, jobs, time.monotonic()
+    )
+    next_report = progress.started + report_every
     with ProcessPoolExecutor(
-        max_workers=jobs, mp_context=multiprocessing.get_context("spawn"), max_tasks_per_child=1
+        max_workers=jobs,
+        mp_context=context,
+        max_tasks_per_child=1,
+        initializer=_attach_counters,
+        initargs=(shaped, pids, began),
     ) as pool:
-        futures = [
-            pool.submit(_config_worker, plan.spec, font_path, config, max_length, plan.glyphs, guard_verdicts)
-            for config in order
-        ]
-        for future in as_completed(futures):
-            result, peak = future.result()
-            collected[result.config] = result
-            peaks[result.config] = peak
-            console.progress(len(collected), len(order), "configurations")
+        pending = {
+            pool.submit(
+                _config_worker, plan.spec, font_path, config, max_length, plan.glyphs, guard_verdicts, slot
+            )
+            for slot, config in enumerate(order)
+        }
+        while pending:
+            timeout = max(0.0, min(SAMPLE_SECONDS, next_report - time.monotonic()))
+            finished, pending = wait(pending, timeout=timeout, return_when=FIRST_COMPLETED)
+            now = time.monotonic()
+            wall = time.time()
+            starts = {
+                config: now - max(0.0, wall - began[slot]) if began[slot] > 0 else None
+                for slot, config in enumerate(order)
+            }
+            for slot, config in enumerate(order):
+                if pids[slot]:
+                    progress.observe(config, shaped[slot], now, starts[config])
+            for future in finished:
+                result, peak = future.result()
+                collected[result.config] = result
+                peaks[result.config] = peak
+                progress.finish(result.config, now, result.sequences, starts[result.config])
+                console.progress(len(collected), len(order), "configurations")
+            if pending and now >= next_report:
+                footprints = {
+                    config: peak_rss.footprint_bytes(pids[slot])
+                    for slot, config in enumerate(order)
+                    if progress.running(config)
+                }
+                for line in progress.report(now, wall, footprints, peak_rss.swap_used_bytes()):
+                    console.say(line)
+                while next_report <= now:
+                    next_report += report_every
     report = conform.merge_conformance_results(
         font_path, [collected[config] for config in conform.ACCEPTANCE_CONFIGS]
     )
@@ -326,6 +637,7 @@ def main(argv: list[str] | None = None) -> int:
     deep_key = record_key()
     conform_key = conform_skip_fingerprint(ROOT, CONFORM_MAX_LENGTH_DEFAULT)
     stated = args.jobs if args.jobs is not None else stated_jobs()
+    report_every = report_seconds()
     plan = plan_sweep(args.max_length)
     settlement_bytes = settlement_worker_bytes(plan.windows)
     derived = sweep_width(settlement_bytes)
@@ -339,7 +651,7 @@ def main(argv: list[str] | None = None) -> int:
     print(
         f"deep sweep: maximum length {args.max_length} over every acceptance configuration at {jobs} jobs {source}, one process per configuration (the ss10 overlay keeps its own maximum length); "
         f"a settlement worker holds at most {plan.windows} windows (bound in {plan.bound_seconds * 1000:.1f} ms), {peak_rss.format_gb(settlement_bytes)} GB at {DEEP_SWEEP_WINDOW_BYTES} bytes each beside {peak_rss.format_gb(DEEP_SWEEP_BASE_BYTES)} GB; "
-        f"{sweep_width_derivation(settlement_bytes)}",
+        f"{sweep_width_derivation(settlement_bytes)}; a progress report every {console.fmt_duration(report_every)}",
         flush=True,
     )
     shortfall = memory_shortfall(settlement_bytes)
@@ -349,7 +661,7 @@ def main(argv: list[str] | None = None) -> int:
             raise SystemExit(f"deep sweep: {sentence}; pass --jobs 1 or set {JOBS_ENV}=1 to run it anyway")
         console.warn(f"deep sweep: {sentence}")
     started = time.perf_counter()
-    summary, peaks = run_sweep(plan, args.max_length, jobs)
+    summary, peaks = run_sweep(plan, args.max_length, jobs, report_every=report_every)
     elapsed = time.perf_counter() - started
     print(json.dumps(summary, indent=2))
     estimates = {

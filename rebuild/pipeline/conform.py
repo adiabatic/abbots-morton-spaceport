@@ -1846,12 +1846,15 @@ def _conformance_config(
     max_length: int,
     guard_verdicts: settle.FormationGuard | None = None,
     settle_memo: SettleMemoFile | None = None,
+    progress: Callable[[int], None] | None = None,
 ) -> ConformanceConfigResult:
     """One configuration's conformance-sweep run: every string of length 1 to `max_length` over the alphabet, shaped with the font and compared with the settled stream, plus the split-buffer and zero-gap checks. Configurations share nothing, so both the serial `run_conformance` and the process-pool worker call this.
 
     An overlay configuration is swept to `OVERLAY_MAX_LENGTH` instead, whatever `max_length` is. Its expected names are `isolated_overlay_labels` over the raw tokens, it uses no walk and no memo, and every slot must sit at zero offset with its `hmtx` advance (`check_isolated_positions`). The split-buffer check runs there too.
 
     Settlement goes through `_SettledWindowWalk`'s memo, which only saves time. `settle_memo` shares that memo with the other walks over the same texts: it is loaded on the first miss, written back at the end if this sweep settled anything the file lacked, and pruned of every entry no text reached. This sweep walks every text, so it is the only walk that can tell which windows still exist. Each length's texts go through the walk `TEXT_CHUNK` at a time, because at larger maximum lengths a length has millions of texts and only the current chunk needs to be in memory. The split-buffer check runs only on texts that contain a splitter, since a text without one is its own single segment.
+
+    `progress`, when given, is called with the count of texts shaped so far after each chunk, and after each length for an overlay configuration, so a caller can report a long sweep's progress from another process without the sweep printing anything or paying for a call per text.
     """
     features = features_for_config(config)
     result = ConformanceConfigResult(config=config)
@@ -1868,6 +1871,8 @@ def _conformance_config(
                 expected = isolated_overlay_labels(spec, isolated_overlay_tokens(spec, text))
                 check_oracle(text, config, shaped, expected, result.divergences, modes)
                 check_isolated_positions(text, config, shaper, shaped, result.divergences)
+            if progress is not None:
+                progress(result.sequences)
         result.modes = sorted(modes)
         return result
 
@@ -1893,6 +1898,8 @@ def _conformance_config(
             result.sequences += len(chunk)
             for text, (_settled, names) in zip(chunk, walker.walk_many(chunk)):
                 sweep_text(text, names)
+            if progress is not None:
+                progress(result.sequences)
 
     memo_line = walker.memo_line(config, walker.save_memo(prune=True))
     if memo_line is not None:
@@ -1909,8 +1916,9 @@ def conformance_config_worker(
     glyphs: Mapping[CellId, GlyphRecord] | None = None,
     guard_verdicts: settle.FormationGuard | None = None,
     settle_memo: SettleMemoFile | None = None,
+    progress: Callable[[int], None] | None = None,
 ) -> ConformanceConfigResult:
-    """One configuration's conformance-sweep run in its own process, building what it needs from the spec and the font. That includes the section 5.7 guard verdicts when the caller passes none (a fifth of a second against a sweep that runs for a minute); an overlay configuration forms nothing and skips them. `settle_memo` is only a path and keys, so the worker reads and writes the file itself."""
+    """One configuration's conformance-sweep run in its own process, building what it needs from the spec and the font. That includes the section 5.7 guard verdicts when the caller passes none (a fifth of a second against a sweep that runs for a minute); an overlay configuration forms nothing and skips them. `settle_memo` is only a path and keys, so the worker reads and writes the file itself. `progress` is `_conformance_config`'s."""
     shaper = Shaper(Path(font_path))
     alphabet = spec_alphabet(spec)
     splitters = splitting_boundary_chars(spec)
@@ -1930,6 +1938,7 @@ def conformance_config_worker(
         max_length,
         guard_verdicts,
         settle_memo=settle_memo,
+        progress=progress,
     )
 
 
