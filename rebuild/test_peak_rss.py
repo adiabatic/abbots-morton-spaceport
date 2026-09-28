@@ -1,6 +1,8 @@
 import subprocess
 import sys
 
+import pytest
+
 from rebuild.tools import peak_rss
 from rebuild.tools.cycle_timings import parse_inner_timings
 
@@ -64,6 +66,32 @@ def test_the_current_reading_is_a_resident_set_under_the_peak():
     current = peak_rss.current_rss_bytes()
     assert current is not None and current > 10 * 1024 * 1024
     assert current <= peak_rss.peak_rss_self_bytes() * 1.05
+
+
+@pytest.mark.skipif(
+    sys.platform != "darwin" and not sys.platform.startswith("linux"), reason="no footprint source here"
+)
+def test_the_footprint_counts_what_a_process_touches_and_reads_another_live_process():
+    """The current footprint rises by the pages this process touches, the lifetime peak is at least the current figure, and another process this user owns reads the same way while it is alive and reads None once it is reaped."""
+    before = peak_rss.footprint_bytes()
+    block = bytearray(64 * 1024 * 1024)
+    for offset in range(0, len(block), 4096):
+        block[offset] = 1
+    now = peak_rss.footprint_bytes()
+    assert before is not None and now is not None
+    assert now - before >= 60 * 1024 * 1024
+    peak = peak_rss.peak_footprint_bytes()
+    assert peak is not None and peak >= now
+    child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
+    try:
+        current = peak_rss.footprint_bytes(child.pid)
+        assert current is not None and current > 0
+        child_peak = peak_rss.peak_footprint_bytes(child.pid)
+        assert child_peak is not None and child_peak >= current
+    finally:
+        child.kill()
+        child.wait()
+    assert peak_rss.footprint_bytes(child.pid) is None
 
 
 def test_reap_returns_the_child_peak_and_sets_returncode():

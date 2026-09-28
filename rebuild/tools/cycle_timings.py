@@ -2,7 +2,7 @@
 
 The journal is rebuild/out/cycle-timings.ndjson. It is gitignored with the rest of rebuild/out and the retention pass does not prune it, so each machine keeps its own history. It holds four kinds of line.
 
-A "check" line records one evaluated check invocation: the check's name, the outcome (green, red, or skipped), the status string the evaluator printed, the failure messages the cycle adds to its summary, and the ids of the tests that failed. The artifact cycle tags each check it evaluates with its run id. The interactive entry points (rebuild.tools.rebuild_gate, rebuild.tools.make_test_gate, rebuild.tools.deep_replay, and run_m1's CLI) record their checks with no run. Each invocation is recorded by one process: run_m1's CLI and make_test_gate, which a cycle spawns, record nothing when AMS_CYCLE_RUN (`CYCLE_RUN_ENV`) is set, and the cycle records their line instead. A check line carries its own host, cpu count, and total memory, because most check lines have no run line to take them from. The outcome is what the evaluator decided, never the process's return code, so a run that died before its evaluator and a run the evaluator failed can be told apart.
+A "check" line records one evaluated check invocation: the check's name, the outcome (green, red, or skipped), the status string the evaluator printed, the failure messages the cycle adds to its summary, and the ids of the tests that failed. The artifact cycle tags each check it evaluates with its run id. The interactive entry points (rebuild.tools.rebuild_gate, rebuild.tools.make_test_gate, rebuild.tools.deep_replay, rebuild.tools.deep_sweep, and run_m1's CLI) record their checks with no run. Each invocation is recorded by one process: run_m1's CLI and make_test_gate, which a cycle spawns, record nothing when AMS_CYCLE_RUN (`CYCLE_RUN_ENV`) is set, and the cycle records their line instead. A check line carries its own host, cpu count, and total memory, because most check lines have no run line to take them from. `make conform-deep`'s check line also carries each configuration worker's peak footprint beside the need its width was derived from. The outcome is what the evaluator decided, never the process's return code, so a run that died before its evaluator and a run the evaluator failed can be told apart.
 
 A "step" line records one subprocess the cycle spawned: the driver's step name (run_m1, gate:conform, merge, ...), the argv, the return code, the wall seconds, and the step's peak RSS in bytes. The driver measures the peak as it reaps the child (`peak_rss.reap_peak_rss_bytes`), and it is the largest of the child and its descendants. The line also carries every `[t] <label> <secs>s` phase line parsed from the child's captured output, so the per-configuration conform sweeps and run_m1's phases are kept even for steps whose output is not shown on the console. A phase line may end with a peak-RSS token `rss_gb=<n>` (`peak_rss.rss_token`) and a current-RSS token `rss_now_gb=<n>` (`peak_rss.rss_now_token`), both in decimal GB, which are stored as `rss_gb` and `rss_now_gb`. A step line has a return code and no outcome, and no reader here derives an outcome from it. A skipped stage spawns nothing and so writes no step line; the run line's plan and gates blocks say which stages were skipped.
 
@@ -27,6 +27,7 @@ import sys
 import threading
 import time
 import uuid
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -142,9 +143,11 @@ def record_check(
     argv: list[str] | None = None,
     elapsed_s: float | None = None,
     peak_rss_bytes: int | None = None,
+    worker_peak_footprint_bytes: Mapping[str, int] | None = None,
+    worker_estimate_bytes: Mapping[str, int] | None = None,
     path: Path | None = None,
 ) -> None:
-    """Append one kind:"check" line for an evaluated check invocation. `run` is the optional parent run id: the artifact cycle passes it through `CycleTimings.record_check`, and an interactive entry point passes nothing.
+    """Append one kind:"check" line for an evaluated check invocation. `run` is the optional parent run id: the artifact cycle passes it through `CycleTimings.record_check`, and an interactive entry point passes nothing. A check that runs its own pool can also record each worker's peak footprint (`peak_rss.peak_footprint_bytes`) and the need it was sized for, keyed by worker, as `make conform-deep` does per configuration, so a real run can be held against its estimate.
 
     The host, cpu count, and total memory are read here because most check lines have no run line to take them from, and so parented and unparented lines can be compared directly. `recordable` is not written. `elapsed_s` is rounded to a tenth, as step lines are. Nothing here raises, because the callers are gate wrappers and the cycle's reporting path, where an unwritable journal should warn once and never fail a check that already has a result. `path` is resolved at call time, not bound as a default, so a test that patches `JOURNAL` redirects this write too.
     """
@@ -170,6 +173,14 @@ def record_check(
         entry["elapsed_s"] = round(float(elapsed_s), 1)
     if peak_rss_bytes is not None:
         entry["peak_rss_bytes"] = int(peak_rss_bytes)
+    if worker_peak_footprint_bytes is not None:
+        entry["worker_peak_footprint_bytes"] = {
+            worker: int(peak) for worker, peak in worker_peak_footprint_bytes.items()
+        }
+    if worker_estimate_bytes is not None:
+        entry["worker_estimate_bytes"] = {
+            worker: int(estimate) for worker, estimate in worker_estimate_bytes.items()
+        }
     failure = _append_entry(journal, entry)
     if failure is not None and not _check_warn_state[0]:
         _check_warn_state[0] = True

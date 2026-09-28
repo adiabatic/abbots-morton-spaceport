@@ -296,6 +296,20 @@ def test_record_check_carries_the_parent_and_the_cost_when_given_them(tmp_path):
     assert entry["peak_rss_bytes"] == 5_560_000_000
 
 
+def test_record_check_carries_each_workers_peak_footprint_beside_its_estimate(tmp_path):
+    """A check that sizes its own pool records every worker's peak footprint and the need its width assumed, keyed by worker, so a real run can be held against the estimate."""
+    path = tmp_path / "j.ndjson"
+    ct.record_check(
+        _check_result(check="conform-deep"),
+        worker_peak_footprint_bytes={"default": 16_930_000_000, "ss10": 45_000_000},
+        worker_estimate_bytes={"default": 26_600_000_000, "ss10": 200_000_000},
+        path=path,
+    )
+    (entry,) = _lines(path)
+    assert entry["worker_peak_footprint_bytes"] == {"default": 16_930_000_000, "ss10": 45_000_000}
+    assert entry["worker_estimate_bytes"] == {"default": 26_600_000_000, "ss10": 200_000_000}
+
+
 def test_a_check_line_never_journals_recordable(tmp_path):
     """`recordable` only tells the current pass whether it may write a green record, so it is not journaled."""
     path = tmp_path / "j.ndjson"

@@ -1795,7 +1795,7 @@ def run_conformance(
     summary_name: str = "conform_summary.json",
     settle_memos: Mapping[str, SettleMemoFile] | None = None,
 ) -> ConformReport:
-    """Run the conformance sweep serially: one shared Shaper, each configuration in turn through `_conformance_config`, and the results merged by `merge_conformance_results`. The parallel form is `run_m1.run_font_conformance`, which submits `conformance_config_worker` per configuration. The sweep reads no decision table: it shapes the font and settles the same texts through the kernel, and read-back checks that the font holds the planned rules. `summary_name` is the file written under `out_dir`; the deep sweep passes its own name so it does not overwrite the per-edit sweep's record. `settle_memos` names each configuration's shared settle memo file, and a configuration without one settles every window itself."""
+    """Run the conformance sweep serially: one shared Shaper, each configuration in turn through `_conformance_config`, and the results merged by `merge_conformance_results`. The parallel form is `run_m1.run_font_conformance`, which submits `conformance_config_worker` per configuration. The sweep reads no decision table: it shapes the font and settles the same texts through the kernel, and read-back checks that the font holds the planned rules. `summary_name` is the file written under `out_dir`, so a caller can keep its report apart from the per-edit sweep's. `settle_memos` names each configuration's shared settle memo file, and a configuration without one settles every window itself."""
     shaper = Shaper(Path(font_path))
     alphabet = spec_alphabet(spec)
     splitters = splitting_boundary_chars(spec)

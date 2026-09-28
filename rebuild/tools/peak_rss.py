@@ -4,11 +4,14 @@
 
 `peak_rss_self_bytes` is this process's own peak. `peak_rss_children_bytes` is the largest peak among the children this process has reaped. `process_peak_rss_bytes` is the larger of the two, which is the figure a `[t]` line for a stage that fans out should carry. A peak only rises, so the difference between two peak readings says nothing about what happened between them; `reap_peak_rss_bytes` gives a per-child figure. `current_rss_bytes` is the resident set at the moment of the call. A `[t]` line with both tokens (`rss_token`, `rss_now_token`) shows where in the step the peak was reached and what the phase that just ended leaves resident.
 
+Resident set under-reads a process under memory pressure: on Darwin the pages the compressor holds and the pages swapped out count in neither the resident set nor `ru_maxrss`. `footprint_bytes` and `peak_footprint_bytes` read what the process costs the machine instead, for any live pid this user owns. On Darwin that is `proc_pid_rusage`'s `rusage_info_v4` through `ctypes`: `ri_phys_footprint` now and `ri_lifetime_max_phys_footprint` over the process's life, the figures Activity Monitor and `top` report as memory. On Linux the current figure is `/proc/<pid>/status`'s `VmRSS` plus `VmSwap` and the peak is its `VmHWM`, a resident peak that leaves out what was swapped out. Elsewhere the current figure is None and the peak falls back to `ru_maxrss` for this process and None for another.
+
 The module imports only the standard library, so the pipeline, the corpus build and `tools/build_font.py` (through `memory_budget`) can import it without adding any other module to their import closures.
 """
 
 from __future__ import annotations
 
+import ctypes
 import os
 import re
 import resource
@@ -17,6 +20,95 @@ import sys
 
 _BSD_TIME_RSS = re.compile(r"^\s*(\d+)\s+maximum resident set size", re.MULTILINE)
 _GNU_TIME_RSS = re.compile(r"maximum resident set size[^:]*:\s*(\d+)", re.IGNORECASE)
+_RUSAGE_INFO_V4 = 4
+_STATUS_KIB = re.compile(r"^(VmRSS|VmSwap|VmHWM):\s*(\d+)\s*kB\s*$", re.MULTILINE)
+
+
+class _RusageInfoV4(ctypes.Structure):
+    _fields_ = [("ri_uuid", ctypes.c_uint8 * 16)] + [
+        (name, ctypes.c_uint64)
+        for name in (
+            "ri_user_time",
+            "ri_system_time",
+            "ri_pkg_idle_wkups",
+            "ri_interrupt_wkups",
+            "ri_pageins",
+            "ri_wired_size",
+            "ri_resident_size",
+            "ri_phys_footprint",
+            "ri_proc_start_abstime",
+            "ri_proc_exit_abstime",
+            "ri_child_user_time",
+            "ri_child_system_time",
+            "ri_child_pkg_idle_wkups",
+            "ri_child_interrupt_wkups",
+            "ri_child_pageins",
+            "ri_child_elapsed_abstime",
+            "ri_diskio_bytesread",
+            "ri_diskio_byteswritten",
+            "ri_cpu_time_qos_default",
+            "ri_cpu_time_qos_maintenance",
+            "ri_cpu_time_qos_background",
+            "ri_cpu_time_qos_utility",
+            "ri_cpu_time_qos_legacy",
+            "ri_cpu_time_qos_user_initiated",
+            "ri_cpu_time_qos_user_interactive",
+            "ri_billed_system_time",
+            "ri_serviced_system_time",
+            "ri_logical_writes",
+            "ri_lifetime_max_phys_footprint",
+            "ri_instructions",
+            "ri_cycles",
+            "ri_billed_energy",
+            "ri_serviced_energy",
+            "ri_interval_max_phys_footprint",
+            "ri_runnable_time",
+        )
+    ]
+
+
+def _darwin_rusage(pid: int) -> _RusageInfoV4 | None:
+    try:
+        libc = ctypes.CDLL(None, use_errno=True)
+        info = _RusageInfoV4()
+        if libc.proc_pid_rusage(ctypes.c_int(pid), ctypes.c_int(_RUSAGE_INFO_V4), ctypes.byref(info)) != 0:
+            return None
+    except OSError, AttributeError:
+        return None
+    return info
+
+
+def _linux_status_bytes(pid: int) -> dict[str, int]:
+    try:
+        with open(f"/proc/{pid}/status", encoding="ascii") as handle:
+            text = handle.read()
+    except OSError, ValueError:
+        return {}
+    return {name: int(kib) * 1024 for name, kib in _STATUS_KIB.findall(text)}
+
+
+def footprint_bytes(pid: int | None = None, platform: str = sys.platform) -> int | None:
+    """Return the memory `pid` (this process when None) costs the machine now, in bytes, or None when it cannot be read: the process is gone or belongs to another user, or the platform has no source. Unlike a resident set it counts compressed and swapped pages, so it does not fall when the machine is under pressure. The module docstring names the source on each platform."""
+    target = os.getpid() if pid is None else pid
+    if platform == "darwin":
+        info = _darwin_rusage(target)
+        return None if info is None else int(info.ri_phys_footprint)
+    status = _linux_status_bytes(target)
+    if "VmRSS" not in status:
+        return None
+    return status["VmRSS"] + status.get("VmSwap", 0)
+
+
+def peak_footprint_bytes(pid: int | None = None, platform: str = sys.platform) -> int | None:
+    """Return the most memory `pid` (this process when None) has cost the machine at any point in its life, in bytes, or None when it cannot be read. A process can read its own peak just before it returns, which is how a pool worker reports its peak to the parent; another process's peak is readable only while it is alive and unreaped. The module docstring names the source on each platform, and where the only source is a resident peak it under-reads a process that was swapping."""
+    target = os.getpid() if pid is None else pid
+    if platform == "darwin":
+        info = _darwin_rusage(target)
+        return None if info is None else int(info.ri_lifetime_max_phys_footprint)
+    peak = _linux_status_bytes(target).get("VmHWM")
+    if peak is not None:
+        return peak
+    return peak_rss_self_bytes() if pid is None or pid == os.getpid() else None
 
 
 def maxrss_to_bytes(ru_maxrss: int, platform: str = sys.platform) -> int:
