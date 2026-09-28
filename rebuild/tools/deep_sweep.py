@@ -582,11 +582,11 @@ def run_sweep(
     summary: dict = {
         "sequences": report.sequences,
         "shaping_runs": report.shaping_runs,
-        "divergences": len(report.divergences),
+        "divergences": report.divergence_count,
         "pass": report.passed,
         "notes": report.notes,
     }
-    for divergence in report.divergences[:20]:
+    for divergence in (exemplar.divergence for exemplar in report.exemplars):
         summary.setdefault("divergence_exemplars", []).append(
             f"{divergence.config} {':'.join(f'{ord(ch):04X}' for ch in divergence.text)} position {divergence.position} [{divergence.kind}] expected {divergence.expected} got {divergence.got}"
         )

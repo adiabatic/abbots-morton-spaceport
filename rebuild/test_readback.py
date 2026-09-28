@@ -54,7 +54,8 @@ class TestOverlayCase:
             conform.SWEEP_MAX_LENGTH,
             None,
         )
-        assert result.divergences == []
+        assert result.divergences_by_kind == {}
+        assert result.exemplars == []
         alphabet = len(conform.spec_alphabet(spec))
         assert result.sequences == alphabet + alphabet**2
 

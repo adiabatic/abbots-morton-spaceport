@@ -869,14 +869,19 @@ class TestConformFanIn:
             config=config,
             sequences=100,
             shaping_runs=100 + index,
-            divergences=[
-                conform.Divergence(
-                    text=chr(0xE650 + index),
-                    config=config,
-                    position=index,
-                    expected="qsPea",
-                    got="qsPea.alt",
-                    kind=f"kind-{config}",
+            divergences_by_kind={f"kind-{config}": 1},
+            exemplars=[
+                conform.DivergenceExemplar(
+                    conform.Divergence(
+                        text=chr(0xE650 + index),
+                        config=config,
+                        position=index,
+                        expected="qsPea",
+                        got="qsPea.alt",
+                        kind=f"kind-{config}",
+                    ),
+                    1,
+                    index,
                 )
             ],
             notes=[f"{config}: swept at {max_length}"],

@@ -201,7 +201,7 @@ class TestIsolatedOverlay:
         assert result.sequences == alphabet + alphabet**2
         assert result.shaping_runs == result.sequences == len(shaper.shaped)
         assert all(len(text) <= conform.OVERLAY_MAX_LENGTH for text in shaper.shaped)
-        assert result.divergences and {divergence.kind for divergence in result.divergences} == {"length"}
+        assert set(result.divergences_by_kind) == {"length"}
 
 
 class TestRawLabels:
@@ -789,15 +789,19 @@ class TestConformanceMerge:
         divergences: Sequence[conform.Divergence] = (),
         notes: Sequence[str] = (),
         modes: Sequence[str] = (),
+        alphabet: Sequence[str] = (),
     ) -> conform.ConformanceConfigResult:
-        return conform.ConformanceConfigResult(
+        result = conform.ConformanceConfigResult(
             config=config,
             sequences=sequences,
             shaping_runs=shaping_runs,
-            divergences=list(divergences),
             notes=list(notes),
             modes=list(modes),
         )
+        tally = conform.DivergenceTally(result, alphabet)
+        for divergence in divergences:
+            tally.append(divergence)
+        return result
 
     def test_sequences_come_from_the_first_result_and_shaping_runs_sum(self):
         merged = conform.merge_conformance_results(
@@ -816,12 +820,79 @@ class TestConformanceMerge:
             Path("M1.otf"),
             [
                 self._result("default", notes=["default: first"]),
-                self._result("ss02", notes=["ss02: second"], divergences=[divergence]),
+                self._result(
+                    "ss02", notes=["ss02: second"], divergences=[divergence], alphabet=tuple(divergence.text)
+                ),
             ],
         )
         assert merged.notes == ["default: first", "ss02: second"]
-        assert merged.divergences == [divergence]
+        assert [exemplar.divergence for exemplar in merged.exemplars] == [divergence]
+        assert merged.divergences_by_kind == {"oracle": 1}
         assert merged.passed is False
+
+    def test_more_divergences_than_the_limit_keep_the_concatenations_first_exemplars(self):
+        """Each configuration's tally keeps only its own first `EXEMPLAR_LIMIT` divergences, and the merge concatenates those. With more divergences than the limit in one configuration and across all of them, the merged exemplars must be the first `EXEMPLAR_LIMIT` of every configuration's divergences concatenated in caller order, each tagged with its text's length and product-order rank, and the counts must cover every divergence, including the ones no exemplar holds."""
+        alphabet = ("a", "b", "c")
+        texts = [
+            "".join(combo) for length in (1, 2, 3) for combo in itertools.product(alphabet, repeat=length)
+        ]
+        per_config = {
+            config: [
+                conform.Divergence(text, config, 0, "want", "got", ("name", "gap", "length")[index % 3])
+                for index, text in enumerate(texts[:count])
+            ]
+            for config, count in (("default", 7), ("ss03", conform.EXEMPLAR_LIMIT + 5), ("ss04", 4))
+        }
+        concatenated = [divergence for divergences in per_config.values() for divergence in divergences]
+        assert len(concatenated) > conform.EXEMPLAR_LIMIT
+        merged = conform.merge_conformance_results(
+            Path("M1.otf"),
+            [
+                self._result(config, divergences=divergences, alphabet=alphabet)
+                for config, divergences in per_config.items()
+            ],
+        )
+        assert [exemplar.divergence for exemplar in merged.exemplars] == concatenated[
+            : conform.EXEMPLAR_LIMIT
+        ]
+        ranks = {
+            "".join(combo): rank
+            for length in (1, 2, 3)
+            for rank, combo in enumerate(itertools.product(alphabet, repeat=length))
+        }
+        for exemplar in merged.exemplars:
+            text = exemplar.divergence.text
+            assert (exemplar.length, exemplar.rank) == (len(text), ranks[text])
+        by_kind: dict[str, int] = {}
+        for divergence in concatenated:
+            by_kind[divergence.kind] = by_kind.get(divergence.kind, 0) + 1
+        assert list(merged.divergences_by_kind.items()) == list(by_kind.items())
+        assert merged.divergence_count == len(concatenated)
+        assert merged.passed is False
+
+    def test_first_seen_orders_kinds_as_one_walk_whatever_the_split(self):
+        """A tally records where each kind first appears. Results that split a configuration's texts by last symbol, merged by each kind's earliest `first_seen`, must give the kind order of one tally over every text in walk order, even when the split's own order (here the last symbol) disagrees with it."""
+        alphabet = ("a", "b", "c")
+        kinds_of = {"b": ("gap", "length"), "ba": ("name",), "cc": ("name",)}
+        texts = ["".join(combo) for length in (1, 2) for combo in itertools.product(alphabet, repeat=length)]
+
+        def tallied(selected: list[str]) -> conform.ConformanceConfigResult:
+            divergences = [
+                conform.Divergence(text, "default", 0, "want", "got", kind)
+                for text in selected
+                for kind in kinds_of.get(text, ())
+            ]
+            return self._result("default", divergences=divergences, alphabet=alphabet)
+
+        whole = tallied(texts)
+        assert whole.first_seen == {"gap": (1, 1, 0), "length": (1, 1, 1), "name": (2, 3, 0)}
+        units = [tallied([text for text in texts if text[-1] == last]) for last in alphabet]
+        assert list(units[0].divergences_by_kind) == ["name"]
+        earliest: dict[str, tuple[int, int, int]] = {}
+        for unit in units:
+            for kind, seen in unit.first_seen.items():
+                earliest[kind] = min(earliest.get(kind, seen), seen)
+        assert sorted(earliest, key=earliest.__getitem__) == list(whole.divergences_by_kind)
 
     def test_modes_union_sorted_after_the_config_notes(self):
         merged = conform.merge_conformance_results(

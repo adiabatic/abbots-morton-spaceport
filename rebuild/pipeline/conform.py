@@ -32,7 +32,7 @@ from array import array
 from contextlib import suppress
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import IO, Callable, Iterable, Iterator, Literal, Mapping, Sequence, cast
+from typing import IO, Callable, Iterable, Iterator, Literal, Mapping, Protocol, Sequence, cast
 
 from rebuild.pipeline import geometry, kernel_exec, oracle_cache, settle
 from rebuild.pipeline.labels import (
@@ -67,6 +67,8 @@ TEXT_CHUNK = 65536
 SWEEP_MAX_LENGTH = 4
 # The overlay sweep's length, whatever the conformance sweep's maximum length. Single letters show that each cmap glyph maps to its copy, and pairs show that no pair forms, joins, or moves. Together with read-back's isolation check, that covers every text.
 OVERLAY_MAX_LENGTH = 2
+# How many divergences a configuration's result and the merged report keep in full. Every divergence is counted by kind, but a red sweep at a deep maximum length can diverge on millions of texts, and the summaries print only this many.
+EXEMPLAR_LIMIT = 20
 SETTLE_MEMO_FORMAT = "ams-settle-memo/3"
 SETTLE_MEMO_PART_FORMAT = "ams-settle-memo-part/1"
 # Windows per block when a walk encodes its memo entries, for a part or for a whole-file save. Each part block is its own pickle, so a walk writes its fresh windows out, and an absorb reads them in, this many at a time instead of holding the whole part twice.
@@ -93,28 +95,45 @@ class Divergence:
     kind: str
 
 
+class DivergenceSink(Protocol):
+    """What the check functions record a divergence into: a list, or a `DivergenceTally`."""
+
+    def append(self, divergence: Divergence, /) -> None: ...
+
+
+@dataclass
+class DivergenceExemplar:
+    """A divergence kept in full, with its text's length and its text's rank among the texts of that length in `itertools.product` order over the alphabet, so exemplars from separate sweeps can be put back in sweep order."""
+
+    divergence: Divergence
+    length: int
+    rank: int
+
+
 @dataclass
 class ConformReport:
     font: str
     sequences: int = 0
     shaping_runs: int = 0
-    divergences: list[Divergence] = field(default_factory=list)
+    divergences_by_kind: dict[str, int] = field(default_factory=dict)
+    exemplars: list[DivergenceExemplar] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
 
     @property
+    def divergence_count(self) -> int:
+        return sum(self.divergences_by_kind.values())
+
+    @property
     def passed(self) -> bool:
-        return not self.divergences
+        return self.divergence_count == 0
 
     def write(self, path: Path) -> None:
-        by_kind: dict[str, int] = {}
-        for divergence in self.divergences:
-            by_kind[divergence.kind] = by_kind.get(divergence.kind, 0) + 1
         summary: dict[str, object] = {
             "font": self.font,
             "sequences": self.sequences,
             "shaping_runs": self.shaping_runs,
-            "divergences": len(self.divergences),
-            "divergences_by_kind": by_kind,
+            "divergences": self.divergence_count,
+            "divergences_by_kind": dict(self.divergences_by_kind),
             "pass": self.passed,
             "notes": self.notes,
         }
@@ -242,7 +261,7 @@ def settled_names(
     return names
 
 
-def check_oracle(text, config, shaped, expected, divergences, modes) -> None:
+def check_oracle(text, config, shaped, expected, divergences: DivergenceSink, modes) -> None:
     actual = normalize_actual(text, shaped)
     expected = normalize_expected(expected)
     if len(actual) != len(expected):
@@ -267,7 +286,13 @@ def _slot_signature(shaper: Shaper, glyph: dict) -> tuple:
 
 
 def check_split_buffer(
-    text, config, features, shaper: Shaper, shaped, divergences, splitters: frozenset[str] = frozenset({ZWNJ})
+    text,
+    config,
+    features,
+    shaper: Shaper,
+    shaped,
+    divergences: DivergenceSink,
+    splitters: frozenset[str] = frozenset({ZWNJ}),
 ) -> None:
     """Check that the shaped buffer, with its splitter slots dropped, matches its splitter-separated segments shaped alone. Slots are compared on outline, advance, and offsets, not names, because the locked copies have the same bitmaps as the bare runes."""
     slots = {
@@ -312,7 +337,12 @@ def check_split_buffer(
 
 
 def check_join_gaps(
-    text, config, shaper: Shaper, shaped, anchors_of: Callable[[str], dict | None], divergences
+    text,
+    config,
+    shaper: Shaper,
+    shaped,
+    anchors_of: Callable[[str], dict | None],
+    divergences: DivergenceSink,
 ) -> None:
     pen = 0
     origins = []
@@ -443,7 +473,7 @@ class IsolatedOverlayShaper:
         return [(0, 0, self._advances[name]) for name in self._labels(text)]
 
 
-def check_isolated_positions(text, config, shaper: Shaper, shaped, divergences) -> None:
+def check_isolated_positions(text, config, shaper: Shaper, shaped, divergences: DivergenceSink) -> None:
     """Check that every shaped slot sits at zero offset with its glyph's `hmtx` advance, as it must when nothing attaches under the overlay. A ZWNJ slot, which HarfBuzz shows as the space glyph at zero advance, must have zero advance. This check is what allows `IsolatedOverlayShaper` to replace HarfBuzz on the oracle's side."""
     hidden = zwnj_slots(text, shaped)
     for index, glyph in enumerate(shaped):
@@ -1854,9 +1884,47 @@ class ConformanceConfigResult:
     config: str
     sequences: int = 0
     shaping_runs: int = 0
-    divergences: list[Divergence] = field(default_factory=list)
+    divergences_by_kind: dict[str, int] = field(default_factory=dict)
+    exemplars: list[DivergenceExemplar] = field(default_factory=list)
+    first_seen: dict[str, tuple[int, int, int]] = field(default_factory=dict)
     notes: list[str] = field(default_factory=list)
     modes: list[str] = field(default_factory=list)
+
+
+class DivergenceTally:
+    """The sink `_conformance_config` hands the checks. It counts every divergence by kind into `result`, in the order each kind first appears, and keeps the first `EXEMPLAR_LIMIT` in full as `DivergenceExemplar`s ranked over `alphabet`, so a red sweep's result stays the same size however many texts diverge. It also records in `result.first_seen` where each kind first appears, as the text's length, its product-order rank, and the divergence's index among its text's divergences, so results that split one configuration's texts between them can be merged back into the kind order of a single walk over them."""
+
+    def __init__(self, result: ConformanceConfigResult, alphabet: Sequence[str]):
+        self.result = result
+        self._index = {symbol: position for position, symbol in enumerate(alphabet)}
+        self._text: str | None = None
+        self._within = 0
+
+    def _rank(self, text: str) -> int:
+        rank = 0
+        for symbol in text:
+            rank = rank * len(self._index) + self._index[symbol]
+        return rank
+
+    def append(self, divergence: Divergence, /) -> None:
+        text = divergence.text
+        if text == self._text:
+            self._within += 1
+        else:
+            self._text = text
+            self._within = 0
+        result = self.result
+        by_kind = result.divergences_by_kind
+        fresh_kind = divergence.kind not in by_kind
+        by_kind[divergence.kind] = by_kind.get(divergence.kind, 0) + 1
+        keep = len(result.exemplars) < EXEMPLAR_LIMIT
+        if not (fresh_kind or keep):
+            return
+        rank = self._rank(text)
+        if fresh_kind:
+            result.first_seen[divergence.kind] = (len(text), rank, self._within)
+        if keep:
+            result.exemplars.append(DivergenceExemplar(divergence, len(text), rank))
 
 
 def _conformance_config(
@@ -1882,6 +1950,7 @@ def _conformance_config(
     """
     features = features_for_config(config)
     result = ConformanceConfigResult(config=config)
+    divergences = DivergenceTally(result, alphabet)
     modes: set[str] = set()
     if isolated_overlay_active(spec, features):
         for length in range(1, OVERLAY_MAX_LENGTH + 1):
@@ -1891,10 +1960,10 @@ def _conformance_config(
                 shaped = shaper.shape(text, features)
                 result.shaping_runs += 1
                 if set(text) & splitters:
-                    check_split_buffer(text, config, features, shaper, shaped, result.divergences, splitters)
+                    check_split_buffer(text, config, features, shaper, shaped, divergences, splitters)
                 expected = isolated_overlay_labels(spec, isolated_overlay_tokens(spec, text))
-                check_oracle(text, config, shaped, expected, result.divergences, modes)
-                check_isolated_positions(text, config, shaper, shaped, result.divergences)
+                check_oracle(text, config, shaped, expected, divergences, modes)
+                check_isolated_positions(text, config, shaper, shaped, divergences)
             if progress is not None:
                 progress(result.sequences)
         result.modes = sorted(modes)
@@ -1916,10 +1985,10 @@ def _conformance_config(
         shaped = shaper.shape(text, features)
         result.shaping_runs += 1
         if set(text) & splitters:
-            check_split_buffer(text, config, features, shaper, shaped, result.divergences, splitters)
-        check_oracle(text, config, shaped, names, result.divergences, modes)
+            check_split_buffer(text, config, features, shaper, shaped, divergences, splitters)
+        check_oracle(text, config, shaped, names, divergences, modes)
         if anchors_of is not None:
-            check_join_gaps(text, config, shaper, shaped, anchors_of, result.divergences)
+            check_join_gaps(text, config, shaper, shaped, anchors_of, divergences)
 
     for length in range(1, max_length + 1):
         stream = itertools.product(alphabet, repeat=length)
@@ -1975,14 +2044,16 @@ def conformance_config_worker(
 
 
 def merge_conformance_results(font_path: Path, results: Iterable[ConformanceConfigResult]) -> ConformReport:
-    """Merge per-configuration results into one ConformReport. `sequences` comes from the first result, because every settlement configuration sweeps the same texts; the overlay's shorter sweep shows only in the shaping runs. Shaping runs are summed, and divergences and notes are concatenated in the caller's configuration order. The oracle modes are merged and appended in sorted order, so the report does not depend on which configuration finished first."""
+    """Merge per-configuration results into one ConformReport. `sequences` comes from the first result, because every settlement configuration sweeps the same texts; the overlay's shorter sweep shows only in the shaping runs. Shaping runs are summed, divergence counts are summed by kind in the order each kind first appears, and exemplars and notes are concatenated in the caller's configuration order, the exemplars up to `EXEMPLAR_LIMIT`. Each result keeps its own first `EXEMPLAR_LIMIT` divergences, so the merged exemplars are the first `EXEMPLAR_LIMIT` of every configuration's divergences in that order. The oracle modes are merged and appended in sorted order, so the report does not depend on which configuration finished first."""
     report = ConformReport(font=str(font_path))
     results = list(results)
     report.sequences = results[0].sequences if results else 0
     modes: set[str] = set()
     for result in results:
         report.shaping_runs += result.shaping_runs
-        report.divergences.extend(result.divergences)
+        for kind, count in result.divergences_by_kind.items():
+            report.divergences_by_kind[kind] = report.divergences_by_kind.get(kind, 0) + count
+        report.exemplars.extend(result.exemplars[: EXEMPLAR_LIMIT - len(report.exemplars)])
         report.notes.extend(result.notes)
         modes.update(result.modes)
     report.notes.extend(sorted(modes))
