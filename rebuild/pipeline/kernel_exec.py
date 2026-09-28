@@ -191,17 +191,22 @@ def _relink_lock(mode: int) -> _RelinkLock:
     return _RelinkLock(mode)
 
 
-def _run_kernel(arguments: list[str], verb: str) -> subprocess.CompletedProcess:
-    """Spawn the binary with the relink lock held shared for the spawn only, the moment a concurrent `cargo build` could make the path disappear, then wait without the lock so a long enumeration never blocks a build elsewhere. Raises `KernelRunError` for a missing binary or a timeout."""
+def _run_kernel(arguments: list[str], verb: str, stdin: bytes | None = None) -> subprocess.CompletedProcess:
+    """Spawn the binary with the relink lock held shared for the spawn only, the moment a concurrent `cargo build` could make the path disappear, then wait without the lock so a long enumeration never blocks a build elsewhere. With `stdin`, the child's stdin is a pipe that carries those bytes and is then closed; without it, the child inherits this process's stdin. Raises `KernelRunError` for a missing binary or a timeout."""
     try:
         with _relink_lock(fcntl.LOCK_SH):
-            process = subprocess.Popen(arguments, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            process = subprocess.Popen(
+                arguments,
+                stdin=None if stdin is None else subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
     except FileNotFoundError:
         raise KernelRunError(
             f"no kernel binary at {BINARY} — run `make kernel-build` first, or let the caller's cargo_build() build it"
         ) from None
     try:
-        stdout, stderr = process.communicate(timeout=TIMEOUT)
+        stdout, stderr = process.communicate(stdin, timeout=TIMEOUT)
     except subprocess.TimeoutExpired:
         process.kill()
         process.communicate()
@@ -672,22 +677,20 @@ def _json_result(text: str):
 
 def _settle_cases(
     spec_path: Path,
-    cases_path: Path,
     cases: Sequence[str],
     features: frozenset[str],
     modes: SettlementModes | None = None,
     decode=_json_result,
     settled_only: bool = False,
 ):
-    """Write the case file, run `settle-cases` over it and the already-dumped spec, and check that the kernel returned one case result per case line without changing or reordering any. The check is on bytes: the crate echoes each case line verbatim before its result, so an output line must start with its own case line and a tab, and the case line is never parsed back. A case line the crate cannot read makes it exit with an error instead of settling. `decode` reads one case result's text (everything after that tab) into whatever the caller keeps, the parsed JSON by default. It runs once per distinct case result text in the batch, since identical case results decode to the same value. That keeps a batch's Python cost proportional to the distinct case results: the review corpus's windows overlap heavily, so much of every batch repeats a trace already decoded. `settled_only` asks for the settled record's seven fields instead of the trace, which `settle_windows` reads through `_settled_of_fields`."""
-    cases_path.write_text("".join(line + "\n" for line in cases), encoding="utf-8")
-    arguments = [str(BINARY), "settle-cases", str(spec_path), str(cases_path)]
+    """Run `settle-cases` over the already-dumped spec with the case lines on its stdin, and check that the kernel returned one case result per case line without changing or reordering any. The check is on bytes: the crate echoes each case line verbatim before its result, so an output line must start with its own case line and a tab, and the case line is never parsed back. A case line the crate cannot read makes it exit with an error instead of settling. `decode` reads one case result's text (everything after that tab) into whatever the caller keeps, the parsed JSON by default. It runs once per distinct case result text in the batch, since identical case results decode to the same value. That keeps a batch's Python cost proportional to the distinct case results: the review corpus's windows overlap heavily, so much of every batch repeats a trace already decoded. `settled_only` asks for the settled record's seven fields instead of the trace, which `settle_windows` reads through `_settled_of_fields`."""
+    arguments = [str(BINARY), "settle-cases", str(spec_path), "-"]
     if features:
         arguments.append(f"--features={','.join(sorted(features))}")
     if settled_only:
         arguments.append("--settled-only")
     arguments.extend(settlement_flags(modes))
-    finished = _run_kernel(arguments, "settle-cases")
+    finished = _run_kernel(arguments, "settle-cases", "".join(line + "\n" for line in cases).encode())
     errors = finished.stderr.decode(errors="replace").strip()
     if finished.returncode == 2:
         raise KernelRunError(
@@ -729,14 +732,12 @@ def _settle_batch(
     decode,
     settled_only: bool = False,
 ) -> list:
-    """Settle one batch in one invocation. The spec dump is the memoized one, so only the case file is written per call, in a scratch directory removed on return."""
+    """Settle one batch in one invocation. The spec dump is the memoized one, and the case lines go over a pipe, so a batch writes no file."""
     if not cases:
         return []
     spec_path = _spec_dump(spec)
-    with tempfile.TemporaryDirectory() as scratch:
-        cases_path = Path(scratch) / "cases.tsv"
-        ensure_built()
-        return _settle_cases(spec_path, cases_path, cases, frozenset(features), modes, decode, settled_only)
+    ensure_built()
+    return _settle_cases(spec_path, cases, frozenset(features), modes, decode, settled_only)
 
 
 def settle_cases(

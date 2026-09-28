@@ -2,7 +2,6 @@
 
 import json
 from dataclasses import replace
-from pathlib import Path
 
 import pytest
 
@@ -268,11 +267,11 @@ def _refusing_kernel(monkeypatch, bucket):
         returncode = 0
         stderr = b""
 
-        def __init__(self, arguments):
-            case_lines = Path(arguments[3]).read_text(encoding="utf-8").splitlines()
+        def __init__(self, stdin: bytes):
+            case_lines = stdin.decode().splitlines()
             self.stdout = "".join(f"{line}\t{refusal}\n" for line in case_lines).encode()
 
-    monkeypatch.setattr(kernel_exec, "_run_kernel", lambda arguments, verb: Finished(arguments))
+    monkeypatch.setattr(kernel_exec, "_run_kernel", lambda arguments, verb, stdin: Finished(stdin))
 
 
 @pytest.mark.parametrize("bucket", ["E-INCOMPARABLE", "E-AMBIGUOUS"])
@@ -294,9 +293,9 @@ def test_windows_are_settled_as_settled_records_in_window_batches(monkeypatch):
     calls = []
     original = kernel_exec._settle_cases
 
-    def recording(spec_path, cases_path, cases, features, modes=None, decode=None, settled_only=False):
+    def recording(spec_path, cases, features, modes=None, decode=None, settled_only=False):
         calls.append((len(cases), settled_only))
-        return original(spec_path, cases_path, cases, features, modes, decode, settled_only)
+        return original(spec_path, cases, features, modes, decode, settled_only)
 
     monkeypatch.setattr(kernel_exec, "_settle_cases", recording)
     monkeypatch.setattr(kernel_exec, "SETTLE_WINDOW_BATCH", 100)

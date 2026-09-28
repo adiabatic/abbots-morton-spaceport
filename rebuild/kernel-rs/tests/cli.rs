@@ -193,7 +193,7 @@ fn a_malformed_command_line_is_a_two_and_an_unanswerable_one_is_a_one() {
     );
 }
 
-/// The case replay echoes each case line before its result in both shapes: the full trace by default, and the settled record's seven fields under `--settled-only`. `liveness-cases` has no trace to leave out, so it rejects the flag as a usage error.
+/// The case replay echoes each case line before its result in both shapes: the full trace by default, and the settled record's seven fields under `--settled-only`. The case lines on standard input, for the path `-`, give the same output as the file. `liveness-cases` has no trace to leave out, so it rejects the flag as a usage error.
 #[test]
 fn a_case_replay_writes_either_result_shape_and_the_liveness_verb_refuses_the_flag() {
     let root = scratch("cli-cases");
@@ -214,6 +214,16 @@ fn a_case_replay_writes_either_result_shape_and_the_liveness_verb_refuses_the_fl
     assert_eq!(
         String::from_utf8_lossy(&settled.stdout),
         format!("{case_line}\tqsPea\thalf\t\t\t\t\t0\n")
+    );
+    let piped = Command::new(KERNEL)
+        .args(["settle-cases", word(&spec), "-", "--settled-only"])
+        .stdin(std::fs::File::open(&cases).expect("the case file opens"))
+        .output()
+        .expect("the binary runs on a pipe");
+    assert_eq!(piped.status.code(), Some(0), "{}", stderr_of(&piped));
+    assert_eq!(
+        piped.stdout, settled.stdout,
+        "stdin and the file are one replay"
     );
     let refused = run(&[
         "liveness-cases",

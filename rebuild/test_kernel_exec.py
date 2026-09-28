@@ -71,7 +71,7 @@ class TestTheInvocationInterface:
         assert "--deep-classes-off" not in kernel_exec.settlement_flags()
 
     def test_settle_cases_batches_case_lines_with_canonical_features_and_modes(self, monkeypatch, tmp_path):
-        """The cases file holds only the case lines, one per line. The argv carries the sorted feature list and the mode flags. Each output line is its case line, a tab, and the case result, which decodes to parsed JSON by default."""
+        """Stdin carries only the case lines, one per line, and the cases path is `-`. The argv carries the sorted feature list and the mode flags. Each output line is its case line, a tab, and the case result, which decodes to parsed JSON by default."""
         case = kernel_exec.case_line(LeftContext("edge"), RightToken("letter", "qsMay"), (EDGE,) * 4)
         calls = []
 
@@ -80,8 +80,8 @@ class TestTheInvocationInterface:
             stdout = (case + '\t{"settled":"trace"}\n').encode()
             stderr = b""
 
-        def run(arguments, verb):
-            calls.append((arguments, verb))
+        def run(arguments, verb, stdin=None):
+            calls.append((arguments, stdin))
             return Finished()
 
         monkeypatch.setattr(kernel_exec, "_run_kernel", run)
@@ -89,18 +89,13 @@ class TestTheInvocationInterface:
             monkeypatch.setattr(module, attribute, False)
         got = kernel_exec._settle_cases(
             tmp_path / "spec.json",
-            tmp_path / "cases.tsv",
             [case],
             frozenset({"ss05", "ss03"}),
         )
         assert got == [{"settled": "trace"}]
-        assert (tmp_path / "cases.tsv").read_text() == case + "\n"
-        arguments = calls[0][0]
-        assert arguments[1:4] == [
-            "settle-cases",
-            str(tmp_path / "spec.json"),
-            str(tmp_path / "cases.tsv"),
-        ]
+        arguments, stdin = calls[0]
+        assert stdin == (case + "\n").encode()
+        assert arguments[1:4] == ["settle-cases", str(tmp_path / "spec.json"), "-"]
         assert "--features=ss03,ss05" in arguments
         assert "--candidacy-prospect" in arguments
         assert "--follower-prefer-slots-off" in arguments
@@ -126,7 +121,6 @@ class TestTheInvocationInterface:
             with pytest.raises(kernel_exec.KernelRunError, match="changed"):
                 kernel_exec._settle_cases(
                     tmp_path / "spec.json",
-                    tmp_path / "cases.tsv",
                     [case],
                     frozenset(),
                 )
@@ -168,7 +162,7 @@ class TestTheInvocationInterface:
             stdout = (case + '\t{"settled":"trace"}\n').encode()
             stderr = b""
 
-        def run(arguments, verb):
+        def run(arguments, verb, stdin=None):
             calls.append(arguments)
             return Finished()
 
@@ -177,7 +171,6 @@ class TestTheInvocationInterface:
             monkeypatch.setattr(module, attribute, True)
         kernel_exec._settle_cases(
             tmp_path / "spec.json",
-            tmp_path / "cases.tsv",
             [case],
             frozenset(),
             kernel_exec.SettlementModes(simulated_prospect=False, follower_prefer_slots=False),
@@ -187,7 +180,6 @@ class TestTheInvocationInterface:
             monkeypatch.setattr(module, attribute, False)
         kernel_exec._settle_cases(
             tmp_path / "spec.json",
-            tmp_path / "cases.tsv",
             [case],
             frozenset(),
             kernel_exec.SettlementModes(simulated_prospect=True, follower_prefer_slots=True),
@@ -235,7 +227,7 @@ class TestTheInvocationInterface:
         }
         calls = []
 
-        def run(arguments, verb):
+        def run(arguments, verb, stdin=None):
             calls.append(arguments)
             result = (
                 "qsMay\tfull\t\t\t\t\t0"
@@ -337,10 +329,10 @@ class TestTheInvocationInterface:
         sizes = []
         original = kernel_exec._settle_cases
 
-        def recording(spec_path, cases_path, cases, features, modes=None, decode=None, settled_only=False):
+        def recording(spec_path, cases, features, modes=None, decode=None, settled_only=False):
             sizes.append(len(cases))
             assert settled_only
-            return original(spec_path, cases_path, cases, features, modes, decode, settled_only)
+            return original(spec_path, cases, features, modes, decode, settled_only)
 
         monkeypatch.setattr(kernel_exec, "_settle_cases", recording)
         names = ("qsMay", "qsIt", "qsTea", "qsDay", "qsOy")

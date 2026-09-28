@@ -9,7 +9,7 @@
 //! The CLI takes positional arguments and scans flags by hand, with no argument parser. stdout carries the answer and nothing else. The three mode flags are written as negations of the default modes (`--candidacy-prospect`, `--follower-prefer-slots-off`, `--deep-classes-off`), so a bare invocation runs the default modes and every departure from them shows in the command line:
 //!
 //! - `ams-m1-kernel spec-echo <spec>` writes the canonical dump plus one newline.
-//! - `ams-m1-kernel settle-cases <spec> <cases> [--features=a,b,…] [--settled-only] [--candidacy-prospect] [--follower-prefer-slots-off]` settles a plain-text case file through one engine, in file order. Each line of the file is one tab-separated window, as `kernel_exec.case_line` writes it. Each output line is the case line, a tab, and the case result: the whole trace as JSON (`kernel_exec.trace_of` reads it), or with `--settled-only` the settled record as seven tab-separated fields (`kernel_exec._settled_of_fields` reads it). A window that raises a settlement error gets an ordinary output line, the same `{"raise":…,"message":…}` object in either shape, and does not change the exit status.
+//! - `ams-m1-kernel settle-cases <spec> <cases> [--features=a,b,…] [--settled-only] [--candidacy-prospect] [--follower-prefer-slots-off]` settles a plain-text case file, or standard input for `-`, through one engine, in file order. Each line of the input is one tab-separated window, as `kernel_exec.case_line` writes it. Each output line is the case line, a tab, and the case result: the whole trace as JSON (`kernel_exec.trace_of` reads it), or with `--settled-only` the settled record as seven tab-separated fields (`kernel_exec._settled_of_fields` reads it). A window that raises a settlement error gets an ordinary output line, the same `{"raise":…,"message":…}` object in either shape, and does not change the exit status.
 //! - `ams-m1-kernel guard-sweep <spec> [--config=<token>]` writes the section 5.7 guard verdict map, one tab-separated verdict per line. Without `--config=`, each verdict is quantified over the powerset of capability-unlock features, which is the map the font ships. With `--config=`, the map is answered under that one configuration, named by a token in `--configs=` form; `default` names the no-feature configuration, which an empty `--features=` could not. The rebuild suite compares each configuration's map with the quantified one. The guard fixes its own engine modes, so the two mode flags are a usage error here.
 //! - `ams-m1-kernel enumerate <spec> [--features=a,b,…] [--candidacy-prospect] [--follower-prefer-slots-off] [--deep-classes-off] [--timings] [--cache-stats]` runs one configuration's table-build fixpoint and writes the uncompressed `ams-m1-transitions/1` stream (a head line and one row per window), which `kernel_exec.read_stream` reads. `--deep-classes-off` selects label grain, like Python's `AMS_DEEP_CLASSES=0`. With both `--candidacy-prospect` and `--follower-prefer-slots-off`, enumeration is label grain anyway, so the flag is accepted and has no effect.
 //! - `ams-m1-kernel enumerate-configs <spec> <outdir> --configs=a,b,… [--threads=N] [--candidacy-prospect] [--follower-prefer-slots-off] [--deep-classes-off] [--timings] [--cache-stats]` runs several configurations' fixpoints in one process and writes each stream to `<outdir>/transitions-<config>.ndjson`. It creates the directory with its parents and overwrites existing streams. Before writing, it deletes every other `transitions-*.ndjson` in the directory, so after exit 0 the directory holds only the configurations the command line named. stdout stays empty. The files are valid only on exit 0: a failing configuration exits 1 with its name in the message and leaves the other configurations' files in place. `--configs=` is required and uses Python's tokens (`conform.ACCEPTANCE_CONFIGS`): `default` for no features, otherwise a `+`-joined feature list whose names are checked against the spec as `--features=` names are. A token that is not the canonical form of its features (out of order, repeated, empty, or with an empty part between two `+`) is a usage error, so the filename, the stream head's `config`, and the caller's name for the configuration always agree. The mode flags apply to every configuration in the run.
@@ -28,7 +28,7 @@
 
 #![forbid(unsafe_code)]
 
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
@@ -96,9 +96,11 @@ struct Vocabulary {
     memo_flags: bool,
     /// `--settled-only`: make each case result the settled record as seven tab-separated fields instead of the whole trace. Only `settle-cases` returns a trace.
     settled: bool,
+    /// `-` as a positional, naming standard input as the file the subcommand reads line by line: the case file of `settle-cases` and the windows of `replay-emitted`.
+    stdin: bool,
 }
 
-/// The flag sets of the subcommands that take flags. `settle-cases` and `liveness-cases` share one set except for `--settled-only`, since a liveness answer has no trace.
+/// The flag sets of the subcommands that take flags. `settle-cases` and `liveness-cases` share one set except for `--settled-only`, since a liveness answer has no trace, and `-`, which only the `settle-cases` caller in `kernel_exec` uses.
 const CASES_FLAGS: Vocabulary = Vocabulary {
     grain: false,
     features: true,
@@ -110,9 +112,11 @@ const CASES_FLAGS: Vocabulary = Vocabulary {
     emitted: false,
     memo_flags: false,
     settled: true,
+    stdin: true,
 };
 const LIVENESS_FLAGS: Vocabulary = Vocabulary {
     settled: false,
+    stdin: false,
     ..CASES_FLAGS
 };
 const ENUMERATE_FLAGS: Vocabulary = Vocabulary {
@@ -126,6 +130,7 @@ const ENUMERATE_FLAGS: Vocabulary = Vocabulary {
     emitted: false,
     memo_flags: false,
     settled: false,
+    stdin: false,
 };
 const CONFIGS_FLAGS: Vocabulary = Vocabulary {
     grain: true,
@@ -138,6 +143,7 @@ const CONFIGS_FLAGS: Vocabulary = Vocabulary {
     emitted: false,
     memo_flags: false,
     settled: false,
+    stdin: false,
 };
 const TABLES_FLAGS: Vocabulary = Vocabulary {
     grain: true,
@@ -150,6 +156,7 @@ const TABLES_FLAGS: Vocabulary = Vocabulary {
     emitted: false,
     memo_flags: true,
     settled: false,
+    stdin: false,
 };
 /// The string replay accepts the fan-out's configuration flags, both stderr diagnostics, and its own four. It has no grain flag, because it settles single windows, and no stamp, because the one file it writes (the window memo, under `--memo-dir=`) is a build input and not an artifact.
 const REPLAY_FLAGS: Vocabulary = Vocabulary {
@@ -163,6 +170,7 @@ const REPLAY_FLAGS: Vocabulary = Vocabulary {
     emitted: false,
     memo_flags: false,
     settled: false,
+    stdin: false,
 };
 /// `guard-sweep` takes one configuration or none. Its engine modes are fixed in `guard.rs`, so [`plan_guard`] rejects the mode flags that [`scan_flags`] accepts for every subcommand.
 const GUARD_FLAGS: Vocabulary = Vocabulary {
@@ -176,6 +184,7 @@ const GUARD_FLAGS: Vocabulary = Vocabulary {
     emitted: false,
     memo_flags: false,
     settled: false,
+    stdin: false,
 };
 
 /// `replay-emitted` takes one configuration, its three files, and `--timings`. It settles nothing, so [`plan_emitted`] rejects the mode flags and `--cache-stats`.
@@ -190,6 +199,7 @@ const EMITTED_FLAGS: Vocabulary = Vocabulary {
     emitted: true,
     memo_flags: false,
     settled: false,
+    stdin: true,
 };
 
 /// What a `settle-cases` command line asked for.
@@ -529,7 +539,7 @@ fn scan_flags(rest: &[String], vocabulary: Vocabulary) -> Option<Flags<'_>> {
                 return None;
             }
             memo_windows = Some(count.parse::<usize>().ok().filter(|count| *count > 0)?);
-        } else if vocabulary.emitted && argument == "-" {
+        } else if vocabulary.stdin && argument == "-" {
             positionals.push(argument.as_str());
         } else if argument.starts_with('-') {
             return None;
@@ -794,6 +804,7 @@ fn engine_for<'i>(
     )
 }
 
+/// Settles the case lines of the named file, or of standard input for `-`, and writes one output line per case line.
 fn settle_cases(plan: &CasesPlan<'_>) -> Result<(), String> {
     let index = read_index(plan.spec)?;
     let features = feature_syms(&index, plan.spec, &plan.features)?;
@@ -803,8 +814,15 @@ fn settle_cases(plan: &CasesPlan<'_>) -> Result<(), String> {
         plan.simulated_prospect,
         plan.follower_prefer_slots,
     );
-    let text =
-        std::fs::read_to_string(plan.cases).map_err(|error| format!("{}: {error}", plan.cases))?;
+    let text = if plan.cases == "-" {
+        let mut text = String::new();
+        std::io::stdin()
+            .read_to_string(&mut text)
+            .map_err(|error| format!("{}: {error}", plan.cases))?;
+        text
+    } else {
+        std::fs::read_to_string(plan.cases).map_err(|error| format!("{}: {error}", plan.cases))?
+    };
     let shape = if plan.settled_only {
         cases::CaseResult::SettledOnly
     } else {
