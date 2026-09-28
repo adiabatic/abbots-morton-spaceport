@@ -1,4 +1,4 @@
-"""Tests for the on-demand deep sweep's decisions, with the sweep stubbed out: which inputs it refuses, what it records on a pass, what it clears on a failure, the per-edit sweep's green record it writes, the width it runs at, the window bound that width comes from, the progress report's interval, estimate, and lines, and how each worker's count reaches the parent's reports. Each configuration's sweep is `conform.conformance_config_worker`, which the font-facing gates already exercise."""
+"""Tests for the on-demand deep sweep's decisions, with the sweep stubbed out: which inputs it refuses, what it records on a pass, what it clears on a failure, the per-edit sweep's green record it writes, the width it runs at, the window bound that width comes from, the units it splits the configurations into and how it merges them back, the progress report's interval, estimate, and lines, and how each unit's count reaches the parent's reports. Each unit's sweep is `conform.conformance_config_worker`, which the font-facing gates already exercise; `rebuild/test_conform.py` checks that the units partition a configuration's texts."""
 
 import json
 import multiprocessing
@@ -49,15 +49,18 @@ def bench(tmp_path, monkeypatch):
 
 PEAKS = {config: 1_000 + index for index, config in enumerate(conform.ACCEPTANCE_CONFIGS)}
 
+TOY_ALPHABET = ("a", "b", "c")
+
+
+def _plan(units: tuple[deep_sweep.SweepUnit, ...], windows: int = 1_000) -> deep_sweep.SweepPlan:
+    return deep_sweep.SweepPlan(
+        spec=cast(ResolvedSpec, None), glyphs={}, windows=windows, bound_seconds=0.0, units=units
+    )
+
 
 def _stub_plan(monkeypatch, windows=1_000):
-    monkeypatch.setattr(
-        deep_sweep,
-        "plan_sweep",
-        lambda max_length: deep_sweep.SweepPlan(
-            spec=cast(ResolvedSpec, None), glyphs={}, windows=windows, bound_seconds=0.0
-        ),
-    )
+    units = deep_sweep.sweep_units(TOY_ALPHABET, 5)
+    monkeypatch.setattr(deep_sweep, "plan_sweep", lambda max_length: _plan(units, windows))
 
 
 def _stub_sweep(monkeypatch, summary, swept=None):
@@ -202,8 +205,8 @@ def test_the_window_bound_counts_every_ask_with_every_left_it_can_have():
     assert deep_sweep.window_bound(2, {**letters, "ab": 2}, 1, {**cells, "ab": 1}) == 15
 
 
-def test_both_fleet_machines_sweep_one_settlement_configuration_at_a_time_at_the_default_maximum_length():
-    """At the length-5 window bound on the alphabet with ·Ye (`settlement_window_bound`: 110,020,785 windows), both fleet machines (`doc/fleet.md`) sweep one settlement configuration at a time, the overlay first in that slot. On the 48 GiB machines that one worker's estimate fits the memory less the reserve and two do not. On the 32 GiB machine even one does not, the floor at one decides, and `memory_shortfall` warns without refusing, since one worker still fits the machine's memory in all. At the length-4 bound (3,304,968 windows) every machine sweeps every configuration at once, the overlay in a slot of its own. The suite does not catch a per-window cost that is too low: only a real run's check line, which records each worker's peak beside its estimate, does."""
+def test_both_fleet_machines_sweep_one_settlement_unit_at_a_time_at_the_default_maximum_length():
+    """At the length-5 window bound on the alphabet with ·Ye (`settlement_window_bound`: 110,020,785 windows), both fleet machines (`doc/fleet.md`) sweep one unit at a time, the overlay first in that slot. On the 48 GiB machines that one unit's estimate fits the memory less the reserve and two do not. On the 32 GiB machine even one does not, the floor at one decides, and `memory_shortfall` warns without refusing, since one unit still fits the machine's memory in all. At the length-4 bound (3,304,968 windows) every machine sweeps as many units at once as there are settlement configurations. The suite does not catch a per-window cost that is too low: only a real run's check line, which records each configuration's highest unit peak beside its estimate, does."""
     length_5 = deep_sweep.settlement_worker_bytes(110_020_785)
     budget_48 = MACHINE_48_GIB - memory_budget.os_reserve_bytes(total_bytes=MACHINE_48_GIB)
     assert length_5 + deep_sweep.DEEP_SWEEP_BASE_BYTES <= budget_48 < 2 * length_5
@@ -219,29 +222,39 @@ def test_both_fleet_machines_sweep_one_settlement_configuration_at_a_time_at_the
     length_4 = deep_sweep.settlement_worker_bytes(3_304_968)
     for cores, total in ((18, MACHINE_48_GIB), (12, MACHINE_48_GIB), (10, MACHINE_32_GIB)):
         assert deep_sweep.sweep_width(length_4, ncores=cores, total_bytes=total) == len(
-            conform.ACCEPTANCE_CONFIGS
+            conform.SETTLEMENT_CONFIGS
         )
 
 
-def test_the_overlay_gets_a_slot_of_its_own_only_beside_every_settlement_worker():
-    """The overlay's worker holds far less than a settlement worker, so it is not sized as one. It gets a slot of its own when every settlement configuration fits beside it and a core is left over. Otherwise it runs first in a settlement worker's slot, and its need is still subtracted, so a machine with room for five settlement workers but not for the overlay beside them runs four."""
+def test_the_overlay_runs_in_a_settlement_units_slot_and_its_need_is_subtracted():
+    """The overlay's worker holds far less than a settlement unit, so it is not sized as one, and it never gets a slot of its own: once it finishes, its slot takes a settlement unit, so a slot of its own would let one more settlement unit run than the memory fits. Its need is still subtracted, so a machine with room for five settlement units but not for the overlay beside them runs four."""
     roomy = 1_000_000_000_000
     need = 10_000_000_000
     settling = len(conform.SETTLEMENT_CONFIGS)
-    assert deep_sweep.sweep_width(need, ncores=18, total_bytes=roomy) == settling + 1
-    assert "slot of its own" in deep_sweep.sweep_width_derivation(need, ncores=18, total_bytes=roomy)
-    assert deep_sweep.sweep_width(need, ncores=settling, total_bytes=roomy) == settling
+    assert deep_sweep.sweep_width(need, ncores=18, total_bytes=roomy) == settling
+    assert deep_sweep.sweep_width(need, ncores=settling - 2, total_bytes=roomy) == settling - 2
     total = 100_000_000_000
     room = total - memory_budget.os_reserve_bytes(total_bytes=total) - deep_sweep.DEEP_SWEEP_BASE_BYTES
-    assert deep_sweep.sweep_width(room // settling, ncores=18, total_bytes=total) == settling + 1
+    assert deep_sweep.sweep_width(room // settling, ncores=18, total_bytes=total) == settling
     assert deep_sweep.sweep_width(room // settling + 1, ncores=18, total_bytes=total) == settling - 1
     assert "first in one of their slots" in deep_sweep.sweep_width_derivation(
-        room // settling + 1, ncores=18, total_bytes=total
+        need, ncores=18, total_bytes=roomy
     )
 
 
+def test_the_units_are_the_overlay_whole_then_each_settlement_configuration_by_last_symbol():
+    """The pool takes the overlay first, whole, then each settlement configuration in order, one unit per alphabet symbol in the alphabet's order. A settlement unit shapes one text in every alphabet's worth of each length, so a configuration's units shape every text between them, and the overlay shapes its own two lengths."""
+    units = deep_sweep.sweep_units(TOY_ALPHABET, 4)
+    assert [(unit.config, unit.last) for unit in units] == [("ss10", None)] + [
+        (config, symbol) for config in conform.SETTLEMENT_CONFIGS for symbol in TOY_ALPHABET
+    ]
+    assert units[0].overlay and units[0].texts == 3 + 9
+    assert all(unit.texts == 1 + 3 + 9 + 27 and not unit.overlay for unit in units[1:])
+    assert sum(unit.texts for unit in units if unit.config == "default") == 3 + 9 + 27 + 81
+
+
 def test_a_stated_width_replaces_the_derived_one(bench, monkeypatch, capsys):
-    """`AMS_DEEP_SWEEP_JOBS` states the width and `--jobs` overrides it; either is narrowed to the acceptance configuration count and checked against nothing else. A value that is not a bare count raises an error naming the variable before anything is swept. With neither, the width is the one this machine's memory fits."""
+    """`AMS_DEEP_SWEEP_JOBS` states the width and `--jobs` overrides it; either is narrowed to the unit count and checked against nothing else. A value that is not a bare count raises an error naming the variable before anything is swept. With neither, the width is the one this machine's memory fits."""
     swept: list = []
     _stub_sweep(monkeypatch, {"pass": True, "divergences": 0}, swept)
     monkeypatch.setenv(deep_sweep.JOBS_ENV, "2")
@@ -250,18 +263,20 @@ def test_a_stated_width_replaces_the_derived_one(bench, monkeypatch, capsys):
     assert deep_sweep.main(["--jobs", "3"]) == 0
     assert "at 3 jobs stated by --jobs" in capsys.readouterr().out
     assert deep_sweep.main(["--jobs", "9"]) == 0
-    assert [jobs for _, jobs, _ in swept] == [2, 3, len(conform.ACCEPTANCE_CONFIGS)]
+    assert deep_sweep.main(["--jobs", "99"]) == 0
+    units = len(deep_sweep.sweep_units(TOY_ALPHABET, 5))
+    assert [jobs for _, jobs, _ in swept] == [2, 3, 9, units]
     monkeypatch.setenv(deep_sweep.JOBS_ENV, "2GB")
     with pytest.raises(RuntimeError, match=deep_sweep.JOBS_ENV):
         deep_sweep.main([])
-    assert len(swept) == 3
+    assert len(swept) == 4
     monkeypatch.delenv(deep_sweep.JOBS_ENV)
     assert deep_sweep.main([]) == 0
     assert swept[-1][1] == deep_sweep.sweep_width(deep_sweep.settlement_worker_bytes(1_000))
 
 
 def test_each_run_records_every_workers_peak_beside_its_estimate(bench, monkeypatch):
-    """Green or red, a run writes one `conform-deep` check line with each configuration worker's peak footprint and the need its width was derived from: the settlement worker's estimate for a settlement configuration, and the base for the overlay."""
+    """Green or red, a run writes one `conform-deep` check line with each configuration's highest unit peak footprint and the need its width was derived from: the settlement unit's estimate for a settlement configuration, and the base for the overlay."""
     _stub_sweep(monkeypatch, {"pass": True, "divergences": 0})
     assert deep_sweep.main([]) == 0
     _stub_sweep(monkeypatch, {"pass": False, "divergences": 2})
@@ -279,7 +294,7 @@ def test_each_run_records_every_workers_peak_beside_its_estimate(bench, monkeypa
 def test_a_length_whose_one_worker_exceeds_the_machine_is_refused_unless_a_width_is_stated(
     bench, monkeypatch, capsys
 ):
-    """At the length-6 window bound (2,251,636,269 windows) one settlement worker is estimated far past either fleet machine's memory in all, so `memory_shortfall` refuses it. `main` refuses such a run before sweeping anything and names the way to run it anyway; a stated width starts it with the warning instead."""
+    """At the length-6 window bound (2,251,636,269 windows) one settlement unit is estimated far past either fleet machine's memory in all, so `memory_shortfall` refuses it. `main` refuses such a run before sweeping anything and names the way to run it anyway; a stated width starts it with the warning instead."""
     length_6 = deep_sweep.settlement_worker_bytes(2_251_636_269)
     for total in (MACHINE_48_GIB, MACHINE_32_GIB):
         shortfall = deep_sweep.memory_shortfall(length_6, total_bytes=total)
@@ -311,74 +326,87 @@ def test_the_report_interval_is_twenty_minutes_unless_its_variable_states_one(be
     assert [every for _, _, every in swept] == [1200.0, 2.5]
 
 
-def test_the_estimate_places_each_queued_configuration_in_the_slot_that_frees_first():
-    """Two slots, running configurations with 100 and 300 seconds left, and two queued ones taking 200 and 50: the first queued one takes the slot freed at 100 and ends at 300, and the second takes a slot freed at 300 and ends at 350. A free slot starts a queued configuration at once."""
-    assert deep_sweep.schedule_finish({"a": 100.0, "b": 300.0}, [("c", 200.0), ("d", 50.0)], 2) == {
-        "a": 100.0,
-        "b": 300.0,
-        "c": 300.0,
-        "d": 350.0,
+def test_the_estimate_places_each_queued_unit_in_the_slot_that_frees_first():
+    """Two slots, running units with 100 and 300 seconds left, and two queued ones taking 200 and 50: the first queued one takes the slot freed at 100 and ends at 300, and the second takes a slot freed at 300 and ends at 350. A free slot starts a queued unit at once."""
+    assert deep_sweep.schedule_finish({1: 100.0, 2: 300.0}, [(3, 200.0), (4, 50.0)], 2) == {
+        1: 100.0,
+        2: 300.0,
+        3: 300.0,
+        4: 350.0,
     }
-    assert deep_sweep.schedule_finish({"a": 100.0}, [("c", 200.0)], 2) == {"a": 100.0, "c": 200.0}
+    assert deep_sweep.schedule_finish({1: 100.0}, [(3, 200.0)], 2) == {1: 100.0, 3: 200.0}
 
 
-def _two_round_sweep() -> deep_sweep.SweepProgress:
-    """Two slots over an overlay of 1,000 texts and three settlement configurations of 100,000, as read up to 205 seconds in. The overlay ran from 5 to 50 seconds, between two readings, so only its worker's own start dates it. `default` started at 5 and ran at 160 texts a second, then 40, then 100 over its last tenth of the texts. `ss03` took the overlay's slot at 55 and has run at 100 a second. `ss04` waits for the second round."""
-    progress = deep_sweep.SweepProgress(
-        {"ss10": 1_000, "default": 100_000, "ss03": 100_000, "ss04": 100_000}, ("ss10",), 2, 0.0
+def _many_unit_sweep() -> deep_sweep.SweepProgress:
+    """Two slots over the overlay's 1,000 texts and two settlement configurations split into two units of 10,000 texts each, slots 1 and 2 for `default` and 3 and 4 for `ss03`, as read up to 115 seconds in. The overlay ran from 5 to 50 seconds, between two readings, so only its worker's own start dates it. `default`'s first unit started at 5 and ran at 100 texts a second, then 60, then 100 over its last tenth of the texts; its second took the overlay's slot at 55 and has run at 40, then 100. `ss03`'s units wait for slots."""
+    units = (
+        deep_sweep.SweepUnit("ss10", None, 1_000),
+        deep_sweep.SweepUnit("default", "a", 10_000),
+        deep_sweep.SweepUnit("default", "b", 10_000),
+        deep_sweep.SweepUnit("ss03", "a", 10_000),
+        deep_sweep.SweepUnit("ss03", "b", 10_000),
     )
-    progress.observe("default", 0, 5.0)
-    progress.finish("ss10", 50.0, 1_000, began=5.0)
-    progress.observe("ss03", 0, 55.0)
-    for moment, default, ss03 in ((55.0, 8_000, 0), (105.0, 10_000, 5_000), (205.0, 20_000, 15_000)):
-        progress.observe("default", default, moment)
-        progress.observe("ss03", ss03, moment)
+    progress = deep_sweep.SweepProgress(units, 2, 0.0)
+    progress.observe(1, 0, 5.0)
+    progress.finish(0, 50.0, 1_000, began=5.0)
+    progress.observe(2, 0, 55.0)
+    for moment, first, second in ((55.0, 5_000, 0), (105.0, 8_000, 2_000), (115.0, 9_000, 3_000)):
+        progress.observe(1, first, moment)
+        progress.observe(2, second, moment)
     return progress
 
 
-def test_the_estimate_runs_each_configuration_at_its_own_rate_and_the_queue_at_its_kinds():
-    """`default`'s rate is taken over its last tenth of the texts, 100 a second, not its whole run's, and leaves it 800 seconds; `ss03` has 850 left at its own 100. Projected at those rates, both whole walks take 1,000 seconds, so the settlement configurations run at 100 texts a second, and the queued `ss04` takes 1,000 seconds from the slot `default` frees at 800, ending the sweep at 1,800. Once `default` finishes at 1,005 and `ss04` starts in its slot, `ss04` has shaped less than a tenth of its texts at a rate its worker's setup still slows, so it takes the settlement rate: `default`'s whole walk and `ss03`'s projected one."""
-    progress = _two_round_sweep()
-    finishes, total = progress.estimate(205.0)
-    assert finishes == pytest.approx({"default": 800.0, "ss03": 850.0, "ss04": 1_800.0})
-    assert total == pytest.approx(1_800.0)
-    progress.observe("ss03", 95_000, 1_005.0)
-    progress.finish("default", 1_005.0, 100_000)
-    progress.observe("ss04", 250, 1_010.0, began=1_005.0)
-    finishes, total = progress.estimate(1_010.0)
-    kind = 200_000 / (1_000.0 + (1_010.0 - 55.0 + 50.0))
-    assert finishes == pytest.approx({"ss03": 50.0, "ss04": 99_750 / kind})
-    assert total == finishes["ss04"]
-    fresh = deep_sweep.SweepProgress({"default": 100_000, "ss03": 100_000}, (), 1, 0.0)
-    fresh.observe("default", 0, 5.0)
-    assert fresh.estimate(10.0) == ({"default": None, "ss03": None}, None)
+def test_the_estimate_runs_each_unit_at_its_own_rate_and_schedules_the_queue_at_its_kinds():
+    """Each running unit's rate is taken over its last tenth of the texts, 100 a second, not its whole run's, which leaves `default`'s first unit 10 seconds and its second 70. Projected at those rates, the two whole walks take 120 and 130 seconds, so a settlement unit runs at 80 texts a second, and each queued `ss03` unit takes 125 seconds: the first from the slot freed at 10, ending at 135, and the second from the slot freed at 70, ending the sweep at 195. The units outnumber the slots, so the schedule, not the kind's rate over every unit at once, decides the finish. Once `default`'s first unit finishes at 125 and `ss03`'s first starts in its slot, that unit has shaped less than a tenth of its texts at a rate its worker's setup still slows, so it takes the settlement rate, and the second `ss03` unit starts when `default`'s second finishes."""
+    progress = _many_unit_sweep()
+    finishes, total = progress.estimate(115.0)
+    assert finishes == pytest.approx({1: 10.0, 2: 70.0, 3: 135.0, 4: 195.0})
+    assert total == pytest.approx(195.0)
+    assert progress.config_finish("default", finishes) == pytest.approx(70.0)
+    assert progress.config_finish("ss03", finishes) == pytest.approx(195.0)
+    progress.observe(2, 4_000, 125.0)
+    progress.finish(1, 125.0, 10_000)
+    progress.observe(3, 300, 130.0, began=125.0)
+    progress.observe(2, 4_500, 130.0)
+    finishes, total = progress.estimate(130.0)
+    assert finishes == pytest.approx({2: 55.0, 3: 9_700 / 80, 4: 55.0 + 125.0})
+    assert total == pytest.approx(180.0)
+    fresh = deep_sweep.SweepProgress(
+        (deep_sweep.SweepUnit("default", "a", 100_000), deep_sweep.SweepUnit("default", "b", 100_000)), 1, 0.0
+    )
+    fresh.observe(0, 0, 5.0)
+    assert fresh.estimate(10.0) == ({0: None, 1: None}, None)
 
 
 def test_a_report_is_a_counter_line_with_one_line_per_configuration_after_it():
-    """The report's first line is a `[progress]` counter over every configuration's texts that `console.parse_line` reads, with the elapsed time, the rate, the finish, the workers' footprint and the swap in use riding on it; one plain line per configuration follows in submission order. The next report's rates run from this one."""
-    progress = _two_round_sweep()
+    """The report's first line is a `[progress]` counter over every unit's texts that `console.parse_line` reads, with the elapsed time, the rate, the finish, the running units' footprint and the swap in use riding on it; one plain line per configuration follows in submission order, summing its units, counting the ones running and finished, and ending when its last unit does. The next report's rates run from this one."""
+    progress = _many_unit_sweep()
     wall = 1_790_000_000.0
 
     def at(seconds: float) -> str:
         return time.strftime("%a %H:%M", time.localtime(wall + seconds))
 
-    lines = progress.report(205.0, wall, {"default": 12_000_000_000, "ss03": 6_500_000_000}, 1_250_000_000)
+    lines = progress.report(115.0, wall, {1: 2_000_000_000, 2: 1_500_000_000}, 1_250_000_000)
     assert lines == [
-        f"[progress] 36000/301000 texts, 3m25s elapsed, 176 texts/s since the start, finishing in 30m00s, at {at(1_800)}, 2 workers hold 18.50 GB, 1.25 GB of swap in use",
+        f"[progress] 13000/41000 texts, 1m55s elapsed, 113 texts/s since the start, finishing in 3m15s, at {at(195)}, 2 workers hold 3.50 GB, 1.25 GB of swap in use",
         "deep sweep[ss10]: 1,000/1,000 texts, finished in 45.0s",
-        f"deep sweep[default]: 20,000/100,000 texts, running for 3m20s, 100 texts/s since it started, finishing in 13m20s, at {at(800)}, holding 12.00 GB",
-        f"deep sweep[ss03]: 15,000/100,000 texts, running for 2m30s, 100 texts/s since it started, finishing in 14m10s, at {at(850)}, holding 6.50 GB",
-        f"deep sweep[ss04]: 0/100,000 texts, queued, finishing in 30m00s, at {at(1_800)}",
+        f"deep sweep[default]: 12,000/20,000 texts, 2 of 2 units running, running for 1m50s, 109 texts/s since it started, finishing in 1m10s, at {at(70)}, holding 3.50 GB",
+        f"deep sweep[ss03]: 0/20,000 texts, queued, finishing in 3m15s, at {at(195)}",
     ]
     event = console.parse_line(lines[0])
-    assert isinstance(event, console.Progress) and (event.done, event.total) == (36_000, 301_000)
+    assert isinstance(event, console.Progress) and (event.done, event.total) == (13_000, 41_000)
     assert all(console.parse_line(line) is None for line in lines[1:])
-    progress.observe("default", 25_000, 305.0)
-    progress.observe("ss03", 25_000, 305.0)
-    later = progress.report(305.0, wall + 100, {"default": None, "ss03": 7_000_000_000}, None)
-    assert "150 texts/s since the last report" in later[0]
-    assert later[0].endswith("1 worker holds 7.00 GB, swap unreadable")
-    assert "50 texts/s since the last report" in later[2] and later[2].endswith("footprint unreadable")
+    progress.observe(2, 4_000, 125.0)
+    progress.finish(1, 125.0, 10_000)
+    progress.observe(3, 300, 130.0, began=125.0)
+    progress.observe(2, 4_500, 130.0)
+    later = progress.report(130.0, wall + 15, {2: None, 3: 500_000_000}, None)
+    assert "187 texts/s since the last report" in later[0]
+    assert later[0].endswith("1 worker holds 0.50 GB, swap unreadable")
+    assert later[2].startswith("deep sweep[default]: 14,500/20,000 texts, 1 of 2 units running, 1 finished,")
+    assert "167 texts/s since the last report" in later[2] and later[2].endswith("footprint unreadable")
+    assert later[3].startswith("deep sweep[ss03]: 300/20,000 texts, 1 of 2 units running, running for 5.0s,")
+    assert later[3].endswith("holding 0.50 GB")
 
 
 def test_a_worker_writes_its_start_pid_and_counts_into_its_own_slot_only(monkeypatch):
@@ -398,35 +426,57 @@ def test_a_worker_writes_its_start_pid_and_counts_into_its_own_slot_only(monkeyp
     assert began[0] == began[2] == 0.0 and before <= began[1] <= time.time()
 
 
-def test_the_sweep_reports_the_counts_its_workers_store_on_the_report_interval(tmp_path, monkeypatch):
-    """`run_sweep` driven through a thread pool in place of the spawn pool, with every configuration's worker storing half its texts and then waiting until the third report or a later one shows them all. Such a report counts the stored halves, reads each footprint by the pid its worker recorded, and dates each worker from the clock start it recorded, converted to the parent's clock. Reports come at most one to each interval of `report_every` from the start, never one per reading. Once the workers return, every configuration is finished with the texts it returned, and each walk's samples hold the half its slot showed."""
+class _ThreadPool(ThreadPoolExecutor):
+    def __init__(self, max_workers, mp_context, max_tasks_per_child, initializer, initargs):
+        initializer(*initargs)
+        super().__init__(max_workers=max_workers)
+
+
+def _thread_sweep(tmp_path, monkeypatch, worker, max_length):
+    """Point `run_sweep` at `worker` through a thread pool in place of the spawn pool, with the crate, the guard verdicts and the output directory stubbed, and each configuration's text count taken from the toy alphabet at `max_length`."""
     monkeypatch.setattr(deep_sweep, "_COUNTERS", None)
-    texts = {config: 1_000 * (index + 1) for index, config in enumerate(conform.ACCEPTANCE_CONFIGS)}
-    halves = sum(count // 2 for count in texts.values())
     monkeypatch.setattr(deep_sweep.kernel_exec, "ensure_built", lambda: None)
     monkeypatch.setattr(deep_sweep.kernel_exec, "guard_sweep", lambda spec: {})
-    monkeypatch.setattr(deep_sweep, "config_texts", lambda spec, max_length: dict(texts))
+    size = len(TOY_ALPHABET)
+    monkeypatch.setattr(
+        deep_sweep,
+        "config_texts",
+        lambda spec, length: {
+            config: sum(
+                size**n
+                for n in range(
+                    1, (conform.OVERLAY_MAX_LENGTH if config in conform.OVERLAY_CONFIGS else length) + 1
+                )
+            )
+            for config in conform.ACCEPTANCE_CONFIGS
+        },
+    )
     monkeypatch.setattr(deep_sweep.run_m1, "OUT_DIR", tmp_path)
+    monkeypatch.setattr(deep_sweep, "ProcessPoolExecutor", _ThreadPool)
+    monkeypatch.setattr(deep_sweep, "_unit_worker", worker)
+
+
+def test_the_sweep_reports_the_counts_its_workers_store_on_the_report_interval(tmp_path, monkeypatch):
+    """`run_sweep` driven through a thread pool in place of the spawn pool, with every unit's worker storing half its texts and then waiting until the third report or a later one shows them all. Such a report counts the stored halves, reads the footprint of every running unit by the pid its worker recorded, and dates each unit from the clock start it recorded, converted to the parent's clock. Reports come at most one to each interval of `report_every` from the start, never one per reading. Once the workers return, every unit is finished with the texts it returned, each walk's samples hold the half its slot showed, and each configuration's peak is its units' highest."""
+    max_length = 3
+    units = deep_sweep.sweep_units(TOY_ALPHABET, max_length)
+    halves = sum(unit.texts // 2 for unit in units)
     footprint_pids: list[int] = []
     monkeypatch.setattr(
         deep_sweep.peak_rss, "footprint_bytes", lambda pid: footprint_pids.append(pid) or 1_000_000_000
     )
     monkeypatch.setattr(deep_sweep.peak_rss, "swap_used_bytes", lambda: None)
     release = threading.Event()
-    started: dict[str, float] = {}
+    started: dict[int, float] = {}
 
-    def worker(spec, font_path, config, max_length, glyphs, guard_verdicts, slot):
-        started[config] = time.monotonic()
+    def worker(spec, font_path, config, last, max_length, glyphs, guard_verdicts, slot):
+        started[slot] = time.monotonic()
         store = deep_sweep._counter_writer(slot)
         assert store is not None
-        store(texts[config] // 2)
+        assert (units[slot].config, units[slot].last) == (config, last)
+        store(units[slot].texts // 2)
         release.wait(timeout=30)
-        return conform.ConformanceConfigResult(config=config, sequences=texts[config]), 7
-
-    class ThreadPool(ThreadPoolExecutor):
-        def __init__(self, max_workers, mp_context, max_tasks_per_child, initializer, initargs):
-            initializer(*initargs)
-            super().__init__(max_workers=max_workers)
+        return conform.ConformanceConfigResult(config=config, sequences=units[slot].texts), 7 + slot
 
     sweeps: list[deep_sweep.SweepProgress] = []
     reports: list[tuple[float, list[str]]] = []
@@ -444,22 +494,84 @@ def test_the_sweep_reports_the_counts_its_workers_store_on_the_report_interval(t
                 release.set()
             return lines
 
-    monkeypatch.setattr(deep_sweep, "ProcessPoolExecutor", ThreadPool)
-    monkeypatch.setattr(deep_sweep, "_config_worker", worker)
+    _thread_sweep(tmp_path, monkeypatch, worker, max_length)
     monkeypatch.setattr(deep_sweep, "SweepProgress", Recorded)
-    plan = deep_sweep.SweepPlan(spec=cast(ResolvedSpec, None), glyphs={}, windows=0, bound_seconds=0.0)
     every = 0.2
-    summary, peaks = deep_sweep.run_sweep(plan, 5, len(texts), report_every=every)
+    summary, peaks = deep_sweep.run_sweep(_plan(units), max_length, len(units), report_every=every)
     assert release.is_set()
-    assert summary["pass"] and peaks == {config: 7 for config in texts}
+    assert summary["pass"] and summary["sequences"] == 3 + 9 + 27
+    assert peaks == {
+        config: 7 + max(slot for slot, unit in enumerate(units) if unit.config == config)
+        for config in conform.ACCEPTANCE_CONFIGS
+    }
     (progress,) = sweeps
     intervals = [int((now - progress.started) // every) for now, _ in reports]
     assert intervals[0] >= 1 and intervals == sorted(set(intervals))
-    shown = next(lines for _, lines in reports if f"{halves}/{sum(texts.values())} texts" in lines[0])
-    assert f"{len(texts)} workers hold {len(texts)}.00 GB" in shown[0]
-    assert all("running for" in line and line.endswith("holding 1.00 GB") for line in shown[1:])
+    shown = next(
+        lines for _, lines in reports if f"{halves}/{sum(unit.texts for unit in units)} texts" in lines[0]
+    )
+    assert f"{len(units)} workers hold {len(units)}.00 GB" in shown[0]
+    assert shown[1].endswith("holding 1.00 GB")
+    assert all(
+        f"{len(TOY_ALPHABET)} of {len(TOY_ALPHABET)} units running, running for" in line
+        and line.endswith(f"holding {len(TOY_ALPHABET)}.00 GB")
+        for line in shown[2:]
+    )
     assert set(footprint_pids) == {os.getpid()}
-    for config, walk in progress.walks.items():
-        assert walk.first is not None and walk.first[0] == pytest.approx(started[config], abs=0.05)
-        assert walk.finished is not None and walk.done == texts[config]
-        assert any(done == texts[config] // 2 for _, done in walk.samples)
+    for slot, walk in enumerate(progress.walks):
+        assert walk.first is not None and walk.first[0] == pytest.approx(started[slot], abs=0.05)
+        assert walk.finished is not None and walk.done == units[slot].texts
+        assert any(done == units[slot].texts // 2 for _, done in walk.samples)
+
+
+def test_the_units_merge_per_configuration_and_a_short_count_records_nothing(tmp_path, monkeypatch):
+    """Each configuration's units merge into one result before the configurations merge, so the summary's exemplars come in configuration order and then in each configuration's text order, whatever the order the units finish in (here the last symbol runs backwards). A configuration whose units shaped fewer texts than every text of its lengths raises before the summary is written, so no green can be recorded from it."""
+    max_length = 2
+    units = deep_sweep.sweep_units(TOY_ALPHABET, max_length)
+    ranks = {symbol: index for index, symbol in enumerate(TOY_ALPHABET)}
+    lost: list[str] = []
+
+    def worker(spec, font_path, config, last, max_length, glyphs, guard_verdicts, slot):
+        if last is not None:
+            time.sleep(0.01 * (len(TOY_ALPHABET) - ranks[last]))
+        result = conform.ConformanceConfigResult(config=config)
+        tally = conform.DivergenceTally(result, TOY_ALPHABET)
+        for text in (text for length in (1, 2) for text in conform.sweep_texts(TOY_ALPHABET, length, last)):
+            result.sequences += 1
+            if config in lost and text == "aa":
+                result.sequences -= 1
+            tally.append(conform.Divergence(text, config, 0, "want", "got", f"kind-{text[-1]}"))
+        return result, 1
+
+    _thread_sweep(tmp_path, monkeypatch, worker, max_length)
+    summary, _peaks = deep_sweep.run_sweep(_plan(units), max_length, len(units), report_every=60.0)
+    expected = [
+        f"{config} {':'.join(f'{ord(ch):04X}' for ch in text)} position 0 [kind-{text[-1]}] expected want got got"
+        for config in conform.ACCEPTANCE_CONFIGS
+        for text in ("a", "b", "c", "aa", "ab", "ac", "ba", "bb", "bc", "ca", "cb", "cc")
+    ][: conform.EXEMPLAR_LIMIT]
+    assert summary["divergence_exemplars"] == expected
+    assert summary["divergences"] == 12 * len(conform.ACCEPTANCE_CONFIGS)
+    written = json.loads((tmp_path / deep_sweep.SUMMARY_NAME).read_text())
+    assert list(written["divergences_by_kind"]) == ["kind-a", "kind-b", "kind-c"]
+    (tmp_path / deep_sweep.SUMMARY_NAME).unlink()
+    lost.append("ss04")
+    with pytest.raises(RuntimeError, match=r"deep sweep\[ss04\]: its units shaped 11 texts, not the 12"):
+        deep_sweep.run_sweep(_plan(units), max_length, len(units), report_every=60.0)
+    assert not (tmp_path / deep_sweep.SUMMARY_NAME).exists()
+
+
+def test_a_unit_that_raises_cancels_the_units_still_queued(tmp_path, monkeypatch):
+    """At width 1, when the first unit raises, `run_sweep` re-raises its error having run at most the one unit its freed slot took before the queue was cancelled, never the rest of the queue."""
+    max_length = 2
+    units = deep_sweep.sweep_units(TOY_ALPHABET, max_length)
+    ran: list[int] = []
+
+    def worker(spec, font_path, config, last, max_length, glyphs, guard_verdicts, slot):
+        ran.append(slot)
+        raise ValueError(f"unit {slot} failed")
+
+    _thread_sweep(tmp_path, monkeypatch, worker, max_length)
+    with pytest.raises(ValueError, match="unit 0 failed"):
+        deep_sweep.run_sweep(_plan(units), max_length, 1, report_every=60.0)
+    assert ran[0] == 0 and len(ran) <= 2 < len(units)

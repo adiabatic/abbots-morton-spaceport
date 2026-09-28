@@ -862,6 +862,7 @@ class TestConformFanIn:
         guard_verdicts=None,
         settle_memo=None,
         progress=None,
+        last=None,
     ):
         """A deterministic sweep whose every field depends on its configuration, so a merge in completion order instead of acceptance order would write a different report."""
         index = conform.ACCEPTANCE_CONFIGS.index(config)

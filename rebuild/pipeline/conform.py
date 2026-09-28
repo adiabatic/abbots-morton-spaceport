@@ -1927,6 +1927,13 @@ class DivergenceTally:
             result.exemplars.append(DivergenceExemplar(divergence, len(text), rank))
 
 
+def sweep_texts(alphabet: Sequence[str], length: int, last: str | None = None) -> Iterator[str]:
+    """Yield the conformance sweep's texts of `length` characters over `alphabet` in `itertools.product` order, or, with `last`, only the ones that end in `last`, in the same order."""
+    if last is None:
+        return ("".join(combo) for combo in itertools.product(alphabet, repeat=length))
+    return ("".join(combo) + last for combo in itertools.product(alphabet, repeat=length - 1))
+
+
 def _conformance_config(
     shaper: Shaper,
     spec: ResolvedSpec,
@@ -1939,8 +1946,11 @@ def _conformance_config(
     guard_verdicts: settle.FormationGuard | None = None,
     settle_memo: SettleMemoFile | None = None,
     progress: Callable[[int], None] | None = None,
+    last: str | None = None,
 ) -> ConformanceConfigResult:
     """One configuration's conformance-sweep run: every string of length 1 to `max_length` over the alphabet, shaped with the font and compared with the settled stream, plus the split-buffer and zero-gap checks. Configurations share nothing, so both the serial `run_conformance` and the process-pool worker call this.
+
+    With `last`, the run sweeps one unit of the configuration: only the texts that end in `last` (`sweep_texts`), in the same order. The units of every symbol in the alphabet partition the configuration's texts, and `merge_unit_results` merges their results into this function's result without `last`. A unit takes no `settle_memo`.
 
     An overlay configuration is swept to `OVERLAY_MAX_LENGTH` instead, whatever `max_length` is. Its expected names are `isolated_overlay_labels` over the raw tokens, it uses no walk and no memo, and every slot must sit at zero offset with its `hmtx` advance (`check_isolated_positions`). The split-buffer check runs there too.
 
@@ -1948,14 +1958,14 @@ def _conformance_config(
 
     `progress`, when given, is called with the count of texts shaped so far after each chunk, and after each length for an overlay configuration, so a caller can report a long sweep's progress from another process without the sweep printing anything or paying for a call per text.
     """
+    assert last is None or settle_memo is None, "a unit sweep takes no settle memo"
     features = features_for_config(config)
     result = ConformanceConfigResult(config=config)
     divergences = DivergenceTally(result, alphabet)
     modes: set[str] = set()
     if isolated_overlay_active(spec, features):
         for length in range(1, OVERLAY_MAX_LENGTH + 1):
-            for combo in itertools.product(alphabet, repeat=length):
-                text = "".join(combo)
+            for text in sweep_texts(alphabet, length, last):
                 result.sequences += 1
                 shaped = shaper.shape(text, features)
                 result.shaping_runs += 1
@@ -1991,9 +2001,9 @@ def _conformance_config(
             check_join_gaps(text, config, shaper, shaped, anchors_of, divergences)
 
     for length in range(1, max_length + 1):
-        stream = itertools.product(alphabet, repeat=length)
+        stream = sweep_texts(alphabet, length, last)
         while True:
-            chunk = ["".join(combo) for combo in itertools.islice(stream, TEXT_CHUNK)]
+            chunk = list(itertools.islice(stream, TEXT_CHUNK))
             if not chunk:
                 break
             result.sequences += len(chunk)
@@ -2018,8 +2028,9 @@ def conformance_config_worker(
     guard_verdicts: settle.FormationGuard | None = None,
     settle_memo: SettleMemoFile | None = None,
     progress: Callable[[int], None] | None = None,
+    last: str | None = None,
 ) -> ConformanceConfigResult:
-    """One configuration's conformance-sweep run in its own process, building what it needs from the spec and the font. That includes the section 5.7 guard verdicts when the caller passes none (a fifth of a second against a sweep that runs for a minute); an overlay configuration forms nothing and skips them. `settle_memo` is only a path and keys, so the worker reads and writes the file itself. `progress` is `_conformance_config`'s."""
+    """One configuration's conformance-sweep run in its own process, building what it needs from the spec and the font. That includes the section 5.7 guard verdicts when the caller passes none (a fifth of a second against a sweep that runs for a minute); an overlay configuration forms nothing and skips them. `settle_memo` is only a path and keys, so the worker reads and writes the file itself. `progress` and `last` are `_conformance_config`'s."""
     shaper = Shaper(Path(font_path))
     alphabet = spec_alphabet(spec)
     splitters = splitting_boundary_chars(spec)
@@ -2040,7 +2051,35 @@ def conformance_config_worker(
         guard_verdicts,
         settle_memo=settle_memo,
         progress=progress,
+        last=last,
     )
+
+
+def merge_unit_results(config: str, results: Iterable[ConformanceConfigResult]) -> ConformanceConfigResult:
+    """Merge the results of `config`'s units (`_conformance_config` with `last`), which split its texts between them, into the result one run over all of those texts returns. Sequences and shaping runs are summed. Divergence counts are summed by kind, in the order of each kind's earliest `first_seen`, which is the order a single run meets them. The exemplars are ordered by their text's length, then its product-order rank, then the order the checks found them, which is the order a single run records them, and the first `EXEMPLAR_LIMIT` are kept: each unit keeps its own first `EXEMPLAR_LIMIT`, so no divergence among the first `EXEMPLAR_LIMIT` overall is missing. Notes are concatenated in the caller's order and oracle modes merged, so the result does not depend on which unit finished first when the caller passes them in a fixed order."""
+    merged = ConformanceConfigResult(config=config)
+    counts: dict[str, int] = {}
+    first_seen: dict[str, tuple[int, int, int]] = {}
+    exemplars: list[DivergenceExemplar] = []
+    modes: set[str] = set()
+    for result in results:
+        assert result.config == config, (result.config, config)
+        merged.sequences += result.sequences
+        merged.shaping_runs += result.shaping_runs
+        for kind, count in result.divergences_by_kind.items():
+            counts[kind] = counts.get(kind, 0) + count
+        for kind, seen in result.first_seen.items():
+            first_seen[kind] = min(first_seen.get(kind, seen), seen)
+        exemplars.extend(result.exemplars)
+        merged.notes.extend(result.notes)
+        modes.update(result.modes)
+    order = sorted(counts, key=first_seen.__getitem__)
+    merged.divergences_by_kind = {kind: counts[kind] for kind in order}
+    merged.first_seen = {kind: first_seen[kind] for kind in order}
+    exemplars.sort(key=lambda exemplar: (exemplar.length, exemplar.rank))
+    merged.exemplars = exemplars[:EXEMPLAR_LIMIT]
+    merged.modes = sorted(modes)
+    return merged
 
 
 def merge_conformance_results(font_path: Path, results: Iterable[ConformanceConfigResult]) -> ConformReport:

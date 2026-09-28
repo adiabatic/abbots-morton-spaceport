@@ -2438,6 +2438,59 @@ class TestSweepEconomics:
         assert set(split_checked) == {text for text in shaper.shaped if set(text) & splitters}
         assert split_checked
 
+    def test_the_units_of_every_last_symbol_partition_the_texts_and_merge_to_the_whole(
+        self, spec, guard, monkeypatch
+    ):
+        """With `last`, the sweep runs one unit of its configuration. Over a toy alphabet of a boundary and three letters, two of which form a ligature, at maximum length 3, each symbol's unit shapes exactly the texts that end in it, in the whole sweep's order, so the units between them shape every text once, and each text's settled stream in its unit is the one the whole sweep settles for it, the length-3 texts included. Every text diverges against the stand-in font, and `merge_unit_results` over the units, taken in reverse, must give the whole sweep's result: its counts, its kinds in order, and its exemplars."""
+        monkeypatch.setattr(conform, "check_split_buffer", lambda *args, **kwargs: None)
+        alphabet = (" ", TEA, IT, OY)
+        check_oracle = conform.check_oracle
+        settled: list[tuple[str, tuple[str, ...]]] = []
+
+        def recording_check_oracle(text, config, shaped, expected, divergences, modes) -> None:
+            settled.append((text, tuple(expected)))
+            check_oracle(text, config, shaped, expected, divergences, modes)
+
+        monkeypatch.setattr(conform, "check_oracle", recording_check_oracle)
+
+        def run(
+            last: str | None,
+        ) -> tuple[conform.ConformanceConfigResult, list[str], list[tuple[str, tuple[str, ...]]]]:
+            settled.clear()
+            shaper = _SilentShaper()
+            result = conform._conformance_config(
+                shaper,  # pyright: ignore[reportArgumentType]
+                spec,
+                "default",
+                alphabet,
+                conform.splitting_boundary_chars(spec),
+                {},
+                None,
+                3,
+                guard,
+                last=last,
+            )
+            return result, shaper.shaped, list(settled)
+
+        whole, shaped, whole_settled = run(None)
+        texts = [
+            "".join(combo) for length in (1, 2, 3) for combo in itertools.product(alphabet, repeat=length)
+        ]
+        assert shaped == texts
+        assert [text for text, _ in whole_settled] == texts
+        assert any(len(text) == 3 and names for text, names in whole_settled)
+        units = [run(symbol) for symbol in alphabet]
+        for symbol, (unit, unit_shaped, unit_settled) in zip(alphabet, units):
+            assert unit_shaped == [text for text in texts if text[-1] == symbol]
+            assert unit.sequences == unit.shaping_runs == len(unit_shaped)
+            assert unit_settled == [(text, names) for text, names in whole_settled if text[-1] == symbol]
+        merged = conform.merge_unit_results("default", [unit for unit, _, _ in reversed(units)])
+        assert (merged.sequences, merged.shaping_runs) == (whole.sequences, whole.shaping_runs)
+        assert whole.divergences_by_kind and len(whole.exemplars) == conform.EXEMPLAR_LIMIT
+        assert list(merged.divergences_by_kind.items()) == list(whole.divergences_by_kind.items())
+        assert merged.first_seen == whole.first_seen
+        assert merged.exemplars == whole.exemplars
+
 
 class TestRawLabelsLateFormation:
     """`raw_labels` forms ligatures through `settle.form_ligatures`, so the section 5.7 guard applies to the replayed labels as it does to the kernel's stream. The mini spec's qsDay_qsUtter case carries the guard's worked example."""
