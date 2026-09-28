@@ -54,7 +54,12 @@ TOY_ALPHABET = ("a", "b", "c")
 
 def _plan(units: tuple[deep_sweep.SweepUnit, ...], windows: int = 1_000) -> deep_sweep.SweepPlan:
     return deep_sweep.SweepPlan(
-        spec=cast(ResolvedSpec, None), glyphs={}, windows=windows, bound_seconds=0.0, units=units
+        spec=cast(ResolvedSpec, None),
+        glyphs={},
+        windows=windows,
+        heaviest="a",
+        bound_seconds=0.0,
+        units=units,
     )
 
 
@@ -195,50 +200,43 @@ def test_status_exits_on_whether_the_sweep_is_current(bench, monkeypatch, capsys
     assert deep_sweep.main(["--status", "--max-length", "7"]) == 1
 
 
-def test_the_window_bound_counts_every_ask_with_every_left_it_can_have():
-    """`window_bound` over two one-character letters, whose families have three and two cells, and one boundary. At maximum length 2 the walk can hold 14 windows: the 2 one-letter texts; at position 0 of a two-character text, 4 letter pairs and 2 letter-boundary pairs; and at position 1, 2 letters after the boundary and each of 2 letters after each of 2 letters, whose settled cells differ by family. At maximum length 3 a letter with a letter before it can settle to at most its family's cells, which caps the count below what its lefts alone allow. A two-character ligature token adds the one window of the text it spans alone."""
+def test_the_window_bound_counts_every_held_window_of_one_unit():
+    """`window_bound` over two one-character letters and one boundary at maximum length 3, with no cell counts, where it is exact. The unit of texts that end in `a` holds 11 windows: a final `a` after the boundary, or after either letter settled from each of that letter's four lefts (the edge, the boundary, and each letter settled at the edge), and each letter cut short by the boundary at the start of a text that goes on to `a`. Every other window of the unit is pinned: a final `a` at the edge, or after one character in a text of three, and a final pair of letters. The unit of texts that end in the boundary holds only each letter cut short by it at the start of a two-character text. Cell counts cap a letter's lefts, and a ligature adds asks to the unit of the letter it ends in and lefts to every unit."""
     letters = {"a": 1, "b": 1}
-    cells = {"a": 3, "b": 2}
-    assert deep_sweep.window_bound(2, letters, 1, cells) == 14
-    assert deep_sweep.window_bound(3, letters, 1, cells) == 50
-    assert deep_sweep.window_bound(3, letters, 1, {}) == 56
-    assert deep_sweep.window_bound(2, {**letters, "ab": 2}, 1, {**cells, "ab": 1}) == 15
+    assert deep_sweep.window_bound(3, letters, ("|",), {}, "a") == 11
+    assert deep_sweep.window_bound(3, letters, ("|",), {}, "|") == 2
+    assert deep_sweep.window_bound(3, letters, ("|",), {"a": 3, "b": 2}, "a") == 8
+    ligature = {**letters, "ab": 2}
+    assert deep_sweep.window_bound(4, letters, ("|",), {}, "b") == 51
+    assert deep_sweep.window_bound(4, ligature, ("|",), {}, "a", {"ab": "b"}) == 58
+    assert deep_sweep.window_bound(4, ligature, ("|",), {}, "b", {"ab": "b"}) == 67
 
 
-def test_both_fleet_machines_sweep_one_settlement_unit_at_a_time_at_the_default_maximum_length():
-    """At the length-5 window bound on the alphabet with ·Ye (`settlement_window_bound`: 110,020,785 windows), both fleet machines (`doc/fleet.md`) sweep one unit at a time, the overlay first in that slot. On the 48 GiB machines that one unit's estimate fits the memory less the reserve and two do not. On the 32 GiB machine even one does not, the floor at one decides, and `memory_shortfall` warns without refusing, since one unit still fits the machine's memory in all. At the length-4 bound (3,304,968 windows) every machine sweeps as many units at once as there are settlement configurations. The suite does not catch a per-window cost that is too low: only a real run's check line, which records each configuration's highest unit peak beside its estimate, does."""
-    length_5 = deep_sweep.settlement_worker_bytes(110_020_785)
-    budget_48 = MACHINE_48_GIB - memory_budget.os_reserve_bytes(total_bytes=MACHINE_48_GIB)
-    assert length_5 + deep_sweep.DEEP_SWEEP_BASE_BYTES <= budget_48 < 2 * length_5
-    for cores in (18, 12):
-        assert deep_sweep.sweep_width(length_5, ncores=cores, total_bytes=MACHINE_48_GIB) == 1
-    assert deep_sweep.sweep_width(length_5, ncores=10, total_bytes=MACHINE_32_GIB) == 1
-    assert "floored at one" in deep_sweep.sweep_width_derivation(
-        length_5, ncores=10, total_bytes=MACHINE_32_GIB
-    )
-    assert deep_sweep.memory_shortfall(length_5, total_bytes=MACHINE_48_GIB) is None
-    shortfall = deep_sweep.memory_shortfall(length_5, total_bytes=MACHINE_32_GIB)
-    assert shortfall is not None and not shortfall[0] and "may swap" in shortfall[1]
-    length_4 = deep_sweep.settlement_worker_bytes(3_304_968)
+def test_every_fleet_machine_sweeps_as_many_units_as_it_has_cores_at_the_default_maximum_length():
+    """At the length-5 bound of the heaviest settlement unit on the alphabet with ·Ye (`unit_window_bounds`: 809,421 windows, the texts that end in ·Utter), every fleet machine (`doc/fleet.md`) sweeps as many of the 181 units at once as it has cores, with no shortfall, and a sweep with fewer units than cores runs them all at once. At the length-6 bound (66,114,978 windows, ·Utter's again) the 48 GiB machines sweep two units at a time and the 32 GiB machine one, still with no shortfall. The suite does not catch a per-window cost that is too low: only a real run's check line, which records each configuration's highest unit peak beside its estimate, does."""
+    length_5 = deep_sweep.settlement_worker_bytes(809_421)
     for cores, total in ((18, MACHINE_48_GIB), (12, MACHINE_48_GIB), (10, MACHINE_32_GIB)):
-        assert deep_sweep.sweep_width(length_4, ncores=cores, total_bytes=total) == len(
-            conform.SETTLEMENT_CONFIGS
-        )
+        assert deep_sweep.sweep_width(length_5, 181, ncores=cores, total_bytes=total) == cores
+        assert deep_sweep.memory_shortfall(length_5, total_bytes=total) is None
+    assert deep_sweep.sweep_width(length_5, 16, ncores=18, total_bytes=MACHINE_48_GIB) == 16
+    length_6 = deep_sweep.settlement_worker_bytes(66_114_978)
+    for cores, total, width in ((18, MACHINE_48_GIB, 2), (12, MACHINE_48_GIB, 2), (10, MACHINE_32_GIB, 1)):
+        assert deep_sweep.sweep_width(length_6, 181, ncores=cores, total_bytes=total) == width
+        assert deep_sweep.memory_shortfall(length_6, total_bytes=total) is None
 
 
 def test_the_overlay_runs_in_a_settlement_units_slot_and_its_need_is_subtracted():
-    """The overlay's worker holds far less than a settlement unit, so it is not sized as one, and it never gets a slot of its own: once it finishes, its slot takes a settlement unit, so a slot of its own would let one more settlement unit run than the memory fits. Its need is still subtracted, so a machine with room for five settlement units but not for the overlay beside them runs four."""
+    """The overlay's worker holds far less than a settlement unit, so it is not sized as one, and it never gets a slot of its own: once it finishes, its slot takes a settlement unit, so a slot of its own would let one more settlement unit run than the memory fits. Its need is still subtracted, so a machine with room for five settlement units but not for the overlay beside them runs four. With room to spare, the width is the cores or the units, whichever is fewer."""
     roomy = 1_000_000_000_000
     need = 10_000_000_000
-    settling = len(conform.SETTLEMENT_CONFIGS)
-    assert deep_sweep.sweep_width(need, ncores=18, total_bytes=roomy) == settling
-    assert deep_sweep.sweep_width(need, ncores=settling - 2, total_bytes=roomy) == settling - 2
+    assert deep_sweep.sweep_width(need, 181, ncores=18, total_bytes=roomy) == 18
+    assert deep_sweep.sweep_width(need, 7, ncores=18, total_bytes=roomy) == 7
     total = 100_000_000_000
     room = total - memory_budget.os_reserve_bytes(total_bytes=total) - deep_sweep.DEEP_SWEEP_BASE_BYTES
-    assert deep_sweep.sweep_width(room // settling, ncores=18, total_bytes=total) == settling
-    assert deep_sweep.sweep_width(room // settling + 1, ncores=18, total_bytes=total) == settling - 1
+    assert deep_sweep.sweep_width(room // 5, 181, ncores=18, total_bytes=total) == 5
+    assert deep_sweep.sweep_width(room // 5 + 1, 181, ncores=18, total_bytes=total) == 4
     assert "first in one of their slots" in deep_sweep.sweep_width_derivation(
-        need, ncores=18, total_bytes=roomy
+        need, 181, ncores=18, total_bytes=roomy
     )
 
 
@@ -272,7 +270,7 @@ def test_a_stated_width_replaces_the_derived_one(bench, monkeypatch, capsys):
     assert len(swept) == 4
     monkeypatch.delenv(deep_sweep.JOBS_ENV)
     assert deep_sweep.main([]) == 0
-    assert swept[-1][1] == deep_sweep.sweep_width(deep_sweep.settlement_worker_bytes(1_000))
+    assert swept[-1][1] == deep_sweep.sweep_width(deep_sweep.settlement_worker_bytes(1_000), units)
 
 
 def test_each_run_records_every_workers_peak_beside_its_estimate(bench, monkeypatch):
@@ -291,14 +289,14 @@ def test_each_run_records_every_workers_peak_beside_its_estimate(bench, monkeypa
         }
 
 
-def test_a_length_whose_one_worker_exceeds_the_machine_is_refused_unless_a_width_is_stated(
-    bench, monkeypatch, capsys
-):
-    """At the length-6 window bound (2,251,636,269 windows) one settlement unit is estimated far past either fleet machine's memory in all, so `memory_shortfall` refuses it. `main` refuses such a run before sweeping anything and names the way to run it anyway; a stated width starts it with the warning instead."""
-    length_6 = deep_sweep.settlement_worker_bytes(2_251_636_269)
+def test_a_unit_that_exceeds_the_machine_is_refused_unless_a_width_is_stated(bench, monkeypatch, capsys):
+    """A settlement unit estimated past a fleet machine's memory in all is refused by `memory_shortfall`, and one past its memory less the reserve but within the memory is only warned about. `main` refuses such a run before sweeping anything and names the way to run it anyway; a stated width starts it with the warning instead."""
+    beyond = deep_sweep.settlement_worker_bytes(200_000_000)
     for total in (MACHINE_48_GIB, MACHINE_32_GIB):
-        shortfall = deep_sweep.memory_shortfall(length_6, total_bytes=total)
+        shortfall = deep_sweep.memory_shortfall(beyond, total_bytes=total)
         assert shortfall is not None and shortfall[0]
+    shortfall = deep_sweep.memory_shortfall(30_000_000_000, total_bytes=MACHINE_32_GIB)
+    assert shortfall is not None and not shortfall[0] and "may swap" in shortfall[1]
     swept: list = []
     _stub_sweep(monkeypatch, {"pass": True, "divergences": 0}, swept)
     _stub_plan(monkeypatch, windows=10**15)
