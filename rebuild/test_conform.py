@@ -2440,6 +2440,48 @@ class TestSettledWindowWalk:
     def test_the_walk_matches_the_unmemoized_pair_over_the_mini_alphabet(self, spec, features):
         self._sweep(spec, features, conform.spec_alphabet(spec), 4)
 
+    @pytest.mark.parametrize(
+        "features",
+        [frozenset(), frozenset({"ss03"}), frozenset({"ss02", "ss03"})],
+        ids=["default", "ss03", "ss02+ss03"],
+    )
+    def test_a_horizon_walk_matches_the_plain_walk_and_keeps_no_pinned_window(self, spec, features):
+        """A walk with `horizon` settles every text to the same (settled, names) as the plain walk and settles the same windows fresh, and its `windows` holds exactly the plain walk's windows less the pinned ones. The pinned set is computed here from `witness._matched_windows`, the replay's keys, by the definition in `_SettledWindowWalk`'s docstring."""
+        import itertools
+
+        max_length = 4
+        guard = kernel_exec.guard_sweep(spec)
+        plain = conform._SettledWindowWalk(spec, features, {}, guard)
+        bounded = conform._SettledWindowWalk(spec, features, {}, guard, horizon=max_length)
+        pinned: set[tuple[str, ...]] = set()
+        for length in range(1, max_length + 1):
+            stream = itertools.product(conform.spec_alphabet(spec), repeat=length)
+            while True:
+                texts = ["".join(combo) for combo in itertools.islice(stream, self.SWEEP_CHUNK)]
+                if not texts:
+                    break
+                walked = plain.walk_many(texts)
+                assert bounded.walk_many(texts) == walked
+                for text, (_settled, names) in zip(texts, walked):
+                    labels = conform.raw_labels(spec, text, features, guard)
+                    last = len(labels) - 1
+                    at_horizon = len(text) == max_length
+                    for index, window, _matched in witness._matched_windows(
+                        spec, text, features, guard, names, {}, None
+                    ):
+                        if index > 1 or (index == 1 and not at_horizon) or last > index + 4:
+                            continue
+                        if set(labels[index + 1 : last]) & conform._WINDOW_BOUNDARIES:
+                            continue
+                        if at_horizon or (
+                            last < index + 4 and window[2 + last - index] == conform._EDGE_LABEL
+                        ):
+                            pinned.add(window)
+        assert pinned
+        assert bounded.fresh_windows == plain.fresh_windows
+        assert set(bounded.windows) == set(plain.windows) - pinned
+        assert not bounded._pinned
+
     def test_deep_slot_keys_replay_the_real_chains(self):
         """The mini spec has no depth-3 or depth-4 prefers, so this test uses the real spec: the chain letters of its deep inputs plus a space, swept to length 5 so both right3 and right4 are reachable. The walk keys its deep slots on raw labels, which is finer than the table's own grain, so some memo key must have its third slot open, not `#NA`."""
         import warnings

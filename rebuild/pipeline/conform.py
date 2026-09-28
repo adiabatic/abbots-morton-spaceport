@@ -1444,7 +1444,9 @@ def absorb_replay_memo(dump: Path, memo: SettleMemoFile, spec: ResolvedSpec, con
 class _SettledWindowWalk:
     """The memoized settlement walk one configuration runs over its texts. A left-to-right pass computes each letter slot's raw window key (the slots `witness._matched_windows` reads, with the left taken from the stream settled so far) and looks it up in `windows`, a window -> (Settled, glyph name, left label) memo. Only a miss reaches the crate.
 
-    The memo only saves time. It records no coverage, and the sweep's result is the same whether every window misses or every window hits. It is sound because every memoized outcome depends only on the window as keyed: the left label is the settled cell's display name (`geometry.display_name`, injective over every CellId field), and the right slots are exactly the raw tokens a case line carries. The key never reads the glyph inventory, so a walk with minted names and a walk without them build the same keys and differ only in the names they return, which is what lets the oracle and the conformance sweep share one memo file. Because the key holds all the raw right slots, the walk needs no liveness check; blanking the deep slots where the table's relevance filters show nothing reads them costs more in probes than it saves. `windows` has no size bound; interned labels and shared outcome tuples limit its cost to the key tuples. The walk-equivalence sweeps in rebuild/test_conform.py test all of this.
+    The memo only saves time. It records no coverage, and the sweep's result is the same whether every window misses or every window hits. It is sound because every memoized outcome depends only on the window as keyed: the left label is the settled cell's display name (`geometry.display_name`, injective over every CellId field), and the right slots are exactly the raw tokens a case line carries. The key never reads the glyph inventory, so a walk with minted names and a walk without them build the same keys and differ only in the names they return, which is what lets the oracle and the conformance sweep share one memo file. Because the key holds all the raw right slots, the walk needs no liveness check; blanking the deep slots where the table's relevance filters show nothing reads them costs more in probes than it saves. Interned labels and shared outcome tuples limit the memo's cost to its key tuples. The walk-equivalence sweeps in rebuild/test_conform.py test all of this.
+
+    Without `horizon`, `windows` has no size bound: it keeps every window the walk settles. A walk with no memo file and no dedupe audit may name `horizon`, the length in characters of its longest text, and then `windows` keeps every window except the pinned ones. A window is pinned when its right slots reach the text's last token, the slot after that token is `#EDGE` or the text is at the horizon, and its index is 0, or 1 with the text at the horizon (`_is_pinned`; positions count tokens after ligature formation). Its key then spells out its whole text, because the left slot is the edge, a boundary, or a display name that names the letter before. The conformance sweep walks each text once, so only the state that asked for a pinned window reaches it, and a text walked again would settle its pinned windows again. A pinned outcome goes into `_pinned`, which `_advance` reads after `windows` and the cold store, and `_run` clears it once the wave's states have advanced.
 
     `memo` names the file this walk shares with the other walks over the same texts. The string replay fills it on a full replay (`absorb_replay_memo`), and the witness stage, the oracle, and the conformance sweep each map it and settle what it lacks. It is mapped on the first wave that would otherwise reach the crate, so a walk that settles nothing (an oracle pass whose rows are all served) never opens it. `save_memo` writes it back only when this walk settled a window the file lacked, or pruned one. `_write_settle_memo` describes the file layout, and `_MemoStore` how a walk maps it: the tables go on the heap, and the columns and index stay pages of the mapping, shared in the page cache by every walk that maps the file. An entry whose window names a family whose key changed since the file was written is dropped at load (`oracle_cache.StaleMask` at label grain, including the ligature clause).
 
@@ -1471,7 +1473,11 @@ class _SettledWindowWalk:
         on_error: str = "raise",
         memo: SettleMemoFile | None = None,
         promote: bool = True,
+        horizon: int | None = None,
     ):
+        assert horizon is None or (
+            memo is None and not audit_dedupe
+        ), "a horizon walk has no memo file and no dedupe audit"
         self.spec = spec
         self.features = features
         self.glyph_names = glyph_names
@@ -1481,7 +1487,9 @@ class _SettledWindowWalk:
         self.on_error = on_error
         self.memo = memo
         self._promote = promote
+        self.horizon = horizon
         self.windows: dict[_Window, _Outcome | _RefusedWindow] = {}
+        self._pinned: dict[_Window, _Outcome | _RefusedWindow] = {}
         self._cold = _MemoStore()
         self.single_settles = 0
         self.audit_extra_rows = 0
@@ -1533,6 +1541,7 @@ class _SettledWindowWalk:
         return asks
 
     def _state(self, text: str) -> _WalkState:
+        assert self.horizon is None or len(text) <= self.horizon, (text, self.horizon)
         spec = self.spec
         tokens = settle.form_ligatures(
             spec,
@@ -1593,7 +1602,9 @@ class _SettledWindowWalk:
                     if outcome is not None and self._promote:
                         self.windows[window] = outcome
                 if outcome is None:
-                    return True
+                    outcome = self._pinned.get(window)
+                    if outcome is None:
+                        return True
             if isinstance(outcome, _RefusedWindow):
                 if tolerant:
                     return False
@@ -1603,17 +1614,29 @@ class _SettledWindowWalk:
             self._commit(state, outcome)
         return False
 
-    def _record(self, window: _Window, item: Settled | None, text: str) -> None:
+    def _record(self, window: _Window, item: Settled | None, state: _WalkState) -> None:
         self.fresh_windows += 1
         if self.memo is not None and self.memo.writes_part:
             self._fresh.append(window)
+        store = self._pinned if self.horizon is not None and self._is_pinned(window, state) else self.windows
         if item is None:
             self._refused += 1
-            self.windows[window] = _RefusedWindow(
-                f"the kernel refused the window {window!r}, reached in {text!r}"
+            store[window] = _RefusedWindow(
+                f"the kernel refused the window {window!r}, reached in {state.text!r}"
             )
             return
-        self.windows[window] = self._outcome(item)
+        store[window] = self._outcome(item)
+
+    def _is_pinned(self, window: _Window, state: _WalkState) -> bool:
+        """Whether `window`, which `state` asked for at its current position, spells out the whole text: its right slots reach the text's last token, the slot after that token is `#EDGE` or the text is at the horizon, and it sits at index 0, or at index 1 of a text at the horizon. Positions count tokens after ligature formation, and the horizon counts characters."""
+        index, labels = state.index, state.labels
+        last = len(labels) - 1
+        at_horizon = len(state.text) == self.horizon
+        if index > 1 or (index == 1 and not at_horizon) or last > index + 4:
+            return False
+        if not _WINDOW_BOUNDARIES.isdisjoint(labels[index + 1 : last]):
+            return False
+        return at_horizon or (last < index + 4 and window[2 + last - index] == _EDGE_LABEL)
 
     def _outcome(self, item: Settled) -> _Outcome:
         """The shared memo value for `item` in this walk: the settled item, the name this walk's inventory gives it, and the display name every walk uses as the next window's left slot."""
@@ -1735,7 +1758,7 @@ class _SettledWindowWalk:
             pending = [state for state in pending if self._advance(state, tolerant)]
         while pending:
             keys: list[_Window] = []
-            reached_in: list[str] = []
+            reached_in: list[_WalkState] = []
             cases: list[str] = []
             asked: set[_Window] = set()
             for state in pending:
@@ -1748,15 +1771,16 @@ class _SettledWindowWalk:
                     continue
                 asked.add(window)
                 keys.append(window)
-                reached_in.append(state.text)
+                reached_in.append(state)
                 cases.append(
                     kernel_exec.case_line(state.left, state.tokens[state.index], self._rights(state))
                 )
                 if self.audit_dedupe:
                     self._audit_seen.add((state.left, state.tokens[state.index], self._rights(state)))
-            for window, text, item in zip(keys, reached_in, self._settle(cases)):
-                self._record(window, item, text)
+            for window, asker, item in zip(keys, reached_in, self._settle(cases)):
+                self._record(window, item, asker)
             pending = [state for state in pending if self._advance(state, tolerant)]
+            self._pinned.clear()
             if self._audit_pending:
                 self._drain_audit()
         if self._audit_pending:
@@ -1852,7 +1876,7 @@ def _conformance_config(
 
     An overlay configuration is swept to `OVERLAY_MAX_LENGTH` instead, whatever `max_length` is. Its expected names are `isolated_overlay_labels` over the raw tokens, it uses no walk and no memo, and every slot must sit at zero offset with its `hmtx` advance (`check_isolated_positions`). The split-buffer check runs there too.
 
-    Settlement goes through `_SettledWindowWalk`'s memo, which only saves time. `settle_memo` shares that memo with the other walks over the same texts: it is loaded on the first miss, written back at the end if this sweep settled anything the file lacked, and pruned of every entry no text reached. This sweep walks every text, so it is the only walk that can tell which windows still exist. Each length's texts go through the walk `TEXT_CHUNK` at a time, because at larger maximum lengths a length has millions of texts and only the current chunk needs to be in memory. The split-buffer check runs only on texts that contain a splitter, since a text without one is its own single segment.
+    Settlement goes through `_SettledWindowWalk`'s memo, which only saves time. `settle_memo` shares that memo with the other walks over the same texts: it is loaded on the first miss, written back at the end if this sweep settled anything the file lacked, and pruned of every entry no text reached. This sweep walks every text, so it is the only walk that can tell which windows still exist. Without `settle_memo`, the walk takes `horizon=max_length` and does not memoize pinned windows. Each length's texts go through the walk `TEXT_CHUNK` at a time, because at larger maximum lengths a length has millions of texts and only the current chunk needs to be in memory. The split-buffer check runs only on texts that contain a splitter, since a text without one is its own single segment.
 
     `progress`, when given, is called with the count of texts shaped so far after each chunk, and after each length for an overlay configuration, so a caller can report a long sweep's progress from another process without the sweep printing anything or paying for a call per text.
     """
@@ -1878,7 +1902,15 @@ def _conformance_config(
 
     if guard_verdicts is None:
         guard_verdicts = kernel_exec.guard_sweep(spec)
-    walker = _SettledWindowWalk(spec, features, glyph_names, guard_verdicts, memo=settle_memo, promote=False)
+    walker = _SettledWindowWalk(
+        spec,
+        features,
+        glyph_names,
+        guard_verdicts,
+        memo=settle_memo,
+        promote=False,
+        horizon=max_length if settle_memo is None else None,
+    )
 
     def sweep_text(text: str, names: list[str]) -> None:
         shaped = shaper.shape(text, features)
