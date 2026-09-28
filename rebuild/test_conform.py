@@ -7,10 +7,12 @@ import itertools
 import json
 import os
 import pickle
+import shutil
 import struct
 import subprocess
 import sys
 import zlib
+from array import array
 from collections.abc import Sequence
 from dataclasses import asdict, replace
 from fnmatch import fnmatch
@@ -3961,6 +3963,150 @@ class TestSettleMemoFile:
         reference = conform._SettledWindowWalk(spec, frozenset(), {}, guard)
         assert walker.walk_many(texts) == reference.walk_many(texts)
         assert walker._settle_calls == 0 and walker.fresh_windows == 0
+
+    def _swept(self, spec, guard, memo, last=None, max_length=2) -> conform.ConformanceConfigResult:
+        """`default`'s conformance sweep over the mini alphabet with a stand-in font, whole or, with `last`, one unit."""
+        return conform._conformance_config(
+            _SilentShaper(),  # pyright: ignore[reportArgumentType]
+            spec,
+            "default",
+            conform.spec_alphabet(spec),
+            conform.splitting_boundary_chars(spec),
+            {},
+            None,
+            max_length,
+            guard,
+            settle_memo=memo,
+            last=last,
+        )
+
+    def _unit_fold(self, spec, guard, memo, scratch) -> tuple[bool, int, int]:
+        """`default`'s units over every symbol, each writing its part under `scratch`, folded as the pooled sweep's parent folds them: the units' reaches OR-ed into one mask and absorbed by `absorb_sweep_memo`, which discards the file's rows when any unit retired its store."""
+        scratch.mkdir()
+        parts, reaches = [], []
+        for index, symbol in enumerate(conform.spec_alphabet(spec)):
+            parts.append(scratch / f"default.{index}.gz")
+            reach = self._swept(spec, guard, replace(memo, write_path=parts[-1]), last=symbol).memo_reach
+            assert reach is not None
+            reaches.append(reach)
+        assert len({(reach.identity, reach.rows) for reach in reaches}) == 1
+        union = 0
+        for reach in reaches:
+            union |= int.from_bytes(zlib.decompress(reach.reached), "little")
+        mask = zlib.compress(union.to_bytes(reaches[0].rows, "little"), 1)
+        retired = any(reach.retired for reach in reaches)
+        return conform.absorb_sweep_memo(memo, parts, spec, reaches[0].identity, mask, True, retired)
+
+    @pytest.mark.parametrize("start", ["absent", "current", "unreached"])
+    def test_the_units_fold_files_the_rows_one_pruning_walk_files(self, spec, guard, tmp_path, start):
+        """The pooled conformance sweep's units each walk the texts that end in one symbol, write what they settled fresh as a part, and return the rows they reached; the parent ORs the reaches and absorbs the parts. That must leave the file holding the rows one pruning walk over every text leaves, from a file that is absent, current (nothing is written, so its bytes and modification time stand), or current plus rows no text reaches (exactly those are pruned)."""
+        whole, units = tmp_path / "whole", tmp_path / "units"
+        whole.mkdir()
+        units.mkdir()
+        reference, memo = self._memo(whole), self._memo(units)
+        if start != "absent":
+            seed = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=reference)
+            seed.walk_many(self._texts(spec, 3 if start == "unreached" else 2))
+            assert seed.save_memo()
+            shutil.copy2(reference.path, memo.path)
+        before = memo.path.read_bytes() if start == "current" else None
+        mtime = memo.path.stat().st_mtime_ns if start == "current" else None
+        seeded = len(self._rows(reference, spec)) if start != "absent" else 0
+
+        self._swept(spec, guard, reference)
+        written, pruned, fresh = self._unit_fold(spec, guard, memo, tmp_path / "scratch")
+        expected = {window: outcome[0] for window, outcome in self._decoded(reference, spec)}
+        assert {window: outcome[0] for window, outcome in self._decoded(memo, spec)} == expected
+        if start == "absent":
+            assert written and pruned == 0 and fresh == len(expected)
+        elif start == "current":
+            assert (written, pruned, fresh) == (False, 0, 0)
+            assert memo.path.read_bytes() == before and memo.path.stat().st_mtime_ns == mtime
+        else:
+            assert written and fresh == 0 and pruned == seeded - len(expected) > 0
+
+    def test_a_unit_files_only_its_part_and_leaves_the_file_and_the_line_to_the_parent(
+        self, spec, guard, tmp_path, capsys
+    ):
+        """A unit walk writes the windows it settled fresh as its part and nothing else: the shared file keeps its bytes, the unit prints no `[t] settle_memo` line, and its reach names the version of the file it mapped, which the parent's absorb checks before it prunes."""
+        memo = self._memo(tmp_path)
+        seed = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
+        seed.walk_many(self._texts(spec, 1))
+        assert seed.save_memo()
+        standing = memo.path.read_bytes()
+        stat = memo.path.stat()
+        capsys.readouterr()
+
+        part = tmp_path / "part.gz"
+        reach = self._swept(
+            spec, guard, replace(memo, write_path=part), last=conform.spec_alphabet(spec)[-1]
+        ).memo_reach
+        assert reach is not None and reach.part and not reach.retired
+        assert memo.path.read_bytes() == standing
+        assert self._part_rows(part, memo, spec)
+        assert reach.identity == (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns)
+        assert reach.rows == reach.live == reach.loaded == len(seed.windows)
+        assert "[t] settle_memo" not in capsys.readouterr().err
+
+    def test_a_sweep_absorb_over_another_version_of_the_file_keeps_every_row(
+        self, spec, guard, tmp_path, capsys
+    ):
+        """When the file on disk is not the version the units mapped, their reached flags index another file's rows, so the absorb warns, prunes nothing, and appends the parts to every live row."""
+        memo = self._memo(tmp_path)
+        seed = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
+        seed.walk_many(self._texts(spec, 1))
+        assert seed.save_memo()
+        standing = self._rows(memo, spec)
+        part = tmp_path / "part.gz"
+        reach = self._swept(
+            spec, guard, replace(memo, write_path=part), last=conform.spec_alphabet(spec)[0]
+        ).memo_reach
+        assert reach is not None and reach.identity is not None
+        capsys.readouterr()
+
+        nothing = zlib.compress(bytes(reach.rows), 1)
+        written, pruned, fresh = conform.absorb_sweep_memo(
+            memo, [part], spec, (0, 0, 0, 0), nothing, True, False
+        )
+        assert written and pruned == 0 and fresh == len(self._part_rows(part, memo, spec))
+        assert self._rows(memo, spec) == standing | self._part_rows(part, memo, spec)
+        assert "changed after the conformance sweep's units mapped it" in capsys.readouterr().err
+
+    def test_a_sweep_over_a_corrupt_file_rewrites_it_from_the_parts_alone(
+        self, spec, guard, tmp_path, capsys
+    ):
+        """A row whose value id runs past every outcome table retires the store of each unit whose texts reach it. That unit still names the file's version, marks itself retired, and settles its windows fresh, and the absorb then writes only the parts, as the serial sweep's pruning save does after a retirement: the corrupt row is not carried into the rewrite, every live row of the old file counts as pruned, and the next walk loads the file without retiring it."""
+        memo = self._memo(tmp_path)
+        seed = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
+        seed.walk_many(self._texts(spec, 2))
+        assert seed.save_memo()
+        header = self._header(memo)
+        whole = bytearray(memo.path.read_bytes())
+        (length,) = conform._MEMO_PREFIX.unpack_from(whole)
+        offset = conform._memo_aligned(conform._MEMO_PREFIX.size + length)
+        offset = conform._memo_aligned(offset + header["tables"])
+        for _ in range(6):
+            offset = conform._memo_aligned(offset + header["rows"] * array(header["typecode"]).itemsize)
+        bad = array(header["value_typecode"], [(1 << (8 * array(header["value_typecode"]).itemsize)) - 1])
+        whole[offset : offset + bad.itemsize] = bad.tobytes()
+        memo.path.write_bytes(bytes(whole))
+        capsys.readouterr()
+
+        scratch = tmp_path / "scratch"
+        written, pruned, _fresh = self._unit_fold(spec, guard, memo, scratch)
+        assert "retired (an id past its tables)" in capsys.readouterr().err
+        assert written and pruned == header["rows"]
+        parts = set().union(*(self._part_rows(part, memo, spec) for part in scratch.iterdir()))
+        assert self._rows(memo, spec) == parts
+        walker = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
+        walker.walk_many(self._texts(spec, 2))
+        assert not walker._cold.retired
+        assert "[warn] settle memo:" not in capsys.readouterr().err
+
+    def test_a_unit_whose_memo_would_replace_the_file_is_refused(self, spec, guard, tmp_path):
+        """A unit walks a share of the texts, so a whole-file save from it would leave the shared file holding only that share's rows. A unit whose memo names no `write_path` fails its assertion before it walks anything."""
+        with pytest.raises(AssertionError, match="a unit sweep writes its memo as a part"):
+            self._swept(spec, guard, self._memo(tmp_path), last=conform.spec_alphabet(spec)[0])
 
     def test_a_restriction_needs_a_part_and_never_prunes(self, spec, guard, tmp_path):
         """Two checks that tie restricted loading to part writing: a walk whose memo would replace the shared file whole may not restrict its load, and a restricted walk may not prune, since after a restricted load a dropped row and an unreached window look the same."""

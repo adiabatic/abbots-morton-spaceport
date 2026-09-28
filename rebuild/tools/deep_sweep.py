@@ -40,6 +40,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from rebuild.pipeline import conform, fingerprint, kernel_exec, run_m1
+from rebuild.pipeline.run_m1 import SweepUnit, config_texts, sweep_units
 from rebuild.pipeline.model import ResolvedSpec
 from rebuild.tools import console, cycle_paths, memory_budget, peak_rss
 from rebuild.tools.artifact_cycle import (
@@ -82,29 +83,6 @@ DEEP_SWEEP_WINDOW_BYTES = 280
 
 # What a worker holds before its walk holds a window: its interpreter, the spec, a HarfBuzz `Shaper` over M1.otf, the glyph names and anchors, the guard verdicts the parent passes, a chunk of `conform.TEXT_CHUNK` texts in flight, and one wave's pinned outcomes. It is a settlement unit's fixed term and all the ss10 overlay's worker holds, since the overlay walks nothing; that worker peaks at 0.045 GB in #480's length-4 measurement (`var/keep/issue-480/len4-full/`) and at 0.052 GB in the first full run at maximum length 5. DEEP_SWEEP_WINDOW_BYTES's comment derives it and holds that run against it.
 DEEP_SWEEP_BASE_BYTES = 200_000_000
-
-
-@dataclass(frozen=True)
-class SweepUnit:
-    """One process's share of the sweep: a configuration, the symbol its texts end in or None for a configuration swept whole, and the count of texts it shapes, which is the `sequences` its worker returns."""
-
-    config: str
-    last: str | None
-    texts: int
-
-    @property
-    def overlay(self) -> bool:
-        return self.config in conform.OVERLAY_CONFIGS
-
-
-def sweep_units(alphabet: Sequence[str], max_length: int) -> tuple[SweepUnit, ...]:
-    """Return the sweep's units in the order the pool takes them: each overlay configuration whole, to `conform.OVERLAY_MAX_LENGTH`, then each settlement configuration in `conform.SETTLEMENT_CONFIGS` order, one unit per symbol of `alphabet` in its order, each shaping the texts of length 1 to `max_length` that end in its symbol."""
-    size = len(alphabet)
-    overlay = sum(size**length for length in range(1, conform.OVERLAY_MAX_LENGTH + 1))
-    unit = sum(size ** (length - 1) for length in range(1, max_length + 1))
-    return tuple(SweepUnit(config, None, overlay) for config in conform.OVERLAY_CONFIGS) + tuple(
-        SweepUnit(config, symbol, unit) for config in conform.SETTLEMENT_CONFIGS for symbol in alphabet
-    )
 
 
 @dataclass(frozen=True)
@@ -284,20 +262,6 @@ def report_seconds() -> float:
             f"{REPORT_ENV}={stated!r} is not an interval: it takes a positive decimal number of seconds between progress reports"
         )
     return seconds
-
-
-def config_texts(spec: ResolvedSpec, max_length: int) -> dict[str, int]:
-    """Return how many texts each acceptance configuration's units shape between them: every text of one letter up to its maximum length over the spec's alphabet, which is `max_length` for a settlement configuration and `conform.OVERLAY_MAX_LENGTH` for an overlay. `run_sweep` checks each configuration's merged `sequences` against it."""
-    size = len(conform.spec_alphabet(spec))
-    return {
-        config: sum(
-            size**length
-            for length in range(
-                1, (conform.OVERLAY_MAX_LENGTH if config in conform.OVERLAY_CONFIGS else max_length) + 1
-            )
-        )
-        for config in conform.ACCEPTANCE_CONFIGS
-    }
 
 
 def smoothed_rate(samples: Sequence[tuple[float, int]], window: float) -> float | None:
@@ -595,12 +559,11 @@ def _counter_writer(slot: int) -> Callable[[int], None] | None:
 def _unit_worker(
     spec, font_path: Path, config: str, last: str | None, max_length: int, glyphs, guard_verdicts, slot: int
 ):
-    """Run one unit's sweep in its own process, storing its count of texts shaped in its `slot` of the shared array after each chunk, and return the result with the process's peak footprint, read just before it returns."""
+    """Run one unit's sweep in its own process, storing its count of texts shaped in its `slot` of the shared array after each chunk, and return the result with the process's peak footprint (`run_m1._peak_footprint`), read just before it returns."""
     result = conform.conformance_config_worker(
         spec, font_path, config, max_length, glyphs, guard_verdicts, progress=_counter_writer(slot), last=last
     )
-    peak = peak_rss.peak_footprint_bytes()
-    return result, peak if peak is not None else peak_rss.peak_rss_self_bytes()
+    return result, run_m1._peak_footprint()
 
 
 def run_sweep(

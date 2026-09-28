@@ -1,9 +1,11 @@
 """Tests for the green records and check lines run_m1 writes, plus its exit handling and the oracle and conformance-sweep fan-in. An interactive run_m1, `--conform-only`, and `--gates-only` record the same green files the artifact cycle skips on, so a fix verified by hand is not verified again by the next cycle, and each records its result as a check line in the timings journal. The results come from artifact_cycle's evaluators (`evaluate_run_m1_gate`, `evaluate_conform_gate`). Unmatched oracle rows are not a failure, so a run that has them records a green and exits zero. `--gates-only` records run_m1's green only when a prior green exists and every input that moved since it is comparison-side (`artifact_cycle.gates_only_rerun`), so the next cycle can skip run_m1 after a ledger edit."""
 
 import gzip
-import itertools
 import json
 import pickle
+import time
+import zlib
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import pytest
 
@@ -794,17 +796,19 @@ class TestOracleFanIn:
             store = oracle_cache.load_store(promoted, stamps[config], f"{config}-digest", spec, keys)
             assert store is not None and store.rows == rows[config] and store.pass_ordinal == 1
 
-    def test_the_conform_sweeps_pool_is_never_wider_than_the_acceptance_configurations(self):
-        """The cycle passes the conformance sweep a width already capped at the acceptance configuration count (`artifact_cycle.conform_job_budget`), but a hand `--jobs` can be any number, so `_spawn_pool` caps the pool at one process per configuration. A smaller number narrows the pool."""
-        wide = run_m1._spawn_pool(64, len(conform.ACCEPTANCE_CONFIGS))
+    def test_a_spawn_pool_is_never_wider_than_the_tasks_it_is_given(self):
+        """A hand `--jobs` can be any number, so `_spawn_pool` caps the pool at one process per task the caller submits before its absorbs: the conformance sweep's units, or the oracle's row ranges. A smaller number narrows the pool. The conformance sweep's pool runs one task per process and the oracle's reuses its workers, so the keyword passes through and defaults to reuse."""
+        units = len(run_m1.sweep_units(("a", "b", "c"), conform.SWEEP_MAX_LENGTH))
+        wide = run_m1._spawn_pool(64, units, max_tasks_per_child=1)
         try:
-            width = wide._max_workers  # pyright: ignore[reportAttributeAccessIssue]
-            assert width == len(conform.ACCEPTANCE_CONFIGS)
+            assert wide._max_workers == units  # pyright: ignore[reportAttributeAccessIssue]
+            assert wide._max_tasks_per_child == 1  # pyright: ignore[reportAttributeAccessIssue]
         finally:
             wide.shutdown(wait=False)
         narrow = run_m1._spawn_pool(2, 15)
         try:
             assert narrow._max_workers == 2  # pyright: ignore[reportAttributeAccessIssue]
+            assert narrow._max_tasks_per_child is None  # pyright: ignore[reportAttributeAccessIssue]
         finally:
             narrow.shutdown(wait=False)
 
@@ -847,7 +851,10 @@ class TestOracleFanIn:
 
 
 class TestConformFanIn:
-    """The conformance sweep's fan-in writes its workers' peak memory as a `conform-sweep` pool record, writes none for a serial or deeper sweep, and writes the same report as the serial conformance sweep at any width. Only the sweep is stubbed (`conform._conformance_config`, which the serial path and every worker call), so the real wrapper, worker, `run_conformance`, and merge run in every mode."""
+    """The conformance sweep's fan-in runs one unit per process (the ss10 overlay whole and each settlement configuration once per final symbol), writes its units' peak memory as a `conform-sweep` pool record, writes none for a serial or deeper sweep, prunes and absorbs each settlement configuration's memo in the parent, and writes the same report as the serial conformance sweep at any width. Only the sweep is stubbed (`conform._conformance_config`, which the serial path and every worker call), over a three-symbol alphabet, so the real unit worker, `run_conformance`, and both merges run in every mode."""
+
+    ALPHABET = ("a", "b", "c")
+    ROWS = 4
 
     @staticmethod
     def _swept(
@@ -864,34 +871,34 @@ class TestConformFanIn:
         progress=None,
         last=None,
     ):
-        """A deterministic sweep whose every field depends on its configuration, so a merge in completion order instead of acceptance order would write a different report."""
+        """A deterministic sweep that shapes nothing: every text of the configuration's lengths that ends in `last` (every text without it) is a sequence costing the configuration's own count of shaping runs, and every text ending in the configuration's own symbol diverges, so a merge that misordered the units or the configurations would write a different report."""
         index = conform.ACCEPTANCE_CONFIGS.index(config)
-        return conform.ConformanceConfigResult(
-            config=config,
-            sequences=100,
-            shaping_runs=100 + index,
-            divergences_by_kind={f"kind-{config}": 1},
-            exemplars=[
-                conform.DivergenceExemplar(
-                    conform.Divergence(
-                        text=chr(0xE650 + index),
-                        config=config,
-                        position=index,
-                        expected="qsPea",
-                        got="qsPea.alt",
-                        kind=f"kind-{config}",
-                    ),
-                    1,
-                    index,
-                )
-            ],
-            notes=[f"{config}: swept at {max_length}"],
-            modes=[f"mode-{index % 2}"],
-        )
+        top = conform.OVERLAY_MAX_LENGTH if config in conform.OVERLAY_CONFIGS else max_length
+        result = conform.ConformanceConfigResult(config=config)
+        tally = conform.DivergenceTally(result, alphabet)
+        for length in range(1, top + 1):
+            for text in conform.sweep_texts(alphabet, length, last):
+                result.sequences += 1
+                result.shaping_runs += 1 + index
+                if text[-1] == alphabet[index % len(alphabet)]:
+                    tally.append(
+                        conform.Divergence(
+                            text=text,
+                            config=config,
+                            position=index,
+                            expected="qsPea",
+                            got="qsPea.alt",
+                            kind=f"kind-{config}",
+                        )
+                    )
+        result.modes = [f"mode-{index % 2}"]
+        return result
 
     def _pool(self, monkeypatch):
-        """Stubs out every process and build input in the fan-out: an inline pool, futures resolved in reverse, the crate, no spec, no tables, and no memo, plus fakes for what the worker and `run_conformance` build before the sweep, since the spec is None."""
-        monkeypatch.setattr(run_m1, "_spawn_pool", lambda jobs, units: _InlinePool())
+        """Stubs out every process and build input in the fan-out: an inline pool, futures resolved in reverse, the crate, no spec, no tables, no memo, and a three-symbol alphabet, plus fakes for what the worker and `run_conformance` build before the sweep, since the spec is None."""
+        monkeypatch.setattr(
+            run_m1, "_spawn_pool", lambda jobs, units, max_tasks_per_child=None: _InlinePool()
+        )
         monkeypatch.setattr(run_m1, "as_completed", lambda futures: reversed(list(futures)))
         monkeypatch.setattr(run_m1.kernel_exec, "ensure_built", lambda: None)
         monkeypatch.setattr(run_m1.kernel_exec, "guard_sweep", lambda spec: {})
@@ -902,55 +909,214 @@ class TestConformFanIn:
         monkeypatch.setattr(run_m1, "mint_cell_glyphs", lambda spec, decisions: {})
         monkeypatch.setattr(conform, "settle_memo_files", lambda out_dir, spec, inputs: {})
         monkeypatch.setattr(conform, "Shaper", lambda font_path: object())
-        monkeypatch.setattr(conform, "spec_alphabet", lambda spec: ())
+        monkeypatch.setattr(conform, "spec_alphabet", lambda spec: self.ALPHABET)
         monkeypatch.setattr(conform, "splitting_boundary_chars", lambda spec: frozenset())
         monkeypatch.setattr(conform, "_conformance_config", self._swept)
 
+    def _memos(
+        self, monkeypatch, tmp_path, reached, parts=(), lose=None, other=None, retired=None
+    ) -> dict[str, list]:
+        """Give every settlement configuration a memo and every settlement unit a reach over one file version of `ROWS` rows: `reached[config][symbol]` names the rows that unit reached (every row between a configuration's units by default), a unit named in `parts` as `(config, symbol)` wrote a part, the unit named by `lose` shapes one text too few, the unit named by `other` mapped another version of the file, and the unit named by `retired` retired its store and reached nothing. The absorb is stubbed to record its arguments and prune what the mask leaves unreached; the returned mapping collects them by configuration."""
+        memos = {
+            config: conform.SettleMemoFile(tmp_path / f"settle-memo-{config}.bin", "stamp")
+            for config in conform.SETTLEMENT_CONFIGS
+        }
+        monkeypatch.setattr(conform, "settle_memo_files", lambda out_dir, spec, inputs: memos)
+        spread = {"a": (0, 1), "b": (2,), "c": (3,)}
+
+        def swept(*args, settle_memo=None, last=None, **kwargs):
+            result = self._swept(*args, settle_memo=settle_memo, last=last, **kwargs)
+            if (result.config, last) == lose:
+                result.sequences -= 1
+            if settle_memo is not None:
+                assert settle_memo.writes_part and last is not None
+                unit = (result.config, last)
+                rows = () if unit == retired else reached.get(result.config, spread)[last]
+                flags = bytes(int(row in rows) for row in range(self.ROWS))
+                wrote = unit in parts
+                result.memo_reach = conform.MemoReach(
+                    identity=(5, 6, 7, 8) if unit == other else (1, 2, 3, 4),
+                    retired=unit == retired,
+                    rows=self.ROWS,
+                    live=self.ROWS,
+                    loaded=self.ROWS,
+                    stale=0,
+                    reached=zlib.compress(flags, 1),
+                    part=wrote,
+                    seconds=0.25,
+                )
+            return result
+
+        monkeypatch.setattr(conform, "_conformance_config", swept)
+        absorbed: dict[str, list] = {}
+
+        def absorb(memo, parts, spec, identity, reached, prune, discard):
+            flags = zlib.decompress(reached)
+            absorbed[memo.path.stem.removeprefix("settle-memo-")] = [
+                list(parts),
+                identity,
+                flags,
+                prune,
+                discard,
+            ]
+            pruned = self.ROWS if discard else self.ROWS - flags.count(1) if prune else 0
+            return True, pruned, len(parts)
+
+        monkeypatch.setattr(conform, "absorb_sweep_memo", absorb)
+        return absorbed
+
     def test_a_pooled_sweep_files_one_conform_sweep_pool_record(self, monkeypatch, tmp_path):
-        """A pooled conformance sweep writes one record, at the pool's width, with one observation per acceptance configuration, under a unit name listed in `calibrate_budgets.UNITS`; a record under an unlisted name would be ignored, as if the conformance sweep had never run pooled on this machine. Every peak reading is distinct, and the inline pool runs each worker at submission in acceptance order before the controller reads its own peak, so a fan-in that recorded one configuration's peak under another, or the controller's under a worker, would fail."""
+        """A pooled conformance sweep writes one record, at the pool's width capped at the unit count, with one observation per acceptance configuration, under a unit name listed in `calibrate_budgets.UNITS`; a record under an unlisted name would be ignored, as if the conformance sweep had never run pooled on this machine. The inline pool runs each unit at submission in unit order and the futures resolve in reverse, and each configuration's highest reading belongs to its middle unit, which resolves neither first nor last: a fan-in that recorded a unit's peak under another configuration, or kept its first or last reading rather than its highest, would fail. The controller's own reading goes in its own field."""
         self._pool(monkeypatch)
         assert "conform-sweep" in {name for unit in cb.UNITS for name in unit.pool_units}
-        configs = conform.ACCEPTANCE_CONFIGS
-        for jobs in (6, 2):
-            monkeypatch.setattr(run_m1, "peak_rss_self_bytes", itertools.count(1).__next__)
+        units = run_m1.sweep_units(self.ALPHABET, conform.SWEEP_MAX_LENGTH)
+        monkeypatch.setattr(run_m1, "peak_rss_self_bytes", lambda: 10**9)
+        readings = [0] * len(units)
+        for rank, config in enumerate(conform.ACCEPTANCE_CONFIGS, start=1):
+            slots = [slot for slot, unit in enumerate(units) if unit.config == config]
+            for index, slot in enumerate(slots):
+                readings[slot] = 10 * rank + (2 if index == len(slots) // 2 else 1)
+        for jobs in (6, len(units) + 5):
+            monkeypatch.setattr(run_m1, "peak_footprint_bytes", iter(readings).__next__)
             before = len(ct.load_pool_records(ct.JOURNAL))
             run_m1.run_font_conformance(out_dir=tmp_path, jobs=jobs)
             records = ct.load_pool_records(ct.JOURNAL)[before:]
             assert len(records) == 1
             (record,) = records
             assert record["unit"] == "conform-sweep"
-            assert record["width"] == min(jobs, len(configs))
+            assert record["width"] == min(jobs, len(units))
             assert record["worker_peak_rss_bytes"] == {
-                config: index + 1 for index, config in enumerate(configs)
+                config: 10 * rank + 2 for rank, config in enumerate(conform.ACCEPTANCE_CONFIGS, start=1)
             }
-            assert record["controller_peak_rss_bytes"] == len(configs) + 1
+            assert record["controller_peak_rss_bytes"] == 10**9
 
     def test_a_serial_or_deep_sweep_files_no_pool_record(self, monkeypatch, tmp_path):
-        """The serial conformance sweep starts no pool to measure. A deeper sweep's worker holds its maximum length's windows in memory, a different load from a conformance-sweep worker's, so it must not be recorded as a conformance-sweep worker."""
+        """The serial conformance sweep starts no pool to measure. A deeper sweep's unit holds its maximum length's windows in memory, a different load from a per-edit unit's, so it must not be recorded as a conformance-sweep unit."""
         self._pool(monkeypatch)
         run_m1.run_font_conformance(out_dir=tmp_path, jobs=1)
         run_m1.run_font_conformance(out_dir=tmp_path, max_length=conform.SWEEP_MAX_LENGTH + 1, jobs=6)
         assert ct.load_pool_records(ct.JOURNAL) == []
 
     def test_the_sweep_writes_the_same_summary_at_every_width(self, monkeypatch, tmp_path):
-        """Width 1 runs `conform.run_conformance` and widths 2 and 6 run the pooled fan-in, whose futures resolve here in reverse. The report is byte-identical at all three widths, so changing the conformance sweep's width does not change its report."""
+        """Width 1 runs `conform.run_conformance`, one whole walk per configuration, and wider widths run the pooled fan-in over the units, whose futures resolve here in reverse. The report is byte-identical at every width, up to one process per unit, so changing the conformance sweep's width does not change its report."""
         self._pool(monkeypatch)
+        units = len(run_m1.sweep_units(self.ALPHABET, conform.SWEEP_MAX_LENGTH))
         written = {}
-        for jobs in (1, 2, 6):
+        for jobs in (1, 2, 6, units):
             run_m1.run_font_conformance(out_dir=tmp_path, jobs=jobs)
             written[jobs] = (tmp_path / "conform_summary.json").read_bytes()
-        assert written[1] == written[2] == written[6]
+        assert len(set(written.values())) == 1
         summary = json.loads(written[1])
         assert list(summary["divergences_by_kind"]) == [
             f"kind-{config}" for config in conform.ACCEPTANCE_CONFIGS
         ]
 
-    def test_the_estimated_worker_pickles_for_spawn(self):
-        """The inline pool never pickles what it runs, but a spawn pool pickles every submission by module and name, so a nested wrapper would pass every other test here and fail only on the first real pooled conformance sweep."""
-        assert (
-            pickle.loads(pickle.dumps(run_m1._estimated_conformance_config))
-            is run_m1._estimated_conformance_config
+    def test_the_parent_absorbs_only_what_its_units_left_to_absorb(self, monkeypatch, tmp_path, capsys):
+        """Each settlement configuration's units reach rows of one file version and write parts; the parent ORs the reaches and submits an absorb only for a configuration whose units wrote a part (`ss03`) or left a live row unreached (`ss04`, whose units reach two of its four rows). The others hold a current memo, get no task, and print `fresh=0 pruned=0 written=no`. The parent prints one `[t] settle_memo` line per settlement configuration in configuration order, and each absorb's peak joins the pool record as `<config> absorb`."""
+        self._pool(monkeypatch)
+        absorbed = self._memos(
+            monkeypatch,
+            tmp_path,
+            {"ss04": {"a": (0,), "b": (0, 1), "c": (1,)}},
+            parts=[("ss03", "b")],
         )
+        run_m1.run_font_conformance(out_dir=tmp_path, jobs=6)
+        assert set(absorbed) == {"ss03", "ss04"}
+        (part,), identity, flags, prune, discard = absorbed["ss03"]
+        assert part.name.startswith("ss03.") and identity == (1, 2, 3, 4) and prune and not discard
+        assert flags == b"\x01" * self.ROWS
+        assert absorbed["ss04"][0] == [] and absorbed["ss04"][2] == b"\x01\x01\x00\x00"
+        lines = [line for line in capsys.readouterr().err.splitlines() if line.startswith("[t] settle_memo ")]
+        assert [line.split()[2] for line in lines] == list(conform.SETTLEMENT_CONFIGS)
+        tails = {line.split()[2]: line.split(" ", 4)[4] for line in lines}
+        assert tails["ss03"] == "loaded=4 stale=0 fresh=1 pruned=0 written=yes"
+        assert tails["ss04"] == "loaded=4 stale=0 fresh=0 pruned=2 written=yes"
+        for config in ("default", "ss05", "ss03+ss05"):
+            assert tails[config] == "loaded=4 stale=0 fresh=0 pruned=0 written=no"
+        (record,) = ct.load_pool_records(ct.JOURNAL)
+        assert {name for name in record["worker_peak_rss_bytes"] if name.endswith(" absorb")} == {
+            "ss03 absorb",
+            "ss04 absorb",
+        }
+
+    def test_units_that_mapped_two_versions_of_the_file_prune_nothing(self, monkeypatch, tmp_path, capsys):
+        """When one of `ss03`'s units mapped another version of the file than the others, their flags index two row sets, so the parent warns and its absorb keeps every row (`prune=False`) while still merging the part, even though the unit that differs finishes first and every other unit's reach leaves rows unreached. A configuration whose units agree, reach every row, and wrote no part still gets no absorb."""
+        self._pool(monkeypatch)
+        absorbed = self._memos(
+            monkeypatch,
+            tmp_path,
+            {"ss03": {"a": (0,), "b": (0,), "c": (1,)}},
+            parts=[("ss03", "c")],
+            other=("ss03", "c"),
+        )
+        run_m1.run_font_conformance(out_dir=tmp_path, jobs=6)
+        assert set(absorbed) == {"ss03"}
+        (part,), _identity, _flags, prune, discard = absorbed["ss03"]
+        assert part.name.startswith("ss03.") and not prune and not discard
+        out, err = capsys.readouterr()
+        assert "settle-memo-ss03.bin was mapped at more than one version by ss03's units" in out + err
+        tails = {
+            line.split()[2]: line.split(" ", 4)[4]
+            for line in err.splitlines()
+            if line.startswith("[t] settle_memo ")
+        }
+        assert tails["ss03"] == "loaded=4 stale=0 fresh=1 pruned=0 written=yes"
+
+    def test_a_unit_that_retired_its_store_makes_the_absorb_discard_the_file(self, monkeypatch, tmp_path):
+        """A unit whose probe found the file corrupt retired its store and reached nothing. Its configuration gets an absorb even with no part, and the absorb is told to discard the file's rows rather than carry them into the rewrite."""
+        self._pool(monkeypatch)
+        absorbed = self._memos(monkeypatch, tmp_path, {}, retired=("ss05", "a"))
+        run_m1.run_font_conformance(out_dir=tmp_path, jobs=6)
+        assert set(absorbed) == {"ss05"}
+        parts, identity, _flags, _prune, discard = absorbed["ss05"]
+        assert parts == [] and identity == (1, 2, 3, 4) and discard
+
+    def test_a_unit_that_raises_cancels_the_units_still_queued_and_absorbs_nothing(
+        self, monkeypatch, tmp_path
+    ):
+        """At width one, when the first unit raises, the sweep re-raises its error having run at most the one unit its freed slot took before the queue was cancelled. No absorb is submitted, so no memo is pruned from a partial set of units, and no summary is written."""
+        self._pool(monkeypatch)
+        absorbed = self._memos(monkeypatch, tmp_path, {})
+        monkeypatch.setattr(
+            run_m1,
+            "_spawn_pool",
+            lambda jobs, units, max_tasks_per_child=None: ThreadPoolExecutor(max_workers=1),
+        )
+        monkeypatch.setattr(run_m1, "as_completed", as_completed)
+        ran: list[str] = []
+
+        def unit(spec, font_path, config, last, max_length, glyphs, guard_verdicts, settle_memo):
+            ran.append(config)
+            if config in conform.OVERLAY_CONFIGS:
+                raise ValueError("the overlay failed")
+            time.sleep(0.2)
+            return conform.ConformanceConfigResult(config=config), 1
+
+        monkeypatch.setattr(run_m1, "_conformance_unit", unit)
+        with pytest.raises(ValueError, match="the overlay failed"):
+            run_m1.run_font_conformance(out_dir=tmp_path, jobs=2)
+        assert ran[0] in conform.OVERLAY_CONFIGS
+        assert len(ran) <= 2 < len(run_m1.sweep_units(self.ALPHABET, conform.SWEEP_MAX_LENGTH))
+        assert absorbed == {}
+        assert not (tmp_path / "conform_summary.json").exists()
+
+    def test_a_short_count_raises_before_anything_is_written(self, monkeypatch, tmp_path):
+        """A configuration whose units shaped fewer texts than every text of its lengths raises before the summary is written and before any absorb is submitted, so neither a green nor a memo pruned from a partial walk can follow from it."""
+        self._pool(monkeypatch)
+        absorbed = self._memos(monkeypatch, tmp_path, {}, parts=[("default", "a")], lose=("ss04", "c"))
+        expected = sum(len(self.ALPHABET) ** length for length in range(1, conform.SWEEP_MAX_LENGTH + 1))
+        with pytest.raises(
+            RuntimeError,
+            match=rf"conformance sweep\[ss04\]: its units shaped {expected - 1} texts, not the {expected}",
+        ):
+            run_m1.run_font_conformance(out_dir=tmp_path, jobs=6)
+        assert absorbed == {}
+        assert not (tmp_path / "conform_summary.json").exists()
+
+    def test_the_unit_worker_and_the_absorb_pickle_for_spawn(self):
+        """The inline pool never pickles what it runs, but a spawn pool pickles every submission by module and name, so a nested wrapper would pass every other test here and fail only on the first real pooled conformance sweep."""
+        for task in (run_m1._conformance_unit, run_m1._absorb_sweep_memo):
+            assert pickle.loads(pickle.dumps(task)) is task
 
 
 class TestOracleShardPlan:

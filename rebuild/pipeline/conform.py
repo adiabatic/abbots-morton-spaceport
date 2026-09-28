@@ -28,6 +28,7 @@ import pickle
 import struct
 import sys
 import time
+import zlib
 from array import array
 from contextlib import suppress
 from dataclasses import dataclass, field, replace
@@ -770,6 +771,7 @@ class _MemoStore:
         "loaded",
         "stale",
         "unasked",
+        "retired",
         "_shift",
         "_mask",
         "_mapping",
@@ -790,6 +792,7 @@ class _MemoStore:
         self.loaded = 0
         self.stale = 0
         self.unasked = 0
+        self.retired = False
         self._shift = _MEMO_HASH_BITS
         self._mask = 0
         self._mapping: mmap.mmap | None = None
@@ -943,6 +946,13 @@ class _MemoStore:
         self._mask = slots - 1
         return True
 
+    def identity(self) -> tuple[int, int, int, int] | None:
+        """The device, inode, size, and modification time of the file this store maps, or None when it maps nothing. A store a probe retired still maps its file and keeps its identity; `retired` says it found the file corrupt. Two stores with the same identity mapped the same version of the file, so their `reached` flags index the same rows (`absorb_sweep_memo`)."""
+        if self._handle is None:
+            return None
+        stat = os.fstat(self._handle.fileno())
+        return (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns)
+
     def index_copy(self) -> array:
         """A heap copy of the probe index, for a writer that keeps every row of this store at its row number (`_write_settle_memo`'s `standing`)."""
         index = array("I")
@@ -974,6 +984,7 @@ class _MemoStore:
         self.dead = bytearray(b"\x01") * rows
         self.reached = bytearray(rows)
         self.live = 0
+        self.retired = True
         print(
             f"[warn] settle memo: {self._path} retired ({problem}); every window is settled again from here",
             file=sys.stderr,
@@ -1072,11 +1083,36 @@ class SettleMemoFile:
 
     @property
     def writes_part(self) -> bool:
-        """Whether a walk keyed with this file writes a part at `write_path` instead of replacing the file. The walk still reads `path`, but writes only the windows it settled fresh, and `absorb_settle_memo_parts` later merges the part into `path`.
+        """Whether a walk keyed with this file writes a part at `write_path` instead of replacing the file. The walk still reads `path`, but writes only the windows it settled fresh, and `absorb_settle_memo_parts` or `absorb_sweep_memo` later merges the part into `path`.
 
-        Every row range of the pooled oracle writes a part, whether or not its configuration is split, because a range that replaced the shared file would drop what the other ranges settled, or what the witness stage merged in after the range read the file. The witness stage also writes a part: its walk loads only the rows its certificate texts can ask for (`_SettledWindowWalk.load_only_asked_by`), so replacing the file would drop every row the load skipped. `run_m1.run_rule_witnesses` absorbs its part before the stage returns, and the oracle's absorbs wait for that.
+        Every row range of the pooled oracle writes a part, whether or not its configuration is split, because a range that replaced the shared file would drop what the other ranges settled, or what the witness stage merged in after the range read the file. Every settlement unit of the pooled conformance sweep writes a part for the same reason, and returns which rows it reached, so the parent can prune what no unit reached (`absorb_sweep_memo`). The witness stage also writes a part: its walk loads only the rows its certificate texts can ask for (`_SettledWindowWalk.load_only_asked_by`), so replacing the file would drop every row the load skipped. `run_m1.run_rule_witnesses` absorbs its part before the stage returns, and the oracle's absorbs wait for that.
         """
         return self.write_path is not None
+
+
+@dataclass(frozen=True)
+class MemoReach:
+    """What one settlement unit of the pooled conformance sweep did with its configuration's settle memo, returned to the parent on its result (`ConformanceConfigResult.memo_reach`) so the parent can prune the file once every unit has finished (`absorb_sweep_memo`).
+
+    `identity` is the mapped file's `_MemoStore.identity`, or None when the walk mapped nothing (the file absent, under another stamp, or unreadable). `retired` says a probe found the file corrupt and retired the store, which zeroed its `reached` flags. `rows` counts the mapped file's rows, dead ones included, `live` the rows the walk could serve, and `loaded` and `stale` are the walk's `memo_windows` and `stale_windows`. `reached` is the store's `reached` flags, one byte per row, zlib-compressed: a unit reaches only the rows its own texts ask for, so the flags compress well. A reached row is never dead (`_MemoStore.selector`). `part` says whether the unit wrote its part, and `seconds` is its `memo_seconds`.
+    """
+
+    identity: tuple[int, int, int, int] | None
+    retired: bool
+    rows: int
+    live: int
+    loaded: int
+    stale: int
+    reached: bytes
+    part: bool
+    seconds: float
+
+
+def settle_memo_line(
+    config: str, seconds: float, loaded: int, stale: int, fresh: int, pruned: int, written: bool
+) -> str:
+    """The `[t] settle_memo` line a phase prints about one configuration's use of its settle memo file: the serial conformance sweep and the oracle through `_SettledWindowWalk.memo_line`, and the pooled conformance sweep's parent once per configuration over its units (`run_m1.run_font_conformance`). Neither restricts its load, so the line has no `unasked=`; the witness stage reports `unasked_windows` on its own `[t] rule_witnesses[<config>]` line."""
+    return f"[t] settle_memo {config} {seconds:.2f}s loaded={loaded} stale={stale} fresh={fresh} pruned={pruned} written={'yes' if written else 'no'}"
 
 
 def settle_memo_files(
@@ -1096,25 +1132,32 @@ def settle_memo_files(
     }
 
 
-def settle_memo_standing(memo: SettleMemoFile) -> bool:
-    """Whether the file at `memo.path` is one a walk keyed with `memo` would read: present, in this format, and under this stamp. It reads only the header, never a table or a column. Family keys are not checked, because a file whose keys changed still serves every entry naming no changed family (`_MemoStore.load`), and only a rune edit changes them. `run_m1.run_replay_strings` uses this to decide whether the replay must walk every text to refill the file."""
+def _settle_memo_header(memo: SettleMemoFile) -> dict | None:
+    """The header of the file at `memo.path` when it is one a walk keyed with `memo` would read (present, in this format, and under this stamp), or None. It reads only the header, never a table or a column."""
     try:
         with open(memo.path, "rb") as handle:
             prefix = handle.read(_MEMO_PREFIX.size)
             if len(prefix) < _MEMO_PREFIX.size:
-                return False
+                return None
             (header_length,) = _MEMO_PREFIX.unpack(prefix)
             if header_length > _MEMO_HEADER_CAP:
-                return False
+                return None
             header = pickle.loads(handle.read(header_length))
     except _SETTLE_MEMO_READ_ERRORS:
-        return False
-    return (
+        return None
+    if (
         isinstance(header, dict)
         and header.get("format") == SETTLE_MEMO_FORMAT
         and header.get("stamp") == memo.stamp
         and isinstance(header.get("family_keys"), dict)
-    )
+    ):
+        return header
+    return None
+
+
+def settle_memo_standing(memo: SettleMemoFile) -> bool:
+    """Whether the file at `memo.path` is one a walk keyed with `memo` would read: present, in this format, and under this stamp. It reads only the header, never a table or a column. Family keys are not checked, because a file whose keys changed still serves every entry naming no changed family (`_MemoStore.load`), and only a rune edit changes them. `run_m1.run_replay_strings` uses this to decide whether the replay must walk every text to refill the file."""
+    return _settle_memo_header(memo) is not None
 
 
 def _write_settle_memo(
@@ -1132,7 +1175,7 @@ def _write_settle_memo(
 
     `labels` and `outcomes` are the tables that the caller's `columns` and `values` index, and they may contain repeats. Each repeated label is merged onto its first id and each repeated outcome onto its first equal, and the columns are remapped to match, so the file's tables list each entry once. An id column uses `H` while its table fits in sixteen bits and `I` otherwise. `_memo_index` then builds the index and merges a repeated key onto its first row, with the later entry's outcome, so the file holds one row per window.
 
-    With `H` columns a window costs 12 key bytes, 2 value bytes, and 4 bytes per index slot over the index's 2N to 4N slots: 22 to 30 bytes uncompressed on disk, depending on where the row count falls below its power of two. The `[t] settle_memo` lines count the windows, and `du` on `rebuild/out/m1/settle-memo-*.bin` reports the file sizes; both grow with the alphabet. While writing, the heap holds the caller's columns, the remapped copies, and the index at once, roughly the file's size plus the columns'. The conformance sweep's whole-file save, a `--jobs 1` oracle's save, the replay's absorb, and each part absorb hold that much once per configuration.
+    With `H` columns a window costs 12 key bytes, 2 value bytes, and 4 bytes per index slot over the index's 2N to 4N slots: 22 to 30 bytes uncompressed on disk, depending on where the row count falls below its power of two. The `[t] settle_memo` lines count the windows, and `du` on `rebuild/out/m1/settle-memo-*.bin` reports the file sizes; both grow with the alphabet. While writing, the heap holds the caller's columns, the remapped copies, and the index at once, roughly the file's size plus the columns'. The serial conformance sweep's save, a `--jobs 1` oracle's save, the replay's absorb, each part absorb, and the pooled conformance sweep's absorb (`absorb_sweep_memo`) hold that much once per configuration.
 
     `standing` is a standing file's index with its row, label, and outcome counts. It says that the first rows of `columns`, up to that row count, are that file's live rows in its own id space with none dropped before them. The index is then copied and only the later rows are inserted (`absorb_settle_memo_parts` merging parts into a file with no stale rows). The writer checks that its merges leave those ids unchanged and that the index has room, and builds a new index otherwise.
 
@@ -1343,7 +1386,7 @@ def _read_settle_memo(memo: SettleMemoFile, spec: ResolvedSpec) -> Iterator[tupl
 
 
 def absorb_settle_memo_parts(memo: SettleMemoFile, parts: Sequence[Path], spec: ResolvedSpec) -> bool:
-    """Merge `parts` into one configuration's shared settle memo file, and return True when a file was written. The parts come from the walks that may not replace the file: every row range of the pooled oracle, and the witness stage.
+    """Merge `parts` into one configuration's shared settle memo file, and return True when a file was written. The parts come from the walks that may not replace the file: every row range of the pooled oracle, and the witness stage. The pooled conformance sweep's units write parts too, and `absorb_sweep_memo` merges those.
 
     The new file holds the standing file's live rows as `_MemoStore.load` serves them (under the stamp, minus the entries naming a changed family), then each part's blocks with their ids shifted past the labels and records before them. It is written through `_write_settle_memo`, which merges the labels a part repeats onto the file's ids. When no standing row is stale, it extends the standing index with the parts' rows instead of rebuilding it. The parts are read first, so the columns get the typecodes the whole file needs and the standing rows can be copied whole (`_MemoStore.carry_into`). The file is written under the current family keys, so its header never covers a stale entry, and a reader in another process sees either the old file or the new one.
 
@@ -1352,18 +1395,78 @@ def absorb_settle_memo_parts(memo: SettleMemoFile, parts: Sequence[Path], spec: 
     present = [Path(part) for part in parts if Path(part).is_file()]
     if not present:
         return False
+    return _absorb_parts(memo, present, spec, None)[0]
+
+
+def absorb_sweep_memo(
+    memo: SettleMemoFile,
+    parts: Sequence[Path],
+    spec: ResolvedSpec,
+    identity: tuple[int, int, int, int] | None,
+    reached: bytes,
+    prune: bool,
+    discard: bool,
+) -> tuple[bool, int, int]:
+    """Merge the pooled conformance sweep's parts for one configuration into its shared settle memo file, pruning the rows no unit reached, and return `(written, pruned, fresh)`: whether a file was written, the live rows dropped, and the distinct windows the parts added.
+
+    `reached` is the zlib-compressed union of the units' `MemoReach.reached` flags, one byte per row, and `identity` the file version every unit mapped (`_MemoStore.identity`). Together the units walk every text of the configuration, so a row none of them reached is a window no text produces any more, as for the serial sweep's `save_memo(prune=True)`, and the file this writes holds the same rows as that save: the reached rows in file order, then the parts' windows. When the file on disk is not the version the units mapped, or its row count differs from the flags', the flags index another version's rows, so this warns and keeps every live row. So does `prune=False`, which the caller passes when its units disagree about the version they mapped. Rows are never lost; only the prune waits for the next sweep.
+
+    `discard`, which the caller passes when a unit's probe retired its store (`MemoReach.retired`), drops every live row rather than the unreached ones, under the same version check, and writes only the parts, reporting every live row as pruned. A retired store's flags are zeroed, so the serial sweep's `save_memo(prune=True)` after a retirement carries nothing either, and the next pass reads a whole file instead of retiring again over the same corrupt row.
+
+    With no part on disk and nothing to prune (a current memo), this writes nothing, so the file's bytes and modification time stay as they are. `fresh` counts the written file's rows past the carried ones, which is the parts' windows after `_write_settle_memo` has merged a window two units both settled; when the write fails it is the parts' rows before that merge.
+    """
+    present = [Path(part) for part in parts if Path(part).is_file()]
+    flags = zlib.decompress(reached)
+
+    def narrow(store: _MemoStore) -> int:
+        if not prune:
+            return 0
+        if store.identity() != identity or len(flags) != len(store.reached):
+            print(
+                f"[warn] settle memo: {memo.path} changed after the conformance sweep's units mapped it; every live row is kept and the prune waits for the next sweep",
+                file=sys.stderr,
+                flush=True,
+            )
+            return 0
+        if discard:
+            return len(store)
+        store.reached[:] = flags
+        return len(store) - store.reached_count()
+
+    written, carried, pruned, added = _absorb_parts(memo, present, spec, narrow)
+    if not written:
+        return False, 0, added
+    header = _settle_memo_header(memo)
+    return True, pruned, (int(header["rows"]) - carried) if header is not None else added
+
+
+def _absorb_parts(
+    memo: SettleMemoFile,
+    present: Sequence[Path],
+    spec: ResolvedSpec,
+    narrow: Callable[[_MemoStore], int] | None,
+) -> tuple[bool, int, int, int]:
+    """The one carry-and-append path both absorbs share: read the parts at `present`, load the standing file unrestricted, carry its live rows into new columns, append the parts' blocks with their ids shifted past what precedes them, and write the file. `narrow`, when given, runs on the loaded store before anything is carried, marks the rows to keep as reached, and returns how many live rows that drops; only the reached rows are then carried. With no part and nothing dropped, this closes the store and writes nothing. The standing index is reused only when the carried rows are the file's live rows with none dropped and none dead (`_write_settle_memo`'s `standing`). Return whether a file was written, the rows carried, the rows dropped, and the rows the parts held."""
     read = [[block for block, _ in _read_settle_memo(replace(memo, path=part), spec)] for part in present]
     introduced_labels = sum(len(block[0]) for blocks in read for block in blocks)
     introduced_outcomes = sum(len(block[1]) for blocks in read for block in blocks)
+    added = sum(len(block[3]) for blocks in read for block in blocks)
     store = _MemoStore()
     store.load(memo, spec, None, lambda item: (item, "", ""))
+    dropped = 0 if narrow is None else narrow(store)
+    if not present and not dropped:
+        store.close()
+        return False, 0, 0, 0
     labels: list[str] = []
     outcomes: list[Settled] = []
     columns = [array(_memo_typecode(len(store.labels) + introduced_labels)) for _ in range(6)]
     values = array(_memo_typecode(len(store.outcomes) + introduced_outcomes))
-    store.carry_into(labels, outcomes, columns, values)
+    store.carry_into(labels, outcomes, columns, values, reached=True if dropped else None)
+    carried = len(values)
     standing = (
-        (store.index_copy(), len(values), len(labels), len(outcomes)) if store.dead.count(1) == 0 else None
+        (store.index_copy(), carried, len(labels), len(outcomes))
+        if not dropped and store.dead.count(1) == 0
+        else None
     )
     store.close()
     for blocks in read:
@@ -1374,7 +1477,8 @@ def absorb_settle_memo_parts(memo: SettleMemoFile, parts: Sequence[Path], spec: 
             for column, block in zip(columns, block_columns):
                 column.extend(map(base_labels.__add__, block))
             values.extend(map(base_outcomes.__add__, block_values))
-    return _write_settle_memo(memo, labels, outcomes, columns, values, standing=standing)
+    written = _write_settle_memo(memo, labels, outcomes, columns, values, standing=standing)
+    return written, carried, dropped, added
 
 
 def _ambiguous_ids(spelling: Sequence[str], used: Iterable[int]) -> set[int]:
@@ -1480,7 +1584,7 @@ class _SettledWindowWalk:
 
     `memo` names the file this walk shares with the other walks over the same texts. The string replay fills it on a full replay (`absorb_replay_memo`), and the witness stage, the oracle, and the conformance sweep each map it and settle what it lacks. It is mapped on the first wave that would otherwise reach the crate, so a walk that settles nothing (an oracle pass whose rows are all served) never opens it. `save_memo` writes it back only when this walk settled a window the file lacked, or pruned one. `_write_settle_memo` describes the file layout, and `_MemoStore` how a walk maps it: the tables go on the heap, and the columns and index stay pages of the mapping, shared in the page cache by every walk that maps the file. An entry whose window names a family whose key changed since the file was written is dropped at load (`oracle_cache.StaleMask` at label grain, including the ligature clause).
 
-    Loaded entries stay in `_cold`, the `_MemoStore` over the mapping, which marks each row it returns as reached. With `promote` (a constructor keyword, on by default) a hit is also copied into `windows`, so the oracle and the witness stage run the store's probe once per window and a dict lookup after that. The conformance sweep runs with `promote=False` and serves every window from the columns: it reaches nearly every loaded window, so promoted copies would cost the key tuples the columns exist to avoid. `save_memo(prune=True)` keeps only the reached rows. The conformance sweep walks every text every pass, so an entry it never reached is a window no text produces any more (its left slot named a settlement an edit has since changed), and keeping it would grow the file with every rune edit. A pruning save writes the fresh windows first and then the reached rows in file order, a permutation of what a promoting walk would write; no reader can tell the difference, because a load does not depend on row order and the file holds one row per window. The oracle does not prune, because it does not walk the rows its row cache serves, so their windows are never reached. Its whole-file save writes `windows` and then, in file order, every live row `windows` does not hold.
+    Loaded entries stay in `_cold`, the `_MemoStore` over the mapping, which marks each row it returns as reached. With `promote` (a constructor keyword, on by default) a hit is also copied into `windows`, so the oracle and the witness stage run the store's probe once per window and a dict lookup after that. The conformance sweep runs with `promote=False` and serves every window from the columns: it reaches nearly every loaded window, so promoted copies would cost the key tuples the columns exist to avoid. `save_memo(prune=True)` keeps only the reached rows. The conformance sweep walks every text every pass, so an entry it never reached is a window no text produces any more (its left slot named a settlement an edit has since changed), and keeping it would grow the file with every rune edit. The serial sweep prunes in its own save. The pooled sweep's units each walk a share of the texts, so none of them may prune: each writes its part and returns its `reached` flags (`memo_reach`), and the parent prunes through `absorb_sweep_memo` over the union of those flags. A pruning save writes the fresh windows first and then the reached rows in file order, a permutation of what a promoting walk would write; no reader can tell the difference, because a load does not depend on row order and the file holds one row per window. The oracle does not prune, because it does not walk the rows its row cache serves, so their windows are never reached. Its whole-file save writes `windows` and then, in file order, every live row `windows` does not hold.
 
     A walk over a set of texts fixed before it runs can restrict the load to the windows those texts can ask for (`load_only_asked_by`). Only a window's left slot depends on settlement, so the other five slots of every window the texts reach can be computed in advance. A file row outside that set is marked dead at load, counted in `unasked_windows`, and never served. Such a walk cannot tell a dropped row from a window no text reaches, so it never prunes and never replaces the shared file. Its memo names a `write_path`, it writes only the windows it settled fresh, as a part (`_write_settle_memo_part`), and `absorb_settle_memo_parts` merges the part into the file.
 
@@ -1696,9 +1800,9 @@ class _SettledWindowWalk:
     def save_memo(self, prune: bool = False) -> bool:
         """Write the memo back when this walk settled a window the file lacked or pruned a row, and return True when a file was written. The write goes through `_write_settle_memo`, which replaces the file atomically, and then this walk's mapping of the old file is closed. Refusals are not written, so a later walk that reaches one of those windows asks the crate again.
 
-        `prune` drops the loaded entries this walk never reached, counted in `pruned_windows`. It is only correct for a walk over every text, which is the conformance sweep's. A pruning walk that promotes nothing writes its fresh windows and then the reached rows in file order. Rows are copied into the new file straight from the mapped columns, with their ids shifted past the fresh windows' labels, without a key tuple per row.
+        `prune` drops the loaded entries this walk never reached, counted in `pruned_windows`. It is only correct for a walk over every text, which is the serial conformance sweep's; a pooled sweep's unit walks a share of them and leaves the prune to `absorb_sweep_memo`. A pruning walk that promotes nothing writes its fresh windows and then the reached rows in file order. Rows are copied into the new file straight from the mapped columns, with their ids shifted past the fresh windows' labels, without a key tuple per row.
 
-        A walk whose memo names a `write_path` writes only the windows it settled fresh, as a part at that path (`_write_settle_memo_part`), and leaves the shared file to `absorb_settle_memo_parts`. A walk that restricted its load (`load_only_asked_by`) always writes a part and never prunes, because a row its load dropped looks the same as a window it never reached.
+        A walk whose memo names a `write_path` writes only the windows it settled fresh, as a part at that path (`_write_settle_memo_part`), and leaves the shared file to `absorb_settle_memo_parts` or, for the pooled conformance sweep's units, `absorb_sweep_memo`. A walk that restricted its load (`load_only_asked_by`) always writes a part and never prunes, because a row its load dropped looks the same as a window it never reached.
         """
         if prune:
             assert self._asks is None, "a restricted walk never prunes"
@@ -1746,10 +1850,38 @@ class _SettledWindowWalk:
             self.memo_seconds += time.perf_counter() - started
 
     def memo_line(self, config: str, written: bool) -> str | None:
-        """The `[t] settle_memo` line a phase prints about its use of the memo file, or None for a walk with no memo. The conformance sweep and the oracle print it, and neither restricts its load, so the line has no `unasked=`; the witness stage reports `unasked_windows` on its own `[t] rule_witnesses[<config>]` line."""
+        """This walk's `[t] settle_memo` line (`settle_memo_line`), or None for a walk with no memo."""
         if self.memo is None:
             return None
-        return f"[t] settle_memo {config} {self.memo_seconds:.2f}s loaded={self.memo_windows} stale={self.stale_windows} fresh={self.fresh_windows} pruned={self.pruned_windows} written={'yes' if written else 'no'}"
+        return settle_memo_line(
+            config,
+            self.memo_seconds,
+            self.memo_windows,
+            self.stale_windows,
+            self.fresh_windows,
+            self.pruned_windows,
+            written,
+        )
+
+    def memo_reach(self, written: bool) -> MemoReach | None:
+        """What this walk did with its memo file, for a unit of the pooled conformance sweep that wrote its part (`written`, `save_memo`'s result) and leaves the prune to the parent (`MemoReach`, `absorb_sweep_memo`), or None for a walk with no memo. It then closes the mapping, which the part branch of `save_memo` leaves open."""
+        if self.memo is None:
+            return None
+        store = self._cold
+        try:
+            return MemoReach(
+                identity=store.identity(),
+                retired=store.retired,
+                rows=len(store.reached),
+                live=len(store),
+                loaded=self.memo_windows,
+                stale=self.stale_windows,
+                reached=zlib.compress(bytes(store.reached), 1),
+                part=written,
+                seconds=self.memo_seconds,
+            )
+        finally:
+            store.close()
 
     def _settle(self, cases: list[str]) -> list[Settled | None]:
         self._settle_calls += 1
@@ -1849,7 +1981,7 @@ def run_conformance(
     summary_name: str = "conform_summary.json",
     settle_memos: Mapping[str, SettleMemoFile] | None = None,
 ) -> ConformReport:
-    """Run the conformance sweep serially: one shared Shaper, each configuration in turn through `_conformance_config`, and the results merged by `merge_conformance_results`. The parallel form is `run_m1.run_font_conformance`, which submits `conformance_config_worker` per configuration. The sweep reads no decision table: it shapes the font and settles the same texts through the kernel, and read-back checks that the font holds the planned rules. `summary_name` is the file written under `out_dir`, so a caller can keep its report apart from the per-edit sweep's. `settle_memos` names each configuration's shared settle memo file, and a configuration without one settles every window itself."""
+    """Run the conformance sweep serially: one shared Shaper, each configuration in turn through `_conformance_config`, and the results merged by `merge_conformance_results`. The parallel form is `run_m1.run_font_conformance`, which submits `conformance_config_worker` once per unit of each configuration (the ss10 overlay whole, and each settlement configuration once per final symbol) and prunes the memo in the parent. The sweep reads no decision table: it shapes the font and settles the same texts through the kernel, and read-back checks that the font holds the planned rules. `summary_name` is the file written under `out_dir`, so a caller can keep its report apart from the per-edit sweep's. `settle_memos` names each configuration's shared settle memo file, and a configuration without one settles every window itself."""
     shaper = Shaper(Path(font_path))
     alphabet = spec_alphabet(spec)
     splitters = splitting_boundary_chars(spec)
@@ -1889,6 +2021,7 @@ class ConformanceConfigResult:
     first_seen: dict[str, tuple[int, int, int]] = field(default_factory=dict)
     notes: list[str] = field(default_factory=list)
     modes: list[str] = field(default_factory=list)
+    memo_reach: MemoReach | None = None
 
 
 class DivergenceTally:
@@ -1950,15 +2083,17 @@ def _conformance_config(
 ) -> ConformanceConfigResult:
     """One configuration's conformance-sweep run: every string of length 1 to `max_length` over the alphabet, shaped with the font and compared with the settled stream, plus the split-buffer and zero-gap checks. Configurations share nothing, so both the serial `run_conformance` and the process-pool worker call this.
 
-    With `last`, the run sweeps one unit of the configuration: only the texts that end in `last` (`sweep_texts`), in the same order. The units of every symbol in the alphabet partition the configuration's texts, and `merge_unit_results` merges their results into this function's result without `last`. A unit takes no `settle_memo`.
+    With `last`, the run sweeps one unit of the configuration: only the texts that end in `last` (`sweep_texts`), in the same order. The units of every symbol in the alphabet partition the configuration's texts, and `merge_unit_results` merges their results into this function's result without `last`. A unit's `settle_memo`, when it has one, names a `write_path`: the unit writes the windows it settled fresh as a part, prints no `[t] settle_memo` line, and returns its use of the file as `result.memo_reach` (`_SettledWindowWalk.memo_reach`), from which the parent prunes the file once every unit of the configuration has finished (`absorb_sweep_memo`). A unit that replaced the shared file would leave it holding only its own share of the rows, so a memo without a `write_path` fails the unit's assertion.
 
     An overlay configuration is swept to `OVERLAY_MAX_LENGTH` instead, whatever `max_length` is. Its expected names are `isolated_overlay_labels` over the raw tokens, it uses no walk and no memo, and every slot must sit at zero offset with its `hmtx` advance (`check_isolated_positions`). The split-buffer check runs there too.
 
-    Settlement goes through `_SettledWindowWalk`'s memo, which only saves time. `settle_memo` shares that memo with the other walks over the same texts: it is loaded on the first miss, written back at the end if this sweep settled anything the file lacked, and pruned of every entry no text reached. This sweep walks every text, so it is the only walk that can tell which windows still exist. Without `settle_memo`, the walk takes `horizon=max_length` and does not memoize pinned windows. Each length's texts go through the walk `TEXT_CHUNK` at a time, because at larger maximum lengths a length has millions of texts and only the current chunk needs to be in memory. The split-buffer check runs only on texts that contain a splitter, since a text without one is its own single segment.
+    Settlement goes through `_SettledWindowWalk`'s memo, which only saves time. `settle_memo` shares that memo with the other walks over the same texts: it is loaded on the first miss, and a run without `last` writes it back at the end if this sweep settled anything the file lacked, pruned of every entry no text reached. This sweep walks every text, so it is the only walk that can tell which windows still exist. Without `settle_memo`, the walk takes `horizon=max_length` and does not memoize pinned windows. Each length's texts go through the walk `TEXT_CHUNK` at a time, because at larger maximum lengths a length has millions of texts and only the current chunk needs to be in memory. The split-buffer check runs only on texts that contain a splitter, since a text without one is its own single segment.
 
     `progress`, when given, is called with the count of texts shaped so far after each chunk, and after each length for an overlay configuration, so a caller can report a long sweep's progress from another process without the sweep printing anything or paying for a call per text.
     """
-    assert last is None or settle_memo is None, "a unit sweep takes no settle memo"
+    assert (
+        last is None or settle_memo is None or settle_memo.writes_part
+    ), "a unit sweep writes its memo as a part"
     features = features_for_config(config)
     result = ConformanceConfigResult(config=config)
     divergences = DivergenceTally(result, alphabet)
@@ -2012,9 +2147,12 @@ def _conformance_config(
             if progress is not None:
                 progress(result.sequences)
 
-    memo_line = walker.memo_line(config, walker.save_memo(prune=True))
-    if memo_line is not None:
-        print(memo_line, file=sys.stderr, flush=True)
+    if last is not None and settle_memo is not None:
+        result.memo_reach = walker.memo_reach(walker.save_memo())
+    else:
+        memo_line = walker.memo_line(config, walker.save_memo(prune=True))
+        if memo_line is not None:
+            print(memo_line, file=sys.stderr, flush=True)
     result.modes = sorted(modes)
     return result
 
@@ -2030,7 +2168,7 @@ def conformance_config_worker(
     progress: Callable[[int], None] | None = None,
     last: str | None = None,
 ) -> ConformanceConfigResult:
-    """One configuration's conformance-sweep run in its own process, building what it needs from the spec and the font. That includes the section 5.7 guard verdicts when the caller passes none (a fifth of a second against a sweep that runs for a minute); an overlay configuration forms nothing and skips them. `settle_memo` is only a path and keys, so the worker reads and writes the file itself. `progress` and `last` are `_conformance_config`'s."""
+    """One configuration's conformance-sweep run in its own process, building what it needs from the spec and the font. That includes the section 5.7 guard verdicts when the caller passes none (a fifth of a second against a sweep that runs for a minute); an overlay configuration forms nothing and skips them. `settle_memo` is only a path and keys, so the worker reads and writes the file itself, or, for a unit (`last`), reads it and writes its part. `progress` and `last` are `_conformance_config`'s."""
     shaper = Shaper(Path(font_path))
     alphabet = spec_alphabet(spec)
     splitters = splitting_boundary_chars(spec)
@@ -2056,7 +2194,7 @@ def conformance_config_worker(
 
 
 def merge_unit_results(config: str, results: Iterable[ConformanceConfigResult]) -> ConformanceConfigResult:
-    """Merge the results of `config`'s units (`_conformance_config` with `last`), which split its texts between them, into the result one run over all of those texts returns. Sequences and shaping runs are summed. Divergence counts are summed by kind, in the order of each kind's earliest `first_seen`, which is the order a single run meets them. The exemplars are ordered by their text's length, then its product-order rank, then the order the checks found them, which is the order a single run records them, and the first `EXEMPLAR_LIMIT` are kept: each unit keeps its own first `EXEMPLAR_LIMIT`, so no divergence among the first `EXEMPLAR_LIMIT` overall is missing. Notes are concatenated in the caller's order and oracle modes merged, so the result does not depend on which unit finished first when the caller passes them in a fixed order."""
+    """Merge the results of `config`'s units (`_conformance_config` with `last`), which split its texts between them, into the result one run over all of those texts returns. Sequences and shaping runs are summed. Divergence counts are summed by kind, in the order of each kind's earliest `first_seen`, which is the order a single run meets them. The exemplars are ordered by their text's length, then its product-order rank, then the order the checks found them, which is the order a single run records them, and the first `EXEMPLAR_LIMIT` are kept: each unit keeps its own first `EXEMPLAR_LIMIT`, so no divergence among the first `EXEMPLAR_LIMIT` overall is missing. Notes are concatenated in the caller's order and oracle modes merged, so the result does not depend on which unit finished first when the caller passes them in a fixed order. The merged result carries no `memo_reach`: the caller reads each unit's before merging."""
     merged = ConformanceConfigResult(config=config)
     counts: dict[str, int] = {}
     first_seen: dict[str, tuple[int, int, int]] = {}

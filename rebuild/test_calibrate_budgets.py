@@ -134,17 +134,17 @@ def test_a_conform_step_peak_is_never_read_as_a_sweep_worker():
 
 
 def test_an_overrun_of_the_sweep_constant_trips_the_check(tmp_path, capsys):
-    """A conformance-sweep worker peak above `CONFORM_SWEEP_BYTES` fails `--check` like an overrun of any other constant, because gate:conform's pool width is computed from it."""
+    """A conformance-sweep unit peak above `CONFORM_SWEEP_UNIT_BYTES` fails `--check` like an overrun of any other constant, because gate:conform's pool width is computed from it."""
     over = _journal(tmp_path, [_pool("conform-sweep", [CONSTANTS["conform-sweep"] + 1])])
     code, out = _run(capsys, over, "--check")
     assert code == 1
-    assert "re-measure CONFORM_SWEEP_BYTES in rebuild/tools/artifact_cycle.py" in out
+    assert "re-measure CONFORM_SWEEP_UNIT_BYTES in rebuild/tools/artifact_cycle.py" in out
     under = _journal(tmp_path, [_pool("conform-sweep", [CONSTANTS["conform-sweep"] - 1])])
     assert _main(under, "--host", HOST, "--check") == 0
 
 
 def test_the_sweep_cap_reads_the_acceptance_configurations_the_pipeline_defines():
-    """The conformance sweep's width clause is capped at the acceptance-configuration count, which `_acceptance_config_count` parses from `conform.py` without importing it. `run_m1.run_font_conformance` submits one worker task per acceptance configuration."""
+    """The conformance sweep's cap beside a corpus build never falls below the acceptance-configuration count, which `_acceptance_config_count` parses from `conform.py` without importing it, as `artifact_cycle._conform_core_cap` floors it."""
     from rebuild.pipeline import conform
 
     assert cb._acceptance_config_count(cb.ROOT / cb.CONFORM_SOURCE) == len(conform.ACCEPTANCE_CONFIGS)
@@ -506,7 +506,7 @@ def test_the_report_states_the_width_each_constant_implies_here(tmp_path, capsys
 
 
 def test_the_width_clauses_answer_for_the_machine_and_the_tree_they_are_given(tmp_path, capsys):
-    """`render_rows` takes the machine's memory, its cores, and the source tree as arguments, so this test checks the width arithmetic against a stated machine and a fixture tree instead of the machine and checkout running the test."""
+    """`render_rows` takes the machine's memory, its cores, and the source tree as arguments, so this test checks the width arithmetic against a stated machine and a fixture tree instead of the machine and checkout running the test. On six cores the corpus build's parent and 3 workers leave 2, so the conformance sweep's cap beside it is its floor, the tree's 4 acceptance configurations."""
     tree = tmp_path / "tree"
     (tree / "rebuild" / "tools").mkdir(parents=True)
     (tree / "rebuild" / "tools" / "artifact_cycle.py").write_text(
@@ -538,10 +538,16 @@ def test_the_width_clauses_answer_for_the_machine_and_the_tree_they_are_given(tm
     assert "the refill pool runs 12 at 2.00 GB each out of 48.00 GB total" in out
     sweep_block = out.split("\nconform-sweep  ")[1].split("\n\n")[0]
     sweep_width = next(line for line in sweep_block.splitlines() if line.startswith("  width here: "))
-    assert "capped at 4" in sweep_width
-    assert "with the build lane idle" in sweep_width
-    assert "less 25.00 GB co-resident" in sweep_width
-    assert "beside a corpus build of its parent and 3 workers" in sweep_width
+    idle, beside = sweep_width.split(" with the build lane idle, and ")
+    assert idle.endswith("capped at 12")
+    assert "less 25.00 GB co-resident, capped at 8" in beside
+    assert beside.endswith("beside a corpus build of its parent and 3 workers")
+    small = "\n".join(cb.render_rows(rows, host=HOST, total_bytes=48_000_000_000, cores=6, root=tree))
+    small_block = small.split("\nconform-sweep  ")[1].split("\n\n")[0]
+    small_width = next(line for line in small_block.splitlines() if line.startswith("  width here: "))
+    _idle, small_beside = small_width.split(" with the build lane idle, and ")
+    assert "capped at 4" in small_beside
+    assert small_beside.endswith("beside a corpus build of its parent and 3 workers")
 
 
 def test_a_check_that_cannot_run_exits_apart_from_one_that_tripped(tmp_path, capsys, monkeypatch):

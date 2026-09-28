@@ -73,7 +73,12 @@ from rebuild.pipeline.table import DecisionTable
 from rebuild.tools import console
 from rebuild.tools.cycle_timings import CYCLE_RUN_ENV, CheckResult, record_check, record_pool
 from rebuild.tools.memory_budget import describe_fit, usable_cores
-from rebuild.tools.peak_rss import peak_rss_self_bytes, process_peak_rss_bytes, rss_token
+from rebuild.tools.peak_rss import (
+    peak_footprint_bytes,
+    peak_rss_self_bytes,
+    process_peak_rss_bytes,
+    rss_token,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 OUT_DIR = REPO_ROOT / "rebuild" / "out" / "m1"
@@ -86,10 +91,14 @@ KERN_SIDECAR_YAML = REPO_ROOT / "glyph_data" / "senior_quikscript_kerning.yaml"
 RAW_STANCE = "cmap"
 
 
-def _spawn_pool(jobs: int, units: int) -> ProcessPoolExecutor:
-    """Return a spawn pool of at most `jobs` workers and at most `units`, the number of tasks the caller will submit. The conformance sweep submits one task per acceptance configuration, and the oracle one per row range."""
+def _spawn_pool(jobs: int, units: int, *, max_tasks_per_child: int | None = None) -> ProcessPoolExecutor:
+    """Return a spawn pool of at most `jobs` workers and at most `units`, the number of tasks the caller will submit before its absorbs. The conformance sweep submits one task per unit (`sweep_units`) and passes `max_tasks_per_child=1`, so each unit and each absorb runs in a fresh process and reports its own peak. The oracle submits one task per row range and reuses its workers."""
     workers = max(1, min(jobs, units))
-    return ProcessPoolExecutor(max_workers=workers, mp_context=multiprocessing.get_context("spawn"))
+    return ProcessPoolExecutor(
+        max_workers=workers,
+        mp_context=multiprocessing.get_context("spawn"),
+        max_tasks_per_child=max_tasks_per_child,
+    )
 
 
 MEMO_STAMP_FORMAT = "ams-m1-memo-stamp/1"
@@ -1140,6 +1149,43 @@ def settle_memo_inputs() -> oracle_cache.SettleMemoInputs:
     return oracle_cache.settle_memo_inputs(REPO_ROOT)
 
 
+@dataclass(frozen=True)
+class SweepUnit:
+    """One process's share of a pooled conformance sweep (`run_font_conformance` and `make conform-deep`'s `deep_sweep.run_sweep`): a configuration, the symbol its texts end in or None for a configuration swept whole, and the count of texts it shapes, which is the `sequences` its worker returns."""
+
+    config: str
+    last: str | None
+    texts: int
+
+    @property
+    def overlay(self) -> bool:
+        return self.config in conform.OVERLAY_CONFIGS
+
+
+def sweep_units(alphabet: Sequence[str], max_length: int) -> tuple[SweepUnit, ...]:
+    """Return the sweep's units in the order the pool takes them: each overlay configuration whole, to `conform.OVERLAY_MAX_LENGTH`, then each settlement configuration in `conform.SETTLEMENT_CONFIGS` order, one unit per symbol of `alphabet` in its order, each shaping the texts of length 1 to `max_length` that end in its symbol."""
+    size = len(alphabet)
+    overlay = sum(size**length for length in range(1, conform.OVERLAY_MAX_LENGTH + 1))
+    unit = sum(size ** (length - 1) for length in range(1, max_length + 1))
+    return tuple(SweepUnit(config, None, overlay) for config in conform.OVERLAY_CONFIGS) + tuple(
+        SweepUnit(config, symbol, unit) for config in conform.SETTLEMENT_CONFIGS for symbol in alphabet
+    )
+
+
+def config_texts(spec: ResolvedSpec, max_length: int) -> dict[str, int]:
+    """Return how many texts each acceptance configuration's units shape between them: every text of one letter up to its maximum length over the spec's alphabet, which is `max_length` for a settlement configuration and `conform.OVERLAY_MAX_LENGTH` for an overlay. `run_font_conformance` and `deep_sweep.run_sweep` check each configuration's merged `sequences` against it before they write anything."""
+    size = len(conform.spec_alphabet(spec))
+    return {
+        config: sum(
+            size**length
+            for length in range(
+                1, (conform.OVERLAY_MAX_LENGTH if config in conform.OVERLAY_CONFIGS else max_length) + 1
+            )
+        )
+        for config in conform.ACCEPTANCE_CONFIGS
+    }
+
+
 def run_font_conformance(
     out_dir: Path = OUT_DIR,
     max_length: int = 4,
@@ -1148,11 +1194,11 @@ def run_font_conformance(
 ) -> dict:
     """Run the exhaustive font-versus-settlement sweep: the per-edit sweep at `max_length` 4 over every settlement configuration, the overlay configuration at `conform.OVERLAY_MAX_LENGTH` whatever `max_length` is, and a hand run past `conform.SWEEP_MAX_LENGTH` through `--conform-max-length`. `make conform-deep` does not call it: `rebuild/tools/deep_sweep.py` runs its own pool. The tables under `out_dir` are read only for the glyph inventory `mint_cell_glyphs` needs to name settled cells and read their anchors. The sweep itself takes no table, because it checks HarfBuzz's behavior against the kernel's, and read-back has already checked that the font holds the rules the build planned. A stamp mismatch stops with an error instead of rebuilding: the enumeration costs a whole kernel fan-out, and an inventory built here could describe runes that have since changed. The split-buffer check runs as part of this sweep, on every text that contains a splitter.
 
-    The pooled path computes the `doc/rebuild-design.md` §5.7 formation-guard verdicts (`kernel_exec.guard_sweep`) once for the whole run and passes them with each submission. A spawned worker inherits nothing, so each would otherwise build the crate and sweep the spec itself. The serial path sweeps inside `run_conformance`.
+    Above `jobs` 1 the sweep runs in units (`_pooled_conformance`): the ss10 overlay whole and each settlement configuration once per symbol of the alphabet (`sweep_units`), one spawn process each. The serial path sweeps each configuration whole inside `conform.run_conformance`, and both write the same summary. The pooled path computes the `doc/rebuild-design.md` §5.7 formation-guard verdicts (`kernel_exec.guard_sweep`) once for the whole run and passes them with each submission. A spawned worker inherits nothing, so each would otherwise build the crate and sweep the spec itself.
 
-    At the per-edit maximum length, each configuration's walk shares its settle memo with the string replay that fills it and with the oracle's walk over the same texts, through a file under `out_dir` keyed per family as the oracle row cache is (`conform.settle_memo_files`, from `settle_memo_inputs` taken before the spec loads). The replay writes what it settled, each later phase loads it and writes back what it added, and a rune edit invalidates only the entries whose windows name an edited family. A deeper sweep shares nothing: its memo is a multiple of the conformance sweep's, and a file that size would cost the next conformance-sweep and oracle workers more to decode than they save.
+    At the per-edit maximum length, each settlement configuration's walks share its settle memo with the string replay that fills it and with the oracle's walk over the same texts, through a file under `out_dir` keyed per family as the oracle row cache is (`conform.settle_memo_files`, from `settle_memo_inputs` taken before the spec loads). The replay writes what it settled, each later phase loads it and writes back what it added, and a rune edit invalidates only the entries whose windows name an edited family. This sweep also prunes the rows no text reaches: the serial path in its walk's save, the pooled path in the parent over the units' reaches (`_pooled_conformance`). A deeper sweep shares nothing: its memo is a multiple of the conformance sweep's, and a file that size would cost the next conformance-sweep and oracle workers more to decode than they save.
 
-    A pooled conformance sweep at `conform.SWEEP_MAX_LENGTH` records every configuration's worker peak (`_estimated_conformance_config`) as one observation of the `conform-sweep` pool (`cycle_timings.record_pool`), which `make job-costs` reports. The serial path starts no pool, and a hand sweep past `conform.SWEEP_MAX_LENGTH` has a different worker peak, so neither records one.
+    A pooled conformance sweep at `conform.SWEEP_MAX_LENGTH` writes one `conform-sweep` pool record (`cycle_timings.record_pool`), which `make job-costs` reports: one observation per configuration, its units' highest peak footprint (`_conformance_unit`), and one per settle-memo absorb that ran, labeled `<config> absorb`. The serial path starts no pool, and a hand sweep past `conform.SWEEP_MAX_LENGTH` has a different unit peak, so neither records one.
     """
     inputs = tables_inputs()
     memo_inputs = settle_memo_inputs()
@@ -1172,38 +1218,7 @@ def run_font_conformance(
         else {}
     )
     if jobs > 1:
-        collected: dict[str, conform.ConformanceConfigResult] = {}
-        worker_peaks: dict[str, int] = {}
-        kernel_exec.ensure_built()
-        guard_verdicts = kernel_exec.guard_sweep(spec)
-        with _spawn_pool(jobs, len(conform.ACCEPTANCE_CONFIGS)) as pool:
-            futures = {
-                pool.submit(
-                    _estimated_conformance_config,
-                    spec,
-                    out_dir / "M1.otf",
-                    config,
-                    max_length,
-                    cell_glyphs,
-                    guard_verdicts,
-                    settle_memos.get(config),
-                ): config
-                for config in conform.ACCEPTANCE_CONFIGS
-            }
-            for future in as_completed(futures):
-                result, peak = future.result()
-                collected[result.config] = result
-                worker_peaks[result.config] = peak
-                console.progress(len(collected), len(conform.ACCEPTANCE_CONFIGS), "configurations")
-        if max_length == conform.SWEEP_MAX_LENGTH:
-            record_pool(
-                "conform-sweep",
-                width=min(jobs, len(conform.ACCEPTANCE_CONFIGS)),
-                worker_peaks=worker_peaks,
-                controller_peak_bytes=peak_rss_self_bytes(),
-            )
-        ordered = [collected[config] for config in conform.ACCEPTANCE_CONFIGS]
-        report = conform.merge_conformance_results(out_dir / "M1.otf", ordered)
+        report = _pooled_conformance(spec, out_dir, max_length, jobs, cell_glyphs, settle_memos)
         report.write(out_dir / summary_name)
     else:
         report = conform.run_conformance(
@@ -1376,20 +1391,190 @@ def _report_oracle_cache(
         console.warn(f"oracle position store: re-shaping the rows that reach {moved_position_keys}")
 
 
-def _estimated_conformance_config(
+def _peak_footprint() -> int:
+    """This process's peak footprint (`peak_rss.peak_footprint_bytes`), or its peak resident set where the footprint cannot be read."""
+    peak = peak_footprint_bytes()
+    return peak if peak is not None else peak_rss_self_bytes()
+
+
+def _conformance_unit(
     spec: ResolvedSpec,
     font_path: Path,
     config: str,
-    max_length: int = 4,
-    glyphs: Mapping[CellId, GlyphRecord] | None = None,
-    guard_verdicts: FormationGuard | None = None,
-    settle_memo: conform.SettleMemoFile | None = None,
+    last: str | None,
+    max_length: int,
+    glyphs: Mapping[CellId, GlyphRecord] | None,
+    guard_verdicts: FormationGuard | None,
+    settle_memo: conform.SettleMemoFile | None,
 ) -> tuple[conform.ConformanceConfigResult, int]:
-    """Run one configuration's conformance sweep in a pool worker (`conform.conformance_config_worker`) and return the worker's peak memory (`peak_rss_self_bytes`) with the result, so the parent can write the conformance sweep's `conform-sweep` pool record. The peak is returned in a pair instead of as a field on the result because conform.py is in `oracle_cache.ORACLE_ROW_CODE_PATHS`, and an edit there would invalidate every settle memo and row store. The reading is the process's peak memory, so a configuration that runs second in a reused worker reads at or above the one before it."""
+    """Run one unit of the pooled conformance sweep in a pool worker (`conform.conformance_config_worker` with `last`) and return its peak footprint (`_peak_footprint`) with the result, so the parent can write the `conform-sweep` pool record. The pool runs one unit per process, so the reading is this unit's own. It is a footprint rather than a resident peak because every settlement unit of a configuration maps the same settle memo file, whose clean pages the page cache holds once however many units touch them, while each unit's resident peak counts them again. The peak is returned in a pair instead of as a field on the result because conform.py is in `oracle_cache.ORACLE_ROW_CODE_PATHS`, and an edit there would invalidate every settle memo and row store."""
     result = conform.conformance_config_worker(
-        spec, font_path, config, max_length, glyphs, guard_verdicts, settle_memo
+        spec, font_path, config, max_length, glyphs, guard_verdicts, settle_memo, last=last
     )
-    return result, peak_rss_self_bytes()
+    return result, _peak_footprint()
+
+
+def _absorb_sweep_memo(
+    memo: conform.SettleMemoFile,
+    parts: Sequence[Path],
+    spec: ResolvedSpec,
+    identity: tuple[int, int, int, int] | None,
+    reached: bytes,
+    prune: bool,
+    discard: bool,
+) -> tuple[bool, int, int, float, int]:
+    """Prune one configuration's settle memo file to the rows its conformance-sweep units reached and merge their parts into it (`conform.absorb_sweep_memo`) in a pool worker. Return whether the file was written, the rows pruned, the windows the parts added, the seconds the absorb took, and the worker's peak footprint (`_peak_footprint`), which goes into the `conform-sweep` pool record as `<config> absorb`. The write holds the configuration's rows, their remapped copies, and the index at once, so it runs in a worker rather than in the parent."""
+    started = time.perf_counter()
+    written, pruned, fresh = conform.absorb_sweep_memo(memo, parts, spec, identity, reached, prune, discard)
+    return written, pruned, fresh, time.perf_counter() - started, _peak_footprint()
+
+
+@dataclass
+class _MemoFold:
+    """One settlement configuration's settle-memo use across its conformance-sweep units, folded in the parent as each unit finishes: the version of the file the first unit mapped, the union of every unit's reached rows as one integer (each flag byte is zero or one, so OR-ing the little-endian integers ORs the flags), the parts the units wrote, and their summed memo seconds. `agree` turns False when a unit mapped another version of the file than the first, and then nothing is pruned. `retired` turns True when a unit's probe found the file corrupt, and then the absorb drops every row of the file rather than the unreached ones (`conform.absorb_sweep_memo`'s `discard`)."""
+
+    identity: tuple[int, int, int, int] | None = None
+    rows: int = 0
+    live: int = 0
+    loaded: int = 0
+    stale: int = 0
+    reached: int = 0
+    parts: list[Path] = field(default_factory=list)
+    seconds: float = 0.0
+    units: int = 0
+    agree: bool = True
+    retired: bool = False
+
+    def add(self, reach: conform.MemoReach, part: Path) -> None:
+        """Fold in one unit's reach, whose part, if it wrote one, is at `part`."""
+        if not self.units:
+            self.identity, self.rows, self.live = reach.identity, reach.rows, reach.live
+            self.loaded, self.stale = reach.loaded, reach.stale
+        elif (reach.identity, reach.rows) != (self.identity, self.rows):
+            self.agree = False
+        self.units += 1
+        self.retired = self.retired or reach.retired
+        if self.agree:
+            self.reached |= int.from_bytes(zlib.decompress(reach.reached), "little")
+        if reach.part:
+            self.parts.append(part)
+        self.seconds += reach.seconds
+
+    @property
+    def pruned(self) -> int:
+        """The live rows no unit reached, or zero when the units disagree about the file or a unit retired it."""
+        return self.live - self.reached.bit_count() if self.agree and not self.retired else 0
+
+
+def _pooled_conformance(
+    spec: ResolvedSpec,
+    out_dir: Path,
+    max_length: int,
+    jobs: int,
+    glyphs: Mapping[CellId, GlyphRecord],
+    settle_memos: Mapping[str, conform.SettleMemoFile],
+) -> conform.ConformReport:
+    """Sweep every unit of `sweep_units` at `max_length`, `jobs` at a time, one spawn process per unit (`_spawn_pool` with `max_tasks_per_child=1`), and return the merged report; `run_font_conformance` writes it.
+
+    Every unit is submitted up front, in unit order. A settlement unit whose configuration has a settle memo maps the shared file and writes the windows it settled fresh as a part in a scratch directory that lives as long as the pool, so a failed run leaves no part where a later run would read it. As each unit finishes, the parent folds its reach into its configuration's `_MemoFold` and drops the unit's flags, so the parent holds one integer the size of the file's row count per configuration however many units there are. When a unit raises, the units still queued are cancelled and the error propagates before any absorb is submitted.
+
+    Once every unit has finished, each configuration's units merge into its result (`conform.merge_unit_results`), whose sequences must be every text of its lengths (`config_texts`), or this raises before any file is written, so no memo is ever pruned from a partial set of units. Only then does the pool absorb each configuration whose units wrote a part, left a live row unreached, or found the file corrupt (`_absorb_sweep_memo`); a configuration with neither (a current memo) gets no task and its file is not touched. One `[t] settle_memo` line per settlement configuration follows (`conform.settle_memo_line`), with the units' loaded and stale counts, the absorb's fresh and pruned counts, and the units' memo seconds plus the absorb's, the same line the serial sweep's walk prints. The configurations then merge in `conform.ACCEPTANCE_CONFIGS` order, so the report is the serial sweep's at any width and in any finishing order. At `conform.SWEEP_MAX_LENGTH` this writes the `conform-sweep` pool record.
+    """
+    font_path = out_dir / "M1.otf"
+    units = sweep_units(conform.spec_alphabet(spec), max_length)
+    kernel_exec.ensure_built()
+    guard_verdicts = kernel_exec.guard_sweep(spec)
+    collected: dict[int, conform.ConformanceConfigResult] = {}
+    worker_peaks: dict[str, int] = {}
+    folds = {config: _MemoFold() for config in settle_memos}
+    absorbed: dict[str, tuple[bool, int, int, float]] = {}
+    with tempfile.TemporaryDirectory(prefix="conform-memo-parts.") as scratch:
+        parts = {slot: Path(scratch) / f"{unit.config}.{slot}.gz" for slot, unit in enumerate(units)}
+        with _spawn_pool(jobs, len(units), max_tasks_per_child=1) as pool:
+            futures = {
+                pool.submit(
+                    _conformance_unit,
+                    spec,
+                    font_path,
+                    unit.config,
+                    unit.last,
+                    max_length,
+                    glyphs,
+                    guard_verdicts,
+                    (
+                        replace(settle_memos[unit.config], write_path=parts[slot])
+                        if unit.config in settle_memos
+                        else None
+                    ),
+                ): slot
+                for slot, unit in enumerate(units)
+            }
+            try:
+                for future in as_completed(futures):
+                    slot = futures[future]
+                    result, peak = future.result()
+                    worker_peaks[result.config] = max(worker_peaks.get(result.config, 0), peak)
+                    if result.memo_reach is not None:
+                        folds[result.config].add(result.memo_reach, parts[slot])
+                        result.memo_reach = None
+                    collected[slot] = result
+                    console.progress(len(collected), len(units), "units")
+            except BaseException:
+                pool.shutdown(wait=True, cancel_futures=True)
+                raise
+            expected = config_texts(spec, max_length)
+            results = []
+            for config in conform.ACCEPTANCE_CONFIGS:
+                result = conform.merge_unit_results(
+                    config, [collected[slot] for slot, unit in enumerate(units) if unit.config == config]
+                )
+                if result.sequences != expected[config]:
+                    raise RuntimeError(
+                        f"conformance sweep[{config}]: its units shaped {result.sequences} texts, not the {expected[config]} of every length it sweeps"
+                    )
+                results.append(result)
+            absorbs = {
+                config: pool.submit(
+                    _absorb_sweep_memo,
+                    settle_memos[config],
+                    fold.parts,
+                    spec,
+                    fold.identity,
+                    zlib.compress(fold.reached.to_bytes(fold.rows, "little"), 1),
+                    fold.agree,
+                    fold.retired,
+                )
+                for config, fold in folds.items()
+                if fold.parts or fold.pruned or fold.retired
+            }
+            for config, future in absorbs.items():
+                written, pruned, fresh, seconds, peak = future.result()
+                absorbed[config] = (written, pruned, fresh, seconds)
+                worker_peaks[f"{config} absorb"] = peak
+    for config in conform.SETTLEMENT_CONFIGS:
+        fold = folds.get(config)
+        if fold is None:
+            continue
+        if not fold.agree:
+            console.warn(
+                f"settle memo: {settle_memos[config].path} was mapped at more than one version by {config}'s units; nothing is pruned this sweep"
+            )
+        written, pruned, fresh, seconds = absorbed.get(config, (False, 0, 0, 0.0))
+        print(
+            conform.settle_memo_line(
+                config, fold.seconds + seconds, fold.loaded, fold.stale, fresh, pruned, written
+            ),
+            file=sys.stderr,
+            flush=True,
+        )
+    if max_length == conform.SWEEP_MAX_LENGTH:
+        record_pool(
+            "conform-sweep",
+            width=min(jobs, len(units)),
+            worker_peaks=worker_peaks,
+            controller_peak_bytes=peak_rss_self_bytes(),
+        )
+    return conform.merge_conformance_results(font_path, results)
 
 
 def _absorb_settle_memo_parts(
@@ -1794,7 +1979,7 @@ def main(argv: list[str] | None = None) -> None:
         "--jobs",
         type=int,
         default=None,
-        help=f"worker budget for the oracle and the conformance sweep: the oracle cuts every configuration's table into row ranges and runs this many at once, while the conformance sweep runs one process per acceptance configuration and no more, since that is its unit. Each default is a budget the artifact cycle derives from the machine rather than a checked-in width: a bare run takes the oracle's `sweep_job_budget()`, the width the cycle hands run_m1 — {sweep_jobs} on this machine, the cores under the memory clamp that budget's own docstring argues from `ORACLE_SHARD_BYTES` — and --conform-only takes the conformance sweep's own `conform_job_budget()` with the build lane idle, since a hand sweep shares the machine with no corpus build and no make-test pool — on this machine {conform_job_derivation(skip_gates=True, skip_corpus=True)}. `--jobs 1` is serial. The table build's own width is --kernel-threads.",
+        help=f"worker budget for the oracle and the conformance sweep: the oracle cuts every configuration's table into row ranges and runs this many at once, while the conformance sweep runs this many of its units at once, one process each (the ss10 overlay whole and each settlement configuration once per final symbol), and no more than there are units. Each default is a budget the artifact cycle derives from the machine rather than a checked-in width: a bare run takes the oracle's `sweep_job_budget()`, the width the cycle hands run_m1 — {sweep_jobs} on this machine, the cores under the memory clamp that budget's own docstring argues from `ORACLE_SHARD_BYTES` — and --conform-only takes the conformance sweep's own `conform_job_budget()` with the build lane idle, since a hand sweep shares the machine with no corpus build and no make-test pool — on this machine {conform_job_derivation(skip_gates=True, skip_corpus=True)}. `--jobs 1` is serial. The table build's own width is --kernel-threads.",
     )
     parser.add_argument(
         "--conform-only",
