@@ -39,7 +39,7 @@ def bench(tmp_path, monkeypatch):
     monkeypatch.setattr(cycle_paths, "CONFORM_GREEN", tmp_path / "conform-green.json")
     monkeypatch.setattr(deep_sweep, "tables_stamped", lambda: True)
     monkeypatch.setattr(cycle_paths, "DEEP_REPLAY_GREEN", tmp_path / "deep-replay-green.json")
-    monkeypatch.setattr(deep_sweep, "refresh_deep_replay", lambda max_length, runes: None)
+    monkeypatch.setattr(deep_sweep, "refresh_deep_replay", lambda max_length, runes: max_length)
     monkeypatch.delenv(deep_sweep.JOBS_ENV, raising=False)
     monkeypatch.delenv(deep_sweep.REPORT_ENV, raising=False)
     CHECKS.clear()
@@ -156,7 +156,7 @@ def test_a_build_finishing_mid_sweep_records_nothing(bench, monkeypatch, capsys)
     assert "inputs changed while it ran" in capsys.readouterr().out
 
 
-def _stub_runes_and_sweep(monkeypatch, edit_mid_sweep):
+def _stub_runes_and_sweep(monkeypatch, edit_mid_sweep, replay_kept=None):
     current = {"qsPea": "p1"}
     monkeypatch.setattr("rebuild.pipeline.fingerprint.rune_digests", lambda root: dict(current))
 
@@ -168,7 +168,12 @@ def _stub_runes_and_sweep(monkeypatch, edit_mid_sweep):
     _stub_plan(monkeypatch)
     monkeypatch.setattr(deep_sweep, "run_sweep", fake)
     refreshed: list = []
-    monkeypatch.setattr(deep_sweep, "refresh_deep_replay", lambda *args: refreshed.append(args))
+
+    def refresh(max_length, runes):
+        refreshed.append((max_length, runes))
+        return replay_kept or max_length
+
+    monkeypatch.setattr(deep_sweep, "refresh_deep_replay", refresh)
     return refreshed
 
 
@@ -188,6 +193,21 @@ def test_a_rune_edited_mid_sweep_leaves_the_deep_replay_unrecorded(bench, monkey
     assert refreshed == []
     assert "runes changed while the sweep ran" in capsys.readouterr().out
     assert ac.read_green_record(bench / "deep-sweep-green.json") is not None
+
+
+def test_a_shallower_green_names_the_deeper_length_each_record_keeps(bench, monkeypatch, capsys):
+    """A green run shallower than the recorded green under the same key, whose deep replay refresh also finds that record deeper over the same runes, names the maximum length each record keeps instead of claiming its own was recorded."""
+    fingerprint = ac.deep_sweep_skip_fingerprint(bench)
+    assert fingerprint is not None
+    ac.record_deep_sweep_green(
+        fingerprint, 6, files=ac.deep_sweep_skip_files(bench), path=bench / "deep-sweep-green.json"
+    )
+    _stub_runes_and_sweep(monkeypatch, edit_mid_sweep=False, replay_kept=6)
+    assert deep_sweep.main(["--max-length", "5"]) == 0
+    out = capsys.readouterr().out
+    assert "deep sweep: green at maximum length 5 — deep-sweep-green.json keeps maximum length 6" in out
+    assert "settled here, and deep-replay-green.json keeps maximum length 6" in out
+    assert "recorded in deep-sweep-green.json" not in out
 
 
 def test_status_exits_on_whether_the_sweep_is_current(bench, monkeypatch, capsys):

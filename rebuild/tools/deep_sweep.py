@@ -1,6 +1,6 @@
 """The deep form of gate:conform: the same exhaustive font-versus-settlement sweep as the per-edit sweep, at maximum length 5 by default (`--max-length` refuses anything below the per-edit sweep's 4). The per-edit sweep shapes every text up to four letters and checks what only shaping the compiled font can test: HarfBuzz's application semantics over the rule shapes the lookup contains. Whether the six-slot window is sufficient for the texts the tables were built for is checked by the crate's string replay, which `run_m1` runs on every build. This tool asks the shaper's question at a depth the per-edit sweep cannot afford, over texts long enough to reach a letter's fourth lookahead slot, which no per-edit sweep text reaches.
 
-It runs on demand (`make conform-deep`), not per edit. The key of its green record (`artifact_cycle.deep_sweep_skip_lines`) is the set of behavior classes the build enumerated from the emitted lookup (`emit_gsub.behavior_classes`), the font-compilation code, and the uharfbuzz version. It leaves out the runes and M1.otf, so a rune edit that changes many rules but adds no new rule shape leaves the sweep current. When a build emits a new shape, or the compilation code or the shaper changes, the key changes and the cycle reports the sweep as `due` once per pass. The per-edit sweep's key is the same lines plus its maximum length (`artifact_cycle.conform_skip_fingerprint`). No gate depends on this sweep: a due deep sweep means it should be run, and the cycle does not fail.
+It runs on demand (`make conform-deep`), not per edit. The key of its green record (`artifact_cycle.deep_sweep_skip_lines`) is the set of behavior classes the build enumerated from the emitted lookup (`emit_gsub.behavior_classes`), the font-compilation code, and the uharfbuzz version. It leaves out the runes and M1.otf, so a rune edit that changes many rules but adds no new rule shape leaves the sweep current. When a build emits a new shape, or the compilation code or the shaper changes, the key changes and the cycle reports the sweep as `due` once per pass. The record stores the maximum length beside the key, and a green shallower than a recorded green under the same key keeps the deeper length (`artifact_cycle.record_deep_sweep_green`); the green line then names both. The per-edit sweep's key is the same lines plus its maximum length (`artifact_cycle.conform_skip_fingerprint`). No gate depends on this sweep: a due deep sweep means it should be run, and the cycle does not fail.
 
 The per-edit sweep's split-buffer check (every text split at a boundary shapes the same as its segments shaped alone) runs at this depth too, and this is the only place it covers texts longer than the per-edit sweep's maximum length, since no build step shapes a length-5 text. The ZWNJ glyph's own properties (zero advance, no ink) need no depth: read-back checks them in the font bytes on every build.
 
@@ -12,7 +12,7 @@ While the units run, the parent prints a progress report every 20 minutes (`REPO
 
 The total is a `[progress] <k>/<n> texts` counter line in `console`'s protocol, and the rest of the report rides on the same line: `console.parse_line` reads the counter's two bare counts and takes everything after them as the unit, which the artifact cycle's console reprints verbatim after the counts, which it formats with `console.fmt_count`. The two counts stay bare because the parser reads only digits there; every other count and duration in the report goes through `fmt_count` and `fmt_duration`. Each configuration gets a `deep sweep[<config>]: ` line after it, which sums its units and counts the ones running and finished. It is not a protocol line, so the cycle's console logs it without surfacing it, as it does the per-configuration peak lines at the end, while `tail -f` shows every line. Making them counter lines too would not show them: the console keeps only the latest counter of a burst and surfaces it a heartbeat later.
 
-A green run also refreshes gate:conform's green record, when the per-edit sweep's key did not change during the run, because an exhaustive sweep at depth N covers every text the per-edit sweep at depth 4 shapes. The next cycle can then skip the per-edit sweep. At or past the deep replay's maximum length it also refreshes the deep replay's record (`rebuild.tools.deep_replay`), because it settles every text it shapes against the tables in the font. That record holds the rune digests read before the sweep started, which are the runes the swept font was built from, and the refresh is skipped when a rune changed while the sweep ran.
+A green run also refreshes gate:conform's green record, when the per-edit sweep's key did not change during the run, because an exhaustive sweep at depth N covers every text the per-edit sweep at depth 4 shapes. The next cycle can then skip the per-edit sweep. At or past the deep replay's maximum length it also refreshes the deep replay's record (`rebuild.tools.deep_replay`), because it settles every text it shapes against the tables in the font. That record holds the rune digests read before the sweep started, which are the runes the swept font was built from, and the refresh is skipped when a rune changed while the sweep ran. The refresh keeps a deeper maximum length the record already holds for the same digests and structure stamp (`artifact_cycle.record_deep_replay_green`), and its line names that length.
 
 Run as: uv run python -m rebuild.tools.deep_sweep, or through `make conform-deep`.
 """
@@ -661,11 +661,11 @@ def run_sweep(
     return summary, peaks
 
 
-def refresh_deep_replay(max_length: int, runes: dict[str, str]) -> None:
-    """Record the deep replay as green at `max_length` for every rune at the digest in `runes`, the snapshot taken before the sweep started, since a green sweep at that depth settled every text that names any of them."""
+def refresh_deep_replay(max_length: int, runes: dict[str, str]) -> int:
+    """Record the deep replay as green at `max_length` for every rune at the digest in `runes`, the snapshot taken before the sweep started, since a green sweep at that depth settled every text that names any of them. Return the maximum length the record holds, which stays deeper than `max_length` when the record already held every rune deeper at the same digest under the same structure stamp."""
     from rebuild.pipeline.spec_load import load_default_spec
 
-    record_deep_replay_green(runes, max_length, run_m1.replay_structure_stamp(load_default_spec()))
+    return record_deep_replay_green(runes, max_length, run_m1.replay_structure_stamp(load_default_spec()))
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -774,11 +774,13 @@ def main(argv: list[str] | None = None) -> int:
     if deep_sweep_skip_fingerprint(ROOT) != deep_key:
         print("deep sweep: green, but its inputs changed while it ran — green not recorded", flush=True)
         return 0
-    record_deep_sweep_green(deep_key, args.max_length, files=deep_sweep_skip_files(ROOT))
-    print(
-        f"deep sweep: green at maximum length {args.max_length} — recorded in {cycle_paths.DEEP_SWEEP_GREEN.name}",
-        flush=True,
+    recorded = record_deep_sweep_green(deep_key, args.max_length, files=deep_sweep_skip_files(ROOT))
+    note = (
+        f"{cycle_paths.DEEP_SWEEP_GREEN.name} keeps maximum length {recorded} from an earlier green over the same shapes"
+        if recorded != args.max_length
+        else f"recorded in {cycle_paths.DEEP_SWEEP_GREEN.name}"
     )
+    print(f"deep sweep: green at maximum length {args.max_length} — {note}", flush=True)
     if args.max_length >= DEEP_REPLAY_MAX_LENGTH_DEFAULT:
         if fingerprint.rune_digests(ROOT) != runes:
             print(
@@ -786,9 +788,14 @@ def main(argv: list[str] | None = None) -> int:
                 flush=True,
             )
         else:
-            refresh_deep_replay(args.max_length, runes)
+            replay_recorded = refresh_deep_replay(args.max_length, runes)
+            kept = (
+                f", and {cycle_paths.DEEP_REPLAY_GREEN.name} keeps maximum length {replay_recorded} from an earlier walk over the same runes"
+                if replay_recorded != args.max_length
+                else ""
+            )
             print(
-                f"deep replay: green too — every text up to length {args.max_length} was settled here, so nothing is left for `make replay-deep` to walk",
+                f"deep replay: green too — every text up to length {args.max_length} was settled here{kept}, so nothing is left for `make replay-deep` to walk",
                 flush=True,
             )
     if (

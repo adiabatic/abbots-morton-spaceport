@@ -2,7 +2,7 @@
 
 It is not part of the per-edit path because of its cost. On the live alphabet, a walk over the texts that name one family costs each configuration several times what the build's own full replay at maximum length 4 costs (`make cycle-timings ARGS='--by-step'` reports every run under `replay-deep`, the check name this tool records itself under). Running it inside `run_m1` would multiply every rune-edit build's replay time. The cycle instead reports whether it is due beside the deep sweep (`artifact_cycle.deep_replay_status`), and `make replay-deep` runs it. The window ceiling (`DEEP_REPLAY_MEMO_WINDOWS`) keeps a walk's memory flat as the corpus grows, apart from the settled records and labels, which are never released and grow with the number of distinct records. At the measured ceiling every configuration walks at once on either fleet machine, which `rebuild/test_deep_replay.py` checks.
 
-The green record (`cycle_paths.DEEP_REPLAY_GREEN`) stores every rune's prose-insensitive digest and the maximum length walked. The next walk covers the runes whose digest changed since, closed under `spec_load.rune_closure` (every rune whose records read a changed rune's content), which the window locality rule in `doc/rebuild-design.md` permits. The record also stores the replay structure stamp, but the stamp never widens the walk: a code or structure change is for the deep sweep over every text, and the cycle's deep-sweep line reports it. A walk that finds a disagreement withdraws what the record claims for the runes it walked (`withdraw_walked`). After a family walk the status reports the walked runes due and the next bare walk covers them again; after a full replay the record is gone and the status reports `never-run`.
+The green record (`cycle_paths.DEEP_REPLAY_GREEN`) stores every rune's prose-insensitive digest and one maximum length, the least depth any of its runes was walked to. A family walk deeper than the record therefore leaves it at the depth of the runes the walk carried over, and a shallower walk, or a deep sweep's refresh, over runes whose digests and structure stamp match the record keeps the deeper length; `artifact_cycle.record_deep_replay_green` states the rule, and the green line names the length the record holds when it differs from the walk's. The next walk covers the runes whose digest changed since, closed under `spec_load.rune_closure` (every rune whose records read a changed rune's content), which the window locality rule in `doc/rebuild-design.md` permits. The record also stores the replay structure stamp, but the stamp never widens the walk: a code or structure change is for the deep sweep over every text, and the cycle's deep-sweep line reports it. The stamp only decides whether a walk keeps the record's deeper length for the runes it covers. A walk that finds a disagreement withdraws what the record claims for the runes it walked (`withdraw_walked`). After a family walk the status reports the walked runes due and the next bare walk covers them again; after a full replay the record is gone and the status reports `never-run`.
 
 Run as: uv run python -m rebuild.tools.deep_replay, or through `make replay-deep`. `--families` names the runes to walk instead of reading them from the record. `--all` walks every text, which on the live alphabet takes minutes on the 18-core M5 Pro (`doc/fleet.md`).
 """
@@ -94,7 +94,7 @@ def withdraw_walked(record: dict | None, families: list[str] | None) -> None:
         return
     kept = {name: digest for name, digest in record["files"].items() if name not in families}
     if kept != record["files"]:
-        record_deep_replay_green(kept, max_length, record.get("structure"))
+        record_deep_replay_green({}, max_length, record.get("structure"), carry=kept)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -212,16 +212,15 @@ def main(argv: list[str] | None = None) -> int:
         print("deep replay: green, but the runes changed while it ran — green not recorded", flush=True)
         return 0
     covered = dict(runes) if families is None else {name: runes[name] for name in families if name in runes}
-    if families is not None and record is not None and isinstance(record.get("files"), dict):
-        carried = {
-            name: digest for name, digest in record["files"].items() if name in runes and name not in covered
-        }
-        covered = {**carried, **covered}
-    record_deep_replay_green(covered, args.max_length, structure)
-    print(
-        f"deep replay: green at maximum length {args.max_length} — recorded in {cycle_paths.DEEP_REPLAY_GREEN.name}",
-        flush=True,
-    )
+    recorded = record_deep_replay_green(covered, args.max_length, structure, carry=runes)
+    store = cycle_paths.DEEP_REPLAY_GREEN.name
+    if recorded > args.max_length:
+        note = f"{store} keeps maximum length {recorded} from an earlier walk over the same runes"
+    elif recorded < args.max_length:
+        note = f"{store} stays at maximum length {recorded}, the depth the runes this walk did not cover were walked to"
+    else:
+        note = f"recorded in {store}"
+    print(f"deep replay: green at maximum length {args.max_length} — {note}", flush=True)
     return 0
 
 

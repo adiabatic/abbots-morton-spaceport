@@ -76,7 +76,7 @@ import subprocess
 import sys
 import threading
 import time
-from collections.abc import Iterator
+from collections.abc import Collection, Iterator
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -631,8 +631,8 @@ def deep_sweep_skip_fingerprint(root: Path = ROOT) -> str | None:
 
 def record_deep_sweep_green(
     fingerprint: str, max_length: int, files: dict[str, str] | None = None, path: Path | None = None
-) -> None:
-    """Write the deep sweep's green record. It stores the maximum length the run swept as well as the key, because the record key ignores depth: `deep_sweep_status` reads the maximum length back to decide whether a run went deep enough for the depth asked about. When the record on disk is a green under the same key at a greater maximum length, the new record keeps that length, so a shallower run over the same shapes (a debugging `--max-length 4`) cannot make a deeper green read as due. A green under a different key is replaced whatever its depth."""
+) -> int:
+    """Write the deep sweep's green record and return the maximum length it records. It stores the maximum length the run swept as well as the key, because the record key ignores depth: `deep_sweep_status` reads the maximum length back to decide whether a run went deep enough for the depth asked about. When the record on disk is a green under the same key at a greater maximum length, the new record keeps that length, so a shallower run over the same shapes (a debugging `--max-length 4`) cannot make a deeper green read as due, and the caller's green line names the length kept. A green under a different key is replaced whatever its depth."""
     path = path if path is not None else cycle_paths.DEEP_SWEEP_GREEN
     existing = read_green_record(path)
     if existing is not None and existing["fingerprint"] == fingerprint:
@@ -640,22 +640,46 @@ def record_deep_sweep_green(
         if isinstance(recorded, int) and recorded > max_length:
             max_length = recorded
     _record_outcome(path, {"fingerprint": fingerprint, "max_length": max_length, "files": files})
+    return max_length
 
 
 def record_deep_replay_green(
-    runes: dict[str, str], max_length: int, structure: str | None, path: Path | None = None
-) -> None:
-    """Write the deep replay's green record (`rebuild.tools.deep_replay`): the maximum length the walk reached, every rune's prose-insensitive digest as the walk covered it (under `files`, so `moved_inputs_note` can name what changed since), the replay structure stamp, and a fingerprint over the rune lines so `read_green_record` reads it like every other record. A rune the record does not have counts as changed."""
+    walked: dict[str, str],
+    max_length: int,
+    structure: str | None,
+    carry: Collection[str] = (),
+    path: Path | None = None,
+) -> int:
+    """Write the deep replay's green record (`rebuild.tools.deep_replay`) and return the maximum length it records. The record holds every rune's prose-insensitive digest as a walk covered it (under `files`, so `moved_inputs_note` can name what changed since), one maximum length for all of them, the replay structure stamp, and a fingerprint over the rune lines so `read_green_record` reads it like every other record. A rune the record does not have counts as changed.
+
+    `walked` holds the runes whose texts this walk settled at `max_length`, at the digests the walk read. `carry` names runes the walk did not cover whose claims in the record on disk the new record keeps, at the record's digests. A walked rune's depth is `max_length`, raised to the recorded maximum length when its digest and the structure stamp both match the record's; a carried rune's depth is the recorded maximum length. The record stores the least depth over its runes, so it never claims a depth some rune lacks (a length-6 family walk beside runes walked only to 5 records 5), and never drops a depth every rune still has (a length-5 walk or deep sweep over runes the record holds at 6 records 6). The structure stamp enters only here: it never widens a walk (`rebuild.tools.deep_replay` says why), so a structure change keeps the carried runes' claims and makes a walk record its own depth for the runes it covers. Nothing is carried from a record without a maximum length or a digest map.
+    """
+    path = path if path is not None else cycle_paths.DEEP_REPLAY_GREEN
+    existing = read_green_record(path)
+    recorded = recorded_max_length(existing) if existing is not None else None
+    prior = existing.get("files") if existing is not None else None
+    if not isinstance(recorded, int) or not isinstance(prior, dict):
+        recorded, prior = max_length, {}
+    same_structure = existing is not None and existing.get("structure") == structure
+    carried = {name: prior[name] for name in carry if name in prior and name not in walked}
+    depths = [recorded] if carried else []
+    depths += [
+        max(max_length, recorded) if same_structure and prior.get(name) == digest else max_length
+        for name, digest in walked.items()
+    ]
+    depth = min(depths, default=max_length)
+    runes = {**carried, **walked}
     lines = [f"{name}\t{digest}" for name, digest in sorted(runes.items())]
     _record_outcome(
-        path if path is not None else cycle_paths.DEEP_REPLAY_GREEN,
+        path,
         {
             "fingerprint": _digest_lines(lines),
-            "max_length": max_length,
+            "max_length": depth,
             "structure": structure,
             "files": runes,
         },
     )
+    return depth
 
 
 def recorded_max_length(record: dict) -> object:
@@ -678,10 +702,18 @@ def deep_replay_green_path(root: Path | None = None) -> Path:
     return Path(root) / "rebuild" / "out" / "deep-replay-green.json"
 
 
+def _deep_replay_command(max_length: int, every_text: bool) -> str:
+    """Return the `make replay-deep` invocation that brings the deep replay current at `max_length`: with `--all` when `every_text`, and with `--max-length` when `max_length` is past the walk's default."""
+    args = ["--all"] if every_text else []
+    if max_length > DEEP_REPLAY_MAX_LENGTH_DEFAULT:
+        args.append(f"--max-length {max_length}")
+    return f"`make replay-deep ARGS='{' '.join(args)}'`" if args else "`make replay-deep`"
+
+
 def deep_replay_status(
     root: Path | None = None, max_length: int = DEEP_REPLAY_MAX_LENGTH_DEFAULT
 ) -> tuple[str, str]:
-    """Return whether the deep replay is current for the runes on disk, as (status, note) for the cycle's one-line report beside the deep sweep's. `current` means the record has every rune at its current digest and reached this depth or deeper. `due` names the runes whose content changed since the recorded walk, or the shallower depth it reached, and `make replay-deep` is the fix. `never-run` means there is no record. This only reports: the deep replay is never a cycle gate, for the cost `rebuild/tools/deep_replay.py` states."""
+    """Return whether the deep replay is current for the runes on disk, as (status, note) for the cycle's one-line report beside the deep sweep's. `current` means the record has every rune at its current digest and reached this depth or deeper. `due` names the runes whose content changed since the recorded walk, or the shallower depth it reached, and the `make replay-deep` that clears it at this depth. When the record is shallower than this depth that is a walk over every text, since a walk over the moved runes alone carries the rest at the depth the record holds (`record_deep_replay_green`). `never-run` means there is no record. This only reports: the deep replay is never a cycle gate, for the cost `rebuild/tools/deep_replay.py` states."""
     from rebuild.pipeline import fingerprint
 
     root = ROOT if root is None else root
@@ -689,19 +721,21 @@ def deep_replay_status(
     if record is None:
         return (
             "never-run",
-            "no deep replay has been recorded; run `make replay-deep ARGS='--all'` once, overnight",
+            f"no deep replay has been recorded; run {_deep_replay_command(max_length, every_text=True)} once, overnight",
         )
     moved = deep_replay_moved(record, fingerprint.rune_digests(root))
+    recorded = recorded_max_length(record)
+    shallow = not isinstance(recorded, int) or recorded < max_length
+    command = _deep_replay_command(max_length, every_text=shallow)
     if moved:
         return (
             "due",
-            f"{capped_labels(moved)} moved since the last length-{recorded_max_length(record)} walk; run `make replay-deep`",
+            f"{capped_labels(moved)} moved since the last length-{recorded} walk; run {command}",
         )
-    recorded = recorded_max_length(record)
-    if not isinstance(recorded, int) or recorded < max_length:
+    if shallow:
         return (
             "due",
-            f"the recorded deep replay reached maximum length {recorded}, shorter than {max_length}; run `make replay-deep`",
+            f"the recorded deep replay reached maximum length {recorded}, shorter than {max_length}, which only a walk over every text raises; run {command}",
         )
     return "current", f"maximum length {recorded}"
 

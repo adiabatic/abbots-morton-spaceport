@@ -219,13 +219,58 @@ def test_runes_moving_mid_walk_record_nothing(bench, monkeypatch, capsys):
     assert "changed while it ran" in capsys.readouterr().out
 
 
+def test_a_family_walk_deeper_than_the_record_stays_at_the_depth_its_carried_runes_reached(
+    bench, monkeypatch, capsys
+):
+    """A family walk deeper than the record carries the runes it did not walk at the depth they were walked to, so the record stays at that depth, the status at the walk's depth is due and names a walk over every text at that depth, and the green line says where the record stays. That walk then raises it."""
+    path = bench / "rebuild" / "out" / "deep-replay-green.json"
+    ac.record_deep_replay_green(dict(RUNES), 5, "structure-1", path=path)
+    _stub_walk(monkeypatch)
+    assert deep_replay.main(["--families", "qsTea", "--max-length", "6", "--threads", "1"]) == 0
+    record = ac.read_green_record(path)
+    assert record is not None and record["files"] == RUNES and record["max_length"] == 5
+    status, note = ac.deep_replay_status(bench, 6)
+    assert status == "due" and note.endswith("run `make replay-deep ARGS='--all --max-length 6'`")
+    assert (
+        "green at maximum length 6 — deep-replay-green.json stays at maximum length 5"
+        in capsys.readouterr().out
+    )
+    assert deep_replay.main(["--all", "--max-length", "6", "--threads", "1"]) == 0
+    assert ac.deep_replay_status(bench, 6) == ("current", "maximum length 6")
+
+
+def test_a_shallower_walk_or_sweep_over_unchanged_runes_keeps_a_deeper_record(bench, monkeypatch, capsys):
+    """A walk or a deep sweep's refresh shallower than the record keeps the recorded depth when every rune it covers has the digest and structure stamp the record holds, and the green line says so. A changed rune or structure stamp records the shallower depth, since the deeper walk never settled what changed."""
+    path = bench / "rebuild" / "out" / "deep-replay-green.json"
+    monkeypatch.setattr("rebuild.pipeline.spec_load.load_default_spec", lambda: Spec())
+    ac.record_deep_replay_green(dict(RUNES), 6, "structure-1", path=path)
+    _stub_walk(monkeypatch)
+    assert deep_replay.main(["--all", "--threads", "1"]) == 0
+    assert ac.deep_replay_status(bench, 6) == ("current", "maximum length 6")
+    assert (
+        "green at maximum length 5 — deep-replay-green.json keeps maximum length 6" in capsys.readouterr().out
+    )
+    assert deep_sweep.refresh_deep_replay(5, dict(RUNES)) == 6
+    assert deep_sweep.refresh_deep_replay(5, {**RUNES, "qsIt": "i2"}) == 5
+    ac.record_deep_replay_green(dict(RUNES), 6, "structure-1", path=path)
+    monkeypatch.setattr(deep_replay.run_m1, "replay_structure_stamp", lambda spec: "structure-2")
+    assert deep_replay.main(["--all", "--threads", "1"]) == 0
+    assert ac.deep_replay_status(bench, 6)[0] == "due"
+
+
 def test_a_deeper_record_is_current_and_a_shallower_one_is_due(bench, monkeypatch):
+    """A record at or past the depth asked about is current. A due status names the walk that clears it at that depth: a walk over the moved runes when the record reaches the depth, and a walk over every text when it does not, since a walk over the moved runes alone leaves the record at its own depth."""
     ac.record_deep_replay_green(
         dict(RUNES), 6, "structure-1", path=bench / "rebuild" / "out" / "deep-replay-green.json"
     )
     monkeypatch.setattr("rebuild.pipeline.fingerprint.rune_digests", lambda root: dict(RUNES))
     assert ac.deep_replay_status(bench, 5) == ("current", "maximum length 6")
-    assert ac.deep_replay_status(bench, 7)[0] == "due"
+    status, note = ac.deep_replay_status(bench, 7)
+    assert status == "due" and note.endswith("run `make replay-deep ARGS='--all --max-length 7'`")
+    monkeypatch.setattr("rebuild.pipeline.fingerprint.rune_digests", lambda root: {**RUNES, "qsPea": "p2"})
+    assert ac.deep_replay_status(bench, 5)[1].endswith("run `make replay-deep`")
+    assert ac.deep_replay_status(bench, 6)[1].endswith("run `make replay-deep ARGS='--max-length 6'`")
+    assert ac.deep_replay_status(bench, 7)[1].endswith("run `make replay-deep ARGS='--all --max-length 7'`")
 
 
 def test_the_width_is_the_machines_memory_or_the_stated_knob(monkeypatch):
