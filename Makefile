@@ -39,9 +39,9 @@ test-rebuild:
 test-rebuild-slow:
 	uv run pytest rebuild/ -m slow -n auto --dist worksteal
 
-# Runs the font suite on the efficiency cores only, leaving the performance cores free. `taskpolicy -b` runs the process tree at background priority, which confines it to the efficiency cores, so the width is the efficiency-core count. `-n auto` would return every core the process may run on, because on Darwin it cannot see that confinement, and would oversubscribe the efficiency cores. Memory does not limit this width, so don't derive it from a memory budget.
+# Runs the font suite on one L2 cluster of the slowest performance level, leaving the other cores free. `taskpolicy -b` runs the process tree at background priority, which the scheduler (not the documented `taskpolicy` contract) confines to one L2 cluster of the slowest performance level. `hw.perflevel0` is the fastest level and each later one is slower, so the slowest is the last, `hw.nperflevels - 1`. On a chip with efficiency cores that level is the efficiency cores; when the level spans several clusters, the tree gets one of them, and the scheduler may move the whole tree to another during a run. So the width is that level's `logicalcpu` divided by its cluster count, which is its `cpusperl2` when the level is made of whole clusters and never more than its `logicalcpu`. The recipe reads no level name and no fixed level index, so the same line holds on chips with two or three performance levels. `-n auto` would return every core the process may run on, because on Darwin it cannot see that confinement, and would oversubscribe the cluster. Memory does not limit this width, so don't derive it from a memory budget.
 test-slowly:
-	AMS_RUN_PYRIGHT=1 taskpolicy -b uv run pytest test/ site/ -n $$(sysctl -n hw.perflevel1.logicalcpu) --dist worksteal
+	AMS_RUN_PYRIGHT=1 taskpolicy -b uv run pytest test/ site/ -n $$(l=$$(( $$(sysctl -n hw.nperflevels) - 1 )); c=$$(sysctl -n hw.perflevel$$l.logicalcpu); k=$$(sysctl -n hw.perflevel$$l.cpusperl2); echo $$(( c / ((c + k - 1) / k) ))) --dist worksteal
 
 # Deep (≈1 min) isolation-leak gate: no new bad leak at depth 4 outside site/bad-leak-backlog.txt, plus the benign list (site/benign-leak-list.txt).
 test-leaks: all

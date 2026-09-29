@@ -126,7 +126,7 @@ pub fn transitions_path(outdir: &Path, token: &str) -> PathBuf {
     outdir.join(format!("{STREAM_PREFIX}{token}{STREAM_SUFFIX}"))
 }
 
-/// The cap on a caller's `--threads`: the machine's available parallelism, or 1 when it reports none. It ignores QoS: under `taskpolicy -b`, which confines the process to efficiency cores and is how `make test-slowly` runs, it was observed to return the full logical core count.
+/// The cap on a caller's `--threads`: the machine's available parallelism, or 1 when it reports none. It ignores QoS: under `taskpolicy -b`, which is how `make test-slowly` runs, it returns the full logical core count, not the count of cores that background priority confines the tree to (the Makefile comment on `test-slowly` says which cores those are).
 pub fn available_threads() -> usize {
     std::thread::available_parallelism().map_or(1, std::num::NonZero::get)
 }
