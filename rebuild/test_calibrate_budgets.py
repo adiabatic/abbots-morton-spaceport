@@ -583,3 +583,131 @@ def test_the_default_view_never_exits_nonzero(tmp_path, capsys):
     code, out = _run(capsys, path)
     assert code == 0
     assert "OVERRUN" in out
+
+
+def _run_record(host, *, cores, total, at="2026-08-20T12:00:00Z", run=None):
+    return {
+        "format": "ams-cycle-timings/1",
+        "kind": "run",
+        "run": run or f"run-{host}-{at}",
+        "host": host,
+        "cpu_count": cores,
+        "mem_total_bytes": total,
+        "finished_at": at,
+    }
+
+
+def _block(out, name):
+    return next(block for block in out.split("\n\n") if block.startswith(f"{name}  "))
+
+
+def _proposal(block):
+    return next(line for line in block.splitlines() if line.startswith("  proposal  : "))
+
+
+def test_a_proposal_is_the_highest_reading_times_its_headroom_rounded_up_to_the_quantum():
+    assert cb.proposed_constant(525_000_000, 1.25, 10_000_000) == 660_000_000
+    assert cb.proposed_constant(670_000_000, 1.25, 100_000_000) == 900_000_000
+    assert cb.proposed_constant(4_010_000_000, 1.25, 1_000_000_000) == 6_000_000_000
+    assert cb.proposed_constant(240_000_000, 1.25, 100_000_000) == 300_000_000
+    assert cb.proposed_constant(280_000_000, 1.0, 100_000_000) == 300_000_000
+
+
+def test_each_units_rule_is_the_one_its_constants_comment_states():
+    """A unit's `headroom` and `quantum` restate the rule its constant's comment sets it by, and no test of the arithmetic reads them, so a typo here would propose values no comment argues for. The kernel-build row is the one checked constant without a rule."""
+    assert {unit.name: (unit.headroom, unit.quantum) for unit in cb.UNITS if unit.constant is not None} == {
+        "font-suite": (1.0, 100_000_000),
+        "kernel-build": (None, None),
+        "corpus-parent": (1.25, 1_000_000_000),
+        "corpus-worker": (1.25, 10_000_000),
+        "oracle-shard": (1.25, 100_000_000),
+        "conform-sweep": (1.25, 100_000_000),
+        "standing-fill-parent": (1.25, 1_000_000_000),
+    }
+
+
+def test_a_reading_that_has_used_the_headroom_proposes_a_raise_before_any_overrun(tmp_path, capsys):
+    """A peak at the constant fits it, so `--check` passes, but the constant's rule would set it higher from that peak: the row proposes the raised value, marked as headroom used. A peak whose product with the headroom still fits proposes nothing. No peak proposes a value at or below the constant."""
+    unit = _unit("oracle-shard")
+    assert unit.headroom is not None and unit.quantum is not None
+    constant = CONSTANTS["oracle-shard"]
+    used = _journal(tmp_path, [_pool("oracle-shard", [constant])])
+    code, out = _run(capsys, used, "--check")
+    assert code == 0
+    proposal = _proposal(_block(out, "oracle-shard"))
+    raised = cb.proposed_constant(constant, unit.headroom, unit.quantum)
+    assert raised > constant
+    assert proposal.startswith(
+        f"  proposal  : ORACLE_SHARD_BYTES at {cb.format_gb(raised)} GB (max {cb.format_gb(constant)} GB × 1.25, rounded up to a multiple of 0.10 GB), headroom used, not yet an overrun; width here at {cb.format_gb(raised)} GB: "
+    )
+    assert "though one has used its headroom" in out
+    roomy = _journal(tmp_path, [_pool("oracle-shard", [constant * 4 // 5])])
+    _, out = _run(capsys, roomy)
+    assert "proposal" not in out
+    for fraction in (0.5, 0.8, 0.81, 1.0, 1.3):
+        rows = cb.build_rows(
+            [_pool("oracle-shard", [int(constant * fraction)])],
+            {},
+            constants=CONSTANTS,
+            host=HOST,
+            recent=20,
+            tolerance=0.0,
+            constant_commit_times={},
+        )
+        row = next(row for row in rows if row.unit.name == "oracle-shard")
+        assert row.proposal is None or row.proposal > constant
+
+
+def test_the_kernel_build_row_proposes_no_value_and_names_the_constants_to_re_measure(tmp_path, capsys):
+    """The kernel-build row reads the whole table build, which the two kernel constants bound together, so no reading of it sets either, and an overrun there proposes no value and names what to re-measure."""
+    path = _journal(tmp_path, [_step("run_m1", CONSTANTS["kernel-build"] * 2)])
+    code, out = _run(capsys, path, "--check")
+    assert code == 1
+    proposal = _proposal(_block(out, "kernel-build"))
+    assert proposal.startswith("  proposal  : no value — ")
+    assert "DELTA_PEAK_BYTES" in proposal and "DEFAULT_MEMO_BYTES" in proposal
+    assert " GB" not in proposal
+
+
+def test_a_fleet_survey_states_the_proposals_width_on_each_host_in_the_window(tmp_path, capsys):
+    """Under `--host all` the proposal repeats the width clause for each host with a reading in the window, from the cores and memory that host's newest run record states, and says so when no run record states them."""
+    constant = CONSTANTS["oracle-shard"]
+    third = "third.local"
+    path = _journal(
+        tmp_path,
+        [
+            _run_record(HOST, cores=8, total=16_000_000_000, at="2026-08-01T00:00:00Z"),
+            _run_record(HOST, cores=10, total=34_359_738_368, at="2026-08-02T00:00:00Z"),
+            _run_record(OTHER, cores=18, total=51_539_607_552),
+            _pool("oracle-shard", [constant]),
+            _pool("oracle-shard", [constant // 2], host=OTHER),
+            _pool("oracle-shard", [constant // 2], host=third),
+        ],
+    )
+    assert _main(path, "--host", "all") == 0
+    lines = _block(capsys.readouterr().out, "oracle-shard").splitlines()
+    at = next(line for line in lines if line.startswith("  proposal  : ")).split(" at ")[1].split(" (")[0]
+    assert f"  on {HOST} (10 cores, 34.36 GB) at {at}: " in "\n".join(lines)
+    assert f"  on {OTHER} (18 cores, 51.54 GB) at {at}: " in "\n".join(lines)
+    ours = next(line for line in lines if line.startswith(f"  on {HOST} "))
+    assert "out of 34.36 GB total" in ours
+    assert f"  on {third}: no run record from this host states its cores and memory" in lines
+
+
+def test_the_cycle_quotes_the_proposal_of_a_tripped_row_and_never_of_one_that_only_used_its_headroom(
+    tmp_path, capsys
+):
+    from rebuild.tools import artifact_cycle as ac
+
+    path = _journal(
+        tmp_path,
+        [
+            _pool("conform-sweep", [CONSTANTS["conform-sweep"] * 2]),
+            _pool("oracle-shard", [CONSTANTS["oracle-shard"]]),
+        ],
+    )
+    code, out = _run(capsys, path, "--check")
+    assert code == 1
+    quoted = [match[1] for line in out.splitlines() if (match := ac._TRIPPED_PROPOSAL.match(line))]
+    assert quoted == [_proposal(_block(out, "conform-sweep")).removeprefix("  proposal  : ")]
+    assert quoted[0].startswith("CONFORM_SWEEP_UNIT_BYTES at ")

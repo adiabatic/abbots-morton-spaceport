@@ -5948,15 +5948,21 @@ def test_do_job_costs_reports_a_clean_check():
 
 
 def test_do_job_costs_diffs_the_constants_when_the_check_trips():
-    """When the check trips, the step asks `calibrate_budgets --moved` which constants differ from their values at `HEAD`, to learn whether one has already been re-measured in the working tree (so the commit in hand is already the acceptance), and the status names each one. Unlike the invariant diff, this one runs only on a trip."""
+    """When the check trips, the status quotes the tripped row's proposal and leaves out the proposal of a row that has only used its headroom. The step then asks `calibrate_budgets --moved` which constants differ from their values at `HEAD`, to learn whether one has already been re-measured in the working tree (so the commit in hand is already the acceptance), and the status names each one. Unlike the invariant diff, this one runs only on a trip."""
     calls: list[str] = []
     seen: dict[str, list[str]] = {}
+    tripped = "CORPUS_WORKER_BYTES at 0.83 GB (max 0.66 GB × 1.25, rounded up to a multiple of 0.01 GB); width here at 0.83 GB: 8 at 0.83 GB each"
+    used = "ORACLE_SHARD_BYTES at 1.00 GB (max 0.76 GB × 1.25, rounded up to a multiple of 0.10 GB), headroom used, not yet an overrun; width here at 1.00 GB: 43 at 1.00 GB each"
 
     def spawn(name, argv, *, emit, registry, stream):
         calls.append(name)
         seen[name] = argv
         if name == "job-costs":
-            return _step(name, 1, stdout="  OVERRUN   : max 13.10 GB exceeds the constant by 9%")
+            return _step(
+                name,
+                1,
+                stdout=f"  OVERRUN   : max 0.70 GB exceeds the constant by 6%\n  proposal  : {tripped}\n  proposal  : {used}\n",
+            )
         return _step(
             name,
             0,
@@ -5975,9 +5981,11 @@ def test_do_job_costs_diffs_the_constants_when_the_check_trips():
         "--moved",
     ]
     assert report.job_costs_status.startswith("OVERRUN")
+    assert "that commit is the acceptance" in report.job_costs_status
     assert report.job_costs_status.endswith(
-        " — DELTA_PEAK_BYTES and TABLE_BUILD_PEAK_BYTES have already moved in the working tree"
+        f" — proposal: {tripped} — DELTA_PEAK_BYTES and TABLE_BUILD_PEAK_BYTES have already moved in the working tree"
     )
+    assert "ORACLE_SHARD_BYTES" not in report.job_costs_status
     assert report.job_costs_ok is False
 
 
