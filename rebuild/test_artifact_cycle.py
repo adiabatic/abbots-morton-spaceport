@@ -2192,45 +2192,48 @@ def test_the_plan_prints_the_sweep_width_with_its_derivation():
 
 
 class TestTheCorpusBuildWidth:
-    """Both bounds are checked, because which one limits the width matters: the cap stops the pool where widening stops helping on a machine with memory to spare, and the division protects a machine with none."""
+    """Both bounds are checked, because which one limits the width matters: the cap holds the build to the cores its lane has on a machine with memory to spare, and the division protects a machine with none."""
 
-    def test_the_cap_binds_where_the_machine_has_room_to_spare(self):
-        """A machine with memory for dozens of workers gets `CORPUS_JOBS_CAP`. The limit is not memory: one parent process hands out the batches and merges the replies, and eight is the widest pool measured (the comment on `CORPUS_JOBS_CAP` in rebuild/tools/artifact_cycle.py)."""
-        assert (
-            ac.corpus_job_budget(skip_gates=True, ncores=12, total_bytes=1_000_000_000_000)
-            == ac.CORPUS_JOBS_CAP
-        )
+    def test_the_cores_bind_where_the_machine_has_room_to_spare(self):
+        """A machine with memory for dozens of workers gets its cap, which is a count of cores less the parent: under a gated cycle the build lane's share (`memory_budget.split_cores`), whether or not gate:make-test runs, and by hand or under --skip-gates every usable core."""
+        roomy: dict[str, Any] = dict(ncores=12, total_bytes=1_000_000_000_000)
+        assert ac.corpus_job_budget(skip_gates=False, **roomy) == 5
+        assert ac.corpus_job_budget(skip_gates=False, skip_make_test=True, **roomy) == 5
+        assert ac.corpus_job_budget(skip_gates=True, **roomy) == 11
 
-    def test_a_machine_with_fewer_cores_than_the_cap_gets_its_cores(self):
-        """The cap and the core count are one `min()` because neither is a memory limit, and gate:make-test's two cores are subtracted from the core count before the `min()`: a five-core machine runs five workers alone and three beside that pool, with memory to spare in both cases."""
-        assert ac.corpus_job_budget(skip_gates=True, ncores=5, total_bytes=1_000_000_000_000) == 5
-        assert ac.corpus_job_budget(skip_gates=False, ncores=5, total_bytes=1_000_000_000_000) == 3
+    def test_a_small_machine_splits_its_cores_between_the_lanes(self):
+        """A five-core machine's build lane holds three cores, the odd one included, so a gated build runs two workers beside its parent, and a hand build runs four, with memory to spare in both cases. On one core both caps floor at one worker."""
+        assert ac.corpus_job_budget(skip_gates=False, ncores=5, total_bytes=1_000_000_000_000) == 2
+        assert ac.corpus_job_budget(skip_gates=True, ncores=5, total_bytes=1_000_000_000_000) == 4
+        assert ac.corpus_job_budget(skip_gates=False, ncores=1, total_bytes=1_000_000_000_000) == 1
+        assert ac.corpus_job_budget(skip_gates=True, ncores=1, total_bytes=1_000_000_000_000) == 1
 
     def test_both_fleet_machines_keep_a_pooled_build_under_a_gated_cycle(self):
-        """On both fleet machines (`doc/fleet.md`) the build runs a pool: beside gate:make-test's pool the 48 GiB machine runs it at the cap, and the 32 GiB machine runs more than one worker both gated and alone. The lower bound is what a change to the worker constant must not cross, because a width of one is the serial build. For the 32 GiB machine this test requires only more than one worker, so it still passes if a change to the constant narrows that machine's width below the cap. `test_the_shipped_corpus_divisor_holds_the_32_gib_machine_at_the_cap_by_division` in rebuild/test_memory_budget.py checks that the gated width there is the cap. The derivation is checked too, because the plan line quotes it."""
-        roomy = ac.corpus_job_budget(skip_gates=False, ncores=12, total_bytes=MACHINE_48_GIB)
-        assert roomy == ac.CORPUS_JOBS_CAP
-        assert ac.corpus_job_derivation(skip_gates=False, ncores=12, total_bytes=MACHINE_48_GIB).startswith(
-            f"{ac.CORPUS_JOBS_CAP} at "
-        )
-        narrow = ac.corpus_job_budget(skip_gates=False, ncores=10, total_bytes=MACHINE_32_GIB)
-        assert 1 < narrow <= ac.CORPUS_JOBS_CAP
-        assert ac.corpus_job_derivation(skip_gates=False, ncores=10, total_bytes=MACHINE_32_GIB).startswith(
-            f"{narrow} at "
-        )
+        """On the fleet machines (`doc/fleet.md`) the build runs a pool at its lane share beside gate:make-test's pool: eight workers on the 18-core 48 GiB machine, five on the 12-core one, and four on the 10-core 32 GiB machine, which runs more than one alone too. The lower bound is what a change to the worker constant must not cross, because a width of one is the serial build. `test_the_shipped_corpus_divisor_holds_the_32_gib_machine_at_its_lane_share_by_division` in rebuild/test_memory_budget.py checks the 32 GiB machine's division apart from its cap. The derivation is checked too, because the plan line quotes it."""
+        for ncores, total_bytes, width in (
+            (18, MACHINE_48_GIB, 8),
+            (12, MACHINE_48_GIB, 5),
+            (10, MACHINE_32_GIB, 4),
+        ):
+            assert ac.corpus_job_budget(skip_gates=False, ncores=ncores, total_bytes=total_bytes) == width
+            assert ac.corpus_job_derivation(
+                skip_gates=False, ncores=ncores, total_bytes=total_bytes
+            ).startswith(f"{width} at ")
         alone = ac.corpus_job_budget(skip_gates=True, ncores=10, total_bytes=MACHINE_32_GIB)
-        assert 1 < alone <= ac.CORPUS_JOBS_CAP
+        assert 1 < alone <= 9
 
     def test_the_pytest_pool_comes_off_the_machine_before_the_division(self):
-        """A cycle runs this build beside gate:make-test's pool, so the pool's bytes are added to the co-resident term and its two cores come off the cap before the division. The test checks the fit terms directly, because on the fleet machines the subtraction does not change the resulting width, and a machine size chosen to sit where it would is a number every change to the constants would have to retune."""
+        """A cycle runs this build beside gate:make-test's pool, so the pool's bytes at the gate lane's share are added to the co-resident term, and the cap is the build lane's share less the parent. On nine cores the build lane holds five and the gate lane four. The test checks the fit terms directly, because on the fleet machines the memory subtraction does not change the resulting width, and a machine size chosen to sit where it would is a number every change to the constants would have to retune."""
         solo = ac._corpus_fit_terms(skip_gates=True, skip_make_test=False, ncores=9)
         beside = ac._corpus_fit_terms(skip_gates=False, skip_make_test=False, ncores=9)
-        assert solo == (ac.CORPUS_WORKER_BYTES, ac.CORPUS_PARENT_BYTES, ac.CORPUS_JOBS_CAP)
+        unpooled = ac._corpus_fit_terms(skip_gates=False, skip_make_test=True, ncores=9)
+        assert solo == (ac.CORPUS_WORKER_BYTES, ac.CORPUS_PARENT_BYTES, 8)
         assert beside == (
             ac.CORPUS_WORKER_BYTES,
-            ac.CORPUS_PARENT_BYTES + ac._font_suite_worker_bytes() * ac.make_test_pool_width(ncores=9),
-            ac.CORPUS_JOBS_CAP - 1,
+            ac.CORPUS_PARENT_BYTES + 4 * ac._font_suite_worker_bytes(),
+            4,
         )
+        assert unpooled == (ac.CORPUS_WORKER_BYTES, ac.CORPUS_PARENT_BYTES, 4)
 
     def test_the_floor_answers_one_on_a_machine_that_cannot_hold_a_worker(self):
         """A machine with no memory left after its reserve floors at one in both cases. Width one is the serial build: the parent runs the units phase itself instead of handing it to a worker pool."""
@@ -2251,13 +2254,21 @@ class TestTheStandingFillWidth:
     """The cycle sizes the standing fill's refill pool, and the fill uses the width it is given. The fill's code is part of its memo's stamp, so a width computed there would invalidate the memo on every edit to the arithmetic."""
 
     def test_the_pytest_pool_comes_off_the_machine_but_not_off_the_cap(self):
-        """gate:make-test's pool shares the cores with the refill pool while both run, so only its bytes are subtracted."""
+        """gate:make-test's pool shares the cores with the refill pool while both run, so only its bytes are subtracted, at the width that pool runs at: the gate lane's share while the build lane runs, and every core on a pass that runs neither run_m1 nor the corpus build."""
         solo = ac._standing_fill_terms(skip_gates=True, skip_make_test=False, ncores=9)
         beside = ac._standing_fill_terms(skip_gates=False, skip_make_test=False, ncores=9)
+        laneless = ac._standing_fill_terms(
+            skip_gates=False, skip_make_test=False, build_lane_runs=False, ncores=9
+        )
         assert solo == (ac.STANDING_FILL_WORKER_BYTES, ac.STANDING_FILL_PARENT_BYTES, 9)
         assert beside == (
             ac.STANDING_FILL_WORKER_BYTES,
-            ac.STANDING_FILL_PARENT_BYTES + ac._font_suite_worker_bytes() * ac.make_test_pool_width(ncores=9),
+            ac.STANDING_FILL_PARENT_BYTES + 4 * ac._font_suite_worker_bytes(),
+            9,
+        )
+        assert laneless == (
+            ac.STANDING_FILL_WORKER_BYTES,
+            ac.STANDING_FILL_PARENT_BYTES + 9 * ac._font_suite_worker_bytes(),
             9,
         )
 
@@ -2316,6 +2327,7 @@ def _plan_conform_derivation(plan: ac.Plan, *, ncores: int, total_bytes: int) ->
         skip_corpus=plan.skip_corpus,
         verdict_update_runs=plan.runs("verdict-update"),
         pool_policy=plan.pool_policy,
+        build_lane_runs=not (plan.skip_run_m1 and plan.skip_corpus),
         ncores=ncores,
         total_bytes=total_bytes,
     )
@@ -2377,8 +2389,8 @@ class TestTheConformSweepWidth:
         )
         assert terms(skip_make_test=True) == (per_unit, corpus(True), cap(skip_make_test=True))
 
-        assert 0 < verdict_update(False) < corpus(False)
-        assert terms(verdict_update_runs=True) == (per_unit, corpus(False), cap())
+        assert 0 < corpus(False) < verdict_update(False)
+        assert terms(verdict_update_runs=True) == (per_unit, verdict_update(False), cap())
         assert terms(skip_corpus=True, verdict_update_runs=True) == (
             per_unit,
             verdict_update(False),
@@ -2396,7 +2408,7 @@ class TestTheConformSweepWidth:
         )
 
     def test_the_larger_build_lane_step_is_the_one_that_comes_off(self):
-        """The conformance sweep starts beside the corpus build, and a conformance sweep still running when the build finishes, or one the queue policy starts late, runs beside the verdict-update step, so a pass that runs both subtracts the larger. The corpus build stops at `CORPUS_JOBS_CAP` while the standing fill takes all the cores, so on a machine with enough cores the verdict-update step is the larger and is the one subtracted."""
+        """The conformance sweep starts beside the corpus build, and a conformance sweep still running when the build finishes, or one the queue policy starts late, runs beside the verdict-update step, so a pass that runs both subtracts the larger. The corpus build stops at the build lane's share of the cores while the standing fill takes all of them, so on a machine with enough cores the verdict-update step is the larger and is the one subtracted. On one core each pool runs one worker, and a corpus worker outweighs a refill worker, so there the corpus build is the larger; the test states that ordering before relying on it."""
         machine: dict[str, Any] = dict(skip_gates=False, skip_make_test=False, total_bytes=MACHINE_48_GIB)
         wide: dict[str, Any] = dict(machine, ncores=40)
         corpus = ac.CORPUS_PARENT_BYTES + ac.CORPUS_WORKER_BYTES * ac.corpus_job_budget(**wide)
@@ -2416,9 +2428,15 @@ class TestTheConformSweepWidth:
             ac._conform_fit_terms(**wide, skip_corpus=False, verdict_update_runs=True, pool_policy="queue")[1]
             == verdict_update
         )
-        narrow: dict[str, Any] = dict(machine, ncores=9)
-        assert (
-            ac._conform_build_lane(**narrow, skip_corpus=False, verdict_update_runs=True)[0] == "corpus-build"
+        narrow: dict[str, Any] = dict(machine, ncores=1)
+        narrow_corpus = ac.CORPUS_PARENT_BYTES + ac.CORPUS_WORKER_BYTES * ac.corpus_job_budget(**narrow)
+        narrow_fill = ac.STANDING_FILL_PARENT_BYTES + ac.STANDING_FILL_WORKER_BYTES * ac.standing_fill_jobs(
+            **narrow
+        )
+        assert narrow_corpus > narrow_fill
+        assert ac._conform_build_lane(**narrow, skip_corpus=False, verdict_update_runs=True) == (
+            "corpus-build",
+            narrow_corpus,
         )
         assert ac._conform_build_lane(**narrow, skip_corpus=True, verdict_update_runs=False) == ("", 0)
 
@@ -2472,7 +2490,7 @@ class TestTheConformSweepWidth:
             )
 
     def test_beside_a_corpus_build_the_conform_sweep_takes_the_cores_the_build_leaves(self):
-        """Beside a corpus build the conformance sweep's cap is the cores less the build's parent and its workers, and under the overlap policy less gate:make-test's pool as well, the subtraction the rebuild suite's width makes (`contracts_pool_width` gives the reasons). The verdict-update step's refill pool is not subtracted. The cap never falls below the acceptance configurations, the width one process per configuration gives, while memory can still narrow the width below it. The derivation says which of the two bounds set the cap."""
+        """Beside a corpus build the conformance sweep's cap is the cores less the build's parent and its workers, and under the overlap policy less gate:make-test's pool as well, the subtraction the rebuild suite's width makes (`contracts_pool_width` gives the reasons). The verdict-update step's refill pool is not subtracted. The cap never falls below the acceptance configurations, the width one process per configuration gives, while memory can still narrow the width below it. The derivation says which of the two bounds set the cap. Under the overlap policy beside a gated build the two lanes already fill the cores, so the subtraction leaves none and the floor sets the cap. With the corpus build skipped the sweep takes the build lane's cores beside gate:make-test's gate-lane share, and on a pass that runs neither run_m1 nor the corpus build that pool holds every core, so the floor sets the cap again."""
         from rebuild.pipeline.conform import ACCEPTANCE_CONFIGS
 
         configs = len(ACCEPTANCE_CONFIGS)
@@ -2484,13 +2502,17 @@ class TestTheConformSweepWidth:
         assert (
             ac.conform_job_budget(**beside, pool_policy="queue", verdict_update_runs=True) == 40 - 1 - corpus
         )
-        assert ac.conform_job_budget(**beside, pool_policy="overlap") == 40 - 1 - corpus - make_test
+        assert 40 - 1 - corpus - make_test == 0
+        assert ac.conform_job_budget(**beside, pool_policy="overlap") == configs
         assert ac.conform_job_derivation(**beside, pool_policy="queue").endswith(
             f"; the cap is 40 cores less the corpus build's parent and its {corpus} workers"
         )
         assert ac.conform_job_derivation(**beside, pool_policy="overlap").endswith(
-            f"less gate:make-test's {make_test} (overlap policy)"
+            f"less gate:make-test's {make_test} (overlap policy) leave none"
         )
+        unbuilt: dict[str, Any] = dict(wide, skip_corpus=True, ncores=40)
+        assert ac.conform_job_budget(**unbuilt, pool_policy="overlap") == 40 - make_test
+        assert ac.conform_job_budget(**unbuilt, pool_policy="overlap", build_lane_runs=False) == configs
 
         narrow: dict[str, Any] = dict(wide, skip_corpus=False, ncores=10)
         assert 10 - 1 - ac.corpus_job_budget(**wide, ncores=10) < configs
@@ -2512,7 +2534,7 @@ class TestTheConformSweepWidth:
         assert _argv(by_name["run_m1"])[5:7] == ["--jobs", str(plan.sweep_jobs)]
 
     def test_the_plan_prints_the_conform_sweep_width_with_its_derivation(self):
-        """Every Lane conform line that runs the conformance sweep quotes its width, the constant it divides by, and the derivation over the flags the plan resolved. The co-resident term is the larger build-lane step, plus gate:make-test's pool under the overlap policy: the corpus build when it runs and holds more than the verdict-update step, the verdict-update step when the build does not run or the step holds more. For a pass that runs neither, the line says so and prints no co-resident term unless gate:make-test's pool runs beside the conformance sweep."""
+        """Every Lane conform line that runs the conformance sweep quotes its width, the constant it divides by, and the derivation over the flags the plan resolved. The co-resident term is the larger build-lane step, plus gate:make-test's pool under the overlap policy: the corpus build when it runs and holds more than the verdict-update step, the verdict-update step when the build does not run or the step holds more. For a pass that runs neither, the line says so and prints no co-resident term unless gate:make-test's pool runs beside the conformance sweep. On the ten-core machine the refill pool takes every core while the corpus build takes the build lane's share, so a gated pass that runs both steps subtracts the verdict-update step, and only a pass that runs the build alone shows the build's term."""
         machine: dict[str, Any] = dict(ncores=10, total_bytes=MACHINE_32_GIB)
         cases = {
             "queued": _plan(pool_policy="queue", **machine),
@@ -2532,7 +2554,7 @@ class TestTheConformSweepWidth:
             line = _lane_conform_line(plan)
             derivation = _plan_conform_derivation(plan, **machine)
             assert (
-                f"(--jobs {plan.conform_jobs}; CONFORM_SWEEP_UNIT_BYTES a conformance-sweep unit, beside the corpus build's parent and its {plan.corpus_jobs} workers"
+                f"(--jobs {plan.conform_jobs}; CONFORM_SWEEP_UNIT_BYTES a conformance-sweep unit, the verdict-update step outweighing the corpus build, so beside the verdict update's process and its {plan.standing_fill_jobs} refill workers"
                 in line
             )
             assert line.endswith(f"; {derivation})")
@@ -2553,6 +2575,17 @@ class TestTheConformSweepWidth:
         assert coresident > ac.CORPUS_PARENT_BYTES + ac.CORPUS_WORKER_BYTES * overlap.corpus_jobs
         assert f"less {format_gb(coresident)} GB co-resident" in _plan_conform_derivation(overlap, **machine)
         assert "gate:make-test's pool" not in _lane_conform_line(cases["queued"])
+
+        corpus_only = _plan(
+            skip_verdict_update=True, verdict_update_note="nothing moved", pool_policy="queue", **machine
+        )
+        assert not corpus_only.runs("verdict-update")
+        line = _lane_conform_line(corpus_only)
+        assert (
+            f"(--jobs {corpus_only.conform_jobs}; CONFORM_SWEEP_UNIT_BYTES a conformance-sweep unit, beside the corpus build's parent and its {corpus_only.corpus_jobs} workers; "
+            in line
+        )
+        assert line.endswith(f"; {_plan_conform_derivation(corpus_only, **machine)})")
 
         beside_verdict_update = _plan(
             skip_corpus=True, corpus_note="inputs unchanged", pool_policy="queue", **machine
@@ -2619,7 +2652,7 @@ class TestTheConformSweepWidth:
 
 
 def test_the_job_budgets_answer_the_cgroup_allowance_rather_than_the_hosts_core_count(monkeypatch):
-    """A CPU quota is invisible to `os.cpu_count()`, so the oracle, conformance-sweep and corpus budgets read their cores through `memory_budget.usable_cores`. The test runs the real probe over a fixture cgroup root that allows two cores, which is below both `len(ACCEPTANCE_CONFIGS)` and `CORPUS_JOBS_CAP`, so each budget returns the allowance. Each call passes a terabyte of memory so that only the core count limits the width. An explicit `ncores` still takes precedence over the probe."""
+    """A CPU quota is invisible to `os.cpu_count()`, so the oracle, conformance-sweep, corpus and gate:make-test budgets read their cores through `memory_budget.usable_cores`. The test runs the real probe over a fixture cgroup root that allows two cores, which is below `len(ACCEPTANCE_CONFIGS)`, so the oracle and the conformance sweep return the allowance, a hand corpus build returns the allowance less its parent, and a gated cycle splits the allowance between the lanes (`memory_budget.split_cores`). Each call passes a terabyte of memory so that only the core count limits the width. An explicit `ncores` still takes precedence over the probe."""
     from rebuild.pipeline.conform import ACCEPTANCE_CONFIGS
     from rebuild.tools import memory_budget
 
@@ -2628,21 +2661,52 @@ def test_the_job_budgets_answer_the_cgroup_allowance_rather_than_the_hosts_core_
     root = REPO_ROOT / "rebuild" / "fixtures" / "memory_budget" / "container-v2"
     allowed = probe(root)
     monkeypatch.setattr(memory_budget, "usable_cores", functools.partial(probe, root))
-    assert allowed == min(host, 2) < min(len(ACCEPTANCE_CONFIGS), ac.CORPUS_JOBS_CAP)
+    build_lane, gate_lane = memory_budget.split_cores(allowed)
+    assert allowed == min(host, 2) < len(ACCEPTANCE_CONFIGS)
     assert ac.sweep_job_budget(total_bytes=1_000_000_000_000) == allowed
-    assert ac.corpus_job_budget(skip_gates=True, total_bytes=1_000_000_000_000) == allowed
+    assert ac.corpus_job_budget(skip_gates=True, total_bytes=1_000_000_000_000) == max(1, allowed - 1)
+    assert ac.corpus_job_budget(skip_gates=False, total_bytes=1_000_000_000_000) == max(1, build_lane - 1)
+    assert ac.make_test_pool_width() == gate_lane
     assert ac.conform_job_budget(skip_gates=True, skip_corpus=True, total_bytes=1_000_000_000_000) == allowed
     assert ac.sweep_job_budget(12, total_bytes=1_000_000_000_000) == 12
-    assert (
-        ac.corpus_job_budget(skip_gates=True, ncores=12, total_bytes=1_000_000_000_000) == ac.CORPUS_JOBS_CAP
-    )
+    assert ac.corpus_job_budget(skip_gates=True, ncores=12, total_bytes=1_000_000_000_000) == 11
 
 
-def test_make_test_pool_width_is_the_width_the_corpus_budget_leaves_it():
-    """gate:make-test's pool starts at the width the budgets reserve for: `MAKE_TEST_POOL_WORKERS`, capped at the core count and floored at one."""
-    assert ac.make_test_pool_width(ncores=12) == ac.MAKE_TEST_POOL_WORKERS
-    assert ac.make_test_pool_width(ncores=6) == ac.MAKE_TEST_POOL_WORKERS
+def test_make_test_pool_width_is_the_gate_lanes_share_of_the_cores():
+    """While the build lane runs, gate:make-test's pool takes the gate lane's share of the cores (`memory_budget.split_cores`), floored at one, which is the width the budgets reserve for."""
+    assert ac.make_test_pool_width(ncores=12) == 6
+    assert ac.make_test_pool_width(ncores=6) == 3
     assert ac.make_test_pool_width(ncores=1) == 1
+
+
+def test_make_test_takes_every_core_when_no_build_lane_runs():
+    """On a pass that runs neither run_m1 nor the corpus build, nothing holds the build lane, so gate:make-test's pool takes every core."""
+    assert ac.make_test_pool_width(build_lane_runs=False, ncores=18) == 18
+
+
+def test_the_plan_gives_make_test_every_core_only_when_neither_build_lane_step_runs():
+    """`build_plan` tells the budgets the build lane runs when run_m1 or the corpus build does. On a roomy 18-core machine gate:make-test's pool is the gate lane's share while either runs and every core when neither does, and the widths that subtract that pool (the rebuild suite's and the conformance sweep's cap under the overlap policy, and the standing fill's memory term) subtract the same width. The table build's width subtracts the gate lane's share on any pass, because run_m1 holds the build lane whenever it runs, and its plan line names that width."""
+    machine: dict[str, Any] = dict(ncores=18, total_bytes=MACHINE_48_GIB, pool_policy="overlap")
+    for shape in ({}, {"skip_run_m1": True}, {"skip_corpus": True}):
+        assert _plan(**machine, **shape).make_test_workers == 9
+    idle = _plan(**machine, skip_run_m1=True, skip_corpus=True)
+    assert idle.make_test_workers == 18
+    assert idle.contracts_workers == 1
+    assert "gate:make-test's 18 (overlap policy)" in idle.conform_reason
+    alone = ac.standing_fill_derivation(
+        skip_gates=False, build_lane_runs=False, ncores=18, total_bytes=MACHINE_48_GIB
+    )
+    beside = ac.standing_fill_derivation(skip_gates=False, ncores=18, total_bytes=MACHINE_48_GIB)
+    assert alone != beside
+    assert idle.standing_fill_reason.endswith(alone)
+    assert "less gate:make-test's 9 workers" in idle.kernel_reason
+
+
+@pytest.mark.parametrize("ncores", [18, 12, 10])
+def test_the_lanes_partition_the_cores_under_a_gated_cycle(ncores):
+    """With memory to spare, a gated cycle's corpus build (its parent and its workers) and gate:make-test's pool together take exactly the machine's cores, so neither lane books a core the other holds."""
+    corpus = ac.corpus_job_budget(skip_gates=False, ncores=ncores, total_bytes=1_000_000_000_000)
+    assert 1 + corpus + ac.make_test_pool_width(ncores=ncores) == ncores
 
 
 def test_a_stated_pool_width_is_the_width_the_cycle_reserves_by(monkeypatch):
@@ -3563,7 +3627,7 @@ def test_a_forced_pass_hands_the_make_test_wrapper_force(tmp_path, monkeypatch, 
 def test_the_plan_reserves_make_tests_pool_exactly_when_the_wrapper_runs_it(
     tmp_path, monkeypatch, flags, recorded
 ):
-    """The plan sets the corpus build's widths before `make test` decides anything, so the memory set aside for `make test` is correct only if the plan and the wrapper make the same skip decision. Cores and memory reserved for a gate that then skips on its own green record are lost to the build. Every combination of forcing flag and green record ends one of two ways. Either the plan skips the gate, the wrapper would also skip over the same fingerprint and record, and the build gets the whole machine. Or the plan runs the gate, the argv the live Makefile passes to the wrapper runs the suite, and its pool is subtracted from the build's widths."""
+    """The plan sets the corpus build's widths before `make test` decides anything, so the memory set aside for `make test` is correct only if the plan and the wrapper make the same skip decision. Memory reserved for a gate that then skips on its own green record is lost to the build. Every combination of forcing flag and green record ends one of two ways. Either the plan skips the gate, the wrapper would also skip over the same fingerprint and record, and the build gets the pool's memory back. Or the plan runs the gate, the argv the live Makefile passes to the wrapper runs the suite, and its pool is subtracted from the build's widths."""
     _unsettled_repo(tmp_path, monkeypatch)
     monkeypatch.setattr(ac, "make_test_closure_fingerprint", lambda root=None: "fp")
     if recorded is not None:
@@ -3583,18 +3647,18 @@ def test_the_plan_reserves_make_tests_pool_exactly_when_the_wrapper_runs_it(
     assert plan.signature_jobs == ac.signature_job_budget()
     assert plan.kernel_threads == ac.kernel_threads_budget(skip_make_test=not runs)
     rendered = _plan_text(plan)
-    assert ("gate:make-test's pytest pool held to" in rendered) is runs
-    assert ("gate:make-test skipped, so the corpus build takes the whole machine" in rendered) is not runs
+    assert ("holds the gate lane and its bytes come off the machine's memory" in rendered) is runs
+    assert ("gate:make-test skipped, so the other gates hold the gate lane" in rendered) is not runs
 
 
 def test_the_signature_pool_takes_the_cores_the_corpus_width_cannot():
-    """The ink-signature width is the one fan-out in the plan that memory does not derive: a signature worker holds one comparator, and no `*_BYTES` constant covers it. It is the whole machine whether gate:make-test runs, skips, or the gates are skipped, since that pool shares the cores while both run, so on a ten-core machine it is ten on every pass, above `CORPUS_JOBS_CAP`, which applies only to the corpus build's unit workers. On a machine with a quarter of the memory, the reserve and the parent's co-resident memory exceed the total, so the corpus width floors at one while the signature width stays at ten. The argv passes the width after `--jobs`, and the plan shows it on its own row with its derivation."""
+    """The ink-signature width is the one fan-out in the plan that memory does not derive: a signature worker holds one comparator, and no `*_BYTES` constant covers it. It is the whole machine whether gate:make-test runs, skips, or the gates are skipped, since that pool shares the cores while both run, so on a ten-core machine it is ten on every pass, above the corpus build's cap, which applies only to that build's unit workers. On a machine with a quarter of the memory, the reserve and the parent's co-resident memory exceed the total, so the corpus width floors at one while the signature width stays at ten. The argv passes the width after `--jobs`, and the plan shows it on its own row with its derivation."""
     derivation = "10 of 10 cores, the whole machine, shared with gate:make-test's pool on a cycle pass that runs that gate"
     assert ac.signature_job_budget(ncores=10) == 10
     assert ac.signature_job_derivation(ncores=10) == derivation
 
     gated = _plan(skip_make_test=False, ncores=10, total_bytes=MACHINE_32_GIB)
-    assert gated.signature_jobs == 10 > gated.corpus_jobs == ac.CORPUS_JOBS_CAP
+    assert gated.signature_jobs == 10 > gated.corpus_jobs == 4
     narrow = _plan(skip_make_test=False, ncores=10, total_bytes=MACHINE_32_GIB // 4)
     assert narrow.signature_jobs == 10 > narrow.corpus_jobs == 1
     gated_by_name = {step.name: step for step in gated.steps}
@@ -3611,7 +3675,7 @@ def test_the_signature_pool_takes_the_cores_the_corpus_width_cannot():
     solo = _plan(
         skip_make_test=True, make_test_note="closure unchanged", ncores=10, total_bytes=MACHINE_32_GIB
     )
-    assert solo.signature_jobs == 10 > ac.CORPUS_JOBS_CAP >= solo.corpus_jobs
+    assert solo.signature_jobs == 10 > solo.corpus_jobs
     assert _argv({step.name: step for step in solo.steps}["corpus-build"])[-2:] == ["--signature-jobs", "10"]
     assert derivation in _plan_text(solo)
 
@@ -3698,7 +3762,7 @@ def test_a_stated_contracts_width_is_the_width_the_cycle_hands_the_child(monkeyp
 
 
 def test_the_plan_states_the_contracts_pool_width_on_its_lane_line():
-    """The lane line shows the suite's width and its derivation, and the build lane line shows the suite submitted before the corpus build. On a ten-core machine beside a corpus build at `CORPUS_JOBS_CAP` workers, the suite gets one worker under either policy. On a twelve-core machine the overlap policy reaches one worker from the arithmetic alone, without the floor, which is narrower than the queue policy's width, and the plan prints it. When the corpus build is skipped, the plan says the suite is submitted once the run_m1 gate passes, not that it runs beside a build the plan shows as SKIPPED."""
+    """The lane line shows the suite's width and its derivation, and the build lane line shows the suite submitted before the corpus build. Beside a corpus build at its lane share, the queue policy gives the suite the gate lane's share, five workers on a ten-core machine and six on a twelve-core one. Under the overlap policy gate:make-test's pool already holds that share, so the arithmetic leaves none, the floor gives the suite one worker, and the plan says so. When the corpus build is skipped, the plan says the suite is submitted once the run_m1 gate passes, not that it runs beside a build the plan shows as SKIPPED."""
     gated = _plan(pool_policy="queue", ncores=10, total_bytes=MACHINE_32_GIB)
     text = _plan_text(gated)
     assert (
@@ -3717,15 +3781,16 @@ def test_the_plan_states_the_contracts_pool_width_on_its_lane_line():
     )
 
     overlap = _plan(pool_policy="overlap", ncores=10, total_bytes=MACHINE_32_GIB)
-    assert overlap.contracts_workers == gated.contracts_workers == 1
+    assert overlap.contracts_workers == 1 < gated.contracts_workers == 5
+    assert overlap.contracts_reason.endswith("floored at one")
     assert f"-n {overlap.contracts_workers} (" in _plan_text(overlap)
     assert "CO-RESIDENT with gate:make-test's pool and gate:conform's sweep (overlap policy)" in _plan_text(
         overlap
     )
     roomy = _plan(pool_policy="queue", ncores=12, total_bytes=MACHINE_48_GIB)
     roomy_overlap = _plan(pool_policy="overlap", ncores=12, total_bytes=MACHINE_48_GIB)
-    assert roomy_overlap.contracts_workers == 1 < roomy.contracts_workers
-    assert "floored" not in roomy_overlap.contracts_reason
+    assert roomy_overlap.contracts_workers == 1 < roomy.contracts_workers == 6
+    assert roomy_overlap.contracts_reason.endswith("floored at one")
     assert f"-n {roomy_overlap.contracts_workers} (" in _plan_text(roomy_overlap)
 
     solo = _plan(
@@ -3748,7 +3813,7 @@ def test_the_plan_states_the_contracts_pool_width_on_its_lane_line():
 
 
 def test_skip_make_test_frees_the_corpus_build_budget():
-    """gate:make-test does not affect the oracle sweep width, but the corpus build gets cores and memory back when the pytest pool is not running. On the 48 GiB machine both cases reach `CORPUS_JOBS_CAP`, so the widths are equal; `test_the_pytest_pool_comes_off_the_machine_before_the_division` checks that their terms differ. This test checks that the plan uses each case's own terms and that its reason line says which: the gated derivation includes the pool's memory in its co-resident amount, and the skipped-gate line says the build takes the whole machine. The widths are computed from the budget functions, so re-measuring either corpus constant does not require editing this test."""
+    """gate:make-test does not affect the oracle sweep width, and the corpus build gets the pytest pool's memory back when that pool is not running, but not its cores: the other gates hold the gate lane, so the build keeps the build lane's share. On the 48 GiB machine both cases reach that share less the parent, so the widths are equal; `test_the_pytest_pool_comes_off_the_machine_before_the_division` checks that their terms differ. This test checks that the plan uses each case's own terms and that its reason line says which: the gated derivation includes the pool's memory in its co-resident amount, and the skipped-gate line says no pool's bytes come off. The widths are computed from the budget functions, so re-measuring either corpus constant does not require editing this test."""
     plan = _plan(
         skip_make_test=True,
         make_test_note="closure unchanged since its last green run",
@@ -3765,7 +3830,10 @@ def test_skip_make_test_frees_the_corpus_build_budget():
     rendered = _plan_text(plan)
     assert f"corpus-build --jobs              : {solo_width}" in rendered
     assert f"less {format_gb(ac.CORPUS_PARENT_BYTES)} GB co-resident" in rendered
-    assert "gate:make-test skipped, so the corpus build takes the whole machine" in rendered
+    assert (
+        "the build lane holds 5 of 10 cores (memory_budget.split_cores), so the corpus build is capped at 5 less its parent; gate:make-test skipped, so the other gates hold the gate lane and no pytest pool's bytes come off the machine's memory"
+        in rendered
+    )
 
     gated = _plan(skip_make_test=False, ncores=10, total_bytes=MACHINE_48_GIB)
     gated_width = ac.corpus_job_budget(skip_gates=False, ncores=10, total_bytes=MACHINE_48_GIB)
@@ -3777,8 +3845,8 @@ def test_skip_make_test_frees_the_corpus_build_budget():
         skip_gates=False, skip_make_test=False, ncores=10
     )
     assert (
-        f"corpus-build --jobs              : {gated_width}  (gate:make-test's pytest pool held to 2 workers — its cores reserved here and its bytes subtracted from the machine's memory beside the build's own parent; "
-        f"{gated_width} at {format_gb(ac.CORPUS_WORKER_BYTES)} GB each out of 51.54 GB total, less a reserve of 8.00 GB, less {format_gb(gated_coresident)} GB co-resident, capped at 8)"
+        f"corpus-build --jobs              : {gated_width}  (the build lane holds 5 of 10 cores (memory_budget.split_cores), so the corpus build is capped at 5 less its parent; gate:make-test's pool, 5 workers, holds the gate lane and its bytes come off the machine's memory beside the build's own parent; "
+        f"{gated_width} at {format_gb(ac.CORPUS_WORKER_BYTES)} GB each out of 51.54 GB total, less a reserve of 8.00 GB, less {format_gb(gated_coresident)} GB co-resident, capped at 4)"
         in _plan_text(gated)
     )
 
@@ -3854,7 +3922,7 @@ def test_the_pool_width_is_handed_to_the_make_test_child_and_to_no_other(monkeyp
     rc = ac._run_cycle(plan, ac.CycleReport(), ac._Emitter(), ac._ChildRegistry(), spawn=fake_spawn)
 
     assert rc == 0
-    assert plan.make_test_workers == ac.MAKE_TEST_POOL_WORKERS
+    assert plan.make_test_workers == ac.make_test_pool_width(ncores=8) == 4
     assert seen["gate:make-test"] == {"PYTEST_XDIST_AUTO_NUM_WORKERS": str(plan.make_test_workers)}
     assert seen["gate:js"] is None
     assert "PYTEST_XDIST_AUTO_NUM_WORKERS" not in os.environ

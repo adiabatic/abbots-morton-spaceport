@@ -133,7 +133,7 @@ class TestTheWidthsAlreadyOnRecord:
 
     @pytest.mark.parametrize("total", SPELLINGS_OF_32_GB)
     def test_subtracting_the_font_pool_gives_the_width_the_32_gb_machine_shipped(self, total: int):
-        """The second recorded fact: with the font suite's ten co-resident workers subtracted, because a cycle runs the fan-out beside a pytest pool, the same formula returns 2 on the same 32 GB machine. `kernel_threads_budget` in `rebuild/tools/artifact_cycle.py` makes this subtraction in the shipped code, estimating the pool at `MAKE_TEST_POOL_WORKERS` workers, not ten, so this test keeps the recorded fact with its own constants. The live `KERNEL_THREADS_DEFAULT` is not asserted, because it is the running machine's solo width and differs between machines."""
+        """The second recorded fact: with the font suite's ten co-resident workers subtracted, because a cycle runs the fan-out beside a pytest pool, the same formula returns 2 on the same 32 GB machine. `kernel_threads_budget` in `rebuild/tools/artifact_cycle.py` makes this subtraction in the shipped code, estimating the pool at `make_test_pool_width` workers (the gate lane's share of the cores), not ten, so this test keeps the recorded fact with its own constants. The live `KERNEL_THREADS_DEFAULT` is not asserted, because it is the running machine's solo width and differs between machines."""
         assert (
             memory_budget.how_many_fit(
                 KERNEL_CONFIG_BYTES,
@@ -191,14 +191,18 @@ class TestTheWidthsAlreadyOnRecord:
         """`DEFAULT_MEMO_BYTES` covers `default`'s memo snapshots kept alive for the wave, stored as compact records with their pools, while `DELTA_PEAK_BYTES` covers a configuration enumerated from scratch and held through its memo write, so the memo term must be the smaller. Setting them equal would charge the wave a whole configuration for a snapshot."""
         assert 0 < DEFAULT_MEMO_BYTES < DELTA_PEAK_BYTES
 
-    def test_the_shipped_corpus_divisor_holds_the_32_gib_machine_at_the_cap_by_division(self):
-        """On the 10-core 32 GiB machine under a gated cycle, the corpus build's width is `CORPUS_JOBS_CAP` because eight workers fit the memory budget, which is the claim the `CORPUS_WORKER_BYTES` comment makes for that machine. This is an upper bound on `CORPUS_WORKER_BYTES` and `CORPUS_PARENT_BYTES`: a change that makes eight workers exceed this machine's budget narrows the width below the cap and fails here. A width test cannot give a lower bound without an invented machine tuned to divide exactly, which every change to the constants would have to re-tune. A worker estimate below what a worker really holds is caught instead by the corpus-worker row of `make job-costs`, against the pool records `rebuild/review/build.py` writes."""
+    def test_the_shipped_corpus_divisor_holds_the_32_gib_machine_at_its_lane_share_by_division(self):
+        """On the 10-core 32 GiB machine under a gated cycle, the corpus build's width is its cap, the build lane's share of the cores less the parent (`memory_budget.split_cores`), because that many workers fit the memory budget beside the parent and gate:make-test's pool, which is the claim the `CORPUS_WORKER_BYTES` comment makes for that machine. The division alone is checked too, since a capped width cannot tell the cap from a division that equals it. This is an upper bound on `CORPUS_WORKER_BYTES` and `CORPUS_PARENT_BYTES`: a change that makes the lane share's workers exceed this machine's budget narrows the width below the cap and fails here. A width test cannot give a lower bound without an invented machine tuned to divide exactly, which every change to the constants would have to re-tune. A worker estimate below what a worker really holds is caught instead by the corpus-worker row of `make job-costs`, against the pool records `rebuild/review/build.py` writes."""
         import rebuild.tools.artifact_cycle as ac
 
+        lane_share = memory_budget.split_cores(10)[0] - 1
+        per_unit, coresident, cap = ac._corpus_fit_terms(skip_gates=False, skip_make_test=False, ncores=10)
+        assert cap == lane_share
         assert (
-            ac.corpus_job_budget(skip_gates=False, ncores=10, total_bytes=MACHINE_32_GIB)
-            == ac.CORPUS_JOBS_CAP
+            memory_budget.how_many_fit(per_unit, coresident_bytes=coresident, total_bytes=MACHINE_32_GIB)
+            >= lane_share
         )
+        assert ac.corpus_job_budget(skip_gates=False, ncores=10, total_bytes=MACHINE_32_GIB) == lane_share
 
 
 class TestWhatDashNAutoResolvesTo:
@@ -294,7 +298,7 @@ class TestTheHandRunDefaults:
     def test_the_corpus_build_takes_its_own_budget_with_no_memory_set_aside_for_gates(
         self, monkeypatch: pytest.MonkeyPatch
     ):
-        """A hand run has no co-resident `make test` pool to leave cores or memory to, so the default is `corpus_job_budget` with `skip_gates=True`. Where memory holds the derived width below the cap, a checked-in width equal to it would pass the first equality. So the test moves the machine to 1 TB, where memory cannot bind, and checks that the width becomes the cores clamped at `CORPUS_JOBS_CAP`. On both fleet machines the width is already at the cap, so there the move changes nothing."""
+        """A hand run has no co-resident `make test` pool to leave cores or memory to, so the default is `corpus_job_budget` with `skip_gates=True`. Where memory holds the derived width below the cap, a checked-in width equal to it would pass the first equality. So the test moves the machine to 1 TB, where memory cannot bind, and checks that the width becomes the solo cap, every usable core less the parent. On the fleet machines the width is already at that cap, so there the move changes nothing."""
         import rebuild.tools.artifact_cycle as ac
         from rebuild.review import build
 
@@ -302,7 +306,7 @@ class TestTheHandRunDefaults:
         monkeypatch.setenv("AMS_TOTAL_MEMORY_BYTES", str(MACHINE_1_TB))
         widened = _parser_built_by(build.main).parse_args([]).jobs
         assert widened == ac.corpus_job_budget(skip_gates=True)
-        assert widened == min(memory_budget.usable_cores(), ac.CORPUS_JOBS_CAP)
+        assert widened == max(1, memory_budget.usable_cores() - 1)
 
     def test_the_signature_width_is_the_hand_runs_whole_machine(self, monkeypatch: pytest.MonkeyPatch):
         """The signature width does not depend on memory: a signature worker is one comparator, so the hand run's default is the cores, the width a cycle passes too. Shrinking the machine until `--jobs` falls to one unit worker leaves the signature width unchanged, which a memory-derived width would not."""
@@ -433,6 +437,15 @@ class TestTheReserveAndCapShape:
         assert min(counts) >= 1 and min(with_pool) >= 1
         assert counts[0] == 1 and counts[-1] > counts[0]
         assert all(pooled <= alone for pooled, alone in zip(with_pool, counts))
+
+    @pytest.mark.parametrize(
+        "cores, shares", [(18, (9, 9)), (12, (6, 6)), (10, (5, 5)), (9, (5, 4)), (1, (1, 1))]
+    )
+    def test_the_lanes_split_the_cores_with_the_odd_one_to_the_build_and_one_each_at_least(
+        self, cores: int, shares: tuple[int, int]
+    ):
+        """`split_cores` gives the build lane the odd core, so its parent and workers never get fewer cores than gate:make-test's pool, and gives each lane at least one, so a one-core machine still starts both."""
+        assert memory_budget.split_cores(cores) == shares
 
     @pytest.mark.parametrize("total", MACHINE_SIZES)
     def test_the_cap_binds_when_it_is_lower_and_is_invisible_when_it_is_not(self, total: int):
@@ -743,6 +756,7 @@ def test_the_module_owns_the_arithmetic_and_holds_no_table_of_per_unit_costs():
         "total_memory_bytes",
         "os_reserve_bytes",
         "usable_cores",
+        "split_cores",
         "how_many_fit",
         "describe_fit",
         "RESERVE_FLOOR_BYTES",

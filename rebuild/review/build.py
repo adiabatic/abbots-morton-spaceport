@@ -3621,7 +3621,7 @@ def main(argv: list[str] | None = None) -> None:
         "--jobs",
         type=int,
         default=corpus_jobs,
-        help=f"per-unit worker budget for the corpus build; the default is the same `corpus_job_budget()` width the artifact cycle passes rather than a checked-in one, with no memory set aside for a gate pool because a hand run has no co-resident `make test` pool to leave cores or bytes to — on this machine {corpus_job_derivation(skip_gates=True)}, where the per-unit figure is one worker's own peak and the co-resident one is the parent that holds the whole corpus beside it. `--jobs 1` is serial, and it is the width a machine gets when the pooled shape does not fit; a deliberate `--jobs N` is also how a wider run gets measured, since a pooled build records its per-worker peaks for `make job-costs`.",
+        help=f"per-unit worker budget for the corpus build; the default is `corpus_job_budget(skip_gates=True)`, the width a `--skip-gates` artifact cycle passes rather than a checked-in one: every usable core less the parent, with no memory set aside for a gate pool because a hand run has no co-resident `make test` pool to leave cores or bytes to (a gated cycle passes the build lane's share of the cores less the parent instead, `memory_budget.split_cores`) — on this machine {corpus_job_derivation(skip_gates=True)}, where the per-unit figure is one worker's own peak and the co-resident one is the parent that holds the whole corpus beside it. `--jobs 1` is serial, and it is the width a machine gets when the pooled shape does not fit; a deliberate `--jobs N` is also how a wider run gets measured, since a pooled build records its per-worker peaks for `make job-costs`.",
     )
     parser.add_argument(
         "--signature-jobs",

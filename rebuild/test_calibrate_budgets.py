@@ -9,6 +9,7 @@ import pytest
 
 from rebuild.tools import calibrate_budgets as cb
 from rebuild.tools import make_test_gate as mtg
+from rebuild.tools import memory_budget
 from rebuild.tools import rebuild_gate as rg
 
 HOST = "this.local"
@@ -506,11 +507,11 @@ def test_the_report_states_the_width_each_constant_implies_here(tmp_path, capsys
 
 
 def test_the_width_clauses_answer_for_the_machine_and_the_tree_they_are_given(tmp_path, capsys):
-    """`render_rows` takes the machine's memory, its cores, and the source tree as arguments, so this test checks the width arithmetic against a stated machine and a fixture tree instead of the machine and checkout running the test. On six cores the corpus build's parent and 3 workers leave 2, so the conformance sweep's cap beside it is its floor, the tree's 4 acceptance configurations."""
+    """`render_rows` takes the machine's memory, its cores, and the source tree as arguments, so this test checks the width arithmetic against a stated machine and a fixture tree instead of the machine and checkout running the test. On twelve cores the corpus-parent row's division fits six of the tree's workers, so a hand build's cap of eleven leaves memory to bind it, while a gated cycle's cap, the build lane's six cores less the parent, binds first. On six cores the gated build's parent and 2 workers leave 3, so the conformance sweep's cap beside it is its floor, the tree's 4 acceptance configurations."""
     tree = tmp_path / "tree"
     (tree / "rebuild" / "tools").mkdir(parents=True)
     (tree / "rebuild" / "tools" / "artifact_cycle.py").write_text(
-        f"{cb.CORPUS_CAP_NAME} = 3\n{cb.CORPUS_PARENT_NAME} = 10_000_000_000\n{cb.CORPUS_WORKER_NAME} = 5_000_000_000\n"
+        f"{cb.CORPUS_PARENT_NAME} = 10_000_000_000\n{cb.CORPUS_WORKER_NAME} = 5_000_000_000\n"
         f"{cb.STANDING_FILL_PARENT_NAME} = 12_000_000_000\n{cb.STANDING_FILL_WORKER_NAME} = 2_000_000_000\n",
         encoding="utf-8",
     )
@@ -526,12 +527,36 @@ def test_the_width_clauses_answer_for_the_machine_and_the_tree_they_are_given(tm
     )
     out = "\n".join(cb.render_rows(rows, host=HOST, total_bytes=48_000_000_000, cores=12, root=tree))
     assert "48.00 GB total" in out
-    assert "capped at 3" in out
+    worker_block = out.split("\ncorpus-worker  ")[1].split("\n\n")[0]
+    worker_fits = [
+        memory_budget.describe_fit(
+            CONSTANTS["corpus-worker"], coresident_bytes=10_000_000_000, cap=cap, total_bytes=48_000_000_000
+        )
+        for cap in (11, 5)
+    ]
+    assert worker_fits[1].startswith("5 at ")
+    assert (
+        f"a hand build runs {worker_fits[0]}; a gated cycle runs {worker_fits[1]}, its cap the build lane's share of the cores less the parent"
+        in worker_block
+    )
+    parent_block = out.split("\ncorpus-parent  ")[1].split("\n\n")[0]
+    solo, gated = (
+        memory_budget.describe_fit(
+            5_000_000_000, coresident_bytes=CONSTANTS["corpus-parent"], cap=cap, total_bytes=48_000_000_000
+        )
+        for cap in (11, 5)
+    )
+    assert solo.startswith("6 at ") and solo.endswith("capped at 11")
+    assert gated.startswith("5 at ")
+    assert f"with it off, a hand build runs {solo}, and a gated cycle runs {gated}" in parent_block
     assert (
         "its delta wave runs 4 at 8.00 GB each out of 48.00 GB total, less a reserve of 8.00 GB, less 4.00 GB co-resident"
         in out
     )
-    assert "the font suite takes the cores this process may run on (12), not the division" in out
+    assert (
+        "the font suite takes the cores this process may run on (12) by hand and the gate lane's share (6) under a cycle whose build lane runs, not the division"
+        in out
+    )
     assert (
         "the corpus build's parent is subtracted from the machine's memory rather than divided into it" in out
     )
@@ -540,9 +565,9 @@ def test_the_width_clauses_answer_for_the_machine_and_the_tree_they_are_given(tm
     sweep_width = next(line for line in sweep_block.splitlines() if line.startswith("  width here: "))
     idle, beside = sweep_width.split(" with the build lane idle, and ")
     assert idle.endswith("capped at 12")
-    assert "less 25.00 GB co-resident, capped at 8" in beside
+    assert "less 35.00 GB co-resident, capped at 6" in beside
     assert (
-        "beside a corpus build of its parent and 3 workers; on a pass that runs gate:make-test the corpus build can be narrower"
+        "beside a corpus build of its parent and 5 workers; on a pass that runs gate:make-test the corpus build can be narrower"
         in beside
     )
     small = "\n".join(cb.render_rows(rows, host=HOST, total_bytes=48_000_000_000, cores=6, root=tree))
@@ -551,7 +576,7 @@ def test_the_width_clauses_answer_for_the_machine_and_the_tree_they_are_given(tm
     _idle, small_beside = small_width.split(" with the build lane idle, and ")
     assert "capped at 4" in small_beside
     assert (
-        "beside a corpus build of its parent and 3 workers; on a pass that runs gate:make-test the corpus build can be narrower"
+        "beside a corpus build of its parent and 2 workers; on a pass that runs gate:make-test the corpus build can be narrower"
         in small_beside
     )
 

@@ -14,11 +14,13 @@ This process, not its children, records each check's result in the timings journ
 
 gate:js and gate:make-test depend on no build artifact, so they start at t=0 in a small thread pool while the build steps run in sequence in the main thread. gate:conform (the exhaustive font-versus-settlement sweep at the per-edit maximum length, `run_m1 --conform-only`) starts after the run_m1 gate passes, beside make-test under the default overlap policy and behind it under the queue policy. Its deeper form, `make conform-deep`, never runs in the cycle; the summary has one line saying whether the emitted lookup has a shape the last deep run did not shape. gate:rebuild-contracts runs every test under rebuild/, and none of them reads a live build artifact (rebuild/conftest.py's audit hook enforces this). A hand run uses every core. Under a cycle the suite is submitted with the conform lane, right after the run_m1 gate passes, and runs beside the corpus build at `contracts_pool_width`, set on that one child as PYTEST_XDIST_AUTO_NUM_WORKERS: the cores less the build's parent and its `corpus_job_budget` workers, and, under the overlap policy on a pass that runs gate:make-test, less that gate's pool. The conformance sweep's core cap (`_conform_core_cap`) makes the same subtraction, floored at the acceptance-configuration count, and neither width subtracts the other, so under the overlap policy the sweep and the suite share the cores those processes leave while both run. The suite reads nothing the build lane writes, the review-facts pins included, so it waits for nothing downstream, and on a pass where every upstream stage skips it starts at t=0.
 
-`--rebuild-pool` sets how the heavy gate pools share the machine. Under the default overlap policy, gate:conform and gate:rebuild-contracts start as soon as the run_m1 gate passes and run beside gate:make-test's pool, each other, and the build lane. Under the queue policy the gates run make-test, then conform, then rebuild-contracts, so only one heavy gate pool runs at a time, and the build steps run beside whichever one it is. Each pool's width comes from its budget function: the oracle (`sweep_job_budget`) splits its tables into row ranges and uses the cores within the memory limit ORACLE_SHARD_BYTES sets; the conformance sweep (`conform_job_budget`) runs its units (each settlement configuration once per final symbol, and the ss10 overlay whole) one process each, as many at once as CONFORM_SWEEP_UNIT_BYTES fits beside the build lane, capped at the cores the corpus build leaves and never below the acceptance-configuration count; and the corpus build (`corpus_job_budget`) gets the machine less what make-test holds. Under the overlap policy, on a pass that runs gate:make-test, the conformance sweep's memory budget and core cap and the rebuild suite's width also subtract that gate's pool. On the twelve-core machine (`doc/fleet.md`) that subtraction takes the suite beside a cap-width corpus build down to one worker; on the ten-core machine the build alone leaves it one under either policy. Neither of those two widths subtracts the other's pool. `--dry-run` prints every width with its derivation.
+While a gated pass's build lane runs (run_m1, then the corpus build, then the verdict update), the cycle splits the usable cores between that lane and the gate lane (`memory_budget.split_cores`, which gives the build lane the odd core): the corpus build's cap is the build lane's share less its parent, and gate:make-test's pool is the gate lane's share (`make_test_pool_width`), so the two lanes' longest-running pools never book the same core. A pass that runs neither run_m1 nor the corpus build gives gate:make-test's pool every core. The burst pools, run_m1's oracle, the corpus build's ink-signature pool and the standing fill's refill pool, are capped at every core on every pass rather than at a lane's share, so each shares the cores with gate:make-test's pool while both run, which costs contention time rather than memory; the refill pool subtracts gate:make-test's bytes, and the oracle's pool leaves them to the reserve (`sweep_job_budget`). Memory is not split: each pool's width subtracts the memory of the pools the plan runs beside it.
 
-The overlap policy is the default because of whole-pass timings on the 18-core 48 GiB machine (`doc/fleet.md`), which `make cycle-timings` on that machine records. There gate:make-test is the longest step of a pass that runs it, and under the overlap policy the conformance sweep and the rebuild suite finish while it is still running, where the queue policy runs them after it and adds their time to the pass. Pools side by side contend for the cores, so each runs longer than it would alone. The sweep's and the suite's slowdown is off the critical path, and on the `--fresh` passes timed under both policies, gate:make-test's own slowdown beside them lengthened the pass by less than running them after it added. Timed by hand there with no corpus build or gate:make-test running, a narrowed conformance sweep and the full-width rebuild suite also finished sooner side by side than one after the other (issue #468 records the runs).
+`--rebuild-pool` sets how the heavy gate pools share the machine. Under the default overlap policy, gate:conform and gate:rebuild-contracts start as soon as the run_m1 gate passes and run beside gate:make-test's pool, each other, and the build lane. Under the queue policy the gates run make-test, then conform, then rebuild-contracts, so only one heavy gate pool runs at a time, and the build steps run beside whichever one it is. Each pool's width comes from its budget function: the oracle (`sweep_job_budget`) splits its tables into row ranges and uses the cores within the memory limit ORACLE_SHARD_BYTES sets; the conformance sweep (`conform_job_budget`) runs its units (each settlement configuration once per final symbol, and the ss10 overlay whole) one process each, as many at once as CONFORM_SWEEP_UNIT_BYTES fits beside the build lane, capped at the cores the corpus build leaves and never below the acceptance-configuration count; and the corpus build (`corpus_job_budget`) gets the build lane's share less its parent, with gate:make-test's memory off the machine when that gate runs. Under the overlap policy, on a pass that runs gate:make-test, the conformance sweep's memory budget and core cap and the rebuild suite's width also subtract that gate's pool, which already holds the gate lane, so beside a corpus build at its lane share the suite falls to its floor of one worker and the sweep to its floor of one process per acceptance configuration on every machine. Under the queue policy neither subtracts gate:make-test's pool, which has finished by the time they start. Neither of those two widths subtracts the other's pool. `--dry-run` prints every width with its derivation.
 
-The comparison behind the default covers `--fresh` passes on the 18-core machine only; `make cycle-timings` shows which machines and which kinds of pass each policy has run on. On the ten- and twelve-core machines the same pools share fewer cores. On a pass whose build lane finishes last, such as one that runs the corpus build and skips gate:make-test (which skips when its input closure is unchanged since its last green run, as after only rune or rebuild-code edits, which `make_test_exempt` exempts), the two policies give every pool the same width, and the cores the sweep and the suite take together beside the build can lengthen the pass.
+The overlap policy is the default because of whole-pass timings of `--fresh` passes under both policies on the 18-core 48 GiB machine (`doc/fleet.md`), which bare `make cycle-timings` on that machine lists step by step. With its pool at the gate lane's share, gate:make-test finishes on those passes before run_m1 does, so under either policy the conformance sweep and the rebuild suite start beside the corpus build and finish before the build lane, and the build lane ends the pass. The overlap policy's pass is no slower than the queue policy's, so the timings give no reason to switch. Timed by hand there with no corpus build or gate:make-test running, a narrowed conformance sweep and the full-width rebuild suite also finished sooner side by side than one after the other (issue #468 records the runs). Under the overlap policy the sweep and the suite subtract gate:make-test's pool even so, because the plan cannot tell whether it will be running when they start, which leaves the suite one worker; that time is off the critical path on those passes. The signal to time both policies again is an overlap-policy pass with gate:make-test's pool at the gate lane's share (its run line's `plan.make_test_workers`) that a `gate:` step ends. `make cycle-timings ARGS='--critical-path'` counts the passes each step ends, but its row for a pass shape also counts passes run at other gate:make-test widths, so such a pass shows there as growth in a `gate:` step's count.
+
+The comparison behind the default covers `--fresh` passes on the 18-core machine only; `make cycle-timings` shows which machines and which kinds of pass each policy has run on. On the ten- and twelve-core machines the same pools share fewer cores. On a pass that runs the corpus build and skips gate:make-test (which skips when its input closure is unchanged since its last green run, as after only rune or rebuild-code edits, which `make_test_exempt` exempts), the two policies give every pool the same width, and under the overlap policy the sweep and the suite share the gate lane's cores while both run.
 
 The cycle runs no cross-language check, because the kernel crate is the only engine that enumerates and the only one that settles. gate:conform checks settlement empirically: it shapes the compiled font through HarfBuzz and compares the result, window by window, with a re-settlement of every swept text through the crate's `settle-cases` subcommand, with the memo keyed on the raw window so the sweep does not depend on the crate's enumeration and fold. `make kernel-gate` is the crate's own gate, to run around a kernel-semantics change; it takes seconds once the crate is built. The spec-ingest parity check is a contracts test (rebuild/test_kernel_io.py) and runs in gate:rebuild-contracts on every cycle.
 
@@ -136,7 +138,7 @@ SERVER_STOP_TIMEOUT = 15.0
 # The gate thread pool's worker count, sized to the tasks the chain submits, not to the cores. Under the queue policy a waiting task holds its worker for the whole wait (conform waits on make-test, and contracts on both), so every gate task needs a worker at the same time, with spare workers on top. With fewer workers a waiting task could sit behind an unrelated task's completion, and a width taken from the cores would cause that on a small machine. `test_the_gate_pool_runs_every_gate_task_at_once` in rebuild/test_artifact_cycle.py checks that this equals the gate task count plus two.
 _GATE_POOL_WORKERS = 6
 # The peak memory of one corpus-build worker, the divisor of the build's width (`corpus_job_budget`). A worker is a persistent spawn process that takes unit batches from the parent's hand-out queue (`_handout_width` in rebuild/review/build.py: the enricher's settlement batch, or a smaller spread of few recomputed units), enriches and drafts each unit, spools each fragment to disk as it is drafted so no EnrichedUnit outlives its batch (`_FragmentSpool`), and replies with the batch's projections and spool addresses. Nothing it holds grows with the corpus, the alphabet or the width. It holds its interpreter and shapers, whose shape memo is released at every batch boundary (`rebuild.review.ink.release_shape_memos`; `_MemoizedShaper`'s docstring records the measurement that showed an unreleased memo outgrowing everything else in a serial build). It holds one batch's units, projections and addresses, bounded by `PHASE1_HANDOUT_UNITS`, from the hand-out until the reply is pickled; the `SubsetRow`s for one batch's units; and the pages it touches of the baseline subset pack (rebuild/review/subset_pack.py), which the parent writes once before the pool starts and every worker maps read-only, so the page cache holds one copy per machine. The parent hands units out in configuration order (`_configuration_order` in rebuild/review/build.py), so a worker's touched pages are mostly one configuration's key range.
-# The measurement set is every width-eight pool on the mapped pack since the previous measurement set, on the 32 GiB machine and the 18-core 48 GiB machine (`doc/fleet.md`). On passes that draft units, workers peak at up to 0.525 GB on the 32 GiB machine over the qsYe corpus, and each pass's largest worker reads 0.42 to 0.48 GB on the 48 GiB machine. A cached pass's workers read under 0.1 GB. For comparison, a width-six pool over the 32-letter corpus that held its subset tables in Python read 1.16 to 1.95 GB. The constant is the largest mapped-pack reading plus a quarter, rounded up to the hundredth, for the reason kernel_exec.DELTA_PEAK_BYTES rounds up: a cost that is too low pushes the machine into swap, while one that is too high only narrows the pool. A worker's peak depends on the batches it draws, not on the width, so a wider pool repeats the same reading. A new letter changes it only through what a batch holds (a window's rows and shapes), not through the tables, so every fleet machine stays at `CORPUS_JOBS_CAP` as letters are added (`test_the_shipped_corpus_divisor_holds_the_32_gib_machine_at_the_cap_by_division` in rebuild/test_memory_budget.py checks this for the 32 GiB machine, and `test_both_fleet_machines_keep_a_pooled_build_under_a_gated_cycle` in rebuild/test_artifact_cycle.py for the 48 GiB one). On a ten-core machine the cap-width pool leaves gate:rebuild-contracts one worker (`contracts_pool_width` discusses this). The corpus-worker row of `make job-costs` checks the constant against the kind:"pool" record rebuild/review/build.py writes for each pooled build. Every fleet machine runs the build pooled, so a machine with no rows has not been made serial by this width.
+# The measurement set is every width-eight pool on the mapped pack since the previous measurement set, on the 32 GiB machine and the 18-core 48 GiB machine (`doc/fleet.md`). On passes that draft units, workers peak at up to 0.525 GB on the 32 GiB machine over the qsYe corpus, and each pass's largest worker reads 0.42 to 0.48 GB on the 48 GiB machine. A cached pass's workers read under 0.1 GB. For comparison, a width-six pool over the 32-letter corpus that held its subset tables in Python read 1.16 to 1.95 GB. The constant is the largest mapped-pack reading plus a quarter, rounded up to the hundredth, for the reason kernel_exec.DELTA_PEAK_BYTES rounds up: a cost that is too low pushes the machine into swap, while one that is too high only narrows the pool. A worker's peak depends on the batches it draws, not on the width, so a wider pool repeats the same reading. A new letter changes it only through what a batch holds (a window's rows and shapes), not through the tables, so under a gated cycle every fleet machine stays at the build lane's share of its cores less the build's parent (`corpus_job_budget`) as letters are added (`test_the_shipped_corpus_divisor_holds_the_32_gib_machine_at_its_lane_share_by_division` in rebuild/test_memory_budget.py checks this for the 32 GiB machine, and `test_both_fleet_machines_keep_a_pooled_build_under_a_gated_cycle` in rebuild/test_artifact_cycle.py for the 48 GiB ones). The corpus-worker row of `make job-costs` checks the constant against the kind:"pool" record rebuild/review/build.py writes for each pooled build. Every fleet machine runs the build pooled, so a machine with no rows has not been made serial by this width.
 CORPUS_WORKER_BYTES = 660_000_000
 # The peak memory of the corpus build's parent while its pool runs, subtracted from the machine's memory before dividing by CORPUS_WORKER_BYTES. The parent holds the workload table (`audit.UnitTable` in rebuild/review/audit.py: each unit's class, group, unmatched group, duplicate group and cluster as ids into one string table, its config set, kinds, render groups and per-config class map as ids into pools of a few dozen values, its window parsed once into a `u16` side column, its run of audit rows and its triage position, all as fixed-width `array` columns over the unit's ordinal, well under 100 bytes a unit); the packed unit store (rebuild/review/unit_store.py) over the same ordinal and string table; the checker's identity dict; the review facts' pre-merge snapshot (`facts.PremergeSnapshot`, columns over the pre-merge rows at 18 bytes a row, 23 after `rebase`); one fragment or one materialized `audit.Unit`; one batch of materialized records while a hand-out is being sent; and one batch reply in flight per worker. The hand-out and the replies are the only terms the width changes. The parent never holds a list of unit records at any phase (`UnitTable.unit` materializes one for a reader that needs it, and `units` is for the review-facts CLI and the tests).
 # The unit store holds every per-unit product of phase 1 from the plan boundary to the cache write (the machine flags and ink deltas, the diff and cluster digests, the primary-unit projection with its spans, names and rects, the primary-unit assignments, the fragment's spool or prior address, the shard address the write returns, the content and input keys, the policy file and the config note) as fixed-width `array` columns plus one string table over the vocabulary, not the corpus (the `[tally] … unit_store` line measures the table beside the columns). It materializes one unit at a time for a whole-corpus pass or a store line. A slotted state record, a spool-address object and a dict keyed by id hold the same facts in about six to twenty times the bytes, collection by collection: the `[tally]` lines of a pass under `AMS_CORPUS_MEMORY_TALLY=1` show the walked and packed bytes of each collection side by side, and that comparison is why the store uses columns. The table's `[tally] … workload.units` line compares the same way against 645.6 bytes a unit for a list of records.
@@ -146,8 +148,6 @@ CORPUS_WORKER_BYTES = 660_000_000
 # The peak grows with the alphabet. The corpus-parent row of `make job-costs` measures it through the corpus-build step's peak: `peak_rss.reap_peak_rss_bytes` takes the largest process peak in the tree, and the parent holds the corpus while each worker holds one batch. The measurement set is two untallied width-eight passes over the qsYe corpus on the 32 GiB machine (`doc/fleet.md`), with nothing edited between them, the workload held as the table's columns and the cached plan loading each record as it is parsed. The fully recomputed pass, run by `make artifact-cycle`, peaks at 4.01 GB, and the cached pass, run by hand over the corpus the first one wrote, peaks at 4.00 GB. Both peaks occur at the load boundary (the load's `rss_now_gb=` reads 3.79 and 3.78, and the cached plan boundary's 2.90). The constant is the higher reading plus a quarter, rounded up to the next whole gigabyte, as STANDING_FILL_PARENT_BYTES is: a cost that is too low pushes the machine into swap, one that is too high only narrows the pool, and the peak grows with the corpus, so every new letter raises it before the row shows it.
 # Beyond the columns, the steady-state memory after the load phase holds only the checker's identity dict as per-unit objects (the `[tally] … checker.identity` line: 214.8 bytes a unit walked against 9.2 packed on the qsYe corpus). The window is the one per-unit column held twice: the primary-unit projection's codepoint values and the table's `u16` side column. The one per-unit transient beside them is the triage sort's (`audit._triage_permutation`, run once at the load and once at the units boundary): one integer a row, with its class, group, window and id terms packed into it, a few dozen bytes each, in a list sorted in place and dropped when the permutation returns. No `[tally]` line measures it, and a units-boundary `rss_now_gb=` shows it only as memory the allocator has not yet returned. A tallied pass reads higher than the same pass untallied, because it rebuilds the plan's input-key map at every boundary and keeps the addressless records past the `del` that frees them, so re-measure from the row's step peak, never from a tally line. The row counts only measurements after the commit that sets the constant. A hand build writes pool records only, so read its step peak from its `[t] review.build` lines. Re-measure as the alphabet grows.
 CORPUS_PARENT_BYTES = 6_000_000_000
-# The corpus build's limit other than memory. One parent process hands out the batches and merges every reply, and eight is the widest pool measured: on the 32 GiB machine the units phase's wall-clock time at width eight is its width-six time scaled by the ratio of the widths, over the same corpus (`make cycle-timings ARGS='--inner'` reports the `review.build units` phase), so the pool scales linearly up to the cap. Nothing past eight has been measured, so raising the cap needs a measurement first.
-CORPUS_JOBS_CAP = 8
 # The peak memory of one worker in the standing fill's refill pool, the divisor of that pool's width (`standing_fill_jobs`). A worker is a spawn process holding its interpreter, the rules, a `SlideContext` over the corpus's font pair (two shapers), and one chunk of `_STANDING_POOL_CHUNK` units (rebuild/tools/standing_verdicts.py) with that chunk's shape and walk memos and its alignment cache. All three are emptied after every chunk, so the peak depends on the chunk, not on the pool's share of the units. The measurement set is three hand refills in the verdict update's form (`--open-only --require-reach`) with the memo dropped (`--fresh-memo`), each worker's resident set sampled every 0.1 s on the 18-core 48 GiB machine (`doc/fleet.md`). Two ran eighteen wide, and their thirty-six workers read 95 to 104 MB. One ran two wide, and its workers, which decided about fifty-eight chunks each, read 99 MB, so a worker's peak does not grow with the chunks it decides. The constant is more than three times the highest reading, because no journal row measures this worker: `make job-costs` has no standing-fill-worker row, since writing pool records from the fill would put cycle_timings and peak_rss into the memo's code stamp (`MEMO_CODE_MODULES`) and drop the memo on every width change. Re-measure by hand at the chunk width when the chunk size or what a decision holds changes. At this figure the cores, not memory, limit this pool on every fleet machine.
 STANDING_FILL_WORKER_BYTES = 350_000_000
 # The peak memory of the verdict update's process while the standing fill's pool runs, subtracted from the machine's memory before dividing by STANDING_FILL_WORKER_BYTES. The parent holds every corpus id, the human id/duplicate-group/notation projection, and the fill's rules, primed keys, decisions and memo. Full human records stream through the verdict update's steps. Refill misses go to a temporary gzipped spool, with at most one pool round of records in memory, bounded by the width times `_STANDING_POOL_CHUNK` (rebuild/tools/standing_verdicts.py). The complaint list keeps compact grouping projections. A serial refill, and the memo check `_prefill` runs on every served unit, hold one unit's `SlideContext` memos and alignment-cache entries at a time, because `Decider._release` empties both after each unit.
@@ -163,8 +163,6 @@ ORACLE_SHARD_BYTES = 900_000_000
 # The peak memory of one conformance-sweep unit, the divisor of gate:conform's width (`conform_job_budget`). A unit is a spawn process running `conform.conformance_config_worker` over one settlement configuration's texts that end in one symbol, or over the ss10 overlay whole (`run_m1.sweep_units`), and the pool runs one unit per process (`max_tasks_per_child=1`). A settlement unit holds its interpreter, a HarfBuzz `Shaper` over M1.otf, the spec's alphabet, splitters, glyph names and anchors, the section 5.7 guard verdict map the parent passes down, a `conform.TEXT_CHUNK` of texts in flight, and its configuration's settle memo, mapped read-only (`conform._MemoStore`) and walked with `promote=False`: the file's label and outcome tables and a dead byte and a reached byte a row on the heap, and the columns and probe index as page-cache pages shared by every unit that maps the file. It also holds `windows`, the dict of windows it settles fresh: empty with the memo current, and every window its texts reach, those that name the edge included, with the memo dropped. The same pool runs each configuration's absorb (`run_m1._absorb_sweep_memo`), which holds the configuration's live rows, the windows its units' parts add, their remapped copies, and the index while it writes the file, so the constant covers the absorb too. Readings are peak footprints (`peak_rss.peak_footprint_bytes`), which leave out the clean pages of the mapped memo file. The page cache holds those once per machine however many units map the file, they are reclaimable, and they come out of the reserve rather than this constant.
 # Measured on the 18-core M5 Pro 48 GiB machine (`doc/fleet.md`) with nothing else running, reading footprint, from the `conform-sweep` pool records of five hand `run_m1 --conform-only` passes at width 18 at 596b5ce1's alphabet: three with the memo current (the first of them pruning the rows the full build before it had left), one with every settle memo file removed, and one with rows no text reaches added to each file (`var/keep/483/make_stale.py`). The records finished between 2026-09-28T17:49:58Z and 17:55:26Z; they are copied to `var/keep/483/after/conform-sweep-pool-records.jsonl`, with the runs' logs beside them. A settlement configuration's highest unit reads 0.117 to 0.120 GB with the memo current or stale and 0.134 to 0.136 GB with it removed, and the ss10 overlay reads 0.047 to 0.048 GB. An absorb that only prunes reads 0.166 to 0.168 GB, and one that writes a removed memo back from its units' parts reads 0.406 to 0.414 GB, three times any unit's reading, so that absorb sets the constant; it runs in one of the pool's slots, so the constant covers it. The constant is the highest reading plus a quarter, rounded up to the tenth, because a cost that is too low pushes the machine into swap and the removed-memo absorb grows with the window count. At this figure memory limits no fleet machine's width: a hand run is as wide as the cores, and a cycle's width is `_conform_core_cap`'s. The conform-sweep row of `make job-costs` checks it: `run_m1.run_font_conformance` writes one kind:"pool" record per pooled conformance sweep at `conform.SWEEP_MAX_LENGTH`, one observation per configuration (its highest unit) and one per absorb. The gate:conform step peak is not used, because `peak_rss.reap_peak_rss_bytes` takes the maximum over the tree and so reads one process.
 CONFORM_SWEEP_UNIT_BYTES = 600_000_000
-# The width of gate:make-test's pytest pool under a cycle, which the cycle passes to that child and reserves for: `corpus_job_budget` subtracts two cores and this pool's memory. Without it the pool runs at `-n auto`, which the root conftest.py resolves to every core, while the build beside it is sized as if the pool held only the memory set aside for it.
-MAKE_TEST_POOL_WORKERS = 2
 CONFORM_MAX_LENGTH_DEFAULT = 4
 DEEP_SWEEP_MAX_LENGTH_DEFAULT = 5
 # One letter past the build's own replay (`run_m1.REPLAY_MAX_LENGTH`), the depth at which a text first puts a letter in the third lookahead slot behind a letter on the left. The deep replay checks that one extra letter, and `make replay-deep ARGS='--max-length 6'` goes deeper on demand.
@@ -1153,6 +1151,7 @@ class Plan:
     sweep_jobs: int = 1
     sweep_reason: str = ""
     kernel_threads: int = 1
+    kernel_reason: str = ""
     replay_threads: int = 1
     replay_reason: str = ""
     make_test_workers: int = 1
@@ -1219,18 +1218,19 @@ def _font_suite_worker_bytes() -> int:
     )
 
 
-def make_test_pool_width(*, ncores: int | None = None) -> int:
-    """Return the width of gate:make-test's pytest pool under a cycle. The cycle passes this number to the child and reserves memory for it, so both use one value. Without it the pool would be `-n auto`, which the root conftest.py resolves to every core, while the builds beside it are sized to leave room for it. The width is MAKE_TEST_POOL_WORKERS, capped at `memory_budget.usable_cores()`, the count the root hook uses. PYTEST_XDIST_AUTO_NUM_WORKERS overrides both, because the child inherits this environment and will run at that width. It is parsed as the root hook parses it, so an unparseable value raises here, while the plan resolves, instead of inside the gate after the rest of the cycle has run."""
+def make_test_pool_width(*, build_lane_runs: bool = True, ncores: int | None = None) -> int:
+    """Return the width of gate:make-test's pytest pool under a cycle. The cycle passes this number to the child and reserves memory for it, so both use one value. Without it the pool would be `-n auto`, which the root conftest.py resolves to every core, while the builds beside it are sized to leave room for it. On a pass whose build lane runs (run_m1 or the corpus build), the width is the gate lane's share of `memory_budget.usable_cores()`, the count the root hook uses, as `memory_budget.split_cores` divides it: the corpus build's cap is the build lane's share (`_corpus_fit_terms`), so the two lanes partition the cores. On a pass that runs neither, the pool takes every core, and the widths that subtract it (the rebuild suite's and the conformance sweep's cap under the overlap policy, and the standing fill's memory term) subtract that whole width, which is why each of them takes `build_lane_runs` too. PYTEST_XDIST_AUTO_NUM_WORKERS overrides both, because the child inherits this environment and will run at that width. It is parsed as the root hook parses it, so an unparseable value raises here, while the plan resolves, instead of inside the gate after the rest of the cycle has run."""
     from rebuild.tools import memory_budget
 
     stated = os.environ.get("PYTEST_XDIST_AUTO_NUM_WORKERS")
     if stated:
         return max(1, int(stated))
-    return max(1, min(MAKE_TEST_POOL_WORKERS, ncores or memory_budget.usable_cores()))
+    cores = ncores or memory_budget.usable_cores()
+    return memory_budget.split_cores(cores)[1] if build_lane_runs else cores
 
 
 def _make_test_pool_bytes(*, skip_make_test: bool, ncores: int | None) -> float:
-    """Return the memory gate:make-test's pytest pool holds beside the run_m1 step: FONT_SUITE_WORKER_BYTES times `make_test_pool_width`, or zero when the gate is skipped. The table build's width and the string replay's both subtract it."""
+    """Return the memory gate:make-test's pytest pool holds beside the run_m1 step: FONT_SUITE_WORKER_BYTES times `make_test_pool_width` at the gate lane's share of the cores, the width the pool runs at while run_m1 holds the build lane, or zero when the gate is skipped. The table build's width and the string replay's both subtract it."""
     return 0 if skip_make_test else _font_suite_worker_bytes() * make_test_pool_width(ncores=ncores)
 
 
@@ -1246,7 +1246,7 @@ def _wave_fit_terms(*, skip_make_test: bool, ncores: int | None) -> tuple[float,
 def kernel_threads_budget(
     *, skip_make_test: bool = False, ncores: int | None = None, total_bytes: int | None = None
 ) -> int:
-    """Return the kernel fan-out's width for this cycle, the `--kernel-threads` the plan passes run_m1. Memory limits this width because a live delta holds its whole working set until it emits. `kernel_exec.kernel_threads_default` does the arithmetic: memory, less the reserve, less the memo snapshot `default` keeps alive for the wave (`kernel_exec.DEFAULT_MEMO_BYTES`), divided by one delta (`kernel_exec.DELTA_PEAK_BYTES`). On the fleet this gives the whole wave on the 48 GiB machines and three slots on the 32 GiB one (`default`'s fold beside two deltas, then up to three deltas once the fold finishes), with or without gate:make-test's pool subtracted. The cycle subtracts that pool too, because it runs from t=0 through the whole table build: FONT_SUITE_WORKER_BYTES for each of the `make_test_pool_width` workers the cycle passes that child. A pass that skips the gate, including --skip-gates, subtracts nothing. AMS_KERNEL_THREADS overrides the arithmetic, as it does for a bare run_m1, so the memory set aside for the pytest pool never narrows a stated width.
+    """Return the kernel fan-out's width for this cycle, the `--kernel-threads` the plan passes run_m1. Memory limits this width because a live delta holds its whole working set until it emits. `kernel_exec.kernel_threads_default` does the arithmetic: memory, less the reserve, less the memo snapshot `default` keeps alive for the wave (`kernel_exec.DEFAULT_MEMO_BYTES`), divided by one delta (`kernel_exec.DELTA_PEAK_BYTES`). On the fleet this gives the whole wave on the 48 GiB machines and three slots on the 32 GiB one (`default`'s fold beside two deltas, then up to three deltas once the fold finishes), with or without gate:make-test's pool subtracted. The cycle subtracts that pool too, because it runs from t=0 through the whole table build: FONT_SUITE_WORKER_BYTES for each of the `make_test_pool_width` workers the cycle passes that child, the gate lane's share of the cores (`memory_budget.split_cores`), since run_m1 holds the build lane. A pass that skips the gate, including --skip-gates, subtracts nothing. AMS_KERNEL_THREADS overrides the arithmetic, as it does for a bare run_m1, so the memory set aside for the pytest pool never narrows a stated width.
 
     The result is capped at the configuration count and the usable cores, as in `replay_threads_budget`. On the 48 GiB machines (`doc/fleet.md`) the memory result exceeds the configuration count, so without the cap the plan line would name a width the build never takes. With it, the plan line, the argv and `cycle_summary.json`'s `plan.kernel_threads` show the real width, and `run_m1._table_build_threads`'s own `min()` changes nothing. A stated AMS_KERNEL_THREADS above the configuration count is cut to it here, as `run_m1._table_build_threads` would cut it. `ncores` and `total_bytes` are keywords so a test can compute the width for an invented machine.
     """
@@ -1297,7 +1297,7 @@ def replay_threads_derivation(
 
 
 def sweep_job_budget(ncores: int | None = None, total_bytes: int | None = None) -> int:
-    """Return the `--jobs` width for run_m1's oracle, whose unit is a row range of one configuration's table: memory, less the reserve, divided by one range worker's peak (ORACLE_SHARD_BYTES), capped at the usable cores. gate:conform's sweep has its own budget, `conform_job_budget`, because its unit holds different data and runs beside the corpus build. Nothing is subtracted for gate:make-test's pytest pool, which can still be running when the oracle starts on a non-staging pass: at this divisor that pool fits inside the reserve on every fleet machine, and reserving for it would narrow this phase on every pass for a few seconds of overlap. Nothing is subtracted for run_m1's table-only branch either, whose witness stage and shipped-order walks can still be running when the pool starts (`doc/parallelism.md` describes this overlap), because what they hold is far below the reserve. run_m1's peak memory is in the table build, whose width is --kernel-threads, and these jobs never reach it. `ncores` and `total_bytes` are keywords so a test can compute the width for an invented machine."""
+    """Return the `--jobs` width for run_m1's oracle, whose unit is a row range of one configuration's table: memory, less the reserve, divided by one range worker's peak (ORACLE_SHARD_BYTES), capped at the usable cores. gate:conform's sweep has its own budget, `conform_job_budget`, because its unit holds different data and runs beside the corpus build. Nothing is subtracted for gate:make-test's pytest pool, which can still be running when the oracle starts on a non-staging pass: at the gate lane's share of the cores that pool fits inside the reserve on every fleet machine, and reserving for it would narrow this phase on every pass for the length of the overlap. Its cores are not subtracted either: the oracle is a burst on the build lane's critical path, and the two pools share the cores while both run, which costs contention time rather than memory. Nothing is subtracted for run_m1's table-only branch either, whose witness stage and shipped-order walks can still be running when the pool starts (`doc/parallelism.md` describes this overlap), because what they hold is far below the reserve. run_m1's peak memory is in the table build, whose width is --kernel-threads, and these jobs never reach it. `ncores` and `total_bytes` are keywords so a test can compute the width for an invented machine."""
     from rebuild.tools import memory_budget
 
     cores = ncores or memory_budget.usable_cores()
@@ -1313,15 +1313,15 @@ def sweep_job_derivation(ncores: int | None = None, total_bytes: int | None = No
 
 
 def _corpus_fit_terms(*, skip_gates: bool, skip_make_test: bool, ncores: int | None) -> tuple[int, int, int]:
-    """Return the three arguments of the corpus build's width: the per-worker divisor, the co-resident bytes subtracted before the division, and the non-memory cap. `corpus_job_budget` passes them to `how_many_fit` and `corpus_job_derivation` to `describe_fit`, so the width and its explanation come from one derivation."""
+    """Return the three arguments of the corpus build's width: the per-worker divisor, the co-resident bytes subtracted before the division, and the non-memory cap. `corpus_job_budget` passes them to `how_many_fit` and `corpus_job_derivation` to `describe_fit`, so the width and its explanation come from one derivation. The cap is the cores the build's lane holds, less one for its parent: every usable core under `skip_gates` (a hand build or `--skip-gates`), and the build lane's share (`memory_budget.split_cores`) on any gated pass, whether or not gate:make-test runs, because gate:rebuild-contracts, and gate:conform when it runs, take the gate lane beside the build. The co-resident bytes are the parent's, plus gate:make-test's pool when that gate runs."""
     from rebuild.tools import memory_budget
 
     cores = ncores or memory_budget.usable_cores()
+    lane = cores if skip_gates else memory_budget.split_cores(cores)[0]
     coresident = CORPUS_PARENT_BYTES
     if not (skip_gates or skip_make_test):
-        cores -= 2
         coresident += _font_suite_worker_bytes() * make_test_pool_width(ncores=ncores)
-    return CORPUS_WORKER_BYTES, coresident, min(cores, CORPUS_JOBS_CAP)
+    return CORPUS_WORKER_BYTES, coresident, max(1, lane - 1)
 
 
 def corpus_job_budget(
@@ -1331,13 +1331,13 @@ def corpus_job_budget(
     ncores: int | None = None,
     total_bytes: int | None = None,
 ) -> int:
-    """Return the review-corpus build's `--jobs` width: memory, less the reserve, less what the build's parent holds, divided by one worker's peak, capped at the usable cores and CORPUS_JOBS_CAP, and floored at one. The parent and the workers are separate constants because the parent's share is about as large as the pool's. CORPUS_PARENT_BYTES is the parent, which holds the workload table (`audit.UnitTable`) and the packed unit store (rebuild/review/unit_store.py) at any width, so it is subtracted before the division, as gate:make-test's pool is. CORPUS_WORKER_BYTES is the divisor. A worker's peak does not grow with the width, because the parent hands out one batch at a time, or with the alphabet, because the tables sit in the baseline subset pack it maps read-only (rebuild/review/subset_pack.py). The two constants' comments have the measurements. The ink-signature pool that `_resolve_signature_digests` starts before the units phase is not counted: each of its workers holds one comparator, about a tenth of a gigabyte, and the pool runs at `signature_job_budget`'s core-count width.
+    """Return the review-corpus build's `--jobs` width: memory, less the reserve, less what the build's parent holds, divided by one worker's peak, capped at the cores the build's lane holds less the parent (`_corpus_fit_terms`), and floored at one. The parent and the workers are separate constants because the parent's share is about as large as the pool's. CORPUS_PARENT_BYTES is the parent, which holds the workload table (`audit.UnitTable`) and the packed unit store (rebuild/review/unit_store.py) at any width, so it is subtracted before the division, as gate:make-test's pool is. CORPUS_WORKER_BYTES is the divisor. A worker's peak does not grow with the width, because the parent hands out one batch at a time, or with the alphabet, because the tables sit in the baseline subset pack it maps read-only (rebuild/review/subset_pack.py). The two constants' comments have the measurements. The ink-signature pool that `_resolve_signature_digests` starts before the units phase is not counted: each of its workers holds one comparator, about a tenth of a gigabyte, and the pool runs at `signature_job_budget`'s core-count width.
 
     A `corpus-build` step peak does not measure this build's footprint. `peak_rss.reap_peak_rss_bytes` takes the largest single process in the child's tree, which here is the parent, so the step peak barely moves with the width (13.25 GB at ten jobs, 13.77 GB at two) and never includes the pool. The 2026-08-27 fully recomputed pass read 17.76 GB at eight workers, while a per-term measurement of the same tree put parent and workers together at roughly twice a 34 GB machine.
 
     Err high on the divisor. One that is too low pushes the pool into the reserve; one that is too high only gives a large machine fewer workers than it has room for. A machine the pooled build does not fit gets a width of one, which is the serial build: there is no pool, and each fragment exists once instead of twice. What the parent holds grows per unit (one row of the workload table and one of the unit store), so shrinking CORPUS_PARENT_BYTES widens the pool on every machine. Issue #160, an on-disk workload, was closed as not needed at that size.
 
-    Under a gated cycle gate:make-test's pytest pool runs from t=0, so it is subtracted twice: two cores from the cap, and FONT_SUITE_WORKER_BYTES for each of the `make_test_pool_width` workers the cycle passes that child, as in `kernel_threads_budget`. --skip-gates and the closure-unchanged skip of gate:make-test subtract neither. gate:js also runs from t=0, but it is one node process. `ncores` and `total_bytes` are keywords so a test can compute the width for an invented machine. The cores come from `memory_budget.usable_cores()`, so an affinity mask or a cgroup quota narrows this width as it narrows the others.
+    The cap comes from the cores, not from a measured limit on the parent. One parent process hands out the batches and merges every reply, and on the 18-core 48 GiB machine (`doc/fleet.md`) a fully recomputed hand build's units phase ran faster at seventeen workers than at eight, so the parent does not stop the pool scaling before the cores run out. A hand build and --skip-gates take every core less the parent. A gated pass splits the cores between the build lane and the gate lane (`memory_budget.split_cores`) and takes the build lane's share less the parent, so the build's processes and gate:make-test's pool, which holds the gate lane's share (`make_test_pool_width`), together fill the machine without overlapping; on a pass that skips gate:make-test the gate lane holds gate:rebuild-contracts and gate:conform instead. gate:make-test's pool is also subtracted from memory when that gate runs: FONT_SUITE_WORKER_BYTES for each of its workers, as in `kernel_threads_budget`. gate:js also runs from t=0, but it is one node process. `ncores` and `total_bytes` are keywords so a test can compute the width for an invented machine. The cores come from `memory_budget.usable_cores()`, so an affinity mask or a cgroup quota narrows this width as it narrows the others.
     """
     from rebuild.tools import memory_budget
 
@@ -1364,7 +1364,7 @@ def corpus_job_derivation(
 
 
 def signature_job_budget(*, ncores: int | None = None) -> int:
-    """Return the `--signature-jobs` width the cycle passes the corpus build, for the pool that shapes the ink-signature store's misses, and the default a hand build takes. Memory does not limit it. A signature worker is a spawn process holding one `InkComparator` over the two fonts with plain shapers and nothing else (no subset pack, units, or projections), and its resident set stays about a tenth of a gigabyte however many signatures it shapes (the `signature` pool records in `rebuild/out/cycle-timings.ndjson`). The width is `memory_budget.usable_cores()`, the whole machine, under a gated cycle and in a hand run alike. gate:make-test's pool is not subtracted, although a pass that skips run_m1 starts this phase at t=0 beside that pool: the two share the cores while both run, which costs contention time rather than memory. CORPUS_JOBS_CAP does not apply, since it is where the unit worker stops scaling, so a machine where the corpus build falls to one worker still shapes its signatures on every core. Below `build._SIGNATURE_POOL_THRESHOLD` misses the phase runs serially at any width, so a pass with the signature store filled starts no pool."""
+    """Return the `--signature-jobs` width the cycle passes the corpus build, for the pool that shapes the ink-signature store's misses, and the default a hand build takes. Memory does not limit it. A signature worker is a spawn process holding one `InkComparator` over the two fonts with plain shapers and nothing else (no subset pack, units, or projections), and its resident set stays about a tenth of a gigabyte however many signatures it shapes (the `signature` pool records in `rebuild/out/cycle-timings.ndjson`). The width is `memory_budget.usable_cores()`, the whole machine, under a gated cycle and in a hand run alike. gate:make-test's pool is not subtracted, although a pass that skips run_m1 starts this phase at t=0 beside that pool: the two share the cores while both run, which costs contention time rather than memory. The corpus build's cap (`_corpus_fit_terms`) does not apply, so a machine where memory holds the corpus build to one worker, or a gated pass that gives it the build lane's share, still shapes its signatures on every core. Below `build._SIGNATURE_POOL_THRESHOLD` misses the phase runs serially at any width, so a pass with the signature store filled starts no pool."""
     from rebuild.tools import memory_budget
 
     return max(1, ncores or memory_budget.usable_cores())
@@ -1385,6 +1385,7 @@ def _contracts_pool_terms(
     skip_make_test: bool,
     skip_corpus: bool,
     pool_policy: str,
+    build_lane_runs: bool = True,
     ncores: int | None,
     total_bytes: int | None,
 ) -> tuple[int, int, int]:
@@ -1401,7 +1402,7 @@ def _contracts_pool_terms(
         )
     )
     make_test = (
-        make_test_pool_width(ncores=ncores)
+        make_test_pool_width(build_lane_runs=build_lane_runs, ncores=ncores)
         if pool_policy == "overlap" and not (skip_gates or skip_make_test)
         else 0
     )
@@ -1414,16 +1415,17 @@ def contracts_pool_width(
     skip_make_test: bool = False,
     skip_corpus: bool = False,
     pool_policy: str = REBUILD_POOL_POLICY_DEFAULT,
+    build_lane_runs: bool = True,
     ncores: int | None = None,
     total_bytes: int | None = None,
 ) -> int:
     """Return the width of gate:rebuild-contracts' pytest pool under a cycle, which the cycle sets on that child as PYTEST_XDIST_AUTO_NUM_WORKERS. Memory does not limit it: no contracts worker holds a live artifact, so no constant measures one, and the width is a count of cores. The suite runs beside the corpus build, so the width is the usable cores, less the build's parent and its `corpus_job_budget` workers, less gate:make-test's pool under the overlap policy on a pass that runs that gate (`_contracts_pool_terms`), floored at one. A pass whose corpus build does not run (skipped, promoted, or assets-refreshed) subtracts nothing for the build, so the suite gets every core unless gate:make-test's pool is subtracted.
 
-    Each subtraction leaves its cores to a step that can be the pass's critical path, and the conformance sweep's cap (`_conform_core_cap`) makes the same two subtractions for the same reasons. The corpus build's processes are subtracted because the build lane, with the corpus build in it, finishes last on a pass that runs the build and skips gate:make-test (`make cycle-timings` shows it). Under the overlap policy gate:make-test's pool is subtracted as well, because it runs beside the suite and the sweep there, and on the 18-core machine it is the longest step of a pass that runs it (the module docstring). Neither width subtracts the other pool, which is off the critical path on the `--fresh` passes behind the default (the module docstring), so under that policy the sweep and the suite share the cores the two subtractions leave while both run, an unbudgeted overlap that `doc/parallelism.md` lists. On those passes both finished while gate:make-test was still running, so the slowdown each took from the sharing did not lengthen the pass. On a pass whose build lane finishes last, such as one where gate:make-test skips, the cores the two take together beside the build can lengthen the pass. The suite's controller is not subtracted: it idles while its workers run, and subtracting it would cost the suite a worker on every pass, so the suite runs one process more than its width. The pool's memory comes out of `memory_budget`'s reserve, not out of `corpus_job_budget`'s co-resident term, as `_standing_fill_terms` also assumes for this pool; subtracting it there would narrow the build on every pass for a worker no constant measures (`calibrate_budgets.UNITS`).
+    Each subtraction leaves its cores to the pool that holds them, and the conformance sweep's cap (`_conform_core_cap`) makes the same two subtractions for the same reasons. The corpus build's processes are subtracted because the build lane, with the corpus build in it, ends a pass that runs the build and skips gate:make-test (`make cycle-timings ARGS='--critical-path'` shows it) and the `--fresh` passes behind the default, which run both (the module docstring), so the build keeps the build lane's share. Under the overlap policy gate:make-test's pool is subtracted as well: the plan cannot tell whether that pool will still be running when the suite and the sweep start, and while it runs it holds the gate lane's share, so the subtraction keeps a core from being booked twice. Neither width subtracts the other pool, which is off the critical path on the `--fresh` passes behind the default (the module docstring), so under that policy the sweep and the suite share the cores the two subtractions leave while both run, an unbudgeted overlap that `doc/parallelism.md` lists. On those passes both finished before the build lane did, so neither the slowdown each took from the sharing nor the suite's single worker lengthened the pass. The suite's controller is not subtracted: it idles while its workers run, and subtracting it would cost the suite a worker on every pass, so the suite runs one process more than its width. The pool's memory comes out of `memory_budget`'s reserve, not out of `corpus_job_budget`'s co-resident term, as `_standing_fill_terms` also assumes for this pool; subtracting it there would narrow the build on every pass for a worker no constant measures (`calibrate_budgets.UNITS`).
 
-    On a ten-core machine beside a corpus build at CORPUS_JOBS_CAP workers the width is one under either policy (ten cores less the parent and those workers, floored at one under the overlap policy once gate:make-test's pool is also subtracted), so the suite runs serially, and the plan line says so. The two cores the suite gives up go to the build's units phase, which is on the lane's critical path. The suite usually is not: under a cycle it runs only the closure-selected tests. Under the overlap policy on a pass that runs gate:make-test the one worker also runs beside the conformance sweep at its floor and gate:make-test's pool. A pass that reruns the whole suite at one worker can outlast the rest of the pass. That cost is accepted until a one-worker `gate:rebuild-contracts` row in `rebuild/out/cycle-timings.ndjson` ends after both the build lane and every other gate of its pass, which is the signal to revisit the floor.
+    Beside a corpus build at its cap, the build's parent and workers hold the build lane's share of the cores (`memory_budget.split_cores`), so the arithmetic leaves the suite the gate lane's share. Under the queue policy, and on a pass that skips gate:make-test, that share is the suite's width. Under the overlap policy on a pass that runs gate:make-test, that gate's pool already holds the gate lane, so nothing is left and the floor gives the suite one worker on every machine, and the plan line says so. On a pass that runs neither run_m1 nor the corpus build, gate:make-test's pool holds every core (`make_test_pool_width`, which is why this function takes `build_lane_runs`), and the overlap policy floors the suite at one there too. The suite usually is not on the pass's critical path: under a cycle it runs only the closure-selected tests. A pass that reruns the whole suite at one worker can outlast the rest of the pass. That cost is accepted until a one-worker `gate:rebuild-contracts` row in `rebuild/out/cycle-timings.ndjson` ends after both the build lane and every other gate of its pass (`make cycle-timings ARGS='--critical-path'` counts the passes each step ends, and the pass's run line records its `contracts_workers`), which is the signal to revisit the floor.
 
-    The overlap policy has no higher floor. On a twelve-core machine beside a cap-width build and gate:make-test's pool, the arithmetic gives one (twelve cores less the parent, CORPUS_JOBS_CAP workers, and that pool's two), and the conformance sweep, held at its floor of one process per acceptance configuration (`_conform_core_cap`), is left that same one core, so the machine already runs more processes than it has cores while the two overlap. A floor of two would add one more, and on the ten-core machine would make overlap wider than the queue policy. On a pass that reruns the whole suite, such as a `--fresh` pass, the one worker runs beside the sweep, the build, and gate:make-test's pool on twelve cores, and the ten-core paragraph's signal for revisiting the floor applies here too. PYTEST_XDIST_AUTO_NUM_WORKERS overrides all of this, because the child inherits this environment and will run at that width, as in `make_test_pool_width`. `ncores` and `total_bytes` are keywords so a test can compute the width for an invented machine.
+    The overlap policy has no higher floor. Where the floor binds, the conformance sweep, held at its own floor of one process per acceptance configuration (`_conform_core_cap`), is left no cores either, so the machine already runs more processes than it has cores while the gate pools overlap, and a higher floor would add more. The queue policy avoids that oversubscription by running the suite after gate:make-test and the sweep, at the gate lane's share. PYTEST_XDIST_AUTO_NUM_WORKERS overrides all of this, because the child inherits this environment and will run at that width, as in `make_test_pool_width`. `ncores` and `total_bytes` are keywords so a test can compute the width for an invented machine.
     """
     stated = os.environ.get("PYTEST_XDIST_AUTO_NUM_WORKERS")
     if stated:
@@ -1433,6 +1435,7 @@ def contracts_pool_width(
         skip_make_test=skip_make_test,
         skip_corpus=skip_corpus,
         pool_policy=pool_policy,
+        build_lane_runs=build_lane_runs,
         ncores=ncores,
         total_bytes=total_bytes,
     )
@@ -1445,6 +1448,7 @@ def contracts_pool_derivation(
     skip_make_test: bool = False,
     skip_corpus: bool = False,
     pool_policy: str = REBUILD_POOL_POLICY_DEFAULT,
+    build_lane_runs: bool = True,
     ncores: int | None = None,
     total_bytes: int | None = None,
 ) -> str:
@@ -1457,6 +1461,7 @@ def contracts_pool_derivation(
         skip_make_test=skip_make_test,
         skip_corpus=skip_corpus,
         pool_policy=pool_policy,
+        build_lane_runs=build_lane_runs,
         ncores=ncores,
         total_bytes=total_bytes,
     )
@@ -1465,6 +1470,7 @@ def contracts_pool_derivation(
         skip_make_test=skip_make_test,
         skip_corpus=skip_corpus,
         pool_policy=pool_policy,
+        build_lane_runs=build_lane_runs,
         ncores=ncores,
         total_bytes=total_bytes,
     )
@@ -1492,6 +1498,7 @@ def _conform_build_lane(
     skip_make_test: bool,
     skip_corpus: bool,
     verdict_update_runs: bool,
+    build_lane_runs: bool = True,
     ncores: int | None,
     total_bytes: int | None,
 ) -> tuple[str, int]:
@@ -1504,7 +1511,11 @@ def _conform_build_lane(
         steps.append(("corpus-build", CORPUS_PARENT_BYTES + CORPUS_WORKER_BYTES * corpus_jobs))
     if verdict_update_runs:
         fill_jobs = standing_fill_jobs(
-            skip_gates=skip_gates, skip_make_test=skip_make_test, ncores=ncores, total_bytes=total_bytes
+            skip_gates=skip_gates,
+            skip_make_test=skip_make_test,
+            build_lane_runs=build_lane_runs,
+            ncores=ncores,
+            total_bytes=total_bytes,
         )
         steps.append(("verdict-update", STANDING_FILL_PARENT_BYTES + STANDING_FILL_WORKER_BYTES * fill_jobs))
     return max(steps, key=lambda step: step[1], default=("", 0))
@@ -1516,10 +1527,11 @@ def _conform_core_cap(
     skip_make_test: bool,
     skip_corpus: bool,
     pool_policy: str,
+    build_lane_runs: bool = True,
     ncores: int | None,
     total_bytes: int | None,
 ) -> tuple[int, str]:
-    """Return the conformance sweep's cap on its width and a clause saying which bound set it. The cap is the usable cores less the corpus build's processes (its parent and `corpus_job_budget`'s workers) when the pass runs the build, and less gate:make-test's pool under the overlap policy on a pass that runs that gate (`_contracts_pool_terms`): the two subtractions the rebuild suite's width makes, each leaving its cores to a step that can be the pass's critical path. The rebuild suite's pool is not subtracted, and the suite's width does not subtract the sweep, because each is off the critical path on the `--fresh` passes behind the default (the module docstring); under that policy the two share the cores left while both run, an unbudgeted overlap that `doc/parallelism.md` lists. `contracts_pool_width` gives these reasons in full for both widths. The cap is floored at the acceptance-configuration count, or at the cores where there are fewer, which is the width one process per configuration gives, so a cycle never runs the sweep narrower than that; where the floor binds beside the corpus build, the sweep and the build oversubscribe the cores while they overlap, an unbudgeted overlap that `doc/parallelism.md` lists. The verdict-update step is not subtracted here; its memory is (`_conform_build_lane`). Its refill pool, capped at the cores, can overlap the sweep's tail on cores, an unbudgeted overlap that `doc/parallelism.md` lists. A hand run (`skip_gates=True, skip_corpus=True`) subtracts nothing and gets every core."""
+    """Return the conformance sweep's cap on its width and a clause saying which bound set it. The cap is the usable cores less the corpus build's processes (its parent and `corpus_job_budget`'s workers) when the pass runs the build, and less gate:make-test's pool under the overlap policy on a pass that runs that gate (`_contracts_pool_terms`). These are the two subtractions the rebuild suite's width makes, and each leaves its cores to the pool that holds them: the corpus build keeps the build lane's share, and gate:make-test's pool, which may still hold the gate lane when the sweep starts, keeps its own width. The rebuild suite's pool is not subtracted, and the suite's width does not subtract the sweep, because each is off the critical path on the `--fresh` passes behind the default (the module docstring); under that policy the two share the cores left while both run, an unbudgeted overlap that `doc/parallelism.md` lists. `contracts_pool_width` gives these reasons in full for both widths. The cap is floored at the acceptance-configuration count, or at the cores where there are fewer, which is the width one process per configuration gives, so a cycle never runs the sweep narrower than that; where the floor binds beside the corpus build, the sweep and the build oversubscribe the cores while they overlap, an unbudgeted overlap that `doc/parallelism.md` lists. The verdict-update step is not subtracted here; its memory is (`_conform_build_lane`). Its refill pool, capped at the cores, can overlap the sweep's tail on cores, an unbudgeted overlap that `doc/parallelism.md` lists. A hand run (`skip_gates=True, skip_corpus=True`) subtracts nothing and gets every core."""
     from rebuild.pipeline.conform import ACCEPTANCE_CONFIGS
 
     cores, corpus, make_test = _contracts_pool_terms(
@@ -1527,6 +1539,7 @@ def _conform_core_cap(
         skip_make_test=skip_make_test,
         skip_corpus=skip_corpus,
         pool_policy=pool_policy,
+        build_lane_runs=build_lane_runs,
         ncores=ncores,
         total_bytes=total_bytes,
     )
@@ -1557,6 +1570,7 @@ def _conform_fit_terms(
     skip_corpus: bool,
     verdict_update_runs: bool,
     pool_policy: str,
+    build_lane_runs: bool = True,
     ncores: int | None,
     total_bytes: int | None,
 ) -> tuple[int, int, int]:
@@ -1566,11 +1580,12 @@ def _conform_fit_terms(
         skip_make_test=skip_make_test,
         skip_corpus=skip_corpus,
         verdict_update_runs=verdict_update_runs,
+        build_lane_runs=build_lane_runs,
         ncores=ncores,
         total_bytes=total_bytes,
     )
     make_test = (
-        _font_suite_worker_bytes() * make_test_pool_width(ncores=ncores)
+        _font_suite_worker_bytes() * make_test_pool_width(build_lane_runs=build_lane_runs, ncores=ncores)
         if pool_policy == "overlap" and not (skip_gates or skip_make_test)
         else 0
     )
@@ -1579,6 +1594,7 @@ def _conform_fit_terms(
         skip_make_test=skip_make_test,
         skip_corpus=skip_corpus,
         pool_policy=pool_policy,
+        build_lane_runs=build_lane_runs,
         ncores=ncores,
         total_bytes=total_bytes,
     )
@@ -1592,6 +1608,7 @@ def conform_job_budget(
     skip_corpus: bool = False,
     verdict_update_runs: bool = False,
     pool_policy: str = REBUILD_POOL_POLICY_DEFAULT,
+    build_lane_runs: bool = True,
     ncores: int | None = None,
     total_bytes: int | None = None,
 ) -> int:
@@ -1607,6 +1624,7 @@ def conform_job_budget(
         skip_corpus=skip_corpus,
         verdict_update_runs=verdict_update_runs,
         pool_policy=pool_policy,
+        build_lane_runs=build_lane_runs,
         ncores=ncores,
         total_bytes=total_bytes,
     )
@@ -1620,6 +1638,7 @@ def conform_job_derivation(
     skip_corpus: bool = False,
     verdict_update_runs: bool = False,
     pool_policy: str = REBUILD_POOL_POLICY_DEFAULT,
+    build_lane_runs: bool = True,
     ncores: int | None = None,
     total_bytes: int | None = None,
 ) -> str:
@@ -1632,6 +1651,7 @@ def conform_job_derivation(
         skip_corpus=skip_corpus,
         verdict_update_runs=verdict_update_runs,
         pool_policy=pool_policy,
+        build_lane_runs=build_lane_runs,
         ncores=ncores,
         total_bytes=total_bytes,
     )
@@ -1640,6 +1660,7 @@ def conform_job_derivation(
         skip_make_test=skip_make_test,
         skip_corpus=skip_corpus,
         pool_policy=pool_policy,
+        build_lane_runs=build_lane_runs,
         ncores=ncores,
         total_bytes=total_bytes,
     )
@@ -1648,15 +1669,17 @@ def conform_job_derivation(
 
 
 def _standing_fill_terms(
-    *, skip_gates: bool, skip_make_test: bool, ncores: int | None
+    *, skip_gates: bool, skip_make_test: bool, build_lane_runs: bool = True, ncores: int | None
 ) -> tuple[int, int, int]:
-    """Return the standing fill pool's three terms for `standing_fill_jobs` and `standing_fill_derivation`: STANDING_FILL_WORKER_BYTES is the divisor, STANDING_FILL_PARENT_BYTES is subtracted first, and the cap is the cores, because no width is known past which this pool stops getting faster. Under a gated cycle gate:make-test's pool comes off memory, its bytes subtracted as they are for the corpus build, but not off the cap: the two pools share the cores while both run, which costs contention time, not swap. The verdict-update step also starts beside gate:rebuild-contracts, whose pool no constant measures (`calibrate_budgets.UNITS`), so that pool is left out, and a pass that drops the standing-fill memo overuses memory for the pool's few tens of seconds. gate:conform's sweep can also run beside this step. That overlap's memory is subtracted on the conformance sweep's side (`_conform_build_lane`), so this width leaves the conformance sweep out; neither side subtracts the other's cores, so the two pools briefly oversubscribe the cores when they overlap."""
+    """Return the standing fill pool's three terms for `standing_fill_jobs` and `standing_fill_derivation`: STANDING_FILL_WORKER_BYTES is the divisor, STANDING_FILL_PARENT_BYTES is subtracted first, and the cap is the cores, because no width is known past which this pool stops getting faster. Under a gated cycle gate:make-test's pool comes off memory, its bytes subtracted as they are for the corpus build at the width that pool runs at (`make_test_pool_width`, which is why this takes `build_lane_runs`), but not off the cap: the two pools share the cores while both run, which costs contention time, not swap. The verdict-update step also starts beside gate:rebuild-contracts, whose pool no constant measures (`calibrate_budgets.UNITS`), so that pool is left out, and a pass that drops the standing-fill memo overuses memory for the pool's few tens of seconds. gate:conform's sweep can also run beside this step. That overlap's memory is subtracted on the conformance sweep's side (`_conform_build_lane`), so this width leaves the conformance sweep out; neither side subtracts the other's cores, so the two pools briefly oversubscribe the cores when they overlap."""
     from rebuild.tools import memory_budget
 
     cores = ncores or memory_budget.usable_cores()
     coresident = STANDING_FILL_PARENT_BYTES
     if not (skip_gates or skip_make_test):
-        coresident += _font_suite_worker_bytes() * make_test_pool_width(ncores=ncores)
+        coresident += _font_suite_worker_bytes() * make_test_pool_width(
+            build_lane_runs=build_lane_runs, ncores=ncores
+        )
     return STANDING_FILL_WORKER_BYTES, coresident, cores
 
 
@@ -1664,6 +1687,7 @@ def standing_fill_jobs(
     *,
     skip_gates: bool,
     skip_make_test: bool = False,
+    build_lane_runs: bool = True,
     ncores: int | None = None,
     total_bytes: int | None = None,
 ) -> int:
@@ -1671,7 +1695,7 @@ def standing_fill_jobs(
     from rebuild.tools import memory_budget
 
     per_unit, coresident, cap = _standing_fill_terms(
-        skip_gates=skip_gates, skip_make_test=skip_make_test, ncores=ncores
+        skip_gates=skip_gates, skip_make_test=skip_make_test, build_lane_runs=build_lane_runs, ncores=ncores
     )
     return memory_budget.how_many_fit(per_unit, coresident_bytes=coresident, cap=cap, total_bytes=total_bytes)
 
@@ -1680,6 +1704,7 @@ def standing_fill_derivation(
     *,
     skip_gates: bool,
     skip_make_test: bool = False,
+    build_lane_runs: bool = True,
     ncores: int | None = None,
     total_bytes: int | None = None,
 ) -> str:
@@ -1687,7 +1712,7 @@ def standing_fill_derivation(
     from rebuild.tools import memory_budget
 
     per_unit, coresident, cap = _standing_fill_terms(
-        skip_gates=skip_gates, skip_make_test=skip_make_test, ncores=ncores
+        skip_gates=skip_gates, skip_make_test=skip_make_test, build_lane_runs=build_lane_runs, ncores=ncores
     )
     return memory_budget.describe_fit(per_unit, coresident_bytes=coresident, cap=cap, total_bytes=total_bytes)
 
@@ -1750,17 +1775,25 @@ def build_plan(
     verdict_update_runs = not verdict_update_step_note
 
     no_make_test = skip_gates or skip_make_test
-    make_test_workers = make_test_pool_width(ncores=ncores)
+    build_lane_runs = not (skip_run_m1 and skip_corpus)
+    make_test_workers = make_test_pool_width(build_lane_runs=build_lane_runs, ncores=ncores)
     corpus_jobs = corpus_job_budget(
         skip_gates=skip_gates, skip_make_test=skip_make_test, ncores=ncores, total_bytes=total_bytes
     )
-    workers = f"{make_test_workers} worker" + ("" if make_test_workers == 1 else "s")
     if skip_gates:
-        corpus_head = "--skip-gates, so the corpus build takes the whole machine"
-    elif skip_make_test:
-        corpus_head = "gate:make-test skipped, so the corpus build takes the whole machine"
+        corpus_head = "--skip-gates, so the corpus build is capped at every core less its parent"
     else:
-        corpus_head = f"gate:make-test's pytest pool held to {workers} — its cores reserved here and its bytes subtracted from the machine's memory beside the build's own parent"
+        from rebuild.tools import memory_budget
+
+        cores = ncores or memory_budget.usable_cores()
+        build_lane, _gate_lane = memory_budget.split_cores(cores)
+        lane_head = f"the build lane holds {build_lane} of {cores} cores (memory_budget.split_cores), so the corpus build is capped at {build_lane} less its parent"
+        if skip_make_test:
+            corpus_head = f"{lane_head}; gate:make-test skipped, so the other gates hold the gate lane and no pytest pool's bytes come off the machine's memory"
+        else:
+            beside = make_test_pool_width(ncores=ncores)
+            beside_workers = f"{beside} worker" + ("" if beside == 1 else "s")
+            corpus_head = f"{lane_head}; gate:make-test's pool, {beside_workers}, holds the gate lane and its bytes come off the machine's memory beside the build's own parent"
     corpus_reason = f"{corpus_head}; " + corpus_job_derivation(
         skip_gates=skip_gates, skip_make_test=skip_make_test, ncores=ncores, total_bytes=total_bytes
     )
@@ -1770,13 +1803,21 @@ def build_plan(
         + signature_job_derivation(ncores=ncores)
     )
     fill_jobs = standing_fill_jobs(
-        skip_gates=skip_gates, skip_make_test=skip_make_test, ncores=ncores, total_bytes=total_bytes
+        skip_gates=skip_gates,
+        skip_make_test=skip_make_test,
+        build_lane_runs=build_lane_runs,
+        ncores=ncores,
+        total_bytes=total_bytes,
     )
     fill_reason = (
         "the standing fill's refill pool on a memo-drop pass, beside the verdict update's process; "
         + (
             standing_fill_derivation(
-                skip_gates=skip_gates, skip_make_test=skip_make_test, ncores=ncores, total_bytes=total_bytes
+                skip_gates=skip_gates,
+                skip_make_test=skip_make_test,
+                build_lane_runs=build_lane_runs,
+                ncores=ncores,
+                total_bytes=total_bytes,
             )
         )
     )
@@ -1785,6 +1826,7 @@ def build_plan(
         skip_make_test=skip_make_test,
         skip_corpus=skip_corpus,
         pool_policy=pool_policy,
+        build_lane_runs=build_lane_runs,
         ncores=ncores,
         total_bytes=total_bytes,
     )
@@ -1793,6 +1835,7 @@ def build_plan(
         skip_make_test=skip_make_test,
         skip_corpus=skip_corpus,
         pool_policy=pool_policy,
+        build_lane_runs=build_lane_runs,
         ncores=ncores,
         total_bytes=total_bytes,
     )
@@ -1804,6 +1847,7 @@ def build_plan(
         skip_corpus=skip_corpus,
         verdict_update_runs=verdict_update_runs,
         pool_policy=pool_policy,
+        build_lane_runs=build_lane_runs,
         ncores=ncores,
         total_bytes=total_bytes,
     )
@@ -1812,6 +1856,7 @@ def build_plan(
         skip_make_test=skip_make_test,
         skip_corpus=skip_corpus,
         verdict_update_runs=verdict_update_runs,
+        build_lane_runs=build_lane_runs,
         ncores=ncores,
         total_bytes=total_bytes,
     )
@@ -1847,12 +1892,21 @@ def build_plan(
         skip_corpus=skip_corpus,
         verdict_update_runs=verdict_update_runs,
         pool_policy=pool_policy,
+        build_lane_runs=build_lane_runs,
         ncores=ncores,
         total_bytes=total_bytes,
     )
     kernel_threads = kernel_threads_budget(
         skip_make_test=no_make_test, ncores=ncores, total_bytes=total_bytes
     )
+    if skip_make_test:
+        kernel_reason = "the table build's memory ceiling, the one width RAM binds"
+    else:
+        kernel_workers = make_test_pool_width(ncores=ncores)
+        kernel_reason = f"the table build's memory ceiling, less gate:make-test's {kernel_workers} worker" + (
+            "" if kernel_workers == 1 else "s"
+        )
+    kernel_reason += ", capped at the configuration count and the cores"
     replay_threads = replay_threads_budget(
         skip_make_test=no_make_test, ncores=ncores, total_bytes=total_bytes
     )
@@ -1905,6 +1959,7 @@ def build_plan(
         sweep_jobs=sweep_jobs,
         sweep_reason=sweep_reason,
         kernel_threads=kernel_threads,
+        kernel_reason=kernel_reason,
         replay_threads=replay_threads,
         replay_reason=replay_reason,
         make_test_workers=make_test_workers,
@@ -2311,19 +2366,13 @@ def _render_concurrency(plan: Plan) -> list[str]:
             )
         else:
             lines.append("                                       no other heavy pool running, so no queueing")
-    workers = f"{plan.make_test_workers} worker" + ("" if plan.make_test_workers == 1 else "s")
-    if plan.skip_make_test:
-        kernel_reason = "the table build's memory ceiling, the one width RAM binds"
-    else:
-        kernel_reason = f"the table build's memory ceiling, less gate:make-test's {workers}"
-    kernel_reason += ", capped at the configuration count and the cores"
     lines.append(f"    run_m1 sweeps --jobs             : {plan.sweep_jobs}  ({plan.sweep_reason})")
     if plan.rerun_gates_only:
         lines.append(
             "    run_m1 --kernel-threads          : not passed (a gates-only rerun enumerates nothing, so there is no fan-out to size)"
         )
     else:
-        lines.append(f"    run_m1 --kernel-threads          : {plan.kernel_threads}  ({kernel_reason})")
+        lines.append(f"    run_m1 --kernel-threads          : {plan.kernel_threads}  ({plan.kernel_reason})")
     if plan.rerun_gates_only:
         lines.append(
             "    run_m1 --replay-threads          : not passed (a gates-only rerun replays nothing, so there is no wave to size)"
