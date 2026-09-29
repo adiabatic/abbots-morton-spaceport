@@ -1,65 +1,7 @@
 glyphs:
-  # ── Spaces ───────────────────────────────────────────────────────────
-
-  uni00A0.prop:  # NO-BREAK SPACE
-    advance_width: 7
-    bitmap: []
-
-  uni2000.prop:  # EN QUAD
-    advance_width: 5
-    bitmap: []
-
-  uni2001.prop:  # EM QUAD
-    advance_width: 7
-    bitmap: []
-
-  uni2002.prop:  # EN SPACE
-    advance_width: 5
-    bitmap: []
-
-  uni2003.prop:  # EM SPACE
-    advance_width: 7
-    bitmap: []
-
-  uni2004.prop:  # THREE-PER-EM SPACE
-    advance_width: 2
-    bitmap: []
-
-  uni2005.prop:  # FOUR-PER-EM SPACE
-    advance_width: 2
-    bitmap: []
-
-  uni2006.prop:  # SIX-PER-EM SPACE
-    advance_width: 1
-    bitmap: []
-
-  uni2007.prop:  # FIGURE SPACE
-    advance_width: 5
-    bitmap: []
-
-  uni2008.prop:  # PUNCTUATION SPACE
-    advance_width: 1
-    bitmap: []
-
-  uni2009.prop:  # THIN SPACE
-    advance_width: 1
-    bitmap: []
-
-  uni200A.prop:  # HAIR SPACE
-    advance_width: 1
-    bitmap: []
-
-  uni200C:  # ZERO WIDTH NON-JOINER
-    advance_width: 0
-    bitmap: []
-
-  # ── Other ────────────────────────────────────────────────────────────
-
-  # Bracket-height: 10 rows, y_offset -1
-  bar.prop:  # | U+007C
+  exclam.prop:  # ! U+0021
     y_offset: -1
     bitmap:
-      - "#"
       - "#"
       - "#"
       - "#" #
@@ -67,92 +9,72 @@ glyphs:
       - "#"
       - "#"
       - "#"
-      - "#" #
+      - " " #
       - "#"
 
-  braceleft.prop:  # { U+007B
-    y_offset: -1
+  quotedbl.prop:  # " U+0022
+    y_offset: 5
     bitmap:
-      - "   ##"
-      - "  #  "
-      - "  #  "
-      - "  #  " #
-      - "##   "
-      - "  #  "
-      - "  #  "
-      - "  #  "
-      - "  #  " #
-      - "   ##"
+      - "# #"
+      - "# #"
+      - "# #"
 
-  braceright.prop:  # } U+007D
-    y_offset: -1
+  numbersign.prop:  # # U+0023
     bitmap:
-      - "##   "
-      - "  #  "
-      - "  #  "
-      - "  #  " #
-      - "   ##"
-      - "  #  "
-      - "  #  "
-      - "  #  "
-      - "  #  " #
-      - "##   "
+      - " #  # "
+      - " #  # "
+      - "######" #
+      - " #  # "
+      - " #  # "
+      - "######"
+      - " #  # "
+      - " #  # " #
 
-  bracketleft.prop:  # [ U+005B
+  dollar.prop:  # $ U+0024
     y_offset: -1
     bitmap:
-      - "###"
-      - "#  "
-      - "#  "
-      - "#  " #
-      - "#  "
-      - "#  "
-      - "#  "
-      - "#  "
-      - "#  " #
-      - "###"
+      - "  #  "
+      - " ####"
+      - "# #  "
+      - "# #  " #
+      - " ##  "
+      - "  ## "
+      - "  # #"
+      - "  # #"
+      - "#### " #
+      - "  #  "
 
-  bracketright.prop:  # ] U+005D
-    y_offset: -1
+  percent.prop:  # % U+0025
     bitmap:
-      - "###"
-      - "  #"
-      - "  #"
-      - "  #" #
-      - "  #"
-      - "  #"
-      - "  #"
-      - "  #"
-      - "  #" #
-      - "###"
+      - " #   "
+      - "# #  "
+      - " #  #"
+      - "   # " #
+      - "  #  "
+      - " #   "
+      - "#  # "
+      - "  # #"
+      - "   # " #
 
-  brokenbar.prop:  # ¦ U+00A6
+  ampersand.prop:  # & U+0026
     y_offset: -1
     bitmap:
-      - "#"
-      - "#"
-      - "#"
-      - "#" #
-      - " "
-      - " "
-      - "#"
-      - "#"
-      - "#" #
-      - "#"
+      - "   #  "
+      - " #####"
+      - "#  #  " #
+      - "#  #  "
+      - " #####"
+      - "#  #  "
+      - "#  #  "
+      - " #####" #
+      - "   #  "
 
-  paragraph.prop:  # ¶ U+00B6
-    y_offset: -1
+  quotesingle.prop:  # ' U+0027
+    y_offset: 5
     bitmap:
-      - " #### #"
-      - "##### #"
-      - "##### #"
-      - " #### #" #
-      - "    # #"
-      - "    # #"
-      - "    # #"
-      - "    # #"
-      - "    # #" #
-      - "    # #"
+      - "#"
+      - "#"
+      - "#"
 
   parenleft.prop:  # ( U+0028
     y_offset: -1
@@ -182,152 +104,111 @@ glyphs:
       - " # " #
       - "#  "
 
-  section.prop:  # § U+00A7
-    y_offset: -1
+  asterisk.prop:  # * U+002A
+    y_offset: 2
     bitmap:
-      - " ####"
-      - "#    "
-      - " #   "
-      - " ##  " #
-      - "#  # "
-      - " #  #"
-      - "  ## "
-      - "   # "
-      - "    #" #
-      - "#### "
+      - "  #  "
+      - "# # #"
+      - " ### "
+      - "# # #"
+      - "  #  "
 
-  uni276C.prop:  # ❬ U+276C
-    y_offset: -1
-    bitmap:
-      - "  #"
-      - "  #"
-      - " # "
-      - " # " #
-      - "#  "
-      - "#  "
-      - " # "
-      - " # "
-      - "  #" #
-      - "  #"
-
-  uni276D.prop:  # ❭ U+276D
-    y_offset: -1
-    bitmap:
-      - "#  "
-      - "#  "
-      - " # "
-      - " # " #
-      - "  #"
-      - "  #"
-      - " # "
-      - " # "
-      - "#  " #
-      - "#  "
-
-  uni276E.prop:  # ❮ U+276E
-    y_offset: -1
-    bitmap:
-      - "  ##"
-      - "  ##"
-      - " ## "
-      - " ## " #
-      - "##  "
-      - "##  "
-      - " ## "
-      - " ## "
-      - "  ##" #
-      - "  ##"
-
-  uni276F.prop:  # ❯ U+276F
-    y_offset: -1
-    bitmap:
-      - "##  "
-      - "##  "
-      - " ## "
-      - " ## " #
-      - "  ##"
-      - "  ##"
-      - " ## "
-      - " ## "
-      - "##  " #
-      - "##  "
-
-  # Tall descending: 9 rows, y_offset -1
-  greaterequal.prop:  # ≥ U+2265
-    y_offset: -1
-    bitmap:
-      - "#   "
-      - " #  "
-      - "  # " #
-      - "   #"
-      - "  # "
-      - " #  "
-      - "#   "
-      - "    " #
-      - "####"
-
-  lessequal.prop:  # ≤ U+2264
-    y_offset: -1
-    bitmap:
-      - "   #"
-      - "  # "
-      - " #  " #
-      - "#   "
-      - " #  "
-      - "  # "
-      - "   #"
-      - "    " #
-      - "####"
-
-  radical.prop:  # √ U+221A
-    y_offset: -1
-    bitmap:
-      - "       ##"
-      - "      #  "
-      - "     #   "
-      - "     #   " #
-      - "    #    "
-      - "    #    "
-      - " # #     "
-      - " # #     "
-      - "  #      " #
-      - "  #      "
-
-  infinity.prop:  # ∞ U+221E
+  plus.prop:  # + U+002B
     y_offset: 1
     bitmap:
-      - " ## ## "
-      - "#  #  #"
-      - "#  #  #"
-      - "#  #  #"
-      - " ## ## "
+      - "  #  "
+      - "  #  "
+      - "#####"
+      - "  #  "
+      - "  #  "
 
-  uni2669.prop:  # ♩ U+2669
+  comma.prop:  # , U+002C
     y_offset: -1
+    bitmap:
+      - " #"
+      - " #"
+      - "# "
+
+  hyphen.prop: &HYPHEN  # - U+002D (HYPHEN-MINUS)
+    y_offset: 3
+    bitmap:
+      - "###"
+
+  period.prop:  # . U+002E
+    bitmap:
+      - "#"
+      - "#"
+
+  slash.prop: &SLASH  # / U+002F
     bitmap:
       - "   #"
       - "   #"
+      - "  # " #
+      - "  # "
+      - " #  "
+      - " #  "
+      - "#   "
+      - "#   " #
+
+  colon.prop:  # : U+003A
+    bitmap:
+      - "#" #
+      - "#"
+      - " "
+      - " "
+      - "#"
+      - "#" #
+
+  semicolon.prop:  # ; U+003B
+    y_offset: -1
+    bitmap:
+      - " #" #
+      - " #"
+      - "  "
+      - "  "
+      - " #"
+      - " #" #
+      - "# "
+
+  less.prop:  # < U+003C
+    bitmap:
+      - "   #"
+      - "  # " #
+      - " #  "
+      - "#   "
+      - " #  "
+      - "  # "
       - "   #" #
-      - "   #"
-      - "   #"
-      - " ###"
-      - "####"
-      - "####" #
-      - " ## "
 
-  # Cap-height: 8 rows
-  ampersand.prop:  # & U+0026
+  equal.prop:  # = U+003D
+    y_offset: 2
+    bitmap:
+      - "#####"
+      - "     "
+      - "#####"
+
+  greater.prop:  # > U+003E
+    bitmap:
+      - "#   "
+      - " #  " #
+      - "  # "
+      - "   #"
+      - "  # "
+      - " #  "
+      - "#   " #
+
+  question.prop:  # ? U+003F
     y_offset: -1
     bitmap:
-      - "   #  "
-      - " #####"
-      - "#  #  " #
-      - "#  #  "
-      - " #####"
-      - "#  #  "
-      - "#  #  "
-      - " #####" #
-      - "   #  "
+      - " ### "
+      - "#   #"
+      - "    #" #
+      - "   # "
+      - "  #  "
+      - "  #  "
+      - "  #  "
+      - "     " #
+      - "  #  "
 
   at.prop:  # @ U+0040
     y_offset: -2
@@ -343,6 +224,127 @@ glyphs:
       - " #       "
       - "  ###### "
 
+  bracketleft.prop:  # [ U+005B
+    y_offset: -1
+    bitmap:
+      - "###"
+      - "#  "
+      - "#  "
+      - "#  " #
+      - "#  "
+      - "#  "
+      - "#  "
+      - "#  "
+      - "#  " #
+      - "###"
+
+  backslash.prop:  # \ U+005C
+    bitmap:
+      - "#   "
+      - "#   "
+      - " #  " #
+      - " #  "
+      - "  # "
+      - "  # "
+      - "   #"
+      - "   #" #
+
+  bracketright.prop:  # ] U+005D
+    y_offset: -1
+    bitmap:
+      - "###"
+      - "  #"
+      - "  #"
+      - "  #" #
+      - "  #"
+      - "  #"
+      - "  #"
+      - "  #"
+      - "  #" #
+      - "###"
+
+  asciicircum.prop:  # ^ U+005E
+    y_offset: 6
+    bitmap: &CIRCUMFLEX
+      - "  # "
+      - " # #"
+
+  underscore.prop:  # _ U+005F
+    y_offset: -1
+    bitmap:
+      - "#####"
+
+  grave.prop:  # ` U+0060
+    y_offset: 7
+    bitmap: &GRAVE
+      - "# "
+      - " #"
+
+  braceleft.prop:  # { U+007B
+    y_offset: -1
+    bitmap:
+      - "   ##"
+      - "  #  "
+      - "  #  "
+      - "  #  " #
+      - "##   "
+      - "  #  "
+      - "  #  "
+      - "  #  "
+      - "  #  " #
+      - "   ##"
+
+  bar.prop:  # | U+007C
+    y_offset: -1
+    bitmap:
+      - "#"
+      - "#"
+      - "#"
+      - "#" #
+      - "#"
+      - "#"
+      - "#"
+      - "#"
+      - "#" #
+      - "#"
+
+  braceright.prop:  # } U+007D
+    y_offset: -1
+    bitmap:
+      - "##   "
+      - "  #  "
+      - "  #  "
+      - "  #  " #
+      - "   ##"
+      - "  #  "
+      - "  #  "
+      - "  #  "
+      - "  #  " #
+      - "##   "
+
+  asciitilde.prop:  # ~ U+007E
+    y_offset: 4
+    bitmap:
+      - " ##  #"
+      - "#  ## "
+
+  uni00A0.prop:  # NO-BREAK SPACE
+    advance_width: 7
+    bitmap: []
+
+  exclamdown.prop:  # ¡ U+00A1
+    y_offset: -1
+    bitmap:
+      - "#"
+      - " "
+      - "#" #
+      - "#"
+      - "#"
+      - "#"
+      - "#"
+      - "#" #
+      - "#"
+
   cent.prop:  # ¢ U+00A2
     bitmap:
       - "  # "
@@ -353,6 +355,70 @@ glyphs:
       - "#   "
       - " ###"
       - "  # " #
+
+  sterling.prop:  # £ U+00A3
+    bitmap:
+      - "  ## "
+      - " #  #"
+      - " #   " #
+      - " #   "
+      - "#### "
+      - " #   "
+      - " #   "
+      - "#####" #
+
+  currency.prop:  # ¤ U+00A4
+    y_offset: 2
+    bitmap:
+      - "#   #"
+      - " ### "
+      - " # # "
+      - " ### "
+      - "#   #"
+
+  yen.prop:  # ¥ U+00A5
+    bitmap:
+      - "#     #"
+      - " #   # "
+      - "  # #  " #
+      - "   #   "
+      - " ##### "
+      - "   #   "
+      - " ##### "
+      - "   #   " #
+
+  brokenbar.prop:  # ¦ U+00A6
+    y_offset: -1
+    bitmap:
+      - "#"
+      - "#"
+      - "#"
+      - "#" #
+      - " "
+      - " "
+      - "#"
+      - "#"
+      - "#" #
+      - "#"
+
+  section.prop:  # § U+00A7
+    y_offset: -1
+    bitmap:
+      - " ####"
+      - "#    "
+      - " #   "
+      - " ##  " #
+      - "#  # "
+      - " #  #"
+      - "  ## "
+      - "   # "
+      - "    #" #
+      - "#### "
+
+  dieresis.prop:  # ¨ U+00A8
+    y_offset: 7
+    bitmap: &DIERESIS
+      - "# #"
 
   copyright.prop:  # © U+00A9
     y_offset: -1
@@ -368,6 +434,31 @@ glyphs:
       - "  #   #  " #
       - "   ###   "
 
+  ordfeminine.prop:  # ª U+00AA
+    y_offset: 3
+    bitmap:
+      - " ###"
+      - "#  #"
+      - "# ##"
+      - "## #"
+      - "    "
+
+  guillemotleft.prop:  # « U+00AB
+    y_offset: 1
+    bitmap:
+      - "  #  #"
+      - " #  # "
+      - "#  #  "
+      - " #  # "
+      - "  #  #"
+
+  logicalnot.prop:  # ¬ U+00AC
+    y_offset: 3
+    bitmap:
+      - "    "
+      - "####"
+      - "   #"
+
   registered.prop:  # ® U+00AE
     y_offset: 1
     bitmap:
@@ -380,81 +471,86 @@ glyphs:
       - " #   # " #
       - "  ###  "
 
-  dollar.prop:  # $ U+0024
-    y_offset: -1
-    bitmap:
-      - "  #  "
-      - " ####"
-      - "# #  "
-      - "# #  " #
-      - " ##  "
-      - "  ## "
-      - "  # #"
-      - "  # #"
-      - "#### " #
-      - "  #  "
+  macron.prop:  # ¯ U+00AF
+    y_offset: 7
+    bitmap: &MACRON
+      - "###"
 
-  numbersign.prop:  # # U+0023
+  degree.prop:  # ° U+00B0
+    y_offset: 5
     bitmap:
-      - " #  # "
-      - " #  # "
-      - "######" #
-      - " #  # "
-      - " #  # "
-      - "######"
-      - " #  # "
-      - " #  # " #
+      - " #  "
+      - "# # "
+      - " #  "
 
-  percent.prop:  # % U+0025
+  plusminus.prop:  # ± U+00B1
     bitmap:
-      - " #   "
-      - "# #  "
-      - " #  #"
-      - "   # " #
-      - "  #  "
-      - " #   "
-      - "#  # "
-      - "  # #"
-      - "   # " #
-
-  exclam.prop:  # ! U+0021
-    y_offset: -1
-    bitmap:
-      - "#"
-      - "#"
-      - "#" #
-      - "#"
-      - "#"
-      - "#"
-      - "#"
-      - " " #
-      - "#"
-
-  exclamdown.prop:  # ¡ U+00A1
-    y_offset: -1
-    bitmap:
-      - "#"
-      - " "
-      - "#" #
-      - "#"
-      - "#"
-      - "#"
-      - "#"
-      - "#" #
-      - "#"
-
-  question.prop:  # ? U+003F
-    y_offset: -1
-    bitmap:
-      - " ### "
-      - "#   #"
-      - "    #" #
-      - "   # "
       - "  #  "
       - "  #  "
+      - "#####" #
       - "  #  "
+      - "  #  "
+      - "     "
+      - "#####"
       - "     " #
-      - "  #  "
+
+  acute.prop:  # ´ U+00B4
+    y_offset: 7
+    bitmap: &ACUTE
+      - " #"
+      - "# "
+
+  paragraph.prop:  # ¶ U+00B6
+    y_offset: -1
+    bitmap:
+      - " #### #"
+      - "##### #"
+      - "##### #"
+      - " #### #" #
+      - "    # #"
+      - "    # #"
+      - "    # #"
+      - "    # #"
+      - "    # #" #
+      - "    # #"
+
+  periodcentered.prop:  # · U+00B7
+    y_offset: 3
+    bitmap:
+      - "#"
+      - "#"
+
+  # The namer dot lowered one pixel so it is vertically centered on a Short letter. `emit_namer_dot_calt` substitutes it for `periodcentered` at the start of a word whose first letter is Short. It has no code point.
+  periodcentered.lowered.prop:  # ·, lowered before Short letters
+    y_offset: 2
+    bitmap:
+      - "#"
+      - "#"
+
+  cedilla.prop:  # ¸ U+00B8
+    y_offset: -3
+    bitmap: &CEDILLA
+      - " # "
+      - "  #"
+      - " # "
+
+  ordmasculine.prop:  # º U+00BA
+    y_offset: 3
+    bitmap:
+      - " ## "
+      - "#  #"
+      - "#  #"
+      - " ## "
+      - "    "
+
+  guillemotright.prop:  # » U+00BB
+    y_offset: 1
+    bitmap:
+      - "#  #  "
+      - " #  # "
+      - "  #  #"
+      - " #  # "
+      - "#  #  "
 
   questiondown.prop:  # ¿ U+00BF
     y_offset: -1
@@ -469,145 +565,14 @@ glyphs:
       - "#   #" #
       - " ### "
 
-  slash.prop: &SLASH  # / U+002F
+  multiply.prop:  # × U+00D7
     bitmap:
-      - "   #"
-      - "   #"
-      - "  # " #
-      - "  # "
-      - " #  "
-      - " #  "
-      - "#   "
-      - "#   " #
-
-  uni2215.prop: *SLASH  # ∕ U+2215 (DIVISION SLASH)
-
-  backslash.prop:  # \ U+005C
-    bitmap:
-      - "#   "
-      - "#   "
-      - " #  " #
-      - " #  "
-      - "  # "
-      - "  # "
-      - "   #"
-      - "   #" #
-
-  sterling.prop:  # £ U+00A3
-    bitmap:
-      - "  ## "
-      - " #  #"
-      - " #   " #
-      - " #   "
-      - "#### "
-      - " #   "
-      - " #   "
-      - "#####" #
-
-  yen.prop:  # ¥ U+00A5
-    bitmap:
-      - "#     #"
-      - " #   # "
-      - "  # #  " #
-      - "   #   "
-      - " ##### "
-      - "   #   "
-      - " ##### "
-      - "   #   " #
-
-  Euro.prop:  # € U+20AC
-    bitmap:
-      - "  ### "
-      - " #   #"
-      - " #    " #
-      - "####  "
-      - " #    "
-      - " #    "
-      - " #   #"
-      - "  ### " #
-
-  # Medium: 7 rows
-  greater.prop:  # > U+003E
-    bitmap:
-      - "#   "
-      - " #  " #
-      - "  # "
-      - "   #"
-      - "  # "
-      - " #  "
-      - "#   " #
-
-  less.prop:  # < U+003C
-    bitmap:
-      - "   #"
-      - "  # " #
-      - " #  "
-      - "#   "
-      - " #  "
-      - "  # "
-      - "   #" #
-
-  plusminus.prop:  # ± U+00B1
-    bitmap:
+      - "#   #" #
+      - " # # "
       - "  #  "
-      - "  #  "
-      - "#####" #
-      - "  #  "
-      - "  #  "
-      - "     "
-      - "#####"
+      - " # # "
+      - "#   #"
       - "     " #
-
-  minus.prop:  # − U+2212
-    y_offset: 3
-    bitmap:
-      - "#####"
-
-  hyphen.prop: &HYPHEN  # - U+002D (HYPHEN-MINUS)
-    y_offset: 3
-    bitmap:
-      - "###"
-
-  uni2011.prop: *HYPHEN  # ‑ U+2011 (NON-BREAKING HYPHEN)
-
-  endash.prop: &ENDASH  # – U+2013 (EN DASH)
-    y_offset: 3
-    bitmap:
-      - "#####"
-
-  uni2012.prop: *ENDASH  # ‒ U+2012 (FIGURE DASH)
-
-  emdash.prop:  # — U+2014
-    y_offset: 3
-    bitmap:
-      - "#######"
-
-  uni2015.prop:  # ― HORIZONTAL BAR
-    y_offset: 3
-    bitmap:
-      - "########"
-
-  # Semicolon: 7 rows, y_offset -1
-  semicolon.prop:  # ; U+003B
-    y_offset: -1
-    bitmap:
-      - " #" #
-      - " #"
-      - "  "
-      - "  "
-      - " #"
-      - " #" #
-      - "# "
-
-  # X-height: 6 rows
-  colon.prop:  # : U+003A
-    bitmap:
-      - "#" #
-      - "#"
-      - " "
-      - " "
-      - "#"
-      - "#" #
 
   divide.prop:  # ÷ U+00F7
     bitmap:
@@ -618,265 +583,16 @@ glyphs:
       - "  #  "
       - "     " #
 
-  multiply.prop:  # × U+00D7
-    bitmap:
-      - "#   #" #
-      - " # # "
-      - "  #  "
-      - " # # "
-      - "#   #"
-      - "     " #
-
-  # Small mid: 5 rows
-  currency.prop:  # ¤ U+00A4
-    y_offset: 2
-    bitmap:
-      - "#   #"
-      - " ### "
-      - " # # "
-      - " ### "
-      - "#   #"
-
-  guillemotleft.prop:  # « U+00AB
-    y_offset: 1
-    bitmap:
-      - "  #  #"
-      - " #  # "
-      - "#  #  "
-      - " #  # "
-      - "  #  #"
-
-  guillemotright.prop:  # » U+00BB
-    y_offset: 1
-    bitmap:
-      - "#  #  "
-      - " #  # "
-      - "  #  #"
-      - " #  # "
-      - "#  #  "
-
-  guilsinglleft.prop:  # ‹ U+2039
-    y_offset: 1
-    bitmap:
-      - "  #"
-      - " # "
-      - "#  "
-      - " # "
-      - "  #"
-
-  guilsinglright.prop:  # › U+203A
-    y_offset: 1
-    bitmap:
-      - "#  "
-      - " # "
-      - "  #"
-      - " # "
-      - "#  "
-
-  plus.prop:  # + U+002B
-    y_offset: 1
-    bitmap:
-      - "  #  "
-      - "  #  "
-      - "#####"
-      - "  #  "
-      - "  #  "
-
-  # Small high: 5 rows, y_offset 2
-  asterisk.prop:  # * U+002A
-    y_offset: 2
-    bitmap:
-      - "  #  "
-      - "# # #"
-      - " ### "
-      - "# # #"
-      - "  #  "
-
-  # Ordinal: 5 rows, y_offset 3, width 4
-  ordfeminine.prop:  # ª U+00AA
-    y_offset: 3
-    bitmap:
-      - " ###"
-      - "#  #"
-      - "# ##"
-      - "## #"
-      - "    "
-
-  ordmasculine.prop:  # º U+00BA
-    y_offset: 3
-    bitmap:
-      - " ## "
-      - "#  #"
-      - "#  #"
-      - " ## "
-      - "    "
-
-  # Quote-height: 3 rows, y_offset 5
-  degree.prop:  # ° U+00B0
-    y_offset: 5
-    bitmap:
-      - " #  "
-      - "# # "
-      - " #  "
-
-  quotedbl.prop:  # " U+0022
-    y_offset: 5
-    bitmap:
-      - "# #"
-      - "# #"
-      - "# #"
-
-  quotedblleft.prop:  # “ U+201C
-    y_offset: 5
-    bitmap:
-      - " # #"
-      - "# # "
-      - "# # "
-
-  quotedblright.prop:  # ” U+201D
-    y_offset: 5
-    bitmap:
-      - " # #"
-      - " # #"
-      - "# # "
-
-  quoteleft.prop:  # ‘ U+2018
-    y_offset: 5
-    bitmap:
-      - " #"
-      - "# "
-      - "# "
-
-  quoteright.prop:  # ’ U+2019
-    y_offset: 5
-    bitmap:
-      - " #"
-      - " #"
-      - "# "
-
-  quotesingle.prop:  # ' U+0027
-    y_offset: 5
-    bitmap:
-      - "#"
-      - "#"
+  dotaccent.prop:  # ˙ U+02D9
+    y_offset: 7
+    bitmap: &DOTACCENT
       - "#"
 
-  uni2032.prop:  # ′ U+2032 (PRIME)
-    y_offset: 5
-    bitmap:
-      - "  #"
+  ring.prop:  # ˚ U+02DA
+    y_offset: 7
+    bitmap: &RING
       - " # "
-      - "#  "
-
-  uni2033.prop:  # ″ U+2033 (DOUBLE PRIME)
-    y_offset: 5
-    bitmap:
-      - "  #  #"
-      - " #  # "
-      - "#  #  "
-
-  uni2034.prop:  # ‴ U+2034 (TRIPLE PRIME)
-    y_offset: 5
-    bitmap:
-      - "  #  #  #"
-      - " #  #  # "
-      - "#  #  #  "
-
-  uni2105.prop:  # ℅ U+2105 (CARE OF)
-    bitmap:
-      - " #   "
-      - "#    "
-      - " #  #"
-      - "   # " #
-      - "  #  "
-      - " #   "
-      - "#  # "
-      - "  # #"
-      - "   # " #
-
-  uni2117.prop:  # ℗ U+2117 (SOUND RECORDING COPYRIGHT)
-    y_offset: -1
-    bitmap:
-      - "   ###   "
-      - "  #   #  "
-      - " #     # "
-      - "#  ###  #" #
-      - "#  #  # #"
-      - "#  ###  #"
-      - "#  #    #"
-      - " #     # "
-      - "  #   #  " #
-      - "   ###   "
-
-  trademark.prop:  # ™ U+2122
-    y_offset: 5
-    bitmap:
-      - "####   #"
-      - " # ## ##"
-      - " # # # #"
-
-  # Logicalnot: 3 rows, y_offset 3
-  logicalnot.prop:  # ¬ U+00AC
-    y_offset: 3
-    bitmap:
-      - "    "
-      - "####"
-      - "   #"
-
-  # Equal: 3 rows, y_offset 2
-  equal.prop:  # = U+003D
-    y_offset: 2
-    bitmap:
-      - "#####"
-      - "     "
-      - "#####"
-
-  approxequal.prop:  # ≈ U+2248
-    y_offset: 1
-    bitmap:
-      - " #  #"
-      - "# ## "
-      - "     "
-      - " #  #"
-      - "# ## "
-
-  notequal.prop:  # ≠ U+2260
-    y_offset: 1
-    bitmap:
-      - "   # "
-      - "#####"
-      - "  #  "
-      - "#####"
-      - " #   "
-
-  # Low-hook: 3 rows, y_offset -1
-  comma.prop:  # , U+002C
-    y_offset: -1
-    bitmap:
-      - " #"
-      - " #"
-      - "# "
-
-  quotedblbase.prop:  # „ U+201E
-    y_offset: -1
-    bitmap:
-      - " # #"
-      - " # #"
-      - "# # "
-
-  quotesinglbase.prop:  # ‚ U+201A
-    y_offset: -1
-    bitmap:
-      - " #"
-      - " #"
-      - "# "
-
-  # Diacritics below: 3 rows, y_offset -3
-  cedilla.prop:  # ¸ U+00B8
-    y_offset: -3
-    bitmap: &CEDILLA
-      - " # "
-      - "  #"
+      - "# #"
       - " # "
 
   ogonek.prop:  # ˛ U+02DB
@@ -886,34 +602,11 @@ glyphs:
       - "# "
       - " #"
 
-  # Diacritics above: 1–3 rows, y_offset 6–7
-  acute.prop:  # ´ U+00B4
+  tilde.prop:  # ˜ U+02DC
     y_offset: 7
-    bitmap: &ACUTE
-      - " #"
-      - "# "
-
-  asciicircum.prop:  # ^ U+005E
-    y_offset: 6
-    bitmap: &CIRCUMFLEX
-      - "  # "
+    bitmap: &TILDE
       - " # #"
-
-  dieresis.prop:  # ¨ U+00A8
-    y_offset: 7
-    bitmap: &DIERESIS
-      - "# #"
-
-  dotaccent.prop:  # ˙ U+02D9
-    y_offset: 7
-    bitmap: &DOTACCENT
-      - "#"
-
-  grave.prop:  # ` U+0060
-    y_offset: 7
-    bitmap: &GRAVE
-      - "# "
-      - " #"
+      - "# # "
 
   hungarumlaut.prop:  # ˝ U+02DD
     y_offset: 7
@@ -921,31 +614,6 @@ glyphs:
       - " #  #"
       - "#  # "
 
-  macron.prop:  # ¯ U+00AF
-    y_offset: 7
-    bitmap: &MACRON
-      - "###"
-
-  ring.prop:  # ˚ U+02DA
-    y_offset: 7
-    bitmap: &RING
-      - " # "
-      - "# #"
-      - " # "
-
-  tilde.prop:  # ˜ U+02DC
-    y_offset: 7
-    bitmap: &TILDE
-      - " # #"
-      - "# # "
-
-  tonos.prop:  # ΄ U+0384
-    y_offset: 7
-    bitmap:
-      - " #"
-      - "# "
-
-  # ── Combining diacritical marks (zero-width) ───────────────────────
   uni0300.prop:  # COMBINING GRAVE ACCENT
     advance_width: 0
     is_mark: true
@@ -1051,25 +719,126 @@ glyphs:
     y_offset: -3
     bitmap: *OGONEK
 
-  # Tilde-height: 2 rows, y_offset 4
-  asciitilde.prop:  # ~ U+007E
-    y_offset: 4
+  tonos.prop:  # ΄ U+0384
+    y_offset: 7
     bitmap:
-      - " ##  #"
-      - "#  ## "
+      - " #"
+      - "# "
 
-  uni25CC.prop:  # ◌ U+25CC (DOTTED CIRCLE)
-    top_mark_y: 7
-    bottom_mark_y: 0
+  uni2000.prop:  # EN QUAD
+    advance_width: 5
+    bitmap: []
+
+  uni2001.prop:  # EM QUAD
+    advance_width: 7
+    bitmap: []
+
+  uni2002.prop:  # EN SPACE
+    advance_width: 5
+    bitmap: []
+
+  uni2003.prop:  # EM SPACE
+    advance_width: 7
+    bitmap: []
+
+  uni2004.prop:  # THREE-PER-EM SPACE
+    advance_width: 2
+    bitmap: []
+
+  uni2005.prop:  # FOUR-PER-EM SPACE
+    advance_width: 2
+    bitmap: []
+
+  uni2006.prop:  # SIX-PER-EM SPACE
+    advance_width: 1
+    bitmap: []
+
+  uni2007.prop:  # FIGURE SPACE
+    advance_width: 5
+    bitmap: []
+
+  uni2008.prop:  # PUNCTUATION SPACE
+    advance_width: 1
+    bitmap: []
+
+  uni2009.prop:  # THIN SPACE
+    advance_width: 1
+    bitmap: []
+
+  uni200A.prop:  # HAIR SPACE
+    advance_width: 1
+    bitmap: []
+
+  uni200C:  # ZERO WIDTH NON-JOINER
+    advance_width: 0
+    bitmap: []
+
+  uni2010.prop:  # ‐ U+2010 (HYPHEN)
+    y_offset: 3
     bitmap:
-      - " # # " #
-      - "#    "
-      - "    #"
-      - "#    "
-      - "    #"
-      - " # # " #
+      - "###"
 
-  # Dagger: 7–8 rows, y_offset 1–2
+  uni2011.prop: *HYPHEN  # ‑ U+2011 (NON-BREAKING HYPHEN)
+
+  uni2012.prop: &ENDASH  # ‒ U+2012 (FIGURE DASH)
+    y_offset: 3
+    bitmap:
+      - "#####"
+
+  endash.prop: *ENDASH  # – U+2013 (EN DASH)
+
+  emdash.prop:  # — U+2014
+    y_offset: 3
+    bitmap:
+      - "#######"
+
+  uni2015.prop:  # ― HORIZONTAL BAR
+    y_offset: 3
+    bitmap:
+      - "########"
+
+  quoteleft.prop:  # ‘ U+2018
+    y_offset: 5
+    bitmap:
+      - " #"
+      - "# "
+      - "# "
+
+  quoteright.prop:  # ’ U+2019
+    y_offset: 5
+    bitmap:
+      - " #"
+      - " #"
+      - "# "
+
+  quotesinglbase.prop:  # ‚ U+201A
+    y_offset: -1
+    bitmap:
+      - " #"
+      - " #"
+      - "# "
+
+  quotedblleft.prop:  # “ U+201C
+    y_offset: 5
+    bitmap:
+      - " # #"
+      - "# # "
+      - "# # "
+
+  quotedblright.prop:  # ” U+201D
+    y_offset: 5
+    bitmap:
+      - " # #"
+      - " # #"
+      - "# # "
+
+  quotedblbase.prop:  # „ U+201E
+    y_offset: -1
+    bitmap:
+      - " # #"
+      - " # #"
+      - "# # "
+
   dagger.prop:  # † U+2020
     y_offset: 2
     bitmap:
@@ -1093,30 +862,16 @@ glyphs:
       - "  #  "
       - "  #  "
 
-  # Mid mark: 1–2 rows, y_offset 3–4
   bullet.prop:  # • U+2022
     y_offset: 3
     bitmap:
       - "##"
       - "##"
 
-  periodcentered.prop:  # · U+00B7
-    y_offset: 3
+  ellipsis.prop:  # … U+2026
     bitmap:
-      - "#"
-      - "#"
-
-  # The namer dot lowered one pixel so it is vertically centered on a Short letter. `emit_namer_dot_calt` substitutes it for `periodcentered` at the start of a word whose first letter is Short. It has no code point.
-  periodcentered.lowered.prop:  # ·, lowered before Short letters
-    y_offset: 2
-    bitmap:
-      - "#"
-      - "#"
-
-  uni2010.prop:  # ‐ U+2010 (HYPHEN)
-    y_offset: 3
-    bitmap:
-      - "###"
+      - "#  #  #"
+      - "#  #  #"
 
   uni2027.prop:  # ‧ U+2027 (HYPHENATION POINT)
     y_offset: 4
@@ -1124,25 +879,245 @@ glyphs:
       - "#"
       - "#"
 
+  uni2032.prop:  # ′ U+2032 (PRIME)
+    y_offset: 5
+    bitmap:
+      - "  #"
+      - " # "
+      - "#  "
+
+  uni2033.prop:  # ″ U+2033 (DOUBLE PRIME)
+    y_offset: 5
+    bitmap:
+      - "  #  #"
+      - " #  # "
+      - "#  #  "
+
+  uni2034.prop:  # ‴ U+2034 (TRIPLE PRIME)
+    y_offset: 5
+    bitmap:
+      - "  #  #  #"
+      - " #  #  # "
+      - "#  #  #  "
+
+  guilsinglleft.prop:  # ‹ U+2039
+    y_offset: 1
+    bitmap:
+      - "  #"
+      - " # "
+      - "#  "
+      - " # "
+      - "  #"
+
+  guilsinglright.prop:  # › U+203A
+    y_offset: 1
+    bitmap:
+      - "#  "
+      - " # "
+      - "  #"
+      - " # "
+      - "#  "
+
+  Euro.prop:  # € U+20AC
+    bitmap:
+      - "  ### "
+      - " #   #"
+      - " #    " #
+      - "####  "
+      - " #    "
+      - " #    "
+      - " #   #"
+      - "  ### " #
+
+  uni2105.prop:  # ℅ U+2105 (CARE OF)
+    bitmap:
+      - " #   "
+      - "#    "
+      - " #  #"
+      - "   # " #
+      - "  #  "
+      - " #   "
+      - "#  # "
+      - "  # #"
+      - "   # " #
+
+  uni2117.prop:  # ℗ U+2117 (SOUND RECORDING COPYRIGHT)
+    y_offset: -1
+    bitmap:
+      - "   ###   "
+      - "  #   #  "
+      - " #     # "
+      - "#  ###  #" #
+      - "#  #  # #"
+      - "#  ###  #"
+      - "#  #    #"
+      - " #     # "
+      - "  #   #  " #
+      - "   ###   "
+
+  trademark.prop:  # ™ U+2122
+    y_offset: 5
+    bitmap:
+      - "####   #"
+      - " # ## ##"
+      - " # # # #"
+
+  minus.prop:  # − U+2212
+    y_offset: 3
+    bitmap:
+      - "#####"
+
+  uni2215.prop: *SLASH  # ∕ U+2215 (DIVISION SLASH)
+
   uni2219.prop:  # ∙ U+2219 (BULLET OPERATOR)
     y_offset: 3
     bitmap:
       - "#"
       - "#"
 
-  # Baseline: 2 rows
-  period.prop:  # . U+002E
-    bitmap:
-      - "#"
-      - "#"
-
-  ellipsis.prop:  # … U+2026
-    bitmap:
-      - "#  #  #"
-      - "#  #  #"
-
-  # Underscore: 1 row, y_offset -1
-  underscore.prop:  # _ U+005F
+  radical.prop:  # √ U+221A
     y_offset: -1
     bitmap:
+      - "       ##"
+      - "      #  "
+      - "     #   "
+      - "     #   " #
+      - "    #    "
+      - "    #    "
+      - " # #     "
+      - " # #     "
+      - "  #      " #
+      - "  #      "
+
+  infinity.prop:  # ∞ U+221E
+    y_offset: 1
+    bitmap:
+      - " ## ## "
+      - "#  #  #"
+      - "#  #  #"
+      - "#  #  #"
+      - " ## ## "
+
+  approxequal.prop:  # ≈ U+2248
+    y_offset: 1
+    bitmap:
+      - " #  #"
+      - "# ## "
+      - "     "
+      - " #  #"
+      - "# ## "
+
+  notequal.prop:  # ≠ U+2260
+    y_offset: 1
+    bitmap:
+      - "   # "
       - "#####"
+      - "  #  "
+      - "#####"
+      - " #   "
+
+  lessequal.prop:  # ≤ U+2264
+    y_offset: -1
+    bitmap:
+      - "   #"
+      - "  # "
+      - " #  " #
+      - "#   "
+      - " #  "
+      - "  # "
+      - "   #"
+      - "    " #
+      - "####"
+
+  greaterequal.prop:  # ≥ U+2265
+    y_offset: -1
+    bitmap:
+      - "#   "
+      - " #  "
+      - "  # " #
+      - "   #"
+      - "  # "
+      - " #  "
+      - "#   "
+      - "    " #
+      - "####"
+
+  uni25CC.prop:  # ◌ U+25CC (DOTTED CIRCLE)
+    top_mark_y: 7
+    bottom_mark_y: 0
+    bitmap:
+      - " # # " #
+      - "#    "
+      - "    #"
+      - "#    "
+      - "    #"
+      - " # # " #
+
+  uni2669.prop:  # ♩ U+2669
+    y_offset: -1
+    bitmap:
+      - "   #"
+      - "   #"
+      - "   #" #
+      - "   #"
+      - "   #"
+      - " ###"
+      - "####"
+      - "####" #
+      - " ## "
+
+  uni276C.prop:  # ❬ U+276C
+    y_offset: -1
+    bitmap:
+      - "  #"
+      - "  #"
+      - " # "
+      - " # " #
+      - "#  "
+      - "#  "
+      - " # "
+      - " # "
+      - "  #" #
+      - "  #"
+
+  uni276D.prop:  # ❭ U+276D
+    y_offset: -1
+    bitmap:
+      - "#  "
+      - "#  "
+      - " # "
+      - " # " #
+      - "  #"
+      - "  #"
+      - " # "
+      - " # "
+      - "#  " #
+      - "#  "
+
+  uni276E.prop:  # ❮ U+276E
+    y_offset: -1
+    bitmap:
+      - "  ##"
+      - "  ##"
+      - " ## "
+      - " ## " #
+      - "##  "
+      - "##  "
+      - " ## "
+      - " ## "
+      - "  ##" #
+      - "  ##"
+
+  uni276F.prop:  # ❯ U+276F
+    y_offset: -1
+    bitmap:
+      - "##  "
+      - "##  "
+      - " ## "
+      - " ## " #
+      - "  ##"
+      - "  ##"
+      - " ## "
+      - " ## "
+      - "##  " #
+      - "##  "
