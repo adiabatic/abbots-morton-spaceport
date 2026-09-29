@@ -281,7 +281,7 @@ It applies to joined and unjoined pairs. It must also be aware of _resolved stan
 
 These two facts seem to conflict. Stance-aware kerning seems to need the full rule machinery, but kerning is in a **separate flat file** (`glyph_data/senior_quikscript_kerning.yaml`). The separation is **only a tooling accommodation**, not part of the model. The author doesn’t trust a dependency-free, “vibe-coded” JavaScript editor to modify a deeply nested, well-commented YAML file safely, but a flat YAML file with `---`-separated entries is “boringly reliable” for such a tool. (This is the one allowed exception to describing a pair entirely in its two rune files, described above.)
 
-**This is the same tooling choice as for the review app (see “This is a real application”).** There are two kinds of editor: a simple `<textarea>` copy-and-paste tool, which is safe only for flat data, and a **full web app with its own server that edits the nested YAML source on disk directly.** If that app exists, the _tooling_ reason for keeping kerning in a separate flat file is weaker, because the app could safely edit nested source. The separate flat file suits the current simple tool. It says nothing about the kerning model.
+**The editing tools split by data shape (see “This is a real application”).** A simple `<textarea>` copy-and-paste editor is safe only for flat data. No web app edits the nested rune YAML. It is edited as text, by the author in an editor or by agents (through the repo’s skills where one fits). The separate flat file suits the simple kerning editor. It says nothing about the kerning model.
 
 **The reconciliation: key kerning by _resolved-stance pairs_.** This follows from how OpenType is staged: _all_ substitution (GSUB: `calt`, `liga`, `ssXX`, and the extension substitutions) finishes before _any_ positioning (GPOS: cursive attachment and `kern`) begins. So when kerning runs, every rune has resolved to its final glyph, and the kern lookup sees only that final sequence. A table keyed by post-shaping glyph identities (for example `qsNo.alt qsTea.half`) is therefore both **flat** (a plain two-glyph table that a simple web app can edit) _and_ **context-aware** (a resolved stance already encodes the context that selected it). Two views of the same point:
 
@@ -334,10 +334,12 @@ So the loop is: change, render everything, record verdicts quickly, and turn the
 
 #### This is a real application, not a textarea
 
-The rest of the design depends on the review and editing tools. It must let the author judge **moderately large batches, up to hundreds of decisions (not thousands)**, on whether a change, a stance, or a join is good. Two kinds of tooling, by data shape:
+The rest of the design depends on the review app. It must let the author judge **moderately large batches, up to hundreds of decisions (not thousands)**, on whether a change, a stance, or a join is good. The review app is a **real program with its own web server** (`rebuild/review/serve.py`, run by `make review-serve`), and it writes only the author’s verdicts, to the verdict store and its journal. The app makes reviewing hundreds of items at a time practical. Agents turn the reject and neither verdicts into rune YAML edits (the `just-verdicted-now-what` skill).
+
+The editing tools split by data shape:
 
 - **Flat data** (kerning) can be copied into a `<textarea>` and edited by a simple, dependency-free web app. This is “boringly reliable.”
-- **Nested structures** (the main spec) can’t be edited safely that way. For those, the author expects to write a **real program with its own web server that edits files on disk directly**. This tool makes reviewing and editing hundreds of items at a time practical, and building it is part of the work.
+- **Nested structures** (the main spec) can’t be edited safely that way, and no web app edits them: the author and agents edit them as text.
 
 ### Pins assert minimal properties, never snapshots
 
