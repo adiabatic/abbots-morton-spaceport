@@ -40,7 +40,6 @@ Git holds the history, so a checked-in note earns its place only by recording th
 - Never commit without explicit user approval: show the changes and wait for the go-ahead.
 - When creating a GitHub tracking issue with sub-issues, add the sub-issues in the order that suits the set (priority or dependency order, whichever fits) and do not repeat the list in the tracking issue body; the sub-issue list is the list.
 - At a natural commit point, spawn a fresh sub-agent to draft commit-message suggestions and present them for approval.
-  - Draft a commit message from the diff and the code alone. Never read earlier commit messages (`git log`, `git show`, `git blame`) for their style: this repo is breaking with it. Tell the drafting sub-agent so.
 - In this repository only: multiline commit messages are fine, though not mandatory, and no worktrees unless explicitly asked.
 - Commit messages describe the author/reader experience ("Make tables.html store state in the URL, not localStorage") or how the letters look different ("Reduce the half-·He extension at the x-height", "Don't join ·Way·Thaw ever"), never the mechanism.
 
