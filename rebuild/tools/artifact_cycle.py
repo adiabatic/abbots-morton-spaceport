@@ -702,7 +702,7 @@ def deep_replay_green_path(root: Path | None = None) -> Path:
     return Path(root) / "rebuild" / "out" / "deep-replay-green.json"
 
 
-def _deep_replay_command(max_length: int, every_text: bool) -> str:
+def _deep_replay_command(max_length: int, every_text: bool = False) -> str:
     """Return the `make replay-deep` invocation that brings the deep replay current at `max_length`: with `--all` when `every_text`, and with `--max-length` when `max_length` is past the walk's default."""
     args = ["--all"] if every_text else []
     if max_length > DEEP_REPLAY_MAX_LENGTH_DEFAULT:
@@ -713,7 +713,7 @@ def _deep_replay_command(max_length: int, every_text: bool) -> str:
 def deep_replay_status(
     root: Path | None = None, max_length: int = DEEP_REPLAY_MAX_LENGTH_DEFAULT
 ) -> tuple[str, str]:
-    """Return whether the deep replay is current for the runes on disk, as (status, note) for the cycle's one-line report beside the deep sweep's. `current` means the record has every rune at its current digest and reached this depth or deeper. `due` names the runes whose content changed since the recorded walk, or the shallower depth it reached, and the `make replay-deep` that clears it at this depth. When the record is shallower than this depth that is a walk over every text, since a walk over the moved runes alone carries the rest at the depth the record holds (`record_deep_replay_green`). `never-run` means there is no record. This only reports: the deep replay is never a cycle gate, for the cost `rebuild/tools/deep_replay.py` states."""
+    """Return whether the deep replay is current for the runes on disk, as (status, note) for the cycle's one-line report beside the deep sweep's. `current` means the record has every rune at its current digest and reached this depth or deeper. `due` names the runes whose content changed since the recorded walk, or the shallower depth it reached, and the `make replay-deep` that clears it at this depth. That is the bare walk at this depth, which walks every text when the record is shallower than it, since a walk over the moved runes alone carries the rest at the depth the record holds (`record_deep_replay_green`). `never-run` means there is no record, and names a walk over every text, since a bare walk needs a record to cut its delta against. This only reports: the deep replay is never a cycle gate, for the cost `rebuild/tools/deep_replay.py` states."""
     from rebuild.pipeline import fingerprint
 
     root = ROOT if root is None else root
@@ -726,7 +726,7 @@ def deep_replay_status(
     moved = deep_replay_moved(record, fingerprint.rune_digests(root))
     recorded = recorded_max_length(record)
     shallow = not isinstance(recorded, int) or recorded < max_length
-    command = _deep_replay_command(max_length, every_text=shallow)
+    command = _deep_replay_command(max_length)
     if moved:
         return (
             "due",

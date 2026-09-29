@@ -1,5 +1,7 @@
 """Tests for the deep replay's decisions, with the walk stubbed out: which runes it walks after an edit, which inputs it refuses, what it records on a pass and withdraws on a failure, how the cycle reports its status, the width it walks at, and the memo ceiling it passes to the crate. The walk is `kernel_exec.replay_strings`. The build's own length-4 replay exercises it everywhere except the `memo_windows` keyword, which the build never passes. `TestTheStringReplay` in rebuild/test_kernel_exec.py tests `memo_windows` through the subcommand."""
 
+import json
+
 import pytest
 
 from rebuild.pipeline import conform
@@ -69,6 +71,7 @@ def test_without_a_record_the_walk_needs_families_or_all(bench, monkeypatch):
     _stub_walk(monkeypatch, walked)
     with pytest.raises(SystemExit, match="no deep replay has been recorded"):
         deep_replay.main([])
+    assert "run `make replay-deep ARGS='--all --max-length 6'` once" in ac.deep_replay_status(bench, 6)[1]
     assert deep_replay.main(["--families", "qsTea", "--threads", "2"]) == 0
     assert walked == [(ac.DEEP_REPLAY_MAX_LENGTH_DEFAULT, ["qsTea"], 2)]
     record = ac.read_green_record(bench / "rebuild" / "out" / "deep-replay-green.json")
@@ -222,7 +225,7 @@ def test_runes_moving_mid_walk_record_nothing(bench, monkeypatch, capsys):
 def test_a_family_walk_deeper_than_the_record_stays_at_the_depth_its_carried_runes_reached(
     bench, monkeypatch, capsys
 ):
-    """A family walk deeper than the record carries the runes it did not walk at the depth they were walked to, so the record stays at that depth, the status at the walk's depth is due and names a walk over every text at that depth, and the green line says where the record stays. That walk then raises it."""
+    """A family walk deeper than the record carries the runes it did not walk at the depth they were walked to, so the record stays at that depth, the status at the walk's depth is due and names the bare walk at that depth, which walks every text, and the green line says where the record stays. An `--all` walk at that depth raises it too."""
     path = bench / "rebuild" / "out" / "deep-replay-green.json"
     ac.record_deep_replay_green(dict(RUNES), 5, "structure-1", path=path)
     _stub_walk(monkeypatch)
@@ -230,13 +233,52 @@ def test_a_family_walk_deeper_than_the_record_stays_at_the_depth_its_carried_run
     record = ac.read_green_record(path)
     assert record is not None and record["files"] == RUNES and record["max_length"] == 5
     status, note = ac.deep_replay_status(bench, 6)
-    assert status == "due" and note.endswith("run `make replay-deep ARGS='--all --max-length 6'`")
+    assert status == "due" and note.endswith("run `make replay-deep ARGS='--max-length 6'`")
     assert (
         "green at maximum length 6 — deep-replay-green.json stays at maximum length 5"
         in capsys.readouterr().out
     )
     assert deep_replay.main(["--all", "--max-length", "6", "--threads", "1"]) == 0
     assert ac.deep_replay_status(bench, 6) == ("current", "maximum length 6")
+
+
+def test_a_bare_walk_deeper_than_the_record_walks_every_text_and_raises_it(bench, monkeypatch, capsys):
+    """A bare walk deeper than the record walks every text although nothing moved, says why, and records every rune at its depth, after which a bare walk at or below that depth finds nothing moved. A red one deletes the record, as a red `--all` walk does."""
+    path = bench / "rebuild" / "out" / "deep-replay-green.json"
+    ac.record_deep_replay_green(dict(RUNES), 5, "structure-1", path=path)
+    walked: list = []
+    _stub_walk(monkeypatch, walked)
+    assert deep_replay.main(["--max-length", "6", "--threads", "1"]) == 0
+    assert walked == [(6, None, 1)]
+    assert "the record holds maximum length 5, so raising it to 6 walks every text" in capsys.readouterr().out
+    assert ac.deep_replay_status(bench, 6) == ("current", "maximum length 6")
+    assert deep_replay.main(["--max-length", "6", "--threads", "1"]) == 0
+    assert deep_replay.main(["--threads", "1"]) == 0
+    assert walked == [(6, None, 1)]
+    _stub_walk(monkeypatch, walked, disagree="replay disagreement at position 1 of qsPea qsIt")
+    assert deep_replay.main(["--max-length", "7", "--threads", "1"]) == 1
+    assert walked == [(6, None, 1), (7, None, 1)]
+    assert ac.read_green_record(path) is None
+
+
+def test_a_bare_walk_deeper_than_the_record_walks_every_text_when_runes_moved(bench, monkeypatch, capsys):
+    """With a rune moved, a bare walk deeper than the record walks every text rather than the moved runes' texts, and records every rune at its depth. A record without a maximum length counts as shallower than any walk."""
+    path = bench / "rebuild" / "out" / "deep-replay-green.json"
+    ac.record_deep_replay_green(dict(RUNES), 5, "structure-1", path=path)
+    moved = {**RUNES, "qsPea": "p2"}
+    monkeypatch.setattr(deep_replay.fingerprint, "rune_digests", lambda root: dict(moved))
+    walked: list = []
+    _stub_walk(monkeypatch, walked)
+    assert deep_replay.main(["--max-length", "6", "--threads", "1"]) == 0
+    assert walked == [(6, None, 1)]
+    record = ac.read_green_record(path)
+    assert record is not None and record["files"] == moved and record["max_length"] == 6
+    path.write_text(json.dumps({"fingerprint": "f", "structure": "structure-1", "files": moved}))
+    assert deep_replay.main(["--threads", "1"]) == 0
+    assert walked == [(6, None, 1), (5, None, 1)]
+    assert (
+        "the record holds no maximum length, so raising it to 5 walks every text" in capsys.readouterr().out
+    )
 
 
 def test_a_shallower_walk_or_sweep_over_unchanged_runes_keeps_a_deeper_record(bench, monkeypatch, capsys):
@@ -259,18 +301,18 @@ def test_a_shallower_walk_or_sweep_over_unchanged_runes_keeps_a_deeper_record(be
 
 
 def test_a_deeper_record_is_current_and_a_shallower_one_is_due(bench, monkeypatch):
-    """A record at or past the depth asked about is current. A due status names the walk that clears it at that depth: a walk over the moved runes when the record reaches the depth, and a walk over every text when it does not, since a walk over the moved runes alone leaves the record at its own depth."""
+    """A record at or past the depth asked about is current. A due status names the bare walk at the depth asked about, which clears it whether or not the record reaches that depth, since a bare walk past the record's depth walks every text."""
     ac.record_deep_replay_green(
         dict(RUNES), 6, "structure-1", path=bench / "rebuild" / "out" / "deep-replay-green.json"
     )
     monkeypatch.setattr("rebuild.pipeline.fingerprint.rune_digests", lambda root: dict(RUNES))
     assert ac.deep_replay_status(bench, 5) == ("current", "maximum length 6")
     status, note = ac.deep_replay_status(bench, 7)
-    assert status == "due" and note.endswith("run `make replay-deep ARGS='--all --max-length 7'`")
+    assert status == "due" and note.endswith("run `make replay-deep ARGS='--max-length 7'`")
     monkeypatch.setattr("rebuild.pipeline.fingerprint.rune_digests", lambda root: {**RUNES, "qsPea": "p2"})
     assert ac.deep_replay_status(bench, 5)[1].endswith("run `make replay-deep`")
     assert ac.deep_replay_status(bench, 6)[1].endswith("run `make replay-deep ARGS='--max-length 6'`")
-    assert ac.deep_replay_status(bench, 7)[1].endswith("run `make replay-deep ARGS='--all --max-length 7'`")
+    assert ac.deep_replay_status(bench, 7)[1].endswith("run `make replay-deep ARGS='--max-length 7'`")
 
 
 def test_the_width_is_the_machines_memory_or_the_stated_knob(monkeypatch):
