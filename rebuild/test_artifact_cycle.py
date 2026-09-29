@@ -331,7 +331,7 @@ def test_dry_run_plan_default():
 
 
 def test_dry_run_plan_conform_jobs_cap():
-    """gate:conform gets the conform sweep's own width. Beside a corpus build on twelve cores, the cores the build leaves fall below the acceptance configurations, so the width is that count, and a machine with fewer cores than configurations runs one unit per core. The argv states it at every value, including one, because an omitted `--jobs` would give run_m1 its own default instead of the width this plan budgeted beside the corpus build."""
+    """gate:conform gets the conform sweep's own width. Beside a corpus build on twelve cores, the cores the build leaves, less gate:make-test's pool under the default overlap policy, fall below the acceptance configurations, so the width is that count, and a machine with fewer cores than configurations runs one unit per core. The argv states it at every value, including one, because an omitted `--jobs` would give run_m1 its own default instead of the width this plan budgeted beside the corpus build."""
     from rebuild.pipeline.conform import ACCEPTANCE_CONFIGS
 
     plan = _plan(ncores=12)
@@ -2422,7 +2422,7 @@ class TestTheConformSweepWidth:
         assert ac._conform_build_lane(**narrow, skip_corpus=True, verdict_update_runs=False) == ("", 0)
 
     def test_every_fleet_machine_runs_the_conform_sweep_as_wide_as_its_cores_allow(self):
-        """On the fleet machines (`doc/fleet.md`), the 48 GiB machines at twelve and eighteen cores and the 32 GiB machine at ten, the conformance sweep runs as many units as the machine has cores beside the verdict-update step alone, and beside a gated build lane (the corpus build and the verdict-update step) the cores less the build's parent and workers, never fewer than the acceptance configurations. The division never limits the width before the cap does. The capped budget cannot distinguish the cap from a division that equals it, so the uncapped division is also checked, and a change to the constant that narrows a fleet machine fails here. The suite does not catch a constant that is too low: only the conform-sweep row of `make job-costs` compares it with the units that ran."""
+        """On the fleet machines (`doc/fleet.md`), the 48 GiB machines at twelve and eighteen cores and the 32 GiB machine at ten, under either pool policy, the conformance sweep runs as many units as the machine has cores beside the verdict-update step alone, and beside a gated build lane (the corpus build and the verdict-update step) the cores less the build's parent and workers, never fewer than the acceptance configurations; under the overlap policy both widths also lose gate:make-test's pool. The division never limits the width before the cap does. The capped budget cannot distinguish the cap from a division that equals it, so the uncapped division is also checked, and a change to the constant that narrows a fleet machine fails here. The suite does not catch a constant that is too low: only the conform-sweep row of `make job-costs` compares it with the units that ran."""
         from rebuild.pipeline.conform import ACCEPTANCE_CONFIGS
         from rebuild.tools import memory_budget
 
@@ -2431,17 +2431,18 @@ class TestTheConformSweepWidth:
             corpus = 1 + ac.corpus_job_budget(
                 skip_gates=False, skip_make_test=False, ncores=ncores, total_bytes=total_bytes
             )
-            for skip_corpus in (False, True):
+            for pool_policy, skip_corpus in itertools.product(ac.POOL_POLICIES, (False, True)):
+                make_test = ac.make_test_pool_width(ncores=ncores) if pool_policy == "overlap" else 0
                 gated: dict[str, Any] = dict(
                     skip_gates=False,
                     skip_make_test=False,
                     skip_corpus=skip_corpus,
                     verdict_update_runs=True,
-                    pool_policy="queue",
+                    pool_policy=pool_policy,
                     ncores=ncores,
                     total_bytes=total_bytes,
                 )
-                width = ncores if skip_corpus else max(configs, ncores - corpus)
+                width = max(configs, ncores - (0 if skip_corpus else corpus) - make_test)
                 assert ac.conform_job_budget(**gated) == width
                 assert ac.conform_job_derivation(**gated).startswith(f"{width} at ")
                 _per_unit, coresident, _cap = ac._conform_fit_terms(**gated)
@@ -2457,7 +2458,9 @@ class TestTheConformSweepWidth:
         """A machine with memory to spare and nothing beside the conformance sweep runs one unit per core, since every fleet machine has fewer cores than the sweep has units, and the cores are read through `memory_budget.usable_cores`, so a small cgroup allowance never widens the conformance sweep past the cores it may use."""
         for ncores in (1, 2, 4, 6, 10, 12, 18):
             assert (
-                ac.conform_job_budget(skip_corpus=True, ncores=ncores, total_bytes=1_000_000_000_000)
+                ac.conform_job_budget(
+                    skip_corpus=True, pool_policy="queue", ncores=ncores, total_bytes=1_000_000_000_000
+                )
                 == ncores
             )
             assert (
@@ -2468,7 +2471,7 @@ class TestTheConformSweepWidth:
             )
 
     def test_beside_a_corpus_build_the_conform_sweep_takes_the_cores_the_build_leaves(self):
-        """Two pools side by side oversubscribe the cores, as `contracts_pool_width` argues, so beside a corpus build the conformance sweep's cap is the cores less the build's parent and its workers, and under the overlap policy less gate:make-test's pool as well. The verdict-update step's refill pool is not subtracted. The cap never falls below the acceptance configurations, the width one process per configuration gives, while memory can still narrow the width below it. The derivation says which of the two bounds set the cap."""
+        """Beside a corpus build the conformance sweep's cap is the cores less the build's parent and its workers, and under the overlap policy less gate:make-test's pool as well, the subtraction the rebuild suite's width makes (`contracts_pool_width` gives the reasons). The verdict-update step's refill pool is not subtracted. The cap never falls below the acceptance configurations, the width one process per configuration gives, while memory can still narrow the width below it. The derivation says which of the two bounds set the cap."""
         from rebuild.pipeline.conform import ACCEPTANCE_CONFIGS
 
         configs = len(ACCEPTANCE_CONFIGS)
@@ -2476,10 +2479,12 @@ class TestTheConformSweepWidth:
         corpus = ac.corpus_job_budget(**wide, ncores=40)
         make_test = ac.make_test_pool_width(ncores=40)
         beside: dict[str, Any] = dict(wide, skip_corpus=False, ncores=40)
-        assert ac.conform_job_budget(**beside) == 40 - 1 - corpus
-        assert ac.conform_job_budget(**beside, verdict_update_runs=True) == 40 - 1 - corpus
+        assert ac.conform_job_budget(**beside, pool_policy="queue") == 40 - 1 - corpus
+        assert (
+            ac.conform_job_budget(**beside, pool_policy="queue", verdict_update_runs=True) == 40 - 1 - corpus
+        )
         assert ac.conform_job_budget(**beside, pool_policy="overlap") == 40 - 1 - corpus - make_test
-        assert ac.conform_job_derivation(**beside).endswith(
+        assert ac.conform_job_derivation(**beside, pool_policy="queue").endswith(
             f"; the cap is 40 cores less the corpus build's parent and its {corpus} workers"
         )
         assert ac.conform_job_derivation(**beside, pool_policy="overlap").endswith(
@@ -2509,13 +2514,18 @@ class TestTheConformSweepWidth:
         """Every Lane conform line that runs the conformance sweep quotes its width, the constant it divides by, and the derivation over the flags the plan resolved. The co-resident term is the larger build-lane step, plus gate:make-test's pool under the overlap policy: the corpus build when it runs and holds more than the verdict-update step, the verdict-update step when the build does not run or the step holds more. For a pass that runs neither, the line says so and prints no co-resident term unless gate:make-test's pool runs beside the conformance sweep."""
         machine: dict[str, Any] = dict(ncores=10, total_bytes=MACHINE_32_GIB)
         cases = {
-            "queued": _plan(**machine),
-            "make-test skipped": _plan(skip_make_test=True, make_test_note="closure unchanged", **machine),
+            "queued": _plan(pool_policy="queue", **machine),
+            "make-test skipped": _plan(
+                skip_make_test=True, make_test_note="closure unchanged", pool_policy="queue", **machine
+            ),
             "overlap": _plan(pool_policy="overlap", **machine),
         }
         assert "QUEUED behind gate:make-test" in _lane_conform_line(cases["queued"])
         assert "gate:make-test not running, so no queueing" in _lane_conform_line(cases["make-test skipped"])
-        assert "CO-RESIDENT with the pytest pools" in _lane_conform_line(cases["overlap"])
+        assert (
+            "CO-RESIDENT with gate:make-test's pool and gate:rebuild-contracts' pool (overlap policy)"
+            in _lane_conform_line(cases["overlap"])
+        )
         for plan in cases.values():
             assert plan.runs("verdict-update")
             line = _lane_conform_line(plan)
@@ -2543,7 +2553,9 @@ class TestTheConformSweepWidth:
         assert f"less {format_gb(coresident)} GB co-resident" in _plan_conform_derivation(overlap, **machine)
         assert "gate:make-test's pool" not in _lane_conform_line(cases["queued"])
 
-        beside_verdict_update = _plan(skip_corpus=True, corpus_note="inputs unchanged", **machine)
+        beside_verdict_update = _plan(
+            skip_corpus=True, corpus_note="inputs unchanged", pool_policy="queue", **machine
+        )
         line = _lane_conform_line(beside_verdict_update)
         derivation = _plan_conform_derivation(beside_verdict_update, **machine)
         workers = beside_verdict_update.standing_fill_jobs
@@ -2561,7 +2573,7 @@ class TestTheConformSweepWidth:
             "skip_verdict_update": True,
             "verdict_update_note": "nothing moved",
         }
-        alone = _plan(**idle, **machine)
+        alone = _plan(**idle, pool_policy="queue", **machine)
         assert not alone.runs("verdict-update")
         line = _lane_conform_line(alone)
         derivation = _plan_conform_derivation(alone, **machine)
@@ -2578,7 +2590,7 @@ class TestTheConformSweepWidth:
         assert "GB co-resident" in _plan_conform_derivation(overlap_alone, **machine)
 
         wide: dict[str, Any] = dict(ncores=40, total_bytes=MACHINE_48_GIB)
-        outweighed = _plan(**wide)
+        outweighed = _plan(**wide, pool_policy="queue")
         line = _lane_conform_line(outweighed)
         assert (
             f"CONFORM_SWEEP_UNIT_BYTES a conformance-sweep unit, the verdict-update step outweighing the corpus build, so beside the verdict update's process and its {outweighed.standing_fill_jobs} refill workers; "
@@ -2777,19 +2789,23 @@ def test_dry_run_renders_concurrency():
         total_bytes=MACHINE_44_GB,
     )
     text = _plan_text(plan)
-    assert "pool policy: queue" in text
+    assert "pool policy: overlap" in text
     assert "Lane t0" in text
     assert "Lane build" in text
     assert "Lane rebuild-contracts" in text
     assert "Lane conform" in text
     assert "Lane kernel" not in text
     assert "run_m1 -> submit gate:rebuild-contracts -> corpus-build -> verdict-update -> review-facts" in text
-    assert "QUEUED behind gate:make-test (queue policy — one heavy pool at a time)" in text
+    assert "CO-RESIDENT with gate:make-test's pool and gate:rebuild-contracts' pool (overlap policy)" in text
     assert (
         f"Lane rebuild-contracts           : submitted beside the corpus build, -n {plan.contracts_workers} ({plan.contracts_reason});"
         in text
     )
-    assert "QUEUED behind gate:conform (queue policy — one heavy pool at a time)" in text
+    assert "CO-RESIDENT with gate:make-test's pool and gate:conform's sweep (overlap policy)" in text
+    queued = _plan_text(_plan(pool_policy="queue", ncores=12))
+    assert "pool policy: queue" in queued
+    assert "QUEUED behind gate:make-test (queue policy — one heavy pool at a time)" in queued
+    assert "QUEUED behind gate:conform (queue policy — one heavy pool at a time)" in queued
     assert f"run_m1 sweeps --jobs             : {plan.sweep_jobs}" in text
     assert plan.sweep_jobs == ac.sweep_job_budget(12, total_bytes=MACHINE_44_GB)
     assert "run_m1 --kernel-threads          : " in text
@@ -3417,14 +3433,26 @@ def test_prior_make_test_fingerprint_reads_only_the_green_record(tmp_path):
 
 
 def test_dry_run_plan_skip_make_test():
-    plan = _plan(skip_make_test=True, make_test_note="closure unchanged since its last green run")
+    """With gate:make-test skipped, each gate lane names only the heavy pools that run beside it: under the default overlap policy the sweep and the suite are each other's only neighbor, and with one of them skipped too the other has none. The queue policy's lines say nothing is queued behind gate:make-test."""
+    skipped: dict[str, Any] = dict(
+        skip_make_test=True, make_test_note="closure unchanged since its last green run"
+    )
+    plan = _plan(**skipped)
+    assert plan.pool_policy == "overlap"
     by_name = {step.name: step for step in plan.steps}
     assert by_name["gate:make-test"].argv is None
     assert by_name["gate:make-test"].note == "SKIPPED (closure unchanged since its last green run)"
     assert by_name["gate:rebuild-contracts"].argv is not None
     rendered = _plan_text(plan)
-    assert "gate:make-test not running, so no queueing" in rendered
     assert "Lane t0   [from t=0, background]  : gate:js" in rendered
+    assert "CO-RESIDENT with gate:rebuild-contracts' pool (overlap policy)" in _lane_conform_line(plan)
+    assert "CO-RESIDENT with gate:conform's sweep (overlap policy)" in rendered
+    alone = _plan_text(_plan(**skipped, skip_conform=True))
+    assert "CO-RESIDENT" not in alone
+    assert "no other heavy gate pool runs this pass" in alone
+    queued = _plan_text(_plan(**skipped, pool_policy="queue"))
+    assert "gate:make-test not running, so no queueing" in queued
+    assert "QUEUED behind gate:conform (queue policy — one heavy pool at a time)" in queued
 
 
 def _make_test_gate_args(argv: list[str]) -> list[str]:
@@ -3550,12 +3578,16 @@ def test_the_signature_pool_takes_the_cores_the_corpus_width_cannot():
 
 
 def test_the_contracts_pool_is_the_cores_the_corpus_build_leaves():
-    """The rebuild suite's width under a cycle is the second fan-out that memory does not derive. It runs beside the corpus build, so it gets the cores less the build's parent and its `corpus_job_budget` workers. Under the overlap policy it also loses gate:make-test's pool. Under the queue policy the suite waits until that pool finishes, so nothing is subtracted for it. With no corpus build it gets every core, and it never drops below one. Widths that depend on the corpus constants are computed from the budget functions, so re-measuring those constants does not require editing this test."""
+    """The rebuild suite's width under a cycle is the second fan-out that memory does not derive. It runs beside the corpus build, so it gets the cores less the build's parent and its `corpus_job_budget` workers. Under the overlap policy it also loses gate:make-test's pool. Under the queue policy the suite waits until that pool finishes, so nothing is subtracted for it. With no corpus build it gets every core under the queue policy and every core less gate:make-test's pool under the overlap policy, and it never drops below one. Widths that depend on the corpus constants are computed from the budget functions, so re-measuring those constants does not require editing this test."""
     corpus = ac.corpus_job_budget(skip_gates=False, ncores=10, total_bytes=MACHINE_32_GIB)
-    queue = ac.contracts_pool_width(skip_gates=False, ncores=10, total_bytes=MACHINE_32_GIB)
+    queue = ac.contracts_pool_width(
+        skip_gates=False, pool_policy="queue", ncores=10, total_bytes=MACHINE_32_GIB
+    )
     assert queue == 10 - 1 - corpus >= 1
     assert f"{queue} of 10 cores, less the corpus build's parent and its {corpus} workers" == (
-        ac.contracts_pool_derivation(skip_gates=False, ncores=10, total_bytes=MACHINE_32_GIB)
+        ac.contracts_pool_derivation(
+            skip_gates=False, pool_policy="queue", ncores=10, total_bytes=MACHINE_32_GIB
+        )
     )
 
     overlap = ac.contracts_pool_width(
@@ -3577,12 +3609,14 @@ def test_the_contracts_pool_is_the_cores_the_corpus_build_leaves():
     )
 
     assert (
-        ac.contracts_pool_width(skip_gates=False, skip_corpus=True, ncores=10, total_bytes=MACHINE_32_GIB)
+        ac.contracts_pool_width(
+            skip_gates=False, skip_corpus=True, pool_policy="queue", ncores=10, total_bytes=MACHINE_32_GIB
+        )
         == 10
     )
     assert (
         ac.contracts_pool_derivation(
-            skip_gates=False, skip_corpus=True, ncores=10, total_bytes=MACHINE_32_GIB
+            skip_gates=False, skip_corpus=True, pool_policy="queue", ncores=10, total_bytes=MACHINE_32_GIB
         )
         == "10 of 10 cores, the whole machine (no corpus build to share it with)"
     )
@@ -3617,7 +3651,7 @@ def test_a_stated_contracts_width_is_the_width_the_cycle_hands_the_child(monkeyp
 
 def test_the_plan_states_the_contracts_pool_width_on_its_lane_line():
     """The lane line shows the suite's width and its derivation, and the build lane line shows the suite submitted before the corpus build. On a ten-core machine beside a corpus build at `CORPUS_JOBS_CAP` workers, the suite gets one worker under either policy. On a twelve-core machine the overlap policy reaches one worker from the arithmetic alone, without the floor, which is narrower than the queue policy's width, and the plan prints it. When the corpus build is skipped, the plan says the suite is submitted once the run_m1 gate passes, not that it runs beside a build the plan shows as SKIPPED."""
-    gated = _plan(ncores=10, total_bytes=MACHINE_32_GIB)
+    gated = _plan(pool_policy="queue", ncores=10, total_bytes=MACHINE_32_GIB)
     text = _plan_text(gated)
     assert (
         "Lane build[serial, main thread]  : run_m1 -> submit gate:rebuild-contracts -> corpus-build -> verdict-update -> review-facts"
@@ -3628,7 +3662,7 @@ def test_the_plan_states_the_contracts_pool_width_on_its_lane_line():
         in text
     )
     assert gated.contracts_workers == ac.contracts_pool_width(
-        skip_gates=False, ncores=10, total_bytes=MACHINE_32_GIB
+        skip_gates=False, pool_policy="queue", ncores=10, total_bytes=MACHINE_32_GIB
     )
     assert {step.name: step for step in gated.steps}["gate:rebuild-contracts"].note == (
         "submitted beside the corpus build"
@@ -3637,14 +3671,18 @@ def test_the_plan_states_the_contracts_pool_width_on_its_lane_line():
     overlap = _plan(pool_policy="overlap", ncores=10, total_bytes=MACHINE_32_GIB)
     assert overlap.contracts_workers == gated.contracts_workers == 1
     assert f"-n {overlap.contracts_workers} (" in _plan_text(overlap)
-    assert "CO-RESIDENT with the other pools (overlap policy)" in _plan_text(overlap)
-    roomy = _plan(ncores=12, total_bytes=MACHINE_48_GIB)
+    assert "CO-RESIDENT with gate:make-test's pool and gate:conform's sweep (overlap policy)" in _plan_text(
+        overlap
+    )
+    roomy = _plan(pool_policy="queue", ncores=12, total_bytes=MACHINE_48_GIB)
     roomy_overlap = _plan(pool_policy="overlap", ncores=12, total_bytes=MACHINE_48_GIB)
     assert roomy_overlap.contracts_workers == 1 < roomy.contracts_workers
     assert "floored" not in roomy_overlap.contracts_reason
     assert f"-n {roomy_overlap.contracts_workers} (" in _plan_text(roomy_overlap)
 
-    solo = _plan(skip_corpus=True, corpus_note="unchanged", ncores=10, total_bytes=MACHINE_32_GIB)
+    solo = _plan(
+        skip_corpus=True, corpus_note="unchanged", pool_policy="queue", ncores=10, total_bytes=MACHINE_32_GIB
+    )
     solo_text = _plan_text(solo)
     assert solo.contracts_workers == 10
     assert (

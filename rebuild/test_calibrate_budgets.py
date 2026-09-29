@@ -541,13 +541,19 @@ def test_the_width_clauses_answer_for_the_machine_and_the_tree_they_are_given(tm
     idle, beside = sweep_width.split(" with the build lane idle, and ")
     assert idle.endswith("capped at 12")
     assert "less 25.00 GB co-resident, capped at 8" in beside
-    assert beside.endswith("beside a corpus build of its parent and 3 workers")
+    assert (
+        "beside a corpus build of its parent and 3 workers; on a pass that runs gate:make-test the corpus build can be narrower"
+        in beside
+    )
     small = "\n".join(cb.render_rows(rows, host=HOST, total_bytes=48_000_000_000, cores=6, root=tree))
     small_block = small.split("\nconform-sweep  ")[1].split("\n\n")[0]
     small_width = next(line for line in small_block.splitlines() if line.startswith("  width here: "))
     _idle, small_beside = small_width.split(" with the build lane idle, and ")
     assert "capped at 4" in small_beside
-    assert small_beside.endswith("beside a corpus build of its parent and 3 workers")
+    assert (
+        "beside a corpus build of its parent and 3 workers; on a pass that runs gate:make-test the corpus build can be narrower"
+        in small_beside
+    )
 
 
 def test_a_check_that_cannot_run_exits_apart_from_one_that_tripped(tmp_path, capsys, monkeypatch):
