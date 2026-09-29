@@ -4201,6 +4201,25 @@ def test_a_deep_green_record_under_the_horizon_key_reads_at_its_max_length(tmp_p
     assert ac.recorded_max_length({"max_length": 5, "horizon": 6}) == 5
 
 
+def test_a_shallower_deep_sweep_green_keeps_a_deeper_green_under_the_same_key(tmp_path, monkeypatch):
+    """A green run shallower than the recorded green under the same key keeps the recorded depth, so the sweep stays current at it; a deeper run raises the depth, and a run under a different key writes its own depth."""
+    store = tmp_path / "deep-sweep-green.json"
+    monkeypatch.setattr(cycle_paths, "DEEP_SWEEP_GREEN", store)
+    _write_behavior_classes(tmp_path, ["namer-dot"])
+    fingerprint = ac.deep_sweep_skip_fingerprint(tmp_path)
+    assert fingerprint is not None
+    files = ac.deep_sweep_skip_files(tmp_path)
+    ac.record_deep_sweep_green(fingerprint, 5, files=files, path=store)
+    ac.record_deep_sweep_green(fingerprint, 4, files=files, path=store)
+    assert ac.deep_sweep_status(tmp_path) == ("current", "maximum length 5")
+    ac.record_deep_sweep_green(fingerprint, 6, files=files, path=store)
+    assert ac.deep_sweep_status(tmp_path, max_length=6) == ("current", "maximum length 6")
+    ac.record_deep_sweep_green("another-key", 4, files=files, path=store)
+    record = ac.read_green_record(store)
+    assert record is not None
+    assert record["fingerprint"] == "another-key" and record["max_length"] == 4
+
+
 def test_cycle_summary_payload_carries_the_deep_sweep_status(monkeypatch):
     monkeypatch.setattr(ac, "deep_sweep_status", lambda root=ac.ROOT, max_length=5: ("due", "a new shape"))
     payload = ac.cycle_summary_payload(_green_report(), [], _plan(), "ok")

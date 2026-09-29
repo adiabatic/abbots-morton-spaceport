@@ -632,11 +632,14 @@ def deep_sweep_skip_fingerprint(root: Path = ROOT) -> str | None:
 def record_deep_sweep_green(
     fingerprint: str, max_length: int, files: dict[str, str] | None = None, path: Path | None = None
 ) -> None:
-    """Write the deep sweep's green record. It stores the maximum length the run swept as well as the key, because the record key ignores depth: `deep_sweep_status` reads the maximum length back to decide whether a run went deep enough for the depth asked about."""
-    _record_outcome(
-        path if path is not None else cycle_paths.DEEP_SWEEP_GREEN,
-        {"fingerprint": fingerprint, "max_length": max_length, "files": files},
-    )
+    """Write the deep sweep's green record. It stores the maximum length the run swept as well as the key, because the record key ignores depth: `deep_sweep_status` reads the maximum length back to decide whether a run went deep enough for the depth asked about. When the record on disk is a green under the same key at a greater maximum length, the new record keeps that length, so a shallower run over the same shapes (a debugging `--max-length 4`) cannot make a deeper green read as due. A green under a different key is replaced whatever its depth."""
+    path = path if path is not None else cycle_paths.DEEP_SWEEP_GREEN
+    existing = read_green_record(path)
+    if existing is not None and existing["fingerprint"] == fingerprint:
+        recorded = recorded_max_length(existing)
+        if isinstance(recorded, int) and recorded > max_length:
+            max_length = recorded
+    _record_outcome(path, {"fingerprint": fingerprint, "max_length": max_length, "files": files})
 
 
 def record_deep_replay_green(
