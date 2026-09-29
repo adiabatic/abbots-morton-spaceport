@@ -2,6 +2,7 @@ import json
 import os
 import re
 import socket
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 from rebuild.tools import cycle_timings as ct
@@ -915,6 +916,100 @@ def test_main_by_outcome_counts_a_check_line_that_carries_the_older_verdict_key(
     )
     assert ct.main(["--journal", str(path), "--by-outcome"]) == 0
     assert re.search(r"^make-test\s+2\s+1\s+1\s+0$", capsys.readouterr().out, re.MULTILINE)
+
+
+def test_critical_path_names_the_step_that_ended_each_pass_and_groups_passes_by_policy_and_shape(
+    tmp_path, capsys
+):
+    """The last step and its margin come from the step lines alone, leaving out the job-costs step that runs once every lane has joined. The margin runs to the other lane's last step, so a queued gate is measured against the build lane rather than against gate:make-test before it, and a build-lane step against the gates rather than against the build step before it. Passes group by host, pool policy and pass shape, and a run whose plan block predates `make_test_workers` reads as unrecorded."""
+
+    def stamp(seconds):
+        return (datetime(2026, 1, 1, tzinfo=timezone.utc) + timedelta(seconds=seconds)).strftime(
+            "%Y-%m-%dT%H:%M:%SZ"
+        )
+
+    def run(run_id, policy, wall, workers, spans):
+        plan = (
+            {"pool_policy": policy}
+            if workers == "absent"
+            else {"pool_policy": policy, "make_test_workers": workers}
+        )
+        steps = [
+            {
+                "kind": "step",
+                "run": run_id,
+                "host": "h1",
+                "name": name,
+                "elapsed_s": end - start,
+                "finished_at": stamp(end),
+            }
+            for name, start, end in [*spans, ("job-costs", wall - 1, wall)]
+        ]
+        return [
+            *steps,
+            {
+                "kind": "run",
+                "run": run_id,
+                "host": "h1",
+                "started_at": stamp(0),
+                "wall_s": wall,
+                "plan": plan,
+            },
+        ]
+
+    full = [("run_m1", 0, 240), ("corpus-build", 240, 530)]
+    entries = [
+        *run("a", "overlap", 701, 9, [*full, ("gate:make-test", 0, 700)]),
+        *run("b", "queue", 721, 2, [*full, ("gate:make-test", 0, 690), ("gate:rebuild-contracts", 690, 720)]),
+        *run("c", "queue", 801, 4, [*full, ("gate:make-test", 0, 800)]),
+        *run(
+            "d",
+            "queue",
+            151,
+            "absent",
+            [("corpus-build", 0, 120), ("verdict-update", 120, 150), ("gate:js", 0, 40)],
+        ),
+    ]
+    path = tmp_path / "j.ndjson"
+    _write_journal(path, entries)
+    runs, steps, _ = ct.load_journal(path)
+    assert ct.critical_path(runs["a"], steps["a"]) == {
+        "last": "gate:make-test",
+        "last_end_s": 700.0,
+        "runner_up": "corpus-build",
+        "runner_up_end_s": 530.0,
+        "margin_s": 170.0,
+        "shape": ("run_m1", "corpus-build", "gate:make-test"),
+    }
+    assert ct.main(["--journal", str(path), "--critical-path"]) == 0
+    rows = [line.split() for line in capsys.readouterr().out.splitlines() if line.startswith("h1")]
+    assert rows == [
+        [
+            "h1",
+            "overlap",
+            "run_m1+corpus-build+gate:make-test",
+            "1",
+            "170.0s",
+            "701.0s",
+            "9",
+            "gate:make-test",
+            "1",
+        ],
+        ["h1", "queue", "corpus-build", "1", "110.0s", "151.0s", "unrecorded", "verdict-update", "1"],
+        [
+            "h1",
+            "queue",
+            "run_m1+corpus-build+gate:make-test",
+            "2",
+            "230.0s",
+            "761.0s",
+            "3",
+            "gate:make-test",
+            "1,",
+            "gate:rebuild-contracts",
+            "1",
+        ],
+    ]
 
 
 def test_parse_inner_timings_finds_every_label_when_two_branches_interleave():

@@ -6,11 +6,11 @@ A "check" line records one evaluated check invocation: the check's name, the out
 
 A "step" line records one subprocess the cycle spawned: the driver's step name (run_m1, gate:conform, merge, ...), the argv, the return code, the wall seconds, and the step's peak RSS in bytes. The driver measures the peak as it reaps the child (`peak_rss.reap_peak_rss_bytes`), and it is the largest of the child and its descendants. The line also carries every `[t] <label> <secs>s` phase line parsed from the child's captured output, so the per-configuration conform sweeps and run_m1's phases are kept even for steps whose output is not shown on the console. A phase line may end with a peak-RSS token `rss_gb=<n>` (`peak_rss.rss_token`) and a current-RSS token `rss_now_gb=<n>` (`peak_rss.rss_now_token`), both in decimal GB, which are stored as `rss_gb` and `rss_now_gb`. A step line has a return code and no outcome, and no reader here derives an outcome from it. A skipped stage spawns nothing and so writes no step line; the run line's plan and gates blocks say which stages were skipped.
 
-A "run" line is written when a cycle finishes, including an interrupted one. It carries the host, cpu count, total memory, start and finish stamps, total wall seconds, the cycle summary's exit, failures, gates, plan, and argv, and the carry's counts (`artifact_cycle.carry_counts` parses them from the carry's own output line). The total memory is recorded because a step's peak read months later needs the size of the machine it ran on beside it.
+A "run" line is written when a cycle finishes, including an interrupted one. It carries the host, cpu count, total memory, start and finish stamps, total wall seconds, the cycle summary's exit, failures, gates, plan, and argv, and the carry's counts (`artifact_cycle.carry_counts` parses them from the carry's own output line). The plan block names the width of each pooled step (`sweep_jobs`, `corpus_jobs`, `signature_jobs`, `standing_fill_jobs`, `make_test_workers`, `contracts_workers` and `conform_jobs`), null for a step the pass skipped; its `kernel_threads` and `replay_threads` are null only on a gates-only rerun. The total memory is recorded because a step's peak read months later needs the size of the machine it ran on beside it.
 
 A "pool" line records one finished worker pool: its unit name, width, and the controller's and every worker's peak. A pytest controller writes one when AMS_POOL_UNIT (`POOL_UNIT_ENV`) is set, which the two gate wrappers and the cycle's rebuild-lane spawns do. run_m1's conformance sweep and oracle shards and the review build's signature and corpus pools write them too. `load_pool_records` reads them, and `make job-costs` compares the peaks with the checked-in per-worker constants.
 
-The reporter is `make cycle-timings` (`uv run python -m rebuild.tools.cycle_timings`). By default it shows recent runs with steps slowest first. `--inner` expands the phase lines. `--by-step` reports count, median, max, and latest seconds per step and host. `--by-outcome` reports, per check, how many times it ran, how it came out, and which test ids it failed on. `--journal` reads another journal, such as journals from two machines concatenated.
+The reporter is `make cycle-timings` (`uv run python -m rebuild.tools.cycle_timings`). By default it shows recent runs with steps slowest first. `--inner` expands the phase lines. `--by-step` reports count, median, max, and latest seconds per step and host. `--by-outcome` reports, per check, how many times it ran, how it came out, and which test ids it failed on. `--critical-path` reports, per host, pool policy and pass shape, which step ended each finished pass and how long its lane ran past the other lane, computed from the step lines (`critical_path`). `--journal` reads another journal, such as journals from two machines concatenated.
 
 The file, the module, and the `make cycle-timings` target keep the "cycle-timings" name although the cycle is not the only writer. The journal is per-machine and gitignored, so renaming the file would leave each machine's existing history behind.
 """
@@ -52,6 +52,8 @@ STEP_NAME_ALIASES = {
     "echo-merge": "duplicate-merge",
 }
 POOL_UNIT_ALIASES = {"surface": "corpus", "conform-belt": "conform-sweep"}
+AFTER_JOIN_STEPS = frozenset({"job-costs", "job-costs-diff"})
+CRITICAL_PATH_SHAPE_STEPS = ("run_m1", "corpus-build", "gate:make-test")
 
 _RSS_TOKEN = re.compile(r"\brss_gb=(\d+(?:\.\d+)?)")
 _RSS_NOW_TOKEN = re.compile(r"\brss_now_gb=(\d+(?:\.\d+)?)")
@@ -479,6 +481,107 @@ def render_by_outcome(checks: list[dict]) -> list[str]:
     return lines
 
 
+def _stamp_seconds(value) -> float | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        return datetime.fromisoformat(value).timestamp()
+    except ValueError:
+        return None
+
+
+def critical_path(run: dict, steps: list[dict]) -> dict | None:
+    """Return which step ended one cycle pass, computed from its step lines alone, so it covers a run line whose plan block lacks the pool widths too. A step's end is its `finished_at` less the run's `started_at`, and its start is that end less its `elapsed_s`. The steps in `AFTER_JOIN_STEPS` are left out, because the cycle spawns them once every lane has joined and they end last on every pass.
+
+    The result names the step that ended last and the runner-up with their ends in seconds, the margin between those ends, and the pass shape: the names in `CRITICAL_PATH_SHAPE_STEPS` that have a step line, in that order. The runner-up is the step that ended last in the other lane: the gate lane holds the `gate:` steps, which the cycle runs in its gate pool, and the build lane holds every other step, which the cycle runs one after another. The margin is therefore how long the lane that ended the pass ran past the other lane. The stamps are whole seconds, so two steps that end in the same second are ordered by start and a margin under a second reads as zero. With no ranked step in the other lane the runner-up and the margin are None. The result is None for an interrupted pass, a run line without a readable start, or a pass with no step left to rank.
+    """
+    started = _stamp_seconds(run.get("started_at"))
+    if started is None or run.get("interrupted") is True:
+        return None
+    spans: list[tuple[float, float, str]] = []
+    for step in steps:
+        name = str(step.get("name", "?"))
+        finished = _stamp_seconds(step.get("finished_at"))
+        if name in AFTER_JOIN_STEPS or finished is None:
+            continue
+        end = finished - started
+        spans.append((end, end - _seconds(step.get("elapsed_s")), name))
+    if not spans:
+        return None
+    spans.sort()
+    last_end, _, last = spans[-1]
+    other_lane = [span for span in spans if span[2].startswith("gate:") != last.startswith("gate:")]
+    runner_up = other_lane[-1] if other_lane else None
+    names = {step.get("name") for step in steps}
+    return {
+        "last": last,
+        "last_end_s": last_end,
+        "runner_up": None if runner_up is None else runner_up[2],
+        "runner_up_end_s": None if runner_up is None else runner_up[0],
+        "margin_s": None if runner_up is None else last_end - runner_up[0],
+        "shape": tuple(name for name in CRITICAL_PATH_SHAPE_STEPS if name in names),
+    }
+
+
+def _median_make_test_workers(plans: list[dict]) -> str:
+    """Return the median gate:make-test width over the plans that record one, noting how many plans predate the field. A plan that records null ran no gate:make-test; with no width at all the result is `unrecorded` when some plan lacks the field and `-` otherwise."""
+    widths = [plan["make_test_workers"] for plan in plans if isinstance(plan.get("make_test_workers"), int)]
+    unrecorded = sum(1 for plan in plans if "make_test_workers" not in plan)
+    if not widths:
+        return "unrecorded" if unrecorded else "-"
+    text = f"{statistics.median(widths):g}"
+    return f"{text} ({unrecorded} unrecorded)" if unrecorded else text
+
+
+def render_critical_path(runs: dict[str, dict], steps: dict[str, list[dict]]) -> list[str]:
+    """Return one row per host, pool policy and pass shape (`critical_path`) over every run line: the run count, the median margin by which the lane that ended the pass outlasted the other lane, the median wall, the median gate:make-test width (`unrecorded` for runs whose plan block predates the field), and how often each step ended last, most often first. A run line whose plan block lacks a pool policy is grouped under `unrecorded`, and a pass `critical_path` cannot rank is left out."""
+    groups: dict[tuple[str, str, str], list[tuple[dict, dict, dict]]] = {}
+    for run_id, run in runs.items():
+        path = critical_path(run, steps.get(run_id, []))
+        if path is None:
+            continue
+        plan = run.get("plan")
+        plan = plan if isinstance(plan, dict) else {}
+        key = (
+            str(run.get("host", "?")),
+            str(plan.get("pool_policy", "unrecorded")),
+            "+".join(path["shape"]) or "none",
+        )
+        groups.setdefault(key, []).append((run, plan, path))
+    rows: list[tuple[str, str, str, str, str, str, str, str]] = []
+    for (host, policy, shape), members in sorted(groups.items()):
+        margins = [path["margin_s"] for _, _, path in members if path["margin_s"] is not None]
+        walls = [float(run["wall_s"]) for run, _, _ in members if isinstance(run.get("wall_s"), int | float)]
+        tally: dict[str, int] = {}
+        for _, _, path in members:
+            tally[path["last"]] = tally.get(path["last"], 0) + 1
+        ended = ", ".join(
+            f"{name} {count}" for name, count in sorted(tally.items(), key=lambda item: (-item[1], item[0]))
+        )
+        rows.append(
+            (
+                host,
+                policy,
+                shape,
+                str(len(members)),
+                f"{statistics.median(margins):.1f}s" if margins else "",
+                f"{statistics.median(walls):.1f}s" if walls else "",
+                _median_make_test_workers([plan for _, plan, _ in members]),
+                ended,
+            )
+        )
+    header = ("host", "policy", "shape", "runs", "margin", "wall", "make-test workers", "ended last")
+    widths = [max(len(row[column]) for row in [header, *rows]) for column in range(len(header) - 1)]
+    lines: list[str] = []
+    for index, row in enumerate([header, *rows]):
+        cells = [
+            cell.rjust(width) if column in (3, 4, 5, 6) else cell.ljust(width)
+            for column, (cell, width) in enumerate(zip(row, widths))
+        ]
+        lines.append(("\n" if index == 0 else "") + "  ".join([*cells, row[-1]]))
+    return lines
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Summarize what this repo's checks cost and how they came out, host-tagged so machines are comparable."
@@ -501,6 +604,11 @@ def main(argv: list[str] | None = None) -> int:
         help="aggregate across all recorded runs: count, median, max, and latest seconds per step and host, with an interactive check's own timings in rows of their own named check:<name>",
     )
     parser.add_argument(
+        "--critical-path",
+        action="store_true",
+        help="aggregate across every finished run whose run line carries its start stamp, from their step lines; an interrupted run is left out. Per host, pool policy and pass shape (which of run_m1, corpus-build and gate:make-test ran): how often each step ended last, the median margin by which the lane that ended the pass outlasted the other lane, the median wall, and the median gate:make-test width",
+    )
+    parser.add_argument(
         "--by-outcome",
         action="store_true",
         help="aggregate across all recorded checks: invocations, green/red/skipped counts, and a histogram of the test ids each check has failed on",
@@ -516,6 +624,8 @@ def main(argv: list[str] | None = None) -> int:
         body = render_by_outcome(checks)
     elif args.by_step:
         body = render_by_step(steps, order, checks)
+    elif args.critical_path:
+        body = render_critical_path(runs, steps)
     else:
         body = render_runs(runs, steps, order, args.runs, args.inner)
     print("\n".join(body))

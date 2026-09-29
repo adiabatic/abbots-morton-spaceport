@@ -2991,6 +2991,13 @@ def test_cycle_summary_payload_plan_block_and_argv():
         "conform_max_length": ac.CONFORM_MAX_LENGTH_DEFAULT,
         "kernel_threads": plan.kernel_threads,
         "replay_threads": plan.replay_threads,
+        "sweep_jobs": plan.sweep_jobs,
+        "corpus_jobs": plan.corpus_jobs,
+        "signature_jobs": plan.signature_jobs,
+        "standing_fill_jobs": plan.standing_fill_jobs,
+        "make_test_workers": plan.make_test_workers,
+        "contracts_workers": plan.contracts_workers,
+        "conform_jobs": plan.conform_jobs,
         "pool_policy": ac.REBUILD_POOL_POLICY_DEFAULT,
         "skip_gates": False,
         "skip_conform": False,
@@ -3027,6 +3034,44 @@ def test_cycle_summary_payload_names_the_gates_only_rerun_and_passes_no_kernel_w
     assert payload["plan"]["skip_run_m1"] is False
     assert payload["plan"]["kernel_threads"] is None
     assert payload["plan"]["replay_threads"] is None
+
+
+def test_cycle_summary_payload_records_null_for_the_width_of_each_step_the_pass_skips():
+    """A width is recorded only for a step that spawns at it, so a run line never names a width nothing ran at, including gate:conform's when its green record skips it after run_m1. The gates-only rerun still runs the oracle at the sweep width, so that width stays."""
+    widths = (
+        "sweep_jobs",
+        "corpus_jobs",
+        "signature_jobs",
+        "standing_fill_jobs",
+        "make_test_workers",
+        "contracts_workers",
+        "conform_jobs",
+    )
+    skipped = _plan(
+        skip_run_m1=True,
+        skip_corpus=True,
+        skip_verdict_update=True,
+        skip_make_test=True,
+        skip_contracts=True,
+        skip_conform=True,
+    )
+    assert {
+        key: ac.cycle_summary_payload(_green_report(), [], skipped, "ok")["plan"][key] for key in widths
+    } == dict.fromkeys(widths)
+    gates_off = ac.cycle_summary_payload(_green_report(), [], _plan(skip_gates=True), "ok")["plan"]
+    assert (gates_off["make_test_workers"], gates_off["contracts_workers"], gates_off["conform_jobs"]) == (
+        None,
+        None,
+        None,
+    )
+    assert gates_off["corpus_jobs"] is not None
+    proved = _green_report()
+    proved.conform_proven = True
+    assert ac.cycle_summary_payload(proved, [], _plan(), "ok")["plan"]["conform_jobs"] is None
+    rerun = _plan(rerun_gates_only=True)
+    assert (
+        ac.cycle_summary_payload(_green_report(), [], rerun, "ok")["plan"]["sweep_jobs"] == rerun.sweep_jobs
+    )
 
 
 def test_write_cycle_summary_reads_module_attr_at_call_time(monkeypatch, tmp_path):
