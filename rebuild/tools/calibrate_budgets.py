@@ -125,7 +125,7 @@ UNITS: tuple[Unit, ...] = (
         pool_units=("signature",),
         step_names=(),
         step_caveat="",
-        note="The corpus build's ink-signature pool is cores-bound rather than memory-bound — `artifact_cycle.signature_job_budget` hands it the machine's cores, less gate:make-test's two under a gated cycle, and divides nothing — because a signature worker holds one comparator over the two fonts and a resident set flat in the number of signature misses it shapes, so no constant estimates its peak memory and there is nothing here to calibrate. The observations are collected and reported anyway, one per worker per pooled pass, each the worker's own peak returned to the parent process on its last chunk's reply, so that a figure exists if a width ever needs one — the rebuild-contracts row's position. The corpus-build step peak is deliberately not admitted: that max reads the parent, which the corpus-parent row measures, and it would read a build's footprint as a comparator's.",
+        note="The corpus build's ink-signature pool is cores-bound rather than memory-bound — `artifact_cycle.signature_job_budget` hands it the whole machine's cores, under a gated cycle as in a hand run, and divides nothing — because a signature worker holds one comparator over the two fonts and a resident set flat in the number of signature misses it shapes, so no constant estimates its peak memory and there is nothing here to calibrate. The observations are collected and reported anyway, one per worker per pooled pass, each the worker's own peak returned to the parent process on its last chunk's reply, so that a figure exists if a width ever needs one — the rebuild-contracts row's position. The corpus-build step peak is deliberately not admitted: that max reads the parent, which the corpus-parent row measures, and it would read a build's footprint as a comparator's.",
     ),
     Unit(
         name="oracle-shard",
@@ -567,7 +567,7 @@ def _width_clause(unit: Unit, constant_bytes: int, *, total_bytes: int, cores: i
         allowed = memory_budget.describe_fit(
             worker, coresident_bytes=constant_bytes, cap=cores, total_bytes=total_bytes
         )
-        return f"the verdict update's process, the refill pool's parent, is subtracted from the machine's memory rather than divided into it; with it off, the refill pool runs {allowed} ({STANDING_FILL_WORKER_NAME}, measured by hand); under a gated cycle gate:make-test's pool is subtracted from the machine's memory before this division too, and two cores off the cap"
+        return f"the verdict update's process, the refill pool's parent, is subtracted from the machine's memory rather than divided into it; with it off, the refill pool runs {allowed} ({STANDING_FILL_WORKER_NAME}, measured by hand); under a gated cycle gate:make-test's pool is subtracted from the machine's memory before this division too"
     if unit.name == "conform-sweep":
         floor = min(_acceptance_config_count(root / CONFORM_SOURCE), cores)
         parent = _int_constant(root / CORPUS_SOURCE, CORPUS_PARENT_NAME)

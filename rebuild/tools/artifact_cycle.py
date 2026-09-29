@@ -1363,28 +1363,20 @@ def corpus_job_derivation(
     return memory_budget.describe_fit(per_unit, coresident_bytes=coresident, cap=cap, total_bytes=total_bytes)
 
 
-def signature_job_budget(*, skip_gates: bool, skip_make_test: bool = False, ncores: int | None = None) -> int:
-    """Return the `--signature-jobs` width the cycle passes the corpus build, for the pool that shapes the ink-signature store's misses. Memory does not limit it. A signature worker is a spawn process holding one `InkComparator` over the two fonts with plain shapers and nothing else (no subset pack, units, or projections), and its resident set stays about a tenth of a gigabyte however many signatures it shapes (the `signature` pool records in `rebuild/out/cycle-timings.ndjson`). The width is `memory_budget.usable_cores()`, less gate:make-test's two cores under a gated cycle, floored at one. The two cores are subtracted as in `_corpus_fit_terms`, because a pass that skips run_m1 starts this phase at t=0 beside that pool. CORPUS_JOBS_CAP does not apply, since it is where the unit worker stops scaling, so a machine where the corpus build falls to one worker still shapes its signatures on every core. Below `build._SIGNATURE_POOL_THRESHOLD` misses the phase runs serially at any width, so a pass with the signature store filled starts no pool."""
+def signature_job_budget(*, ncores: int | None = None) -> int:
+    """Return the `--signature-jobs` width the cycle passes the corpus build, for the pool that shapes the ink-signature store's misses, and the default a hand build takes. Memory does not limit it. A signature worker is a spawn process holding one `InkComparator` over the two fonts with plain shapers and nothing else (no subset pack, units, or projections), and its resident set stays about a tenth of a gigabyte however many signatures it shapes (the `signature` pool records in `rebuild/out/cycle-timings.ndjson`). The width is `memory_budget.usable_cores()`, the whole machine, under a gated cycle and in a hand run alike. gate:make-test's pool is not subtracted, although a pass that skips run_m1 starts this phase at t=0 beside that pool: the two share the cores while both run, which costs contention time rather than memory. CORPUS_JOBS_CAP does not apply, since it is where the unit worker stops scaling, so a machine where the corpus build falls to one worker still shapes its signatures on every core. Below `build._SIGNATURE_POOL_THRESHOLD` misses the phase runs serially at any width, so a pass with the signature store filled starts no pool."""
+    from rebuild.tools import memory_budget
+
+    return max(1, ncores or memory_budget.usable_cores())
+
+
+def signature_job_derivation(*, ncores: int | None = None) -> str:
+    """Return `signature_job_budget`'s width as a clause for the plan line and the `--signature-jobs` help. It does not use `memory_budget.describe_fit`, whose clause would call the worker unmeasured: the width is a count of cores, and the clause says whose cores they are."""
     from rebuild.tools import memory_budget
 
     cores = ncores or memory_budget.usable_cores()
-    if not (skip_gates or skip_make_test):
-        cores -= 2
-    return max(1, cores)
-
-
-def signature_job_derivation(
-    *, skip_gates: bool, skip_make_test: bool = False, ncores: int | None = None
-) -> str:
-    """Return `signature_job_budget`'s width as a clause for the plan line and the `--signature-jobs` help. It does not use `memory_budget.describe_fit`, whose clause would call the worker unmeasured: the width is a count of cores, and the clause says which cores are left out."""
-    from rebuild.tools import memory_budget
-
-    cores = ncores or memory_budget.usable_cores()
-    width = signature_job_budget(skip_gates=skip_gates, skip_make_test=skip_make_test, ncores=cores)
-    if skip_gates or skip_make_test:
-        return f"{width} of {cores} cores, the whole machine"
-    clause = f"{width} of {cores} cores, less gate:make-test's two"
-    return clause if cores - 2 >= 1 else clause + ", floored at one"
+    width = signature_job_budget(ncores=cores)
+    return f"{width} of {cores} cores, the whole machine, shared with gate:make-test's pool on a cycle pass that runs that gate"
 
 
 def _contracts_pool_terms(
@@ -1527,7 +1519,7 @@ def _conform_core_cap(
     ncores: int | None,
     total_bytes: int | None,
 ) -> tuple[int, str]:
-    """Return the conformance sweep's cap on its width and a clause saying which bound set it. The cap is the usable cores less the corpus build's processes (its parent and `corpus_job_budget`'s workers) when the pass runs the build, and less gate:make-test's pool under the overlap policy on a pass that runs that gate (`_contracts_pool_terms`): the two subtractions the rebuild suite's width makes, each leaving its cores to a step that can be the pass's critical path. The rebuild suite's pool is not subtracted, and the suite's width does not subtract the sweep, because each is off the critical path on the `--fresh` passes behind the default (the module docstring); under that policy the two share the cores left while both run, an unbudgeted overlap that `doc/parallelism.md` lists. `contracts_pool_width` gives these reasons in full for both widths. The cap is floored at the acceptance-configuration count, or at the cores where there are fewer, which is the width one process per configuration gives, so a cycle never runs the sweep narrower than that; where the floor binds beside the corpus build, the sweep and the build oversubscribe the cores while they overlap, an unbudgeted overlap that `doc/parallelism.md` lists. The verdict-update step is not subtracted here; its memory is (`_conform_build_lane`). Its refill pool, capped at the cores less gate:make-test's, can overlap the sweep's tail on cores, an unbudgeted overlap that `doc/parallelism.md` lists. A hand run (`skip_gates=True, skip_corpus=True`) subtracts nothing and gets every core."""
+    """Return the conformance sweep's cap on its width and a clause saying which bound set it. The cap is the usable cores less the corpus build's processes (its parent and `corpus_job_budget`'s workers) when the pass runs the build, and less gate:make-test's pool under the overlap policy on a pass that runs that gate (`_contracts_pool_terms`): the two subtractions the rebuild suite's width makes, each leaving its cores to a step that can be the pass's critical path. The rebuild suite's pool is not subtracted, and the suite's width does not subtract the sweep, because each is off the critical path on the `--fresh` passes behind the default (the module docstring); under that policy the two share the cores left while both run, an unbudgeted overlap that `doc/parallelism.md` lists. `contracts_pool_width` gives these reasons in full for both widths. The cap is floored at the acceptance-configuration count, or at the cores where there are fewer, which is the width one process per configuration gives, so a cycle never runs the sweep narrower than that; where the floor binds beside the corpus build, the sweep and the build oversubscribe the cores while they overlap, an unbudgeted overlap that `doc/parallelism.md` lists. The verdict-update step is not subtracted here; its memory is (`_conform_build_lane`). Its refill pool, capped at the cores, can overlap the sweep's tail on cores, an unbudgeted overlap that `doc/parallelism.md` lists. A hand run (`skip_gates=True, skip_corpus=True`) subtracts nothing and gets every core."""
     from rebuild.pipeline.conform import ACCEPTANCE_CONFIGS
 
     cores, corpus, make_test = _contracts_pool_terms(
@@ -1658,13 +1650,12 @@ def conform_job_derivation(
 def _standing_fill_terms(
     *, skip_gates: bool, skip_make_test: bool, ncores: int | None
 ) -> tuple[int, int, int]:
-    """Return the standing fill pool's three terms for `standing_fill_jobs` and `standing_fill_derivation`: STANDING_FILL_WORKER_BYTES is the divisor, STANDING_FILL_PARENT_BYTES is subtracted first, and the cap is the cores, because no width is known past which this pool stops getting faster. Under a gated cycle gate:make-test's pool is subtracted as it is for the corpus build: its bytes from memory and two cores from the cap. The verdict-update step also starts beside gate:rebuild-contracts, whose pool no constant measures (`calibrate_budgets.UNITS`), so that pool is left out, and a pass that drops the standing-fill memo overuses memory for the pool's few tens of seconds. gate:conform's sweep can also run beside this step. That overlap's memory is subtracted on the conformance sweep's side (`_conform_build_lane`), so this width leaves the conformance sweep out; neither side subtracts the other's cores, so the two pools briefly oversubscribe the cores when they overlap."""
+    """Return the standing fill pool's three terms for `standing_fill_jobs` and `standing_fill_derivation`: STANDING_FILL_WORKER_BYTES is the divisor, STANDING_FILL_PARENT_BYTES is subtracted first, and the cap is the cores, because no width is known past which this pool stops getting faster. Under a gated cycle gate:make-test's pool comes off memory, its bytes subtracted as they are for the corpus build, but not off the cap: the two pools share the cores while both run, which costs contention time, not swap. The verdict-update step also starts beside gate:rebuild-contracts, whose pool no constant measures (`calibrate_budgets.UNITS`), so that pool is left out, and a pass that drops the standing-fill memo overuses memory for the pool's few tens of seconds. gate:conform's sweep can also run beside this step. That overlap's memory is subtracted on the conformance sweep's side (`_conform_build_lane`), so this width leaves the conformance sweep out; neither side subtracts the other's cores, so the two pools briefly oversubscribe the cores when they overlap."""
     from rebuild.tools import memory_budget
 
     cores = ncores or memory_budget.usable_cores()
     coresident = STANDING_FILL_PARENT_BYTES
     if not (skip_gates or skip_make_test):
-        cores -= 2
         coresident += _font_suite_worker_bytes() * make_test_pool_width(ncores=ncores)
     return STANDING_FILL_WORKER_BYTES, coresident, cores
 
@@ -1773,10 +1764,10 @@ def build_plan(
     corpus_reason = f"{corpus_head}; " + corpus_job_derivation(
         skip_gates=skip_gates, skip_make_test=skip_make_test, ncores=ncores, total_bytes=total_bytes
     )
-    signature_jobs = signature_job_budget(skip_gates=skip_gates, skip_make_test=skip_make_test, ncores=ncores)
+    signature_jobs = signature_job_budget(ncores=ncores)
     signature_reason = (
         "the ink-signature phase's shaping pool, cores-bound since a signature worker holds one comparator and no memory constant sizes it; "
-        + signature_job_derivation(skip_gates=skip_gates, skip_make_test=skip_make_test, ncores=ncores)
+        + signature_job_derivation(ncores=ncores)
     )
     fill_jobs = standing_fill_jobs(
         skip_gates=skip_gates, skip_make_test=skip_make_test, ncores=ncores, total_bytes=total_bytes

@@ -305,13 +305,13 @@ class TestTheHandRunDefaults:
         assert widened == min(memory_budget.usable_cores(), ac.CORPUS_JOBS_CAP)
 
     def test_the_signature_width_is_the_hand_runs_whole_machine(self, monkeypatch: pytest.MonkeyPatch):
-        """The signature width does not depend on memory: a signature worker is one comparator, so the hand run's default is the cores with `skip_gates=True`. Shrinking the machine until `--jobs` falls to one unit worker leaves the signature width unchanged, which a memory-derived width would not."""
+        """The signature width does not depend on memory: a signature worker is one comparator, so the hand run's default is the cores, the width a cycle passes too. Shrinking the machine until `--jobs` falls to one unit worker leaves the signature width unchanged, which a memory-derived width would not."""
         import rebuild.tools.artifact_cycle as ac
         from rebuild.review import build
 
         cores = memory_budget.usable_cores()
         args = _parser_built_by(build.main).parse_args([])
-        assert args.signature_jobs == ac.signature_job_budget(skip_gates=True) == cores
+        assert args.signature_jobs == ac.signature_job_budget() == cores
         monkeypatch.setenv("AMS_TOTAL_MEMORY_BYTES", "8000000000")
         narrowed = _parser_built_by(build.main).parse_args([])
         assert narrowed.jobs == 1

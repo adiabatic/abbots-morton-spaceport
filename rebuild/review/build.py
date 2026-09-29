@@ -3607,7 +3607,7 @@ def main(argv: list[str] | None = None) -> None:
     )
 
     corpus_jobs = corpus_job_budget(skip_gates=True)
-    signature_jobs = signature_job_budget(skip_gates=True)
+    signature_jobs = signature_job_budget()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--mode", choices=("m1-audit", "table-diff"), default="m1-audit")
     parser.add_argument("--out", type=Path, default=DEFAULT_OUT)
@@ -3627,7 +3627,7 @@ def main(argv: list[str] | None = None) -> None:
         "--signature-jobs",
         type=int,
         default=signature_jobs,
-        help=f"the width the ink-signature phase shapes its store misses at, independent of `--jobs`: a signature worker is one comparator over the two fonts, flat in the number of signature misses and pure CPU, so cores bind it where memory binds the unit worker, and `--jobs 1` on a small machine still shapes signatures across the cores. The default is `signature_job_budget()` with no cores set aside for a gate pool, a hand run having no co-resident `make test` pool to leave cores to — on this machine {signature_job_derivation(skip_gates=True)}. Signature misses under the pool's threshold shape serially at any width, and a pooled pass records its per-worker peaks for `make job-costs`.",
+        help=f"the width the ink-signature phase shapes its store misses at, independent of `--jobs`: a signature worker is one comparator over the two fonts, flat in the number of signature misses and pure CPU, so cores bind it where memory binds the unit worker, and `--jobs 1` on a small machine still shapes signatures across the cores. The default is `signature_job_budget()`, the same width the artifact cycle passes — on this machine {signature_job_derivation()}. Signature misses under the pool's threshold shape serially at any width, and a pooled pass records its per-worker peaks for `make job-costs`.",
     )
     parser.add_argument(
         "--recompute-all-units",

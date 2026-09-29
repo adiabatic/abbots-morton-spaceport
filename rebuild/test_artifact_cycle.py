@@ -2250,19 +2250,20 @@ class TestTheCorpusBuildWidth:
 class TestTheStandingFillWidth:
     """The cycle sizes the standing fill's refill pool, and the fill uses the width it is given. The fill's code is part of its memo's stamp, so a width computed there would invalidate the memo on every edit to the arithmetic."""
 
-    def test_the_pytest_pool_comes_off_the_machine_and_two_cores_off_the_cap(self):
+    def test_the_pytest_pool_comes_off_the_machine_but_not_off_the_cap(self):
+        """gate:make-test's pool shares the cores with the refill pool while both run, so only its bytes are subtracted."""
         solo = ac._standing_fill_terms(skip_gates=True, skip_make_test=False, ncores=9)
         beside = ac._standing_fill_terms(skip_gates=False, skip_make_test=False, ncores=9)
         assert solo == (ac.STANDING_FILL_WORKER_BYTES, ac.STANDING_FILL_PARENT_BYTES, 9)
         assert beside == (
             ac.STANDING_FILL_WORKER_BYTES,
             ac.STANDING_FILL_PARENT_BYTES + ac._font_suite_worker_bytes() * ac.make_test_pool_width(ncores=9),
-            7,
+            9,
         )
 
     def test_the_cores_bind_on_both_fleet_machines(self):
-        """A refill worker holds a chunk and two shapers, so on both fleet machines memory allows more workers than there are cores: gated, the ten-core 32 GiB machine runs eight beside gate:make-test's two, and the twelve-core 48 GiB machine alone runs twelve."""
-        assert ac.standing_fill_jobs(skip_gates=False, ncores=10, total_bytes=MACHINE_32_GIB) == 8
+        """A refill worker holds a chunk and two shapers, so on both fleet machines memory allows more workers than there are cores: gated, the ten-core 32 GiB machine runs ten beside gate:make-test's pool, and the twelve-core 48 GiB machine alone runs twelve."""
+        assert ac.standing_fill_jobs(skip_gates=False, ncores=10, total_bytes=MACHINE_32_GIB) == 10
         assert ac.standing_fill_jobs(skip_gates=True, ncores=12, total_bytes=MACHINE_48_GIB) == 12
 
     def test_a_machine_that_cannot_hold_the_parent_floors_at_one(self):
@@ -2294,7 +2295,7 @@ class TestTheStandingFillWidth:
                 ac.standing_fill_derivation(skip_gates=skip_gates, ncores=10, total_bytes=MACHINE_32_GIB)
                 in text
             )
-        small = _plan(ncores=2)
+        small = _plan(ncores=1)
         assert _argv({step.name: step for step in small.steps}["verdict-update"])[-2:] == [
             "--standing-fill-jobs",
             "1",
@@ -3579,7 +3580,7 @@ def test_the_plan_reserves_make_tests_pool_exactly_when_the_wrapper_runs_it(
     assert spawned == ([mtg.PYTEST_ARGV] if runs else [])
 
     assert plan.corpus_jobs == ac.corpus_job_budget(skip_gates=False, skip_make_test=not runs)
-    assert plan.signature_jobs == ac.signature_job_budget(skip_gates=False, skip_make_test=not runs)
+    assert plan.signature_jobs == ac.signature_job_budget()
     assert plan.kernel_threads == ac.kernel_threads_budget(skip_make_test=not runs)
     rendered = _plan_text(plan)
     assert ("gate:make-test's pytest pool held to" in rendered) is runs
@@ -3587,39 +3588,41 @@ def test_the_plan_reserves_make_tests_pool_exactly_when_the_wrapper_runs_it(
 
 
 def test_the_signature_pool_takes_the_cores_the_corpus_width_cannot():
-    """The ink-signature width is the one fan-out in the plan that memory does not derive: a signature worker holds one comparator, and no `*_BYTES` constant covers it. On a ten-core machine the gated width is the cores less gate:make-test's two, and the skipped-gate width is all ten. It is never below the corpus width, which memory derives and `CORPUS_JOBS_CAP` caps. On a machine with a quarter of the memory, the reserve and the parent's co-resident memory exceed the total, so the corpus width floors at one while the signature width stays at eight. With gate:make-test skipped the signature width is ten, above `CORPUS_JOBS_CAP`, because that cap applies only to the corpus build's unit workers. The argv passes the width after `--jobs`, and the plan shows it on its own row with its derivation."""
+    """The ink-signature width is the one fan-out in the plan that memory does not derive: a signature worker holds one comparator, and no `*_BYTES` constant covers it. It is the whole machine whether gate:make-test runs, skips, or the gates are skipped, since that pool shares the cores while both run, so on a ten-core machine it is ten on every pass, above `CORPUS_JOBS_CAP`, which applies only to the corpus build's unit workers. On a machine with a quarter of the memory, the reserve and the parent's co-resident memory exceed the total, so the corpus width floors at one while the signature width stays at ten. The argv passes the width after `--jobs`, and the plan shows it on its own row with its derivation."""
+    derivation = "10 of 10 cores, the whole machine, shared with gate:make-test's pool on a cycle pass that runs that gate"
+    assert ac.signature_job_budget(ncores=10) == 10
+    assert ac.signature_job_derivation(ncores=10) == derivation
+
     gated = _plan(skip_make_test=False, ncores=10, total_bytes=MACHINE_32_GIB)
-    assert gated.signature_jobs == ac.signature_job_budget(skip_gates=False, ncores=10) == 8
-    assert gated.signature_jobs >= gated.corpus_jobs == ac.CORPUS_JOBS_CAP
+    assert gated.signature_jobs == 10 > gated.corpus_jobs == ac.CORPUS_JOBS_CAP
     narrow = _plan(skip_make_test=False, ncores=10, total_bytes=MACHINE_32_GIB // 4)
-    assert narrow.signature_jobs == 8 > narrow.corpus_jobs == 1
+    assert narrow.signature_jobs == 10 > narrow.corpus_jobs == 1
     gated_by_name = {step.name: step for step in gated.steps}
     assert _argv(gated_by_name["corpus-build"])[-4:] == [
         "--jobs",
         str(gated.corpus_jobs),
         "--signature-jobs",
-        "8",
+        "10",
     ]
     rendered = _plan_text(gated)
-    assert "    corpus-build --signature-jobs    : 8  (" in rendered
-    assert "8 of 10 cores, less gate:make-test's two" in rendered
+    assert "    corpus-build --signature-jobs    : 10  (" in rendered
+    assert derivation in rendered
 
     solo = _plan(
         skip_make_test=True, make_test_note="closure unchanged", ncores=10, total_bytes=MACHINE_32_GIB
     )
-    assert (
-        solo.signature_jobs == ac.signature_job_budget(skip_gates=False, skip_make_test=True, ncores=10) == 10
-    )
-    assert solo.signature_jobs > ac.CORPUS_JOBS_CAP >= solo.corpus_jobs
+    assert solo.signature_jobs == 10 > ac.CORPUS_JOBS_CAP >= solo.corpus_jobs
     assert _argv({step.name: step for step in solo.steps}["corpus-build"])[-2:] == ["--signature-jobs", "10"]
-    assert "10 of 10 cores, the whole machine" in _plan_text(solo)
+    assert derivation in _plan_text(solo)
 
     skipped = _plan(skip_gates=True, ncores=10, total_bytes=MACHINE_32_GIB)
     assert skipped.signature_jobs == 10
     assert "corpus-build --signature-jobs 10 (" in _plan_text(skipped)
 
-    assert ac.signature_job_budget(skip_gates=False, ncores=2) == 1
-    assert ac.signature_job_derivation(skip_gates=False, ncores=2).endswith("floored at one")
+    assert ac.signature_job_budget(ncores=1) == 1
+    assert ac.signature_job_derivation(ncores=1) == (
+        "1 of 1 cores, the whole machine, shared with gate:make-test's pool on a cycle pass that runs that gate"
+    )
 
 
 def test_the_contracts_pool_is_the_cores_the_corpus_build_leaves():
