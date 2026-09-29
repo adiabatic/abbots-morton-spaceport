@@ -35,9 +35,9 @@ test:
 test-rebuild:
 	AMS_RUN_PYRIGHT=$(if $(FORCE),force,1) uv run python -m rebuild.tools.rebuild_gate $(if $(FORCE),--force)
 
-# The rebuild suite's slow-marked tests, which the gate excludes. The `-m slow` marker is the selection, so there is no lane flag. This is the one target that sets its width instead of using `-n auto`. Every worker collects the whole rebuild suite before the marker deselects nearly all of it, and neither `-n auto` hook can see how little the marker selects, so a worker slot the selection cannot fill costs a full collection and gains nothing. Two workers is sized for the current slow set, not for the machine. Re-measure and widen it when the slow set grows past what two workers finish.
+# The rebuild suite's slow-marked tests, which the gate excludes, at the width the root conftest's `-n auto` hook resolves. The `-m slow` marker is the selection, so there is no lane flag. Every worker collects the whole rebuild suite before the marker deselects nearly all of it, so a worker the selection cannot fill costs one collection, which `collect_ignore` in rebuild/conftest.py keeps short.
 test-rebuild-slow:
-	uv run pytest rebuild/ -m slow -n 2 --dist worksteal
+	uv run pytest rebuild/ -m slow -n auto --dist worksteal
 
 # Runs the font suite on the efficiency cores only, leaving the performance cores free. `taskpolicy -b` runs the process tree at background priority, which confines it to the efficiency cores, so the width is the efficiency-core count. `-n auto` would return every core the process may run on, because on Darwin it cannot see that confinement, and would oversubscribe the efficiency cores. Memory does not limit this width, so don't derive it from a memory budget.
 test-slowly:
