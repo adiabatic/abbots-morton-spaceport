@@ -54,7 +54,7 @@ leak-snapshot: all
 review:
 	uv run python tools/review_scoped_anchor_selectors.py --output site/scoped-anchor-review/index.html
 
-# Runs both targets in parallel. `-j2` is the number of targets on the line, so it does not depend on the machine and needs no memory budget. Each target sets its own parallelism: `make test` through the root conftest's `-n auto` hook, the review tool through its `--jobs`.
+# Runs both targets in parallel. `-j2` is the number of targets on the line, so it does not depend on the machine. Each target sizes its own pool to the whole machine: `make test` through the root conftest's `-n auto` hook, and the review tool at the usable cores capped at its count of families with suggestions. While both run, their pools oversubscribe the cores, and no memory budget covers that overlap.
 test-and-review:
 	@$(MAKE) -j2 test review
 

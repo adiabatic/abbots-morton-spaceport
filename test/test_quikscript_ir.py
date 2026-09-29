@@ -49,6 +49,7 @@ from review_scoped_anchor_selectors import (
     _hb_font,
     _load_ps_names,
     _review_context_sequences,
+    _review_pool_width,
     _rows_for_variants,
     apply_suggestions_to_glyph_data,
 )
@@ -2429,6 +2430,13 @@ def test_scoped_anchor_reviewer_applies_suggestion_to_copy_only():
 
     join_glyphs, _ = compile_quikscript_ir(patched, "senior")
     assert join_glyphs["qsRight.en-y5"].after == ("qsLeft",)
+
+
+def test_scoped_anchor_review_pool_width_defaults_to_cores_capped_at_families():
+    assert _review_pool_width(None, 3, 18) == 3
+    assert _review_pool_width(None, 20, 18) == 18
+    assert _review_pool_width(4, 10, 18) == 4
+    assert _review_pool_width(None, 0, 18) == 1
 
 
 def _scoped_selector_review_fixture(selector) -> GlyphData:

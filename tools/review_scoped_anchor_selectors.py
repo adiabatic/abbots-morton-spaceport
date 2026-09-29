@@ -2,7 +2,7 @@
 
 It applies the suggested ``entry_y`` / ``exit_y`` scopes to an in-memory copy of the glyph data, builds the current and scoped Senior-Regular fonts beside the output page (under ``tmp/scoped-anchor-review/`` by default), and writes HTML pages. Each page lists the variants each narrowed selector still matches and the ones it drops. It also shows texts in which the current font puts the selecting stance next to a dropped variant, shaped with both fonts. The glyph data is not modified.
 
-With no filters, it builds ``index.html`` plus a ``<family>.html`` page for every family that has suggestions, using up to ``--jobs`` worker processes. Pass ``--family`` or ``--path`` to rebuild one family's page.
+With no filters, it builds ``index.html`` plus a ``<family>.html`` page for every family that has suggestions, one worker process per family up to ``--jobs``, which defaults to the usable cores. Pass ``--family`` or ``--path`` to rebuild one family's page.
 
 Usage::
 
@@ -38,6 +38,7 @@ if str(TOOLS) not in sys.path:
 from build_font import build_font, load_glyph_data
 from glyph_compiler import compile_glyph_set
 from quikscript_ir import GlyphData, JoinGlyph
+from rebuild.tools.memory_budget import usable_cores
 from suggest_scoped_anchor_selectors import (
     ScopedAnchorSuggestion,
     suggest_scoped_anchor_selectors,
@@ -48,7 +49,6 @@ PS_NAMES_PATH = ROOT / "postscript_glyph_names.yaml"
 SENIOR_FONT_NAME = "AbbotsMortonSpaceportSansSenior-Regular.otf"
 SENIOR_FONT_STEM = Path(SENIOR_FONT_NAME).stem
 SENIOR_FONT_SUFFIX = Path(SENIOR_FONT_NAME).suffix
-DEFAULT_JOBS = 8
 
 
 def _scoped_font_filename(family: str) -> str:
@@ -1579,6 +1579,10 @@ def _worker_build_family(
     return suggestions[0].family_name
 
 
+def _review_pool_width(jobs: int | None, tasks: int, cores: int) -> int:
+    return max(1, min(cores if jobs is None else jobs, tasks))
+
+
 def build_all_reviews(
     glyph_data: GlyphData,
     suggestions: list[ScopedAnchorSuggestion],
@@ -1586,7 +1590,7 @@ def build_all_reviews(
     index_path: Path,
     max_len: int,
     max_cases: int,
-    jobs: int,
+    jobs: int | None,
 ) -> list[Path]:
     """Build the index page and every per-family page in *index_path*'s directory, and return the per-family paths in code-point order.
 
@@ -1619,7 +1623,7 @@ def build_all_reviews(
     if tasks:
         current_font_path = output_dir / "current" / SENIOR_FONT_NAME
         _build_review_font(glyph_data, current_font_path)
-        workers = max(1, min(jobs, len(tasks)))
+        workers = _review_pool_width(jobs, len(tasks), usable_cores())
         if workers == 1:
             _worker_init(glyph_data, current_font_path, max_len, max_cases)
             for task in tasks:
@@ -1680,15 +1684,15 @@ def main() -> None:
     parser.add_argument(
         "--jobs",
         type=int,
-        default=DEFAULT_JOBS,
+        default=None,
         help=(
             "Maximum worker processes for building per-family pages "
-            f"(default: {DEFAULT_JOBS}). Capped at the number of families with suggestions."
+            "(default: the usable cores). Capped at the number of families with suggestions."
         ),
     )
     args = parser.parse_args()
 
-    if args.jobs < 1:
+    if args.jobs is not None and args.jobs < 1:
         raise SystemExit("--jobs must be at least 1.")
 
     data = load_glyph_data(args.glyph_data)
