@@ -50,6 +50,7 @@ stances:
           stroke: horizontal
           toward:
           - family:
+            - qsPea
             - qsTea
             - qsDay
             - qsDay_qsUtter
@@ -80,6 +81,10 @@ policy:
   - sole
   refuse: []
   prefer:
+  - cell: {exit: none}
+    over: {exit: baseline}
+    when:
+      right: {family: qsPea}
   - cell: {exit: none}
     over: {exit: baseline}
     when:

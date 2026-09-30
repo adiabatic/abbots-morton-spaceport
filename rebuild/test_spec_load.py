@@ -800,7 +800,7 @@ def _chain_bearing_excepts(condition, found):
 
 
 CHAIN_BEARING_EXCEPT_RECORDS = (
-    ("qsAwe.prefer[0]", 2),
+    ("qsAwe.prefer[1]", 2),
     ("qsBay.prefer[0]", 2),
     ("qsCheer.prefer[0]", 2),
     ("qsDay.prefer[1]", 2),

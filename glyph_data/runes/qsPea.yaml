@@ -50,6 +50,7 @@ stances:
           stroke: vertical
           from:
           - {family: qsEt}
+          - {family: qsAwe}
       exits:
         baseline:
           x: 4
