@@ -1,4 +1,4 @@
-"""Tests for `rebuild/tools/merge_verdicts.py`, which merges verdict files into the autosave outside the browser: the review app's union in which the newer `at` wins, the store's tombstones kept through an aligned merge, the stamp checks (only inputs stamped for the current corpus, a stale autosave stashed, no merge onto an outdated corpus), the store lock a merge waits on, the refusal while the review server is listening, which takes no lock, idempotence, and the restore from the journal."""
+"""Tests for `rebuild/tools/merge_verdicts.py`, which merges verdict files into the autosave outside the browser: the review app's union in which the newer `at` wins, the store's tombstones kept through an aligned merge, the stamp checks (only inputs stamped for the current corpus, a stale autosave stashed, no merge onto an outdated corpus), the store lock a merge waits on and the land a dead holder left, which it finishes first, the refusal while the review server is listening, which takes no lock, idempotence, and the restore from the journal."""
 
 import json
 import threading
@@ -331,3 +331,42 @@ def test_list_prints_the_events(repo, capsys):
     out = capsys.readouterr().out
     assert out.count("autosave") == 2
     assert "stamp S2" in out
+
+
+def test_a_merge_finishes_a_land_whose_holder_died_before_it_writes(repo, tmp_path):
+    """A land killed after it swapped the corpus in but before it replaced the store leaves its intent file. A merge takes the store's lock through `landing.locked_store`, which finishes that land first, so the merge writes onto the landed store instead of one the recovery would then overwrite."""
+    from rebuild.review import landing
+
+    write_doc(repo["autosave"], "S1", [v("u-0")])
+    run_dir = tmp_path / "var" / "cycle" / "run"
+    run_dir.mkdir(parents=True)
+    result = run_dir / landing.LANDING_NAME
+    write_doc(result, "S2", [v("u-landed")])
+    intent = landing.intent_path_for(repo["autosave"])
+    intent.write_text(
+        json.dumps(
+            {
+                "run_dir": str(run_dir),
+                "landing": str(result),
+                "staged": None,
+                "live": None,
+                "staged_inode": None,
+                "old_stamp": "S1",
+                "new_stamp": "S2",
+                "stash": "verdicts-autosave-S1.json",
+                "journal": str(repo["journal"]),
+                "journal_inode": None,
+                "journal_length": None,
+            }
+        )
+    )
+    carried = write_doc(tmp_path / "carried.json", "S2", [v("u-1")])
+    assert run(repo, str(carried)) == 0
+    assert not intent.exists()
+    assert set(store_records(repo)) == {"u-landed", "u-1"}
+    assert json.loads((tmp_path / "verdicts-autosave-S1.json").read_text())["manifest_generated_at"] == "S1"
+    events = list(journal.iter_events(repo["journal"]))
+    assert [(event["source"], event["stashed"]) for event in events] == [
+        ("land", "verdicts-autosave-S1.json"),
+        ("merge", None),
+    ]

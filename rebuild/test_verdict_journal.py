@@ -1,6 +1,7 @@
-"""Tests for the verdict journal (`rebuild/review/journal.py`): the sets, clears, and base events a transition writes, the seed event that opens a journal over an existing store, replay with and without an as-of cutoff, compaction in two phases that keep an append made between them, the event scan resumed from where an earlier one ended, a journal cut shorter and regrown between the phases, which neither resumes over, tolerance of a trailing line torn by a crashed append, which the next append cuts off unless only its newline is missing, and a base event torn short of its set lines, which opens a span replay refuses until the next complete base and which compaction never starts at."""
+"""Tests for the verdict journal (`rebuild/review/journal.py`): the sets, clears, and base events a transition writes, the seed event that opens a journal over an existing store, replay with and without an as-of cutoff, compaction in two phases that keep an append made between them, the event scan resumed from where an earlier one ended, a journal cut shorter and regrown between the phases, which neither resumes over, tolerance of a trailing line torn by a crashed append, which the next append cuts off unless only its newline is missing, a base event torn short of its set lines, which opens a span replay refuses until the next complete base and which compaction never starts at, and the cut back to the length a dead land recorded, made only while the journal is the same file."""
 
 import json
+import os
 
 import pytest
 
@@ -723,3 +724,30 @@ def test_a_journal_cut_shorter_and_regrown_between_the_phases_is_rescanned_and_n
     assert result["compacted"] is False and result["replaced"] is True
     assert path.read_bytes() == after
     assert not path.with_name(path.name + ".tmp").exists()
+
+
+def test_truncate_to_cuts_only_the_file_whose_length_was_taken(tmp_path):
+    """A land records the journal's length and inode before it appends; its recovery cuts the journal back to that length only when it is still the same file, and removes a journal the land itself created."""
+    path = tmp_path / "journal.ndjson"
+    journal.record_transition(
+        path, source="merge", stamp="S1", old_stamp=None, old_verdicts=[], new_verdicts=[v("u-1")]
+    )
+    length, inode = path.stat().st_size, path.stat().st_ino
+    with path.open("ab") as handle:
+        handle.write(b'{"kind": "event", "source": "land", "base": true, "sets": 3}\n{"kind": "set"')
+    assert journal.truncate_to(path, length, inode) is True
+    assert path.stat().st_size == length
+    assert journal.truncate_to(path, length, inode) is False
+
+    replaced = tmp_path / "replaced.ndjson"
+    replaced.write_bytes(path.read_bytes() + b"\n")
+    os.replace(replaced, path)
+    assert journal.truncate_to(path, length, inode) is False
+    assert path.stat().st_size == length + 1
+
+    fresh = tmp_path / "fresh.ndjson"
+    journal.record_transition(
+        fresh, source="land", stamp="S2", old_stamp=None, old_verdicts=[], new_verdicts=[v("u-1")]
+    )
+    assert journal.truncate_to(fresh, None, None) is True
+    assert not fresh.exists()

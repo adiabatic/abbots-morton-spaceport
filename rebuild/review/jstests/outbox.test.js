@@ -13,6 +13,11 @@ import {
   markTabClosed,
   liveTabs,
   TAB_FRESH_MS,
+  scopeOutbox,
+  scopedOutboxKey,
+  saveConflicts,
+  loadConflicts,
+  CONFLICTS_KEY,
 } from '../static/outbox.js';
 
 function memoryStorage() {
@@ -149,4 +154,31 @@ test('entries read at boot are sent only while their tab and seq are still in th
   writeOutbox(storage, [['u-1', entry(null, { seq: 2 })]]);
   ackOutbox(storage, [{ unit: 'u-1', tab: 'A', seq: 2 }]);
   assert.deepEqual(currentEntries(storage, read).map((item) => item.unit), ['u-2']);
+});
+
+test('each checkout keeps its own outbox, and an unscoped one moves into the first checkout that opens', () => {
+  const storage = memoryStorage();
+  writeOutbox(storage, [['u-legacy', entry(approve)]]);
+  const main = scopeOutbox(storage, '/repo/main');
+  assert.equal(storage.getItem(OUTBOX_KEY), null);
+  writeOutbox(main, [['u-1', entry(approve)]]);
+  const worktree = scopeOutbox(storage, '/repo/worktree');
+  writeOutbox(worktree, [['u-2', entry(approve)]]);
+  assert.deepEqual(Object.keys(readOutbox(main)).sort(), ['u-1', 'u-legacy']);
+  assert.deepEqual(Object.keys(readOutbox(worktree)), ['u-2']);
+  assert.deepEqual(Object.keys(JSON.parse(storage.getItem(scopedOutboxKey('/repo/main')))).sort(), ['u-1', 'u-legacy']);
+  assert.equal(scopeOutbox(storage, null), storage);
+});
+
+test('conflicts saved to the tab survive a reload and an empty set removes the key', () => {
+  const storage = memoryStorage();
+  const conflicts = new Map([
+    ['u-1', approve],
+    ['u-2', null],
+  ]);
+  saveConflicts(storage, conflicts);
+  assert.deepEqual(loadConflicts(storage), conflicts);
+  saveConflicts(storage, new Map());
+  assert.equal(storage.getItem(CONFLICTS_KEY), null);
+  assert.deepEqual(loadConflicts(storage), new Map());
 });

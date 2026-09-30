@@ -115,12 +115,12 @@ def pipeline_code_paths(repo_root: Path) -> list[Path]:
 
 
 REVIEW_NON_BUILD_MODULES = frozenset(
-    {"serve.py", "verdict_store.py", "status.py", "journal.py", "store_lock.py", "export.py"}
+    {"serve.py", "verdict_store.py", "status.py", "journal.py", "store_lock.py", "landing.py", "export.py"}
 )
 
 
 def review_code_paths(repo_root: Path) -> list[Path]:
-    """Return rebuild/review/*.py without `REVIEW_NON_BUILD_MODULES`, the modules the corpus build never imports. Hashing one of those would force a full corpus rebuild and drop the per-unit store for an edit the build cannot execute. serve.py is the dev server and verdict_store.py the store it keeps; status.py and journal.py belong to the verdict update, store_lock.py is the lock every writer of the verdict store holds, and `artifact_cycle.verdict_update_skip_fingerprint` hashes all five itself. export.py is a standalone CLI that turns exported verdicts into a triage YAML. rebuild/test_review_code_closure.py checks this set against build.py's import graph in both directions."""
+    """Return rebuild/review/*.py without `REVIEW_NON_BUILD_MODULES`, the modules the corpus build never imports. Hashing one of those would force a full corpus rebuild and drop the per-unit store for an edit the build cannot execute. serve.py is the dev server and verdict_store.py the store it keeps; status.py and journal.py belong to the verdict update, store_lock.py is the lock every writer of the verdict store holds, landing.py moves a pass's corpus and store into place, and `artifact_cycle.verdict_update_skip_fingerprint` hashes all six itself. export.py is a standalone CLI that turns exported verdicts into a triage YAML. rebuild/test_review_code_closure.py checks this set against build.py's import graph in both directions."""
     return sorted(
         path
         for path in (Path(repo_root) / "rebuild" / "review").glob("*.py")

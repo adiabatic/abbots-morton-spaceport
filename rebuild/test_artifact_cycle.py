@@ -22,7 +22,7 @@ from typing import Any
 import pytest
 
 from rebuild.conftest import is_live_artifact_path
-from rebuild.review import journal
+from rebuild.review import journal, landing
 from rebuild.tools import artifact_cycle as ac
 from rebuild.tools import calibrate_budgets as cb
 from rebuild.tools import console
@@ -50,11 +50,32 @@ def _no_stated_widths(monkeypatch):
     monkeypatch.delenv("AMS_REPLAY_THREADS", raising=False)
 
 
+REAL_DO_CORPUS_SEED = ac._do_corpus_seed
+REAL_DO_STORE_SNAPSHOT = ac._do_store_snapshot
+REAL_DO_LAND = ac._do_land
+
+
+def _seed_ok(report, *, emit, plan):
+    report.seed_status = "cloned"
+    return True
+
+
+def _snapshot_ok(report, *, emit, plan):
+    report.snapshot_status = "snapshot"
+    return True
+
+
+def _land_ok(report, *, spawn, emit, registry, plan):
+    report.land = {"landed": True, "overlaid": 0, "records": 0, "new_stamp": None}
+    report.land_status = "landed"
+    return report.land
+
+
 @pytest.fixture(autouse=True)
 def _redirect_contracts_lane_reads(monkeypatch, tmp_path):
     """Make this module see the live review corpus and build artifacts as absent. The conftest's `_redirect_cycle_writes` redirects writes only, but the cycle also resolves its read paths from the live repo at call time, so a test driving `_run_cycle` over mocked stages would otherwise read whatever corpus and behavior-class sidecar sit in rebuild/out. Every test here is in the contracts lane, so no live read needs to be kept, and the lane's audit guard fails any read this misses.
 
-    `REVIEW_OUT` and the deep replay's green record are constants and are redirected directly. The behavior-class sidecar is not: `deep_sweep_skip_lines` re-roots `BEHAVIOR_CLASSES` against the root it is given, so redirecting the constant outside ROOT would break the tests that pass their own root, and the function is patched for the default root only. The gates' `*_skip_lines(ROOT)` also read through two globs over rebuild/out (`baselines_value`, `_subset_tables`) and the per-file digest `_sha256_path`, which returns "absent" for a live path. Each patch changes the result only for the live root or a live path, so a test that passes its own root runs the real function.
+    `REVIEW_OUT`, `AUTOSAVE` and the deep replay's green record are constants and are redirected directly. The three build-lane steps that need a real corpus or store beside them, the corpus seed, the store snapshot and the land, are stubbed as the other build-lane stages are in each test; a test of one of them sets the real function back (`REAL_DO_CORPUS_SEED`, `REAL_DO_STORE_SNAPSHOT`, `REAL_DO_LAND`). The review server's /capabilities answers `NO_CAPABILITIES` (a 404), as a server from before the land protocol does, so no test probes the live port, and starting a server fails the test; a test that checks the probe patches `capabilities` itself. The behavior-class sidecar is not: `deep_sweep_skip_lines` re-roots `BEHAVIOR_CLASSES` against the root it is given, so redirecting the constant outside ROOT would break the tests that pass their own root, and the function is patched for the default root only. The gates' `*_skip_lines(ROOT)` also read through two globs over rebuild/out (`baselines_value`, `_subset_tables`) and the per-file digest `_sha256_path`, which returns "absent" for a live path. Each patch changes the result only for the live root or a live path, so a test that passes its own root runs the real function.
     """
     from rebuild.pipeline import fingerprint
 
@@ -63,6 +84,12 @@ def _redirect_contracts_lane_reads(monkeypatch, tmp_path):
     real_subsets = ac._subset_tables
     real_sha = ac._sha256_path
     monkeypatch.setattr(ac, "REVIEW_OUT", tmp_path / "review")
+    monkeypatch.setattr(ac, "AUTOSAVE", tmp_path / "verdicts-autosave.json")
+    monkeypatch.setattr(ac, "capabilities", lambda port=ac.REVIEW_PORT: ac.NO_CAPABILITIES)
+    monkeypatch.setattr(ac, "start_review_server", lambda: pytest.fail("started a review server"))
+    monkeypatch.setattr(ac, "_do_corpus_seed", _seed_ok)
+    monkeypatch.setattr(ac, "_do_store_snapshot", _snapshot_ok)
+    monkeypatch.setattr(ac, "_do_land", _land_ok)
     monkeypatch.setattr(cycle_paths, "DEEP_REPLAY_GREEN", tmp_path / "deep-replay-green.json")
     monkeypatch.setattr(
         ac,
@@ -275,17 +302,29 @@ def test_dry_run_plan_default():
         "python",
         "-m",
         "rebuild.review.build",
+        "--out",
+        str(ac.next_corpus_dir()),
         "--jobs",
         str(plan.corpus_jobs),
         "--signature-jobs",
         str(plan.signature_jobs),
     ]
-    assert _argv(by_name["verdict-update"])[:5] == [
+    assert _argv(by_name["verdict-update"])[:7] == [
         "uv",
         "run",
         "python",
         "-m",
         "rebuild.tools.verdict_update",
+        "--corpus",
+        str(ac.next_corpus_dir()),
+    ]
+    assert [step.name for step in plan.steps][:6] == [
+        "run_m1",
+        "corpus-seed",
+        "corpus-build",
+        "store-snapshot",
+        "verdict-update",
+        "land",
     ]
     assert by_name["review-facts"].argv == [
         "uv",
@@ -389,27 +428,64 @@ def test_dry_run_plan_skip_conform():
 
 
 def test_dry_run_plan_runs_the_whole_verdict_update_as_one_step():
+    """The verdict update is one step between the store snapshot and the land. It reads the corpus built beside the served one, carries the named master and the snapshot of the store, so the store's own verdicts are carried beside another master, and merges and fills into the prepared copy of the store in the pass's scratch directory, journaling there, so it never writes the live store."""
+    ac.AUTOSAVE.write_text("{}")
     plan = _plan(short_id="abc1234")
     names = [step.name for step in plan.steps]
-    assert names.index("verdict-update") == names.index("corpus-build") + 1
-    assert names.index("review-facts") == names.index("verdict-update") + 1
+    assert names.index("store-snapshot") == names.index("corpus-build") + 1
+    assert names.index("verdict-update") == names.index("store-snapshot") + 1
+    assert names.index("land") == names.index("verdict-update") + 1
+    assert names.index("review-facts") == names.index("land") + 1
     argv = {step.name: step for step in plan.steps}["verdict-update"].argv
     assert argv is not None
-    assert argv[:10] == [
+    assert plan.scratch_dir is not None
+    snapshot = plan.scratch_dir / ac.landing.SNAPSHOT_NAME
+    assert argv[:14] == [
         "uv",
         "run",
         "python",
         "-m",
         "rebuild.tools.verdict_update",
         "--corpus",
-        str(ac.REVIEW_OUT),
+        str(ac.next_corpus_dir()),
         "--verdicts",
         "v.json",
+        "--verdicts",
+        str(snapshot),
         "--carry-out",
+        str(ac.ROOT / "verdicts-carried-abc1234.json"),
+        "--autosave",
     ]
-    assert argv[10] == str(ac.ROOT / "verdicts-carried-abc1234.json")
+    assert argv[14] == str(plan.scratch_dir / ac.landing.PREPARED_NAME)
+    assert argv[15:17] == ["--journal", str(plan.scratch_dir / "journal.ndjson")]
     assert "--no-merge" not in argv
     assert plan.do_merge is True
+
+
+def test_with_no_live_store_the_carry_reads_only_the_master():
+    """With no verdicts-autosave.json yet (a fresh checkout or worktree whose tabs have saved nothing), the store snapshot writes no file, so the carry is not handed one: it reads the master alone, and a store a tab creates during the pass reaches the landed store through the land's overlay instead."""
+    assert not ac.AUTOSAVE.exists()
+    plan = _plan()
+    assert plan.scratch_dir is not None
+    argv = _argv({step.name: step for step in plan.steps}["verdict-update"])
+    assert [argv[i + 1] for i, arg in enumerate(argv) if arg == "--verdicts"] == ["v.json"]
+    assert "--no-complaints" in argv
+
+
+def test_a_master_that_is_the_live_store_is_carried_from_its_snapshot():
+    """When the master resolved to the live store, the carry reads the snapshot in its place and not the store beside it, and a direct merge merges the snapshot; the live store is never read or written by the verdict update."""
+    plan = _plan(verdicts=ac.AUTOSAVE)
+    assert plan.scratch_dir is not None
+    snapshot = str(plan.scratch_dir / ac.landing.SNAPSHOT_NAME)
+    argv = _argv({step.name: step for step in plan.steps}["verdict-update"])
+    assert [argv[i + 1] for i, arg in enumerate(argv) if arg == "--verdicts"] == [snapshot]
+    assert str(ac.AUTOSAVE) not in argv
+
+    direct = _plan(verdicts=ac.AUTOSAVE, skip_corpus=True, direct_merge=True, corpus_note="same")
+    assert direct.scratch_dir is not None
+    argv = _argv({step.name: step for step in direct.steps}["verdict-update"])
+    assert argv[argv.index("--merge-master") + 1] == str(direct.scratch_dir / ac.landing.SNAPSHOT_NAME)
+    assert argv[argv.index("--corpus") + 1] == str(ac.REVIEW_OUT)
 
 
 def test_dry_run_plan_no_merge_carries_and_stops():
@@ -653,7 +729,7 @@ def test_render_plan_is_stringable():
 
 
 def test_every_plan_step_says_what_it_is_for():
-    """The banner prints every step's description. The gates-only rerun is the one row whose description is not looked up under its own name: it spawns as run_m1:gates-only, reports under run_m1's row, and must describe the gates-only rerun, not the build."""
+    """The banner prints every step's description, the land's steps included (the corpus seed, the store snapshot and the land). The gates-only rerun is the one row whose description is not looked up under its own name: it spawns as run_m1:gates-only, reports under run_m1's row, and must describe the gates-only rerun, not the build."""
     for plan in (
         _plan(),
         _plan(skip_gates=True),
@@ -663,6 +739,8 @@ def test_every_plan_step_says_what_it_is_for():
             promote_corpus=Path("var/staged-review"),
             corpus_note=ac.CORPUS_PROMOTE_NOTE,
         ),
+        _plan(skip_corpus=True, direct_merge=True, corpus_note="same"),
+        _plan(no_carry=True),
     ):
         for step in plan.steps:
             assert step.describe, step.name
@@ -2088,6 +2166,41 @@ def test_a_step_child_stays_in_the_cycles_process_group():
     assert int(result.stdout.strip()) == os.getpgrp()
 
 
+def test_the_land_runs_in_its_own_session_and_a_stop_waits_for_it(tmp_path):
+    """The land starts its own session, so a signal to the cycle's group or a Ctrl-C at the terminal never reaches it, and `terminate_all` waits for it without signaling it, while it still terminates every other child."""
+    result = ac._run_step(
+        "land",
+        [sys.executable, "-c", "import os; print(os.getsid(0))"],
+        emit=ac._Emitter(),
+        registry=ac._ChildRegistry(),
+        stream=False,
+        uninterruptible=True,
+    )
+    assert result.returncode == 0
+    assert int(result.stdout.strip()) != os.getsid(0)
+
+    marker = tmp_path / "signaled"
+    script = (
+        "import signal, sys, time\n"
+        f"signal.signal(signal.SIGTERM, lambda *a: (open({str(marker)!r}, 'w').close(), sys.exit(3)))\n"
+        "print('ready', flush=True)\n"
+        "time.sleep(1.0)\n"
+    )
+    registry = ac._ChildRegistry()
+    land = subprocess.Popen([sys.executable, "-c", script], stdout=subprocess.PIPE, start_new_session=True)
+    other = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
+    assert land.stdout is not None and land.stdout.readline().strip() == b"ready"
+    assert registry.add(land, uninterruptible=True)
+    assert registry.add(other)
+    assert registry.waits_for_uninterruptible()
+    registry.terminate_all()
+    land.stdout.close()
+    assert land.returncode == 0
+    assert not marker.exists()
+    assert other.returncode is not None and other.returncode != 0
+    assert registry.killed_count == 1
+
+
 def test_registry_add_rejects_after_terminate_all():
     registry = ac._ChildRegistry()
     registry.terminate_all()
@@ -2652,6 +2765,11 @@ class TestTheConformSweepWidth:
                         assert ac.conform_job_derivation(**kw).startswith(f"{width} at ")
 
 
+def test_the_land_holds_less_than_either_build_lane_step_before_it():
+    """The land follows the corpus build and the verdict update in the build lane, and the lane's reservation (`_conform_build_lane`) covers the larger of those two, so it covers the land only while the land's constant stays below both parents'."""
+    assert ac.LAND_BYTES < min(ac.CORPUS_PARENT_BYTES, ac.STANDING_FILL_PARENT_BYTES)
+
+
 def test_the_job_budgets_answer_the_cgroup_allowance_rather_than_the_hosts_core_count(monkeypatch):
     """A CPU quota is invisible to `os.cpu_count()`, so the oracle, conformance-sweep, corpus and gate:make-test budgets read their cores through `memory_budget.usable_cores`. The test runs the real probe over a fixture cgroup root that allows two cores, which is below `len(ACCEPTANCE_CONFIGS)`, so the oracle and the conformance sweep return the allowance, a hand corpus build returns the allowance less its parent, and a gated cycle splits the allowance between the lanes (`memory_budget.split_cores`). Each call passes a terabyte of memory so that only the core count limits the width. An explicit `ncores` still takes precedence over the probe."""
     from rebuild.pipeline.conform import ACCEPTANCE_CONFIGS
@@ -2861,7 +2979,10 @@ def test_dry_run_renders_concurrency():
     assert "Lane rebuild-contracts" in text
     assert "Lane conform" in text
     assert "Lane kernel" not in text
-    assert "run_m1 -> submit gate:rebuild-contracts -> corpus-build -> verdict-update -> review-facts" in text
+    assert (
+        "run_m1 -> submit gate:rebuild-contracts -> corpus-seed -> corpus-build -> store-snapshot -> verdict-update -> land -> review-facts"
+        in text
+    )
     assert "CO-RESIDENT with gate:make-test's pool and gate:rebuild-contracts' pool (overlap policy)" in text
     assert (
         f"Lane rebuild-contracts           : submitted beside the corpus build, -n {plan.contracts_workers} ({plan.contracts_reason});"
@@ -2944,7 +3065,7 @@ def test_review_out_staging_plan(monkeypatch, tmp_path):
         review_out=staged_out,
     )
     by_name = {step.name: step for step in plan.steps}
-    assert _argv(by_name["corpus-build"])[-2:] == ["--out", str(staged_out)]
+    assert _argv(by_name["corpus-build"])[5:7] == ["--out", str(staged_out)]
     assert by_name["review-facts"].argv is None
     assert by_name["review-facts"].note == "SKIPPED (staging: the checked-in pins track the live corpus)"
     argv = _argv(by_name["verdict-update"])
@@ -3072,6 +3193,8 @@ def test_cycle_summary_payload_plan_block_and_argv():
         "skip_corpus": False,
         "refresh_assets": False,
         "promote_corpus": None,
+        "next_corpus": str(ac.next_corpus_dir()),
+        "land": True,
         "skip_contracts": False,
         "skip_verdict_update": False,
         "review_out": None,
@@ -3080,7 +3203,8 @@ def test_cycle_summary_payload_plan_block_and_argv():
     }
     assert payload["argv"] == list(sys.argv)
     assert payload["assets_status"] == "not run"
-    assert payload["promote_status"] == "not run"
+    assert payload["land_status"] == "not run"
+    assert payload["land"] is None
 
 
 def test_cycle_summary_payload_records_an_assets_refresh():
@@ -3767,7 +3891,7 @@ def test_the_plan_states_the_contracts_pool_width_on_its_lane_line():
     gated = _plan(pool_policy="queue", ncores=10, total_bytes=MACHINE_32_GIB)
     text = _plan_text(gated)
     assert (
-        "Lane build[serial, main thread]  : run_m1 -> submit gate:rebuild-contracts -> corpus-build -> verdict-update -> review-facts"
+        "Lane build[serial, main thread]  : run_m1 -> submit gate:rebuild-contracts -> corpus-seed -> corpus-build -> store-snapshot -> verdict-update -> land -> review-facts"
         in text
     )
     assert (
@@ -4777,70 +4901,52 @@ def test_promotable_corpus_reads_the_recorded_pointer_before_the_convention(tmp_
     assert ac.promotable_corpus(tmp_path, summary, live) == conventional
 
 
-def test_promote_corpus_swaps_the_trees_and_leaves_no_leftover(tmp_path, monkeypatch):
-    """After the move the live path holds the source's files, the source is gone, and no `.superseded` directory remains. A leftover `.superseded` tree from an interrupted pass is removed first. When the second rename fails, the live tree is restored, which a removal followed by a move could not do."""
-    live = tmp_path / "review"
-    source = tmp_path / "staged"
-    superseded = tmp_path / "review.superseded"
-    live.mkdir()
-    (live / "old.txt").write_text("old")
-    source.mkdir()
-    (source / "new.txt").write_text("new")
-    superseded.mkdir()
-    (superseded / "crashed.txt").write_text("leftover")
-
-    ac.promote_corpus(source, live)
-    assert (live / "new.txt").read_text() == "new"
-    assert not (live / "old.txt").exists()
-    assert not source.exists()
-    assert not superseded.exists()
-
-    source.mkdir()
-    (source / "newer.txt").write_text("newer")
-    real_replace = os.replace
-    calls = []
-
-    def failing_second(src, dst):
-        calls.append((src, dst))
-        if len(calls) == 2:
-            raise OSError("simulated")
-        return real_replace(src, dst)
-
-    monkeypatch.setattr(ac.os, "replace", failing_second)
-    with pytest.raises(OSError, match="simulated"):
-        ac.promote_corpus(source, live)
-    assert (live / "new.txt").read_text() == "new"
-    assert (source / "newer.txt").read_text() == "newer"
-    assert not superseded.exists()
+def test_promotable_corpus_prefers_a_complete_review_next(tmp_path):
+    """A complete `review.next` a stopped pass left is the first candidate, ahead of the staging directories, when it reproduces these inputs; one built for other inputs is passed over for the next candidate."""
+    expected = _promotion_root(tmp_path)
+    live = tmp_path / "rebuild" / "out" / "review"
+    _write_corpus(live, {**expected, "data": "stale"}, "2026-01-01T00:00:00Z")
+    staged = tmp_path / "var" / "staged-review"
+    _write_corpus(staged, expected, "2026-01-02T00:00:00Z")
+    summary = tmp_path / "rebuild" / "out" / "cycle_summary.json"
+    beside = ac.next_corpus_dir(live)
+    _write_corpus(beside, expected, "2026-01-02T00:00:00Z")
+    assert ac.promotable_corpus(tmp_path, summary, live) == beside
+    _write_corpus(beside, {**expected, "data": "older"}, "2026-01-02T00:00:00Z")
+    assert ac.promotable_corpus(tmp_path, summary, live) == staged
 
 
-def test_a_promotion_whose_outgoing_tree_will_not_delete_still_counts(tmp_path, monkeypatch):
-    """Once the second rename succeeds, the promotion is complete. An outgoing tree that cannot be deleted stays under its `.superseded` name for the next pass to remove, and the promotion is not reported as failed."""
-    live = tmp_path / "review"
-    source = tmp_path / "staged"
-    superseded = tmp_path / "review.superseded"
-    live.mkdir()
-    (live / "old.txt").write_text("old")
-    source.mkdir()
-    (source / "new.txt").write_text("new")
-    real_rmtree = shutil.rmtree
+def test_a_kept_review_next_seeds_the_build_when_run_m1_is_due(tmp_path, monkeypatch, capsys):
+    """A complete `review.next` is promoted only on a pass whose run_m1 skipped, because the check compares it with the Stage A run_m1 recorded. On a pass whose run_m1 runs, it is kept as the build's seed instead, so the corpus build plans a seed that keeps it and no promotion. An unfinished one is deleted at the start of a real pass and left by a dry run."""
+    _unsettled_repo(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        ac, "promotable_corpus", lambda *a, **k: pytest.fail("promotion considered with run_m1 due")
+    )
+    beside = ac.next_corpus_dir()
+    beside.mkdir()
+    (beside / "manifest.json").write_text("{ unfinished")
+    assert ac.main(["--dry-run"]) == 0
+    out = capsys.readouterr().out
+    assert "a corpus an earlier pass did not finish" in out
+    assert beside.exists()
+    assert "clones rebuild/out/review" in _step_lines(out, "corpus-seed")
 
-    def undeletable(path, ignore_errors=False, **kwargs):
-        if ignore_errors:
-            return None
-        return real_rmtree(path, ignore_errors=ignore_errors, **kwargs)
+    note = ac.recover_next_corpus()
+    assert note is not None and note.startswith("Deleted ")
+    assert not beside.exists()
 
-    monkeypatch.setattr(ac.shutil, "rmtree", undeletable)
-    ac.promote_corpus(source, live)
-    assert (live / "new.txt").read_text() == "new"
-    assert (superseded / "old.txt").read_text() == "old"
-    assert not source.exists()
+    _write_corpus(beside, {}, "2026-07-17T20:24:44Z")
+    assert ac.main(["--dry-run"]) == 0
+    out = capsys.readouterr().out
+    assert "Kept " in out
+    assert "keeps " in _step_lines(out, "corpus-seed")
+    assert "--out " + str(beside) in _step_lines(out, "corpus-build")
 
 
 def test_recover_superseded_corpus_settles_the_leftover_before_the_first_run_question(
     tmp_path, monkeypatch, capsys
 ):
-    """A `.superseded` tree beside a live tree is the corpus a promotion replaced, so it is deleted. A `.superseded` tree with no live tree beside it is the live corpus an interrupted promotion moved aside, so it is moved back. `main` does this before checking whether a corpus exists, so an interrupted promotion is not treated as a first run. A dry run still moves a lone tree back, so its plan matches what a real pass would do, but leaves a tree that sits beside a live one for the next real pass to delete."""
+    """A `.superseded` tree beside a live tree is the corpus a land's three-rename fallback replaced, so it is deleted. A `.superseded` tree with no live tree beside it is the live corpus an interrupted fallback moved aside, so it is moved back. `main` does this before checking whether a corpus exists, so an interrupted land is not treated as a first run. A dry run still moves a lone tree back, so its plan matches what a real pass would do, but leaves a tree that sits beside a live one for the next real pass to delete."""
     live = tmp_path / "review"
     superseded = tmp_path / "review.superseded"
     assert ac.recover_superseded_corpus(live) is None
@@ -4873,8 +4979,8 @@ def test_recover_superseded_corpus_settles_the_leftover_before_the_first_run_que
     assert (leftover / "manifest.json").exists()
 
 
-def test_a_promoted_corpus_still_answers_for_itself(tmp_path, mini_corpus):
-    """Every stamp inside a corpus depends only on its manifest's content, so a real corpus moved to another path still passes the skip's checks (the per-unit index and both app sidecars), and both stores load under the environment recorded in their headers."""
+def test_a_landed_corpus_still_answers_for_itself(tmp_path, mini_corpus):
+    """Every stamp inside a corpus depends only on its manifest's content, so a real corpus the land swaps in from another path still passes the skip's checks (the per-unit index and both app sidecars), and both stores load under the environment recorded in their headers. The outgoing tree ends at the staged path."""
     from rebuild.review import app_index, unit_cache, unit_index
 
     source = tmp_path / "staged"
@@ -4890,9 +4996,9 @@ def test_a_promoted_corpus_still_answers_for_itself(tmp_path, mini_corpus):
     environment = header_environment(unit_cache.store_path(source))
     signature_environment = header_environment(unit_cache.signature_store_path(source))
 
-    ac.promote_corpus(source, live)
+    landing.exchange_dirs(source, live)
 
-    assert not source.exists()
+    assert (source / "stale.txt").exists()
     assert not (live / "stale.txt").exists()
     assert unit_index.index_is_current(live)
     for name, fmt in app_index.ARTIFACTS:
@@ -6313,7 +6419,7 @@ def test_verdict_update_skip_fingerprint_moves_with_every_input(tmp_path):
 
 
 def test_verdict_update_skip_fingerprint_covers_its_own_code(tmp_path):
-    """The verdict-update key covers the verdict update's own code, which lives in rebuild/tools/, where no other fingerprint reads it. Without it, a fix to a fill's matcher would be skipped as already checked. artifact_cycle.py, cycle_timings.py, memory_budget.py and peak_rss.py share that directory but run no step of the verdict update, so editing one leaves the key unchanged; serve.py and review_server.py, which the verdict update imports, move it."""
+    """The verdict-update key covers the verdict update's own code, which lives in rebuild/tools/, where no other fingerprint reads it. Without it, a fix to a fill's matcher would be skipped as already checked. artifact_cycle.py, cycle_timings.py, memory_budget.py and peak_rss.py share that directory but run no step of the verdict update, so editing one leaves the key unchanged; serve.py and review_server.py, which the verdict update imports, move it, and so does landing.py, which puts the prepared store in place."""
     corpus = tmp_path / "review"
     corpus.mkdir()
     (corpus / "manifest.json").write_text(
@@ -6358,6 +6464,12 @@ def test_verdict_update_skip_fingerprint_covers_its_own_code(tmp_path):
     probed = ac.verdict_update_skip_fingerprint(tmp_path, corpus, master)
     (tools / "review_server.py").write_text("x = 2\n")
     assert ac.verdict_update_skip_fingerprint(tmp_path, corpus, master) != probed
+
+    landing_module = tmp_path / "rebuild" / "review" / "landing.py"
+    landing_module.write_text("z = 1\n")
+    landed = ac.verdict_update_skip_fingerprint(tmp_path, corpus, master)
+    landing_module.write_text("z = 2\n")
+    assert ac.verdict_update_skip_fingerprint(tmp_path, corpus, master) != landed
 
 
 def test_verdict_update_skip_fingerprint_sees_a_master_that_is_not_the_autosave(tmp_path):
@@ -6406,6 +6518,36 @@ def test_verdict_update_skip_fingerprint_reads_the_stores_records_not_its_bytes(
     assert ac.verdict_update_skip_fingerprint(tmp_path, corpus, corpus / ".." / autosave.name) == base
     store("2026-07-17T22:30:00Z", [records[0], {**records[1], "verdict": "either"}])
     assert ac.verdict_update_skip_fingerprint(tmp_path, corpus, autosave) != base
+
+
+def test_the_key_a_pass_records_over_its_landed_store_is_the_next_plans_key(tmp_path):
+    """After a land that laid nothing over the prepared store, the cycle keys the green on the store the land wrote (`store=`), and the next plan keys the live store: the two match while no save has changed a record, whatever `exported_at` each carries, and a save made after the land moves the next plan's key. The master that resolved to the live store is named `autosave` both times."""
+    corpus = tmp_path / "review"
+    corpus.mkdir()
+    (corpus / "manifest.json").write_text(
+        json.dumps({"generated_at": "2026-07-17T20:24:44Z", "inputs_fingerprint": {"runes": "aaa"}})
+    )
+    autosave = tmp_path / "verdicts-autosave.json"
+    landed = tmp_path / "var" / "cycle" / "run" / ac.landing.LANDED_NAME
+    landed.parent.mkdir(parents=True)
+    record = {"unit": "u-1", "verdict": "approve", "note": "", "at": "2026-07-17T21:00:00Z"}
+
+    def document(exported_at, verdicts):
+        return json.dumps(
+            {
+                "format": "ams-review-verdicts/1",
+                "manifest_generated_at": "2026-07-17T20:24:44Z",
+                "exported_at": exported_at,
+                "verdicts": verdicts,
+            }
+        )
+
+    landed.write_text(document("2026-07-17T21:00:00Z", [record]))
+    autosave.write_text(document("2026-07-17T23:00:00Z", [record]))
+    recorded = ac.verdict_update_skip_fingerprint(tmp_path, corpus, autosave, store=landed)
+    assert ac.verdict_update_skip_fingerprint(tmp_path, corpus, autosave) == recorded
+    autosave.write_text(document("2026-07-17T23:00:00Z", [{**record, "verdict": "reject"}]))
+    assert ac.verdict_update_skip_fingerprint(tmp_path, corpus, autosave) != recorded
 
 
 def test_dry_run_plan_skip_verdict_update_replaces_the_whole_step():
@@ -6525,7 +6667,7 @@ def test_run_cycle_records_the_verdict_update_green_only_after_a_complete_run(mo
     green = tmp_path / "verdict-update-green.json"
     monkeypatch.setattr(cycle_paths, "VERDICT_UPDATE_GREEN", green)
     monkeypatch.setattr(
-        ac, "verdict_update_skip_fingerprint", lambda root=None, corpus=None, master=None: "plu"
+        ac, "verdict_update_skip_fingerprint", lambda root=None, corpus=None, master=None, store=None: "plu"
     )
 
     plan = _plan(record_greens=True)
@@ -6589,7 +6731,7 @@ def test_run_cycle_records_no_verdict_update_green_until_it_reaches_its_fixpoint
     _patch_build_chain(monkeypatch)
     _patch_gate_fingerprints(monkeypatch)
     monkeypatch.setattr(
-        ac, "verdict_update_skip_fingerprint", lambda root=None, corpus=None, master=None: "plu"
+        ac, "verdict_update_skip_fingerprint", lambda root=None, corpus=None, master=None, store=None: "plu"
     )
     green = tmp_path / "verdict-update-green.json"
     monkeypatch.setattr(cycle_paths, "VERDICT_UPDATE_GREEN", green)
@@ -6639,7 +6781,7 @@ def _settled_repo(tmp_path, monkeypatch):
         cycle_paths, "VERDICT_UPDATE_GREEN", tmp_path / "rebuild" / "out" / "verdict-update-green.json"
     )
     monkeypatch.setattr(
-        ac, "verdict_update_skip_fingerprint", lambda root=None, corpus=None, master=None: "plu"
+        ac, "verdict_update_skip_fingerprint", lambda root=None, corpus=None, master=None, store=None: "plu"
     )
 
 
@@ -6675,7 +6817,7 @@ def test_main_never_skips_the_verdict_update_on_a_pass_that_writes_the_corpus(tm
         cycle_paths, "VERDICT_UPDATE_GREEN", tmp_path / "rebuild" / "out" / "verdict-update-green.json"
     )
     monkeypatch.setattr(
-        ac, "verdict_update_skip_fingerprint", lambda root=None, corpus=None, master=None: "plu"
+        ac, "verdict_update_skip_fingerprint", lambda root=None, corpus=None, master=None, store=None: "plu"
     )
     ac.record_verdict_update_green("plu")
     assert ac.main(["--dry-run"]) == 0
@@ -6872,17 +7014,23 @@ def test_main_keeps_the_review_server_running_on_the_settled_pass(tmp_path, monk
     assert ac.SERVER_KEEPS_RUNNING_NOTE in capsys.readouterr().out
 
 
-def test_main_stops_the_server_when_the_pass_rebuilds_the_corpus(tmp_path, monkeypatch, capsys):
+def test_main_stops_a_server_from_before_the_land_protocol_when_the_pass_rebuilds_the_corpus(
+    tmp_path, monkeypatch, capsys
+):
+    """A server with no /capabilities (the module's fixture answers 404) takes no part in the land, so a rebuilding pass stops it once with --stop-server and says that is the last stop."""
     _unsettled_repo(tmp_path, monkeypatch)
     monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: True)
     stops: list[int] = []
     monkeypatch.setattr(
         ac, "stop_review_server", lambda timeout=ac.SERVER_STOP_TIMEOUT: stops.append(1) or True
     )
-    monkeypatch.setattr(ac, "_run_cycle", lambda plan, report, emit, registry, **_: 0)
+    ran: list[ac.Plan] = []
+    monkeypatch.setattr(ac, "_run_cycle", lambda plan, report, emit, registry, **_: ran.append(plan) or 0)
     assert ac.main(["--stop-server"]) == 0
     assert stops == [1]
-    assert "Stopping the review server" in capsys.readouterr().out
+    assert ran[0].legacy_server is True
+    out = capsys.readouterr().out
+    assert "Stopping the review server" in out and "the last stop a pass needs" in out
 
 
 def test_main_keeps_the_review_server_running_for_an_assets_refresh_pass(tmp_path, monkeypatch, capsys):
@@ -6902,6 +7050,171 @@ def test_main_keeps_the_review_server_running_for_an_assets_refresh_pass(tmp_pat
     assert "REFUSING TO RUN" in capsys.readouterr().out
 
 
+def _capable_server(monkeypatch, *, code=None, root=None):
+    """Make the review server's port answer as a server that speaks the land protocol, with the working tree's code digest unless `code` says otherwise, from this checkout unless `root` does."""
+    monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: True)
+    monkeypatch.setattr(
+        ac,
+        "capabilities",
+        lambda port=ac.REVIEW_PORT: {
+            "land_protocol": ac.landing.LAND_PROTOCOL,
+            "code": code if code is not None else ac.landing.code_digest(ac.ROOT / "rebuild" / "review"),
+            "root": str(root if root is not None else ac.ROOT),
+            "autosave": str(ac.AUTOSAVE),
+        },
+    )
+    monkeypatch.setattr(ac, "stop_review_server", lambda timeout=0.0: pytest.fail("stopped the server"))
+
+
+def test_probe_server_reads_the_capabilities_answer(monkeypatch):
+    """No listener is `none`, a 404 from /capabilities is `legacy`, another checkout's root is `foreign`, another code digest or protocol is `stale`, and this checkout on the tree's code is `current`."""
+    monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: False)
+    assert ac.probe_server().kind == "none"
+    monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: True)
+    monkeypatch.setattr(ac, "capabilities", lambda port=ac.REVIEW_PORT: ac.NO_CAPABILITIES)
+    assert ac.probe_server().kind == "legacy"
+    _capable_server(monkeypatch)
+    assert ac.probe_server().kind == "current"
+    _capable_server(monkeypatch, code="older")
+    assert ac.probe_server().kind == "stale"
+    _capable_server(monkeypatch, root="/elsewhere/checkout")
+    assert ac.probe_server() == ac.ServerProbe("foreign", "/elsewhere/checkout")
+
+
+def test_a_server_that_does_not_answer_is_asked_again_and_never_stopped(monkeypatch, capsys):
+    """Only a 404 marks a server from before the land protocol. A listener whose /capabilities times out is asked again, and a current server that answers on a later try is `current`; one that never answers is `unanswered`, and the pass refuses without stopping it, even with --stop-server."""
+    monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: True)
+    sleeps: list[float] = []
+    monkeypatch.setattr(ac.time, "sleep", sleeps.append)
+    current = {
+        "land_protocol": ac.landing.LAND_PROTOCOL,
+        "code": ac.landing.code_digest(ac.ROOT / "rebuild" / "review"),
+        "root": str(ac.ROOT),
+    }
+    answers = [None, None, current]
+    monkeypatch.setattr(ac, "capabilities", lambda port=ac.REVIEW_PORT: answers.pop(0))
+    assert ac.probe_server().kind == "current"
+    assert sleeps == [ac.CAPABILITIES_RETRY_S] * 2
+
+    asked: list[int] = []
+    monkeypatch.setattr(ac, "capabilities", lambda port=ac.REVIEW_PORT: asked.append(1))
+    probe = ac.probe_server()
+    assert probe.kind == "unanswered" and len(asked) == ac.CAPABILITIES_ATTEMPTS
+    monkeypatch.setattr(ac, "stop_review_server", lambda timeout=0.0: pytest.fail("stopped the server"))
+    monkeypatch.setattr(ac, "restart_review_server", lambda timeout=None: pytest.fail("restarted the server"))
+    for args in (_preflight_args(), _preflight_args(stop_server=True), _preflight_args(yes=True)):
+        assert ac._preflight(args, can_keep_running=False, probe=probe) is False
+    assert "gave no /capabilities answer" in capsys.readouterr().out
+    assert ac._preflight(_preflight_args(), can_keep_running=True, probe=probe) is True
+    assert ac.SERVER_KEEPS_RUNNING_NOTE in capsys.readouterr().out
+
+
+def test_main_keeps_a_current_server_running_through_a_rebuild(tmp_path, monkeypatch, capsys):
+    """With a server from this checkout on the tree's code, a corpus-changing pass never stops it, even without --stop-server: it seeds review.next, builds there, snapshots the store, runs the verdict update on scratch paths, lands, and then refreshes the review facts. The server's tabs are sent the reload."""
+    _unsettled_repo(tmp_path, monkeypatch)
+    _capable_server(monkeypatch)
+    ran: list[ac.Plan] = []
+    monkeypatch.setattr(ac, "_run_cycle", lambda plan, report, emit, registry, **_: ran.append(plan) or 0)
+    assert ac.main([]) == 0
+    assert "The review server keeps running" in capsys.readouterr().out
+    (plan,) = ran
+    assert plan.broadcast is True
+    assert plan.scratch_dir is not None
+    names = [step.name for step in plan.steps]
+    assert names[: names.index("review-facts") + 1] == [
+        "run_m1",
+        "corpus-seed",
+        "corpus-build",
+        "store-snapshot",
+        "verdict-update",
+        "land",
+        "review-facts",
+    ]
+    build = plan.argv("corpus-build")
+    assert build[build.index("--out") + 1] == str(ac.next_corpus_dir())
+    update = plan.argv("verdict-update")
+    assert update[update.index("--autosave") + 1] == str(plan.scratch_dir / ac.landing.PREPARED_NAME)
+    assert update[update.index("--journal") + 1] == str(plan.scratch_dir / "journal.ndjson")
+    land = plan.argv("land")
+    assert land[land.index("--staged") + 1] == str(ac.next_corpus_dir())
+    assert land[land.index("--live") + 1] == str(ac.REVIEW_OUT)
+    assert land[land.index("--autosave") + 1] == str(ac.AUTOSAVE)
+
+
+def test_preflight_restarts_a_server_running_other_code_and_refuses_when_it_does_not_return(
+    monkeypatch, capsys
+):
+    """A server from this checkout whose code digest is not the tree's was started from other code, so the pass restarts it on the tree's code and runs once it answers as current. When it does not come back the pass refuses."""
+    _capable_server(monkeypatch, code="older")
+    events: list[str] = []
+    monkeypatch.setattr(ac, "stop_review_server", lambda timeout=0.0: events.append("stop") or True)
+
+    def start():
+        events.append("start")
+        _capable_server(monkeypatch)
+        monkeypatch.setattr(ac, "stop_review_server", lambda timeout=0.0: events.append("stop") or True)
+
+    monkeypatch.setattr(ac, "start_review_server", start)
+    monkeypatch.setattr(ac.time, "sleep", lambda seconds: None)
+    assert ac._preflight(_preflight_args()) is True
+    assert events == ["stop", "start"]
+    assert "restarting it on this tree's code" in capsys.readouterr().out
+
+    _capable_server(monkeypatch, code="older")
+    monkeypatch.setattr(ac, "stop_review_server", lambda timeout=0.0: True)
+    monkeypatch.setattr(ac, "start_review_server", lambda: None)
+    monkeypatch.setattr(ac, "SERVER_START_TIMEOUT", 0.0)
+    assert ac._preflight(_preflight_args()) is False
+    assert "REFUSING TO RUN" in capsys.readouterr().out
+
+
+def test_preflight_keeps_a_server_running_other_code_through_a_pass_that_writes_nothing_under_it(
+    monkeypatch, capsys
+):
+    """A pass that neither lands nor writes the store needs nothing from the server, so a server on other code keeps running through it rather than being stopped, which would leave the reviewer with no server if the tree's code did not come back."""
+    _capable_server(monkeypatch, code="older")
+    monkeypatch.setattr(ac, "restart_review_server", lambda timeout=None: pytest.fail("restarted the server"))
+    assert ac._preflight(_preflight_args(), can_keep_running=True) is True
+    out = capsys.readouterr().out
+    assert "runs older code than this checkout and keeps running" in out
+
+
+def test_main_leaves_a_foreign_server_alone_and_sends_it_nothing(tmp_path, monkeypatch, capsys):
+    _unsettled_repo(tmp_path, monkeypatch)
+    _capable_server(monkeypatch, root="/elsewhere/checkout")
+    monkeypatch.setattr(ac, "start_review_server", lambda: pytest.fail("restarted a foreign server"))
+    ran: list[ac.Plan] = []
+    monkeypatch.setattr(ac, "_run_cycle", lambda plan, report, emit, registry, **_: ran.append(plan) or 0)
+    assert ac.main([]) == 0
+    assert "for another checkout (/elsewhere/checkout)" in capsys.readouterr().out
+    assert ran[0].broadcast is False
+
+
+def test_a_direct_merge_lands_the_store_alone_and_a_no_carry_rebuild_lands_an_empty_store():
+    """A pass whose corpus did not move lands only the store the verdict update prepared. A corpus-changing pass that carries nothing lands the corpus with an empty store stamped for it, so the store and the corpus stay aligned; with no verdict update to prepare a store, the land gets none. A pass that neither moves the corpus nor writes the store lands nothing, and a staging pass never lands."""
+    direct = _plan(skip_corpus=True, direct_merge=True, corpus_note="same")
+    land = _argv({step.name: step for step in direct.steps}["land"])
+    assert "--staged" not in land
+    assert land[land.index("--corpus") + 1] == str(ac.REVIEW_OUT)
+    assert "--prepared" in land
+
+    no_carry = _plan(no_carry=True)
+    land = _argv({step.name: step for step in no_carry.steps}["land"])
+    assert "--prepared" not in land
+    assert land[land.index("--staged") + 1] == str(ac.next_corpus_dir())
+    assert "store-snapshot" in [step.name for step in no_carry.steps]
+
+    settled = _plan(
+        skip_corpus=True, skip_verdict_update=True, verdict_update_note="same", corpus_note="same"
+    )
+    assert not settled.land
+    assert {"land", "store-snapshot", "corpus-seed"}.isdisjoint(step.name for step in settled.steps)
+
+    first = _plan(first_run=True)
+    assert not first.land
+    assert "--out" not in _argv({step.name: step for step in first.steps}["corpus-build"])
+
+
 def _staged_repo(tmp_path, monkeypatch):
     """A settled repo whose live corpus fails both the byte-identity check and the assets-exempt check, while a staged corpus passes the byte-identity check. This is the third check `main` makes, and the condition for the promotion step."""
     _settled_repo(tmp_path, monkeypatch)
@@ -6917,11 +7230,11 @@ def _staged_repo(tmp_path, monkeypatch):
 
 
 def test_main_promotes_a_current_staged_corpus_instead_of_rebuilding(tmp_path, monkeypatch, capsys):
-    """A live pass after a staging pass plans a move, not a build: the promotion step names the directory it moves, the corpus build reads as skipped under the promotion note, and no review.build command appears in the plan."""
+    """A live pass after a staging pass plans a land, not a build: the land names the directory it swaps in, the corpus build reads as skipped under the promotion note, and no review.build command appears in the plan."""
     staged = _staged_repo(tmp_path, monkeypatch)
     assert ac.main(["--dry-run"]) == 0
     out = capsys.readouterr().out
-    assert str(staged) in _step_lines(out, "corpus-promote")
+    assert f"--staged {staged}" in _step_lines(out, "land")
     assert f"SKIPPED ({ac.CORPUS_PROMOTE_NOTE})" in _step_lines(out, "corpus-build")
     assert "rebuild.review.build" not in out
     assert "assets-refresh" not in out
@@ -6942,8 +7255,8 @@ def test_a_promoting_pass_runs_the_whole_verdict_update(tmp_path, monkeypatch, c
     assert "stamped for the served corpus" not in out
 
 
-def test_a_promoting_pass_stops_the_review_server(tmp_path, monkeypatch, capsys):
-    """A promotion replaces every shard and the stamp under the app in one rename, so it counts as a corpus write whatever the skip flag says. The predicate returns False for it, and its other three answers are unchanged. End to end, a listening server makes the pass refuse without --stop-server (a --no-merge pass too, since the corpus moves, not the store) and is stopped with it."""
+def test_a_promoting_pass_stops_a_review_server_from_before_the_land_protocol(tmp_path, monkeypatch, capsys):
+    """A promotion swaps every shard and the stamp under the app, so for a server from before the land protocol it counts as a corpus write whatever the skip flag says. The predicate returns False for it, and its other three answers are unchanged. End to end, such a server makes the pass refuse without --stop-server (a --no-merge pass too, since the corpus moves, not the store) and is stopped with it; a server that speaks the land protocol keeps running (`test_main_keeps_a_current_server_running_through_a_rebuild`)."""
     assert ac.server_can_keep_running(skip_corpus=True, writes_store=False, promotes_corpus=True) is False
     assert ac.server_can_keep_running(skip_corpus=True, writes_store=False) is True
     assert ac.server_can_keep_running(skip_corpus=True, writes_store=True) is False
@@ -7238,30 +7551,14 @@ def _retention_repo(tmp_path, monkeypatch):
     return journal_path
 
 
-def test_retention_leaves_the_journal_and_stashes_alone_while_the_server_is_up(tmp_path, monkeypatch):
-    """While the review server is up, retention leaves the journal and the stashes alone: both take the verdict store's lock, the server refuses a save made while another writer holds it, and the app sends the save a closing tab could not finish again only when it is next opened. The carried-file sweep, which takes no lock, still runs."""
+@pytest.mark.parametrize("listening", [False, True])
+def test_retention_compacts_the_journal_and_sweeps_stashes_under_the_store_lock(
+    tmp_path, monkeypatch, listening
+):
+    """Retention prunes the stashes and compacts the journal whether or not the review server is up, since the server keeps running through every pass. Both read the journal without the verdict store's lock and take it only for the tail, the deletions, and the rewrite, and the server answers a save in that window with a retryable 503, as during a land."""
     plan = _plan(skip_verdict_update=True, verdict_update_note=ac.VERDICT_UPDATE_SKIP_NOTE)
     journal_path = _retention_repo(tmp_path, monkeypatch)
-    before = journal_path.read_bytes()
-    (tmp_path / "verdicts-carried-old.json").write_text(_carried("2026-01-01T00:00:00Z"))
-    monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: True)
-
-    swept_up = ac.run_retention(plan)
-    out = "\n".join(swept_up.lines)
-
-    assert "journal   : left intact (the review server is up" in out
-    assert "stashes   : left intact (the review server is up" in out
-    assert swept_up.detail.endswith("stashes and journal left intact")
-    assert journal_path.read_bytes() == before
-    assert (tmp_path / "verdicts-autosave-old.json").exists()
-    assert not (tmp_path / "verdicts-carried-old.json").exists()
-
-
-def test_retention_compacts_the_journal_and_sweeps_stashes_under_the_store_lock(tmp_path, monkeypatch):
-    """With no review server up, retention prunes the stashes and compacts the journal. Both read the journal without the verdict store's lock and take it only for the tail, the deletions, and the rewrite."""
-    plan = _plan(skip_verdict_update=True, verdict_update_note=ac.VERDICT_UPDATE_SKIP_NOTE)
-    journal_path = _retention_repo(tmp_path, monkeypatch)
-    monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: False)
+    monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: listening)
 
     swept_up = ac.run_retention(plan)
     out = "\n".join(swept_up.lines)
@@ -7271,6 +7568,28 @@ def test_retention_compacts_the_journal_and_sweeps_stashes_under_the_store_lock(
     assert (tmp_path / "verdicts-autosave-S1.json").exists()
     assert "restore floor now 2020-02-01T00:00:00Z" in out
     assert [event["stamp"] for event in journal.iter_events(journal_path)] == ["S2"]
+
+
+def test_retention_leaves_the_journal_and_stashes_alone_beside_a_server_from_before_the_land_protocol(
+    tmp_path, monkeypatch
+):
+    """A server from before the land protocol appends to the journal and moves stashes without the verdict store's lock, so a save it appended between the compaction's tail copy and its replacement of the journal would be lost. While one listens, retention leaves both for a later pass; once it is gone, they are pruned."""
+    plan = _plan(skip_verdict_update=True, verdict_update_note=ac.VERDICT_UPDATE_SKIP_NOTE)
+    plan.legacy_server = True
+    journal_path = _retention_repo(tmp_path, monkeypatch)
+    before = journal_path.read_bytes()
+    monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: True)
+
+    out = "\n".join(ac.run_retention(plan).lines)
+    assert "stashes   : left intact (a review server from before the land protocol" in out
+    assert "journal   : left intact" in out
+    assert (tmp_path / "verdicts-autosave-old.json").exists()
+    assert journal_path.read_bytes() == before
+
+    monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: False)
+    out = "\n".join(ac.run_retention(plan).lines)
+    assert "stashes   : removed 1 " in out
+    assert not (tmp_path / "verdicts-autosave-old.json").exists()
 
 
 def test_retention_leaves_the_journal_and_stashes_for_a_later_pass_while_the_store_stays_locked(
@@ -7354,6 +7673,47 @@ def test_a_second_pass_waits_on_the_pass_lock_and_names_the_holder(monkeypatch, 
     assert f"waiting for pass {os.getpid()}" in capsys.readouterr().out
 
 
+def test_the_land_keeps_the_pass_lock_held_after_the_driver_lets_go(tmp_path):
+    """The land inherits the pass lock's descriptor, so a driver that dies while its land runs does not let the next pass in: the lock stays held until the land exits too. Any other step's child does not hold it."""
+    ready = tmp_path / "ready"
+    script = "import sys, time; open(sys.argv[1], 'w').close(); time.sleep(float(sys.argv[2]))"
+    results: list[ac._StepResult] = []
+
+    def run(name: str, seconds: float, uninterruptible: bool) -> None:
+        results.append(
+            ac._run_step(
+                name,
+                [sys.executable, "-c", script, str(ready), str(seconds)],
+                emit=ac._Emitter(),
+                registry=ac._ChildRegistry(),
+                stream=False,
+                uninterruptible=uninterruptible,
+            )
+        )
+
+    def lock_free() -> bool:
+        try:
+            with ac.store_lock.hold_flock(ac.pass_lock_path(), blocking=False):
+                return True
+        except ac.store_lock.LockBusy:
+            return False
+
+    for name, uninterruptible, held_after in (("land", True, True), ("review-facts", False, False)):
+        ready.unlink(missing_ok=True)
+        with ac.pass_lock():
+            child = threading.Thread(target=run, args=(name, 3.0, uninterruptible))
+            child.start()
+            deadline = time.monotonic() + 30
+            while not ready.exists():
+                assert time.monotonic() < deadline
+                time.sleep(0.05)
+        assert lock_free() is not held_after
+        child.join(30)
+        assert lock_free()
+    assert [result.returncode for result in results] == [0, 0]
+    assert ac._held_pass_lock == []
+
+
 def test_main_runs_a_live_pass_under_the_pass_lock_with_its_own_scratch_directory(tmp_path, monkeypatch):
     """A live pass holds the pass lock from before its plan, sweeps the scratch directories a killed pass left, and deletes its own when it ends. A dry run holds the lock too, and gets no scratch directory."""
     _settled_repo(tmp_path, monkeypatch)
@@ -7389,8 +7749,48 @@ def test_main_runs_a_live_pass_under_the_pass_lock_with_its_own_scratch_director
     assert dry == [True]
 
 
+def test_main_finishes_a_stopped_land_before_it_sweeps_the_run_directories(tmp_path, monkeypatch, capsys):
+    """A land killed after it swapped the corpus in leaves its result in its run directory and its intent beside the store. The next pass finishes it under the store's lock before it sweeps the run directories, so the store follows the corpus; a dry run only says it is there."""
+    _settled_repo(tmp_path, monkeypatch)
+    monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: False)
+    monkeypatch.setattr(ac, "_run_cycle", lambda plan, report, emit, registry, **_: 0)
+    run_dir = cycle_paths.CYCLE_VAR / "20200101T000000Z-dead"
+    run_dir.mkdir(parents=True)
+    result = run_dir / landing.LANDING_NAME
+    result.write_text(json.dumps(_verdicts_doc("2026-07-17T20:24:44Z", ["u-1", "u-landed"])))
+    intent = landing.intent_path_for(ac.AUTOSAVE)
+    intent.parent.mkdir(parents=True, exist_ok=True)
+    intent.write_text(
+        json.dumps(
+            {
+                "run_dir": str(run_dir),
+                "landing": str(result),
+                "staged": None,
+                "live": None,
+                "old_stamp": "2026-07-17T20:24:44Z",
+                "new_stamp": "2026-07-17T20:24:44Z",
+                "stash": None,
+                "journal": str(tmp_path / journal.JOURNAL_NAME),
+                "journal_inode": None,
+                "journal_length": None,
+            }
+        )
+    )
+    assert ac.main(["--dry-run"]) == 0
+    assert "Left the land a stopped pass began" in capsys.readouterr().out
+    assert intent.exists()
+    assert ac.main([]) == 0
+    assert (
+        "Recovered a stopped pass's land: finished the land of 20200101T000000Z-dead"
+        in capsys.readouterr().out
+    )
+    assert not intent.exists() and not run_dir.exists()
+    landed = json.loads(ac.AUTOSAVE.read_text())
+    assert {entry["unit"] for entry in landed["verdicts"]} == {"u-1", "u-landed"}
+
+
 def test_a_dry_run_skips_the_recovery_while_a_pass_holds_the_lock(tmp_path, monkeypatch, capsys):
-    """A dry run never waits on the pass lock. When a pass holds it, the dry run leaves the superseded corpus to that pass, whose promotion may be between its two renames, and still prints its plan."""
+    """A dry run never waits on the pass lock. When a pass holds it, the dry run leaves the superseded corpus to that pass, whose land may be between its renames, and still prints its plan."""
     _settled_repo(tmp_path, monkeypatch)
     monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: False)
     recoveries: list[bool] = []
@@ -7627,7 +8027,7 @@ def _record_reloads(monkeypatch, *, enabled: bool = True) -> list[str]:
 
 def _pin_verdict_update_key(monkeypatch):
     monkeypatch.setattr(
-        ac, "verdict_update_skip_fingerprint", lambda root=None, corpus=None, master=None: "plu"
+        ac, "verdict_update_skip_fingerprint", lambda root=None, corpus=None, master=None, store=None: "plu"
     )
 
 
@@ -7690,8 +8090,20 @@ def test_the_suites_switch_keeps_a_mocked_pass_from_reloading_the_live_tabs(monk
     assert [path for path in sent if path != "verdict-update"] == []
 
 
-def test_a_promotion_sends_the_promoted_stamp_after_the_verdict_update(monkeypatch, tmp_path):
-    """A server kept up through a promotion (`--yes`) is sent `ams:corpus/<generated_at>` of the promoted corpus once the verdict update has run, so its tabs land on a corpus whose store the carry has already written."""
+def _swapping_land(sent: list[str], source: Path):
+    """Return a stubbed land that swaps `source` in for the served corpus, as the real land's exchange does, and records that it ran in `sent`."""
+
+    def land(report, *, spawn, emit, registry, plan):
+        sent.append("land")
+        shutil.rmtree(ac.REVIEW_OUT)
+        os.replace(source, ac.REVIEW_OUT)
+        return _land_ok(report, spawn=spawn, emit=emit, registry=registry, plan=plan)
+
+    return land
+
+
+def test_a_promotion_sends_the_promoted_stamp_after_the_land(monkeypatch, tmp_path):
+    """A listening server is sent `ams:corpus/<generated_at>` of the promoted corpus once the land has swapped it in with the store, so its tabs move onto a corpus whose store is already on it. The verdict update reads the staged corpus before the land, and keeps the standing fill's memo beside the served corpus, where every other pass keeps it."""
     _patch_timing_cycle(monkeypatch)
     sent = _record_reloads(monkeypatch)
     _pin_verdict_update_key(monkeypatch)
@@ -7702,9 +8114,14 @@ def test_a_promotion_sends_the_promoted_stamp_after_the_verdict_update(monkeypat
     source.mkdir(parents=True)
     (source / "manifest.json").write_text(json.dumps({"generated_at": "2026-09-30T11:00:00Z"}))
     monkeypatch.setattr(ac, "REVIEW_OUT", live)
+    monkeypatch.setattr(ac, "_do_land", _swapping_land(sent, source))
 
+    plan = _plan(skip_corpus=True, promote_corpus=source, corpus_note=ac.CORPUS_PROMOTE_NOTE)
+    argv = _argv({step.name: step for step in plan.steps}["verdict-update"])
+    assert argv[argv.index("--corpus") + 1] == str(source)
+    assert argv[argv.index("--standing-memo") + 1] == str(live.parent / "standing-fill-memo.ndjson.gz")
     rc = ac._run_cycle(
-        _plan(skip_corpus=True, promote_corpus=source, corpus_note=ac.CORPUS_PROMOTE_NOTE),
+        plan,
         ac.CycleReport(),
         ac._Emitter(),
         ac._ChildRegistry(),
@@ -7712,39 +8129,85 @@ def test_a_promotion_sends_the_promoted_stamp_after_the_verdict_update(monkeypat
     )
 
     assert rc == 0
-    assert sent == ["verdict-update", "ams:corpus/2026-09-30T11:00:00Z"]
+    assert sent == ["verdict-update", "land", "ams:corpus/2026-09-30T11:00:00Z"]
 
 
-def test_an_in_place_corpus_build_sends_the_new_stamp_after_the_verdict_update(monkeypatch):
-    """An in-place build restamps the served manifest as a promotion does, so a server left listening is sent the new stamp too, once the verdict update has run."""
+def test_a_built_corpus_is_announced_after_the_land_and_never_to_a_foreign_server(monkeypatch, tmp_path):
+    """A pass that builds beside the served corpus sends the new stamp once its land has swapped the build in. A server that serves another checkout (`plan.broadcast` off) is sent nothing."""
     _patch_timing_cycle(monkeypatch)
     sent = _record_reloads(monkeypatch)
     _pin_verdict_update_key(monkeypatch)
     ac.REVIEW_OUT.mkdir(parents=True)
     (ac.REVIEW_OUT / "manifest.json").write_text(json.dumps({"generated_at": "2026-09-30T10:00:00Z"}))
+    built = ac.next_corpus_dir()
 
     def build(report, **kwargs):
-        (ac.REVIEW_OUT / "manifest.json").write_text(json.dumps({"generated_at": "2026-09-30T11:00:00Z"}))
+        built.mkdir(parents=True, exist_ok=True)
+        (built / "manifest.json").write_text(json.dumps({"generated_at": "2026-09-30T11:00:00Z"}))
         return _spawning_corpus(report, **kwargs)
 
     monkeypatch.setattr(ac, "_do_corpus_build", build)
+    monkeypatch.setattr(ac, "_do_land", _swapping_land(sent, built))
 
+    for broadcast, expected in ((True, ["ams:corpus/2026-09-30T11:00:00Z"]), (False, [])):
+        sent.clear()
+        (ac.REVIEW_OUT / "manifest.json").write_text(json.dumps({"generated_at": "2026-09-30T10:00:00Z"}))
+        plan = _plan()
+        plan.broadcast = broadcast
+        rc = ac._run_cycle(
+            plan,
+            ac.CycleReport(),
+            ac._Emitter(),
+            ac._ChildRegistry(),
+            spawn=lambda name, argv, **k: _step(name),
+        )
+        assert rc == 0
+        assert sent == ["verdict-update", "land", *expected]
+
+
+def test_a_stop_during_the_land_still_moves_the_tabs_and_reports_the_land(monkeypatch, tmp_path):
+    """A Ctrl-C that arrives while the land runs does not stop it, and the pass waits for it. Once it has landed, the interrupted pass still tells the open tabs to move onto the new corpus, which no later pass would do because the served stamp is already the new one, deletes the tree the land swapped out, and reports the land as run."""
+    _patch_timing_cycle(monkeypatch)
+    sent = _record_reloads(monkeypatch)
+    ac.REVIEW_OUT.mkdir(parents=True)
+    (ac.REVIEW_OUT / "manifest.json").write_text(json.dumps({"generated_at": "2026-09-30T10:00:00Z"}))
+    built = ac.next_corpus_dir()
+    built.mkdir(parents=True)
+    (built / "manifest.json").write_text(json.dumps({"generated_at": "2026-09-30T11:00:00Z"}))
+    discard = tmp_path / "review.discard"
+
+    def interrupted(report, *, spawn, emit, registry, plan):
+        report.land_started = time.monotonic()
+        shutil.rmtree(ac.REVIEW_OUT)
+        os.replace(built, ac.REVIEW_OUT)
+        discard.mkdir()
+        assert plan.scratch_dir is not None
+        plan.scratch_dir.mkdir(parents=True, exist_ok=True)
+        (plan.scratch_dir / ac.landing.REPORT_NAME).write_text(
+            json.dumps(
+                {"landed": True, "records": 1, "new_stamp": "2026-09-30T11:00:00Z", "discard": str(discard)}
+            )
+        )
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(ac, "_do_land", interrupted)
+    plan = _plan()
+    report = ac.CycleReport()
     rc = ac._run_cycle(
-        _plan(),
-        ac.CycleReport(),
-        ac._Emitter(),
-        ac._ChildRegistry(),
-        spawn=lambda name, argv, **k: _step(name),
+        plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=lambda name, argv, **k: _step(name)
     )
 
-    assert rc == 0
+    assert rc == 128 + signal.SIGINT
     assert sent == ["verdict-update", "ams:corpus/2026-09-30T11:00:00Z"]
+    assert not discard.exists()
+    assert report.land_status.startswith("landed 1 verdicts")
+    outcomes = {row.name: row.outcome for row in ac.summary_rows(report, plan, retention_ran=False)}
+    assert outcomes["land"] == "ok"
 
 
-def test_run_cycle_promotes_before_it_reports_the_corpus_skipped(monkeypatch, tmp_path):
-    """The promotion replaces the corpus build: nothing spawns under corpus-build, the reported totals come from the promoted manifest, and the step's seconds are on the report so its row reads `ok`, not `not run`."""
+def test_a_promoting_pass_reads_the_staged_corpus_and_lands_it(monkeypatch, tmp_path):
+    """A promotion replaces the corpus build: nothing spawns under corpus-build, the reported totals come from the staged manifest, which the verdict update reads, and the land is what moves it in, after the verdict update. No corpus-seed or corpus-promote row is planned."""
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
-    monkeypatch.setattr(ac, "_do_verdict_update", _verdict_update_ok)
     monkeypatch.setattr(ac, "_do_review_facts", _review_facts_clean)
     monkeypatch.setattr(ac, "_do_job_costs", _job_costs_clean)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
@@ -7759,65 +8222,191 @@ def test_run_cycle_promotes_before_it_reports_the_corpus_skipped(monkeypatch, tm
     source.mkdir(parents=True)
     (source / "manifest.json").write_text(json.dumps({"totals": {"units": 7, "rows": 9}}))
     monkeypatch.setattr(ac, "REVIEW_OUT", live)
-    spawned: list[str] = []
+    order: list[str] = []
 
     def spawn(name, argv, **k):
-        spawned.append(name)
+        order.append(name)
         return _step(name)
 
+    def verdict_update(report, **kwargs):
+        order.append("verdict-update")
+        return _verdict_update_ok(report, **kwargs)
+
+    monkeypatch.setattr(ac, "_do_verdict_update", verdict_update)
+    monkeypatch.setattr(ac, "_do_land", _swapping_land(order, source))
     plan = _plan(skip_corpus=True, promote_corpus=source, corpus_note=ac.CORPUS_PROMOTE_NOTE)
+    names = [step.name for step in plan.steps]
+    assert "corpus-seed" not in names and "corpus-promote" not in names
+    assert plan.next_corpus == source
     report = ac.CycleReport()
     rc = ac._run_cycle(plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=spawn)
 
     assert rc == 0
-    assert "corpus-build" not in spawned
+    assert "corpus-build" not in order
+    assert order.index("verdict-update") < order.index("land")
     assert report.corpus_units == 7 and report.corpus_rows == 9
-    assert not source.exists()
     assert json.loads((live / "manifest.json").read_text())["totals"]["units"] == 7
-    assert "corpus-promote" in report.step_seconds
-    assert report.promote_status.startswith("moved ")
     outcomes = {row.name: row.outcome for row in ac.summary_rows(report, plan, retention_ran=False)}
-    assert outcomes["corpus-promote"] == "ok"
     assert outcomes["corpus-build"] == "skipped"
 
 
-def test_a_failed_promotion_stops_the_pass_and_joins_the_suite_it_started(monkeypatch, capsys):
-    """A failed move leaves the outgoing tree in place and the pass stops: the promotion's row reads FAILED, and the rebuild suite, submitted before the move, is joined and reports its real result."""
+def test_a_failed_land_fails_the_pass_and_joins_the_suite_it_started(monkeypatch, capsys):
+    """A land that did not complete fails the pass: its row reads FAILED, the rebuild suite submitted before it is joined and reports its real result, and no verdict-update green is recorded. The review facts are not refreshed, because the served corpus is still the old one and the new corpus's sidecar never went live. A verdict update that failed never reaches the land, and the review facts wait for the corpus too."""
     _patch_timing_cycle(monkeypatch)
-
-    def refuse(source, live=None):
-        raise OSError("cross-device link")
-
-    monkeypatch.setattr(ac, "promote_corpus", refuse)
-    plan = _plan(
-        skip_corpus=True, promote_corpus=Path("var/staged-review"), corpus_note=ac.CORPUS_PROMOTE_NOTE
+    _pin_verdict_update_key(monkeypatch)
+    monkeypatch.setattr(
+        ac, "_do_review_facts", lambda report, **kwargs: pytest.fail("refreshed the pins from the old corpus")
     )
+
+    def refused(report, *, spawn, emit, registry, plan):
+        report.land_status = "FAILED (the live store moved from A to B since the snapshot)"
+        report.step_seconds["land"] = 0.1
+        report.step_returncodes["land"] = 1
+        return None
+
+    monkeypatch.setattr(ac, "_do_land", refused)
+    plan = _plan(record_greens=True)
     report = ac.CycleReport()
     rc = ac._run_cycle(
         plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=lambda name, argv, **k: _step(name)
     )
 
     assert rc == 1
-    assert report.promote_status.startswith("FAILED")
     assert report.gate_contracts == "green"
     outcomes = {row.name: row.outcome for row in ac.summary_rows(report, plan, retention_ran=False)}
-    assert outcomes["corpus-promote"] == "FAILED"
-    assert "corpus promotion failed" in capsys.readouterr().out
+    assert outcomes["land"] == "FAILED"
+    assert outcomes["review-facts"] == "not run"
+    assert report.facts_status.startswith("not run")
+    assert "land failed" in capsys.readouterr().out
+    assert not cycle_paths.VERDICT_UPDATE_GREEN.exists()
+
+    def failing_update(report, *, spawn, emit, registry, plan):
+        report.merge_status = "FAILED (exit 1)"
+        return ["verdict merge failed"]
+
+    monkeypatch.setattr(ac, "_do_verdict_update", failing_update)
+    monkeypatch.setattr(
+        ac, "_do_land", lambda report, **kwargs: pytest.fail("landed after a failed verdict update")
+    )
+    report = ac.CycleReport()
+    rc = ac._run_cycle(
+        _plan(), report, ac._Emitter(), ac._ChildRegistry(), spawn=lambda name, argv, **k: _step(name)
+    )
+    assert rc == 1
+    assert report.land_status.startswith("not run")
+    assert report.facts_status.startswith("not run")
+
+
+def test_a_failed_build_never_lands(monkeypatch):
+    _patch_timing_cycle(monkeypatch)
+    monkeypatch.setattr(ac, "_do_corpus_build", lambda report, **kwargs: False)
+    monkeypatch.setattr(
+        ac, "_do_store_snapshot", lambda report, **kwargs: pytest.fail("snapshot after a failed build")
+    )
+    monkeypatch.setattr(ac, "_do_land", lambda report, **kwargs: pytest.fail("landed after a failed build"))
+    rc = ac._run_cycle(
+        _plan(),
+        ac.CycleReport(),
+        ac._Emitter(),
+        ac._ChildRegistry(),
+        spawn=lambda name, argv, **k: _step(name),
+    )
+    assert rc == 1
+
+
+def test_a_rebuilding_pass_lands_its_corpus_and_store_with_the_saves_made_during_it(monkeypatch, tmp_path):
+    """The seed, the snapshot and the land run for real around a stubbed build and verdict update. The build writes only beside the served corpus, the verdict update writes only the prepared copy, and a save the server applies to the live store while the pass runs is laid over the prepared store at the land. The land swaps the corpus in, stashes the old store, journals the move, deletes the outgoing tree, keys the verdict-update green on the landed store only when nothing was laid over, and the tabs are told the new stamp once."""
+    _patch_timing_cycle(monkeypatch)
+    sent = _record_reloads(monkeypatch)
+    monkeypatch.setattr(ac, "_do_corpus_seed", REAL_DO_CORPUS_SEED)
+    monkeypatch.setattr(ac, "_do_store_snapshot", REAL_DO_STORE_SNAPSHOT)
+    monkeypatch.setattr(ac, "_do_land", REAL_DO_LAND)
+    monkeypatch.setattr(ac, "ROOT", tmp_path)
+    monkeypatch.setattr(ac, "JSTEST_DIR", tmp_path / "rebuild" / "review" / "jstests")
+    live = tmp_path / "rebuild" / "out" / "review"
+    monkeypatch.setattr(ac, "REVIEW_OUT", live)
+    monkeypatch.setattr(ac, "AUTOSAVE", tmp_path / "verdicts-autosave.json")
+    keyed: list[Path | None] = []
+    monkeypatch.setattr(
+        ac,
+        "verdict_update_skip_fingerprint",
+        lambda root=None, corpus=None, master=None, store=None: keyed.append(store) or "plu",
+    )
+    live.mkdir(parents=True)
+    (live / "manifest.json").write_text(json.dumps({"generated_at": "A", "human_unit_ids": ["u-1", "u-2"]}))
+    (live / "units-000.json").write_text("old")
+    ac.AUTOSAVE.write_text(json.dumps(_verdicts_doc("A", ["u-1", "u-2"])))
+    next_dir = ac.next_corpus_dir()
+
+    def build(report, *, spawn, emit, registry, review_out, **kwargs):
+        assert review_out == next_dir
+        assert (review_out / "units-000.json").read_text() == "old"
+        (review_out / "units-000.json").write_text("new")
+        (review_out / "manifest.json").write_text(
+            json.dumps({"generated_at": "B", "human_unit_ids": ["u-1", "u-3"]})
+        )
+        return True
+
+    def verdict_update(report, *, spawn, emit, registry, plan):
+        argv = plan.argv("verdict-update")
+        prepared = Path(argv[argv.index("--autosave") + 1])
+        prepared.write_text(json.dumps(_verdicts_doc("B", ["u-1"])))
+        live_store = json.loads(ac.AUTOSAVE.read_text())
+        live_store["verdicts"].append(
+            {"unit": "u-2", "verdict": "reject", "note": "", "at": "2026-07-18T00:00:00Z"}
+        )
+        live_store["verdicts"][0] = {
+            "unit": "u-1",
+            "verdict": "reject",
+            "note": "late",
+            "at": "2026-07-18T00:00:00Z",
+        }
+        ac.AUTOSAVE.write_text(json.dumps(live_store))
+        return _verdict_update_ok(report, spawn=spawn, emit=emit, registry=registry, plan=plan)
+
+    def spawn(name, argv, **kwargs):
+        if name == "land":
+            return _step(name, ac.landing.main(argv[argv.index("rebuild.review.landing") + 1 :]))
+        return _step(name)
+
+    monkeypatch.setattr(ac, "_do_corpus_build", build)
+    monkeypatch.setattr(ac, "_do_verdict_update", verdict_update)
+    plan = _plan(record_greens=True)
+    assert plan.scratch_dir is not None
+    report = ac.CycleReport()
+    rc = ac._run_cycle(plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=spawn)
+
+    assert rc == 0
+    assert json.loads((live / "manifest.json").read_text())["generated_at"] == "B"
+    assert (live / "units-000.json").read_text() == "new"
+    assert not next_dir.exists()
+    assert ac.landing.discard_paths(live) == []
+    landed = json.loads(ac.AUTOSAVE.read_text())
+    assert landed["manifest_generated_at"] == "B"
+    assert [(record["unit"], record["note"]) for record in landed["verdicts"]] == [("u-1", "late")]
+    assert json.loads((tmp_path / "verdicts-autosave-A.json").read_text())["manifest_generated_at"] == "A"
+    orphans = json.loads((tmp_path / "var" / "verdict-orphans" / "A.json").read_text())
+    assert [(record["unit"], record["reason"]) for record in orphans["verdicts"]] == [("u-2", "orphan")]
+    events = list(journal.iter_events(tmp_path / journal.JOURNAL_NAME))
+    assert [(event["source"], event["base"], event["stashed"]) for event in events] == [
+        ("land", True, "verdicts-autosave-A.json")
+    ]
+    assert report.land is not None and report.land["overlaid"] == 1
+    assert keyed == []
+    assert not ac.landing.intent_path_for(ac.AUTOSAVE).exists()
+    assert [path for path in sent if path != "verdict-update"] == ["ams:corpus/B"]
 
 
 def test_a_promoting_pass_journals_no_corpus_build_line(monkeypatch, tmp_path):
-    """The move spawns nothing, so the journal has no corpus-build step line for it, which keeps the corpus-build row of `make cycle-timings ARGS='--by-step'` limited to real builds. The run line's plan block names the promoted directory, so promoting passes can be counted later."""
+    """A promotion builds nothing, so the journal has no corpus-build step line for it, which keeps the corpus-build row of `make cycle-timings ARGS='--by-step'` limited to real builds. The run line's plan block names the promoted directory, so promoting passes can be counted later."""
     _patch_timing_cycle(monkeypatch)
     monkeypatch.setattr(ac, "_do_corpus_build", _corpus_ok)
-    moved: list[Path] = []
-    monkeypatch.setattr(ac, "promote_corpus", lambda source, live=None: moved.append(source))
 
     journal_path = tmp_path / "timings.ndjson"
     source = tmp_path / "var" / "staged-review"
-    report = ac.CycleReport()
     rc = ac._run_cycle(
         _plan(skip_corpus=True, promote_corpus=source, corpus_note=ac.CORPUS_PROMOTE_NOTE),
-        report,
+        ac.CycleReport(),
         ac._Emitter(),
         ac._ChildRegistry(),
         spawn=lambda name, argv, **k: _step(name),
@@ -7825,13 +8414,51 @@ def test_a_promoting_pass_journals_no_corpus_build_line(monkeypatch, tmp_path):
     )
 
     assert rc == 0
-    assert moved == [source]
     entries = [json.loads(line) for line in journal_path.read_text(encoding="utf-8").splitlines()]
     assert [entry["name"] for entry in entries if entry["kind"] == "step"] == ["run_m1", "job-costs"]
     run = entries[-1]
     assert run["kind"] == "run"
     assert run["plan"]["skip_corpus"] is True
     assert run["plan"]["promote_corpus"] == str(source)
+
+
+def test_the_verdict_update_green_is_keyed_on_the_landed_store_and_not_after_an_overlay(monkeypatch):
+    """The green is keyed on the store the land wrote, so the next plan, which hashes the live store, matches it only when no save changed the store since. A land that laid saves made during the pass over the prepared store records no green, because the fills never saw those saves."""
+    _patch_timing_cycle(monkeypatch)
+    keyed: list[Path | None] = []
+
+    def key(root=None, corpus=None, master=None, store=None):
+        keyed.append(store)
+        return "plu"
+
+    monkeypatch.setattr(ac, "verdict_update_skip_fingerprint", key)
+    plan = _plan(record_greens=True)
+    assert plan.scratch_dir is not None
+    rc = ac._run_cycle(
+        plan, ac.CycleReport(), ac._Emitter(), ac._ChildRegistry(), spawn=lambda name, argv, **k: _step(name)
+    )
+    assert rc == 0
+    assert keyed == [plan.scratch_dir / ac.landing.LANDED_NAME]
+    assert ac.read_green_record(cycle_paths.VERDICT_UPDATE_GREEN) is not None
+
+    cycle_paths.VERDICT_UPDATE_GREEN.unlink()
+    keyed.clear()
+
+    def overlaid(report, *, spawn, emit, registry, plan):
+        report.land = {"landed": True, "overlaid": 2, "records": 5, "new_stamp": "S"}
+        return report.land
+
+    monkeypatch.setattr(ac, "_do_land", overlaid)
+    rc = ac._run_cycle(
+        _plan(record_greens=True),
+        ac.CycleReport(),
+        ac._Emitter(),
+        ac._ChildRegistry(),
+        spawn=lambda name, argv, **k: _step(name),
+    )
+    assert rc == 0
+    assert keyed == []
+    assert not cycle_paths.VERDICT_UPDATE_GREEN.exists()
 
 
 def test_green_cycle_files_one_check_line_per_gate_it_evaluated(monkeypatch, tmp_path):
@@ -8104,7 +8731,7 @@ def test_prune_build_logs_keeps_the_newest_runs_and_never_the_pointer(tmp_path):
 
 
 def test_retention_prunes_the_build_logs_under_a_live_server_too(tmp_path, monkeypatch):
-    """Retention prunes the build logs even while the review server is up: the app writes nothing there, unlike the stashes and the journal, which retention leaves alone under a live server."""
+    """Retention prunes the build logs while the review server is up, as it prunes everything else: the app writes nothing there."""
     plan = _plan(skip_verdict_update=True, verdict_update_note=ac.VERDICT_UPDATE_SKIP_NOTE)
     monkeypatch.setattr(ac, "ROOT", tmp_path)
     monkeypatch.setattr(ac, "REVIEW_OUT", tmp_path / "review")

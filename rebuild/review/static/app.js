@@ -1,7 +1,7 @@
 import { parseHash, writeHash, shedWorklist } from './state.js';
 import { actionForKey, isEditableTarget } from './keyboard.js';
 import { parsePreview } from './preview.js';
-import { bannerModel } from './status.js';
+import { bannerModel, retryAfterMs } from './status.js';
 import {
   createStore,
   recordVerdict,
@@ -35,6 +35,9 @@ import {
   markTabAlive,
   markTabClosed,
   liveTabs,
+  scopeOutbox,
+  saveConflicts,
+  loadConflicts,
 } from './outbox.js';
 import {
   configGateChips,
@@ -393,6 +396,9 @@ async function readMaybeGzipped(response) {
   return new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'))).text();
 }
 
+// A shard part or rows file that a rebuild shrank or dropped answers a range read with 404 or 416, which means the same as a record found out of place.
+const RANGE_GONE_STATUSES = new Set([404, 416]);
+
 // One block of locator rows, fetched by the span the table gives and cached so that a fold's next window or a later deep link reads it without another request.
 async function fetchLocatorBlock(block) {
   const key = `${block.class}\u0000${block.byte_start}`;
@@ -401,6 +407,10 @@ async function fetchLocatorBlock(block) {
   let text = null;
   try {
     const response = await fetch(LOCATOR_ROWS_NAME, { headers: { Range: rangeHeader(block) } });
+    if (RANGE_GONE_STATUSES.has(response.status)) {
+      reportMovedRecords(`The ${block.class} locator rows are not where this page was told they would be — the corpus was rebuilt; reload.`);
+      return null;
+    }
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     if (response.status !== 206 && Number(response.headers.get('Content-Length')) > block.byte_length) {
       throw new Error('the server ignored the byte range');
@@ -466,6 +476,10 @@ async function fetchRecordsBySpans(rows) {
       let text = null;
       try {
         const response = await fetch(path, { headers: { Range: rangeHeader(run) } });
+        if (RANGE_GONE_STATUSES.has(response.status)) {
+          reportMovedRecords(`${run.rows[0].id} is not where this page was told it would be — the corpus was rebuilt; reload.`);
+          return;
+        }
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         if (response.status !== 206 && Number(response.headers.get('Content-Length')) > run.byte_length) {
           throw new Error('the server ignored the byte range');
@@ -2210,7 +2224,7 @@ function exportPayload() {
 }
 
 // The autosave sends changes, not the store. A flush POSTs a set or a clear for each unit in store.dirty, so its size follows what the reader just did, not the store, which holds every carried and filled verdict on the corpus. The server keeps the store in memory, applies the delta, and returns a sync token. syncVerdictsFromServer sends the token back and receives only the changes since, so the focus re-merge and the queue poll get an empty delta while nothing changes. Flushes run one at a time, because two deltas in flight could arrive out of order and a clear could lose to the set it undid.
-// Every change is also written to the outbox (outbox.js) the moment it is scheduled, and stays there until the server's reply acknowledges that write, so a save that a 503, a network error, a server restart, or a closed tab interrupted is not lost: a flush retries on a timer, and the next page load sends what an earlier one left. A reply can hand back conflicts (the server kept a newer record) and orphans (units the served corpus does not have); the page adopts the server's record for a conflict and offers to reapply its own.
+// Every change is also written to the outbox (outbox.js) the moment it is scheduled, and stays there until the server's reply acknowledges that write, so a save that a 503, a network error, a server restart, or a closed tab interrupted is not lost: a flush retries on a timer, and the next page load sends what an earlier one left. A reply can hand back conflicts (the server kept a newer record), orphans (units the served corpus does not have), and dropped skips (a skip made on an earlier corpus, which leaves its unit blank); the page adopts the server's record for a conflict and offers to reapply its own, keeping that offer in the tab's sessionStorage so it outlives the reload onto a rebuilt corpus that usually follows. The outbox is kept per checkout (`scopeOutbox`), keyed by the repo root the server names on /capabilities.
 const AUTOSAVE_DEBOUNCE_MS = 800;
 const AUTOSAVE_CHUNK = 20000;
 const AUTOSAVE_RETRY_FIRST_MS = 1000;
@@ -2223,12 +2237,22 @@ let autosaveInFlight = false;
 let autosaveToken = null;
 let autosaveRetryMs = AUTOSAVE_RETRY_FIRST_MS;
 let autosaveRetrying = false;
+const inFlight = new Set();
 
+const SERVER_ROOT = await (async () => {
+  try {
+    const response = await fetch('capabilities');
+    const answer = response.ok ? await response.json() : null;
+    return typeof answer?.root === 'string' ? answer.root : null;
+  } catch {
+    return null;
+  }
+})();
 const outboxStorage = (() => {
   try {
     const storage = window.localStorage;
     storage.getItem(OUTBOX_KEY);
-    return storage;
+    return scopeOutbox(storage, SERVER_ROOT);
   } catch {
     return null;
   }
@@ -2329,9 +2353,32 @@ async function postAutosave(payload) {
   return response;
 }
 
+function persistConflicts() {
+  const storage = sessionStore();
+  if (storage) saveConflicts(storage, pendingConflicts);
+}
+
+function restoreConflicts() {
+  const storage = sessionStore();
+  if (!storage) return;
+  for (const [unit, record] of loadConflicts(storage)) pendingConflicts.set(unit, record);
+}
+
 function handleSaveOutcome(reply, sentRecords, changedSince) {
   const orphaned = Array.isArray(reply.orphaned) ? reply.orphaned : [];
   const conflicts = Array.isArray(reply.conflicts) ? reply.conflicts : [];
+  const dropped = Array.isArray(reply.dropped) ? reply.dropped : [];
+  let cleared = 0;
+  for (const unit of dropped) {
+    if (typeof unit !== 'string') continue;
+    if (changedSince(unit)) {
+      store.serverAt.set(unit, null);
+      continue;
+    }
+    adoptServerRecord(store, unit, null);
+    syncRowVerdict(unit);
+    cleared += 1;
+  }
   let adopted = 0;
   for (const conflict of conflicts) {
     const unit = conflict?.unit;
@@ -2345,8 +2392,12 @@ function handleSaveOutcome(reply, sentRecords, changedSince) {
     syncRowVerdict(unit);
     adopted += 1;
   }
+  if (adopted > 0) persistConflicts();
   const lines = [];
   if (adopted > 0) lines.push(`${adopted} verdict${adopted === 1 ? '' : 's'} conflicted with newer ones; kept in the conflicts list`);
+  if (cleared > 0) {
+    lines.push(`${cleared} skip${cleared === 1 ? '' : 's'} from an earlier corpus dropped, so ${cleared === 1 ? 'that unit is' : 'those units are'} asked again`);
+  }
   if (orphaned.length > 0) {
     lines.push(
       `${orphaned.length} verdict${orphaned.length === 1 ? ' is' : 's are'} on units this corpus no longer has; kept in var/verdict-orphans/`,
@@ -2390,6 +2441,7 @@ async function sendReplays() {
     }
     const refused = new Set(Array.isArray(reply.orphaned) ? reply.orphaned : []);
     for (const conflict of Array.isArray(reply.conflicts) ? reply.conflicts : []) refused.add(conflict?.unit);
+    for (const unit of Array.isArray(reply.dropped) ? reply.dropped : []) refused.add(unit);
     let saved = 0;
     for (const entry of entries) {
       if (refused.has(entry.unit) || store.dirty.has(entry.unit)) continue;
@@ -2419,6 +2471,7 @@ async function flushAutosave() {
   try {
     await sendReplays();
     ids = takeDirty();
+    for (const id of ids) inFlight.add(id);
     const sentSeqs = new Map();
     for (const id of ids) {
       const seq = outboxMirror.get(id)?.seq;
@@ -2462,6 +2515,7 @@ async function flushAutosave() {
     autosaveFailed = true;
   } finally {
     autosaveInFlight = false;
+    for (const id of ids) inFlight.delete(id);
   }
   updateProgress();
   if (pendingMove) settleAndReload();
@@ -2479,6 +2533,7 @@ function reapplyConflicts() {
     syncRowVerdict(unit);
   }
   pendingConflicts.clear();
+  persistConflicts();
   updateProgress();
   scheduleAutosave();
   toast(`Reapplied ${count} verdict${count === 1 ? '' : 's'}`);
@@ -2567,10 +2622,21 @@ function planReplayFromOutbox(serverRecords) {
   staleOutbox = plan.stale;
 }
 
+const LAND_WAIT_ATTEMPTS = 30;
+
+// GETs /autosave, asking again while the server answers 503 because a pass's land holds the verdict store, so the page never reads the new corpus beside the old store.
+async function fetchAutosave(query = '') {
+  for (let attempt = 1; ; attempt += 1) {
+    const response = await fetch(`autosave${query}`);
+    if (response.status !== 503 || attempt >= LAND_WAIT_ATTEMPTS) return response;
+    await new Promise((resolve) => setTimeout(resolve, retryAfterMs(response.headers.get('Retry-After'))));
+  }
+}
+
 async function restoreAutosave() {
   let data = null;
   try {
-    const response = await fetch('autosave');
+    const response = await fetchAutosave();
     if (response.status === 404) {
       autosaveWorks = true;
       planReplayFromOutbox(new Map());
@@ -2594,7 +2660,7 @@ async function restoreAutosave() {
       await refreshStatus({ force: true });
       if (pendingMove) return;
       toast(
-        `Found an autosave from a different corpus build (${data.verdicts.length} verdicts) — not restored; it'll be stashed aside on your next verdict`,
+        `Found an autosave from a different corpus build (${data.verdicts.length} verdicts) — not restored; your next verdict carries it onto this corpus`,
       );
     }
     return;
@@ -2621,7 +2687,9 @@ async function syncVerdictsFromServer() {
     if (!response.ok) return;
     const data = await response.json();
     const incoming = data.format === DELTA_FORMAT ? { ...data, format: EXPORT_FORMAT, verdicts: data.sets } : data;
-    const result = importVerdicts(store, incoming, manifest.generated_at);
+    const pendingAt = (unit) =>
+      store.dirty.has(unit) || outboxMirror.has(unit) || inFlight.has(unit) ? store.changedAt.get(unit) : undefined;
+    const result = importVerdicts(store, incoming, manifest.generated_at, { pendingAt });
     if (!result.ok) {
       if (result.mismatch) refreshStatus({ force: true });
       return;
@@ -2650,9 +2718,16 @@ async function syncVerdictsFromServer() {
 }
 
 const PAGE_LOADED_AT = new Date().toISOString();
+const STATUS_RETRY_FIRST_MS = 1000;
+const STATUS_RETRY_MAX_MS = 15000;
+let keptAsideSince = PAGE_LOADED_AT;
 let lastStatusModel = null;
 let statusRefresh = null;
 let statusRefreshLastAt = 0;
+let statusUnreachableSince = null;
+let statusRetryTimer = null;
+let statusRetryMs = STATUS_RETRY_FIRST_MS;
+let movedRecordsNotice = null;
 
 function readinessLine(model) {
   return model.remedy && model.level !== 'ready' ? `${model.text} — ${model.remedy}` : model.text;
@@ -2684,22 +2759,38 @@ function renderQueueReadiness() {
   header.append(el('p', `queue-readiness readiness-${lastStatusModel.level}`, readinessLine(lastStatusModel)));
 }
 
-// Asks /status for the readiness banner, at most once every two seconds unless `force` is set, and moves the page when the served corpus is not the one it loaded. A call made while a request is in flight waits for that request.
+// Asks /status for the readiness banner, at most once every two seconds unless `force` is set, and moves the page when the served corpus is not the one it loaded. A call made while a request is in flight waits for that request. While a pass's land holds the verdict store the server answers 503, and while the server is down (the cycle restarts it on new code) the request fails; either way /status is asked again on a doubling backoff until it answers, a 503 keeps the banner as it was, and a failure shows a retrying banner until the server has been gone long enough to be worth restarting by hand. Resolves to whether /status answered.
 function refreshStatus({ force = false } = {}) {
   if (statusRefresh) return statusRefresh;
-  if (!force && Date.now() - statusRefreshLastAt < 2000) return Promise.resolve();
+  if (!force && Date.now() - statusRefreshLastAt < 2000) return Promise.resolve(lastStatusModel !== null);
   statusRefresh = (async () => {
     let payload = null;
     try {
       const response = await fetch('status');
+      if (response.status === 503) {
+        scheduleStatusRetry(retryAfterMs(response.headers.get('Retry-After')));
+        return false;
+      }
       payload = await response.json();
     } catch {
       payload = null;
     }
+    if (payload) {
+      statusUnreachableSince = null;
+      statusRetryMs = STATUS_RETRY_FIRST_MS;
+      clearTimeout(statusRetryTimer);
+    } else {
+      statusUnreachableSince ??= Date.now();
+      scheduleStatusRetry();
+    }
     noteServedCorpus(payload?.corpus?.generated_at);
-    lastStatusModel = bannerModel(payload, manifest.generated_at, PAGE_LOADED_AT, pendingMove?.kind === 'corpus');
+    const unreachableForMs = statusUnreachableSince === null ? 0 : Date.now() - statusUnreachableSince;
+    lastStatusModel = bannerModel(payload, manifest.generated_at, keptAsideSince, pendingMove?.kind === 'corpus', unreachableForMs);
     renderReadinessBanner();
     if (state.view === 'queue') renderQueueReadiness();
+    if (payload && movedRecordsNotice && !pendingMove) toast(movedRecordsNotice);
+    if (payload) movedRecordsNotice = null;
+    return payload !== null;
   })().finally(() => {
     statusRefresh = null;
     statusRefreshLastAt = Date.now();
@@ -2707,11 +2798,18 @@ function refreshStatus({ force = false } = {}) {
   return statusRefresh;
 }
 
+function scheduleStatusRetry(ms = null) {
+  clearTimeout(statusRetryTimer);
+  statusRetryTimer = setTimeout(() => refreshStatus({ force: true }), ms ?? statusRetryMs);
+  statusRetryMs = Math.min(statusRetryMs * 2, STATUS_RETRY_MAX_MS);
+}
+
 // Moving onto a changed corpus or refreshed app files (reload.js). A move is asked for by the server's `ams:` reload, by a save's reply or a /status answer naming another corpus, and by a byte-range read that finds another build's record where this page's index points, which /status then confirms. The page sends its unsaved changes first (the outbox keeps whatever does not get through), waits while the reader has text in a focused text field or while the tab is hidden, keeps the scroll position, the queue anchor and the note drafts for the reloaded page, and reloads at the same URL hash.
 const PAGE_IDENTITY = pageIdentity(manifest);
 const blockedMoves = new Set();
 let pendingMove = null;
 let moveStarted = false;
+let pointerHeld = false;
 
 function sessionStore() {
   try {
@@ -2773,22 +2871,30 @@ async function settleAndReload() {
     if (!autosaveFailed) flushAutosave();
     return;
   }
-  if (typingInField()) return;
+  if (typingInField() || pointerHeld) return;
   moveStarted = true;
   const target = pendingMove;
   await flushAutosave();
   putSessionItem(
     VIEW_EXTRAS_KEY,
-    writeViewExtras({ hash: location.hash, scrollY: window.scrollY, queueAnchor: captureQueueAnchor(), notes: noteDrafts() }),
+    writeViewExtras({
+      hash: location.hash,
+      scrollY: window.scrollY,
+      queueAnchor: captureQueueAnchor(),
+      notes: noteDrafts(),
+      keptAsideSince,
+    }),
   );
   putSessionItem(MOVED_FROM_KEY, writeMoveGuard(PAGE_IDENTITY, target));
   location.reload();
 }
 
-// A record read by byte range that is not the one this page's index names means the shards were rewritten. When /status confirms another corpus the page moves; otherwise the message is shown.
+// A record read by byte range that is not the one this page's index names, or a range the server no longer has (404 or 416), means the shards were rewritten. When /status confirms another corpus the page moves; otherwise the message is shown, once /status has answered.
 function reportMovedRecords(message) {
-  refreshStatus({ force: true }).then(() => {
-    if (!pendingMove) toast(message);
+  refreshStatus({ force: true }).then((answered) => {
+    if (pendingMove) return;
+    if (answered) toast(message);
+    else movedRecordsNotice = message;
   });
 }
 
@@ -3335,8 +3441,20 @@ function wireEvents() {
   });
 
   window.addEventListener(RELOAD_EVENT, (event) => requestMove(parseReloadPath(event.detail?.path)));
+  // A press that takes focus out of a note field fires focusout before its click, so the reload waits for the press to end, and the click it ends in (a verdict button, say) is handled before the page moves.
+  document.addEventListener('pointerdown', () => (pointerHeld = true), true);
+  for (const type of ['pointerup', 'pointercancel']) {
+    document.addEventListener(
+      type,
+      () => {
+        pointerHeld = false;
+        if (pendingMove) setTimeout(settleAndReload, 0);
+      },
+      true,
+    );
+  }
   document.addEventListener('focusout', () => {
-    if (pendingMove) setTimeout(settleAndReload, 0);
+    if (pendingMove && !pointerHeld) setTimeout(settleAndReload, 0);
   });
   window.__amsReloadReady = true;
   if (window.__amsPendingReload) {
@@ -3418,12 +3536,14 @@ function renderChrome() {
 }
 
 const viewExtras = takeMoveState();
+if (viewExtras?.keptAsideSince && viewExtras.keptAsideSince < keptAsideSince) keptAsideSince = viewExtras.keptAsideSince;
 renderChrome();
 renderSidebar();
 keepTabAlive();
 wireEvents();
 indexReady = loadHumanIndex();
 await restoreAutosave();
+restoreConflicts();
 bootRestoreDone = true;
 await indexReady;
 applyHashState(true).then((replaced) => {

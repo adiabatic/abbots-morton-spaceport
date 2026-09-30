@@ -4,16 +4,17 @@ This file maps each kind of change to the gate that checks it, and says what eac
 
 ## Which gate to run
 
-| Change                                                     | Gate                                                                       |
-| ---------------------------------------------------------- | -------------------------------------------------------------------------- |
-| Glyph data or code in the main tree                        | `make test`                                                                |
-| Anything under `rebuild/`                                  | `make test-rebuild`                                                        |
-| Settlement or proof-fold semantics in `rebuild/kernel-rs/` | `make kernel-gate`, then `make test-rebuild`                               |
-| A review-app module in `rebuild/review/static/`            | `node --test rebuild/review/jstests/*.test.js` (the cycle's `gate:js`)     |
-| A rune or pipeline edit, to rebuild and recheck the tables | `uv run python -m rebuild.pipeline.run_m1` (or a `make review-cycle` pass) |
-| Commit time                                                | `make artifact-cycle`; `make review-cycle` when a review session follows   |
-| Is it ready for review?                                    | `make verdict-ready`                                                       |
-| Periodic, by hand or overnight                             | `make test-rebuild-slow`, `make conform-deep`, `make replay-deep`          |
+| Change                                                     | Gate                                                                                                                       |
+| ---------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| Glyph data or code in the main tree                        | `make test`                                                                                                                |
+| Anything under `rebuild/`                                  | `make test-rebuild`                                                                                                        |
+| Settlement or proof-fold semantics in `rebuild/kernel-rs/` | `make kernel-gate`, then `make test-rebuild`                                                                               |
+| A review-app module in `rebuild/review/static/`            | `node --test rebuild/review/jstests/*.test.js` (the cycle's `gate:js`)                                                     |
+| The review server, the verdict store, or the land          | `uv run pytest rebuild/test_landing.py rebuild/test_review_autosave.py -n auto --dist worksteal`, then `make test-rebuild` |
+| A rune or pipeline edit, to rebuild and recheck the tables | `uv run python -m rebuild.pipeline.run_m1` (or a `make review-cycle` pass)                                                 |
+| Commit time                                                | `make artifact-cycle`; `make review-cycle` when a review session follows                                                   |
+| Is it ready for review?                                    | `make verdict-ready`                                                                                                       |
+| Periodic, by hand or overnight                             | `make test-rebuild-slow`, `make conform-deep`, `make replay-deep`                                                          |
 
 Never single-thread a broad run; `doc/parallelism.md` has the width rules. Run anything that includes the heavy gates detached; `doc/running-long-steps.md` has the recipe.
 

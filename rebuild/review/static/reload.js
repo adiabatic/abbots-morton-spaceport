@@ -46,9 +46,9 @@ export function readMoveGuard(raw, identity) {
   return { kind: target.kind, value: target.value };
 }
 
-// `notes` holds [unit, text] pairs for note fields whose text differs from the unit's saved note, which includes a note typed on a unit with no verdict yet.
-export function writeViewExtras({ hash, scrollY, queueAnchor, notes }, now = Date.now()) {
-  return JSON.stringify({ hash, scrollY, queueAnchor, notes, at: now });
+// `notes` holds [unit, text] pairs for note fields whose text differs from the unit's saved note, which includes a note typed on a unit with no verdict yet. `keptAsideSince` is the time (ISO) from which the page counts the saves the server kept aside as conflicts or orphans for its banner, so the reloaded page still shows those its last saves before the move got.
+export function writeViewExtras({ hash, scrollY, queueAnchor, notes, keptAsideSince = null }, now = Date.now()) {
+  return JSON.stringify({ hash, scrollY, queueAnchor, notes, keptAsideSince, at: now });
 }
 
 // The extras saved before a reload, when they were saved for this URL hash within VIEW_EXTRAS_MAX_AGE_MS; null otherwise.
@@ -66,9 +66,11 @@ export function readViewExtras(raw, hash, now = Date.now()) {
   for (const pair of Array.isArray(parsed.notes) ? parsed.notes : []) {
     if (Array.isArray(pair) && typeof pair[0] === 'string' && typeof pair[1] === 'string') notes.push([pair[0], pair[1]]);
   }
+  const since = parsed.keptAsideSince;
   return {
     scrollY: Number.isFinite(parsed.scrollY) ? parsed.scrollY : 0,
     queueAnchor: anchor && typeof anchor.cluster === 'string' && Number.isFinite(anchor.delta) ? anchor : null,
     notes,
+    keptAsideSince: typeof since === 'string' && !Number.isNaN(Date.parse(since)) ? since : null,
   };
 }

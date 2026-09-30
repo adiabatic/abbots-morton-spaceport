@@ -2,7 +2,7 @@
 
 After each write to verdicts-autosave.json, the review server's store (`rebuild.review.verdict_store`) and `rebuild.tools.merge_verdicts` append the change to verdicts-journal.ndjson: one event line (source, time, manifest stamp) followed by one line per changed verdict. Clears get their own lines, because the store files cannot represent them (a cleared verdict is absent). A base event carries the full store instead of a diff. One is written at every corpus-stamp change, and one seeds a new journal when the store it starts from is not empty, so `replay(as_of=...)` can reconstruct the store at any recorded moment from the journal alone. `rebuild.tools.merge_verdicts --restore-as-of` uses that replay to undo a bad merge, an overwritten store, or an accidental clear.
 
-An append that crashes can leave the file ending in a line with no newline. Each append holds an exclusive `flock` on the file and first ends the file on a newline: a final line that parses as an entry keeps its bytes and gets the newline, and any other final line is cut off, so the lines appended after it stay readable. A base event names how many set lines follow it, and one followed by fewer is torn. The store from a torn base until the next complete base is unknown: replay raises `JournalGap` for a moment in that span and is exact again from the next complete base on, and compaction never starts the journal at a torn base.
+An append that crashes can leave the file ending in a line with no newline. Each append holds an exclusive `flock` on the file and first ends the file on a newline: a final line that parses as an entry keeps its bytes and gets the newline, and any other final line is cut off, so the lines appended after it stay readable. A base event names how many set lines follow it, and one followed by fewer is torn. The store from a torn base until the next complete base is unknown: replay raises `JournalGap` for a moment in that span and is exact again from the next complete base on, and compaction never starts the journal at a torn base. A writer that records the journal's length and inode before it appends (the land, `rebuild.review.landing`) lets the recovery of a land that died mid-append cut the journal back to that length (`truncate_to`) before it appends the land's event again.
 
 Every writer appends while it holds the verdict store's lock (`rebuild.review.store_lock`), so the long reads that retention makes run without it. `scan_events` reads the journal's events once without the lock and then only the tail appended since, under it. Compaction is two phases: `compact_prepare` copies the kept lines to a temporary file without the lock, and `compact_finish` copies the tail appended since and replaces the journal under it, so an append made during the copy is kept.
 """
@@ -175,6 +175,24 @@ def repair_tail(journal_path) -> None:
     with handle:
         fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
         _end_on_a_newline(handle)
+
+
+def truncate_to(journal_path, length: int | None, inode: int | None) -> bool:
+    """Cut the journal back to `length` bytes, removing what a writer that died had appended after it, and return whether anything was cut. Only the file with inode `inode` is cut: a journal compacted or replaced since the length was taken is left as it is, since the offset no longer marks the same line. A `length` of None means the journal did not exist when the length was taken, so the file that exists now is removed: every other writer finishes the dead writer's work before it appends (`landing.locked_store`), so that file is the dead writer's."""
+    journal_path = Path(journal_path)
+    try:
+        stat = journal_path.stat()
+    except FileNotFoundError:
+        return False
+    if length is None:
+        journal_path.unlink()
+        return True
+    if stat.st_ino != inode or stat.st_size <= length:
+        return False
+    with journal_path.open("r+b") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        handle.truncate(length)
+    return True
 
 
 def _end_on_a_newline(handle) -> None:

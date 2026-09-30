@@ -1,12 +1,12 @@
 """Run the commit-time artifact cycle in one command.
 
-The cycle recompiles M1.otf and checks it, rebuilds the review corpus in place, runs the verdict update over it, and refreshes the review-facts pins from the corpus's review-facts sidecar, naming what moved in their invariant block since the last accepted review facts. The checked-in pins are those facts, so committing the rewritten file accepts new ones. It then runs the gates. Once they have joined and their pytest controllers have written this pass's per-worker peaks to the timings journal, it compares the checked-in per-unit peaks with what this machine measured (`rebuild.tools.calibrate_budgets --check`). It always ends with a summary table, even on failure.
+The cycle recompiles M1.otf and checks it, rebuilds the review corpus beside the served one, runs the verdict update over it into a scratch copy of the verdict store, lands the corpus and the store together, and refreshes the review-facts pins from the corpus's review-facts sidecar, naming what moved in their invariant block since the last accepted review facts. The checked-in pins are those facts, so committing the rewritten file accepts new ones. It then runs the gates. Once they have joined and their pytest controllers have written this pass's per-worker peaks to the timings journal, it compares the checked-in per-unit peaks with what this machine measured (`rebuild.tools.calibrate_budgets --check`). It always ends with a summary table, even on failure.
 
 The terminal shows one banner per step with that step's description, the phases and counters its child prints, every warning, and a closing line. All child output is written under var/build-logs/<stamp>-<short sha>/: one log per step with stdout and stderr merged in arrival order, plan.txt, and a copy of the terminal output. var/build-logs/latest points at the newest run, and a failed step's log is replayed under its banner. rebuild.tools.console defines the line protocol children print and the renderer that reads it.
 
 The job-costs step never fails the pass, for the same reason the review-facts pins are not a gate: a stale constant makes a pool the wrong width, which costs time but makes no artifact wrong. It is reported, and committing the re-measured constant accepts it. When the check reports an overrun, the OVERRUN status quotes each tripped row's proposal (the value its constant's rule sets from the peak and the width that value gives here, or for the kernel-build row which constants to re-measure), and the driver asks `calibrate_budgets --moved` which checked constants differ from their values at `HEAD`, so a constant already re-measured shows up by name.
 
-The verdict update is one step run by one child process, rebuild.tools.verdict_update. It carries prior verdicts forward onto the fresh manifest, merges the carried file into the live autosave (--no-merge opts out), writes duplicate-fill verdicts for the blanks in unanimously judged duplicate groups, writes standing-approval verdicts from the rules in rebuild/standing-approvals.yaml, merges each fill as it is written, repeats the duplicate-fill pass until it writes nothing, and clusters the open complaints. The verdict update reads the build's per-unit index sidecar, and its one process holds one copy of it. Each of the verdict update's steps opens with a `[phase] <step>` line and closes with `[t] <step>`. The cycle console pairs the two into one line per step, and the cycle-timings journal reads the step's cost from the `[t]` line. The `[verdict-update] fixpoint:` and `[verdict-update] failed:` lines are results, not phases: `verdict_update_sections` starts a section at each `[phase]` line and closes it at either `[verdict-update]` line.
+The verdict update is one step run by one child process, rebuild.tools.verdict_update. It carries prior verdicts forward onto the fresh manifest, merges the carried file into the store (--no-merge opts out), writes duplicate-fill verdicts for the blanks in unanimously judged duplicate groups, writes standing-approval verdicts from the rules in rebuild/standing-approvals.yaml, merges each fill as it is written, repeats the duplicate-fill pass until it writes nothing, and clusters the open complaints. The verdict update reads the build's per-unit index sidecar, and its one process holds one copy of it. Each of the verdict update's steps opens with a `[phase] <step>` line and closes with `[t] <step>`. The cycle console pairs the two into one line per step, and the cycle-timings journal reads the step's cost from the `[t]` line. The `[verdict-update] fixpoint:` and `[verdict-update] failed:` lines are results, not phases: `verdict_update_sections` starts a section at each `[phase]` line and closes it at either `[verdict-update]` line.
 
 run_m1's exit status is its own gate's result, but this driver evaluates the three summary JSONs it writes, so a build that died before its evaluator is reported by what it left behind. The gates are defect_errors, the Manual-pin gate (including its scope, so a gate that replayed nothing cannot pass), and multi_matched == 0.
 
@@ -26,9 +26,9 @@ The cycle runs no cross-language check, because the kernel crate is the only eng
 
 gate:make-test is skipped when its input closure is unchanged since its last green run. The closure is every tracked or untracked-unignored file that `make_test_exempt` does not exempt; that function's docstring argues each exemption from what the gate runs (make all, which runs build_font over glyph_data/*.yaml non-recursively, typst, pyright over tools/ test/ conftest.py, and pytest test/ site/). The Makefile itself is represented by what `make -n all` and `make -n test` print. Re-running the gate over an unchanged closure would repeat the whole font suite (`make cycle-timings ARGS='--by-step'` reports what a run costs) and check nothing. The last green fingerprint is in rebuild/out/make-test-green.json, written by rebuild.tools.make_test_gate (the `make test` entry point) on every green run, so interactive and cycle greens share one record and `make test` skips on the same test. cycle_summary.json also records the fingerprint the cycle ran or skipped against, for display only. The skip reads only the shared green record, so a green that make_test_gate deleted after a red run cannot come back from an older summary. The fingerprint covers file content only, so a system toolchain change such as a typst upgrade does not move it (pyright and pytest are pinned in uv.lock, which is in the closure). --force-make-test and --fresh spawn `make test FORCE=1` (`make_test_gate_argv`), because the wrapper decides its own skip with the predicate the plan uses (`make_test_skippable`), and a plain `make test` would skip on the closure the flag forced. The plan reserves the gate's cores and memory beside the corpus build only when that predicate says the gate runs.
 
-The verdict update skips the same way, on rebuild/out/verdict-update-green.json. Each step of the verdict update is a pure function of the corpus, the verdicts master, the live store, the checked-in standing approvals, and its own code, so the key covers the corpus's inputs fingerprint and stamp, the master's path and bytes, the autosave's bytes, standing-approvals' bytes, and the verdict update's code (`verdict_update_code_paths` plus the review/ modules the verdict update runs). The master is in the key because the autosave's hash cannot see it: an export at the repo root can outrank the autosave in the auto-resolution and carry verdicts the store has never held. The code is in the key because no other fingerprint reads the verdict update's modules, and without it a fix to a fill's matcher or to the carry's join would be skipped. `verdict_update_code_paths` lists the verdict update's modules instead of all of rebuild/tools/, and rebuild/test_verdict_update_closure.py checks on every contracts run that the list covers the verdict update's import graph.
+The verdict update skips the same way, on rebuild/out/verdict-update-green.json. Each step of the verdict update is a pure function of the corpus, the verdicts master, the live store, the checked-in standing approvals, and its own code, so the key covers the corpus's inputs fingerprint and stamp, the master (named `autosave` when it is the live store, otherwise by its path and bytes), the live store's records, standing-approvals' bytes, and the verdict update's code (`verdict_update_code_paths` plus the review/ modules the verdict update runs). The master is in the key because the autosave's hash cannot see it: an export at the repo root can outrank the autosave in the auto-resolution and carry verdicts the store has never held. The code is in the key because no other fingerprint reads the verdict update's modules, and without it a fix to a fill's matcher or to the carry's join would be skipped. `verdict_update_code_paths` lists the verdict update's modules instead of all of rebuild/tools/, and rebuild/test_verdict_update_closure.py checks on every contracts run that the list covers the verdict update's import graph.
 
-The key is captured when the verdict update finishes, not at the end of the pass, so a store write during the review-facts step cannot be counted as part of a fixpoint nothing verified. The record is written later, after the complaint list step has also succeeded. The fixpoint is claimed only when the verdict update has observed it. The carry's merge gives duplicate-fill new agreement to read, and duplicate-fill only removes blanks, so it never creates work for standing-fill. But standing-fill runs last, and a standing fill can make a duplicate group unanimous while a blank member remains. Refusing the green whenever the standing merge changed anything would cost another full pass. In one process another duplicate-fill pass costs about a second, so the verdict update repeats it until a pass writes nothing, and the green is recorded only after that pass.
+The key is taken right after the land, over the store the land wrote (`landing.LANDED_NAME`), and only when the land laid no save made during the pass over the prepared store: a verdict the fills never saw then changes the next plan's key, so the next pass runs the fills again, and a save made after the land changes the live store the next plan hashes. The record is written later, after the complaint list step has also succeeded. The fixpoint is claimed only when the verdict update has observed it. The carry's merge gives duplicate-fill new agreement to read, and duplicate-fill only removes blanks, so it never creates work for standing-fill. But standing-fill runs last, and a standing fill can make a duplicate group unanimous while a blank member remains. Refusing the green whenever the standing merge changed anything would cost another full pass. In one process another duplicate-fill pass costs about a second, so the verdict update repeats it until a pass writes nothing, and the green is recorded only after that pass.
 
 The verdict-update skip also requires the corpus build to skip, which is what makes the stamp known before the pass runs. A flag that names a carry output disables the skip, since skipping would write nothing to that output.
 
@@ -37,7 +37,7 @@ Every other heavy stage skips on the same principle: a content fingerprint over 
 - run_m1 skips on rebuild/out/run-m1-green.json (the Stage A fingerprint components plus the contact allow-list, the oracle's subset tables and uv.lock's dependency pins) and re-evaluates its gate from the summary JSONs on disk.
 - gate:conform skips on conform-green.json, keyed on what the conformance sweep tests for, not on run_m1's closure: the emitted lookup's behavior classes, the font-compilation code and its tools/ closure, the uharfbuzz version, and the sweep's maximum length (`conform_skip_fingerprint`). A rune edit that creates no new rule shape leaves that key unchanged, because the crate's string replay inside run_m1 has already checked the new tables against the engine over every string.
 - The rebuild suite skips on rebuild-contracts-green.json, keyed by `rebuild_lane_fingerprint` over its closure: the repo files under rebuild/ and glyph_data/, the harness files in REBUILD_GATE_HARNESS_PATHS, conftest.py, pyproject.toml, uv.lock by its dependency pins, and the site fonts without their head and name tables. The closure contains no build artifact, so the suite can skip whether or not run_m1 rebuilt: an M1 rebuild writes only under rebuild/out, which the closure does not include. The record also stores each test's input closure, so a pass whose key changed runs only the tests whose closure the diff reaches; a rune edit reruns the tests that load the spec and nothing else. rebuild.tools.contracts_closure defines what a closure holds and when a test may be skipped, and runs the test whenever it cannot tell. rebuild.tools.rebuild_gate (`make test-rebuild`) writes the same record, so interactive and cycle greens share it.
-- corpus-build skips when the manifest's recorded inputs fingerprint equals the one a build would stamp now. A rebuild would then reproduce its content byte for byte, but `generated_at` is the latest input mtime, floored, so a rebuild after an mtime-only change (a checkout, a touch) could restamp it; skipping keeps the stamp, so the autosave stays aligned. When the live corpus does not match but a staged corpus does (the last cycle summary's `plan.review_out`, or var/staged-review), that directory is moved into rebuild/out/review with its stores instead (`corpus-promote`; `promotable_corpus` checks the preconditions). Every stamp inside a corpus depends only on content relative to its manifest, and the move keeps the `generated_at` a rebuild could reset.
+- corpus-build skips when the manifest's recorded inputs fingerprint equals the one a build would stamp now. A rebuild would then reproduce its content byte for byte, but `generated_at` is the latest input mtime, floored, so a rebuild after an mtime-only change (a checkout, a touch) could restamp it; skipping keeps the stamp, so the autosave stays aligned. When the live corpus does not match but a corpus built beside it does (a complete rebuild/out/review.next a stopped pass left, the last cycle summary's `plan.review_out`, or var/staged-review), the land swaps that directory in with its stores instead of a rebuild (`promotable_corpus` checks the preconditions). Every stamp inside a corpus depends only on content relative to its manifest, and the swap keeps the `generated_at` a rebuild could reset.
 - The review-facts step has no key and never skips: it reads the corpus build's review-facts.json sidecar and rewrites one small checked-in file in milliseconds.
 
 The corpus skip applies only on passes where run_m1 skipped, and on a gates-only rerun when the Stage A record on disk already matches what that pass will write (`m1_stage_a_current`), because the corpus reads nothing else the pass writes. That happens on a contact-allow bless, the only comparison-side edit outside every Stage A component.
@@ -48,17 +48,19 @@ Green records are written only when the key still matches after the work ran, an
 
 Between the run_m1 skip and a full rebuild there is a third mode, the gates-only rerun. When the per-file diff against the run_m1 green is confined to comparison-side inputs (the alias map, the divergence ledger, the contact allow-list, the kern sidecar, the oracle's two modules, and the baselines and their subsets, all outside the tables' stamp; `comparison_side_label` lists them and argues each), the tables on disk still carry that stamp, and all the artifacts are present, the cycle spawns `run_m1 --gates-only` instead of a build. It re-runs the defect gate, the Manual-pin gate and the oracle over the tables and font on disk, matches the oracle's rows against the ledgers again, and enumerates nothing. The green that pass records covers the new inputs, so the next cycle skips run_m1. `uv.lock` is not comparison-side, because a fontTools or uharfbuzz bump can change the font's bytes and what the shaper does with them, so a toolchain bump rebuilds.
 
-This module, not the caller, decides which passes stop the review server, because only the resolved plan knows. Two things a cycle writes belong to the running app: the corpus it serves (a rebuild rewrites every shard the tab reads by byte range, and restamps the manifest the tab's saves are keyed on) and the verdict store it saves into. A pass whose plan skips both writes neither, so a listening server is left alone and the open tab keeps working for the whole run. That is the pass with no artifact work, whose long verification would otherwise take the app down for its whole length.
+The review server keeps running through every pass. Two things a cycle writes belong to the running app: the corpus it serves (a rebuild rewrites every shard the tab reads by byte range, and restamps the manifest the tab's saves are keyed on) and the verdict store it saves into. So no pass writes either in place. A corpus-changing pass seeds rebuild/out/review.next with a copy-on-write clone of the served corpus (`corpus-seed`, `landing.clone_tree`), builds there (`--out`), copies the live store into its scratch directory under the store's lock (`store-snapshot`), and runs the verdict update against that copy (`--autosave`, `--journal`). The land (`rebuild.review.landing`) then swaps the new corpus in and puts the prepared store in place in one short section under the store's lock, laying the saves made during the pass over the prepared store, and runs as a child in its own session that a stop signal does not reach and the driver waits for (`_ChildRegistry`). A land killed inside that section is finished by the next holder of the lock: the review server's next request, the next pass (`recover_land`), or any writer that takes the lock through `landing.locked_store`. After the land the pass sends `ams:corpus/<generated_at>` through livereload's /forcereload, and the open tabs save, wait while the reader types, and reload onto the new corpus. Only the first run builds in place, since no server can serve a corpus that does not exist yet.
 
-A pass whose corpus did not change but whose store did has its own mode, the direct merge. The carry there maps every unit id to itself and keeps each record's `at`, which the merge compares strictly, so the carry is skipped and the master is merged straight in; the master is the one input the store's own hash cannot see. That pass still writes the store, so it stops the review server. The direct merge needs the master stamped for the served corpus, as the merge requires of every input. A master stamped for another corpus, which a pass stopped between the corpus build and the carry leaves behind, takes the full carry instead. The carry source's resolution says which of the two an auto-resolved master is, and `master_stamped_for_corpus` says it for a --verdicts one.
+The cycle keeps a listening server only when its /capabilities says it serves this checkout with the working tree's land-protocol code (`probe_server`); a server from this checkout running other code is restarted first (`restart_review_server`), and one serving another checkout is left alone and sent no reload. A server from before the land protocol answers no /capabilities, and it takes the old rule: a pass that writes neither the corpus nor the store keeps it running (`server_can_keep_running`), and any other pass stops it once with --stop-server (which `make review-cycle` passes), runs beside it with --yes, or refuses.
 
-An edit confined to rebuild/review/static/ also has its own mode. The copied app assets are the one corpus input no unit depends on, so the pass copies them over the served copy and restamps that one fingerprint component (`assets-refresh`). Every shard, both sidecars, the unit-cache store and `generated_at` stay as they were, so nothing the tab is keyed on changes and the review server keeps running. Once the files are in place the pass sends `ams:assets/<static hash>` through livereload's /forcereload, and the open tab reloads onto the new assets when the reader is not typing. The server itself reloads no tab on a file change (`rebuild.review.serve.register_dormant_watch`).
+A pass whose corpus did not change but whose store did has its own mode, the direct merge. The carry there maps every unit id to itself and keeps each record's `at`, which the merge compares strictly, so the carry is skipped and the master is merged straight in; the master is the one input the store's own hash cannot see. That pass lands the store alone. The direct merge needs the master stamped for the served corpus, as the merge requires of every input. A master stamped for another corpus, which a pass stopped between the corpus build and the carry leaves behind, takes the full carry instead. The carry source's resolution says which of the two an auto-resolved master is, and `master_stamped_for_corpus` says it for a --verdicts one. When the master resolved to the live store, the verdict update carries or merges the snapshot in its place; any other master is carried beside the snapshot, so the store's own verdicts are never left in a stash.
 
-A corpus promotion is the opposite case under the same skip. The whole tree under the app is replaced by the staged corpus's and the stamp changes with it, so the pass stops the review server. Both the verdict-update skip and the direct merge are off, because both assume the corpus did not change, and here the store's verdicts must be carried onto the promoted units by id.
+An edit confined to rebuild/review/static/ also has its own mode. The copied app assets are the one corpus input no unit depends on, so the pass copies them over the served copy and restamps that one fingerprint component (`assets-refresh`), each file renamed into place. Every shard, both sidecars, the unit-cache store and `generated_at` stay as they were, so nothing the tab is keyed on changes. Once the files are in place the pass sends `ams:assets/<static hash>`, and the open tab reloads onto the new assets when the reader is not typing. The server itself reloads no tab on a file change (`rebuild.review.serve.register_dormant_watch`).
 
-A pass that writes under the app needs the review server stopped. --stop-server (which `make review-cycle` passes) lets it terminate the server and wait until the port is free; without it the pass stops and prints how to proceed. Retention also writes: the stash sweep and the journal compaction take the verdict store's lock for the tail of the journal appended since they read it, the deletions, and the journal's replacement (`run_retention`, `rebuild.review.store_lock`), and the server answers a save made during that window with a 503 that the app retries for a closing tab only when it is next opened. So while a server is up the journal and the stash sweep that depends on it are left for a later pass.
+A corpus promotion is the opposite case under the same skip: the land swaps the staged corpus in, and the stamp changes with it. Both the verdict-update skip and the direct merge are off, because both assume the corpus did not change, and here the store's verdicts must be carried onto the promoted units by id, so the verdict update reads the staged corpus before the land.
 
-Every pass holds the pass lock (`pass_lock`, var/cycle/pass.lock) from before it recovers a superseded corpus and resolves its plan until it ends, so a second pass waits for the first instead of planning against a tree the first is still writing. A staging pass holds it too, because a live pass's promotion reads the corpus a staging pass writes. A dry run takes it without waiting, and when another pass holds it the dry run skips the recovery, which could rename a tree that pass is promoting. Each non-staging pass gets a scratch directory under var/cycle/ named like its build-log run directory and deletes it when it ends; the next pass deletes any that a killed pass left (`sweep_run_dirs`). A staging pass and a dry run get no scratch directory.
+Retention holds the store's lock only for the tail of the journal appended since it read it, the deletions, and the journal's replacement (`run_retention`), and the server answers a save made in that window with the same retryable 503 it gives during a land.
+
+Every pass holds the pass lock (`pass_lock`, var/cycle/pass.lock) from before it recovers a superseded corpus and resolves its plan until it ends, so a second pass waits for the first instead of planning against a tree the first is still writing. The land inherits the lock, so a driver killed while its land runs still holds the next pass back until the land has finished. A staging pass holds it too, because a live pass's promotion reads the corpus a staging pass writes. A dry run takes it without waiting, and when another pass holds it the dry run skips the recovery, which could rename a tree that pass is landing. Each non-staging pass gets a scratch directory under var/cycle/ named like its build-log run directory and deletes it when it ends; the next pass deletes any that a killed pass left (`sweep_run_dirs`). A staging pass and a dry run get no scratch directory.
 
 A green finish ends with a retention pass over the cycle's own files, all of them regenerable or covered by the journal. Root verdicts-carried-*.json files not stamped for the live corpus are deleted, since `status.pick_fullest_verdicts` reads only files stamped for the live corpus, and the tracked copy under rebuild/evidence/ is never touched. verdicts-autosave-* stashes not referenced by a journal event at or after the last base event are deleted. The journal, not the stashes, is the supported recovery path, and the check uses the journal's references because a stash's mtime predates the event that created it. The journal is compacted to the newest base event older than RETENTION_WINDOW_DAYS, keeping at least that many days of --restore-as-of history, and build-log run directories beyond the newest `cycle_paths.BUILD_LOGS_KEEP` are deleted. Failed, interrupted, first-run, and staging passes never prune, --keep-history turns retention off, and a retention error prints a warning and never turns a green cycle red.
 
@@ -94,7 +96,7 @@ from typing import TYPE_CHECKING
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
-from rebuild.review import app_index, facts, store_lock, unit_index  # noqa: E402
+from rebuild.review import app_index, facts, journal, landing, store_lock, unit_index  # noqa: E402
 from rebuild.review.audit import load_ledger  # noqa: E402
 from rebuild.tools import console, cycle_paths  # noqa: E402
 from rebuild.tools.green_record import (  # noqa: E402
@@ -107,7 +109,13 @@ from rebuild.tools.green_record import (  # noqa: E402
 )
 from rebuild.tools.cycle_timings import CYCLE_RUN_ENV, CheckResult  # noqa: E402
 from rebuild.tools.peak_rss import reap_peak_rss_bytes  # noqa: E402
-from rebuild.tools.review_server import REVIEW_PORT, force_reload, server_listening  # noqa: E402
+from rebuild.tools.review_server import (  # noqa: E402
+    NO_CAPABILITIES,
+    REVIEW_PORT,
+    capabilities,
+    force_reload,
+    server_listening,
+)
 
 if TYPE_CHECKING:
     from rebuild.tools.cycle_timings import CycleTimings
@@ -131,12 +139,15 @@ UNDECIDED_UNTIL_RUN_M1 = {
     "gate:conform": CONFORM_MAYBE_NOTE,
 }
 ASSETS_REFRESH_NOTE = "only the review UI assets moved since the corpus was stamped; they are copied over the served copy and the manifest's static component restamped in place — no shard, sidecar or generated_at moves; --fresh overrides"
-CORPUS_PROMOTE_NOTE = "a staging pass already built the corpus these inputs produce, byte for byte, unit store and signature store beside it; that directory is moved into place instead of being rebuilt; --fresh overrides"
+CORPUS_PROMOTE_NOTE = "a staging pass already built the corpus these inputs produce, byte for byte, unit store and signature store beside it; the land swaps that directory in instead of a rebuild; --fresh overrides"
 SERVER_KEEPS_RUNNING_NOTE = (
     "rewrites no unit shard, moves no manifest stamp, and leaves the verdict store alone"
 )
 SERVER_STOP_PATTERN = r"rebuild\.review\.serve"
 SERVER_STOP_TIMEOUT = 15.0
+SERVER_START_TIMEOUT = 30.0
+CAPABILITIES_ATTEMPTS = 3
+CAPABILITIES_RETRY_S = 1.0
 # The gate thread pool's worker count, sized to the tasks the chain submits, not to the cores. Under the queue policy a waiting task holds its worker for the whole wait (conform waits on make-test, and contracts on both), so every gate task needs a worker at the same time, with spare workers on top. With fewer workers a waiting task could sit behind an unrelated task's completion, and a width taken from the cores would cause that on a small machine. `test_the_gate_pool_runs_every_gate_task_at_once` in rebuild/test_artifact_cycle.py checks that this equals the gate task count plus two.
 _GATE_POOL_WORKERS = 6
 # The peak memory of one corpus-build worker, the divisor of the build's width (`corpus_job_budget`). A worker is a persistent spawn process that takes unit batches from the parent's hand-out queue (`_handout_width` in rebuild/review/build.py: the enricher's settlement batch, or a smaller spread of few recomputed units), enriches and drafts each unit, spools each fragment to disk as it is drafted so no EnrichedUnit outlives its batch (`_FragmentSpool`), and replies with the batch's projections and spool addresses. Nothing it holds grows with the corpus, the alphabet or the width. It holds its interpreter and shapers, whose shape memo is released at every batch boundary (`rebuild.review.ink.release_shape_memos`; `_MemoizedShaper`'s docstring records the measurement that showed an unreleased memo outgrowing everything else in a serial build). It holds one batch's units, projections and addresses, bounded by `PHASE1_HANDOUT_UNITS`, from the hand-out until the reply is pickled; the `SubsetRow`s for one batch's units; and the pages it touches of the baseline subset pack (rebuild/review/subset_pack.py), which the parent writes once before the pool starts and every worker maps read-only, so the page cache holds one copy per machine. The parent hands units out in configuration order (`_configuration_order` in rebuild/review/build.py), so a worker's touched pages are mostly one configuration's key range.
@@ -155,6 +166,8 @@ STANDING_FILL_WORKER_BYTES = 350_000_000
 # The peak memory of the verdict update's process while the standing fill's pool runs, subtracted from the machine's memory before dividing by STANDING_FILL_WORKER_BYTES. The parent holds every corpus id, the human id/duplicate-group/notation projection, and the fill's rules, primed keys, decisions and memo. Full human records stream through the verdict update's steps. Refill misses go to a temporary gzipped spool, with at most one pool round of records in memory, bounded by the width times `_STANDING_POOL_CHUNK` (rebuild/tools/standing_verdicts.py). The complaint list keeps compact grouping projections. A serial refill, and the memo check `_prefill` runs on every served unit, hold one unit's `SlideContext` memos and alignment-cache entries at a time, because `Decider._release` empties both after each unit.
 # The standing-fill-parent row of `make job-costs` reads the whole verdict-update step through `peak_rss.reap_peak_rss_bytes`, and the verdict update reaches that peak after the fill, not during its pool: sampled every 0.1 s over two served passes that merge straight in on the 18-core 48 GiB machine (`doc/fleet.md`), the verdict update holds at most 2.06 GB during the standing fill and 2.74 GB in the complaint list. A standalone fill over every unit puts the in-flight round at about 18 MB a worker: its parent reads 1.17 GB two wide and 1.45 GB eighteen wide. The measurement set is the highest step reading any fleet machine has recorded since the previous measurement set: 4.36 GB on the 32 GiB machine, over a carry across a rune edit (run 2ca8c2192122 at 47169387, with 709 verdicts orphaned and three duplicate-fill rounds). The 18-core 48 GiB machine reads 3.10 to 3.11 GB on carried served passes, 2.74 GB on served passes that merge straight in (6444755ee9aa, 169f78e7d20d, 376f72a5e4e7), 3.28 GB on a rules commit whose 1,219 misses are decided serially below `_STANDING_POOL_THRESHOLD` (8a407a3d83f4, 08a24101190c), and 2.19 and 2.33 GB on memo-drop passes pooled eighteen wide (6ec8760f21c2) and sixteen wide (27aa6ac52892). The constant is that reading plus a quarter, rounded up to the next whole gigabyte. No fleet width changes at this figure: the cores limit the refill pool and the conformance sweep beside it. Ids and decisions grow with the alphabet, and no rune edit has run through the verdict update on that 48 GiB machine yet, so watch the row as letters are added.
 STANDING_FILL_PARENT_BYTES = 6_000_000_000
+# The peak memory of the land (`rebuild.review.landing`), the build-lane step after the verdict update that moves the corpus and the store into place. It holds three parsed stores at once, the snapshot, the prepared store and the live one, then the new corpus's human unit ids and the serialized result. The measurement is three parses of the live store, 209,645 records in 93.8 MB, in one process: 0.41 GB a store, 1.37 GB for the three, and 0.05 GB for the 231,231 ids of the served manifest; the serialized result is about the file's size again. The constant is those readings plus a quarter, rounded up to the next whole gigabyte, as the other build-lane parents are. It is below both CORPUS_PARENT_BYTES and STANDING_FILL_PARENT_BYTES, which `test_the_land_holds_less_than_either_build_lane_step_before_it` checks, and the land runs after the corpus build and the verdict update in the same lane, so the build lane's reservation (`_conform_build_lane`), which covers the larger of those two, covers it too, and no width depends on it; no `make job-costs` row measures it yet, so re-measure it from the land step's peak in the timings journal as the store grows.
+LAND_BYTES = 2_000_000_000
 # The peak memory of one oracle row-range worker, the divisor of the oracle's width (`sweep_job_budget`). A worker is a spawn process. It holds its interpreter, a HarfBuzz shaper over M1.otf, and the crate's guard verdict map. It holds the records of its own row range of its configuration's row store: one buffer of the range's record bytes with three packed arrays beside it (an offset and two ages a record), loaded without scanning the whole member (`oracle_cache.load_store`), so it holds its range's rows and not the configuration's. It maps its configuration's settle memo read-only on the first wave that reaches the crate, which every pass does, since the scheduled re-derivation covers one row in `oracle_cache.MAX_RECORD_AGE`. `conform._MemoStore` reads the file's own layout: the six id columns, the value column and the 2^k >= 2N-slot probe index are views over the mapping, 69.8 MB for a live memo of 2.6M windows (the `[t] settle_memo` lines count them). Those pages belong to the page cache, resident once per machine however many workers map the file, and count in a worker's resident set as its probes touch them: a walk with the row cache filled probes the one row in twenty the cache does not serve, and a walk with the row cache dropped probes nearly every row. On a pass after a family changed, the retirement fold reads the six id columns whole once (36.2 MB of the mapping, `conform._MemoStore.load` over `mask.moved`); the measurement set's passes ran on an unchanged tree, every `[t] settle_memo` line at stale=0, so that fold is outside the measurement set and inside the headroom. The worker's own heap holds the file's interned label and outcome tables, a dead byte and a reached byte a row, 0.005 GB at the load. Last, it holds the walk's state over the range: the chunk of rows in flight (`oracle.ORACLE_ROW_CHUNK`), the waves of windows the crate settles for it, and `windows`, the dict of entries the walk promotes from the mapping or settles fresh.
 # No range writes the memo file. Every range, whether or not its configuration is split, writes the windows it settled fresh as a part (`run_m1._shard_settle_memo`). The parent's absorb, one task per settlement configuration on this same pool, runs once every range has finished and the witness stage has returned (`run_m1.run_oracle`'s `memo_ready`). It holds the existing rows, the parts, the existing index and the writer's folded copies at once (`conform._write_settle_memo`), roughly the file's size plus the columns'. Its reading is recorded in the pool record beside the ranges' as `<config> absorb`. It is a process peak like the rest, so it reads at or above the range its worker ran before it. In every record of the measurement set, each of which has an absorb for every settlement configuration, it reads at a range's peak and never above the record's highest range.
 # The staged measurement is one process running `oracle.oracle_config_worker` over one shard of `oracle.oracle_shard_plan`, with its row cache filled (`read_dir` the out dir) or dropped (`read_dir=None`), recording `resource.getrusage`'s `ru_maxrss` and the resident set from `ps` at the interpreter, after the imports, spec, `kernel_exec.guard_sweep` and shaper, around `oracle.open_row_cache`, around `_SettledWindowWalk._load_memo` with the mapping's size and the store's heap sizes printed, and at return. The probe and both its logs are under `var/keep/rung263-4/stage-probe/`. Over the 708,015-row `default 1/3` of the width-twelve plan the terms read: the interpreter with its imports, spec, guard verdict map and shaper 0.07 GB; the range's store records 0.05 GB resident behind a 0.16 GB peak at the load with the row cache filled, and nothing with it dropped; the first chunk and its wave, before the memo maps, 0.14 GB with the row cache filled and 0.15 GB with it dropped; the memo 0.005 GB of heap at the load, filled and dropped alike, over a 69.8 MB mapping of 36.2 MB of columns and 33.6 MB of index; and the walk from there to the process's peak, including the mapping's touched pages, 0.27 GB with the row cache filled (71,448 windows promoted) and 0.33 GB with it dropped (1,171,462 promoted). The peak is 0.52 GB filled and 0.55 GB dropped, which is what the pool records read for that range.
@@ -840,7 +853,7 @@ def corpus_build_skippable(
 
     The after font is compared with the file on disk because no fingerprint component covers it: the key hashes the font's inputs and the two site fonts, never rebuild/out/m1/M1.otf itself, so a run_m1 that finished after this corpus was built changes nothing the comparison above sees, while the corpus still ships the previous build's font. The build asserts at copy time that the font it ships is the font it hashed at load, so the manifest's after-font sha describes fonts/after.otf, and comparing that sha with the current M1.otf shows the skip is not passing over a newer font.
 
-    `ignore` names fingerprint components left out of the comparison, for a caller asking a narrower question than byte identity, with the same hard/warn split `status._freshness_check` uses. The cycle asks three questions in turn. The strict one comes first, since a corpus that reproduces byte for byte needs nothing done. When only an ASSET_COMPONENTS member differs, the cycle copies those assets over the served corpus and restamps that one component (`assets-refresh`) instead of rebuilding units that cannot have changed. When the live corpus fails both, `promotable_corpus` asks the strict question of a staged corpus, and the pass moves that directory into place when it matches (`corpus-promote`). A component missing from either side still fails the comparison: only a component present in both the recorded and the expected set can be ignored.
+    `ignore` names fingerprint components left out of the comparison, for a caller asking a narrower question than byte identity, with the same hard/warn split `status._freshness_check` uses. The cycle asks three questions in turn. The strict one comes first, since a corpus that reproduces byte for byte needs nothing done. When only an ASSET_COMPONENTS member differs, the cycle copies those assets over the served corpus and restamps that one component (`assets-refresh`) instead of rebuilding units that cannot have changed. When the live corpus fails both, `promotable_corpus` asks the strict question of a corpus built beside it, and the pass's land swaps that directory in when it matches. A component missing from either side still fails the comparison: only a component present in both the recorded and the expected set can be ignored.
     """
     from rebuild.pipeline import fingerprint
 
@@ -889,16 +902,51 @@ def _manifest_stamp_at(corpus: Path) -> str | None:
     return stamp if isinstance(stamp, str) else None
 
 
+def next_corpus_dir(live: Path | None = None) -> Path:
+    """Return where a pass builds its corpus beside the served one: `review.next` beside rebuild/out/review. The land swaps it in, so it is on the served corpus's filesystem."""
+    live_dir = live if live is not None else REVIEW_OUT
+    return live_dir.with_name(f"{live_dir.name}.next")
+
+
+def corpus_complete(corpus: Path) -> bool:
+    """Return whether the corpus at `corpus` is one a build finished: its manifest parses, and its per-unit index and both app sidecars, which a build writes last, are stamped for that manifest (the checks `corpus_build_skippable` makes, without the comparison with today's inputs)."""
+    try:
+        manifest = json.loads((corpus / "manifest.json").read_text())
+    except OSError, ValueError:
+        return False
+    if not isinstance(manifest, dict):
+        return False
+    return unit_index.index_is_current(corpus) and all(
+        app_index.artifact_is_current(corpus, name, fmt) for name, fmt in app_index.ARTIFACTS
+    )
+
+
+def recover_next_corpus(live: Path | None = None, *, delete: bool = True) -> str | None:
+    """Keep a `review.next` an earlier pass left only when it is complete (`corpus_complete`), and delete anything else there: a build that died leaves a partial tree, which must not seed or be promoted. A complete one stays, to be promoted when it reproduces this pass's inputs (`promotable_corpus`) or to seed the build when a rune moved since it was built, so the units it already built are cache hits. The `.discard` trees a land's delete did not finish (`landing.discard_paths`) are deleted too. `delete=False` is the dry run's form, which deletes nothing. Returns the line to print, or None when there is no `review.next`."""
+    if delete:
+        for discard in landing.discard_paths(live if live is not None else REVIEW_OUT):
+            shutil.rmtree(discard, ignore_errors=True)
+    target = next_corpus_dir(live)
+    if not target.exists():
+        return None
+    if corpus_complete(target):
+        return f"Kept {target}, the complete corpus an earlier pass built beside the served one."
+    if not delete:
+        return f"Left {target}, a corpus an earlier pass did not finish, for the next real pass to delete."
+    shutil.rmtree(target, ignore_errors=True)
+    return f"Deleted {target}, a corpus an earlier pass did not finish."
+
+
 def promotable_corpus(
     root: Path = ROOT, summary_path: Path | None = None, live: Path | None = None
 ) -> Path | None:
-    """Return the staged corpus a live pass can move into rebuild/out/review instead of rebuilding, or None. A staging pass (`--review-out`) writes a whole corpus (shards, sidecars, unit store and signature store) where the live pass never reads, and the next live pass would otherwise rebuild the same bytes with both stores dropped, because its own store is stamped for the pre-staging environment. Candidates are checked in order: the `plan.review_out` the last cycle summary recorded (a repo-relative string, resolved against `root`), then `var/staged-review` under `root`, the conventional directory (`--review-out` takes any path, but a staging pass is expected to use that one). Every path derives from `root`, so a scratch repo never reads the live staged corpus.
+    """Return the corpus built beside the live one that a live pass can land instead of rebuilding, or None. Candidates are checked in order: `review.next` beside the live corpus (`next_corpus_dir`), which a pass stopped after its build leaves complete; the `plan.review_out` the last cycle summary recorded (a repo-relative string, resolved against `root`), which a staging pass (`--review-out`) wrote as a whole corpus (shards, sidecars, unit store and signature store) where the live pass never reads; then `var/staged-review` under `root`, the conventional staging directory. Every staging path derives from `root`, so a scratch repo never reads the live staged corpus. The caller asks only on a pass whose run_m1 skipped or reproduced its Stage A, because the check compares against the Stage A run_m1 recorded on disk, so a corpus built before a rune edit is never landed over it.
 
-    A candidate is promotable when it is a directory other than the live one, on the live directory's filesystem (`os.replace` cannot cross filesystems, and a plan must never print a move it cannot make), when `corpus_build_skippable` returns True for it (that function defines "reproduces these inputs byte for byte", including the after font and the three stamped sidecars), and when its `generated_at` is not older than the live corpus's. The byte-identity check cannot supply the stamp condition: `generated_at` is the latest input mtime, not a build time (`_generated_at` in rebuild/review/build.py), so a staged corpus can have a stamp older than the corpus it would replace, and merge_verdicts refuses a store stamped newer than the corpus it merges onto. A backwards promotion would fail the verdict-update step after the tree had already moved. An unreadable manifest rules the candidate out, which costs only a rebuild.
+    A candidate is promotable when it is a directory other than the live one, on the live directory's filesystem (the land swaps the two trees, which cannot cross filesystems, and a plan must never print a move it cannot make), when `corpus_build_skippable` returns True for it (that function defines "reproduces these inputs byte for byte", including the after font and the three stamped sidecars), and when its `generated_at` is not older than the live corpus's. The byte-identity check cannot supply the stamp condition: `generated_at` is the latest input mtime, not a build time (`_generated_at` in rebuild/review/build.py), so a staged corpus can have a stamp older than the corpus it would replace, and merge_verdicts refuses a store stamped newer than the corpus it merges onto. A backwards promotion would fail the verdict update. An unreadable manifest rules the candidate out, which costs only a rebuild.
     """
     live_dir = live if live is not None else REVIEW_OUT
     summary = summary_path if summary_path is not None else root / "rebuild" / "out" / "cycle_summary.json"
-    candidates: list[Path] = []
+    candidates: list[Path] = [next_corpus_dir(live_dir)]
     try:
         recorded = json.loads(summary.read_text()).get("plan", {}).get("review_out")
     except OSError, ValueError, AttributeError:
@@ -927,36 +975,19 @@ def promotable_corpus(
     return None
 
 
-def promote_corpus(source: Path, live: Path | None = None) -> None:
-    """Move a staged corpus into place as the live one. It uses two renames instead of a removal and a move: the live tree is renamed to `.superseded`, the source takes its place, and only then is the old tree deleted. So a corpus is on disk throughout the rmtree of the old multi-gigabyte tree, and if the second rename fails the live tree is put back. Deleting the old tree is best effort: once the second rename has returned, the promotion is done, so a tree that will not delete is left for `recover_superseded_corpus` at the next real pass's start instead of being reported as a failed move. That function also handles a pass that died between the two renames, when the `.superseded` tree is the only corpus on disk; the rmtree at the start here clears a leftover beside a live tree.
-
-    Moving is safe where reconstructing would not be. Every stamp inside a corpus depends only on content, through `unit_index.manifest_sha256` (the per-unit index, both app sidecars, the unit store's header and the signature store's), the manifest records no output path, and a rebuild could restamp `generated_at` (the latest input mtime), which the autosave alignment depends on. So the promoted directory satisfies `corpus_build_skippable` as it did where it was built, and both stores arrive filled. The one manifest field the move leaves stale is `repo_head`, the commit the staging pass ran at: the app banner and `make verdict-ready` show it, and a commit outside every fingerprint component changes HEAD without changing whether the corpus is promotable. Nothing the cycle keys on reads it.
-    """
-    live_dir = live if live is not None else REVIEW_OUT
-    superseded = live_dir.with_name(f"{live_dir.name}.superseded")
-    shutil.rmtree(superseded, ignore_errors=True)
-    os.replace(live_dir, superseded)
-    try:
-        os.replace(source, live_dir)
-    except OSError:
-        os.replace(superseded, live_dir)
-        raise
-    shutil.rmtree(superseded, ignore_errors=True)
-
-
 def recover_superseded_corpus(live: Path | None = None, *, delete: bool = True) -> str | None:
-    """Handle whatever a promotion left under the `.superseded` name, before a pass checks whether it has a corpus. Beside a live tree it is the old corpus whose delete did not finish, and it is deleted. Alone, it is the live corpus that a pass which died between the two renames had moved aside, and one rename puts it back, so the next pass reads the corpus it had instead of starting as a first run. It runs at the start of every pass because the green-finish retention never runs on the failed or first-run passes that leave the tree behind. `delete=False` is the dry run's form: the delete cannot be undone and no plan question reads the tree it removes, so the tree stays for the next real pass, while the put-back still runs, because every plan question reads the live corpus and a dry run's plan must be the one a real pass follows. Returns the line to print, or None when there was nothing to do."""
+    """Handle whatever a land's three-rename fallback left under the `.superseded` name (`landing.exchange_dirs`), before a pass checks whether it has a corpus. Beside a live tree it is an old corpus whose move did not finish, and it is deleted. Alone, it is the live corpus that a land which died between the renames had moved aside, and one rename puts it back, so the next pass reads the corpus it had instead of starting as a first run. It runs at the start of every pass, after the land recovery, because the green-finish retention never runs on the failed or first-run passes that leave the tree behind. `delete=False` is the dry run's form: the delete cannot be undone and no plan question reads the tree it removes, so the tree stays for the next real pass, while the put-back still runs, because every plan question reads the live corpus and a dry run's plan must be the one a real pass follows. Returns the line to print, or None when there was nothing to do."""
     live_dir = live if live is not None else REVIEW_OUT
     superseded = live_dir.with_name(f"{live_dir.name}.superseded")
     if not superseded.exists():
         return None
     if live_dir.exists():
         if not delete:
-            return f"Left {superseded}, the corpus a promotion replaced, for the next real pass to delete."
+            return f"Left {superseded}, the corpus a land replaced, for the next real pass to delete."
         shutil.rmtree(superseded, ignore_errors=True)
-        return f"Deleted {superseded}, the corpus a promotion replaced."
+        return f"Deleted {superseded}, the corpus a land replaced."
     os.replace(superseded, live_dir)
-    return f"Put {superseded} back as the live corpus; the promotion it stepped aside for did not finish."
+    return f"Put {superseded} back as the live corpus; the land it stepped aside for did not finish."
 
 
 # The verdict update's code, listed by module instead of all of rebuild/tools/: the import closure of rebuild.tools.verdict_update, which runs every step. rebuild/test_verdict_update_closure.py checks the list against the walked import graph on every contracts run. This driver is not an entry point, because every argument it passes the verdict update names an input the key already hashes (the corpus, the master, the store), a flag that disables the skip, or a width (`--standing-fill-jobs`) that cannot change the verdict update's output, and the verdict update parses its own flags in verdict_update. The walk stops at the modules in `fingerprint.pipeline_code_paths`, because the key includes the pipeline_code component whole through its manifest line. The rebuild/tools/ modules the pipeline imports (memory_budget, peak_rss, lock_digest, site_fonts and others) are outside this list, which keeps fan-out widths and peak-memory measurements out of the verdict key.
@@ -1008,9 +1039,9 @@ def _master_key_line(root: Path, master: Path, autosave_digest: str) -> str:
 
 
 def verdict_update_skip_fingerprint(
-    root: Path = ROOT, corpus: Path | None = None, master: Path | None = None
+    root: Path = ROOT, corpus: Path | None = None, master: Path | None = None, store: Path | None = None
 ) -> str | None:
-    """Return the content key over everything the verdict update reads: the corpus it resolves unit ids against, the verdicts master it carries forward, the live store it merges into, the checked-in standing approvals, and the verdict update's own code. The standing approvals are hashed by raw bytes, unlike the prose-insensitive hash the rebuild lane uses: `standing_verdicts` copies each rule's `note` into the verdict note of every fill it writes, so rewording a note changes the verdict update's output and must re-run it. Carry, merge, both fills with their merges, and the complaint list are pure functions of these inputs, and the verdict update is idempotent once it has run, so a key matching the record a complete verdict update left means re-running it would write nothing new. The master is in the key because the autosave's hash cannot see it: an export at the repo root can outrank the autosave in the auto-resolution and carry verdicts the store has never held. The live store is hashed by its records (`verdicts_records_digest`), not its bytes, because the review server rewrites the file with a new `exported_at` on every save, and when the master resolved to the store, the master line names it `autosave` instead of by its path (`_master_key_line`). The code is in the key for the same reason every other key includes its stage's code: a fix to a fill's matcher or to the carry's join must run, not be skipped. It is the verdict update's import closure (`verdict_update_code_paths`, which a contracts test checks against the verdict update's import graph) plus the review/ modules the verdict update runs and the corpus build does not: serve.py and verdict_store.py, through which merge_verdicts reads the store, status.py and journal.py, which the merge and the readiness check run, and store_lock.py, which the merge holds around its write. review/'s build-side modules are covered by the manifest fingerprint's review_code. The manifest line leaves out `unit_index.ASSET_COMPONENTS`, because no step of the verdict update reads the copied app assets, and an assets refresh rewrites that field and must not re-run a verdict update whose real inputs are unchanged. None when the corpus has no fingerprinted manifest or no master was resolved."""
+    """Return the content key over everything the verdict update reads: the corpus it resolves unit ids against, the verdicts master it carries forward, the live store it merges into, the checked-in standing approvals, and the verdict update's own code. The standing approvals are hashed by raw bytes, unlike the prose-insensitive hash the rebuild lane uses: `standing_verdicts` copies each rule's `note` into the verdict note of every fill it writes, so rewording a note changes the verdict update's output and must re-run it. Carry, merge, both fills with their merges, and the complaint list are pure functions of these inputs, and the verdict update is idempotent once it has run, so a key matching the record a complete verdict update left means re-running it would write nothing new. The master is in the key because the autosave's hash cannot see it: an export at the repo root can outrank the autosave in the auto-resolution and carry verdicts the store has never held. The live store is hashed by its records (`verdicts_records_digest`), not its bytes, because the review server rewrites the file with a new `exported_at` on every save, and when the master resolved to the store, the master line names it `autosave` instead of by its path (`_master_key_line`). The code is in the key for the same reason every other key includes its stage's code: a fix to a fill's matcher or to the carry's join must run, not be skipped. It is the verdict update's import closure (`verdict_update_code_paths`, which a contracts test checks against the verdict update's import graph) plus the review/ modules the verdict update runs and the corpus build does not: serve.py and verdict_store.py, through which merge_verdicts reads the store, status.py and journal.py, which the merge and the readiness check run, store_lock.py, which the merge holds around its write, and landing.py, which puts the store the verdict update prepared in place. review/'s build-side modules are covered by the manifest fingerprint's review_code. The manifest line leaves out `unit_index.ASSET_COMPONENTS`, because no step of the verdict update reads the copied app assets, and an assets refresh rewrites that field and must not re-run a verdict update whose real inputs are unchanged. `store` is the store whose records stand for the live store, the live store when None: after a pass the cycle keys the record on the store its land wrote (`landing.LANDED_NAME`), so the next plan, which reads the live store, finds the same key only when no save has changed the store since. None when the corpus has no fingerprinted manifest or no master was resolved."""
     if master is None:
         return None
     corpus_dir = corpus if corpus is not None else REVIEW_OUT
@@ -1023,7 +1054,7 @@ def verdict_update_skip_fingerprint(
         return None
     from rebuild.pipeline import fingerprint
 
-    autosave_digest = verdicts_records_digest(root / "verdicts-autosave.json")
+    autosave_digest = verdicts_records_digest(store if store is not None else root / "verdicts-autosave.json")
     lines = [
         "manifest\t"
         + json.dumps(
@@ -1040,6 +1071,7 @@ def verdict_update_skip_fingerprint(
         f"status\t{_sha256_path(root / 'rebuild' / 'review' / 'status.py')}",
         f"journal\t{_sha256_path(root / 'rebuild' / 'review' / 'journal.py')}",
         f"store_lock\t{_sha256_path(root / 'rebuild' / 'review' / 'store_lock.py')}",
+        f"landing\t{_sha256_path(root / 'rebuild' / 'review' / 'landing.py')}",
     ]
     return _digest_lines(lines)
 
@@ -1105,10 +1137,12 @@ def conform_gate_argv(jobs: int, max_length: int = CONFORM_MAX_LENGTH_DEFAULT) -
 STEP_DESCRIPTIONS = {
     "run_m1": "Builds the M1 tables for every settlement configuration in the Rust kernel (the ss10 overlay settles nothing and gets none), mints the glyphs, emits GSUB and GPOS, compiles the font, and reads it back. Then runs the defect gates, the Manual-pin gate, and the oracle over what it built.",
     "run_m1:gates-only": "Reruns the defect gates, the Manual-pin gate, and the oracle over the tables and font already on disk, rebuilding nothing. Taken when only comparison-side inputs moved since the last green build.",
-    "corpus-build": "Rebuilds the review corpus: every unit the tables reach is drafted, enriched, and checked, with cached units re-verified by content key. Writes the shards, manifest, and review-facts sidecar that the app and the verdict update read.",
+    "corpus-seed": "Clones the served corpus to rebuild/out/review.next, copy-on-write, so the build beside it starts from the served corpus's shards and stores without writing a byte the open tab reads. A complete review.next a stopped pass left is kept as the seed instead.",
+    "corpus-build": "Rebuilds the review corpus: every unit the tables reach is drafted, enriched, and checked, with cached units re-verified by content key. Writes the shards, manifest, and review-facts sidecar that the app and the verdict update read, into rebuild/out/review.next beside the served corpus (in place only on a first run).",
     "assets-refresh": "Overwrites the served copy of the review app's JS, CSS, and HTML and restamps only the manifest's static component. No shard or sidecar moves, so the open tab's store stays aligned.",
-    "corpus-promote": "Moves the corpus a staging pass already built for these exact inputs into rebuild/out/review, unit store and signature store with it, and deletes the corpus it replaces. Two renames in this process; no unit is drafted, enriched, or checked.",
-    "verdict-update": "Carries the verdicts master onto the new corpus by unit id, merges it into the store, and runs the duplicate and standing fills to their fixpoint. Ends by writing the complaint list of what still needs a human.",
+    "store-snapshot": "Copies the live verdict store into this pass's scratch directory under the store's lock, as the snapshot the land compares against and the store the verdict update prepares. Takes milliseconds; the review server keeps saving into the live store.",
+    "verdict-update": "Carries the verdicts master onto the new corpus by unit id, merges it into a scratch copy of the store, and runs the duplicate and standing fills to their fixpoint. Ends by writing the complaint list of what still needs a human.",
+    "land": "Moves the new corpus and the prepared store into place together, under the verdict store's lock, in one child that a stop signal does not interrupt: verdicts saved during the pass are laid over the prepared store, the corpus is swapped in with one rename, and the change is journaled. The open tabs then move onto it.",
     "review-facts": "Rewrites rebuild/review-facts-pins.json from the review-facts sidecar the corpus build emitted, names what moved in its invariant block against the last accepted review facts (diffing that block alone when it did), and holds the ledger's declarations against the classes the corpus reached. Committing the rewritten pins is how the review facts are accepted.",
     "gates": "The four post-build gates, skipped together under --skip-gates.",
     "gate:js": "Runs the review app's node test suite over its JavaScript. Fast, and independent of every build artifact.",
@@ -1130,7 +1164,7 @@ SUBSTEP_PARENTS = {"invariant-diff": "review-facts", "job-costs-diff": "job-cost
 
 @dataclass
 class Step:
-    """One row of the plan. `skipped` is set explicitly instead of derived from `argv`, because `argv is None` also describes the retention and corpus-promote steps, which do real work in this process, and the `gates` placeholder, which stands for four steps. The run/skip column and the counts line use `skipped`, so a step that runs without spawning anything still shows as running.
+    """One row of the plan. `skipped` is set explicitly instead of derived from `argv`, because `argv is None` also describes the corpus-seed, store-snapshot and retention steps, which do real work in this process, and the `gates` placeholder, which stands for four steps. The run/skip column and the counts line use `skipped`, so a step that runs without spawning anything still shows as running.
 
     The review-facts step's invariant diff, which the driver prints itself, and the job-costs diff it spawns are children of steps, not rows of the plan, and SUBSTEP_PARENTS names them. Registering one with the console writes its output to the parent's log, shows its lines under the parent's column, and keeps `_run_step` from opening a second banner for a step that is already open.
     """
@@ -1145,6 +1179,8 @@ class Step:
 
 @dataclass
 class Plan:
+    """The resolved pass. `corpus_dir` is the corpus the pass serves when it ends (the staging directory on a staging pass), `update_corpus` the one the verdict update reads, and `next_corpus` the tree the land swaps in for the served one (`review.next` on a building pass, the staged directory on a promotion, None when the corpus does not move). `land` says whether the pass lands a corpus or a store (`rebuild.review.landing`), with its scratch files under `scratch_dir`, and `broadcast` whether it tells the listening review server's tabs what moved, which it does not for a server serving another checkout. `legacy_server` says the listening server predates the land protocol, so it writes the store and the journal without the store's lock and retention leaves both alone while it listens."""
+
     short_id: str
     first_run: bool
     carry_out: Path | None
@@ -1195,6 +1231,12 @@ class Plan:
     conform_max_length: int = CONFORM_MAX_LENGTH_DEFAULT
     review_out: Path | None = None
     corpus_dir: Path = REVIEW_OUT
+    update_corpus: Path = REVIEW_OUT
+    next_corpus: Path | None = None
+    seed_kept: bool = False
+    land: bool = False
+    broadcast: bool = True
+    legacy_server: bool = False
     complaints_note: str = ""
     retention: bool = False
     recipe_serves: bool = False
@@ -1210,7 +1252,7 @@ class Plan:
         return None
 
     def describe(self, name: str) -> str:
-        """Return the named step's banner text, for the two steps (corpus-promote and retention) that run in this process and never reach `_run_step`."""
+        """Return the named step's banner text, for the steps that run in this process and never reach `_run_step` (corpus-seed, store-snapshot and retention)."""
         step = self.step(name)
         return "" if step is None else step.describe
 
@@ -1221,6 +1263,10 @@ class Plan:
     def runs(self, name: str) -> bool:
         """Return whether the named step has a command line; a step the plan skipped has only a note."""
         return any(step.name == name and step.argv is not None for step in self.steps)
+
+    def includes(self, name: str) -> bool:
+        """Return whether the named step is in the plan and not skipped, for the steps that run in this process without a command line."""
+        return any(step.name == name and not step.skipped for step in self.steps)
 
     def argv(self, name: str) -> list[str]:
         """Return the named step's command line, raising ValueError for a step the plan skipped. `build_plan` is the only writer of step argvs, so the executor runs the command line the plan printed."""
@@ -1536,7 +1582,7 @@ def _conform_build_lane(
     ncores: int | None,
     total_bytes: int | None,
 ) -> tuple[str, int]:
-    """Return the build-lane step the conformance sweep runs beside, by plan step name, and the memory that step holds. The candidates are the corpus build (its parent plus `corpus_job_budget`'s workers) and the verdict-update step (the verdict update's process plus `standing_fill_jobs`' refill pool). The one this pass runs that holds more is returned, the corpus build on a tie, and `("", 0)` when the pass runs neither. Each figure comes from its own budget, so the memory the conformance sweep sets aside for that step matches the step's width. The conformance sweep can run beside either step: its lane is submitted when run_m1's gate passes, so it starts beside the corpus build, and the verdict-update step follows the build in the same lane, so a conformance sweep still running then, or one the queue policy starts late behind make-test, runs beside the verdict-update step."""
+    """Return the build-lane step the conformance sweep runs beside, by plan step name, and the memory that step holds. The candidates are the corpus build (its parent plus `corpus_job_budget`'s workers), and the verdict-update step (the verdict update's process plus `standing_fill_jobs`' refill pool). The land that follows them is not a candidate: it holds less than either (LAND_BYTES), which a test checks. The one this pass runs that holds more is returned, the corpus build on a tie, and `("", 0)` when the pass runs neither. Each figure comes from its own budget, so the memory the conformance sweep sets aside for that step matches the step's width. The conformance sweep can run beside either step: its lane is submitted when run_m1's gate passes, so it starts beside the corpus build, and the verdict-update step follows the build in the same lane, so a conformance sweep still running then, or one the queue policy starts late behind make-test, runs beside the verdict-update step."""
     steps: list[tuple[str, int]] = []
     if not skip_corpus:
         corpus_jobs = corpus_job_budget(
@@ -1791,6 +1837,8 @@ def build_plan(
     record_greens: bool = False,
     keep_history: bool = False,
     recipe_serves: bool = False,
+    scratch_dir: Path | None = None,
+    seed_kept: bool = False,
 ) -> Plan:
     do_carry = not no_carry and not first_run and not skip_verdict_update and not direct_merge
     resolved_carry_out: Path | None = None
@@ -1950,6 +1998,18 @@ def build_plan(
     corpus_dir = review_out if review_out is not None else REVIEW_OUT
     do_merge = (do_carry or direct_merge) and not no_merge and review_out is None
     do_retention = not keep_history and not first_run and review_out is None
+    live_pass = review_out is None and not first_run
+    next_corpus: Path | None = None
+    if live_pass and promote_corpus is not None:
+        next_corpus = promote_corpus
+    elif live_pass and not skip_corpus:
+        next_corpus = next_corpus_dir()
+    do_land = live_pass and (next_corpus is not None or do_merge)
+    land_dir: Path | None = None
+    if do_land:
+        land_dir = scratch_dir if scratch_dir is not None else cycle_paths.CYCLE_VAR / short_id
+        scratch_dir = land_dir
+    update_corpus = review_out if review_out is not None else (next_corpus or REVIEW_OUT)
 
     plan = Plan(
         short_id=short_id,
@@ -2004,6 +2064,11 @@ def build_plan(
         conform_max_length=conform_max_length,
         review_out=review_out,
         corpus_dir=corpus_dir,
+        update_corpus=update_corpus,
+        next_corpus=next_corpus,
+        seed_kept=seed_kept,
+        land=do_land,
+        scratch_dir=scratch_dir,
     )
 
     if skip_run_m1:
@@ -2040,16 +2105,14 @@ def build_plan(
             run_m1_argv += ["--fresh-oracle-cache"]
         plan.steps.append(Step("run_m1", run_m1_argv, run_m1_note, lane="build"))
 
+    if live_pass and not skip_corpus:
+        seed_note = (
+            f"keeps {next_corpus}, the complete corpus an earlier pass built beside the served one, as the build's seed"
+            if seed_kept
+            else f"clones rebuild/out/review to {next_corpus}, copy-on-write, as the build's seed"
+        )
+        plan.steps.append(Step("corpus-seed", None, seed_note, lane="build"))
     if skip_corpus:
-        if promote_corpus is not None:
-            plan.steps.append(
-                Step(
-                    "corpus-promote",
-                    None,
-                    f"moves {promote_corpus} into rebuild/out/review and deletes the corpus it replaces; the stores inside it arrive filled",
-                    lane="build",
-                )
-            )
         plan.steps.append(Step("corpus-build", None, f"SKIPPED ({corpus_note})", lane="build", skipped=True))
         if refresh_assets:
             plan.steps.append(
@@ -2061,19 +2124,10 @@ def build_plan(
                 )
             )
     else:
-        corpus_argv = [
-            "uv",
-            "run",
-            "python",
-            "-m",
-            "rebuild.review.build",
-            "--jobs",
-            str(corpus_jobs),
-            "--signature-jobs",
-            str(signature_jobs),
-        ]
-        if review_out is not None:
-            corpus_argv += ["--out", str(review_out)]
+        corpus_argv = ["uv", "run", "python", "-m", "rebuild.review.build"]
+        if not first_run or review_out is not None:
+            corpus_argv += ["--out", str(update_corpus)]
+        corpus_argv += ["--jobs", str(corpus_jobs), "--signature-jobs", str(signature_jobs)]
         if fresh:
             corpus_argv += ["--recompute-all-units"]
         plan.steps.append(Step("corpus-build", corpus_argv, lane="build"))
@@ -2087,6 +2141,18 @@ def build_plan(
     elif not AUTOSAVE.exists():
         plan.complaints_note = "no verdicts store"
 
+    snapshot = land_dir / landing.SNAPSHOT_NAME if land_dir is not None else None
+    prepared = land_dir / landing.PREPARED_NAME if land_dir is not None and do_merge else None
+    if do_land:
+        plan.steps.append(
+            Step(
+                "store-snapshot",
+                None,
+                f"copies the live store to {snapshot} under the store's lock, the point the land compares the saves made during the pass against"
+                + ("; the verdict update prepares a copy of it" if do_merge else ""),
+                lane="build",
+            )
+        )
     if verdict_update_step_note:
         plan.steps.append(Step("verdict-update", None, verdict_update_step_note, lane="build", skipped=True))
     else:
@@ -2097,13 +2163,29 @@ def build_plan(
             "-m",
             "rebuild.tools.verdict_update",
             "--corpus",
-            str(corpus_dir),
+            str(update_corpus),
         ]
+        master_is_store = verdicts is not None and Path(verdicts).resolve() == AUTOSAVE.resolve()
+        master_input = snapshot if snapshot is not None and master_is_store else verdicts
         if do_carry:
             assert resolved_carry_out is not None
-            verdict_update_argv += ["--verdicts", str(verdicts), "--carry-out", str(resolved_carry_out)]
+            verdict_update_argv += ["--verdicts", str(master_input)]
+            if snapshot is not None and not master_is_store and AUTOSAVE.exists():
+                verdict_update_argv += ["--verdicts", str(snapshot)]
+            verdict_update_argv += ["--carry-out", str(resolved_carry_out)]
         else:
-            verdict_update_argv += ["--merge-master", str(verdicts)]
+            verdict_update_argv += ["--merge-master", str(master_input)]
+        if prepared is not None:
+            verdict_update_argv += [
+                "--autosave",
+                str(prepared),
+                "--journal",
+                str(prepared.parent / "journal.ndjson"),
+            ]
+        if do_merge and update_corpus.parent != REVIEW_OUT.parent:
+            from rebuild.tools.standing_verdicts import MEMO_NAME
+
+            verdict_update_argv += ["--standing-memo", str(REVIEW_OUT.parent / MEMO_NAME)]
         if not do_merge:
             verdict_update_argv += ["--no-merge"]
         if plan.complaints_note:
@@ -2124,7 +2206,41 @@ def build_plan(
             )
         else:
             note = "carry -> merge -> duplicate fill -> standing fill -> the fills' fixpoint -> complaint list, in one process"
+        if prepared is not None:
+            note += f", into {prepared}, a copy of the store; the land puts it in place"
         plan.steps.append(Step("verdict-update", verdict_update_argv, note, lane="build"))
+
+    if land_dir is not None:
+        land_argv = [
+            "uv",
+            "run",
+            "python",
+            "-m",
+            "rebuild.review.landing",
+            "--autosave",
+            str(AUTOSAVE),
+            "--journal",
+            str(AUTOSAVE.with_name(journal.JOURNAL_NAME)),
+            "--run-dir",
+            str(land_dir),
+            "--corpus",
+            str(next_corpus or REVIEW_OUT),
+        ]
+        if prepared is not None:
+            land_argv += ["--prepared", str(prepared)]
+        if next_corpus is not None:
+            land_argv += ["--staged", str(next_corpus), "--live", str(REVIEW_OUT), "--keep-discard"]
+        land_argv += ["--tombstone-cutoff", retention_cutoff()]
+        if next_corpus is None:
+            land_note = "puts the prepared store in place under the verdict store's lock, with the saves made during the pass laid over it"
+        else:
+            store_part = (
+                "the prepared store"
+                if do_merge
+                else "an empty store stamped for it (the old one is stashed, as this pass carries nothing)"
+            )
+            land_note = f"swaps {next_corpus} in for rebuild/out/review and puts {store_part} in place with it, under the verdict store's lock, with the saves made during the pass laid over it; the review server keeps running"
+        plan.steps.append(Step("land", land_argv, land_note, lane="build"))
 
     if review_out is not None:
         plan.steps.append(
@@ -2308,12 +2424,72 @@ def resolve_short_id() -> str:
 
 
 def server_can_keep_running(*, skip_corpus: bool, writes_store: bool, promotes_corpus: bool = False) -> bool:
-    """Return whether a live review server can keep running through this pass. The app owns two things a cycle writes: the corpus's units and stamp (a rebuild rewrites every shard the tab reads by byte range, and restamps the manifest the tab's saves are keyed on) and the verdict store the app saves into. So the answer depends on the plan's writes, not on a skip flag. A pass that rewrites no units and merges nothing into the store (a --no-carry pass, a --no-merge carry over an unchanged corpus, a pass with no artifact work) writes neither, so the review server keeps running and the open tab keeps working for the whole run. An assets refresh is such a pass: it rewrites no shard and leaves `generated_at` unchanged, so the tab's store stays aligned, and the cycle then tells the tab to reload onto the new app files. A corpus promotion sets the same skip flag but replaces every shard and the stamp in one rename, so `promotes_corpus` requires stopping the review server even when the store is untouched. Everything else the cycle writes is outside the served tree (the review-facts pins, the m1 summaries, the carried file) or is read by the app only as status, which is meant to update during a pass."""
+    """Return whether a review server that predates the land protocol (`probe_server`'s `legacy`: no /capabilities) can keep running through this pass. Such a server takes no part in the land, so the answer depends on what the plan writes under it: the corpus's units and stamp, which the land swaps, and the verdict store the app saves into. A pass that moves no corpus and merges nothing into the store (a --no-carry pass, a --no-merge carry over an unchanged corpus, a pass with no artifact work, an assets refresh, which rewrites no shard and leaves `generated_at` unchanged) writes neither, so that server keeps running. A promotion sets the corpus skip flag but swaps in the staged corpus, so `promotes_corpus` requires stopping the server even when the store is untouched. A server that speaks the land protocol keeps running through every pass (`_preflight`)."""
     return skip_corpus and not promotes_corpus and not writes_store
 
 
+@dataclass(frozen=True)
+class ServerProbe:
+    """What listens on the review server's port, as `probe_server` classifies it. `kind` is `none` (nothing listens), `current` (a server from this checkout whose land-protocol code is the working tree's), `stale` (a server from this checkout running other code), `foreign` (a server from another checkout, whose root is `root`), `legacy` (a server that answers /capabilities with 404, from before the land protocol), or `unanswered` (a listener that gave no usable /capabilities answer in `CAPABILITIES_ATTEMPTS` tries, such as a current server stalled on a long request)."""
+
+    kind: str
+    root: str | None = None
+
+
+def probe_server() -> ServerProbe:
+    """Classify what listens on the review server's port from its /capabilities answer (`review_server.capabilities`), comparing its root with this checkout's and its code digest with the working tree's (`landing.code_digest`). A server whose digest differs was started from other code, possibly an intermediate commit, so the cycle never trusts it to run through a pass. Only a 404 marks a server from before the land protocol; a listener that does not answer is asked again, `CAPABILITIES_RETRY_S` apart, and is `unanswered` after `CAPABILITIES_ATTEMPTS` tries, because a current server can stall for seconds on a request that rewrites or sends the whole store."""
+    if not server_listening():
+        return ServerProbe("none")
+    answer = capabilities()
+    for _attempt in range(CAPABILITIES_ATTEMPTS - 1):
+        if answer is not None:
+            break
+        time.sleep(CAPABILITIES_RETRY_S)
+        answer = capabilities()
+    if answer == NO_CAPABILITIES:
+        return ServerProbe("legacy")
+    if not isinstance(answer, dict) or not isinstance(answer.get("land_protocol"), int):
+        return ServerProbe("unanswered")
+    root = answer.get("root")
+    if not isinstance(root, str) or Path(root).resolve() != ROOT.resolve():
+        return ServerProbe("foreign", root if isinstance(root, str) else None)
+    if answer["land_protocol"] != landing.LAND_PROTOCOL or answer.get("code") != landing.code_digest(
+        ROOT / "rebuild" / "review"
+    ):
+        return ServerProbe("stale", root)
+    return ServerProbe("current", root)
+
+
+def start_review_server() -> None:
+    """Start the review server detached from this pass, as `make review-cycle SERVE=bg` does: its own session, so it outlives the pass and the shell that started it, with its output in tmp/review-serve.log."""
+    log = ROOT / "tmp" / "review-serve.log"
+    log.parent.mkdir(parents=True, exist_ok=True)
+    with log.open("wb") as out:
+        subprocess.Popen(
+            ["uv", "run", "python", "-m", "rebuild.review.serve"],
+            cwd=ROOT,
+            stdin=subprocess.DEVNULL,
+            stdout=out,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+        )
+
+
+def restart_review_server(timeout: float | None = None) -> bool:
+    """Stop a review server that runs older code and start one on the working tree's (`start_review_server`), then wait up to `timeout` seconds (`SERVER_START_TIMEOUT` by default) for its /capabilities to answer as `current`. Open tabs keep their unconfirmed saves in their outbox and send them again once it answers. Returns False when the old server would not stop or the new one did not come up."""
+    if not stop_review_server():
+        return False
+    start_review_server()
+    deadline = time.monotonic() + (SERVER_START_TIMEOUT if timeout is None else timeout)
+    while time.monotonic() < deadline:
+        if probe_server().kind == "current":
+            return True
+        time.sleep(0.5)
+    return False
+
+
 def stop_review_server(timeout: float = SERVER_STOP_TIMEOUT) -> bool:
-    """Stop the review server and wait for port 7294 to come free, so the corpus rewrite that follows cannot race a live reader. Returns False when something is still listening at the deadline (a server started another way, or one stuck in shutdown); the caller then reports it and does not build."""
+    """Stop the review server and wait for port 7294 to come free: before a pass that writes under a server that predates the land protocol, and before `restart_review_server` starts one on the working tree's code. Returns False when something is still listening at the deadline (a server started another way, or one stuck in shutdown); the caller then reports it and does not run the pass."""
     subprocess.run(["pkill", "-f", SERVER_STOP_PATTERN], check=False, capture_output=True)
     deadline = time.monotonic() + timeout
     while server_listening():
@@ -2342,7 +2518,7 @@ def _render_concurrency(plan: Plan) -> list[str]:
         "",
         f"  Concurrency (pool policy: {plan.pool_policy}):",
         f"    Lane t0   [from t=0, background]  : {t0_lane}",
-        "    Lane build[serial, main thread]  : run_m1 -> submit gate:rebuild-contracts -> corpus-build -> verdict-update -> review-facts",
+        "    Lane build[serial, main thread]  : run_m1 -> submit gate:rebuild-contracts -> corpus-seed -> corpus-build -> store-snapshot -> verdict-update -> land -> review-facts",
     ]
     if plan.skip_conform:
         lines.append(
@@ -2486,7 +2662,11 @@ class CycleReport:
     corpus_batches: int | None = None
     duplicate_groups: int | None = None
     assets_status: str = "not run"
-    promote_status: str = "not run"
+    seed_status: str = "not run"
+    snapshot_status: str = "not run"
+    land_status: str = "not run"
+    land: dict | None = None
+    land_started: float | None = None
     carry_out: Path | None = None
     carry_lines: list[str] = field(default_factory=list)
     carry_counts: dict[str, int] | None = None
@@ -2534,11 +2714,12 @@ _Emitter = console.CycleConsole
 
 
 class _ChildRegistry:
-    """Thread-safe set of live subprocesses, so a Ctrl-C or any signal `stop_signals` catches can terminate and reap every child."""
+    """Thread-safe set of live subprocesses, so a Ctrl-C or any signal `stop_signals` catches can terminate and reap every child. A child added as uninterruptible (the land, which moves the corpus and the store together) is never signaled: `terminate_all` waits for it to finish, however long that takes."""
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._children: set[subprocess.Popen] = set()
+        self._uninterruptible: set[subprocess.Popen] = set()
         self._closed = False
         self.killed_count = 0
 
@@ -2547,23 +2728,31 @@ class _ChildRegistry:
         with self._lock:
             return self._closed
 
-    def add(self, proc: subprocess.Popen) -> bool:
-        """Track a live child. Return False once terminate_all has run, so a thread that unblocks after a stop (a queue-policy gate task waiting on an earlier gate's future) never leaves a new subprocess untracked. The caller terminates that child instead."""
+    def add(self, proc: subprocess.Popen, *, uninterruptible: bool = False) -> bool:
+        """Track a live child. Return False once terminate_all has run, so a thread that unblocks after a stop (a queue-policy gate task waiting on an earlier gate's future) never leaves a new subprocess untracked. The caller terminates that child instead, or waits for an uninterruptible one."""
         with self._lock:
             if self._closed:
                 return False
-            self._children.add(proc)
+            (self._uninterruptible if uninterruptible else self._children).add(proc)
             return True
 
     def remove(self, proc: subprocess.Popen) -> None:
         with self._lock:
             self._children.discard(proc)
+            self._uninterruptible.discard(proc)
+
+    def waits_for_uninterruptible(self) -> bool:
+        """Return whether an uninterruptible child is still running, so the caller can say it is waiting for it before `terminate_all` does."""
+        with self._lock:
+            return any(proc.poll() is None for proc in self._uninterruptible)
 
     def terminate_all(self) -> None:
         with self._lock:
             self._closed = True
             children = list(self._children)
+            steady = list(self._uninterruptible)
             self._children.clear()
+            self._uninterruptible.clear()
         for proc in children:
             if proc.poll() is None:
                 proc.terminate()
@@ -2574,6 +2763,8 @@ class _ChildRegistry:
                 proc.kill()
                 proc.wait()
             self.killed_count += 1
+        for proc in steady:
+            proc.wait()
 
 
 STOP_SIGNALS = (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)
@@ -2589,7 +2780,7 @@ class CycleStopped(KeyboardInterrupt):
 
 @contextlib.contextmanager
 def stop_signals() -> Iterator[None]:
-    """Turn SIGINT, SIGTERM and SIGHUP into `CycleStopped` for the length of a pass. Every child stays in the cycle's process group, so a signal sent to the group reaches them directly. The handler is for a signal that reaches only the driver, such as `kill` on `make`, which passes SIGTERM to its recipe, whose `uv run` passes it on. Without the handler the driver would exit and leave its children running.
+    """Turn SIGINT, SIGTERM and SIGHUP into `CycleStopped` for the length of a pass. Every child but the land stays in the cycle's process group, so a signal sent to the group reaches them directly; the land runs in its own session and is waited for (`_ChildRegistry`). The handler is for a signal that reaches only the driver, such as `kill` on `make`, which passes SIGTERM to its recipe, whose `uv run` passes it on. Without the handler the driver would exit and leave its children running.
 
     Only the first signal raises and later ones are ignored, because a group signal can arrive more than once (directly, and again as `uv run` forwards it, which it does for every signal but a first SIGINT) and a repeat must not interrupt the cleanup the first started. A signal that was ignored when the pass started stays ignored, so a pass under `nohup` outlives its shell. Only the main thread can install handlers, so on any other thread this installs none. The previous handlers are restored on exit.
     """
@@ -2628,15 +2819,18 @@ class _StepResult:
     peak_rss_bytes: int | None = None
 
 
-def _terminate_child(proc: subprocess.Popen) -> None:
-    """Terminate one child (SIGTERM, 3 s grace, then SIGKILL) and close its pipes. This handles the race where the registry is torn down between a `Popen` and its `registry.add`."""
-    if proc.poll() is None:
-        proc.terminate()
-    try:
-        proc.wait(timeout=3)
-    except subprocess.TimeoutExpired:
-        proc.kill()
+def _terminate_child(proc: subprocess.Popen, *, uninterruptible: bool = False) -> None:
+    """Terminate one child (SIGTERM, 3 s grace, then SIGKILL) and close its pipes, or, for an uninterruptible child, wait for it to finish. This handles the race where the registry is torn down between a `Popen` and its `registry.add`."""
+    if uninterruptible:
         proc.wait()
+    else:
+        if proc.poll() is None:
+            proc.terminate()
+        try:
+            proc.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
     for pipe in (proc.stdout, proc.stderr):
         if pipe is not None:
             pipe.close()
@@ -2650,12 +2844,13 @@ def _run_step(
     registry: _ChildRegistry,
     stream: bool,
     env: dict[str, str] | None = None,
+    uninterruptible: bool = False,
 ) -> _StepResult:
     """Run one child to completion, passing every line of both pipes to the console, which logs each line and shows the ones that matter. This opens the step's banner but does not close it: the caller closes it with `_close_step` once it has read the step's detail from the files the child wrote. `env`, when given, is overlaid on this process's environment for this child only.
 
     `stream` also sends the child's unparsed lines to the terminal. Only the job-costs diff uses it, because it is the one child output a person must read to act on. Other child output reaches the terminal only as console events, and every line reaches the log, so a failed step's full output is replayed under its banner.
 
-    When the registry has been torn down, a stop signal has already arrived, so the child is not started (or is terminated at once), no banner opens, and the result's return code is 130. The child stays in the cycle's process group, so a signal sent to that group reaches it and everything it spawns.
+    When the registry has been torn down, a stop signal has already arrived, so the child is not started (or is terminated at once), no banner opens, and the result's return code is 130. The child stays in the cycle's process group, so a signal sent to that group reaches it and everything it spawns. An `uninterruptible` child (the land) starts its own session instead, so neither a Ctrl-C at the terminal nor a signal to the group reaches it, and the registry waits for it rather than signaling it. It also inherits the pass lock's descriptor when this process holds the lock (`pass_lock`), so a driver that dies while its land runs does not let the next pass start before the land has finished.
     """
     if registry.closed:
         return _StepResult(name, 130, "", "", 0.0)
@@ -2668,9 +2863,11 @@ def _run_step(
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         bufsize=1,
+        start_new_session=uninterruptible,
+        pass_fds=tuple(_held_pass_lock) if uninterruptible else (),
     )
-    if not registry.add(proc):
-        _terminate_child(proc)
+    if not registry.add(proc, uninterruptible=uninterruptible):
+        _terminate_child(proc, uninterruptible=uninterruptible)
         return _StepResult(name, 130, "", "", 0.0)
     substep_of = SUBSTEP_PARENTS.get(name)
     if substep_of is None:
@@ -2844,7 +3041,7 @@ def _served_generated_at() -> str | None:
 
 
 def _broadcast_review_reload(emit: console.CycleConsole, step: str, kind: str) -> None:
-    """Tell the tabs open on a listening review server that what it serves changed, with the served manifest's value for `kind`: `ams:corpus/<generated_at>` once a pass that moved the served corpus (a promotion or an in-place build) has run its verdict update, so the tabs land on a corpus whose store the carry has already written, and `ams:assets/<static hash>` after an assets refresh. The app sends its unsaved changes and reloads when the reader is not typing (rebuild/review/static/reload.js). With no server listening, or a manifest that does not name the value, nothing is sent, and a tab moves on its next save or status check instead. The rebuild suite switches it off with `cycle_paths.REVIEW_RELOAD_ENABLED`, because it goes to the live port."""
+    """Tell the tabs open on a listening review server that what it serves changed, with the served manifest's value for `kind`: `ams:corpus/<generated_at>` once a pass's land has moved the served corpus and its store together, so the tabs move onto a corpus whose store is already on it, and `ams:assets/<static hash>` after an assets refresh. The app sends its unsaved changes and reloads when the reader is not typing (rebuild/review/static/reload.js). With no server listening, or a manifest that does not name the value, nothing is sent, and a tab moves on its next save or status check instead. The rebuild suite switches it off with `cycle_paths.REVIEW_RELOAD_ENABLED`, because it goes to the live port."""
     if not cycle_paths.REVIEW_RELOAD_ENABLED:
         return
     manifest = _served_manifest()
@@ -2872,31 +3069,136 @@ def _do_assets_refresh(
         _close_step(emit, report, "assets-refresh", result)
         return False
     report.assets_status = "refreshed in place (units, sidecars and generated_at unmoved)"
-    _broadcast_review_reload(emit, "assets-refresh", "assets")
+    if plan.broadcast:
+        _broadcast_review_reload(emit, "assets-refresh", "assets")
     _close_step(emit, report, "assets-refresh", result)
     return True
 
 
-def _do_promote_corpus(report: CycleReport, *, emit: console.CycleConsole, plan: Plan) -> bool:
-    """Move a staged corpus into place, in this process, on a pass whose plan found one that reproduces these inputs byte for byte. It runs in place of the corpus build, which then reports itself skipped over the promoted manifest. The move replaces every shard and the manifest stamp, so a promoting pass never keeps the review server running; a server left listening by `--yes` is sent the new stamp after the verdict update (`_broadcast_review_reload`), so its tabs move onto the promoted corpus once the carry has written the store for it."""
-    assert plan.promote_corpus is not None
-    emit.step_start("corpus-promote", None, plan.describe("corpus-promote"))
+def _in_process_step(
+    report: CycleReport, emit: console.CycleConsole, plan: Plan, name: str, work
+) -> str | None:
+    """Run one in-process step between its banner and its closing line, and return its detail, or None when `work` raised, which is reported as the step's failure. The step's seconds and return code are recorded as a spawned step's are."""
+    emit.step_start(name, None, plan.describe(name))
     started = time.perf_counter()
     try:
-        promote_corpus(plan.promote_corpus, REVIEW_OUT)
+        detail = work()
     except Exception as exc:
-        report.step_seconds["corpus-promote"] = time.perf_counter() - started
-        report.step_returncodes["corpus-promote"] = 1
-        report.promote_status = f"FAILED ({exc!r})"
-        emit.note("corpus-promote", f"ERROR: could not move {plan.promote_corpus} into place: {exc!r}")
-        emit.step_end("corpus-promote", None, "FAILED", "")
-        return False
-    report.step_seconds["corpus-promote"] = time.perf_counter() - started
-    report.promote_status = (
-        f"moved {plan.promote_corpus} into place (stores filled, generated_at the staged corpus's)"
+        report.step_seconds[name] = time.perf_counter() - started
+        report.step_returncodes[name] = 1
+        emit.note(name, f"ERROR: {exc!r}")
+        emit.step_end(name, None, "FAILED", repr(exc))
+        return None
+    report.step_seconds[name] = time.perf_counter() - started
+    emit.step_end(name, None, "ok", detail)
+    return detail
+
+
+def _do_corpus_seed(report: CycleReport, *, emit: console.CycleConsole, plan: Plan) -> bool:
+    """Give the corpus build its seed at `review.next`: the complete tree an earlier pass left there when the plan kept it, and otherwise a copy-on-write clone of the served corpus (`landing.clone_tree`). The build then reads its prior shards, unit store and signature store from the seed and writes only the clone's blocks, so nothing the open tab reads changes until the land."""
+    assert plan.next_corpus is not None
+
+    def seed() -> str:
+        target = plan.next_corpus
+        assert target is not None
+        if plan.seed_kept and corpus_complete(target):
+            return f"kept {target}, the corpus an earlier pass built, as the seed"
+        shutil.rmtree(target, ignore_errors=True)
+        how = landing.clone_tree(REVIEW_OUT, target)
+        return f"{'cloned' if how == 'clone' else 'copied'} rebuild/out/review to {target}"
+
+    detail = _in_process_step(report, emit, plan, "corpus-seed", seed)
+    report.seed_status = detail if detail is not None else "FAILED"
+    return detail is not None
+
+
+def _do_store_snapshot(report: CycleReport, *, emit: console.CycleConsole, plan: Plan) -> bool:
+    """Copy the live store into the pass's scratch directory as the snapshot and the store the verdict update prepares (`landing.snapshot`), holding the store's lock for the copy."""
+    assert plan.scratch_dir is not None
+    scratch = plan.scratch_dir
+
+    def take() -> str:
+        stamp = landing.snapshot(AUTOSAVE, scratch)
+        return "no verdict store yet" if stamp is None else f"snapshot of the store on {stamp}"
+
+    detail = _in_process_step(report, emit, plan, "store-snapshot", take)
+    report.snapshot_status = detail if detail is not None else "FAILED"
+    return detail is not None
+
+
+def _land_report(plan: Plan) -> dict | None:
+    if plan.scratch_dir is None:
+        return None
+    try:
+        data = json.loads((plan.scratch_dir / landing.REPORT_NAME).read_text())
+    except OSError, ValueError:
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def land_detail(data: dict) -> str:
+    """Return the land row's detail from the report the land wrote: the stamp it landed and what it laid over, orphaned and dropped."""
+    parts = [f"landed {console.fmt_count(data.get('records') or 0)} verdicts on {data.get('new_stamp')}"]
+    for key, label in (
+        ("overlaid", "laid over from saves made during the pass"),
+        ("orphaned", "orphaned"),
+        ("skips_dropped", "skips dropped"),
+    ):
+        if data.get(key):
+            parts.append(f"{console.fmt_count(data[key])} {label}")
+    if data.get("locked_s") is not None:
+        parts.append(f"store locked {data['locked_s']:.1f} s")
+    return ", ".join(parts)
+
+
+def _do_land(
+    report: CycleReport, *, spawn, emit: console.CycleConsole, registry: _ChildRegistry, plan: Plan
+) -> dict | None:
+    """Run the land as its own child (`rebuild.review.landing`), which neither a Ctrl-C nor a signal to the cycle's group reaches, and which the registry waits for rather than signals. Returns the report the land wrote when it landed, and None when it aborted or failed. A land that died inside its locked section leaves an intent file; the cycle finishes that land at once, holding the store's lock, so the pass never ends with a half-moved corpus or store (`landing.finish_interrupted_land`)."""
+    report.land_started = time.monotonic()
+    result = spawn(
+        "land", plan.argv("land"), emit=emit, registry=registry, stream=False, uninterruptible=True
     )
-    emit.step_end("corpus-promote", None, "ok", report.promote_status)
-    return True
+    data = _land_report(plan)
+    if result.returncode == 0 and data is not None and data.get("landed"):
+        report.land = data
+        report.land_status = land_detail(data)
+        _close_step(emit, report, "land", result)
+        return data
+    if landing.intent_path_for(AUTOSAVE).exists():
+        recovery = landing.finish_interrupted_land(AUTOSAVE, quiet=True)
+        if recovery is not None:
+            emit.note("land", f"{recovery.message}, under the verdict store's lock")
+    reason = (data or {}).get("reason") or f"exit {result.returncode}"
+    report.land_status = f"FAILED ({reason})"
+    emit.note("land", f"ERROR: the land did not complete: {reason}")
+    _close_step(emit, report, "land", result, "FAILED")
+    return None
+
+
+def _delete_discard(landed: dict | None) -> None:
+    """Delete the tree a land swapped out (`landing.land`'s `keep_discard`), once the open tabs have been told to move off it. A delete cut short leaves it under its discard name, which the next pass's `recover_next_corpus` deletes."""
+    discard = (landed or {}).get("discard")
+    if isinstance(discard, str) and discard:
+        shutil.rmtree(discard, ignore_errors=True)
+
+
+def _settle_interrupted_land(
+    report: CycleReport, plan: Plan, emit: console.CycleConsole, served_before: str | None
+) -> None:
+    """Finish what a pass owes a land that a stop signal did not reach, once the registry has waited for it: record it on the report when it landed, so the summary reads it as run, tell the open tabs to move when the served corpus changed and no broadcast has gone out, and delete the tree it swapped out."""
+    if report.land_started is None:
+        return
+    if report.land is None:
+        data = _land_report(plan)
+        if data is not None and data.get("landed"):
+            report.land = data
+            report.land_status = land_detail(data)
+            report.step_seconds["land"] = time.monotonic() - report.land_started
+            report.step_returncodes["land"] = 0
+    if plan.review_out is None and plan.broadcast and _served_generated_at() != served_before:
+        _broadcast_review_reload(emit, "land", "corpus")
+    _delete_discard(report.land)
 
 
 def _do_corpus_build(
@@ -3486,6 +3788,7 @@ def _run_cycle(
     spawn = _timed_spawn(spawn, report)
     pool = ThreadPoolExecutor(max_workers=_GATE_POOL_WORKERS)
     failures: list[str] = []
+    served_before: str | None = None
     try:
         js_fut = (
             None
@@ -3587,37 +3890,37 @@ def _run_cycle(
                 plan.argv("gate:rebuild-contracts"),
             )
 
-        served_before = _served_generated_at() if plan.review_out is None else None
-        if plan.promote_corpus is not None and not _do_promote_corpus(report, emit=emit, plan=plan):
-            failures.append("corpus promotion failed")
+        def stop_here(failure: str) -> int:
+            failures.append(failure)
             _join_gates(report, failures, js_fut, contracts_fut, conform_fut, make_fut, emit, timings)
             _record_gate_greens(report, plan, gate_keys, emit)
             return _finish(report, failures, plan, timings, emit)
 
+        served_before = _served_generated_at() if plan.review_out is None else None
+        if plan.includes("corpus-seed") and not _do_corpus_seed(report, emit=emit, plan=plan):
+            return stop_here("corpus seed failed")
+
         if plan.runs("assets-refresh") and not _do_assets_refresh(
             report, spawn=spawn, emit=emit, registry=registry, plan=plan
         ):
-            failures.append("assets refresh failed")
-            _join_gates(report, failures, js_fut, contracts_fut, conform_fut, make_fut, emit, timings)
-            _record_gate_greens(report, plan, gate_keys, emit)
-            return _finish(report, failures, plan, timings, emit)
+            return stop_here("assets refresh failed")
 
         if not _do_corpus_build(
             report,
             spawn=spawn,
             emit=emit,
             registry=registry,
-            review_out=plan.review_out,
+            review_out=plan.update_corpus,
             argv=None if plan.skip_corpus else plan.argv("corpus-build"),
             skip=plan.skip_corpus,
             skip_note=plan.corpus_note,
         ):
-            failures.append("corpus rebuild failed")
-            _join_gates(report, failures, js_fut, contracts_fut, conform_fut, make_fut, emit, timings)
-            _record_gate_greens(report, plan, gate_keys, emit)
-            return _finish(report, failures, plan, timings, emit)
+            return stop_here("corpus rebuild failed")
 
-        verdict_update_key: str | None = None
+        if plan.includes("store-snapshot") and not _do_store_snapshot(report, emit=emit, plan=plan):
+            return stop_here("store snapshot failed")
+
+        verdict_update_failures: list[str] = []
         if plan.skip_verdict_update:
             _skip_verdict_update(report, plan, emit)
         elif plan.runs("verdict-update"):
@@ -3625,17 +3928,46 @@ def _run_cycle(
                 report, spawn=spawn, emit=emit, registry=registry, plan=plan
             )
             failures.extend(verdict_update_failures)
-            if not verdict_update_failures and plan.do_merge and _verdict_update_settled(report):
-                verdict_update_key = verdict_update_skip_fingerprint(ROOT, REVIEW_OUT, plan.verdicts)
-        if plan.review_out is None and _served_generated_at() != served_before:
-            moved_by = "corpus-promote" if plan.promote_corpus is not None else "corpus-build"
-            _broadcast_review_reload(emit, moved_by, "corpus")
+        landed: dict | None = None
+        if plan.runs("land"):
+            if verdict_update_failures:
+                report.land_status = "not run (the verdict update failed)"
+                emit.step_not_run("land", "the verdict update failed, so nothing moves")
+            else:
+                landed = _do_land(report, spawn=spawn, emit=emit, registry=registry, plan=plan)
+                if landed is None:
+                    failures.append("land failed")
+        if plan.review_out is None and plan.broadcast and _served_generated_at() != served_before:
+            _broadcast_review_reload(emit, "land" if plan.runs("land") else "corpus-build", "corpus")
+            served_before = _served_generated_at()
+        _delete_discard(landed)
+        verdict_update_key: str | None = None
+        if (
+            plan.runs("verdict-update")
+            and not verdict_update_failures
+            and plan.do_merge
+            and _verdict_update_settled(report)
+            and landed is not None
+            and not landed.get("overlaid")
+            and plan.scratch_dir is not None
+        ):
+            verdict_update_key = verdict_update_skip_fingerprint(
+                ROOT, REVIEW_OUT, plan.verdicts, store=plan.scratch_dir / landing.LANDED_NAME
+            )
         if plan.complaints_note:
             report.complaints_status = f"skipped ({plan.complaints_note})"
         if plan.review_out is not None:
             report.facts_status = "skipped (staging: the checked-in pins track the live corpus)"
             report.ledger_coverage = "skipped (staging)"
             emit.step_skipped("review-facts", "staging: the checked-in pins track the live corpus")
+        elif plan.next_corpus is not None and landed is None:
+            report.facts_status = (
+                "not run (the new corpus did not land, so the pins keep the served corpus's review facts)"
+            )
+            report.ledger_coverage = "not computed (the new corpus did not land)"
+            emit.step_not_run(
+                "review-facts", "the new corpus did not land, so the served corpus's review facts stand"
+            )
         else:
             _do_review_facts(report, spawn=spawn, emit=emit, registry=registry, plan=plan)
         if (
@@ -3651,8 +3983,14 @@ def _run_cycle(
         _do_job_costs(report, spawn=spawn, emit=emit, registry=registry, plan=plan)
         return _finish(report, failures, plan, timings, emit)
     except KeyboardInterrupt as stop:
+        if registry.waits_for_uninterruptible():
+            emit.note(
+                "land",
+                "waiting for the land to finish: it moves the corpus and the verdict store together and is never stopped halfway",
+            )
         registry.terminate_all()
         pool.shutdown(wait=False, cancel_futures=True)
+        _settle_interrupted_land(report, plan, emit, served_before)
         report.interrupted = True
         signum = stop.signum if isinstance(stop, CycleStopped) else signal.SIGINT
         return _finish_interrupted(
@@ -3745,8 +4083,12 @@ def step_detail(report: CycleReport, name: str) -> str:
         return ", ".join(parts)
     if name == "assets-refresh":
         return prose(report.assets_status)
-    if name == "corpus-promote":
-        return prose(report.promote_status)
+    if name == "corpus-seed":
+        return prose(report.seed_status)
+    if name == "store-snapshot":
+        return prose(report.snapshot_status)
+    if name == "land":
+        return prose(report.land_status)
     if name == "verdict-update":
         head = carry_detail(report.carry_lines)
         if not head:
@@ -3966,7 +4308,10 @@ def cycle_summary_payload(report: CycleReport, failures: list[str], plan: Plan, 
         "corpus_rows": report.corpus_rows,
         "corpus_batches": report.corpus_batches,
         "assets_status": report.assets_status,
-        "promote_status": report.promote_status,
+        "seed_status": report.seed_status,
+        "snapshot_status": report.snapshot_status,
+        "land_status": report.land_status,
+        "land": report.land,
         "duplicate_groups": report.duplicate_groups,
         "carry_out": _as_str(report.carry_out),
         "carry_lines": list(report.carry_lines),
@@ -4013,6 +4358,8 @@ def cycle_summary_payload(report: CycleReport, failures: list[str], plan: Plan, 
             "skip_corpus": plan.skip_corpus,
             "refresh_assets": plan.refresh_assets,
             "promote_corpus": _as_str(plan.promote_corpus),
+            "next_corpus": _as_str(plan.next_corpus),
+            "land": plan.land,
             "skip_contracts": plan.skip_contracts,
             "skip_verdict_update": plan.skip_verdict_update,
             "review_out": _as_str(plan.review_out),
@@ -4048,19 +4395,71 @@ def _emit_cycle_summary(
         timings.finish(payload)
 
 
-def _preflight(args: argparse.Namespace, *, can_keep_running: bool = False) -> bool:
+def _preflight(
+    args: argparse.Namespace, *, can_keep_running: bool = False, probe: ServerProbe | None = None
+) -> bool:
+    """Decide what happens to a listening review server before the pass, and return whether the pass may run. A staging pass writes nothing the server reads and skips the check. A server from this checkout that speaks the land protocol with the working tree's code keeps running through every pass, and one running other code is restarted on the tree's code first (`restart_review_server`) when the pass writes under it, and otherwise keeps running. A server serving another checkout is left alone. A listener that gave no /capabilities answer (`unanswered`) is never stopped: a pass that writes nothing under it runs beside it, and any other refuses, since it cannot tell a stalled current server from anything else. `can_keep_running` (`server_can_keep_running`) says whether the pass writes under the server. A server from before the land protocol keeps running only when it is set; otherwise `--stop-server` stops it once, `--yes` runs beside it, and a bare run refuses. `probe` is `probe_server`'s answer when the caller already has it."""
     if args.review_out is not None:
         print(
             f"Staging pass: corpus writes redirected to {args.review_out}; the live corpus at rebuild/out/review is never written."
         )
         return True
-    if not server_listening():
+    if probe is None:
+        probe = probe_server()
+    if probe.kind == "none":
         return True
+    if probe.kind == "current":
+        print(
+            "The review server keeps running: it lands this pass's corpus and verdict store with it, and the open tabs move onto them by themselves."
+        )
+        return True
+    if probe.kind == "foreign":
+        print(
+            f"A review server for another checkout ({probe.root}) is listening on 127.0.0.1:{REVIEW_PORT}; this pass leaves it alone and sends its tabs nothing."
+        )
+        return True
+    if probe.kind == "unanswered":
+        if can_keep_running:
+            print(
+                f"The review server keeps running: it gave no /capabilities answer, and this pass {SERVER_KEEPS_RUNNING_NOTE}."
+            )
+            return True
+        print("=" * 68)
+        print(
+            f"REFUSING TO RUN: something listens on 127.0.0.1:{REVIEW_PORT} but gave no /capabilities answer "
+            f"in {CAPABILITIES_ATTEMPTS} tries, so this pass cannot tell whether it may keep running and "
+            "stops nothing."
+        )
+        print(
+            "Re-run once it answers: a review server busy with a long request answers again within seconds."
+        )
+        print("=" * 68)
+        return False
+    if probe.kind == "stale":
+        if can_keep_running:
+            print(
+                f"The review server runs older code than this checkout and keeps running: this pass {SERVER_KEEPS_RUNNING_NOTE}. The next pass that writes under it restarts it on this tree's code."
+            )
+            return True
+        print("The review server runs older code than this checkout; restarting it on this tree's code.")
+        if restart_review_server():
+            print("The review server is back on this tree's code and keeps running through the pass.")
+            return True
+        print("=" * 68)
+        print(
+            f"REFUSING TO RUN: the review server on 127.0.0.1:{REVIEW_PORT} did not come back on this "
+            f"tree's code within {SERVER_START_TIMEOUT:.0f}s (log: tmp/review-serve.log)."
+        )
+        print("Start it by hand (make review-serve) and re-run.")
+        print("=" * 68)
+        return False
     if can_keep_running:
         print(f"The review server keeps running: this pass {SERVER_KEEPS_RUNNING_NOTE}.")
         return True
     if args.stop_server:
-        print("Stopping the review server: this pass writes the corpus or the verdict store under it.")
+        print(
+            "Stopping the review server: it predates the land protocol, and this pass writes the corpus or the verdict store under it. A server started from this checkout keeps running through every pass, so this is the last stop a pass needs."
+        )
         if stop_review_server():
             return True
         print("=" * 68)
@@ -4073,25 +4472,22 @@ def _preflight(args: argparse.Namespace, *, can_keep_running: bool = False) -> b
         return False
     if args.yes:
         print("=" * 68)
-        print("WARNING: a review server is listening on 127.0.0.1:7294.")
-        print("Proceeding with --yes. The in-place corpus rebuild will restamp the")
-        print("manifest and rewrite the shards under the open review tabs. AFTER this")
-        print("cycle:")
+        print("WARNING: a review server from before the land protocol is listening on")
+        print("127.0.0.1:7294. Proceeding with --yes. This pass swaps the corpus and the")
+        print("verdict store under the open review tabs. AFTER this cycle:")
         print("  1. restart the review server:  uv run python -m rebuild.review.serve")
-        print("  2. open tabs move onto the rebuilt corpus by themselves on their next")
-        print("     save or status check (the carried verdicts are merged into the")
-        print("     autosave automatically).")
+        print("  2. open tabs move onto the new corpus by themselves on their next")
+        print("     save or status check.")
         print("=" * 68)
         return True
     print("=" * 68)
-    print("REFUSING TO RUN: a review server is listening on 127.0.0.1:7294.")
-    print("The in-place corpus rebuild would strand your live verdicting session")
-    print("(the rebuild rewrites the shards the tab reads and restamps the manifest")
-    print("its saves are keyed on). Before re-running:")
-    print("  1. in the review app, export or confirm the autosave of your verdicts")
-    print(r"  2. stop the review server:  pkill -f 'rebuild\.review\.serve'")
+    print("REFUSING TO RUN: a review server from before the land protocol is listening")
+    print("on 127.0.0.1:7294, and this pass swaps the corpus and the verdict store")
+    print("under it. Restart it once on this checkout's code and it keeps running")
+    print("through every later pass. Before re-running:")
+    print(r"  1. stop the review server:  pkill -f 'rebuild\.review\.serve'")
     print("     (or pass --stop-server and let this command stop it for you)")
-    print("  3. re-run this command (or pass --yes to override at your own risk)")
+    print("  2. re-run this command (or pass --yes to override at your own risk)")
     print("  (or pass --review-out <dir> for a staging pass that never touches the live corpus)")
     print("=" * 68)
     return False
@@ -4189,7 +4585,7 @@ def _retention_detail(removed: list[str], intact: list[str], journal_state: str)
 
 
 def run_retention(plan: Plan) -> RetentionResult:
-    """Prune stale carried files, build logs, autosave stashes, and old journal history after a green pass, and return the summary lines and detail. It returns the lines instead of printing them so they appear in the summary block below the table. Stashes and the journal are left alone while the review server is listening: the server answers a save with a 503 while retention holds the verdict store's lock, and the app sends the save a closing tab could not finish again only when it is next opened. Otherwise the stash sweep and the compaction read the journal without that lock and take it only for the tail appended since, the deletions, and the journal's replacement (`prune_stashes`, `journal.compact_prepare`, `journal.compact_finish`), so another writer (a merge, a re-key) waits for at most that long; a lock still held after `RETENTION_LOCK_TIMEOUT_S` leaves that part for a later pass."""
+    """Prune stale carried files, build logs, autosave stashes, and old journal history after a green pass, and return the summary lines and detail. It returns the lines instead of printing them so they appear in the summary block below the table. The stash sweep and the compaction read the journal without the verdict store's lock and take it only for the tail appended since, the deletions, and the journal's replacement (`prune_stashes`, `journal.compact_prepare`, `journal.compact_finish`), so another writer (the review server, a merge, a re-key) waits for at most that long; the server answers a save made in that window with a retryable 503, as it does during a land. Every append holds the lock, so no line can fall between the scan and the replacement. A lock still held after `RETENTION_LOCK_TIMEOUT_S` leaves that part for a later pass. A review server from before the land protocol (`Plan.legacy_server`) appends to the journal and moves stashes without the lock, so while one listens the stashes and the journal are left for a later pass."""
     from rebuild.review import journal
 
     def rel(path: Path) -> str:
@@ -4228,19 +4624,19 @@ def run_retention(plan: Plan) -> RetentionResult:
     )
 
     journal_path = ROOT / journal.JOURNAL_NAME
-    if server_listening():
+    if plan.legacy_server and server_listening():
         lines.append(
-            "  stashes   : left intact (the review server is up, and the index of which ones are still referenced comes from the journal this pass is leaving alone)"
+            "  stashes   : left intact (a review server from before the land protocol is listening, and it moves stashes and appends to the journal without the verdict store's lock)"
         )
         lines.append(
-            "  journal   : left intact (the review server is up: it refuses a save while retention holds the verdict store's lock, and a closing tab's save is sent again only when the app is next opened)"
+            "  journal   : left intact (the same server's appends could fall between the compaction's tail copy and its replacement of the journal)"
         )
         intact.extend(["stashes", "journal"])
         return RetentionResult(lines, _retention_detail(removed_counts, intact, ""))
     store = ROOT / "verdicts-autosave.json"
 
     def locked() -> contextlib.AbstractContextManager:
-        return store_lock.store_lock(store, timeout=RETENTION_LOCK_TIMEOUT_S, quiet=True)
+        return landing.locked_store(store, timeout=RETENTION_LOCK_TIMEOUT_S, quiet=True)
 
     busy = f"left intact (the verdict store stayed locked for {RETENTION_LOCK_TIMEOUT_S:g} s)"
     try:
@@ -4282,9 +4678,12 @@ def pass_lock_path() -> Path:
     return cycle_paths.CYCLE_VAR / "pass.lock"
 
 
+_held_pass_lock: list[int] = []
+
+
 @contextlib.contextmanager
 def pass_lock(*, blocking: bool = True) -> Iterator[None]:
-    """Hold the pass lock, an exclusive `flock` on `pass_lock_path()` whose file holds the holder's pid, for a whole pass, from before the superseded-corpus recovery and the plan to the pass's end. A second pass prints the holder's pid once and waits; Ctrl-C stops the wait. With `blocking` false it raises `store_lock.LockBusy` instead of waiting. The kernel releases the lock when its holder exits, `kill -9` included.
+    """Hold the pass lock, an exclusive `flock` on `pass_lock_path()` whose file holds the holder's pid, for a whole pass, from before the superseded-corpus recovery and the plan to the pass's end. A second pass prints the holder's pid once and waits; Ctrl-C stops the wait. With `blocking` false it raises `store_lock.LockBusy` instead of waiting. The land inherits the lock's descriptor (`_run_step`), and a `flock` belongs to the open file description, so the lock stays held until both the driver and the land have exited: a driver killed while its land still runs leaves the next pass waiting for the land. The kernel releases the lock when the last holder exits, `kill -9` included.
 
     A staging pass holds it too: its recovery can rename a superseded corpus back into place, and a live pass's promotion reads the staged corpus it writes, so the two must not overlap. A dry run holds it without waiting (`main`), because its recovery can also rename a tree back; when a pass holds it, the dry run skips the recovery.
     """
@@ -4299,11 +4698,27 @@ def pass_lock(*, blocking: bool = True) -> Iterator[None]:
     with store_lock.hold_flock(pass_lock_path(), blocking=blocking, on_wait=waiting) as fd:
         os.ftruncate(fd, 0)
         os.pwrite(fd, f"{os.getpid()}\n".encode(), 0)
-        yield
+        _held_pass_lock.append(fd)
+        try:
+            yield
+        finally:
+            _held_pass_lock.remove(fd)
+
+
+def recover_land(*, dry_run: bool = False) -> str | None:
+    """Finish or drop the land a killed pass left (`landing.finish_interrupted_land`), holding the verdict store's lock, and return the line to print, or None when no land was left. It runs before `sweep_run_dirs`, because an unfinished land's result waits in its run directory. The review server finishes such a land on its next request too, so usually nothing is left by the next pass. A dry run changes nothing and says what the next real pass will do."""
+    if not landing.intent_path_for(AUTOSAVE).exists():
+        return None
+    if dry_run:
+        return f"Left the land a stopped pass began ({landing.intent_path_for(AUTOSAVE)}) for the next real pass or the review server to finish."
+    recovery = landing.finish_interrupted_land(AUTOSAVE, quiet=True)
+    if recovery is None:
+        return None
+    return f"Recovered a stopped pass's land: {recovery.message}."
 
 
 def sweep_run_dirs() -> list[Path]:
-    """Delete the per-run scratch directories under `cycle_paths.CYCLE_VAR` that earlier passes left, and return them. Each pass deletes its own when it ends, so only a pass killed outright leaves one. It runs under the pass lock, so no running pass owns any of them."""
+    """Delete the per-run scratch directories under `cycle_paths.CYCLE_VAR` that earlier passes left, and return them. Each pass deletes its own when it ends, so only a pass killed outright leaves one. It runs under the pass lock, so no running pass owns any of them, and after `recover_land`, so no unfinished land still needs one."""
     root = cycle_paths.CYCLE_VAR
     if not root.is_dir():
         return []
@@ -4326,7 +4741,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--no-merge",
         action="store_true",
-        help="leave verdicts-autosave.json untouched after the carry (skip the automatic merge into the live store)",
+        help="carry only, merging neither the carry nor the fills into the store; a pass that moves the corpus still lands it, with an empty store stamped for it in place of verdicts-autosave.json, which is kept as verdicts-autosave-<old stamp>.json, so the store is left untouched only on a pass whose corpus does not move",
     )
     parser.add_argument(
         "--carry-out",
@@ -4370,18 +4785,22 @@ def main(argv: list[str] | None = None) -> int:
         "--review-out",
         type=Path,
         default=None,
-        help="staging pass: redirect the corpus write to this dir so the cycle can run while the live server is up; the next live pass moves this dir into rebuild/out/review and consumes it when it still reproduces the inputs byte for byte (promotable_corpus)",
+        help="staging pass: redirect the corpus write to this dir, carry the verdicts onto it without writing the store, and land nothing; the next live pass lands this dir in place of rebuild/out/review, instead of rebuilding, when it still reproduces the inputs byte for byte (promotable_corpus)",
     )
     parser.add_argument(
         "--keep-history",
         action="store_true",
         help="skip the green-finish retention pass (stale carried files and stashes, and the journal's pre-window history all stay on disk)",
     )
-    parser.add_argument("--yes", action="store_true", help="override the running-review-server refusal")
+    parser.add_argument(
+        "--yes",
+        action="store_true",
+        help="run beside a listening review server from before the land protocol (one with no /capabilities) instead of refusing",
+    )
     parser.add_argument(
         "--stop-server",
         action="store_true",
-        help="stop a listening review server instead of refusing, but only when this pass writes under it — the served corpus's units or stamp, or the verdict store it holds. A pass that writes neither does not stop the server whether or not this is passed, so the review server keeps running and the open tab keeps working — an assets refresh is such a pass, since it moves no unit and no stamp and the cycle simply tells the tab to reload onto the new shell; `make review-cycle` passes this, which is what makes a pass with no artifact work background verification rather than a lockout. It also says the recipe answers the server question after the pass, so the readiness checklist a green finish prints leaves the server row to it",
+        help="stop a listening review server from before the land protocol (one with no /capabilities) instead of refusing, when this pass writes under it — the served corpus's units or stamp, or the verdict store it holds; a server from this checkout that answers /capabilities keeps running through every pass whether or not this is passed, and one running older code is restarted on the tree's code. `make review-cycle` passes this. It also says the recipe answers the server question after the pass, so the readiness checklist a green finish prints leaves the server row to it",
     )
     parser.add_argument(
         "--dry-run",
@@ -4402,13 +4821,16 @@ def main(argv: list[str] | None = None) -> int:
                 return _run_pass(args, recover=False)
             return _run_pass(args)
     with pass_lock():
-        sweep_run_dirs()
         return _run_pass(args)
 
 
 def _run_pass(args: argparse.Namespace, *, recover: bool = True) -> int:
-    """Resolve the plan for the parsed arguments and run it, or print it on a dry run. `main` runs it under the pass lock (`pass_lock`), except a dry run that found the lock held, which passes `recover=False` and leaves the superseded corpus to the pass that holds it."""
+    """Resolve the plan for the parsed arguments and run it, or print it on a dry run. `main` runs it under the pass lock (`pass_lock`), except a dry run that found the lock held, which passes `recover=False` and leaves what earlier passes left to the pass that holds it. Recovery runs first, in order: a land a killed pass left (`recover_land`), which may still need its run directory, then a `.superseded` tree (`recover_superseded_corpus`), then the run directories (`sweep_run_dirs`), then an unfinished `review.next` (`recover_next_corpus`)."""
+    landed = recover_land(dry_run=args.dry_run) if recover else None
     recovered = recover_superseded_corpus(delete=not args.dry_run) if recover else None
+    if recover and not args.dry_run:
+        sweep_run_dirs()
+    kept_next = recover_next_corpus(delete=not args.dry_run) if recover else None
     first_run = not (REVIEW_OUT / "manifest.json").exists()
 
     skip_make_test = False
@@ -4498,8 +4920,9 @@ def _run_pass(args: argparse.Namespace, *, recover: bool = True) -> int:
         preamble.append(text)
         print(text)
 
-    if recovered is not None:
-        announce(recovered)
+    for line in (landed, recovered, kept_next):
+        if line is not None:
+            announce(line)
 
     master_aligned: bool | None = None
     if not args.no_carry and args.verdicts is None and not first_run:
@@ -4544,13 +4967,15 @@ def _run_pass(args: argparse.Namespace, *, recover: bool = True) -> int:
             # A master stamped for the served corpus needs no carry: every unit id maps to itself, and the carry keeps each record's `at`, so the merge (which takes only a strictly newer `at`) would drop its re-prefixed notes. Merging the master directly into the store gives the same result.
             direct_merge = master_aligned
 
+    short_id = resolve_short_id()
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     plan = build_plan(
         verdicts=args.verdicts,
         no_carry=args.no_carry,
         carry_out=args.carry_out,
         skip_gates=args.skip_gates,
         first_run=first_run,
-        short_id=resolve_short_id(),
+        short_id=short_id,
         no_merge=args.no_merge,
         skip_conform=args.skip_conform or auto_skip_conform,
         skip_make_test=skip_make_test,
@@ -4581,16 +5006,17 @@ def _run_pass(args: argparse.Namespace, *, recover: bool = True) -> int:
         record_greens=not args.dry_run,
         keep_history=args.keep_history,
         recipe_serves=args.stop_server,
+        scratch_dir=cycle_paths.CYCLE_VAR / f"{stamp}-{short_id}" if args.review_out is None else None,
+        seed_kept=corpus_complete(next_corpus_dir()),
     )
 
     if args.dry_run:
         print("\n".join(render_plan(plan)))
         return 0
 
-    plan.stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    plan.stamp = stamp
     plan.log_dir = cycle_paths.BUILD_LOGS_ROOT / f"{plan.stamp}-{plan.short_id}"
-    if args.review_out is None:
-        plan.scratch_dir = cycle_paths.CYCLE_VAR / f"{plan.stamp}-{plan.short_id}"
+    if plan.scratch_dir is not None:
         plan.scratch_dir.mkdir(parents=True, exist_ok=True)
     cycle_console = console.CycleConsole(
         steps=[step.name for step in plan.steps], log_dir=plan.log_dir, aliases=STEP_ALIASES
@@ -4598,6 +5024,9 @@ def _run_pass(args: argparse.Namespace, *, recover: bool = True) -> int:
     with cycle_console:
         cycle_console.replay(preamble)
         cycle_console.plan_block(render_plan(plan))
+        probe = probe_server() if args.review_out is None else ServerProbe("none")
+        plan.broadcast = probe.kind != "foreign"
+        plan.legacy_server = probe.kind == "legacy"
         if not _preflight(
             args,
             can_keep_running=server_can_keep_running(
@@ -4605,6 +5034,7 @@ def _run_pass(args: argparse.Namespace, *, recover: bool = True) -> int:
                 writes_store=plan.do_merge,
                 promotes_corpus=plan.promote_corpus is not None,
             ),
+            probe=probe,
         ):
             return 2
 
@@ -4623,7 +5053,7 @@ def _run_pass(args: argparse.Namespace, *, recover: bool = True) -> int:
             with stop_signals():
                 return _run_cycle(plan, report, cycle_console, registry, timings=timings)
         finally:
-            if plan.scratch_dir is not None:
+            if plan.scratch_dir is not None and not landing.intent_path_for(AUTOSAVE).exists():
                 shutil.rmtree(plan.scratch_dir, ignore_errors=True)
 
 

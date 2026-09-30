@@ -1,8 +1,10 @@
-// The outbox keeps every verdict change this browser has not yet seen the server accept, in localStorage under OUTBOX_KEY, so a save that a closed tab, a crash, or a server restart interrupted is sent again the next time the app opens. It maps a unit id to the tab's latest state for that unit: `{ record, base_at, stamp, tab, seq, written_at }`, where `record` is null for a clear, `base_at` is the `at` the tab last saw the server hold, `stamp` is the corpus the change was made on, and `tab` and `seq` name the write. A write replaces the unit's entry, so the entry always mirrors the tab's current state, undo and note edits included; an acknowledgement removes an entry only when its tab and seq still match, so a later write made while a save was in flight survives the save's reply. Every function takes the storage object, so the tests pass a plain one.
+// The outbox keeps every verdict change this browser has not yet seen the server accept, in localStorage under OUTBOX_KEY, suffixed with the checkout (`scopeOutbox`), so a save that a closed tab, a crash, or a server restart interrupted is sent again the next time the app opens. It maps a unit id to the tab's latest state for that unit: `{ record, base_at, stamp, tab, seq, written_at }`, where `record` is null for a clear, `base_at` is the `at` the tab last saw the server hold, `stamp` is the corpus the change was made on, and `tab` and `seq` name the write. A write replaces the unit's entry, so the entry always mirrors the tab's current state, undo and note edits included; an acknowledgement removes an entry only when its tab and seq still match, so a later write made while a save was in flight survives the save's reply. Every function takes the storage object, so the tests pass a plain one.
+// The outbox is kept per checkout: every checkout's review server listens on the same port, so the browser gives them one origin and one localStorage, and a change made on one checkout's corpus must not be sent to another's store. `scopeOutbox` keys the outbox by the repo root the server names on /capabilities.
 // Each open tab also records when it was last seen under TABS_KEY, every TAB_HEARTBEAT_MS, and removes itself on pagehide, so a page that boots replays only the entries of tabs that are gone: an entry a tab still open has pending (in its debounce or its retry backoff) is that tab's to send. A tab not seen for TAB_FRESH_MS counts as gone, which is longer than a browser's throttling of a background tab's timers.
 
 export const OUTBOX_KEY = 'ams-review-outbox';
 export const TABS_KEY = 'ams-review-tabs';
+export const CONFLICTS_KEY = 'ams-review-conflicts';
 export const REPLAY_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 export const TAB_HEARTBEAT_MS = 20 * 1000;
 export const TAB_FRESH_MS = 3 * 60 * 1000;
@@ -25,6 +27,26 @@ function saveKey(storage, key, value) {
   } catch {
     return false;
   }
+}
+
+export function scopedOutboxKey(scope) {
+  return typeof scope === 'string' && scope !== '' ? `${OUTBOX_KEY}:${scope}` : OUTBOX_KEY;
+}
+
+// A storage object whose outbox is the one for `scope` (the server's repo root), and whose other keys are the storage's own. An outbox kept under the unscoped key, which a page wrote before outboxes were kept per checkout, is moved into this scope, keeping any entry the scope already has for the same unit. With no scope the storage is returned as it is.
+export function scopeOutbox(storage, scope) {
+  const key = scopedOutboxKey(scope);
+  if (key === OUTBOX_KEY) return storage;
+  const scoped = {
+    getItem: (name) => storage.getItem(name === OUTBOX_KEY ? key : name),
+    setItem: (name, value) => storage.setItem(name === OUTBOX_KEY ? key : name, value),
+    removeItem: (name) => storage.removeItem(name === OUTBOX_KEY ? key : name),
+  };
+  const legacy = readKey(storage, OUTBOX_KEY);
+  if (Object.keys(legacy).length > 0 && saveKey(storage, key, { ...legacy, ...readKey(storage, key) })) {
+    storage.removeItem(OUTBOX_KEY);
+  }
+  return scoped;
 }
 
 export function readOutbox(storage) {
@@ -149,4 +171,19 @@ export function planOutboxReplay(
     replay.get(entry.stamp).push({ unit, ...entry });
   }
   return { drop, replay, stale };
+}
+
+// The conflicts a tab has not reapplied, kept in the tab's sessionStorage under CONFLICTS_KEY so they outlive a reload, the one that moves the tab onto a rebuilt corpus included. `conflicts` maps a unit to the record the tab sent (null for a clear).
+export function saveConflicts(storage, conflicts) {
+  const kept = {};
+  for (const [unit, record] of conflicts) kept[unit] = record;
+  return saveKey(storage, CONFLICTS_KEY, kept);
+}
+
+export function loadConflicts(storage) {
+  const conflicts = new Map();
+  for (const [unit, record] of Object.entries(readKey(storage, CONFLICTS_KEY))) {
+    if (record === null || (record && typeof record.verdict === 'string')) conflicts.set(unit, record);
+  }
+  return conflicts;
 }

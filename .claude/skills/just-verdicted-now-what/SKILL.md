@@ -9,7 +9,7 @@ The user has just adjudicated units in the review app and wants the new complain
 ## Hard rules
 
 - The new complaints are the ones to work on. **Older complaints stay open unless the user asks**, because they are usually tied to an open decision recorded in WHATNEXT.md. Check there before touching one.
-- Never write or edit the verdict store or any `verdicts-*.json`, never run `merge_verdicts` while the review server is up, and never rebuild the review corpus (`review.build`). Rebuilding the corpus, the carry, and the merge are `make review-cycle`'s job, which the user runs after the fix is committed.
+- Never write or edit the verdict store or any `verdicts-*.json`, never run `merge_verdicts` against the live store, and never rebuild the review corpus (`review.build`). Rebuilding the corpus, the carry, and the merge are `make review-cycle`'s job, which the user runs after the fix is committed; it lands them while the review server keeps running, and a hand-run `merge_verdicts` refuses the live store while the server listens.
 - Never invent a verdict. A unit without a verdict stays without one, and a skip produces a proposal the user decides on, never a recorded verdict.
 - Never author `why:` text. Copy the user's verdict note verbatim (the `note`/`gist` on the reject unit) onto the one record it describes, not onto sibling guard records it does not describe. Unlock records accept `why:` like the policy kinds. If a record shape lacks a `why:` slot, put the verbatim note in a `#` comment on the record instead.
 - Never commit without explicit approval. At the natural commit point, spawn a fresh sub-agent for commit-message suggestions that describe the reader's experience, not the mechanism.

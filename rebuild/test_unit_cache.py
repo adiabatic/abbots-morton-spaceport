@@ -18,7 +18,7 @@ import pytest
 import yaml
 
 from rebuild.pipeline import fingerprint, fixtures, kernel_exec, spec_load
-from rebuild.review import unit_cache, unit_index
+from rebuild.review import landing, unit_cache, unit_index
 from rebuild.review import build as review_build
 from rebuild.review import enrich as review_enrich
 from rebuild.review.audit import (
@@ -181,11 +181,18 @@ def _out_of_order_audit(tmp_path: Path) -> tuple[Path, dict[str, list[str]]]:
     }
 
 
+@pytest.mark.parametrize("seed", ["copy", "clone"])
 def test_incremental_rebuild_matches_a_from_scratch_build_after_an_edit(
-    mini_corpus, mini_bundle, tmp_path, capfd
+    mini_corpus, mini_bundle, tmp_path, capfd, seed
 ):
-    """After an audit edit that drops one window and retags another, an incremental rebuild reuses all but at most two units, leaves at least one shard part the edit did not reach untouched on disk, and writes a corpus, store included, byte-identical to a from-scratch build of the edited audit."""
-    incremental = _copy(mini_corpus, tmp_path)
+    """After an audit edit that drops one window and retags another, an incremental rebuild reuses all but at most two units, leaves at least one shard part the edit did not reach untouched on disk, and writes a corpus, store included, byte-identical to a from-scratch build of the edited audit. The same holds for a build seeded as the artifact cycle seeds it beside the served corpus, a copy-on-write clone (`landing.clone_tree`), and that build leaves the tree it was cloned from byte for byte as it was."""
+    served = _copy(mini_corpus, tmp_path)
+    before = _tree(served)
+    if seed == "clone":
+        incremental = tmp_path / "corpus.next"
+        landing.clone_tree(served, incremental)
+    else:
+        incremental = served
     mtimes = _part_mtimes(incremental)
     edited = _edited_audit(tmp_path)
     capfd.readouterr()
@@ -200,6 +207,8 @@ def test_incremental_rebuild_matches_a_from_scratch_build_after_an_edit(
     scratch = tmp_path / "scratch"
     _build(scratch, mini_bundle, audit_path=edited, jobs=1)
     assert _tree(incremental) == _tree(scratch)
+    if seed == "clone":
+        assert _tree(served) == before
 
 
 def _class_meta(corpus: Path, class_id: str) -> dict:

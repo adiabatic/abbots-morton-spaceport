@@ -1,6 +1,14 @@
 import { formatCount } from './render.js';
 
 const FAIL_SCAN = ['corpus', 'freshness', 'gates', 'verdict_store'];
+export const SERVER_UNREACHABLE_GRACE_MS = 60_000;
+const RETRY_AFTER_DEFAULT_MS = 1000;
+
+// The wait a 503's `Retry-After` header asks for, in milliseconds, or a second when it names none.
+export function retryAfterMs(header) {
+  const seconds = Number.parseFloat(header ?? '');
+  return Number.isFinite(seconds) && seconds >= 0 ? seconds * 1000 : RETRY_AFTER_DEFAULT_MS;
+}
 const WARN_SCAN = ['corpus', 'freshness', 'gates', 'verdict_store', 'fullest_verdicts'];
 
 // A remedy is copyable only when the whole string is a shell command. Every command remedy status.py emits starts with `make` or `uv run`; the prose remedies ("reload the page", "Merge … into the autosave: uv run …") do not.
@@ -32,8 +40,11 @@ export function keptAsideLine(status, pageLoadedAt) {
   return { text: `Saves kept aside by the server: ${parts.join(', ')}`, file };
 }
 
-// `moving` says whether the page is moving onto the corpus /status names (app.js requestMove); a page that is not, because a reload for that move already failed to reach it, is told to reload.
-export function bannerModel(status, pageGeneratedAt, pageLoadedAt = null, moving = false) {
+// `moving` says whether the page is moving onto the corpus /status names (app.js requestMove); a page that is not, because a reload for that move already failed to reach it, is told to reload. `unreachableForMs` is how long /status has gone unanswered (a null `status`): the cycle restarts the server on new code by itself, so the banner says it is retrying and names the restart command only once the server has been gone for SERVER_UNREACHABLE_GRACE_MS.
+export function bannerModel(status, pageGeneratedAt, pageLoadedAt = null, moving = false, unreachableForMs = Infinity) {
+  if (!status && unreachableForMs < SERVER_UNREACHABLE_GRACE_MS) {
+    return { level: 'warn', text: 'Review server unreachable — retrying…', remedy: null, command: null };
+  }
   if (!status || status.error || !status.checks) {
     const text = status && status.error ? `Status unavailable — ${status.error}` : 'Status unavailable';
     return { level: 'error', text, remedy: 'restart the review server (make review-serve)', command: 'make review-serve' };

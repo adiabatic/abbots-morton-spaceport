@@ -1,4 +1,4 @@
-"""Build the review app's output directory, rebuild/out/review/ (rebuild/REVIEW-PLAN.md §1.3). The build assembles units and precomputes their enrichment and, for every unit that takes a verdict, all three verdict drafts. It writes manifest.json, one unit shard per class (split into byte-capped parts when a class is too large for one file), the review-facts.json sidecar that the artifact cycle copies into the checked-in review-facts pins, copies of both fonts, and the static app files. The `snapshot` subcommand writes an accepted-state baseline. `refresh-assets` copies the static app files over an existing corpus and restamps only that fingerprint component, without rebuilding any unit.
+"""Build the review app's output directory, rebuild/out/review/ (rebuild/REVIEW-PLAN.md §1.3). The build assembles units and precomputes their enrichment and, for every unit that takes a verdict, all three verdict drafts. It writes manifest.json, one unit shard per class (split into byte-capped parts when a class is too large for one file), the review-facts.json sidecar that the artifact cycle copies into the checked-in review-facts pins, copies of both fonts, and the static app files. The `snapshot` subcommand writes an accepted-state baseline. `refresh-assets` copies the static app files over an existing corpus and restamps only that fingerprint component, without rebuilding any unit. A build into rebuild/out/review/ refuses while a review server that may serve this checkout listens (`refuse_the_served_corpus`); the artifact cycle builds beside it, at rebuild/out/review.next.
 
 Usage:
     uv run python -m rebuild.review.build
@@ -12,16 +12,19 @@ from __future__ import annotations
 import argparse
 import datetime
 import hashlib
+import http.client
 import json
 import math
 import multiprocessing.connection
 import random
 import shutil
+import socket
 import subprocess
 import sys
 import threading
 import time
 import traceback
+import urllib.request
 import warnings
 from array import array
 from collections.abc import Callable, Collection, Iterable, Iterator, Mapping, Sequence
@@ -101,6 +104,7 @@ MANIFEST_FORMAT = "ams-review-manifest/2"
 SHARD_PART_BYTES = 1 << 28
 BUILD_COMMAND = "uv run python -m rebuild.review.build"
 SERVE_COMMAND = "uv run python -m rebuild.review.serve"
+REVIEW_SERVER_PORT = 7294
 
 M1_AUDIT = REPO_ROOT / "rebuild" / "out" / "m1" / "divergence-audit.tsv"
 M1_LEDGER = REPO_ROOT / "rebuild" / "m1-divergences.yaml"
@@ -3585,6 +3589,42 @@ def check_output_dir(out_dir: Path, repo_root: Path | None = None) -> list[str]:
 # --- CLI ------------------------------------------------------------------------
 
 
+def review_server_listening(port: int = REVIEW_SERVER_PORT) -> bool:
+    """Return whether something accepts connections on the review server's port (`rebuild.review.serve.PORT`). It is a bare socket check, not `rebuild.tools.review_server`, so the build's import closure stays inside the modules `rebuild/test_review_code_closure.py` allows."""
+    try:
+        with socket.create_connection(("127.0.0.1", port), timeout=0.5):
+            return True
+    except OSError:
+        return False
+
+
+def review_server_root(port: int = REVIEW_SERVER_PORT) -> str | None:
+    """Return the repo root the review server on `port` names in its /capabilities answer (`rebuild.review.serve.capabilities_payload`), or None when it names none: nothing answers, the server predates /capabilities, or the answer carries no root. A bare urllib call, for the same reason as `review_server_listening`."""
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/capabilities", timeout=2.0) as response:
+            answer = json.loads(response.read())
+    except OSError, ValueError, http.client.HTTPException:
+        return None
+    root = answer.get("root") if isinstance(answer, dict) else None
+    return root if isinstance(root, str) else None
+
+
+def refuse_the_served_corpus(out: Path) -> None:
+    """Refuse a build into the corpus the review server serves while the server listens. A build rewrites the shards the open tabs read by byte range and restamps the manifest their saves are keyed on; the artifact cycle builds beside the served corpus and lands the result with the verdict store (`rebuild.review.landing`), which keeps the tabs working. A build into any other directory, a build while the listening server names another checkout as its root (`review_server_root`), such as a worktree's first pass beside the main checkout's server, and `refresh-assets`, which renames each file into place, are allowed; a server that names no root may serve this checkout, so it blocks the build. So is a build into a served corpus with no manifest (a first run, after rebuild/out/review was deleted under a running server), which no tab can have loaded, and which the artifact cycle builds in place because it has nothing to land beside."""
+    if Path(out).resolve() != DEFAULT_OUT.resolve() or not (DEFAULT_OUT / "manifest.json").exists():
+        return
+    if not review_server_listening():
+        return
+    root = review_server_root()
+    if root is not None and Path(root).resolve() != REPO_ROOT.resolve():
+        return
+    raise SystemExit(
+        f"REFUSING TO BUILD: the review server is listening on port {REVIEW_SERVER_PORT} and serves {DEFAULT_OUT}, so a build "
+        "there would rewrite the files under its open tabs. Run `make artifact-cycle`, which builds beside the served corpus "
+        "and lands it with the verdict store while the server keeps running, or pass --out <dir> for a build elsewhere."
+    )
+
+
 def main(argv: list[str] | None = None) -> None:
     argv = list(sys.argv[1:] if argv is None else argv)
     if argv and argv[0] == "refresh-assets":
@@ -3650,6 +3690,7 @@ def main(argv: list[str] | None = None) -> None:
         help="ignore the persisted per-unit cache and recompute every unit from scratch",
     )
     args = parser.parse_args(argv)
+    refuse_the_served_corpus(args.out)
 
     if args.mode == "table-diff":
         if not args.baseline or not args.new_dir:

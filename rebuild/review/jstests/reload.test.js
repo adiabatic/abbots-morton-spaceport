@@ -102,9 +102,18 @@ test('view extras come back only for the same hash and only shortly after they w
     scrollY: 420,
     queueAnchor: { cluster: 'c-aaa', delta: 12 },
     notes: [['u-1', 'draft']],
+    keptAsideSince: null,
   });
   assert.equal(readViewExtras(saved, '#view=queue&unit=u-1', 2000), null);
   assert.equal(readViewExtras(saved, '#view=queue', 1000 + VIEW_EXTRAS_MAX_AGE_MS + 1), null);
   assert.equal(readViewExtras(saved, '#view=queue', 999), null);
   assert.equal(readViewExtras(null, '#view=queue', 2000), null);
+});
+
+test('the view extras carry the time the moved-from page counted kept-aside saves from', () => {
+  const since = '2026-09-30T09:00:00.000Z';
+  const saved = writeViewExtras({ hash: '', scrollY: 0, queueAnchor: null, notes: [], keptAsideSince: since }, 1000);
+  assert.equal(readViewExtras(saved, '', 2000).keptAsideSince, since);
+  const garbled = writeViewExtras({ hash: '', scrollY: 0, queueAnchor: null, notes: [], keptAsideSince: 'soon' }, 1000);
+  assert.equal(readViewExtras(garbled, '', 2000).keptAsideSince, null);
 });

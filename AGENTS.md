@@ -122,7 +122,7 @@ Git holds the history, so a checked-in note earns its place only by recording th
 - `make review-serve` serves the rebuild review corpus on `http://localhost:7294/`.
 - When the user asks whether everything is ready to verdict, run `make verdict-ready` — never reason it out from the git log. The app’s banner shows the same status.
 - `make review-cycle` is the hands-off loop: the artifact cycle, then serve (`SERVE=0` or `SERVE=bg` for a caller that must terminate). `make artifact-cycle` is the same verification without the serve, the form for commit time.
-  - `doc/review-cycle.md` is the runbook: what a pass skips, which hashes ignore prose, when the server comes down, the verdict store and journal, retention, logs, and timings.
+  - `doc/review-cycle.md` is the runbook: what a pass skips, which hashes ignore prose, how the server stays up through a pass, the verdict store and journal, retention, logs, and timings.
   - Every non-staging pass rewrites `rebuild/review-facts-pins.json` and prints its diff; committing that diff accepts the review facts, so read the `invariant` block before committing.
 
 ## YAML files

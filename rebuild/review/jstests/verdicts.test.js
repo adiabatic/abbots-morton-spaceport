@@ -539,3 +539,34 @@ test('importVerdicts marks what it took as dirty, so an imported file reaches th
   assert.deepEqual(result.units, ['u-7']);
   assert.deepEqual([...store.dirty], ['u-7']);
 });
+
+test('a sync keeps a clear or an undo waiting to be sent over an older record another session saved', () => {
+  const store = createStore();
+  recordVerdict(store, 'u-1', 'approve', { at: '2020-01-01T00:00:00.000Z' });
+  markExported(store);
+  store.dirty.clear();
+  recordVerdict(store, 'u-1', null);
+  recordVerdict(store, 'u-2', 'approve', { at: '2020-01-01T00:00:00.000Z' });
+  undo(store);
+  assert.equal(store.records.has('u-1'), false);
+  assert.equal(store.records.has('u-2'), false);
+  const pendingAt = (unit) => (store.dirty.has(unit) ? store.changedAt.get(unit) : undefined);
+  const older = {
+    format: EXPORT_FORMAT,
+    manifest_generated_at: 'gen-1',
+    verdicts: [
+      { unit: 'u-1', verdict: 'approve', note: '', at: '2020-01-01T00:00:00.000Z' },
+      { unit: 'u-2', verdict: 'approve', note: '', at: '2020-01-01T00:00:00.000Z' },
+    ],
+  };
+  const kept = importVerdicts(store, older, 'gen-1', { pendingAt });
+  assert.deepEqual(kept.units, []);
+  assert.equal(store.records.has('u-1'), false);
+  assert.equal(store.records.has('u-2'), false);
+  const newer = {
+    ...older,
+    verdicts: [{ unit: 'u-1', verdict: 'reject', note: '', at: '2999-01-01T00:00:00.000Z' }],
+  };
+  assert.deepEqual(importVerdicts(store, newer, 'gen-1', { pendingAt }).units, ['u-1']);
+  assert.equal(store.records.get('u-1').verdict, 'reject');
+});

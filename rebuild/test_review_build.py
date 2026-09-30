@@ -1,4 +1,4 @@
-"""Tests for the review-app build: the §7 contract checker over rebuild/review/fixtures/ (the same checker `build_m1` runs over its own output), the config-note badge text, the app shell and its scripts, the assets refresh, the shard writer and the recomputed spool, the pool records and the memory tally, the shape-memo release, `_write_json`, the triage export, and the table-diff build.
+"""Tests for the review-app build: the §7 contract checker over rebuild/review/fixtures/ (the same checker `build_m1` runs over its own output), the config-note badge text, the app shell and its scripts, the assets refresh, the shard writer and the recomputed spool, the pool records and the memory tally, the shape-memo release, `_write_json`, the triage export, the table-diff build, and the refusal to build into the served corpus while the review server listens.
 
 No test here reads the live corpus. `build_m1` checks the per-unit and per-shard contracts over every unit it writes and fails the build on any violation, and what the manifest writer computes from its own inputs (the fingerprint, the feature descriptions, the sidebar order) needs no separate check. Two claims about a built corpus are tested elsewhere. The sidecars' byte addressing is tested in `rebuild/test_app_index.py` over a mini build, and the staging in `app_index.write_app_artifacts` and the currency check in `artifact_cycle.corpus_build_skippable` keep a shipped corpus from carrying a sidecar built for other shards. The ink-duplicate merge rests on the checks in `facts.derive_premerge` and on `InkComparator.signature` ignoring glyph names, which `rebuild/test_review_ink.py` tests on the marker font; rebuild/review-facts-pins.json records that the merge ran on the corpus, since its pre-merge `volatile.audit.units` is larger than its post-merge `volatile.manifest.totals.units`. The shipped ink deltas are covered by the build's verification sample, which re-shapes `VERIFICATION_SAMPLE` cached windows on every build.
 """
@@ -1847,3 +1847,29 @@ def test_table_diff_build(tmp_path):
     assert "synthetic-pointer" in shard[0]["explain"] or "synthetic-pointer" in " ".join(
         shard[0]["provenance"]
     )
+
+
+def test_a_build_into_the_served_corpus_refuses_while_the_review_server_listens(tmp_path, monkeypatch):
+    """A build rewrites the files the open tabs read in place, so it refuses to write the served corpus while the review server's port answers, and says to run the cycle, which builds beside it. The refusal holds for a server that names this checkout as its root and for one that names none. A build elsewhere, one with no server up, one beside a server that names another checkout (a worktree's first pass beside the main checkout's server), and one into a served corpus with no manifest (the cycle's first run, which has nothing to land beside) go ahead. The port it checks is the server's."""
+    from rebuild.review.serve import PORT
+
+    assert review_build.REVIEW_SERVER_PORT == PORT
+    served = tmp_path / "rebuild" / "out" / "review"
+    served.mkdir(parents=True)
+    monkeypatch.setattr(review_build, "DEFAULT_OUT", served)
+    monkeypatch.setattr(review_build, "review_server_root", lambda port=PORT: None)
+    monkeypatch.setattr(review_build, "review_server_listening", lambda port=PORT: True)
+    review_build.refuse_the_served_corpus(served)
+    (served / "manifest.json").write_text("{}")
+    monkeypatch.setattr(review_build, "build_m1", lambda *a, **k: pytest.fail("built under a live server"))
+    for root in (None, str(review_build.REPO_ROOT)):
+        monkeypatch.setattr(review_build, "review_server_root", lambda port=PORT, root=root: root)
+        with pytest.raises(SystemExit, match="REFUSING TO BUILD.*make artifact-cycle"):
+            review_build.main([])
+    monkeypatch.setattr(
+        review_build, "review_server_root", lambda port=PORT: str(tmp_path / "other-checkout")
+    )
+    review_build.refuse_the_served_corpus(review_build.DEFAULT_OUT)
+    review_build.refuse_the_served_corpus(tmp_path / "elsewhere")
+    monkeypatch.setattr(review_build, "review_server_listening", lambda port=PORT: False)
+    review_build.refuse_the_served_corpus(review_build.DEFAULT_OUT)

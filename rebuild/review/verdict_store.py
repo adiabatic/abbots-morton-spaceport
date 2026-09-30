@@ -7,15 +7,15 @@ A set may carry `base_at`, the `at` of the record the tab last saw the server ho
 Which stamp a delta carries decides how it is applied. The served corpus (`ServedCorpus`, the served manifest's stamp and human unit ids) is what the caller says the server is serving.
 
 1. A delta on the store's stamp is applied last-writer-wins. One marked `replay: true`, which a tab sends from its outbox for saves it could not confirm before it closed, takes rule 2's per-unit test instead.
-2. A delta on another stamp, while the store is on the served corpus, is carried by unit id, because a unit id is a content key and names the same unit on every corpus where its content is unchanged. A set applies when the store holds no record for the unit and no newer tombstone, when the store's record has the `at` the set names as `base_at`, or when the set's `at` is not older than the store's record's (an equal `at` is the same act, whose note an edit or the carry's provenance prefix may have changed); a clear applies on the same tests with its own `at`. Anything else is a conflict: the store keeps its record, the incoming set or clear goes to the orphan document with `reason: conflict`, and the response hands back the store's record for the unit. A set on a unit the served corpus does not have, and a clear with no `at`, go to the orphan document with `reason: orphan`. A skip is dropped, as the carry drops every skip, so the unit is asked again on the served corpus.
-3. A delta stamped for the served corpus while the store is on another stamp moves the store onto the served corpus: the file is moved aside (`stash_path_for`), the store starts empty on the served stamp, which invalidates every token, the delta is applied to it under rule 1, and the journal records the move as a transition naming the stash. This is how a store that a pass left on the old corpus (one that carried nothing, or whose verdict update failed) follows the corpus the tabs load.
+2. A delta on another stamp, while the store is on the served corpus, is carried by unit id, because a unit id is a content key and names the same unit on every corpus where its content is unchanged. A set applies when the store holds no record for the unit and no newer tombstone, when the store's record has the `at` the set names as `base_at`, or when the set's `at` is not older than the store's record's (an equal `at` is the same act, whose note an edit or the carry's provenance prefix may have changed); a clear applies on the same tests with its own `at`. Anything else is a conflict: the store keeps its record, the incoming set or clear goes to the orphan document with `reason: conflict`, and the response hands back the store's record for the unit. A set on a unit the served corpus does not have, and a clear with no `at`, go to the orphan document with `reason: orphan`. A skip is dropped, as the carry drops every skip, so the unit is asked again on the served corpus: when the store holds a record for the unit, the skip clears it under the same tests (a skip that fails them is a conflict), and the response lists the unit under `dropped`.
+3. A delta stamped for the served corpus while the store is on another stamp moves the store onto the served corpus by unit id: the file is kept under its stash name (`stash_path_for`), the store keeps its records and tombstones on the units the served corpus has, less its skips (as the carry drops every skip), which invalidates every token, the delta is applied under rule 1, and the journal records the move as a transition naming the stash. This is how a store left on another corpus than the served one (by a first pass, which builds the missing corpus in place and lands no store, or by a restore under --yes) follows the corpus the tabs load without leaving its verdicts behind in the stash.
 4. Any other delta on another stamp, one made on neither the store's corpus nor the served one, or one arriving while the served corpus is unknown, gets a 503 with `retry: true`, and nothing is written; the tab keeps the verdicts and saves them again. An unstamped or missing store takes the served corpus's stamp first, or the delta's when the served corpus is unknown.
 
-The orphan documents live in `var/verdict-orphans/` beside the store (`orphans_dir_for`), one per stamp the verdicts were made on (`orphan_path`). Each is an ams-review-verdicts/1 document stamped for that corpus, whose records carry `reason` and `recorded_at` (a clear is a record with a null verdict), so nothing a tab sends is dropped, and none of them can become a master, because `status` surveys only the repo root and rebuild/evidence. Every accepted delta's response carries `corpus_stamp` (the store's stamp), `carried` (the units a delta on another stamp changed), `orphaned` (the unit ids sent to the orphan document as orphans), and `conflicts` (each unit with the store's record, or null when the store holds none).
+The orphan documents live in `var/verdict-orphans/` beside the store (`orphans_dir_for`), one per stamp the verdicts were made on (`orphan_path`). Each is an ams-review-verdicts/1 document stamped for that corpus, whose records carry `reason` and `recorded_at` (a clear is a record with a null verdict), so nothing a tab sends is dropped, and none of them can become a master, because `status` surveys only the repo root and rebuild/evidence. Every accepted delta's response carries `corpus_stamp` (the store's stamp), `carried` (the units a delta on another stamp changed), `orphaned` (the unit ids sent to the orphan document as orphans), `dropped` (the units whose skip was dropped under rule 2), and `conflicts` (each unit with the store's record, or null when the store holds none).
 
 A full-store POST is also accepted when its stamp is the store's or the store is unstamped. Its bytes are written to the file unchanged, and its `cleared` list, if any, becomes the store's tombstones. A full-store POST on another stamp gets a 409 and changes nothing. When the store writes the file itself, it writes the same ams-review-verdicts/1 document with one record per line, which `parse_autosave_payload`, the merge tool, the status check and the carry all read.
 
-The file holds the verdicts between server runs, and another writer (the merge tool or a journal restore, under --yes) can replace it while the server runs; each holds the store's lock (`rebuild.review.store_lock`) for its write, as the server does for each POST. So every request first compares the file's mtime, size and inode with what the store last read or wrote, and reloads on a mismatch. A reload onto the same stamp diffs the new records against the ones in memory and records the changed units, so outstanding tokens stay valid and a tab's next sync fetches only those units; a reload onto another stamp, or onto a file that is missing or unreadable, invalidates every token. A delta that changes no record and no stamp writes nothing, so the file's bytes and mtime stay as they were. A delta whose write fails reloads the file before the error propagates, so memory never holds a record the file lacks and a resend of the same delta is written. The orphan document is written before the store, so a delta whose orphan write fails changes nothing.
+The file holds the verdicts between server runs, and another writer (a pass's land, `rebuild.review.landing`, or the merge tool or a journal restore under --yes) can replace it while the server runs; each holds the store's lock (`rebuild.review.store_lock`) for its write, as the server does for each POST. So every request first compares the file's mtime, size and inode with what the store last read or wrote, and reloads on a mismatch. A reload onto the same stamp diffs the new records against the ones in memory and records the changed units, so outstanding tokens stay valid and a tab's next sync fetches only those units; a reload onto another stamp, or onto a file that is missing or unreadable, invalidates every token. A delta that changes no record and no stamp writes nothing, so the file's bytes and mtime stay as they were. A delta whose write fails reloads the file before the error propagates, so memory never holds a record the file lacks and a resend of the same delta is written. The orphan document is written before the store, so a delta whose orphan write fails changes nothing.
 """
 
 from __future__ import annotations
@@ -23,6 +23,7 @@ from __future__ import annotations
 import json
 import os
 import secrets
+import shutil
 from bisect import bisect_left, insort
 from collections import Counter, deque
 from dataclasses import dataclass
@@ -112,6 +113,16 @@ def _safe_stamp(stamp: str) -> str:
 
 def stash_path_for(path: Path, stamp: str) -> Path:
     return path.with_name(f"{path.stem}-{_safe_stamp(stamp)}{path.suffix}")
+
+
+def _link_or_copy(source: Path, target: Path) -> None:
+    tmp = target.with_name(target.name + ".link")
+    tmp.unlink(missing_ok=True)
+    try:
+        os.link(source, tmp)
+    except OSError:
+        shutil.copyfile(source, tmp)
+    os.replace(tmp, target)
 
 
 def orphans_dir_for(store_path: Path) -> Path:
@@ -240,12 +251,13 @@ def file_signature(path: Path) -> tuple[int, int, int] | None:
 
 @dataclass(slots=True)
 class _Plan:
-    """What one delta does, decided before anything is written: the records to set, the clears to apply (unit → the tombstone's `at`), and the conflicts and orphans to report."""
+    """What one delta does, decided before anything is written: the records to set, the clears to apply (unit → the tombstone's `at`), the conflicts and orphans to report, and the units whose skip was dropped."""
 
     sets: list[dict]
     clears: dict[str, str]
     conflicts: list[dict]
     orphans: list[dict]
+    dropped: list[str]
 
 
 class VerdictStore:
@@ -458,20 +470,26 @@ class VerdictStore:
         return current["at"] == base_at or at >= current["at"]
 
     def _plan(self, delta: dict, *, tested: bool, members: frozenset[str] | None) -> _Plan:
-        plan = _Plan(sets=[], clears={}, conflicts=[], orphans=[])
+        plan = _Plan(sets=[], clears={}, conflicts=[], orphans=[], dropped=[])
         for raw_record in delta["sets"]:
             record = _normalize(raw_record)
             unit = record["unit"]
             if members is not None and unit not in members:
                 plan.orphans.append({**record, "reason": "orphan"})
                 continue
-            if members is not None and record["verdict"] == "skip":
-                continue
             current = self.records.get(unit)
             if current is not None and _signature(current) == _signature(record):
                 continue
+            skip = members is not None and record["verdict"] == "skip"
+            if skip and current is None:
+                plan.dropped.append(unit)
+                continue
             if tested and not self._admits(unit, record["at"], raw_record.get("base_at")):
                 plan.conflicts.append({**record, "reason": "conflict"})
+                continue
+            if skip:
+                plan.dropped.append(unit)
+                plan.clears[unit] = record["at"] or journal.now_stamp()
                 continue
             plan.sets.append(record)
         for clear in delta["clears"]:
@@ -496,7 +514,7 @@ class VerdictStore:
             adopted = served.stamp if served is not None else stamp
         store_stamp = adopted or self.stamp
         if served is not None and stamp == served.stamp and store_stamp != stamp:
-            return self._receive_delta_onto_served_stamp(delta)
+            return self._receive_delta_onto_served_stamp(delta, served)
         if stamp == store_stamp:
             plan = self._plan(delta, tested=delta["replay"], members=None)
             source = "autosave"
@@ -536,6 +554,7 @@ class VerdictStore:
             "corpus_stamp": self.stamp,
             "carried": changed if source == "autosave-carried" else [],
             "orphaned": [entry["unit"] for entry in plan.orphans],
+            "dropped": plan.dropped,
             "conflicts": [
                 {"unit": entry["unit"], "server": self.records.get(entry["unit"])} for entry in plan.conflicts
             ],
@@ -561,17 +580,23 @@ class VerdictStore:
         self._note_changes([record["unit"] for record in sets] + clears)
         return sets, clears
 
-    def _receive_delta_onto_served_stamp(self, delta: dict) -> tuple[int, dict]:
-        """Apply a delta stamped for the served corpus to a store on another stamp (rule 3 in the module docstring): move the file aside, start an empty store on the served stamp, apply the delta to it under rule 1, and journal the move as one transition that names the stash."""
+    def _receive_delta_onto_served_stamp(self, delta: dict, served: ServedCorpus) -> tuple[int, dict]:
+        """Apply a delta stamped for the served corpus to a store on another stamp (rule 3 in the module docstring): keep the file under its stash name, carry the store's records and tombstones on the served corpus's units onto the served stamp by unit id, less its skips, apply the delta under rule 1, and journal the move as one transition that names the stash. The stash is a second name for the old file (a copy where the filesystem refuses a hard link), and the new store is renamed over it, so a failed write leaves the old store in place."""
         stamp = delta["manifest_generated_at"]
         old_stamp = self.stamp
         old_verdicts = list(self.records.values())
         stash = stash_path_for(self.path, old_stamp) if old_stamp is not None else None
         if stash is not None and self.path.exists():
-            os.replace(self.path, stash)
+            _link_or_copy(self.path, stash)
         else:
             stash = None
-        self._replace(stamp, {}, {})
+        kept = {
+            unit: record
+            for unit, record in self.records.items()
+            if unit in served.ids and record["verdict"] != "skip"
+        }
+        cleared = {unit: at for unit, at in self.cleared.items() if unit in served.ids}
+        self._replace(stamp, kept, cleared)
         self._invalidate_tokens()
         self._apply(self._plan(delta, tested=delta["replay"], members=None))
         try:
@@ -586,6 +611,7 @@ class VerdictStore:
             "corpus_stamp": stamp,
             "carried": [],
             "orphaned": [],
+            "dropped": [],
             "conflicts": [],
         }
         self._journal_transition(

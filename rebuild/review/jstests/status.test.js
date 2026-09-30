@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { bannerModel, remedyCommand } from '../static/status.js';
+import { bannerModel, remedyCommand, retryAfterMs, SERVER_UNREACHABLE_GRACE_MS } from '../static/status.js';
 
 function checks(overrides = {}) {
   return {
@@ -231,4 +231,21 @@ test('saves kept aside before the page loaded leave the banner alone', () => {
   );
   assert.equal(bannerModel(status, 'gen-1', '2026-09-30T12:00:00.000Z').level, 'ready');
   assert.equal(bannerModel(status, 'gen-1').level, 'ready');
+});
+
+test('an unreachable server reads as retrying until it has been gone for the grace period', () => {
+  const brief = bannerModel(null, 'gen-1', null, false, 5000);
+  assert.equal(brief.level, 'warn');
+  assert.equal(brief.text, 'Review server unreachable — retrying…');
+  assert.equal(brief.command, null);
+  const long = bannerModel(null, 'gen-1', null, false, SERVER_UNREACHABLE_GRACE_MS);
+  assert.equal(long.level, 'error');
+  assert.equal(long.command, 'make review-serve');
+  assert.equal(bannerModel({ error: 'boom' }, 'gen-1', null, false, 0).level, 'error');
+});
+
+test('a Retry-After header is read in seconds, with a second when it names none', () => {
+  assert.equal(retryAfterMs('2'), 2000);
+  assert.equal(retryAfterMs(null), 1000);
+  assert.equal(retryAfterMs('soon'), 1000);
 });

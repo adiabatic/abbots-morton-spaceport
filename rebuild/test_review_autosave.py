@@ -1,6 +1,6 @@
 """Tests for the review server's logic.
 
-The /autosave receiver: payload validation, atomic overwrite, and the journal event appended on every accepted save. A whole-store save on another stamp than the store's is refused with 409 and moves nothing aside. A delta on another stamp is carried onto a store on the served corpus by unit id, with the `base_at`, `at` and tombstone tests deciding each unit, and the orphans and conflicts it cannot apply are kept in the orphan document; a delta stamped for the served corpus moves a store on another stamp onto it, moving the old file aside, and one made on neither corpus gets a retryable 503 and writes nothing.
+The /autosave receiver: payload validation, atomic overwrite, and the journal event appended on every accepted save. A whole-store save on another stamp than the store's is refused with 409 and moves nothing aside. A delta on another stamp is carried onto a store on the served corpus by unit id, with the `base_at`, `at` and tombstone tests deciding each unit, and the orphans and conflicts it cannot apply are kept in the orphan document; a stale skip is dropped and clears the record it replaced; a delta stamped for the served corpus carries a store on another stamp onto it by unit id, keeping the old file as its stash, and one made on neither corpus gets a retryable 503 and writes nothing.
 
 The POST path takes the verdict store's lock without waiting, and answers a retryable 503 while another writer holds it. The resident store behind it (`rebuild.review.verdict_store`): the delta POST the app sends, the no-op delta that writes nothing, the failed write that leaves memory as the file holds it, the change token a sync GET returns, and the reload after an external rewrite of the file, which keeps tokens valid when the stamp is unchanged.
 
@@ -687,8 +687,35 @@ def test_a_stale_set_with_the_stores_at_applies_and_a_stale_skip_is_dropped(tmp_
     )
     assert status == 200
     assert body["carried"] == ["u-1"] and body["conflicts"] == [] and body["orphaned"] == []
+    assert body["dropped"] == ["u-2"]
     assert store.records["u-1"]["note"] == "ok"
     assert "u-2" not in store.records
+
+
+def test_a_stale_skip_clears_the_record_it_replaced_so_the_unit_is_asked_again(tmp_path):
+    """A tab loaded on the old corpus skips a unit the land left holding the verdict the skip replaced. The skip is dropped, as the carry drops every skip, but it clears that record under the same tests as a set, so the unit comes back blank rather than holding the superseded verdict; the reply lists it under `dropped`, and the clear is journaled. A skip older than a record the tab never saw is a conflict instead."""
+    journal_path = tmp_path / "verdicts-journal.ndjson"
+    path, store = new_store(tmp_path, [verdict("u-1", at="t1"), verdict("u-2", at="t5")], journal_path)
+    status, body = store.receive(
+        delta(
+            OLD,
+            [
+                {**verdict("u-1", "skip", at="t3"), "base_at": "t1"},
+                {**verdict("u-2", "skip", at="t3"), "base_at": "t1"},
+            ],
+        ),
+        served("u-1", "u-2"),
+    )
+    assert status == 200
+    assert body["dropped"] == ["u-1"] and body["carried"] == ["u-1"]
+    assert body["conflicts"] == [{"unit": "u-2", "server": verdict("u-2", at="t5")}]
+    assert "u-1" not in store.records and store.cleared == {"u-1": "t3"}
+    assert "u-1" not in {record["unit"] for record in on_disk(path)["verdicts"]}
+    assert "u-1" not in journal.replay(journal_path)[1]
+    status, body = store.receive(
+        delta(OLD, [{**verdict("u-1", at="t2"), "base_at": None}]), served("u-1", "u-2")
+    )
+    assert body["conflicts"] == [{"unit": "u-1", "server": None}] and "u-1" not in store.records
 
 
 def test_a_replayed_set_on_a_unit_whose_tombstone_is_newer_is_a_conflict(tmp_path):
@@ -743,26 +770,45 @@ def test_a_stale_clear_follows_the_same_tests_and_a_bare_clear_is_orphaned(tmp_p
     assert reasons == {("u-2", "conflict"), ("u-3", "orphan")}
 
 
-def test_a_delta_on_the_served_stamp_moves_a_store_left_on_another_stamp_onto_it(tmp_path):
-    """A pass that carried nothing, or whose verdict update failed, leaves the store on the old corpus while the server serves the new one; the first save from a tab on the new corpus moves the old file aside and starts the store again from that save, so the tab keeps saving."""
+def test_a_delta_on_the_served_stamp_carries_a_store_left_on_another_stamp_onto_it(tmp_path):
+    """A first pass over a deleted corpus builds it in place and lands no store, and a restore under --yes can put back a store stamped for an earlier corpus, so the store can sit on another stamp than the served corpus. The first save from a tab on the served corpus carries the store onto it by unit id, keeping its verdicts and tombstones on the units the served corpus has, less its skips, keeps the old file as the stash, and then applies the save, so the tab keeps saving and no verdict is left behind in the stash."""
     journal_path = tmp_path / "verdicts-journal.ndjson"
-    path, store = new_store(tmp_path, [verdict("u-1", at="t1")], journal_path)
+    path = tmp_path / "verdicts-autosave.json"
+    path.write_bytes(
+        json.dumps(
+            {
+                "format": EXPORT_FORMAT,
+                "manifest_generated_at": NEW,
+                "exported_at": NEW,
+                "verdicts": [
+                    verdict("u-1", at="t1"),
+                    verdict("u-2", at="t1"),
+                    verdict("u-3", "skip", at="t1"),
+                ],
+                "cleared": [{"unit": "u-4", "at": "t2"}, {"unit": "u-gone", "at": "t2"}],
+            }
+        ).encode()
+    )
+    store = VerdictStore(path, journal_path)
     old_bytes = path.read_bytes()
     old_token = store.token
     newer = "2026-07-05T00:00:00Z"
     status, body = store.receive(
-        delta(newer, [verdict("u-9", "reject", at="t9")]), served("u-9", stamp=newer)
+        delta(newer, [verdict("u-9", "reject", at="t9")]), served("u-1", "u-3", "u-4", "u-9", stamp=newer)
     )
     assert status == 200
     assert body["corpus_stamp"] == newer and body["token"] == store.token != old_token
     assert stash_path_for(path, NEW).read_bytes() == old_bytes
     written = on_disk(path)
     assert written["manifest_generated_at"] == newer
-    assert [record["unit"] for record in written["verdicts"]] == ["u-9"]
+    assert [record["unit"] for record in written["verdicts"]] == ["u-1", "u-9"]
+    assert written["cleared"] == [{"unit": "u-4", "at": "t2"}]
     event = list(journal.iter_events(journal_path))[-1]
     assert event["stamp"] == newer and event["stashed"] == stash_path_for(path, NEW).name
-    assert set(journal.replay(journal_path)[1]) == {"u-9"}
-    status, body = store.receive(delta(OLD, [verdict("u-9", at="t95")]), served("u-9", stamp=newer))
+    assert set(journal.replay(journal_path)[1]) == {"u-1", "u-9"}
+    status, body = store.receive(
+        delta(OLD, [verdict("u-9", at="t95")]), served("u-1", "u-3", "u-4", "u-9", stamp=newer)
+    )
     assert status == 200 and body["carried"] == ["u-9"]
 
 

@@ -1,4 +1,4 @@
-"""Merge stamp-aligned ams-review-verdicts/1 files into verdicts-autosave.json without a browser, as the review app's Import dialog does: per unit, the record with the strictly newer `at` wins. The artifact cycle uses it to merge carried verdicts, and the app reads the result on boot or focus. The existing aligned autosave is always part of the union, so a merge never drops a verdict. An autosave stamped for another corpus is moved aside first (`stash_path_for`). An input stamped for another corpus is refused; `carry_verdicts.py` moves verdicts between corpora, and there is no override. An aligned merge keeps the store's tombstones (the units the app cleared, each with the time of the clear), and a tombstone wins over an incoming record whose `at` is not after the clear. A merge that writes reads, writes and journals the store under the store's lock (`rebuild.review.store_lock`), which the review server holds for each save, so a merge waits for a save in flight, and the server answers a save made during the merge with a retryable 503 and picks the merged file up by itself afterward. The app retries the save a closing tab sends only when it is next opened, so a merge that would write the live store refuses while the review server is listening, unless --yes is passed (for a server that serves another checkout); a dry run and a refused merge take no lock. `--restore-as-of --apply` has the same refusal and takes the lock too. Every write is appended to verdicts-journal.ndjson (`rebuild.review.journal`), and `--restore-as-of` replays that journal to recover the store as of any recorded time. `--rekey-map` moves a replayed store's unit ids through the id map `rebuild.tools.rekey_verdicts` writes, for a time before that re-key.
+"""Merge stamp-aligned ams-review-verdicts/1 files into verdicts-autosave.json without a browser, as the review app's Import dialog does: per unit, the record with the strictly newer `at` wins. The artifact cycle uses it to merge carried verdicts, and the app reads the result on boot or focus. The existing aligned autosave is always part of the union, so a merge never drops a verdict. An autosave stamped for another corpus is moved aside first (`stash_path_for`). An input stamped for another corpus is refused; `carry_verdicts.py` moves verdicts between corpora, and there is no override. An aligned merge keeps the store's tombstones (the units the app cleared, each with the time of the clear), and a tombstone wins over an incoming record whose `at` is not after the clear. A merge that writes reads, writes and journals the store under the store's lock (`rebuild.review.store_lock`, taken through `landing.locked_store`, which first finishes a land whose holder died), which the review server holds for each save, so a merge waits for a save in flight, and the server answers a save made during the merge with a retryable 503 and picks the merged file up by itself afterward. The app retries the save a closing tab sends only when it is next opened, so a merge that would write the live store refuses while the review server is listening, unless --yes is passed (for a server that serves another checkout); a dry run and a refused merge take no lock. `--restore-as-of --apply` has the same refusal and takes the lock too. Every write is appended to verdicts-journal.ndjson (`rebuild.review.journal`), and `--restore-as-of` replays that journal to recover the store as of any recorded time. `--rekey-map` moves a replayed store's unit ids through the id map `rebuild.tools.rekey_verdicts` writes, for a time before that re-key.
 
 Usage:
   uv run python -m rebuild.tools.merge_verdicts [FILES ...]     # no FILES: merge the fullest verdicts file verdict-ready names
@@ -21,8 +21,8 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from rebuild.review import journal, status  # noqa: E402
+from rebuild.review.landing import locked_store  # noqa: E402
 from rebuild.review.serve import parse_autosave_payload, stash_path_for  # noqa: E402
-from rebuild.review.store_lock import store_lock  # noqa: E402
 from rebuild.review.verdict_store import parse_cleared  # noqa: E402
 from rebuild.tools.review_server import server_listening as _server_listening  # noqa: E402
 
@@ -114,7 +114,7 @@ def run_merge(
             dry_run=dry_run,
             refuse_a_write=guarded,
         )
-    with store_lock(autosave):
+    with locked_store(autosave):
         return _merge_into_store(
             files,
             stamp=stamp,
@@ -306,7 +306,7 @@ def run_restore(
             "back over the restore on its next focus. Stop the server first, or pass --yes to apply anyway."
         )
         return 1
-    with store_lock(autosave):
+    with locked_store(autosave):
         return _apply_restore(as_of, stamp, records, payload, autosave=autosave, journal_path=journal_path)
 
 

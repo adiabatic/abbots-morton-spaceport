@@ -1,15 +1,19 @@
-"""Check whether the review server is listening on its port, and ask it to tell its open tabs to reload. The cycle driver checks before it rewrites the corpus or stops the server, merge_verdicts checks before it writes the store, and verdict-ready reports it in its checklist. The cycle sends the reload (`force_reload`) after it changes what the server serves. The check is a separate module because merge_verdicts runs inside the verdict update, whose green key hashes the verdict update's import closure. Importing the check from the driver would put the driver, the timings journal, and the memory-budget and peak-RSS modules into that closure, so an edit to any of them, which cannot change a verdict, would re-run the whole verdict update. `VERDICT_UPDATE_TOOL_MODULES` in rebuild/tools/artifact_cycle.py lists that closure, and rebuild/test_verdict_update_closure.py checks the list against the import graph."""
+"""Check whether the review server is listening on its port, ask it what it is (`capabilities`), and ask it to tell its open tabs to reload. The cycle driver checks before a pass and reads /capabilities to decide whether the server can keep running through it, merge_verdicts checks before it writes the store, and verdict-ready reports it in its checklist. The cycle sends the reload (`force_reload`) after it changes what the server serves. The check is a separate module because merge_verdicts runs inside the verdict update, whose green key hashes the verdict update's import closure. Importing the check from the driver would put the driver, the timings journal, and the memory-budget and peak-RSS modules into that closure, so an edit to any of them, which cannot change a verdict, would re-run the whole verdict update. `VERDICT_UPDATE_TOOL_MODULES` in rebuild/tools/artifact_cycle.py lists that closure, and rebuild/test_verdict_update_closure.py checks the list against the import graph."""
 
 from __future__ import annotations
 
 import http.client
+import json
 import socket
+import urllib.error
 import urllib.parse
 import urllib.request
 
 from rebuild.review.serve import PORT as REVIEW_PORT
 
 FORCE_RELOAD_TIMEOUT_S = 2.0
+CAPABILITIES_TIMEOUT_S = 2.0
+NO_CAPABILITIES = "no-capabilities"
 
 
 def server_listening(port: int = REVIEW_PORT) -> bool:
@@ -26,3 +30,17 @@ def force_reload(path: str, port: int = REVIEW_PORT) -> bool:
             return response.status == 200
     except OSError, ValueError, http.client.HTTPException:
         return False
+
+
+def capabilities(port: int = REVIEW_PORT) -> dict | str | None:
+    """Return the review server's /capabilities answer (`rebuild.review.serve.capabilities_payload`); `NO_CAPABILITIES` when the server answers 404 there, as a server that predates the land protocol does; or None when no answer came: no server, a timeout, another error status, or a body that is not a JSON object."""
+    url = f"http://127.0.0.1:{port}/capabilities"
+    try:
+        with urllib.request.urlopen(url, timeout=CAPABILITIES_TIMEOUT_S) as response:
+            answer = json.loads(response.read())
+    except urllib.error.HTTPError as error:
+        error.close()
+        return NO_CAPABILITIES if error.code == 404 else None
+    except OSError, ValueError, http.client.HTTPException:
+        return None
+    return answer if isinstance(answer, dict) else None

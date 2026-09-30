@@ -3,7 +3,7 @@ export const VERDICT_KINDS = ['approve', 'reject', 'either', 'identical', 'neith
 export const EXPORT_FORMAT = 'ams-review-verdicts/1';
 export const DELTA_FORMAT = 'ams-review-verdicts-delta/1';
 
-// `unexported` holds the units changed since the last download; the status bar's unexported count and the beforeunload prompt read it. `dirty` holds the units changed since the last autosave the server accepted; each flush empties it, and a failed flush puts the ids back. `touch` adds a unit to both, and different events clear each one. `serverAt` maps a unit to the `at` of the record the server last acknowledged holding for it, or null when it acknowledged holding none, and each save sends it as `base_at`, so a server that carries the save onto a rebuilt corpus can tell a stale change from one made over what it holds. `clearedAt` maps a cleared unit to when it was cleared.
+// `unexported` holds the units changed since the last download; the status bar's unexported count and the beforeunload prompt read it. `dirty` holds the units changed since the last autosave the server accepted; each flush empties it, and a failed flush puts the ids back. `touch` adds a unit to both, and different events clear each one. `serverAt` maps a unit to the `at` of the record the server last acknowledged holding for it, or null when it acknowledged holding none, and each save sends it as `base_at`, so a server that carries the save onto a rebuilt corpus can tell a stale change from one made over what it holds. `clearedAt` maps a cleared unit to when it was cleared, and `changedAt` maps each unit to when this page last changed it, which a sync compares against a record another session saved while the change waits to be sent.
 export function createStore() {
   return {
     records: new Map(),
@@ -12,14 +12,17 @@ export function createStore() {
     dirty: new Set(),
     serverAt: new Map(),
     clearedAt: new Map(),
+    changedAt: new Map(),
   };
 }
 
 function touch(store, unitId) {
+  const now = new Date().toISOString();
   store.unexported.add(unitId);
   store.dirty.add(unitId);
+  store.changedAt.set(unitId, now);
   if (store.records.has(unitId)) store.clearedAt.delete(unitId);
-  else store.clearedAt.set(unitId, new Date().toISOString());
+  else store.clearedAt.set(unitId, now);
 }
 
 export function recordVerdict(store, unitId, verdict, { note = '', at = new Date().toISOString() } = {}) {
@@ -167,7 +170,8 @@ export function adoptServerRecord(store, unitId, record) {
   store.unexported.delete(unitId);
 }
 
-export function importVerdicts(store, data, manifestGeneratedAt, { force = false } = {}) {
+// `pendingAt(unit)` returns when this page made a change to the unit that the server has not yet acknowledged, or undefined when it has none: an incoming record replaces such a unit only when it is newer than that change, so a sync never reverts a clear or an undo waiting to be sent.
+export function importVerdicts(store, data, manifestGeneratedAt, { force = false, pendingAt = null } = {}) {
   if (!data || data.format !== EXPORT_FORMAT || !Array.isArray(data.verdicts)) {
     return { ok: false, error: `not an ${EXPORT_FORMAT} document` };
   }
@@ -184,7 +188,9 @@ export function importVerdicts(store, data, manifestGeneratedAt, { force = false
       continue;
     }
     const existing = store.records.get(entry.unit);
-    if (existing && existing.at >= (entry.at ?? '')) {
+    const pending = pendingAt?.(entry.unit);
+    const kept = [existing?.at, pending].filter((at) => typeof at === 'string');
+    if (kept.length > 0 && kept.some((at) => at >= (entry.at ?? ''))) {
       keptNewer += 1;
       continue;
     }
