@@ -221,11 +221,27 @@ def unaliased_subset_names(subset_dir: Path, alias_path: Path) -> dict[str, list
     return {name: sorted(configs) for name, configs in sorted(missing.items())}
 
 
+_RENAMED_ROE_SHORTENED_TOP = (
+    "qsRoe.en-ext-1-at-0",
+    "qsRoe/sole/baseline/None/en-bind-shortened-top+en-ext-1",
+)
+
+
+def _only_renamed_roe_shortened_top(row: DivergentRow) -> bool:
+    pairs = [
+        (old, new) for old, new in zip(row.baseline_glyphs, row.new_cells) if "en-bind-shortened-top" in new
+    ]
+    return bool(pairs) and all(pair == _RENAMED_ROE_SHORTENED_TOP for pair in pairs)
+
+
 def classify_divergence(row: DivergentRow) -> str | None:
     """Return the one ledger class for a divergent row, chosen from its divergence tags (which `_compare_row` computes through the alias map), or None when no class applies. The order of the checks below is the precedence, and the ledger's header comment summarizes it. A row with no class can still match a function predicate or an unconditional ledger entry; otherwise it is unmatched and waits for a verdict on the review corpus."""
     tags = set(row.divergence_tags)
     if not tags or any(item.startswith("unaliased") for item in tags):
         return None
+    if "+en-bind-shortened-top" in tags and _only_renamed_roe_shortened_top(row):
+        # The old `qsRoe.en-ext-1-at-0` glyph is the shortened-top drawing, but its alias keeps only the en-ext-1 name, so the rebuild's bound cell draws the same ink under a longer name. The token is name grain only, so the rest of the row classifies as if it were absent.
+        tags.discard("+en-bind-shortened-top")
     if any(item.startswith("position") for item in tags):
         # A cell-grain class claims the ink is identical, and the position comparison is the test of that claim, so a row with a position mismatch must not take one. Such rows are left to the function predicates (`kern_out_of_scope`, `may_ligature_junction_loosened`).
         return None
@@ -235,6 +251,8 @@ def classify_divergence(row: DivergentRow) -> str | None:
     if row.config in OVERLAY_CONFIGS:
         # Under ss10 both fonts render every letter isolated, with no join and no ligature (the old font through its anchor-free `.ss10` copies, the rebuild through its ss10 input substitution), so any other ss10 divergence is a regression and waits for review. Without this, a namer-dot ss10 row that ligates would take post-marker-ligature-formation.
         return None
+    if not tags:
+        return "roe-shortened-top-renamed"
     if "ligation" in tags:
         if "E67B:E652" in row.codepoints and "ss03" in row.config:
             return "ss03-out-tea-ligature-kept"
@@ -373,6 +391,7 @@ for _class_id in (
     "may-jai-extension-consolidated",
     "jai-entry-contraction-renamed",
     "zoo-entry-contraction-renamed",
+    "roe-shortened-top-renamed",
 ):
     CLASS_PREDICATE_IDS[_class_id.replace("-", "_")] = _class_id
     PREDICATES[_class_id.replace("-", "_")] = _class_predicate(_class_id)

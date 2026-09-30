@@ -257,6 +257,16 @@
   why: |
     The old unentered half-·Tea exit tuck and ·Zoo entry trim place the same crown as ·Zoo's one-pixel entry contraction. The aliases keep the old en-trim-1 name, so the only cell-grain change admitted here is its replacement by en-con-1 on that adjacent old-glyph pair, with the corresponding new half-·Tea and full-·Zoo cells. The position comparison checks the full window and rejects unrelated non-kern shifts. The old qsIt.ex-y5 followed by qsRoe.en-ext-1-at-5 is excluded explicitly: its separate redraw changes the picture without changing glyph origins or advances, so position comparison cannot establish its ink identity.
 
+- id: roe-shortened-top-renamed
+  status: intended
+  match: {predicate: roe_shortened_top_renamed, configs: all}
+  ink_identical: true
+  count: 8341
+  exemplars:
+    - {config: default, codepoints: "E660:E668", baseline: "qsYe.ex-y0|qsRoe.en-ext-1-at-0", new: "qsYe/loop/None/baseline/|qsRoe/sole/baseline/None/en-bind-shortened-top+en-ext-1"}
+  why: |
+    The old `qsRoe.en-ext-1-at-0` glyph draws ·Roe's shortened-top shape: the top arm starts a column further right, and the baseline entry is extended by one. The alias keeps only the en-ext-1 name, because the rebuild draws the full top arm after ·Jay, ·It, ·Eat and ·Eight. After the loop ·Ye, qsRoe binds `shortened-top` with the same one-pixel extension, so the composite ink, every origin and every advance match the old font, and only ·Roe's cell name gains the bind token. The token is name grain only wherever every bound ·Roe in the row is that old-and-new pair: a row whose single divergence it is takes this class, and a row with other divergences takes the class they decide, as it did before the bind. After the climbing-loop ·Ye, the entry is extended by two, which is an ink change, so those rows stay out.
+
 - id: ss03-out-tea-ligature-kept
   status: intended
   no_verdict: true

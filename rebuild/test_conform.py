@@ -545,6 +545,46 @@ class TestAliasAndLedger:
         ):
             assert oracle.classify_divergence(other) is None
 
+    def test_roe_shortened_top_class_requires_the_old_extended_roe(self):
+        old_roe = CellId("qsRoe", "sole", "baseline", None, ("en-ext-1",))
+        new_roe = replace(old_roe, adjustments=("en-bind-shortened-top", "en-ext-1"))
+        old_names = ("qsYe.ex-y0", "qsRoe.en-ext-1-at-0")
+        divergence_tags = tuple(sorted(conform._cell_deltas(old_roe, new_roe, old_names, 1)))
+        row = conform.DivergentRow(
+            config="default",
+            codepoints="E660:E668",
+            kinds=("cell",),
+            position=1,
+            baseline_glyphs=old_names,
+            baseline_junctions=("y0",),
+            new_cells=("qsYe/loop/None/baseline/", "qsRoe/sole/baseline/None/en-bind-shortened-top+en-ext-1"),
+            new_junctions=("y0",),
+            divergence_tags=divergence_tags,
+        )
+        assert oracle.classify_divergence(row) == "roe-shortened-top-renamed"
+        for other in (
+            replace(row, baseline_glyphs=(old_names[0], "qsRoe")),
+            replace(
+                row, new_cells=(row.new_cells[0], "qsRoe/sole/baseline/None/en-bind-shortened-top+en-ext-2")
+            ),
+            replace(row, divergence_tags=divergence_tags + ("+en-ext-2", "-en-ext-1:qsRoe")),
+            replace(
+                row, kinds=("cell", "position"), divergence_tags=divergence_tags + ("position-mismatch",)
+            ),
+        ):
+            assert oracle.classify_divergence(other) is None
+        beside_zoo = replace(
+            row,
+            codepoints="E652:E65B:E660:E668",
+            position=3,
+            baseline_glyphs=("qsTea.half.ex-y5.ex-con-1", "qsZoo.en-trim-1") + old_names,
+            baseline_junctions=("y5", "break", "y0"),
+            new_cells=("qsTea/half/None/x-height/", "qsZoo/full/x-height/None/en-con-1") + row.new_cells,
+            new_junctions=("y5", "break", "y0"),
+            divergence_tags=tuple(sorted(divergence_tags + ("+en-con-1", "-en-trim-1"))),
+        )
+        assert oracle.classify_divergence(beside_zoo) == "zoo-entry-contraction-renamed"
+
     def test_zoo_contraction_class_excludes_the_unchanged_position_it_roe_redraw(self):
         """In the window ·It·Roe·Tea·Zoo the old ·It·Roe pixels differ from the new ones even though every origin and advance matches, so the position comparison cannot catch the change. The ·Zoo entry-contraction class must exclude that window so the difference stays visible."""
         row = conform.DivergentRow(
