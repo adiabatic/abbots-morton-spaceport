@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from rebuild.pipeline import fingerprint
-from rebuild.review import app_index, unit_index
+from rebuild.review import app_index, store_lock, unit_index
 from rebuild.review.audit import slim_fragment
 from rebuild.review.serve import parse_autosave_payload
 from rebuild.review.verdict_store import orphans_dir_for, summarize_orphans
@@ -568,7 +568,7 @@ def compute_status(
     recompute=None,
     autosave=None,
 ) -> dict:
-    """Return the readiness dict. Beside the checks, `orphans` and `conflicts` count the saves the verdict store kept aside in its orphan documents (`verdict_store.summarize_orphans`), with the newest one's `recorded_at` and document and the counts per recent `recorded_at`, so the app can count those kept since it loaded. `autosave` is the parsed autosave when the caller already holds it (serve.py passes its in-memory store so that each /status request does not read and parse the file again), and None to read `autosave_path`."""
+    """Return the readiness dict. Beside the checks, `orphans` and `conflicts` count the saves the verdict store kept aside in its orphan documents (`verdict_store.summarize_orphans`), with the newest one's `recorded_at` and document and the counts per recent `recorded_at`, so the app can count those kept since it loaded. While an artifact-cycle pass holds its pass lock (var/cycle/pass.lock, `artifact_cycle.pass_lock`), the checks that would name `make artifact-cycle` as their remedy tell the reader to wait for that pass instead. `autosave` is the parsed autosave when the caller already holds it (serve.py passes its in-memory store so that each /status request does not read and parse the file again), and None to read `autosave_path`."""
     if recompute is None:
         recompute = fingerprint.compute_all
     repo_root = Path(repo_root)
@@ -581,7 +581,11 @@ def compute_status(
 
     fullest_hit = pick_fullest_verdicts(repo_root, generated_at)
     fullest_rel = _rel(repo_root, fullest_hit[0]) if fullest_hit else None
-    artifact_cycle_remedy = "make artifact-cycle"
+    running_pass = store_lock.holder(repo_root / "var" / "cycle" / "pass.lock")
+    if running_pass is None:
+        artifact_cycle_remedy = "make artifact-cycle"
+    else:
+        artifact_cycle_remedy = f"wait for the running pass (pid {running_pass}) to finish"
 
     summary = _load_json_dict(cycle_summary_path)
     carry_out = summary.get("carry_out") if summary else None

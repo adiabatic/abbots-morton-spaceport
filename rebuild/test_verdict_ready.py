@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from rebuild.review import app_index, status, unit_index
+from rebuild.review import app_index, status, store_lock, unit_index
 from rebuild.review.status import (
     compute_status,
     count_effective,
@@ -208,6 +208,18 @@ def test_data_stale_fails_with_artifact_cycle_remedy(tmp_path):
     assert freshness["components"]["static"] == "fresh"
     assert freshness["remedy"] == "make artifact-cycle"
     assert "data" in freshness["detail"]
+
+
+def test_a_running_pass_replaces_the_artifact_cycle_remedy(tmp_path):
+    write_corpus(tmp_path / "rebuild" / "out" / "review", inputs_fp={**FP, "data": "OLD"})
+    write_summary(tmp_path, inputs_fp={**FP, "data": "OLD"})
+    write_autosave(tmp_path)
+    with store_lock.hold_flock(tmp_path / "var" / "cycle" / "pass.lock") as fd:
+        os.pwrite(fd, b"4242\n", 0)
+        freshness = call(tmp_path)["checks"]["freshness"]
+    assert freshness["level"] == "fail"
+    assert freshness["remedy"] == "wait for the running pass (pid 4242) to finish"
+    assert call(tmp_path)["checks"]["freshness"]["remedy"] == "make artifact-cycle"
 
 
 def test_explain_prose_stale_fails_like_any_other_hard_component(tmp_path):

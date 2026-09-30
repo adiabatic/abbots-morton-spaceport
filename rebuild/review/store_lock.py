@@ -2,7 +2,7 @@
 
 Every journal append is made under it, so a reader can scan the journal without the lock and handle only the tail appended since then under it (`journal.scan_events`, `journal.compact_prepare` and `journal.compact_finish`).
 
-`hold_flock` is the primitive, and the artifact cycle's pass lock uses it too. Standard library only.
+`hold_flock` is the primitive, and the artifact cycle's pass lock uses it too; `holder` reports who holds a lock without taking it, which the readiness checks use to name a running pass. Standard library only.
 """
 
 from __future__ import annotations
@@ -51,6 +51,22 @@ def hold_flock(
             else:
                 _wait_until(fd, path, time.monotonic() + timeout)
         yield fd
+    finally:
+        os.close(fd)
+
+
+def holder(path: Path) -> str | None:
+    """Return what the lock file at `path` records, the holder's pid, while another holder has its lock, and None when the lock is free or the file is missing. It tries a shared lock without blocking and drops it at once, so it never waits and never writes the file."""
+    try:
+        fd = os.open(path, os.O_RDONLY)
+    except OSError:
+        return None
+    try:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_SH | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return os.pread(fd, 32, 0).decode("utf-8", "replace").strip() or "unknown"
+        return None
     finally:
         os.close(fd)
 
