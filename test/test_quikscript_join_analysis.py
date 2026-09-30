@@ -1282,11 +1282,11 @@ def test_ss_gated_swap_adds_a_mismatch():
     assert "qsTea" in message
 
 
-# Each regression-example test models the join mismatch that the named commit fixed. Commit 075d485 changed the YAML. The other four changed the FEA emitter, so their fixtures show YAML that needs the emitter's guard. The validator reports each fixture as a mismatch.
+# Each regression-example test models the join mismatch that the named commit fixed. Commit 5e200bf changed the YAML. The other four changed the FEA emitter, so their fixtures show YAML that needs the emitter's guard. The validator reports each fixture as a mismatch.
 
 
-def test_regression_075d485_fee_exits_xheight_before_utter():
-    """075d485 — Fix ·Fee→·Utter and ·See→·At cursive connections.
+def test_regression_5e200bf_fee_exits_xheight_before_utter():
+    """5e200bf — Join ·Fee to ·Utter at the x-height and ·See to ·At at the baseline.
 
     qsFee.ex-y5 lists ``before: qsUtter`` and exits at y=5. In the real data at that commit, qsUtter's only y=5 entry was on a backward-pair override (``qsUtter.alt.prop.reaches-way-back``, ``calt_after: [qsFee, qsMay]``), so qsUtter never appeared in the emitter's ``entry_classes[5]`` and ·Fee's general forward rule could not fire before it. The fixture gives qsUtter no y=5 entry at all, which produces the same family-level mismatch.
     """
@@ -1326,8 +1326,8 @@ def test_regression_075d485_fee_exits_xheight_before_utter():
     assert "y=5" in message
 
 
-def test_regression_8c7c486_no_alt_after_it_and_vie_overreaches():
-    """8c7c486 — Fix backward after matching for incompatible joins.
+def test_regression_f1fa7c6_no_alt_after_it_and_vie_overreaches():
+    """f1fa7c6 — Pick an `after:` form only when the previous letter can join it.
 
     qsNo.alt.after-it-and-vie enters at y=0 and lists ``after: [qsIt, qsVie]``, but neither family has a reachable exit at y=0.
     """
@@ -1376,8 +1376,8 @@ def test_regression_8c7c486_no_alt_after_it_and_vie_overreaches():
     assert "y=0" in message
 
 
-def test_regression_d641641_tea_x_must_not_pick_joining_x():
-    """d641641 — ·Tea·X shouldn't pick a joining X when they don't join anyway.
+def test_regression_68fa3eb_tea_x_must_not_pick_joining_x():
+    """68fa3eb — ·Tea·X shouldn't pick a joining X when they don't join anyway.
 
     qsTea.ex-y0 exits at y=0 and lists ``before: qsExample``, but qsExample's only variant has ``noentry_after: [qsTea]``, so after qsTea it has no y=0 entry.
     """
@@ -1420,8 +1420,8 @@ def test_regression_d641641_tea_x_must_not_pick_joining_x():
     assert "y=0" in message
 
 
-def test_regression_714a2d5_tea_oy_ligature_after_tea():
-    """714a2d5 — ·Tea·Oy also counts as a ·Tea you can't join to at the baseline.
+def test_regression_7fcc9d4_tea_oy_ligature_after_tea():
+    """7fcc9d4 — ·Tea·Oy also counts as a ·Tea you can't join to at the baseline.
 
     qsX.before-tea-oy exits at y=0 and lists the qsTea_qsOy ligature as its right context, but the ligature's only reachable variant enters at y=5.
     """
@@ -1476,8 +1476,8 @@ def test_regression_714a2d5_tea_oy_ligature_after_tea():
     assert "y=0" in message
 
 
-def test_regression_77ca573_ing_before_may_thaw_ligature():
-    """77ca573 — Have ·May·Thaw look right after ·-ing.
+def test_regression_e3c2280_ing_before_may_thaw_ligature():
+    """e3c2280 — Have ·May·Thaw look right before ·-ing.
 
     qsIng.ex-ext-1 exits at y=5 and lists ``before: qsMay_qsThaw``, but the ·May+Thaw ligature has only a y=0 entry.
     """
