@@ -13,6 +13,10 @@ import {
   recentNotes,
   verdictCounts,
   assembleDelta,
+  replayDelta,
+  acknowledgeDelta,
+  noteServerRecords,
+  adoptServerRecord,
   DELTA_FORMAT,
   EXPORT_FORMAT,
 } from '../static/verdicts.js';
@@ -450,18 +454,79 @@ test('every mutation marks its units dirty for the next autosave', () => {
   assert.deepEqual([...store.dirty], ['u-1']);
 });
 
-test('assembleDelta carries a record per dirty unit that has one and a clear for each that does not', () => {
+test('assembleDelta carries a record per dirty unit that has one and a dated clear for each that does not', () => {
   const store = createStore();
   recordVerdict(store, 'u-2', 'approve', { note: 'n', at: '2026-07-03T00:00:00Z' });
   recordVerdict(store, 'u-1', 'reject', { at: '2026-07-03T00:00:01Z' });
   recordVerdict(store, 'u-1', null);
+  const clearedAt = store.clearedAt.get('u-1');
+  assert.equal(typeof clearedAt, 'string');
   const delta = assembleDelta(store, '2026-07-03T23:31:04Z', store.dirty);
   assert.deepEqual(delta, {
     format: DELTA_FORMAT,
     manifest_generated_at: '2026-07-03T23:31:04Z',
-    sets: [{ unit: 'u-2', verdict: 'approve', note: 'n', at: '2026-07-03T00:00:00Z' }],
-    clears: ['u-1'],
+    sets: [{ unit: 'u-2', verdict: 'approve', note: 'n', at: '2026-07-03T00:00:00Z', base_at: null }],
+    clears: [{ unit: 'u-1', base_at: null, at: clearedAt }],
   });
+});
+
+test('assembleDelta sends the at the server last acknowledged as base_at on sets and clears', () => {
+  const store = createStore();
+  noteServerRecords(store, [
+    { unit: 'u-1', verdict: 'approve', note: '', at: 't1' },
+    { unit: 'u-2', verdict: 'reject', note: '', at: 't2' },
+  ]);
+  store.records.set('u-2', { unit: 'u-2', verdict: 'reject', note: '', at: 't2' });
+  recordVerdict(store, 'u-1', 'reject', { at: 't3' });
+  recordVerdict(store, 'u-2', null);
+  const delta = assembleDelta(store, 's', ['u-1', 'u-2']);
+  assert.equal(delta.sets[0].base_at, 't1');
+  assert.equal(delta.clears[0].base_at, 't2');
+  assert.equal(delta.clears[0].unit, 'u-2');
+});
+
+test('an undo across an acknowledged flush sends the acknowledged at as base_at', () => {
+  const store = createStore();
+  recordVerdict(store, 'u-1', 'approve', { at: 't1' });
+  acknowledgeDelta(store, assembleDelta(store, 's', ['u-1']));
+  recordVerdict(store, 'u-1', 'reject', { at: 't2' });
+  acknowledgeDelta(store, assembleDelta(store, 's', ['u-1']));
+  assert.equal(store.serverAt.get('u-1'), 't2');
+  undo(store);
+  const delta = assembleDelta(store, 's', ['u-1']);
+  assert.deepEqual(delta.sets, [{ unit: 'u-1', verdict: 'approve', note: '', at: 't1', base_at: 't2' }]);
+  undo(store);
+  const cleared = assembleDelta(store, 's', ['u-1']);
+  assert.deepEqual(cleared.sets, []);
+  assert.equal(cleared.clears[0].base_at, 't2');
+  acknowledgeDelta(store, cleared);
+  assert.equal(store.serverAt.get('u-1'), null);
+});
+
+test('replayDelta sends outbox entries with their own base_at, dating a clear by when it was written', () => {
+  const delta = replayDelta('old-stamp', [
+    { unit: 'u-1', record: { verdict: 'approve', note: 'x', at: 't5' }, base_at: 't1', written_at: 'w1' },
+    { unit: 'u-2', record: null, base_at: 't2', written_at: 'w2' },
+  ]);
+  assert.deepEqual(delta, {
+    format: DELTA_FORMAT,
+    manifest_generated_at: 'old-stamp',
+    replay: true,
+    sets: [{ unit: 'u-1', verdict: 'approve', note: 'x', at: 't5', base_at: 't1' }],
+    clears: [{ unit: 'u-2', base_at: 't2', at: 'w2' }],
+  });
+});
+
+test('adoptServerRecord takes the server record after a conflict and forgets the local change', () => {
+  const store = createStore();
+  recordVerdict(store, 'u-1', 'reject', { at: 't1' });
+  adoptServerRecord(store, 'u-1', { unit: 'u-1', verdict: 'approve', note: 'filled', at: 't9' });
+  assert.deepEqual(store.records.get('u-1'), { unit: 'u-1', verdict: 'approve', note: 'filled', at: 't9' });
+  assert.equal(store.serverAt.get('u-1'), 't9');
+  assert.equal(store.dirty.has('u-1'), false);
+  adoptServerRecord(store, 'u-1', null);
+  assert.equal(store.records.has('u-1'), false);
+  assert.equal(store.serverAt.get('u-1'), null);
 });
 
 test('importVerdicts marks what it took as dirty, so an imported file reaches the autosave', () => {

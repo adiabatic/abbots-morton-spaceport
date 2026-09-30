@@ -1,6 +1,6 @@
 """Tests for the review server's logic.
 
-The /autosave receiver: payload validation, atomic overwrite, and the journal event appended on every accepted save. An existing autosave stamped for an older manifest is moved aside to a stash file, because it may be the only copy of unexported work from before a corpus rebuild and its unit ids must not be mixed into the new corpus. A save stamped older than the store is refused with 409, so a stale tab cannot overwrite a newer store.
+The /autosave receiver: payload validation, atomic overwrite, and the journal event appended on every accepted save. A whole-store save on another stamp than the store's is refused with 409 and moves nothing aside. A delta on another stamp is carried onto a store on the served corpus by unit id, with the `base_at`, `at` and tombstone tests deciding each unit, and the orphans and conflicts it cannot apply are kept in the orphan document; a delta stamped for the served corpus moves a store on another stamp onto it, moving the old file aside, and one made on neither corpus gets a retryable 503 and writes nothing.
 
 The POST path takes the verdict store's lock without waiting, and answers a retryable 503 while another writer holds it. The resident store behind it (`rebuild.review.verdict_store`): the delta POST the app sends, the no-op delta that writes nothing, the failed write that leaves memory as the file holds it, the change token a sync GET returns, and the reload after an external rewrite of the file, which keeps tokens valid when the stamp is unchanged.
 
@@ -24,7 +24,13 @@ from rebuild.review.serve import (
     static_headers_for,
 )
 from rebuild.review.store_lock import store_lock
-from rebuild.review.verdict_store import VerdictStore
+from rebuild.review.verdict_store import (
+    ServedCorpus,
+    VerdictStore,
+    orphan_path,
+    orphans_dir_for,
+    parse_delta_payload,
+)
 
 
 def payload(stamp, verdicts=(), fmt=EXPORT_FORMAT):
@@ -47,7 +53,7 @@ def test_valid_payload_writes_the_file(tmp_path):
     raw = payload("2026-07-03T23:31:04Z", [verdict("u-0001"), verdict("u-0002")])
     status, body = receive_autosave(raw, path)
     assert status == 200
-    assert body == {"ok": True, "saved": 2, "stashed": None}
+    assert body == {"ok": True, "saved": 2, "corpus_stamp": "2026-07-03T23:31:04Z"}
     assert path.read_bytes() == raw
     assert not (tmp_path / "verdicts-autosave.json.tmp").exists()
 
@@ -56,33 +62,10 @@ def test_same_stamp_overwrites_in_place(tmp_path):
     path = tmp_path / "verdicts-autosave.json"
     receive_autosave(payload("2026-07-03T23:31:04Z", [verdict("u-0001")]), path)
     raw = payload("2026-07-03T23:31:04Z", [verdict("u-0001"), verdict("u-0002", "reject")])
-    status, body = receive_autosave(raw, path)
+    status, _ = receive_autosave(raw, path)
     assert status == 200
-    assert body["stashed"] is None
     assert path.read_bytes() == raw
     assert list(tmp_path.iterdir()) == [path]
-
-
-def test_different_stamp_stashes_the_old_file(tmp_path):
-    path = tmp_path / "verdicts-autosave.json"
-    old_raw = payload("2026-07-03T06:13:47Z", [verdict("u-1015")])
-    receive_autosave(old_raw, path)
-    new_raw = payload("2026-07-03T23:31:04Z", [verdict("u-6344")])
-    status, body = receive_autosave(new_raw, path)
-    assert status == 200
-    assert body["stashed"] == "verdicts-autosave-2026-07-03T06.13.47Z.json"
-    assert path.read_bytes() == new_raw
-    assert (tmp_path / body["stashed"]).read_bytes() == old_raw
-
-
-def test_stash_survives_an_empty_incoming_store(tmp_path):
-    path = tmp_path / "verdicts-autosave.json"
-    old_raw = payload("2026-07-03T06:13:47Z", [verdict("u-1015")])
-    receive_autosave(old_raw, path)
-    status, body = receive_autosave(payload("2026-07-03T23:31:04Z"), path)
-    assert status == 200
-    assert body["saved"] == 0
-    assert (tmp_path / body["stashed"]).read_bytes() == old_raw
 
 
 def test_invalid_payloads_are_rejected_without_touching_the_file(tmp_path):
@@ -107,10 +90,10 @@ def test_corrupt_existing_file_is_overwritten_not_stashed(tmp_path):
     path = tmp_path / "verdicts-autosave.json"
     path.write_bytes(b"garbage from a crashed write")
     raw = payload("2026-07-03T23:31:04Z", [verdict("u-0001")])
-    status, body = receive_autosave(raw, path)
+    status, _ = receive_autosave(raw, path)
     assert status == 200
-    assert body["stashed"] is None
     assert path.read_bytes() == raw
+    assert list(tmp_path.iterdir()) == [path]
 
 
 def test_parse_rejects_non_export_documents():
@@ -126,15 +109,16 @@ def test_stash_path_sanitizes_the_stamp(tmp_path):
     assert stash.parent == tmp_path
 
 
-def test_older_stamped_incoming_is_refused_with_409(tmp_path):
+def test_a_whole_store_post_on_another_stamp_is_refused_with_409_and_stashes_nothing(tmp_path):
     path = tmp_path / "verdicts-autosave.json"
-    new_raw = payload("2026-07-03T23:31:04Z", [verdict("u-6344")])
-    receive_autosave(new_raw, path)
-    status, body = receive_autosave(payload("2026-07-03T06:13:47Z", [verdict("u-1015")]), path)
-    assert status == 409
-    assert body["ok"] is False
-    assert "reload" in body["error"]
-    assert path.read_bytes() == new_raw
+    raw = payload("2026-07-03T23:31:04Z", [verdict("u-6344")])
+    receive_autosave(raw, path)
+    for other in ("2026-07-03T06:13:47Z", "2026-07-04T00:00:00Z"):
+        status, body = receive_autosave(payload(other, [verdict("u-1015")]), path)
+        assert status == 409
+        assert body["ok"] is False
+        assert "reload" in body["error"]
+    assert path.read_bytes() == raw
     assert list(tmp_path.iterdir()) == [path]
 
 
@@ -193,23 +177,16 @@ def test_everything_else_is_served_uncompressed_and_uncached():
         assert static_headers_for(path) == {"Cache-Control": "no-store"}
 
 
-def test_stash_is_recorded_in_the_journal_event(tmp_path):
-    path = tmp_path / "verdicts-autosave.json"
-    journal_path = tmp_path / "verdicts-journal.ndjson"
-    receive_autosave(payload("2026-07-03T06:13:47Z", [verdict("u-1015")]), path, journal_path)
-    status, body = receive_autosave(payload("2026-07-03T23:31:04Z", [verdict("u-6344")]), path, journal_path)
-    assert status == 200
-    events = list(journal.iter_events(journal_path))
-    assert events[-1]["base"] is True
-    assert events[-1]["stashed"] == body["stashed"]
-    _, records = journal.replay(journal_path)
-    assert set(records) == {"u-6344"}
-
-
-def delta(stamp, sets=(), clears=()):
-    return json.dumps(
-        {"format": DELTA_FORMAT, "manifest_generated_at": stamp, "sets": list(sets), "clears": list(clears)}
-    ).encode()
+def delta(stamp, sets=(), clears=(), replay=None):
+    body = {
+        "format": DELTA_FORMAT,
+        "manifest_generated_at": stamp,
+        "sets": list(sets),
+        "clears": list(clears),
+    }
+    if replay is not None:
+        body["replay"] = replay
+    return json.dumps(body).encode()
 
 
 def on_disk(path) -> dict:
@@ -234,7 +211,7 @@ def test_a_delta_applies_sets_and_clears_in_place_and_journals_them(tmp_path):
         delta(stamp, [verdict("u-2", "reject", at="2026-07-03T01:00:00Z"), verdict("u-3")], ["u-1"])
     )
     assert status == 200
-    assert body["ok"] and body["saved"] == 2 and body["stashed"] is None
+    assert body["ok"] and body["saved"] == 2
     assert body["token"] == store.token
     written = on_disk(path)
     assert written["manifest_generated_at"] == stamp
@@ -332,35 +309,6 @@ def test_a_delta_seeds_a_journal_that_does_not_exist_yet(tmp_path):
     assert events[0]["sets"] == 1
     _, records = journal.replay(journal_path)
     assert set(records) == {"u-1", "u-3"}
-
-
-def test_a_delta_stamped_older_than_the_store_is_refused(tmp_path):
-    path = tmp_path / "verdicts-autosave.json"
-    store = VerdictStore(path)
-    store.receive(payload("2026-07-03T23:31:04Z", [verdict("u-6344")]))
-    status, body = store.receive(delta("2026-07-03T06:13:47Z", [verdict("u-1015")]))
-    assert status == 409
-    assert body["ok"] is False
-    assert on_disk(path)["verdicts"] == [verdict("u-6344")]
-
-
-def test_a_delta_stamped_newer_than_the_store_stashes_the_file_and_starts_over(tmp_path):
-    path = tmp_path / "verdicts-autosave.json"
-    journal_path = tmp_path / "verdicts-journal.ndjson"
-    store = VerdictStore(path, journal_path)
-    old_raw = payload("2026-07-03T06:13:47Z", [verdict("u-1015")])
-    store.receive(old_raw)
-    old_token = store.token
-    status, body = store.receive(delta("2026-07-03T23:31:04Z", [verdict("u-6344")], ["u-1015"]))
-    assert status == 200
-    assert body["stashed"] == "verdicts-autosave-2026-07-03T06.13.47Z.json"
-    assert (tmp_path / body["stashed"]).read_bytes() == old_raw
-    written = on_disk(path)
-    assert written["manifest_generated_at"] == "2026-07-03T23:31:04Z"
-    assert [record["unit"] for record in written["verdicts"]] == ["u-6344"]
-    assert store.changes_since(old_token) is None
-    replayed_stamp, records = journal.replay(journal_path)
-    assert replayed_stamp == "2026-07-03T23:31:04Z" and set(records) == {"u-6344"}
 
 
 def test_changes_since_hands_back_only_what_moved_after_the_token(tmp_path):
@@ -536,7 +484,228 @@ def test_malformed_deltas_are_rejected(tmp_path):
         ).encode(),
         json.dumps({"format": DELTA_FORMAT, "manifest_generated_at": stamp, "clears": [1]}).encode(),
         json.dumps({"format": DELTA_FORMAT, "sets": []}).encode(),
+        json.dumps(
+            {"format": DELTA_FORMAT, "manifest_generated_at": stamp, "clears": [{"at": "t"}]}
+        ).encode(),
+        json.dumps(
+            {"format": DELTA_FORMAT, "manifest_generated_at": stamp, "clears": [{"unit": "u-1", "at": 5}]}
+        ).encode(),
+        json.dumps(
+            {
+                "format": DELTA_FORMAT,
+                "manifest_generated_at": stamp,
+                "sets": [{**verdict("u-1"), "base_at": 1}],
+            }
+        ).encode(),
+        json.dumps({"format": DELTA_FORMAT, "manifest_generated_at": stamp, "replay": "yes"}).encode(),
     ):
         status, body = store.receive(raw)
         assert status == 400 and body["ok"] is False
     assert not path.exists()
+
+
+OLD = "2026-07-03T06:13:47Z"
+NEW = "2026-07-03T23:31:04Z"
+
+
+def served(*ids, stamp=NEW):
+    return ServedCorpus(stamp, frozenset(ids))
+
+
+def orphan_records(path, stamp):
+    document = parse_autosave_payload(orphan_path(orphans_dir_for(path), stamp).read_bytes())
+    assert document is not None and document["manifest_generated_at"] == stamp
+    return document["verdicts"]
+
+
+def new_store(tmp_path, records, journal_path=None):
+    path = tmp_path / "verdicts-autosave.json"
+    store = VerdictStore(path, journal_path)
+    assert store.receive(payload(NEW, records))[0] == 200
+    return path, store
+
+
+def test_parse_delta_payload_accepts_both_clear_shapes():
+    parsed = parse_delta_payload(delta(NEW, clears=["u-1", {"unit": "u-2", "base_at": "t1", "at": "t2"}]))
+    assert parsed is not None
+    assert parsed["clears"] == [
+        {"unit": "u-1", "base_at": None, "at": None},
+        {"unit": "u-2", "base_at": "t1", "at": "t2"},
+    ]
+    assert parsed["replay"] is False
+
+
+def test_a_stale_stamp_delta_on_a_served_unit_is_carried_and_journaled_as_carried(tmp_path):
+    journal_path = tmp_path / "verdicts-journal.ndjson"
+    path, store = new_store(tmp_path, [verdict("u-1", at="t1")], journal_path)
+    status, body = store.receive(
+        delta(OLD, [{**verdict("u-2", "reject", at="t5"), "base_at": None}]), served("u-1", "u-2")
+    )
+    assert status == 200
+    assert body["carried"] == ["u-2"] and body["orphaned"] == [] and body["conflicts"] == []
+    assert body["corpus_stamp"] == NEW
+    written = on_disk(path)
+    assert written["manifest_generated_at"] == NEW
+    assert {record["unit"] for record in written["verdicts"]} == {"u-1", "u-2"}
+    event = list(journal.iter_events(journal_path))[-1]
+    assert event["source"] == "autosave-carried" and event["stamp"] == NEW
+    assert set(journal.replay(journal_path)[1]) == {"u-1", "u-2"}
+
+
+def test_a_stale_stamp_set_on_a_unit_the_served_corpus_lacks_is_orphaned(tmp_path):
+    path, store = new_store(tmp_path, [verdict("u-1")])
+    before = path.read_bytes()
+    status, body = store.receive(delta(OLD, [verdict("u-gone", "reject", at="t5")]), served("u-1"))
+    assert status == 200
+    assert body["orphaned"] == ["u-gone"] and body["carried"] == []
+    assert path.read_bytes() == before
+    [kept] = orphan_records(path, OLD)
+    assert kept["unit"] == "u-gone" and kept["verdict"] == "reject" and kept["reason"] == "orphan"
+    assert isinstance(kept["recorded_at"], str)
+    store.receive(delta(OLD, [verdict("u-gone", "reject", at="t5")]), served("u-1"))
+    assert len(orphan_records(path, OLD)) == 1
+
+
+def test_a_stale_set_applies_on_a_base_at_match_and_conflicts_on_an_older_mismatch(tmp_path):
+    path, store = new_store(tmp_path, [verdict("u-1", at="t5"), verdict("u-2", at="t5")])
+    status, body = store.receive(
+        delta(
+            OLD,
+            [
+                {**verdict("u-1", "reject", at="t3"), "base_at": "t5"},
+                {**verdict("u-2", "reject", at="t3"), "base_at": "t1"},
+            ],
+        ),
+        served("u-1", "u-2"),
+    )
+    assert status == 200
+    assert body["carried"] == ["u-1"]
+    assert body["conflicts"] == [{"unit": "u-2", "server": verdict("u-2", at="t5")}]
+    assert store.records["u-1"]["verdict"] == "reject"
+    assert store.records["u-2"]["verdict"] == "approve"
+    [kept] = orphan_records(path, OLD)
+    assert (kept["unit"], kept["verdict"], kept["reason"]) == ("u-2", "reject", "conflict")
+
+
+def test_a_stale_set_newer_than_the_stores_record_applies_without_a_base_at_match(tmp_path):
+    _, store = new_store(tmp_path, [verdict("u-1", at="t5")])
+    status, body = store.receive(
+        delta(OLD, [{**verdict("u-1", "reject", at="t7"), "base_at": "t1"}]), served("u-1")
+    )
+    assert status == 200 and body["carried"] == ["u-1"] and body["conflicts"] == []
+
+
+def test_a_stale_set_with_the_stores_at_applies_and_a_stale_skip_is_dropped(tmp_path):
+    _, store = new_store(tmp_path, [{**verdict("u-1", at="t5"), "note": "[carried u-0@old] ok"}])
+    status, body = store.receive(
+        delta(
+            OLD,
+            [
+                {**verdict("u-1", at="t5"), "note": "ok", "base_at": None},
+                {**verdict("u-2", "skip", at="t6"), "base_at": None},
+            ],
+        ),
+        served("u-1", "u-2"),
+    )
+    assert status == 200
+    assert body["carried"] == ["u-1"] and body["conflicts"] == [] and body["orphaned"] == []
+    assert store.records["u-1"]["note"] == "ok"
+    assert "u-2" not in store.records
+
+
+def test_a_replayed_set_on_a_unit_whose_tombstone_is_newer_is_a_conflict(tmp_path):
+    path, store = new_store(tmp_path, [verdict("u-1", at="t1")])
+    assert store.receive(delta(NEW, clears=[{"unit": "u-1", "base_at": "t1", "at": "t5"}]))[0] == 200
+    assert store.cleared == {"u-1": "t5"}
+    assert on_disk(path)["cleared"] == [{"unit": "u-1", "at": "t5"}]
+    status, body = store.receive(
+        delta(NEW, [{**verdict("u-1", "reject", at="t3"), "base_at": "t1"}], replay=True), served("u-1")
+    )
+    assert status == 200
+    assert body["conflicts"] == [{"unit": "u-1", "server": None}]
+    assert "u-1" not in store.records
+    status, body = store.receive(
+        delta(NEW, [{**verdict("u-1", "reject", at="t6"), "base_at": None}], replay=True), served("u-1")
+    )
+    assert body["conflicts"] == [] and store.records["u-1"]["verdict"] == "reject"
+    assert store.cleared == {}
+    assert "cleared" not in on_disk(path)
+
+
+def test_tombstones_survive_a_reload_of_the_file(tmp_path):
+    path, store = new_store(tmp_path, [verdict("u-1", at="t1"), verdict("u-2", at="t1")])
+    store.receive(delta(NEW, clears=[{"unit": "u-1", "base_at": "t1", "at": "t5"}, "u-2"]))
+    reloaded = VerdictStore(path)
+    assert reloaded.cleared["u-1"] == "t5"
+    assert set(reloaded.cleared) == {"u-1", "u-2"}
+    assert reloaded.records == {}
+
+
+def test_a_stale_clear_follows_the_same_tests_and_a_bare_clear_is_orphaned(tmp_path):
+    path, store = new_store(
+        tmp_path, [verdict("u-1", at="t5"), verdict("u-2", at="t5"), verdict("u-3", at="t5")]
+    )
+    status, body = store.receive(
+        delta(
+            OLD,
+            clears=[
+                {"unit": "u-1", "base_at": "t5", "at": "t2"},
+                {"unit": "u-2", "base_at": "t1", "at": "t2"},
+                "u-3",
+            ],
+        ),
+        served("u-1", "u-2", "u-3"),
+    )
+    assert status == 200
+    assert body["carried"] == ["u-1"]
+    assert body["conflicts"] == [{"unit": "u-2", "server": verdict("u-2", at="t5")}]
+    assert body["orphaned"] == ["u-3"]
+    assert set(store.records) == {"u-2", "u-3"}
+    reasons = {(record["unit"], record["reason"]) for record in orphan_records(path, OLD)}
+    assert reasons == {("u-2", "conflict"), ("u-3", "orphan")}
+
+
+def test_a_delta_on_the_served_stamp_moves_a_store_left_on_another_stamp_onto_it(tmp_path):
+    """A pass that carried nothing, or whose verdict update failed, leaves the store on the old corpus while the server serves the new one; the first save from a tab on the new corpus moves the old file aside and starts the store again from that save, so the tab keeps saving."""
+    journal_path = tmp_path / "verdicts-journal.ndjson"
+    path, store = new_store(tmp_path, [verdict("u-1", at="t1")], journal_path)
+    old_bytes = path.read_bytes()
+    old_token = store.token
+    newer = "2026-07-05T00:00:00Z"
+    status, body = store.receive(
+        delta(newer, [verdict("u-9", "reject", at="t9")]), served("u-9", stamp=newer)
+    )
+    assert status == 200
+    assert body["corpus_stamp"] == newer and body["token"] == store.token != old_token
+    assert stash_path_for(path, NEW).read_bytes() == old_bytes
+    written = on_disk(path)
+    assert written["manifest_generated_at"] == newer
+    assert [record["unit"] for record in written["verdicts"]] == ["u-9"]
+    event = list(journal.iter_events(journal_path))[-1]
+    assert event["stamp"] == newer and event["stashed"] == stash_path_for(path, NEW).name
+    assert set(journal.replay(journal_path)[1]) == {"u-9"}
+    status, body = store.receive(delta(OLD, [verdict("u-9", at="t95")]), served("u-9", stamp=newer))
+    assert status == 200 and body["carried"] == ["u-9"]
+
+
+def test_a_stale_delta_while_the_store_is_off_the_served_corpus_gets_a_retryable_503(tmp_path):
+    path, store = new_store(tmp_path, [verdict("u-1")])
+    before = path.read_bytes()
+    for corpus in (served("u-1", stamp="2026-07-05T00:00:00Z"), None):
+        status, body = store.receive(delta(OLD, [verdict("u-2", at="t9")]), corpus)
+        assert status == 503
+        assert body["retry"] is True and body["reason"] == "store-not-on-served-corpus"
+    assert path.read_bytes() == before
+    assert not orphans_dir_for(path).exists()
+
+
+def test_an_unstamped_store_takes_the_served_stamp(tmp_path):
+    path = tmp_path / "verdicts-autosave.json"
+    store = VerdictStore(path)
+    status, body = store.receive(delta(OLD, [verdict("u-1", at="t1")]), served("u-1"))
+    assert status == 200
+    assert body["corpus_stamp"] == NEW and body["carried"] == ["u-1"]
+    assert on_disk(path)["manifest_generated_at"] == NEW
+    other = VerdictStore(tmp_path / "other.json")
+    assert other.receive(delta(NEW, [verdict("u-1")]), served("u-1"))[0] == 200
+    assert other.stamp == NEW

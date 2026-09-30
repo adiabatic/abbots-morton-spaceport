@@ -7239,7 +7239,7 @@ def _retention_repo(tmp_path, monkeypatch):
 
 
 def test_retention_leaves_the_journal_and_stashes_alone_while_the_server_is_up(tmp_path, monkeypatch):
-    """While the review server is up, retention leaves the journal and the stashes alone: both take the verdict store's lock, the server refuses a save made while another writer holds it, and the app never retries the save a closing tab sends. The carried-file sweep, which takes no lock, still runs."""
+    """While the review server is up, retention leaves the journal and the stashes alone: both take the verdict store's lock, the server refuses a save made while another writer holds it, and the app sends the save a closing tab could not finish again only when it is next opened. The carried-file sweep, which takes no lock, still runs."""
     plan = _plan(skip_verdict_update=True, verdict_update_note=ac.VERDICT_UPDATE_SKIP_NOTE)
     journal_path = _retention_repo(tmp_path, monkeypatch)
     before = journal_path.read_bytes()

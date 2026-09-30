@@ -155,6 +155,25 @@ summary:focus-visible {
       color: var(--hot);
       font-weight: 600;
     }
+
+    #outbox-status {
+      display: inline-flex;
+      gap: 0.4rem;
+      align-items: baseline;
+
+      &[hidden] {
+        display: none;
+      }
+
+      .outbox-waiting {
+        color: var(--muted);
+      }
+
+      button {
+        font: inherit;
+        cursor: pointer;
+      }
+    }
   }
 
   .strip-actions {

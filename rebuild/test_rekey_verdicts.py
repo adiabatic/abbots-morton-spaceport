@@ -158,3 +158,20 @@ def test_a_later_rekey_merges_into_the_id_map_and_copies_the_previous_one(tmp_pa
     assert rekey_verdicts.main(["--root", str(tmp_path), "--corpus", str(FIXTURE_CORPUS)]) == 0
     assert rekey_verdicts.MAP_NAME not in capsys.readouterr().out
     assert len(list(keep.glob(f"{map_path.stem}-*.json"))) == 1
+
+
+def test_rekey_moves_the_stores_tombstones_through_the_renames():
+    renamed = {"u-old1": "u-new1", "u-old2": "u-new2", "u-old3": "u-new1"}
+    payload = {
+        "format": "ams-review-verdicts/1",
+        "manifest_generated_at": STAMP,
+        "verdicts": [{"unit": "u-old2", "verdict": "approve", "note": "", "at": "t9"}],
+        "cleared": [
+            {"unit": "u-old1", "at": "t3"},
+            {"unit": "u-old3", "at": "t5"},
+            {"unit": "u-old2", "at": "t1"},
+            {"unit": "u-kept", "at": "t2"},
+        ],
+    }
+    rekeyed, _, _ = rekey_verdicts.rekey_payload(payload, renamed, set())
+    assert rekeyed["cleared"] == [{"unit": "u-kept", "at": "t2"}, {"unit": "u-new1", "at": "t5"}]

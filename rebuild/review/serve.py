@@ -1,6 +1,6 @@
 """Dev server for the generated review app. It serves rebuild/out/review/ with livereload on port 7294, as tools/serve.py serves site/ on port 7293, so the two can run at the same time.
 
-The app saves its verdicts to the server through /autosave, and the server keeps the store in memory (rebuild.review.verdict_store). At boot the app GETs the whole store with a sync token. After that it GETs `?since=<token>` to fetch only what other tabs changed, and after each debounced change it POSTs a delta of the verdicts it set or cleared. A whole-store POST is also accepted. The store's file is verdicts-autosave.json at the repo root, which the `/verdicts-*.json` pattern in .gitignore covers. It is kept outside rebuild/out/review/ because livereload watches the JSON files there and would reload the page on every save. When a save carries a newer manifest stamp than the file on disk, the old file is moved aside to verdicts-autosave-<stamp>.json. That file may be the only copy of unexported verdicts from before a corpus rebuild, and its unit ids must not be applied to the new corpus. A save with an older stamp gets a 409, so that a tab left open from before a rebuild cannot overwrite the newly merged store on its next flush or pagehide beacon. The sets and clears of every accepted save are appended to verdicts-journal.ndjson (rebuild.review.journal), so every verdict change can be replayed, including clears, which the store file cannot record. Each POST is applied under the verdict store's lock (rebuild.review.store_lock), which every writer of the store and the journal holds. The server never waits for it, because a POST runs on the IOLoop and waiting would stall every other request: while another writer holds it, a POST gets a 503 with `Retry-After: 1`. A debounced save that gets one keeps its verdicts unsaved for the tab's next save, but the save a closing tab sends (the pagehide beacon) is never retried, so the writers that take the lock (a merge, a re-key, a restore) refuse to write the live store while a server listens unless --yes is passed, and a pass's retention leaves the stashes and the journal alone while one does. At boot the server waits for the lock before it loads the store.
+The app saves its verdicts to the server through /autosave, and the server keeps the store in memory (rebuild.review.verdict_store). At boot the app GETs the whole store with a sync token. After that it GETs `?since=<token>` to fetch only what other tabs changed, and after each debounced change it POSTs a delta of the verdicts it set or cleared. A whole-store POST is also accepted onto the store's own stamp. The store's file is verdicts-autosave.json at the repo root, which the `/verdicts-*.json` pattern in .gitignore covers. It is kept outside rebuild/out/review/ because livereload watches the JSON files there and would reload the page on every save. Each POST is applied with the served corpus (`served_corpus`: the manifest's stamp and human unit ids), so a delta from a tab loaded on another corpus is carried onto the store by unit id when the store is on the served corpus, and its conflicts and orphans are kept in var/verdict-orphans/ and reported back to the tab (`verdict_store` gives the rules). A delta stamped for the served corpus while the store is on another stamp moves the store onto the served corpus, moving the old file aside to verdicts-autosave-<stamp>.json; a delta made on neither corpus gets a retryable 503. The sets and clears of every accepted save are appended to verdicts-journal.ndjson (rebuild.review.journal), so every verdict change can be replayed, including clears, which the store file records only as tombstones. Each POST is applied under the verdict store's lock (rebuild.review.store_lock), which every writer of the store and the journal holds. The server never waits for it, because a POST runs on the IOLoop and waiting would stall every other request: while another writer holds it, a POST gets a 503 with `Retry-After: 1`. The app keeps every unconfirmed save in its outbox in the browser's storage and retries a 503 with backoff, but the save a closing tab sends (the pagehide beacon) is retried only when the app is next opened, so the writers that take the lock (a merge, a re-key, a restore) refuse to write the live store while a server listens unless --yes is passed, and a pass's retention leaves the stashes and the journal alone while one does. At boot the server waits for the lock before it loads the store.
 
 Usage: uv run python -m rebuild.review.serve
 """
@@ -15,6 +15,7 @@ from rebuild.review.store_lock import LockBusy, store_lock
 from rebuild.review.verdict_store import (
     DELTA_FORMAT,
     EXPORT_FORMAT,
+    ServedCorpus,
     VerdictStore,
     file_signature,
     parse_autosave_payload,
@@ -24,6 +25,7 @@ from rebuild.review.verdict_store import (
 __all__ = [
     "DELTA_FORMAT",
     "EXPORT_FORMAT",
+    "ServedCorpus",
     "parse_autosave_payload",
     "receive_autosave",
     "receive_autosave_locked",
@@ -56,16 +58,20 @@ def manifest_signature(review_dir: Path) -> tuple[int, int, int] | None:
     return file_signature(review_dir / "manifest.json")
 
 
-def receive_autosave(raw: bytes, path: Path, journal_path: Path | None = None) -> tuple[int, dict]:
+def receive_autosave(
+    raw: bytes, path: Path, journal_path: Path | None = None, served: ServedCorpus | None = None
+) -> tuple[int, dict]:
     """Apply one autosave POST body to the file at `path` through a store loaded for this call, and return the HTTP status and response body. The server itself keeps one store for its lifetime."""
-    return VerdictStore(path, journal_path).receive(raw)
+    return VerdictStore(path, journal_path).receive(raw, served)
 
 
-def receive_autosave_locked(store: VerdictStore, raw: bytes) -> tuple[int, dict]:
+def receive_autosave_locked(
+    store: VerdictStore, raw: bytes, served: ServedCorpus | None = None
+) -> tuple[int, dict]:
     """Apply one POST body to `store` under the verdict store's lock, and return the HTTP status and response body. When another writer holds the lock, nothing is applied and the answer is a 503 whose body says to retry; the handler adds `Retry-After`."""
     try:
         with store_lock(store.path, blocking=False):
-            return store.receive(raw)
+            return store.receive(raw, served)
     except LockBusy:
         return 503, {
             "ok": False,
@@ -114,6 +120,14 @@ def main() -> None:
         manifest_cache.signature = signature
         manifest_cache.stamp = stamp
         return manifest_cache.human_ids
+
+    def served_corpus() -> ServedCorpus | None:
+        """Return the served manifest's stamp and human unit ids, or None when either cannot be read, which makes a save on another stamp wait (`verdict_store`, rule 4)."""
+        human_ids = cached_human_ids()
+        stamp = manifest_cache.stamp
+        if human_ids is None or not isinstance(stamp, str):
+            return None
+        return ServedCorpus(stamp, human_ids)
 
     class NoCacheStaticHandler(StaticFileHandler):
         def set_extra_headers(self, path: str) -> None:
@@ -207,7 +221,7 @@ def main() -> None:
             self.finish(store.payload_bytes(token=True))
 
         def post(self) -> None:
-            status_code, body = receive_autosave_locked(store, self.request.body)
+            status_code, body = receive_autosave_locked(store, self.request.body, served_corpus())
             self.set_status(status_code)
             if status_code == 503:
                 self.set_header("Retry-After", str(RETRY_AFTER_S))

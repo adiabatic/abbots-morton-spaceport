@@ -1,4 +1,4 @@
-"""Tests for `rebuild/tools/merge_verdicts.py`, which merges verdict files into the autosave outside the browser: the review app's union in which the newer `at` wins, the stamp checks (only inputs stamped for the current corpus, a stale autosave stashed, no merge onto an outdated corpus), the store lock a merge waits on, the refusal while the review server is listening, which takes no lock, idempotence, and the restore from the journal."""
+"""Tests for `rebuild/tools/merge_verdicts.py`, which merges verdict files into the autosave outside the browser: the review app's union in which the newer `at` wins, the store's tombstones kept through an aligned merge, the stamp checks (only inputs stamped for the current corpus, a stale autosave stashed, no merge onto an outdated corpus), the store lock a merge waits on, the refusal while the review server is listening, which takes no lock, idempotence, and the restore from the journal."""
 
 import json
 import threading
@@ -70,6 +70,33 @@ def test_merge_into_missing_autosave_writes_and_journals(repo, tmp_path):
     stamp, replayed = journal.replay(repo["journal"])
     assert stamp == "S2"
     assert set(replayed) == {"u-1", "u-2"}
+
+
+def test_an_aligned_merge_keeps_the_stores_tombstones_unless_a_newer_record_replaces_one(repo, tmp_path):
+    repo["autosave"].write_text(
+        json.dumps(
+            {
+                **doc("S2", [v("u-1")]),
+                "cleared": [
+                    {"unit": "u-2", "at": "2026-07-10T05:00:00Z"},
+                    {"unit": "u-3", "at": "2026-07-10T05:00:00Z"},
+                    {"unit": "u-4", "at": "2026-07-10T05:00:00Z"},
+                ],
+            }
+        )
+    )
+    carried = write_doc(
+        tmp_path / "verdicts-carried-x.json",
+        "S2",
+        [v("u-2", at="2026-07-10T04:00:00Z"), v("u-3", at="2026-07-10T06:00:00Z"), v("u-5")],
+    )
+    assert run(repo, str(carried)) == 0
+    written = json.loads(repo["autosave"].read_text())
+    assert set(store_records(repo)) == {"u-1", "u-3", "u-5"}
+    assert written["cleared"] == [
+        {"unit": "u-2", "at": "2026-07-10T05:00:00Z"},
+        {"unit": "u-4", "at": "2026-07-10T05:00:00Z"},
+    ]
 
 
 def test_union_is_newer_at_wins(repo, tmp_path):

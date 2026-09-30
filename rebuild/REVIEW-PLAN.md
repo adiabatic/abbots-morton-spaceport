@@ -111,7 +111,7 @@ The app is a tool for one person triaging the whole divergence corpus over sever
 
 ### 3.3 URL state (and what stays out of it)
 
-View state lives in `location.hash` (`parseHash`, `writeHash`, and `STATE_KEYS` in `state.js`), so every view can be bookmarked and a reload mid-batch returns to the same cursor. **Verdicts are not in the URL and not in localStorage.** The page holds them in memory keyed by unit id, the server's `/autosave` endpoint keeps them across reloads and journals every write (the README's triage flow and the docstring of `serve.py` describe both), and a downloaded export in the §4.1 format is the durable copy.
+View state lives in `location.hash` (`parseHash`, `writeHash`, and `STATE_KEYS` in `state.js`), so every view can be bookmarked and a reload mid-batch returns to the same cursor. **Verdicts are not in the URL, and localStorage holds only the outbox of changes the server has not yet acknowledged** (`outbox.js`). The page holds them in memory keyed by unit id, the server's `/autosave` endpoint keeps them across reloads and journals every write (the README's triage flow and the docstring of `serve.py` describe both), and a downloaded export in the §4.1 format is the durable copy.
 
 ## 4. Verdict exports — turning approvals into pins
 

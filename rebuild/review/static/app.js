@@ -11,6 +11,10 @@ import {
   undo,
   assembleExport,
   assembleDelta,
+  replayDelta,
+  acknowledgeDelta,
+  noteServerRecords,
+  adoptServerRecord,
   DELTA_FORMAT,
   EXPORT_FORMAT,
   markExported,
@@ -18,6 +22,20 @@ import {
   verdictCounts,
   recentNotes,
 } from './verdicts.js';
+import {
+  OUTBOX_KEY,
+  TAB_HEARTBEAT_MS,
+  readOutbox,
+  writeOutbox,
+  ackOutbox,
+  dropOutbox,
+  planOutboxReplay,
+  sameRecord,
+  currentEntries,
+  markTabAlive,
+  markTabClosed,
+  liveTabs,
+} from './outbox.js';
 import {
   configGateChips,
   configFilterOptions,
@@ -1224,6 +1242,7 @@ function updateProgress() {
     setText(document.getElementById('batch-progress'), line);
   }
   updateUnexportedNudge();
+  renderOutboxStatus();
   updateGroupCounts();
   updateClassCounts(byClass);
 }
@@ -2172,17 +2191,92 @@ function exportPayload() {
 }
 
 // The autosave sends changes, not the store. A flush POSTs a set or a clear for each unit in store.dirty, so its size follows what the reader just did, not the store, which holds every carried and filled verdict on the corpus. The server keeps the store in memory, applies the delta, and returns a sync token. syncVerdictsFromServer sends the token back and receives only the changes since, so the focus re-merge and the queue poll get an empty delta while nothing changes. Flushes run one at a time, because two deltas in flight could arrive out of order and a clear could lose to the set it undid.
+// Every change is also written to the outbox (outbox.js) the moment it is scheduled, and stays there until the server's reply acknowledges that write, so a save that a 503, a network error, a server restart, or a closed tab interrupted is not lost: a flush retries on a timer, and the next page load sends what an earlier one left. A reply can hand back conflicts (the server kept a newer record) and orphans (units the served corpus does not have); the page adopts the server's record for a conflict and offers to reapply its own.
 const AUTOSAVE_DEBOUNCE_MS = 800;
 const AUTOSAVE_CHUNK = 20000;
+const AUTOSAVE_RETRY_FIRST_MS = 1000;
+const AUTOSAVE_RETRY_MAX_MS = 10000;
+const KEEPALIVE_LIMIT_BYTES = 60 * 1024;
 let autosaveTimer = null;
 let autosaveWorks = false;
 let autosaveFailed = false;
 let autosaveInFlight = false;
 let autosaveToken = null;
+let autosaveRetryMs = AUTOSAVE_RETRY_FIRST_MS;
+let autosaveRetrying = false;
+
+const outboxStorage = (() => {
+  try {
+    const storage = window.localStorage;
+    storage.getItem(OUTBOX_KEY);
+    return storage;
+  } catch {
+    return null;
+  }
+})();
+const TAB_ID = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+let outboxSeq = 0;
+let outboxWorks = outboxStorage !== null;
+const outboxMirror = new Map();
+let replayQueue = [];
+let staleOutbox = [];
+let staleDownloaded = false;
+const pendingConflicts = new Map();
+
+class RetryableSaveError extends Error {}
+
+function mirrorDirtyToOutbox() {
+  if (!outboxStorage) return;
+  const entries = [];
+  const writtenAt = new Date().toISOString();
+  for (const unit of store.dirty) {
+    const record = store.records.get(unit) ?? null;
+    const known = outboxMirror.get(unit);
+    if (known && sameRecord(known.record, record)) continue;
+    outboxSeq += 1;
+    const snapshot = record ? { unit, verdict: record.verdict, note: record.note, at: record.at } : null;
+    outboxMirror.set(unit, { seq: outboxSeq, record: snapshot });
+    entries.push([
+      unit,
+      {
+        record: snapshot,
+        base_at: store.serverAt.get(unit) ?? null,
+        stamp: manifest.generated_at,
+        tab: TAB_ID,
+        seq: outboxSeq,
+        written_at: writtenAt,
+      },
+    ]);
+  }
+  if (entries.length > 0) outboxWorks = writeOutbox(outboxStorage, entries);
+}
+
+function keepTabAlive() {
+  if (outboxStorage) markTabAlive(outboxStorage, TAB_ID);
+}
+
+function acknowledgeOutbox(units, sentSeqs) {
+  const acks = [];
+  for (const unit of units) {
+    const seq = sentSeqs.get(unit);
+    if (seq === undefined) continue;
+    acks.push({ unit, tab: TAB_ID, seq });
+    if (outboxMirror.get(unit)?.seq === seq) outboxMirror.delete(unit);
+  }
+  if (outboxStorage && acks.length > 0) ackOutbox(outboxStorage, acks);
+}
 
 function scheduleAutosave() {
+  mirrorDirtyToOutbox();
   clearTimeout(autosaveTimer);
   autosaveTimer = setTimeout(flushAutosave, AUTOSAVE_DEBOUNCE_MS);
+}
+
+function scheduleAutosaveRetry() {
+  autosaveRetrying = true;
+  clearTimeout(autosaveTimer);
+  autosaveTimer = setTimeout(flushAutosave, autosaveRetryMs);
+  autosaveRetryMs = Math.min(autosaveRetryMs * 2, AUTOSAVE_RETRY_MAX_MS);
 }
 
 function takeDirty() {
@@ -2199,6 +2293,95 @@ function deltaPayload(ids) {
   return JSON.stringify(assembleDelta(store, manifest.generated_at, ids));
 }
 
+async function postAutosave(payload) {
+  const body = JSON.stringify(payload);
+  let response;
+  try {
+    response = await fetch('autosave', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body,
+      keepalive: new TextEncoder().encode(body).length < KEEPALIVE_LIMIT_BYTES,
+    });
+  } catch (error) {
+    throw new RetryableSaveError(error.message);
+  }
+  if (response.status === 503) throw new RetryableSaveError('HTTP 503');
+  return response;
+}
+
+function handleSaveOutcome(reply, sentRecords, changedSince) {
+  const orphaned = Array.isArray(reply.orphaned) ? reply.orphaned : [];
+  const conflicts = Array.isArray(reply.conflicts) ? reply.conflicts : [];
+  let adopted = 0;
+  for (const conflict of conflicts) {
+    const unit = conflict?.unit;
+    if (typeof unit !== 'string') continue;
+    if (changedSince(unit)) {
+      store.serverAt.set(unit, conflict.server ? (conflict.server.at ?? '') : null);
+      continue;
+    }
+    pendingConflicts.set(unit, sentRecords.get(unit) ?? null);
+    adoptServerRecord(store, unit, conflict.server ?? null);
+    syncRowVerdict(unit);
+    adopted += 1;
+  }
+  const lines = [];
+  if (adopted > 0) lines.push(`${adopted} verdict${adopted === 1 ? '' : 's'} conflicted with newer ones; kept in the conflicts list`);
+  if (orphaned.length > 0) {
+    lines.push(
+      `${orphaned.length} verdict${orphaned.length === 1 ? ' is' : 's are'} on units this corpus no longer has; kept in var/verdict-orphans/`,
+    );
+  }
+  if (lines.length > 0) toast(lines.join(' · '));
+}
+
+function sentRecordsOf(payload) {
+  const sent = new Map();
+  for (const record of payload.sets) sent.set(record.unit, { verdict: record.verdict, note: record.note, at: record.at });
+  for (const clear of payload.clears) sent.set(clear.unit, null);
+  return sent;
+}
+
+async function sendReplays() {
+  while (replayQueue.length > 0) {
+    const group = replayQueue[0];
+    const entries = outboxStorage ? currentEntries(outboxStorage, group.entries) : group.entries;
+    if (entries.length === 0) {
+      replayQueue.shift();
+      continue;
+    }
+    const payload = replayDelta(group.stamp, entries);
+    const response = await postAutosave(payload);
+    replayQueue.shift();
+    if (!response.ok) {
+      console.warn('outbox replay refused', response.status);
+      staleOutbox.push(...entries);
+      staleDownloaded = false;
+      toast(
+        `The server refused ${entries.length} verdict${entries.length === 1 ? '' : 's'} this browser kept from an earlier session (HTTP ${response.status}); download them from the status bar`,
+      );
+      continue;
+    }
+    const reply = await response.json();
+    if (typeof reply.token === 'string' && group.stamp === manifest.generated_at) autosaveToken = reply.token;
+    const refused = new Set(Array.isArray(reply.orphaned) ? reply.orphaned : []);
+    for (const conflict of Array.isArray(reply.conflicts) ? reply.conflicts : []) refused.add(conflict?.unit);
+    let saved = 0;
+    for (const entry of entries) {
+      if (refused.has(entry.unit) || store.dirty.has(entry.unit)) continue;
+      if (entry.record) store.records.set(entry.unit, { ...entry.record, unit: entry.unit });
+      else store.records.delete(entry.unit);
+      store.serverAt.set(entry.unit, entry.record ? entry.record.at : null);
+      syncRowVerdict(entry.unit);
+      saved += 1;
+    }
+    handleSaveOutcome(reply, sentRecordsOf(payload), (unit) => store.dirty.has(unit));
+    if (outboxStorage) ackOutbox(outboxStorage, entries);
+    if (saved > 0) toast(`Saved ${saved} verdict${saved === 1 ? '' : 's'} this browser kept from an earlier session`);
+  }
+}
+
 async function flushAutosave() {
   clearTimeout(autosaveTimer);
   autosaveTimer = null;
@@ -2206,45 +2389,52 @@ async function flushAutosave() {
     scheduleAutosave();
     return;
   }
-  if (store.dirty.size === 0) return;
-  const ids = takeDirty();
+  mirrorDirtyToOutbox();
+  if (store.dirty.size === 0 && replayQueue.length === 0) return;
   autosaveInFlight = true;
+  let ids = [];
   try {
+    await sendReplays();
+    ids = takeDirty();
+    const sentSeqs = new Map();
+    for (const id of ids) {
+      const seq = outboxMirror.get(id)?.seq;
+      if (seq !== undefined) sentSeqs.set(id, seq);
+    }
     // A normal flush is one decision and its duplicate fills, but an Import can dirty every record in a file, so the ids go out in chunks of AUTOSAVE_CHUNK and no body reaches the server's request-size limit.
     for (let start = 0; start < ids.length; start += AUTOSAVE_CHUNK) {
       const chunk = ids.slice(start, start + AUTOSAVE_CHUNK);
+      const payload = assembleDelta(store, manifest.generated_at, chunk);
       let response;
       try {
-        response = await fetch('autosave', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: deltaPayload(chunk),
-        });
+        response = await postAutosave(payload);
       } catch (error) {
         restoreDirty(ids.slice(start));
         throw error;
-      }
-      if (response.status === 409) {
-        restoreDirty(ids.slice(start));
-        if (!autosaveFailed) toast('Autosave refused: this tab is from an older corpus — reload to continue');
-        autosaveFailed = true;
-        updateProgress();
-        return;
       }
       if (!response.ok) {
         restoreDirty(ids.slice(start));
         throw new Error(`HTTP ${response.status}`);
       }
-      const body = await response.json();
-      if (typeof body.token === 'string') autosaveToken = body.token;
+      const reply = await response.json();
+      if (typeof reply.token === 'string') autosaveToken = reply.token;
+      acknowledgeDelta(store, payload);
+      const sent = sentRecordsOf(payload);
+      handleSaveOutcome(reply, sent, (unit) => !sameRecord(store.records.get(unit) ?? null, sent.get(unit) ?? null));
+      acknowledgeOutbox(chunk, sentSeqs);
     }
     autosaveWorks = true;
     autosaveFailed = false;
-    // Send anything that became dirty during the request. A failed save leaves its ids dirty for the next mutation's flush; there is no retry timer.
+    autosaveRetrying = false;
+    autosaveRetryMs = AUTOSAVE_RETRY_FIRST_MS;
     if (store.dirty.size > 0) scheduleAutosave();
   } catch (error) {
     console.warn('autosave failed', error);
-    if (!autosaveFailed) toast('Autosave failed — download verdicts.json to be safe');
+    if (error instanceof RetryableSaveError) {
+      scheduleAutosaveRetry();
+    } else if (!autosaveFailed) {
+      toast('Autosave failed — download verdicts.json to be safe');
+    }
     autosaveFailed = true;
   } finally {
     autosaveInFlight = false;
@@ -2256,12 +2446,109 @@ function autosaveHealthy() {
   return autosaveWorks && !autosaveFailed;
 }
 
+function reapplyConflicts() {
+  const count = pendingConflicts.size;
+  for (const [unit, record] of pendingConflicts) {
+    if (record) recordVerdict(store, unit, record.verdict, { note: record.note });
+    else recordVerdict(store, unit, null);
+    syncRowVerdict(unit);
+  }
+  pendingConflicts.clear();
+  updateProgress();
+  scheduleAutosave();
+  toast(`Reapplied ${count} verdict${count === 1 ? '' : 's'}`);
+}
+
+// Downloads the outbox entries this page could not send, one file per corpus they were made on, with the clears as a `cleared` list of { unit, at }. The entries stay in the outbox until the reader says the files are saved (forgetStaleOutbox), so a blocked or cancelled download loses nothing.
+function downloadStaleOutbox() {
+  const byStamp = new Map();
+  for (const entry of staleOutbox) {
+    if (!byStamp.has(entry.stamp)) byStamp.set(entry.stamp, []);
+    byStamp.get(entry.stamp).push(entry);
+  }
+  const exportedAt = new Date().toISOString();
+  for (const [stamp, entries] of byStamp) {
+    const verdicts = [];
+    const cleared = [];
+    for (const entry of entries) {
+      if (entry.record) verdicts.push({ ...entry.record, unit: entry.unit });
+      else cleared.push({ unit: entry.unit, at: entry.written_at });
+    }
+    const payload = { format: EXPORT_FORMAT, manifest_generated_at: stamp, exported_at: exportedAt, verdicts };
+    if (cleared.length > 0) payload.cleared = cleared;
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `verdicts-unsaved-${stamp.replace(/[^0-9A-Za-z.-]/gu, '.')}.json`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }
+  staleDownloaded = true;
+  updateProgress();
+}
+
+function forgetStaleOutbox() {
+  if (outboxStorage) ackOutbox(outboxStorage, staleOutbox);
+  staleOutbox = [];
+  staleDownloaded = false;
+  updateProgress();
+}
+
+// The status bar's outbox line: saves waiting for a retry, conflicts to reapply, and outbox entries too old to replay.
+function renderOutboxStatus() {
+  const node = document.getElementById('outbox-status');
+  if (!node) return;
+  const parts = [];
+  if (autosaveRetrying) {
+    const waiting = store.dirty.size + replayQueue.reduce((sum, group) => sum + group.entries.length, 0);
+    const where = outboxWorks ? 'kept in this browser' : 'not yet saved';
+    parts.push(el('span', 'outbox-waiting', `${formatCount(waiting)} verdict${waiting === 1 ? '' : 's'} ${where}, saving…`));
+  }
+  if (pendingConflicts.size > 0) {
+    const button = el('button', 'outbox-reapply', `Reapply ${pendingConflicts.size} conflicted`);
+    button.type = 'button';
+    button.title = 'The server kept newer verdicts on these units; click to record yours again over them';
+    button.addEventListener('click', reapplyConflicts);
+    parts.push(button);
+  }
+  if (staleOutbox.length > 0) {
+    const button = el('button', 'outbox-download', `Download ${staleOutbox.length} unsaved`);
+    button.type = 'button';
+    button.title =
+      'This browser kept these changes from a session that closed before they were saved, and they are too old to send on their own or the server refused them';
+    button.addEventListener('click', downloadStaleOutbox);
+    parts.push(button);
+    if (staleDownloaded) {
+      const forget = el('button', 'outbox-forget', 'Saved them — forget');
+      forget.type = 'button';
+      forget.title = 'Remove these changes from this browser once the downloaded files are saved';
+      forget.addEventListener('click', forgetStaleOutbox);
+      parts.push(forget);
+    }
+  }
+  node.replaceChildren(...parts);
+  node.hidden = parts.length === 0;
+}
+
+// Sorts what earlier page loads left in the outbox against the server's records: the entries of tabs still open are left to them, saved entries are dropped, recent ones are queued for the first flush after boot, and old ones are offered as a download.
+function planReplayFromOutbox(serverRecords) {
+  if (!outboxStorage) return;
+  const live = liveTabs(outboxStorage);
+  live.delete(TAB_ID);
+  const plan = planOutboxReplay(readOutbox(outboxStorage), serverRecords, { live });
+  if (plan.drop.length > 0) dropOutbox(outboxStorage, plan.drop);
+  replayQueue = [...plan.replay].map(([stamp, entries]) => ({ stamp, entries }));
+  staleOutbox = plan.stale;
+}
+
 async function restoreAutosave() {
   let data = null;
   try {
     const response = await fetch('autosave');
     if (response.status === 404) {
       autosaveWorks = true;
+      planReplayFromOutbox(new Map());
       return;
     }
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -2271,6 +2558,10 @@ async function restoreAutosave() {
     return;
   }
   autosaveWorks = true;
+  const serverRecords = new Map();
+  for (const record of Array.isArray(data.verdicts) ? data.verdicts : []) {
+    if (record && typeof record.unit === 'string') serverRecords.set(record.unit, record);
+  }
   const result = importVerdicts(store, data, manifest.generated_at);
   if (!result.ok) {
     if (result.mismatch) {
@@ -2278,15 +2569,18 @@ async function restoreAutosave() {
         `Found an autosave from a different corpus build (${data.verdicts.length} verdicts) — not restored; it'll be stashed aside on your next verdict`,
       );
     }
+    planReplayFromOutbox(serverRecords);
     return;
   }
   if (typeof data.token === 'string') autosaveToken = data.token;
+  noteServerRecords(store, serverRecords.values());
   markExported(store);
   for (const id of result.units) store.dirty.delete(id);
   if (result.added > 0) toast(`Restored ${result.added} autosaved verdicts`);
+  planReplayFromOutbox(serverRecords);
 }
 
-// The store lives in this page and is restored from the server only at boot, so a copy open in another tab goes stale as verdicts are recorded elsewhere. When the page regains focus it merges the server's changes, the newer `at` winning as in an import. With a token the server returns only the records changed since; without one, or when the server does not recognize it (after a restart or an external rewrite of the file onto another stamp), it returns the whole store and a new token. A clear made in another session is not applied: clears are rare and visible, and a copy that keeps the record sends it back only when the reader changes it again.
+// The store lives in this page and is restored from the server only at boot, so a copy open in another tab goes stale as verdicts are recorded elsewhere. When the page regains focus it merges the server's changes, the newer `at` winning as in an import. With a token the server returns only the records changed since; without one, or when the server does not recognize it (after a restart or an external rewrite of the file onto another stamp), it returns the whole store and a new token. A clear made in another session is not applied: clears are rare and visible, and a copy that keeps the record sends it back only when the reader changes it again. Each record the server sends becomes the unit's `serverAt`, and each clear sets it to null, so this copy's next change to the unit is sent over what the server holds.
 let verdictSyncInFlight = false;
 let verdictSyncLastAt = 0;
 let bootRestoreDone = false;
@@ -2303,12 +2597,18 @@ async function syncVerdictsFromServer() {
     const result = importVerdicts(store, incoming, manifest.generated_at);
     if (!result.ok) return;
     if (typeof data.token === 'string') autosaveToken = data.token;
+    noteServerRecords(store, incoming.verdicts);
+    if (data.format === DELTA_FORMAT) {
+      for (const unit of Array.isArray(data.clears) ? data.clears : []) store.serverAt.set(unit, null);
+    }
     if (result.units.length === 0) return;
     for (const id of result.units) {
       store.unexported.delete(id);
       store.dirty.delete(id);
+      outboxMirror.delete(id);
       syncRowVerdict(id);
     }
+    if (outboxStorage) dropOutbox(outboxStorage, result.units, TAB_ID);
     updateProgress();
     toast(`Picked up ${result.units.length} verdict${result.units.length === 1 ? '' : 's'} from another session`);
   } catch (error) {
@@ -2319,6 +2619,7 @@ async function syncVerdictsFromServer() {
   }
 }
 
+const PAGE_LOADED_AT = new Date().toISOString();
 let lastStatusModel = null;
 let statusRefreshInFlight = false;
 let statusRefreshLastAt = 0;
@@ -2364,7 +2665,7 @@ async function refreshStatus() {
     } catch {
       payload = null;
     }
-    lastStatusModel = bannerModel(payload, manifest.generated_at);
+    lastStatusModel = bannerModel(payload, manifest.generated_at, PAGE_LOADED_AT);
     renderReadinessBanner();
     if (state.view === 'queue') renderQueueReadiness();
   } finally {
@@ -2899,14 +3200,21 @@ function wireEvents() {
 
   window.addEventListener('beforeunload', (event) => {
     if (store.unexported.size === 0) return;
-    if (autosaveHealthy()) return;
+    if (autosaveHealthy() || outboxWorks) return;
     event.preventDefault();
     event.returnValue = '';
+  });
+
+  setInterval(keepTabAlive, TAB_HEARTBEAT_MS);
+  window.addEventListener('pageshow', (event) => {
+    if (event.persisted) keepTabAlive();
   });
 
   window.addEventListener('pagehide', () => {
     clearTimeout(autosaveTimer);
     autosaveTimer = null;
+    mirrorDirtyToOutbox();
+    if (outboxStorage) markTabClosed(outboxStorage, TAB_ID);
     if (store.dirty.size === 0) return;
     navigator.sendBeacon('autosave', new Blob([deltaPayload(takeDirty())], { type: 'application/json' }));
   });
@@ -2960,10 +3268,12 @@ function renderChrome() {
 
 renderChrome();
 renderSidebar();
+keepTabAlive();
 wireEvents();
 indexReady = loadHumanIndex();
 await restoreAutosave();
 bootRestoreDone = true;
 await indexReady;
 applyHashState(true);
+if (replayQueue.length > 0) flushAutosave();
 refreshStatus();

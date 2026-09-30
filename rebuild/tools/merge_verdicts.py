@@ -1,4 +1,4 @@
-"""Merge stamp-aligned ams-review-verdicts/1 files into verdicts-autosave.json without a browser, as the review app's Import dialog does: per unit, the record with the strictly newer `at` wins. The artifact cycle uses it to merge carried verdicts, and the app reads the result on boot or focus. The existing aligned autosave is always part of the union, so a merge never drops a verdict. An autosave stamped for another corpus is moved aside first (`stash_path_for`, as the review server's verdict store does). An input stamped for another corpus is refused; `carry_verdicts.py` moves verdicts between corpora, and there is no override. A merge that writes reads, writes and journals the store under the store's lock (`rebuild.review.store_lock`), which the review server holds for each save, so a merge waits for a save in flight, and the server answers a save made during the merge with a retryable 503 and picks the merged file up by itself afterward. The app does not retry the save a closing tab sends, so a merge that would write the live store refuses while the review server is listening, unless --yes is passed (for a server that serves another checkout); a dry run and a refused merge take no lock. `--restore-as-of --apply` has the same refusal and takes the lock too. Every write is appended to verdicts-journal.ndjson (`rebuild.review.journal`), and `--restore-as-of` replays that journal to recover the store as of any recorded time. `--rekey-map` moves a replayed store's unit ids through the id map `rebuild.tools.rekey_verdicts` writes, for a time before that re-key.
+"""Merge stamp-aligned ams-review-verdicts/1 files into verdicts-autosave.json without a browser, as the review app's Import dialog does: per unit, the record with the strictly newer `at` wins. The artifact cycle uses it to merge carried verdicts, and the app reads the result on boot or focus. The existing aligned autosave is always part of the union, so a merge never drops a verdict. An autosave stamped for another corpus is moved aside first (`stash_path_for`). An input stamped for another corpus is refused; `carry_verdicts.py` moves verdicts between corpora, and there is no override. An aligned merge keeps the store's tombstones (the units the app cleared, each with the time of the clear), and a tombstone wins over an incoming record whose `at` is not after the clear. A merge that writes reads, writes and journals the store under the store's lock (`rebuild.review.store_lock`), which the review server holds for each save, so a merge waits for a save in flight, and the server answers a save made during the merge with a retryable 503 and picks the merged file up by itself afterward. The app retries the save a closing tab sends only when it is next opened, so a merge that would write the live store refuses while the review server is listening, unless --yes is passed (for a server that serves another checkout); a dry run and a refused merge take no lock. `--restore-as-of --apply` has the same refusal and takes the lock too. Every write is appended to verdicts-journal.ndjson (`rebuild.review.journal`), and `--restore-as-of` replays that journal to recover the store as of any recorded time. `--rekey-map` moves a replayed store's unit ids through the id map `rebuild.tools.rekey_verdicts` writes, for a time before that re-key.
 
 Usage:
   uv run python -m rebuild.tools.merge_verdicts [FILES ...]     # no FILES: merge the fullest verdicts file verdict-ready names
@@ -23,6 +23,7 @@ if str(ROOT) not in sys.path:
 from rebuild.review import journal, status  # noqa: E402
 from rebuild.review.serve import parse_autosave_payload, stash_path_for  # noqa: E402
 from rebuild.review.store_lock import store_lock  # noqa: E402
+from rebuild.review.verdict_store import parse_cleared  # noqa: E402
 from rebuild.tools.review_server import server_listening as _server_listening  # noqa: E402
 
 AUTOSAVE = ROOT / "verdicts-autosave.json"
@@ -54,16 +55,23 @@ def _effective(records: dict[str, dict]) -> int:
     return sum(1 for record in records.values() if record.get("verdict") != "skip")
 
 
-def merge_into(result: dict[str, dict], verdicts) -> dict:
+def merge_into(result: dict[str, dict], verdicts, cleared: dict[str, str] | None = None) -> dict:
+    """Merge `verdicts` into `result` in place, the strictly newer `at` winning per unit, and return the counts. `cleared` holds the store's tombstones (unit → the clear's `at`), which count as a newer state than any record whose `at` is not after the clear; a record that wins over a tombstone removes it from `cleared`."""
     counts = {"added": 0, "replaced": 0, "kept_newer": 0, "invalid": 0}
     for unit, record in sorted(journal.latest_by_unit(verdicts).items()):
         if record.get("verdict") not in VERDICT_KINDS:
             counts["invalid"] += 1
             continue
         current = result.get(unit)
-        if current is not None and (current.get("at") or "") >= (record.get("at") or ""):
+        at = record.get("at") or ""
+        if current is not None and (current.get("at") or "") >= at:
             counts["kept_newer"] += 1
             continue
+        if current is None and cleared is not None and unit in cleared:
+            if cleared[unit] >= at:
+                counts["kept_newer"] += 1
+                continue
+            del cleared[unit]
         result[unit] = {
             "unit": unit,
             "verdict": record["verdict"],
@@ -177,9 +185,10 @@ def _merge_into_store(
 
     base = journal.latest_by_unit(aligned["verdicts"]) if aligned is not None else {}
     result = dict(base)
+    cleared = {unit: at for unit, at in parse_cleared(aligned).items() if unit not in base}
     totals = {"added": 0, "replaced": 0, "kept_newer": 0, "invalid": 0}
     for path, data in payloads:
-        counts = merge_into(result, data["verdicts"])
+        counts = merge_into(result, data["verdicts"], cleared)
         for key in totals:
             totals[key] += counts[key]
         invalid = f", {counts['invalid']} invalid" if counts["invalid"] else ""
@@ -205,8 +214,8 @@ def _merge_into_store(
     if refuse_a_write:
         print(
             "ERROR: the review server is listening on port 7294. While a merge holds the verdict store's lock, the "
-            "server refuses the app's saves, and the save a closing tab sends is never retried, so a verdict "
-            "recorded just before a tab closes would be lost. Stop the server first (make review-cycle runs the "
+            "server refuses the app's saves, and the save a closing tab sends is sent again only when the app is "
+            "next opened, so a verdict recorded just before a tab closes would wait in that browser until then. Stop the server first (make review-cycle runs the "
             "merge with the server down), or pass --yes when the listening server serves another checkout."
         )
         return 1
@@ -222,6 +231,8 @@ def _merge_into_store(
         print(f"stashed the previous autosave as {stashed}")
 
     payload = journal.payload_for(stamp, result)
+    if cleared:
+        payload["cleared"] = [{"unit": unit, "at": at} for unit, at in sorted(cleared.items())]
     _write_store(autosave, payload)
     journal.record_transition(
         journal_path,

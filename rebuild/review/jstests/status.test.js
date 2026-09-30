@@ -179,3 +179,47 @@ test('with no page stamp to compare against, a fresh corpus is still ready', () 
   assert.equal(model.level, 'ready');
   assert.equal(model.text, 'Ready — 3 blanks left');
 });
+
+test('conflicts and orphans the server kept aside since the page loaded show as a warning', () => {
+  const status = withChecks(
+    {},
+    {
+      conflicts: {
+        count: 302,
+        newest_at: '2026-09-30T12:00:05Z',
+        file: 'var/verdict-orphans/gen-0.json',
+        recent: [
+          ['2026-09-30T12:00:05Z', 2],
+          ['2026-09-30T09:00:00Z', 300],
+        ],
+      },
+      orphans: {
+        count: 1,
+        newest_at: '2026-09-30T11:00:00Z',
+        file: 'var/verdict-orphans/gen-0.json',
+        recent: [['2026-09-30T11:00:00Z', 1]],
+      },
+    },
+  );
+  const model = bannerModel(status, 'gen-1', '2026-09-30T12:00:00.000Z');
+  assert.equal(model.level, 'warn');
+  assert.equal(model.text, 'Saves kept aside by the server: 2 conflicted');
+  assert.equal(model.remedy, 'see var/verdict-orphans/gen-0.json');
+  assert.equal(model.command, null);
+  const both = bannerModel(status, 'gen-1', '2026-09-30T10:00:00.000Z');
+  assert.equal(both.text, 'Saves kept aside by the server: 2 conflicted, 1 orphaned');
+  const sameSecond = bannerModel(status, 'gen-1', '2026-09-30T12:00:05.700Z');
+  assert.equal(sameSecond.text, 'Saves kept aside by the server: 2 conflicted');
+});
+
+test('saves kept aside before the page loaded leave the banner alone', () => {
+  const status = withChecks(
+    {},
+    {
+      conflicts: { count: 2, newest_at: '2026-09-30T11:00:00Z', file: 'f', recent: [['2026-09-30T11:00:00Z', 2]] },
+      orphans: { count: 0, newest_at: null, file: null, recent: [] },
+    },
+  );
+  assert.equal(bannerModel(status, 'gen-1', '2026-09-30T12:00:00.000Z').level, 'ready');
+  assert.equal(bannerModel(status, 'gen-1').level, 'ready');
+});

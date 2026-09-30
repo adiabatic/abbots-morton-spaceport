@@ -3,14 +3,23 @@ export const VERDICT_KINDS = ['approve', 'reject', 'either', 'identical', 'neith
 export const EXPORT_FORMAT = 'ams-review-verdicts/1';
 export const DELTA_FORMAT = 'ams-review-verdicts-delta/1';
 
-// `unexported` holds the units changed since the last download; the status bar's unexported count and the beforeunload prompt read it. `dirty` holds the units changed since the last autosave the server accepted; each flush empties it, and a failed flush puts the ids back. `touch` adds a unit to both, and different events clear each one.
+// `unexported` holds the units changed since the last download; the status bar's unexported count and the beforeunload prompt read it. `dirty` holds the units changed since the last autosave the server accepted; each flush empties it, and a failed flush puts the ids back. `touch` adds a unit to both, and different events clear each one. `serverAt` maps a unit to the `at` of the record the server last acknowledged holding for it, or null when it acknowledged holding none, and each save sends it as `base_at`, so a server that carries the save onto a rebuilt corpus can tell a stale change from one made over what it holds. `clearedAt` maps a cleared unit to when it was cleared.
 export function createStore() {
-  return { records: new Map(), undoStack: [], unexported: new Set(), dirty: new Set() };
+  return {
+    records: new Map(),
+    undoStack: [],
+    unexported: new Set(),
+    dirty: new Set(),
+    serverAt: new Map(),
+    clearedAt: new Map(),
+  };
 }
 
 function touch(store, unitId) {
   store.unexported.add(unitId);
   store.dirty.add(unitId);
+  if (store.records.has(unitId)) store.clearedAt.delete(unitId);
+  else store.clearedAt.set(unitId, new Date().toISOString());
 }
 
 export function recordVerdict(store, unitId, verdict, { note = '', at = new Date().toISOString() } = {}) {
@@ -106,16 +115,56 @@ export function markExported(store) {
   store.unexported.clear();
 }
 
-// The autosave body for a set of units: each unit's current record under `sets`, or its id under `clears` when it has no record. The caller takes the ids from the store's `dirty` set and puts them back if the save fails.
+// The autosave body for a set of units: each unit's current record under `sets`, or `{ unit, base_at, at }` under `clears` when it has no record, where `at` is when it was cleared. Both carry the unit's `serverAt` as `base_at`. The caller takes the ids from the store's `dirty` set and puts them back if the save fails.
 export function assembleDelta(store, manifestGeneratedAt, unitIds) {
   const sets = [];
   const clears = [];
   for (const unitId of [...unitIds].sort()) {
     const record = store.records.get(unitId);
-    if (record) sets.push({ unit: record.unit, verdict: record.verdict, note: record.note, at: record.at });
-    else clears.push(unitId);
+    const baseAt = store.serverAt.get(unitId) ?? null;
+    if (record) {
+      sets.push({ unit: record.unit, verdict: record.verdict, note: record.note, at: record.at, base_at: baseAt });
+    } else {
+      clears.push({ unit: unitId, base_at: baseAt, at: store.clearedAt.get(unitId) ?? new Date().toISOString() });
+    }
   }
   return { format: DELTA_FORMAT, manifest_generated_at: manifestGeneratedAt, sets, clears };
+}
+
+// The body that sends outbox entries (`outbox.js`) again: each entry's record under `sets`, or a clear dated when the entry was written, with the `base_at` the entry recorded. `replay: true` makes the server test each unit instead of taking the last write.
+export function replayDelta(stamp, entries) {
+  const sets = [];
+  const clears = [];
+  for (const entry of entries) {
+    if (entry.record) sets.push({ ...entry.record, unit: entry.unit, base_at: entry.base_at ?? null });
+    else clears.push({ unit: entry.unit, base_at: entry.base_at ?? null, at: entry.written_at });
+  }
+  return { format: DELTA_FORMAT, manifest_generated_at: stamp, replay: true, sets, clears };
+}
+
+// Records what the server now holds after it accepted `delta`: each set's `at`, and null for each clear.
+export function acknowledgeDelta(store, delta) {
+  for (const record of delta.sets) store.serverAt.set(record.unit, record.at);
+  for (const clear of delta.clears) store.serverAt.set(clear.unit, null);
+}
+
+// Records the `at` of records the server sent (a restore or a sync).
+export function noteServerRecords(store, records) {
+  for (const record of records) {
+    if (record && typeof record.unit === 'string') store.serverAt.set(record.unit, record.at ?? '');
+  }
+}
+
+// Replaces the tab's record for `unitId` with the server's (null when the server holds none) after the server refused the tab's change as a conflict.
+export function adoptServerRecord(store, unitId, record) {
+  if (record) {
+    store.records.set(unitId, { unit: unitId, verdict: record.verdict, note: record.note ?? '', at: record.at ?? '' });
+  } else {
+    store.records.delete(unitId);
+  }
+  store.serverAt.set(unitId, record ? (record.at ?? '') : null);
+  store.dirty.delete(unitId);
+  store.unexported.delete(unitId);
 }
 
 export function importVerdicts(store, data, manifestGeneratedAt, { force = false } = {}) {

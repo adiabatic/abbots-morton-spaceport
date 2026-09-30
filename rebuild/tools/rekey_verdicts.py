@@ -36,6 +36,7 @@ if str(ROOT) not in sys.path:
 from rebuild.review import journal, unit_index  # noqa: E402
 from rebuild.review.store_lock import store_lock  # noqa: E402
 from rebuild.review.unit_cache import CARRY_PRESENTATION_KEYS, is_content_id, unit_id_for  # noqa: E402
+from rebuild.review.verdict_store import parse_cleared  # noqa: E402
 from rebuild.tools.review_server import server_listening  # noqa: E402
 
 MAP_FORMAT = "ams-review-unit-id-map/1"
@@ -212,7 +213,7 @@ def verdict_files(root: Path, autosave: Path, extra: Iterable[Path]) -> list[Pat
 def rekey_payload(
     payload: dict, renamed: Mapping[str, str], current: set[str]
 ) -> tuple[dict, dict[str, int], list[str]]:
-    """Return the payload with every pre-rename unit id replaced, records sorted by unit as the writers sort them, its counts, and the unmatched records' content ids."""
+    """Return the payload with every pre-rename unit id replaced, records sorted by unit as the writers sort them, its counts, and the unmatched records' content ids. The store's tombstones (its `cleared` list) move through the same renames; two that land on one id keep the later clear, and one whose unit holds a record after the re-key is dropped, as the verdict store drops it."""
     counts = {"seen": 0, "rekeyed": 0, "current": 0, "unmatched": 0, "not_content_ids": 0}
     unmatched_content: list[str] = []
     records = []
@@ -232,7 +233,18 @@ def rekey_payload(
                 counts["not_content_ids"] += 1
         records.append(record)
     records.sort(key=lambda record: str(record.get("unit") or "") if isinstance(record, dict) else "")
-    return {**payload, "verdicts": records}, counts, unmatched_content
+    result = {**payload, "verdicts": records}
+    if "cleared" in payload:
+        held = {record.get("unit") for record in records if isinstance(record, dict)}
+        cleared: dict[str, str] = {}
+        for unit, at in parse_cleared(payload).items():
+            unit = renamed.get(unit, unit)
+            if unit not in held and at > cleared.get(unit, ""):
+                cleared[unit] = at
+        result["cleared"] = [{"unit": unit, "at": at} for unit, at in sorted(cleared.items())]
+        if not cleared:
+            del result["cleared"]
+    return result, counts, unmatched_content
 
 
 def rekey_text(text: str, renamed: Mapping[str, str]) -> tuple[str, int]:
