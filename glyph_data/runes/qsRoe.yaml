@@ -127,6 +127,12 @@ policy:
         - qsEat
         - qsEight
   - entry: baseline
+    by: 1
+    bind: shortened-top
+    when:
+      self: {exit: none}
+      left: {family: qsYe}
+  - entry: baseline
     by: 2
     bind: shortened-top
     when:

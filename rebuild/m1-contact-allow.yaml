@@ -606,6 +606,10 @@
   why: The extended baseline entry adds ink at the lower arm's left end; the right end, which the check reads, does not change.
 - signature: dangle:qsRoe.sole.en-y0.en-ext-1:exit:x-height
   why: The upper arm on the entry-extended baseline cell.
+- signature: dangle:qsRoe.sole.en-y0.en-bind-shortened-top.en-ext-1:exit:baseline
+  why: The shortened-top form after the loop ·Ye, with the baseline entry extended by one; the lower arm is unchanged.
+- signature: dangle:qsRoe.sole.en-y0.en-bind-shortened-top.en-ext-1:exit:x-height
+  why: The upper arm on the shortened-top form, one column shorter and still ending horizontally.
 - signature: dangle:qsRoe.sole.en-y0.en-bind-shortened-top.en-ext-2:exit:baseline
   why: The shortened-top form, the two-pixel-topped ·Roe drawn after the climbing-loop ·Ye with the baseline entry extended by two; the lower arm is unchanged.
 - signature: dangle:qsRoe.sole.en-y0.en-bind-shortened-top.en-ext-2:exit:x-height
