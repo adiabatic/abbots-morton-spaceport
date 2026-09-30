@@ -48,7 +48,7 @@ Green records are written only when the key still matches after the work ran, an
 
 Between the run_m1 skip and a full rebuild there is a third mode, the gates-only rerun. When the per-file diff against the run_m1 green is confined to comparison-side inputs (the alias map, the divergence ledger, the contact allow-list, the kern sidecar, the oracle's two modules, and the baselines and their subsets, all outside the tables' stamp; `comparison_side_label` lists them and argues each), the tables on disk still carry that stamp, and all the artifacts are present, the cycle spawns `run_m1 --gates-only` instead of a build. It re-runs the defect gate, the Manual-pin gate and the oracle over the tables and font on disk, matches the oracle's rows against the ledgers again, and enumerates nothing. The green that pass records covers the new inputs, so the next cycle skips run_m1. `uv.lock` is not comparison-side, because a fontTools or uharfbuzz bump can change the font's bytes and what the shaper does with them, so a toolchain bump rebuilds.
 
-This module, not the caller, decides which passes stop the review server, because only the resolved plan knows. Two things a cycle writes belong to the running app: the corpus it serves (livereload watches every shard, and a restamped manifest orphans the tab's store) and the verdict store, which merge_verdicts will not touch under a live server because an open tab would write its own copy back over the merge. A pass whose plan skips both writes neither, so a listening server is left alone and the open tab keeps working for the whole run. That is the pass with no artifact work, whose long verification would otherwise take the app down for its whole length.
+This module, not the caller, decides which passes stop the review server, because only the resolved plan knows. Two things a cycle writes belong to the running app: the corpus it serves (livereload watches every shard, and a restamped manifest orphans the tab's store) and the verdict store it saves into. A pass whose plan skips both writes neither, so a listening server is left alone and the open tab keeps working for the whole run. That is the pass with no artifact work, whose long verification would otherwise take the app down for its whole length.
 
 A pass whose corpus did not change but whose store did has its own mode, the direct merge. The carry there maps every unit id to itself and keeps each record's `at`, which the merge compares strictly, so the carry is skipped and the master is merged straight in; the master is the one input the store's own hash cannot see. That pass still writes the store, so it stops the review server. The direct merge needs the master stamped for the served corpus, as the merge requires of every input. A master stamped for another corpus, which a pass stopped between the corpus build and the carry leaves behind, takes the full carry instead. The carry source's resolution says which of the two an auto-resolved master is, and `master_stamped_for_corpus` says it for a --verdicts one.
 
@@ -56,7 +56,9 @@ An edit confined to rebuild/review/static/ also has its own mode. The copied app
 
 A corpus promotion is the opposite case under the same skip. The whole tree under the app is replaced by the staged corpus's and the stamp changes with it, so the pass stops the review server. Both the verdict-update skip and the direct merge are off, because both assume the corpus did not change, and here the store's verdicts must be carried onto the promoted units by id.
 
-A pass that writes under the app needs the review server stopped. --stop-server (which `make review-cycle` passes) lets it terminate the server and wait until the port is free; without it the pass stops and prints how to proceed. Retention also writes: the app appends to the journal as verdicts are recorded, and a compaction rewrites the file around a read, so while a server is up the journal and the stash sweep that depends on it are left for a later pass.
+A pass that writes under the app needs the review server stopped. --stop-server (which `make review-cycle` passes) lets it terminate the server and wait until the port is free; without it the pass stops and prints how to proceed. Retention also writes: the stash sweep and the journal compaction take the verdict store's lock for the tail of the journal appended since they read it, the deletions, and the journal's replacement (`run_retention`, `rebuild.review.store_lock`), and the server answers a save made during that window with a 503 that the app never retries for a closing tab. So while a server is up the journal and the stash sweep that depends on it are left for a later pass.
+
+Every pass holds the pass lock (`pass_lock`, var/cycle/pass.lock) from before it recovers a superseded corpus and resolves its plan until it ends, so a second pass waits for the first instead of planning against a tree the first is still writing. A staging pass holds it too, because a live pass's promotion reads the corpus a staging pass writes. A dry run takes it without waiting, and when another pass holds it the dry run skips the recovery, which could rename a tree that pass is promoting. Each non-staging pass gets a scratch directory under var/cycle/ named like its build-log run directory and deletes it when it ends; the next pass deletes any that a killed pass left (`sweep_run_dirs`). A staging pass and a dry run get no scratch directory.
 
 A green finish ends with a retention pass over the cycle's own files, all of them regenerable or covered by the journal. Root verdicts-carried-*.json files not stamped for the live corpus are deleted, since `status.pick_fullest_verdicts` reads only files stamped for the live corpus, and the tracked copy under rebuild/evidence/ is never touched. verdicts-autosave-* stashes not referenced by a journal event at or after the last base event are deleted. The journal, not the stashes, is the supported recovery path, and the check uses the journal's references because a stash's mtime predates the event that created it. The journal is compacted to the newest base event older than RETENTION_WINDOW_DAYS, keeping at least that many days of --restore-as-of history, and build-log run directories beyond the newest `cycle_paths.BUILD_LOGS_KEEP` are deleted. Failed, interrupted, first-run, and staging passes never prune, --keep-history turns retention off, and a retention error prints a warning and never turns a green cycle red.
 
@@ -92,7 +94,7 @@ from typing import TYPE_CHECKING
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
-from rebuild.review import app_index, facts, unit_index  # noqa: E402
+from rebuild.review import app_index, facts, store_lock, unit_index  # noqa: E402
 from rebuild.review.audit import load_ledger  # noqa: E402
 from rebuild.tools import console, cycle_paths  # noqa: E402
 from rebuild.tools.green_record import (  # noqa: E402
@@ -174,6 +176,8 @@ COMPILE_CODE_FILES = (
     "rebuild/pipeline/compile_font.py",
 )
 RETENTION_WINDOW_DAYS = 7
+# How long retention waits for the verdict store's lock before it leaves the stashes or the journal for a later pass. A merge of the whole store holds the lock for seconds, and a server POST for milliseconds.
+RETENTION_LOCK_TIMEOUT_S = 60.0
 REBUILD_LANES = ("contracts",)
 
 
@@ -1006,7 +1010,7 @@ def _master_key_line(root: Path, master: Path, autosave_digest: str) -> str:
 def verdict_update_skip_fingerprint(
     root: Path = ROOT, corpus: Path | None = None, master: Path | None = None
 ) -> str | None:
-    """Return the content key over everything the verdict update reads: the corpus it resolves unit ids against, the verdicts master it carries forward, the live store it merges into, the checked-in standing approvals, and the verdict update's own code. The standing approvals are hashed by raw bytes, unlike the prose-insensitive hash the rebuild lane uses: `standing_verdicts` copies each rule's `note` into the verdict note of every fill it writes, so rewording a note changes the verdict update's output and must re-run it. Carry, merge, both fills with their merges, and the complaint list are pure functions of these inputs, and the verdict update is idempotent once it has run, so a key matching the record a complete verdict update left means re-running it would write nothing new. The master is in the key because the autosave's hash cannot see it: an export at the repo root can outrank the autosave in the auto-resolution and carry verdicts the store has never held. The live store is hashed by its records (`verdicts_records_digest`), not its bytes, because the review server rewrites the file with a new `exported_at` on every save, and when the master resolved to the store, the master line names it `autosave` instead of by its path (`_master_key_line`). The code is in the key for the same reason every other key includes its stage's code: a fix to a fill's matcher or to the carry's join must run, not be skipped. It is the verdict update's import closure (`verdict_update_code_paths`, which a contracts test checks against the verdict update's import graph) plus the review/ modules the verdict update runs and the corpus build does not: serve.py and verdict_store.py, through which merge_verdicts reads the store, and status.py and journal.py, which the merge and the readiness check run. review/'s build-side modules are covered by the manifest fingerprint's review_code. The manifest line leaves out `unit_index.ASSET_COMPONENTS`, because no step of the verdict update reads the copied app assets, and an assets refresh rewrites that field and must not re-run a verdict update whose real inputs are unchanged. None when the corpus has no fingerprinted manifest or no master was resolved."""
+    """Return the content key over everything the verdict update reads: the corpus it resolves unit ids against, the verdicts master it carries forward, the live store it merges into, the checked-in standing approvals, and the verdict update's own code. The standing approvals are hashed by raw bytes, unlike the prose-insensitive hash the rebuild lane uses: `standing_verdicts` copies each rule's `note` into the verdict note of every fill it writes, so rewording a note changes the verdict update's output and must re-run it. Carry, merge, both fills with their merges, and the complaint list are pure functions of these inputs, and the verdict update is idempotent once it has run, so a key matching the record a complete verdict update left means re-running it would write nothing new. The master is in the key because the autosave's hash cannot see it: an export at the repo root can outrank the autosave in the auto-resolution and carry verdicts the store has never held. The live store is hashed by its records (`verdicts_records_digest`), not its bytes, because the review server rewrites the file with a new `exported_at` on every save, and when the master resolved to the store, the master line names it `autosave` instead of by its path (`_master_key_line`). The code is in the key for the same reason every other key includes its stage's code: a fix to a fill's matcher or to the carry's join must run, not be skipped. It is the verdict update's import closure (`verdict_update_code_paths`, which a contracts test checks against the verdict update's import graph) plus the review/ modules the verdict update runs and the corpus build does not: serve.py and verdict_store.py, through which merge_verdicts reads the store, status.py and journal.py, which the merge and the readiness check run, and store_lock.py, which the merge holds around its write. review/'s build-side modules are covered by the manifest fingerprint's review_code. The manifest line leaves out `unit_index.ASSET_COMPONENTS`, because no step of the verdict update reads the copied app assets, and an assets refresh rewrites that field and must not re-run a verdict update whose real inputs are unchanged. None when the corpus has no fingerprinted manifest or no master was resolved."""
     if master is None:
         return None
     corpus_dir = corpus if corpus is not None else REVIEW_OUT
@@ -1035,6 +1039,7 @@ def verdict_update_skip_fingerprint(
         f"verdict_store\t{_sha256_path(root / 'rebuild' / 'review' / 'verdict_store.py')}",
         f"status\t{_sha256_path(root / 'rebuild' / 'review' / 'status.py')}",
         f"journal\t{_sha256_path(root / 'rebuild' / 'review' / 'journal.py')}",
+        f"store_lock\t{_sha256_path(root / 'rebuild' / 'review' / 'store_lock.py')}",
     ]
     return _digest_lines(lines)
 
@@ -1195,6 +1200,7 @@ class Plan:
     recipe_serves: bool = False
     stamp: str = ""
     log_dir: Path | None = None
+    scratch_dir: Path | None = None
     steps: list[Step] = field(default_factory=list)
 
     def step(self, name: str) -> Step | None:
@@ -2302,7 +2308,7 @@ def resolve_short_id() -> str:
 
 
 def server_can_keep_running(*, skip_corpus: bool, writes_store: bool, promotes_corpus: bool = False) -> bool:
-    """Return whether a live review server can keep running through this pass. The app owns two things a cycle writes: the corpus's units and stamp (livereload watches every shard, and a restamped manifest orphans the tab's store) and the verdict store (merge_verdicts refuses to write it under a live server, because an open tab would write its copy back over the merge). So the answer depends on the plan's writes, not on a skip flag. A pass that rewrites no units and merges nothing into the store (a --no-carry pass, a --no-merge carry over an unchanged corpus, a pass with no artifact work) writes neither, so the review server keeps running and the open tab keeps working for the whole run. An assets refresh is such a pass: it rewrites no shard and leaves `generated_at` unchanged, so the tab's store stays aligned, and livereload reloads the tab onto the new app files. A corpus promotion sets the same skip flag but replaces every shard and the stamp in one rename, so `promotes_corpus` requires stopping the review server even when the store is untouched. Everything else the cycle writes is outside the served tree (the review-facts pins, the m1 summaries, the carried file) or is read by the app only as status, which is meant to update during a pass."""
+    """Return whether a live review server can keep running through this pass. The app owns two things a cycle writes: the corpus's units and stamp (livereload watches every shard, and a restamped manifest orphans the tab's store) and the verdict store the app saves into. So the answer depends on the plan's writes, not on a skip flag. A pass that rewrites no units and merges nothing into the store (a --no-carry pass, a --no-merge carry over an unchanged corpus, a pass with no artifact work) writes neither, so the review server keeps running and the open tab keeps working for the whole run. An assets refresh is such a pass: it rewrites no shard and leaves `generated_at` unchanged, so the tab's store stays aligned, and livereload reloads the tab onto the new app files. A corpus promotion sets the same skip flag but replaces every shard and the stamp in one rename, so `promotes_corpus` requires stopping the review server even when the store is untouched. Everything else the cycle writes is outside the served tree (the review-facts pins, the m1 summaries, the carried file) or is read by the app only as status, which is meant to update during a pass."""
     return skip_corpus and not promotes_corpus and not writes_store
 
 
@@ -4074,28 +4080,36 @@ def prune_carried(root: Path, stamp: str | None, keep: Path | None) -> tuple[lis
     return removed, unreadable
 
 
-def prune_stashes(root: Path, journal_path: Path) -> list[Path] | None:
-    """Delete the `verdicts-autosave-*` stashes that no journal event at or after the last base event references, and return them. Returns None and deletes nothing when the journal has no base event. The test uses journal references because mtime is wrong here: `os.replace` keeps the displaced store's mtime, so the stash the latest base created looks older than that base. `merge_verdicts --restore-as-of` can rebuild a deleted stash's state from the journal back to the journal's compaction floor."""
+def prune_stashes(
+    root: Path, journal_path: Path, *, lock: contextlib.AbstractContextManager | None = None
+) -> list[Path] | None:
+    """Delete the `verdicts-autosave-*` stashes that no journal event at or after the last base event references, and return them. Returns None and deletes nothing when the journal has no base event. The test uses journal references because mtime is wrong here: `os.replace` keeps the displaced store's mtime, so the stash the latest base created looks older than that base. `merge_verdicts --restore-as-of` can rebuild a deleted stash's state from the journal back to the journal's compaction floor.
+
+    The journal is read in two phases (`journal.scan_events`): the whole file without `lock`, the verdict store's lock, then under it only the tail appended since, together with the glob and the deletions. Every writer that stashes a store and journals it holds that lock, so no stash can appear between the check and the deletion without its event being in the tail.
+    """
     from rebuild.review import journal
 
-    events = list(journal.iter_events(journal_path))
-    last_base_at = None
-    for event in events:
-        if event.get("base"):
-            last_base_at = event.get("at") or ""
-    if last_base_at is None:
-        return None
-    keep_names = {
-        event["stashed"]
-        for event in events
-        if event.get("stashed") and (event.get("at") or "") >= last_base_at
-    }
-    removed: list[Path] = []
-    for path in sorted(root.glob("verdicts-autosave-*.json")):
-        if path.name in keep_names:
-            continue
-        path.unlink(missing_ok=True)
-        removed.append(path)
+    first = journal.scan_events(journal_path)
+    with lock if lock is not None else contextlib.nullcontext():
+        tail = journal.scan_events(journal_path, resume=first)
+        events = tail.events if tail.start == 0 else [*first.events, *tail.events]
+        last_base_at = None
+        for event in events:
+            if event.get("base"):
+                last_base_at = event.get("at") or ""
+        if last_base_at is None:
+            return None
+        keep_names = {
+            event["stashed"]
+            for event in events
+            if event.get("stashed") and (event.get("at") or "") >= last_base_at
+        }
+        removed: list[Path] = []
+        for path in sorted(root.glob("verdicts-autosave-*.json")):
+            if path.name in keep_names:
+                continue
+            path.unlink(missing_ok=True)
+            removed.append(path)
     return removed
 
 
@@ -4137,7 +4151,7 @@ def _retention_detail(removed: list[str], intact: list[str], journal_state: str)
 
 
 def run_retention(plan: Plan) -> RetentionResult:
-    """Prune stale carried files, build logs, autosave stashes, and old journal history after a green pass, and return the summary lines and detail. It returns the lines instead of printing them so they appear in the summary block below the table. Stashes and the journal are left alone while the review server is listening, because the app appends to the journal."""
+    """Prune stale carried files, build logs, autosave stashes, and old journal history after a green pass, and return the summary lines and detail. It returns the lines instead of printing them so they appear in the summary block below the table. Stashes and the journal are left alone while the review server is listening: the server answers a save with a 503 while retention holds the verdict store's lock, and the app never retries the save a closing tab sends. Otherwise the stash sweep and the compaction read the journal without that lock and take it only for the tail appended since, the deletions, and the journal's replacement (`prune_stashes`, `journal.compact_prepare`, `journal.compact_finish`), so another writer (a merge, a re-key) waits for at most that long; a lock still held after `RETENTION_LOCK_TIMEOUT_S` leaves that part for a later pass."""
     from rebuild.review import journal
 
     def rel(path: Path) -> str:
@@ -4181,32 +4195,84 @@ def run_retention(plan: Plan) -> RetentionResult:
             "  stashes   : left intact (the review server is up, and the index of which ones are still referenced comes from the journal this pass is leaving alone)"
         )
         lines.append(
-            "  journal   : left intact (the review server is up: the app appends to the journal as you verdict, and a compaction rewrites the whole file around a read, so anything landing in between would be dropped)"
+            "  journal   : left intact (the review server is up: it refuses a save while retention holds the verdict store's lock, and a closing tab's save is never retried)"
         )
         intact.extend(["stashes", "journal"])
         return RetentionResult(lines, _retention_detail(removed_counts, intact, ""))
+    store = ROOT / "verdicts-autosave.json"
 
-    removed_stashes = prune_stashes(ROOT, journal_path)
-    if removed_stashes is None:
-        lines.append("  stashes   : left intact (the journal holds no base event to anchor on)")
+    def locked() -> contextlib.AbstractContextManager:
+        return store_lock.store_lock(store, timeout=RETENTION_LOCK_TIMEOUT_S, quiet=True)
+
+    busy = f"left intact (the verdict store stayed locked for {RETENTION_LOCK_TIMEOUT_S:g} s)"
+    try:
+        removed_stashes = prune_stashes(ROOT, journal_path, lock=locked())
+    except store_lock.LockBusy:
+        lines.append(f"  stashes   : {busy}")
         intact.append("stashes")
     else:
-        removed_counts.append(swept(len(removed_stashes), "stash", "stashes"))
-        lines.append(
-            f"  stashes   : removed {console.fmt_count(len(removed_stashes))} verdicts-autosave-* stashes older than the journal's last base"
-        )
+        if removed_stashes is None:
+            lines.append("  stashes   : left intact (the journal holds no base event to anchor on)")
+            intact.append("stashes")
+        else:
+            removed_counts.append(swept(len(removed_stashes), "stash", "stashes"))
+            lines.append(
+                f"  stashes   : removed {console.fmt_count(len(removed_stashes))} verdicts-autosave-* stashes older than the journal's last base"
+            )
 
-    result = journal.compact(journal_path, cutoff=retention_cutoff())
+    try:
+        result = journal.compact(journal_path, cutoff=retention_cutoff(), lock=locked())
+    except store_lock.LockBusy:
+        lines.append(f"  journal   : {busy}")
+        return RetentionResult(lines, _retention_detail(removed_counts, intact, "journal intact"))
     if result["compacted"]:
         total = result["dropped_lines"] + result["kept_lines"]
         lines.append(
             f"  journal   : compacted {console.fmt_count(total)} -> {console.fmt_count(result['kept_lines'])} lines (restore floor now {result['floor_at']})"
         )
         journal_state = f"journal compacted to {console.fmt_count(result['kept_lines'])} lines"
+    elif result.get("replaced"):
+        lines.append("  journal   : left intact (another writer replaced it while it was being compacted)")
+        journal_state = "journal intact"
     else:
         lines.append(f"  journal   : left intact (no base event older than {RETENTION_WINDOW_DAYS} days)")
         journal_state = "journal intact"
     return RetentionResult(lines, _retention_detail(removed_counts, intact, journal_state))
+
+
+def pass_lock_path() -> Path:
+    return cycle_paths.CYCLE_VAR / "pass.lock"
+
+
+@contextlib.contextmanager
+def pass_lock(*, blocking: bool = True) -> Iterator[None]:
+    """Hold the pass lock, an exclusive `flock` on `pass_lock_path()` whose file holds the holder's pid, for a whole pass, from before the superseded-corpus recovery and the plan to the pass's end. A second pass prints the holder's pid once and waits; Ctrl-C stops the wait. With `blocking` false it raises `store_lock.LockBusy` instead of waiting. The kernel releases the lock when its holder exits, `kill -9` included.
+
+    A staging pass holds it too: its recovery can rename a superseded corpus back into place, and a live pass's promotion reads the staged corpus it writes, so the two must not overlap. A dry run holds it without waiting (`main`), because its recovery can also rename a tree back; when a pass holds it, the dry run skips the recovery.
+    """
+
+    def waiting(fd: int) -> None:
+        holder = os.pread(fd, 32, 0).decode("utf-8", "replace").strip() or "of unknown pid"
+        print(
+            f"waiting for pass {holder} to finish ({pass_lock_path()} is held; Ctrl-C stops waiting)",
+            flush=True,
+        )
+
+    with store_lock.hold_flock(pass_lock_path(), blocking=blocking, on_wait=waiting) as fd:
+        os.ftruncate(fd, 0)
+        os.pwrite(fd, f"{os.getpid()}\n".encode(), 0)
+        yield
+
+
+def sweep_run_dirs() -> list[Path]:
+    """Delete the per-run scratch directories under `cycle_paths.CYCLE_VAR` that earlier passes left, and return them. Each pass deletes its own when it ends, so only a pass killed outright leaves one. It runs under the pass lock, so no running pass owns any of them."""
+    root = cycle_paths.CYCLE_VAR
+    if not root.is_dir():
+        return []
+    doomed = sorted(path for path in root.iterdir() if path.is_dir() and not path.is_symlink())
+    for path in doomed:
+        shutil.rmtree(path, ignore_errors=True)
+    return doomed
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -4287,8 +4353,24 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.fresh:
         args.force_make_test = True
+    if args.dry_run:
+        with contextlib.ExitStack() as held:
+            try:
+                held.enter_context(pass_lock(blocking=False))
+            except store_lock.LockBusy:
+                print(
+                    f"A pass holds {pass_lock_path()}, so this dry run leaves any superseded corpus to it and plans against the corpus on disk now."
+                )
+                return _run_pass(args, recover=False)
+            return _run_pass(args)
+    with pass_lock():
+        sweep_run_dirs()
+        return _run_pass(args)
 
-    recovered = recover_superseded_corpus(delete=not args.dry_run)
+
+def _run_pass(args: argparse.Namespace, *, recover: bool = True) -> int:
+    """Resolve the plan for the parsed arguments and run it, or print it on a dry run. `main` runs it under the pass lock (`pass_lock`), except a dry run that found the lock held, which passes `recover=False` and leaves the superseded corpus to the pass that holds it."""
+    recovered = recover_superseded_corpus(delete=not args.dry_run) if recover else None
     first_run = not (REVIEW_OUT / "manifest.json").exists()
 
     skip_make_test = False
@@ -4469,6 +4551,9 @@ def main(argv: list[str] | None = None) -> int:
 
     plan.stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     plan.log_dir = cycle_paths.BUILD_LOGS_ROOT / f"{plan.stamp}-{plan.short_id}"
+    if args.review_out is None:
+        plan.scratch_dir = cycle_paths.CYCLE_VAR / f"{plan.stamp}-{plan.short_id}"
+        plan.scratch_dir.mkdir(parents=True, exist_ok=True)
     cycle_console = console.CycleConsole(
         steps=[step.name for step in plan.steps], log_dir=plan.log_dir, aliases=STEP_ALIASES
     )
@@ -4496,8 +4581,12 @@ def main(argv: list[str] | None = None) -> int:
         os.environ[CYCLE_RUN_ENV] = timings.run_id
 
         registry = _ChildRegistry()
-        with stop_signals():
-            return _run_cycle(plan, report, cycle_console, registry, timings=timings)
+        try:
+            with stop_signals():
+                return _run_cycle(plan, report, cycle_console, registry, timings=timings)
+        finally:
+            if plan.scratch_dir is not None:
+                shutil.rmtree(plan.scratch_dir, ignore_errors=True)
 
 
 def readiness_block(plan: Plan) -> list[str]:

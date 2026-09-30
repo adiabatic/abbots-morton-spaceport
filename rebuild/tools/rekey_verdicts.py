@@ -6,7 +6,7 @@ Two checks guard the pairs. `pre_rename_projection` applies the forward renames 
 
 The files it rewrites are the live autosave, every verdicts-*.json at the repository root stamped for the same corpus as the autosave (the stamp-aligned carried master and the fill files among them), every rebuild/evidence/verdicts-carried-*.json, and any file passed with `--verdicts`. Each record naming a pre-rename id moves to the post-rename id; a record already naming a unit on the corpus is left alone, and one naming neither is left alone and counted as unmatched, which blocks the write when the file is stamp-aligned and the id is a content id. Stamps, notes and `at` times are kept, so the carry that follows moves the verdicts onto the new corpus as it does any other store. Verdict records carry no duplicate-group or cluster id, and the `[carried u-…@file]` markers in notes record where a verdict came from, so they keep the ids they were written with. `--references` rewrites pre-rename unit ids in text files too, such as the unit ids rebuild/standing-approvals.yaml quotes in its notes.
 
-Every file is copied to a new directory under var/keep/issue-357-rekey/ before it is rewritten, with the journal's length and whether the re-key appends to the journal (a re-key that appends first ends the journal on a newline, `journal.repair_tail`, so the length marks where its base event begins), and `--undo DIR` puts those copies back and, when it appended, truncates the journal to that length. The rewritten autosave is appended to verdicts-journal.ndjson as a base event (`journal.record_transition` with no previous stamp), because journal lines before it name pre-rename ids. The old-to-new id map of every unit whose id changed is merged into var/keep/issue-357-rekey/unit-id-map.json (`merge_id_maps`): a later run, whose corpus may differ, adds its pairs to the ones already there instead of replacing them, and first copies the previous map beside it as unit-id-map-<time>.json. So the one map holds every pair any run wrote, and `merge_verdicts --restore-as-of TIME --rekey-map` applies it to a store it replays from before the re-key. Where two runs pair one pre-rename id with different units, the later run's unit wins and the tool names the clash; the earlier pair stays in the copy. A second run finds every verdict already current and writes nothing. It prints `rekey counts: seen=N rekeyed=N current=N unmatched=N` over all the files.
+Every file is copied to a new directory under var/keep/issue-357-rekey/ before it is rewritten, with the journal's length and whether the re-key appends to the journal (a re-key that appends first ends the journal on a newline, `journal.repair_tail`, so the length marks where its base event begins), and `--undo DIR` puts those copies back and, when it appended, truncates the journal to that length. The rewritten autosave is appended to verdicts-journal.ndjson as a base event (`journal.record_transition` with no previous stamp), because journal lines before it name pre-rename ids. The old-to-new id map of every unit whose id changed is merged into var/keep/issue-357-rekey/unit-id-map.json (`merge_id_maps`): a later run, whose corpus may differ, adds its pairs to the ones already there instead of replacing them, and first copies the previous map beside it as unit-id-map-<time>.json. So the one map holds every pair any run wrote, and `merge_verdicts --restore-as-of TIME --rekey-map` applies it to a store it replays from before the re-key. Where two runs pair one pre-rename id with different units, the later run's unit wins and the tool names the clash; the earlier pair stays in the copy. A second run finds every verdict already current and writes nothing. It prints `rekey counts: seen=N rekeyed=N current=N unmatched=N` over all the files. From reading the verdict files through the journal append, and for all of `--undo`, it holds the verdict store's lock (`rebuild.review.store_lock`), which every writer of the store and the journal holds. It refuses to rewrite the live autosave while a review server is listening, unless --yes is passed, because the re-keyed ids would replace the ones the open tabs hold; such a run, and a dry run, reads without the lock, so a run that ends up writing nothing never makes the server refuse a save.
 
 Usage:
   uv run python -m rebuild.tools.rekey_verdicts --dry-run
@@ -17,13 +17,15 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import contextlib
+import functools
 import hashlib
 import json
 import os
 import re
 import shutil
 import sys
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -32,6 +34,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from rebuild.review import journal, unit_index  # noqa: E402
+from rebuild.review.store_lock import store_lock  # noqa: E402
 from rebuild.review.unit_cache import CARRY_PRESENTATION_KEYS, is_content_id, unit_id_for  # noqa: E402
 from rebuild.tools.review_server import server_listening  # noqa: E402
 
@@ -336,6 +339,11 @@ def _backup(root: Path, keep: Path, paths: list[Path], journal_path: Path, *, jo
 
 def undo(root: Path, backup_dir: Path) -> int:
     """Put back every file a re-key rewrote from its copy in `backup_dir`. When the re-key appended its base event to the journal (it rewrote the live autosave), also truncate the journal to the length it had before the re-key, which drops every event appended after it, or remove the journal when the re-key created it. A journal compacted since the re-key is left alone, because the recorded length no longer marks the re-key in it. When the re-key did not append to the journal, the journal is left as it is, because every event after the recorded length belongs to a store the undo does not put back."""
+    with store_lock(root / "verdicts-autosave.json"):
+        return _undo_locked(root, backup_dir)
+
+
+def _undo_locked(root: Path, backup_dir: Path) -> int:
     record = json.loads((backup_dir / BACKUP_RECORD).read_text(encoding="utf-8"))
     journal_path = root / record["journal"]["path"]
     size = record["journal"]["size"]
@@ -398,6 +406,44 @@ def run(
         f"corpus {_rel(corpus, root)} ({corpus_stamp}): {len(current)} units, {len(renamed)} ids changed by the renames"
     )
 
+    guarded = not dry_run and not yes and server_listening()
+    rekey = functools.partial(
+        _rekey_files,
+        root=root,
+        corpus_stamp=corpus_stamp,
+        renamed=renamed,
+        current=current,
+        autosave=autosave,
+        journal_path=journal_path,
+        keep=keep,
+        extra=extra,
+        references=references,
+        dry_run=dry_run,
+        allow_unmatched=allow_unmatched,
+    )
+    if dry_run or guarded:
+        return rekey(refuse_live_store=guarded, write_lock=lambda: store_lock(autosave))
+    with store_lock(autosave):
+        return rekey(refuse_live_store=False, write_lock=contextlib.nullcontext)
+
+
+def _rekey_files(
+    *,
+    root: Path,
+    corpus_stamp: Any,
+    renamed: dict[str, str],
+    current: set[str],
+    autosave: Path,
+    journal_path: Path,
+    keep: Path,
+    extra: list[Path],
+    references: list[Path],
+    dry_run: bool,
+    allow_unmatched: bool,
+    refuse_live_store: bool,
+    write_lock: Callable[[], contextlib.AbstractContextManager],
+) -> int:
+    """Re-key the verdict files and references. `run` calls it under the store's lock, from the reads through the writes and the journal append, unless the run is a dry run or a review server is listening without --yes. It then reads without the lock, `refuse_live_store` stops it before it rewrites the live autosave, and `write_lock` takes the lock for the writes that include the store and its journal."""
     totals = {"seen": 0, "rekeyed": 0, "current": 0, "unmatched": 0}
     payloads: list[tuple[Path, dict, dict]] = []
     aligned_stamp = _stamp(_read(autosave))
@@ -449,7 +495,7 @@ def run(
     rewrites_live_store = any(
         path.resolve() == (ROOT / "verdicts-autosave.json").resolve() for path in targets
     )
-    if rewrites_live_store and server_listening() and not yes:
+    if rewrites_live_store and refuse_live_store:
         print(
             "ERROR: the review server is listening on port 7294, and an open tab would write its own store back over "
             "the re-keyed autosave. Stop the server and close the review tabs, or pass --yes when the listening server "
@@ -477,23 +523,24 @@ def run(
         print("nothing to re-key: every verdict names a post-rename id or no unit on the corpus")
         return 0
     journaled = any(path.resolve() == autosave.resolve() for path, _, _ in payloads)
-    backup_dir = _backup(root, keep, targets, journal_path, journaled=journaled)
-    print(f"backed up {len(targets)} file(s) to {_rel(backup_dir, root)}")
-    for path, before, after in payloads:
-        _write_json(path, after)
-        if path.resolve() == autosave.resolve():
-            journal.record_transition(
-                journal_path,
-                source="rekey",
-                stamp=after["manifest_generated_at"],
-                old_stamp=None,
-                old_verdicts=before["verdicts"],
-                new_verdicts=after["verdicts"],
-            )
-        print(f"rewrote {_rel(path, root)}")
-    for path, text in texts:
-        _write_text(path, text)
-        print(f"rewrote {_rel(path, root)}")
+    with write_lock() if journaled else contextlib.nullcontext():
+        backup_dir = _backup(root, keep, targets, journal_path, journaled=journaled)
+        print(f"backed up {len(targets)} file(s) to {_rel(backup_dir, root)}")
+        for path, before, after in payloads:
+            _write_json(path, after)
+            if path.resolve() == autosave.resolve():
+                journal.record_transition(
+                    journal_path,
+                    source="rekey",
+                    stamp=after["manifest_generated_at"],
+                    old_stamp=None,
+                    old_verdicts=before["verdicts"],
+                    new_verdicts=after["verdicts"],
+                )
+            print(f"rewrote {_rel(path, root)}")
+        for path, text in texts:
+            _write_text(path, text)
+            print(f"rewrote {_rel(path, root)}")
     return 0
 
 

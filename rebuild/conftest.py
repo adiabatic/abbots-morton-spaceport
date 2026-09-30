@@ -477,7 +477,7 @@ def _redirect_cycle_writes(monkeypatch, tmp_path):
 
     Every cycle stage resolves its paths at call time, so a test that forgets to redirect one still passes while the repo gains or loses a file. The fixture is autouse and lives here so that every module under rebuild/ gets it, including modules written later. Each patch is a default: a test that wants the real behavior patches over it, because the test's own monkeypatch is applied after this one.
 
-    The green records in `GREEN_RECORDS` and the cycle summary are redirected because a test driving `_run_cycle` over mocked stages would otherwise leave a record in rebuild/out that the next real cycle reads as a pass. The build-log root is redirected because `main` creates a run directory and a `latest` symlink under it, which the next reader would take for the newest real pass.
+    The green records in `GREEN_RECORDS` and the cycle summary are redirected because a test driving `_run_cycle` over mocked stages would otherwise leave a record in rebuild/out that the next real cycle reads as a pass. The build-log root is redirected because `main` creates a run directory and a `latest` symlink under it, which the next reader would take for the newest real pass. The cycle directory (`cycle_paths.CYCLE_VAR`) is redirected because `main` takes the pass lock there and creates a scratch directory under it, and a real pass holds that lock while the rebuild suite runs as its child, so a test driving `main` against the live one would wait on its own parent.
 
     The timings journal (`cycle_timings.JOURNAL`) is redirected because most of its writers are not the cycle. A pooled corpus build records its per-worker peaks there, so a test that runs `build_m1` at more than one job would record a mini-bundle worker's peak as a measurement for the real worker's `*_BYTES` constant, and `make job-costs` would compare the constant with that peak. Every evaluated check records its outcome there too, so a test driving either gate wrapper or run_m1's CLI would add a stubbed suite's outcome to what `make cycle-timings --by-outcome` reports. `record_pool` and `record_check` read the constant at call time, so this redirect reaches every writer. The lane's own pool record is unaffected, because the root conftest writes it on the controller from `pytest_terminal_summary`, after every fixture is torn down.
 
@@ -499,6 +499,7 @@ def _redirect_cycle_writes(monkeypatch, tmp_path):
     )
     monkeypatch.setattr(cycle_paths, "CONFORM_SUMMARY", tmp_path / cycle_paths.CONFORM_SUMMARY.name)
     monkeypatch.setattr(cycle_paths, "BUILD_LOGS_ROOT", tmp_path / "build-logs")
+    monkeypatch.setattr(cycle_paths, "CYCLE_VAR", tmp_path / "cycle")
     monkeypatch.setattr(cycle_paths, "RETENTION_ENABLED", False)
     monkeypatch.setattr(cycle_paths, "READINESS_ENABLED", False)
     monkeypatch.setattr(cycle_timings, "JOURNAL", tmp_path / "cycle-timings.ndjson")

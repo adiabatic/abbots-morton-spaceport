@@ -1,10 +1,13 @@
-"""Tests for `rebuild/tools/merge_verdicts.py`, which merges verdict files into the autosave outside the browser: the review app's union in which the newer `at` wins, the stamp checks (only inputs stamped for the current corpus, a stale autosave stashed, no merge onto an outdated corpus), the refusal while the review server is listening, idempotence, and the restore from the journal."""
+"""Tests for `rebuild/tools/merge_verdicts.py`, which merges verdict files into the autosave outside the browser: the review app's union in which the newer `at` wins, the stamp checks (only inputs stamped for the current corpus, a stale autosave stashed, no merge onto an outdated corpus), the store lock a merge waits on, the refusal while the review server is listening, which takes no lock, idempotence, and the restore from the journal."""
 
 import json
+import threading
 
 import pytest
 
 from rebuild.review import journal
+from rebuild.review import store_lock as store_lock_module
+from rebuild.review.store_lock import store_lock
 from rebuild.tools import merge_verdicts as mv
 
 
@@ -139,22 +142,50 @@ def test_second_run_is_a_no_op(repo, tmp_path, capsys):
     assert "nothing changed" in capsys.readouterr().out
 
 
-def test_merge_refuses_while_the_server_is_up(repo, tmp_path, monkeypatch, capsys):
+def test_a_merge_waits_on_the_store_lock_and_keeps_the_holders_write(repo, tmp_path, monkeypatch):
+    """A merge takes the store's lock before it reads the store, so a write the holder makes before releasing it is part of the union, not overwritten."""
+    carried = write_doc(tmp_path / "carried.json", "S2", [v("u-1")])
+    write_doc(repo["autosave"], "S2", [v("u-0")])
+    waiting = threading.Event()
+    monkeypatch.setattr(store_lock_module, "announce_wait", lambda lock_path: waiting.set())
+    monkeypatch.setattr(mv, "AUTOSAVE", repo["autosave"])
+    codes: list[int] = []
+    with store_lock(repo["autosave"]):
+        merge = threading.Thread(target=lambda: codes.append(run(repo, str(carried))))
+        merge.start()
+        assert waiting.wait(10)
+        write_doc(repo["autosave"], "S2", [v("u-0"), v("u-holder")])
+    merge.join(10)
+    assert codes == [0]
+    assert set(store_records(repo)) == {"u-0", "u-holder", "u-1"}
+
+
+def test_merge_refuses_while_the_server_is_up_without_taking_the_lock(repo, tmp_path, monkeypatch, capsys):
+    """While the server listens, a merge that would write the live store refuses. It decides that without the store's lock, as a dry run and a merge with nothing to change do, so none of them makes the server refuse a save."""
     carried = write_doc(tmp_path / "carried.json", "S2", [v("u-1")])
     monkeypatch.setattr(mv, "AUTOSAVE", repo["autosave"])
     monkeypatch.setattr(mv, "_server_listening", lambda: True)
-    assert run(repo, str(carried)) == 1
-    assert "listening on port 7294" in capsys.readouterr().out
-    assert not repo["autosave"].exists()
-    assert not repo["journal"].exists()
-    assert run(repo, "--dry-run", str(carried)) == 0
-    assert not repo["autosave"].exists()
+
+    def no_waiting(lock_path):
+        raise AssertionError(f"took {lock_path}")
+
+    monkeypatch.setattr(store_lock_module, "announce_wait", no_waiting)
+    with store_lock(repo["autosave"]):
+        assert run(repo, str(carried)) == 1
+        assert "listening on port 7294" in capsys.readouterr().out
+        assert not repo["autosave"].exists()
+        assert not repo["journal"].exists()
+        assert run(repo, "--dry-run", str(carried)) == 0
+        assert not repo["autosave"].exists()
     assert run(repo, "--yes", str(carried)) == 0
     assert set(store_records(repo)) == {"u-1"}
+    with store_lock(repo["autosave"]):
+        assert run(repo, str(carried)) == 0
+    assert "nothing changed" in capsys.readouterr().out
 
 
 def test_merge_to_a_scratch_store_proceeds_while_the_server_is_up(repo, tmp_path, monkeypatch, capsys):
-    """The refusal guards against an open tab writing its store back over the merge, which can happen only to the file the server serves (`mv.AUTOSAVE`). A merge into any other file runs without `--yes`, so that users do not get used to passing `--yes` where the guard matters."""
+    """The refusal guards the store the server's tabs save into, which is only the file the server serves (`mv.AUTOSAVE`). A merge into any other file runs without `--yes`, so that users do not get used to passing `--yes` where the guard matters."""
     carried = write_doc(tmp_path / "carried.json", "S2", [v("u-1")])
     monkeypatch.setattr(mv, "AUTOSAVE", tmp_path / "elsewhere" / "verdicts-autosave.json")
     monkeypatch.setattr(mv, "_server_listening", lambda: True)

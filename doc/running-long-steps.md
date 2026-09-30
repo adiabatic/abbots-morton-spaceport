@@ -23,8 +23,9 @@ If the tool harness kills the shell's process group when the command returns, la
 
 ## Judging whether a run is hung
 
-Three things make a healthy run look hung or a finished run look alive:
+Four things make a healthy run look hung or a finished run look alive:
 
+- A pass started while another pass runs waits for it at 0% CPU with no children, having printed `waiting for pass <pid> to finish`, and starts when that pass ends (`doc/review-cycle.md` § What a pass does).
 - The pytest controller sits at 0% CPU while its xdist workers run.
 - The workers are execnet children whose argv does not contain `pytest`, so searching process names for `pytest` finds nothing.
 - A watcher loop polling `pgrep -f <pattern>` matches its own command line and reports a finished run as still running.

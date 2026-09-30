@@ -1,4 +1,4 @@
-"""Merge stamp-aligned ams-review-verdicts/1 files into verdicts-autosave.json without a browser, as the review app's Import dialog does: per unit, the record with the strictly newer `at` wins. The artifact cycle uses it to merge carried verdicts, and the app reads the result on boot or focus. The existing aligned autosave is always part of the union, so a merge never drops a verdict. An autosave stamped for another corpus is moved aside first (`stash_path_for`, as the review server's verdict store does). An input stamped for another corpus is refused; `carry_verdicts.py` moves verdicts between corpora, and there is no override. A merge that would write fails while the review server is listening, because an open tab would write its own store back over the result on its next focus; stop the server or pass --yes. `--restore-as-of --apply` has the same check. Every write is appended to verdicts-journal.ndjson (`rebuild.review.journal`), and `--restore-as-of` replays that journal to recover the store as of any recorded time. `--rekey-map` moves a replayed store's unit ids through the id map `rebuild.tools.rekey_verdicts` writes, for a time before that re-key.
+"""Merge stamp-aligned ams-review-verdicts/1 files into verdicts-autosave.json without a browser, as the review app's Import dialog does: per unit, the record with the strictly newer `at` wins. The artifact cycle uses it to merge carried verdicts, and the app reads the result on boot or focus. The existing aligned autosave is always part of the union, so a merge never drops a verdict. An autosave stamped for another corpus is moved aside first (`stash_path_for`, as the review server's verdict store does). An input stamped for another corpus is refused; `carry_verdicts.py` moves verdicts between corpora, and there is no override. A merge that writes reads, writes and journals the store under the store's lock (`rebuild.review.store_lock`), which the review server holds for each save, so a merge waits for a save in flight, and the server answers a save made during the merge with a retryable 503 and picks the merged file up by itself afterward. The app does not retry the save a closing tab sends, so a merge that would write the live store refuses while the review server is listening, unless --yes is passed (for a server that serves another checkout); a dry run and a refused merge take no lock. `--restore-as-of --apply` has the same refusal and takes the lock too. Every write is appended to verdicts-journal.ndjson (`rebuild.review.journal`), and `--restore-as-of` replays that journal to recover the store as of any recorded time. `--rekey-map` moves a replayed store's unit ids through the id map `rebuild.tools.rekey_verdicts` writes, for a time before that re-key.
 
 Usage:
   uv run python -m rebuild.tools.merge_verdicts [FILES ...]     # no FILES: merge the fullest verdicts file verdict-ready names
@@ -22,6 +22,7 @@ if str(ROOT) not in sys.path:
 
 from rebuild.review import journal, status  # noqa: E402
 from rebuild.review.serve import parse_autosave_payload, stash_path_for  # noqa: E402
+from rebuild.review.store_lock import store_lock  # noqa: E402
 from rebuild.tools.review_server import server_listening as _server_listening  # noqa: E402
 
 AUTOSAVE = ROOT / "verdicts-autosave.json"
@@ -94,7 +95,40 @@ def run_merge(
     if stamp is None:
         print(f"ERROR: {corpus} has no readable manifest.json; build the corpus first (make artifact-cycle).")
         return 1
+    guarded = autosave.resolve() == AUTOSAVE.resolve() and not yes and _server_listening()
+    if dry_run or guarded:
+        return _merge_into_store(
+            files,
+            stamp=stamp,
+            autosave=autosave,
+            corpus=corpus,
+            journal_path=journal_path,
+            dry_run=dry_run,
+            refuse_a_write=guarded,
+        )
+    with store_lock(autosave):
+        return _merge_into_store(
+            files,
+            stamp=stamp,
+            autosave=autosave,
+            corpus=corpus,
+            journal_path=journal_path,
+            dry_run=False,
+            refuse_a_write=False,
+        )
 
+
+def _merge_into_store(
+    files: list[Path],
+    *,
+    stamp: str,
+    autosave: Path,
+    corpus: Path,
+    journal_path: Path,
+    dry_run: bool,
+    refuse_a_write: bool,
+) -> int:
+    """Merge `files` into the store at `autosave`. `run_merge` calls it under the store's lock for a merge that writes, and without it for a dry run and for a merge into the live store while a server listens, which `refuse_a_write` then stops before it writes anything."""
     inputs = list(files)
     existing = _read_payload(autosave)
     existing_exists = autosave.exists()
@@ -168,11 +202,12 @@ def run_merge(
         )
         return 0
 
-    if autosave.resolve() == AUTOSAVE.resolve() and _server_listening() and not yes:
+    if refuse_a_write:
         print(
-            "ERROR: the review server is listening on port 7294. An open tab would merge its own store right "
-            "back over this merge on its next focus. Stop the server first (make review-cycle runs the merge "
-            "with the server down), or pass --yes to merge anyway."
+            "ERROR: the review server is listening on port 7294. While a merge holds the verdict store's lock, the "
+            "server refuses the app's saves, and the save a closing tab sends is never retried, so a verdict "
+            "recorded just before a tab closes would be lost. Stop the server first (make review-cycle runs the "
+            "merge with the server down), or pass --yes when the listening server serves another checkout."
         )
         return 1
 
@@ -260,6 +295,13 @@ def run_restore(
             "back over the restore on its next focus. Stop the server first, or pass --yes to apply anyway."
         )
         return 1
+    with store_lock(autosave):
+        return _apply_restore(as_of, stamp, records, payload, autosave=autosave, journal_path=journal_path)
+
+
+def _apply_restore(
+    as_of: str, stamp: str, records: dict[str, dict], payload: dict, *, autosave: Path, journal_path: Path
+) -> int:
     existing = _read_payload(autosave)
     stashed = None
     if autosave.exists():
@@ -330,7 +372,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--yes",
         action="store_true",
-        help="proceed even while the review server is listening (a plain merge and --restore-as-of --apply both refuse otherwise)",
+        help="proceed even while the review server is listening (a plain merge that would write the live store and --restore-as-of --apply both refuse otherwise)",
     )
     parser.add_argument("--out", type=Path, help="with --restore-as-of: where to write the reconstruction")
     parser.add_argument(

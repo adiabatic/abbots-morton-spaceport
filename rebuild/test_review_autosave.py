@@ -2,7 +2,7 @@
 
 The /autosave receiver: payload validation, atomic overwrite, and the journal event appended on every accepted save. An existing autosave stamped for an older manifest is moved aside to a stash file, because it may be the only copy of unexported work from before a corpus rebuild and its unit ids must not be mixed into the new corpus. A save stamped older than the store is refused with 409, so a stale tab cannot overwrite a newer store.
 
-The resident store behind it (`rebuild.review.verdict_store`): the delta POST the app sends, the no-op delta that writes nothing, the failed write that leaves memory as the file holds it, the change token a sync GET returns, and the reload after an external rewrite of the file, which keeps tokens valid when the stamp is unchanged.
+The POST path takes the verdict store's lock without waiting, and answers a retryable 503 while another writer holds it. The resident store behind it (`rebuild.review.verdict_store`): the delta POST the app sends, the no-op delta that writes nothing, the failed write that leaves memory as the file holds it, the change token a sync GET returns, and the reload after an external rewrite of the file, which keeps tokens valid when the stamp is unchanged.
 
 The headers every static file is served with. `static_headers_for` is a pure function so it can be tested without a server.
 """
@@ -19,9 +19,11 @@ from rebuild.review.serve import (
     EXPORT_FORMAT,
     parse_autosave_payload,
     receive_autosave,
+    receive_autosave_locked,
     stash_path_for,
     static_headers_for,
 )
+from rebuild.review.store_lock import store_lock
 from rebuild.review.verdict_store import VerdictStore
 
 
@@ -247,6 +249,26 @@ def test_a_delta_applies_sets_and_clears_in_place_and_journals_them(tmp_path):
     }
     events = list(journal.iter_events(journal_path))
     assert (events[-1]["sets"], events[-1]["clears"]) == (2, 1)
+
+
+def test_a_post_while_another_writer_holds_the_store_lock_gets_a_retryable_503(tmp_path):
+    path = tmp_path / "verdicts-autosave.json"
+    journal_path = tmp_path / "verdicts-journal.ndjson"
+    stamp = "2026-07-03T23:31:04Z"
+    store = VerdictStore(path, journal_path)
+    assert receive_autosave_locked(store, payload(stamp, [verdict("u-1")]))[0] == 200
+    before = path.read_bytes()
+    journal_before = journal_path.read_bytes()
+    with store_lock(path):
+        status, body = receive_autosave_locked(store, delta(stamp, [verdict("u-2")]))
+    assert status == 503
+    assert body["retry"] is True and body["ok"] is False
+    assert path.read_bytes() == before
+    assert journal_path.read_bytes() == journal_before
+    assert "u-2" not in store.records
+    status, _ = receive_autosave_locked(store, delta(stamp, [verdict("u-2")]))
+    assert status == 200
+    assert "u-2" in {record["unit"] for record in on_disk(path)["verdicts"]}
 
 
 def test_a_delta_that_changes_nothing_writes_no_journal_event(tmp_path):

@@ -1,4 +1,5 @@
 import argparse
+import contextlib
 import functools
 import gzip
 import hashlib
@@ -7211,32 +7212,217 @@ def test_finish_runs_retention_on_a_real_green_finish(monkeypatch):
     assert calls["n"] == 1
 
 
-def test_retention_leaves_the_journal_and_stashes_alone_while_the_server_is_up(tmp_path, monkeypatch, capsys):
-    """While the review server is up, retention leaves the journal and the stashes alone. The app appends to the journal as the reviewer works, and compact() rewrites the whole file around a read, so an append in between would be lost. The stash sweep reads the same journal to decide which stashes are still referenced, so it waits too. The carried-file sweep, which the app never writes, still runs."""
-    plan = _plan(skip_verdict_update=True, verdict_update_note=ac.VERDICT_UPDATE_SKIP_NOTE)
+def _retention_repo(tmp_path, monkeypatch):
     monkeypatch.setattr(ac, "ROOT", tmp_path)
     monkeypatch.setattr(ac, "REVIEW_OUT", tmp_path / "review")
     monkeypatch.setattr(cycle_paths, "DEEP_REPLAY_GREEN", tmp_path / "deep-replay-green.json")
     (tmp_path / "review").mkdir()
-    (tmp_path / "review" / "manifest.json").write_text(json.dumps({"generated_at": "2026-08-07T00:00:00Z"}))
-    (tmp_path / "var").mkdir()
+    (tmp_path / "review" / "manifest.json").write_text(json.dumps({"generated_at": "2020-02-01T00:00:00Z"}))
+    journal_path = tmp_path / journal.JOURNAL_NAME
+    for stamp, old_stamp, stashed, at in (
+        ("S1", None, "verdicts-autosave-old.json", "2020-01-01T00:00:00Z"),
+        ("S2", "S1", "verdicts-autosave-S1.json", "2020-02-01T00:00:00Z"),
+    ):
+        journal.record_transition(
+            journal_path,
+            source="merge",
+            stamp=stamp,
+            old_stamp=old_stamp,
+            old_verdicts=[],
+            new_verdicts=[{"unit": "u-1", "verdict": "approve", "note": "", "at": at}],
+            stashed=stashed,
+            at=at,
+        )
+    for name in ("verdicts-autosave-old.json", "verdicts-autosave-S1.json"):
+        (tmp_path / name).write_text("{}")
+    return journal_path
+
+
+def test_retention_leaves_the_journal_and_stashes_alone_while_the_server_is_up(tmp_path, monkeypatch):
+    """While the review server is up, retention leaves the journal and the stashes alone: both take the verdict store's lock, the server refuses a save made while another writer holds it, and the app never retries the save a closing tab sends. The carried-file sweep, which takes no lock, still runs."""
+    plan = _plan(skip_verdict_update=True, verdict_update_note=ac.VERDICT_UPDATE_SKIP_NOTE)
+    journal_path = _retention_repo(tmp_path, monkeypatch)
+    before = journal_path.read_bytes()
     (tmp_path / "verdicts-carried-old.json").write_text(_carried("2026-01-01T00:00:00Z"))
-    compacted: list[str] = []
-    monkeypatch.setattr(
-        journal, "compact", lambda path, cutoff: compacted.append(cutoff) or {"compacted": False}
-    )
-    swept: list[Path] = []
-    monkeypatch.setattr(ac, "prune_stashes", lambda root, journal_path: swept.append(root) or [])
     monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: True)
 
     swept_up = ac.run_retention(plan)
     out = "\n".join(swept_up.lines)
 
-    assert compacted == [] and swept == []
     assert "journal   : left intact (the review server is up" in out
     assert "stashes   : left intact (the review server is up" in out
     assert swept_up.detail.endswith("stashes and journal left intact")
+    assert journal_path.read_bytes() == before
+    assert (tmp_path / "verdicts-autosave-old.json").exists()
     assert not (tmp_path / "verdicts-carried-old.json").exists()
+
+
+def test_retention_compacts_the_journal_and_sweeps_stashes_under_the_store_lock(tmp_path, monkeypatch):
+    """With no review server up, retention prunes the stashes and compacts the journal. Both read the journal without the verdict store's lock and take it only for the tail, the deletions, and the rewrite."""
+    plan = _plan(skip_verdict_update=True, verdict_update_note=ac.VERDICT_UPDATE_SKIP_NOTE)
+    journal_path = _retention_repo(tmp_path, monkeypatch)
+    monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: False)
+
+    swept_up = ac.run_retention(plan)
+    out = "\n".join(swept_up.lines)
+
+    assert "stashes   : removed 1 " in out
+    assert not (tmp_path / "verdicts-autosave-old.json").exists()
+    assert (tmp_path / "verdicts-autosave-S1.json").exists()
+    assert "restore floor now 2020-02-01T00:00:00Z" in out
+    assert [event["stamp"] for event in journal.iter_events(journal_path)] == ["S2"]
+
+
+def test_retention_leaves_the_journal_and_stashes_for_a_later_pass_while_the_store_stays_locked(
+    tmp_path, monkeypatch
+):
+    plan = _plan()
+    journal_path = _retention_repo(tmp_path, monkeypatch)
+    before = journal_path.read_bytes()
+    monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: False)
+    monkeypatch.setattr(ac, "RETENTION_LOCK_TIMEOUT_S", 0.05)
+
+    with ac.store_lock.store_lock(tmp_path / "verdicts-autosave.json"):
+        swept_up = ac.run_retention(plan)
+    out = "\n".join(swept_up.lines)
+
+    assert "stashes   : left intact (the verdict store stayed locked" in out
+    assert "journal   : left intact (the verdict store stayed locked" in out
+    assert (tmp_path / "verdicts-autosave-old.json").exists()
+    assert journal_path.read_bytes() == before
+    assert not journal_path.with_name(journal_path.name + ".tmp").exists()
+
+
+def test_prune_stashes_keeps_a_stash_journaled_while_it_waited_for_the_lock(tmp_path):
+    """The sweep reads the journal before it holds the lock, so it re-reads the tail under it: a stash another writer made and journaled in between is kept."""
+    journal_path = tmp_path / "verdicts-journal.ndjson"
+    journal.record_transition(
+        journal_path,
+        source="merge",
+        stamp="S1",
+        old_stamp=None,
+        old_verdicts=[],
+        new_verdicts=[],
+        at="2026-07-10T01:00:00Z",
+    )
+    late = tmp_path / "verdicts-autosave-late.json"
+
+    @contextlib.contextmanager
+    def lock_after_a_late_writer():
+        late.write_text("{}")
+        journal.record_transition(
+            journal_path,
+            source="merge",
+            stamp="S2",
+            old_stamp="S1",
+            old_verdicts=[],
+            new_verdicts=[],
+            stashed=late.name,
+            at="2026-07-10T02:00:00Z",
+        )
+        yield
+
+    assert ac.prune_stashes(tmp_path, journal_path, lock=lock_after_a_late_writer()) == []
+    assert late.exists()
+
+
+def test_a_second_pass_waits_on_the_pass_lock_and_names_the_holder(monkeypatch, capsys):
+    waiting = threading.Event()
+    entered: list[float] = []
+    real_print = print
+
+    def spy(*args, **kwargs):
+        real_print(*args, **kwargs)
+        if args and str(args[0]).startswith("waiting for pass"):
+            waiting.set()
+
+    monkeypatch.setattr("builtins.print", spy)
+    with ac.pass_lock():
+        assert ac.pass_lock_path().read_text().strip() == str(os.getpid())
+
+        def run_second():
+            with ac.pass_lock():
+                entered.append(time.monotonic())
+
+        second = threading.Thread(target=run_second)
+        second.start()
+        assert waiting.wait(10)
+        assert entered == []
+        released = time.monotonic()
+    second.join(10)
+    assert entered and entered[0] >= released
+    assert f"waiting for pass {os.getpid()}" in capsys.readouterr().out
+
+
+def test_main_runs_a_live_pass_under_the_pass_lock_with_its_own_scratch_directory(tmp_path, monkeypatch):
+    """A live pass holds the pass lock from before its plan, sweeps the scratch directories a killed pass left, and deletes its own when it ends. A dry run holds the lock too, and gets no scratch directory."""
+    _settled_repo(tmp_path, monkeypatch)
+    monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: False)
+    leftover = cycle_paths.CYCLE_VAR / "20200101T000000Z-dead"
+    leftover.mkdir(parents=True)
+    seen: list[tuple[bool, Path | None]] = []
+
+    def pass_lock_held() -> bool:
+        try:
+            with ac.store_lock.hold_flock(ac.pass_lock_path(), blocking=False):
+                return False
+        except ac.store_lock.LockBusy:
+            return True
+
+    def run_cycle(plan, report, emit, registry, **_):
+        seen.append((pass_lock_held(), plan.scratch_dir))
+        assert plan.scratch_dir is not None and plan.scratch_dir.is_dir()
+        assert not leftover.exists()
+        return 0
+
+    monkeypatch.setattr(ac, "_run_cycle", run_cycle)
+    assert ac.main([]) == 0
+    [(held, scratch)] = seen
+    assert held is True
+    assert scratch is not None and scratch.parent == cycle_paths.CYCLE_VAR and not scratch.exists()
+    assert not pass_lock_held()
+
+    dry: list[bool] = []
+    real_run_pass = ac._run_pass
+    monkeypatch.setattr(ac, "_run_pass", lambda args: dry.append(pass_lock_held()) or real_run_pass(args))
+    assert ac.main(["--dry-run"]) == 0
+    assert dry == [True]
+
+
+def test_a_dry_run_skips_the_recovery_while_a_pass_holds_the_lock(tmp_path, monkeypatch, capsys):
+    """A dry run never waits on the pass lock. When a pass holds it, the dry run leaves the superseded corpus to that pass, whose promotion may be between its two renames, and still prints its plan."""
+    _settled_repo(tmp_path, monkeypatch)
+    monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: False)
+    recoveries: list[bool] = []
+    monkeypatch.setattr(ac, "recover_superseded_corpus", lambda delete=True: recoveries.append(delete))
+
+    with ac.pass_lock():
+        assert ac.main(["--dry-run"]) == 0
+    assert recoveries == []
+    assert "so this dry run leaves any superseded corpus to it" in capsys.readouterr().out
+
+    assert ac.main(["--dry-run"]) == 0
+    assert recoveries == [False]
+
+
+def test_a_staging_pass_holds_the_pass_lock(tmp_path, monkeypatch):
+    """A live pass's promotion reads the corpus a staging pass writes, so a staging pass holds the pass lock for its whole run. It gets no scratch directory."""
+    _settled_repo(tmp_path, monkeypatch)
+    monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: False)
+    seen: list[tuple[bool, Path | None]] = []
+
+    def run_cycle(plan, report, emit, registry, **_):
+        try:
+            with ac.store_lock.hold_flock(ac.pass_lock_path(), blocking=False):
+                held = False
+        except ac.store_lock.LockBusy:
+            held = True
+        seen.append((held, plan.scratch_dir))
+        return 0
+
+    monkeypatch.setattr(ac, "_run_cycle", run_cycle)
+    assert ac.main(["--review-out", str(tmp_path / "staged")]) == 0
+    assert seen == [(True, None)]
 
 
 def test_finish_skips_retention_when_failures(monkeypatch):

@@ -37,3 +37,4 @@ rebuild/out/
 /verdicts-*.json
 /verdicts.json
 /verdicts-journal.ndjson
+/verdicts-autosave.json.lock

@@ -1,6 +1,6 @@
 """Dev server for the generated review app. It serves rebuild/out/review/ with livereload on port 7294, as tools/serve.py serves site/ on port 7293, so the two can run at the same time.
 
-The app saves its verdicts to the server through /autosave, and the server keeps the store in memory (rebuild.review.verdict_store). At boot the app GETs the whole store with a sync token. After that it GETs `?since=<token>` to fetch only what other tabs changed, and after each debounced change it POSTs a delta of the verdicts it set or cleared. A whole-store POST is also accepted. The store's file is verdicts-autosave.json at the repo root, which the `/verdicts-*.json` pattern in .gitignore covers. It is kept outside rebuild/out/review/ because livereload watches the JSON files there and would reload the page on every save. When a save carries a newer manifest stamp than the file on disk, the old file is moved aside to verdicts-autosave-<stamp>.json. That file may be the only copy of unexported verdicts from before a corpus rebuild, and its unit ids must not be applied to the new corpus. A save with an older stamp gets a 409, so that a tab left open from before a rebuild cannot overwrite the newly merged store on its next flush or pagehide beacon. The sets and clears of every accepted save are appended to verdicts-journal.ndjson (rebuild.review.journal), so every verdict change can be replayed, including clears, which the store file cannot record.
+The app saves its verdicts to the server through /autosave, and the server keeps the store in memory (rebuild.review.verdict_store). At boot the app GETs the whole store with a sync token. After that it GETs `?since=<token>` to fetch only what other tabs changed, and after each debounced change it POSTs a delta of the verdicts it set or cleared. A whole-store POST is also accepted. The store's file is verdicts-autosave.json at the repo root, which the `/verdicts-*.json` pattern in .gitignore covers. It is kept outside rebuild/out/review/ because livereload watches the JSON files there and would reload the page on every save. When a save carries a newer manifest stamp than the file on disk, the old file is moved aside to verdicts-autosave-<stamp>.json. That file may be the only copy of unexported verdicts from before a corpus rebuild, and its unit ids must not be applied to the new corpus. A save with an older stamp gets a 409, so that a tab left open from before a rebuild cannot overwrite the newly merged store on its next flush or pagehide beacon. The sets and clears of every accepted save are appended to verdicts-journal.ndjson (rebuild.review.journal), so every verdict change can be replayed, including clears, which the store file cannot record. Each POST is applied under the verdict store's lock (rebuild.review.store_lock), which every writer of the store and the journal holds. The server never waits for it, because a POST runs on the IOLoop and waiting would stall every other request: while another writer holds it, a POST gets a 503 with `Retry-After: 1`. A debounced save that gets one keeps its verdicts unsaved for the tab's next save, but the save a closing tab sends (the pagehide beacon) is never retried, so the writers that take the lock (a merge, a re-key, a restore) refuse to write the live store while a server listens unless --yes is passed, and a pass's retention leaves the stashes and the journal alone while one does. At boot the server waits for the lock before it loads the store.
 
 Usage: uv run python -m rebuild.review.serve
 """
@@ -11,6 +11,7 @@ from collections.abc import Awaitable
 from pathlib import Path
 
 from rebuild.review import app_index, journal
+from rebuild.review.store_lock import LockBusy, store_lock
 from rebuild.review.verdict_store import (
     DELTA_FORMAT,
     EXPORT_FORMAT,
@@ -20,7 +21,14 @@ from rebuild.review.verdict_store import (
     stash_path_for,
 )
 
-__all__ = ["DELTA_FORMAT", "EXPORT_FORMAT", "parse_autosave_payload", "receive_autosave", "stash_path_for"]
+__all__ = [
+    "DELTA_FORMAT",
+    "EXPORT_FORMAT",
+    "parse_autosave_payload",
+    "receive_autosave",
+    "receive_autosave_locked",
+    "stash_path_for",
+]
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 REVIEW_DIR = REPO_ROOT / "rebuild" / "out" / "review"
@@ -31,6 +39,7 @@ JOURNAL_PATH = REPO_ROOT / journal.JOURNAL_NAME
 NDJSON_SUFFIX = ".ndjson.gz"
 PORT = 7294
 STATUS_TTL_S = 10.0
+RETRY_AFTER_S = 1
 
 
 def static_headers_for(path: str) -> dict[str, str]:
@@ -52,6 +61,20 @@ def receive_autosave(raw: bytes, path: Path, journal_path: Path | None = None) -
     return VerdictStore(path, journal_path).receive(raw)
 
 
+def receive_autosave_locked(store: VerdictStore, raw: bytes) -> tuple[int, dict]:
+    """Apply one POST body to `store` under the verdict store's lock, and return the HTTP status and response body. When another writer holds the lock, nothing is applied and the answer is a 503 whose body says to retry; the handler adds `Retry-After`."""
+    try:
+        with store_lock(store.path, blocking=False):
+            return store.receive(raw)
+    except LockBusy:
+        return 503, {
+            "ok": False,
+            "retry": True,
+            "reason": "store-locked",
+            "error": "the verdict store is locked by another writer; save again shortly",
+        }
+
+
 def main() -> None:
     if not (REVIEW_DIR / "manifest.json").exists():
         raise SystemExit(
@@ -64,7 +87,8 @@ def main() -> None:
 
     from rebuild.review import status
 
-    store = VerdictStore(AUTOSAVE_PATH, JOURNAL_PATH)
+    with store_lock(AUTOSAVE_PATH):
+        store = VerdictStore(AUTOSAVE_PATH, JOURNAL_PATH)
 
     class ManifestCache:
         signature: tuple[int, int, int] | None = None
@@ -183,8 +207,10 @@ def main() -> None:
             self.finish(store.payload_bytes(token=True))
 
         def post(self) -> None:
-            status_code, body = store.receive(self.request.body)
+            status_code, body = receive_autosave_locked(store, self.request.body)
             self.set_status(status_code)
+            if status_code == 503:
+                self.set_header("Retry-After", str(RETRY_AFTER_S))
             self.finish(body)
 
     class ReviewServer(Server):

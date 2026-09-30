@@ -1,4 +1,4 @@
-"""Tests for the verdict journal (`rebuild/review/journal.py`): the sets, clears, and base events a transition writes, the seed event that opens a journal over an existing store, replay with and without an as-of cutoff, compaction, tolerance of a trailing line torn by a crashed append, which the next append cuts off unless only its newline is missing, and a base event torn short of its set lines, which opens a span replay refuses until the next complete base and which compaction never starts at."""
+"""Tests for the verdict journal (`rebuild/review/journal.py`): the sets, clears, and base events a transition writes, the seed event that opens a journal over an existing store, replay with and without an as-of cutoff, compaction in two phases that keep an append made between them, the event scan resumed from where an earlier one ended, a journal cut shorter and regrown between the phases, which neither resumes over, tolerance of a trailing line torn by a crashed append, which the next append cuts off unless only its newline is missing, and a base event torn short of its set lines, which opens a span replay refuses until the next complete base and which compaction never starts at."""
 
 import json
 
@@ -639,3 +639,87 @@ def test_repair_tail_makes_a_recorded_length_mark_where_the_next_append_begins(t
     assert path.read_bytes()[:size] == intact
     journal.repair_tail(tmp_path / "absent.ndjson")
     assert not (tmp_path / "absent.ndjson").exists()
+
+
+def test_compact_keeps_every_append_made_between_prepare_and_finish(tmp_path):
+    path = tmp_path / "journal.ndjson"
+    _append_base(path, "S1", None, [], ["u-1"], "2026-07-10T01:00:00Z")
+    _append_base(path, "S2", "S1", ["u-1"], ["u-2"], "2026-07-10T03:00:00Z")
+    with path.open("ab") as handle:
+        handle.write(b'{"kind": "event", "source": "autosa')
+    prepared = journal.compact_prepare(path, cutoff="2026-07-10T09:00:00Z")
+    journal.record_transition(
+        path,
+        source="autosave",
+        stamp="S2",
+        old_stamp="S2",
+        old_verdicts=[v("u-2")],
+        new_verdicts=[v("u-2"), v("u-3")],
+        at="2026-07-10T06:00:00Z",
+    )
+    before = journal.replay(path)
+    result = journal.compact_finish(prepared)
+    assert result["compacted"] is True and result["floor_at"] == "2026-07-10T03:00:00Z"
+    assert result["kept_lines"] == len(path.read_bytes().splitlines())
+    assert journal.replay(path) == before == ("S2", {"u-2": v("u-2"), "u-3": v("u-3")})
+    assert [event["at"] for event in journal.iter_events(path)] == [
+        "2026-07-10T03:00:00Z",
+        "2026-07-10T06:00:00Z",
+    ]
+    assert not path.with_name(path.name + ".tmp").exists()
+
+
+def test_compact_finish_leaves_a_journal_replaced_since_the_scan_alone(tmp_path):
+    path = tmp_path / "journal.ndjson"
+    _append_base(path, "S1", None, [], ["u-1"], "2026-07-10T01:00:00Z")
+    _append_base(path, "S2", "S1", ["u-1"], ["u-2"], "2026-07-10T03:00:00Z")
+    prepared = journal.compact_prepare(path, cutoff="2026-07-10T09:00:00Z")
+    replacement = tmp_path / "replacement.ndjson"
+    _append_base(replacement, "S3", None, [], ["u-3"], "2026-07-10T05:00:00Z")
+    replacement.replace(path)
+    after = path.read_bytes()
+    result = journal.compact_finish(prepared)
+    assert result["compacted"] is False and result["replaced"] is True
+    assert path.read_bytes() == after
+    assert not path.with_name(path.name + ".tmp").exists()
+
+
+def test_a_resumed_event_scan_reads_only_what_was_appended_since(tmp_path):
+    path = tmp_path / "journal.ndjson"
+    _append_base(path, "S1", None, [], ["u-1"], "2026-07-10T01:00:00Z")
+    first = journal.scan_events(path)
+    assert [event["stamp"] for event in first.events] == ["S1"]
+    _append_base(path, "S2", "S1", ["u-1"], ["u-2"], "2026-07-10T02:00:00Z")
+    tail = journal.scan_events(path, resume=first)
+    assert tail.start == first.end
+    assert [event["stamp"] for event in tail.events] == ["S2"]
+    replacement = tmp_path / "replacement.ndjson"
+    _append_base(replacement, "S3", None, [], ["u-3"], "2026-07-10T05:00:00Z")
+    replacement.replace(path)
+    rescanned = journal.scan_events(path, resume=tail)
+    assert rescanned.start == 0
+    assert [event["stamp"] for event in rescanned.events] == ["S3"]
+
+
+def test_a_journal_cut_shorter_and_regrown_between_the_phases_is_rescanned_and_never_compacted(tmp_path):
+    """A writer holding the store's lock can cut the journal shorter (`rekey_verdicts --undo`) and later appends can grow it past where the unlocked phase stopped, keeping the inode. The locked phase then sees different bytes before that offset, so the scan starts over and the compaction leaves the journal alone instead of resuming mid-line."""
+    path = tmp_path / "journal.ndjson"
+    _append_base(path, "S1", None, [], ["u-1"], "2026-07-10T01:00:00Z")
+    cut = path.stat().st_size
+    _append_base(path, "S2", "S1", ["u-1"], ["u-2"], "2026-07-10T03:00:00Z")
+    inode = path.stat().st_ino
+    first = journal.scan_events(path)
+    prepared = journal.compact_prepare(path, cutoff="2026-07-10T09:00:00Z")
+    assert prepared.tmp is not None
+    with path.open("r+b") as handle:
+        handle.truncate(cut)
+    _append_base(path, "S3", "S1", ["u-1"], ["u-3", "u-4", "u-5"], "2026-07-10T05:00:00Z")
+    assert path.stat().st_ino == inode and path.stat().st_size >= first.end
+    rescanned = journal.scan_events(path, resume=first)
+    assert rescanned.start == 0
+    assert [event["stamp"] for event in rescanned.events] == ["S1", "S3"]
+    after = path.read_bytes()
+    result = journal.compact_finish(prepared)
+    assert result["compacted"] is False and result["replaced"] is True
+    assert path.read_bytes() == after
+    assert not path.with_name(path.name + ".tmp").exists()
