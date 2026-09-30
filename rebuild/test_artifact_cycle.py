@@ -6886,7 +6886,7 @@ def test_main_stops_the_server_when_the_pass_rebuilds_the_corpus(tmp_path, monke
 
 
 def test_main_keeps_the_review_server_running_for_an_assets_refresh_pass(tmp_path, monkeypatch, capsys):
-    """An assets refresh moves no shard and no stamp, so the review server keeps running and livereload reloads the tab onto the new app shell. The same pass with a moved verdict-update record writes the store, so without --stop-server it refuses."""
+    """An assets refresh moves no shard and no stamp, so the review server keeps running and the cycle tells the tab to reload onto the new app shell. The same pass with a moved verdict-update record writes the store, so without --stop-server it refuses."""
     _assets_only_repo(tmp_path, monkeypatch)
     ac.record_verdict_update_green("plu")
     monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: True)
@@ -7605,6 +7605,140 @@ def test_a_failed_assets_refresh_stops_the_pass_and_joins_the_suite_it_started(m
     assert report.assets_status.startswith("FAILED")
     assert report.gate_contracts == "green"
     assert "assets refresh failed" in capsys.readouterr().out
+
+
+def _record_reloads(monkeypatch, *, enabled: bool = True) -> list[str]:
+    """Record every path the cycle sends to the review server, and set the suite's reload switch. The stubbed verdict update also appends `verdict-update` to the same list, so a test can see which came first."""
+    sent: list[str] = []
+
+    def record(path):
+        sent.append(path)
+        return True
+
+    def verdict_update(report, **kwargs):
+        sent.append("verdict-update")
+        return _verdict_update_ok(report, **kwargs)
+
+    monkeypatch.setattr(ac, "force_reload", record)
+    monkeypatch.setattr(ac, "_do_verdict_update", verdict_update)
+    monkeypatch.setattr(cycle_paths, "REVIEW_RELOAD_ENABLED", enabled)
+    return sent
+
+
+def _pin_verdict_update_key(monkeypatch):
+    monkeypatch.setattr(
+        ac, "verdict_update_skip_fingerprint", lambda root=None, corpus=None, master=None: "plu"
+    )
+
+
+def _assets_refresh_plan():
+    ac.REVIEW_OUT.mkdir(parents=True)
+    (ac.REVIEW_OUT / "manifest.json").write_text(
+        json.dumps({"generated_at": "2026-09-30T10:00:00Z", "inputs_fingerprint": {"static": "static-new"}})
+    )
+    return _plan(skip_corpus=True, refresh_assets=True, corpus_note=ac.ASSETS_REFRESH_NOTE)
+
+
+def test_an_assets_refresh_tells_the_open_tabs_to_reload_onto_the_new_app_files(monkeypatch):
+    """The server reloads no tab on a file change, so the pass sends one `ams:assets/<static hash>` once the files are in place, with the hash the refreshed manifest records."""
+    _patch_timing_cycle(monkeypatch)
+    sent = _record_reloads(monkeypatch)
+    _pin_verdict_update_key(monkeypatch)
+
+    rc = ac._run_cycle(
+        _assets_refresh_plan(),
+        ac.CycleReport(),
+        ac._Emitter(),
+        ac._ChildRegistry(),
+        spawn=lambda name, argv, **k: _step(name),
+    )
+
+    assert rc == 0
+    assert [path for path in sent if path != "verdict-update"] == ["ams:assets/static-new"]
+
+
+def test_no_reload_is_sent_after_a_failed_assets_refresh(monkeypatch):
+    """A failed refresh can leave the app files half copied, so no tab is told to load them."""
+    _patch_timing_cycle(monkeypatch)
+    sent = _record_reloads(monkeypatch)
+
+    ac._run_cycle(
+        _assets_refresh_plan(),
+        ac.CycleReport(),
+        ac._Emitter(),
+        ac._ChildRegistry(),
+        spawn=lambda name, argv, **k: _step(name, rc=1 if name == "assets-refresh" else 0),
+    )
+
+    assert sent == []
+
+
+def test_the_suites_switch_keeps_a_mocked_pass_from_reloading_the_live_tabs(monkeypatch):
+    """`cycle_paths.REVIEW_RELOAD_ENABLED` off, as the rebuild suite sets it, sends nothing to the live port."""
+    _patch_timing_cycle(monkeypatch)
+    sent = _record_reloads(monkeypatch, enabled=False)
+    _pin_verdict_update_key(monkeypatch)
+
+    ac._run_cycle(
+        _assets_refresh_plan(),
+        ac.CycleReport(),
+        ac._Emitter(),
+        ac._ChildRegistry(),
+        spawn=lambda name, argv, **k: _step(name),
+    )
+
+    assert [path for path in sent if path != "verdict-update"] == []
+
+
+def test_a_promotion_sends_the_promoted_stamp_after_the_verdict_update(monkeypatch, tmp_path):
+    """A server kept up through a promotion (`--yes`) is sent `ams:corpus/<generated_at>` of the promoted corpus once the verdict update has run, so its tabs land on a corpus whose store the carry has already written."""
+    _patch_timing_cycle(monkeypatch)
+    sent = _record_reloads(monkeypatch)
+    _pin_verdict_update_key(monkeypatch)
+    live = tmp_path / "rebuild" / "out" / "review"
+    live.mkdir(parents=True)
+    (live / "manifest.json").write_text(json.dumps({"generated_at": "2026-09-30T10:00:00Z"}))
+    source = tmp_path / "var" / "staged-review"
+    source.mkdir(parents=True)
+    (source / "manifest.json").write_text(json.dumps({"generated_at": "2026-09-30T11:00:00Z"}))
+    monkeypatch.setattr(ac, "REVIEW_OUT", live)
+
+    rc = ac._run_cycle(
+        _plan(skip_corpus=True, promote_corpus=source, corpus_note=ac.CORPUS_PROMOTE_NOTE),
+        ac.CycleReport(),
+        ac._Emitter(),
+        ac._ChildRegistry(),
+        spawn=lambda name, argv, **k: _step(name),
+    )
+
+    assert rc == 0
+    assert sent == ["verdict-update", "ams:corpus/2026-09-30T11:00:00Z"]
+
+
+def test_an_in_place_corpus_build_sends_the_new_stamp_after_the_verdict_update(monkeypatch):
+    """An in-place build restamps the served manifest as a promotion does, so a server left listening is sent the new stamp too, once the verdict update has run."""
+    _patch_timing_cycle(monkeypatch)
+    sent = _record_reloads(monkeypatch)
+    _pin_verdict_update_key(monkeypatch)
+    ac.REVIEW_OUT.mkdir(parents=True)
+    (ac.REVIEW_OUT / "manifest.json").write_text(json.dumps({"generated_at": "2026-09-30T10:00:00Z"}))
+
+    def build(report, **kwargs):
+        (ac.REVIEW_OUT / "manifest.json").write_text(json.dumps({"generated_at": "2026-09-30T11:00:00Z"}))
+        return _spawning_corpus(report, **kwargs)
+
+    monkeypatch.setattr(ac, "_do_corpus_build", build)
+
+    rc = ac._run_cycle(
+        _plan(),
+        ac.CycleReport(),
+        ac._Emitter(),
+        ac._ChildRegistry(),
+        spawn=lambda name, argv, **k: _step(name),
+    )
+
+    assert rc == 0
+    assert sent == ["verdict-update", "ams:corpus/2026-09-30T11:00:00Z"]
 
 
 def test_run_cycle_promotes_before_it_reports_the_corpus_skipped(monkeypatch, tmp_path):

@@ -48,11 +48,11 @@ Green records are written only when the key still matches after the work ran, an
 
 Between the run_m1 skip and a full rebuild there is a third mode, the gates-only rerun. When the per-file diff against the run_m1 green is confined to comparison-side inputs (the alias map, the divergence ledger, the contact allow-list, the kern sidecar, the oracle's two modules, and the baselines and their subsets, all outside the tables' stamp; `comparison_side_label` lists them and argues each), the tables on disk still carry that stamp, and all the artifacts are present, the cycle spawns `run_m1 --gates-only` instead of a build. It re-runs the defect gate, the Manual-pin gate and the oracle over the tables and font on disk, matches the oracle's rows against the ledgers again, and enumerates nothing. The green that pass records covers the new inputs, so the next cycle skips run_m1. `uv.lock` is not comparison-side, because a fontTools or uharfbuzz bump can change the font's bytes and what the shaper does with them, so a toolchain bump rebuilds.
 
-This module, not the caller, decides which passes stop the review server, because only the resolved plan knows. Two things a cycle writes belong to the running app: the corpus it serves (livereload watches every shard, and a restamped manifest orphans the tab's store) and the verdict store it saves into. A pass whose plan skips both writes neither, so a listening server is left alone and the open tab keeps working for the whole run. That is the pass with no artifact work, whose long verification would otherwise take the app down for its whole length.
+This module, not the caller, decides which passes stop the review server, because only the resolved plan knows. Two things a cycle writes belong to the running app: the corpus it serves (a rebuild rewrites every shard the tab reads by byte range, and restamps the manifest the tab's saves are keyed on) and the verdict store it saves into. A pass whose plan skips both writes neither, so a listening server is left alone and the open tab keeps working for the whole run. That is the pass with no artifact work, whose long verification would otherwise take the app down for its whole length.
 
 A pass whose corpus did not change but whose store did has its own mode, the direct merge. The carry there maps every unit id to itself and keeps each record's `at`, which the merge compares strictly, so the carry is skipped and the master is merged straight in; the master is the one input the store's own hash cannot see. That pass still writes the store, so it stops the review server. The direct merge needs the master stamped for the served corpus, as the merge requires of every input. A master stamped for another corpus, which a pass stopped between the corpus build and the carry leaves behind, takes the full carry instead. The carry source's resolution says which of the two an auto-resolved master is, and `master_stamped_for_corpus` says it for a --verdicts one.
 
-An edit confined to rebuild/review/static/ also has its own mode. The copied app assets are the one corpus input no unit depends on, so the pass copies them over the served copy and restamps that one fingerprint component (`assets-refresh`). Every shard, both sidecars, the unit-cache store and `generated_at` stay as they were, so nothing the tab is keyed on changes, the review server keeps running, and livereload reloads the tab with the new assets.
+An edit confined to rebuild/review/static/ also has its own mode. The copied app assets are the one corpus input no unit depends on, so the pass copies them over the served copy and restamps that one fingerprint component (`assets-refresh`). Every shard, both sidecars, the unit-cache store and `generated_at` stay as they were, so nothing the tab is keyed on changes and the review server keeps running. Once the files are in place the pass sends `ams:assets/<static hash>` through livereload's /forcereload, and the open tab reloads onto the new assets when the reader is not typing. The server itself reloads no tab on a file change (`rebuild.review.serve.register_dormant_watch`).
 
 A corpus promotion is the opposite case under the same skip. The whole tree under the app is replaced by the staged corpus's and the stamp changes with it, so the pass stops the review server. Both the verdict-update skip and the direct merge are off, because both assume the corpus did not change, and here the store's verdicts must be carried onto the promoted units by id.
 
@@ -107,7 +107,7 @@ from rebuild.tools.green_record import (  # noqa: E402
 )
 from rebuild.tools.cycle_timings import CYCLE_RUN_ENV, CheckResult  # noqa: E402
 from rebuild.tools.peak_rss import reap_peak_rss_bytes  # noqa: E402
-from rebuild.tools.review_server import REVIEW_PORT, server_listening  # noqa: E402
+from rebuild.tools.review_server import REVIEW_PORT, force_reload, server_listening  # noqa: E402
 
 if TYPE_CHECKING:
     from rebuild.tools.cycle_timings import CycleTimings
@@ -2308,7 +2308,7 @@ def resolve_short_id() -> str:
 
 
 def server_can_keep_running(*, skip_corpus: bool, writes_store: bool, promotes_corpus: bool = False) -> bool:
-    """Return whether a live review server can keep running through this pass. The app owns two things a cycle writes: the corpus's units and stamp (livereload watches every shard, and a restamped manifest orphans the tab's store) and the verdict store the app saves into. So the answer depends on the plan's writes, not on a skip flag. A pass that rewrites no units and merges nothing into the store (a --no-carry pass, a --no-merge carry over an unchanged corpus, a pass with no artifact work) writes neither, so the review server keeps running and the open tab keeps working for the whole run. An assets refresh is such a pass: it rewrites no shard and leaves `generated_at` unchanged, so the tab's store stays aligned, and livereload reloads the tab onto the new app files. A corpus promotion sets the same skip flag but replaces every shard and the stamp in one rename, so `promotes_corpus` requires stopping the review server even when the store is untouched. Everything else the cycle writes is outside the served tree (the review-facts pins, the m1 summaries, the carried file) or is read by the app only as status, which is meant to update during a pass."""
+    """Return whether a live review server can keep running through this pass. The app owns two things a cycle writes: the corpus's units and stamp (a rebuild rewrites every shard the tab reads by byte range, and restamps the manifest the tab's saves are keyed on) and the verdict store the app saves into. So the answer depends on the plan's writes, not on a skip flag. A pass that rewrites no units and merges nothing into the store (a --no-carry pass, a --no-merge carry over an unchanged corpus, a pass with no artifact work) writes neither, so the review server keeps running and the open tab keeps working for the whole run. An assets refresh is such a pass: it rewrites no shard and leaves `generated_at` unchanged, so the tab's store stays aligned, and the cycle then tells the tab to reload onto the new app files. A corpus promotion sets the same skip flag but replaces every shard and the stamp in one rename, so `promotes_corpus` requires stopping the review server even when the store is untouched. Everything else the cycle writes is outside the served tree (the review-facts pins, the m1 summaries, the carried file) or is read by the app only as status, which is meant to update during a pass."""
     return skip_corpus and not promotes_corpus and not writes_store
 
 
@@ -2830,10 +2830,41 @@ def _read_corpus_totals(report: CycleReport, corpus_dir: Path) -> bool:
     return True
 
 
+def _served_manifest() -> dict | None:
+    try:
+        manifest = json.loads((REVIEW_OUT / "manifest.json").read_text())
+    except OSError, ValueError:
+        return None
+    return manifest if isinstance(manifest, dict) else None
+
+
+def _served_generated_at() -> str | None:
+    value = (_served_manifest() or {}).get("generated_at")
+    return value if isinstance(value, str) else None
+
+
+def _broadcast_review_reload(emit: console.CycleConsole, step: str, kind: str) -> None:
+    """Tell the tabs open on a listening review server that what it serves changed, with the served manifest's value for `kind`: `ams:corpus/<generated_at>` once a pass that moved the served corpus (a promotion or an in-place build) has run its verdict update, so the tabs land on a corpus whose store the carry has already written, and `ams:assets/<static hash>` after an assets refresh. The app sends its unsaved changes and reloads when the reader is not typing (rebuild/review/static/reload.js). With no server listening, or a manifest that does not name the value, nothing is sent, and a tab moves on its next save or status check instead. The rebuild suite switches it off with `cycle_paths.REVIEW_RELOAD_ENABLED`, because it goes to the live port."""
+    if not cycle_paths.REVIEW_RELOAD_ENABLED:
+        return
+    manifest = _served_manifest()
+    if manifest is None:
+        return
+    if kind == "corpus":
+        value = manifest.get("generated_at")
+    else:
+        value = (manifest.get("inputs_fingerprint") or {}).get("static")
+    if not isinstance(value, str) or not value:
+        return
+    if force_reload(f"ams:{kind}/{value}"):
+        what = "corpus" if kind == "corpus" else "app files"
+        emit.note(step, f"told the open review tabs to move onto the new {what}")
+
+
 def _do_assets_refresh(
     report: CycleReport, *, spawn, emit: console.CycleConsole, registry: _ChildRegistry, plan: Plan
 ) -> bool:
-    """Copy the review app's static files over the served corpus and restamp the manifest's `static` component, on a pass where that component is the only input that changed. It runs in place of the corpus build, and later steps treat the pass as a corpus skip: no unit, shard, sidecar or `generated_at` changes, so the carry is the identity and the review server keeps running. Livereload sees the copied files and reloads the open tab."""
+    """Copy the review app's static files over the served corpus and restamp the manifest's `static` component, on a pass where that component is the only input that changed. It runs in place of the corpus build, and later steps treat the pass as a corpus skip: no unit, shard, sidecar or `generated_at` changes, so the carry is the identity and the review server keeps running. Once every file is in place, the open tabs are told to reload onto them (`_broadcast_review_reload`)."""
     result = spawn("assets-refresh", plan.argv("assets-refresh"), emit=emit, registry=registry, stream=False)
     if result.returncode != 0:
         emit.note("assets-refresh", f"ERROR: review.build refresh-assets exited {result.returncode}.")
@@ -2841,12 +2872,13 @@ def _do_assets_refresh(
         _close_step(emit, report, "assets-refresh", result)
         return False
     report.assets_status = "refreshed in place (units, sidecars and generated_at unmoved)"
+    _broadcast_review_reload(emit, "assets-refresh", "assets")
     _close_step(emit, report, "assets-refresh", result)
     return True
 
 
 def _do_promote_corpus(report: CycleReport, *, emit: console.CycleConsole, plan: Plan) -> bool:
-    """Move a staged corpus into place, in this process, on a pass whose plan found one that reproduces these inputs byte for byte. It runs in place of the corpus build, which then reports itself skipped over the promoted manifest. The move replaces every shard and the manifest stamp, so a promoting pass never keeps the review server running."""
+    """Move a staged corpus into place, in this process, on a pass whose plan found one that reproduces these inputs byte for byte. It runs in place of the corpus build, which then reports itself skipped over the promoted manifest. The move replaces every shard and the manifest stamp, so a promoting pass never keeps the review server running; a server left listening by `--yes` is sent the new stamp after the verdict update (`_broadcast_review_reload`), so its tabs move onto the promoted corpus once the carry has written the store for it."""
     assert plan.promote_corpus is not None
     emit.step_start("corpus-promote", None, plan.describe("corpus-promote"))
     started = time.perf_counter()
@@ -3555,6 +3587,7 @@ def _run_cycle(
                 plan.argv("gate:rebuild-contracts"),
             )
 
+        served_before = _served_generated_at() if plan.review_out is None else None
         if plan.promote_corpus is not None and not _do_promote_corpus(report, emit=emit, plan=plan):
             failures.append("corpus promotion failed")
             _join_gates(report, failures, js_fut, contracts_fut, conform_fut, make_fut, emit, timings)
@@ -3594,6 +3627,9 @@ def _run_cycle(
             failures.extend(verdict_update_failures)
             if not verdict_update_failures and plan.do_merge and _verdict_update_settled(report):
                 verdict_update_key = verdict_update_skip_fingerprint(ROOT, REVIEW_OUT, plan.verdicts)
+        if plan.review_out is None and _served_generated_at() != served_before:
+            moved_by = "corpus-promote" if plan.promote_corpus is not None else "corpus-build"
+            _broadcast_review_reload(emit, moved_by, "corpus")
         if plan.complaints_note:
             report.complaints_status = f"skipped ({plan.complaints_note})"
         if plan.review_out is not None:
@@ -4039,17 +4075,19 @@ def _preflight(args: argparse.Namespace, *, can_keep_running: bool = False) -> b
         print("=" * 68)
         print("WARNING: a review server is listening on 127.0.0.1:7294.")
         print("Proceeding with --yes. The in-place corpus rebuild will restamp the")
-        print("manifest and rewrite the shards under it, stranding the live verdicting")
-        print("session. AFTER this cycle you MUST:")
+        print("manifest and rewrite the shards under the open review tabs. AFTER this")
+        print("cycle:")
         print("  1. restart the review server:  uv run python -m rebuild.review.serve")
-        print("  2. reload the app (the carried verdicts are merged into the autosave automatically).")
+        print("  2. open tabs move onto the rebuilt corpus by themselves on their next")
+        print("     save or status check (the carried verdicts are merged into the")
+        print("     autosave automatically).")
         print("=" * 68)
         return True
     print("=" * 68)
     print("REFUSING TO RUN: a review server is listening on 127.0.0.1:7294.")
     print("The in-place corpus rebuild would strand your live verdicting session")
-    print("(livereload rewrites the shards and the manifest restamp orphans the")
-    print("autosave). Before re-running:")
+    print("(the rebuild rewrites the shards the tab reads and restamps the manifest")
+    print("its saves are keyed on). Before re-running:")
     print("  1. in the review app, export or confirm the autosave of your verdicts")
     print(r"  2. stop the review server:  pkill -f 'rebuild\.review\.serve'")
     print("     (or pass --stop-server and let this command stop it for you)")
@@ -4343,7 +4381,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--stop-server",
         action="store_true",
-        help="stop a listening review server instead of refusing, but only when this pass writes under it — the served corpus's units or stamp, or the verdict store it holds. A pass that writes neither does not stop the server whether or not this is passed, so the review server keeps running and the open tab keeps working — an assets refresh is such a pass, since it moves no unit and no stamp and livereload simply reloads the tab onto the new shell; `make review-cycle` passes this, which is what makes a pass with no artifact work background verification rather than a lockout. It also says the recipe answers the server question after the pass, so the readiness checklist a green finish prints leaves the server row to it",
+        help="stop a listening review server instead of refusing, but only when this pass writes under it — the served corpus's units or stamp, or the verdict store it holds. A pass that writes neither does not stop the server whether or not this is passed, so the review server keeps running and the open tab keeps working — an assets refresh is such a pass, since it moves no unit and no stamp and the cycle simply tells the tab to reload onto the new shell; `make review-cycle` passes this, which is what makes a pass with no artifact work background verification rather than a lockout. It also says the recipe answers the server question after the pass, so the readiness checklist a green finish prints leaves the server row to it",
     )
     parser.add_argument(
         "--dry-run",

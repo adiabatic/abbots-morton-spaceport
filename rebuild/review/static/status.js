@@ -32,13 +32,15 @@ export function keptAsideLine(status, pageLoadedAt) {
   return { text: `Saves kept aside by the server: ${parts.join(', ')}`, file };
 }
 
-export function bannerModel(status, pageGeneratedAt, pageLoadedAt = null) {
+// `moving` says whether the page is moving onto the corpus /status names (app.js requestMove); a page that is not, because a reload for that move already failed to reach it, is told to reload.
+export function bannerModel(status, pageGeneratedAt, pageLoadedAt = null, moving = false) {
   if (!status || status.error || !status.checks) {
     const text = status && status.error ? `Status unavailable — ${status.error}` : 'Status unavailable';
     return { level: 'error', text, remedy: 'restart the review server (make review-serve)', command: 'make review-serve' };
   }
   const corpusStamp = status.corpus?.generated_at;
   if (corpusStamp && pageGeneratedAt && corpusStamp !== pageGeneratedAt) {
+    if (moving) return { level: 'stale', text: 'Moving onto the rebuilt corpus…', remedy: null, command: null };
     return { level: 'stale', text: 'Corpus rebuilt since this page loaded', remedy: 'reload the page', command: null };
   }
   const checks = status.checks;

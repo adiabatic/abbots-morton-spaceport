@@ -1,6 +1,8 @@
 """Dev server for the generated review app. It serves rebuild/out/review/ with livereload on port 7294, as tools/serve.py serves site/ on port 7293, so the two can run at the same time.
 
-The app saves its verdicts to the server through /autosave, and the server keeps the store in memory (rebuild.review.verdict_store). At boot the app GETs the whole store with a sync token. After that it GETs `?since=<token>` to fetch only what other tabs changed, and after each debounced change it POSTs a delta of the verdicts it set or cleared. A whole-store POST is also accepted onto the store's own stamp. The store's file is verdicts-autosave.json at the repo root, which the `/verdicts-*.json` pattern in .gitignore covers. It is kept outside rebuild/out/review/ because livereload watches the JSON files there and would reload the page on every save. Each POST is applied with the served corpus (`served_corpus`: the manifest's stamp and human unit ids), so a delta from a tab loaded on another corpus is carried onto the store by unit id when the store is on the served corpus, and its conflicts and orphans are kept in var/verdict-orphans/ and reported back to the tab (`verdict_store` gives the rules). A delta stamped for the served corpus while the store is on another stamp moves the store onto the served corpus, moving the old file aside to verdicts-autosave-<stamp>.json; a delta made on neither corpus gets a retryable 503. The sets and clears of every accepted save are appended to verdicts-journal.ndjson (rebuild.review.journal), so every verdict change can be replayed, including clears, which the store file records only as tombstones. Each POST is applied under the verdict store's lock (rebuild.review.store_lock), which every writer of the store and the journal holds. The server never waits for it, because a POST runs on the IOLoop and waiting would stall every other request: while another writer holds it, a POST gets a 503 with `Retry-After: 1`. The app keeps every unconfirmed save in its outbox in the browser's storage and retries a 503 with backoff, but the save a closing tab sends (the pagehide beacon) is retried only when the app is next opened, so the writers that take the lock (a merge, a re-key, a restore) refuse to write the live store while a server listens unless --yes is passed, and a pass's retention leaves the stashes and the journal alone while one does. At boot the server waits for the lock before it loads the store.
+The app saves its verdicts to the server through /autosave, and the server keeps the store in memory (rebuild.review.verdict_store). At boot the app GETs the whole store with a sync token. After that it GETs `?since=<token>` to fetch only what other tabs changed, and after each debounced change it POSTs a delta of the verdicts it set or cleared. A whole-store POST is also accepted onto the store's own stamp. The store's file is verdicts-autosave.json at the repo root, which the `/verdicts-*.json` pattern in .gitignore covers. It is kept outside rebuild/out/review/, which a promotion replaces as a whole. Each POST is applied with the served corpus (`served_corpus`: the manifest's stamp and human unit ids), so a delta from a tab loaded on another corpus is carried onto the store by unit id when the store is on the served corpus, and its conflicts and orphans are kept in var/verdict-orphans/ and reported back to the tab (`verdict_store` gives the rules). A delta stamped for the served corpus while the store is on another stamp moves the store onto the served corpus, moving the old file aside to verdicts-autosave-<stamp>.json; a delta made on neither corpus gets a retryable 503. The sets and clears of every accepted save are appended to verdicts-journal.ndjson (rebuild.review.journal), so every verdict change can be replayed, including clears, which the store file records only as tombstones. Each POST is applied under the verdict store's lock (rebuild.review.store_lock), which every writer of the store and the journal holds. The server never waits for it, because a POST runs on the IOLoop and waiting would stall every other request: while another writer holds it, a POST gets a 503 with `Retry-After: 1`. The app keeps every unconfirmed save in its outbox in the browser's storage and retries a 503 with backoff, but the save a closing tab sends (the pagehide beacon) is retried only when the app is next opened, so the writers that take the lock (a merge, a re-key, a restore) refuse to write the live store while a server listens unless --yes is passed, and a pass's retention leaves the stashes and the journal alone while one does. At boot the server waits for the lock before it loads the store.
+
+Livereload reloads no tab on a file change: the server registers one watch that ignores its path (`register_dormant_watch`). The cycle tells open tabs what changed through livereload's /forcereload with an `ams:` path, `ams:corpus/<generated_at>` after the verdict update of a pass that moved the served corpus and `ams:assets/<static hash>` after an assets refresh, and the app's livereload plugin (static/reload-plugin.js) hands it to the app, which saves, waits while the reader types, and reloads at the same URL hash. A tab also moves when a save's reply or /status names a corpus other than the one it loaded.
 
 Usage: uv run python -m rebuild.review.serve
 """
@@ -56,6 +58,11 @@ def static_headers_for(path: str) -> dict[str, str]:
 def manifest_signature(review_dir: Path) -> tuple[int, int, int] | None:
     """Return the served manifest's `file_signature`. A rebuild or an assets refresh replaces the file, so the signature moves with every restamp."""
     return file_signature(review_dir / "manifest.json")
+
+
+def register_dormant_watch(server, review_dir: Path) -> None:
+    """Register the one path livereload watches, with a filter that ignores it, so the server never reloads a tab on a file change. With no path registered, livereload watches the working directory, and a registered path fires a reload whatever its `delay` says (the watcher drops `delay="forever"` because it keeps only float delays). A tab reloads only when it chooses to, for an `ams:` path the cycle sends to livereload's /forcereload (`rebuild/review/static/reload.js`)."""
+    server.watch(str(review_dir / "manifest.json"), ignore=lambda _path: True)
 
 
 def receive_autosave(
@@ -236,11 +243,7 @@ def main() -> None:
 
     server = ReviewServer()
     server.SFH = NoCacheStaticHandler  # pyright: ignore[reportAttributeAccessIssue]
-    server.watch(str(REVIEW_DIR / "**/*.html"))
-    server.watch(str(REVIEW_DIR / "**/*.css"))
-    server.watch(str(REVIEW_DIR / "**/*.js"))
-    server.watch(str(REVIEW_DIR / "**/*.otf"))
-    server.watch(str(REVIEW_DIR / "**/*.json"))
+    register_dormant_watch(server, REVIEW_DIR)
     server.serve(
         root=str(REVIEW_DIR),
         port=PORT,

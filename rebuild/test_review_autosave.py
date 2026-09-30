@@ -5,11 +5,18 @@ The /autosave receiver: payload validation, atomic overwrite, and the journal ev
 The POST path takes the verdict store's lock without waiting, and answers a retryable 503 while another writer holds it. The resident store behind it (`rebuild.review.verdict_store`): the delta POST the app sends, the no-op delta that writes nothing, the failed write that leaves memory as the file holds it, the change token a sync GET returns, and the reload after an external rewrite of the file, which keeps tokens valid when the stamp is unchanged.
 
 The headers every static file is served with. `static_headers_for` is a pure function so it can be tested without a server.
+
+The reloads: the server's one livereload watch never fires, and `force_reload` sends an `ams:` path to /forcereload on the port it is given and returns False for anything but a server that took it.
 """
 
 import json
 import os
+import socket
+import threading
+import time
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 
@@ -20,9 +27,11 @@ from rebuild.review.serve import (
     parse_autosave_payload,
     receive_autosave,
     receive_autosave_locked,
+    register_dormant_watch,
     stash_path_for,
     static_headers_for,
 )
+from rebuild.tools.review_server import force_reload
 from rebuild.review.store_lock import store_lock
 from rebuild.review.verdict_store import (
     ServedCorpus,
@@ -175,6 +184,75 @@ def test_everything_else_is_served_uncompressed_and_uncached():
         f"/{app_index.LOCATOR_ROWS_NAME}",
     ):
         assert static_headers_for(path) == {"Cache-Control": "no-store"}
+
+
+def test_the_servers_watch_never_reloads_a_tab_when_the_corpus_changes(tmp_path):
+    """A tab reloads only for an `ams:` path it is sent, so the server's one watch must never fire: not on the manifest's creation, its rewrite, its removal, or its return. Registering a path keeps livereload from watching the working directory instead."""
+    from livereload import Server
+
+    server = Server()
+    register_dormant_watch(server, tmp_path)
+    manifest = tmp_path / "manifest.json"
+    assert server.watcher.examine() == (None, None)
+    manifest.write_text("{}")
+    assert server.watcher.examine() == (None, None)
+    later = time.time() + 5
+    manifest.write_text('{"generated_at": "2026-09-30T11:00:00Z"}')
+    os.utime(manifest, (later, later))
+    assert server.watcher.examine() == (None, None)
+    manifest.unlink()
+    assert server.watcher.examine() == (None, None)
+
+
+def test_force_reload_sends_the_path_to_forcereload_and_reports_a_missing_server():
+    """The cycle tells open tabs what changed through livereload's /forcereload. The path arrives whole, and with nothing listening the call returns False instead of raising."""
+    seen: list[str] = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            seen.append(self.path)
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b"ok")
+
+        def log_message(self, format, *args):
+            pass
+
+    httpd = HTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+    thread.start()
+    try:
+        assert force_reload("ams:corpus/2026-09-30T11:00:00Z", port=httpd.server_address[1]) is True
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+    [path] = seen
+    split = urlsplit(path)
+    assert split.path == "/forcereload"
+    assert parse_qs(split.query) == {"path": ["ams:corpus/2026-09-30T11:00:00Z"]}
+
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        free_port = sock.getsockname()[1]
+    assert force_reload("ams:assets/abc", port=free_port) is False
+
+
+def test_force_reload_reports_a_listener_that_does_not_speak_http():
+    """Something else on the port answers with a malformed status line, which http.client raises as an error outside OSError. The reload is best effort, so it returns False and the pass goes on."""
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(1)
+
+        def answer():
+            conn, _ = listener.accept()
+            with conn:
+                conn.recv(4096)
+                conn.sendall(b"not http\r\n\r\n")
+
+        thread = threading.Thread(target=answer, daemon=True)
+        thread.start()
+        assert force_reload("ams:assets/abc", port=listener.getsockname()[1]) is False
+        thread.join(timeout=5)
 
 
 def delta(stamp, sets=(), clears=(), replay=None):

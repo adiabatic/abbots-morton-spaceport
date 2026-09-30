@@ -111,6 +111,7 @@ import {
   duplicateConflicts,
   nextQueueDecision,
   partitionClusters,
+  pruneShownDecisions,
   queueCounts,
   queueResumeAction,
   queueTotals,
@@ -119,6 +120,19 @@ import {
   singletonChunks,
   writeShownDecisions,
 } from './queue.js';
+import {
+  MOVED_FROM_KEY,
+  RELOAD_EVENT,
+  VIEW_EXTRAS_KEY,
+  movesPage,
+  pageIdentity,
+  parseReloadPath,
+  readMoveGuard,
+  readViewExtras,
+  targetKey,
+  writeMoveGuard,
+  writeViewExtras,
+} from './reload.js';
 
 const FONT_SIZE = 88;
 const VERDICT_LABELS = [
@@ -163,15 +177,16 @@ const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
 
 function loadQueueShown() {
   try {
-    return readShownDecisions(localStorage.getItem(SHOWN_STORAGE_KEY), manifest.generated_at);
+    return readShownDecisions(localStorage.getItem(SHOWN_STORAGE_KEY));
   } catch {
     return new Set();
   }
 }
 
 function saveQueueShown() {
+  if (indexLoaded) pruneShownDecisions(queueShown, humanList);
   try {
-    localStorage.setItem(SHOWN_STORAGE_KEY, writeShownDecisions(queueShown, manifest.generated_at));
+    localStorage.setItem(SHOWN_STORAGE_KEY, writeShownDecisions(queueShown));
   } catch {}
 }
 
@@ -404,7 +419,7 @@ async function fetchLocatorBlock(block) {
   }
   // The table and the rows file are written together, so a block that does not start where the table says belongs to a different build.
   if (rows.length !== block.units || rows[0]?.id !== block.first) {
-    toast(`The ${block.class} locator rows are not where this page was told they would be — the corpus was rebuilt; reload.`);
+    reportMovedRecords(`The ${block.class} locator rows are not where this page was told they would be — the corpus was rebuilt; reload.`);
     return null;
   }
   locatorBlocks.set(key, rows);
@@ -470,7 +485,7 @@ async function fetchRecordsBySpans(rows) {
         }
         // A rebuild rewrites the shards, so a stale span can land on a neighboring record instead of failing. Comparing the id detects that.
         if (!record || record.id !== row.id) {
-          toast(`${row.id} is not where this page was told it would be — the corpus was rebuilt; reload.`);
+          reportMovedRecords(`${row.id} is not where this page was told it would be — the corpus was rebuilt; reload.`);
           continue;
         }
         fullRecords.set(record.id, record);
@@ -1666,20 +1681,24 @@ async function applyHashState(resume = false) {
     updateSidebarHighlights();
     return;
   }
-  // On boot and hashchange (`resume`), a queue worklist that is stamped for another corpus or already finished is not rendered; advanceQueue stacks the next decision from the live queue instead, because a rebuild gives every changed unit a new id, so an old hash's worklist was stacked from a queue that no longer exists. The check runs only on resume, so a cursor move, Shift+Enter, or an undo never replaces a worklist the reviewer is looking at.
+  // On boot and hashchange (`resume`), a queue worklist stamped for another corpus keeps only the units the live corpus still has (a unit's id is its content key) and is restamped, then rendered in this call; one with none left, or one already finished, is not rendered, advanceQueue stacks the next decision from the live queue instead, and the call returns true. The check runs only on resume, so a cursor move, Shift+Enter, or an undo never replaces a worklist the reviewer is looking at.
   if (resume && state.units && state.queue) {
-    const action = queueResumeAction({
+    // The boot index load can be slow. If another navigation starts meanwhile, renderToken changes and this resume is dropped.
+    await indexReady;
+    if (token !== renderToken) return;
+    const { action, unitIds } = queueResumeAction({
       stamp: state.stamp,
       manifestStamp: manifest.generated_at,
       unitIds: unitWorklist(state.units),
       recordOf: (id) => store.records.get(id),
+      exists: (id) => humanRows.has(id),
     });
-    if (action) {
-      // The boot index load can be slow. If another navigation starts meanwhile, renderToken changes and this restack is dropped.
-      await indexReady;
-      if (token !== renderToken) return;
+    if (action === 'restamp') {
+      state = { ...state, units: unitIds.join(','), stamp: manifest.generated_at };
+      history.replaceState(null, '', `#${writeHash(state)}`);
+    } else if (action) {
       await advanceQueue({ stale: action === 'restack' });
-      return;
+      return true;
     }
   }
   const units = await unitsForView(state.batch, state.class);
@@ -2364,7 +2383,11 @@ async function sendReplays() {
       continue;
     }
     const reply = await response.json();
-    if (typeof reply.token === 'string' && group.stamp === manifest.generated_at) autosaveToken = reply.token;
+    // `corpus_stamp` is the store's stamp, which a replay made on another corpus can find still on that corpus, so only a replay made on this page's corpus says where the server is.
+    if (group.stamp === manifest.generated_at) {
+      if (typeof reply.token === 'string') autosaveToken = reply.token;
+      noteServedCorpus(reply.corpus_stamp);
+    }
     const refused = new Set(Array.isArray(reply.orphaned) ? reply.orphaned : []);
     for (const conflict of Array.isArray(reply.conflicts) ? reply.conflicts : []) refused.add(conflict?.unit);
     let saved = 0;
@@ -2418,6 +2441,7 @@ async function flushAutosave() {
       }
       const reply = await response.json();
       if (typeof reply.token === 'string') autosaveToken = reply.token;
+      noteServedCorpus(reply.corpus_stamp);
       acknowledgeDelta(store, payload);
       const sent = sentRecordsOf(payload);
       handleSaveOutcome(reply, sent, (unit) => !sameRecord(store.records.get(unit) ?? null, sent.get(unit) ?? null));
@@ -2440,6 +2464,7 @@ async function flushAutosave() {
     autosaveInFlight = false;
   }
   updateProgress();
+  if (pendingMove) settleAndReload();
 }
 
 function autosaveHealthy() {
@@ -2564,12 +2589,14 @@ async function restoreAutosave() {
   }
   const result = importVerdicts(store, data, manifest.generated_at);
   if (!result.ok) {
+    planReplayFromOutbox(serverRecords);
     if (result.mismatch) {
+      await refreshStatus({ force: true });
+      if (pendingMove) return;
       toast(
         `Found an autosave from a different corpus build (${data.verdicts.length} verdicts) — not restored; it'll be stashed aside on your next verdict`,
       );
     }
-    planReplayFromOutbox(serverRecords);
     return;
   }
   if (typeof data.token === 'string') autosaveToken = data.token;
@@ -2595,7 +2622,10 @@ async function syncVerdictsFromServer() {
     const data = await response.json();
     const incoming = data.format === DELTA_FORMAT ? { ...data, format: EXPORT_FORMAT, verdicts: data.sets } : data;
     const result = importVerdicts(store, incoming, manifest.generated_at);
-    if (!result.ok) return;
+    if (!result.ok) {
+      if (result.mismatch) refreshStatus({ force: true });
+      return;
+    }
     if (typeof data.token === 'string') autosaveToken = data.token;
     noteServerRecords(store, incoming.verdicts);
     if (data.format === DELTA_FORMAT) {
@@ -2621,7 +2651,7 @@ async function syncVerdictsFromServer() {
 
 const PAGE_LOADED_AT = new Date().toISOString();
 let lastStatusModel = null;
-let statusRefreshInFlight = false;
+let statusRefresh = null;
 let statusRefreshLastAt = 0;
 
 function readinessLine(model) {
@@ -2654,10 +2684,11 @@ function renderQueueReadiness() {
   header.append(el('p', `queue-readiness readiness-${lastStatusModel.level}`, readinessLine(lastStatusModel)));
 }
 
-async function refreshStatus() {
-  if (statusRefreshInFlight || Date.now() - statusRefreshLastAt < 2000) return;
-  statusRefreshInFlight = true;
-  try {
+// Asks /status for the readiness banner, at most once every two seconds unless `force` is set, and moves the page when the served corpus is not the one it loaded. A call made while a request is in flight waits for that request.
+function refreshStatus({ force = false } = {}) {
+  if (statusRefresh) return statusRefresh;
+  if (!force && Date.now() - statusRefreshLastAt < 2000) return Promise.resolve();
+  statusRefresh = (async () => {
     let payload = null;
     try {
       const response = await fetch('status');
@@ -2665,13 +2696,122 @@ async function refreshStatus() {
     } catch {
       payload = null;
     }
-    lastStatusModel = bannerModel(payload, manifest.generated_at, PAGE_LOADED_AT);
+    noteServedCorpus(payload?.corpus?.generated_at);
+    lastStatusModel = bannerModel(payload, manifest.generated_at, PAGE_LOADED_AT, pendingMove?.kind === 'corpus');
     renderReadinessBanner();
     if (state.view === 'queue') renderQueueReadiness();
-  } finally {
-    statusRefreshInFlight = false;
+  })().finally(() => {
+    statusRefresh = null;
     statusRefreshLastAt = Date.now();
+  });
+  return statusRefresh;
+}
+
+// Moving onto a changed corpus or refreshed app files (reload.js). A move is asked for by the server's `ams:` reload, by a save's reply or a /status answer naming another corpus, and by a byte-range read that finds another build's record where this page's index points, which /status then confirms. The page sends its unsaved changes first (the outbox keeps whatever does not get through), waits while the reader has text in a focused text field or while the tab is hidden, keeps the scroll position, the queue anchor and the note drafts for the reloaded page, and reloads at the same URL hash.
+const PAGE_IDENTITY = pageIdentity(manifest);
+const blockedMoves = new Set();
+let pendingMove = null;
+let moveStarted = false;
+
+function sessionStore() {
+  try {
+    return window.sessionStorage;
+  } catch {
+    return null;
   }
+}
+
+function takeSessionItem(key) {
+  try {
+    const storage = sessionStore();
+    const value = storage?.getItem(key) ?? null;
+    storage?.removeItem(key);
+    return value;
+  } catch {
+    return null;
+  }
+}
+
+function putSessionItem(key, value) {
+  try {
+    sessionStore()?.setItem(key, value);
+  } catch {}
+}
+
+const TEXT_ENTRY_TYPES = new Set(['text', 'search']);
+
+function typingInField() {
+  const active = document.activeElement;
+  const textEntry = active instanceof HTMLTextAreaElement || (active instanceof HTMLInputElement && TEXT_ENTRY_TYPES.has(active.type));
+  return textEntry && active.value !== '';
+}
+
+function noteDrafts() {
+  const drafts = [];
+  for (const note of document.querySelectorAll('#batch .row .note')) {
+    const unit = note.closest('.row')?.dataset.unit;
+    if (!unit || note.value === (store.records.get(unit)?.note ?? '')) continue;
+    drafts.push([unit, note.value]);
+  }
+  return drafts;
+}
+
+function requestMove(target) {
+  if (!movesPage(target, PAGE_IDENTITY) || blockedMoves.has(targetKey(target))) return;
+  pendingMove = target;
+  settleAndReload();
+}
+
+function noteServedCorpus(stamp) {
+  if (typeof stamp === 'string' && stamp !== '') requestMove({ kind: 'corpus', value: stamp });
+}
+
+async function settleAndReload() {
+  if (!pendingMove || moveStarted || autosaveInFlight) return;
+  if (document.hidden) {
+    // flushAutosave calls back here when it ends, so a flush that failed (a retry sets autosaveFailed too) must not start another one; its retry timer or the tab being shown flushes next.
+    if (!autosaveFailed) flushAutosave();
+    return;
+  }
+  if (typingInField()) return;
+  moveStarted = true;
+  const target = pendingMove;
+  await flushAutosave();
+  putSessionItem(
+    VIEW_EXTRAS_KEY,
+    writeViewExtras({ hash: location.hash, scrollY: window.scrollY, queueAnchor: captureQueueAnchor(), notes: noteDrafts() }),
+  );
+  putSessionItem(MOVED_FROM_KEY, writeMoveGuard(PAGE_IDENTITY, target));
+  location.reload();
+}
+
+// A record read by byte range that is not the one this page's index names means the shards were rewritten. When /status confirms another corpus the page moves; otherwise the message is shown.
+function reportMovedRecords(message) {
+  refreshStatus({ force: true }).then(() => {
+    if (!pendingMove) toast(message);
+  });
+}
+
+// What a reload for a move left behind: a move that did not change this page's identity is not tried again, and the view extras saved for this URL hash are returned for restoreViewExtras.
+function takeMoveState() {
+  const blocked = readMoveGuard(takeSessionItem(MOVED_FROM_KEY), PAGE_IDENTITY);
+  if (blocked) blockedMoves.add(targetKey(blocked));
+  return readViewExtras(takeSessionItem(VIEW_EXTRAS_KEY), location.hash);
+}
+
+function restoreViewExtras(extras) {
+  if (!extras) return;
+  for (const [unit, text] of extras.notes) {
+    const note = document.querySelector(`#batch .row[data-unit="${CSS.escape(unit)}"] .note`);
+    if (note && note.value === (store.records.get(unit)?.note ?? '')) note.value = text;
+  }
+  const anchor = extras.queueAnchor;
+  const card =
+    state.view === 'queue' && anchor
+      ? document.querySelector(`#queue article.cluster[data-cluster="${CSS.escape(anchor.cluster)}"]`)
+      : null;
+  if (card) window.scrollTo(0, card.getBoundingClientRect().top + window.scrollY - anchor.delta);
+  else window.scrollTo(0, extras.scrollY);
 }
 
 function verdictsFilename(now = new Date()) {
@@ -3188,10 +3328,21 @@ function wireEvents() {
   });
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden) {
+      settleAndReload();
       syncVerdictsFromServer();
       refreshStatus();
     }
   });
+
+  window.addEventListener(RELOAD_EVENT, (event) => requestMove(parseReloadPath(event.detail?.path)));
+  document.addEventListener('focusout', () => {
+    if (pendingMove) setTimeout(settleAndReload, 0);
+  });
+  window.__amsReloadReady = true;
+  if (window.__amsPendingReload) {
+    requestMove(parseReloadPath(window.__amsPendingReload));
+    window.__amsPendingReload = null;
+  }
 
   // A queue view open beside the judging tab never regains focus between decisions, so the focus re-merge does not update it. While the queue is visible, poll the server store instead. syncVerdictsFromServer limits the rate, and each pickup re-derives the queue, so judged decisions leave the page without a tab switch.
   setInterval(() => {
@@ -3266,6 +3417,7 @@ function renderChrome() {
   document.getElementById('corpus-detail-rows').replaceChildren(head, body);
 }
 
+const viewExtras = takeMoveState();
 renderChrome();
 renderSidebar();
 keepTabAlive();
@@ -3274,6 +3426,8 @@ indexReady = loadHumanIndex();
 await restoreAutosave();
 bootRestoreDone = true;
 await indexReady;
-applyHashState(true);
+applyHashState(true).then((replaced) => {
+  if (!replaced) restoreViewExtras(viewExtras);
+});
 if (replayQueue.length > 0) flushAutosave();
 refreshStatus();

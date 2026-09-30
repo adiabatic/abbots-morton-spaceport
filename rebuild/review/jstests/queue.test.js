@@ -15,6 +15,7 @@ import {
   decisionKey,
   readShownDecisions,
   writeShownDecisions,
+  pruneShownDecisions,
   SINGLETON_DECISION,
   TOP_CLUSTER_COUNT,
   SINGLETON_CHUNK,
@@ -500,27 +501,72 @@ test('decisionKey names the cluster behind a representatives worklist and the si
 });
 
 test('writeShownDecisions and readShownDecisions round-trip the rotation in the order it was stacked', () => {
-  const stamp = '2026-09-12T00:52:00Z';
   const shown = new Set(['c-bbe6acfa', 'c-cdde37a0']);
-  const restored = readShownDecisions(writeShownDecisions(shown, stamp), stamp);
+  const restored = readShownDecisions(writeShownDecisions(shown));
   assert.deepEqual([...restored], ['c-bbe6acfa', 'c-cdde37a0']);
 });
 
-test('readShownDecisions starts a fresh rotation on a rebuilt corpus, unreadable storage, or nothing stored at all', () => {
-  const stamp = '2026-09-12T00:52:00Z';
-  const stored = writeShownDecisions(new Set(['c-bbe6acfa']), '2026-09-01T00:00:00Z');
-  assert.deepEqual([...readShownDecisions(stored, stamp)], []);
-  assert.deepEqual([...readShownDecisions('not json', stamp)], []);
-  assert.deepEqual([...readShownDecisions(null, stamp)], []);
-  assert.deepEqual([...readShownDecisions(JSON.stringify({ stamp, keys: 'c-bbe6acfa' }), stamp)], []);
-  assert.deepEqual([...readShownDecisions(JSON.stringify({ stamp, keys: ['c-bbe6acfa', 7, null] }), stamp)], ['c-bbe6acfa']);
+test('readShownDecisions keeps the rotation across a rebuilt corpus, so a postponed decision stays postponed', () => {
+  const stored = JSON.stringify({ stamp: '2026-09-01T00:00:00Z', keys: ['c-bbe6acfa', 'c-cdde37a0'] });
+  const shown = readShownDecisions(stored);
+  assert.deepEqual([...shown], ['c-bbe6acfa', 'c-cdde37a0']);
+  const units = [
+    makeUnit('u-0001', { cluster: 'c-bbe6acfa', duplicate_group: 'e-0001' }),
+    makeUnit('u-0002', { cluster: 'c-bbe6acfa', duplicate_group: 'e-0002' }),
+    makeUnit('u-0003', { cluster: 'c-cdde37a0', duplicate_group: 'e-0003' }),
+    makeUnit('u-0004', { cluster: 'c-cdde37a0', duplicate_group: 'e-0004' }),
+    makeUnit('u-0005', { cluster: 'c-fresh', duplicate_group: 'e-0005' }),
+    makeUnit('u-0006', { cluster: 'c-fresh', duplicate_group: 'e-0006' }),
+  ];
+  assert.equal(nextQueueDecision(units, blank, new Set(), shown).key, 'c-fresh');
 });
 
-test('queueResumeAction restacks a worklist stamped for another corpus, stampless hashes included, before trusting any of its ids', () => {
+test('pruneShownDecisions drops the signatures no unit of the corpus carries and keeps the singleton run', () => {
+  const shown = new Set(['c-gone', SINGLETON_DECISION, 'c-bbe6acfa']);
+  pruneShownDecisions(shown, [makeUnit('u-0001', { cluster: 'c-bbe6acfa' })]);
+  assert.deepEqual([...shown], [SINGLETON_DECISION, 'c-bbe6acfa']);
+  pruneShownDecisions(shown, []);
+  assert.deepEqual([...shown], [SINGLETON_DECISION, 'c-bbe6acfa']);
+});
+
+test('readShownDecisions starts a fresh rotation on unreadable storage or nothing stored at all', () => {
+  assert.deepEqual([...readShownDecisions('not json')], []);
+  assert.deepEqual([...readShownDecisions(null)], []);
+  assert.deepEqual([...readShownDecisions(JSON.stringify({ keys: 'c-bbe6acfa' }))], []);
+  assert.deepEqual([...readShownDecisions(JSON.stringify({ keys: ['c-bbe6acfa', 7, null] }))], ['c-bbe6acfa']);
+});
+
+test('queueResumeAction keeps the surviving ids of a worklist stamped for another corpus, stampless hashes included', () => {
   const records = { 'u-0001': { unit: 'u-0001', verdict: 'approve', note: '', at: '2026-01-01' } };
   const recordOf = (id) => records[id];
-  assert.equal(queueResumeAction({ stamp: '2026-01-01T00:00:00Z', manifestStamp: '2026-01-02T00:00:00Z', unitIds: ['u-0001', 'u-0002'], recordOf }), 'restack');
-  assert.equal(queueResumeAction({ stamp: null, manifestStamp: '2026-01-02T00:00:00Z', unitIds: ['u-0001', 'u-0002'], recordOf }), 'restack');
+  const live = new Set(['u-0001', 'u-0003']);
+  const exists = (id) => live.has(id);
+  const unitIds = ['u-0001', 'u-0002', 'u-0003'];
+  for (const stamp of ['2026-01-01T00:00:00Z', null]) {
+    assert.deepEqual(queueResumeAction({ stamp, manifestStamp: '2026-01-02T00:00:00Z', unitIds, recordOf, exists }), {
+      action: 'restamp',
+      unitIds: ['u-0001', 'u-0003'],
+    });
+  }
+});
+
+test('queueResumeAction restacks a worklist from another corpus only when none of its units survive', () => {
+  const recordOf = () => undefined;
+  const exists = () => false;
+  assert.deepEqual(
+    queueResumeAction({ stamp: '2026-01-01T00:00:00Z', manifestStamp: '2026-01-02T00:00:00Z', unitIds: ['u-0001'], recordOf, exists }),
+    { action: 'restack', unitIds: [] },
+  );
+});
+
+test('queueResumeAction advances a worklist from another corpus whose surviving units all carry a real verdict', () => {
+  const records = { 'u-0001': { unit: 'u-0001', verdict: 'reject', note: '', at: '2026-01-01' } };
+  const recordOf = (id) => records[id];
+  const exists = (id) => id === 'u-0001';
+  assert.deepEqual(
+    queueResumeAction({ stamp: '2026-01-01T00:00:00Z', manifestStamp: '2026-01-02T00:00:00Z', unitIds: ['u-0001', 'u-0002'], recordOf, exists }),
+    { action: 'advance', unitIds: ['u-0001'] },
+  );
 });
 
 test('queueResumeAction advances a current-corpus worklist whose every listed unit carries a real verdict', () => {
@@ -529,9 +575,10 @@ test('queueResumeAction advances a current-corpus worklist whose every listed un
     'u-0002': { unit: 'u-0002', verdict: 'reject', note: 'worse', at: '2026-01-01' },
   };
   const recordOf = (id) => records[id];
+  const exists = () => true;
   const stamp = '2026-01-02T00:00:00Z';
-  assert.equal(queueResumeAction({ stamp, manifestStamp: stamp, unitIds: ['u-0001', 'u-0002'], recordOf }), 'advance');
-  assert.equal(queueResumeAction({ stamp, manifestStamp: stamp, unitIds: [], recordOf }), 'advance');
+  assert.equal(queueResumeAction({ stamp, manifestStamp: stamp, unitIds: ['u-0001', 'u-0002'], recordOf, exists }).action, 'advance');
+  assert.equal(queueResumeAction({ stamp, manifestStamp: stamp, unitIds: [], recordOf, exists }).action, 'advance');
 });
 
 test('queueResumeAction renders a current-corpus worklist holding a blank or a skip — clicking a skipped-through cluster card must re-show the deferred representatives, never teleport', () => {
@@ -540,9 +587,10 @@ test('queueResumeAction renders a current-corpus worklist holding a blank or a s
     'u-0003': { unit: 'u-0003', verdict: 'skip', note: '', at: '2026-01-01' },
   };
   const recordOf = (id) => records[id];
+  const exists = () => true;
   const stamp = '2026-01-02T00:00:00Z';
-  assert.equal(queueResumeAction({ stamp, manifestStamp: stamp, unitIds: ['u-0001', 'u-0002'], recordOf }), null);
-  assert.equal(queueResumeAction({ stamp, manifestStamp: stamp, unitIds: ['u-0001', 'u-0003'], recordOf }), null);
+  assert.equal(queueResumeAction({ stamp, manifestStamp: stamp, unitIds: ['u-0001', 'u-0002'], recordOf, exists }).action, null);
+  assert.equal(queueResumeAction({ stamp, manifestStamp: stamp, unitIds: ['u-0001', 'u-0003'], recordOf, exists }).action, null);
 });
 
 test('nextQueueDecision never offers a ruled class, even the largest one', () => {

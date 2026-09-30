@@ -1,10 +1,12 @@
-"""The paths the artifact cycle, the gate wrappers, and the interactive entry points write to or delete, and the two green-finish switches, in a module that imports nothing from the repo.
+"""The paths the artifact cycle, the gate wrappers, and the interactive entry points write to or delete, the two green-finish switches, and the review-reload switch, in a module that imports nothing from the repo.
 
 The paths are the green records each keyed stage skips on, the cycle summary, the run_m1 and conform summaries the driver unlinks before it spawns those steps, the build-log root each pass creates a run directory under, and the cycle's own directory, `CYCLE_VAR`, which holds the pass lock and each pass's scratch directory. The autouse fixture `_redirect_cycle_writes` in `rebuild/conftest.py` points them under `tmp_path` for every rebuild test, except the deep sweep and deep replay green records, which the tests that use them redirect. Writers read them as `cycle_paths.RUN_M1_GREEN` at call time, never through a copy bound at import or in a default argument, so the redirect reaches every write. `REBUILD_GATE_EXEMPT_PREFIXES` is here because the same conftest derives its forbidden trees from it.
 
 The module imports nothing from the repo because `closure_of` in `rebuild.tools.contracts_closure` adds both conftests' static import closures to every test's closure. A conftest that imported the cycle driver to patch these paths would put rebuild/pipeline/ and rebuild/review/ into every closure, and no pipeline edit could let a test be skipped. `rebuild/test_contracts_closure.py` checks the conftests' imports.
 
 `RETENTION_ENABLED` and `READINESS_ENABLED` switch off the two green-finish stages whose targets come from the live tree, not from a path here. The retention pass prunes the root's carried exports, autosave stashes, and verdict journal, and the readiness checklist reads the served corpus and the root autosave. The rebuild suite sets both to False so a test that reaches a green finish leaves the live repo alone. `_finish` in `artifact_cycle` reads both at call time, so a test that checks either stage sets its switch back to True and patches the callable.
+
+`REVIEW_RELOAD_ENABLED` switches off the reload the cycle sends to a listening review server after an assets refresh or a pass that moved the served corpus (`artifact_cycle._broadcast_review_reload`). The port is the live one, so the rebuild suite sets it to False, and a test mocking those steps cannot reload the reviewer's open tabs. A test that checks the reload sets it back to True and patches `artifact_cycle.force_reload`.
 """
 
 from __future__ import annotations
@@ -43,3 +45,4 @@ REBUILD_GATE_EXEMPT_PREFIXES = (
 
 RETENTION_ENABLED = True
 READINESS_ENABLED = True
+REVIEW_RELOAD_ENABLED = True

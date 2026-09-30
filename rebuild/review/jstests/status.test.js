@@ -48,7 +48,16 @@ test('a payload without checks is unavailable', () => {
   assert.equal(model.text, 'Status unavailable');
 });
 
-test('a corpus rebuilt since the page loaded is stale', () => {
+test('a corpus rebuilt since the page loaded is stale, and the page says it is moving onto it while the move is pending', () => {
+  const status = withChecks({}, { corpus: { dir: 's', generated_at: 'gen-2', repo_head: 'h' } });
+  const moving = bannerModel(status, 'gen-1', null, true);
+  assert.equal(moving.level, 'stale');
+  assert.equal(moving.text, 'Moving onto the rebuilt corpus…');
+  assert.equal(moving.remedy, null);
+  assert.equal(moving.command, null);
+});
+
+test('a corpus rebuilt since the page loaded asks for a reload when the page is not moving onto it', () => {
   const model = bannerModel(withChecks({}, { corpus: { dir: 's', generated_at: 'gen-2', repo_head: 'h' } }), 'gen-1');
   assert.equal(model.level, 'stale');
   assert.equal(model.text, 'Corpus rebuilt since this page loaded');

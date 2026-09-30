@@ -161,19 +161,30 @@ export function queueCounts(units, recordOf, ruledIds = new Set()) {
   return { blankUnits, clusters: clusters.size };
 }
 
-export function readShownDecisions(raw, manifestStamp) {
+// The rotation of decisions this browser has stacked, least recently stacked first. It is kept across corpus rebuilds: a decision key is a cluster signature or SINGLETON_DECISION, and a signature names the same visual change on every corpus, so a decision postponed before a rebuild stays postponed after it.
+export function readShownDecisions(raw) {
   let parsed = null;
   try {
     parsed = JSON.parse(raw ?? '');
   } catch {
     return new Set();
   }
-  if (!parsed || parsed.stamp !== manifestStamp || !Array.isArray(parsed.keys)) return new Set();
+  if (!parsed || !Array.isArray(parsed.keys)) return new Set();
   return new Set(parsed.keys.filter((key) => typeof key === 'string'));
 }
 
-export function writeShownDecisions(shown, manifestStamp) {
-  return JSON.stringify({ stamp: manifestStamp, keys: [...shown] });
+export function writeShownDecisions(shown) {
+  return JSON.stringify({ keys: [...shown] });
+}
+
+// Drops from `shown` the cluster signatures no unit in `units` carries, so the stored rotation holds only decisions this corpus can open again and does not grow with every decision ever stacked. SINGLETON_DECISION is always kept, and an empty `units` drops nothing. `units` must be the whole index, since a partly loaded one would drop live keys.
+export function pruneShownDecisions(shown, units) {
+  if (units.length === 0) return;
+  const clusters = new Set();
+  for (const unit of units) clusters.add(unit.cluster);
+  for (const key of shown) {
+    if (key !== SINGLETON_DECISION && !clusters.has(key)) shown.delete(key);
+  }
 }
 
 // `stacked` is the key the worklist was stacked under, from the hash's `decision`. The units alone can name the wrong decision: a lone singleton's worklist has one cluster signature but was stacked as the singleton run.
@@ -184,7 +195,7 @@ export function decisionKey(units, stacked = null) {
   return signatures.size === 1 ? [...signatures][0] : SINGLETON_DECISION;
 }
 
-// The next decision to show the reviewer. Open decisions are in queue order: the largest cluster first, with one representative per duplicate group that has no record, then the singletons. A record on a blank member can only be a skip, so any recorded member defers its whole duplicate group. `shown` holds the decision keys stacked for this corpus, least recently stacked first (the app keeps it in localStorage). The first open decision not in `shown` is returned, so leaving a cluster postpones it. When every open decision has been shown, the one shown longest ago is returned with `revisit` set. The returned decision carries its `key`, which the worklist stacked from it records in `shown`. Returns null when every blank unit is in a deferred group.
+// The next decision to show the reviewer. Open decisions are in queue order: the largest cluster first, with one representative per duplicate group that has no record, then the singletons. A record on a blank member can only be a skip, so any recorded member defers its whole duplicate group. `shown` holds the decision keys stacked in this browser, least recently stacked first (the app keeps it in localStorage, `readShownDecisions`). The first open decision not in `shown` is returned, so leaving a cluster postpones it. When every open decision has been shown, the one shown longest ago is returned with `revisit` set. The returned decision carries its `key`, which the worklist stacked from it records in `shown`. Returns null when every blank unit is in a deferred group.
 export function nextQueueDecision(units, recordOf, ruledIds, shown = new Set()) {
   const clusters = buildClusters(units, recordOf);
   const { top, later, singletons } = partitionClusters(clusters, ruledIds);
@@ -216,15 +227,17 @@ export function nextQueueDecision(units, recordOf, ruledIds, shown = new Set()) 
   return { ...oldest.decision, key: oldest.key, revisit: true };
 }
 
-// What to do with a review queue worklist from the URL hash. A worklist names units by id, and a rebuild gives a changed unit a new id, so a worklist stamped for another corpus (or with no stamp) is meaningless: 'restack' stacks the next decision from the live queue. A current worklist whose units all have a verdict other than skip was finished, so it gets 'advance', as finishing it live would. A skip is a record but not a verdict, and clicking a skipped-through cluster's card should show its deferred representatives again, so a worklist with any skip or blank renders (null).
-export function queueResumeAction({ stamp, manifestStamp, unitIds, recordOf }) {
-  if (stamp !== manifestStamp) return 'restack';
+// What to do with a review queue worklist from the URL hash, as `{ action, unitIds }`. A worklist names units by id, and a unit's id is its content key, so on a corpus other than the one the worklist was stacked for (or with no stamp) the ids that `exists` still finds name the same units: `unitIds` keeps those, in order, and the action is 'restamp', which rewrites the worklist onto them and the current stamp. When none survive, the action is 'restack', which stacks the next decision from the live queue. A worklist whose kept units all have a verdict other than skip was finished, so it gets 'advance', as finishing it live would. A skip is a record but not a verdict, and clicking a skipped-through cluster's card should show its deferred representatives again, so a current worklist with any skip or blank renders (null).
+export function queueResumeAction({ stamp, manifestStamp, unitIds, recordOf, exists }) {
+  const current = stamp === manifestStamp;
+  const kept = current ? unitIds : unitIds.filter((id) => exists(id));
+  if (!current && kept.length === 0) return { action: 'restack', unitIds: kept };
   const judged = (id) => {
     const record = recordOf(id);
     return Boolean(record) && record.verdict !== 'skip';
   };
-  if (unitIds.length === 0 || unitIds.every(judged)) return 'advance';
-  return null;
+  if (kept.length === 0 || kept.every(judged)) return { action: 'advance', unitIds: kept };
+  return { action: current ? null : 'restamp', unitIds: kept };
 }
 
 export function queueTotals(clusters) {
