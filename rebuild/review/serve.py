@@ -15,6 +15,7 @@ from rebuild.review.verdict_store import (
     DELTA_FORMAT,
     EXPORT_FORMAT,
     VerdictStore,
+    file_signature,
     parse_autosave_payload,
     stash_path_for,
 )
@@ -41,6 +42,11 @@ def static_headers_for(path: str) -> dict[str, str]:
     return headers
 
 
+def manifest_signature(review_dir: Path) -> tuple[int, int, int] | None:
+    """Return the served manifest's `file_signature`. A rebuild or an assets refresh replaces the file, so the signature moves with every restamp."""
+    return file_signature(review_dir / "manifest.json")
+
+
 def receive_autosave(raw: bytes, path: Path, journal_path: Path | None = None) -> tuple[int, dict]:
     """Apply one autosave POST body to the file at `path` through a store loaded for this call, and return the HTTP status and response body. The server itself keeps one store for its lifetime."""
     return VerdictStore(path, journal_path).receive(raw)
@@ -59,19 +65,31 @@ def main() -> None:
     from rebuild.review import status
 
     store = VerdictStore(AUTOSAVE_PATH, JOURNAL_PATH)
-    human_ids_cache: dict[str | None, frozenset[str] | None] = {}
+
+    class ManifestCache:
+        signature: tuple[int, int, int] | None = None
+        stamp: str | None = None
+        human_ids: frozenset[str] | None = None
+
+    manifest_cache = ManifestCache()
 
     def cached_human_ids() -> frozenset[str] | None:
+        """Return the served corpus's human unit ids, reading the manifest only when its mtime, size or inode moved, and the ids only when its stamp moved too, so an assets refresh that restamps only the manifest's `static` component reloads nothing."""
+        signature = manifest_signature(REVIEW_DIR)
+        if signature is not None and signature == manifest_cache.signature:
+            return manifest_cache.human_ids
         try:
             stamp = json.loads((REVIEW_DIR / "manifest.json").read_text()).get("generated_at")
         except OSError, ValueError:
             return None
-        if stamp not in human_ids_cache:
+        if manifest_cache.signature is None or stamp != manifest_cache.stamp:
             try:
-                human_ids_cache[stamp] = status.load_human_unit_ids(REVIEW_DIR)
+                manifest_cache.human_ids = status.load_human_unit_ids(REVIEW_DIR)
             except OSError, ValueError, KeyError, TypeError:
-                human_ids_cache[stamp] = None
-        return human_ids_cache[stamp]
+                manifest_cache.human_ids = None
+        manifest_cache.signature = signature
+        manifest_cache.stamp = stamp
+        return manifest_cache.human_ids
 
     class NoCacheStaticHandler(StaticFileHandler):
         def set_extra_headers(self, path: str) -> None:
@@ -86,11 +104,13 @@ def main() -> None:
             """Always send the body. Otherwise a Range request whose `If-Modified-Since` is satisfied would get a 304 with no body, and the app would have nothing to parse."""
             return False
 
-    # /status recomputes the input fingerprints to check that the corpus is current, and picks the fullest verdicts file (status.pick_fullest_verdicts memoizes each verdicts file by its stat). The app requests it on every focus, visibility change, and hash change. It runs in the executor so that the shard Range requests a card waits on are not blocked. Concurrent requests share one computation, and a result is reused for STATUS_TTL_S seconds, so the status can lag a change on disk by up to that long.
+    # /status recomputes the input fingerprints to check that the corpus is current, and picks the fullest verdicts file (status.pick_fullest_verdicts memoizes each verdicts file by its stat). The app requests it on every focus, visibility change, and hash change. It runs in the executor so that the shard Range requests a card waits on are not blocked. Concurrent requests over the same manifest share one computation, and a result is reused for STATUS_TTL_S seconds unless the manifest's signature has moved since it was computed, so a rebuilt corpus shows at once and any other change on disk can lag by up to that long.
     class StatusCache:
         at: float = 0.0
+        key: tuple[int, int, int] | None = None
         result: dict | None = None
         future: Awaitable[dict] | None = None
+        future_key: tuple[int, int, int] | None = None
 
     status_cache = StatusCache()
 
@@ -117,12 +137,18 @@ def main() -> None:
             self.set_header("Cache-Control", "no-store")
 
         async def get(self) -> None:
+            key = manifest_signature(REVIEW_DIR)
             result = status_cache.result
-            if result is None or time.monotonic() - status_cache.at >= STATUS_TTL_S:
+            if (
+                result is None
+                or status_cache.key != key
+                or time.monotonic() - status_cache.at >= STATUS_TTL_S
+            ):
                 future = status_cache.future
-                if future is None:
+                if future is None or status_cache.future_key != key:
                     future = IOLoop.current().run_in_executor(None, compute_status_now, status_inputs())
                     status_cache.future = future
+                    status_cache.future_key = key
                 try:
                     result = await future
                 except Exception as exc:
@@ -133,6 +159,7 @@ def main() -> None:
                     if status_cache.future is future:
                         status_cache.future = None
                 status_cache.result = result
+                status_cache.key = key
                 status_cache.at = time.monotonic()
             self.set_header("Content-Type", "application/json")
             self.finish(json.dumps(result))

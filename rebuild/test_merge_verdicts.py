@@ -211,6 +211,29 @@ def test_restore_without_apply_writes_a_file(repo, capsys):
     assert "--apply" in capsys.readouterr().out
 
 
+def test_restore_refuses_a_moment_between_a_torn_base_and_the_next_complete_one(repo, capsys):
+    seed_journal(repo)
+    for stamp, old_stamp, units, hour in (("S3", "S2", ["u-5", "u-6"], 3), ("S4", "S3", ["u-9"], 5)):
+        journal.record_transition(
+            repo["journal"],
+            source="merge",
+            stamp=stamp,
+            old_stamp=old_stamp,
+            old_verdicts=[],
+            new_verdicts=[v(unit) for unit in units],
+            at=f"2026-07-10T0{hour}:00:00Z",
+        )
+        if stamp == "S3":
+            lines = repo["journal"].read_bytes().splitlines(keepends=True)
+            repo["journal"].write_bytes(b"".join(lines[:-1]))
+    out = repo["root"] / "restored.json"
+    assert run(repo, "--restore-as-of", "2026-07-10T04:00", "--out", str(out)) == 1
+    assert "before 2026-07-10T03:00:00Z or at or after 2026-07-10T05:00:00Z" in capsys.readouterr().out
+    assert not out.exists()
+    assert run(repo, "--restore-as-of", "2026-07-10T05:30", "--out", str(out)) == 0
+    assert [record["unit"] for record in json.loads(out.read_text())["verdicts"]] == ["u-9"]
+
+
 def test_restore_apply_replaces_and_stashes_the_autosave(repo, monkeypatch):
     seed_journal(repo)
     write_doc(repo["autosave"], "S2", [v("u-1"), v("u-2"), v("u-3")])

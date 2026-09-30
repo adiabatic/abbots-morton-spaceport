@@ -2,7 +2,7 @@
 
 The /autosave receiver: payload validation, atomic overwrite, and the journal event appended on every accepted save. An existing autosave stamped for an older manifest is moved aside to a stash file, because it may be the only copy of unexported work from before a corpus rebuild and its unit ids must not be mixed into the new corpus. A save stamped older than the store is refused with 409, so a stale tab cannot overwrite a newer store.
 
-The resident store behind it (`rebuild.review.verdict_store`): the delta POST the app sends, the change token a sync GET returns, and the reload after an external rewrite of the file.
+The resident store behind it (`rebuild.review.verdict_store`): the delta POST the app sends, the no-op delta that writes nothing, the failed write that leaves memory as the file holds it, the change token a sync GET returns, and the reload after an external rewrite of the file, which keeps tokens valid when the stamp is unchanged.
 
 The headers every static file is served with. `static_headers_for` is a pure function so it can be tested without a server.
 """
@@ -10,6 +10,8 @@ The headers every static file is served with. `static_headers_for` is a pure fun
 import json
 import os
 from pathlib import Path
+
+import pytest
 
 from rebuild.review import app_index, journal
 from rebuild.review.serve import (
@@ -260,6 +262,42 @@ def test_a_delta_that_changes_nothing_writes_no_journal_event(tmp_path):
     assert body["token"] == store.token
 
 
+def test_a_delta_that_changes_nothing_leaves_the_file_untouched(tmp_path):
+    path = tmp_path / "verdicts-autosave.json"
+    stamp = "2026-07-03T23:31:04Z"
+    store = VerdictStore(path)
+    store.receive(payload(stamp, [verdict("u-1")]))
+    os.utime(path, ns=(1, 1))
+    before = path.read_bytes()
+    status, body = store.receive(delta(stamp, [verdict("u-1")], ["u-9"]))
+    assert status == 200 and body["ok"]
+    assert path.read_bytes() == before
+    assert path.stat().st_mtime_ns == 1
+    assert not store.refresh_if_changed()
+
+
+def test_a_delta_whose_write_fails_is_written_and_journaled_when_it_is_resent(tmp_path, monkeypatch):
+    path = tmp_path / "verdicts-autosave.json"
+    journal_path = tmp_path / "verdicts-journal.ndjson"
+    stamp = "2026-07-03T23:31:04Z"
+    store = VerdictStore(path, journal_path)
+    store.receive(payload(stamp, [verdict("u-1")]))
+    real_write_bytes = store._write_bytes
+
+    def disk_full(raw):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(store, "_write_bytes", disk_full)
+    with pytest.raises(OSError):
+        store.receive(delta(stamp, [verdict("u-2")], []))
+    assert "u-2" not in store.records
+    monkeypatch.setattr(store, "_write_bytes", real_write_bytes)
+    status, _ = store.receive(delta(stamp, [verdict("u-2")], []))
+    assert status == 200
+    assert set(journal.latest_by_unit(json.loads(path.read_bytes())["verdicts"])) == {"u-1", "u-2"}
+    assert set(journal.replay(journal_path)[1]) == {"u-1", "u-2"}
+
+
 def test_a_delta_seeds_a_journal_that_does_not_exist_yet(tmp_path):
     path = tmp_path / "verdicts-autosave.json"
     journal_path = tmp_path / "verdicts-journal.ndjson"
@@ -338,19 +376,52 @@ def test_a_whole_store_post_moves_the_token_by_what_it_changed(tmp_path):
     assert moved["clears"] == ["u-2"]
 
 
-def test_an_external_rewrite_of_the_file_is_picked_up_and_invalidates_tokens(tmp_path):
+def test_an_external_rewrite_onto_another_stamp_is_picked_up_and_invalidates_tokens(tmp_path):
     path = tmp_path / "verdicts-autosave.json"
-    stamp = "2026-07-03T23:31:04Z"
     store = VerdictStore(path)
-    store.receive(payload(stamp, [verdict("u-1")]))
+    store.receive(payload("2026-07-03T06:13:47Z", [verdict("u-1")]))
     token = store.token
     os.utime(path, ns=(1, 1))
-    path.write_bytes(payload(stamp, [verdict("u-1"), verdict("u-2")]))
+    path.write_bytes(payload("2026-07-03T23:31:04Z", [verdict("u-1"), verdict("u-2")]))
     os.utime(path, ns=(2, 2))
     assert store.refresh_if_changed()
+    assert store.stamp == "2026-07-03T23:31:04Z"
     assert set(store.records) == {"u-1", "u-2"}
     assert store.changes_since(token) is None
     assert not store.refresh_if_changed()
+
+
+def test_a_same_stamp_external_rewrite_keeps_the_token_and_hands_back_only_what_moved(tmp_path):
+    path = tmp_path / "verdicts-autosave.json"
+    stamp = "2026-07-03T23:31:04Z"
+    store = VerdictStore(path)
+    store.receive(payload(stamp, [verdict("u-1"), verdict("u-2"), verdict("u-3")]))
+    token = store.token
+    os.utime(path, ns=(1, 1))
+    path.write_bytes(
+        payload(stamp, [verdict("u-1"), verdict("u-2", "reject", at="2026-07-03T01:00:00Z"), verdict("u-4")])
+    )
+    os.utime(path, ns=(2, 2))
+    assert store.refresh_if_changed()
+    moved = changes(store, token)
+    assert [record["unit"] for record in moved["sets"]] == ["u-2", "u-4"]
+    assert moved["clears"] == ["u-3"]
+    assert moved["token"] == store.token
+
+
+def test_a_file_renamed_over_the_store_with_the_same_mtime_and_size_is_picked_up(tmp_path):
+    path = tmp_path / "verdicts-autosave.json"
+    stamp = "2026-07-03T23:31:04Z"
+    path.write_bytes(payload(stamp, [verdict("u-1", "reject")]))
+    os.utime(path, ns=(1, 1))
+    store = VerdictStore(path)
+    replacement = tmp_path / "merged.json"
+    replacement.write_bytes(payload(stamp, [verdict("u-1", "either")]))
+    os.utime(replacement, ns=(1, 1))
+    assert replacement.stat().st_size == path.stat().st_size
+    os.replace(replacement, path)
+    assert store.refresh_if_changed()
+    assert store.records["u-1"]["verdict"] == "either"
 
 
 def test_a_rename_over_the_file_during_the_read_is_picked_up_on_the_next_refresh(tmp_path, monkeypatch):

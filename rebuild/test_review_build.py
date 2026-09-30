@@ -528,6 +528,41 @@ def test_the_refresh_assets_verb_copies_the_shipped_app(tmp_path):
     assert unit_index.index_is_current(corpus)
 
 
+def test_the_app_and_font_copies_never_leave_a_truncated_file_in_place(tmp_path, monkeypatch):
+    """`copy_static` and `_copy_font` write the running app's files, which a tab can fetch mid-copy, so each copy goes to a `.partial` file that is renamed into place. A copy that fails halfway, or a font whose digest does not match, leaves the served file as it was and no staging file behind."""
+    static = tmp_path / "static"
+    static.mkdir()
+    (static / "app.js").write_text("new app\n")
+    (static / "index.html").write_text("new index\n")
+    corpus = tmp_path / "corpus"
+    corpus.mkdir()
+    (corpus / "app.js").write_text("old app\n")
+    (corpus / "index.html").write_text("old index\n")
+    real_copyfile = review_build.shutil.copyfile
+
+    def copy_half_of_the_index(source, target):
+        if Path(source).name != "index.html":
+            return real_copyfile(source, target)
+        Path(target).write_bytes(Path(source).read_bytes()[:3])
+        raise OSError("disk full")
+
+    monkeypatch.setattr(review_build.shutil, "copyfile", copy_half_of_the_index)
+    with pytest.raises(OSError):
+        review_build.copy_static(corpus, static)
+    assert (corpus / "app.js").read_text() == "new app\n"
+    assert (corpus / "index.html").read_text() == "old index\n"
+    monkeypatch.setattr(review_build.shutil, "copyfile", real_copyfile)
+
+    font = tmp_path / "M1.otf"
+    font.write_bytes(b"a font that moved since the build loaded it")
+    (corpus / "fonts").mkdir()
+    (corpus / "fonts" / "after.otf").write_bytes(b"the font the units describe")
+    with pytest.raises(SystemExit):
+        review_build._copy_font(font, corpus, "after.otf", "AMS Review After", tmp_path, "0" * 64)
+    assert (corpus / "fonts" / "after.otf").read_bytes() == b"the font the units describe"
+    assert not list(corpus.rglob("*.partial"))
+
+
 def _padded(count: int, filler: int = 0) -> list[dict]:
     return [{"id": f"u-{index:04d}", "pad": "x" * filler} for index in range(count)]
 

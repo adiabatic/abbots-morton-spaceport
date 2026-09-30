@@ -26,7 +26,7 @@ import warnings
 from array import array
 from collections.abc import Callable, Collection, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, replace
-from functools import lru_cache
+from functools import lru_cache, partial
 from itertools import batched, chain, combinations
 from pathlib import Path
 from typing import BinaryIO, cast
@@ -518,18 +518,32 @@ def unit_to_json(
     return fragment
 
 
+def _write_into_place(target: Path, write: Callable[[Path], object]) -> None:
+    """Have `write` fill a `.partial` file beside `target`, then rename it into place, so a tab that fetches the file mid-write gets the old bytes or the new ones, never a truncated file. An exception from `write` leaves `target` as it was and removes the partial file."""
+    target.parent.mkdir(parents=True, exist_ok=True)
+    staging = target.with_name(target.name + ".partial")
+    try:
+        write(staging)
+        staging.replace(target)
+    finally:
+        staging.unlink(missing_ok=True)
+
+
 def _copy_font(
     source: Path, out_dir: Path, name: str, family: str, repo_root: Path, expected_sha256: str
 ) -> dict:
     target = out_dir / "fonts" / name
-    target.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(source, target)
-    digest = _sha256(target)
-    if digest != expected_sha256:
-        raise SystemExit(
-            f"{source} changed between this build's load ({expected_sha256}) and its copy ({digest}), "
-            "so the units would describe a font other than the one shipped beside them; rebuild the corpus"
-        )
+
+    def copy_checked(staging: Path) -> None:
+        shutil.copyfile(source, staging)
+        digest = _sha256(staging)
+        if digest != expected_sha256:
+            raise SystemExit(
+                f"{source} changed between this build's load ({expected_sha256}) and its copy ({digest}), "
+                "so the units would describe a font other than the one shipped beside them; rebuild the corpus"
+            )
+
+    _write_into_place(target, copy_checked)
     try:
         rel = str(source.resolve().relative_to(repo_root))
     except ValueError:
@@ -538,7 +552,7 @@ def _copy_font(
         "file": f"fonts/{name}",
         "family": family,
         "source": rel,
-        "sha256": digest,
+        "sha256": expected_sha256,
         "upem": _upem(target),
     }
 
@@ -550,13 +564,12 @@ def copy_static(out_dir: Path, static_dir: Path = STATIC_DIR) -> list[str]:
             if not source.is_file():
                 continue
             rel = source.relative_to(static_dir)
-            target = out_dir / rel
-            target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(source, target)
+            _write_into_place(out_dir / rel, partial(shutil.copyfile, source))
             copied.append(str(rel))
     if "index.html" not in copied:
-        (out_dir / "index.html").write_text(
-            _FALLBACK_INDEX.format(build=BUILD_COMMAND, serve=SERVE_COMMAND), encoding="utf-8"
+        fallback = _FALLBACK_INDEX.format(build=BUILD_COMMAND, serve=SERVE_COMMAND)
+        _write_into_place(
+            out_dir / "index.html", lambda staging: staging.write_text(fallback, encoding="utf-8")
         )
         copied.append("index.html")
     return copied

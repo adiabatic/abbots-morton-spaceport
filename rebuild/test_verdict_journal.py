@@ -1,6 +1,8 @@
-"""Tests for the verdict journal (`rebuild/review/journal.py`): the sets, clears, and base events a transition writes, the seed event that opens a journal over an existing store, replay with and without an as-of cutoff, compaction, and tolerance of a trailing line torn by a crashed append."""
+"""Tests for the verdict journal (`rebuild/review/journal.py`): the sets, clears, and base events a transition writes, the seed event that opens a journal over an existing store, replay with and without an as-of cutoff, compaction, tolerance of a trailing line torn by a crashed append, which the next append cuts off unless only its newline is missing, and a base event torn short of its set lines, which opens a span replay refuses until the next complete base and which compaction never starts at."""
 
 import json
+
+import pytest
 
 from rebuild.review import journal
 
@@ -451,3 +453,189 @@ def test_compact_stops_scanning_at_a_torn_line_before_the_last_base(tmp_path):
     events = list(journal.iter_events(path))
     assert events[0]["stamp"] == "S2"
     assert len(events) == 1
+
+
+def test_an_append_cuts_off_a_torn_tail_so_the_lines_after_it_replay(tmp_path):
+    path = tmp_path / "journal.ndjson"
+    journal.record_transition(
+        path,
+        source="autosave",
+        stamp="S1",
+        old_stamp=None,
+        old_verdicts=[],
+        new_verdicts=[v("u-1")],
+        at="2026-07-10T01:00:00Z",
+    )
+    intact = path.read_bytes()
+    with path.open("ab") as handle:
+        handle.write(b'{"kind": "set", "unit": "u-9", "verd')
+    journal.record_transition(
+        path,
+        source="autosave",
+        stamp="S1",
+        old_stamp="S1",
+        old_verdicts=[v("u-1")],
+        new_verdicts=[v("u-1"), v("u-2")],
+        at="2026-07-10T02:00:00Z",
+    )
+    assert path.read_bytes().startswith(intact + b'{"kind": "event"')
+    stamp, records = journal.replay(path)
+    assert stamp == "S1"
+    assert set(records) == {"u-1", "u-2"}
+
+
+def _torn_base_journal(path):
+    """Write complete S0 and S1 bases, then an S2 base event whose set lines stop one short, then a later S2 diff appended after it."""
+    journal.record_transition(
+        path,
+        source="autosave",
+        stamp="S0",
+        old_stamp=None,
+        old_verdicts=[],
+        new_verdicts=[v("u-0")],
+        at="2026-07-10T00:30:00Z",
+    )
+    journal.record_transition(
+        path,
+        source="merge",
+        stamp="S1",
+        old_stamp="S0",
+        old_verdicts=[v("u-0")],
+        new_verdicts=[v("u-1")],
+        at="2026-07-10T01:00:00Z",
+    )
+    journal.record_transition(
+        path,
+        source="merge",
+        stamp="S2",
+        old_stamp="S1",
+        old_verdicts=[v("u-1")],
+        new_verdicts=[v("u-7"), v("u-8")],
+        at="2026-07-10T03:00:00Z",
+    )
+    lines = path.read_bytes().splitlines(keepends=True)
+    path.write_bytes(b"".join(lines[:-1]))
+    journal.record_transition(
+        path,
+        source="autosave",
+        stamp="S2",
+        old_stamp="S2",
+        old_verdicts=[v("u-7")],
+        new_verdicts=[v("u-7"), v("u-9")],
+        at="2026-07-10T04:00:00Z",
+    )
+
+
+def _append_base(path, stamp, old_stamp, old_units, new_units, at):
+    journal.record_transition(
+        path,
+        source="merge",
+        stamp=stamp,
+        old_stamp=old_stamp,
+        old_verdicts=[v(unit) for unit in old_units],
+        new_verdicts=[v(unit) for unit in new_units],
+        at=at,
+    )
+
+
+def test_a_base_event_cut_short_of_its_sets_is_never_replayed_as_a_whole_store(tmp_path):
+    path = tmp_path / "journal.ndjson"
+    _torn_base_journal(path)
+    assert journal.replay(path, as_of="2026-07-10T02:00:00Z") == ("S1", {"u-1": v("u-1")})
+    for as_of in ("2026-07-10T03:00:00Z", "2026-07-10T03:30:00Z", None):
+        with pytest.raises(journal.JournalGap) as gap:
+            journal.replay(path, as_of=as_of)
+        assert (gap.value.torn_at, gap.value.resumes_at) == ("2026-07-10T03:00:00Z", None)
+    path.write_bytes(b"".join(path.read_bytes().splitlines(keepends=True)[:6]))
+    with pytest.raises(journal.JournalGap):
+        journal.replay(path)
+
+
+def test_replay_is_exact_again_from_the_next_complete_base_after_a_torn_one(tmp_path):
+    path = tmp_path / "journal.ndjson"
+    _torn_base_journal(path)
+    _append_base(path, "S3", "S2", ["u-7", "u-9"], ["u-3", "u-4"], "2026-07-10T05:00:00Z")
+    journal.record_transition(
+        path,
+        source="autosave",
+        stamp="S3",
+        old_stamp="S3",
+        old_verdicts=[v("u-3"), v("u-4")],
+        new_verdicts=[v("u-3")],
+        at="2026-07-10T06:00:00Z",
+    )
+    assert journal.replay(path, as_of="2026-07-10T02:00:00Z") == ("S1", {"u-1": v("u-1")})
+    with pytest.raises(journal.JournalGap) as gap:
+        journal.replay(path, as_of="2026-07-10T04:30:00Z")
+    assert (gap.value.torn_at, gap.value.resumes_at) == ("2026-07-10T03:00:00Z", "2026-07-10T05:00:00Z")
+    assert journal.replay(path, as_of="2026-07-10T05:30:00Z") == ("S3", {"u-3": v("u-3"), "u-4": v("u-4")})
+    assert journal.replay(path) == ("S3", {"u-3": v("u-3")})
+
+
+def test_a_torn_first_base_leaves_replay_exact_from_the_next_complete_base(tmp_path):
+    path = tmp_path / "journal.ndjson"
+    _append_base(path, "S1", None, [], ["u-1", "u-2"], "2026-07-10T01:00:00Z")
+    path.write_bytes(b"".join(path.read_bytes().splitlines(keepends=True)[:2]))
+    _append_base(path, "S2", "S1", ["u-1"], ["u-5"], "2026-07-10T02:00:00Z")
+    with pytest.raises(journal.JournalGap) as gap:
+        journal.replay(path, as_of="2026-07-10T01:30:00Z")
+    assert gap.value.resumes_at == "2026-07-10T02:00:00Z"
+    assert journal.replay(path, as_of="2026-07-10T00:30:00Z") == (None, {})
+    assert journal.replay(path) == ("S2", {"u-5": v("u-5")})
+    result = journal.compact(path, cutoff="2026-07-10T09:00:00Z")
+    assert result["compacted"] is True and result["floor_at"] == "2026-07-10T02:00:00Z"
+    assert journal.replay(path) == ("S2", {"u-5": v("u-5")})
+
+
+def test_compact_never_chooses_a_torn_base_as_its_floor(tmp_path):
+    path = tmp_path / "journal.ndjson"
+    _torn_base_journal(path)
+    result = journal.compact(path, cutoff="2026-07-10T09:00:00Z")
+    assert result["compacted"] is True
+    assert result["floor_at"] == "2026-07-10T01:00:00Z"
+    assert result["dropped_lines"] == 2
+    assert [event["stamp"] for event in journal.iter_events(path)] == ["S1", "S2", "S2"]
+    assert journal.replay(path, as_of="2026-07-10T02:00:00Z") == ("S1", {"u-1": v("u-1")})
+
+
+def test_compact_floors_at_a_complete_base_after_a_torn_one(tmp_path):
+    path = tmp_path / "journal.ndjson"
+    _torn_base_journal(path)
+    _append_base(path, "S3", "S2", ["u-7", "u-9"], ["u-3"], "2026-07-10T05:00:00Z")
+    before = journal.replay(path)
+    result = journal.compact(path, cutoff="2026-07-10T09:00:00Z")
+    assert result["compacted"] is True and result["floor_at"] == "2026-07-10T05:00:00Z"
+    assert [event["stamp"] for event in journal.iter_events(path)] == ["S3"]
+    assert journal.replay(path) == before == ("S3", {"u-3": v("u-3")})
+
+
+def test_an_append_keeps_a_final_line_that_lost_only_its_newline(tmp_path):
+    path = tmp_path / "journal.ndjson"
+    _append_base(path, "S1", None, [], ["u-1", "u-2"], "2026-07-10T01:00:00Z")
+    path.write_bytes(path.read_bytes().rstrip(b"\n"))
+    assert journal.replay(path) == ("S1", {"u-1": v("u-1"), "u-2": v("u-2")})
+    journal.record_transition(
+        path,
+        source="autosave",
+        stamp="S1",
+        old_stamp="S1",
+        old_verdicts=[v("u-1"), v("u-2")],
+        new_verdicts=[v("u-1"), v("u-2"), v("u-3")],
+        at="2026-07-10T02:00:00Z",
+    )
+    assert journal.replay(path) == ("S1", {"u-1": v("u-1"), "u-2": v("u-2"), "u-3": v("u-3")})
+
+
+def test_repair_tail_makes_a_recorded_length_mark_where_the_next_append_begins(tmp_path):
+    path = tmp_path / "journal.ndjson"
+    _append_base(path, "S1", None, [], ["u-1"], "2026-07-10T01:00:00Z")
+    intact = path.read_bytes()
+    with path.open("ab") as handle:
+        handle.write(b'{"kind": "set", "unit": "u-9", "verd')
+    journal.repair_tail(path)
+    assert path.read_bytes() == intact
+    size = path.stat().st_size
+    _append_base(path, "S2", "S1", ["u-1"], ["u-2"], "2026-07-10T02:00:00Z")
+    assert path.read_bytes()[:size] == intact
+    journal.repair_tail(tmp_path / "absent.ndjson")
+    assert not (tmp_path / "absent.ndjson").exists()

@@ -1,10 +1,10 @@
 """The review server's in-memory copy of verdicts-autosave.json, and the two JSON formats it accepts and returns.
 
-The file is one ams-review-verdicts/1 document holding every verdict on the corpus. Parsing and writing all of it for each saved verdict is too slow, so the server parses the file once, keeps the records in memory, and exchanges changes. A POST can be a delta (`sets` of whole records and `clears` of unit ids, under ams-review-verdicts-delta/1), which is applied in place and appended to the journal as set and clear lines. A GET with `since=<token>` returns the records changed after that token. A GET without a token, or with one `changes_since` cannot serve, returns the whole store with the current token. The token is a boot id and a change sequence. A token gets the whole store when it predates a server restart, a reload of the file, or a delta onto a new stamp, or when it is older than the retained changes (`CHANGE_LOG_CAP`).
+The file is one ams-review-verdicts/1 document holding every verdict on the corpus. Parsing and writing all of it for each saved verdict is too slow, so the server parses the file once, keeps the records in memory, and exchanges changes. A POST can be a delta (`sets` of whole records and `clears` of unit ids, under ams-review-verdicts-delta/1), which is applied in place and appended to the journal as set and clear lines. A GET with `since=<token>` returns the records changed after that token. A GET without a token, or with one `changes_since` cannot serve, returns the whole store with the current token. The token is a boot id and a change sequence. A token gets the whole store when it predates a server restart, a reload of the file onto another stamp, or a delta onto a new stamp, or when it is older than the retained changes (`CHANGE_LOG_CAP`).
 
 A full-store POST is also accepted. Its bytes are written to the file unchanged, and when its stamp differs from the store's, the old file is first moved aside (`stash_path_for`). Either kind of POST gets a 409 when its stamp is older than the store's, so a tab left open from before a rebuild cannot overwrite the newly merged store. When the store writes the file itself, it writes the same ams-review-verdicts/1 document with one record per line, which `parse_autosave_payload`, the merge tool, the status check and the carry all read.
 
-The file holds the verdicts between server runs, and another writer (the merge tool under --yes, a journal restore) can replace it while the server runs. So every request first compares the file's mtime and size with what the store last read or wrote, and reloads on a mismatch, which also invalidates every outstanding token.
+The file holds the verdicts between server runs, and another writer (the merge tool under --yes, a journal restore) can replace it while the server runs. So every request first compares the file's mtime, size and inode with what the store last read or wrote, and reloads on a mismatch. A reload onto the same stamp diffs the new records against the ones in memory and records the changed units, so outstanding tokens stay valid and a tab's next sync fetches only those units; a reload onto another stamp, or onto a file that is missing or unreadable, invalidates every token. A delta that changes no record and no stamp writes nothing, so the file's bytes and mtime stay as they were. A delta whose write fails reloads the file before the error propagates, so memory never holds a record the file lacks and a resend of the same delta is written.
 """
 
 from __future__ import annotations
@@ -77,12 +77,17 @@ def _signature(record: dict) -> tuple:
     return (record.get("verdict"), record.get("note") or "", record.get("at") or "")
 
 
-def _file_signature(path: Path) -> tuple[int, int] | None:
+def _stat_signature(stat: os.stat_result) -> tuple[int, int, int]:
+    return (stat.st_mtime_ns, stat.st_size, stat.st_ino)
+
+
+def file_signature(path: Path) -> tuple[int, int, int] | None:
+    """Return the file's (mtime, size, inode), or None when it cannot be stat'ed. A write through a renamed temporary file moves the inode even when the mtime and size match."""
     try:
         stat = path.stat()
     except OSError:
         return None
-    return (stat.st_mtime_ns, stat.st_size)
+    return _stat_signature(stat)
 
 
 class VerdictStore:
@@ -93,14 +98,14 @@ class VerdictStore:
         self.records: dict[str, dict] = {}
         self._lines: dict[str, str] = {}
         self._order: list[str] = []
-        self._signature: tuple[int, int] | None = None
+        self._signature: tuple[int, int, int] | None = None
         self._boot = secrets.token_hex(4)
         self._seq = 0
         self._changes: deque[tuple[int, str]] = deque(maxlen=CHANGE_LOG_CAP)
         self.reload()
 
     def reload(self) -> None:
-        """Replace the store's content with the file's. A missing file or one that is not a verdicts document leaves the store empty and unstamped, so the next save overwrites it without stashing it.
+        """Replace the store's content with the file's. A missing file or one that is not a verdicts document leaves the store empty and unstamped, so the next save overwrites it without stashing it. When the file holds the stamp the store already has, the units whose records differ are recorded as changes and every token stays valid; otherwise every token is invalidated.
 
         The signature comes from the open handle, so it describes the bytes the store parsed even when another writer renames a new file over the path mid-read; the next `refresh_if_changed` then sees the new file and reloads. When the file cannot be opened or read, the signature is None, so a file renamed into place after the failed open leaves a mismatch, and an existing file the store could not read is reloaded on the next refresh.
         """
@@ -108,16 +113,23 @@ class VerdictStore:
             with self.path.open("rb") as f:
                 stat = os.fstat(f.fileno())
                 raw = f.read()
-            self._signature = (stat.st_mtime_ns, stat.st_size)
+            self._signature = _stat_signature(stat)
         except OSError:
             raw = None
             self._signature = None
         data = parse_autosave_payload(raw) if raw is not None else None
-        self._replace(data["manifest_generated_at"] if data else None, data["verdicts"] if data else [])
+        stamp = data["manifest_generated_at"] if data else None
+        new_records = journal.latest_by_unit(data["verdicts"]) if data else {}
+        if stamp is not None and stamp == self.stamp:
+            changed = self._diff_units(new_records)
+            self._replace(stamp, new_records)
+            self._note_changes(changed)
+            return
+        self._replace(stamp, new_records)
         self._invalidate_tokens()
 
     def refresh_if_changed(self) -> bool:
-        if _file_signature(self.path) == self._signature:
+        if file_signature(self.path) == self._signature:
             return False
         self.reload()
         return True
@@ -131,9 +143,9 @@ class VerdictStore:
         self._seq = 0
         self._changes.clear()
 
-    def _replace(self, stamp: str | None, verdicts) -> None:
+    def _replace(self, stamp: str | None, new_records: dict[str, dict]) -> None:
         self.stamp = stamp
-        self.records = {unit: _normalize(record) for unit, record in journal.latest_by_unit(verdicts).items()}
+        self.records = {unit: _normalize(record) for unit, record in new_records.items()}
         self._lines = {unit: json.dumps(record, ensure_ascii=False) for unit, record in self.records.items()}
         self._order = sorted(self.records)
 
@@ -210,7 +222,7 @@ class VerdictStore:
     def _write_bytes(self, raw: bytes) -> None:
         tmp = self.path.with_name(self.path.name + ".tmp")
         tmp.write_bytes(raw)
-        signature = _file_signature(tmp)
+        signature = file_signature(tmp)
         os.replace(tmp, self.path)
         self._signature = signature
 
@@ -255,8 +267,9 @@ class VerdictStore:
         if old_stamp is not None and old_stamp != stamp and self.path.exists():
             stashed = self._stash_existing(old_stamp)
         self._write_bytes(raw)
-        changed = self._diff_units(data["verdicts"])
-        self._replace(stamp, data["verdicts"])
+        new_records = journal.latest_by_unit(data["verdicts"])
+        changed = self._diff_units(new_records)
+        self._replace(stamp, new_records)
         self._note_changes(changed)
         body = {"ok": True, "saved": len(data["verdicts"]), "stashed": stashed}
         self._journal_transition(
@@ -270,8 +283,7 @@ class VerdictStore:
         )
         return 200, body
 
-    def _diff_units(self, new_verdicts) -> list[str]:
-        new_records = journal.latest_by_unit(new_verdicts)
+    def _diff_units(self, new_records: dict[str, dict]) -> list[str]:
         changed = [
             unit
             for unit, record in new_records.items()
@@ -287,12 +299,18 @@ class VerdictStore:
             return refused
         if self.stamp is not None and self.stamp != stamp:
             return self._receive_delta_onto_new_stamp(delta)
+        adopted_stamp = self.stamp is None
         sets = [record for record in delta["sets"] if self._set(record)]
         clears = [unit for unit in delta["clears"] if self._clear(unit)]
         changed = [record["unit"] for record in sets] + clears
         self.stamp = stamp
         self._note_changes(changed)
-        self.write()
+        if changed or adopted_stamp:
+            try:
+                self.write()
+            except BaseException:
+                self.reload()
+                raise
         body = {"ok": True, "saved": len(self.records), "stashed": None, "token": self.token}
         if self.journal_path is not None and (sets or clears):
             try:
@@ -319,7 +337,7 @@ class VerdictStore:
         old_stamp = self.stamp
         old_verdicts = list(self.records.values())
         stashed = self._stash_existing(old_stamp) if old_stamp is not None and self.path.exists() else None
-        self._replace(stamp, delta["sets"])
+        self._replace(stamp, journal.latest_by_unit(delta["sets"]))
         self._invalidate_tokens()
         self.write()
         body = {"ok": True, "saved": len(self.records), "stashed": stashed, "token": self.token}

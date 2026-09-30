@@ -2286,7 +2286,7 @@ async function restoreAutosave() {
   if (result.added > 0) toast(`Restored ${result.added} autosaved verdicts`);
 }
 
-// The store lives in this page and is restored from the server only at boot, so a copy open in another tab goes stale as verdicts are recorded elsewhere. When the page regains focus it merges the server's changes, the newer `at` winning as in an import. With a token the server returns only the records changed since; without one, or when the server does not recognize it (after a restart or an external rewrite of the file), it returns the whole store and a new token. A clear made in another session is not applied: clears are rare and visible, and a copy that keeps the record sends it back only when the reader changes it again.
+// The store lives in this page and is restored from the server only at boot, so a copy open in another tab goes stale as verdicts are recorded elsewhere. When the page regains focus it merges the server's changes, the newer `at` winning as in an import. With a token the server returns only the records changed since; without one, or when the server does not recognize it (after a restart or an external rewrite of the file onto another stamp), it returns the whole store and a new token. A clear made in another session is not applied: clears are rare and visible, and a copy that keeps the record sends it back only when the reader changes it again.
 let verdictSyncInFlight = false;
 let verdictSyncLastAt = 0;
 let bootRestoreDone = false;

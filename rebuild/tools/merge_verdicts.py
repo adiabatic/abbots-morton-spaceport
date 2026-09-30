@@ -228,7 +228,14 @@ def run_restore(
     yes: bool,
     rekey_map: Path | None = None,
 ) -> int:
-    stamp, records = journal.replay(journal_path, as_of=as_of)
+    try:
+        stamp, records = journal.replay(journal_path, as_of=as_of)
+    except journal.JournalGap as gap:
+        print(
+            f"ERROR: {_rel(journal_path)} cannot reconstruct the store as of {as_of}: {gap}. Pick a moment before "
+            f"{gap.torn_at}" + (f" or at or after {gap.resumes_at}." if gap.resumes_at else ".")
+        )
+        return 1
     if stamp is None:
         print(f"ERROR: {_rel(journal_path)} holds no event at or before {as_of}; nothing to restore.")
         return 1

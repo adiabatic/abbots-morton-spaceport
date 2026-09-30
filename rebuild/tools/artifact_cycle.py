@@ -976,10 +976,37 @@ def verdict_update_code_paths(root: Path = ROOT) -> list[Path]:
     return [Path(root) / "rebuild" / "tools" / f"{name}.py" for name in VERDICT_UPDATE_TOOL_MODULES]
 
 
+def verdicts_records_digest(path: Path) -> str:
+    """Return a digest of a verdicts document's content: every top-level field but `exported_at`, and the records sorted by their canonical JSON. The review server rewrites the store with a new `exported_at` on every save, and the merge and the server lay records out differently, so neither a save that changes no record nor a rewrite in another layout moves it. A file that is not a JSON object with a `verdicts` list is hashed by its bytes, and one that cannot be read is "absent", as `_sha256_path` reports it. The parse holds the whole store in memory once, in the cycle's own process. `verdict_update_skip_fingerprint` parses the store once per call, and the cycle calls it at plan time, before any gate or pool starts, and after the verdict update exits, inside the memory the build lane reserved for that step (`_conform_build_lane`)."""
+    try:
+        with open(path, "rb") as handle:
+            document = json.load(handle)
+    except OSError:
+        return "absent"
+    except ValueError:
+        return _sha256_path(path)
+    if not isinstance(document, dict) or not isinstance(document.get("verdicts"), list):
+        return _sha256_path(path)
+    records = document.pop("verdicts")
+    document.pop("exported_at", None)
+    digest = hashlib.sha256()
+    digest.update(json.dumps(document, sort_keys=True, ensure_ascii=False).encode() + b"\n")
+    for line in sorted(json.dumps(record, sort_keys=True, ensure_ascii=False) for record in records):
+        digest.update(line.encode() + b"\n")
+    return digest.hexdigest()
+
+
+def _master_key_line(root: Path, master: Path, autosave_digest: str) -> str:
+    """Return the verdict-update key's line for its master. A master that is the live store is named `autosave` and carries the store's records digest (`autosave_digest`), as the store's own line does, so the key does not depend on how the path was spelled or on a save that changed no record. Any other master is named by its path and hashed by its bytes."""
+    if Path(master).resolve() == (root / "verdicts-autosave.json").resolve():
+        return f"master\tautosave\t{autosave_digest}"
+    return f"master\t{master}\t{_sha256_path(Path(master))}"
+
+
 def verdict_update_skip_fingerprint(
     root: Path = ROOT, corpus: Path | None = None, master: Path | None = None
 ) -> str | None:
-    """Return the content key over everything the verdict update reads: the corpus it resolves unit ids against, the verdicts master it carries forward, the live store it merges into, the checked-in standing approvals, and the verdict update's own code. The standing approvals are hashed by raw bytes, unlike the prose-insensitive hash the rebuild lane uses: `standing_verdicts` copies each rule's `note` into the verdict note of every fill it writes, so rewording a note changes the verdict update's output and must re-run it. Carry, merge, both fills with their merges, and the complaint list are pure functions of these inputs, and the verdict update is idempotent once it has run, so a key matching the record a complete verdict update left means re-running it would write nothing new. The master is in the key because the autosave's hash cannot see it: an export at the repo root can outrank the autosave in the auto-resolution and carry verdicts the store has never held. The code is in the key for the same reason every other key includes its stage's code: a fix to a fill's matcher or to the carry's join must run, not be skipped. It is the verdict update's import closure (`verdict_update_code_paths`, which a contracts test checks against the verdict update's import graph) plus the review/ modules the verdict update runs and the corpus build does not: serve.py and verdict_store.py, through which merge_verdicts reads the store, and status.py and journal.py, which the merge and the readiness check run. review/'s build-side modules are covered by the manifest fingerprint's review_code. The manifest line leaves out `unit_index.ASSET_COMPONENTS`, because no step of the verdict update reads the copied app assets, and an assets refresh rewrites that field and must not re-run a verdict update whose real inputs are unchanged. None when the corpus has no fingerprinted manifest or no master was resolved."""
+    """Return the content key over everything the verdict update reads: the corpus it resolves unit ids against, the verdicts master it carries forward, the live store it merges into, the checked-in standing approvals, and the verdict update's own code. The standing approvals are hashed by raw bytes, unlike the prose-insensitive hash the rebuild lane uses: `standing_verdicts` copies each rule's `note` into the verdict note of every fill it writes, so rewording a note changes the verdict update's output and must re-run it. Carry, merge, both fills with their merges, and the complaint list are pure functions of these inputs, and the verdict update is idempotent once it has run, so a key matching the record a complete verdict update left means re-running it would write nothing new. The master is in the key because the autosave's hash cannot see it: an export at the repo root can outrank the autosave in the auto-resolution and carry verdicts the store has never held. The live store is hashed by its records (`verdicts_records_digest`), not its bytes, because the review server rewrites the file with a new `exported_at` on every save, and when the master resolved to the store, the master line names it `autosave` instead of by its path (`_master_key_line`). The code is in the key for the same reason every other key includes its stage's code: a fix to a fill's matcher or to the carry's join must run, not be skipped. It is the verdict update's import closure (`verdict_update_code_paths`, which a contracts test checks against the verdict update's import graph) plus the review/ modules the verdict update runs and the corpus build does not: serve.py and verdict_store.py, through which merge_verdicts reads the store, and status.py and journal.py, which the merge and the readiness check run. review/'s build-side modules are covered by the manifest fingerprint's review_code. The manifest line leaves out `unit_index.ASSET_COMPONENTS`, because no step of the verdict update reads the copied app assets, and an assets refresh rewrites that field and must not re-run a verdict update whose real inputs are unchanged. None when the corpus has no fingerprinted manifest or no master was resolved."""
     if master is None:
         return None
     corpus_dir = corpus if corpus is not None else REVIEW_OUT
@@ -992,6 +1019,7 @@ def verdict_update_skip_fingerprint(
         return None
     from rebuild.pipeline import fingerprint
 
+    autosave_digest = verdicts_records_digest(root / "verdicts-autosave.json")
     lines = [
         "manifest\t"
         + json.dumps(
@@ -999,8 +1027,8 @@ def verdict_update_skip_fingerprint(
             sort_keys=True,
         ),
         f"generated_at\t{manifest.get('generated_at')}",
-        f"master\t{master}\t{_sha256_path(Path(master))}",
-        f"autosave\t{_sha256_path(root / 'verdicts-autosave.json')}",
+        _master_key_line(root, master, autosave_digest),
+        f"autosave\t{autosave_digest}",
         f"standing\t{_sha256_path(root / 'rebuild' / 'standing-approvals.yaml')}",
         f"tools_code\t{fingerprint.hash_paths(root, verdict_update_code_paths(root))}",
         f"serve\t{_sha256_path(root / 'rebuild' / 'review' / 'serve.py')}",

@@ -6374,6 +6374,39 @@ def test_verdict_update_skip_fingerprint_sees_a_master_that_is_not_the_autosave(
     assert ac.verdict_update_skip_fingerprint(tmp_path, corpus, export) != before
 
 
+def test_verdict_update_skip_fingerprint_reads_the_stores_records_not_its_bytes(tmp_path):
+    """The review server rewrites the store with a new `exported_at` on every save, and it lays the records out one per line where the merge indents them. Neither moves the key, and a changed record does. A master that resolved to the store is named `autosave` in the key, so spelling its path another way changes nothing."""
+    corpus = tmp_path / "review"
+    corpus.mkdir()
+    (corpus / "manifest.json").write_text(
+        json.dumps({"generated_at": "2026-07-17T20:24:44Z", "inputs_fingerprint": {"runes": "aaa"}})
+    )
+    (tmp_path / "rebuild").mkdir()
+    (tmp_path / "rebuild" / "standing-approvals.yaml").write_text("rules: []\n")
+    autosave = tmp_path / "verdicts-autosave.json"
+    records = [
+        {"unit": "u-2", "verdict": "reject", "note": "", "at": "2026-07-17T21:00:00Z"},
+        {"unit": "u-1", "verdict": "approve", "note": "", "at": "2026-07-17T21:00:00Z"},
+    ]
+
+    def store(exported_at, verdicts, indent=None):
+        document = {
+            "format": "ams-review-verdicts/1",
+            "manifest_generated_at": "2026-07-17T20:24:44Z",
+            "exported_at": exported_at,
+            "verdicts": verdicts,
+        }
+        autosave.write_text(json.dumps(document, indent=indent))
+
+    store("2026-07-17T21:00:00Z", records, indent=2)
+    base = ac.verdict_update_skip_fingerprint(tmp_path, corpus, autosave)
+    store("2026-07-17T22:30:00Z", list(reversed(records)))
+    assert ac.verdict_update_skip_fingerprint(tmp_path, corpus, autosave) == base
+    assert ac.verdict_update_skip_fingerprint(tmp_path, corpus, corpus / ".." / autosave.name) == base
+    store("2026-07-17T22:30:00Z", [records[0], {**records[1], "verdict": "either"}])
+    assert ac.verdict_update_skip_fingerprint(tmp_path, corpus, autosave) != base
+
+
 def test_dry_run_plan_skip_verdict_update_replaces_the_whole_step():
     plan = _plan(skip_verdict_update=True, verdict_update_note=ac.VERDICT_UPDATE_SKIP_NOTE)
     assert plan.carry_out is None
