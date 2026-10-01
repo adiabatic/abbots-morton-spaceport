@@ -144,7 +144,7 @@ The replay is `rebuild/test_validation_suite.py::test_full_corpus_replay_live`. 
 - Sampling: the `--sample` predicate selects the same strings on every run.
 - The subset filter, its freshness stamp, and the font-provenance check (`rebuild/test_baseline_subset.py`).
 
-No test pins an outcome that the corpus does not already establish. The baseline records current behavior; it does not assert what the behavior should be.
+The baseline records current behavior; it does not assert what the behavior should be.
 
 ## Layout and commands
 
