@@ -544,7 +544,7 @@ def replay_strings(
 
 
 class EmittedOrderDisagreement(KernelRunError):
-    """`replay-emitted` found a row the shipped settlement order settles differently from its configuration's table. The message is the crate's, naming the configuration, the row, the emitted rule that fired and the table's own rule. A separate class lets a build tell this finding from a kernel interface failure."""
+    """`replay-emitted` found a row the shipped settlement order settles differently from its configuration's table. The message is the crate's, naming the configuration, the row, the continuation of its open slot, the emitted rule that fired and the table's own rule. A separate class lets a build tell this finding from a kernel interface failure."""
 
 
 EMITTED_COUNTS = ("rows", "checked_per_member", "open_rows", "continued")
