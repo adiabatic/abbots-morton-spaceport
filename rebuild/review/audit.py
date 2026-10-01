@@ -4,7 +4,7 @@ This module does not assign unit ids. A unit's id is `unit_cache.unit_id_for` ov
 
 The dedupe key is name-grain, so a config that renames a glyph without moving ink splits one visual question into sibling units. The build merges them back with `merge_ink_duplicate_units` before enrichment and batching.
 
-The workload is held as packed columns over the unit's ordinal (`UnitTable`, built on the `columns` module like `unit_store.UnitStore`), not as a list of records. `Unit` is the per-unit record that a worker, the enricher, the drafter and the fragment writer read; `UnitTable.unit` builds one at a time, and the build's parent never holds a list of them. The audit rows are likewise five id columns (`RowColumns`), about seventeen bytes a row: one byte for the config and four each for the kinds, entry, baseline and new ids. A parsed `AuditRow` lives only until the loader has written its ids.
+The workload is held as packed columns over the unit's ordinal (`UnitTable`, built on the `columns` module like `unit_store.UnitStore`), not as a list of records. `Unit` is the per-unit record that a worker, the enricher, the drafter and the fragment writer read; `UnitTable.unit` builds one at a time, and the build's parent never holds a list of them. The audit rows are likewise five id columns (`RowColumns`), about seventeen bytes a row: one byte for the config and four each for the kinds, entry, baseline and new ids. The build parses each audit line straight into those ids (`load_audit_table`) and builds no `AuditRow`.
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ AUDIT_HEADER = ("config", "codepoints", "kinds", "matched_entry", "baseline", "n
 
 @dataclass(frozen=True, slots=True)
 class AuditRow:
-    """One parsed line of the audit. `load_audit` yields these and the build does not keep them: `load_table` writes each row's ids into the row columns as the rows stream past, and later readers (the ink-signature keys, the unit content key) read the columns."""
+    """One parsed line of the audit. `load_audit` yields these for the review-facts CLI and the tests, and `load_table` writes each row's ids into the row columns as the rows stream past; later readers (the ink-signature keys, the unit content key) read the columns. The build parses the audit with `load_audit_table`, which builds none."""
 
     config: str
     codepoints: str
@@ -155,15 +155,22 @@ def format_codepoints(values: tuple[int, ...]) -> str:
     return ":".join(f"{value:04X}" for value in values)
 
 
+def _check_audit_header(handle: Iterator[str], path: Path) -> None:
+    first = next(handle, None)
+    if first is None:
+        raise ValueError(f"{path}: empty audit, no header")
+    header = first.rstrip("\n").split("\t")
+    if tuple(header) != AUDIT_HEADER:
+        raise ValueError(f"{path}: unexpected audit header {header!r}")
+
+
 def load_audit(path: Path, names: TuplePool[str] | None = None) -> Iterator[AuditRow]:
-    """Yield every row of the divergence audit in file order, one `AuditRow` at a time, so the parsed rows are never held as a list: `load_table` takes each row's ids and the row can be freed before the next line is split. Every label (a config name, a class id, a glyph name, a kind, a window's codepoint string) goes through `sys.intern`. The subset pack's string table (`subset_pack.SubsetPack`), the unit store's records (`unit_cache.stream_store`) and the parent's per-unit state intern through it too, so a name from the audit and the same name from a worker or the cache are one object. A row's three name tuples (its kinds and the window's rendered names in either font) are pooled through `names`, keyed on the built tuple. A caller that passes the pool the row columns will index (as `load_workload` does) gets rows whose tuples are the instances the columns' ids name, and a unit's `baseline` and `new` are those instances too."""
+    """Yield every row of the divergence audit in file order, one `AuditRow` at a time, so the parsed rows are never held as a list: `load_table` takes each row's ids and the row can be freed before the next line is split. The build does not call it: `load_audit_table` parses the same lines straight into the row columns, interning and pooling each distinct field the way this does. Every label (a config name, a class id, a glyph name, a kind, a window's codepoint string) goes through `sys.intern`. The subset pack's string table (`subset_pack.SubsetPack`), the unit store's records (`unit_cache.stream_store`) and the parent's per-unit state intern through it too, so a name from the audit and the same name from a worker or the cache are one object. A row's three name tuples (its kinds and the window's rendered names in either font) are pooled through `names`, keyed on the built tuple. A caller that passes the pool the row columns will index gets rows whose tuples are the instances the columns' ids name, and a unit's `baseline` and `new` are those instances too."""
     pool = (names if names is not None else TuplePool[str]()).pooled
     label = sys.intern
 
     with open(path, encoding="utf-8") as handle:
-        header = next(handle).rstrip("\n").split("\t")
-        if tuple(header) != AUDIT_HEADER:
-            raise ValueError(f"{path}: unexpected audit header {header!r}")
+        _check_audit_header(handle, path)
         for line in handle:
             if not line.strip():
                 continue
@@ -253,7 +260,7 @@ _CONFIG_VOCABULARY = 256
 
 
 class RowColumns:
-    """Every row of the audit as five flat columns, grouped in runs: one run per unit, addressed by the unit's `rows_start` and `row_count`, holding the unit's rows in config order (`_config_index`) and in file order within a config. `config` is a byte naming one of at most `_CONFIG_VOCABULARY` configs in `vocabulary`, and `ranks` holds each config id's rank (`_config_index`), which orders the rows within a run. `kinds`, `baseline` and `new` are ids into `names`, the tuple pool `load_audit` pooled the rows' tuples through and `load_table` seals after the rows are read, so the ids name the same tuple instances the units hold. `entry` is an id into `table`, the string table the workload table shares, for the row's matched ledger class, so a unit's class id and its rows' entry ids are in one vocabulary.
+    """Every row of the audit as five flat columns, grouped in runs: one run per unit, addressed by the unit's `rows_start` and `row_count`, holding the unit's rows in config order (`_config_index`) and in file order within a config. `config` is a byte naming one of at most `_CONFIG_VOCABULARY` configs in `vocabulary`, and `ranks` holds each config id's rank (`_config_index`), which orders the rows within a run. `kinds`, `baseline` and `new` are ids into `names`, the tuple pool the loader pooled the rows' tuples through and seals after the rows are read, so the ids name the same tuple instances the units hold. `entry` is an id into `table`, the string table the workload table shares, for the row's matched ledger class, so a unit's class id and its rows' entry ids are in one vocabulary.
 
     A row takes about seventeen bytes here. A whole row is rebuilt on demand: `line` returns the audit's line for the row without its newline, byte for byte, which is what the unit content key hashes, and `view` returns the shape the ink-signature key reads. The ink-duplicate merge appends a merged run for a survivor (`merge_runs`) instead of editing in place, so the two runs it replaces remain as `orphaned` rows. The debug tally's reading of the columns (`build.row_column_sizes`) counts their bytes but reports `live` as its count: the number of audit rows, each belonging to one unit. So a tally line shows the same row count the manifest states. The tally is not imported here: the verdict update reaches this module through `status`, and a telemetry module in the verdict update's closure would re-run the verdict update for an edit that cannot change a verdict.
     """
@@ -774,15 +781,32 @@ def load_table(
     A unit's matched ledger class can differ by config: a window can match a ledger class under an ss03 config and be UNMATCHED under a config without ss03, such as the default. Each unit keeps the full per-config class map in `config_classes`, in the order the file states the configs. Its `class_id` is the single matched class if every config matched, and UNMATCHED if any config did not, so the unmatched default behavior is what gets reviewed; the matched configs stay in `config_classes` for display. A unit whose rows match two different ledger classes raises `ValueError`.
 
     The rows are read once. Each row's five ids go into file-order arrays, and its unit's first-seen index into one more. A counting placement over the per-unit counts writes each row's position into its unit's run in file order. Any run whose configs are not already in rank order is then sorted by config rank, so each run is a stable sort by config rank. The columns are the file-order arrays permuted by those positions. The transient state (the file-order arrays, the position array, the map from each (window, baseline, new) id triple, packed into one integer, to its unit, the window list, and the triage sort's one integer per row in `_triage_permutation`) is freed before return. The tuple pool is sealed when the stream ends, which frees its lookup dict before the load phase goes on. Table rows are written in first-seen order and then permuted into load order.
+
+    `load_audit_table` is the same load over the audit file, parsed straight into the arrays without building an `AuditRow` per line.
     """
-    exempt_classes = {entry.id for entry in ledger if entry.no_verdict}
     columns = RowColumns(names)
+    return _load_staged(columns, lambda: _stage_rows(rows, columns), ledger, family_of)
+
+
+def load_audit_table(
+    path: Path,
+    ledger: list[LedgerClass],
+    family_of: dict[int, str],
+) -> tuple[UnitTable, RowColumns]:
+    """`load_table(load_audit(path, names), ledger, family_of, names)` with the parse fused into the row loop (`_stage_audit`), which is how the build loads the audit; the columns, the name pool, the string table and the config vocabulary come out identical to that form."""
+    columns = RowColumns()
+    return _load_staged(columns, lambda: _stage_audit(path, columns), ledger, family_of)
+
+
+_Staged = tuple[array, array, array, array, array, array, array, list[str]]
+
+
+def _stage_rows(rows: Iterable[AuditRow], columns: RowColumns) -> _Staged:
+    """The row loop over parsed rows: each row's config, kinds, entry, baseline and new ids and its unit's first-seen index in file order, each unit's row count, and each unit's window string, with the tuple pool sealed once the rows are read."""
     names = columns.names
-    strings = columns.table
     config_id = columns.config_id
-    ranks = columns.ranks
     name_id = names.id
-    entry_id = strings.id
+    entry_id = columns.table.id
 
     config_f = array("B")
     kinds_f = array("I")
@@ -816,6 +840,86 @@ def load_table(
         new_f.append(new)
     del unit_of, window_ids
     names.seal()
+    return config_f, kinds_f, entry_f, baseline_f, new_f, unit_f, counts, windows
+
+
+def _stage_audit(path: Path, columns: RowColumns) -> _Staged:
+    """`_stage_rows` over the audit file, parsing each line straight into the arrays. Each of a line's kinds, rendered-name, matched-entry and config fields maps to its id through a memo keyed on the raw field string, so a repeated field costs one dict lookup; a field seen for the first time is split, interned and pooled as `load_audit` does it, kinds, then baseline, then new, so the ids are assigned in the same order. A unit's window string is interned once, when the unit is first seen. The memos are freed beside the pool's seal."""
+    names = columns.names
+    config_id = columns.config_id
+    name_id = names.id
+    entry_id = columns.table.id
+    label = sys.intern
+
+    config_f = array("B")
+    kinds_f = array("I")
+    entry_f = array("I")
+    baseline_f = array("I")
+    new_f = array("I")
+    unit_f = array("I")
+    counts = array("I")
+    windows: list[str] = []
+    window_ids: dict[str, int] = {}
+    unit_of: dict[int, int] = {}
+    kinds_memo: dict[str, int] = {}
+    names_memo: dict[str, int] = {}
+    entry_memo: dict[str, int] = {}
+    config_memo: dict[str, int] = {}
+    with open(path, encoding="utf-8") as handle:
+        _check_audit_header(handle, path)
+        for line in handle:
+            if not line.strip():
+                continue
+            config, codepoints, kinds, matched_entry, baseline, new = line.rstrip("\n").split("\t")
+            kinds_id = kinds_memo.get(kinds)
+            if kinds_id is None:
+                kinds_id = kinds_memo[kinds] = name_id(tuple(map(label, kinds.split(","))))
+            baseline_id = names_memo.get(baseline)
+            if baseline_id is None:
+                baseline_id = names_memo[baseline] = name_id(tuple(map(label, baseline.split("|"))))
+            new_id = names_memo.get(new)
+            if new_id is None:
+                new_id = names_memo[new] = name_id(tuple(map(label, new.split("|"))))
+            window = window_ids.get(codepoints)
+            if window is None:
+                window = window_ids[codepoints] = len(window_ids)
+            triple = (window << 64) | (baseline_id << 32) | new_id
+            unit = unit_of.get(triple)
+            if unit is None:
+                unit = unit_of[triple] = len(windows)
+                windows.append(label(codepoints))
+                counts.append(1)
+            else:
+                counts[unit] += 1
+            unit_f.append(unit)
+            config_index = config_memo.get(config)
+            if config_index is None:
+                config_index = config_memo[config] = config_id(config)
+            config_f.append(config_index)
+            kinds_f.append(kinds_id)
+            entry_index = entry_memo.get(matched_entry)
+            if entry_index is None:
+                entry_index = entry_memo[matched_entry] = entry_id(matched_entry)
+            entry_f.append(entry_index)
+            baseline_f.append(baseline_id)
+            new_f.append(new_id)
+    del unit_of, window_ids, kinds_memo, names_memo, entry_memo, config_memo
+    names.seal()
+    return config_f, kinds_f, entry_f, baseline_f, new_f, unit_f, counts, windows
+
+
+def _load_staged(
+    columns: RowColumns,
+    stage: Callable[[], _Staged],
+    ledger: list[LedgerClass],
+    family_of: dict[int, str],
+) -> tuple[UnitTable, RowColumns]:
+    """The unit half of `load_table`: run the row loop `stage` into `columns`' pools, place its file-order arrays into the row columns, and build the unit table over them. `stage` is called here rather than its arrays passed in, so this frame holds the only reference to them and can free each as soon as it is spent."""
+    config_f, kinds_f, entry_f, baseline_f, new_f, unit_f, counts, windows = stage()
+    exempt_classes = {entry.id for entry in ledger if entry.no_verdict}
+    names = columns.names
+    strings = columns.table
+    ranks = columns.ranks
     starts = array("I", accumulate(counts, initial=0))
     fill = array("I", starts)
     order = array("I", (0,)) * len(unit_f)
@@ -1095,17 +1199,17 @@ def signature_rows(table: UnitTable, rows: RowColumns) -> SignatureRows:
 def merge_ink_duplicate_units(
     table: UnitTable, rows: RowColumns, ink_sig, exempt_classes: Collection[str] = frozenset()
 ) -> dict:
-    """Merge sibling units of one window whose placed ink is identical in both fonts under every config they cover. The (codepoints, baseline, new) dedupe key is name-grain, so a config that only renames a glyph splits one visual question into two units; for example, the old font's ss04 lookups rename word-initial ·It without changing its ink. `ink_sig(text, config)` returns the rendered-outcome identity (`InkComparator.signature`, the pair of run-order ink lists that `config_diff` reads). Units merge only when every config on both sides has the same signature, so the delta, its digest and the ink verdict are identical for the survivor and the units it absorbs.
+    """Merge sibling units of one window whose placed ink is identical in both fonts under every config they cover. The (codepoints, baseline, new) dedupe key is name-grain, so a config that only renames a glyph splits one visual question into two units; for example, the old font's ss04 lookups rename word-initial ·It without changing its ink. `ink_sig(codepoints, config)` returns the rendered-outcome identity of the window under the config (`InkComparator.signature`, the pair of run-order ink lists that `config_diff` reads), where `codepoints` is the window in the audit's format (`UnitTable.codepoints_text`), the same string the rows of `signature_rows` carry, so a provider built over those rows is keyed by it directly. Units merge only when every config on both sides has the same signature, so the delta, its digest and the ink verdict are identical for the survivor and the units it absorbs.
 
     The survivor is the sibling with the earliest config. It gets a merged run of both units' rows (`RowColumns.merge_runs`, its own rows first at equal rank, so each row keeps its own rendered names and the content key over the run is the key over the rows), the union of the configs and kinds, and the merged `config_classes` (its own entries first). It keeps its own baseline and new name tuples for display, re-resolves its class with `load_table`'s unmatched-first class rule, and collapses to a single render group, since ink identity implies render-group identity. A merge that would give one unit two different matched ledger classes is skipped, because different names can match different ledger predicates, and is counted in the returned stats. The survivor's row is rewritten in place and each absorbed row is marked with `UnitTable.merge_into`; the caller compacts the table afterward. Run before enrichment and batch assignment.
     """
     stats = {"windows_merged": 0, "units_merged": 0, "kept_split_matched_classes": 0}
     merged = 0
     for siblings in _sibling_windows(table).values():
-        text = "".join(chr(value) for value in table.codepoints(siblings[0]))
+        codepoints = table.codepoints_text(siblings[0])
         groups: dict[tuple, list[int]] = {}
         for ordinal in siblings:
-            signatures = {ink_sig(text, config) for config in table.configs(ordinal)}
+            signatures = {ink_sig(codepoints, config) for config in table.configs(ordinal)}
             if len(signatures) == 1:
                 groups.setdefault(signatures.pop(), []).append(ordinal)
         for members in groups.values():
@@ -1198,9 +1302,8 @@ def load_workload(
     ledger_path: Path,
     family_of: dict[int, str],
 ) -> Workload:
-    names: TuplePool[str] = TuplePool()
     ledger = load_ledger(ledger_path)
-    table, rows = load_table(load_audit(audit_path, names), ledger, family_of, names)
+    table, rows = load_audit_table(audit_path, ledger, family_of)
     present = table.classes_present()
     return Workload(
         table=table,

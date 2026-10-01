@@ -50,7 +50,6 @@ from rebuild.review.audit import (
     assign_batches,
     batch_of,
     family_ranks,
-    format_codepoints,
     load_workload,
     machine_approved,
     merge_ink_duplicate_units,
@@ -1029,24 +1028,31 @@ def _resolve_signature_digests(
         note = unit_cache.signature_miss_note(out_dir, environment) or unit_cache.UNREADABLE_NOTE
         report = console.say if note == unit_cache.NO_STORE_NOTE else console.warn
         report(f"ink-signature store: {note}", file=sys.stderr)
-    views = signature_rows(table, rows)
-    keys = {(view.codepoints, view.config): keyer.signature_key(view) for view in views}
     signatures: dict[tuple[str, str], str] = {}
     entries: dict[str, str] = {}
     misses = array("I")
     windows: list[str] = []
-    for view in views:
-        digest = prior.get(keys[(view.codepoints, view.config)]) if prior else None
+    miss_keys: list[str] = []
+    for view, key in keyer.signature_keys(signature_rows(table, rows)):
+        digest = prior.get(key) if prior else None
         if digest is None:
             misses.append(view.row)
             windows.append(view.codepoints)
+            miss_keys.append(key)
         else:
             signatures[(view.codepoints, view.config)] = digest
-            entries[keys[(view.codepoints, view.config)]] = digest
+            entries[key] = digest
     width = 1
     if misses:
         config_at = rows.config_at
-        pairs = [(signature_text(window), config_at(index)) for window, index in zip(windows, misses)]
+        pairs: list[tuple[str, str]] = []
+        last_window = None
+        text = ""
+        for window, index in zip(windows, misses):
+            if window != last_window:
+                text = signature_text(window)
+                last_window = window
+            pairs.append((text, config_at(index)))
         if signature_jobs > 1 and len(misses) >= _SIGNATURE_POOL_THRESHOLD:
             ctx = multiprocessing.get_context("spawn")
             width = min(signature_jobs, len(misses))
@@ -1064,10 +1070,9 @@ def _resolve_signature_digests(
             comparator = InkComparator(before_font, after_font, shaper_for)
             digests = [signature_digest(comparator.signature(text, config)) for text, config in pairs]
             release_shape_memos()
-        for window, index, digest in zip(windows, misses, digests):
-            config = config_at(index)
-            signatures[(window, config)] = digest
-            entries[keys[(window, config)]] = digest
+        for window, index, key, digest in zip(windows, misses, miss_keys, digests):
+            signatures[(window, config_at(index))] = digest
+            entries[key] = digest
     return signatures, entries, environment, len(misses), width
 
 
@@ -1980,8 +1985,8 @@ def build_m1(
         )
     )
 
-    def ink_sig(text: str, config: str) -> str:
-        return signatures[(format_codepoints(tuple(ord(ch) for ch in text)), config)]
+    def ink_sig(codepoints: str, config: str) -> str:
+        return signatures[(codepoints, config)]
 
     exempt_classes = {entry.id for entry in workload.ledger if entry.no_verdict}
     premerge_capture = facts.capture_premerge(table)

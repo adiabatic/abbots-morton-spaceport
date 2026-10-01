@@ -24,6 +24,7 @@ from rebuild.review.audit import (
     build_units,
     format_codepoints,
     load_audit,
+    load_audit_table,
     load_ledger,
     load_table,
     load_workload,
@@ -84,6 +85,21 @@ def test_load_audit_rejects_wrong_header(tmp_path):
     path.write_text("nope\tnope\n")
     with pytest.raises(ValueError):
         list(load_audit(path))
+    with pytest.raises(ValueError):
+        load_audit_table(path, [], dict(LETTERS))
+
+
+def test_the_fused_audit_load_matches_load_table_over_load_audit(mini_bundle):
+    """`load_audit_table`, which maps each raw field to its id through a memo, assigns every id in the order `load_table(load_audit(...))` does, so every row column, the name pool, the string table and the config vocabulary come out identical over the mini audit."""
+    ledger = load_ledger(mini_bundle.ledger)
+    names = TuplePool()
+    _expected_table, expected = load_table(load_audit(MINI_AUDIT, names), ledger, dict(LETTERS), names)
+    _table, fused = load_audit_table(MINI_AUDIT, ledger, dict(LETTERS))
+    assert len(fused) > 0
+    assert list(fused.columns()) == list(expected.columns())
+    assert fused.names._tuples == expected.names._tuples and fused.names.sealed
+    assert fused.table._strings == expected.table._strings
+    assert (fused.vocabulary, fused.ranks) == (expected.vocabulary, expected.ranks)
 
 
 def test_fixture_units_dedupe_and_carry_configs(mini_bundle, tmp_path):
@@ -476,7 +492,7 @@ def test_configs_within_a_unit_are_in_acceptance_order(mini):
 
 
 def test_parse_codepoints():
-    """Pins the codepoint-string parsing in both directions. `build.signature_text` parses a row's window into the text the comparator shapes, and `build.ink_sig` formats a window back into a signature key. `unit_cache.signature_code_paths` leaves audit.py out of the signature store's stamp because this test pins the parsing. The test below pins the `chr` join that finishes the text."""
+    """Pins the codepoint-string parsing in both directions. `build.signature_text` parses a row's window into the text the comparator shapes, and `UnitTable.codepoints_text` formats the window strings the signature keys and the merge's lookups are keyed by, so the parse must invert the format. `unit_cache.signature_code_paths` leaves audit.py out of the signature store's stamp because this test pins the parsing. The test below pins the `chr` join that finishes the text."""
     assert parse_codepoints("200C:E652:E679") == (0x200C, 0xE652, 0xE679)
     assert format_codepoints((0x200C, 0xE652, 0xE679)) == "200C:E652:E679"
 
@@ -500,7 +516,7 @@ def test_ink_duplicate_siblings_merge_into_one_unit(mini_bundle):
     table, columns = load_table(rows, load_ledger(mini_bundle.ledger), dict(LETTERS))
     assert table.n == 3
     before = {ordinal: table.config_classes(ordinal) for ordinal in range(table.n)}
-    stats = merge_ink_duplicate_units(table, columns, lambda text, config: text)
+    stats = merge_ink_duplicate_units(table, columns, lambda window, config: window)
     assert stats == {"windows_merged": 1, "units_merged": 1, "kept_split_matched_classes": 0}
     assert table.n == 3 and sum(table.live(ordinal) for ordinal in range(table.n)) == 2
     victim = next(ordinal for ordinal in range(table.n) if not table.live(ordinal))
@@ -549,7 +565,7 @@ def test_ink_duplicate_merge_respects_matched_classes_and_exemptions(mini_bundle
         load_ledger(mini_bundle.ledger),
         dict(LETTERS),
     )
-    stats = merge_ink_duplicate_units(conflicting, columns, lambda text, config: text)
+    stats = merge_ink_duplicate_units(conflicting, columns, lambda window, config: window)
     assert stats["kept_split_matched_classes"] == 1
     conflicting.compact()
     assert conflicting.n == 2
@@ -564,7 +580,9 @@ def test_ink_duplicate_merge_respects_matched_classes_and_exemptions(mini_bundle
     )
     for ordinal in range(mixed.n):
         mixed.set_no_verdict(ordinal, mixed.class_id(ordinal) == "boundary-window")
-    merge_ink_duplicate_units(mixed, columns, lambda text, config: text, exempt_classes={"boundary-window"})
+    merge_ink_duplicate_units(
+        mixed, columns, lambda window, config: window, exempt_classes={"boundary-window"}
+    )
     mixed.compact()
     (merged,) = mixed.units()
     assert merged.class_id == "UNMATCHED"
@@ -583,7 +601,7 @@ def test_units_whose_configs_render_differently_never_merge(mini_bundle):
         load_ledger(mini_bundle.ledger),
         dict(LETTERS),
     )
-    stats = merge_ink_duplicate_units(table, columns, lambda text, config: (text, config))
+    stats = merge_ink_duplicate_units(table, columns, lambda window, config: (window, config))
     assert stats == {"windows_merged": 0, "units_merged": 0, "kept_split_matched_classes": 0}
     assert table.compact().removed == bytearray(2) and table.n == 2
 

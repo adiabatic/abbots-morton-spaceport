@@ -80,7 +80,7 @@ def _merged_table(rows: list[AuditRow]) -> tuple[facts.PremergeSnapshot, UnitTab
     table, columns = load_table(rows, ledger, dict(LETTERS))
     capture = capture_premerge(table)
     exempt = {entry.id for entry in ledger if entry.no_verdict}
-    merge_ink_duplicate_units(table, columns, lambda text, config: text, exempt)
+    merge_ink_duplicate_units(table, columns, lambda window, config: window, exempt)
     capture.rebase(table.compact())
     return capture, table, UnitStore(table.n, strings=table.strings)
 
@@ -159,7 +159,7 @@ def test_derive_premerge_reads_each_merged_rows_survivor_off_the_compaction():
     ]
     table, columns = load_table(rows, load_ledger(LEDGER_PATH), dict(LETTERS))
     capture = capture_premerge(table)
-    merge_ink_duplicate_units(table, columns, lambda text, config: text)
+    merge_ink_duplicate_units(table, columns, lambda window, config: window)
     with pytest.raises(ValueError, match="rebased"):
         derive_premerge(capture, table, UnitStore(table.n))
     capture.rebase(table.compact())

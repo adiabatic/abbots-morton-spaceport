@@ -212,7 +212,7 @@ SIGNATURE_CODE_MODULES = (
 def signature_code_paths(repo_root: Path) -> list[Path]:
     """Return the code whose edit invalidates the ink-signature store: the comparator's import closure (`SIGNATURE_CODE_MODULES`), a subset of `corpus_code_paths`. A signature is `InkComparator.signature` over a `Shaper` and the fontTools outline pens, and nothing else the corpus build runs can change one, so an edit elsewhere re-enriches units and re-shapes nothing. The row model is included because the shaper imports it, although no signature reads a row.
 
-    Some inputs are outside this hash. `build.signature_text` turns a window's codepoints into the text a signature is taken over, in two steps. Its parse, `audit.parse_codepoints`, round-trips with `audit.format_codepoints` (rebuild/test_review_audit.py::test_parse_codepoints), and a mismatch between them makes the build's `ink_sig` raise KeyError on its first lookup. Its `chr` join defines what text a signature covers, so a change to it changes what a signature means. The join is versioned by `SIGNATURE_STORE_FORMAT`, as are this module's `signature_key` layout and the store's file format. A change to the key layout alone cannot supply a wrong digest, because every row gets a new key and misses. A change to the join without a format bump would, so rebuild/test_review_audit.py::test_the_signature_text_is_pinned_beside_the_store_format checks `build.signature_text`'s output and the format as one literal pair, and fails on a join change until the format changes too. The uharfbuzz and fontTools versions are in no stamp, for this store or the unit store.
+    Some inputs are outside this hash. `build.signature_text` turns a window's codepoints into the text a signature is taken over, in two steps. Its parse, `audit.parse_codepoints`, must invert `audit.format_codepoints`, which writes the window strings (`audit.UnitTable.codepoints_text`) that the store's keys cover and that the build's signature table and the merge's lookups are keyed by. Nothing in the build round-trips the pair, so a mismatch would shape a text other than the window's under that window's key without raising; rebuild/test_review_audit.py::test_parse_codepoints pins the pair. Its `chr` join defines what text a signature covers, so a change to it changes what a signature means. The join is versioned by `SIGNATURE_STORE_FORMAT`, as are this module's `signature_key` layout and the store's file format. A change to the key layout alone cannot supply a wrong digest, because every row gets a new key and misses. A change to the join without a format bump would, so rebuild/test_review_audit.py::test_the_signature_text_is_pinned_beside_the_store_format checks `build.signature_text`'s output and the format as one literal pair, and fails on a join change until the format changes too. The uharfbuzz and fontTools versions are in no stamp, for this store or the unit store.
     """
     root = Path(repo_root)
     return [root.joinpath(*relative.split("/")) for relative in SIGNATURE_CODE_MODULES]
@@ -276,7 +276,7 @@ def family_content_keys(repo_root: Path, spec: ResolvedSpec, after_font: Path) -
 
 
 class SignatureRow(Protocol):
-    """The fields `UnitKeyer.signature_key` reads from a row: the four fields of `audit.AuditRow` and `audit.RowView` that determine the placed ink, declared as a protocol so either class can be passed."""
+    """The fields `UnitKeyer.signature_key` and `UnitKeyer.signature_keys` read from a row: the four fields of `audit.AuditRow` and `audit.RowView` that determine the placed ink, declared as a protocol so either class can be passed."""
 
     @property
     def config(self) -> str: ...
@@ -326,6 +326,25 @@ class UnitKeyer:
         lines = ["\t".join((row.config, row.codepoints, "|".join(row.baseline), "|".join(row.new)))]
         lines += [f"{name}\t{self._family_keys[name]}" for name in self._relevant_families(families)]
         return hashlib.sha256("\n".join(lines).encode()).hexdigest()[:16]
+
+    def signature_keys[R: SignatureRow](self, rows: Iterable[R]) -> Iterator[tuple[R, str]]:
+        """Yield each row with its `signature_key`, in order. Rows of one window arrive together (`audit.signature_rows` yields them sibling by sibling), so the families' lines are computed once per run of rows sharing a window string and appended to each row's line as one suffix, rather than once per row. The keys are byte-identical to `signature_key`'s, which rebuild/test_unit_cache.py checks across window boundaries."""
+        family_of = self._family_of
+        family_keys = self._family_keys
+        relevant = self._relevant_families
+        sha256 = hashlib.sha256
+        window = None
+        suffix = ""
+        for row in rows:
+            codepoints = row.codepoints
+            if codepoints != window:
+                families = frozenset(
+                    family_of[value] for value in parse_codepoints(codepoints) if value in family_of
+                )
+                suffix = "".join(f"\n{name}\t{family_keys[name]}" for name in relevant(families))
+                window = codepoints
+            line = "\t".join((row.config, codepoints, "|".join(row.baseline), "|".join(row.new))) + suffix
+            yield row, sha256(line.encode()).hexdigest()[:16]
 
 
 @dataclass

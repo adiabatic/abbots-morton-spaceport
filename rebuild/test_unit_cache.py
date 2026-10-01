@@ -1128,7 +1128,7 @@ def test_a_merged_survivors_key_is_the_key_over_its_absorbed_rows_own_names():
         absorbed = 1 - survivor
         survivor_rows = [row for row in records if row.baseline == table.baseline(survivor)]
         absorbed_rows = [row for row in records if row.baseline == table.baseline(absorbed)]
-        stats = merge_ink_duplicate_units(table, columns, lambda text, config: text)
+        stats = merge_ink_duplicate_units(table, columns, lambda window, config: window)
         assert stats["units_merged"] == 1 and table.survivor(absorbed) == survivor
         assert table.compact().survivor[absorbed] == 0 and table.n == 1
         ordered = sorted(survivor_rows + absorbed_rows, key=lambda row: _config_index(row.config))
@@ -1175,6 +1175,20 @@ def test_signature_key_moves_with_render_identity_not_classification():
     assert _keyer(qsTea="t1").signature_key(row) != base
     assert _keyer(qsPea_qsTea="pt1").signature_key(row) != base
     assert _keyer(qsRoe="r1").signature_key(row) == base
+
+
+def test_the_one_walk_signature_keys_match_the_per_row_key():
+    """`signature_keys` computes a window's family lines once per run of rows sharing the window, and the build keys the ink-signature store with it, so its keys must be byte-identical to `signature_key`'s for the store to keep serving. The windows here cite different families (a ligature pair, ·Roe alone, none) and one recurs after another window, each with several configs, so a family suffix carried across a window boundary would give a wrong key."""
+    windows = ("E650:E652", "0020:E668", "0020", "E650:E652", "E668:E650")
+    rows = [
+        replace(_SIGNATURE_ROW, config=config, codepoints=window, new=(window, config))
+        for window in windows
+        for config in ("default", "ss02", "ss03")
+    ]
+    keyer = _keyer()
+    walked = list(keyer.signature_keys(iter(rows)))
+    assert all(walked_row is row for (walked_row, _key), row in zip(walked, rows))
+    assert [key for _row, key in walked] == [keyer.signature_key(row) for row in rows]
 
 
 def test_signature_store_round_trip_and_invalidation(tmp_path):
