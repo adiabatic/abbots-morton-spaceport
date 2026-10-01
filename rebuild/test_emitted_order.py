@@ -83,7 +83,7 @@ def test_the_stage_answers_every_row_of_every_configuration(spec, built):
         assert summary["configs"][config]["rows"] > 0
         assert summary["configs"][config]["rows"] >= len(decision.rules)
         assert summary["configs"][config]["open_rows"] > 0
-        assert summary["configs"][config]["continued"] >= 0
+        assert summary["configs"][config]["continued"] == 0
     assert (out_dir / run_m1.EMITTED_ORDER_SUMMARY).is_file()
 
 

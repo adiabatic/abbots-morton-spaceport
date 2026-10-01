@@ -1,10 +1,10 @@
 //! Checks the settlement order the font ships against one configuration's rows, for the `replay-emitted` subcommand. The emitter folds every configuration's table into the one settlement lookup the font ships (`emit_gsub._ordered_settle_rules`), and no per-configuration check reads the order that fold produces. The fold's partition assertion and the string replay walk each table's rules in the table's own order, the witness stage first-matches each certificate in that same order, and read-back compares the font to the plan, not the plan to the tables.
 //!
-//! The walk renames every row of the configuration's enumeration into the labels the configuration's marker lookups produce, tries the emitted rules for the row's input in shipped order, and requires the first rule that matches to give the row's outcome (the input itself when no rule matches). A `#NA` after a letter ([`crate::fold::open_slot`]) means the window does not carry that slot, so the row claims its outcome for every label there and in every later slot, and the walk checks every such continuation the configuration's stream can carry by first match over the shipped order, the row's own configuration's rules included. The continuations at a slot are the labels the input's candidate rules name there, less class tokens and the context's foreign labels, and one more that stands for every label none of them names and for the end of the run; the walk reads on past each of them, a boundary included, to the end of the window. `uni200C` and a `#NA` after a boundary are literal labels. The cross-configuration exchange ([`crate::crossconfig`]) reads `#NA` the same way when it decides which windows a configuration takes in from another; the walk shares only that definition of an open slot and evaluates the continuations itself, so it checks the exchange's reading independently. A row whose shipped-order outcome differs from the table's, on the row or on any continuation, is an error naming the configuration, the row, the continuation, the emitted rule that fired, and the table's own rule with what it answers there.
+//! The walk renames every row of the configuration's enumeration into the labels the configuration's marker lookups produce, tries the emitted rules for the row's input in shipped order, and requires the first rule that matches to give the row's outcome (the input itself when no rule matches). A `#NA` after a letter ([`crate::fold::open_slot`]) means the window does not carry that slot, so the row claims its outcome for every label there and in every later slot, and the walk checks every such continuation the configuration's stream can carry by first match over the shipped order, the row's own configuration's rules included. The continuations at a slot are the labels the input's candidate rules name there, less class tokens, the context's foreign labels and the raw labels its renames replace, and one more that stands for every label none of them names and for the end of the run; the walk reads on past each of them, a boundary included, to the end of the window. `uni200C` and a `#NA` after a boundary are literal labels. The cross-configuration exchange ([`crate::crossconfig`]) reads `#NA` the same way when it decides which windows a configuration takes in from another; the walk shares only that definition of an open slot and evaluates the continuations itself, so it checks the exchange's reading independently. A row whose shipped-order outcome differs from the table's, on the row or on any continuation, is an error naming the configuration, the row, the continuation, the emitted rule that fired, and the table's own rule with what it answers there.
 //!
-//! The walk checks every row, not a sample. The rows are the table's own, at the table's grain. Rows are renamed before matching because, under a configuration, every raw label of a rune whose capability the active sets change is renamed to its marker copy, and the emitted rules already use the copy names. The context also lists the labels the configuration's stream never carries, the other configurations' marker copies and their locked copies; they are never continuations, and a row that carries one is an error, so a wrong list stops the walk instead of narrowing what it checks. A deep slot that holds a class token is checked against the whole class. When the rules are indexed, each deep slot of each emitted rule is compared with every class of the configuration. A class that a rule's slot contains entirely matches through its token. A class that the slot contains only in part makes the walk try the row once per member (once per member pair when both deep slots are classes, and once per look3 member, with look4's continuations checked for each, when look4 is open), and each member's first match must give the row's outcome; the fiber construction makes that outcome the same for every member. `fold::assert_deep_class_unions` does not cover this case: it checks a configuration's own rules against its own classes, but the shipped lookup holds every configuration's rules, so a rule folded from another configuration's fiber partition can match part of a class. That is harmless only when the rule gives each member the row's outcome, which is what the member-by-member check verifies.
+//! The walk checks every row, not a sample. The rows are the table's own, at the table's grain. Rows are renamed before matching because, under a configuration, every raw label of a rune whose capability the active sets change is renamed to its marker copy, and the emitted rules already use the copy names. The context also lists the labels the configuration's stream never carries, the bare runes, marker copies and locked copies that the other feature states of its marker runes are spelled with (`emit_gsub.emitted_context_tsv`); they are never continuations, and a row that carries one is an error, so a wrong list stops the walk instead of narrowing what it checks. A deep slot that holds a class token is checked against the whole class. When the rules are indexed, each deep slot of each emitted rule is compared with every class of the configuration. A class that a rule's slot contains entirely matches through its token. A class that the slot contains only in part makes the walk try the row once per member (once per member pair when both deep slots are classes, and once per look3 member, with look4's continuations checked for each, when look4 is open), and each member's first match must give the row's outcome; the fiber construction makes that outcome the same for every member. `fold::assert_deep_class_unions` does not cover this case: it checks a configuration's own rules against its own classes, but the shipped lookup holds every configuration's rules, so a rule folded from another configuration's fiber partition can match part of a class. That is harmless only when the rule gives each member the row's outcome, which is what the member-by-member check verifies.
 //!
-//! The walk is O(rows), with a bounded number of rules per input, and settles nothing: the tables already hold the settled outcomes, and the walk checks that the shipped lookup reproduces them. A row's candidate rules are its input's rules that admit its left and then its look1 (all of the former when look1 is open), and the walk keeps both lists for the next row while those labels agree; the rows arrive in key order, so each list is built once per block. A row whose first candidate to pass the slots before its open slot constrains nothing from there on costs what a row without an open slot does, since that rule answers every continuation. Only a row whose deciding rule constrains the open slot or a later one takes the continuation search, which the report counts. The search's scratch is reused from row to row and is bounded by the largest input's emitted rules. That makes the walk cheap enough to run on every build, keyed on the same inputs as the tables. The HarfBuzz conformance sweep also checks the shipped order, but its key (`artifact_cycle.conform_skip_fingerprint`) covers the compile code and the emitted lookup's behavior classes, not the runes, so it skips a rune edit that adds no new behavior class.
+//! The walk is O(rows), with a bounded number of rules per input, and settles nothing: the tables already hold the settled outcomes, and the walk checks that the shipped lookup reproduces them. A row's candidate rules are its input's rules that admit its left and then its look1 (all of the former when look1 is open), and the walk keeps both lists for the next row while those labels agree; the rows arrive in key order, so each list is built once per block, and the walk reads only the fields in which a row differs from the row before it. A row whose first candidate to pass the slots before its open slot constrains nothing from there on costs what a row without an open slot does, since that rule answers every continuation. Only a row whose deciding rule constrains the open slot or a later one takes the continuation search, which the report counts. The search's scratch is reused from row to row and is bounded by the largest input's emitted rules and the labels their slots name. That makes the walk cheap enough to run on every build, keyed on the same inputs as the tables. The HarfBuzz conformance sweep also checks the shipped order, but its key (`artifact_cycle.conform_skip_fingerprint`) covers the compile code and the emitted lookup's behavior classes, not the runes, so it skips a rune edit that adds no new behavior class.
 
 use std::io::BufRead;
 
@@ -31,7 +31,7 @@ const CLASS: u8 = 1;
 /// A label flag: the configuration's stream never carries the label, because the context lists it as foreign or the configuration's marker renames replace it.
 const FOREIGN: u8 = 2;
 
-/// How one configuration's marker lookups relabel its table's rows. `renames` maps each raw label to the marker copy used under this configuration (`model.raw_rename_map`). `classes` lists the deep classes in the table's rows, each token with its members as raw labels (`DecisionTable.deep_classes`). `foreign` lists the labels the shipped lookup can name that this configuration's stream never carries: the marker copies and locked copies every other feature state of a marker rune is spelled with.
+/// How one configuration's marker lookups relabel its table's rows. `renames` maps each raw label to the marker copy used under this configuration (`model.raw_rename_map`). `classes` lists the deep classes in the table's rows, each token with its members as raw labels (`DecisionTable.deep_classes`). `foreign` lists the labels the shipped lookup can name that this configuration's stream never carries: the bare runes, marker copies and locked copies every other feature state of a marker rune is spelled with.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Context {
     pub renames: Vec<(String, String)>,
@@ -239,17 +239,26 @@ struct Goal {
     from: usize,
 }
 
-/// The continuation search's scratch, reused from row to row. `lists` holds the candidate rules of each level of the search as stacked regions, `atoms` and `masks` each level's continuation labels and the rule sets they admit, and `path` the continuation being read.
+/// The continuation search's scratch, reused from row to row. `lists` holds the candidate rules of each level of the search as stacked regions, `atoms` each level's continuation labels, `seen` each level's distinct admitted rule sets, each as a key (the set as a bit mask when the level has at most 64 candidates, a hash of it otherwise) beside the label that first admitted it, and `path` the continuation being read.
 #[derive(Default)]
 struct Search {
     lists: Vec<u32>,
     atoms: Vec<u32>,
-    masks: Vec<u64>,
+    seen: Vec<(u64, Option<u32>)>,
     path: [Option<u32>; 4],
 }
 
+/// Whether `rule` admits the continuation label `atom` at `slot`, where `None` stands for every label the candidates do not name there.
+fn admitted(rule: &EmittedRule, slot: usize, atom: Option<u32>) -> bool {
+    match (&rule.slots[slot], atom) {
+        (None, _) => true,
+        (Some(members), Some(label)) => members.binary_search(&label).is_ok(),
+        (Some(_), None) => false,
+    }
+}
+
 impl Search {
-    /// Reads every continuation of the rules in `lists[lo..hi]` from `slot` on and returns the first whose answer is not the goal's outcome. The answer at a continuation is its first candidate's outcome once that rule constrains nothing further (the input when no candidate is left). Otherwise the candidates are cut after their first rule that constrains nothing from `slot` on, since no later rule is first on any continuation, and each label they name at `slot` (and one more for every label they do not) narrows them to the rules that admit it. Two labels that admit the same rules lead to the same answers, so only the first is read when the list fits a mask.
+    /// Reads every continuation of the rules in `lists[lo..hi]` from `slot` on and returns the first whose answer is not the goal's outcome. The answer at a continuation is its first candidate's outcome once that rule constrains nothing further (the input when no candidate is left). Otherwise the candidates are cut after their first rule that constrains nothing from `slot` on, since no later rule is first on any continuation, and each label they name at `slot` (and one more for every label they do not) narrows them to the rules that admit it. Two labels that admit the same rules lead to the same answers, so only the first is read.
     fn read(
         &mut self,
         rules: &[EmittedRule],
@@ -290,33 +299,37 @@ impl Search {
             }
         }
         self.atoms.truncate(kept);
-        let masks_lo = self.masks.len();
+        let seen_lo = self.seen.len();
         let masked = reach - lo <= 64;
         let mut found = None;
         for at in atoms_lo..=kept {
             let atom = (at < kept).then(|| self.atoms[at]);
-            let mut mask = 0u64;
+            let mut key = 0u64;
             for (bit, place) in (lo..reach).enumerate() {
                 let index = self.lists[place];
-                let admitted = match (&rules[index as usize].slots[slot], atom) {
-                    (None, _) => true,
-                    (Some(members), Some(label)) => members.binary_search(&label).is_ok(),
-                    (Some(_), None) => false,
-                };
-                if admitted {
+                if admitted(&rules[index as usize], slot, atom) {
                     self.lists.push(index);
-                    if masked {
-                        mask |= 1 << bit;
-                    }
+                    key = if masked {
+                        key | 1 << bit
+                    } else {
+                        (key ^ u64::from(index)).wrapping_mul(0x0100_0000_01b3)
+                    };
                 }
             }
-            if masked {
-                if self.masks[masks_lo..].contains(&mask) {
-                    self.lists.truncate(hi);
-                    continue;
-                }
-                self.masks.push(mask);
+            let lists = &self.lists[lo..reach];
+            let repeated = self.seen[seen_lo..].iter().any(|&(other_key, other)| {
+                other_key == key
+                    && (masked
+                        || lists.iter().all(|&index| {
+                            let rule = &rules[index as usize];
+                            admitted(rule, slot, atom) == admitted(rule, slot, other)
+                        }))
+            });
+            if repeated {
+                self.lists.truncate(hi);
+                continue;
             }
+            self.seen.push((key, atom));
             self.path[slot - goal.from] = atom;
             let end = self.lists.len();
             found = self.read(rules, flags, goal, hi, end, slot + 1);
@@ -326,7 +339,7 @@ impl Search {
             }
         }
         self.atoms.truncate(atoms_lo);
-        self.masks.truncate(masks_lo);
+        self.seen.truncate(seen_lo);
         found
     }
 }
@@ -437,6 +450,9 @@ impl<'a> Walk<'a> {
         }
         let mut report = Report::default();
         let by_input = rules_by_input(self.table);
+        let mut previous = String::new();
+        let mut ends = [0usize; 7];
+        let mut ids = [0u32; 7];
         loop {
             line.clear();
             let read = source
@@ -446,25 +462,39 @@ impl<'a> Walk<'a> {
                 break;
             }
             let text = line.trim_end_matches('\n');
-            let mut fields = text.split('\t');
-            let mut raw: [&str; 7] = [""; 7];
-            for slot in raw.iter_mut() {
-                *slot = fields.next().ok_or_else(|| {
-                    format!(
-                        "row {} of the enumeration is not seven fields: {text:?}",
-                        report.rows + 1
-                    )
-                })?;
+            let common = text
+                .bytes()
+                .zip(previous.bytes())
+                .take_while(|(here, there)| here == there)
+                .count();
+            let kept = ends[..6].iter().take_while(|&&end| end < common).count();
+            let mut field = kept;
+            let start = if kept == 0 { 0 } else { ends[kept - 1] + 1 };
+            for (offset, byte) in text.as_bytes()[start..].iter().enumerate() {
+                if *byte == b'\t' {
+                    if field == 6 {
+                        field = 7;
+                        break;
+                    }
+                    ends[field] = start + offset;
+                    field += 1;
+                }
             }
-            if fields.next().is_some() {
+            if field != 6 {
                 return Err(format!(
                     "row {} of the enumeration is not seven fields: {text:?}",
                     report.rows + 1
                 ));
             }
+            ends[6] = text.len();
+            let mut raw: [&str; 7] = [""; 7];
+            let mut from = 0;
+            for (slot, end) in raw.iter_mut().zip(ends) {
+                *slot = &text[from..end];
+                from = end + 1;
+            }
             report.rows += 1;
-            let mut ids = [0u32; 7];
-            for (id, field) in ids.iter_mut().zip(raw) {
+            for (id, field) in ids.iter_mut().zip(raw).skip(kept) {
                 let interned = self.labels.intern(field);
                 *id = self.renames.get(&interned).copied().unwrap_or(interned);
             }
@@ -497,6 +527,7 @@ impl<'a> Walk<'a> {
             if self.disagreements.len() >= NAMED_DISAGREEMENTS {
                 return Err(self.error_message());
             }
+            std::mem::swap(&mut previous, &mut line);
         }
         if self.disagreements.is_empty() {
             Ok(report)
@@ -684,7 +715,7 @@ impl<'a> Walk<'a> {
             }
         }
         self.search.atoms.clear();
-        self.search.masks.clear();
+        self.search.seen.clear();
         let end = self.search.lists.len();
         Ok(self
             .search
@@ -762,20 +793,20 @@ impl<'a> Walk<'a> {
             };
         }
         let own = first_match(by_input, key).map_or_else(
-            || "no rule of its own table".to_owned(),
+            || " by no rule of its own table".to_owned(),
             |position| {
                 let rule = &self.table[position];
-                let differs = continuation.is_some_and(|(_, found)| found.depth > 0)
-                    && *rule.outcome != *raw[6];
-                format!(
-                    "its table's rule {position} ({}){}",
-                    rule_repr(rule),
-                    if differs {
-                        format!(", which answers that continuation {}", rule.outcome)
-                    } else {
-                        String::new()
-                    }
-                )
+                if continuation.is_some_and(|(_, found)| found.depth > 0)
+                    && *rule.outcome != *raw[6]
+                {
+                    format!(
+                        ", and its table's rule {position} ({}) answers that continuation {}",
+                        rule_repr(rule),
+                        rule.outcome
+                    )
+                } else {
+                    format!(" by its table's rule {position} ({})", rule_repr(rule))
+                }
             },
         );
         let shipped = match fired {
@@ -795,11 +826,10 @@ impl<'a> Walk<'a> {
             None => String::new(),
         };
         format!(
-            "{}: row {}{at}{reading} settles to {} by {}, but in the shipped order {shipped}",
+            "{}: row {}{at}{reading} settles to {}{own}, but in the shipped order {shipped}",
             self.config,
             self.spell_row(raw),
-            raw[6],
-            own
+            raw[6]
         )
     }
 
@@ -1115,7 +1145,7 @@ mod tests {
 
     const OPEN_AT_LOOK3: &str = "qsPea\t#EDGE\tqsPea\tqsPea\t#NA\t#NA\tqsPea.whole";
 
-    /// A `#NA` after a letter stands for every label there: a rule that answers one continuation of the open slot differently fails the walk, naming that continuation, though it never matches the row's literal `#NA`. With the row's outcome, the same rule passes, and the walk counts the row as open and searched.
+    /// A `#NA` after a letter stands for every label there: a rule that answers one continuation of the open slot differently fails the walk, naming that continuation, though it never matches the row's literal `#NA`. With the row's outcome, the same rule passes, and the walk counts the row as open and searched. Without the catch-all, a label no rule names there reaches no rule, so the input stands at that continuation.
     #[test]
     fn an_open_slot_is_checked_at_every_continuation() {
         let catch_all = hand_rule([None; 4], "qsPea.whole");
@@ -1145,62 +1175,127 @@ mod tests {
                 continued: 1
             }
         );
-    }
-
-    /// A continuation that no rule of the input names reaches no rule when every rule constrains the open slot, so the input stands there.
-    #[test]
-    fn a_continuation_no_rule_names_reaches_the_input() {
-        let order = [hand_rule(
-            [None, None, Some(&["qsTea"]), None],
-            "qsPea.whole",
-        )];
-        let error = walk_rows(&order, &order, &Context::default(), &[OPEN_AT_LOOK3])
-            .expect_err("any other label leaves the input");
-        assert!(error.contains("at the continuation (any other)"), "{error}");
+        let error = walk_rows(
+            &right[..1],
+            &right[..1],
+            &Context::default(),
+            &[OPEN_AT_LOOK3],
+        )
+        .expect_err("any other label leaves the input");
+        assert!(
+            error.contains("at the continuation (any other) of its open look3"),
+            "{error}"
+        );
         assert!(error.contains("no emitted rule matches"), "{error}");
     }
 
-    /// A label the context lists as foreign is never a continuation, since the configuration's stream never carries it, and a row that carries one is refused outright.
+    /// A row open at look1 keeps every rule of its input and left, whatever the rule names at look1, though the row before it, with the same input and left, carried a look1 that turned one away.
     #[test]
-    fn a_label_the_stream_never_carries_is_not_a_continuation() {
+    fn a_row_open_at_look1_is_checked_at_every_look1_continuation() {
         let catch_all = hand_rule([None; 4], "qsPea.whole");
         let order = [
-            hand_rule([None, None, Some(&["qsTea.ss03"]), None], "qsPea.other"),
+            hand_rule([Some(&["qsMay"]), None, None, None], "qsPea.other"),
             catch_all.clone(),
         ];
-        let table = [catch_all];
+        let rows = [
+            "qsPea\t#EDGE\tqsTea\t#NA\t#NA\t#NA\tqsPea.whole",
+            "qsPea\t#EDGE\t#NA\t#NA\t#NA\t#NA\tqsPea.whole",
+        ];
+        let error = walk_rows(&[catch_all], &order, &Context::default(), &rows)
+            .expect_err("the second row's qsMay continuation is answered differently");
+        assert!(error.starts_with("1 shipped-order"), "{error}");
+        assert!(
+            error.contains("at the continuation (qsMay) of its open look1"),
+            "{error}"
+        );
+    }
+
+    /// Only a label the configuration's stream carries after a letter is a continuation. A label the context lists as foreign is not, and a row that carries one is refused outright. A raw label the context renames away is not, though its copy is. A `#NA` after a boundary is a literal label, since no window reads past a boundary.
+    #[test]
+    fn a_continuation_is_a_label_the_stream_carries_after_a_letter() {
+        let catch_all = hand_rule([None; 4], "qsPea.whole");
+        let table = [catch_all.clone()];
+        let after = |label: &str| {
+            [
+                hand_rule([None, None, Some(&[label]), None], "qsPea.other"),
+                catch_all.clone(),
+            ]
+        };
         let foreign = read_context("foreign\tqsTea.ss03\n").expect("one record");
-        walk_rows(&table, &order, &foreign, &[OPEN_AT_LOOK3])
+        walk_rows(&table, &after("qsTea.ss03"), &foreign, &[OPEN_AT_LOOK3])
             .expect("the copy is no continuation of this stream");
-        let error = walk_rows(&table, &order, &Context::default(), &[OPEN_AT_LOOK3])
-            .expect_err("unlisted, the copy is a continuation");
+        let error = walk_rows(
+            &table,
+            &after("qsTea.ss03"),
+            &Context::default(),
+            &[OPEN_AT_LOOK3],
+        )
+        .expect_err("unlisted, the copy is a continuation");
         assert!(error.contains("at the continuation (qsTea.ss03"), "{error}");
         let error = walk_rows(
             &table,
-            &order,
+            &after("qsTea.ss03"),
             &foreign,
             &["qsPea\t#EDGE\tqsPea\tqsTea.ss03\t#NA\t#NA\tqsPea.whole"],
         )
         .expect_err("a row carrying a foreign label");
         assert!(error.contains("never carries"), "{error}");
-    }
-
-    /// A `#NA` after a boundary is a literal label, since no window reads past a boundary, so a rule that constrains the slot after it never fires on the row.
-    #[test]
-    fn a_slot_after_a_boundary_stays_closed() {
-        let catch_all = hand_rule([None; 4], "qsPea.whole");
-        let order = [
-            hand_rule([None, None, Some(&["qsTea"]), None], "qsPea.other"),
-            catch_all.clone(),
-        ];
+        let renamed = read_context("rename\tqsTea\tqsTea.ss03\n").expect("one record");
+        walk_rows(&table, &after("qsTea"), &renamed, &[OPEN_AT_LOOK3])
+            .expect("the raw label is renamed away");
+        let error = walk_rows(&table, &after("qsTea.ss03"), &renamed, &[OPEN_AT_LOOK3])
+            .expect_err("its copy is a continuation");
+        assert!(error.contains("at the continuation (qsTea.ss03"), "{error}");
         let report = walk_rows(
-            &[catch_all],
-            &order,
+            &table,
+            &after("qsTea"),
             &Context::default(),
             &["qsPea\t#EDGE\tqsPea\tspace\t#NA\t#NA\tqsPea.whole"],
         )
         .expect("the row's slots after space are not continuations");
         assert_eq!(report.open_rows, 0);
+    }
+
+    /// With more candidates at the open slot than a mask holds, two labels that admit the same rules are read once, and a label that admits other rules is still read: every rule names two labels at look2, and the one wrong rule, placed at either side of the mask's width, names only the second label of one of them.
+    #[test]
+    fn a_search_wider_than_a_mask_reads_every_distinct_rule_set() {
+        let names: Vec<(String, String)> = (0..80)
+            .map(|at| (format!("g{at}"), format!("h{at}")))
+            .collect();
+        let catch_all = hand_rule([None; 4], "qsPea.whole");
+        let table = [catch_all.clone()];
+        let row = ["qsPea\t#EDGE\tqsTea\t#NA\t#NA\t#NA\tqsPea.whole"];
+        for wrong in [0, 63, 64, 79] {
+            let mut order: Vec<Rule> = names
+                .iter()
+                .map(|(g, h)| {
+                    hand_rule(
+                        [None, Some(&[g.as_str(), h.as_str()]), None, None],
+                        "qsPea.whole",
+                    )
+                })
+                .collect();
+            let shared = names[wrong].1.as_str();
+            order.insert(
+                wrong,
+                hand_rule(
+                    [None, Some(&[shared]), Some(&["qsMay"]), None],
+                    "qsPea.other",
+                ),
+            );
+            order.push(catch_all.clone());
+            let error = walk_rows(&table, &order, &Context::default(), &row)
+                .expect_err("one continuation is answered differently");
+            assert!(
+                error.contains(&format!(
+                    "at the continuation ({shared}, qsMay) of its open look2"
+                )),
+                "{error}"
+            );
+            order[wrong].outcome = Rc::from("qsPea.whole");
+            walk_rows(&table, &order, &Context::default(), &row)
+                .expect("every continuation gets the row's outcome");
+        }
     }
 
     /// When look4 is open and an emitted class contains the row's look3 class only in part, each member is tried with every continuation of look4. The partial rule here follows a rule that constrains look4, so only the continuation search reaches it.
@@ -1249,12 +1344,12 @@ mod tests {
         let error = walk_rows(&order, &order, &Context::default(), &[OPEN_AT_LOOK3])
             .expect_err("the table's own rule answers the continuation differently");
         assert!(
-            error.contains("which answers that continuation qsPea.other"),
+            error.contains("answers that continuation qsPea.other, but in the shipped order"),
             "{error}"
         );
     }
 
-    /// The walk passes an order exactly when brute force does: [`first_match`] over every row of the fixture, every member of a deep class it holds, and every continuation of its open slot over every label the order names in a lookahead slot plus one it names nowhere. The orders are the table's own, swaps of two of its rules of one input, and the table's own behind a rule that copies an open row's carried slots and constrains its open slot or the next, with the row's outcome or another, so some pass, some fail, and some fail only at a continuation.
+    /// The walk passes an order exactly when brute force does: [`first_match`] over every row of the fixture, every member of a deep class it holds, and every continuation of its open slot over every label the order names in a lookahead slot plus one it names nowhere. The orders are the table's own, swaps of two of its rules of one input, and the table's own behind a rule that copies an open row's carried slots and constrains its open slot or the next, with the row's outcome or another, so some pass, some fail, and some fail only at a continuation, which brute force reading `#NA` literally passes.
     #[test]
     fn the_walk_agrees_with_first_match_over_every_continuation() {
         const ORDERS: usize = 24;
@@ -1323,7 +1418,7 @@ mod tests {
             .iter()
             .map(|(token, members)| (token.as_str(), members.iter().map(String::as_str).collect()))
             .collect();
-        let brute = |order: &[Rule]| -> bool {
+        let brute = |order: &[Rule], literal: bool| -> bool {
             let by_input = rules_by_input(order);
             let mut universe: Vec<&str> = order
                 .iter()
@@ -1338,7 +1433,11 @@ mod tests {
             decision.transitions.iter().all(|row| {
                 let key = row.key(&decision.labels);
                 let outcome = decision.outcome(row);
-                let open = open_slot(&key).unwrap_or(6);
+                let open = if literal {
+                    6
+                } else {
+                    open_slot(&key).unwrap_or(6)
+                };
                 let choices: Vec<Vec<&str>> = (0..6)
                     .map(|slot| {
                         if slot >= open {
@@ -1375,11 +1474,22 @@ mod tests {
         let mut verdicts = Vec::new();
         for order in &orders {
             let walked = walk(&decision, order, &context).is_ok();
-            assert_eq!(walked, brute(order), "the walk and brute force disagree");
-            verdicts.push(walked);
+            assert_eq!(
+                walked,
+                brute(order, false),
+                "the walk and brute force disagree"
+            );
+            verdicts.push((walked, brute(order, true)));
         }
-        assert!(verdicts[0], "the table's own order passes");
-        assert!(verdicts.contains(&false), "some swap fails");
+        assert!(verdicts[0].0, "the table's own order passes");
+        assert!(
+            verdicts.iter().any(|(walked, _)| !walked),
+            "some swap fails"
+        );
+        assert!(
+            verdicts.iter().any(|&(walked, literal)| literal && !walked),
+            "some order fails only at a continuation"
+        );
     }
 
     /// The context file's three record kinds parse, and any other line is an error naming its line number.
@@ -1410,7 +1520,7 @@ mod tests {
         assert!(error.contains("line 2"), "{error}");
     }
 
-    /// A payload that is not a windows enumeration, or a row without seven fields, is an error.
+    /// A payload that is not a windows enumeration, or a row with fewer or more than seven fields, is an error, the longer row sharing its leading fields with the row before it.
     #[test]
     fn a_malformed_payload_is_refused() {
         let index = fixtures::mini();
@@ -1425,6 +1535,12 @@ mod tests {
         text.push_str("qsPea\t#EDGE\n");
         let mut walk = Walk::new("default", &decision.rules, &decision.rules, &context);
         let error = walk.walk(&mut text.as_bytes()).expect_err("a short row");
+        assert!(error.contains("not seven fields"), "{error}");
+        let mut text = windows_text(&decision);
+        let last = text.lines().last().expect("a row").to_owned();
+        text.push_str(&format!("{last}\textra\n"));
+        let mut walk = Walk::new("default", &decision.rules, &decision.rules, &context);
+        let error = walk.walk(&mut text.as_bytes()).expect_err("a long row");
         assert!(error.contains("not seven fields"), "{error}");
     }
 }
