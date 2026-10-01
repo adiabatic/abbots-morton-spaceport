@@ -10,7 +10,7 @@ use std::io::BufRead;
 
 use crate::artifacts::WINDOWS_FORMAT;
 use crate::fold::{NA_LABEL, Rule, first_match, open_slot, rules_by_input};
-use crate::hash::{HashMap, HashSet};
+use crate::hash::HashMap;
 use crate::replay::Labels;
 
 /// The result of one configuration's walk: the rows it checked, how many of them it checked member by member because an emitted lookahead class contained their deep class only in part, how many leave a slot open after a letter, and how many of those took the continuation search because their deciding rule constrains the open slot or a later one.
@@ -92,17 +92,20 @@ struct PartialClass {
     token: u32,
 }
 
-/// The emitted rules grouped by input label, each input's rules in shipped order, and the (rule, slot, class token) triples where the slot contains the class in part, so that [`Order::admits`] can tell a partial class match from a plain miss.
+/// The emitted rules grouped by input label, each input's rules in shipped order, and for each rule's two deep slots a bitset over the configuration's classes (`class_of` gives a token's bit) marking the classes the slot contains in part, so that [`Order::admits`] can tell a partial class match from a plain miss.
 struct Order {
     by_input: HashMap<u32, Vec<EmittedRule>>,
-    partial_classes: HashSet<(usize, usize, u32)>,
+    class_of: HashMap<u32, usize>,
+    words: usize,
+    partial_classes: Vec<u64>,
 }
 
 impl Order {
     /// Indexes the emitted rules. Every class of the configuration is compared with every deep slot: a class the slot contains entirely is added to the slot as its token, and a class it contains in part is recorded as a partial class.
     fn new(labels: &mut Labels, rules: &[Rule], classes: &[(u32, Vec<u32>)]) -> Self {
         let mut by_input: HashMap<u32, Vec<EmittedRule>> = HashMap::default();
-        let mut partial_classes: HashSet<(usize, usize, u32)> = HashSet::default();
+        let words = classes.len().div_ceil(64);
+        let mut partial_classes = vec![0u64; rules.len() * 2 * words];
         for (position, rule) in rules.iter().enumerate() {
             let input = labels.intern(&rule.input_glyph);
             let mut slot = |members: &Option<Vec<std::rc::Rc<str>>>| {
@@ -126,7 +129,7 @@ impl Order {
                     continue;
                 };
                 let mut whole: Vec<u32> = Vec::new();
-                for (token, members) in classes {
+                for (ordinal, (token, members)) in classes.iter().enumerate() {
                     let inside = members
                         .iter()
                         .filter(|member| ids.binary_search(member).is_ok())
@@ -134,7 +137,8 @@ impl Order {
                     if inside == members.len() {
                         whole.push(*token);
                     } else if inside > 0 {
-                        partial_classes.insert((position, index, *token));
+                        partial_classes[(position * 2 + index - 3) * words + ordinal / 64] |=
+                            1 << (ordinal % 64);
                     }
                 }
                 if !whole.is_empty() {
@@ -151,8 +155,23 @@ impl Order {
         }
         Self {
             by_input,
+            class_of: classes
+                .iter()
+                .enumerate()
+                .map(|(ordinal, (token, _))| (*token, ordinal))
+                .collect(),
+            words,
             partial_classes,
         }
+    }
+
+    /// Whether the emitted rule at `position` contains the class `token` in part at deep `slot`.
+    fn partial(&self, position: usize, slot: usize, token: u32) -> bool {
+        self.class_of.get(&token).is_some_and(|ordinal| {
+            self.partial_classes[(position * 2 + slot - 3) * self.words + ordinal / 64]
+                & (1 << (ordinal % 64))
+                != 0
+        })
     }
 
     /// The emitted rules for `input`, in shipped order.
@@ -174,11 +193,7 @@ impl Order {
             if members.binary_search(label).is_ok() {
                 continue;
             }
-            if index >= 3
-                && self
-                    .partial_classes
-                    .contains(&(rule.position, index, *label))
-            {
+            if index >= 3 && self.partial(rule.position, index, *label) {
                 return Err(PartialClass {
                     position: rule.position,
                     slot: index,
