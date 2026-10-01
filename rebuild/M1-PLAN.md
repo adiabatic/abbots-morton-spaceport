@@ -118,9 +118,9 @@ stances:
         - {entry: x-height, exit: baseline, bitmap: open-on-the-left, exit_x: 5}
           # an explicit row for one cell. qsOy carries this one to move the exit anchor with the joined drawing, and qsUtter.alternate carries another (reaches-way-back). qsPea's dip on both sides needs no row: its two stubs compose it.
       unlocks: []
-          # qsTea.full carries: {pairing: {entry: baseline, exit: baseline}, feature: ss05}
+          # qsTea.full carries: {pairing: {entry: baseline, exit: baseline}, feature: ss05} and {entry: x-height, feature: ss03, when: {left: {family: [...widened ss03 scope...]}}}
           # qsTea.half carries: {entry: x-height, feature: ss03, when: {left: {family: [...widened ss03 scope...]}}}
-          # qsIt carries one ss04 row with no context: {pairing: {entry: baseline, exit: baseline}, feature: ss04}
+          # qsIt carries two ss04 rows, split around ·Cheer: {pairing: {entry: baseline, exit: baseline}, feature: ss04, when: {left: {except: [family: qsCheer]}}} and the same pairing with when: {left: {family: qsCheer}, right: {except: [family: qsThaw]}}
       require: []                  # for a stance that exists only when joined; qsFee.reversed-loop is the example (require: [entry])
   grounded-loop:
     motion: grounded-loop
