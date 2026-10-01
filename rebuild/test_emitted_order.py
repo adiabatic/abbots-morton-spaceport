@@ -4,7 +4,7 @@ import dataclasses
 
 import pytest
 
-from rebuild.pipeline import conform, emit_gsub, fixtures, kernel_exec, model, run_m1
+from rebuild.pipeline import conform, emit_gsub, fixtures, kernel_exec, model, run_m1, table
 
 STAMP = "emitted-order-test"
 
@@ -46,20 +46,31 @@ def test_the_order_file_is_the_fold_in_fea_order_naming_its_sources(spec, built)
         assert (fields[1] == "-") == (rule.backtrack is None)
 
 
-def test_the_context_file_carries_the_marker_renaming_and_the_deep_classes(spec, built):
+def records(context: str, kind: str) -> list[list[str]]:
+    return [fields[1:] for fields in (line.split("\t") for line in context.splitlines()) if fields[0] == kind]
+
+
+def test_the_context_file_carries_the_marker_renaming_the_deep_classes_and_the_foreign_labels(spec, built):
     _out_dir, tables = built
     decision, _joins = tables["ss03"]
-    lines = emit_gsub.emitted_context_tsv(spec, "ss03", decision).splitlines()
-    renames = {raw: copy for kind, raw, copy in (line.split("\t") for line in lines) if kind == "rename"}
+    context = emit_gsub.emitted_context_tsv(spec, "ss03", decision)
+    renames = {raw: copy for raw, copy in records(context, "rename")}
     assert renames == model.raw_rename_map(spec, frozenset({"ss03"}))
     assert renames and all(
         copy == f"{raw.split('.')[0]}.ss03{raw[len(raw.split('.')[0]):]}" for raw, copy in renames.items()
     )
     classed = dataclasses.replace(decision, deep_classes={"#Cabc": ("qsPea", "qsTea")})
     assert "class\t#Cabc\tqsPea qsTea" in emit_gsub.emitted_context_tsv(spec, "ss03", classed).splitlines()
-    plain = emit_gsub.emitted_context_tsv(spec, "default", decision).splitlines()
-    assert not [line for line in plain if line.startswith("rename\t")]
-    assert [line.split("\t")[1] for line in plain] == sorted(decision.deep_classes)
+    plain = emit_gsub.emitted_context_tsv(spec, "default", decision)
+    assert not records(plain, "rename")
+    assert [token for token, _members in records(plain, "class")] == sorted(decision.deep_classes)
+    marker_runes = [name for name, rune in spec.runes.items() if model.relevant_marker_features(rune)]
+    raws = {label for name in marker_runes for label in (name, model.locked_glyph_name(name))}
+    spellings = emit_gsub._marker_names(spec) | raws
+    foreign = {label for (label,) in records(context, "foreign")}
+    assert foreign == spellings - {renames.get(raw, raw) for raw in raws}
+    assert {"qsTea", "qsTea.noentry"} <= foreign and "qsTea.ss03" not in foreign
+    assert {label for (label,) in records(plain, "foreign")} == spellings - raws
 
 
 def test_the_stage_answers_every_row_of_every_configuration(spec, built):
@@ -71,6 +82,8 @@ def test_the_stage_answers_every_row_of_every_configuration(spec, built):
     for config, (decision, _joins) in tables.items():
         assert summary["configs"][config]["rows"] > 0
         assert summary["configs"][config]["rows"] >= len(decision.rules)
+        assert summary["configs"][config]["open_rows"] > 0
+        assert summary["configs"][config]["continued"] >= 0
     assert (out_dir / run_m1.EMITTED_ORDER_SUMMARY).is_file()
 
 
@@ -103,6 +116,65 @@ def test_an_order_that_answers_a_row_differently_is_refused_naming_the_row(spec,
     assert ".perturbed" in error
     assert "its table's rule" in error
     assert ": row (" in error
+
+
+def test_an_order_that_answers_an_open_slot_continuation_differently_is_refused(spec, built, monkeypatch):
+    """A `#NA` after a letter stands for every label in that slot, so a rule that matches one of a row's continuations and gives another outcome fails the walk, though it matches no row's literal key. The rule copies a `default` row's input, left and carried lookahead slots, names at the row's open slot a rune that no row with those slots carries there, and is put first in the shipped order. The summary's `error` names the continuation and the emitted rule."""
+    out_dir, tables = built
+    _stamp, windows = table.read_windows(table.windows_path(out_dir, "default"))
+    plain = [name for name, rune in spec.runes.items() if not model.relevant_marker_features(rune)]
+    for row in windows.transitions:
+        key = row.key
+        open_at = fold_open_slot(key)
+        if open_at not in (3, 4) or any(label.startswith("#") for label in key[1:open_at]):
+            continue
+        carried = {
+            other.key[open_at] for other in windows.transitions if other.key[:open_at] == key[:open_at]
+        }
+        label = next((name for name in plain if name not in carried), None)
+        if label is not None:
+            break
+    else:
+        pytest.fail("no default row leaves look2 or look3 open after carried letters")
+    lookahead = [
+        (label,) if slot == open_at else (key[slot],) if slot < open_at else None for slot in range(2, 6)
+    ]
+    ordered = emit_gsub._ordered_settle_rules
+
+    def poisoned(rules, marker_names=frozenset()):
+        grouped = ordered(rules, marker_names)
+        bogus = dataclasses.replace(
+            grouped[0],
+            input_glyph=key[0],
+            backtrack=(key[1],),
+            look1=lookahead[0],
+            look2=lookahead[1],
+            look3=lookahead[2],
+            look4=lookahead[3],
+            outcome=f"{key[0]}.perturbed",
+        )
+        return [bogus, *grouped]
+
+    monkeypatch.setattr(emit_gsub, "_ordered_settle_rules", poisoned)
+    monkeypatch.setattr(emit_gsub, "_assert_fold_sources", lambda rules, tables: None)
+    summary = run_m1.run_emitted_order(spec, tables, out_dir)
+    assert not summary["pass"]
+    error = summary["error"]
+    assert f"at the continuation ({label}" in error
+    assert "emitted rule 0" in error
+    assert ".perturbed" in error
+
+
+def fold_open_slot(key: tuple[str, ...]) -> int | None:
+    """The crate's `fold::open_slot`: the first right slot that is `#NA` after a letter."""
+    return next(
+        (
+            slot
+            for slot in range(2, 6)
+            if key[slot] == "#NA" and (slot == 2 or key[slot - 1] not in table.BOUNDARYISH)
+        ),
+        None,
+    )
 
 
 def test_the_kernel_interface_refuses_a_missing_enumeration(spec, built, tmp_path):

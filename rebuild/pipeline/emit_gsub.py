@@ -666,13 +666,22 @@ def emitted_order_tsv(spec: ResolvedSpec, tables_by_config: Mapping) -> str:
 
 
 def emitted_context_tsv(spec: ResolvedSpec, config, decision) -> str:
-    """The label context of one configuration for the crate's `replay-emitted` subcommand (`shipped_order::read_context`). It has a `rename` record for each raw label that the marker renaming changes under this configuration (`model.raw_rename_map`, the map `_fold_rules` uses), and a `class` record for each deep class in the table's rows, with its members as raw labels."""
-    lines = [
-        f"rename\t{raw}\t{copy}"
-        for raw, copy in sorted(raw_rename_map(spec, _config_features(config)).items())
-    ]
+    """The label context of one configuration for the crate's `replay-emitted` subcommand (`shipped_order::read_context`). It has a `rename` record for each raw label that the marker renaming changes under this configuration (`model.raw_rename_map`, the map `_fold_rules` uses), a `class` record for each deep class in the table's rows, with its members as raw labels, and a `foreign` record for each label the shipped lookup can name that this configuration's stream never carries: for every rune with unlock rows, the bare rune and each of its marker copies (`marker_states`) that stands for another subset of its unlock features than the configuration sets, with each one's locked copy. The walk never reads a foreign label as a continuation of an open slot, and refuses a row that carries one. The list depends on the configuration alone, not on which configurations a build folds."""
+    features = _config_features(config)
+    lines = [f"rename\t{raw}\t{copy}" for raw, copy in sorted(raw_rename_map(spec, features).items())]
     for token, members in sorted(getattr(decision, "deep_classes", {}).items()):
         lines.append(f"class\t{token}\t{' '.join(members)}")
+    foreign: set[str] = set()
+    for rune_name, rune in spec.runes.items():
+        relevant = relevant_marker_features(rune)
+        if not relevant:
+            continue
+        own = frozenset(relevant) & features
+        states = {rune_name: frozenset(), **marker_states(rune_name, relevant)}
+        for glyph, state in states.items():
+            if state != own:
+                foreign |= {glyph, locked_glyph_name(glyph)}
+    lines.extend(f"foreign\t{label}" for label in sorted(foreign))
     return "".join(f"{line}\n" for line in lines)
 
 

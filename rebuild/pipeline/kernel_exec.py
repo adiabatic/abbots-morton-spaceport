@@ -547,6 +547,10 @@ class EmittedOrderDisagreement(KernelRunError):
     """`replay-emitted` found a row the shipped settlement order settles differently from its configuration's table. The message is the crate's, naming the configuration, the row, the emitted rule that fired and the table's own rule. A separate class lets a build tell this finding from a kernel interface failure."""
 
 
+EMITTED_COUNTS = ("rows", "checked_per_member", "open_rows", "continued")
+"""The counts the crate's `replay-emitted` answer line carries beside the configuration, in the order it writes them."""
+
+
 def replay_emitted(
     windows: Path,
     *,
@@ -556,7 +560,7 @@ def replay_emitted(
     context: Path,
     timings: bool = False,
 ) -> dict[str, int]:
-    """Walk one configuration's packed window enumeration against the shipped settlement order with the crate's `replay-emitted` subcommand (`rebuild/kernel-rs/src/shipped_order.rs`). Returns `{rows, checked_per_member}` on a clean walk, where `checked_per_member` counts the rows tried member by member because an emitted lookahead class contained their deep class only in part. `windows` is the `.gz` the build packed (`table.windows_path`). It is decompressed here and streamed to the subcommand's standard input, because the crate reads the plain payload and has no decompressor. `table` is the configuration's settlement TSV, `order` the file `emit_gsub.emitted_order_tsv` writes, and `context` the one `emit_gsub.emitted_context_tsv` writes. A disagreement raises `EmittedOrderDisagreement` with the crate's message; every other failure raises `KernelRunError`."""
+    """Walk one configuration's packed window enumeration against the shipped settlement order with the crate's `replay-emitted` subcommand (`rebuild/kernel-rs/src/shipped_order.rs`). Returns `{rows, checked_per_member, open_rows, continued}` on a clean walk, where `checked_per_member` counts the rows tried member by member because an emitted lookahead class contained their deep class only in part, `open_rows` the rows whose key leaves a slot open after a letter (every continuation of which the walk checks), and `continued` those whose continuations it searched because their deciding rule constrains the open slot or a later one. `windows` is the `.gz` the build packed (`table.windows_path`). It is decompressed here and streamed to the subcommand's standard input, because the crate reads the plain payload and has no decompressor. `table` is the configuration's settlement TSV, `order` the file `emit_gsub.emitted_order_tsv` writes, and `context` the one `emit_gsub.emitted_context_tsv` writes. A disagreement raises `EmittedOrderDisagreement` with the crate's message; every other failure raises `KernelRunError`."""
     ensure_built()
     arguments = [
         str(BINARY),
@@ -629,13 +633,13 @@ def replay_emitted(
         raise KernelRunError(f"the kernel's replay-emitted answer is not one JSON line: {error}") from None
     if (
         not isinstance(answer, dict)
-        or set(answer) != {"config", "rows", "checked_per_member"}
+        or set(answer) != {"config", *EMITTED_COUNTS}
         or answer["config"] != config
     ):
         raise KernelRunError(
-            f"replay-emitted answered {answer!r} where a {{config: {config!r}, rows, checked_per_member}} line was asked for"
+            f"replay-emitted answered {answer!r} where a {{config: {config!r}, {', '.join(EMITTED_COUNTS)}}} line was asked for"
         )
-    return {key: int(answer[key]) for key in ("rows", "checked_per_member")}
+    return {key: int(answer[key]) for key in EMITTED_COUNTS}
 
 
 def _forward_stderr(

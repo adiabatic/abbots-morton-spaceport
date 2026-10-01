@@ -42,6 +42,11 @@ pub fn boundaryish(label: &str) -> bool {
     )
 }
 
+/// The first right slot (2 to 5 in key order) a key leaves open after a letter, where `#NA` stands for every label; `None` when the key carries every slot up to a boundary or its end. A `#NA` after a boundary stands for nothing, since no window reads past a boundary.
+pub fn open_slot(key: &[&str; 6]) -> Option<usize> {
+    (2..=5).find(|&slot| key[slot] == NA_LABEL && (slot == 2 || !boundaryish(key[slot - 1])))
+}
+
 /// One ordered settlement rule, `table.Rule`: the input it rewrites, the four lookahead slots and the backtrack slot as positive classes or `None` for "unconstrained", the outcome, the authored pointers that produced it, and the section 6.1 joint flag.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Rule {
@@ -1418,6 +1423,23 @@ mod tests {
         follower_prefer_slots: true,
         deep_classes: true,
     };
+
+    #[test]
+    fn an_open_slot_follows_a_letter_and_never_a_boundary() {
+        assert_eq!(
+            open_slot(&["qsSee", "L", "qsAt", "qsMay", "#NA", "#NA"]),
+            Some(4)
+        );
+        assert_eq!(
+            open_slot(&["qsSee", "L", "#EDGE", "#NA", "#NA", "#NA"]),
+            None
+        );
+        assert_eq!(
+            open_slot(&["qsSee", "L", "qsAt", "space", "#NA", "#NA"]),
+            None
+        );
+        assert_eq!(open_slot(&["qsSee", "L", "a", "b", "c", "d"]), None);
+    }
 
     /// The mini fixture's fixpoint and the tables it folds into.
     fn built() -> (SpecIndex, FixpointProduct, Folded) {

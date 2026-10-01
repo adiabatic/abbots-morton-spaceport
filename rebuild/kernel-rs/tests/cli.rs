@@ -664,7 +664,7 @@ fn a_table_build_without_a_stamp_is_a_usage_error() {
     }
 }
 
-/// `replay-emitted` through the binary. Given as its order a table's own settlement TSV, with the marker renames the context file declares applied, it accounts for every row of the table's enumeration, whether the windows come from a file or from stdin. A context file with a line that is neither a `rename` nor a `class` record exits 1 naming the file. A command line missing one of the three files, or with a mode flag, exits 2.
+/// `replay-emitted` through the binary. Given as its order a table's own settlement TSV, with the marker renames the context file declares applied, it accounts for every row of the table's enumeration, whether the windows come from a file or from stdin. The answer counts the rows that leave a slot open after a letter, none of which needs the continuation search. A context file with a line that is not a `rename`, `class`, or `foreign` record exits 1 naming the file. A command line missing one of the three files, or with a mode flag, exits 2.
 #[test]
 fn a_shipped_order_walk_answers_a_tables_rows_from_a_file_or_stdin() {
     let root = scratch("cli-emitted");
@@ -739,10 +739,15 @@ fn a_shipped_order_walk_answers_a_tables_rows_from_a_file_or_stdin() {
     ]);
     assert!(output.status.success(), "{}", stderr_of(&output));
     assert!(output.stderr.is_empty(), "a clean walk says nothing");
-    assert_eq!(
-        String::from_utf8_lossy(&output.stdout),
-        format!("{{\"config\":\"ss03\",\"rows\":{rows},\"checked_per_member\":0}}\n")
-    );
+    let answer = String::from_utf8_lossy(&output.stdout);
+    let open_rows: u64 = answer
+        .strip_prefix(&format!(
+            "{{\"config\":\"ss03\",\"rows\":{rows},\"checked_per_member\":0,\"open_rows\":"
+        ))
+        .and_then(|rest| rest.strip_suffix(",\"continued\":0}\n"))
+        .and_then(|count| count.parse().ok())
+        .unwrap_or_else(|| panic!("an answer line with no continuation searched: {answer}"));
+    assert!(open_rows > 0, "{answer}");
 
     let piped = std::process::Command::new(KERNEL)
         .args([

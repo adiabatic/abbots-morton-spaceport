@@ -264,7 +264,7 @@ impl Labels {
         self.ids.get(text).copied()
     }
 
-    fn len(&self) -> usize {
+    pub(crate) fn len(&self) -> usize {
         self.texts.len()
     }
 

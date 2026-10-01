@@ -15,7 +15,7 @@ use std::collections::BTreeMap;
 use std::rc::Rc;
 
 use crate::certificate::{self, RowChains};
-use crate::fold::{LabelRows, NA_LABEL, Rule, boundaryish};
+use crate::fold::{LabelRows, NA_LABEL, Rule, boundaryish, open_slot};
 use crate::hash::{HashMap, HashSet};
 use crate::index::SpecIndex;
 use crate::model::Sym;
@@ -328,11 +328,6 @@ impl ImportedRow {
     pub fn key_text(&self) -> [&str; 6] {
         self.key.each_ref().map(|label| &**label)
     }
-}
-
-/// The first right slot (2 to 5 in key order) a key leaves open after a letter, where `#NA` stands for every label; `None` when the key carries every slot up to a boundary or its end. A `#NA` after a boundary stands for nothing, since no window reads past a boundary.
-pub fn open_slot(key: &[&str; 6]) -> Option<usize> {
-    (2..=5).find(|&slot| key[slot] == NA_LABEL && (slot == 2 || !boundaryish(key[slot - 1])))
 }
 
 /// Whether two keys with the same input and left describe a common window: they agree on every slot both carry, up to the first slot either leaves open.
@@ -1091,23 +1086,6 @@ fn check_boundary_lefts(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn an_open_slot_follows_a_letter_and_never_a_boundary() {
-        assert_eq!(
-            open_slot(&["qsSee", "L", "qsAt", "qsMay", "#NA", "#NA"]),
-            Some(4)
-        );
-        assert_eq!(
-            open_slot(&["qsSee", "L", "#EDGE", "#NA", "#NA", "#NA"]),
-            None
-        );
-        assert_eq!(
-            open_slot(&["qsSee", "L", "qsAt", "space", "#NA", "#NA"]),
-            None
-        );
-        assert_eq!(open_slot(&["qsSee", "L", "a", "b", "c", "d"]), None);
-    }
 
     #[test]
     fn keys_overlap_through_an_open_slot_and_not_past_a_difference() {
