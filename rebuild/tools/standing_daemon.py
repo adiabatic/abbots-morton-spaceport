@@ -30,11 +30,9 @@ sys.path.insert(0, str(ROOT))
 
 from rebuild.pipeline import fingerprint  # noqa: E402
 from rebuild.review.unit_index import iter_human_units  # noqa: E402
-from rebuild.tools import memory_budget, peak_rss, standing_client  # noqa: E402
+from rebuild.tools import peak_rss, standing_client  # noqa: E402
 from rebuild.tools.review_queue import CORPUS  # noqa: E402
 
-# Peak memory budget for the daemon process. It covers the held human index records (`iter_human_units` projected onto `UNIT_FIELDS`, sharing repeated values within the read and keeping no set of all corpus ids), the comparator over the font pair, transient allocations while loading, allocator retention, and one whole-domain request's evaluation. It is the process's peak, which is larger than its idle resident set. The figure comes from the `peak rss` line the daemon prints at exit: 1.52 GB on the 32 GiB machine in doc/fleet.md, after a probe and a whole-domain dry run with no memo at the cycle-derived refill width, then rounded up to leave at least 25% headroom. That line measures the daemon process only; STANDING_FILL_WORKER_BYTES budgets the refill workers separately. `serve` prints `describe_fit(…, cap=1)` once, and the width of one is enforced by refusing to start beside a live daemon. No cycle width is computed from this constant or subtracts it: `corpus_job_budget` and `kernel_threads_budget` assume no daemon is running, so stop the daemon before a cycle pass. The daemon also exits by itself once its corpus is rebuilt. Re-measure the figure as the corpus grows, as with CORPUS_PARENT_BYTES. The corpus-holding cap in the dont-bug-me-about-this-ever-again skill uses the same figure.
-STANDING_DAEMON_BYTES = 2_000_000_000
 IDLE_CHECK_SECONDS = 30
 REQUEST_READ_SECONDS = 30
 STOP_WAIT_SECONDS = 15
@@ -229,7 +227,6 @@ def _serve_locked(corpus: pathlib.Path, socket_path: pathlib.Path, lock: int) ->
     served = 0
     since = time.strftime("%Y-%m-%dT%H:%M:%S")
     try:
-        print(f"standing daemon: {memory_budget.describe_fit(STANDING_DAEMON_BYTES, cap=1)}", flush=True)
         from rebuild.tools import standing_probe, standing_verdicts
 
         corpus = pathlib.Path(corpus).resolve()
