@@ -1031,6 +1031,26 @@ pub(crate) fn resident_kb() -> u64 {
         .unwrap_or(0)
 }
 
+/// The bytes this process's malloc zones hold allocated, the `All zones: <n> nodes (<bytes> bytes)` line of macOS's `/usr/bin/heap`, or `0` where the tool is missing or gives no such line. Unlike the resident size and the physical footprint, it leaves out what the allocator still holds of freed large allocations, which it returns to the system at a time of its own choosing, so it does not depend on when that happens. It shells out for the reason [`resident_kb`] does.
+pub(crate) fn heap_bytes() -> u64 {
+    let pid = std::process::id();
+    std::process::Command::new("/usr/bin/heap")
+        .args(["-q", &pid.to_string()])
+        .output()
+        .ok()
+        .and_then(|out| String::from_utf8(out.stdout).ok())
+        .and_then(|text| {
+            text.lines().find_map(|line| {
+                line.trim()
+                    .strip_prefix("All zones:")
+                    .and_then(|rest| rest.split_once('('))
+                    .and_then(|(_, bytes)| bytes.strip_suffix(" bytes)"))
+                    .and_then(|bytes| bytes.parse::<u64>().ok())
+            })
+        })
+        .unwrap_or(0)
+}
+
 /// One token as a slot restriction's allowed-set.
 fn singleton(token: RightToken) -> Allowed {
     Rc::new(BTreeSet::from([token]))

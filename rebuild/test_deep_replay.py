@@ -13,6 +13,7 @@ RUNES = {"qsPea": "p1", "qsTea": "t1", "qsIt": "i1"}
 MACHINE_48_GIB = 51_539_607_552
 MACHINE_32_GIB = 34_359_738_368
 JOURNAL: list = []
+IMPORTS = {"digest": "imports-1"}
 
 
 class Spec:
@@ -21,12 +22,16 @@ class Spec:
 
 @pytest.fixture
 def bench(tmp_path, monkeypatch):
-    """A stub repo root: rune digests come from `RUNES`, the tables stamp counts as current, each rune's closure is itself, `AMS_DEEP_REPLAY_MEMO_WINDOWS` is unset so the walk uses the default ceiling whatever the developer's shell sets, and every record is redirected into tmp_path."""
+    """A stub repo root: rune digests come from `RUNES`, the tables stamp counts as current, the tables' imported windows hash to `IMPORTS["digest"]`, each rune's closure is itself, `AMS_DEEP_REPLAY_MEMO_WINDOWS` is unset so the walk uses the default ceiling whatever the developer's shell sets, and every record is redirected into tmp_path."""
     store = tmp_path / "rebuild" / "out" / "deep-replay-green.json"
     monkeypatch.delenv("AMS_DEEP_REPLAY_MEMO_WINDOWS", raising=False)
     monkeypatch.setattr(deep_replay, "ROOT", tmp_path)
     monkeypatch.setattr(cycle_paths, "DEEP_REPLAY_GREEN", store)
     monkeypatch.setattr(deep_replay, "tables_stamped", lambda: True)
+    IMPORTS["digest"] = "imports-1"
+    monkeypatch.setattr(deep_replay, "tables_imports_digest", lambda root=None: IMPORTS["digest"])
+    monkeypatch.setattr(ac, "tables_imports_digest", lambda root=None: IMPORTS["digest"])
+    monkeypatch.setattr(deep_sweep, "tables_imports_digest", lambda root=None: IMPORTS["digest"])
     JOURNAL.clear()
     monkeypatch.setattr(
         deep_replay, "record_check", lambda result, **kw: JOURNAL.append((result.outcome, kw.get("argv")))
@@ -101,7 +106,11 @@ def test_a_rune_edit_walks_the_moved_runes_and_their_readers(bench, monkeypatch)
     walked: list = []
     _stub_walk(monkeypatch, walked)
     ac.record_deep_replay_green(
-        dict(RUNES), 5, "structure-1", path=bench / "rebuild" / "out" / "deep-replay-green.json"
+        dict(RUNES),
+        5,
+        "structure-1",
+        path=bench / "rebuild" / "out" / "deep-replay-green.json",
+        imports="imports-1",
     )
     assert deep_replay.main(["--threads", "1"]) == 0
     assert walked == []
@@ -139,7 +148,7 @@ def test_a_disagreement_records_nothing(bench, monkeypatch, capsys):
 def test_a_disagreement_withdraws_the_walked_runes_from_a_green_record(bench, monkeypatch):
     """A red walk over runes the record holds green at their current digests withdraws those runes, so the status reports them due and a bare walk covers them again, while the record keeps the runes the walk did not cover. A red `--all` walk deletes the record."""
     path = bench / "rebuild" / "out" / "deep-replay-green.json"
-    ac.record_deep_replay_green(dict(RUNES), 5, "structure-1", path=path)
+    ac.record_deep_replay_green(dict(RUNES), 5, "structure-1", path=path, imports="imports-1")
     _stub_walk(monkeypatch, disagree="replay disagreement at position 1 of qsPea qsIt")
     assert deep_replay.main(["--families", "qsPea", "--threads", "1"]) == 1
     record = ac.read_green_record(path)
@@ -162,7 +171,7 @@ def test_a_disagreement_withdraws_the_walked_runes_from_a_green_record(bench, mo
 def test_a_disagreeing_bare_walk_withdraws_the_moved_runes_and_their_readers(bench, monkeypatch):
     """A red walk whose runes come from the record withdraws every rune it walked, including a reader whose own digest has not changed, and keeps the rest of the record, so the status names the reader due instead of reporting "nothing moved"."""
     path = bench / "rebuild" / "out" / "deep-replay-green.json"
-    ac.record_deep_replay_green(dict(RUNES), 5, "structure-1", path=path)
+    ac.record_deep_replay_green(dict(RUNES), 5, "structure-1", path=path, imports="imports-1")
     moved = {**RUNES, "qsPea": "p2"}
     monkeypatch.setattr(deep_replay.fingerprint, "rune_digests", lambda root: dict(moved))
     monkeypatch.setattr(
@@ -227,7 +236,7 @@ def test_a_family_walk_deeper_than_the_record_stays_at_the_depth_its_carried_run
 ):
     """A family walk deeper than the record carries the runes it did not walk at the depth they were walked to, so the record stays at that depth, the status at the walk's depth is due and names the bare walk at that depth, which walks every text, and the green line says where the record stays. An `--all` walk at that depth raises it too."""
     path = bench / "rebuild" / "out" / "deep-replay-green.json"
-    ac.record_deep_replay_green(dict(RUNES), 5, "structure-1", path=path)
+    ac.record_deep_replay_green(dict(RUNES), 5, "structure-1", path=path, imports="imports-1")
     _stub_walk(monkeypatch)
     assert deep_replay.main(["--families", "qsTea", "--max-length", "6", "--threads", "1"]) == 0
     record = ac.read_green_record(path)
@@ -245,7 +254,7 @@ def test_a_family_walk_deeper_than_the_record_stays_at_the_depth_its_carried_run
 def test_a_bare_walk_deeper_than_the_record_walks_every_text_and_raises_it(bench, monkeypatch, capsys):
     """A bare walk deeper than the record walks every text although nothing moved, says why, and records every rune at its depth, after which a bare walk at or below that depth finds nothing moved. A red one deletes the record, as a red `--all` walk does."""
     path = bench / "rebuild" / "out" / "deep-replay-green.json"
-    ac.record_deep_replay_green(dict(RUNES), 5, "structure-1", path=path)
+    ac.record_deep_replay_green(dict(RUNES), 5, "structure-1", path=path, imports="imports-1")
     walked: list = []
     _stub_walk(monkeypatch, walked)
     assert deep_replay.main(["--max-length", "6", "--threads", "1"]) == 0
@@ -264,7 +273,7 @@ def test_a_bare_walk_deeper_than_the_record_walks_every_text_and_raises_it(bench
 def test_a_bare_walk_deeper_than_the_record_walks_every_text_when_runes_moved(bench, monkeypatch, capsys):
     """With a rune moved, a bare walk deeper than the record walks every text rather than the moved runes' texts, and records every rune at its depth. A record without a maximum length counts as shallower than any walk."""
     path = bench / "rebuild" / "out" / "deep-replay-green.json"
-    ac.record_deep_replay_green(dict(RUNES), 5, "structure-1", path=path)
+    ac.record_deep_replay_green(dict(RUNES), 5, "structure-1", path=path, imports="imports-1")
     moved = {**RUNES, "qsPea": "p2"}
     monkeypatch.setattr(deep_replay.fingerprint, "rune_digests", lambda root: dict(moved))
     walked: list = []
@@ -285,7 +294,7 @@ def test_a_shallower_walk_or_sweep_over_unchanged_runes_keeps_a_deeper_record(be
     """A walk or a deep sweep's refresh shallower than the record keeps the recorded depth when every rune it covers has the digest and structure stamp the record holds, and the green line says so. A changed rune or structure stamp records the shallower depth, since the deeper walk never settled what changed."""
     path = bench / "rebuild" / "out" / "deep-replay-green.json"
     monkeypatch.setattr("rebuild.pipeline.spec_load.load_default_spec", lambda: Spec())
-    ac.record_deep_replay_green(dict(RUNES), 6, "structure-1", path=path)
+    ac.record_deep_replay_green(dict(RUNES), 6, "structure-1", path=path, imports="imports-1")
     _stub_walk(monkeypatch)
     assert deep_replay.main(["--all", "--threads", "1"]) == 0
     assert ac.deep_replay_status(bench, 6) == ("current", "maximum length 6")
@@ -294,7 +303,7 @@ def test_a_shallower_walk_or_sweep_over_unchanged_runes_keeps_a_deeper_record(be
     )
     assert deep_sweep.refresh_deep_replay(5, dict(RUNES)) == 6
     assert deep_sweep.refresh_deep_replay(5, {**RUNES, "qsIt": "i2"}) == 5
-    ac.record_deep_replay_green(dict(RUNES), 6, "structure-1", path=path)
+    ac.record_deep_replay_green(dict(RUNES), 6, "structure-1", path=path, imports="imports-1")
     monkeypatch.setattr(deep_replay.run_m1, "replay_structure_stamp", lambda spec: "structure-2")
     assert deep_replay.main(["--all", "--threads", "1"]) == 0
     assert ac.deep_replay_status(bench, 6)[0] == "due"
@@ -303,7 +312,11 @@ def test_a_shallower_walk_or_sweep_over_unchanged_runes_keeps_a_deeper_record(be
 def test_a_deeper_record_is_current_and_a_shallower_one_is_due(bench, monkeypatch):
     """A record at or past the depth asked about is current. A due status names the bare walk at the depth asked about, which clears it whether or not the record reaches that depth, since a bare walk past the record's depth walks every text."""
     ac.record_deep_replay_green(
-        dict(RUNES), 6, "structure-1", path=bench / "rebuild" / "out" / "deep-replay-green.json"
+        dict(RUNES),
+        6,
+        "structure-1",
+        path=bench / "rebuild" / "out" / "deep-replay-green.json",
+        imports="imports-1",
     )
     monkeypatch.setattr("rebuild.pipeline.fingerprint.rune_digests", lambda root: dict(RUNES))
     assert ac.deep_replay_status(bench, 5) == ("current", "maximum length 6")
@@ -313,6 +326,28 @@ def test_a_deeper_record_is_current_and_a_shallower_one_is_due(bench, monkeypatc
     assert ac.deep_replay_status(bench, 5)[1].endswith("run `make replay-deep`")
     assert ac.deep_replay_status(bench, 6)[1].endswith("run `make replay-deep ARGS='--max-length 6'`")
     assert ac.deep_replay_status(bench, 7)[1].endswith("run `make replay-deep ARGS='--max-length 7'`")
+
+
+def test_moved_imported_windows_walk_every_text(bench, monkeypatch, capsys):
+    """Each configuration's table takes in the windows the others keep live, so a rune edit can reshape a configuration's rules for texts that name no edited rune (`run_m1.imports_digest`). When the tables' imported windows differ from the record's, the status is due though no rune moved, a bare walk covers every text and records the new windows, and a family walk keeps no claim the record made for another rune."""
+    walked: list = []
+    _stub_walk(monkeypatch, walked)
+    path = bench / "rebuild" / "out" / "deep-replay-green.json"
+    ac.record_deep_replay_green(dict(RUNES), 5, "structure-1", path=path, imports="imports-1")
+    assert ac.deep_replay_status(bench, 5)[0] == "current"
+    IMPORTS["digest"] = "imports-2"
+    status, note = ac.deep_replay_status(bench, 5)
+    assert status == "due" and "import" in note and note.endswith("which walks every text")
+    assert deep_replay.main(["--families", "qsTea", "--threads", "1"]) == 0
+    record = ac.read_green_record(path)
+    assert record is not None and record["files"] == {"qsTea": "t1"} and record["imports"] == "imports-2"
+    ac.record_deep_replay_green(dict(RUNES), 5, "structure-1", path=path, imports="imports-1")
+    assert deep_replay.main(["--threads", "1"]) == 0
+    assert walked[-1] == (5, None, 1)
+    assert "covers every text" in capsys.readouterr().out
+    record = ac.read_green_record(path)
+    assert record is not None and record["files"] == RUNES and record["imports"] == "imports-2"
+    assert ac.deep_replay_status(bench, 5) == ("current", "maximum length 5")
 
 
 def test_the_width_is_the_machines_memory_or_the_stated_knob(monkeypatch):
@@ -357,7 +392,9 @@ def test_a_green_deep_sweep_refreshes_the_replays_record(tmp_path, monkeypatch):
     )
     monkeypatch.setattr(deep_sweep.run_m1, "replay_structure_stamp", lambda spec: "structure-1")
     monkeypatch.setattr("rebuild.pipeline.spec_load.load_default_spec", lambda: Spec())
+    monkeypatch.setattr(deep_sweep, "tables_imports_digest", lambda root=None: "imports-1")
     deep_sweep.refresh_deep_replay(6, dict(RUNES))
     record = ac.read_green_record(tmp_path / "rebuild" / "out" / "deep-replay-green.json")
     assert record is not None and record["files"] == RUNES and record["max_length"] == 6
     assert record["structure"] == "structure-1"
+    assert record["imports"] == "imports-1"

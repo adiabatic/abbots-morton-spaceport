@@ -363,6 +363,19 @@ def locked_glyph_name(raw_name: str) -> str:
     return f"{raw_name}.noentry"
 
 
+MARKER_TAG_SEPARATOR = "@"
+
+
+def marker_tag_name(label: str) -> str | None:
+    """Returns the glyph a marker tag names, or None when `label` is not a tag. A configuration's table names a raw label that another configuration spells differently, which the crate imports from that configuration (`rebuild/kernel-rs/src/crossconfig.rs`), as a tag: the rune or its locked copy, `MARKER_TAG_SEPARATOR`, then the features that configuration sets for the rune joined by `_`. `qsTea@` names the bare rune, `qsTea@ss03_ss05` the marker copy qsTea.ss03_ss05, and `qsTea.noentry@ss03` that copy's locked copy, qsTea.ss03.noentry."""
+    raw, separator, state = label.partition(MARKER_TAG_SEPARATOR)
+    if not separator:
+        return None
+    rune = raw.removesuffix(".noentry")
+    name = marker_glyph_name(rune, state.split("_") if state else ())
+    return locked_glyph_name(name) if raw != rune else name
+
+
 def raw_rename_map(spec: ResolvedSpec | None, features: frozenset[str]) -> dict[str, str]:
     """Returns the marker renaming for a configuration, the map from raw labels to their marker copies: each rune whose unlock rows name an active set maps to its marker copy, and its locked copy maps to the marker's locked copy. The marker lookups rename every occurrence of such a rune before settlement runs, so settlement never sees its bare label. Returns an empty map when `spec` is None."""
     renames: dict[str, str] = {}

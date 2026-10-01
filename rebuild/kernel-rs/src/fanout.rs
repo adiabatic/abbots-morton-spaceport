@@ -1,6 +1,6 @@
 //! Runs settlement configurations: one into a caller's sink, or a named set concurrently into a directory of files. The `enumerate` and `enumerate-configs` subcommands both serialize a configuration through [`run_config`], so a file the fan-out writes cannot differ from what `enumerate` writes to stdout for the same configuration.
 //!
-//! The output does not depend on the thread count. All configurations share one [`SpecIndex`], which has no mutable state. The engine, the window options, the two slot filters, the liveness probe, and the fiber deriver are built inside the fixpoint on each call, so each configuration has its own. The only data shared between configurations are read-only memo snapshots behind an [`Arc`], each read through an exclusion that says which of its windows a reader may use ([`crate::memo`]): `default`'s finished memo, and, when the previous memo directory has one, the previous build's `default` memo. `default`'s enumeration, including its memo file write, finishes before any delta starts. Its fold then runs in one of the wave's worker slots and does not use the memo.
+//! The output does not depend on the thread count. All configurations share one [`SpecIndex`], which has no mutable state. The engine, the window options, the two slot filters, the liveness probe, and the fiber deriver are built inside the fixpoint on each call, so each configuration has its own. Enumerations share only read-only memo snapshots behind an [`Arc`], each read through an exclusion that says which of its windows a reader may use ([`crate::memo`]): `default`'s finished memo, and, when the previous memo directory has one, the previous build's `default` memo. `default`'s enumeration, including its memo file write, finishes before any delta starts. Its fold preparation then runs in one of the wave's worker slots and does not use the memo. A table build's folds also share what [`crate::crossconfig`] exchanges between them, each configuration's published rules and the rows it sends the others, read only at the rendezvous [`run_configs_tables`] describes, so no fold depends on when another finished.
 //!
 //! Parallelism stops at the configuration. A configuration's product depends only on its row set, not on the order the worklist visits windows, because a class-grain row is traced at its fiber's canonical representative. The fixpoint keeps its LIFO worklist order fixed anyway. A configuration's `cited_provenance` is what its one engine fired while tracing its windows. Splitting one configuration's worklist across threads would require the threads to share one engine's memo and fired set to reproduce the sequential result, which would cost what the split was meant to save.
 
@@ -8,11 +8,13 @@ use std::cmp::Reverse;
 use std::collections::BTreeSet;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
 use crate::artifacts;
+use crate::crossconfig::{self, ForeignRow, Imports, SharedRules, Source, SourceRows, Spellings};
 use crate::engine::EngineModes;
 use crate::fixpoint::{self, EnumerationModes, MemoAccess};
 use crate::fold;
@@ -220,7 +222,7 @@ pub fn run_configs(
 
 /// Runs `answer` on every configuration with at most `workers` at once, and returns the results in the order the configurations were listed.
 ///
-/// Each worker claims the next configuration from a shared counter, runs it, and claims again, so one worker walks the list in order and several share it without a plan ([`claim_all_leading`]). Each result carries its configuration's list position and is put back in list order by that position, so the caller's stdout and stderr do not depend on scheduling.
+/// Each worker claims the next configuration from a shared counter, runs it, and claims again, so one worker walks the list in order and several share it without a plan ([`claim_positions`]). Each result carries its configuration's list position and is put back in list order by that position, so the caller's stdout and stderr do not depend on scheduling.
 ///
 /// A `workers` of 0 runs one worker: the count caps concurrency, and walking the list takes at least one. The first failure stops further claims, since the output of a failed run is not usable anyway. The error returned is the one at the earliest list position among the failures that occurred.
 fn claim_all<T: Send>(
@@ -229,45 +231,32 @@ fn claim_all<T: Send>(
     answer: impl Fn(&Configuration<'_>) -> Result<T, String> + Sync,
 ) -> Result<Vec<T>, String> {
     let work: Vec<(usize, &Configuration<'_>)> = configs.iter().enumerate().collect();
-    claim_all_leading(&work, workers, || Ok(()), |config| answer(config))
-        .map(|((), placed)| place_answers(placed, configs.len()))
+    claim_positions(&work, workers, |config| answer(config))
+        .map(|placed| place_answers(placed, configs.len()))
 }
 
-/// [`claim_all`]'s scheduler over any worklist, with one of the `workers` slots taken by `lead`. The other workers are spawned first. Then `lead` runs on the calling thread inside the pool's scope, and afterward that thread joins the claim loop. The pool is therefore `workers` wide including the lead, and the other workers are already claiming while the lead runs.
-///
-/// Each worklist item carries the position its result belongs at, and results come back as `(position, result)` pairs, so a caller can order its worklist by cost and still place every result where it was listed ([`place_answers`] turns the pairs into a list). The first failure stops further claims. The error returned is from the failed item with the earliest carried position, which may differ from the earliest claimed.
-///
-/// `lead` needs no `Send` bound, and neither does its result, which is why this function exists: the table build's enumerated product holds `Rc`s and cannot cross threads, so `default`'s fold has to finish on the thread that enumerated it while the workers claim deltas. A failing lead stops further claims as a failing worker does, and its error takes precedence over any worker's.
-fn claim_all_leading<W: Sync, L, T: Send>(
+/// [`claim_all`]'s scheduler over any worklist, `workers` wide. Each worklist item carries the position its result belongs at, and results come back as `(position, result)` pairs, so a caller can order its worklist by cost and still place every result where it was listed ([`place_answers`] turns the pairs into a list). The first failure stops further claims. The error returned is from the failed item with the earliest carried position, which may differ from the earliest claimed.
+fn claim_positions<W: Sync, T: Send>(
     work: &[(usize, W)],
     workers: usize,
-    lead: impl FnOnce() -> Result<L, String>,
     answer: impl Fn(&W) -> Result<T, String> + Sync,
-) -> Result<(L, Vec<(usize, T)>), String> {
-    let spawned = workers.max(1) - 1;
+) -> Result<Vec<(usize, T)>, String> {
     let next = AtomicUsize::new(0);
     let stop = AtomicBool::new(false);
     let answer = &answer;
-    let (led, claimed) = std::thread::scope(|scope| {
-        let handles: Vec<_> = (0..spawned)
+    let claimed: Vec<_> = std::thread::scope(|scope| {
+        let handles: Vec<_> = (0..workers.max(1))
             .map(|_| scope.spawn(|| claim_items(work, &next, &stop, answer)))
             .collect();
-        let led = lead();
-        let own = if led.is_ok() {
-            claim_items(work, &next, &stop, answer)
-        } else {
-            stop.store(true, Ordering::Relaxed);
-            Ok(Vec::new())
-        };
-        let mut claimed = vec![own];
-        claimed.extend(handles.into_iter().map(|handle| {
-            handle
-                .join()
-                .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
-        }));
-        (led, claimed)
+        handles
+            .into_iter()
+            .map(|handle| {
+                handle
+                    .join()
+                    .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+            })
+            .collect()
     });
-    let led = led?;
     let mut placed: Vec<(usize, T)> = Vec::with_capacity(work.len());
     let mut failure: Option<(usize, String)> = None;
     for outcome in claimed {
@@ -282,7 +271,7 @@ fn claim_all_leading<W: Sync, L, T: Send>(
     }
     match failure {
         Some((_, error)) => Err(error),
-        None => Ok((led, placed)),
+        None => Ok(placed),
     }
 }
 
@@ -298,7 +287,7 @@ fn place_answers<T>(answered: Vec<(usize, T)>, count: usize) -> Vec<T> {
         .collect()
 }
 
-/// One worker's loop: claim the next item, run it, and repeat until the list is exhausted or any worker has failed. Each result is paired with its item's position. A failure sets the stop flag and is returned with its position, which [`claim_all_leading`] compares to pick the earliest.
+/// One worker's loop: claim the next item, run it, and repeat until the list is exhausted or any worker has failed. Each result is paired with its item's position. A failure sets the stop flag and is returned with its position, which [`claim_positions`] compares to pick the earliest.
 fn claim_items<W, T>(
     work: &[(usize, W)],
     next: &AtomicUsize,
@@ -330,7 +319,7 @@ struct DeltaWork<'c> {
 
 /// The wave's worklist: every configuration except the one at `default_position`, each paired with its list position, sorted by unlocking-rune count, largest first, with list position as the tie-break.
 ///
-/// The count estimates how long a delta traces on its own: a delta whose features unlock more runes can use less of `default`'s memo and enumerates more itself. The estimate only has to separate the memo-heavy deltas from the cheap ones. Claiming the heavy ones first ends the wave sooner when the machine runs fewer workers than there are deltas, because a heavy delta claimed last would run alone while the other workers sit idle. Claim order cannot change the output: each delta reads only `default`'s snapshot and the previous build's files, never another delta's output, and each result is placed by its list position.
+/// The count estimates how long a delta traces on its own: a delta whose features unlock more runes can use less of `default`'s memo and enumerates more itself. The estimate only has to separate the memo-heavy deltas from the cheap ones. Starting the heavy ones first ends the wave sooner when the machine runs fewer slots than there are deltas, because a heavy delta started last would run alone while the other slots sit idle. The order cannot change the output: each delta reads only `default`'s snapshot and the previous build's files, never another delta's output, and each result is placed by its list position.
 fn delta_worklist<'c>(
     index: &SpecIndex,
     configs: &'c [Configuration<'c>],
@@ -356,20 +345,22 @@ pub struct TableAnswer {
     pub timed: Vec<String>,
 }
 
-/// Builds every configuration's settlement table, join table, window file, and digest under `outdir`, running at most `workers` at once. Each configuration reads the memos `sharing` allows and writes the memo file `sharing` asks for.
+/// How many exchange rounds a table build allows before it gives up. Each round that does not end the exchange imports at least one window that no configuration held before it, so the bound only catches a fault in the exchange itself.
+const EXCHANGE_ROUNDS: usize = 64;
+
+/// Builds every configuration's settlement table, join table, window file, and digest under `outdir`, running at most `workers` enumerations or folds at once. Each configuration reads the memos `sharing` allows and writes the memo file `sharing` asks for.
 ///
-/// When `default_memo_sharing` is on and the set has the no-feature configuration and at least one other:
+/// Every configuration runs on a thread of its own from its enumeration to its files, because its product and window options hold `Rc`s and cannot cross threads (`EnumeratedTables`). The threads meet on a `Board`, which grants `workers` slots in ticket order and holds the rendezvous of the exchange:
 ///
-/// - `default` enumerates first and alone, keeps its memo, and writes its memo file inside that enumeration, before the wave.
-/// - `default`'s fold then runs in one of the `workers` slots while the deltas run in the others ([`claim_all_leading`]). Each delta reads `default`'s memo behind an exclusion of its own unlocking runes. Wall-clock time is one full enumeration and its memo write, plus one wave. The memo is held once and shared. Because `default`'s memo write finishes before the wave starts, the rows the writer holds for the largest memo are never resident at the same time as a delta at its peak.
-/// - Each delta writes its own memo file at its fixpoint's release point, so it holds no memo through its drain, sort, or fold.
-/// - A delta also reads `default`'s previous memo file behind its unlocking runes, the edited runes, and the moved classes, and reads its own previous file only for the windows that name one of its unlocking runes, which are the windows `default`'s memo cannot answer for it.
-/// - The previous `default` memo stays loaded through the wave, because its unaffected entries answer delta windows without retracing.
-/// - The wave claims deltas in [`delta_worklist`] order. Each result carries its list position, so the results, digests, and `[t]` lines come back in the order the configurations were listed.
+/// - Each configuration enumerates, then prepares its fold ([`fold::Prepared`]), folds its rules from its own rows, and publishes them in canonical labels ([`crossconfig::SharedRules`]), all inside one slot.
+/// - Once every configuration has published, the exchange runs in rounds ([`crossconfig`]). In each, every configuration evaluates every configuration's rules over its own rows, for the inputs any configuration refolded in the last round, and leaves each the rows it answers wrongly where the shipped order lets that answer fire; then every configuration takes in what it was left, refolds the inputs that gained rows, and publishes again. The rounds end when no configuration took in anything. The exchange holds no slot: what a configuration holds through it is its parked product, expansion and row chains, and the evaluation adds little.
+/// - Each configuration then finishes its fold inside a slot: the partition replay over its own and its imported rows, the certificates, the three artifact files, and the digest.
 ///
-/// Otherwise there is no in-process memo to share, and each configuration reads only its own previous file.
+/// When `default_memo_sharing` is on and the set has the no-feature configuration and at least one other, `default` enumerates first and alone on the calling thread, keeps its memo, and writes its memo file inside that enumeration. The calling thread then continues as `default`'s thread, whose preparation takes the first slot, while each delta takes a slot in [`delta_worklist`] order and reads `default`'s memo behind an exclusion of its own unlocking runes. Because `default`'s memo write finishes before any delta starts, the rows the writer holds for the largest memo are never resident at the same time as a delta at its peak. Each delta writes its own memo file at its fixpoint's release point, so it holds no memo through its drain, sort, or fold; `default`'s memo is freed when the last delta has enumerated. A delta also reads `default`'s previous memo file behind its unlocking runes, the edited runes, and the moved classes, and reads its own previous file only for the windows that name one of its unlocking runes, which are the windows `default`'s memo cannot answer for it. Otherwise there is no in-process memo to share, every configuration enumerates from scratch, takes its slot in list order, and reads only its own previous file.
 ///
 /// Every previous memo is loaded without the keys that name edited runes, since those entries cannot answer a lookup or be carried into the written memo. The exclusions still check the remaining entries' reads for edited runes and moved classes at lookup and when writing.
+///
+/// The output does not depend on the width or on which thread finishes first: each step of the exchange reads only what every configuration published before the last rendezvous, a receiver takes its rows in list order of their sources, and results, digests and `[t]` lines are placed by list position. A configuration that fails before the exchange ends halts the board, which releases every thread waiting on it; one that fails while it finishes halts nothing, since no other configuration waits on it then, so every configuration still finishes. The error reported is the earliest-listed configuration's own among those that failed, never a halt.
 ///
 /// Unlike [`run_configs`], this removes nothing from `outdir`: `run_m1.build_tables` writes into the build's artifact directory beside other artifacts, and deleting the tables of configurations the build no longer names is not this function's job.
 #[allow(clippy::too_many_arguments)]
@@ -387,29 +378,62 @@ pub fn run_configs_tables(
     let mode_token = modes.token();
     let edited = Exclusion::of(index, sharing.edited.iter().copied())
         .with_classes(sharing.moved_classes.iter().copied());
+    let spellings = Spellings::new(
+        index,
+        configs
+            .iter()
+            .map(|config| (config.token, config.features.as_slice())),
+    );
+    let board = Board::new(configs.len(), workers.max(1));
+    let run = TableRun {
+        index,
+        outdir,
+        inputs,
+        report,
+        spellings: &spellings,
+        board: &board,
+    };
     let default_position = sharing
         .default_memo_sharing
         .then(|| configs.iter().position(|config| config.features.is_empty()))
         .flatten()
         .filter(|_| configs.len() > 1);
     let Some(default_position) = default_position else {
-        return claim_all(configs, workers, |config| {
-            let previous = load_previous_memo(index, &sharing, config.token, &mode_token, |key| {
-                !edited.names(key)
-            })?;
-            let access = MemoAccess {
-                shared_memos: shared_behind(previous.as_ref(), edited.clone())
-                    .into_iter()
-                    .collect(),
-                keep_memo: false,
-            };
-            let carried = shared_behind(previous.as_ref(), edited.clone())
-                .into_iter()
+        let ended: Vec<(usize, Result<TableAnswer, Stop>)> = std::thread::scope(|scope| {
+            let handles: Vec<_> = configs
+                .iter()
+                .enumerate()
+                .map(|(listed, config)| {
+                    let (run, sharing, edited, mode_token) = (&run, &sharing, &edited, &mode_token);
+                    scope.spawn(move || {
+                        let answer = table_thread(run, listed, config.token, listed, || {
+                            let previous = load_previous_memo(
+                                index,
+                                sharing,
+                                config.token,
+                                mode_token,
+                                |key| !edited.names(key),
+                            )?;
+                            let access = MemoAccess {
+                                shared_memos: shared_behind(previous.as_ref(), edited.clone())
+                                    .into_iter()
+                                    .collect(),
+                                keep_memo: false,
+                            };
+                            let carried = shared_behind(previous.as_ref(), edited.clone())
+                                .into_iter()
+                                .collect();
+                            let file =
+                                memo_file(sharing, outdir, config.token, mode_token, carried);
+                            enumerate_config_tables(index, config, modes, report, access, file)
+                        });
+                        (listed, answer)
+                    })
+                })
                 .collect();
-            let file = memo_file(&sharing, outdir, config.token, &mode_token, carried);
-            run_config_tables(index, config, modes, outdir, inputs, report, access, file)
-                .map_err(|error| format!("{}: {error}", config.token))
+            joined(handles)
         });
+        return settle_ends(ended, configs.len());
     };
     let default = &configs[default_position];
     let previous_default = load_previous_memo(index, &sharing, default.token, &mode_token, |key| {
@@ -445,63 +469,488 @@ pub fn run_configs_tables(
             .expect("a kept memo comes back from a trace-memo enumeration"),
     );
     let rest = delta_worklist(index, configs, default_position);
-    let finish_default = || {
-        finish_config_tables(index, default, outdir, inputs, report, pending)
-            .map_err(|error| format!("{}: {error}", default.token))
-    };
-    let (default_answer, mut answered) =
-        claim_all_leading(&rest, workers, finish_default, |work: &DeltaWork<'_>| {
-            let config = work.config;
-            let unlocking = &work.unlocking;
-            let behind_unlocking = Exclusion::of(index, unlocking.iter().copied());
-            let previous_own =
-                load_previous_memo(index, &sharing, config.token, &mode_token, |key| {
-                    behind_unlocking.names(key) && !edited.names(key)
-                })?;
-            let mut shared = vec![SharedMemo {
-                memo: Arc::clone(&memo),
-                excluded: behind_unlocking,
-            }];
-            shared.extend(shared_behind(
-                previous_default.as_ref(),
-                Exclusion::of(index, unlocking.iter().chain(edited.runes()).copied())
-                    .with_classes(edited.classes().iter().copied()),
-            ));
-            shared.extend(shared_behind(previous_own.as_ref(), edited.clone()));
-            let carried = shared_behind(previous_own.as_ref(), edited.clone())
-                .into_iter()
-                .collect();
-            let file = memo_file(&sharing, outdir, config.token, &mode_token, carried);
-            let access = MemoAccess {
-                shared_memos: shared,
-                keep_memo: false,
-            };
-            run_config_tables(index, config, modes, outdir, inputs, report, access, file)
-                .map_err(|error| format!("{}: {error}", config.token))
-        })?;
-    answered.push((default_position, default_answer));
-    Ok(place_answers(answered, configs.len()))
+    let (run, rest, sharing, edited, mode_token) = (&run, &rest, &sharing, &edited, &mode_token);
+    let ended: Vec<(usize, Result<TableAnswer, Stop>)> = std::thread::scope(move |scope| {
+        let handles: Vec<_> = rest
+            .iter()
+            .enumerate()
+            .map(|(position, (listed, work))| {
+                let memo = Arc::clone(&memo);
+                let previous_default = previous_default.clone();
+                let listed = *listed;
+                scope.spawn(move || {
+                    let config = work.config;
+                    let answer = table_thread(run, listed, config.token, position + 1, || {
+                        let behind_unlocking = Exclusion::of(index, work.unlocking.iter().copied());
+                        let previous_own =
+                            load_previous_memo(index, sharing, config.token, mode_token, |key| {
+                                behind_unlocking.names(key) && !edited.names(key)
+                            })?;
+                        let mut shared = vec![SharedMemo {
+                            memo,
+                            excluded: behind_unlocking,
+                        }];
+                        shared.extend(shared_behind(
+                            previous_default.as_ref(),
+                            Exclusion::of(
+                                index,
+                                work.unlocking.iter().chain(edited.runes()).copied(),
+                            )
+                            .with_classes(edited.classes().iter().copied()),
+                        ));
+                        drop(previous_default);
+                        shared.extend(shared_behind(previous_own.as_ref(), edited.clone()));
+                        let carried = shared_behind(previous_own.as_ref(), edited.clone())
+                            .into_iter()
+                            .collect();
+                        let file = memo_file(sharing, outdir, config.token, mode_token, carried);
+                        let access = MemoAccess {
+                            shared_memos: shared,
+                            keep_memo: false,
+                        };
+                        enumerate_config_tables(index, config, modes, report, access, file)
+                    });
+                    (listed, answer)
+                })
+            })
+            .collect();
+        drop(memo);
+        drop(previous_default);
+        let lead = table_thread(run, default_position, default.token, 0, move || Ok(pending));
+        let mut ended = joined(handles);
+        ended.push((default_position, lead));
+        ended
+    });
+    settle_ends(ended, configs.len())
 }
 
-/// Builds one configuration's tables on the current thread: [`enumerate_config_tables`] then [`finish_config_tables`]. The fixpoint reads what `access` allows and writes `file`, when given, at its release point. The fold over the product builds the rule certificates with the enumeration's own [`WindowOptions`], so the formation guard is swept once. It writes the three artifact files and returns the digest. When asked, the timing lines are `enumerate[<config>]`, `memo[<config>]`, and `fold[<config>]`, after the cache stats' `[c]` lines. The memo-sharing fan-out calls the two halves separately so that `default`'s second half can run alongside the wave.
-#[allow(clippy::too_many_arguments)]
-pub fn run_config_tables(
-    index: &SpecIndex,
-    config: &Configuration<'_>,
-    modes: EnumerationModes,
-    outdir: &Path,
-    inputs: &str,
+/// What every thread of one table build reads: the spec, where to write, the report flags, the build's spellings, and the board.
+struct TableRun<'a> {
+    index: &'a SpecIndex,
+    outdir: &'a Path,
+    inputs: &'a str,
     report: Report,
-    access: MemoAccess,
-    file: Option<MemoFile>,
-) -> Result<TableAnswer, String> {
-    let pending = enumerate_config_tables(index, config, modes, report, access, file)?;
-    finish_config_tables(index, config, outdir, inputs, report, pending)
+    spellings: &'a Spellings,
+    board: &'a Board,
 }
 
-/// One configuration between the two halves of its table build: enumerated, its memo file written, and holding what the fold and the file writes need.
+/// Why a configuration's thread ended without its tables: its own failure, with the message the run reports, or a halt another configuration's failure caused while this thread waited.
+enum Stop {
+    Failed(String),
+    Halted,
+}
+
+/// The slots, the rendezvous and the mailboxes the threads of one table build share ([`run_configs_tables`]).
 ///
-/// It cannot cross threads, because the product's label pool holds `Rc<str>` ([`crate::stream`]) and the window options hold `Rc<FollowerMap>` ([`crate::options`]). That is why the second half runs on the thread that enumerated, and why a caller clones the memo out first: behind its [`Arc`], the memo is the only part of an enumeration that other configurations read. Only a configuration whose memo access set `keep_memo` has a memo here. A delta's memo was written to its file and dropped at the fixpoint's release point.
+/// A slot bounds how many configurations enumerate, prepare or finish at once. A thread asks for its first slot with a ticket, and slots go to tickets in order, so the deltas start heaviest first. The rendezvous holds every thread until all have arrived. Each configuration publishes its rules there with the canonical inputs it refolded last (`None` for every input), and each source leaves each receiver its rows. A halt wakes every waiting thread with [`Stop::Halted`].
+struct Board {
+    state: Mutex<BoardState>,
+    turn: Condvar,
+    count: usize,
+}
+
+/// The canonical inputs a configuration refolded in the last round, shared by every source that re-evaluates them.
+type Refolded = Arc<HashSet<Box<str>>>;
+
+struct BoardState {
+    free: usize,
+    ticket: usize,
+    arrived: usize,
+    generation: u64,
+    halted: bool,
+    published: Vec<Arc<SharedRules>>,
+    refolded: Vec<Option<Refolded>>,
+    mail: Vec<Vec<Vec<ForeignRow>>>,
+}
+
+impl Board {
+    fn new(count: usize, slots: usize) -> Self {
+        Self {
+            state: Mutex::new(BoardState {
+                free: slots,
+                ticket: 0,
+                arrived: 0,
+                generation: 0,
+                halted: false,
+                published: (0..count).map(|_| Arc::default()).collect(),
+                refolded: (0..count).map(|_| None).collect(),
+                mail: (0..count)
+                    .map(|_| (0..count).map(|_| Vec::new()).collect())
+                    .collect(),
+            }),
+            turn: Condvar::new(),
+            count,
+        }
+    }
+
+    fn lock(&self) -> MutexGuard<'_, BoardState> {
+        self.state.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn wait<'s>(&self, state: MutexGuard<'s, BoardState>) -> MutexGuard<'s, BoardState> {
+        self.turn
+            .wait(state)
+            .unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Waits for the slot that ticket `ticket` is due.
+    fn take_turn(&self, ticket: usize) -> Result<(), Stop> {
+        let mut state = self.lock();
+        loop {
+            if state.halted {
+                return Err(Stop::Halted);
+            }
+            if state.ticket == ticket && state.free > 0 {
+                state.free -= 1;
+                state.ticket += 1;
+                self.turn.notify_all();
+                return Ok(());
+            }
+            state = self.wait(state);
+        }
+    }
+
+    /// Waits for any free slot.
+    fn take_slot(&self) -> Result<(), Stop> {
+        let mut state = self.lock();
+        loop {
+            if state.halted {
+                return Err(Stop::Halted);
+            }
+            if state.free > 0 {
+                state.free -= 1;
+                return Ok(());
+            }
+            state = self.wait(state);
+        }
+    }
+
+    fn give_slot(&self) {
+        self.lock().free += 1;
+        self.turn.notify_all();
+    }
+
+    /// Waits until every configuration has arrived.
+    fn meet(&self) -> Result<(), Stop> {
+        let mut state = self.lock();
+        if state.halted {
+            return Err(Stop::Halted);
+        }
+        state.arrived += 1;
+        let generation = state.generation;
+        if state.arrived == self.count {
+            state.arrived = 0;
+            state.generation += 1;
+            self.turn.notify_all();
+            return Ok(());
+        }
+        while state.generation == generation {
+            if state.halted {
+                return Err(Stop::Halted);
+            }
+            state = self.wait(state);
+        }
+        Ok(())
+    }
+
+    fn halt(&self) {
+        self.lock().halted = true;
+        self.turn.notify_all();
+    }
+
+    fn publish(
+        &self,
+        config: usize,
+        rules: Option<SharedRules>,
+        refolded: Option<HashSet<Box<str>>>,
+    ) {
+        let mut state = self.lock();
+        if let Some(rules) = rules {
+            state.published[config] = Arc::new(rules);
+        }
+        state.refolded[config] = refolded.map(Arc::new);
+    }
+
+    fn rules_of(&self, config: usize) -> (Arc<SharedRules>, Option<Refolded>) {
+        let state = self.lock();
+        (
+            Arc::clone(&state.published[config]),
+            state.refolded[config].clone(),
+        )
+    }
+
+    fn deliver(&self, receiver: usize, source: usize, rows: Vec<ForeignRow>) {
+        self.lock().mail[receiver][source] = rows;
+    }
+
+    fn collect(&self, receiver: usize) -> Vec<Vec<ForeignRow>> {
+        self.lock().mail[receiver]
+            .iter_mut()
+            .map(std::mem::take)
+            .collect()
+    }
+
+    /// Whether the last round refolded nothing anywhere.
+    fn settled(&self) -> bool {
+        self.lock()
+            .refolded
+            .iter()
+            .all(|refolded| refolded.as_ref().is_some_and(|inputs| inputs.is_empty()))
+    }
+}
+
+/// Halts the board when a configuration's thread ends without disarming it, by an error or by a panic, so no other thread waits on it for ever.
+struct Watch<'b> {
+    board: &'b Board,
+    armed: bool,
+}
+
+impl Drop for Watch<'_> {
+    fn drop(&mut self) {
+        if self.armed {
+            self.board.halt();
+        }
+    }
+}
+
+/// Joins the threads, resuming the first panic once every thread has ended.
+fn joined<T>(handles: Vec<std::thread::ScopedJoinHandle<'_, T>>) -> Vec<T> {
+    let mut ended: Vec<T> = Vec::with_capacity(handles.len());
+    let mut panicked = None;
+    for handle in handles {
+        match handle.join() {
+            Ok(value) => ended.push(value),
+            Err(panic) => {
+                panicked.get_or_insert(panic);
+            }
+        }
+    }
+    if let Some(panic) = panicked {
+        std::panic::resume_unwind(panic);
+    }
+    ended
+}
+
+/// The run's answer from every thread's end: the earliest-listed configuration's own failure when there is one, and otherwise every configuration's tables in list order.
+fn settle_ends(
+    ended: Vec<(usize, Result<TableAnswer, Stop>)>,
+    count: usize,
+) -> Result<Vec<TableAnswer>, String> {
+    let mut answered: Vec<(usize, TableAnswer)> = Vec::with_capacity(count);
+    let mut failure: Option<(usize, String)> = None;
+    let mut halted = false;
+    for (listed, end) in ended {
+        match end {
+            Ok(answer) => answered.push((listed, answer)),
+            Err(Stop::Failed(error)) => {
+                if failure.as_ref().is_none_or(|(worst, _)| listed < *worst) {
+                    failure = Some((listed, error));
+                }
+            }
+            Err(Stop::Halted) => halted = true,
+        }
+    }
+    match failure {
+        Some((_, error)) => Err(error),
+        None if halted => Err("the table build halted without a failure to report".to_owned()),
+        None => Ok(place_answers(answered, count)),
+    }
+}
+
+/// One configuration's table build on its own thread, from its enumeration to its files, as [`run_configs_tables`] describes. `enumerate` runs inside the slot `ticket` is due. When asked, the timing lines are the enumeration's `enumerate[<config>]` and `memo[<config>]` after the cache stats' `[c]` lines, then `fold.prefixes[<config>]`, then, with the cache stats, `[c] <config> resident_parked`, the process's resident size once every configuration has parked its prepared product and before the exchange's first round, and on the first-listed configuration's thread `[c] <config> parked_heap`, the bytes the process's malloc zones hold allocated at that point ([`crate::fixpoint::heap_bytes`]), which every other thread waits for before the exchange starts and which `kernel_exec.PARKED_FOLD_BYTES` is set from, then `fold.exchange[<config>]` (the time this configuration spent evaluating, taking in and refolding, without the waits), and `fold.partition[<config>]` at millisecond precision, then `fold[<config>]`, which covers the preparation and the finish.
+fn table_thread<'a>(
+    run: &TableRun<'a>,
+    listed: usize,
+    token: &str,
+    ticket: usize,
+    enumerate: impl FnOnce() -> Result<EnumeratedTables<'a>, String>,
+) -> Result<TableAnswer, Stop> {
+    let mut watch = Watch {
+        board: run.board,
+        armed: true,
+    };
+    let fail = |error: String| Stop::Failed(format!("{token}: {error}"));
+    let timings = run.report.timings;
+    run.board.take_turn(ticket)?;
+    let EnumeratedTables {
+        product,
+        mut options,
+        memo,
+        mut timed,
+    } = enumerate().map_err(fail)?;
+    drop(memo);
+    let started = Instant::now();
+    let mut fold_lines: Vec<String> = Vec::new();
+    let prepared = if timings {
+        fold::Prepared::new(
+            product,
+            Some(&mut |phase: &str, elapsed: Duration| {
+                fold_lines.push(fold_timing_line(&format!("fold.{phase}[{token}]"), elapsed));
+            }),
+        )
+    } else {
+        fold::Prepared::new(product, None)
+    }
+    .map_err(fail)?;
+    timed.append(&mut fold_lines);
+    let mut imports = Imports::default();
+    let mut folds = prepared.unfolded();
+    prepared
+        .fold_inputs(run.index, &imports, None, &mut folds)
+        .map_err(fail)?;
+    let indexed = SourceRows::of(&prepared.rows());
+    run.board.publish(
+        listed,
+        Some(SharedRules::of(
+            run.spellings,
+            listed,
+            &fold::Prepared::rules(&folds),
+        )),
+        None,
+    );
+    let mut folding = started.elapsed();
+    run.board.give_slot();
+
+    let mut exchanging = Duration::ZERO;
+    run.board.meet()?;
+    if run.report.cache_stats {
+        timed.push(format!(
+            "[c] {token} resident_parked kb={}",
+            crate::fixpoint::resident_kb()
+        ));
+        if listed == 0 {
+            timed.push(format!(
+                "[c] {token} parked_heap bytes={}",
+                crate::fixpoint::heap_bytes()
+            ));
+        }
+        run.board.meet()?;
+    }
+    for round in 0.. {
+        if round == EXCHANGE_ROUNDS {
+            return Err(fail(format!(
+                "the cross-configuration exchange still moved windows after {EXCHANGE_ROUNDS} rounds"
+            )));
+        }
+        let started = Instant::now();
+        let mut everyone: Vec<Arc<SharedRules>> = Vec::with_capacity(run.board.count);
+        let mut inputs: Option<HashSet<Box<str>>> = Some(HashSet::default());
+        for config in 0..run.board.count {
+            let (rules, refolded) = run.board.rules_of(config);
+            everyone.push(rules);
+            inputs = match (inputs, refolded) {
+                (Some(mut held), Some(more)) => {
+                    held.extend(more.iter().cloned());
+                    Some(held)
+                }
+                _ => None,
+            };
+        }
+        if inputs.as_ref().is_none_or(|inputs| !inputs.is_empty()) {
+            let published: Vec<&SharedRules> = everyone.iter().map(|rules| &**rules).collect();
+            let source = Source {
+                index: run.index,
+                spellings: run.spellings,
+                config: listed,
+                rows: prepared.rows(),
+                indexed: &indexed,
+                chains: prepared.chains(),
+                published: &published,
+            };
+            let sent = crossconfig::exports(&source, inputs.as_ref());
+            for (receiver, rows) in sent.into_iter().enumerate() {
+                if receiver != listed {
+                    run.board.deliver(receiver, listed, rows);
+                }
+            }
+        }
+        exchanging += started.elapsed();
+        run.board.meet()?;
+        let started = Instant::now();
+        let batches = run.board.collect(listed);
+        let gained = imports
+            .absorb(run.spellings, listed, &prepared.rows(), batches)
+            .map_err(fail)?;
+        let refolded: HashSet<Box<str>> = gained
+            .iter()
+            .map(|input| Box::from(&*run.spellings.canonical(listed, input)))
+            .collect();
+        if gained.is_empty() {
+            run.board.publish(listed, None, Some(refolded));
+        } else {
+            let wanted: HashSet<Rc<str>> = gained.into_iter().collect();
+            prepared
+                .fold_inputs(run.index, &imports, Some(&wanted), &mut folds)
+                .map_err(fail)?;
+            run.board.publish(
+                listed,
+                Some(SharedRules::of(
+                    run.spellings,
+                    listed,
+                    &fold::Prepared::rules(&folds),
+                )),
+                Some(refolded),
+            );
+        }
+        exchanging += started.elapsed();
+        run.board.meet()?;
+        if run.board.settled() {
+            break;
+        }
+    }
+    if timings {
+        timed.push(fold_timing_line(
+            &format!("fold.exchange[{token}]"),
+            exchanging,
+        ));
+    }
+
+    run.board.take_slot()?;
+    let started = Instant::now();
+    let mut fold_lines: Vec<String> = Vec::new();
+    let mut reporter = |phase: &str, elapsed: Duration| {
+        fold_lines.push(fold_timing_line(&format!("fold.{phase}[{token}]"), elapsed));
+    };
+    let finished = prepared
+        .finish(
+            run.index,
+            &mut options,
+            folds,
+            &imports,
+            Some((run.spellings, listed)),
+            if timings { Some(&mut reporter) } else { None },
+        )
+        .and_then(|folded| write_tables(run, token, &folded));
+    run.board.give_slot();
+    watch.armed = false;
+    let digest = finished.map_err(fail)?;
+    timed.append(&mut fold_lines);
+    folding += started.elapsed();
+    if timings {
+        timed.push(timing_line(&format!("fold[{token}]"), folding));
+    }
+    Ok(TableAnswer { digest, timed })
+}
+
+/// Writes one configuration's three artifact files and returns its table digest.
+fn write_tables(run: &TableRun<'_>, token: &str, folded: &fold::Folded) -> Result<String, String> {
+    let settlement = run.outdir.join(format!("settlement-{token}.tsv"));
+    write_text(&settlement, &artifacts::settlement_tsv(&folded.decision))?;
+    let joins = run.outdir.join(format!("joins-{token}.tsv"));
+    write_text(&joins, &artifacts::join_tsv(&folded.joins))?;
+    let windows = run.outdir.join(format!("windows-{token}.tsv"));
+    artifacts::write_windows(run.index, &folded.decision, run.inputs, &windows)
+        .map_err(|error| format!("{}: {error}", windows.display()))?;
+    Ok(artifacts::table_digest(
+        run.index,
+        &folded.decision,
+        &folded.joins,
+    ))
+}
+
+/// One configuration enumerated and holding what its fold needs, its memo file already written.
+///
+/// It cannot cross threads, because the product's label pool holds `Rc<str>` ([`crate::stream`]) and the window options hold `Rc<FollowerMap>` ([`crate::options`]). That is why each configuration of a table build runs on one thread from its enumeration to its files, and why a caller clones the memo out first: behind its [`Arc`], the memo is the only part of an enumeration that other configurations read. Only a configuration whose memo access set `keep_memo` has a memo here. A delta's memo was written to its file and dropped at the fixpoint's release point.
 struct EnumeratedTables<'i> {
     product: FixpointProduct,
     options: WindowOptions<'i>,
@@ -509,7 +958,7 @@ struct EnumeratedTables<'i> {
     timed: Vec<String>,
 }
 
-/// [`run_config_tables`]'s first half: the fixpoint over what `access` allows, writing the memo file at the release point when one is named, and keeping the finished memo behind an [`Arc`] when `access` asks. The timing lines are `enumerate[<config>]`, which excludes the memo write, and `memo[<config>]`, which is the write, after the cache stats' `[c]` lines.
+/// One configuration's enumeration for its tables: the fixpoint over what `access` allows, writing the memo file at the release point when one is named, and keeping the finished memo behind an [`Arc`] when `access` asks. The timing lines are `enumerate[<config>]`, which excludes the memo write, and `memo[<config>]`, which is the write, after the cache stats' `[c]` lines.
 fn enumerate_config_tables<'i>(
     index: &'i SpecIndex,
     config: &Configuration<'_>,
@@ -553,45 +1002,6 @@ fn enumerate_config_tables<'i>(
         memo: memo.map(Arc::new),
         timed,
     })
-}
-
-/// [`run_config_tables`]'s second half, on the thread that enumerated. It drops the memo first (a caller that needs it has already cloned it out of [`EnumeratedTables`]), then folds the product, writes the three artifact files, and computes the digest. A timed run adds `fold.prefixes[<config>]` and `fold.partition[<config>]` at millisecond precision, then `fold[<config>]`. These follow the first half's lines, so a configuration's lines read enumerate, memo, fold, whichever thread ran each half.
-fn finish_config_tables(
-    index: &SpecIndex,
-    config: &Configuration<'_>,
-    outdir: &Path,
-    inputs: &str,
-    report: Report,
-    pending: EnumeratedTables<'_>,
-) -> Result<TableAnswer, String> {
-    let token = config.token;
-    let EnumeratedTables {
-        product,
-        mut options,
-        memo,
-        mut timed,
-    } = pending;
-    drop(memo);
-    let started = Instant::now();
-    let folded = if report.timings {
-        fold::fold_with_profile(index, product, &mut options, |phase, elapsed| {
-            timed.push(fold_timing_line(&format!("fold.{phase}[{token}]"), elapsed));
-        })?
-    } else {
-        fold::fold_with(index, product, &mut options)?
-    };
-    let settlement = outdir.join(format!("settlement-{token}.tsv"));
-    write_text(&settlement, &artifacts::settlement_tsv(&folded.decision))?;
-    let joins = outdir.join(format!("joins-{token}.tsv"));
-    write_text(&joins, &artifacts::join_tsv(&folded.joins))?;
-    let windows = outdir.join(format!("windows-{token}.tsv"));
-    artifacts::write_windows(index, &folded.decision, inputs, &windows)
-        .map_err(|error| format!("{}: {error}", windows.display()))?;
-    let digest = artifacts::table_digest(index, &folded.decision, &folded.joins);
-    if report.timings {
-        timed.push(timing_line(&format!("fold[{token}]"), started.elapsed()));
-    }
-    Ok(TableAnswer { digest, timed })
 }
 
 /// One configuration's string replay result: the walk's counts, and its cache-stats and timing lines when requested.
@@ -1176,7 +1586,7 @@ mod tests {
         std::fs::remove_dir_all(&root).expect("the scratch directory is removable");
     }
 
-    /// A table build's timing lines come back in the caller's configuration order, with each configuration's phases in the order they ran, at any width. `default`'s fold lines follow its enumerate and memo lines even when the fold ran alongside the deltas, and `ss03`'s lines come last although the wave claims it first.
+    /// A table build's timing lines come back in the caller's configuration order, with each configuration's phases in the order they ran, at any width. `default`'s fold lines follow its enumerate and memo lines even when its preparation ran alongside the deltas, and `ss03`'s lines come last although its slot comes first among the deltas.
     #[test]
     fn a_table_build_times_its_phases_in_configuration_order_at_any_width() {
         let index = fixtures::mini();
@@ -1211,16 +1621,19 @@ mod tests {
                     "enumerate[default]",
                     "memo[default]",
                     "fold.prefixes[default]",
+                    "fold.exchange[default]",
                     "fold.partition[default]",
                     "fold[default]",
                     "enumerate[ss09]",
                     "memo[ss09]",
                     "fold.prefixes[ss09]",
+                    "fold.exchange[ss09]",
                     "fold.partition[ss09]",
                     "fold[ss09]",
                     "enumerate[ss03]",
                     "memo[ss03]",
                     "fold.prefixes[ss03]",
+                    "fold.exchange[ss03]",
                     "fold.partition[ss03]",
                     "fold[ss03]"
                 ],
@@ -1301,58 +1714,82 @@ mod tests {
     fn a_failing_item_is_reported_at_the_position_it_carries() {
         let work = [(3, "ss03"), (1, "ss09")];
         let met = std::sync::Barrier::new(2);
-        let error = claim_all_leading(
-            &work,
-            3,
-            || Ok(()),
-            |token: &&str| {
-                met.wait();
-                Err::<(), _>(format!("{token}: blocked"))
-            },
-        )
+        let error = claim_positions(&work, 3, |token: &&str| {
+            met.wait();
+            Err::<(), _>(format!("{token}: blocked"))
+        })
         .expect_err("both items fail");
         assert_eq!(error, "ss09: blocked");
     }
 
-    /// The lead runs while another worker claims, which the test enforces with a barrier instead of relying on timing: with two workers and a worklist listed out of order, the lead waits at a barrier that the first item's answer also reaches, so the worker has claimed and started an item while the lead is still running. `default`'s fold relies on this overlap. The run returns both items' results with the positions they carry, and the lead's result separately. When both fail, the run returns the lead's error.
+    /// The board's slots go to tickets in order and never more than its width at once: three threads asking with tickets 2, 1 and 0 on a one-slot board hold it in ticket order, each releasing before the next takes it.
     #[test]
-    fn a_lead_runs_beside_the_worker_that_claims_while_it_does() {
-        let work = [(3, "ss03"), (1, "ss09")];
-        let met = std::sync::Barrier::new(2);
-        let (led, mut placed) = claim_all_leading(
-            &work,
-            2,
-            || {
-                met.wait();
-                Ok("lead")
-            },
-            |token: &&str| {
-                if *token == "ss03" {
-                    met.wait();
-                }
-                Ok((*token).to_owned())
-            },
-        )
-        .expect("both items answer");
-        placed.sort_by_key(|(listed, _)| *listed);
-        assert_eq!(led, "lead");
-        assert_eq!(placed, [(1, "ss09".to_owned()), (3, "ss03".to_owned())]);
-        let met = std::sync::Barrier::new(2);
-        let error = claim_all_leading(
-            &work,
-            2,
-            || {
-                met.wait();
-                Err::<(), _>("lead: blocked".to_owned())
-            },
-            |token: &&str| {
-                if *token == "ss03" {
-                    met.wait();
-                }
-                Err::<(), _>(format!("{token}: blocked"))
-            },
-        )
-        .expect_err("the lead and both items fail");
-        assert_eq!(error, "lead: blocked");
+    fn the_board_grants_its_slots_in_ticket_order_and_no_wider() {
+        let board = Board::new(3, 1);
+        let held = std::sync::Mutex::new(Vec::new());
+        let inside = AtomicUsize::new(0);
+        std::thread::scope(|scope| {
+            for ticket in [2, 1, 0] {
+                let (board, held, inside) = (&board, &held, &inside);
+                scope.spawn(move || {
+                    board
+                        .take_turn(ticket)
+                        .ok()
+                        .expect("nothing halts the board");
+                    assert_eq!(inside.fetch_add(1, Ordering::SeqCst), 0, "one slot");
+                    held.lock().expect("unpoisoned").push(ticket);
+                    std::thread::sleep(Duration::from_millis(5));
+                    inside.fetch_sub(1, Ordering::SeqCst);
+                    board.give_slot();
+                });
+            }
+        });
+        assert_eq!(*held.lock().expect("unpoisoned"), [0, 1, 2]);
+    }
+
+    /// A thread that ends without its tables, by an error or a panic, halts the board through its watch, so the threads waiting at the rendezvous or for a slot return instead of hanging, and the run reports the earliest-listed configuration's own failure, never the halt the others saw.
+    #[test]
+    fn a_failure_releases_every_waiting_thread_and_is_what_the_run_reports() {
+        let board = Board::new(3, 1);
+        let ended: Vec<(usize, Result<TableAnswer, Stop>)> = std::thread::scope(|scope| {
+            let board = &board;
+            let waiting = scope.spawn(move || {
+                let mut watch = Watch { board, armed: true };
+                let met = board.meet();
+                watch.armed = met.is_ok();
+                (
+                    0,
+                    met.map(|()| TableAnswer {
+                        digest: String::new(),
+                        timed: Vec::new(),
+                    }),
+                )
+            });
+            let queued = scope.spawn(move || {
+                let mut watch = Watch { board, armed: true };
+                board.take_slot().ok().expect("the slot is free");
+                let again = board.take_slot();
+                watch.armed = again.is_ok();
+                (
+                    1,
+                    again.map(|()| TableAnswer {
+                        digest: String::new(),
+                        timed: Vec::new(),
+                    }),
+                )
+            });
+            let failing = scope.spawn(move || {
+                let _watch = Watch { board, armed: true };
+                std::thread::sleep(Duration::from_millis(5));
+                (2, Err(Stop::Failed("ss05: blocked".to_owned())))
+            });
+            joined(vec![waiting, queued, failing])
+        });
+        assert!(matches!(ended[0].1, Err(Stop::Halted)));
+        assert!(matches!(ended[1].1, Err(Stop::Halted)));
+        assert_eq!(
+            settle_ends(ended, 3).expect_err("one configuration failed"),
+            "ss05: blocked"
+        );
     }
 }

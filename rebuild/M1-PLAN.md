@@ -58,7 +58,7 @@ Why the first batch took this shape: Recon A found that the four families qsPea,
 
 **Conformance alphabet:** the three boundary tokens (`0x0020` space, `0x00B7` namer dot, `0x200C` ZWNJ) plus one code point per migrated family. `baseline_subset.M1_ALPHABET` is the list. The alphabet is kept formation-closed: every ligature whose components are both in the alphabet has a rune file.
 
-**Configurations.** `baseline_subset` filters every `rebuild/out/baseline-*.tsv.gz`, but the acceptance gate runs only on the configurations that can affect the migrated letters; `conform.ACCEPTANCE_CONFIGS` lists them. The reason for each: `ss03` (half-·Tea entry widening, qsMay’s ss03-gated exit extension toward qsTea, qsTea_qsOy forming before the marker lookups), `ss04` (qsIt’s baseline-pairing unlock), `ss05` (·Tea joining at the baseline on both sides after ·Et), the declared combination `ss03+ss05` (multi-set union semantics and composite markers on qsTea), and `ss10` (the isolated-forms overlay, which touches every rune; `conform.OVERLAY_CONFIGS`). `ss06`, `ss07`, and `ss06+ss07` change only unmigrated families. Whenever `baseline_subset.refresh` refilters, it checks that their sub-tables (`DEFAULT_COVERED_CONFIGS`) are row-identical to `default`’s, so the default run covers them. The check runs at refilter time because only a refilter can change the answer. A configuration that diverges is never stamped fresh, so its `SubsetIdentityError` repeats on every run until that configuration moves into `conform.ACCEPTANCE_CONFIGS`.
+**Configurations.** `baseline_subset` filters every `rebuild/out/baseline-*.tsv.gz`, but the acceptance gate runs only on the configurations that can affect the migrated letters; `conform.ACCEPTANCE_CONFIGS` lists them. The reason for each: `ss03` (half-·Tea entry widening, qsMay’s ss03-gated exit extension toward qsTea, qsTea_qsOy forming before the marker lookups), `ss04` (qsIt’s baseline-pairing unlock), `ss05` (·Tea joining at the baseline on both sides), the declared combination `ss03+ss05` (multi-set union semantics and composite markers on qsTea), and `ss10` (the isolated-forms overlay, which touches every rune; `conform.OVERLAY_CONFIGS`). `ss06`, `ss07`, and `ss06+ss07` change only unmigrated families. Whenever `baseline_subset.refresh` refilters, it checks that their sub-tables (`DEFAULT_COVERED_CONFIGS`) are row-identical to `default`’s, so the default run covers them. The check runs at refilter time because only a refilter can change the answer. A configuration that diverges is never stamped fresh, so its `SubsetIdentityError` repeats on every run until that configuration moves into `conform.ACCEPTANCE_CONFIGS`.
 
 **The ss10 overlay is modeled, not settled.** The emitter’s ss10 input substitution replaces every letter’s cmap glyph with its anchor-free `.ss10` copy before formation, so under ss10 nothing forms, settles, or attaches, and the configuration has no settlement table (`conform.OVERLAY_CONFIGS`). The conformance sweep covers it to `conform.OVERLAY_MAX_LENGTH` behind read-back’s isolation check, and the oracle compares its rows with the bare stream (every letter its default-stance cell, every junction a break). The old font’s ss10 isolates every letter the same way, through its own anchor-free `.ss10` copies, so the classifier gives no class to an ss10 row off a boundary, and any such divergence waits for review.
 
@@ -118,7 +118,7 @@ stances:
         - {entry: x-height, exit: baseline, bitmap: open-on-the-left, exit_x: 5}
           # an explicit row for one cell. qsOy carries this one to move the exit anchor with the joined drawing, and qsUtter.alternate carries another (reaches-way-back). qsPea's dip on both sides needs no row: its two stubs compose it.
       unlocks: []
-          # qsTea.full carries: {pairing: {entry: baseline, exit: baseline}, feature: ss05, when: {left: {family: qsEt}}}
+          # qsTea.full carries: {pairing: {entry: baseline, exit: baseline}, feature: ss05}
           # qsTea.half carries: {entry: x-height, feature: ss03, when: {left: {family: [...widened ss03 scope...]}}}
           # qsIt carries one ss04 row with no context: {pairing: {entry: baseline, exit: baseline}, feature: ss04}
       require: []                  # for a stance that exists only when joined; qsFee.reversed-loop is the example (require: [entry])
@@ -170,7 +170,7 @@ boundary_tokens:
 features:
   ss03: {kind: capability, description: "x-height exiters reach ·Tea (full-size bar when a baseline-join follows, else the half stub)"}
   ss04: {kind: capability, description: "·It joins at the baseline on both sides at once, any neighbor"}
-  ss05: {kind: capability, description: "·Tea both-baseline after ·Et"}
+  ss05: {kind: capability, description: "·Tea joins at the baseline on both sides at once, any neighbor"}
   ss10: {kind: taste, description: "isolated forms overlay", overlay: isolated}
   interactions: [[ss03, ss05]]      # the declared combinations, each verified by conformance
 predicate_classes:                 # derived only: computed expressions, never hand-listed members (§2)
@@ -443,7 +443,7 @@ Exercised by real records:
 - the **y6 height** (·Pea·Pea, so all four curs lookups).
 - the **`self:` condition** (qsIt’s exit extension when entered).
 - **ss-gated extends** (qsMay toward qsTea under ss03).
-- **unlocks in each capability set** (ss03, ss04, ss05): two narrowed by a `when:` and the ss04 one with no context.
+- **unlocks in each capability set** (ss03, ss04, ss05): the ss03 and ss04 ones narrowed by a `when:` and the ss05 one with no context.
 - **multi-set union composition with composite markers** (ss03+ss05 on qsTea).
 - `pairings: only:` (qsIt) and `never:` (qsTea, qsMay).
 - the predecessor's unjoined exit before the entryless ligature, and the §5.7 late-formation guard (`m1_formation_guarded` in `emit_gsub`).

@@ -2,9 +2,11 @@
 //!
 //! This is the only implementation of the fold. `rebuild/pipeline/table.py` keeps the data model, the artifact readers and the digests. Three independent checks cover the fold. A refactor of it is checked by byte identity of the artifacts [`crate::artifacts`] writes against a build from before the change, which catches a change in rule order, the shipped GSUB order. `rebuild/test_table.py` replays these rules against these rows on the mini fixture with its own first-match-wins implementation. `gate:conform` shapes the compiled font with HarfBuzz on every cycle and compares the result with this crate's per-window settlement.
 //!
-//! Expansion is where the fold's memory goes, because a class row expands to its full member product at right3 × right4. An expanded row ([`FoldRow`]) therefore holds only the index of its class row, its two deep labels and its joint flag. Everything else about it (the input, the left, the two near slots, the outcome, the settled cells, the prospect and the provenance) is read from the class row through that index, which keeps the fold's working set small beside the enumeration's.
+//! Expansion is where the fold's memory goes, because a class row expands to its full member product at right3 × right4. An expanded row ([`FoldRow`]) therefore holds only the index of its class row, its two deep labels as ids in the product's label pool, and its joint flag. Everything else about it (the input, the left, the two near slots, the outcome, the settled cells, the prospect and the provenance) is read from the class row through that index, which keeps the fold's working set small beside the enumeration's.
 //!
 //! Expansion order is `table.Window.key` order, reached without a global sort. The product's rows are already in key order, so rows sharing an (input, left, right1, right2) prefix are contiguous, and sorting each such run by its two deep labels leaves the whole vector in key order. The per-run sort is stable, so rows that tie on the full key keep their class-row order.
+//!
+//! A build of several configurations runs the same steps through [`Prepared`]: the expansion, the prospect pass and the row chains once, then the rule fold, again for each input that takes in windows another configuration keeps live ([`crate::crossconfig`]), then the checks and the certificates over the configuration's own rows and the imported ones ([`Prepared::finish`]). An imported row reaches [`crate::rulefold`] through a [`MergedRows`] view beside the own rows; the prospect pass, the join fold, the reachable-cells check, the row chains, the windows and the digest read only the own rows.
 //!
 //! The replay that checks the outcome partition also records, for each rule, up to [`crate::certificate::ROW_CAP`] of the replayed rows that first-match it, preferring the rows with the shortest row chains. [`crate::certificate`] completes the chain of one of those rows into a string the rule first-matches at the row's own position. These certificates, one per rule, are written into the windows head beside the rules, and the witness stage settles each one to show that every rule is reachable.
 
@@ -13,10 +15,11 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use crate::certificate;
+use crate::crossconfig::{ImportedRow, Imports, Spellings};
 use crate::hash::{HashMap, HashSet};
 use crate::index::SpecIndex;
 use crate::options::WindowOptions;
-use crate::rulefold::rules_for_input;
+use crate::rulefold::{RuleFold, rules_for_input};
 use crate::stream::{
     FixpointProduct, Label, LabelPool, TransitionRow, cell_key, cell_key_repr, key_repr,
     python_repr, python_tuple,
@@ -92,6 +95,11 @@ pub struct DecisionTable {
     pub cells: Vec<CellId>,
     /// One certificate per rule, in rule order: a token stream of rune names and the three boundary glyph labels, which [`crate::certificate`] builds so the rule first-matches at its row's position. The windows head carries them beside the rules.
     pub certificates: Vec<Vec<String>>,
+    /// The windows the table imported from other configurations ([`crate::crossconfig`]), in key order, each as its six labels, its outcome, and the token of the configuration it is live in. The windows head carries them.
+    pub imports: Vec<[String; 8]>,
+    /// The build's configurations in [`Spellings::rank`] order and each rule's [`crate::crossconfig::bucket`] in rule order: where the exchange expects the emitter to ship the rules, which the windows head carries for `emit_gsub._fold_rules` to check. Both are empty for a fold outside a table build.
+    pub fold_order: Vec<String>,
+    pub buckets: Vec<u8>,
 }
 
 impl DecisionTable {
@@ -120,11 +128,11 @@ pub struct Folded {
 /// The lefts a first-match-wins replay has to cover, per input glyph.
 pub type ReplayLefts = HashMap<Rc<str>, HashSet<Rc<str>>>;
 
-/// One label-grain row: the index (`class_row`) of the class row it expanded from, its two deep labels, and the joint flag the prospect pass sets. Everything else about the row is read from the class row.
+/// One label-grain row: the index (`class_row`) of the class row it expanded from, its two deep labels as ids in the product's label pool, and the joint flag the prospect pass sets. Everything else about the row is read from the class row. A configuration's expansion runs to tens of millions of rows and stays parked through the cross-configuration exchange, so the row holds pool ids, not shared strings, in sixteen bytes.
 pub struct FoldRow {
     pub class_row: u32,
-    pub right3: Rc<str>,
-    pub right4: Rc<str>,
+    pub right3: Label,
+    pub right4: Label,
     pub joint: bool,
 }
 
@@ -177,11 +185,11 @@ impl<'a> LabelRows<'a> {
     }
 
     pub fn right3(&self, row: usize) -> &'a Rc<str> {
-        &self.fold[row].right3
+        self.product.labels.text(self.fold[row].right3)
     }
 
     pub fn right4(&self, row: usize) -> &'a Rc<str> {
-        &self.fold[row].right4
+        self.product.labels.text(self.fold[row].right4)
     }
 
     pub fn outcome(&self, row: usize) -> &'a Rc<str> {
@@ -204,9 +212,178 @@ impl<'a> LabelRows<'a> {
             self.product.labels.text(base.left),
             self.product.labels.text(base.right1),
             self.product.labels.text(base.right2),
-            &self.fold[row].right3,
-            &self.fold[row].right4,
+            self.product.labels.text(self.fold[row].right3),
+            self.product.labels.text(self.fold[row].right4),
         ]
+    }
+
+    /// The product the rows expand.
+    pub(crate) fn product(&self) -> &'a FixpointProduct {
+        self.product
+    }
+
+    /// The index of the class row one expanded row came from.
+    pub(crate) fn class_row(&self, row: usize) -> u32 {
+        self.fold[row].class_row
+    }
+}
+
+/// What [`crate::rulefold`] reads of one input's rows: a view in `table.Window.key` order that gives each row's labels, outcome, joint flag and provenance. [`LabelRows`] is a configuration's own rows; [`MergedRows`] adds the rows another configuration keeps live that this one imports ([`crate::crossconfig`]).
+pub trait RowSource: Copy {
+    fn len(&self) -> usize;
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+    fn left(&self, row: usize) -> &Rc<str>;
+    fn right1(&self, row: usize) -> &Rc<str>;
+    fn right2(&self, row: usize) -> &Rc<str>;
+    fn right3(&self, row: usize) -> &Rc<str>;
+    fn right4(&self, row: usize) -> &Rc<str>;
+    fn outcome(&self, row: usize) -> &Rc<str>;
+    fn joint(&self, row: usize) -> bool;
+    fn provenance(&self, row: usize) -> &[String];
+    /// Whether the row is one of this configuration's own rows rather than an imported one.
+    fn own(&self, row: usize) -> bool;
+}
+
+impl RowSource for LabelRows<'_> {
+    fn len(&self) -> usize {
+        LabelRows::len(self)
+    }
+    fn left(&self, row: usize) -> &Rc<str> {
+        LabelRows::left(self, row)
+    }
+    fn right1(&self, row: usize) -> &Rc<str> {
+        LabelRows::right1(self, row)
+    }
+    fn right2(&self, row: usize) -> &Rc<str> {
+        LabelRows::right2(self, row)
+    }
+    fn right3(&self, row: usize) -> &Rc<str> {
+        LabelRows::right3(self, row)
+    }
+    fn right4(&self, row: usize) -> &Rc<str> {
+        LabelRows::right4(self, row)
+    }
+    fn outcome(&self, row: usize) -> &Rc<str> {
+        LabelRows::outcome(self, row)
+    }
+    fn joint(&self, row: usize) -> bool {
+        LabelRows::joint(self, row)
+    }
+    fn provenance(&self, row: usize) -> &[String] {
+        LabelRows::provenance(self, row)
+    }
+    fn own(&self, _row: usize) -> bool {
+        true
+    }
+}
+
+/// One row of a [`MergedRows`] view: an index into the configuration's own rows, or, with [`MergedRows::FOREIGN`] set, into its imported rows.
+pub type RowRef = u32;
+
+/// One input's own rows merged with the rows it imports, in `table.Window.key` order. No imported row has an own row's key, because [`crate::crossconfig::Imports`] drops a covered key instead of importing it.
+#[derive(Clone, Copy)]
+pub struct MergedRows<'a> {
+    own: LabelRows<'a>,
+    imported: &'a [ImportedRow],
+    order: &'a [RowRef],
+}
+
+impl<'a> MergedRows<'a> {
+    /// The flag that marks a [`RowRef`] as an imported row.
+    pub const FOREIGN: RowRef = 1 << 31;
+
+    /// Merges one input's own rows `own` with its imported rows `imported`, both in key order, into the reference list a [`MergedRows`] reads.
+    pub fn order(own: &LabelRows<'_>, imported: &[ImportedRow]) -> Vec<RowRef> {
+        let mut order: Vec<RowRef> = Vec::with_capacity(own.len() + imported.len());
+        let (mut at, mut next) = (0usize, 0usize);
+        while at < own.len() || next < imported.len() {
+            let take_own = next >= imported.len()
+                || (at < own.len() && own.key(at) < imported[next].key_text());
+            if take_own {
+                order.push(at as RowRef);
+                at += 1;
+            } else {
+                order.push(next as RowRef | Self::FOREIGN);
+                next += 1;
+            }
+        }
+        order
+    }
+
+    pub fn new(own: LabelRows<'a>, imported: &'a [ImportedRow], order: &'a [RowRef]) -> Self {
+        Self {
+            own,
+            imported,
+            order,
+        }
+    }
+
+    fn resolve(&self, row: usize) -> Result<usize, &'a ImportedRow> {
+        let reference = self.order[row];
+        if reference & Self::FOREIGN == 0 {
+            Ok(reference as usize)
+        } else {
+            Err(&self.imported[(reference & !Self::FOREIGN) as usize])
+        }
+    }
+}
+
+impl RowSource for MergedRows<'_> {
+    fn len(&self) -> usize {
+        self.order.len()
+    }
+    fn left(&self, row: usize) -> &Rc<str> {
+        match self.resolve(row) {
+            Ok(own) => self.own.left(own),
+            Err(imported) => &imported.key[1],
+        }
+    }
+    fn right1(&self, row: usize) -> &Rc<str> {
+        match self.resolve(row) {
+            Ok(own) => self.own.right1(own),
+            Err(imported) => &imported.key[2],
+        }
+    }
+    fn right2(&self, row: usize) -> &Rc<str> {
+        match self.resolve(row) {
+            Ok(own) => self.own.right2(own),
+            Err(imported) => &imported.key[3],
+        }
+    }
+    fn right3(&self, row: usize) -> &Rc<str> {
+        match self.resolve(row) {
+            Ok(own) => self.own.right3(own),
+            Err(imported) => &imported.key[4],
+        }
+    }
+    fn right4(&self, row: usize) -> &Rc<str> {
+        match self.resolve(row) {
+            Ok(own) => self.own.right4(own),
+            Err(imported) => &imported.key[5],
+        }
+    }
+    fn outcome(&self, row: usize) -> &Rc<str> {
+        match self.resolve(row) {
+            Ok(own) => self.own.outcome(own),
+            Err(imported) => &imported.outcome,
+        }
+    }
+    fn joint(&self, row: usize) -> bool {
+        match self.resolve(row) {
+            Ok(own) => self.own.joint(own),
+            Err(imported) => imported.joint,
+        }
+    }
+    fn provenance(&self, row: usize) -> &[String] {
+        match self.resolve(row) {
+            Ok(own) => self.own.provenance(own),
+            Err(imported) => &imported.provenance,
+        }
+    }
+    fn own(&self, row: usize) -> bool {
+        self.resolve(row).is_ok()
     }
 }
 
@@ -216,7 +393,7 @@ pub fn fold_product(index: &SpecIndex, product: FixpointProduct) -> Result<Folde
     fold_with(index, product, &mut options)
 }
 
-/// One configuration's two tables, folded from the product the worklist produced. The steps run in this order: the key-order check, the expansion and the prospect pass, the rule fold, the reachable-cells cross-check, the join fold, the reduced first-match-wins replay, the deep-class union check, and last the certificates. Each check returns an error where its invariant does not hold.
+/// One configuration's two tables, folded from the product the worklist produced and nothing else. The steps run in this order: the key-order check, the expansion and the prospect pass, the row-chain search, the rule fold, the reachable-cells cross-check, the join fold, the reduced first-match-wins replay, the deep-class union check, and last the certificates. Each check returns an error where its invariant does not hold. A build of several configurations runs the same steps through [`Prepared`], with the rows the others keep live imported between the rule fold and the rest ([`crate::crossconfig`]).
 ///
 /// `options` is the enumeration's own, so the certificates read the formation guard's verdicts from the memo the worklist already filled instead of sweeping them again.
 pub fn fold_with(
@@ -239,130 +416,341 @@ pub fn fold_with_profile(
 
 fn fold_with_report(
     index: &SpecIndex,
-    mut product: FixpointProduct,
+    product: FixpointProduct,
     options: &mut WindowOptions<'_>,
     mut report: Option<&mut FoldReporter<'_>>,
 ) -> Result<Folded, String> {
-    assert_key_sorted(&product)?;
-    let mut fold_rows = expand(&product);
-    flag_prospect_joints(&product, &mut fold_rows);
-    let mut class_joint: Vec<bool> = product.transitions.iter().map(|row| row.joint).collect();
-    for row in &fold_rows {
-        if row.joint {
-            class_joint[row.class_row as usize] = true;
-        }
-    }
-    for (row, joint) in product.transitions.iter_mut().zip(&class_joint) {
-        row.joint = *joint;
-    }
+    let prepared = Prepared::new(product, report.as_deref_mut())?;
+    let imports = Imports::default();
+    let mut folds = prepared.unfolded();
+    prepared.fold_inputs(index, &imports, None, &mut folds)?;
+    prepared.finish(index, options, folds, &imports, None, report)
+}
 
-    let rows = LabelRows::new(&product, &fold_rows);
-    let mut rules: Vec<Rule> = Vec::new();
-    let mut identity_guards: i64 = 0;
-    let mut replay_lefts: ReplayLefts = HashMap::default();
-    for (start, end) in input_runs(&rows) {
-        let slice = rows.slice(start, end);
-        let input_glyph = Rc::clone(slice.input_glyph(0));
-        let rune = input_glyph.split('.').next().unwrap_or(&input_glyph);
-        let Some(modeled) = index.sym_of(rune).filter(|name| index.is_modeled(*name)) else {
-            return Err(format!(
-                "{input_glyph}: the spec models no rune {}",
-                python_repr(rune)
-            ));
-        };
-        let never_locked = !index.is_entry_bearing(modeled);
-        let folded = rules_for_input(&input_glyph, &slice, never_locked)?;
-        rules.extend(folded.rules);
-        identity_guards += folded.identity_guards;
-        replay_lefts.insert(input_glyph, folded.replay_lefts);
-    }
+/// One configuration's rows ready to fold: the product after the key-order check, its label-grain expansion with the prospect pass's joint flags written back to the class rows, each input's run of the expansion, and every row's shortest row chain. Everything here depends on the configuration's own rows only, so it is computed once, before any rows are imported.
+pub struct Prepared {
+    product: FixpointProduct,
+    fold_rows: Vec<FoldRow>,
+    runs: Vec<(usize, usize)>,
+    chains: certificate::RowChains,
+}
 
-    assert_reachable_cells(index, &rows, &product.settled_records, &product.cells)?;
-
-    let entry_extensions: HashMap<&CellId, i64> = product
-        .cells
-        .iter()
-        .map(|cell| (cell, entry_extension(cell)))
-        .collect();
-    let mut seen: HashSet<(Rc<str>, Rc<str>, String, i64)> = HashSet::default();
-    for row in 0..rows.len() {
-        let base = rows.base(row);
-        let Some(left_settled) = product.left_settled(base) else {
-            continue;
-        };
-        match left_settled.junction {
-            None => {
-                seen.insert((
-                    Rc::clone(rows.left(row)),
-                    Rc::clone(rows.outcome(row)),
-                    "break".to_owned(),
-                    0,
-                ));
-            }
-            Some(junction) => {
-                seen.insert((
-                    Rc::clone(rows.left(row)),
-                    Rc::clone(rows.outcome(row)),
-                    index.resolve(junction).to_owned(),
-                    left_settled.extension + entry_extensions[&product.settled(base).cell],
-                ));
+impl Prepared {
+    /// The key-order check, the expansion, the prospect pass, and the row-chain search, which `report` times as `prefixes`.
+    pub fn new(
+        mut product: FixpointProduct,
+        report: Option<&mut FoldReporter<'_>>,
+    ) -> Result<Self, String> {
+        assert_key_sorted(&product)?;
+        let mut fold_rows = expand(&mut product);
+        flag_prospect_joints(&product, &mut fold_rows);
+        let mut class_joint: Vec<bool> = product.transitions.iter().map(|row| row.joint).collect();
+        for row in &fold_rows {
+            if row.joint {
+                class_joint[row.class_row as usize] = true;
             }
         }
-    }
-    // Sort on the whole row: two rows tying on (left, right, junction) would otherwise come out in hash-set order.
-    let mut join_rows: Vec<JoinRow> = seen
-        .into_iter()
-        .map(|(left, right, junction, extension)| JoinRow {
-            left,
-            right,
-            junction,
-            extension,
-            kern: 0,
+        for (row, joint) in product.transitions.iter_mut().zip(&class_joint) {
+            row.joint = *joint;
+        }
+        let rows = LabelRows::new(&product, &fold_rows);
+        let runs = input_runs(&rows);
+        let started = report.is_some().then(Instant::now);
+        let chains = certificate::RowChains::over(&rows);
+        if let (Some(report), Some(started)) = (report, started) {
+            report("prefixes", started.elapsed());
+        }
+        Ok(Self {
+            product,
+            fold_rows,
+            runs,
+            chains,
         })
-        .collect();
-    join_rows.sort();
-
-    let started = report.is_some().then(Instant::now);
-    let chains = certificate::RowChains::over(&rows);
-    if let (Some(report), Some(started)) = (report.as_deref_mut(), started) {
-        report("prefixes", started.elapsed());
     }
 
-    let started = report.is_some().then(Instant::now);
-    let first_rows = first_match_rows(
-        &rows,
-        &rules,
-        Some(&replay_lefts),
-        certificate::ROW_CAP,
-        Some(chains.dist()),
-    )?;
-    if let (Some(report), Some(started)) = (report, started) {
-        report("partition", started.elapsed());
+    /// The configuration's own label-grain rows.
+    pub fn rows(&self) -> LabelRows<'_> {
+        LabelRows::new(&self.product, &self.fold_rows)
     }
-    assert_deep_class_unions(&product, &rules)?;
-    let certificates = certificate::certify(index, options, &chains, &rows, &rules, &first_rows)?;
 
-    let config = product.config.clone();
-    let decision = DecisionTable {
-        config: product.config,
-        transitions: product.transitions,
-        labels: product.labels,
-        outcomes: product.outcomes,
-        rules,
-        identity_guard_rules: identity_guards,
-        cited_provenance: product.cited_provenance,
-        deep_classes: product.deep_classes,
-        cells: product.cells,
-        certificates,
-    };
-    Ok(Folded {
-        decision,
-        joins: JoinTable {
-            config,
-            rows: join_rows,
-        },
-        replay_lefts,
-    })
+    pub fn chains(&self) -> &certificate::RowChains {
+        &self.chains
+    }
+
+    /// One empty slot per input, for [`Prepared::fold_inputs`] to fill.
+    pub fn unfolded(&self) -> Vec<Option<RuleFold>> {
+        self.runs.iter().map(|_| None).collect()
+    }
+
+    /// Folds the rules of every input `inputs` names, or of every input when it is `None`, into that input's slot of `folds`, reading the input's own rows merged with what `imports` holds for it. Inputs fold in key order, so the first error is the first input's.
+    pub fn fold_inputs(
+        &self,
+        index: &SpecIndex,
+        imports: &Imports,
+        inputs: Option<&HashSet<Rc<str>>>,
+        folds: &mut [Option<RuleFold>],
+    ) -> Result<(), String> {
+        let rows = self.rows();
+        for (slot, (start, end)) in folds.iter_mut().zip(&self.runs) {
+            let slice = rows.slice(*start, *end);
+            let input_glyph = Rc::clone(slice.input_glyph(0));
+            if inputs.is_some_and(|wanted| !wanted.contains(&input_glyph)) {
+                continue;
+            }
+            let rune = input_glyph.split('.').next().unwrap_or(&input_glyph);
+            let Some(modeled) = index.sym_of(rune).filter(|name| index.is_modeled(*name)) else {
+                return Err(format!(
+                    "{input_glyph}: the spec models no rune {}",
+                    python_repr(rune)
+                ));
+            };
+            let never_locked = !index.is_entry_bearing(modeled);
+            let imported = imports.for_input(&input_glyph);
+            *slot = Some(if imported.is_empty() {
+                rules_for_input(&input_glyph, &slice, never_locked)?
+            } else {
+                let order = MergedRows::order(&slice, imported);
+                let merged = MergedRows::new(slice, imported, &order);
+                rules_for_input(&input_glyph, &merged, never_locked)?
+            });
+        }
+        Ok(())
+    }
+
+    /// The rules of every input in table order, from the slots [`Prepared::fold_inputs`] filled.
+    pub fn rules(folds: &[Option<RuleFold>]) -> Vec<Rule> {
+        folds
+            .iter()
+            .flatten()
+            .flat_map(|fold| fold.rules.iter().cloned())
+            .collect()
+    }
+
+    /// Finishes the fold from the per-input rule folds: the reachable-cells cross-check, the join fold, the reduced first-match-wins replay over the own rows and every imported row, the deep-class union check, and the certificates, which `report` times as `partition` around the replay. `crossing` names the build's spellings and this configuration's position in them, which a guard rule's certificate needs; it is `None` when nothing is imported.
+    ///
+    /// An imported row must first-match a rule with its outcome, like an own row, and a rule an imported row first-matches is reached. A rule that only imported rows first-match is a guard rule, whose certificate is completed from one of those rows' chains in the configuration the row is live in ([`certificate::guard_certificate`]).
+    pub fn finish(
+        self,
+        index: &SpecIndex,
+        options: &mut WindowOptions<'_>,
+        folds: Vec<Option<RuleFold>>,
+        imports: &Imports,
+        crossing: Option<(&Spellings, usize)>,
+        report: Option<&mut FoldReporter<'_>>,
+    ) -> Result<Folded, String> {
+        let Self {
+            product,
+            fold_rows,
+            runs,
+            chains,
+        } = self;
+        let rows = LabelRows::new(&product, &fold_rows);
+        let mut rules: Vec<Rule> = Vec::new();
+        let mut identity_guards: i64 = 0;
+        let mut replay_lefts: ReplayLefts = HashMap::default();
+        for ((start, _end), fold) in runs.iter().zip(folds) {
+            let fold = fold.ok_or_else(|| {
+                format!(
+                    "{}: the input's rules were never folded",
+                    rows.input_glyph(*start)
+                )
+            })?;
+            identity_guards += fold.identity_guards;
+            rules.extend(fold.rules);
+            replay_lefts.insert(Rc::clone(rows.input_glyph(*start)), fold.replay_lefts);
+        }
+
+        assert_reachable_cells(index, &rows, &product.settled_records, &product.cells)?;
+
+        let entry_extensions: HashMap<&CellId, i64> = product
+            .cells
+            .iter()
+            .map(|cell| (cell, entry_extension(cell)))
+            .collect();
+        let mut seen: HashSet<(Rc<str>, Rc<str>, String, i64)> = HashSet::default();
+        for row in 0..rows.len() {
+            let base = rows.base(row);
+            let Some(left_settled) = product.left_settled(base) else {
+                continue;
+            };
+            match left_settled.junction {
+                None => {
+                    seen.insert((
+                        Rc::clone(rows.left(row)),
+                        Rc::clone(rows.outcome(row)),
+                        "break".to_owned(),
+                        0,
+                    ));
+                }
+                Some(junction) => {
+                    seen.insert((
+                        Rc::clone(rows.left(row)),
+                        Rc::clone(rows.outcome(row)),
+                        index.resolve(junction).to_owned(),
+                        left_settled.extension + entry_extensions[&product.settled(base).cell],
+                    ));
+                }
+            }
+        }
+        // Sort on the whole row: two rows tying on (left, right, junction) would otherwise come out in hash-set order.
+        let mut join_rows: Vec<JoinRow> = seen
+            .into_iter()
+            .map(|(left, right, junction, extension)| JoinRow {
+                left,
+                right,
+                junction,
+                extension,
+                kern: 0,
+            })
+            .collect();
+        join_rows.sort();
+
+        let started = report.is_some().then(Instant::now);
+        let first_rows = first_match_rows_open(
+            &rows,
+            &rules,
+            Some(&replay_lefts),
+            certificate::ROW_CAP,
+            Some(chains.dist()),
+        )?;
+        let imported_first = imported_first_rows(&rules, imports, crossing)?;
+        assert_reached(&rules, |rule| {
+            !first_rows[rule].is_empty() || !imported_first[rule].is_empty()
+        })?;
+        if let (Some(report), Some(started)) = (report, started) {
+            report("partition", started.elapsed());
+        }
+        assert_deep_class_unions(&product, &rules)?;
+        let by_input = rules_by_input(&rules);
+        let certificates = certificate::certify(
+            index,
+            options,
+            &chains,
+            &rows,
+            &rules,
+            &first_rows,
+            &mut |options, rule_index| {
+                let Some((spellings, receiver)) = crossing else {
+                    return Err(format!(
+                        "rule {rule_index} has no replayed row, and nothing is imported"
+                    ));
+                };
+                for &at in &imported_first[rule_index] {
+                    if let Some(certificate) = certificate::guard_certificate(
+                        index,
+                        options,
+                        spellings,
+                        receiver,
+                        &by_input,
+                        rule_index,
+                        &imports.rows()[at],
+                    )? {
+                        return Ok(certificate);
+                    }
+                }
+                let rule = &rules[rule_index];
+                Err(format!(
+                    "guard rule {rule_index} ({} -> {}) first-matches only windows another configuration keeps live ({} of them), and none of them completes into a string it first-matches there",
+                    rule.input_glyph,
+                    rule.outcome,
+                    imported_first[rule_index].len()
+                ))
+            },
+        )?;
+
+        let config = product.config.clone();
+        let buckets = crossing.map_or_else(Vec::new, |(spellings, own)| {
+            crate::crossconfig::rule_buckets(spellings, own, &rules)
+        });
+        let decision = DecisionTable {
+            config: product.config,
+            transitions: product.transitions,
+            labels: product.labels,
+            outcomes: product.outcomes,
+            rules,
+            identity_guard_rules: identity_guards,
+            cited_provenance: product.cited_provenance,
+            deep_classes: product.deep_classes,
+            cells: product.cells,
+            certificates,
+            imports: imports
+                .rows()
+                .iter()
+                .map(|row| {
+                    let key = row.key_text();
+                    let live = crossing.map_or_else(String::new, |(spellings, _)| {
+                        spellings.tokens()[row.source].clone()
+                    });
+                    [
+                        key[0].to_owned(),
+                        key[1].to_owned(),
+                        key[2].to_owned(),
+                        key[3].to_owned(),
+                        key[4].to_owned(),
+                        key[5].to_owned(),
+                        row.outcome.to_string(),
+                        live,
+                    ]
+                })
+                .collect(),
+            fold_order: crossing.map_or_else(Vec::new, |(spellings, _)| spellings.fold_order()),
+            buckets,
+        };
+        Ok(Folded {
+            decision,
+            joins: JoinTable {
+                config,
+                rows: join_rows,
+            },
+            replay_lefts,
+        })
+    }
+}
+
+/// For each rule, up to [`certificate::ROW_CAP`] of the imported rows that first-match it, in key order. An imported row whose first match gives another outcome is an error naming the configuration it is live in.
+fn imported_first_rows(
+    rules: &[Rule],
+    imports: &Imports,
+    crossing: Option<(&Spellings, usize)>,
+) -> Result<Vec<Vec<usize>>, String> {
+    let mut first: Vec<Vec<usize>> = vec![Vec::new(); rules.len()];
+    if imports.is_empty() {
+        return Ok(first);
+    }
+    let by_input = rules_by_input(rules);
+    let mut failures: Vec<String> = Vec::new();
+    let mut count = 0usize;
+    for (at, row) in imports.rows().iter().enumerate() {
+        let key = row.key_text();
+        let matched = first_match(&by_input, key);
+        let predicted: &str = matched.map_or(key[0], |position| &rules[position].outcome);
+        if predicted != &*row.outcome {
+            count += 1;
+            if failures.len() < 5 {
+                let live = crossing.map_or("another configuration", |(spellings, _)| {
+                    &spellings.tokens()[row.source]
+                });
+                failures.push(format!(
+                    "{}: live in {live}, which settles it to {}, rules say {predicted}",
+                    key_repr(key),
+                    row.outcome
+                ));
+            }
+            continue;
+        }
+        if let Some(position) = matched
+            && first[position].len() < certificate::ROW_CAP
+        {
+            first[position].push(at);
+        }
+    }
+    if count > 0 {
+        return Err(format!(
+            "{count} first-match-wins replay mismatches on imported windows: {}",
+            failures.join("; ")
+        ));
+    }
+    Ok(first)
 }
 
 /// Checks the precondition the fold and [`expand`] rely on: the product's rows are in `table.Window.key` order, as [`FixpointProduct`] documents. That order makes an input's rows one contiguous run, a left's rows one contiguous run inside it, and the per-prefix expansion sort a global one. A product out of order would fold a left into duplicated blocks, so it is an error.
@@ -379,27 +767,26 @@ fn assert_key_sorted(product: &FixpointProduct) -> Result<(), String> {
     Ok(())
 }
 
-/// The label-grain expansion of one product, in `table.Window.key` order. The module doc says why sorting each prefix run is enough. It is public so a caller replaying a perturbed rule list can build the rows the fold checked.
-pub fn expand(product: &FixpointProduct) -> Vec<FoldRow> {
-    let mut pool: HashSet<Rc<str>> = HashSet::default();
-    let mut members: HashMap<&str, Vec<Rc<str>>> = HashMap::default();
+/// The label-grain expansion of one product, in `table.Window.key` order. The module doc says why sorting each prefix run is enough. Every deep class's members are interned into the product's label pool, which the rows' ids index, and the expansion is allocated at its exact length. It is public so a caller replaying a perturbed rule list can build the rows the fold checked.
+pub fn expand(product: &mut FixpointProduct) -> Vec<FoldRow> {
+    let mut members: HashMap<Label, Vec<Label>> = HashMap::default();
     for (token, names) in &product.deep_classes {
+        let token = product.labels.intern(token);
         let interned = names
             .iter()
-            .map(|name| match pool.get(name.as_str()) {
-                Some(found) => Rc::clone(found),
-                None => {
-                    let shared: Rc<str> = Rc::from(name.as_str());
-                    pool.insert(Rc::clone(&shared));
-                    shared
-                }
-            })
+            .map(|name| product.labels.intern(name))
             .collect();
-        members.insert(token.as_str(), interned);
+        members.insert(token, interned);
     }
 
+    let product = &*product;
     let rows = &product.transitions;
-    let mut expanded: Vec<FoldRow> = Vec::with_capacity(rows.len());
+    let width = |label: Label| members.get(&label).map_or(1, Vec::len);
+    let mut expanded: Vec<FoldRow> = Vec::with_capacity(
+        rows.iter()
+            .map(|row| width(row.right3) * width(row.right4))
+            .sum(),
+    );
     let mut start = 0;
     while start < rows.len() {
         let mut end = start + 1;
@@ -408,27 +795,26 @@ pub fn expand(product: &FixpointProduct) -> Vec<FoldRow> {
         }
         let run = expanded.len();
         for (class_row, row) in rows.iter().enumerate().take(end).skip(start) {
-            let own3 = std::slice::from_ref(product.labels.text(row.right3));
-            let own4 = std::slice::from_ref(product.labels.text(row.right4));
             let members3 = members
-                .get(&**product.labels.text(row.right3))
-                .map_or(own3, Vec::as_slice);
+                .get(&row.right3)
+                .map_or(std::slice::from_ref(&row.right3), Vec::as_slice);
             let members4 = members
-                .get(&**product.labels.text(row.right4))
-                .map_or(own4, Vec::as_slice);
-            for right3 in members3 {
-                for right4 in members4 {
+                .get(&row.right4)
+                .map_or(std::slice::from_ref(&row.right4), Vec::as_slice);
+            for &right3 in members3 {
+                for &right4 in members4 {
                     expanded.push(FoldRow {
                         class_row: class_row as u32,
-                        right3: Rc::clone(right3),
-                        right4: Rc::clone(right4),
+                        right3,
+                        right4,
                         joint: row.joint,
                     });
                 }
             }
         }
+        let text = |label: Label| &**product.labels.text(label);
         expanded[run..].sort_by(|left, right| {
-            (&*left.right3, &*left.right4).cmp(&(&*right.right3, &*right.right4))
+            (text(left.right3), text(left.right4)).cmp(&(text(right.right3), text(right.right4)))
         });
         start = end;
     }
@@ -476,18 +862,20 @@ fn flag_prospect_joints(product: &FixpointProduct, fold: &mut [FoldRow]) {
             continue;
         };
         let mut followers = &fold[prefix.clone()];
-        if &*row.right3 != NA_LABEL {
+        let right3 = &**product.labels.text(row.right3);
+        if right3 != NA_LABEL {
             let right2 = |follower: &FoldRow| {
                 &**product
                     .labels
                     .text(class[follower.class_row as usize].right2)
             };
-            let start = followers.partition_point(|follower| right2(follower) < &*row.right3);
-            let end = followers.partition_point(|follower| right2(follower) <= &*row.right3);
+            let start = followers.partition_point(|follower| right2(follower) < right3);
+            let end = followers.partition_point(|follower| right2(follower) <= right3);
             followers = &followers[start..end];
         }
+        let carries_right4 = &**product.labels.text(row.right4) != NA_LABEL;
         let diverges = followers.iter().any(|follower| {
-            if &*row.right4 != NA_LABEL && follower.right3 != row.right4 {
+            if carries_right4 && follower.right3 != row.right4 {
                 return false;
             }
             let followed = &class[follower.class_row as usize];
@@ -621,13 +1009,11 @@ struct IndexedRule {
 
 struct IndexedMatcher<'a> {
     rows: LabelRows<'a>,
-    labels: LabelPool,
-    deep_ids: HashMap<(usize, usize), u32>,
     by_input: HashMap<u32, Vec<IndexedRule>>,
 }
 
 impl<'a> IndexedMatcher<'a> {
-    /// Compiles the ordered rules [`first_match`] reads into sorted classes of product-local label IDs. The cloned pool keeps every existing row ID, and rule members and deep labels that the pool lacks are interned after them. `deep_ids` caches one entry per deep-label allocation, keyed by address, not one per row. The held row view keeps those allocations alive, so an address cannot be reused while the matcher exists. Equal labels in distinct allocations intern to the same ID. The IDs are used only to test membership, so the order they are minted in affects no result.
+    /// Compiles the ordered rules [`first_match`] reads into sorted classes of product-local label IDs. The cloned pool keeps every existing row ID, the expansion's deep labels included ([`expand`] interns them), and rule members that the pool lacks are interned after them. The IDs are used only to test membership, so the order they are minted in affects no result.
     fn new(rows: &LabelRows<'a>, rules: &[Rule]) -> Self {
         let mut labels = rows.product.labels.clone();
         let mut by_input: HashMap<u32, Vec<IndexedRule>> = HashMap::default();
@@ -651,18 +1037,21 @@ impl<'a> IndexedMatcher<'a> {
         }
         Self {
             rows: *rows,
-            labels,
-            deep_ids: HashMap::default(),
             by_input,
         }
     }
 
-    fn first_match(&mut self, row: usize) -> Option<usize> {
+    fn first_match(&self, row: usize) -> Option<usize> {
         let rows = self.rows;
         let base = rows.base(row);
-        let deep3 = self.deep_id(rows.right3(row));
-        let deep4 = self.deep_id(rows.right4(row));
-        let slots = [base.left.0, base.right1.0, base.right2.0, deep3, deep4];
+        let deep = &rows.fold[row];
+        let slots = [
+            base.left.0,
+            base.right1.0,
+            base.right2.0,
+            deep.right3.0,
+            deep.right4.0,
+        ];
         for rule in self
             .by_input
             .get(&base.input_glyph.0)
@@ -680,20 +1069,6 @@ impl<'a> IndexedMatcher<'a> {
         }
         None
     }
-
-    fn deep_id(&mut self, text: &Rc<str>) -> u32 {
-        let pointer = label_pointer(text);
-        if let Some(&found) = self.deep_ids.get(&pointer) {
-            return found;
-        }
-        let id = self.labels.intern(text).0;
-        self.deep_ids.insert(pointer, id);
-        id
-    }
-}
-
-fn label_pointer(text: &Rc<str>) -> (usize, usize) {
-    (text.as_ptr() as usize, text.len())
 }
 
 fn admits(class: &[u32], label: u32) -> bool {
@@ -794,7 +1169,38 @@ pub fn first_match_rows(
     keep: usize,
     dist: Option<&[u32]>,
 ) -> Result<Vec<Vec<usize>>, String> {
-    let mut matcher = IndexedMatcher::new(rows, rules);
+    let first_rows = first_match_rows_open(rows, rules, lefts, keep, dist)?;
+    assert_reached(rules, |rule| !first_rows[rule].is_empty())?;
+    Ok(first_rows)
+}
+
+/// The unreachable-rule error for the rules `reached` says no replayed row first-matches, or `Ok` when every rule is reached.
+fn assert_reached(rules: &[Rule], reached: impl Fn(usize) -> bool) -> Result<(), String> {
+    let unreachable: Vec<usize> = (0..rules.len()).filter(|&rule| !reached(rule)).collect();
+    if unreachable.is_empty() {
+        return Ok(());
+    }
+    let listed: Vec<String> = unreachable
+        .iter()
+        .take(5)
+        .map(|position| rule_repr(&rules[*position]))
+        .collect();
+    Err(format!(
+        "{} unreachable rule(s), which no replayed row first-matches: {}",
+        unreachable.len(),
+        listed.join("; ")
+    ))
+}
+
+/// [`first_match_rows`] without its reachability check: a rule no replayed row first-matches gets an empty list. [`Prepared::finish`] checks reachability over these rows and the imported ones together. The replay returns, for every rule, up to `keep` of the replayed rows that first-match it, as indices into `rows`. When `dist` ranks the rows ([`crate::certificate::RowChains`]), these are the rows with the shortest row chains, an unreached row ranking last. Otherwise they are the first rows in replay order. The errors are the assertion's: an outcome mismatch, or a rule no replayed row first-matches. The `IndexedMatcher` is built and dropped inside this call, so its build time and memory count toward the `partition` phase.
+pub fn first_match_rows_open(
+    rows: &LabelRows<'_>,
+    rules: &[Rule],
+    lefts: Option<&ReplayLefts>,
+    keep: usize,
+    dist: Option<&[u32]>,
+) -> Result<Vec<Vec<usize>>, String> {
+    let matcher = IndexedMatcher::new(rows, rules);
     let mut failures: Vec<String> = Vec::new();
     let mut count = 0usize;
     let mut first_rows: Vec<Vec<usize>> = vec![Vec::new(); rules.len()];
@@ -851,22 +1257,7 @@ pub fn first_match_rows(
             failures.join("; ")
         ));
     }
-    let unreachable: Vec<usize> = (0..rules.len())
-        .filter(|position| first_rows[*position].is_empty())
-        .collect();
-    if unreachable.is_empty() {
-        return Ok(first_rows);
-    }
-    let listed: Vec<String> = unreachable
-        .iter()
-        .take(5)
-        .map(|position| rule_repr(&rules[*position]))
-        .collect();
-    Err(format!(
-        "{} unreachable rule(s), which no replayed row first-matches: {}",
-        unreachable.len(),
-        listed.join("; ")
-    ))
+    Ok(first_rows)
 }
 
 /// One rule as an error message names it: the input it rewrites, its five slots in replay order with `any` for an unconstrained one, the outcome it would write, and the first authored pointer that produced it.
@@ -1015,6 +1406,7 @@ fn python_str_list(values: &[&str]) -> String {
 mod tests {
     use super::*;
     use crate::artifacts;
+    use crate::crossconfig::{ForeignRow, SharedRules, Source, SourceRows};
     use crate::fixpoint::{EnumerationModes, deep_class_id, enumerate_transitions};
     use crate::index::fixtures;
     use crate::types::{NotesId, SettledId};
@@ -1048,8 +1440,8 @@ mod tests {
     /// The ordered rules predict every row under the whole-table replay, which the fixture is small enough to afford, and under the reduced replay the build runs.
     #[test]
     fn every_enumerated_row_is_what_the_ordered_rules_predict() {
-        let (_index, product, folded) = built();
-        let fold_rows = expand(&product);
+        let (_index, mut product, folded) = built();
+        let fold_rows = expand(&mut product);
         let rows = LabelRows::new(&product, &fold_rows);
         assert_outcome_partition(&rows, &folded.decision.rules, None)
             .expect("first-match-wins over the whole table");
@@ -1059,12 +1451,12 @@ mod tests {
 
     #[test]
     fn production_proof_preserves_reference_row_chains_matches_rows_failures_and_certificates() {
-        let (index, product, folded) = built();
-        let fold_rows = expand(&product);
+        let (index, mut product, folded) = built();
+        let fold_rows = expand(&mut product);
         let rows = LabelRows::new(&product, &fold_rows);
         let rules = &folded.decision.rules;
         let by_input = rules_by_input(rules);
-        let mut indexed = IndexedMatcher::new(&rows, rules);
+        let indexed = IndexedMatcher::new(&rows, rules);
         for row in 0..rows.len() {
             assert_eq!(
                 first_match(&by_input, rows.key(row)),
@@ -1102,6 +1494,7 @@ mod tests {
             &rows,
             rules,
             &reference_rows,
+            &mut certificate::no_guards,
         )
         .expect("the reference proof certifies the folded rules");
         assert_eq!(reference_certificates, folded.decision.certificates);
@@ -1149,8 +1542,8 @@ mod tests {
     /// A rule no row reaches is dead GSUB, so the replay fails on it. A backtrack naming a left the fixture never enumerates matches nothing, so every prediction is unchanged and only the reachability check fails.
     #[test]
     fn a_rule_no_replayed_row_first_matches_is_refused() {
-        let (_index, product, folded) = built();
-        let fold_rows = expand(&product);
+        let (_index, mut product, folded) = built();
+        let fold_rows = expand(&mut product);
         let rows = LabelRows::new(&product, &fold_rows);
         let input = Rc::clone(&folded.decision.rules[0].input_glyph);
         let mut rules = folded.decision.rules.clone();
@@ -1178,8 +1571,8 @@ mod tests {
     /// A duplicate of the last rule matches the same rows as the original, which precedes it, so first-match-wins never reaches the duplicate and every prediction is unchanged.
     #[test]
     fn a_shadowed_duplicate_is_refused() {
-        let (_index, product, folded) = built();
-        let fold_rows = expand(&product);
+        let (_index, mut product, folded) = built();
+        let fold_rows = expand(&mut product);
         let rows = LabelRows::new(&product, &fold_rows);
         let mut rules = folded.decision.rules.clone();
         let twin = rules.last().expect("the fixture folds rules").clone();
@@ -1195,8 +1588,8 @@ mod tests {
     /// A negative control for the reduction: every single-rule drop, adjacent swap and widened first-lookahead class that the whole-table replay catches, the reduced replay catches too. A perturbation that neither catches touches a redundant rule, which says something about the fold and nothing about the reduction.
     #[test]
     fn the_reduced_replay_catches_what_the_whole_table_replay_catches() {
-        let (_index, product, folded) = built();
-        let fold_rows = expand(&product);
+        let (_index, mut product, folded) = built();
+        let fold_rows = expand(&mut product);
         let rows = LabelRows::new(&product, &fold_rows);
         let rules = &folded.decision.rules;
         let mut perturbations: Vec<Vec<Rule>> = Vec::new();
@@ -1597,7 +1990,7 @@ mod tests {
                 true,
             )
         };
-        let product = bench.product(
+        let mut product = bench.product(
             vec![
                 leader("#NA"),
                 leader("D"),
@@ -1615,7 +2008,7 @@ mod tests {
             ],
             Vec::new(),
         );
-        let mut rows = expand(&product);
+        let mut rows = expand(&mut product);
         flag_prospect_joints(&product, &mut rows);
         let flagged: Vec<(&str, &str, &str, bool)> = rows
             .iter()
@@ -1624,7 +2017,7 @@ mod tests {
                 (
                     &**product.labels.text(base.input_glyph),
                     &**product.labels.text(base.right2),
-                    &*row.right3,
+                    &**product.labels.text(row.right3),
                     row.joint,
                 )
             })
@@ -1682,11 +2075,11 @@ mod tests {
     }
 
     #[test]
-    fn indexed_membership_preserves_overlap_guards_identity_and_distinct_deep_allocations() {
+    fn indexed_membership_preserves_overlap_guards_and_identity() {
         let bench = Bench::new();
         let third = deep_class_id(&["D".to_owned(), "E".to_owned()]);
         let fourth = deep_class_id(&["F".to_owned(), "G".to_owned()]);
-        let product = bench.product(
+        let mut product = bench.product(
             vec![
                 bench.row(
                     ["qsIt", "#EDGE", "qsMay", "C", &third, &fourth, "same"],
@@ -1709,7 +2102,7 @@ mod tests {
                 (fourth, vec!["F".to_owned(), "G".to_owned()]),
             ],
         );
-        let fold_rows = expand(&product);
+        let fold_rows = expand(&mut product);
         let rows = LabelRows::new(&product, &fold_rows);
         let wide_edge: Vec<Rc<str>> = [
             "#EDGE", "edge-a", "edge-b", "edge-c", "edge-d", "edge-e", "edge-f", "edge-g",
@@ -1773,14 +2166,10 @@ mod tests {
             },
         ];
         let by_input = rules_by_input(&rules);
-        let mut indexed = IndexedMatcher::new(&rows, &rules);
-        let mut d_allocations: HashSet<(usize, usize)> = HashSet::default();
+        let indexed = IndexedMatcher::new(&rows, &rules);
         let mut saw_identity = false;
         for row in 0..rows.len() {
             let key = rows.key(row);
-            if key[4] == "D" {
-                d_allocations.insert(label_pointer(rows.right3(row)));
-            }
             let reference = first_match(&by_input, key);
             assert_eq!(reference, indexed.first_match(row), "{}", key_repr(key));
             let expected = if key[1] == "uni200C" {
@@ -1800,10 +2189,6 @@ mod tests {
         assert!(
             saw_identity,
             "the fixture stopped exercising input fallback"
-        );
-        assert!(
-            d_allocations.len() > 1,
-            "the concrete deep member and direct label share one allocation"
         );
     }
 
@@ -2202,5 +2587,804 @@ mod tests {
             artifacts::table_digest(&bench.index, &once.decision, &once.joins),
             artifacts::table_digest(&bench.index, &twice.decision, &twice.joins)
         );
+    }
+
+    /// What one configuration of an exchange holds once it ends: its prepared rows, its imports, and its rule folds.
+    struct Exchanged {
+        prepared: Prepared,
+        imports: Imports,
+        folds: Vec<Option<RuleFold>>,
+    }
+
+    impl Exchanged {
+        fn rules(&self) -> Vec<Rule> {
+            Prepared::rules(&self.folds)
+        }
+    }
+
+    /// The exchange `fanout::run_configs_tables` runs across threads, run here on one: every configuration folds its own rows and publishes, then in each round every configuration evaluates every configuration's rules over its own rows for the inputs refolded last, and every configuration takes in what it was sent and refolds, until a round moves nothing. The products are each configuration's, in list order.
+    fn exchange(
+        index: &SpecIndex,
+        spellings: &Spellings,
+        products: Vec<FixpointProduct>,
+    ) -> Result<Vec<Exchanged>, String> {
+        let mut held: Vec<Exchanged> = Vec::new();
+        for product in products {
+            let prepared = Prepared::new(product, None)?;
+            let mut folds = prepared.unfolded();
+            prepared.fold_inputs(index, &Imports::default(), None, &mut folds)?;
+            held.push(Exchanged {
+                prepared,
+                imports: Imports::default(),
+                folds,
+            });
+        }
+        let indexed: Vec<SourceRows> = held
+            .iter()
+            .map(|config| SourceRows::of(&config.prepared.rows()))
+            .collect();
+        let mut published: Vec<SharedRules> = held
+            .iter()
+            .enumerate()
+            .map(|(at, config)| SharedRules::of(spellings, at, &config.rules()))
+            .collect();
+        let mut refolded: Option<HashSet<Box<str>>> = None;
+        for _round in 0..16 {
+            let everyone: Vec<&SharedRules> = published.iter().collect();
+            let mut mail: Vec<Vec<Vec<ForeignRow>>> = held
+                .iter()
+                .map(|_| held.iter().map(|_| Vec::new()).collect())
+                .collect();
+            for (source, config) in held.iter().enumerate() {
+                let from = Source {
+                    index,
+                    spellings,
+                    config: source,
+                    rows: config.prepared.rows(),
+                    indexed: &indexed[source],
+                    chains: config.prepared.chains(),
+                    published: &everyone,
+                };
+                for (receiver, rows) in crate::crossconfig::exports(&from, refolded.as_ref())
+                    .into_iter()
+                    .enumerate()
+                {
+                    mail[receiver][source] = rows;
+                }
+            }
+            drop(everyone);
+            let mut next: HashSet<Box<str>> = HashSet::default();
+            for (receiver, batches) in mail.into_iter().enumerate() {
+                let config = &mut held[receiver];
+                let gained =
+                    config
+                        .imports
+                        .absorb(spellings, receiver, &config.prepared.rows(), batches)?;
+                if gained.is_empty() {
+                    continue;
+                }
+                next.extend(
+                    gained
+                        .iter()
+                        .map(|input| Box::from(&*spellings.canonical(receiver, input))),
+                );
+                let wanted: HashSet<Rc<str>> = gained.into_iter().collect();
+                config.prepared.fold_inputs(
+                    index,
+                    &config.imports,
+                    Some(&wanted),
+                    &mut config.folds,
+                )?;
+                published[receiver] = SharedRules::of(spellings, receiver, &config.rules());
+            }
+            if next.is_empty() {
+                return Ok(held);
+            }
+            refolded = Some(next);
+        }
+        Err("the exchange did not end".to_owned())
+    }
+
+    /// The spellings of a `default` and an `ss03` configuration over the fixture, where `ss03` unlocks a `qsMay` entry, so `qsMay` is a marker rune the two spell differently.
+    fn default_and_ss03(index: &SpecIndex) -> Spellings {
+        let ss03 = [fixtures::sym(index, "ss03")];
+        Spellings::new(index, [("default", &[][..]), ("ss03", &ss03[..])])
+    }
+
+    /// The rows of one left that settle the way the boundary lefts do for `qsPea` in [`a_left_one_configuration_reaches_only_before_some_letters`]: before the run edge or a boundary glyph to `qsPea.f`, before `a` to `qsPea.n`, and before each of `more` to its outcome.
+    fn pea_rows(bench: &Bench, left: &str, more: &[(&str, &str)]) -> Vec<TransitionRow> {
+        let mut rows = vec![
+            bench.row(
+                ["qsPea", left, "#EDGE", "#NA", "#NA", "#NA", "qsPea.f"],
+                0,
+                false,
+            ),
+            bench.row(
+                ["qsPea", left, "a", "#NA", "#NA", "#NA", "qsPea.n"],
+                0,
+                false,
+            ),
+        ];
+        rows.extend(bench.edge_kin(["qsPea", left, "#EDGE", "#NA", "#NA", "#NA", "qsPea.f"]));
+        for (right, outcome) in more {
+            rows.push(bench.row(
+                ["qsPea", left, right, "#NA", "#NA", "#NA", outcome],
+                0,
+                false,
+            ));
+        }
+        rows
+    }
+
+    /// `default`'s and `ss03`'s products for [`a_left_one_configuration_reaches_only_before_some_letters`].
+    fn tea_left_products(bench: &Bench) -> Vec<FixpointProduct> {
+        let mut default_rows: Vec<TransitionRow> = Vec::new();
+        let mut ss03_rows: Vec<TransitionRow> = Vec::new();
+        for left in ["#EDGE", "space", "periodcentered", "uni200C"] {
+            default_rows.extend(pea_rows(bench, left, &[("qsMay", "qsPea.m")]));
+            ss03_rows.extend(pea_rows(bench, left, &[("qsMay", "qsPea.k")]));
+        }
+        default_rows.extend(pea_rows(bench, "qsTea.y", &[("qsMay", "qsPea.m")]));
+        ss03_rows.extend(pea_rows(bench, "qsTea.y", &[]));
+        let mut ss03 = bench.product(ss03_rows, Vec::new());
+        ss03.config = "ss03".to_owned();
+        vec![bench.product(default_rows, Vec::new()), ss03]
+    }
+
+    /// `default`'s and `ss03`'s products over two lefts, `qsMay.x` and `qsTea.y`, before `a` and then `b` or `c`. `ss03` reaches both lefts before both letters, and so does `default` when `default_c` names the lefts it reaches before `c`.
+    fn two_left_products(bench: &Bench, default_c: &[&str]) -> Vec<FixpointProduct> {
+        let rows = |c_lefts: &[&str]| {
+            let mut rows = bench.boundary_block("qsPea", "a", "qsPea.n");
+            for left in ["qsMay.x", "qsTea.y"] {
+                rows.push(bench.row(["qsPea", left, "a", "b", "#NA", "#NA", "qsPea.x"], 0, false));
+                if c_lefts.contains(&left) {
+                    rows.push(bench.row(
+                        ["qsPea", left, "a", "c", "#NA", "#NA", "qsPea.y"],
+                        0,
+                        false,
+                    ));
+                }
+            }
+            rows
+        };
+        let mut ss03 = bench.product(rows(&["qsMay.x", "qsTea.y"]), Vec::new());
+        ss03.config = "ss03".to_owned();
+        vec![bench.product(rows(default_c), Vec::new()), ss03]
+    }
+
+    /// The live fault's shape (·Et·Tea·See·At·May under the widened `ss05`): `default` reaches the left `qsTea.y` before every right slot, so it sits in `default`'s default block, whose rules ship after every committed rule; `ss03` reaches it only before a boundary or `a`, so it is a committed block there, with a fallback. Folded alone, `ss03`'s fallback answers `default`'s window before `qsMay` with its own outcome, and it would ship first. The exchange sends that window to `ss03` with `qsMay` as a tag naming `default`'s spelling, `ss03` folds a rule for it, and the rule's provenance names `default`. Nothing else moves: `ss03`'s answer for its own spelling of `qsMay` is a marker-copy rule that ships ahead of `default`'s fallback, and `default`'s rules answer every `ss03` window right or after `ss03`'s own rule.
+    #[test]
+    fn a_left_one_configuration_reaches_only_before_some_letters() {
+        let bench = Bench::new();
+        let spellings = default_and_ss03(&bench.index);
+        let products = tea_left_products(&bench);
+        let alone = fold_product(&bench.index, products[1].clone()).expect("ss03 folds alone");
+        let window = ["qsPea", "qsTea.y", "qsMay@", "#NA", "#NA", "#NA"];
+        let by_input = rules_by_input(&alone.decision.rules);
+        let fired = first_match(&by_input, window).expect("the fallback matches");
+        assert_eq!(&*alone.decision.rules[fired].outcome, "qsPea.f");
+
+        let held = exchange(&bench.index, &spellings, products).expect("the exchange ends");
+        assert!(held[0].imports.is_empty(), "default imports nothing");
+        let imported: Vec<([&str; 6], &str, usize)> = held[1]
+            .imports
+            .rows()
+            .iter()
+            .map(|row| (row.key_text(), &*row.outcome, row.source))
+            .collect();
+        assert_eq!(imported, [(window, "qsPea.m", 0)]);
+        let rules = held[1].rules();
+        assert_overlaps_keep_their_order(&rules);
+        let by_input = rules_by_input(&rules);
+        let guard = &rules[first_match(&by_input, window).expect("a rule answers it")];
+        assert_eq!(&*guard.outcome, "qsPea.m");
+        assert_eq!(guard.backtrack.as_deref(), Some(&[Rc::from("qsTea.y")][..]));
+        assert_eq!(guard.look1.as_deref(), Some(&[Rc::from("qsMay@")][..]));
+        assert_eq!(
+            guard.provenance.last().map(String::as_str),
+            Some("window live in default")
+        );
+        let rows = held[1].prepared.rows();
+        first_match_rows(&rows, &rules, None, 1, None)
+            .expect_err("the guard rule is reached only by the imported window");
+        first_match_rows_open(&rows, &rules, None, 1, None)
+            .expect("ss03's own rows still get their outcomes");
+    }
+
+    /// `default`'s and `ss03`'s products for [`a_window_another_configuration_keeps_live_splits_a_block`].
+    fn split_block_products(bench: &Bench) -> Vec<FixpointProduct> {
+        let mut default_rows = bench.boundary_block("qsPea", "a", "qsPea.n");
+        default_rows.push(bench.row(
+            ["qsPea", "qsMay.x", "a", "b", "#NA", "#NA", "qsPea.x"],
+            0,
+            false,
+        ));
+        default_rows.push(bench.row(
+            ["qsPea", "qsTea.y", "a", "b", "#NA", "#NA", "qsPea.x"],
+            0,
+            false,
+        ));
+        let mut ss03_rows = bench.boundary_block("qsPea", "a", "qsPea.n");
+        ss03_rows.push(bench.row(
+            ["qsPea", "qsMay.x", "a", "b", "#NA", "#NA", "qsPea.x"],
+            0,
+            false,
+        ));
+        ss03_rows.push(bench.row(
+            ["qsPea", "qsMay.x", "a", "c", "#NA", "#NA", "qsPea.y"],
+            0,
+            false,
+        ));
+        let mut ss03 = bench.product(ss03_rows, Vec::new());
+        ss03.config = "ss03".to_owned();
+        vec![bench.product(default_rows, Vec::new()), ss03]
+    }
+
+    /// Two lefts one configuration keeps in one block, because its rows for both are the same, split once another configuration's window shows they differ there; the other configuration's window under the left whose rows it has the most of is not sent, because its own rule for it ships first. `default` ranks first in the emitter's fold, so its committed rule ships ahead of `ss03`'s in the same bucket.
+    #[test]
+    fn a_window_another_configuration_keeps_live_splits_a_block() {
+        let bench = Bench::new();
+        let spellings = default_and_ss03(&bench.index);
+        let products = split_block_products(&bench);
+        let window = ["qsPea", "qsMay.x", "a", "c", "#NA", "#NA"];
+        let alone = fold_product(&bench.index, products[0].clone()).expect("default folds alone");
+        let by_input = rules_by_input(&alone.decision.rules);
+        let fired =
+            &alone.decision.rules[first_match(&by_input, window).expect("the block matches")];
+        assert_eq!(&*fired.outcome, "qsPea.x");
+        assert_eq!(
+            fired.backtrack.as_ref().map(Vec::len),
+            Some(2),
+            "both lefts share the block"
+        );
+
+        let held = exchange(&bench.index, &spellings, products).expect("the exchange ends");
+        assert!(held[1].imports.is_empty(), "ss03 imports nothing");
+        let imported: Vec<[&str; 6]> = held[0]
+            .imports
+            .rows()
+            .iter()
+            .map(ImportedRow::key_text)
+            .collect();
+        assert_eq!(imported, [window]);
+        let rules = held[0].rules();
+        assert_overlaps_keep_their_order(&rules);
+        let by_input = rules_by_input(&rules);
+        assert_eq!(
+            &*rules[first_match(&by_input, window).expect("answered")].outcome,
+            "qsPea.y"
+        );
+        let tea = &rules[first_match(&by_input, ["qsPea", "qsTea.y", "a", "b", "#NA", "#NA"])
+            .expect("answered")];
+        assert_eq!(
+            tea.backtrack.as_deref(),
+            Some(&[Rc::from("qsTea.y")][..]),
+            "the block split"
+        );
+    }
+
+    /// Two configurations that settle one shipped window differently, or a window of one that overlaps a window of the other through an open slot with a different outcome, cannot share one lookup, and the receiver's error names both.
+    #[test]
+    fn windows_two_configurations_settle_differently_are_refused() {
+        let bench = Bench::new();
+        let spellings = default_and_ss03(&bench.index);
+        let products = |ss03_tail: Vec<TransitionRow>| {
+            let mut default_rows = bench.boundary_block("qsPea", "a", "qsPea.n");
+            default_rows.push(bench.row(
+                ["qsPea", "qsMay.x", "a", "b", "z", "#NA", "qsPea.x"],
+                0,
+                false,
+            ));
+            default_rows.push(bench.row(
+                ["qsPea", "qsMay.x", "a", "b", "w", "#NA", "qsPea.y"],
+                0,
+                false,
+            ));
+            let mut ss03_rows = bench.boundary_block("qsPea", "a", "qsPea.n");
+            ss03_rows.extend(ss03_tail);
+            let mut ss03 = bench.product(ss03_rows, Vec::new());
+            ss03.config = "ss03".to_owned();
+            vec![bench.product(default_rows, Vec::new()), ss03]
+        };
+        let same = products(vec![bench.row(
+            ["qsPea", "qsMay.x", "a", "b", "z", "#NA", "qsPea.q"],
+            0,
+            false,
+        )]);
+        let error = exchange(&bench.index, &spellings, same)
+            .err()
+            .expect("one window, two outcomes");
+        assert!(
+            error.contains("one shipped lookup cannot give both"),
+            "{error}"
+        );
+        assert!(
+            error.contains("ss03") && error.contains("default"),
+            "{error}"
+        );
+        let shallow = products(vec![bench.row(
+            ["qsPea", "qsMay.x", "a", "b", "#NA", "#NA", "qsPea.y"],
+            0,
+            false,
+        )]);
+        let error = exchange(&bench.index, &spellings, shallow)
+            .err()
+            .expect("the open slot overlaps a window with another outcome");
+        assert!(error.contains("the two overlap"), "{error}");
+        assert!(error.contains("'z'"), "{error}");
+    }
+
+    /// A guard rule's certificate is the chain of the imported row in the configuration it is live in, completed, and kept when the window at the row's position, spelled in the receiver's labels, first-matches the rule there.
+    #[test]
+    fn a_guard_rule_s_certificate_comes_from_the_configuration_the_window_is_live_in() {
+        let (index, product, _folded) = built();
+        let spellings = default_and_ss03(&index);
+        let prepared = Prepared::new(product, None).expect("the fixture prepares");
+        let rows = prepared.rows();
+        let row = (0..rows.len())
+            .find(|&row| prepared.chains().dist()[row] > 0 && rows.key(row)[1].contains('.'))
+            .expect("the fixture has a row a chain of letters reaches");
+        let key = rows.key(row);
+        let local: [Rc<str>; 6] = std::array::from_fn(|slot| {
+            Rc::from(if slot == 1 {
+                key[1].to_owned()
+            } else {
+                spellings.translate(0, 1, key[slot])
+            })
+        });
+        let imported = ImportedRow {
+            key: local.clone(),
+            outcome: Rc::from("guarded"),
+            source: 0,
+            provenance: Vec::new(),
+            joint: false,
+            chain: certificate::fixed_tokens(&index, prepared.chains(), &rows, row)
+                .expect("the fixture spells its rows"),
+        };
+        let guard = Rule {
+            input_glyph: Rc::clone(&local[0]),
+            backtrack: Some(vec![Rc::clone(&local[1])]),
+            look1: None,
+            look2: None,
+            look3: None,
+            look4: None,
+            outcome: Rc::from("guarded"),
+            provenance: Vec::new(),
+            joint: false,
+        };
+        let rules = vec![guard];
+        let by_input = rules_by_input(&rules);
+        let mut options = WindowOptions::new(&index).expect("the fixture has valid options");
+        let found = certificate::guard_certificate(
+            &index,
+            &mut options,
+            &spellings,
+            1,
+            &by_input,
+            0,
+            &imported,
+        )
+        .expect("the guard is evaluated")
+        .expect("and certified");
+        assert_eq!(found[0], certificate::GUARD_MARKER);
+        assert_eq!(found[1], "default");
+        assert!(found.len() > 2);
+        let no_chain = ImportedRow {
+            chain: None,
+            ..imported
+        };
+        assert!(
+            certificate::guard_certificate(
+                &index,
+                &mut options,
+                &spellings,
+                1,
+                &by_input,
+                0,
+                &no_chain
+            )
+            .expect("evaluated")
+            .is_none()
+        );
+    }
+
+    /// Asserts the fact the shipped order rests on, over one table's rules: when an earlier rule and a later rule of one input both match some window, the emitter's sort (`emit_gsub._ordered_settle_rules`, [`crate::crossconfig::bucket`]) never moves the later one ahead. A backtrack-free rule never precedes a backtrack rule it overlaps, a ZWNJ backtrack guard never follows a rule it overlaps that is not one, and between two rules of one status every lookahead slot the later one constrains, the earlier one constrains with the same class. So whatever labels count as marker copies, the later rule's bucket is never earlier.
+    fn assert_overlaps_keep_their_order(rules: &[Rule]) -> usize {
+        let zwnj = |rule: &Rule| {
+            rule.backtrack
+                .as_ref()
+                .is_some_and(|members| members.iter().any(|member| &**member == "uni200C"))
+        };
+        let overlap = |one: &Rule, other: &Rule| {
+            one.slots()
+                .iter()
+                .zip(other.slots())
+                .all(|(left, right)| match (left, right) {
+                    (Some(left), Some(right)) => left.iter().any(|member| right.contains(member)),
+                    _ => true,
+                })
+        };
+        let mut pairs = 0;
+        for (_input, indexed) in rules_by_input(rules) {
+            for (at, (_, earlier)) in indexed.iter().enumerate() {
+                for (_, later) in &indexed[at + 1..] {
+                    if !overlap(earlier, later) {
+                        continue;
+                    }
+                    pairs += 1;
+                    assert!(
+                        earlier.backtrack.is_some() || later.backtrack.is_none(),
+                        "{} precedes the backtrack rule {} it overlaps",
+                        rule_repr(earlier),
+                        rule_repr(later)
+                    );
+                    assert!(
+                        zwnj(earlier) || !zwnj(later),
+                        "{} precedes the ZWNJ guard {} it overlaps",
+                        rule_repr(earlier),
+                        rule_repr(later)
+                    );
+                    if earlier.backtrack.is_some() == later.backtrack.is_some()
+                        && zwnj(earlier) == zwnj(later)
+                    {
+                        for (held, wider) in earlier.slots()[1..].iter().zip(&later.slots()[1..]) {
+                            assert!(
+                                wider.is_none() || held == wider,
+                                "{} constrains a slot {} leaves open or holds otherwise",
+                                rule_repr(later),
+                                rule_repr(earlier)
+                            );
+                        }
+                    }
+                    assert!(
+                        crate::crossconfig::bucket(earlier.slots().map(|slot| slot.as_deref()))
+                            <= crate::crossconfig::bucket(
+                                later.slots().map(|slot| slot.as_deref())
+                            )
+                    );
+                }
+            }
+        }
+        pairs
+    }
+
+    /// The fixture's tables, the ZWNJ lock's guards, and both exchanges' refolded tables keep every overlapping pair in an order the emitter's sort cannot invert.
+    #[test]
+    fn the_emitter_s_sort_never_moves_an_overlapping_rule_ahead() {
+        let (index, product, folded) = built();
+        let mut pairs = assert_overlaps_keep_their_order(&folded.decision.rules);
+        let ss03 = enumerate_transitions(&index, &[fixtures::sym(&index, "ss03")], DEFAULT_MODES)
+            .expect("the fixture enumerates under ss03");
+        pairs += assert_overlaps_keep_their_order(
+            &fold_product(&index, ss03)
+                .expect("and folds")
+                .decision
+                .rules,
+        );
+        drop(product);
+        let bench = Bench::new();
+        pairs += assert_overlaps_keep_their_order(
+            &fold_product(&bench.index, zwnj_lock(&bench, "qsIt"))
+                .expect("the lock folds")
+                .decision
+                .rules,
+        );
+        assert!(
+            pairs > 0,
+            "the fixture stopped overlapping rules, so this checks nothing"
+        );
+    }
+
+    /// A committed block with no fallback leaves the rows its rules do not answer to the default block's rules, which is right for its own rows (they settle to the input, or the replay would fail) but not for an imported row the default rules would answer otherwise. The block then ends with an identity catch-all over its backtrack, which answers that row and every other row falling through the block, and takes its provenance from the imported row.
+    #[test]
+    fn an_imported_row_falling_through_a_block_without_a_fallback_gets_an_identity_catch_all() {
+        let bench = Bench::new();
+        let spellings = default_and_ss03(&bench.index);
+        let mut rows = bench.boundary_block("qsPea", "b", "qsPea.n");
+        rows.push(bench.row(
+            ["qsPea", "qsMay.x", "a", "#NA", "#NA", "#NA", "qsPea.x"],
+            0,
+            false,
+        ));
+        let prepared = Prepared::new(bench.product(rows, Vec::new()), None).expect("prepares");
+        let mut imports = Imports::default();
+        let foreign = ForeignRow {
+            key: ["qsPea", "qsMay.x", "b", "#NA", "#NA", "#NA"].map(str::to_owned),
+            outcome: "qsPea".to_owned(),
+            source: 1,
+            provenance: vec!["qsMay.yaml".to_owned()],
+            joint: false,
+            chain: None,
+        };
+        let gained = imports
+            .absorb(
+                &spellings,
+                0,
+                &prepared.rows(),
+                vec![Vec::new(), vec![foreign]],
+            )
+            .expect("nothing overlaps it");
+        assert_eq!(gained, [Rc::from("qsPea")]);
+        let mut folds = prepared.unfolded();
+        prepared
+            .fold_inputs(&bench.index, &imports, None, &mut folds)
+            .expect("folds");
+        let rules = Prepared::rules(&folds);
+        let by_input = rules_by_input(&rules);
+        let caught = &rules[first_match(&by_input, imports.rows()[0].key_text()).expect("caught")];
+        assert_eq!(&*caught.outcome, "qsPea");
+        assert_eq!(
+            caught.backtrack.as_deref(),
+            Some(&[Rc::from("qsMay.x")][..])
+        );
+        assert!(caught.slots()[1..].iter().all(|slot| slot.is_none()));
+        assert_eq!(
+            caught.provenance,
+            ["qsMay.yaml", "window live in ss03", "identity catch-all"]
+        );
+        first_match_rows_open(&prepared.rows(), &rules, None, 1, None)
+            .expect("the own rows keep their outcomes");
+        let alone = fold_product(&bench.index, {
+            let mut rows = bench.boundary_block("qsPea", "b", "qsPea.n");
+            rows.push(bench.row(
+                ["qsPea", "qsMay.x", "a", "#NA", "#NA", "#NA", "qsPea.x"],
+                0,
+                false,
+            ));
+            bench.product(rows, Vec::new())
+        })
+        .expect("folds alone");
+        assert_eq!(
+            alone.decision.rules.len() + 1,
+            rules.len(),
+            "the catch-all is the only new rule"
+        );
+    }
+
+    /// The rows of each configuration that the font's one settlement lookup answers otherwise than the configuration's table: every configuration's rules in canonical labels ([`SharedRules`]), kept at their first occurrence in [`Spellings::rank`] order and table order and stably sorted by [`crate::crossconfig::bucket`], as `emit_gsub._fold_rules` and `_ordered_settle_rules` ship them, then first-matched against every own row of every configuration in canonical labels.
+    fn shipped_misses(
+        spellings: &Spellings,
+        configs: &[(LabelRows<'_>, Vec<Rule>)],
+    ) -> Vec<String> {
+        let published: Vec<SharedRules> = configs
+            .iter()
+            .enumerate()
+            .map(|(at, (_rows, rules))| SharedRules::of(spellings, at, rules))
+            .collect();
+        let mut order: Vec<usize> = (0..configs.len()).collect();
+        order.sort_by_key(|config| spellings.rank(*config));
+        let mut shipped: HashMap<&str, Vec<&crate::crossconfig::SharedRule>> = HashMap::default();
+        let mut seen: HashSet<&str> = HashSet::default();
+        for config in order {
+            for (input, rules) in &published[config].by_input {
+                for rule in rules {
+                    if seen.insert(&rule.key) {
+                        shipped.entry(input).or_default().push(rule);
+                    }
+                }
+            }
+        }
+        for rules in shipped.values_mut() {
+            rules.sort_by_key(|rule| rule.bucket);
+        }
+        let mut misses: Vec<String> = Vec::new();
+        for (config, (rows, _rules)) in configs.iter().enumerate() {
+            for row in 0..rows.len() {
+                let key = rows.key(row);
+                let canonical: [String; 6] =
+                    key.map(|label| spellings.canonical(config, label).into_owned());
+                let outcome = rows.outcome(row);
+                let wanted = if **outcome == *key[0] {
+                    spellings.canonical(config, outcome).into_owned()
+                } else {
+                    outcome.to_string()
+                };
+                let fired = shipped
+                    .get(canonical[0].as_str())
+                    .and_then(|rules| {
+                        rules.iter().find(|rule| {
+                            rule.slots.iter().zip(&canonical[1..]).all(|(slot, label)| {
+                                slot.as_ref().is_none_or(|members| {
+                                    members.iter().any(|member| **member == **label)
+                                })
+                            })
+                        })
+                    })
+                    .map_or_else(|| canonical[0].clone(), |rule| rule.outcome.to_string());
+                if fired != wanted {
+                    misses.push(format!(
+                        "{}: {} ships as {fired}, not {wanted}",
+                        spellings.tokens()[config],
+                        key_repr(key)
+                    ));
+                }
+            }
+        }
+        misses
+    }
+
+    /// Each configuration's own rows and its rules folded from them alone, with nothing imported.
+    fn folded_alone(products: Vec<FixpointProduct>) -> Vec<Prepared> {
+        products
+            .into_iter()
+            .map(|product| Prepared::new(product, None).expect("the product prepares"))
+            .collect()
+    }
+
+    /// A fixture's products, one per configuration in list order.
+    type Products = fn(&Bench) -> Vec<FixpointProduct>;
+
+    /// The property the exchange exists for: in the order the font ships every configuration's rules, every own row of every configuration first-matches its own outcome. Each fixture breaks it when each configuration folds alone, and the exchange restores it.
+    #[test]
+    fn the_shipped_order_answers_every_configuration_s_rows_once_they_exchange() {
+        let bench = Bench::new();
+        let spellings = default_and_ss03(&bench.index);
+        let fixtures: [(&str, Products); 3] = [
+            ("tea_left_products", tea_left_products),
+            ("split_block_products", split_block_products),
+            ("two_left_products", |bench| {
+                two_left_products(bench, &["qsTea.y"])
+            }),
+        ];
+        for (name, products) in fixtures {
+            let alone = folded_alone(products(&bench));
+            let configs: Vec<(LabelRows<'_>, Vec<Rule>)> = alone
+                .iter()
+                .map(|prepared| {
+                    let mut folds = prepared.unfolded();
+                    prepared
+                        .fold_inputs(&bench.index, &Imports::default(), None, &mut folds)
+                        .expect("each configuration folds alone");
+                    (prepared.rows(), Prepared::rules(&folds))
+                })
+                .collect();
+            assert!(
+                !shipped_misses(&spellings, &configs).is_empty(),
+                "{name}: folded alone, the shipped order already answers every row"
+            );
+            let held = exchange(&bench.index, &spellings, products(&bench))
+                .unwrap_or_else(|error| panic!("{name}: {error}"));
+            let configs: Vec<(LabelRows<'_>, Vec<Rule>)> = held
+                .iter()
+                .map(|config| (config.prepared.rows(), config.rules()))
+                .collect();
+            assert_eq!(
+                shipped_misses(&spellings, &configs),
+                Vec::<String>::new(),
+                "{name}"
+            );
+        }
+    }
+
+    /// Two lefts `default` folds apart until a window `ss03` keeps live arrives for one of them, after which both share one block. The window's key has an own row under the other left, so that row, not the imported one, decides the rule's provenance, and the replay reduction keeps that left, so an own row reaches the rule and its certificate is an ordinary one rather than a guard's.
+    #[test]
+    fn a_block_an_import_merges_reads_its_rule_from_another_left_s_own_row() {
+        let bench = Bench::new();
+        let spellings = default_and_ss03(&bench.index);
+        let held = exchange(
+            &bench.index,
+            &spellings,
+            two_left_products(&bench, &["qsTea.y"]),
+        )
+        .expect("the exchange ends");
+        let window = ["qsPea", "qsMay.x", "a", "c", "#NA", "#NA"];
+        let imported: Vec<[&str; 6]> = held[0]
+            .imports
+            .rows()
+            .iter()
+            .map(ImportedRow::key_text)
+            .collect();
+        assert_eq!(imported, [window]);
+        let rules = held[0].rules();
+        let by_input = rules_by_input(&rules);
+        let at = first_match(&by_input, window).expect("answered");
+        let rule = &rules[at];
+        assert_eq!(&*rule.outcome, "qsPea.y");
+        assert_eq!(
+            rule.backtrack.as_deref(),
+            Some(&[Rc::from("qsMay.x"), Rc::from("qsTea.y")][..]),
+            "the import merged the two lefts"
+        );
+        assert!(
+            !rule
+                .provenance
+                .iter()
+                .any(|pointer| pointer.starts_with("window live in")),
+            "{:?}",
+            rule.provenance
+        );
+        let mut lefts: ReplayLefts = HashMap::default();
+        for fold in held[0].folds.iter().flatten() {
+            lefts
+                .entry(Rc::from("qsPea"))
+                .or_default()
+                .extend(fold.replay_lefts.iter().cloned());
+        }
+        assert!(
+            lefts["qsPea"].contains("qsTea.y"),
+            "the lending left is replayed"
+        );
+        let rows = held[0].prepared.rows();
+        let first_rows = first_match_rows_open(&rows, &rules, Some(&lefts), 1, None)
+            .expect("the own rows keep their outcomes");
+        assert!(
+            !first_rows[at].is_empty(),
+            "an own row reaches the rule, so its certificate is not a guard's"
+        );
+    }
+
+    /// One committed left, `qsMay.x`, whose group fallback settles to `qsPea.f`, and whose rows past `a` settle to the bare input before a boundary at slot `depth` (2, 3 or 4) and to `qsPea.x` before a letter there. `group_outcome` replaces `qsPea.f` before a boundary right after the left. The default block's near letter is `z`, so its rules never answer the left's rows.
+    fn identity_boundary_rows(
+        bench: &Bench,
+        depth: usize,
+        group_outcome: &str,
+    ) -> Vec<TransitionRow> {
+        let mut rows = bench.boundary_block("qsPea", "z", "qsPea.n");
+        let edge = [
+            "qsPea",
+            "qsMay.x",
+            "#EDGE",
+            "#NA",
+            "#NA",
+            "#NA",
+            group_outcome,
+        ];
+        rows.push(bench.row(edge, 0, false));
+        rows.extend(bench.edge_kin(edge));
+        let letters = ["a", "b", "c", "d"];
+        let mut boundary = ["qsPea", "qsMay.x", "#NA", "#NA", "#NA", "#NA", "qsPea"];
+        let mut letter = ["qsPea", "qsMay.x", "#NA", "#NA", "#NA", "#NA", "qsPea.x"];
+        boundary[2..=depth].copy_from_slice(&letters[..depth - 1]);
+        letter[2..=depth].copy_from_slice(&letters[..depth - 1]);
+        boundary[depth + 1] = "#EDGE";
+        letter[depth + 1] = letters[depth - 1];
+        rows.push(bench.row(boundary, 0, false));
+        rows.extend(bench.edge_kin(boundary));
+        rows.push(bench.row(letter, 0, false));
+        rows
+    }
+
+    /// An identity outcome before a boundary at a deeper slot is kept as an identity guard, beside the slot's identity fallback, when the nearest enclosing fallback has another outcome, so that fallback does not answer the boundary rows; with the enclosing fallback an identity too, both are left out and the rows fall through to the bare input. The replay over every row checks either way that every row gets its outcome.
+    #[test]
+    fn an_identity_boundary_slot_is_guarded_only_under_a_fallback_with_another_outcome() {
+        let bench = Bench::new();
+        for depth in 2..=4 {
+            let guarded = fold_product(
+                &bench.index,
+                bench.product(identity_boundary_rows(&bench, depth, "qsPea.f"), Vec::new()),
+            )
+            .unwrap_or_else(|error| panic!("slot {depth}: {error}"));
+            let open = fold_product(
+                &bench.index,
+                bench.product(identity_boundary_rows(&bench, depth, "qsPea"), Vec::new()),
+            )
+            .unwrap_or_else(|error| panic!("slot {depth} without a fallback: {error}"));
+            let boundary_slot = |rule: &&Rule| {
+                rule.backtrack.as_deref() == Some(&[Rc::from("qsMay.x")][..])
+                    && rule.slots()[depth].as_ref().is_some_and(|members| {
+                        members
+                            .iter()
+                            .map(|member| &**member)
+                            .eq(BOUNDARY_LOOKAHEAD_CLASS)
+                    })
+            };
+            let kept: Vec<&Rule> = guarded
+                .decision
+                .rules
+                .iter()
+                .filter(boundary_slot)
+                .collect();
+            assert_eq!(kept.len(), 1, "slot {depth}");
+            assert_eq!(&*kept[0].outcome, "qsPea", "slot {depth}");
+            assert!(
+                !open.decision.rules.iter().any(|rule| boundary_slot(&rule)),
+                "slot {depth}: with no fallback to guard against, the identity rule is left out"
+            );
+            assert_eq!(
+                guarded.decision.identity_guard_rules,
+                open.decision.identity_guard_rules + 2,
+                "slot {depth}: the boundary rule and the slot's fallback are the guards"
+            );
+        }
     }
 }

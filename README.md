@@ -136,7 +136,7 @@ In order to exactly match the contents of [The Manual][tm] without peppering the
 - `ss02`: allow ·I·Tea to join at the Short height
 - `ss03`: allow ·Tea to be joined to at the x-height as a full-size ·Tea (it stays full — descending to the baseline — when a following letter joins it there; otherwise the half ·Tea)
 - `ss04`: allow ·It to join at the baseline on both sides at once, whatever the neighbors
-- `ss05`: allow `·Et ~b~ ·Tea ~b~ ...` double-baseline joins
+- `ss05`: allow ·Tea to join at the baseline on both sides at once, whatever the neighbors
 - `ss06`: use gapped ·Owe (doesn’t connect at the top)
 - `ss07`: allow ·Owe·Day to join at the x-height again (the default shaping breaks the pair, including when ·Day is the start of a ligature like ·Day+Utter or ·Day+Eat)
 - `ss10`: show the wrapped letter(s) unjoined: no joins and no ligatures (·Day·Utter stays two letters), each letter in its standalone shape — beats interspersing ZWNJs between letters of a word

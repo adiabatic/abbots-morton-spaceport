@@ -1060,7 +1060,7 @@ def _scoped_under(spec: model.ResolvedSpec, features: frozenset[str]) -> frozens
 
 
 class TestConfigurationBlindness:
-    """Tests that a stylistic set can change only unlock rows and feature-conditioned policy records, so everything else the engine reads is identical under every configuration. A configuration-delta enumeration depends on this. `test_ss03_is_the_one_set_the_guard_verdict_map_depends_on` in rebuild/test_settle.py tests the same property for the formation guard."""
+    """Tests that a stylistic set can change only unlock rows and feature-conditioned policy records, so everything else the engine reads is identical under every configuration. A configuration-delta enumeration depends on this. `test_ss03_and_ss05_are_the_sets_the_guard_verdict_map_depends_on` in rebuild/test_settle.py tests the same property for the formation guard."""
 
     def test_predicate_class_membership_is_identical_under_every_configuration(self, spec):
         """`_evaluate_predicate_classes` reads only declared rows, never unlocks. This test checks that applying the active unlocks, under each acceptance configuration and each subset of the capability features, derives the same classes. A configuration can change one stance's surface (qsTea.full gains an x-height entry under ss03), but classes are sets of runes and qsTea.half already declares that row, so no rune's membership changes. The test fails if an unlock gives a rune a height that none of its stances declares."""

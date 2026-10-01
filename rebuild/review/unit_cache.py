@@ -164,6 +164,7 @@ KERNEL_NON_CORPUS_MODULES = frozenset(
     {
         "artifacts.rs",
         "certificate.rs",
+        "crossconfig.rs",
         "deep_slots.rs",
         "fanout.rs",
         "fiber.rs",

@@ -33,10 +33,12 @@ from rebuild.pipeline.settle import (
     RightToken,
     SettleError,
 )
+from rebuild.tools import memory_budget
 
 SPEC = fixtures.mini_spec()
 STAMP = "kernel-pinned-stamp"
 CONFIGS = {"default": frozenset(), "ss03": frozenset({"ss03"}), "ss04": frozenset({"ss04"})}
+CONFIG_COUNT = len(conform.SETTLEMENT_CONFIGS)
 
 
 class Reached(Exception):
@@ -549,14 +551,21 @@ class TestTheKernelInvocation:
         others = [config for config in conform.ACCEPTANCE_CONFIGS if config != "default"]
         assert not [path.name for path in out_dir.iterdir() if any(other in path.name for other in others)]
 
-    def test_a_narrowed_build_files_the_bytes_the_whole_set_files(self, tmp_path):
-        """`default` built alone writes the same settlement and join TSVs, byte for byte, and reports the same digest as `default` built with the whole settlement set. `rebuild/tools/scratch_build.py --configs default` relies on this when it reads only `default`'s rows."""
+    def test_a_narrowed_build_files_the_windows_and_joins_the_whole_set_files(self, tmp_path):
+        """`default` built alone enumerates the same windows and writes the same join TSV, byte for byte, as `default` built with the whole settlement set. `rebuild/tools/scratch_build.py --configs default` relies on this when it reads only `default`'s rows. Its settlement table matches only while the whole set imports nothing into `default`: the whole set's fold takes in the windows the other configurations keep live where `default`'s rules would answer them wrongly ahead of theirs (`rebuild/kernel-rs/src/crossconfig.rs`), and a narrowed build has no other configuration to take them from. The mini fixture imports nothing into `default`, so there the settlement TSV and the digest match too."""
         one, every = tmp_path / "one", tmp_path / "every"
-        _tables, narrowed = run_m1.build_tables(SPEC, one, inputs=STAMP, configs=["default"])
-        _tables, whole = run_m1.build_tables(SPEC, every, inputs=STAMP)
+        alone, narrowed = run_m1.build_tables(SPEC, one, inputs=STAMP, configs=["default"])
+        whole_tables, whole = run_m1.build_tables(SPEC, every, inputs=STAMP)
+        assert (one / "joins-default.tsv").read_bytes() == (every / "joins-default.tsv").read_bytes()
+        _stamp, one_rows = table_module.read_windows(table_module.windows_path(one, "default"))
+        _stamp, every_rows = table_module.read_windows(table_module.windows_path(every, "default"))
+        assert one_rows.transitions == every_rows.transitions
+        assert alone["default"][0].imports == ()
+        assert whole_tables["default"][0].imports == (), "the fixture stopped importing nothing into default"
         assert narrowed["default"] == whole["default"]
-        for name in ("settlement-default.tsv", "joins-default.tsv"):
-            assert (one / name).read_bytes() == (every / name).read_bytes(), name
+        assert (one / "settlement-default.tsv").read_bytes() == (
+            every / "settlement-default.tsv"
+        ).read_bytes()
 
     def _observe_build(self, monkeypatch, tmp_path, asked, configs=None):
         """Record the arguments `build_tables` passes to `kernel_exec.build_table_files`: the configurations, the thread width, the timings tag, the stamp, and `default_memo_sharing`. The stub raises `Reached`, so the run ends there."""
@@ -592,7 +601,7 @@ class TestTheKernelInvocation:
     @pytest.mark.parametrize(
         "asked, wanted",
         [
-            (None, kernel_exec.KERNEL_THREADS_DEFAULT),
+            (None, None),
             (2, 2),
             (99, len(conform.SETTLEMENT_CONFIGS)),
         ],
@@ -600,11 +609,13 @@ class TestTheKernelInvocation:
     def test_the_thread_width_is_how_many_configurations_run_at_once(
         self, monkeypatch, tmp_path, asked, wanted
     ):
-        """One process builds every settlement configuration, `default` first and the rest as deltas over its memo, and `threads` is how many deltas run at once. The crate labels each configuration's timing lines itself, so no tag is passed, and the overlay configuration is never requested."""
+        """One process builds every settlement configuration, `default` first and the rest as deltas over its memo, and `threads` is how many deltas run at once; with no width asked for, it is the width this machine derives for the settlement set. The crate labels each configuration's timing lines itself, so no tag is passed, and the overlay configuration is never requested."""
         seen = self._observe_build(monkeypatch, tmp_path, asked)
         assert len(seen) == 1
         configs, threads, tag, stamp, default_memo_sharing = seen[0]
         assert configs == conform.SETTLEMENT_CONFIGS
+        if wanted is None:
+            wanted = kernel_exec.kernel_threads_default(configs=CONFIG_COUNT)
         assert threads == min(wanted, len(conform.SETTLEMENT_CONFIGS), run_m1.usable_cores())
         assert tag is None
         assert stamp == STAMP
@@ -895,7 +906,7 @@ class TestTheMemoStamp:
 
 
 class TestTheMemoryDerivedThreadDefault:
-    """The default table-build width is the machine's memory, less the OS reserve and `DEFAULT_MEMO_BYTES`, divided by `DELTA_PEAK_BYTES`. Its value depends on the machine running the suite, so these tests pass invented totals through the `total_bytes` keyword of `kernel_threads_default` and `replay_threads_default`. `KERNEL_THREADS_DEFAULT` is resolved at import; changing it would mean reloading the module, which resets `_BUILT` and drops the spec dumps other tests in the session hold."""
+    """The default table-build width is the machine's memory, less the OS reserve, `DEFAULT_MEMO_BYTES` and one `PARKED_FOLD_BYTES` per configuration, divided by `DELTA_PEAK_BYTES` less `PARKED_FOLD_BYTES`. Its value depends on the machine running the suite, so these tests pass invented totals through the `total_bytes` keyword of `kernel_threads_default` and `replay_threads_default`, with the settlement set's configuration count."""
 
     @pytest.fixture(autouse=True)
     def _no_inherited_override(self, monkeypatch):
@@ -904,22 +915,25 @@ class TestTheMemoryDerivedThreadDefault:
         monkeypatch.delenv("AMS_REPLAY_THREADS", raising=False)
 
     def test_the_shipped_default_is_a_startable_width(self):
-        """`KERNEL_THREADS_DEFAULT` is an integer of at least one on any machine, because `how_many_fit` floors at one. It must stay a plain module attribute: `TestTheKernelInvocation` reads it in a parametrize list at import."""
-        assert isinstance(kernel_exec.KERNEL_THREADS_DEFAULT, int)
-        assert kernel_exec.KERNEL_THREADS_DEFAULT >= 1
+        """The width this machine derives for the settlement set is an integer of at least one on any machine, because `how_many_fit` floors at one."""
+        width = kernel_exec.kernel_threads_default(configs=len(conform.SETTLEMENT_CONFIGS))
+        assert isinstance(width, int)
+        assert width >= 1
 
     @pytest.mark.parametrize("stated, wanted", [("1", 1), ("3", 3), ("12", 12), ("0", 1), ("-3", 1)])
     def test_a_stated_width_short_circuits_ahead_of_the_arithmetic(self, monkeypatch, stated, wanted):
         """`AMS_KERNEL_THREADS` takes precedence over the memory arithmetic. Its value is floored at one and not otherwise capped here; `run_m1._table_build_threads` applies the configuration and core caps. The invented total is a terabyte, so the derived width would be far above every stated value, and a pass shows the override was used."""
         monkeypatch.setenv("AMS_KERNEL_THREADS", stated)
-        assert kernel_exec.kernel_threads_default(total_bytes=1_000_000_000_000) == wanted
+        assert (
+            kernel_exec.kernel_threads_default(configs=CONFIG_COUNT, total_bytes=1_000_000_000_000) == wanted
+        )
 
     @pytest.mark.parametrize("junk", ["", "   ", "banana", "9GB", "2.5"])
     def test_a_value_that_is_not_a_width_says_so_rather_than_being_quietly_ignored(self, monkeypatch, junk):
         """An unreadable `AMS_KERNEL_THREADS` raises an error naming the variable instead of falling back to the derived width. `AMS_TOTAL_MEMORY_BYTES` ignores a bad value, but this variable is set to keep a build out of swap, so silently using another width would defeat it. An empty or blank value counts as unreadable."""
         monkeypatch.setenv("AMS_KERNEL_THREADS", junk)
         with pytest.raises(RuntimeError, match="AMS_KERNEL_THREADS"):
-            kernel_exec.kernel_threads_default(total_bytes=34_359_738_368)
+            kernel_exec.kernel_threads_default(configs=CONFIG_COUNT, total_bytes=34_359_738_368)
 
     @pytest.mark.parametrize("junk", ["", "   ", "banana", "9GB", "2.5"])
     def test_a_replay_value_that_is_not_a_width_is_refused_the_same_way(self, monkeypatch, junk):
@@ -932,22 +946,35 @@ class TestTheMemoryDerivedThreadDefault:
         "total, wanted", [(4_000_000_000, 1), (34_359_738_368, 3), (32_000_000_000, 3), (64_000_000_000, 8)]
     )
     def test_the_width_follows_the_machine_and_never_falls_below_one(self, total, wanted):
-        """A 32 GiB machine fits three deltas at `DELTA_PEAK_BYTES` (6.3 GB) beside `DEFAULT_MEMO_BYTES` (2.5 GB), 1.34 GB short of a fourth, and a decimal 32 GB machine also fits three. A machine too small for one delta gets one, and a 64 GB machine fits eight before the caller's configuration and core caps."""
-        assert kernel_exec.kernel_threads_default(total_bytes=total) == wanted
+        """With `DEFAULT_MEMO_BYTES` (2.5 GB) and five parked products at `PARKED_FOLD_BYTES` (1.1 GB) off the machine, a 32 GiB machine fits three deltas at `DELTA_PEAK_BYTES` less a parked product (5.2 GB), and so does a decimal 32 GB machine. A machine too small for one delta gets one, and a 64 GB machine fits eight before the caller's configuration and core caps."""
+        assert kernel_exec.kernel_threads_default(configs=CONFIG_COUNT, total_bytes=total) == wanted
 
     def test_a_coresident_pool_comes_off_the_machine_before_it_is_divided(self):
-        """`coresident_bytes` is memory used by something running beside the fan-out, such as the artifact cycle's pytest pool. It is subtracted in addition to `DEFAULT_MEMO_BYTES`, so 10 GB costs the 64 GB machine two deltas. It defaults to zero because a bare run_m1 runs alone."""
-        assert kernel_exec.kernel_threads_default(total_bytes=64_000_000_000) == 8
+        """`coresident_bytes` is memory used by something running beside the fan-out, such as the artifact cycle's pytest pool. It is subtracted in addition to `DEFAULT_MEMO_BYTES` and the parked products, so 10 GB costs the 64 GB machine a delta. It defaults to zero because a bare run_m1 runs alone."""
+        assert kernel_exec.kernel_threads_default(configs=CONFIG_COUNT, total_bytes=64_000_000_000) == 8
         assert (
-            kernel_exec.kernel_threads_default(coresident_bytes=10_000_000_000, total_bytes=64_000_000_000)
-            == 6
+            kernel_exec.kernel_threads_default(
+                configs=CONFIG_COUNT, coresident_bytes=10_000_000_000, total_bytes=64_000_000_000
+            )
+            == 7
         )
+
+    def test_every_configuration_s_parked_product_comes_off_the_machine(self):
+        """Each configuration keeps its prepared fold product parked until the exchange ends, so the width a build of more configurations gets is never wider, and on a machine whose slack is a parked product or two it is narrower. Each slot's delta already counts its own product, so the divisor is `DELTA_PEAK_BYTES` less `PARKED_FOLD_BYTES`."""
+        one = kernel_exec.kernel_threads_default(configs=1, total_bytes=34_359_738_368)
+        every = kernel_exec.kernel_threads_default(configs=CONFIG_COUNT, total_bytes=34_359_738_368)
+        assert one > every
+        budget = 34_359_738_368 - memory_budget.os_reserve_bytes(total_bytes=34_359_738_368)
+        budget -= kernel_exec.DEFAULT_MEMO_BYTES + CONFIG_COUNT * kernel_exec.PARKED_FOLD_BYTES
+        assert every == budget // (kernel_exec.DELTA_PEAK_BYTES - kernel_exec.PARKED_FOLD_BYTES)
 
     def test_a_stated_width_outranks_coresident_memory_too(self, monkeypatch):
         """A stated `AMS_KERNEL_THREADS` is used as given even when `coresident_bytes` would narrow the derived width."""
         monkeypatch.setenv("AMS_KERNEL_THREADS", "4")
         assert (
-            kernel_exec.kernel_threads_default(coresident_bytes=60_000_000_000, total_bytes=64_000_000_000)
+            kernel_exec.kernel_threads_default(
+                configs=CONFIG_COUNT, coresident_bytes=60_000_000_000, total_bytes=64_000_000_000
+            )
             == 4
         )
 
@@ -1099,6 +1126,20 @@ class TestTheReplayStage:
     def test_nothing_moved_walks_nothing(self):
         runes = {name: f"d-{name}" for name in SPEC.runes}
         assert run_m1.replay_families(SPEC, self._record("s1", runes), "s1", runes) == []
+
+    def test_moved_imported_windows_walk_every_text(self):
+        """A configuration's rules depend on the windows it imports from the others, which a rune edit can move for texts that name no edited rune, so a change in `run_m1.imports_digest` walks every text."""
+        from rebuild.pipeline.table import DecisionTable
+
+        runes = {name: f"d-{name}" for name in SPEC.runes}
+        record = self._record("s1", runes, imports="i1")
+        assert run_m1.replay_families(SPEC, record, "s1", runes, "i1") == []
+        assert run_m1.replay_families(SPEC, record, "s1", runes, "i2") is None
+        window = ("qsPea", "qsTea.full", "qsMay@", "#NA", "#NA", "#NA", "qsPea.half", "default")
+        plain = {"ss03": (DecisionTable(config="ss03"), None)}
+        importing = {"ss03": (DecisionTable(config="ss03", imports=(window,)), None)}
+        assert run_m1.imports_digest(plain) != run_m1.imports_digest(importing)
+        assert run_m1.imports_digest(importing) == run_m1.imports_digest(dict(importing))
 
     def test_a_moved_rune_walks_itself_and_every_rune_that_reads_it(self):
         from rebuild.pipeline import spec_load

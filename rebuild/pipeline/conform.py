@@ -1956,12 +1956,13 @@ class WitnessError(Exception):
 
 @dataclass
 class WitnessReport:
-    """One configuration's certificate check: how many rules the table has, the certificate text each verified rule fired in, and one message per rule whose certificate did not fire it. The last three fields count the walk's windows: `served` the settle memo rows the load kept, stale rows included (`memo_windows`), `unasked` the rows it dropped as outside what the certificates can ask for, and `fresh` the windows the crate settled for this check."""
+    """One configuration's certificate check: how many rules the table has, the certificate text each verified rule fired in, one message per rule whose certificate did not fire it, and how many of the witnessed rules are guard rules, whose certificates settle under the configuration that keeps their window live (`witness.GUARD_MARKER`). The last three fields count the walk's windows: `served` the settle memo rows the load kept, stale rows included (`memo_windows`), `unasked` the rows it dropped as outside what the certificates can ask for, and `fresh` the windows the crate settled for this check."""
 
     config: str
     rules: int
     witnessed: dict[int, str] = field(default_factory=dict)
     failures: list[str] = field(default_factory=list)
+    guards: int = 0
     served: int = 0
     unasked: int = 0
     fresh: int = 0

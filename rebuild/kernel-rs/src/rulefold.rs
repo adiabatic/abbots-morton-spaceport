@@ -1,6 +1,10 @@
 //! One input's ordered rules. This order is the order of the shipped GSUB rules, so an ordering mistake changes no count and shows only in `settlement-<config>.tsv` and `M1.generated.fea`. No other code states the ordering, so this module is its specification, including which sample row gives a rule its provenance and which error is reported first.
 //!
-//! Within one (input, backtrack) group, the boundary-outcome rule comes first. Its lookahead class names `uni200C` explicitly, so no later rule for the window can match across a skipped ZWNJ. The letter rules follow, and the group's fallback comes last. The fallback has no lookahead, so it catches the run edge, which no positive lookahead class can match. Inside a first-slot block whose outcome depends on later slots, the same order repeats one slot further on: the second-slot boundary rule, then the third- and fourth-slot bundles (which repeat it again), then the two-slot rules, then the block's fallback. So within a block, every deeper rule precedes every shallower one. An identity outcome becomes an identity guard when a fallback that ignores its slot follows it. Across groups, the ZWNJ backtrack-slot guards come first, then the committed blocks, then the default block.
+//! Within one (input, backtrack) group, the boundary-outcome rule comes first. Its lookahead class names `uni200C` explicitly, so no later rule for the window can match across a skipped ZWNJ. The letter rules follow, and the group's fallback comes last. The fallback has no lookahead, so it catches the run edge, which no positive lookahead class can match. Inside a first-slot block whose outcome depends on later slots, the same order repeats one slot further on: the second-slot boundary rule, then the third- and fourth-slot bundles (which repeat it again), then the two-slot rules, then the block's fallback. So within a block, every deeper rule precedes every shallower one, and a rule constrains a slot only when it also constrains every slot before it, with the boundary class only in its last constrained slot. An identity outcome becomes an identity guard when the nearest fallback that encloses its rows and ignores its slot has another outcome; with none, the rule is left out and its rows fall through. Across groups, the ZWNJ backtrack-slot guards come first, then the committed blocks, then the default block.
+//!
+//! A committed group's rows that fall through every rule of the group reach the default block's rules. A group without a fallback that has such a row the default rules would answer wrongly ends with an identity catch-all over its backtrack. Every row that falls through such a group settles to the input itself, because every other outcome has a rule within the group, so the catch-all answers all of them. A configuration's own rows never need it, since the fold's replay would fail on the wrong answer; the rows a configuration imports ([`crate::crossconfig`]) can.
+//!
+//! The rows are the configuration's own ([`crate::fold::LabelRows`]) or its own merged with the rows it imports ([`crate::fold::MergedRows`]). An imported row never decides a rule's provenance or joint flag while an own row of any left in its block, under the same prefix, can. A block's rules are read from its representative left, its first left with an own row; where the representative has only an imported row for a key, the first other left of the block with an own row for that key lends it; and each sample row is the first own row of its span. The replay reduction keeps the representative and every left that lent a row, so an own row reaches every rule one can. On a configuration that imports nothing, every one of these choices is the first in key order.
 //!
 //! Two facts make this cheaper than a direct implementation without changing any result. The rows arrive in `table.Window.key` order, so each left's rows are contiguous and already in `(r1, r2, r3, r4)` order, and a prefix range is a binary search. A signature is a sorted, deduplicated vector, which compares like a set and can also be hashed and ordered.
 
@@ -8,11 +12,11 @@ use std::cmp::Ordering;
 use std::hash::Hash;
 use std::rc::Rc;
 
-use crate::fold::{BOUNDARY_LOOKAHEAD_CLASS, LabelRows, NA_LABEL, Rule, boundaryish};
+use crate::fold::{BOUNDARY_LOOKAHEAD_CLASS, NA_LABEL, RowSource, Rule, boundaryish};
 use crate::hash::{HashMap, HashSet};
 use crate::stream::{python_repr, python_tuple};
 
-/// What one input's fold produced: its ordered rules, how many of them are identity guards, and the lefts a first-match replay must try to reach every rule (one per committed block and every left of the default block).
+/// What one input's fold produced: its ordered rules, how many of them are identity guards, and the lefts a first-match replay must try to reach every rule (each committed block's representative and every left that lent it a row, and every left of the default block).
 pub struct RuleFold {
     pub rules: Vec<Rule>,
     pub identity_guards: i64,
@@ -66,29 +70,63 @@ fn compare(held: &[Rc<str>; 4], prefix: &[&Rc<str>]) -> Ordering {
     Ordering::Equal
 }
 
-/// One left's rows as the group logic reads them: for each row, its four right labels and its index in the input's slice, sorted by the labels.
-struct GroupRows<'a> {
-    rows: LabelRows<'a>,
+/// One block's rows as the group logic reads them: for each of its representative left's rows, its four right labels and the index in the input's slice of the row that stands for it, sorted by the labels.
+struct GroupRows<R: RowSource> {
+    rows: R,
     keys: Vec<([Rc<str>; 4], usize)>,
 }
 
-impl<'a> GroupRows<'a> {
-    /// The rows of one left, which the key order leaves contiguous and in `(r1, r2, r3, r4)` order.
-    fn of(rows: LabelRows<'a>, span: (usize, usize)) -> Self {
+/// The four right labels of row `row`.
+fn right_labels<R: RowSource>(rows: &R, row: usize) -> [Rc<str>; 4] {
+    [
+        Rc::clone(rows.right1(row)),
+        Rc::clone(rows.right2(row)),
+        Rc::clone(rows.right3(row)),
+        Rc::clone(rows.right4(row)),
+    ]
+}
+
+/// The row of `span`, one left's rows in `(r1, r2, r3, r4)` order, whose right labels are `key`.
+fn find_in<R: RowSource>(rows: &R, span: (usize, usize), key: &[Rc<str>; 4]) -> Option<usize> {
+    let wanted: Vec<&Rc<str>> = key.iter().collect();
+    let (mut low, mut high) = span;
+    while low < high {
+        let mid = low + (high - low) / 2;
+        match compare(&right_labels(rows, mid), &wanted) {
+            Ordering::Less => low = mid + 1,
+            Ordering::Greater => high = mid,
+            Ordering::Equal => return Some(mid),
+        }
+    }
+    None
+}
+
+impl<R: RowSource> GroupRows<R> {
+    /// The rows of one block of lefts, read from its representative's rows `span`, which the key order leaves contiguous and in `(r1, r2, r3, r4)` order. Every left of a block has the same keys, so where the representative has only an imported row for a key, the first other left (`others`, in block order) with an own row for that key lends it instead.
+    fn of(rows: R, span: (usize, usize), others: &[(usize, usize)]) -> Self {
         let keys = (span.0..span.1)
             .map(|row| {
-                (
-                    [
-                        Rc::clone(rows.right1(row)),
-                        Rc::clone(rows.right2(row)),
-                        Rc::clone(rows.right3(row)),
-                        Rc::clone(rows.right4(row)),
-                    ],
-                    row,
-                )
+                let key = right_labels(&rows, row);
+                let standing = if rows.own(row) {
+                    row
+                } else {
+                    others
+                        .iter()
+                        .find_map(|other| find_in(&rows, *other, &key).filter(|at| rows.own(*at)))
+                        .unwrap_or(row)
+                };
+                (key, standing)
             })
             .collect();
         Self { rows, keys }
+    }
+
+    /// The lefts other than the representative (`span`) that lend one of their own rows.
+    fn lenders(&self, span: (usize, usize)) -> impl Iterator<Item = Rc<str>> + '_ {
+        self.keys
+            .iter()
+            .filter(move |(_, row)| !(span.0..span.1).contains(row))
+            .map(|(_, row)| Rc::clone(self.rows.left(*row)))
     }
 
     /// The row with these four right labels, if there is one.
@@ -110,6 +148,15 @@ impl<'a> GroupRows<'a> {
         (start, end)
     }
 
+    /// The row a rule over the keys in `span` takes its provenance and joint flag from: the first own row, or the first row when every row in the span is imported.
+    fn sample(&self, span: (usize, usize)) -> usize {
+        self.keys[span.0..span.1]
+            .iter()
+            .map(|(_, row)| *row)
+            .find(|row| self.rows.own(*row))
+            .unwrap_or(self.keys[span.0].1)
+    }
+
     /// The distinct labels one slot takes over a prefix range, sorted.
     fn slot_values(&self, span: (usize, usize), slot: usize) -> Vec<Rc<str>> {
         let mut values: Vec<Rc<str>> = self.keys[span.0..span.1]
@@ -120,12 +167,56 @@ impl<'a> GroupRows<'a> {
         values.dedup();
         values
     }
+
+    /// The one outcome the rows under `prefix` settle to, or `None` when they settle to several or there are none.
+    fn uniform(&self, prefix: &[&Rc<str>]) -> Option<Rc<str>> {
+        let span = self.under(prefix);
+        let mut outcomes = self.keys[span.0..span.1]
+            .iter()
+            .map(|(_, row)| self.rows.outcome(*row));
+        let first = outcomes.next()?;
+        outcomes
+            .all(|outcome| outcome == first)
+            .then(|| Rc::clone(first))
+    }
 }
 
-/// Folds one input's rows into its ordered rules. `rows` is the input's slice of the label-grain stream. `never_locked` is true when the input's rune is not entry-bearing (`SpecIndex::is_entry_bearing`), so the ZWNJ lock never replaces it after a ZWNJ.
-pub fn rules_for_input(
+/// Whether `rule`'s five slots admit a window's left and four right labels.
+fn admits(rule: &Rule, labels: [&str; 5]) -> bool {
+    [
+        &rule.backtrack,
+        &rule.look1,
+        &rule.look2,
+        &rule.look3,
+        &rule.look4,
+    ]
+    .iter()
+    .zip(labels)
+    .all(|(slot, label)| {
+        slot.as_ref()
+            .is_none_or(|members| members.iter().any(|member| &**member == label))
+    })
+}
+
+/// The outcome of the first of `rules` that admits row `row` of `rows`, or `None` when none does.
+fn first_outcome<'r, R: RowSource>(rules: &'r [Rule], rows: &R, row: usize) -> Option<&'r Rc<str>> {
+    let labels = [
+        &**rows.left(row),
+        &**rows.right1(row),
+        &**rows.right2(row),
+        &**rows.right3(row),
+        &**rows.right4(row),
+    ];
+    rules
+        .iter()
+        .find(|rule| admits(rule, labels))
+        .map(|rule| &rule.outcome)
+}
+
+/// Folds one input's rows into its ordered rules. `rows` is the input's slice of the label-grain stream, the configuration's own rows or those merged with the rows it imports. `never_locked` is true when the input's rune is not entry-bearing (`SpecIndex::is_entry_bearing`), so the ZWNJ lock never replaces it after a ZWNJ.
+pub fn rules_for_input<R: RowSource>(
     input_glyph: &Rc<str>,
-    rows: &LabelRows<'_>,
+    rows: &R,
     never_locked: bool,
 ) -> Result<RuleFold, String> {
     let boundary_class: Vec<Rc<str>> = BOUNDARY_LOOKAHEAD_CLASS
@@ -180,21 +271,73 @@ pub fn rules_for_input(
             block_list(&default_blocks)
         ));
     }
+    let block_rows = |block: &[Rc<str>]| -> (Rc<str>, GroupRows<R>) {
+        let owned = block.iter().find(|left| {
+            let (start, end) = by_left[*left];
+            (start..end).any(|row| rows.own(row))
+        });
+        let left = Rc::clone(owned.unwrap_or(&block[0]));
+        let others: Vec<(usize, usize)> = block
+            .iter()
+            .filter(|member| **member != left)
+            .map(|member| by_left[member])
+            .collect();
+        let group = GroupRows::of(*rows, by_left[&left], &others);
+        (left, group)
+    };
 
     let mut state = Emission {
         input_glyph: Rc::clone(input_glyph),
         boundary_class,
         identity_guards: 0,
     };
-    let mut committed_rules: Vec<Rule> = Vec::new();
-    let mut default_rules: Vec<Rule> = Vec::new();
+    let mut replay_lefts: HashSet<Rc<str>> = HashSet::default();
+    let mut groups: Vec<(Vec<Rule>, Vec<usize>)> = Vec::new();
     for block in &committed_blocks {
-        let group = GroupRows::of(*rows, by_left[&block[0]]);
-        state.emit_group(&group, Some(block), &mut committed_rules)?;
+        let (left, group) = block_rows(block);
+        let (start, end) = by_left[&left];
+        replay_lefts.extend(group.lenders((start, end)));
+        replay_lefts.insert(left);
+        let mut rules: Vec<Rule> = Vec::new();
+        let has_fallback = state.emit_group(&group, Some(block), &mut rules)?;
+        let open: Vec<usize> = if !has_fallback && (start..end).any(|row| !rows.own(row)) {
+            group.keys.iter().map(|(_, row)| *row).collect()
+        } else {
+            Vec::new()
+        };
+        groups.push((rules, open));
     }
+    let mut default_rules: Vec<Rule> = Vec::new();
     for block in &default_blocks {
-        let group = GroupRows::of(*rows, by_left[&block[0]]);
+        let (_left, group) = block_rows(block);
         state.emit_group(&group, None, &mut default_rules)?;
+        replay_lefts.extend(block.iter().cloned());
+    }
+
+    let mut committed_rules: Vec<Rule> = Vec::new();
+    for (block, (mut rules, open)) in committed_blocks.iter().zip(groups) {
+        let stranded = open.into_iter().find(|&row| {
+            first_outcome(&rules, rows, row).is_none()
+                && first_outcome(&default_rules, rows, row).unwrap_or(input_glyph)
+                    != rows.outcome(row)
+        });
+        if let Some(row) = stranded {
+            let mut provenance = rows.provenance(row).to_vec();
+            provenance.push("identity catch-all".to_owned());
+            state.identity_guards += 1;
+            rules.push(Rule {
+                input_glyph: Rc::clone(input_glyph),
+                backtrack: Some(block.clone()),
+                look1: None,
+                look2: None,
+                look3: None,
+                look4: None,
+                outcome: Rc::clone(input_glyph),
+                provenance,
+                joint: false,
+            });
+        }
+        committed_rules.append(&mut rules);
     }
 
     // An input the ZWNJ lock never replaces can follow a ZWNJ unchanged, and a rule with a backtrack class could match across the skipped ZWNJ. So when any committed rule has a backtrack class, the default block's rules are repeated with `uni200C` in the backtrack slot, ahead of every backtrack rule, followed by an identity rule. A lockable input needs none of this: after a ZWNJ it is its locked copy, whose rows are enumerated under the copy's own input label.
@@ -236,14 +379,6 @@ pub fn rules_for_input(
         });
     }
 
-    let mut replay_lefts: HashSet<Rc<str>> = committed_blocks
-        .iter()
-        .map(|block| Rc::clone(&block[0]))
-        .collect();
-    for block in &default_blocks {
-        replay_lefts.extend(block.iter().cloned());
-    }
-
     guards.extend(committed_rules);
     guards.extend(default_rules);
     Ok(RuleFold {
@@ -261,12 +396,12 @@ struct Emission {
 }
 
 impl Emission {
-    fn rule(
+    fn rule<R: RowSource>(
         &self,
         backtrack: Option<&Vec<Rc<str>>>,
         looks: [Option<&Vec<Rc<str>>>; 4],
         outcome: &Rc<str>,
-        rows: &LabelRows<'_>,
+        rows: &R,
         sample: usize,
         joint: bool,
     ) -> Rule {
@@ -283,13 +418,31 @@ impl Emission {
         }
     }
 
-    /// One left block's rules, appended in emission order. `backtrack` is the block itself for a committed block and `None` for the default one.
-    fn emit_group(
+    /// Whether a fallback with this outcome encloses rows that a dropped identity rule would leave to it, so the identity rule has to stay as a guard.
+    fn guarded_by(&self, nearest: Option<&Rc<str>>) -> bool {
+        nearest.is_some_and(|outcome| *outcome != self.input_glyph)
+    }
+
+    /// The outcome of the fallback a boundary block at some slot emits, which encloses every deeper rule of its prefix: its own outcome when that is not the input, the input when an enclosing fallback with another outcome makes the block keep identity rules, and otherwise the enclosing fallback's outcome. `boundary` is the block's uniform outcome, `None` when the prefix has no uniform boundary block.
+    fn nearest_after(
+        &self,
+        boundary: Option<Rc<str>>,
+        enclosing: Option<&Rc<str>>,
+    ) -> Option<Rc<str>> {
+        match boundary {
+            Some(outcome) if outcome != self.input_glyph => Some(outcome),
+            Some(outcome) if self.guarded_by(enclosing) => Some(outcome),
+            _ => enclosing.cloned(),
+        }
+    }
+
+    /// One left block's rules, appended in emission order, and whether the block emitted a group fallback. `backtrack` is the block itself for a committed block and `None` for the default one.
+    fn emit_group<R: RowSource>(
         &mut self,
-        group: &GroupRows<'_>,
+        group: &GroupRows<R>,
         backtrack: Option<&Vec<Rc<str>>>,
         out: &mut Vec<Rule>,
-    ) -> Result<(), String> {
+    ) -> Result<bool, String> {
         let rows = &group.rows;
         let whole = (0usize, group.keys.len());
         let group_r1s = group.slot_values(whole, 0);
@@ -329,7 +482,11 @@ impl Emission {
                     python_set(&outcomes)
                 ));
             }
-            let sample = sampled[0];
+            let sample = sampled
+                .iter()
+                .copied()
+                .find(|row| rows.own(*row))
+                .unwrap_or(sampled[0]);
             fallback_outcome = Rc::clone(rows.outcome(sample));
             if fallback_outcome != self.input_glyph {
                 let joint = rows.joint(sample);
@@ -351,6 +508,8 @@ impl Emission {
                 ));
             }
         }
+        let group_nearest: Option<Rc<str>> =
+            (!fallback_rules.is_empty()).then(|| Rc::clone(&fallback_outcome));
 
         let mut letter_rules: Vec<Rule> = Vec::new();
         for r1_block in &r1_blocks {
@@ -371,7 +530,9 @@ impl Emission {
 
             let mut r2_signatures: HashMap<Rc<str>, Signature<4>> = HashMap::default();
             let mut distinct_outcomes: Vec<&str> = Vec::new();
-            let mut block_joint = false;
+            let mut own_joint = false;
+            let mut any_own = false;
+            let mut imported_joint = false;
             for (key, row) in &group.keys {
                 if !r1_members.contains(&key[0]) {
                     continue;
@@ -383,8 +544,14 @@ impl Emission {
                     Rc::clone(rows.outcome(*row)),
                 ]);
                 distinct_outcomes.push(rows.outcome(*row));
-                block_joint |= rows.joint(*row);
+                if rows.own(*row) {
+                    any_own = true;
+                    own_joint |= rows.joint(*row);
+                } else {
+                    imported_joint |= rows.joint(*row);
+                }
             }
+            let block_joint = if any_own { own_joint } else { imported_joint };
             distinct_outcomes.sort_unstable();
             distinct_outcomes.dedup();
             let r2_blocks = signature_blocks(&block_r2s, |r2| {
@@ -392,8 +559,7 @@ impl Emission {
             });
 
             if distinct_outcomes.len() == 1 {
-                let sample = group.under(&[&r1_block[0], &block_r2s[0]]).0;
-                let sample = group.keys[sample].1;
+                let sample = group.sample(r1_span);
                 let out_label = Rc::clone(rows.outcome(sample));
                 if out_label == fallback_outcome {
                     continue;
@@ -424,6 +590,11 @@ impl Emission {
             }
 
             // The outcome depends on a later lookahead slot. The module doc gives the order the split repeats at each depth.
+            let r2_boundary = r2_blocks
+                .iter()
+                .find(|block| block.iter().any(|label| boundaryish(label)))
+                .and_then(|block| group.uniform(&[&r1_block[0], &block[0]]));
+            let slot_nearest = self.nearest_after(r2_boundary, group_nearest.as_ref());
             let mut slot_fallback: Option<Rule> = None;
             let mut boundary_slot_rule: Option<Rule> = None;
             let mut deep_rules: Vec<Rule> = Vec::new();
@@ -439,8 +610,7 @@ impl Emission {
                 block_outcomes.sort_unstable();
                 block_outcomes.dedup();
                 if block_outcomes.len() == 1 {
-                    let sample =
-                        group.keys[group.under(&[&r1_block[0], &r2_block[0], &block_r3s[0]]).0].1;
+                    let sample = group.sample(r2_span);
                     let out_label = Rc::clone(rows.outcome(sample));
                     if r2_block.iter().any(|label| boundaryish(label)) {
                         if r2_letters.len() + count_boundaryish(r2_block) != r2_block.len() {
@@ -450,7 +620,11 @@ impl Emission {
                                 label_tuple(r2_block)
                             ));
                         }
-                        if out_label != self.input_glyph {
+                        if out_label != self.input_glyph || self.guarded_by(group_nearest.as_ref())
+                        {
+                            if out_label == self.input_glyph {
+                                self.identity_guards += 2;
+                            }
                             boundary_slot_rule = Some(self.rule(
                                 backtrack,
                                 [Some(&letters), Some(&self.boundary_class), None, None],
@@ -503,6 +677,11 @@ impl Emission {
                 let r3_blocks = signature_blocks(&block_r3s, |r3| {
                     canonical(r3_signatures.remove(r3).unwrap_or_default())
                 });
+                let r3_boundary = r3_blocks
+                    .iter()
+                    .find(|block| block.iter().any(|label| boundaryish(label)))
+                    .and_then(|block| group.uniform(&[&r1_block[0], &r2_block[0], &block[0]]));
+                let slot3_nearest = self.nearest_after(r3_boundary, slot_nearest.as_ref());
                 let mut slot3_fallback: Option<Rule> = None;
                 let mut boundary_slot3_rule: Option<Rule> = None;
                 let mut three_slot_rules: Vec<Rule> = Vec::new();
@@ -522,9 +701,7 @@ impl Emission {
                     block4_outcomes.sort_unstable();
                     block4_outcomes.dedup();
                     if block4_outcomes.len() == 1 {
-                        let sample = group
-                            .at([&r1_block[0], &r2_block[0], &r3_block[0], &block_r4s[0]])
-                            .expect("the first fourth label of this prefix names a row");
+                        let sample = group.sample(r3_span);
                         let out_label = Rc::clone(rows.outcome(sample));
                         if r3_block.iter().any(|label| boundaryish(label)) {
                             if r3_letters.len() + count_boundaryish(r3_block) != r3_block.len() {
@@ -534,7 +711,12 @@ impl Emission {
                                     label_tuple(r3_block)
                                 ));
                             }
-                            if out_label != self.input_glyph {
+                            if out_label != self.input_glyph
+                                || self.guarded_by(slot_nearest.as_ref())
+                            {
+                                if out_label == self.input_glyph {
+                                    self.identity_guards += 2;
+                                }
                                 boundary_slot3_rule = Some(self.rule(
                                     backtrack,
                                     [
@@ -595,6 +777,13 @@ impl Emission {
                     let r4_blocks = signature_blocks(&block_r4s, |r4| {
                         canonical(r4_signatures.remove(r4).unwrap_or_default())
                     });
+                    let r4_boundary = r4_blocks
+                        .iter()
+                        .find(|block| block.iter().any(|label| boundaryish(label)))
+                        .and_then(|block| {
+                            group.uniform(&[&r1_block[0], &r2_block[0], &r3_block[0], &block[0]])
+                        });
+                    let slot4_nearest = self.nearest_after(r4_boundary, slot3_nearest.as_ref());
                     let mut slot4_fallback: Option<Rule> = None;
                     let mut boundary_slot4_rule: Option<Rule> = None;
                     let mut four_slot_rules: Vec<Rule> = Vec::new();
@@ -612,7 +801,12 @@ impl Emission {
                                     label_tuple(r4_block)
                                 ));
                             }
-                            if out_label != self.input_glyph {
+                            if out_label != self.input_glyph
+                                || self.guarded_by(slot3_nearest.as_ref())
+                            {
+                                if out_label == self.input_glyph {
+                                    self.identity_guards += 2;
+                                }
                                 boundary_slot4_rule = Some(self.rule(
                                     backtrack,
                                     [
@@ -652,30 +846,52 @@ impl Emission {
                         ));
                     }
                     deep_rules.extend(boundary_slot4_rule);
-                    self.screen(four_slot_rules, slot4_fallback.as_ref(), &mut deep_rules);
+                    self.screen(
+                        four_slot_rules,
+                        slot4_fallback.as_ref(),
+                        slot4_nearest.as_ref(),
+                        &mut deep_rules,
+                    );
                     deep_rules.extend(slot4_fallback);
                 }
                 deep_rules.extend(boundary_slot3_rule);
-                self.screen(three_slot_rules, slot3_fallback.as_ref(), &mut deep_rules);
+                self.screen(
+                    three_slot_rules,
+                    slot3_fallback.as_ref(),
+                    slot3_nearest.as_ref(),
+                    &mut deep_rules,
+                );
                 deep_rules.extend(slot3_fallback);
             }
             letter_rules.extend(boundary_slot_rule);
             letter_rules.append(&mut deep_rules);
-            self.screen(two_slot_rules, slot_fallback.as_ref(), &mut letter_rules);
+            self.screen(
+                two_slot_rules,
+                slot_fallback.as_ref(),
+                slot_nearest.as_ref(),
+                &mut letter_rules,
+            );
             letter_rules.extend(slot_fallback);
         }
 
+        let has_fallback = !fallback_rules.is_empty();
         out.extend(boundary_rules);
         out.extend(letter_rules);
         out.extend(fallback_rules);
-        Ok(())
+        Ok(has_fallback)
     }
 
-    /// Filters one bundle's rules before emission. With no fallback, a rule with an identity outcome is dropped. With a fallback, that rule is kept and counted as an identity guard, so the fallback does not match its window, and a rule with the fallback's outcome is dropped as redundant.
-    fn screen(&mut self, rules: Vec<Rule>, fallback: Option<&Rule>, out: &mut Vec<Rule>) {
+    /// Filters one bundle's rules before emission. A rule with an identity outcome is kept, and counted as an identity guard, only when the nearest fallback enclosing its rows (`nearest`, the bundle's own `fallback` when it has one) has another outcome, so that fallback does not match its window; otherwise it is dropped and its rows fall through. A rule with the bundle's own fallback's outcome is dropped as redundant.
+    fn screen(
+        &mut self,
+        rules: Vec<Rule>,
+        fallback: Option<&Rule>,
+        nearest: Option<&Rc<str>>,
+        out: &mut Vec<Rule>,
+    ) {
         for rule in rules {
             if rule.outcome == self.input_glyph {
-                if fallback.is_none() {
+                if !self.guarded_by(nearest) {
                     continue;
                 }
                 self.identity_guards += 1;

@@ -33,9 +33,9 @@ from rebuild.tools.peak_rss import format_gb
 from rebuild.tools.cycle_timings import CycleTimings
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-# Width assertions use stated machine sizes, not the host running the suite. With DELTA_PEAK_BYTES at 6.3 GB and DEFAULT_MEMO_BYTES at 2.5 GB, 36 GB fits four deltas alone and three beside the default pytest pool, 38 GB leaves room to test larger stated pool widths, and 44 GB is `_plan`'s default machine, which the plan and width tests share. Changing either constant changes these expectations and can require a different size to keep the memory set aside for the pool visible in a width.
+# Width assertions use stated machine sizes, not the host running the suite. With DELTA_PEAK_BYTES at 6.3 GB, DEFAULT_MEMO_BYTES at 2.5 GB and five parked fold products at PARKED_FOLD_BYTES (1.1 GB), 37 GB fits four deltas alone and three beside an eight-core machine's pytest pool, and leaves room to test larger stated pool widths, and 44 GB is `_plan`'s default machine, which the plan and width tests share. Changing either constant changes these expectations and can require a different size to keep the memory set aside for the pool visible in a width.
 MACHINE_44_GB = 44_000_000_000
-MACHINE_38_GB = 38_000_000_000
+MACHINE_37_GB = 37_000_000_000
 MACHINE_36_GB = 36_000_000_000
 # The fleet's two machines (`doc/fleet.md`), for the corpus width's assertions. On both, the corpus build reaches its cap whether or not the pytest pool's bytes are subtracted, so no total separates the gated and solo cases; the arithmetic of the memory set aside for the pool is asserted through `_corpus_fit_terms`, which takes no total.
 MACHINE_48_GIB = 51_539_607_552
@@ -75,7 +75,7 @@ def _land_ok(report, *, spawn, emit, registry, plan):
 def _redirect_contracts_lane_reads(monkeypatch, tmp_path):
     """Make this module see the live review corpus and build artifacts as absent. The conftest's `_redirect_cycle_writes` redirects writes only, but the cycle also resolves its read paths from the live repo at call time, so a test driving `_run_cycle` over mocked stages would otherwise read whatever corpus and behavior-class sidecar sit in rebuild/out. Every test here is in the contracts lane, so no live read needs to be kept, and the lane's audit guard fails any read this misses.
 
-    `REVIEW_OUT`, `AUTOSAVE` and the deep replay's green record are constants and are redirected directly. The three build-lane steps that need a real corpus or store beside them, the corpus seed, the store snapshot and the land, are stubbed as the other build-lane stages are in each test; a test of one of them sets the real function back (`REAL_DO_CORPUS_SEED`, `REAL_DO_STORE_SNAPSHOT`, `REAL_DO_LAND`). The review server's /capabilities answers `NO_CAPABILITIES` (a 404), as a server from before the land protocol does, so no test probes the live port, and starting a server fails the test; a test that checks the probe patches `capabilities` itself. The behavior-class sidecar is not: `deep_sweep_skip_lines` re-roots `BEHAVIOR_CLASSES` against the root it is given, so redirecting the constant outside ROOT would break the tests that pass their own root, and the function is patched for the default root only. The gates' `*_skip_lines(ROOT)` also read through two globs over rebuild/out (`baselines_value`, `_subset_tables`) and the per-file digest `_sha256_path`, which returns "absent" for a live path. Each patch changes the result only for the live root or a live path, so a test that passes its own root runs the real function.
+    `REVIEW_OUT`, `AUTOSAVE` and the deep replay's green record are constants and are redirected directly. The three build-lane steps that need a real corpus or store beside them, the corpus seed, the store snapshot and the land, are stubbed as the other build-lane stages are in each test; a test of one of them sets the real function back (`REAL_DO_CORPUS_SEED`, `REAL_DO_STORE_SNAPSHOT`, `REAL_DO_LAND`). The review server's /capabilities answers `NO_CAPABILITIES` (a 404), as a server from before the land protocol does, so no test probes the live port, and starting a server fails the test; a test that checks the probe patches `capabilities` itself. The behavior-class sidecar is not: `deep_sweep_skip_lines` re-roots `BEHAVIOR_CLASSES` against the root it is given, so redirecting the constant outside ROOT would break the tests that pass their own root, and the function is patched for the default root only. The gates' `*_skip_lines(ROOT)` also read through two globs over rebuild/out (`baselines_value`, `_subset_tables`) and the per-file digest `_sha256_path`, which returns "absent" for a live path, and the deep replay's status reads the tables' heads through `tables_imports_digest`, which reads as no tables for the live root. Each patch changes the result only for the live root or a live path, so a test that passes its own root runs the real function.
     """
     from rebuild.pipeline import fingerprint
 
@@ -110,6 +110,12 @@ def _redirect_contracts_lane_reads(monkeypatch, tmp_path):
         fingerprint,
         "baselines_value",
         lambda root: "contracts-lane" if root == REPO_ROOT else real_baselines(root),
+    )
+    real_imports = ac.tables_imports_digest
+    monkeypatch.setattr(
+        ac,
+        "tables_imports_digest",
+        lambda root=None: None if Path(root or REPO_ROOT).resolve() == REPO_ROOT else real_imports(root),
     )
 
 
@@ -2832,22 +2838,22 @@ def test_a_stated_pool_width_is_the_width_the_cycle_reserves_by(monkeypatch):
     """The make-test child inherits this process's environment, so a width already set in PYTEST_XDIST_AUTO_NUM_WORKERS is the width its pool takes. The cycle reserves memory for that width, so the memory set aside for the pool matches the pool that runs."""
     monkeypatch.setenv("PYTEST_XDIST_AUTO_NUM_WORKERS", "9")
     assert ac.make_test_pool_width(ncores=1) == 9
-    assert ac.kernel_threads_budget(ncores=12, total_bytes=MACHINE_38_GB) == 3
+    assert ac.kernel_threads_budget(ncores=12, total_bytes=MACHINE_37_GB) == 3
     monkeypatch.setenv("PYTEST_XDIST_AUTO_NUM_WORKERS", "64")
-    assert ac.kernel_threads_budget(ncores=12, total_bytes=MACHINE_38_GB) == 1
+    assert ac.kernel_threads_budget(ncores=12, total_bytes=MACHINE_37_GB) == 1
 
 
 def test_kernel_threads_budget_takes_the_pytest_pool_off_the_machine_first():
-    """The kernel width subtracts the pytest pool along with default's retained memo before dividing. With the 6.3 GB per-delta bound and the 2.5 GB memo snapshot, a 36 GB machine fits four deltas alone, and subtracting the 0.6 GB pytest pool leaves room for three. At this boundary forgetting the memory set aside for the pool changes the answer."""
-    solo = ac.kernel_threads_budget(skip_make_test=True, ncores=8, total_bytes=MACHINE_36_GB)
-    beside = ac.kernel_threads_budget(ncores=8, total_bytes=MACHINE_36_GB)
+    """The kernel width subtracts the pytest pool along with default's retained memo and the parked fold products before dividing. A 37 GB machine fits four deltas alone, and subtracting an eight-core machine's pytest pool leaves room for three. At this boundary forgetting the memory set aside for the pool changes the answer."""
+    solo = ac.kernel_threads_budget(skip_make_test=True, ncores=8, total_bytes=MACHINE_37_GB)
+    beside = ac.kernel_threads_budget(ncores=8, total_bytes=MACHINE_37_GB)
     assert (solo, beside) == (4, 3)
 
 
 def test_the_kernel_fits_as_many_deltas_with_the_test_gates_running_as_run_alone_on_both_fleet_machines(
     monkeypatch,
 ):
-    """`kernel_exec.DELTA_PEAK_BYTES` and `DEFAULT_MEMO_BYTES` are chosen so that gate:make-test's pytest pool costs neither fleet machine a worker slot, and this test checks the gated widths, which only the cycle computes. On the eighteen-core 48 GiB machine the gated and skipped-gate widths are equal and cover every configuration after default, so the delta wave runs in one round. On the 32 GiB machine both widths are three. `AMS_KERNEL_THREADS` is cleared first, because an exported width would pass these assertions whatever the constants are."""
+    """`kernel_exec.DELTA_PEAK_BYTES`, `DEFAULT_MEMO_BYTES` and `PARKED_FOLD_BYTES` are chosen so that gate:make-test's pytest pool costs neither fleet machine a worker slot, and this test checks the gated widths, which only the cycle computes. On the eighteen-core 48 GiB machine the gated and skipped-gate widths are equal and cover every configuration after default, so the delta wave runs in one round. On the 32 GiB machine both widths are three. `AMS_KERNEL_THREADS` is cleared first, because an exported width would pass these assertions whatever the constants are."""
     from rebuild.pipeline.conform import SETTLEMENT_CONFIGS
 
     monkeypatch.delenv("AMS_KERNEL_THREADS", raising=False)
@@ -2935,7 +2941,7 @@ def test_kernel_threads_budget_holds_its_answer_at_the_configuration_count_and_t
     from rebuild.pipeline.kernel_exec import kernel_threads_default
 
     count = len(SETTLEMENT_CONFIGS)
-    assert kernel_threads_default(total_bytes=MACHINE_48_GIB) > count
+    assert kernel_threads_default(configs=count, total_bytes=MACHINE_48_GIB) > count
     assert ac.kernel_threads_budget(ncores=18, total_bytes=MACHINE_48_GIB) == count
     assert ac.kernel_threads_budget(skip_make_test=True, ncores=12, total_bytes=MACHINE_48_GIB) == count
     assert ac.kernel_threads_budget(ncores=2, total_bytes=MACHINE_48_GIB) == 2
@@ -2951,14 +2957,14 @@ def test_kernel_threads_budget_holds_its_answer_at_the_configuration_count_and_t
 
 def test_a_plan_reserves_for_the_pytest_pool_only_when_that_gate_runs():
     """The plan subtracts the pytest pool only when gate:make-test runs. When the gate is auto-skipped or `--skip-gates` is given, no pool runs, so the kernel width gets that memory back."""
-    assert _plan(ncores=8, total_bytes=MACHINE_36_GB).kernel_threads == 3
+    assert _plan(ncores=8, total_bytes=MACHINE_37_GB).kernel_threads == 3
     assert (
         _plan(
-            ncores=8, total_bytes=MACHINE_36_GB, skip_make_test=True, make_test_note="closure unchanged"
+            ncores=8, total_bytes=MACHINE_37_GB, skip_make_test=True, make_test_note="closure unchanged"
         ).kernel_threads
         == 4
     )
-    assert _plan(ncores=8, total_bytes=MACHINE_36_GB, skip_gates=True).kernel_threads == 4
+    assert _plan(ncores=8, total_bytes=MACHINE_37_GB, skip_gates=True).kernel_threads == 4
 
 
 def test_dry_run_renders_concurrency():

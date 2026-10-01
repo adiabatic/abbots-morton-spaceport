@@ -60,6 +60,10 @@ def test_qstea_cells_per_configuration(spec):
         ("half", None, None),
     }
     assert cells_as_tuples(spec, "qsTea", frozenset({"ss05"})) - default == {("full", "baseline", "baseline")}
+    ss05_tagged = dict(surface.enumerate_cells_with_unlocks(spec, "qsTea", frozenset({"ss05"})))
+    (both_baseline,) = ss05_tagged[CellId("qsTea", "full", "baseline", "baseline", ())]
+    assert both_baseline.feature == "ss05"
+    assert both_baseline.when is None
     assert cells_as_tuples(spec, "qsTea", frozenset({"ss03"})) - default == {
         ("full", "x-height", "baseline"),
         ("full", "x-height", None),

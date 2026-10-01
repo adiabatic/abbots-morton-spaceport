@@ -1,4 +1,4 @@
-"""The witness stage's rule replay. `check_rule_certificates` settles each certificate the crate wrote beside a configuration's rules and checks that its rule is the first to match at some position, under the first-match-wins semantics the emitted lookup compiles to (`_matched_windows` over `_first_matching_rule`, with the rules renamed into the configuration's marker-renamed names by `_renamed_rules_by_input`). `run_m1.run_rule_witnesses` runs it over the tables the build just folded. Together with the crate's fold check (`fold::assert_outcome_partition`), it fails the build on a rule that can never fire.
+"""The witness stage's rule replay. `check_rule_certificates` settles each certificate the crate wrote beside a configuration's rules and checks that its rule is the first to match at some position (a guard rule's certificate under the configuration that keeps its window live), under the first-match-wins semantics the emitted lookup compiles to (`_matched_windows` over `_first_matching_rule`, with the rules renamed into the configuration's marker-renamed names by `_renamed_rules_by_input`). `run_m1.run_rule_witnesses` runs it over the tables the build just folded. Together with the crate's fold check (`fold::assert_outcome_partition`), it fails the build on a rule that can never fire.
 
 The replay imports the emitter's rule renaming (`emit_gsub._renamed`, with `_FoldedRule` as the type of a renamed rule), so it lives here and not in conform.py. `oracle_cache.ORACLE_ROW_CODE_PATHS` must list every module reachable from conform.py, which defines the comparison's entry points `_compare_row` and `_SettledWindowWalk`. rebuild/test_oracle_code_closure.py checks this by walking imports at module grain from `ORACLE_ENTRY_MODULES`, `if TYPE_CHECKING:` imports included. An edit to any listed module drops every stored row verdict, so keeping the replay here keeps emit_gsub.py off that list. What this module uses from conform.py (raw-label formation, the window slots, the settle walk, the memo file, and the report) is inside that closure anyway.
 
@@ -11,8 +11,11 @@ from contextlib import suppress
 from typing import TYPE_CHECKING, Iterable, Mapping
 
 from rebuild.pipeline import conform, kernel_exec, settle
-from rebuild.pipeline.emit_gsub import _FoldedRule, _renamed
+from rebuild.pipeline.emit_gsub import _config_features, _FoldedRule, _renamed
 from rebuild.pipeline.model import ResolvedSpec, raw_rename_map
+
+GUARD_MARKER = "#guard"
+"""The first token of a guard rule's certificate (`certificate::GUARD_MARKER`). The second names the configuration the rest of the stream settles under."""
 
 if TYPE_CHECKING:
     from rebuild.pipeline.table import Rule
@@ -129,11 +132,18 @@ def rule_signature(rule) -> str:
 
 
 def check_rule_certificates(
-    spec, features, decision, guard_verdicts=None, memo: conform.SettleMemoFile | None = None
+    spec,
+    features,
+    decision,
+    guard_verdicts=None,
+    memo: conform.SettleMemoFile | None = None,
+    sources: Mapping | None = None,
 ) -> conform.WitnessReport:
     """Check that every rule in `decision` fires on its certificate, and return the report. The crate writes one certificate per rule (`certificate.rs`): a token stream built from the shortest row chain of a row the rule first-matches. This settles each certificate's text through the crate and checks that the rule is the first to match at some position (`_matched_windows`). The other half, that no rule is shadowed everywhere by earlier rules, is the crate's fold check: `fold::assert_outcome_partition` fails the table before any certificate is built when some rule is unreachable because no replayed row first-matches it.
 
     Settling also checks the fixpoint's slot restrictions. A certificate's prefix is the chain of rows whose outcomes produce the rule's left state, and the fixpoint restricted only those rows' slots: a settled left is reachable with a right1 equal to the producing window's right2, and the deeper slots are limited by the allowed sets. Settling the text from the run edge derives that left again, so a wrong slot restriction settles the certificate to a different left, a different rule matches, and the rule is reported. When the number of certificates differs from the number of rules, the report gets one failure and no rule is witnessed.
+
+    A guard rule's certificate is `[GUARD_MARKER, source, tokens…]` (`certificate::guard_certificate`). The rule exists only because `source`, another configuration, keeps a window live that this configuration's rules would otherwise answer wrongly ahead of that configuration's own rule in the shipped order (`rebuild/kernel-rs/src/crossconfig.rs`). So its text is settled under `source`'s features and labeled in `source`'s marker copies, the stream that window occurs in, and this configuration's rules, spelled the same way, must fire the rule at some position. `sources` maps each configuration to its decision table, whose reachable cells name the settled glyphs of that walk; a guard certificate naming a configuration missing from it fails. Guard texts are settled without the memo, since the memo belongs to this configuration, and `guards` on the report counts the guard rules witnessed.
 
     The cost is O(rules) settles and no search. The texts are prefilled in waves through one `conform._SettledWindowWalk`. `memo` is the configuration's shared settle memo (`conform.settle_memo_files`), keyed per family as the oracle row cache is, so a window another stage has settled since the runes it names last changed costs one lookup, and the windows settled here are kept for the other stages. By the window locality rule (doc/rebuild-design.md §10), a rune edit re-settles only the certificates that name an edited family. The certificates ask for a small part of the memo file, so the walk loads only the rows its texts can ask for (`load_only_asked_by`, with the ask set fixed from the certificate texts before the first wave). It writes the windows it settled as a part at the memo's `write_path`, and the caller merges the part into the file, so a memo passed here must name a `write_path`. `served` on the report counts the rows the load kept, including stale rows the walk never serves. A certificate text that fails to tokenize is reported against its own rule by the per-text walk below. `load_only_asked_by` and `prefill` share one `suppress` so that the error reaches that walk and not the caller. A walk whose restriction was cut short this way loads the whole file and skips the prefill, which costs time and memory but gives the same result.
     """
@@ -153,7 +163,18 @@ def check_rule_certificates(
         spec, features, glyph_names, guard_verdicts, on_error="drop", memo=memo
     )
     texts: list[str | None] = []
+    guards: dict[int, str] = {}
+    source_tables: Mapping = sources or {}
     for index, tokens in enumerate(certificates):
+        if tokens and tokens[0] == GUARD_MARKER:
+            if len(tokens) < 2 or tokens[1] not in source_tables:
+                texts.append(None)
+                report.failures.append(
+                    f"{decision.config} rule {index} ({rule_signature(decision.rules[index])}): its guard certificate {list(tokens)} names no configuration this check was given"
+                )
+                continue
+            guards[index] = tokens[1]
+            tokens = tokens[2:]
         try:
             texts.append(_token_text(spec, tokens))
         except (KeyError, ValueError) as error:
@@ -161,16 +182,33 @@ def check_rule_certificates(
             report.failures.append(
                 f"{decision.config} rule {index} ({rule_signature(decision.rules[index])}): its certificate {list(tokens)} does not render as text ({error})"
             )
-    pile = sorted({text for text in texts if text})
+    pile = sorted({text for index, text in enumerate(texts) if text and index not in guards})
     with suppress(settle.SettleError):
         if memo is not None:
             walker.load_only_asked_by(pile)
         walker.prefill(pile)
+    source_walkers: dict[str, conform._SettledWindowWalk] = {}
+    for source in sorted(set(guards.values())):
+        entry = source_tables[source]
+        source_decision = entry[0] if isinstance(entry, (tuple, list)) else entry
+        source_walkers[source] = conform._SettledWindowWalk(
+            spec,
+            _config_features(source),
+            {cell: settle.cell_label(spec, cell) for cell in source_decision.reachable_cells()},
+            guard_verdicts,
+            on_error="drop",
+        )
+        with suppress(settle.SettleError):
+            source_walkers[source].prefill(
+                sorted({text for index, text in enumerate(texts) if text and guards.get(index) == source})
+            )
     for index, text in enumerate(texts):
         if text is None:
             continue
+        source = guards.get(index)
+        walk_features = features if source is None else _config_features(source)
         try:
-            _settled, names = walker.walk(text)
+            _settled, names = (walker if source is None else source_walkers[source]).walk(text)
         except settle.SettleError as error:
             report.failures.append(
                 f"{decision.config} rule {index} ({rule_signature(decision.rules[index])}): the crate refused its certificate {text!r} ({error})"
@@ -179,14 +217,17 @@ def check_rule_certificates(
         fired = [
             matched
             for _position, _window, matched in _matched_windows(
-                spec, text, features, guard_verdicts, names, rules_by_input
+                spec, text, walk_features, guard_verdicts, names, rules_by_input
             )
         ]
         if index in fired:
             report.witnessed[index] = text
+            if source is not None:
+                report.guards += 1
         else:
+            settled_under = "" if source is None else f" settled under {source}"
             report.failures.append(
-                f"{decision.config} rule {index} ({rule_signature(decision.rules[index])}): its certificate {text!r} fires rules {fired} and never this one"
+                f"{decision.config} rule {index} ({rule_signature(decision.rules[index])}): its certificate {text!r}{settled_under} fires rules {fired} and never this one"
             )
     if memo is not None:
         walker.save_memo()

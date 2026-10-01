@@ -237,3 +237,19 @@ def test_mini_spec_emitted_rules_all_fold_from_certified_rules(spec, tables, gua
         assert index in certified[config], f"{config} rule {index} sources an emitted row uncertified"
     for config, (decision, _joins) in tables.items():
         assert {index for name, index in sourced if name == config} == set(range(len(decision.rules)))
+
+
+def test_a_guard_certificate_settles_under_the_configuration_it_names(spec, tables, guard):
+    """A guard rule's certificate (`witness.GUARD_MARKER`, the configuration the rule's window is live in, then the tokens) is settled under that configuration, with its decision table naming the settled glyphs, and the table's own rules must fire the rule there. Recast as guards from `default`, the default table's certificates still fire their rules, and the report counts them as guards; with no table given for the configuration they name, each one fails."""
+    decision, _joins = tables["default"]
+    recast = dataclasses.replace(
+        decision,
+        certificates=tuple((witness.GUARD_MARKER, "default", *tokens) for tokens in decision.certificates),
+    )
+    report = witness.check_rule_certificates(spec, frozenset(), recast, guard, sources=tables)
+    assert report.passed, report.failures
+    assert report.guards == len(decision.rules)
+    unnamed = witness.check_rule_certificates(spec, frozenset(), recast, guard)
+    assert len(unnamed.failures) == len(decision.rules)
+    assert "names no configuration this check was given" in unnamed.failures[0]
+    assert not unnamed.witnessed

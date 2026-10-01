@@ -72,10 +72,10 @@
   "volatile": {
     "manifest": {
       "totals": {
-        "units": 1400437,
-        "rows": 6755743,
-        "batches": 771,
-        "duplicate_groups": 9611
+        "units": 1416288,
+        "rows": 6756967,
+        "batches": 821,
+        "duplicate_groups": 10792
       },
       "machine_approved": {
         "units": 1127497,
@@ -96,28 +96,28 @@
         }
       },
       "class_unit_count": {
-        "boundary-window": 200867,
+        "boundary-window": 201759,
         "dangling-anchor-dropped": 362492,
         "bare-name-live-join": 612780
       },
       "secondary_junctions": {
-        "units_with_markers": 49268,
-        "junctions_with_primary_unit": 5625,
-        "junctions_without_primary_unit": 46631,
-        "junctions_suppressed_invisible": 1470
+        "units_with_markers": 56389,
+        "junctions_with_primary_unit": 6165,
+        "junctions_without_primary_unit": 53875,
+        "junctions_suppressed_invisible": 1534
       }
     },
     "built": {
-      "human_units": 231231,
-      "reference_window_duplicate_siblings": 848,
+      "human_units": 246175,
+      "reference_window_duplicate_siblings": 35,
       "config_note_distribution": [
         [
           null,
-          1303825
+          1289403
         ],
         [
           "only when ss03 is off",
-          19909
+          19212
         ],
         [
           "only when ss03 is off and ss04 is off",
@@ -125,19 +125,19 @@
         ],
         [
           "only when ss03 is off and ss05 is off",
-          14
+          711
         ],
         [
           "only when ss03 is on",
-          27968
+          27865
         ],
         [
           "only when ss03 is on and ss05 is off",
-          10
+          113
         ],
         [
           "only when ss03 is on and ss05 is on",
-          10
+          113
         ],
         [
           "only when ss04 is off",
@@ -153,25 +153,25 @@
         ],
         [
           "only when ss05 is off",
-          3189
+          17611
         ],
         [
           "only when ss05 is on",
-          3279
+          18296
         ],
         [
           "only when ss05 is on and ss03 is off",
-          14
+          745
         ]
       ]
     },
     "audit": {
-      "row_count": 6755743,
-      "units": 1406956
+      "row_count": 6756967,
+      "units": 1422820
     },
     "ink": {
       "machine_total": 1088944,
-      "non_identical": 318012,
+      "non_identical": 333876,
       "by_class": {
         "boundary-window": 168701,
         "zwnj-word-initial-unification": 136,
@@ -180,9 +180,9 @@
         "zoo-entry-contraction-renamed": 1283,
         "roe-shortened-top-renamed": 1665
       },
-      "boundary_window_exempt": 46873,
-      "human_units": 271139,
-      "batches": 904
+      "boundary_window_exempt": 47780,
+      "human_units": 286096,
+      "batches": 954
     },
     "unmatched_groups": {
       "counts": {
@@ -194,9 +194,9 @@
         "extension-non-summing": 101394,
         "unmatched-misc": 12994,
         "deferred-ss04": 11463,
-        "deferred-ss03": 7380
+        "deferred-ss03": 22215
       },
-      "total": 152428
+      "total": 167263
     }
   }
 }

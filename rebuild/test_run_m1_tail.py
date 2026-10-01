@@ -78,7 +78,7 @@ def _stub_gates(
         lambda spec, out_dir=None, inputs=None, kernel_threads=None, packing=None: (TABLES, {}),
     )
 
-    def run_replay_strings(spec, out_dir, inputs, replay_threads=None, memo_inputs=None):
+    def run_replay_strings(spec, out_dir, inputs, replay_threads=None, memo_inputs=None, imports=None):
         events.append("replay:start")
         if on_replay is not None:
             on_replay()
@@ -471,7 +471,7 @@ class TestThePacking:
     def test_every_walk_runs_in_one_wave_at_the_cores_not_the_builds_width(self, monkeypatch, tmp_path):
         """With the memory-derived width set to one and every pack already on disk, as many walkers as `_core_bound_threads` allows call `kernel_exec.replay_emitted` at the same time: the walk pool is sized from the configuration count and the cores, not from the table build's width. Each stub walker waits until that many walkers are inside, so a pool sized at the build's width fails on the wait's timeout instead of hanging."""
         width = run_m1._core_bound_threads(len(CONFIGS))
-        monkeypatch.setattr(kernel_exec, "KERNEL_THREADS_DEFAULT", 1)
+        monkeypatch.setattr(kernel_exec, "kernel_threads_default", lambda **_: 1)
         packing = run_m1.Packing(len(CONFIGS))
         tables, _digests = run_m1.build_tables(SPEC, tmp_path, inputs=STAMP, packing=packing)
         for config in CONFIGS:
@@ -502,8 +502,8 @@ class TestThePacking:
 
 class TestTheTailWidth:
     def test_the_core_bound_width_is_the_count_capped_at_the_cores(self, monkeypatch):
-        """`_core_bound_threads` is the configuration count capped at the cores this process may run on, with a minimum of one. Setting the memory-derived `KERNEL_THREADS_DEFAULT` to one does not change it, so the setting that keeps the table build out of swap does not narrow these pools."""
-        monkeypatch.setattr(kernel_exec, "KERNEL_THREADS_DEFAULT", 1)
+        """`_core_bound_threads` is the configuration count capped at the cores this process may run on, with a minimum of one. Setting the memory-derived `kernel_threads_default` to one does not change it, so the setting that keeps the table build out of swap does not narrow these pools."""
+        monkeypatch.setattr(kernel_exec, "kernel_threads_default", lambda **_: 1)
         monkeypatch.setattr(run_m1, "usable_cores", lambda: 2)
         assert run_m1._core_bound_threads(len(CONFIGS)) == 2
         assert run_m1._core_bound_threads(99) == 2
@@ -541,7 +541,7 @@ class TestTheTailWidth:
         assert widths == [len(CONFIGS), 1] and len(CONFIGS) != 2
 
     def test_the_packing_and_the_walks_take_the_cores_not_the_builds_width(self, monkeypatch, tmp_path):
-        """With `kernel_threads=1`, the `Packing` pool is still created at `_core_bound_threads`'s width, and `run_emitted_order` is called with no keyword argument but the pack wait (`ready`), so neither `--kernel-threads` nor `KERNEL_THREADS_DEFAULT` reaches either pool."""
+        """With `kernel_threads=1`, the `Packing` pool is still created at `_core_bound_threads`'s width, and `run_emitted_order` is called with no keyword argument but the pack wait (`ready`), so neither `--kernel-threads` nor `kernel_exec.kernel_threads_default` reaches either pool."""
         events: list = []
         widths: dict[str, int] = {}
         calls: list[set[str]] = []

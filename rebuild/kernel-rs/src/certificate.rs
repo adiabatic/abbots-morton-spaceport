@@ -8,13 +8,16 @@
 //!
 //! Tail completion is a bounded search, because a token appended to satisfy one constraint can raise another: a follower that keeps a pair unformed can itself begin an unformed pair, and a ligature at the new end needs its own follower. Each step appends one token the first open constraint asks for and re-reads the whole stream. It tries boundaries first, because a boundary raises no new constraint, then letters in name order, up to `COMPLETION_DEPTH` appends. Several completions are kept per row and several rows per rule, because a concrete tail can make an earlier rule first-match the window, when that rule's deep class admits the tail's token where the row's `#NA` did not. The certificate is the first completion, of the first row in shortest-chain order, whose window the rule wins.
 //!
+//! A guard rule, which only windows imported from another configuration first-match ([`crate::crossconfig`]), gets its certificate the same way from one of those windows: the exporting configuration sends the tokens the window's row chain fixes there, and [`guard_certificate`] completes them and checks the rule against the window spelled in the receiving configuration's labels. Its token list starts with [`GUARD_MARKER`] and that configuration's token, and the witness stage settles it under that configuration.
+//!
 //! A certificate does not show that HarfBuzz applies the rule; `gate:conform` checks that over the compiled font. A certificate shows that the rule is reachable under the kernel's own settlement. The fold's unreachable-rule check cannot show this, because it replays only the table's own rows, and a row is reachable only if its left state is.
 
 use std::collections::VecDeque;
 
+use crate::crossconfig::{ImportedRow, Spellings};
 use crate::fixpoint::right_token_label;
 use crate::fold::{LabelRows, Rule, boundaryish, first_match, rules_by_input};
-use crate::hash::HashSet;
+use crate::hash::{HashMap, HashSet};
 use crate::index::SpecIndex;
 use crate::options::WindowOptions;
 use crate::types::{EDGE, NAMER_DOT, RightToken, SPACE, TokenKind, ZWNJ};
@@ -226,6 +229,8 @@ fn partition(rows: &LabelRows<'_>, before: impl Fn(&[&str; 6]) -> bool) -> usize
 ///
 /// The fold has already shown that a replayed row first-matches every rule, so a rule for which no row completes into a certificate means the worklist got a slot restriction wrong, and this returns an error naming the rule. There are two kinds of error, one for each way a row can fail. If no row chain reaches any of the rule's rows, `unreached_rows_error` names the first row and why no chain reaches it: its left before its input, or one of its right slots, that no producer supports, or producers for all of them that lie on no row chain themselves. If a chain reaches a row but no completion of its tail gives a window the rule wins, the slot restrictions held and the constraint search found nothing.
 ///
+/// A rule no own row first-matches is a guard rule, reached only by rows the configuration imported ([`crate::crossconfig`]), and `guard` gives its certificate ([`guard_certificate`]).
+///
 /// A hand-built test product can get an empty list instead of an error, in two cases: one of a rule's rows has a label the spec models no rune for, or an unreached row's left is no row's outcome. A build's product can do neither, because every label of an enumeration is a modeled rune or a boundary and every letter left is some window's outcome. `run_m1`'s witness stage fails a table whose certificate count differs from its rule count, so an empty list cannot reach a font; the errors here are the check meant to catch a build's wrong slot restriction.
 pub fn certify(
     index: &SpecIndex,
@@ -234,10 +239,15 @@ pub fn certify(
     rows: &LabelRows<'_>,
     rules: &[Rule],
     first_rows: &[Vec<usize>],
+    guard: &mut GuardHook<'_>,
 ) -> Result<Vec<Vec<String>>, String> {
     let by_input = rules_by_input(rules);
     let mut certificates: Vec<Vec<String>> = Vec::with_capacity(rules.len());
     for (rule_index, rule) in rules.iter().enumerate() {
+        if first_rows[rule_index].is_empty() {
+            certificates.push(guard(options, rule_index)?);
+            continue;
+        }
         let mut found: Option<Vec<RightToken>> = None;
         let mut spelled_any = false;
         let mut unspellable_any = false;
@@ -306,6 +316,55 @@ pub fn certify(
     Ok(certificates)
 }
 
+/// What [`certify`] calls for a rule no own row first-matches: given the window options and the rule's index, its certificate or the error that fails the build.
+pub type GuardHook<'g> =
+    dyn FnMut(&mut WindowOptions<'_>, usize) -> Result<Vec<String>, String> + 'g;
+
+/// The guard hook for a table that imports nothing: every rule has own rows, so a rule without any is an error.
+pub fn no_guards(_options: &mut WindowOptions<'_>, rule: usize) -> Result<Vec<String>, String> {
+    Err(format!(
+        "rule {rule} has no replayed row, and the table imports none"
+    ))
+}
+
+/// The first token of a guard rule's certificate. The second names the configuration the certificate settles under, and the rest are its token stream.
+pub const GUARD_MARKER: &str = "#guard";
+
+/// A guard rule's certificate from one row the configuration `receiver` imported: the row's chain in the configuration it is live in, completed over the formation guard's open tail as [`certify`] completes an own row's, and kept when the window at the row's position, spelled in the receiver's labels, first-matches the rule in `by_input`. It is `[GUARD_MARKER, <source configuration>, tokens…]`, and `run_m1`'s witness stage settles the tokens under the source configuration and first-matches the receiver's rules at each position. Returns `None` when the row has no chain or no completion works. The formation guard is the same under every configuration, so the receiver's `options` complete the tail.
+pub fn guard_certificate(
+    index: &SpecIndex,
+    options: &mut WindowOptions<'_>,
+    spellings: &Spellings,
+    receiver: usize,
+    by_input: &HashMap<&str, Vec<(usize, &Rule)>>,
+    rule_index: usize,
+    imported: &ImportedRow,
+) -> Result<Option<Vec<String>>, String> {
+    let Some((tokens, position)) = imported.chain.clone() else {
+        return Ok(None);
+    };
+    let source = imported.source;
+    let input = spellings.translate(receiver, source, &imported.key[0]);
+    let left = spellings.translate(receiver, source, &imported.key[1]);
+    let mut completed: Vec<Vec<RightToken>> = Vec::new();
+    completions(index, options, tokens, COMPLETION_DEPTH, &mut completed)?;
+    for candidate in completed {
+        let window = window_at(index, &candidate, position, &input, &left);
+        let spelled: [String; 6] =
+            std::array::from_fn(|slot| spellings.translate(source, receiver, &window[slot]));
+        if first_match(by_input, spelled.each_ref().map(String::as_str)) == Some(rule_index) {
+            let mut certificate = vec![GUARD_MARKER.to_owned(), spellings.tokens()[source].clone()];
+            certificate.extend(
+                candidate
+                    .into_iter()
+                    .map(|token| right_token_label(index, token)),
+            );
+            return Ok(Some(certificate));
+        }
+    }
+    Ok(None)
+}
+
 /// The error message for a rule none of whose replayed rows lies on a row chain. It names the rule, the first such row, and why no chain reaches that row. A producer of the row would be a row whose outcome is the row's left, whose right1 is the row's input, and whose right2, right3, and right4 equal the row's right1, right2, and right3 up to the first `#NA`. This filters the rows by those conditions in that order, and the first condition no row meets is what the worklist admitted without a window to produce it: the left before the input, or an unsupported right slot. When every condition has rows that meet it, no slot is unsupported, and the message says instead that none of those producers lies on a row chain. Returns `None` when no row settles to the row's left at all. The worklist only admits a left it settled in some window, so that happens only in a hand-built product, which gets the empty certificate list.
 fn unreached_rows_error(
     rows: &LabelRows<'_>,
@@ -357,7 +416,7 @@ fn unreached_rows_error(
 }
 
 /// The tokens one replayed row fixes, and the position of the row's input among them. The tokens are the start row's boundary (left out when it is the run edge), the family of each earlier row's input on the chain, the family of the row's input, and then the row's right slots up to the first `#NA` or `#EDGE`. Tail completion chooses only what follows. Returns `None` for a row no start row reaches, and an error for a label the spec does not model.
-fn fixed_tokens(
+pub(crate) fn fixed_tokens(
     index: &SpecIndex,
     chains: &RowChains,
     rows: &LabelRows<'_>,
@@ -684,8 +743,8 @@ mod tests {
             .enumerate()
             .map(|(class_row, row)| FoldRow {
                 class_row: class_row as u32,
-                right3: Rc::clone(product.labels.text(row.right3)),
-                right4: Rc::clone(product.labels.text(row.right4)),
+                right3: row.right3,
+                right4: row.right4,
                 joint: false,
             })
             .collect();
@@ -845,8 +904,9 @@ mod tests {
                 deep_classes: true,
             },
         ] {
-            let product = enumerate_transitions(&index, &[], modes).expect("the fixpoint closes");
-            let fold_rows = expand(&product);
+            let mut product =
+                enumerate_transitions(&index, &[], modes).expect("the fixpoint closes");
+            let fold_rows = expand(&mut product);
             let rows = LabelRows::new(&product, &fold_rows);
             let reference = RowChains::over_reference(&rows);
             let production = RowChains::over(&rows);
@@ -858,9 +918,9 @@ mod tests {
     #[test]
     fn every_row_of_the_fixture_is_reached_by_a_short_chain_the_rows_fix() {
         let index = fixtures::mini();
-        let product =
+        let mut product =
             enumerate_transitions(&index, &[], DEFAULT_MODES).expect("the fixpoint closes");
-        let fold_rows = expand(&product);
+        let fold_rows = expand(&mut product);
         let rows = LabelRows::new(&product, &fold_rows);
         let chains = checked_chains(&rows);
         assert!(!rows.is_empty());
@@ -889,13 +949,13 @@ mod tests {
     #[test]
     fn every_rule_of_the_fixture_carries_a_certificate_it_first_matches() {
         let index = fixtures::mini();
-        let product =
+        let mut product =
             enumerate_transitions(&index, &[], DEFAULT_MODES).expect("the fixpoint closes");
         let folded = fold_product(&index, product.clone()).expect("and folds");
         let decision = &folded.decision;
         assert_eq!(decision.certificates.len(), decision.rules.len());
         assert!(!decision.rules.is_empty());
-        let fold_rows = expand(&product);
+        let fold_rows = expand(&mut product);
         let rows = LabelRows::new(&product, &fold_rows);
         let chains = checked_chains(&rows);
         let first_rows = first_match_rows(
@@ -946,10 +1006,10 @@ mod tests {
     #[test]
     fn a_rule_no_row_first_matches_is_refused_before_certification() {
         let index = fixtures::mini();
-        let product =
+        let mut product =
             enumerate_transitions(&index, &[], DEFAULT_MODES).expect("the fixpoint closes");
         let folded = fold_product(&index, product.clone()).expect("and folds");
-        let fold_rows = expand(&product);
+        let fold_rows = expand(&mut product);
         let rows = LabelRows::new(&product, &fold_rows);
         let mut rules = folded.decision.rules.clone();
         rules.push(Rule {
@@ -1049,7 +1109,7 @@ mod tests {
                 joint: false,
             },
         );
-        let fold_rows = expand(&phantom_product);
+        let fold_rows = expand(&mut phantom_product);
         let rows = LabelRows::new(&phantom_product, &fold_rows);
         let chains = checked_chains(&rows);
         let phantom_row = (0..rows.len())
@@ -1059,8 +1119,16 @@ mod tests {
         let first_rows = first_match_rows(&rows, &rules, None, ROW_CAP, Some(chains.dist()))
             .expect("the phantom's rule wins it");
         let mut options = WindowOptions::new(&index).expect("the fixture's options build");
-        let error = certify(&index, &mut options, &chains, &rows, &rules, &first_rows)
-            .expect_err("no row chain reaches the phantom row");
+        let error = certify(
+            &index,
+            &mut options,
+            &chains,
+            &rows,
+            &rules,
+            &first_rows,
+            &mut no_guards,
+        )
+        .expect_err("no row chain reaches the phantom row");
         assert!(error.starts_with("rule 0 ("), "{error}");
         assert!(
             error.contains(&format!(
@@ -1109,7 +1177,7 @@ mod tests {
         bench
             .transitions
             .sort_by(|left, right| left.key(&bench.labels).cmp(&right.key(&bench.labels)));
-        let fold_rows = expand(&bench);
+        let fold_rows = expand(&mut bench);
         let rows = LabelRows::new(&bench, &fold_rows);
         let chains = checked_chains(&rows);
         rules[0] = Rule {
@@ -1125,8 +1193,16 @@ mod tests {
         };
         let first_rows = first_match_rows(&rows, &rules, None, ROW_CAP, Some(chains.dist()))
             .expect("the rule wins its row");
-        let answer = certify(&index, &mut options, &chains, &rows, &rules, &first_rows)
-            .expect("a hand-built product certifies nothing rather than failing");
+        let answer = certify(
+            &index,
+            &mut options,
+            &chains,
+            &rows,
+            &rules,
+            &first_rows,
+            &mut no_guards,
+        )
+        .expect("a hand-built product certifies nothing rather than failing");
         assert!(answer.is_empty());
     }
 
@@ -1179,14 +1255,22 @@ mod tests {
                 joint: false,
             },
         );
-        let fold_rows = expand(&looped_product);
+        let fold_rows = expand(&mut looped_product);
         let rows = LabelRows::new(&looped_product, &fold_rows);
         let chains = checked_chains(&rows);
         let first_rows = first_match_rows(&rows, &rules, None, ROW_CAP, Some(chains.dist()))
             .expect("the looped row's rule wins it");
         let mut options = WindowOptions::new(&index).expect("the fixture's options build");
-        let error = certify(&index, &mut options, &chains, &rows, &rules, &first_rows)
-            .expect_err("no row chain reaches the looped row");
+        let error = certify(
+            &index,
+            &mut options,
+            &chains,
+            &rows,
+            &rules,
+            &first_rows,
+            &mut no_guards,
+        )
+        .expect_err("no row chain reaches the looped row");
         assert!(error.starts_with("rule 0 ("), "{error}");
         assert!(
             error.contains("has producers for its left before its input and for every right slot it carries, but none of those producers lies on a row chain from a start row itself"),
@@ -1200,9 +1284,9 @@ mod tests {
     fn a_completed_stream_raises_no_open_constraint() {
         let index = fixtures::mini();
         let mut options = WindowOptions::new(&index).expect("the fixture's options build");
-        let product =
+        let mut product =
             enumerate_transitions(&index, &[], DEFAULT_MODES).expect("the fixpoint closes");
-        let fold_rows = expand(&product);
+        let fold_rows = expand(&mut product);
         let rows = LabelRows::new(&product, &fold_rows);
         let chains = checked_chains(&rows);
         let mut completed_any = false;

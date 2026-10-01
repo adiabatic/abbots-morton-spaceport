@@ -507,7 +507,7 @@ def test_the_report_states_the_width_each_constant_implies_here(tmp_path, capsys
 
 
 def test_the_width_clauses_answer_for_the_machine_and_the_tree_they_are_given(tmp_path, capsys):
-    """`render_rows` takes the machine's memory, its cores, and the source tree as arguments, so this test checks the width arithmetic against a stated machine and a fixture tree instead of the machine and checkout running the test. On twelve cores the corpus-parent row's division fits six of the tree's workers, so a hand build's cap of eleven leaves memory to bind it, while a gated cycle's cap, the build lane's six cores less the parent, binds first. On six cores the gated build's parent and 2 workers leave 3, so the conformance sweep's cap beside it is its floor, the tree's 4 acceptance configurations."""
+    """`render_rows` takes the machine's memory, its cores, and the source tree as arguments, so this test checks the width arithmetic against a stated machine and a fixture tree instead of the machine and checkout running the test. On twelve cores the corpus-parent row's division fits six of the tree's workers, so a hand build's cap of eleven leaves memory to bind it, while a gated cycle's cap, the build lane's six cores less the parent, binds first. On six cores the gated build's parent and 2 workers leave 3, so the conformance sweep's cap beside it is its floor, the tree's 4 acceptance configurations. The kernel's delta wave takes the memo and the tree's 3 settlement configurations' parked products off the 40 GB the reserve leaves, and divides the 30 GB left by a delta less its parked product."""
     tree = tmp_path / "tree"
     (tree / "rebuild" / "tools").mkdir(parents=True)
     (tree / "rebuild" / "tools" / "artifact_cycle.py").write_text(
@@ -517,7 +517,9 @@ def test_the_width_clauses_answer_for_the_machine_and_the_tree_they_are_given(tm
     )
     (tree / "rebuild" / "pipeline").mkdir(parents=True)
     (tree / "rebuild" / "pipeline" / "kernel_exec.py").write_text(
-        f"{cb.KERNEL_DELTA_NAME} = 8_000_000_000\n{cb.KERNEL_MEMO_NAME} = 4_000_000_000\n", encoding="utf-8"
+        f"{cb.KERNEL_DELTA_NAME} = 8_000_000_000\n{cb.KERNEL_MEMO_NAME} = 4_000_000_000\n"
+        f"{cb.KERNEL_PARKED_NAME} = 2_000_000_000\n",
+        encoding="utf-8",
     )
     (tree / cb.CONFORM_SOURCE).write_text(
         'SETTLEMENT_CONFIGS = ("a", "b", "c")\nOVERLAY_CONFIGS = ("d",)\n', encoding="utf-8"
@@ -550,7 +552,7 @@ def test_the_width_clauses_answer_for_the_machine_and_the_tree_they_are_given(tm
     assert gated.startswith("5 at ")
     assert f"with it off, a hand build runs {solo}, and a gated cycle runs {gated}" in parent_block
     assert (
-        "its delta wave runs 4 at 8.00 GB each out of 48.00 GB total, less a reserve of 8.00 GB, less 4.00 GB co-resident"
+        "its delta wave runs 5 at 6.00 GB each out of 48.00 GB total, less a reserve of 8.00 GB, less 10.00 GB co-resident"
         in out
     )
     assert (

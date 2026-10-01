@@ -536,8 +536,10 @@ def test_no_configuration_frees_a_window_the_quantified_guard_blocks(real_guard,
         assert all(verdict_map[key] for key, blocked in real_guard.items() if blocked), sorted(features)
 
 
-def test_ss03_is_the_one_set_the_guard_verdict_map_depends_on(real_spec, real_guard, guard_by_configuration):
-    """The guard verdict map is not the same in every configuration, and ss03 is the only feature that changes it. Every configuration with ss03 sweeps the quantified map. Every configuration without it (default, ss04, ss05, ss04+ss05, ss10) sweeps one stricter map, which also blocks the windows `(X_qsUtter, ·Tea, r2)` for the qsUtter-trailing ligatures that qsTea's ss03 unlock names as lefts: there, the ss03 x-height entry into full ·Tea is the only join the ligature can offer the ·Tea. The font is correct either way, because formation runs before the ss markers and `settle.form_ligatures` reads the quantified sweep in every configuration: ·Day·Utter·Tea forms the ligature under default with ·Tea unjoined, and ·Tea joins it only under ss03 (`test_formation_survives_where_the_ligature_serves_the_follower` checks both). So a configuration delta may assume that ss04, ss05, and ss10 change no formation verdict, and that ss03 changes only these."""
+def test_ss03_and_ss05_are_the_sets_the_guard_verdict_map_depends_on(
+    real_spec, real_guard, guard_by_configuration
+):
+    """The guard verdict map is not the same in every configuration, and ss03 and ss05 are the only features that change it. Every configuration with ss03 sweeps the quantified map. Every configuration without it sweeps a stricter map, which also blocks windows `(X_qsUtter, ·Tea, r2)` for the qsUtter-trailing ligatures that qsTea's ss03 unlock names as lefts: there, the ss03 x-height entry into full ·Tea is the only join the ligature can offer the ·Tea. The configurations without ss03 or ss05 (default, ss04, ss10) share one such map. The ones with ss05 but not ss03 (ss05, ss04+ss05) share a second map that blocks every window the first blocks and more, because ss05's both-baseline pairing lets the ·Tea take the unformed ·Utter's baseline join and still join r2 at the baseline. The font is correct either way, because formation runs before the ss markers and `settle.form_ligatures` reads the quantified sweep in every configuration: ·Day·Utter·Tea forms the ligature under default with ·Tea unjoined, and ·Tea joins it only under ss03 (`test_formation_survives_where_the_ligature_serves_the_follower` checks both). So a configuration delta may assume that ss04 and ss10 change no formation verdict, and that ss03 and ss05 change only these."""
     tea = RightToken("letter", "qsTea")
     ligatures_ss03_names = {
         name
@@ -555,12 +557,23 @@ def test_ss03_is_the_one_set_the_guard_verdict_map_depends_on(real_spec, real_gu
             assert not disagreements, sorted(features)
         else:
             without_ss03[features] = disagreements
-    assert {frozenset(), frozenset({"ss04"}), frozenset({"ss05"}), frozenset({"ss10"})} <= without_ss03.keys()
-    (disagreements,) = set(without_ss03.values())
-    assert disagreements, "the finding has dissolved: every configuration sweeps the quantified map"
-    assert {right1 for _ligature, right1, _right2 in disagreements} == {tea}
-    assert {ligature for ligature, _right1, _right2 in disagreements} == ligatures_ss03_names
-    assert not any(real_guard[key] for key in disagreements)
+    assert {
+        frozenset(),
+        frozenset({"ss04"}),
+        frozenset({"ss05"}),
+        frozenset({"ss04", "ss05"}),
+        frozenset({"ss10"}),
+    } <= without_ss03.keys()
+    (without_ss05,) = {
+        disagreements for features, disagreements in without_ss03.items() if "ss05" not in features
+    }
+    (with_ss05,) = {disagreements for features, disagreements in without_ss03.items() if "ss05" in features}
+    assert without_ss05, "the finding has dissolved: every configuration sweeps the quantified map"
+    assert without_ss05 < with_ss05
+    assert {right1 for _ligature, right1, _right2 in with_ss05} == {tea}
+    assert {ligature for ligature, _right1, _right2 in without_ss05} == ligatures_ss03_names
+    assert {ligature for ligature, _right1, _right2 in with_ss05} == ligatures_ss03_names
+    assert not any(real_guard[key] for key in with_ss05)
 
 
 def test_the_guard_reads_letters_only_and_indexes_the_verdict_map_it_was_given(real_guard):

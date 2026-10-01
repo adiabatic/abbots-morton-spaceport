@@ -4,7 +4,7 @@ Most tests are pure functions over an invented machine, because `total_bytes`, `
 
 Three constants here are recorded measurements, kept as literals so that re-measuring a shipped constant cannot move the reproduction of an earlier width. `KERNEL_CONFIG_BYTES` is what one kernel configuration in flight cost when issue #85 was written; it does not follow `kernel_exec.DELTA_PEAK_BYTES`. `FONT_POOL_BYTES` is ten font-suite workers at the top of the 0.11–0.28 GB range the root `conftest.py` records beside `FONT_SUITE_WORKER_BYTES`; it does not follow that constant, which rounds up past the range. `ISSUE_RESERVE_FLOOR_BYTES` is the 4 GB reserve floor issue #85 stated its widths under; the shipped floor, `RESERVE_FLOOR_BYTES`, is 8 GB.
 
-`TestTheWidthsAlreadyOnRecord` shows the formula reproducing widths that were measured independently of it, over an invented 32 GB machine. The shipped kernel width is derived from the running machine, so no test compares it with a fixed number. Instead the tests check that the shipped `DELTA_PEAK_BYTES` and `DEFAULT_MEMO_BYTES` still fit the whole delta wave on the 48 GiB machine and three deltas on the 32 GiB machine when the build runs alone; `rebuild/test_artifact_cycle.py` checks the same widths beside the cycle's pytest pool. `TestWhatDashNAutoResolvesTo` drives the repository's two `pytest_xdist_auto_num_workers` hooks, and `TestTheHandRunDefaults` checks that each width a hand run gets without naming one is still derived from the machine.
+`TestTheWidthsAlreadyOnRecord` shows the formula reproducing widths that were measured independently of it, over an invented 32 GB machine. The shipped kernel width is derived from the running machine, so no test compares it with a fixed number. Instead the tests check that the shipped `DELTA_PEAK_BYTES`, `DEFAULT_MEMO_BYTES` and `PARKED_FOLD_BYTES` still fit the whole delta wave on the 48 GiB machine and three deltas on the 32 GiB machine when the build runs alone; `rebuild/test_artifact_cycle.py` checks the widths beside the cycle's pytest pool. `TestWhatDashNAutoResolvesTo` drives the repository's two `pytest_xdist_auto_num_workers` hooks, and `TestTheHandRunDefaults` checks that each width a hand run gets without naming one is still derived from the machine.
 
 Nothing here reads a live build artifact, so the module is in the contracts lane. The audit guard in `rebuild/conftest.py` fails any contracts test that reads `rebuild/out/`, `tmp/`, `var/`, or a root `verdicts-*` store.
 """
@@ -133,7 +133,7 @@ class TestTheWidthsAlreadyOnRecord:
 
     @pytest.mark.parametrize("total", SPELLINGS_OF_32_GB)
     def test_subtracting_the_font_pool_gives_the_width_the_32_gb_machine_shipped(self, total: int):
-        """The second recorded fact: with the font suite's ten co-resident workers subtracted, because a cycle runs the fan-out beside a pytest pool, the same formula returns 2 on the same 32 GB machine. `kernel_threads_budget` in `rebuild/tools/artifact_cycle.py` makes this subtraction in the shipped code, estimating the pool at `make_test_pool_width` workers (the gate lane's share of the cores), not ten, so this test keeps the recorded fact with its own constants. The live `KERNEL_THREADS_DEFAULT` is not asserted, because it is the running machine's solo width and differs between machines."""
+        """The second recorded fact: with the font suite's ten co-resident workers subtracted, because a cycle runs the fan-out beside a pytest pool, the same formula returns 2 on the same 32 GB machine. `kernel_threads_budget` in `rebuild/tools/artifact_cycle.py` makes this subtraction in the shipped code, estimating the pool at `make_test_pool_width` workers (the gate lane's share of the cores), not ten, so this test keeps the recorded fact with its own constants. The live `kernel_exec.kernel_threads_default` is not asserted, because it is the running machine's solo width and differs between machines."""
         assert (
             memory_budget.how_many_fit(
                 KERNEL_CONFIG_BYTES,
@@ -159,21 +159,31 @@ class TestTheWidthsAlreadyOnRecord:
     def test_the_shipped_divisor_holds_the_32_gb_machine_at_its_budgeted_width(
         self, total: int, wanted: int, monkeypatch: pytest.MonkeyPatch
     ):
-        """The shipped kernel width subtracts `DEFAULT_MEMO_BYTES` from the machine before dividing the remaining budget by `DELTA_PEAK_BYTES`. Both readings of 32 GB fit three of the four delta configurations. The fleet machine is the GiB one. Its 34.36 GB is 1.34 GB short of fitting a fourth delta (35.7 GB is the smallest total that fits four), and the decimal 32 GB is 3.7 GB short. Changing either constant moves these widths. The second assertion checks that `TABLE_BUILD_PEAK_BYTES` is at most the memo plus one `DELTA_PEAK_BYTES` per delta configuration, which is what a width equal to the delta count holds; at a width equal to the configuration count, the extra worker slot runs `default`'s fold after its memo file is written. `AMS_KERNEL_THREADS` is cleared first, because an exported width would decide the first assertion whatever the constants are."""
+        """The shipped kernel width subtracts `DEFAULT_MEMO_BYTES` and one `PARKED_FOLD_BYTES` per settlement configuration from the machine before dividing the remaining budget by `DELTA_PEAK_BYTES` less `PARKED_FOLD_BYTES`. Both readings of 32 GB fit three of the four delta configurations. The fleet machine is the GiB one, and its 34.36 GB is 2.44 GB short of a fourth; the decimal 32 GB is 4.8 GB short. Changing any of the three constants moves these widths. The second assertion checks that `TABLE_BUILD_PEAK_BYTES` is at most the memo, plus every configuration's parked product, plus one delta less its parked product per delta configuration, which is what a width equal to the delta count holds; at a width equal to the configuration count, the extra worker slot runs `default`'s fold preparation after its memo file is written. `AMS_KERNEL_THREADS` is cleared first, because an exported width would decide the first assertion whatever the constants are."""
         from rebuild.pipeline.conform import SETTLEMENT_CONFIGS
-        from rebuild.pipeline.kernel_exec import TABLE_BUILD_PEAK_BYTES, kernel_threads_default
+        from rebuild.pipeline.kernel_exec import (
+            PARKED_FOLD_BYTES,
+            TABLE_BUILD_PEAK_BYTES,
+            kernel_threads_default,
+        )
 
         monkeypatch.delenv("AMS_KERNEL_THREADS", raising=False)
-        assert kernel_threads_default(total_bytes=total) == wanted
-        assert TABLE_BUILD_PEAK_BYTES <= DEFAULT_MEMO_BYTES + DELTA_PEAK_BYTES * (len(SETTLEMENT_CONFIGS) - 1)
+        count = len(SETTLEMENT_CONFIGS)
+        assert kernel_threads_default(configs=count, total_bytes=total) == wanted
+        assert TABLE_BUILD_PEAK_BYTES <= (
+            DEFAULT_MEMO_BYTES
+            + count * PARKED_FOLD_BYTES
+            + (count - 1) * (DELTA_PEAK_BYTES - PARKED_FOLD_BYTES)
+        )
 
     def test_the_shipped_pair_fits_the_whole_delta_wave_on_the_48_gib_machine(self, monkeypatch):
-        """The criterion `DELTA_PEAK_BYTES` and `DEFAULT_MEMO_BYTES` are chosen against: on the fleet's 48 GiB machine the solo width covers every configuration past `default`, so the delta wave runs in one round with no trailing round of a single delta. A change to either constant that costs that machine its fourth delta fails here. The 32 GiB machine fits three of the four deltas, which the test above checks. `AMS_KERNEL_THREADS` is cleared first, because an exported width would satisfy the inequality whatever the constants are."""
+        """The criterion `DELTA_PEAK_BYTES`, `DEFAULT_MEMO_BYTES` and `PARKED_FOLD_BYTES` are chosen against: on the fleet's 48 GiB machine the solo width covers every configuration past `default`, so the delta wave runs in one round with no trailing round of a single delta. A change to any of them that costs that machine its fourth delta fails here. The 32 GiB machine fits three of the four deltas, which the test above checks. `AMS_KERNEL_THREADS` is cleared first, because an exported width would satisfy the inequality whatever the constants are."""
         from rebuild.pipeline.conform import SETTLEMENT_CONFIGS
         from rebuild.pipeline.kernel_exec import kernel_threads_default
 
         monkeypatch.delenv("AMS_KERNEL_THREADS", raising=False)
-        assert kernel_threads_default(total_bytes=MACHINE_48_GIB) >= len(SETTLEMENT_CONFIGS) - 1
+        count = len(SETTLEMENT_CONFIGS)
+        assert kernel_threads_default(configs=count, total_bytes=MACHINE_48_GIB) >= count - 1
 
     @pytest.mark.parametrize("total", (MACHINE_32_GIB, MACHINE_48_GIB))
     def test_the_replay_divisor_fits_every_configuration_on_both_fleet_machines(
@@ -188,8 +198,11 @@ class TestTheWidthsAlreadyOnRecord:
         assert 0 < REPLAY_PEAK_BYTES < DELTA_PEAK_BYTES
 
     def test_the_memo_term_is_smaller_in_kind_than_the_divisor(self):
-        """`DEFAULT_MEMO_BYTES` covers `default`'s memo snapshots kept alive for the wave, stored as compact records with their pools, while `DELTA_PEAK_BYTES` covers a configuration enumerated from scratch and held through its memo write, so the memo term must be the smaller. Setting them equal would charge the wave a whole configuration for a snapshot."""
+        """`DEFAULT_MEMO_BYTES` covers `default`'s memo snapshots kept alive for the wave, stored as compact records with their pools, while `DELTA_PEAK_BYTES` covers a configuration enumerated from scratch and held through its memo write, so the memo term must be the smaller. Setting them equal would charge the wave a whole configuration for a snapshot. A parked fold product is part of what its configuration held at its peak, so `PARKED_FOLD_BYTES` is smaller than `DELTA_PEAK_BYTES` too, or the divisor would not be positive."""
+        from rebuild.pipeline.kernel_exec import PARKED_FOLD_BYTES
+
         assert 0 < DEFAULT_MEMO_BYTES < DELTA_PEAK_BYTES
+        assert 0 < PARKED_FOLD_BYTES < DELTA_PEAK_BYTES
 
     def test_the_shipped_corpus_divisor_holds_the_32_gib_machine_at_its_lane_share_by_division(self):
         """On the 10-core 32 GiB machine under a gated cycle, the corpus build's width is its cap, the build lane's share of the cores less the parent (`memory_budget.split_cores`), because that many workers fit the memory budget beside the parent and gate:make-test's pool, which is the claim the `CORPUS_WORKER_BYTES` comment makes for that machine. The division alone is checked too, since a capped width cannot tell the cap from a division that equals it. This is an upper bound on `CORPUS_WORKER_BYTES` and `CORPUS_PARENT_BYTES`: a change that makes the lane share's workers exceed this machine's budget narrows the width below the cap and fails here. A width test cannot give a lower bound without an invented machine tuned to divide exactly, which every change to the constants would have to re-tune. A worker estimate below what a worker really holds is caught instead by the corpus-worker row of `make job-costs`, against the pool records `rebuild/review/build.py` writes."""
@@ -262,7 +275,7 @@ class TestTheHandRunDefaults:
     """The widths a hand run gets when it names none, each asserted against the function that derives it and never against a number, because the answer depends on the machine. A merge or refactor that drops a `default=` would put a width back to a serial 1 with no test failing and no visible regression until someone timed a hand run. The autouse fixture clears the memory and xdist overrides, so both sides of each equality are computed from the same machine inside the test."""
 
     def test_the_extraction_fans_out_to_the_width_its_own_module_resolved(self):
-        """`SHARD_WORKERS_DEFAULT` is resolved once at import, as `KERNEL_THREADS_DEFAULT` is. The first equality checks that the CLI passes that constant through instead of a literal; the second checks that the constant still equals `usable_cores()`, which catches a revert to a checked-in width that the first equality would miss, since both of its sides change together. `_shard_workers_default`'s docstring says why this width is a core count and not a memory division."""
+        """`SHARD_WORKERS_DEFAULT` is resolved once at import. The first equality checks that the CLI passes that constant through instead of a literal; the second checks that the constant still equals `usable_cores()`, which catches a revert to a checked-in width that the first equality would miss, since both of its sides change together. `_shard_workers_default`'s docstring says why this width is a core count and not a memory division."""
         from rebuild.baseline import cli, extract
 
         parsed = cli.build_parser().parse_args(["extract", "--all"])

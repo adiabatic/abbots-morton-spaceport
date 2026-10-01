@@ -25,11 +25,13 @@ from typing import Iterable, Mapping
 
 from rebuild.pipeline import kernel_exec
 from rebuild.pipeline.model import (
+    MARKER_TAG_SEPARATOR,
     CellId,
     GlyphRecord,
     ResolvedSpec,
     locked_glyph_name,
     marker_glyph_name,
+    marker_tag_name,
     raw_rename_map,
     relevant_marker_features,
 )
@@ -379,12 +381,24 @@ def _config_name(config) -> str:
     return "+".join(features) if features else "default"
 
 
+def _lookahead_tags(rule) -> list[str]:
+    """The marker tags in a rule's lookahead classes (`model.marker_tag_name`)."""
+    return [
+        member
+        for slot in (rule.look1, rule.look2, getattr(rule, "look3", None), getattr(rule, "look4", None))
+        for member in slot or ()
+        if MARKER_TAG_SEPARATOR in member
+    ]
+
+
 def _renamed(rule, renames: dict[str, str]):
-    if not renames:
+    """The rule with its raw labels renamed to the configuration's marker copies (`renames`, `model.raw_rename_map`) and its marker tags spelled as the copies they name (`model.marker_tag_name`)."""
+    if not renames and not _lookahead_tags(rule):
         return rule
 
     def relabel(member: str) -> str:
-        return renames.get(member, member)
+        spelled = marker_tag_name(member)
+        return spelled if spelled is not None else renames.get(member, member)
 
     def slot(members: tuple[str, ...] | None) -> tuple[str, ...] | None:
         if members is None:
@@ -423,16 +437,26 @@ def _as_folded(rule, sources: tuple[tuple[str, int], ...]) -> _FoldedRule:
 
 
 def _fold_rules(tables_by_config: Mapping, spec: ResolvedSpec | None = None) -> list[_FoldedRule]:
-    """Fold the per-configuration tables into the one rule list the settlement lookup ships. Each row's `sources` names every table rule with the same window key, in fold order."""
+    """Fold the per-configuration tables into the one rule list the settlement lookup ships. Each row's `sources` names every table rule with the same window key, in fold order.
+
+    The crate's exchange (`rebuild/kernel-rs/src/crossconfig.rs`) decides which windows each table takes from the others by where this fold and `_ordered_settle_rules` ship each rule, so a crate-built table carries the crate's model of that: the order its build expects this fold to visit the build's configurations in (`fold_order`) and each rule's sort key (`buckets`). With a spec, every such table is checked against the order shipped here (`_check_shipping`, `_check_bucket`), so the model cannot drift from the emitter unnoticed. A hand-built table carries neither and is not checked.
+    """
     rules: list[_FoldedRule] = []
     positions: dict[tuple, int] = {}
-    for config in sorted(tables_by_config, key=lambda c: sorted(_config_features(c))):
+    marker_names = _marker_names(spec) if spec is not None else frozenset()
+    visiting = sorted(tables_by_config, key=lambda c: sorted(_config_features(c)))
+    for config in visiting:
         table = tables_by_config[config]
         if isinstance(table, (tuple, list)):
             table = table[0]
+        _check_shipping(spec, config, table, visiting)
+        buckets = getattr(table, "buckets", ())
         renames = raw_rename_map(spec, _config_features(config))
         for index, raw_rule in enumerate(getattr(table, "rules", ())):
+            _check_tags(spec, config, raw_rule)
             rule = _renamed(raw_rule, renames)
+            if spec is not None and buckets:
+                _check_bucket(config, index, rule, buckets[index], marker_names)
             key = (
                 rule.input_glyph,
                 rule.backtrack,
@@ -456,35 +480,68 @@ def _fold_rules(tables_by_config: Mapping, spec: ResolvedSpec | None = None) -> 
     return rules
 
 
+def _check_shipping(spec: ResolvedSpec | None, config, table, visiting: list) -> None:
+    """Raise EmitError where a crate-built table's model of the shipped order disagrees with `_fold_rules`: a bucket list that is not one per rule, or a `fold_order` (the crate's `Spellings::rank` order over the configurations its build named) that puts the configurations folded here in another order than `visiting`, the order `_fold_rules` visits them in. Tables from separate builds each name only their own build's configurations, so only those are compared."""
+    if spec is None:
+        return
+    buckets = getattr(table, "buckets", ())
+    rules = getattr(table, "rules", ())
+    if buckets and len(buckets) != len(rules):
+        raise EmitError(
+            f"{_config_name(config)}: the table carries {len(buckets)} rule buckets for {len(rules)} rules"
+        )
+    expected: tuple[str, ...] = tuple(getattr(table, "fold_order", ()))
+    if not expected:
+        return
+    folded = [_config_name(other) for other in visiting]
+    if [name for name in folded if name in expected] != [name for name in expected if name in folded]:
+        raise EmitError(
+            f"{_config_name(config)}: the crate's exchange expects the fold to visit {list(expected)} in that order, but the emitter visits {folded}; `Spellings::rank` in rebuild/kernel-rs/src/crossconfig.rs and `_fold_rules` disagree"
+        )
+
+
+def _check_bucket(config, index: int, rule, bucket: int, marker_names: frozenset[str]) -> None:
+    """Raise EmitError when the crate's bucket for a table rule is not the bits of `_settle_sort_key` over the renamed rule."""
+    backtrack_free, not_guard, late = _settle_sort_key(rule, marker_names)
+    shipped = (int(backtrack_free) << 2) | (int(not_guard) << 1) | int(late)
+    if shipped != bucket:
+        raise EmitError(
+            f"{_config_name(config)}: rule {index} for {rule.input_glyph} sorts into bucket {shipped} here, but the crate's exchange placed it in bucket {bucket}; `bucket` in rebuild/kernel-rs/src/crossconfig.rs and `_settle_sort_key` disagree"
+        )
+
+
+def _check_tags(spec: ResolvedSpec | None, config, rule) -> None:
+    """Raise EmitError for a marker tag in `rule` that the crate's marker partition and `model.relevant_marker_features` disagree on: a tag must name a rune with unlock rows and a subset of its unlock features, and never the features `config` itself sets for it, which the crate writes as the raw label."""
+    if spec is None:
+        return
+    features = _config_features(config)
+    for tag in _lookahead_tags(rule):
+        raw, _separator, state = tag.partition(MARKER_TAG_SEPARATOR)
+        rune = spec.runes.get(raw.removesuffix(".noentry"))
+        relevant = frozenset(relevant_marker_features(rune)) if rune is not None else frozenset()
+        named = frozenset(state.split("_")) if state else frozenset()
+        if not relevant or not named <= relevant or named == relevant & features:
+            raise EmitError(
+                f"{_config_name(config)}: the rule for {rule.input_glyph} names the marker tag {tag}, which this spec's marker features do not give another configuration (relevant features {sorted(relevant)})"
+            )
+
+
+def _settle_sort_key(rule, marker_names: frozenset[str]) -> tuple[bool, bool, bool]:
+    """Where `_ordered_settle_rules` puts a renamed rule among its input's rules, lowest first: backtrack rules ahead of backtrack-free ones, ZWNJ backtrack guards ahead of the other backtrack rules, and inside each, the rules whose lookahead names a marker copy (`marker_names`) or `uni200C` ahead of the rest. The crate's exchange computes the same key as a bucket (`rebuild/kernel-rs/src/crossconfig.rs`'s `bucket`, the bits of this tuple), and `_fold_rules` checks the two agree on every rule of a crate-built table."""
+    lookahead = (rule.look1, rule.look2, getattr(rule, "look3", None), getattr(rule, "look4", None))
+    early = any(label in marker_names or label == "uni200C" for slot in lookahead for label in slot or ())
+    return (rule.backtrack is None, "uni200C" not in (rule.backtrack or ()), not early)
+
+
 def _ordered_settle_rules(rules: Iterable, marker_names: frozenset[str] = frozenset()) -> list:
     """The folded rules in the order the settlement lines are emitted, which is the order read-back expects per input glyph and the order the shipped lookup matches in."""
-
-    def lookahead(rule) -> tuple:
-        return (rule.look1, rule.look2, getattr(rule, "look3", None), getattr(rule, "look4", None))
-
-    def mentions_marker(rule) -> bool:
-        return any(label in marker_names for slot in lookahead(rule) for label in slot or ())
-
-    def names_zwnj(rule) -> bool:
-        return any("uni200C" in (slot or ()) for slot in lookahead(rule))
-
-    def zwnj_guard(rule) -> bool:
-        return "uni200C" in (rule.backtrack or ())
-
     by_input: dict[str, list] = {}
     for rule in rules:
         by_input.setdefault(rule.input_glyph, []).append(rule)
     by_family: dict[str, list] = {}
     for input_glyph, input_rules in by_input.items():
-        # The first matching rule wins, and HarfBuzz skips a ZWNJ that a class does not name, in the backtrack as in the lookahead, while the ZWNJ lock leaves a rune with no entry raw after a ZWNJ. So the order keeps three blocks, as `rulefold.rs` does: the ZWNJ backtrack-slot guards, then the committed rules, then the rules that drop the left slot at a boundary; a committed rule shipped ahead of the guards would match such an input from the letter before its ZWNJ. Within each block, a rule whose lookahead names a marker copy goes ahead of bare-label rules that would otherwise match its windows through a dropped slot; a marker label and the bare label it replaces never occur in the same stream, because the marker substitution is unconditional. A rule whose lookahead names uni200C goes up with them, since a join row shipped ahead of its table's boundary row would match such a rune across the ZWNJ. The fold appends each configuration's rows in table order and every marker copy belongs to one configuration, so the stable sort keeps each table's guards-first and boundary-first order.
-        ordered = sorted(
-            input_rules,
-            key=lambda rule: (
-                rule.backtrack is None,
-                not zwnj_guard(rule),
-                not (mentions_marker(rule) or names_zwnj(rule)),
-            ),
-        )
+        # The first matching rule wins, and HarfBuzz skips a ZWNJ that a class does not name, in the backtrack as in the lookahead, while the ZWNJ lock leaves a rune with no entry raw after a ZWNJ. So the order keeps three blocks, as `rulefold.rs` does: the ZWNJ backtrack-slot guards, then the committed rules, then the rules that drop the left slot at a boundary; a committed rule shipped ahead of the guards would match such an input from the letter before its ZWNJ. Within each block, a rule whose lookahead names a marker copy goes ahead of bare-label rules that would otherwise match its windows through a dropped slot; a marker label and the bare label it replaces never occur in the same stream, because the marker substitution is unconditional. A rule whose lookahead names uni200C goes up with them, since a join row shipped ahead of its table's boundary row would match such a rune across the ZWNJ. The fold appends each configuration's rows in table order, and within one table a later rule that overlaps an earlier one never sorts ahead of it under this key: a backtrack-free rule never precedes a backtrack rule it overlaps, a ZWNJ backtrack guard never follows a non-guard it overlaps, and between rules of one status the later one constrains only lookahead slots the earlier one constrains, with the same classes (`the_emitter_s_sort_never_moves_an_overlapping_rule_ahead` in `rebuild/kernel-rs/src/fold.rs` pins this). So the stable sort never moves it ahead and keeps each table's guards-first and boundary-first order; the table build's exchange (`rebuild/kernel-rs/src/crossconfig.rs`) relies on that.
+        ordered = sorted(input_rules, key=lambda rule: _settle_sort_key(rule, marker_names))
         by_family.setdefault(input_glyph.split(".")[0], []).extend(ordered)
     return [rule for family_rules in by_family.values() for rule in family_rules]
 

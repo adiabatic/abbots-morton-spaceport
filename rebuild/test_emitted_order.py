@@ -120,3 +120,133 @@ def test_the_kernel_interface_refuses_a_missing_enumeration(spec, built, tmp_pat
             order=order,
             context=context,
         )
+
+
+def test_a_marker_tag_is_spelled_as_the_copy_it_names(spec):
+    """A table names a raw label another configuration spells differently as a tag (`model.marker_tag_name`): the bare rune, a marker copy, or a locked copy, by the features after `@`. The emitter spells tags whether or not the configuration renames anything, and leaves every other label to the configuration's own renaming."""
+    assert model.marker_tag_name("qsTea@") == "qsTea"
+    assert model.marker_tag_name("qsTea@ss03_ss05") == "qsTea.ss03_ss05"
+    assert model.marker_tag_name("qsTea.noentry@ss03") == "qsTea.ss03.noentry"
+    assert model.marker_tag_name("qsTea") is None
+    assert model.marker_tag_name("qsTea.full") is None
+    rule = model_rule(look1=("qsTea@", "qsPea"), look2=("qsTea",))
+    assert emit_gsub._renamed(rule, {}).look1 == ("qsTea", "qsPea")
+    renames = model.raw_rename_map(spec, frozenset({"ss03"}))
+    renamed = emit_gsub._renamed(rule, renames)
+    assert renamed.look1 == ("qsTea", "qsPea")
+    assert renamed.look2 == ("qsTea.ss03",)
+    untagged = model_rule(look1=("qsPea",))
+    assert emit_gsub._renamed(untagged, {}) is untagged
+
+
+def test_a_tag_the_marker_features_do_not_give_another_configuration_is_refused(spec):
+    """The crate writes a tag only for a marker rune whose spelling another configuration sets differently, so the emitter refuses a tag that names a rune without unlock rows, features outside the rune's unlock features, or the features the table's own configuration sets, which the crate writes as the raw label."""
+    emit_gsub._check_tags(spec, "default", model_rule(look1=("qsTea@ss03",)))
+    emit_gsub._check_tags(spec, "ss03", model_rule(look1=("qsTea@",)))
+    for config, tag in (
+        ("default", "qsPea@"),
+        ("default", "qsTea@ss04"),
+        ("ss03", "qsTea@ss03"),
+        ("default", "qsTea@"),
+    ):
+        with pytest.raises(emit_gsub.EmitError, match="marker tag"):
+            emit_gsub._check_tags(spec, config, model_rule(look1=(tag,)))
+
+
+def test_the_fold_keeps_each_rule_at_its_first_occurrence_in_sorted_feature_order():
+    """The shipped order's argument (`rebuild/kernel-rs/src/crossconfig.rs`) needs two facts of `emit_gsub._fold_rules`: it visits the configurations sorted by their sorted feature lists, so ss03+ss05 comes before ss05, and a rule two configurations share stays where its first configuration put it, naming both as sources. The crate's `Spellings::rank` mirrors the first fact."""
+    shared = model_rule(look1=("qsPea",), outcome="qsTea.full")
+    own = {
+        config: model_rule(look1=(f"qsTea.{config}",), outcome=f"qsTea.{config}.out")
+        for config in ("default", "ss05", "ss03+ss05")
+    }
+    tables = {
+        "ss05": table_of("ss05", (own["ss05"], shared)),
+        "default": table_of("default", (own["default"],)),
+        "ss03+ss05": table_of("ss03+ss05", (shared, own["ss03+ss05"])),
+    }
+    folded = emit_gsub._fold_rules(tables)
+    assert [rule.outcome for rule in folded] == [
+        "qsTea.default.out",
+        "qsTea.full",
+        "qsTea.ss03+ss05.out",
+        "qsTea.ss05.out",
+    ]
+    assert folded[1].sources == (("ss03+ss05", 0), ("ss05", 1))
+
+
+def test_a_tag_in_one_table_reaches_the_rows_of_the_configuration_it_names(spec, built):
+    """The tag path from a table to the shipped-order walk. A table that imports another configuration's window names that configuration's spelling of a marker rune as a tag (`rebuild/kernel-rs/src/crossconfig.rs`), and the emitter spells the tag as that configuration's copy. The mini fixture's whole build imports nothing, under any of its unlocks with or without their `when:`, so the tag is put into `default`'s table here, on a copy of one of ss03's rules whose lookahead names ss03's copy of ·Tea. Spelled, the copy folds into ss03's own rule as one shipped row, and the walk passes. Narrowed to one left and given another outcome, it ships ahead of ss03's rule and the walk fails on an ss03 row, which only a tag spelled as ss03's copy can reach."""
+    out_dir, tables = built
+    renames = model.raw_rename_map(spec, frozenset({"ss03"}))
+    ss03, _joins = tables["ss03"]
+    index, rule = next(
+        (index, rule)
+        for index, rule in enumerate(ss03.rules)
+        if rule.backtrack
+        and rule.input_glyph not in renames
+        and rule.look1
+        and set(rule.look1) & set(renames)
+    )
+
+    def tagged(slot):
+        if slot is None:
+            return None
+        return tuple(
+            f"{label}{model.MARKER_TAG_SEPARATOR}ss03" if label in renames else label for label in slot
+        )
+
+    copy = dataclasses.replace(
+        rule,
+        look1=tagged(rule.look1),
+        look2=tagged(rule.look2),
+        look3=tagged(rule.look3),
+        look4=tagged(rule.look4),
+    )
+    default, joins = tables["default"]
+
+    def leading(extra):
+        ahead = dataclasses.replace(
+            default, rules=(extra, *default.rules), buckets=(ss03.buckets[index], *default.buckets)
+        )
+        return {**tables, "default": (ahead, joins)}
+
+    folded = emit_gsub.fold_settle_rules(spec, leading(copy))
+    shipped = next(row for row in folded if ("default", 0) in row.sources)
+    assert ("ss03", index) in shipped.sources
+    summary = run_m1.run_emitted_order(spec, leading(copy), out_dir)
+    assert summary["pass"], summary["error"]
+
+    wrong = dataclasses.replace(copy, backtrack=rule.backtrack[:1], outcome=f"{rule.input_glyph}.perturbed")
+    summary = run_m1.run_emitted_order(spec, leading(wrong), out_dir)
+    assert not summary["pass"]
+    assert "ss03" in summary["error"] and ".perturbed" in summary["error"]
+
+
+def test_the_emitter_refuses_a_table_whose_model_of_the_shipped_order_disagrees_with_it(spec, built):
+    """The crate's exchange decides each table's imports from where `emit_gsub._fold_rules` and `_ordered_settle_rules` ship every rule (`rebuild/kernel-rs/src/crossconfig.rs`), so a crate-built table carries that model: its configuration's place in the fold order and each rule's sort key. The mini build's tables carry a rank and one key per rule that agree with the emitter, and the emitter refuses a table whose key for one rule, or whose rank, disagrees with the order it ships."""
+    _out_dir, tables = built
+    for decision, _joins in tables.values():
+        assert decision.fold_order == ("default", "ss03", "ss03+ss05", "ss04", "ss05")
+        assert len(decision.buckets) == len(decision.rules)
+    emit_gsub.fold_settle_rules(spec, tables)
+    default, joins = tables["default"]
+    flipped = dataclasses.replace(default, buckets=(default.buckets[0] ^ 1, *default.buckets[1:]))
+    with pytest.raises(emit_gsub.EmitError, match="bucket"):
+        emit_gsub.fold_settle_rules(spec, {**tables, "default": (flipped, joins)})
+    ss03, ss03_joins = tables["ss03"]
+    swapped = dataclasses.replace(ss03, fold_order=("default", "ss03+ss05", "ss03", "ss04", "ss05"))
+    with pytest.raises(emit_gsub.EmitError, match="in that order"):
+        emit_gsub.fold_settle_rules(spec, {**tables, "ss03": (swapped, ss03_joins)})
+
+
+def model_rule(look1=None, look2=None, outcome="qsPea.half"):
+    from rebuild.pipeline.table import Rule
+
+    return Rule("qsPea", None, look1, look2, None, None, outcome, (), False)
+
+
+def table_of(config, rules):
+    from rebuild.pipeline.table import DecisionTable
+
+    return DecisionTable(config=config, rules=tuple(rules))

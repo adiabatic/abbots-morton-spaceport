@@ -249,12 +249,12 @@ def previous_memos(
     )
 
 
-def _table_build_threads(kernel_threads: int | None) -> int:
-    """Return the table build's width: `kernel_threads`, or the memory-derived `kernel_exec.KERNEL_THREADS_DEFAULT`, capped at the settlement configuration count and the cores this process may run on. The string replay uses `_replay_threads` instead."""
+def _table_build_threads(kernel_threads: int | None, configs: int = len(conform.SETTLEMENT_CONFIGS)) -> int:
+    """Return the table build's width for a build of `configs` configurations: `kernel_threads`, or the memory-derived `kernel_exec.kernel_threads_default`, which parks one fold product per configuration, capped at the settlement configuration count and the cores this process may run on. The string replay uses `_replay_threads` instead."""
     return max(
         1,
         min(
-            kernel_threads or kernel_exec.KERNEL_THREADS_DEFAULT,
+            kernel_threads or kernel_exec.kernel_threads_default(configs=configs),
             len(conform.SETTLEMENT_CONFIGS),
             usable_cores(),
         ),
@@ -348,9 +348,9 @@ def build_tables(
     packing: Packing | None = None,
     configs: Sequence[str] = conform.SETTLEMENT_CONFIGS,
 ) -> tuple[dict[str, tuple], dict[str, str]]:
-    """Build the decision and join tables for the named settlement configurations, all of them unless `configs` narrows the set. The resolved spec is dumped once, then one crate `build-tables` process (`kernel_exec.build_table_files`) enumerates `default`'s fixpoint and folds it, then enumerates each other configuration as a delta over `default`'s finished memo and folds it as it finishes. The crate writes the settlement TSV, the join TSV and the window enumeration itself; nothing is folded on the Python side.
+    """Build the decision and join tables for the named settlement configurations, all of them unless `configs` narrows the set. The resolved spec is dumped once, then one crate `build-tables` process (`kernel_exec.build_table_files`) enumerates `default`'s fixpoint and folds it, then enumerates each other configuration as a delta over `default`'s finished memo, prepares its fold as it finishes, and, once every configuration has exchanged the windows the others keep live (`rebuild/kernel-rs/src/crossconfig.rs`), finishes each fold. The crate writes the settlement TSV, the join TSV and the window enumeration itself; nothing is folded on the Python side.
 
-    A narrowed set is for `rebuild/tools/scratch_build.py`, which searches for a record to change. The crate writes only the configurations it is asked for and deletes nothing, so a narrowed build into a directory another build wrote leaves that build's files for the other settlement configurations in place. `scratch_build.scratch_out_dir` keeps such builds out of `rebuild/out/m1`. A set that does not include `default` enumerates each member from scratch, since there is no finished memo to build a delta over. The build and the artifact cycle ask for the whole set. Overlay configurations get no tables. Any table files named for a configuration outside `conform.SETTLEMENT_CONFIGS`, an overlay configuration's or one that has left the set, are removed first (`stale_table_files`), so a whole-set build leaves only its own tables in the directory.
+    A narrowed set is for `rebuild/tools/scratch_build.py`, which searches for a record to change. The crate writes only the configurations it is asked for and deletes nothing, so a narrowed build into a directory another build wrote leaves that build's files for the other settlement configurations in place. `scratch_build.scratch_out_dir` keeps such builds out of `rebuild/out/m1`. A narrowed set writes the same windows and join tables as the whole set, but its settlement tables can differ, since it has fewer configurations to import windows from. A set that does not include `default` enumerates each member from scratch, since there is no finished memo to build a delta over. The build and the artifact cycle ask for the whole set. Overlay configurations get no tables. Any table files named for a configuration outside `conform.SETTLEMENT_CONFIGS`, an overlay configuration's or one that has left the set, are removed first (`stale_table_files`), so a whole-set build leaves only its own tables in the directory.
 
     Per configuration, Python reads the enumeration's head back for the rules, the reachable cells and the fired provenance every downstream stage needs, parses the join TSV back for the defect gates, and packs the plain window payload into its `.gz` artifact. The head reads run on a thread pool at the table build's width once the crate has exited, and this call waits for them. The packing (`_pack_config`, memo file included) runs on a `Packing` pool at `_core_bound_threads` width, one packer per configuration up to the cores, whatever the crate's width, because a packer holds only a zlib stream and a copy buffer and the compressor releases the interpreter lock. When `packing` is passed, the tables are returned as soon as the heads are read, and the caller waits on each pack through `Packing.wait` and closes the pool. Without it, packing finishes before the return.
 
@@ -360,10 +360,10 @@ def build_tables(
 
     `inputs` is `tables_inputs` over the sources this spec was loaded from. Passing it with `out_dir` keeps each configuration's window enumeration beside the TSVs under the stamp that names those sources, where `run_font_conformance` reads it instead of rebuilding anything. Without it, the payload is deleted once its head is read. A caller building its own spec must omit it, because the fingerprint names the repository's rune files and does not describe tables built from other runes.
 
-    `kernel_threads` is how many delta configurations are enumerated at once beside `default`, capped at the configuration count and the cores this process may run on, neither of which is a memory limit. The default it falls back to is the memory limit: `kernel_exec.KERNEL_THREADS_DEFAULT` is this machine's memory, less what `default`'s finished memo holds, divided by what one delta holds at its peak. So the cap only narrows a memory-derived width and never widens one.
+    `kernel_threads` is how many delta configurations are enumerated at once beside `default`, capped at the configuration count and the cores this process may run on, neither of which is a memory limit. The default it falls back to is the memory limit: `kernel_exec.kernel_threads_default` is this machine's memory, less what `default`'s finished memo holds and one parked fold product per configuration this build names, divided by what one delta holds at its peak beyond its own parked product. So the cap only narrows a memory-derived width and never widens one.
     """
     configs = tuple(configs)
-    threads = _table_build_threads(kernel_threads)
+    threads = _table_build_threads(kernel_threads, len(configs))
     kernel_exec.ensure_built()
     built: dict[str, tuple] = {}
     digests: dict[str, str] = {}
@@ -605,7 +605,12 @@ def _run_table_gates(
             console.phase("replay_strings")
             start = time.perf_counter()
             replay = run_replay_strings(
-                spec, out_dir, inputs, replay_threads=replay_threads, memo_inputs=memo_inputs
+                spec,
+                out_dir,
+                inputs,
+                replay_threads=replay_threads,
+                memo_inputs=memo_inputs,
+                imports=imports_digest(tables),
             )
             walked = "every text" if replay["families"] is None else f"{len(replay['families'])} families"
             console.timing("replay_strings", time.perf_counter() - start, rss_token(process_peak_rss_bytes()))
@@ -864,10 +869,26 @@ def replay_structure_stamp(spec: ResolvedSpec, root: Path = REPO_ROOT) -> str:
     return hashlib.sha256("\n".join(lines).encode()).hexdigest()
 
 
+def imports_digest(tables: Mapping[str, tuple]) -> str:
+    """Return the hash of every configuration's imported windows (`table.DecisionTable.imports`), the windows the crate's fold took from other configurations (`rebuild/kernel-rs/src/crossconfig.rs`). They tie one configuration's rules to another's rows, so a rune edit can reshape a configuration's rules for windows whose texts name no edited rune, and `replay_families` walks every text when this hash moves."""
+    payload = {
+        config: [
+            list(row)
+            for row in getattr(entry[0] if isinstance(entry, (tuple, list)) else entry, "imports", ())
+        ]
+        for config, entry in sorted(tables.items())
+    }
+    return hashlib.sha256(json.dumps(payload, separators=(",", ":")).encode()).hexdigest()
+
+
 def replay_families(
-    spec: ResolvedSpec, previous: Mapping | None, structure: str, runes: Mapping[str, str]
+    spec: ResolvedSpec,
+    previous: Mapping | None,
+    structure: str,
+    runes: Mapping[str, str],
+    imports: str | None = None,
 ) -> list[str] | None:
-    """Return which runes' texts this build's replay must walk, given the last passing replay record, this build's structure stamp and its per-rune digests: None for every text, an empty list when nothing changed, and otherwise the runes whose digest changed plus every rune whose records read one of them (`spec_load.rune_closure`), sorted. Every text is walked when the record is missing, is not a passing record of this format, was walked under another structure stamp, or names a rune this spec no longer models. A narrowed walk is valid only by induction: it needs a passing full replay as its base and an unchanged structure stamp at every step since."""
+    """Return which runes' texts this build's replay must walk, given the last passing replay record, this build's structure stamp, its per-rune digests and its `imports_digest`: None for every text, an empty list when nothing changed, and otherwise the runes whose digest changed plus every rune whose records read one of them (`spec_load.rune_closure`), sorted. Every text is walked when the record is missing, is not a passing record of this format, was walked under another structure stamp or another set of imported windows, or names a rune this spec no longer models. A narrowed walk is valid only by induction: it needs a passing full replay as its base and an unchanged structure stamp and imported windows at every step since. The imported windows are a cross-configuration exception to the window locality rule: a configuration's rules for a pair of letters can change because another configuration's rows did, whatever the texts reaching the pair name."""
     from rebuild.pipeline import spec_load
 
     if (
@@ -875,6 +896,7 @@ def replay_families(
         or previous.get("format") != REPLAY_FORMAT
         or not previous.get("pass")
         or previous.get("structure") != structure
+        or previous.get("imports") != imports
     ):
         return None
     recorded = previous.get("runes")
@@ -904,10 +926,11 @@ def run_replay_strings(
     replay_threads: int | None = None,
     memo_inputs: oracle_cache.SettleMemoInputs | None = None,
     configs: Sequence[str] = conform.SETTLEMENT_CONFIGS,
+    imports: str | None = None,
 ) -> dict:
     """Run the enumeration-completeness check every build runs right after its tables are written: the crate's `replay-strings` subcommand (`rebuild/kernel-rs/src/replay.rs`) over the named configurations' settlement TSVs under `out_dir`, walking every text up to `REPLAY_MAX_LENGTH` and checking each window's first-match rule outcome against the engine's own settlement. `configs` is the whole settlement set unless an unstamped caller narrowed its tables the same way. A narrowed walk with `inputs` raises `ValueError` before it starts, because the record it would write is read back as a passing full-replay base for configurations it never walked.
 
-    On a rune edit only some of the texts are walked. `replay_families` reads the last passing record beside the tables, and while `replay_structure_stamp` matches, only the texts naming a changed rune, or a rune whose records read one, are walked. A build with no passing record or a changed structure walks everything, and a build where nothing changed walks nothing and carries the record forward. A caller with no stamp (its own spec, whose rune files are not the repository's) walks every text and writes no record.
+    On a rune edit only some of the texts are walked. `replay_families` reads the last passing record beside the tables, and while `replay_structure_stamp` and the tables' imported windows (`imports`, the build's `imports_digest`) match, only the texts naming a changed rune, or a rune whose records read one, are walked. A build with no passing record or a changed structure walks everything, and a build where nothing changed walks nothing and carries the record forward. A caller with no stamp (its own spec, whose rune files are not the repository's) walks every text and writes no record.
 
     The walk also produces the settle memo. With `memo_inputs` (`settle_memo_inputs`, computed before the spec was loaded), every full replay asks the crate to write its window memo for each walked configuration beside the tables (`kernel_exec.replay_memo_dump`) and absorbs each one into the configuration's `conform.SettleMemoFile` under the stamp and family keys `conform.settle_memo_files` computes. So the witness stage, the oracle and the conformance sweep load what the replay settled instead of settling it again. Only the walked configurations' files are touched, so a narrowed walk never dumps, reads, absorbs or deletes a configuration it did not walk. Every dump is deleted in this function whatever the walk or the absorb did, and a failed absorb is a warning, not a failure, since every reader settles what the file lacks. This can widen the walk beyond what the structure stamp requires: the memo stamp covers comparison-side modules the replay's own stamp does not, so when any configuration's file is missing or fails `conform.settle_memo_standing`, every text is walked to refill it. A narrowed walk (a rune edit) writes no memo and leaves the existing files to drop their own stale entries.
 
@@ -923,7 +946,7 @@ def run_replay_strings(
     structure = replay_structure_stamp(spec) if recordable else None
     runes = fingerprint.rune_digests(REPO_ROOT) if recordable else {}
     families = (
-        replay_families(spec, read_replay_record(out_dir), structure, runes)
+        replay_families(spec, read_replay_record(out_dir), structure, runes, imports)
         if recordable and structure is not None
         else None
     )
@@ -946,6 +969,7 @@ def run_replay_strings(
         "configs": {},
         "structure": structure,
         "runes": runes,
+        "imports": imports,
         "pass": True,
         "error": None,
     }
@@ -1029,12 +1053,14 @@ def run_rule_witnesses(
                 decision,
                 guard_verdicts,
                 memo=None if memo is None else replace(memo, write_path=part),
+                sources=tables,
             )
             if memo is not None:
                 conform.absorb_settle_memo_parts(memo, [part], spec)
             per_config[config] = {
                 "rules": report.rules,
                 "witnessed": len(report.witnessed),
+                "guards": report.guards,
                 "failures": list(report.failures),
                 "served_windows": report.served,
                 "unasked_windows": report.unasked,
@@ -1044,7 +1070,7 @@ def run_rule_witnesses(
             console.timing(
                 f"rule_witnesses[{config}]",
                 time.perf_counter() - started,
-                f"rules={report.rules} witnessed={len(report.witnessed)} served={report.served} unasked={report.unasked} fresh={report.fresh}",
+                f"rules={report.rules} witnessed={len(report.witnessed)} guards={report.guards} served={report.served} unasked={report.unasked} fresh={report.fresh}",
             )
     summary = {"pass": not failures, "configs": per_config, "failures": failures[:50]}
     (out_dir / "witness_summary.json").write_text(json.dumps(summary, indent=2) + "\n")
@@ -2009,7 +2035,7 @@ def main(argv: list[str] | None = None) -> None:
         default=None,
         help=(
             "how many delta configurations the kernel enumerates and folds at once beside default's memo, capped at the configuration count and the cores this process may actually run on; the ceiling is memory rather than CPU, so the default is derived from this machine rather than checked in — on this one "
-            f"{describe_fit(kernel_exec.DELTA_PEAK_BYTES, coresident_bytes=kernel_exec.DEFAULT_MEMO_BYTES)}, the co-resident term being default's retained memo — which AMS_KERNEL_THREADS short-circuits and this flag beats in turn; the string replay after the build has its own width, --replay-threads"
+            f"{describe_fit(kernel_exec.DELTA_PEAK_BYTES - kernel_exec.PARKED_FOLD_BYTES, coresident_bytes=kernel_exec.DEFAULT_MEMO_BYTES + len(conform.SETTLEMENT_CONFIGS) * kernel_exec.PARKED_FOLD_BYTES)}, the co-resident term being default's retained memo and every configuration's parked fold product, the per-delta term a delta's peak beyond its own parked product — which AMS_KERNEL_THREADS short-circuits and this flag beats in turn; the string replay after the build has its own width, --replay-threads"
         ),
     )
     parser.add_argument(

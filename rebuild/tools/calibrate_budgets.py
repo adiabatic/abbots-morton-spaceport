@@ -8,7 +8,7 @@ Constants are read from their source files with `ast`, never imported. pytest lo
 
 A peak above its constant means the constant is out of date. It does not mean an artifact is wrong: the cost is a pool of the wrong width, so the cycle does not fail on it. `--check` exits 1 for an overrun and 2 when the tool itself fails, because the artifact cycle reports an overrun on 1 and an informational line on any other nonzero code, and a crash reported as an overrun would report a measurement nobody took. After an overrun the cycle runs `--moved`, which compares each checked constant's value in the working tree with its value at `HEAD` and prints the ones that differ, so the cycle can say which constants have already been re-measured. The fix is to re-measure the constant and set it from the newer measurement; committing it accepts the new value, as committing `rebuild/review-facts-pins.json` accepts the review facts. The tolerance defaults to zero because each constant is already rounded up above its measured peaks, as its comment says: an estimate that is too low puts the machine into swap, while one that is too high only narrows a pool. A peak that reaches the constant has used all of that headroom; one that comes out above the constant once its rule's headroom is applied (below) has used the headroom that rule sets, which the report marks as headroom used before any overrun. `--tolerance` is for a survey with `--host all`, not for relaxing the default.
 
-Each checked constant's comment but TABLE_BUILD_PEAK_BYTES's states the rule that sets it from its highest reading: a headroom it multiplies the reading by (none for FONT_SUITE_WORKER_BYTES, whose `headroom` is 1) and a multiple it rounds up to, which the unit's `headroom` and `quantum` restate. A row whose highest reading, put through that rule (`proposed_constant`), comes out above the constant prints a proposal: the raised value, how the rule reached it, and the width it gives here, and under `--host all` the width it gives on each host in the window, read from that host's newest run record. The proposal appears on every overrun, and before one, marked as headroom used, once the readings have used the headroom the rule leaves. The tool only proposes raises and writes nothing: a documented worst case can lie outside the recent window, so a lower reading is no case for lowering a constant, and a person edits the constant and the comment that argues it together and commits them. The kernel-build row has no rule and proposes no value: its reading is the whole table build, which DEFAULT_MEMO_BYTES plus DELTA_PEAK_BYTES per delta in flight bound together, so no reading of it sets either kernel constant, and an overrun names them to re-measure instead.
+Each checked constant's comment but TABLE_BUILD_PEAK_BYTES's states the rule that sets it from its highest reading: a headroom it multiplies the reading by (none for FONT_SUITE_WORKER_BYTES, whose `headroom` is 1) and a multiple it rounds up to, which the unit's `headroom` and `quantum` restate. A row whose highest reading, put through that rule (`proposed_constant`), comes out above the constant prints a proposal: the raised value, how the rule reached it, and the width it gives here, and under `--host all` the width it gives on each host in the window, read from that host's newest run record. The proposal appears on every overrun, and before one, marked as headroom used, once the readings have used the headroom the rule leaves. The tool only proposes raises and writes nothing: a documented worst case can lie outside the recent window, so a lower reading is no case for lowering a constant, and a person edits the constant and the comment that argues it together and commits them. The kernel-build row has no rule and proposes no value: its reading is the whole table build, which DEFAULT_MEMO_BYTES, PARKED_FOLD_BYTES per configuration and DELTA_PEAK_BYTES less PARKED_FOLD_BYTES per delta in flight bound together, so no reading of it sets any kernel constant, and an overrun names them to re-measure instead.
 
 Observations are filtered to this host by default, because a per-unit peak is a property of one machine's working set, and a journal concatenated from several machines mixes machines running different versions of the code. Records that finished before the commit that set a constant's current value are set aside before anything is counted (the measurement cutoff), so that after a re-measure lowers a constant, the older, higher peaks from the same host do not trip the check. `git blame` on the constant's line finds that commit, so a re-measure clears its row on the next pass. A constant that is edited but not yet committed has no such commit and keeps every record until it is committed. Within that cutoff, `--recent` keeps only the newest records per unit and host, so an old high peak stops counting once newer runs replace it, and its default is long enough that one anomalous run cannot hide a regression. The journal records which machine measured a peak but not which machine a constant was sized on, so a unit with no rows from this host is reported as unverified on this host. A unit whose rows from this host all predate the constant's commit is reported as unverified too, with the reason that nothing on this host has measured the constant's current value yet.
 """
@@ -60,10 +60,11 @@ class Unit:
     quantum: int | None = None
 
 
-# The kernel's constants live in one file: DELTA_PEAK_BYTES divides the delta fan-out width, DEFAULT_MEMO_BYTES is subtracted from the machine's memory before that division, and the kernel-build row checks the run_m1 step peak against TABLE_BUILD_PEAK_BYTES.
+# The kernel's constants live in one file: DELTA_PEAK_BYTES less PARKED_FOLD_BYTES divides the delta fan-out width, DEFAULT_MEMO_BYTES and PARKED_FOLD_BYTES per settlement configuration are subtracted from the machine's memory before that division, and the kernel-build row checks the run_m1 step peak against TABLE_BUILD_PEAK_BYTES.
 KERNEL_SOURCE = "rebuild/pipeline/kernel_exec.py"
 KERNEL_DELTA_NAME = "DELTA_PEAK_BYTES"
 KERNEL_MEMO_NAME = "DEFAULT_MEMO_BYTES"
+KERNEL_PARKED_NAME = "PARKED_FOLD_BYTES"
 
 UNITS: tuple[Unit, ...] = (
     Unit(
@@ -92,7 +93,7 @@ UNITS: tuple[Unit, ...] = (
         source=KERNEL_SOURCE,
         pool_units=(),
         step_names=("run_m1",),
-        step_caveat="run_m1's peak is the widest single process in its tree, the max over its children, and on both fleet machines that is the one build-tables child holding every settlement configuration — default's retained memo beside every delta build in flight, default's own fold at one of them — so the step peak reads the whole table build at whatever width the cycle handed it, never one configuration. The other candidate is the string replay's child, which runs every settlement configuration at once in one wave (REPLAY_PEAK_BYTES apiece, `--replay-threads`) and peaks at about a third of the build on the shipped alphabet (6.10 GB maxrss for the five-configuration wave under `/usr/bin/time -l`, its footprint level with it, against this row's 19.50 GB maximum for the table build, both maxrss readings on the 18-core M5 Pro 48 GiB MacBook Pro); should a replay ever outrun the build, this row reads the replay, and the constant to re-measure is then that one rather than this one. DELTA_PEAK_BYTES, the per-delta figure the width is divided out of, and DEFAULT_MEMO_BYTES, the memo subtracted from the machine's memory first, are not measured by any step here: their reading is the direct whole-wave measurement under --cache-stats, and the bound they state is that this unit's peak stays under the memo plus one delta per worker slot of the width.",
+        step_caveat="run_m1's peak is the widest single process in its tree, the max over its children, and on both fleet machines that is the one build-tables child holding every settlement configuration — default's retained memo beside every delta build in flight, and each configuration's prepared fold product from its preparation until the cross-configuration exchange ends — so the step peak reads the whole table build at whatever width the cycle handed it, never one configuration. The other candidate is the string replay's child, which runs every settlement configuration at once in one wave (REPLAY_PEAK_BYTES apiece, `--replay-threads`) and peaks at about a third of the build on the shipped alphabet (6.10 GB maxrss for the five-configuration wave under `/usr/bin/time -l`, its footprint level with it, against this row's 19.50 GB maximum for the table build, both maxrss readings on the 18-core M5 Pro 48 GiB MacBook Pro); should a replay ever outrun the build, this row reads the replay, and the constant to re-measure is then that one rather than this one. DELTA_PEAK_BYTES, the per-delta figure the width is divided out of, DEFAULT_MEMO_BYTES, the memo subtracted from the machine's memory first, and PARKED_FOLD_BYTES, one configuration's parked fold product, subtracted once per configuration and taken off each delta, are not measured by any step here: their reading is the direct whole-wave measurement under --cache-stats, and the bound they state is that this unit's peak stays under the memo, plus every configuration's parked product, plus one delta less its parked product per worker slot of the width.",
         note="The direct measurement is one build-tables over every settlement configuration under /usr/bin/time -l with --cache-stats, which is what to reach for before re-measuring either constant; this row is the cheap standing watch beside it rather than a replacement for it.",
     ),
     Unit(
@@ -188,6 +189,26 @@ def _int_constant(path: Path, name: str) -> int:
 
 
 @functools.cache
+def _settlement_config_count(path: Path) -> int:
+    """Return the number of settlement configurations `path` defines: the length of its module-scope `SETTLEMENT_CONFIGS` tuple, parsed with `ast` like the constants. The kernel-build row's width takes one parked fold product per settlement configuration off the machine (`kernel_exec.kernel_threads_default`). A missing name or a value that is not a literal tuple raises, because the report would otherwise state a wrong width."""
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    for node in tree.body:
+        if not isinstance(node, ast.Assign):
+            continue
+        for target in node.targets:
+            if isinstance(target, ast.Name) and target.id == "SETTLEMENT_CONFIGS":
+                value = ast.literal_eval(node.value) if isinstance(node.value, ast.Tuple) else None
+                if not isinstance(value, tuple):
+                    raise RuntimeError(
+                        f"{path} assigns SETTLEMENT_CONFIGS something other than a literal tuple: the kernel-build row reads the settlement-configuration count off that tuple's length to state the table build's width."
+                    )
+                return len(value)
+    raise RuntimeError(
+        f"{path} defines no SETTLEMENT_CONFIGS: the kernel-build row reads the settlement-configuration count off it to state the table build's width. Point `CONFORM_SOURCE` at the file that defines it, or update this reader beside whatever moved it."
+    )
+
+
+@functools.cache
 def _acceptance_config_count(path: Path) -> int:
     """Return the number of acceptance configurations `path` defines: the summed lengths of its module-scope `SETTLEMENT_CONFIGS` and `OVERLAY_CONFIGS` tuples, which `conform.ACCEPTANCE_CONFIGS` concatenates, parsed with `ast` like the constants. It is the floor of the conformance sweep's cap beside a corpus build (`artifact_cycle._conform_core_cap`). A missing name or a value that is not a literal tuple raises, because the report would otherwise state a wrong width."""
     names = ("SETTLEMENT_CONFIGS", "OVERLAY_CONFIGS")
@@ -258,13 +279,18 @@ def read_constant_commit_times(root: Path = ROOT) -> dict[str, str]:
 
 
 def watched_constants() -> tuple[tuple[str, str], ...]:
-    """Return the `(source, name)` of every constant this module checks: each `UNITS` constant, then the two kernel constants the kernel-build row's width reads (`DELTA_PEAK_BYTES` and `DEFAULT_MEMO_BYTES`)."""
+    """Return the `(source, name)` of every constant this module checks: each `UNITS` constant, then the three kernel constants the kernel-build row's width reads (`DELTA_PEAK_BYTES`, `DEFAULT_MEMO_BYTES` and `PARKED_FOLD_BYTES`)."""
     pairs = [
         (unit.source, unit.constant)
         for unit in UNITS
         if unit.constant is not None and unit.source is not None
     ]
-    return (*pairs, (KERNEL_SOURCE, KERNEL_DELTA_NAME), (KERNEL_SOURCE, KERNEL_MEMO_NAME))
+    return (
+        *pairs,
+        (KERNEL_SOURCE, KERNEL_DELTA_NAME),
+        (KERNEL_SOURCE, KERNEL_MEMO_NAME),
+        (KERNEL_SOURCE, KERNEL_PARKED_NAME),
+    )
 
 
 def committed_constant(source: str, name: str, *, root: Path = ROOT) -> int | None:
@@ -542,7 +568,7 @@ def _corpus_caps(cores: int) -> tuple[int, int]:
 def _width_clause(unit: Unit, constant_bytes: int, *, total_bytes: int, cores: int, root: Path) -> str:
     """Return the width this constant implies on the given machine, computed the way the code that sizes that pool computes it.
 
-    The font suite's pool takes the cores without dividing by its constant, so the clause prints the cores a hand run takes, the gate lane's share a cycle whose build lane runs gives gate:make-test's pool (`memory_budget.split_cores`), and, beside them, the width memory would allow. The kernel's delta wave divides by `DELTA_PEAK_BYTES` after subtracting `DEFAULT_MEMO_BYTES`, and `run_m1._table_build_threads` then caps it at the configuration count and the cores, which the clause states in words. The corpus build subtracts its parent constant and divides by its worker constant, so neither corpus row is the whole width alone and each reads the other's constant; both print the width at each of the build's caps, every core less the parent by hand and under --skip-gates, and the build lane's share less the parent under a gated cycle. The standing fill's parent is subtracted the same way before dividing by `STANDING_FILL_WORKER_BYTES`. The conformance sweep divides by its own constant and prints two widths: with the build lane idle, capped at the cores, and beside a corpus build at its width under a gated cycle, capped at the cores less the build's parent and workers but never below the acceptance-configuration count (or the cores, where there are fewer), as `artifact_cycle._conform_core_cap` caps it on a pass that skips gate:make-test. None of these widths subtracts gate:make-test's pool; the corpus-worker, standing-fill-parent, and conform-sweep clauses say where a cycle subtracts it. On a pass that runs that gate, a cycle subtracts it before sizing the corpus build under either policy, so the build beside the sweep can be narrower than the clause's, and under the overlap policy before sizing both of the sweep's widths as well. Caps and sibling constants are read from `root`, like the constants, so a test can supply both the machine and the tree.
+    The font suite's pool takes the cores without dividing by its constant, so the clause prints the cores a hand run takes, the gate lane's share a cycle whose build lane runs gives gate:make-test's pool (`memory_budget.split_cores`), and, beside them, the width memory would allow. The kernel's delta wave divides by `DELTA_PEAK_BYTES` less `PARKED_FOLD_BYTES` after subtracting `DEFAULT_MEMO_BYTES` and `PARKED_FOLD_BYTES` for each settlement configuration, and `run_m1._table_build_threads` then caps it at the configuration count and the cores, which the clause states in words. The corpus build subtracts its parent constant and divides by its worker constant, so neither corpus row is the whole width alone and each reads the other's constant; both print the width at each of the build's caps, every core less the parent by hand and under --skip-gates, and the build lane's share less the parent under a gated cycle. The standing fill's parent is subtracted the same way before dividing by `STANDING_FILL_WORKER_BYTES`. The conformance sweep divides by its own constant and prints two widths: with the build lane idle, capped at the cores, and beside a corpus build at its width under a gated cycle, capped at the cores less the build's parent and workers but never below the acceptance-configuration count (or the cores, where there are fewer), as `artifact_cycle._conform_core_cap` caps it on a pass that skips gate:make-test. None of these widths subtracts gate:make-test's pool; the corpus-worker, standing-fill-parent, and conform-sweep clauses say where a cycle subtracts it. On a pass that runs that gate, a cycle subtracts it before sizing the corpus build under either policy, so the build beside the sweep can be narrower than the clause's, and under the overlap policy before sizing both of the sweep's widths as well. Caps and sibling constants are read from `root`, like the constants, so a test can supply both the machine and the tree.
     """
     if unit.name == "font-suite":
         allowed = memory_budget.describe_fit(constant_bytes, total_bytes=total_bytes)
@@ -551,8 +577,12 @@ def _width_clause(unit: Unit, constant_bytes: int, *, total_bytes: int, cores: i
     if unit.name == "kernel-build":
         delta = _int_constant(root / KERNEL_SOURCE, KERNEL_DELTA_NAME)
         memo = _int_constant(root / KERNEL_SOURCE, KERNEL_MEMO_NAME)
-        fit = memory_budget.describe_fit(delta, coresident_bytes=memo, total_bytes=total_bytes)
-        return f"the whole table build is watched here and divides nothing; its delta wave runs {fit} ({KERNEL_DELTA_NAME} divided in, {KERNEL_MEMO_NAME} taken off first for default's memo), which run_m1.build_tables then narrows by the configurations there are to answer and the cores there are to answer them with"
+        parked = _int_constant(root / KERNEL_SOURCE, KERNEL_PARKED_NAME)
+        configs = _settlement_config_count(root / CONFORM_SOURCE)
+        fit = memory_budget.describe_fit(
+            delta - parked, coresident_bytes=memo + configs * parked, total_bytes=total_bytes
+        )
+        return f"the whole table build is watched here and divides nothing; its delta wave runs {fit} ({KERNEL_DELTA_NAME} less {KERNEL_PARKED_NAME} divided in, {KERNEL_MEMO_NAME} for default's memo and {KERNEL_PARKED_NAME} for each of the {configs} settlement configurations' parked fold products taken off first), which run_m1.build_tables then narrows by the configurations there are to answer and the cores there are to answer them with"
     if unit.name == "corpus-parent":
         worker = _int_constant(root / CORPUS_SOURCE, CORPUS_WORKER_NAME)
         solo, gated = (
@@ -612,7 +642,7 @@ def _proposal_lines(
     if row.proposal is None or unit.headroom is None or unit.quantum is None:
         if row.overrun and unit.name == "kernel-build":
             return [
-                f"  proposal  : no value — this row reads the whole table build, which {unit.constant} bounds at {KERNEL_MEMO_NAME} plus {KERNEL_DELTA_NAME} per delta in flight, and no step reading sets either of those; re-measure {KERNEL_DELTA_NAME} and {KERNEL_MEMO_NAME} together by the whole-wave recipe in {KERNEL_DELTA_NAME}'s comment in {KERNEL_SOURCE}, and {unit.constant} with them"
+                f"  proposal  : no value — this row reads the whole table build, which {unit.constant} bounds at {KERNEL_MEMO_NAME}, plus {KERNEL_PARKED_NAME} per configuration, plus {KERNEL_DELTA_NAME} less {KERNEL_PARKED_NAME} per delta in flight, and no step reading sets any of those; re-measure {KERNEL_DELTA_NAME}, {KERNEL_MEMO_NAME} and {KERNEL_PARKED_NAME} together by the recipes in their comments in {KERNEL_SOURCE}, and {unit.constant} with them"
             ]
         return []
     value = format_gb(row.proposal)

@@ -55,8 +55,6 @@ stances:
           entry: baseline
           exit: baseline
         feature: ss05
-        when:
-          left: {family: qsEt}
       - entry: x-height
         feature: ss03
         when:

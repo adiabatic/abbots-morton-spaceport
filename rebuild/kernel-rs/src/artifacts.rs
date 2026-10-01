@@ -20,7 +20,7 @@ use crate::stream::{TransitionRow, cell_key};
 use crate::types::{CellId, adjustment_text};
 
 /// The marker the windows head line carries, `table.WINDOWS_FORMAT`.
-pub const WINDOWS_FORMAT: &str = "ams-m1-windows/2";
+pub const WINDOWS_FORMAT: &str = "ams-m1-windows/3";
 
 /// The column line that precedes the window rows, `table.WINDOWS_COLUMNS`.
 const WINDOWS_COLUMNS: [&str; 7] = [
@@ -188,7 +188,7 @@ fn sorted_cells<'a>(index: &SpecIndex, cells: &'a [CellId]) -> Vec<&'a CellId> {
 
 /// Writes the uncompressed windows payload to `path`: a head line with the format marker and a JSON head, the column line, then one row per enumerated window.
 ///
-/// The head's keys, in order, are `config`, `inputs` (the fingerprint of the sources the table was built from), `identity_guard_rules`, `cited_provenance`, `cells`, `deep_classes`, `rules`, and `certificates`. The set-valued ones are sorted here. `table.read_windows` reads the keys by name. `certificates` holds one token list per rule, in rule order: the strings from [`crate::certificate`] that should make each rule fire, which `run_m1`'s witness stage settles. They are left out of both `table.table_digest` and `table.windows_digest` because they are evidence about the rules, not part of the rules.
+/// The head's keys, in order, are `config`, `inputs` (the fingerprint of the sources the table was built from), `identity_guard_rules`, `cited_provenance`, `cells`, `deep_classes`, `rules`, `certificates`, `imports`, `fold_order`, and `buckets`. The set-valued ones are sorted here. `table.read_windows` reads the keys by name. `certificates` holds one token list per rule, in rule order: the strings from [`crate::certificate`] that should make each rule fire, which `run_m1`'s witness stage settles; a guard rule's list starts with [`crate::certificate::GUARD_MARKER`] and the configuration it settles under. `imports` holds the windows the table took from other configurations ([`crate::crossconfig`]), in key order, each as its six labels, its outcome, and the configuration it is live in. `fold_order`, the build's configurations in the order the emitter folds them, and `buckets`, one per rule in rule order, are where the exchange expects the emitter to ship the rules ([`crate::crossconfig::Spellings::fold_order`], [`crate::crossconfig::rule_buckets`]), which `emit_gsub._fold_rules` checks; both are empty outside a table build. These four are left out of `table.table_digest` and `table.windows_digest` because they are evidence about the rules, not part of the rules; the rules an import shapes are in both digests.
 pub fn write_windows(
     index: &SpecIndex,
     decision: &DecisionTable,
@@ -245,9 +245,27 @@ fn head_into(out: &mut String, index: &SpecIndex, decision: &DecisionTable, inpu
             format!("[{}]", quoted.join(","))
         })
         .collect();
+    let imports: Vec<String> = decision
+        .imports
+        .iter()
+        .map(|fields| {
+            let quoted: Vec<String> = fields.iter().map(|field| json_string(field)).collect();
+            format!("[{}]", quoted.join(","))
+        })
+        .collect();
+    let fold_order: Vec<String> = decision
+        .fold_order
+        .iter()
+        .map(|token| json_string(token))
+        .collect();
+    let buckets: Vec<String> = decision
+        .buckets
+        .iter()
+        .map(|bucket| bucket.to_string())
+        .collect();
     let _ = write!(
         out,
-        "{{\"config\":{},\"inputs\":{},\"identity_guard_rules\":{},\"cited_provenance\":[{}],\"cells\":[{}],\"deep_classes\":[{}],\"rules\":[{}],\"certificates\":[{}]}}",
+        "{{\"config\":{},\"inputs\":{},\"identity_guard_rules\":{},\"cited_provenance\":[{}],\"cells\":[{}],\"deep_classes\":[{}],\"rules\":[{}],\"certificates\":[{}],\"imports\":[{}],\"fold_order\":[{}],\"buckets\":[{}]}}",
         json_string(&decision.config),
         json_string(inputs),
         decision.identity_guard_rules,
@@ -255,7 +273,10 @@ fn head_into(out: &mut String, index: &SpecIndex, decision: &DecisionTable, inpu
         cells.join(","),
         classes.join(","),
         rules.join(","),
-        certificates.join(",")
+        certificates.join(","),
+        imports.join(","),
+        fold_order.join(","),
+        buckets.join(",")
     );
 }
 

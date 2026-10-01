@@ -10,7 +10,7 @@ Rows carry two deep slots, `right3` and `right4`. The kernel splits a window by 
 
 A row is joint when either §6.1 flag applies: the final tiebreak broke a ranking tie between candidates that differ in junction, or the optimistic prospect differs from the follower's settled choice. Both TSV artifacts are diff-stable (§8): a deterministic row order, provenance pointers, and deterministic labels.
 
-The windows artifact stores a built table so the conformance sweep does not rebuild from unchanged sources: the rules, the reachable cells, one certificate per rule, and the enumerated windows, stamped with `fingerprint.tables_value` over the sources the fixpoint read. `read_windows` returns the windows as `Window` rows, labels only, which is all a replay reads. The head alone gives the reachable cells and the witness stage's certificates. Neither digest in this module reads the certificates, because they are evidence that the rules can fire, not part of what the rules say.
+The windows artifact stores a built table so the conformance sweep does not rebuild from unchanged sources: the rules, the reachable cells, one certificate per rule, and the enumerated windows, stamped with `fingerprint.tables_value` over the sources the fixpoint read. `read_windows` returns the windows as `Window` rows, labels only, which is all a replay reads. The head alone gives the reachable cells, the witness stage's certificates, the windows the table imported from other configurations, which the string replay's narrowing reads, and where the crate's exchange expects the emitter to ship each rule (`fold_order`, `buckets`), which `emit_gsub._fold_rules` checks against the order it ships. Neither digest in this module reads the certificates, the imports or that expectation, because they are evidence about the rules, not part of what the rules say.
 """
 
 from __future__ import annotations
@@ -131,6 +131,15 @@ class DecisionTable:
     certificates: tuple[tuple[str, ...], ...] = (
         ()
     )  # one token stream per rule, in rule order, built by the crate to make that rule fire (certificate.rs); `witness.check_rule_certificates` settles each and checks that its rule fires
+    imports: tuple[tuple[str, ...], ...] = (
+        ()
+    )  # the windows the crate imported from other configurations (crossconfig.rs), in key order: six labels, the outcome, and the configuration each is live in
+    fold_order: tuple[str, ...] = (
+        ()
+    )  # the build's configurations in the order the crate's exchange (crossconfig.rs) expects `emit_gsub._fold_rules` to visit them; the emitter checks it
+    buckets: tuple[int, ...] = (
+        ()
+    )  # each rule's place in `emit_gsub._ordered_settle_rules`' sort as the crate's exchange computes it (crossconfig.rs `bucket`), in rule order; the emitter checks each
     _cells: frozenset[CellId] = field(default_factory=frozenset)
 
     def reachable_cells(self) -> frozenset[CellId]:
@@ -228,7 +237,7 @@ def read_join_tsv(path: Path) -> JoinTable:
     return JoinTable(config=lines[0].removeprefix("# join table, config "), rows=tuple(rows))
 
 
-WINDOWS_FORMAT = "ams-m1-windows/2"
+WINDOWS_FORMAT = "ams-m1-windows/3"
 WINDOWS_COLUMNS = ("input", "left", "lookahead1", "lookahead2", "lookahead3", "lookahead4", "outcome")
 
 
@@ -290,6 +299,9 @@ def _windows_of(handle: IO[str], windows: bool, name: str) -> tuple[str, Decisio
         cited_provenance=frozenset(head["cited_provenance"]),
         deep_classes={token: tuple(members) for token, members in head["deep_classes"]},
         certificates=tuple(tuple(tokens) for tokens in head.get("certificates", ())),
+        imports=tuple(tuple(fields) for fields in head.get("imports", ())),
+        fold_order=tuple(head.get("fold_order", ())),
+        buckets=tuple(head.get("buckets", ())),
         _cells=frozenset(
             CellId(rune, stance, entry, exit_, tuple(adjustments))
             for rune, stance, entry, exit_, adjustments in head["cells"]

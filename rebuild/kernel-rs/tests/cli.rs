@@ -388,7 +388,7 @@ fn a_table_build_files_three_artifacts_and_answers_one_digest_per_configuration(
         let windows = std::fs::read_to_string(outdir.join(format!("windows-{token}.tsv")))
             .expect("and so does the enumeration");
         let head = windows.lines().next().expect("the head line");
-        assert!(head.starts_with("# ams-m1-windows/2\t"), "{head}");
+        assert!(head.starts_with("# ams-m1-windows/3\t"), "{head}");
         assert!(head.contains("\"inputs\":\"cli-stamp\""), "{head}");
         assert_eq!(
             windows.lines().nth(1),
@@ -435,7 +435,22 @@ fn a_table_build_sharing_defaults_memo_files_the_bytes_a_from_scratch_one_files(
     }
 }
 
-/// Previous memos across builds: a build of an edited spec that reads the previous build's memo files, with the edited rune named, writes the bytes a from-scratch build of the edited spec writes for every configuration, and writes memo files of its own under the stamp it was given.
+/// A table file with its windows head's `fold_order` left out, the one field that names which configurations a build was given.
+fn without_fold_order(bytes: Vec<u8>) -> String {
+    let text = String::from_utf8(bytes).expect("a table file is UTF-8");
+    match text.find("\"fold_order\":[") {
+        Some(start) => {
+            let end = start
+                + text[start..]
+                    .find("],")
+                    .expect("the buckets follow the order");
+            format!("{}{}", &text[..start], &text[end + 2..])
+        }
+        None => text,
+    }
+}
+
+/// Previous memos across builds: a build of an edited spec that reads the previous build's memo files, with the edited rune named, writes the bytes a from-scratch build of the edited spec writes for every configuration, and writes memo files of its own under the stamp it was given. The fixture's whole set imports no window, so a build of fewer configurations writes the same bytes but for its windows head's `fold_order`.
 #[test]
 fn a_build_reading_the_previous_memos_files_the_bytes_a_from_scratch_one_files() {
     let root = scratch("cli-previous-memos");
@@ -538,9 +553,14 @@ fn a_build_reading_the_previous_memos_files_the_bytes_a_from_scratch_one_files()
             for family in ["settlement", "joins", "windows"] {
                 let name = format!("{family}-{token}.tsv");
                 assert_eq!(
-                    std::fs::read(outdir.join(&name))
-                        .expect("the build reading previous memos wrote it"),
-                    std::fs::read(scratch_built.join(&name)).expect("the scratch build wrote it"),
+                    without_fold_order(
+                        std::fs::read(outdir.join(&name))
+                            .expect("the build reading previous memos wrote it")
+                    ),
+                    without_fold_order(
+                        std::fs::read(scratch_built.join(&name))
+                            .expect("the scratch build wrote it")
+                    ),
                     "{arm}: {name}"
                 );
             }
@@ -583,7 +603,7 @@ fn family_word(family: &str) -> &str {
     }
 }
 
-/// A table build's timed phases, which the cycle reads like a stream run's, including `fold.prefixes` and `fold.partition` before each `fold` line.
+/// A table build's timed phases, which the cycle reads like a stream run's, including `fold.prefixes`, `fold.exchange` and `fold.partition` before each `fold` line.
 #[test]
 fn a_timed_table_build_names_the_enumerate_and_fold_phases_per_configuration() {
     let root = scratch("cli-tables-timings");
@@ -606,10 +626,12 @@ fn a_timed_table_build_names_the_enumerate_and_fold_phases_per_configuration() {
             "spec_parse",
             "enumerate[default]",
             "fold.prefixes[default]",
+            "fold.exchange[default]",
             "fold.partition[default]",
             "fold[default]",
             "enumerate[ss03]",
             "fold.prefixes[ss03]",
+            "fold.exchange[ss03]",
             "fold.partition[ss03]",
             "fold[ss03]",
             "tables_total"

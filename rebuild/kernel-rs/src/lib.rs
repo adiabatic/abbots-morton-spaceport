@@ -7,6 +7,7 @@
 pub mod artifacts;
 pub mod cases;
 pub mod certificate;
+pub mod crossconfig;
 pub mod deep_slots;
 pub mod emit;
 pub mod engine;

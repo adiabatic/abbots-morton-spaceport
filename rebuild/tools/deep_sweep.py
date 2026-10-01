@@ -56,6 +56,7 @@ from rebuild.tools.artifact_cycle import (
     record_deep_replay_green,
     record_deep_sweep_green,
     record_green,
+    tables_imports_digest,
 )
 from rebuild.tools.cycle_timings import CheckResult, record_check
 
@@ -662,10 +663,15 @@ def run_sweep(
 
 
 def refresh_deep_replay(max_length: int, runes: dict[str, str]) -> int:
-    """Record the deep replay as green at `max_length` for every rune at the digest in `runes`, the snapshot taken before the sweep started, since a green sweep at that depth settled every text that names any of them. Return the maximum length the record holds, which stays deeper than `max_length` when the record already held every rune deeper at the same digest under the same structure stamp."""
+    """Record the deep replay as green at `max_length` for every rune at the digest in `runes`, the snapshot taken before the sweep started, since a green sweep at that depth settled every text that names any of them, over the tables' imported windows on disk (`artifact_cycle.tables_imports_digest`). Return the maximum length the record holds, which stays deeper than `max_length` when the record already held every rune deeper at the same digest under the same structure stamp and imported windows."""
     from rebuild.pipeline.spec_load import load_default_spec
 
-    return record_deep_replay_green(runes, max_length, run_m1.replay_structure_stamp(load_default_spec()))
+    return record_deep_replay_green(
+        runes,
+        max_length,
+        run_m1.replay_structure_stamp(load_default_spec()),
+        imports=tables_imports_digest(),
+    )
 
 
 def main(argv: list[str] | None = None) -> int:

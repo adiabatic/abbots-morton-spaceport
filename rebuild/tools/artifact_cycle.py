@@ -668,10 +668,11 @@ def record_deep_replay_green(
     structure: str | None,
     carry: Collection[str] = (),
     path: Path | None = None,
+    imports: str | None = None,
 ) -> int:
-    """Write the deep replay's green record (`rebuild.tools.deep_replay`) and return the maximum length it records. The record holds every rune's prose-insensitive digest as a walk covered it (under `files`, so `moved_inputs_note` can name what changed since), one maximum length for all of them, the replay structure stamp, and a fingerprint over the rune lines so `read_green_record` reads it like every other record. A rune the record does not have counts as changed.
+    """Write the deep replay's green record (`rebuild.tools.deep_replay`) and return the maximum length it records. The record holds every rune's prose-insensitive digest as a walk covered it (under `files`, so `moved_inputs_note` can name what changed since), one maximum length for all of them, the replay structure stamp, the walked tables' imported windows (`imports`, `tables_imports_digest`), and a fingerprint over the rune lines so `read_green_record` reads it like every other record. A rune the record does not have counts as changed.
 
-    `walked` holds the runes whose texts this walk settled at `max_length`, at the digests the walk read. `carry` names runes the walk did not cover whose claims in the record on disk the new record keeps, at the record's digests. A walked rune's depth is `max_length`, raised to the recorded maximum length when its digest and the structure stamp both match the record's; a carried rune's depth is the recorded maximum length. The record stores the least depth over its runes, so it never claims a depth some rune lacks (a length-6 family walk beside runes walked only to 5 records 5), and never drops a depth every rune still has (a length-5 walk or deep sweep over runes the record holds at 6 records 6). The structure stamp enters only here: it never widens a walk (`rebuild.tools.deep_replay` says why), so a structure change keeps the carried runes' claims and makes a walk record its own depth for the runes it covers. Nothing is carried from a record without a maximum length or a digest map.
+    `walked` holds the runes whose texts this walk settled at `max_length`, at the digests the walk read. `carry` names runes the walk did not cover whose claims in the record on disk the new record keeps, at the record's digests. A walked rune's depth is `max_length`, raised to the recorded maximum length when its digest, the structure stamp and the imported windows all match the record's; a carried rune's depth is the recorded maximum length. The record stores the least depth over its runes, so it never claims a depth some rune lacks (a length-6 family walk beside runes walked only to 5 records 5), and never drops a depth every rune still has (a length-5 walk or deep sweep over runes the record holds at 6 records 6). The structure stamp enters only here: it never widens a walk (`rebuild.tools.deep_replay` says why), so a structure change keeps the carried runes' claims and makes a walk record its own depth for the runes it covers. The imported windows do widen a walk, because they can reshape a configuration's rules for texts that name no edited rune (`doc/rebuild-design.md` §10, "Imported windows"), so a record whose imported windows differ from `imports` carries no claim. Nothing is carried from a record without a maximum length or a digest map.
     """
     path = path if path is not None else cycle_paths.DEEP_REPLAY_GREEN
     existing = read_green_record(path)
@@ -679,7 +680,10 @@ def record_deep_replay_green(
     prior = existing.get("files") if existing is not None else None
     if not isinstance(recorded, int) or not isinstance(prior, dict):
         recorded, prior = max_length, {}
-    same_structure = existing is not None and existing.get("structure") == structure
+    same_imports = existing is not None and existing.get("imports") == imports
+    if not same_imports:
+        prior = {}
+    same_structure = same_imports and existing is not None and existing.get("structure") == structure
     carried = {name: prior[name] for name in carry if name in prior and name not in walked}
     depths = [recorded] if carried else []
     depths += [
@@ -695,10 +699,28 @@ def record_deep_replay_green(
             "fingerprint": _digest_lines(lines),
             "max_length": depth,
             "structure": structure,
+            "imports": imports,
             "files": runes,
         },
     )
     return depth
+
+
+def tables_imports_digest(root: Path | None = None) -> str | None:
+    """Return `run_m1.imports_digest` over the windows heads a tree's M1 build left under `rebuild/out/m1`, the windows each configuration's table imported from the others (`rebuild/kernel-rs/src/crossconfig.rs`), or None when some settlement configuration's head is missing or unreadable. The deep replay's record stores it, and a walk whose tables import other windows covers every text (`record_deep_replay_green`). Only the heads are read. The root defaults at call time, as in `deep_replay_green_path`."""
+    from rebuild.pipeline import conform, run_m1
+    from rebuild.pipeline import table as table_module
+
+    out_dir = Path(ROOT if root is None else root) / "rebuild" / "out" / "m1"
+    tables = {}
+    for config in conform.SETTLEMENT_CONFIGS:
+        try:
+            _stamp, tables[config] = table_module.read_windows(
+                table_module.windows_path(out_dir, config), windows=False
+            )
+        except OSError, ValueError:
+            return None
+    return run_m1.imports_digest(tables)
 
 
 def recorded_max_length(record: dict) -> object:
@@ -732,7 +754,7 @@ def _deep_replay_command(max_length: int, every_text: bool = False) -> str:
 def deep_replay_status(
     root: Path | None = None, max_length: int = DEEP_REPLAY_MAX_LENGTH_DEFAULT
 ) -> tuple[str, str]:
-    """Return whether the deep replay is current for the runes on disk, as (status, note) for the cycle's one-line report beside the deep sweep's. `current` means the record has every rune at its current digest and reached this depth or deeper. `due` names the runes whose content changed since the recorded walk, or the shallower depth it reached, and the `make replay-deep` that clears it at this depth. That is the bare walk at this depth, which walks every text when the record is shallower than it, since a walk over the moved runes alone carries the rest at the depth the record holds (`record_deep_replay_green`). `never-run` means there is no record, and names a walk over every text, since a bare walk needs a record to cut its delta against. This only reports: the deep replay is never a cycle gate, for the cost `rebuild/tools/deep_replay.py` states."""
+    """Return whether the deep replay is current for the runes and tables on disk, as (status, note) for the cycle's one-line report beside the deep sweep's. `current` means the record has every rune at its current digest, was walked over the tables' current imported windows (`tables_imports_digest`), and reached this depth or deeper. `due` names what moved since the recorded walk: the imported windows, the runes whose content changed, or the shallower depth it reached, and the `make replay-deep` that clears it at this depth. That is the bare walk at this depth, which walks every text when the imported windows moved or the record is shallower than it, since a walk over the moved runes alone carries the rest at the depth the record holds (`record_deep_replay_green`). `never-run` means there is no record, and names a walk over every text, since a bare walk needs a record to cut its delta against. This only reports: the deep replay is never a cycle gate, for the cost `rebuild/tools/deep_replay.py` states."""
     from rebuild.pipeline import fingerprint
 
     root = ROOT if root is None else root
@@ -746,6 +768,11 @@ def deep_replay_status(
     recorded = recorded_max_length(record)
     shallow = not isinstance(recorded, int) or recorded < max_length
     command = _deep_replay_command(max_length)
+    if record.get("imports") != tables_imports_digest(root):
+        return (
+            "due",
+            f"the windows the tables import from one another moved since the last length-{recorded} walk, which can reshape rules for texts that name no edited rune; run {command}, which walks every text",
+        )
     if moved:
         return (
             "due",
@@ -1315,7 +1342,7 @@ def _make_test_pool_bytes(*, skip_make_test: bool, ncores: int | None) -> float:
 
 
 def _wave_fit_terms(*, skip_make_test: bool, ncores: int | None) -> tuple[float, int]:
-    """Return the co-resident bytes and the width cap that `kernel_threads_budget`, `replay_threads_budget` and `replay_threads_derivation` share. The co-resident term is gate:make-test's pytest pool (`_make_test_pool_bytes`) only: `kernel_exec.kernel_threads_default` adds `default`'s retained memo itself, and the replay builds its engines after the table build's process has exited. The cap is the smaller of the configuration count and the usable cores, the same bounds `run_m1._table_build_threads` and `run_m1._replay_threads` apply."""
+    """Return the co-resident bytes and the width cap that `kernel_threads_budget`, `replay_threads_budget` and `replay_threads_derivation` share. The co-resident term is gate:make-test's pytest pool (`_make_test_pool_bytes`) only: `kernel_exec.kernel_threads_default` adds `default`'s retained memo and the parked fold products itself, and the replay builds its engines after the table build's process has exited. The cap is the smaller of the configuration count and the usable cores, the same bounds `run_m1._table_build_threads` and `run_m1._replay_threads` apply."""
     from rebuild.pipeline.conform import SETTLEMENT_CONFIGS
     from rebuild.tools import memory_budget
 
@@ -1326,14 +1353,18 @@ def _wave_fit_terms(*, skip_make_test: bool, ncores: int | None) -> tuple[float,
 def kernel_threads_budget(
     *, skip_make_test: bool = False, ncores: int | None = None, total_bytes: int | None = None
 ) -> int:
-    """Return the kernel fan-out's width for this cycle, the `--kernel-threads` the plan passes run_m1. Memory limits this width because a live delta holds its whole working set until it emits. `kernel_exec.kernel_threads_default` does the arithmetic: memory, less the reserve, less the memo snapshot `default` keeps alive for the wave (`kernel_exec.DEFAULT_MEMO_BYTES`), divided by one delta (`kernel_exec.DELTA_PEAK_BYTES`). On the fleet this gives the whole wave on the 48 GiB machines and three slots on the 32 GiB one (`default`'s fold beside two deltas, then up to three deltas once the fold finishes), with or without gate:make-test's pool subtracted. The cycle subtracts that pool too, because it runs from t=0 through the whole table build: FONT_SUITE_WORKER_BYTES for each of the `make_test_pool_width` workers the cycle passes that child, the gate lane's share of the cores (`memory_budget.split_cores`), since run_m1 holds the build lane. A pass that skips the gate, including --skip-gates, subtracts nothing. AMS_KERNEL_THREADS overrides the arithmetic, as it does for a bare run_m1, so the memory set aside for the pytest pool never narrows a stated width.
+    """Return the kernel fan-out's width for this cycle, the `--kernel-threads` the plan passes run_m1. Memory limits this width because a live delta holds its whole working set until it emits, and every configuration's prepared fold product stays parked until the cross-configuration exchange ends. `kernel_exec.kernel_threads_default` does the arithmetic over the settlement configurations: memory, less the reserve, less the memo snapshot `default` keeps alive for the wave (`kernel_exec.DEFAULT_MEMO_BYTES`), less one parked product per configuration (`kernel_exec.PARKED_FOLD_BYTES`), divided by one delta less its parked product (`kernel_exec.DELTA_PEAK_BYTES`). On the fleet this gives the whole wave on the 48 GiB machines with or without gate:make-test's pool subtracted, and on the 32 GiB one three slots with or without it (`default`'s fold preparation beside two deltas, then three deltas beside `default`'s parked product). The cycle subtracts that pool too, because it runs from t=0 through the whole table build: FONT_SUITE_WORKER_BYTES for each of the `make_test_pool_width` workers the cycle passes that child, the gate lane's share of the cores (`memory_budget.split_cores`), since run_m1 holds the build lane. A pass that skips the gate, including --skip-gates, subtracts nothing. AMS_KERNEL_THREADS overrides the arithmetic, as it does for a bare run_m1, so the memory set aside for the pytest pool never narrows a stated width.
 
     The result is capped at the configuration count and the usable cores, as in `replay_threads_budget`. On the 48 GiB machines (`doc/fleet.md`) the memory result exceeds the configuration count, so without the cap the plan line would name a width the build never takes. With it, the plan line, the argv and `cycle_summary.json`'s `plan.kernel_threads` show the real width, and `run_m1._table_build_threads`'s own `min()` changes nothing. A stated AMS_KERNEL_THREADS above the configuration count is cut to it here, as `run_m1._table_build_threads` would cut it. `ncores` and `total_bytes` are keywords so a test can compute the width for an invented machine.
     """
+    from rebuild.pipeline.conform import SETTLEMENT_CONFIGS
     from rebuild.pipeline.kernel_exec import kernel_threads_default
 
     coresident, cap = _wave_fit_terms(skip_make_test=skip_make_test, ncores=ncores)
-    return max(1, min(kernel_threads_default(coresident_bytes=coresident, total_bytes=total_bytes), cap))
+    derived = kernel_threads_default(
+        configs=len(SETTLEMENT_CONFIGS), coresident_bytes=coresident, total_bytes=total_bytes
+    )
+    return max(1, min(derived, cap))
 
 
 def replay_threads_budget(
