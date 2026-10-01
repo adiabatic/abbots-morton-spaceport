@@ -13,7 +13,7 @@ use std::rc::Rc;
 
 use crate::emit::{escape_into, json_string};
 use crate::fold::{DecisionTable, JoinTable, Rule};
-use crate::hash::HashSet;
+use crate::hash::{HashMap, HashSet};
 use crate::index::SpecIndex;
 use crate::sha256;
 use crate::stream::{TransitionRow, cell_key};
@@ -91,6 +91,8 @@ const SETTLEMENT_COLUMNS: &str =
 
 /// The inverse of [`settlement_tsv`]: the rules of a persisted `settlement-<config>.tsv` in file order, which is the emission order of the shipped GSUB. The string replay ([`crate::replay`], through `fanout::run_config_replay`) and the `replay-emitted` walk read a build's rules through this instead of recomputing the fixpoint. A round-trip test over the fixture's tables checks it against the writer. It fails on input the writer would not produce: a missing config comment, a different column line, a row that is not nine fields, or a joint flag other than `joint` or `-`.
 ///
+/// Every label is allocated once per table and shared by each rule that names it.
+///
 /// A `-` reads back as an unconstrained slot, so a rule whose class was empty would read back unconstrained. A folded table has no such rule: it would match no window, and the fold fails on a rule that no row first-matches.
 pub fn read_settlement_tsv(text: &str) -> Result<Vec<Rule>, String> {
     let mut lines = text.lines();
@@ -102,6 +104,7 @@ pub fn read_settlement_tsv(text: &str) -> Result<Vec<Rule>, String> {
         return Err("not a settlement table: the second line is not the column line".to_owned());
     }
     let mut rules: Vec<Rule> = Vec::new();
+    let mut names: HashMap<&str, Rc<str>> = HashMap::default();
     for (position, line) in lines.enumerate() {
         let fields: Vec<&str> = line.split('\t').collect();
         let [
@@ -133,13 +136,13 @@ pub fn read_settlement_tsv(text: &str) -> Result<Vec<Rule>, String> {
             }
         };
         rules.push(Rule {
-            input_glyph: Rc::from(*input),
-            backtrack: slot_members(backtrack),
-            look1: slot_members(look1),
-            look2: slot_members(look2),
-            look3: slot_members(look3),
-            look4: slot_members(look4),
-            outcome: Rc::from(*outcome),
+            input_glyph: intern(&mut names, input),
+            backtrack: slot_members(&mut names, backtrack),
+            look1: slot_members(&mut names, look1),
+            look2: slot_members(&mut names, look2),
+            look3: slot_members(&mut names, look3),
+            look4: slot_members(&mut names, look4),
+            outcome: intern(&mut names, outcome),
             provenance: provenance
                 .split("; ")
                 .filter(|pointer| !pointer.is_empty())
@@ -152,11 +155,20 @@ pub fn read_settlement_tsv(text: &str) -> Result<Vec<Rule>, String> {
 }
 
 /// One slot's members as [`slot_text`] wrote them, or `None` for the `-` of an unconstrained slot.
-fn slot_members(text: &str) -> Option<Vec<Rc<str>>> {
+fn slot_members<'t>(names: &mut HashMap<&'t str, Rc<str>>, text: &'t str) -> Option<Vec<Rc<str>>> {
     if text == "-" {
         return None;
     }
-    Some(text.split(' ').map(Rc::from).collect())
+    Some(
+        text.split(' ')
+            .map(|member| intern(names, member))
+            .collect(),
+    )
+}
+
+/// The one shared allocation of `text` among the labels [`read_settlement_tsv`] has read.
+fn intern<'t>(names: &mut HashMap<&'t str, Rc<str>>, text: &'t str) -> Rc<str> {
+    Rc::clone(names.entry(text).or_insert_with(|| Rc::from(text)))
 }
 
 /// `JoinTable.write_tsv`.
