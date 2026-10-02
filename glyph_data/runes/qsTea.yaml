@@ -186,10 +186,7 @@ policy:
   - entry: baseline
     by: 1
     when:
-      left:
-        family:
-        - qsKey
-        - qsJay
+      left: {family: qsJay}
   - exit: x-height
     by: 1
     when:
