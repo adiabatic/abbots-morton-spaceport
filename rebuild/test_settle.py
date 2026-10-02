@@ -515,6 +515,23 @@ def test_formation_blocked_verdicts_are_config_blind(real_spec, real_guard):
         assert not real_guard[("qsTea_qsOy", RightToken("letter", follower), EDGE)]
 
 
+def test_a_formed_followers_verdict_is_the_same_whatever_follows_it(real_spec, real_guard):
+    """Where the guard's two raw slots form a follower ligature, the guard faces that ligature with the text ending after it, so the verdict equals the sweep's row for the ligature before the edge. The formation lookup cannot see the slot after the follower, so that row must also equal the row for every other second slot the sweep covers, with the follower ligature held formed. A future follower prefer whose verdict depends on that slot fails here instead of compiling a verdict only the text's end makes true."""
+    formed = {tuple(rune.sequence): name for name, rune in real_spec.runes.items() if rune.sequence}
+    seconds = {right2 for _liga, _right1, right2 in real_guard}
+    checked = 0
+    for (liga, right1, right2), blocked in real_guard.items():
+        if right1.kind != "letter" or right2.kind != "letter":
+            continue
+        if (follower := formed.get((right1.rune, right2.rune))) is None:
+            continue
+        token = RightToken("letter", follower)
+        assert real_guard[(liga, token, EDGE)] == blocked, (liga, follower)
+        assert {real_guard[(liga, token, after)] for after in seconds} == {blocked}, (liga, follower)
+        checked += 1
+    assert checked, "the live alphabet has no formed follower, so this test checks nothing"
+
+
 @pytest.fixture(scope="module")
 def guard_by_configuration(real_spec) -> dict[frozenset[str], kernel_exec.FormationGuard]:
     """One single-configuration guard sweep for every subset of the capability features the quantified guard covers, plus every acceptance configuration, so ss10, which no stance unlocks, is swept too."""

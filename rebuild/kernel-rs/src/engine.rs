@@ -130,7 +130,7 @@ const UNKNOWN_TAIL: [RightToken; 1] = [UNKNOWN];
 /// The modes an engine is built with. The crate reads no environment, so the caller passes them. [`Default`] gives the default modes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct EngineModes {
-    /// The follower prefer's slots past `right1` when `follower_prefer_slots` is off. `UNKNOWN` is the optimistic comparison state. The section 5.7 guard's engines set it to `EDGE`, so a follower prefer that needs deeper text than the guard's verdict is keyed on can never change a formation verdict.
+    /// The follower prefer's slots past `right1` when `follower_prefer_slots` is off. `UNKNOWN` is the optimistic comparison state. The section 5.7 guard's engines set it to `EDGE`, so a follower prefer that needs a letter past the guard's two raw slots never fires there, and one the text edge satisfies, such as an `is: boundary` hop, fires definitely.
     pub follower_prefer_deep_slot: RightToken,
     /// Whether the third join-count term is the follower's simulated transition (the default) or the optimistic candidacy estimate.
     pub simulated_prospect: bool,
@@ -2085,7 +2085,10 @@ impl<'i> Engine<'i> {
         let (follower_prefer_right2, follower_prefer_right3) = if self.follower_prefer_slots {
             (slots.right3, slots.right4)
         } else {
-            (self.follower_prefer_deep_slot, UNKNOWN)
+            (
+                self.follower_prefer_deep_slot,
+                self.follower_prefer_deep_slot,
+            )
         };
         let follower_cells = self.candidates(
             &synthetic_left,
@@ -2098,7 +2101,11 @@ impl<'i> Engine<'i> {
             slots.right2,
             follower_prefer_right2,
             follower_prefer_right3,
-            UNKNOWN,
+            if self.follower_prefer_slots {
+                UNKNOWN
+            } else {
+                self.follower_prefer_deep_slot
+            },
         );
         let mut relevant = false;
         for cell in &follower_cells {

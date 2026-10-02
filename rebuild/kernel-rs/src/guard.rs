@@ -1,6 +1,6 @@
 //! The section 5.7 late-formation guard, the only place its verdict is computed: whether a ligature yields to its components in one window because the trailing component, left unformed, would join toward the follower while the formed ligature could not. The trail side is settled at ranking grain: a full [`Engine::transition_trace`] with the lead's default stance, unjoined, as its left, so follower prefers and the runes' prefers count as well as candidacy. The ligature side is checked more generously, at candidacy grain with the run edge as its left.
 //!
-//! The verdict depends only on the ligature and the two raw slots past its sequence, which is why it can compile into the formation lookup the font ships. That lookup runs before the stylistic-set marker substitutions and so cannot see the configuration, so the verdict is quantified over the powerset of capability-unlock features and blocks only where every configuration blocks. The engines that compute it have `simulated_prospect` and `follower_prefer_slots` off and bind every slot past the verdict's two to the window edge: `follower_prefer_deep_slot` is [`EDGE`], and the trace's third and fourth slots are `EDGE`. A prefer, own or follower, that needs deeper raw text therefore cannot change a formation verdict as a side effect of a settlement-scoring change. Making the guard follow either flag is a separate reviewed change, so the modes are pinned here ([`GUARD_MODES`]) instead of read from the engine defaults.
+//! The verdict depends only on the ligature and the two raw slots past its sequence, which is why it can compile into the formation lookup the font ships. That lookup runs before the stylistic-set marker substitutions and so cannot see the configuration, so the verdict is quantified over the powerset of capability-unlock features and blocks only where every configuration blocks. The engines that compute it have `simulated_prospect` and `follower_prefer_slots` off and read every prefer slot past the verdict's two raw slots as the end of the text: `follower_prefer_deep_slot` is [`EDGE`], and the trace's third and fourth slots are `EDGE`. When the two raw slots form a ligature, the checks face that ligature as the follower with the text ending after it, so the slot after it is `EDGE` for candidacy and prefers alike. Otherwise the trail's and the ligature's candidacy reads past the two raw slots (refusals, unlocks and the lookahead closure) stay `UNKNOWN`, as in settlement; a follower prefer's own enumeration of the follower's candidates reads `follower_prefer_deep_slot` there too. A condition that needs a letter in an `EDGE` slot never fires there, so a prefer, own or follower, cannot change a formation verdict by reading text the formation lookup cannot see. The lookup cannot express a verdict that depends on the slot after a formed follower either, so `rebuild/test_settle.py` checks that each formed follower's verdict is the same for every token there, with the follower ligature held formed. Making the guard follow either flag is a separate reviewed change, so the modes are pinned here ([`GUARD_MODES`]) instead of read from the engine defaults.
 //!
 //! [`GuardState`] is per-spec state, built once and kept, and it holds the powerset's engines itself. Python's `settle.form_ligatures` reads the verdicts from the complete sweep, which `kernel_exec.guard_sweep` memoizes per spec. No verdict reads a fired delta, so the engines have no trace memo: nothing is journaled and [`Engine::candidates`] runs uncached. [`GuardState::under`] and [`sweep_under`] compute the same guard for one named configuration instead of the powerset. The font does not use them; the rebuild suite uses them to check, per configuration, where that configuration's verdicts differ from the quantified ones.
 //!
@@ -95,7 +95,7 @@ impl<'i> GuardState<'i> {
                 self.index
                     .letter(formed)
                     .expect("a formed ligature is a modeled rune"),
-                UNKNOWN,
+                EDGE,
             ),
             None => (right1, right2),
         };
@@ -112,7 +112,7 @@ impl<'i> GuardState<'i> {
 
     /// The ligature the two raw slots themselves form before the guarded ligature's window settles: the modeled rune whose sequence is these two runes and whose own guard does not block. That guard is read with both slots `UNKNOWN`, which is not a letter, so it never blocks. `None` when the slots are not a forming pair, which is the common case.
     ///
-    /// The engine checks then use that ligature as the follower instead of the bare first slot. The pair's formation consumes the first slot's entry, so counting it as reachable would make the guard un-form the left ligature for a join that cannot happen.
+    /// The engine checks then use that ligature as the follower instead of the bare first slot. The pair's formation consumes the first slot's entry, so counting it as reachable would make the guard un-form the left ligature for a join that cannot happen. The checks face that ligature with the text ending after it. Its own formation is assumed whatever follows it, so the left ligature's verdict ignores a follower that later un-forms: in ·Day·Utter·See·Utter·Low, ·See+·Utter does not form, and both the old font and the guard keep ·Day+·Utter formed (`·Day+·Utter | ·See | ·Utter.alt ~b~ ·Low`).
     fn follower_formation(
         &mut self,
         right1: RightToken,
@@ -566,6 +566,79 @@ mod tests {
                 .follower_formation(letter(&index, "qsTea"), letter(&index, "qsPea"))
                 .expect("the scan runs"),
             None
+        );
+    }
+
+    /// [`alphabet`] with no ligature exit and a second ligature, `qsTea_qsMay`, as the follower pair. It enters at the baseline in its `joined` stance and has an entryless `free` stance, and its absolute prefer asks for `free` when ·May follows it, so the prefer withholds the unformed trail's join exactly when it reads a letter after the formed follower.
+    fn alphabet_with_a_follower_ligature_that_prefers_before_may() -> SpecIndex {
+        let baseline = object(&[row("baseline", &[])]);
+        let pea = rune(
+            "qsPea",
+            &[stance("half", &baseline, &baseline, &[])],
+            &[("codepoint", "58960")],
+        );
+        let tea = rune(
+            "qsTea",
+            &[stance("plain", &baseline, &baseline, &[])],
+            &[("codepoint", "58962")],
+        );
+        let may = rune(
+            "qsMay",
+            &[stance("plain", &baseline, "{}", &[])],
+            &[("codepoint", "58981")],
+        );
+        let liga = rune(
+            "qsPea_qsTea",
+            &[stance("joined", "{}", "{}", &[])],
+            &[("sequence", &fixtures::names(&["qsPea", "qsTea"]))],
+        );
+        let before_may = fixtures::condition(&[("family", &fixtures::names(&["qsMay"]))]);
+        let prefer = fixtures::record(&[
+            ("kind", "\"prefer\""),
+            ("mode", "\"absolute\""),
+            ("stance", "\"free\""),
+            ("when", &fixtures::when(&[("right", before_may.as_str())])),
+            (
+                "provenance",
+                &fixtures::names(&["qsTea_qsMay.yaml", "policy.prefer[0]"]),
+            ),
+        ]);
+        let policy = fixtures::policy(&[("prefer", &fixtures::seq(&[&prefer]))]);
+        let follower = rune(
+            "qsTea_qsMay",
+            &[
+                stance("joined", &baseline, "{}", &[]),
+                stance("free", "{}", "{}", &[]),
+            ],
+            &[
+                ("sequence", &fixtures::names(&["qsTea", "qsMay"])),
+                ("policy", policy.as_str()),
+            ],
+        );
+        spec_of(&[pea, tea, may, liga, follower])
+    }
+
+    #[test]
+    fn a_formed_follower_faces_the_window_edge_after_it() {
+        // Read as unknown, the slot after the formed `qsTea_qsMay` would let its prefer fire, so the unformed trail would decline the join and the left ligature would form. Read as the edge, the prefer has no ·May to see, the trail joins, and the entryless and exitless ligature yields.
+        let index = alphabet_with_a_follower_ligature_that_prefers_before_may();
+        let mut state = GuardState::new(&index);
+        let liga = fixtures::sym(&index, "qsPea_qsTea");
+        let tea = letter(&index, "qsTea");
+        let may = letter(&index, "qsMay");
+        assert_eq!(
+            state.follower_formation(tea, may).expect("the scan runs"),
+            Some(fixtures::sym(&index, "qsTea_qsMay"))
+        );
+        assert!(
+            state
+                .formation_blocked(liga, tea, may)
+                .expect("the verdict computes")
+        );
+        assert_eq!(
+            state.formation_blocked(liga, tea, may),
+            state.formation_blocked(liga, letter(&index, "qsTea_qsMay"), EDGE),
+            "the formed key reads exactly as the follower ligature before the edge"
         );
     }
 
