@@ -74,23 +74,23 @@
       "totals": {
         "units": 1416284,
         "rows": 6756962,
-        "batches": 826,
-        "duplicate_groups": 10876
+        "batches": 837,
+        "duplicate_groups": 10959
       },
       "machine_approved": {
-        "units": 1125556,
+        "units": 1121927,
         "by_class": {
-          "boundary-window": 171832,
+          "boundary-window": 171420,
           "zwnj-word-initial-unification": 136,
           "halves-entry-extension-restored": 330,
-          "same-junction-extension-non-summing": 2031,
-          "dangling-anchor-dropped": 352325,
-          "bare-name-live-join": 593398,
+          "same-junction-extension-non-summing": 2029,
+          "dangling-anchor-dropped": 351693,
+          "bare-name-live-join": 590816,
           "may-jai-extension-consolidated": 983,
           "jai-entry-contraction-renamed": 395,
           "zoo-entry-contraction-renamed": 1289,
           "roe-shortened-top-renamed": 1671,
-          "extension-non-summing": 1162,
+          "extension-non-summing": 1161,
           "deferred-ss04": 3,
           "deferred-ss03": 1
         }
@@ -101,14 +101,14 @@
         "bare-name-live-join": 611510
       },
       "secondary_junctions": {
-        "units_with_markers": 56104,
-        "junctions_with_primary_unit": 6242,
-        "junctions_without_primary_unit": 53509,
-        "junctions_suppressed_invisible": 1533
+        "units_with_markers": 56277,
+        "junctions_with_primary_unit": 6344,
+        "junctions_without_primary_unit": 53590,
+        "junctions_suppressed_invisible": 1540
       }
     },
     "built": {
-      "human_units": 247796,
+      "human_units": 251013,
       "reference_window_duplicate_siblings": 35,
       "config_note_distribution": [
         [
@@ -170,19 +170,19 @@
       "units": 1422819
     },
     "ink": {
-      "machine_total": 1087027,
-      "non_identical": 335792,
+      "machine_total": 1083495,
+      "non_identical": 339324,
       "by_class": {
-        "boundary-window": 168385,
+        "boundary-window": 167977,
         "zwnj-word-initial-unification": 136,
-        "dangling-anchor-dropped": 329403,
-        "bare-name-live-join": 586155,
+        "dangling-anchor-dropped": 328844,
+        "bare-name-live-join": 583590,
         "zoo-entry-contraction-renamed": 1283,
         "roe-shortened-top-renamed": 1665
       },
-      "boundary_window_exempt": 48096,
-      "human_units": 287696,
-      "batches": 959
+      "boundary_window_exempt": 48504,
+      "human_units": 290820,
+      "batches": 970
     },
     "unmatched_groups": {
       "counts": {
