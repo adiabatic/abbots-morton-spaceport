@@ -176,10 +176,10 @@ export function triageOrder(unit) {
 export function duplicateChip(unit, memberIds) {
   if (!unit.duplicate_group || !Array.isArray(memberIds) || memberIds.length < 2) return null;
   return {
-    label: `duplicate ×${memberIds.length}`,
+    label: `duplicate ×${formatCount(memberIds.length)}`,
     href: `#units=${memberIds.join(',')}`,
     title:
-      `The before→after change here is pixel-identical in ${memberIds.length} ${unit.class} windows with the same judged pair and configs — ` +
+      `The before→after change here is pixel-identical in ${formatCount(memberIds.length)} ${unit.class} windows with the same judged pair and configs — ` +
       'the surrounding letters differ but the change is the same picture. A verdict on any of them fills the unverdicted rest ' +
       '(each can still be overridden or cleared individually). Click to view the whole duplicate group stacked.',
   };

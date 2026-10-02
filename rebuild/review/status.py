@@ -512,7 +512,7 @@ def _verdict_store_check(
         }, records
     return {
         "level": "ok",
-        "detail": f"The autosave is aligned with this corpus and holds {effective} effective verdicts.",
+        "detail": f"The autosave is aligned with this corpus and holds {effective:,} effective verdicts.",
         "remedy": None,
     }, records
 
@@ -522,7 +522,7 @@ def _fullest_verdicts_check(fullest_hit, fullest_rel) -> dict:
         count = fullest_hit[1]
         return {
             "level": "ok",
-            "detail": f"The fullest verdicts file is {fullest_rel} ({count} effective verdicts).",
+            "detail": f"The fullest verdicts file is {fullest_rel} ({count:,} effective verdicts).",
             "remedy": None,
             "path": fullest_rel,
             "count": count,
@@ -554,7 +554,7 @@ def _blanks_check(aligned_records, review_dir, human_ids) -> dict:
             }
     effective_ids = {unit for unit, record in aligned_records.items() if record.get("verdict") != "skip"}
     remaining = len(set(human_ids) - effective_ids)
-    return {"level": "ok", "detail": f"{remaining} blanks remaining.", "count": remaining}
+    return {"level": "ok", "detail": f"{remaining:,} blanks remaining.", "count": remaining}
 
 
 def compute_status(

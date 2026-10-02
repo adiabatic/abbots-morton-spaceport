@@ -918,7 +918,7 @@ function buildQueueContext(units) {
   const singles = clusterIds.size > 1;
   line.append(el('strong', null, singles ? 'Queue singletons' : 'Queue worklist'));
   line.append(
-    document.createTextNode(` — ${units.length}${singles ? ' one-off' : ''} unit${units.length === 1 ? '' : 's'} stacked. `),
+    document.createTextNode(` — ${formatCount(units.length)}${singles ? ' one-off' : ''} unit${units.length === 1 ? '' : 's'} stacked. `),
   );
   line.append(back);
   strip.append(line);
@@ -982,10 +982,10 @@ function renderMachineSection(container, machine, plan) {
   const heading =
     state.machine === '1'
       ? provisional
-        ? `No verdict needed in this view: up to ${total} units (machine-approved or in a no-verdict class) — open a fold for the count under this filter`
-        : `No verdict needed in this view: ${total} units (machine-approved or in a no-verdict class)`
+        ? `No verdict needed in this view: up to ${formatCount(total)} units (machine-approved or in a no-verdict class) — open a fold for the count under this filter`
+        : `No verdict needed in this view: ${formatCount(total)} units (machine-approved or in a no-verdict class)`
       : state.units
-        ? `No verdict needed in your worklist: ${machine.length} unit${machine.length === 1 ? '' : 's'} shown below`
+        ? `No verdict needed in your worklist: ${formatCount(machine.length)} unit${machine.length === 1 ? '' : 's'} shown below`
         : 'This deep-linked unit needs no verdict — it stays out of your queue and disappears when you move on.';
   container.append(el('h2', 'machine-heading', heading));
   // The filters an opened fold applies, captured at render time. The status filter is dropped, as partitionUnits drops it for units that take no verdict.
@@ -1015,7 +1015,7 @@ function buildMachineFold(classId, total, badge, records, pinned, foldFilters, {
   fold.dataset.machineClass = classId;
   const summary = el('summary');
   summary.append(el('span', 'group-name', classId));
-  const counts = el('span', 'group-counts', provisional ? `up to ${total} units — ${badge}` : `${total} units — ${badge}`);
+  const counts = el('span', 'group-counts', provisional ? `up to ${formatCount(total)} units — ${badge}` : `${formatCount(total)} units — ${badge}`);
   summary.append(counts);
   fold.append(summary);
   const rendered = new Set();
@@ -1032,7 +1032,7 @@ function buildMachineFold(classId, total, badge, records, pinned, foldFilters, {
     const build = () => {
       if (!building) {
         render(records);
-        if (records.length !== total) setText(counts, `${records.length} of ${total} units — ${badge}`);
+        if (records.length !== total) setText(counts, `${formatCount(records.length)} of ${formatCount(total)} units — ${badge}`);
         building = Promise.resolve();
       }
       return building;
@@ -1061,11 +1061,11 @@ function buildMachineFold(classId, total, badge, records, pinned, foldFilters, {
   const describe = () => {
     const unread = classRows - read;
     if (unread <= 0) {
-      setText(counts, provisional || shown !== total ? `${shown} of ${total} units — ${badge}` : `${total} units — ${badge}`);
+      setText(counts, provisional || shown !== total ? `${formatCount(shown)} of ${formatCount(total)} units — ${badge}` : `${formatCount(total)} units — ${badge}`);
       more.remove();
       return;
     }
-    setText(counts, `${shown} shown of the first ${read} of ${total} units — ${badge}`);
+    setText(counts, `${formatCount(shown)} shown of the first ${formatCount(read)} of ${formatCount(total)} units — ${badge}`);
     setText(more, `Show ${Math.min(MACHINE_FOLD_WINDOW, unread)} more (${formatCount(unread)} not yet read)`);
     more.disabled = false;
     fold.append(more);
@@ -1219,7 +1219,7 @@ function updateGroupCounts() {
     const rows = fold.querySelectorAll('.row');
     let verdicted = 0;
     for (const row of rows) if (row.dataset.verdict) verdicted += 1;
-    setText(fold.querySelector('.group-counts'), `${verdicted}/${rows.length} verdicted`);
+    setText(fold.querySelector('.group-counts'), `${formatCount(verdicted)}/${formatCount(rows.length)} verdicted`);
     const approve = fold.querySelector('.group-approve');
     const done = verdicted === rows.length;
     if (approve.hidden !== done) approve.hidden = done;
@@ -1229,7 +1229,7 @@ function updateGroupCounts() {
 function updateUnexportedNudge() {
   const nudge = document.getElementById('unexported-nudge');
   nudge.hidden = store.unexported.size === 0;
-  setText(nudge, `${store.unexported.size} unexported${autosaveHealthy() ? ' (autosaved)' : ''}`);
+  setText(nudge, `${formatCount(store.unexported.size)} unexported${autosaveHealthy() ? ' (autosaved)' : ''}`);
 }
 
 // One pass over the queue for both the sidebar tallies and the selected-class line. A pass per class button would make every store mutation cost the number of classes times the queue size.
@@ -1261,12 +1261,12 @@ function updateProgress() {
     if (state.units && state.queue) {
       const queue = queueCounts(humanList, (id) => store.records.get(id), ruledClassIds(manifest.classes));
       line =
-        `Queue decision: ${batchVerdicted}/${visibleUnits.length} · ` +
+        `Queue decision: ${formatCount(batchVerdicted)}/${formatCount(visibleUnits.length)} · ` +
         `queue: ${formatCount(queue.blankUnits)} ${queue.blankUnits === 1 ? 'unit still needs' : 'units still need'} a verdict, in ${formatCount(queue.clusters)} clusters`;
     } else if (state.units) {
-      line = `Worklist: ${batchVerdicted}/${visibleUnits.length}`;
+      line = `Worklist: ${formatCount(batchVerdicted)}/${formatCount(visibleUnits.length)}`;
     } else {
-      line = `Batch ${state.batch}: ${batchVerdicted}/${visibleUnits.length}`;
+      line = `Batch ${state.batch}: ${formatCount(batchVerdicted)}/${formatCount(visibleUnits.length)}`;
     }
     setText(document.getElementById('batch-progress'), line);
   }
@@ -1353,7 +1353,7 @@ function updateSidebarHighlights() {
 function updateBatchNav() {
   const batches = availableBatches(manifest, state.class);
   const position = batches.indexOf(state.batch);
-  document.getElementById('batch-label').textContent = `Batch ${state.batch} (${position + 1}/${batches.length})`;
+  document.getElementById('batch-label').textContent = `Batch ${state.batch} (${formatCount(position + 1)}/${formatCount(batches.length)})`;
   document.getElementById('prev-batch').disabled = position <= 0;
   document.getElementById('next-batch').disabled = position < 0 || position >= batches.length - 1;
 }
@@ -1410,7 +1410,7 @@ function buildEvidenceLine(evidence) {
     line.textContent = 'No verdicted unit shares this delta — a fresh question.';
     return line;
   }
-  const tallies = evidence.counts.map((entry) => `${entry.verdict} ×${entry.count}`).join(', ');
+  const tallies = evidence.counts.map((entry) => `${entry.verdict} ×${formatCount(entry.count)}`).join(', ');
   line.append(document.createTextNode(`Same delta already judged elsewhere: ${tallies}. `));
   for (const [index, sample] of evidence.samples.entries()) {
     if (index > 0) line.append(document.createTextNode('; '));
@@ -1426,7 +1426,7 @@ function buildClusterCard(cluster, position) {
   card.dataset.cluster = cluster.id;
   const header = el('header');
   header.append(el('span', 'size', `${position}. ${formatCount(cluster.size)} unit${cluster.size === 1 ? '' : 's'}`));
-  header.append(el('span', null, `in ${cluster.duplicateGroups.length} duplicate group${cluster.duplicateGroups.length === 1 ? '' : 's'}`));
+  header.append(el('span', null, `in ${formatCount(cluster.duplicateGroups.length)} duplicate group${cluster.duplicateGroups.length === 1 ? '' : 's'}`));
   header.append(el('span', 'chip', cluster.class));
   appendConfigGate(header, cluster.exemplar, { detail: false });
   header.append(el('span', 'configs', cluster.id));
@@ -1442,15 +1442,15 @@ function buildClusterCard(cluster, position) {
   if (!carriesSamples(cluster.exemplar)) hydrateSamples(card, cluster.exemplar);
   const representatives = el('p', 'representatives');
   representatives.append(
-    appButton(queueWorklistHref(cluster.representatives, cluster.id), `Judge ${cluster.representatives.length} representative${cluster.representatives.length === 1 ? '' : 's'}`),
+    appButton(queueWorklistHref(cluster.representatives, cluster.id), `Judge ${formatCount(cluster.representatives.length)} representative${cluster.representatives.length === 1 ? '' : 's'}`),
   );
   representatives.append(
-    el('span', 'note', ` — one per duplicate group; each verdict duplicate-fills its group, covering all ${cluster.size} units.`),
+    el('span', 'note', ` — one per duplicate group; each verdict duplicate-fills its group, covering all ${formatCount(cluster.size)} units.`),
   );
   card.append(representatives);
   card.append(buildEvidenceLine(cluster.evidence));
   const members = el('details');
-  members.append(el('summary', null, `All ${cluster.size} members`));
+  members.append(el('summary', null, `All ${formatCount(cluster.size)} members`));
   for (const id of cluster.memberIds) {
     members.append(unitLinkEl(id));
     members.append(document.createTextNode(' '));
@@ -1481,7 +1481,7 @@ function buildLaterSection(later) {
     row.append(classCell);
     row.append(el('td', null, cluster.exemplar.notation));
     const judge = el('td');
-    judge.append(appButton(queueWorklistHref(cluster.representatives, cluster.id), `Judge ${cluster.representatives.length}`));
+    judge.append(appButton(queueWorklistHref(cluster.representatives, cluster.id), `Judge ${formatCount(cluster.representatives.length)}`));
     row.append(judge);
     body.append(row);
   }
@@ -1493,15 +1493,15 @@ function buildLaterSection(later) {
 
 function buildSingletonSection(singletons) {
   const section = el('section', 'queue-singletons');
-  section.append(el('h2', null, `Singletons — ${singletons.length} one-off units`));
+  section.append(el('h2', null, `Singletons — ${formatCount(singletons.length)} one-off units`));
   const links = el('p', 'chunk-links', `Work them as app worklists, ${SINGLETON_CHUNK} at a time: `);
   for (const chunk of singletonChunks(singletons)) {
-    links.append(appButton(queueWorklistHref(chunk.unitIds, SINGLETON_DECISION), `Judge ${chunk.start}–${chunk.end}`));
+    links.append(appButton(queueWorklistHref(chunk.unitIds, SINGLETON_DECISION), `Judge ${formatCount(chunk.start)}–${formatCount(chunk.end)}`));
     links.append(document.createTextNode(' '));
   }
   section.append(links);
   const details = el('details');
-  details.append(el('summary', null, `All ${singletons.length} singletons by name`));
+  details.append(el('summary', null, `All ${formatCount(singletons.length)} singletons by name`));
   const table = el('table', 'workorder');
   const body = el('tbody');
   for (const cluster of singletons) {
@@ -1523,7 +1523,7 @@ function buildSingletonSection(singletons) {
 
 function buildConflictSection(conflicts) {
   const section = el('section', 'queue-conflicts');
-  section.append(el('h2', null, `Duplicate groups with disagreeing verdicts (${conflicts.length})`));
+  section.append(el('h2', null, `Duplicate groups with disagreeing verdicts (${formatCount(conflicts.length)})`));
   section.append(
     el('p', 'queue-note', 'The same visual change judged differently across contexts — worth a re-check when convenient.'),
   );
@@ -1756,7 +1756,7 @@ async function applyHashState(resume = false) {
     if (state.units) {
       const listed = new Set(unitWorklist(state.units)).size;
       const shown = human.length + machine.length;
-      if (shown < listed) toast(`${listed - shown} of ${listed} listed units aren't in this build — showing the ${shown} that are.`);
+      if (shown < listed) toast(`${formatCount(listed - shown)} of ${formatCount(listed)} listed units aren't in this build — showing the ${formatCount(shown)} that are.`);
     }
   }
   syncFilterControls();
@@ -1810,7 +1810,7 @@ function applyVerdict(unitId, verdict, { toggle = true, note = null } = {}) {
     const applied = recordVerdictWithDuplicates(store, unitId, verdict, duplicates, { note: noteValue });
     for (const id of applied) syncRowVerdict(id);
     if (applied.length > 1) {
-      toast(`Copied to ${applied.length - 1} duplicate window${applied.length === 2 ? '' : 's'} (u to undo all)`);
+      toast(`Copied to ${formatCount(applied.length - 1)} duplicate window${applied.length === 2 ? '' : 's'} (u to undo all)`);
     }
     lastVerdictedUnitId = unitId;
   }
@@ -1818,7 +1818,7 @@ function applyVerdict(unitId, verdict, { toggle = true, note = null } = {}) {
   updateProgress();
   scheduleAutosave();
   if (!autosaveHealthy() && store.unexported.size > 0 && store.unexported.size % 50 === 0) {
-    toast(`${store.unexported.size} verdicts not yet exported — consider downloading verdicts.json`);
+    toast(`${formatCount(store.unexported.size)} verdicts not yet exported — consider downloading verdicts.json`);
   }
   return wasUnverdicted;
 }
@@ -1878,7 +1878,7 @@ async function advanceQueue({ stale = false } = {}) {
   const what =
     decision.kind === 'cluster'
       ? `${formatCount(decision.cluster.size)} lookalike unit${decision.cluster.size === 1 ? '' : 's'} in ${decision.cluster.class}`
-      : `${decision.unitIds.length} singletons`;
+      : `${formatCount(decision.unitIds.length)} singletons`;
   toast(`${lead} — ${decision.revisit ? 'back round to' : 'next'}: ${what} (${remaining})`);
   setStateReplace({
     units: decision.unitIds.join(','),
@@ -2165,7 +2165,7 @@ function approveGroupOf(unitId) {
   scheduleAutosave();
   const inGroup = applied.filter((id) => ids.includes(id)).length;
   const copied = applied.length - inGroup;
-  toast(`Approved ${inGroup} remaining in ${unit.group}${copied > 0 ? ` + ${copied} duplicates elsewhere` : ''}`);
+  toast(`Approved ${formatCount(inGroup)} remaining in ${unit.group}${copied > 0 ? ` + ${formatCount(copied)} duplicates elsewhere` : ''}`);
   advanceFrom(unitId);
 }
 
@@ -2179,7 +2179,7 @@ function undoLast() {
   updateProgress();
   scheduleAutosave();
   setStateReplace({ unit: result.cursor });
-  toast(`Undid ${result.units.length === 1 ? result.cursor : `${result.units.length} verdicts`}`);
+  toast(`Undid ${result.units.length === 1 ? result.cursor : `${formatCount(result.units.length)} verdicts`}`);
 }
 
 // An app-index row has no explain material, so opening its panel fetches the shard record: one Range request, or none if the card's fetch left the record in fullRecords. Rows that take no verdict are built from their shard record and open with the panel already filled.
@@ -2400,13 +2400,13 @@ function handleSaveOutcome(reply, sentRecords, changedSince) {
   }
   if (adopted > 0) persistConflicts();
   const lines = [];
-  if (adopted > 0) lines.push(`${adopted} verdict${adopted === 1 ? '' : 's'} conflicted with newer ones; kept in the conflicts list`);
+  if (adopted > 0) lines.push(`${formatCount(adopted)} verdict${adopted === 1 ? '' : 's'} conflicted with newer ones; kept in the conflicts list`);
   if (cleared > 0) {
-    lines.push(`${cleared} skip${cleared === 1 ? '' : 's'} from an earlier corpus dropped, so ${cleared === 1 ? 'that unit is' : 'those units are'} asked again`);
+    lines.push(`${formatCount(cleared)} skip${cleared === 1 ? '' : 's'} from an earlier corpus dropped, so ${cleared === 1 ? 'that unit is' : 'those units are'} asked again`);
   }
   if (orphaned.length > 0) {
     lines.push(
-      `${orphaned.length} verdict${orphaned.length === 1 ? ' is' : 's are'} on units this corpus no longer has; kept in var/verdict-orphans/`,
+      `${formatCount(orphaned.length)} verdict${orphaned.length === 1 ? ' is' : 's are'} on units this corpus no longer has; kept in var/verdict-orphans/`,
     );
   }
   if (lines.length > 0) toast(lines.join(' · '));
@@ -2435,7 +2435,7 @@ async function sendReplays() {
       staleOutbox.push(...entries);
       staleDownloaded = false;
       toast(
-        `The server refused ${entries.length} verdict${entries.length === 1 ? '' : 's'} this browser kept from an earlier session (HTTP ${response.status}); download them from the status bar`,
+        `The server refused ${formatCount(entries.length)} verdict${entries.length === 1 ? '' : 's'} this browser kept from an earlier session (HTTP ${response.status}); download them from the status bar`,
       );
       continue;
     }
@@ -2459,7 +2459,7 @@ async function sendReplays() {
     }
     handleSaveOutcome(reply, sentRecordsOf(payload), (unit) => store.dirty.has(unit));
     if (outboxStorage) ackOutbox(outboxStorage, entries);
-    if (saved > 0) toast(`Saved ${saved} verdict${saved === 1 ? '' : 's'} this browser kept from an earlier session`);
+    if (saved > 0) toast(`Saved ${formatCount(saved)} verdict${saved === 1 ? '' : 's'} this browser kept from an earlier session`);
   }
 }
 
@@ -2542,7 +2542,7 @@ function reapplyConflicts() {
   persistConflicts();
   updateProgress();
   scheduleAutosave();
-  toast(`Reapplied ${count} verdict${count === 1 ? '' : 's'}`);
+  toast(`Reapplied ${formatCount(count)} verdict${count === 1 ? '' : 's'}`);
 }
 
 // Downloads the outbox entries this page could not send, one file per corpus they were made on, with the clears as a `cleared` list of { unit, at }. The entries stay in the outbox until the reader says the files are saved (forgetStaleOutbox), so a blocked or cancelled download loses nothing.
@@ -2592,14 +2592,14 @@ function renderOutboxStatus() {
     parts.push(el('span', 'outbox-waiting', `${formatCount(waiting)} verdict${waiting === 1 ? '' : 's'} ${where}, saving…`));
   }
   if (pendingConflicts.size > 0) {
-    const button = el('button', 'outbox-reapply', `Reapply ${pendingConflicts.size} conflicted`);
+    const button = el('button', 'outbox-reapply', `Reapply ${formatCount(pendingConflicts.size)} conflicted`);
     button.type = 'button';
     button.title = 'The server kept newer verdicts on these units; click to record yours again over them';
     button.addEventListener('click', reapplyConflicts);
     parts.push(button);
   }
   if (staleOutbox.length > 0) {
-    const button = el('button', 'outbox-download', `Download ${staleOutbox.length} unsaved`);
+    const button = el('button', 'outbox-download', `Download ${formatCount(staleOutbox.length)} unsaved`);
     button.type = 'button';
     button.title =
       'This browser kept these changes from a session that closed before they were saved, and they are too old to send on their own or the server refused them';
@@ -2666,7 +2666,7 @@ async function restoreAutosave() {
       await refreshStatus({ force: true });
       if (pendingMove) return;
       toast(
-        `Found an autosave from a different corpus build (${data.verdicts.length} verdicts) — not restored; your next verdict carries it onto this corpus`,
+        `Found an autosave from a different corpus build (${formatCount(data.verdicts.length)} verdicts) — not restored; your next verdict carries it onto this corpus`,
       );
     }
     return;
@@ -2675,7 +2675,7 @@ async function restoreAutosave() {
   noteServerRecords(store, serverRecords.values());
   markExported(store);
   for (const id of result.units) store.dirty.delete(id);
-  if (result.added > 0) toast(`Restored ${result.added} autosaved verdicts`);
+  if (result.added > 0) toast(`Restored ${formatCount(result.added)} autosaved verdicts`);
   planReplayFromOutbox(serverRecords);
 }
 
@@ -2714,7 +2714,7 @@ async function syncVerdictsFromServer() {
     }
     if (outboxStorage) dropOutbox(outboxStorage, result.units, TAB_ID);
     updateProgress();
-    toast(`Picked up ${result.units.length} verdict${result.units.length === 1 ? '' : 's'} from another session`);
+    toast(`Picked up ${formatCount(result.units.length)} verdict${result.units.length === 1 ? '' : 's'} from another session`);
   } catch (error) {
     console.warn('verdict sync failed', error);
   } finally {
@@ -2944,7 +2944,7 @@ function downloadVerdicts() {
   URL.revokeObjectURL(url);
   markExported(store);
   updateProgress();
-  toast(`Exported ${store.records.size} verdicts`);
+  toast(`Exported ${formatCount(store.records.size)} verdicts`);
 }
 
 function runImport(text) {
@@ -2970,7 +2970,7 @@ function runImport(text) {
   for (const unitId of result.units) syncRowVerdict(unitId);
   updateProgress();
   scheduleAutosave();
-  toast(`Imported: ${result.added} added, ${result.replaced} replaced, ${result.keptNewer} kept newer`);
+  toast(`Imported: ${formatCount(result.added)} added, ${formatCount(result.replaced)} replaced, ${formatCount(result.keptNewer)} kept newer`);
   document.getElementById('import').close();
 }
 
@@ -3060,7 +3060,7 @@ function renderSearchResults(query) {
     row.setAttribute('role', 'option');
     row.setAttribute('aria-selected', 'false');
     row.append(el('span', 'search-id', groupId));
-    row.append(el('span', 'search-notation', `duplicate group — stack all ${members.length} members as a worklist`));
+    row.append(el('span', 'search-notation', `duplicate group — stack all ${formatCount(members.length)} members as a worklist`));
     results.append(row);
   }
   if (matches.length === 0 && !results.querySelector('.search-result')) {
@@ -3092,7 +3092,7 @@ function renderSearchResults(query) {
   }
   if (total > matches.length) {
     results.append(
-      presentational(el('p', 'search-more', `Showing ${matches.length} of ${total} matches — refine to narrow.`)),
+      presentational(el('p', 'search-more', `Showing ${formatCount(matches.length)} of ${formatCount(total)} matches — refine to narrow.`)),
     );
   }
 }
