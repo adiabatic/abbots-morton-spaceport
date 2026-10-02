@@ -1262,7 +1262,7 @@ function updateProgress() {
       const queue = queueCounts(humanList, (id) => store.records.get(id), ruledClassIds(manifest.classes));
       line =
         `Queue decision: ${batchVerdicted}/${visibleUnits.length} · ` +
-        `queue: ${formatCount(queue.blankUnits)} blank in ${formatCount(queue.clusters)} clusters`;
+        `queue: ${formatCount(queue.blankUnits)} ${queue.blankUnits === 1 ? 'unit still needs' : 'units still need'} a verdict, in ${formatCount(queue.clusters)} clusters`;
     } else if (state.units) {
       line = `Worklist: ${batchVerdicted}/${visibleUnits.length}`;
     } else {
@@ -1545,7 +1545,7 @@ function buildConflictSection(conflicts) {
       const verdictCell = el('td');
       const record = conflict.records.get(id);
       if (record) verdictCell.append(verdictChipEl(record.verdict));
-      else verdictCell.append(el('span', 'note', '(blank)'));
+      else verdictCell.append(el('span', 'note', '(needs a verdict)'));
       row.append(verdictCell);
       const noteCell = el('td');
       if (record && record.note) noteCell.append(el('span', 'note', record.note.slice(0, 90)));
@@ -1594,7 +1594,7 @@ function renderQueue({ anchor = null } = {}) {
     el(
       'p',
       'queue-provenance',
-      `${formatCount(totals.blankUnits)} blank units in ${formatCount(totals.duplicateGroups)} duplicate groups → ` +
+      `${formatCount(totals.blankUnits)} units still need a verdict, in ${formatCount(totals.duplicateGroups)} duplicate groups → ` +
         `${formatCount(totals.clusters)} clusters (${formatCount(totals.multiClusters)} multi-unit, ` +
         `${formatCount(totals.singletonClusters)} singleton), live against the current verdicts.`,
     ),
@@ -1604,7 +1604,7 @@ function renderQueue({ anchor = null } = {}) {
       el(
         'p',
         'queue-note',
-        `${formatCount(ruledBlankUnits)} more blank units sit in ledger-ruled classes and are excluded here — ` +
+        `${formatCount(ruledBlankUnits)} more units in ledger-ruled classes still need a verdict and are excluded here — ` +
           'one class-level decision (or a bulk-proposal import) covers each; reach them from the sidebar with status “unverdicted”.',
       ),
     );
@@ -1619,7 +1619,7 @@ function renderQueue({ anchor = null } = {}) {
   container.append(header);
   renderQueueReadiness();
 
-  if (totals.clusters === 0) container.append(el('p', 'queue-note', 'No blank units — the queue is clear.'));
+  if (totals.clusters === 0) container.append(el('p', 'queue-note', 'The queue is clear — no units in it still need a verdict.'));
 
   if (top.length > 0) {
     const section = el('section', 'queue-top');
@@ -1636,7 +1636,7 @@ function renderQueue({ anchor = null } = {}) {
   if (conflicts.length > 0) container.append(buildConflictSection(conflicts));
 
   document.getElementById('batch-progress').textContent =
-    `Review queue: ${formatCount(totals.blankUnits)} blank in ${formatCount(totals.clusters)} clusters`;
+    `Review queue: ${formatCount(totals.blankUnits)} ${totals.blankUnits === 1 ? 'unit still needs' : 'units still need'} a verdict, in ${formatCount(totals.clusters)} clusters`;
   const anchorCard = anchor ? container.querySelector(`article.cluster[data-cluster="${anchor.cluster}"]`) : null;
   if (anchorCard) window.scrollTo(0, anchorCard.getBoundingClientRect().top + window.scrollY - anchor.delta);
   else window.scrollTo(0, scrollY);
@@ -1861,19 +1861,25 @@ async function advanceFrom(unitId) {
 async function advanceQueue({ stale = false } = {}) {
   await indexReady;
   const recordOf = (id) => store.records.get(id);
-  const decision = nextQueueDecision(humanList, recordOf, ruledClassIds(manifest.classes), queueShown);
+  const ruledIds = ruledClassIds(manifest.classes);
+  const decision = nextQueueDecision(humanList, recordOf, ruledIds, queueShown);
   const lead = stale ? 'That worklist was stacked for an earlier corpus' : 'Decision done';
+  const queue = queueCounts(humanList, recordOf, ruledIds);
+  const remaining = `${formatCount(queue.blankUnits)} ${queue.blankUnits === 1 ? 'unit in the queue still needs' : 'units in the queue still need'} a verdict`;
   if (!decision) {
-    toast(`${stale ? `${lead}, and the` : 'The'} review queue is clear`);
+    toast(
+      queue.blankUnits === 0
+        ? `${stale ? `${lead}, and the` : 'The'} review queue is clear`
+        : `${lead} — only skipped units and their duplicates are left (${remaining})`,
+    );
     setState({ units: null, order: null, queue: null, decision: null, stamp: null, unit: null, view: 'queue' });
     return;
   }
-  const queue = queueCounts(humanList, recordOf, ruledClassIds(manifest.classes));
   const what =
     decision.kind === 'cluster'
       ? `${formatCount(decision.cluster.size)} lookalike unit${decision.cluster.size === 1 ? '' : 's'} in ${decision.cluster.class}`
       : `${decision.unitIds.length} singletons`;
-  toast(`${lead} — ${decision.revisit ? 'back round to' : 'next'}: ${what} (${formatCount(queue.blankUnits)} blank left)`);
+  toast(`${lead} — ${decision.revisit ? 'back round to' : 'next'}: ${what} (${remaining})`);
   setStateReplace({
     units: decision.unitIds.join(','),
     queue: '1',
