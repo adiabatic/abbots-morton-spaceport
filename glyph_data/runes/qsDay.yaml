@@ -162,6 +162,11 @@ policy:
                   - qsAh
                   - qsUtter
     why: '`·Day ~b~ ·Tea` is less pleasant to write than `·Tea ~b~ ·Utter`'
+  - cell: {exit: none}
+    over: {exit: baseline}
+    when:
+      right: {family: qsUtter}
+    why: I want the ·Day+Utter ligature here if I'm not using ·Utter.alt
   extend:
   - entry: baseline
     by: 1
