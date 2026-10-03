@@ -1,0 +1,45 @@
+rune: qsWay_qsUtter
+sequence:
+- qsWay
+- qsUtter
+ductus:
+  sole: | # DRAFT — pending author sign-off
+    The ·Way stroke and the ·Utter stroke drawn as one motion: begun at the bottom of the descender on the left, the stroke rises up and to the right across the baseline as in ·Way, then finishes with ·Utter’s short rightward crown at the x-height, where it may connect to the next letter.
+stances:
+  sole:
+    motion: sole
+    outgoing: {stance: mono}
+    traits: []
+    bitmap:
+    - "    ##"  #
+    - "   #  "
+    - "  #   "
+    - "  #   "
+    - " #    "
+    - " #    "  #
+    - "#     "
+    - "#     "
+    - "#     "
+    y_offset: -3
+    surface:
+      entries: {}
+      exits:
+        x-height:
+          x: 6
+          stroke: horizontal
+      cells: []
+      unlocks: []
+      require: []
+policy:
+  order:
+  - sole
+  refuse: []
+  prefer: []
+  extend:
+  - exit: x-height
+    by: 1
+    when:
+      right: {family: qsGay}
+  contract: []
+  resolve: []
+  groups: {}

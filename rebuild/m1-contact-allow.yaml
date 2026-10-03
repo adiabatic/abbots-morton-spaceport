@@ -2096,3 +2096,20 @@
 - signature: contact:qsYe.loop.ex-y0.locked:qsSee.curled-over.en-y0.ex-y6:y7
 - signature: contact:qsYe.loop.ex-y0.locked:qsSee.curled-over.en-y0.ex-y6:y6
   why: The pair in the `:y7` signature above also touches at y6, off the junction row.
+
+# The ·Way+Utter ligature's crown is ·Utter's nub, unconditional letterform ink like the ·J'ai+Utter and ·They+Utter crowns above. The old font draws the bare ligature with the full crown at every word edge and before every non-joining follower (baseline rows E661:E67A and E661:E67A:E654), and quikscript.yaml has no unjoined form. The crown's terminal pixel has no ink above or below it, so it fails the automatic `unjoined: safe` check (`geometry.verify_unjoined_safe`). The ligature has no entry, so the ZWNJ lock mints no locked copy of it, and this one cell is the only one the gate checks.
+- signature: dangle:qsWay_qsUtter.sole:exit:x-height
+  why: The ·Way·Utter ligature's crown terminal (·Utter's nub at y5), drawn unconditionally in the old font; the declined exit keeps it.
+
+# ·Way's x-height exit against a follower whose x-height entry starts a downstroke, the off-junction contact of the ·Low·Day, ·Low·It, and ·Low·Et blocks above with ·Way as the exiter. ·Way·Day, ·Way·Day·Utter, ·Way·Et, and ·Way·It join at the x-height in the old font (baseline rows E661:E653, E661:E653:E67A, E661:E672, and E661:E670, junction y5). The top of ·Way's stroke is upright for two rows, so its pixel at y4 is one column left of the follower's downstroke; the old font places the same anchors with no adjustment, and those composites are pixel-identical to the rebuild's. ·Way has no entry, so it has no entered or ZWNJ-locked variant. There is one signature per follower variant; the follower's onward exits, its exit extension, and ·Et's exit contraction before ·May do not move its entry column.
+- signature: contact:qsWay.full.ex-y5:qsDay.full.en-y5:y4
+- signature: contact:qsWay.full.ex-y5:qsDay.full.en-y5.ex-y0:y4
+- signature: contact:qsWay.full.ex-y5:qsDay_qsUtter.full.en-y5:y4
+- signature: contact:qsWay.full.ex-y5:qsDay_qsUtter.full.en-y5.ex-y5:y4
+- signature: contact:qsWay.full.ex-y5:qsDay_qsUtter.full.en-y5.ex-y5.ex-ext-1:y4
+- signature: contact:qsWay.full.ex-y5:qsEt.sole.en-y5:y4
+- signature: contact:qsWay.full.ex-y5:qsEt.sole.en-y5.ex-y0:y4
+- signature: contact:qsWay.full.ex-y5:qsEt.sole.en-y5.ex-y0.ex-con-1:y4
+- signature: contact:qsWay.full.ex-y5:qsIt.sole.en-y5:y4
+- signature: contact:qsWay.full.ex-y5:qsIt.sole.en-y5.ex-y0:y4
+- signature: contact:qsWay.full.ex-y5:qsIt.sole.en-y5.ex-y0.ex-ext-1:y4

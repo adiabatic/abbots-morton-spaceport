@@ -1,0 +1,138 @@
+rune: qsWay
+codepoint: 0xE661
+ductus:
+  full: | # DRAFT — pending author sign-off
+    Begun at the bottom of the descender on the left, one straight stroke rises up and to the right, crosses the baseline, and ends at the x-height on the right, where it may connect to the next letter.
+  half: | # DRAFT — pending author sign-off
+    As the full motion, but only the part below the baseline is drawn, at a shallower slope: begun at the bottom of the descender on the left, a short stroke rises up and to the right and ends just below the baseline, where it connects to the next letter at the baseline.
+mono:
+  bitmap:
+  - "    #"  #
+  - "   # "
+  - "   # "
+  - "  #  "
+  - "  #  "
+  - " #   "  #
+  - " #   "
+  - "#    "
+  - "#    "
+  y_offset: -3
+stances:
+  full:
+    motion: full
+    traits: []
+    bitmap:
+    - "   #"  #
+    - "   #"
+    - "  # "
+    - "  # "
+    - " #  "
+    - " #  "  #
+    - "#   "
+    - "#   "
+    - "#   "
+    y_offset: -3
+    surface:
+      entries: {}
+      exits:
+        x-height:
+          x: 4
+          stroke: diagonal
+          unjoined: safe
+          toward:
+          - family:
+            - qsDay
+            - qsDay_qsUtter
+            - qsZoo
+            - qsJai
+            - qsJai_qsUtter
+            - qsJay
+            - qsJay_qsUtter
+            - qsNo
+            - qsLlan
+            - qsIt
+            - qsEt
+            - qsEight
+            - qsAwe
+            - qsOx
+            - qsOwe
+            - qsFoot
+      cells: []
+      unlocks: []
+      require: []
+  half:
+    motion: half
+    traits:
+    - half
+    bitmap:
+    - "   "  #
+    - "   "
+    - "   "
+    - "   "
+    - "   "
+    - "   "  #
+    - "  #"
+    - " # "
+    - "#  "
+    y_offset: -3
+    surface:
+      entries: {}
+      exits:
+        baseline:
+          x: 3
+          ink_y: -1
+          stroke: diagonal
+          toward:
+          - family:
+            - qsGay
+            - qsIng
+            - qsMay
+            - qsLow
+            - qsRoe
+            - qsExam
+            - qsAt
+            - qsI
+            - qsAh
+            - qsOut
+            - qsOut_qsTea
+      cells: []
+      unlocks: []
+      require:
+      - exit
+policy:
+  order:
+  - full
+  - half
+  refuse:
+  - when:
+      right: {family: qsThaw}
+    why: Joined ·Way·Thaw is ugly and awkward to write by hand.
+  prefer:
+  - cell: {exit: baseline}
+    over: {exit: none}
+    when:
+      right:
+        family:
+        - qsMay
+        - qsRoe
+  - cell: {exit: baseline}
+    over: {exit: none}
+    when:
+      right:
+        family: qsGay
+        then:
+          family:
+          - qsGay
+          - qsThaw
+          - qsVie
+          - qsVie_qsUtter
+          - qsSee
+          - qsMay
+          - qsLow
+          - qsAt
+          - qsAh
+          - qsUtter
+  extend: []
+  contract: []
+  resolve: []
+  groups: {}

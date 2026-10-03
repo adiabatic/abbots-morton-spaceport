@@ -1,6 +1,6 @@
 # Curated sequence set for the M1 CoreText-vs-HarfBuzz smoke harness (M1-PLAN section 5, coretext_smoke).
 # One sequence per line as whitespace-separated hex codepoints; text after "#" is the label.
-# Codepoints: qsPea E650, qsBay E651, qsTea E652, qsDay E653, qsKey E654, qsGay E655, qsThaw E656, qsThey E657, qsFee E658, qsVie E659, qsSee E65A, qsZoo E65B, qsShe E65C, qsJai E65D, qsCheer E65E, qsJay E65F, qsYe E660, qsMay E665, qsNo E666, qsLow E667, qsRoe E668, qsIt E670, qsEt E672, qsEight E673, qsAt E674, qsI E675, qsAh E676, qsAwe E677, qsOx E678, qsOy E679, qsUtter E67A, qsOut E67B, qsOoze E67E, space 0020, namer dot 00B7, ZWNJ 200C.
+# Codepoints: qsPea E650, qsBay E651, qsTea E652, qsDay E653, qsKey E654, qsGay E655, qsThaw E656, qsThey E657, qsFee E658, qsVie E659, qsSee E65A, qsZoo E65B, qsShe E65C, qsJai E65D, qsCheer E65E, qsJay E65F, qsYe E660, qsWay E661, qsMay E665, qsNo E666, qsLow E667, qsRoe E668, qsIt E670, qsEt E672, qsEight E673, qsAt E674, qsI E675, qsAh E676, qsAwe E677, qsOx E678, qsOy E679, qsUtter E67A, qsOut E67B, qsOoze E67E, space 0020, namer dot 00B7, ZWNJ 200C.
 # The driver runs every line under all eight acceptance configurations.
 #
 # The prototype probe rows, carried forward.
@@ -1713,3 +1713,174 @@ E660 200C E653           # ZWNJ severs the exit into ·Day
 E665 200C E660           # ZWNJ severs the entry from ·May
 E651 200C E660           # ZWNJ severs the entry from ·Bay
 00B7 E660                # Namer dot before Tall ·Ye
+
+# ·Way
+E661                     # ·Way in isolation
+E650 E661                # ·Pea before ·Way
+E661 E650                # ·Way before ·Pea
+E651 E661                # ·Bay before ·Way
+E661 E651                # ·Way before ·Bay
+E652 E661                # ·Tea before ·Way
+E661 E652                # ·Way before ·Tea
+E653 E661                # ·Day before ·Way
+E661 E653                # ·Way before ·Day
+E654 E661                # ·Key before ·Way
+E661 E654                # ·Way before ·Key
+E655 E661                # ·Gay before ·Way
+E661 E655                # ·Way before ·Gay
+E656 E661                # ·Thaw before ·Way
+E661 E656                # ·Way before ·Thaw
+E657 E661                # ·They before ·Way
+E661 E657                # ·Way before ·They
+E658 E661                # ·Fee before ·Way
+E661 E658                # ·Way before ·Fee
+E659 E661                # ·Vie before ·Way
+E661 E659                # ·Way before ·Vie
+E65A E661                # ·See before ·Way
+E661 E65A                # ·Way before ·See
+E65B E661                # ·Zoo before ·Way
+E661 E65B                # ·Way before ·Zoo
+E65C E661                # ·She before ·Way
+E661 E65C                # ·Way before ·She
+E65D E661                # ·Jai before ·Way
+E661 E65D                # ·Way before ·Jai
+E65E E661                # ·Cheer before ·Way
+E661 E65E                # ·Way before ·Cheer
+E65F E661                # ·Jay before ·Way
+E661 E65F                # ·Way before ·Jay
+E660 E661                # ·Ye before ·Way
+E661 E660                # ·Way before ·Ye
+E661 E661                # ·Way before ·Way
+E665 E661                # ·May before ·Way
+E661 E665                # ·Way before ·May
+E666 E661                # ·No before ·Way
+E661 E666                # ·Way before ·No
+E667 E661                # ·Low before ·Way
+E661 E667                # ·Way before ·Low
+E668 E661                # ·Roe before ·Way
+E661 E668                # ·Way before ·Roe
+E670 E661                # ·It before ·Way
+E661 E670                # ·Way before ·It
+E672 E661                # ·Et before ·Way
+E661 E672                # ·Way before ·Et
+E673 E661                # ·Eight before ·Way
+E661 E673                # ·Way before ·Eight
+E674 E661                # ·At before ·Way
+E661 E674                # ·Way before ·At
+E675 E661                # ·I before ·Way
+E661 E675                # ·Way before ·I
+E676 E661                # ·Ah before ·Way
+E661 E676                # ·Way before ·Ah
+E677 E661                # ·Awe before ·Way
+E661 E677                # ·Way before ·Awe
+E678 E661                # ·Ox before ·Way
+E661 E678                # ·Way before ·Ox
+E679 E661                # ·Oy before ·Way
+E661 E679                # ·Way before ·Oy
+E67A E661                # ·Utter before ·Way
+E661 E67A                # ·Way+Utter (the ligature; forms under every set)
+E67B E661                # ·Out before ·Way
+E661 E67B                # ·Way before ·Out
+E67E E661                # ·Ooze before ·Way
+E661 E67E                # ·Way before ·Ooze
+E652 E679 E661           # qsTea_qsOy before ·Way
+E661 E652 E679           # ·Way before qsTea_qsOy
+E653 E67A E661           # qsDay_qsUtter before ·Way
+E661 E653 E67A           # ·Way before qsDay_qsUtter
+E657 E65B E661           # qsThey_qsZoo before ·Way
+E661 E657 E65B           # ·Way before qsThey_qsZoo
+E657 E67A E661           # qsThey_qsUtter before ·Way
+E661 E657 E67A           # ·Way before qsThey_qsUtter
+E659 E67A E661           # qsVie_qsUtter before ·Way
+E661 E659 E67A           # ·Way before qsVie_qsUtter
+E65A E67A E661           # qsSee_qsUtter before ·Way
+E661 E65A E67A           # ·Way before qsSee_qsUtter
+E65D E67A E661           # qsJai_qsUtter before ·Way
+E661 E65D E67A           # ·Way before qsJai_qsUtter
+E65F E67A E661           # qsJay_qsUtter before ·Way
+E661 E65F E67A           # ·Way before qsJay_qsUtter
+E661 E67A E661           # qsWay_qsUtter before ·Way
+E661 E661 E67A           # ·Way before qsWay_qsUtter
+E67B E652 E661           # qsOut_qsTea before ·Way
+E661 E67B E652           # ·Way before qsOut_qsTea
+E661 E655 E656           # ·Way's half keeps its baseline join into ·Gay before ·Thaw
+E661 E655 E655           # ·Way's half keeps its join into ·Gay before a second ·Gay
+E661 E655 E67A           # ·Way's half keeps its join into ·Gay before ·Utter
+E661 E665 E655           # ·Way's half keeps its join into ·May before ·Gay
+E661 E668 E656           # ·Way's half keeps its join into ·Roe before ·Thaw
+E661 E655 E652           # ·Gay's extended baseline exit into ·Tea wins over ·Way's half
+E661 E655 E653           # ·Gay's extended baseline exit into half-·Day wins over ·Way's half
+E661 E655 E67B           # ·Gay's baseline exit into ·Out wins over ·Way's half
+E661 E674 E665           # The falling ·At's extended exit into ·May wins over ·Way's half
+E661 E655 E652 E653      # ·Way's half keeps ·Gay before ·Tea·Day; under ss05 ·Gay joins ·Tea and ·Way breaks
+E661 E655 E670 E653      # ·Way's half keeps ·Gay before ·It·Day; under ss04 ·Gay joins ·It and ·Way breaks
+E661 E655 E666           # ·Way's half into ·Gay, whose x-height exit reaches ·No
+E661 E665 E658           # ·Way's half into ·May, whose x-height exit reaches the reversed-loop ·Fee
+E661 E665 E652           # ·Way's half into ·May; under ss03 ·May also joins ·Tea at the x-height
+E661 E652 E653           # ·Way before ·Tea·Day (break), keeping the ·Tea·Day join
+E661 E670 E653           # ·Way's x-height exit into ·It, which joins half-·Day at the baseline
+E661 E670 E667           # ·Way into ·It into ·Low
+E661 E670 E67A           # ·Way into ·It into ·Utter
+E661 E670 E67B E652      # Manual: `·Way ~x~ ·It ~b~ ·Out+Tea`
+E661 E653 E666 E652      # Manual: `·Way ~x~ ·Day ~b~ ·No.alt ~b~ ·Tea`
+E661 E675 E667 E653      # Manual: `·Way.half ~b~ ·I | ·Low ~x~ ·Day`
+E661 E675 E65B           # Manual: `·Way.half ~b~ ·I ~x~ ·Zoo`
+E661 E673 E65B           # Manual: `·Way ~x~ ·Eight ~b~ ·Zoo.half`
+E661 E672 E666 E652      # Manual: `·Way ~x~ ·Et ~b~ ·No.alt ~b~ ·Tea`
+E661 E65E E653           # ·Way before ·Cheer (break); ·Cheer joins half-·Day
+E661 E65E E652 E679      # ·Way before ·Cheer before qsTea_qsOy: the ·Way·Cheer pair still breaks
+E661 E67A E650           # ·Way+Utter's x-height exit into ·Pea
+E661 E67A E651           # ·Way+Utter's extended exit into ·Bay
+E661 E67A E652           # ·Way+Utter before ·Tea: break at default; ss03 joins ·Tea at the x-height with the extended exit
+E661 E67A E653           # ·Way+Utter's x-height exit into ·Day
+E661 E67A E653 E67A      # ·Way+Utter before ·Day+Utter
+E661 E67A E654           # ·Way+Utter before ·Key (break)
+E661 E67A E655           # ·Way+Utter's extended exit into ·Gay
+E661 E67A E655 E65D      # ·Way+Utter keeps its extended exit into ·Gay before ·Jai
+E661 E67A E656           # ·Way·Utter un-forms: alternate ·Utter takes the baseline join into ·Thaw
+E661 E67A E657           # ·Way+Utter's extended exit into ·They
+E661 E67A E657 E67A      # ·Way+Utter's extended exit into ·They+Utter
+E661 E67A E658           # ·Way+Utter's extended exit into the reversed loop ·Fee
+E661 E67A E659           # ·Way·Utter un-forms before ·Vie
+E661 E67A E65A           # ·Way·Utter un-forms before ·See
+E661 E67A E65B           # ·Way+Utter's x-height exit into ·Zoo
+E661 E67A E65C           # ·Way+Utter before ·She (break)
+E661 E67A E65D           # ·Way+Utter before ·Jai: the follower's entry contracts by two
+E661 E67A E65D E67A      # ·Way+Utter before ·Jai+Utter: the follower's entry contracts by two
+E661 E67A E65E           # ·Way+Utter's x-height exit into ·Cheer
+E661 E67A E65F           # ·Way+Utter's x-height exit into ·Jay
+E661 E67A E65F E67A      # ·Way+Utter before ·Jay+Utter
+E661 E67A E660           # ·Way+Utter's x-height exit into the climbing loop ·Ye
+E661 E67A E665           # ·Way+Utter's x-height exit into ·May
+E661 E67A E666           # Manual: `·Way+Utter ~x~ ·No`
+E661 E67A E667           # ·Way·Utter un-forms before ·Low
+E661 E67A E668           # Manual: `·Way+Utter ~x~ ·Roe`
+E661 E67A E670           # ·Way+Utter's x-height exit into ·It
+E661 E67A E672           # ·Way+Utter's x-height exit into ·Et
+E661 E67A E673           # ·Way+Utter's x-height exit into ·Eight
+E661 E67A E674           # ·Way·Utter un-forms before ·At
+E661 E67A E675           # ·Way·Utter un-forms before ·I
+E661 E67A E676           # ·Way·Utter un-forms before ·Ah
+E661 E67A E677           # ·Way+Utter's x-height exit into ·Awe
+E661 E67A E678           # ·Way+Utter's x-height exit into ·Ox
+E661 E67A E679           # ·Way+Utter's x-height exit into ·Oy
+E661 E67A E67A           # ·Way+Utter before ·Utter (break)
+E661 E67A E67A E667      # ·Way+Utter's x-height exit into the alternate ·Utter before ·Low
+E661 E67A E67B           # ·Way·Utter un-forms before ·Out
+E661 E67A E67E           # ·Way·Utter un-forms before ·Ooze
+E661 E67A E652 E653      # ·Way+Utter before ·Tea·Day: break at default, keeping ·Tea·Day; ss03 joins ·Tea at the x-height
+E661 E67A E668 E653      # Manual: `·Way+Utter ~x~ ·Roe | ·Day`
+E661 E67A E668 E656      # Manual: `·Way+Utter ~x~ ·Roe ~b~ ·Thaw`
+E661 E67A E666 E65A      # Manual: `·Way+Utter ~x~ ·No | ·See`
+E661 E67A E65B E666 E652 # Manual: `·Way+Utter ~x~ ·Zoo ~b~ ·No.alt ~b~ ·Tea`
+E650 E661 E67A           # ·Pea before ·Way+Utter (break)
+E665 E661 E67A           # ·May before ·Way+Utter (break)
+E670 E661 E67A           # ·It before ·Way+Utter (break)
+200C E661                # ·Way after ZWNJ: it has no entry, so there is no locked copy
+200C E661 E655           # ·Way after ZWNJ keeps its half's baseline join into ·Gay
+E661 200C E653           # ZWNJ severs the exit into ·Day
+E661 200C E655           # ZWNJ severs the half's exit into ·Gay
+200C E661 E67A           # ·Way+Utter after ZWNJ
+E661 200C E67A           # ZWNJ severs the ligature
+00B7 E661                # Namer dot before Deep ·Way
+00B7 E661 E67A           # Namer dot before ·Way+Utter

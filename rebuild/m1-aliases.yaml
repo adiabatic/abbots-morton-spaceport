@@ -1,6 +1,6 @@
 # Hand-written alias map for the M1 oracle comparison (M1-PLAN section 6, step 2(c)): every old compiled glyph name in any subset baseline row, mapped to the CellId the name denotes.
 # This file can be deleted once the rebuild replaces the old font.
-# Conventions: a bare family name denotes the isolated drawing with no committed anchors. The old font also joins on the bare glyph when its base drawing already has the live anchor; those rows match the bare-name-live-join ledger class at name grain. A suffixed name denotes the anchors it names, including anchors the old font leaves dangling at word edges; those rows match dangling-anchor-dropped. A `.noentry` name is one of the old font's post-ZWNJ variants and denotes the locked copy. A `.ss10` name is the old font's ss10 copy of the bare glyph, the same drawing and advance with no anchors, and denotes what the bare name denotes. Boundary glyph names map to the literal string `boundary`, and the comparison skips them.
+# Conventions: a bare family name denotes the isolated drawing with no committed anchors. The old font also joins on the bare glyph when its base drawing already has the live anchor; those rows match the bare-name-live-join ledger class at name grain. A suffixed name denotes the anchors it names, including anchors the old font leaves dangling at word edges; those rows match dangling-anchor-dropped. A `.noentry` name is one of the old font's entryless variants and denotes the locked copy, except where the old font's `noentry_after` derive also draws that variant after a letter: those names (`qsThey_qsUtter.noentry`, `qsCheer.noentry`) denote the plain cell. A `.ss10` name is the old font's ss10 copy of the bare glyph, the same drawing and advance with no anchors, and denotes what the bare name denotes. Boundary glyph names map to the literal string `boundary`, and the comparison skips them.
 # run_m1 checks completeness before it builds: a glyph name in a subset row with no entry here stops the run with an error listing the missing names. An entry may map to the literal string `pending` to acknowledge a name mid-migration: the completeness check accepts it, and the comparison still treats those rows as unaliased.
 
 space: boundary
@@ -105,7 +105,7 @@ qsShe: {rune: qsShe, stance: sole}
 qsShe.ex-y0: {rune: qsShe, stance: sole, exit: baseline}
 qsShe.ss10: {rune: qsShe, stance: sole}
 qsCheer: {rune: qsCheer, stance: sole}
-qsCheer.noentry: {rune: qsCheer, stance: sole, adjustments: [locked]}
+qsCheer.noentry: {rune: qsCheer, stance: sole}
 qsCheer.ss10: {rune: qsCheer, stance: sole}
 qsJay: {rune: qsJay, stance: sole}
 qsJay.en-y5.ex-y0: {rune: qsJay, stance: sole, entry: x-height, exit: baseline}
@@ -132,6 +132,12 @@ qsYe.ex-y0: {rune: qsYe, stance: loop, exit: baseline}
 qsYe.ex-y0.ex-ext-1: {rune: qsYe, stance: loop, exit: baseline, adjustments: [ex-ext-1]}
 qsYe.noentry: {rune: qsYe, stance: loop, adjustments: [locked]}
 qsYe.ss10: {rune: qsYe, stance: loop}
+qsWay: {rune: qsWay, stance: full}
+qsWay.half.ex-y0: {rune: qsWay, stance: half, exit: baseline}
+qsWay.ss10: {rune: qsWay, stance: full}
+qsWay_qsUtter: {rune: qsWay_qsUtter, stance: sole}
+qsWay_qsUtter.ex-con-2: {rune: qsWay_qsUtter, stance: sole, exit: x-height}
+qsWay_qsUtter.ex-ext-1: {rune: qsWay_qsUtter, stance: sole, exit: x-height, adjustments: [ex-ext-1]}
 qsNo.alt.en-y0.ex-y0.after-zoo: {rune: qsNo, stance: flipped, entry: baseline, exit: baseline}
 qsFee.en-y5: {rune: qsFee, stance: reversed-loop, entry: x-height}
 qsFee.en-y8.ex-y5: {rune: qsFee, stance: loop, entry: top, exit: x-height}
