@@ -1,10 +1,11 @@
 rune: qsYe
 codepoint: 0xE660
 ductus:
-  loop: | # DRAFT — pending author sign-off
-    Begun at the left just above the x-height, the stroke rises to the right to the top of the letter, curves down the right side, and crosses back over its own start to run straight down the stem to the baseline, where it may connect to the next letter. A previous letter may connect at the foot of the stem on the baseline.
-  climbing-loop: | # DRAFT — pending author sign-off
-    Entered from the left at the x-height, the stroke climbs the stem into a clockwise loop, up the left side to the top, down the right side, and back across to the stem, then runs straight down the stem to the baseline, where it may connect to the next letter.
+  loop: |
+    - Begun at the left just above the x-height, the stroke draws a counterclockwise loop — rightward along the bottom, up the right side, leftward over the top, and down the left side — then crosses back over its own start and runs straight down the stem to the baseline, where it may connect to the next letter.
+    - Entered from a previous letter at the foot of the stem on the baseline, the stroke climbs the stem and draws the same loop, but clockwise — rightward along the top, down the right side, leftward along the bottom — then crosses the upward stroke and finishes at the left just above the x-height.
+  climbing-loop: |
+    Entered from the left at the x-height, the stroke turns up into a counterclockwise loop — rightward along the bottom, up the right side, leftward over the top, and down the left side back to the stem — then runs straight down the stem to the baseline, where it may connect to the next letter.
 mono:
   bitmap:
   - "  #  "
