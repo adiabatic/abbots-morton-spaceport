@@ -234,6 +234,53 @@ def _only_renamed_roe_shortened_top(row: DivergentRow) -> bool:
     return bool(pairs) and all(pair == _RENAMED_ROE_SHORTENED_TOP for pair in pairs)
 
 
+# The tokens a `.noentry` name accounts for wherever it appears: the name itself and the lock token that its alias records or that a locked cell carries.
+_NOENTRY_NAME_TOKENS = frozenset({"old-noentry", "+locked", "-locked"})
+# The markers the zwnj-follower-exit-restored ruling names: ZWNJ and the namer dot.
+_NOENTRY_MARKERS = frozenset({"200C", "00B7"})
+
+
+def _noentry_glyphs(row: DivergentRow) -> list[int]:
+    return [index for index, name in enumerate(row.baseline_glyphs) if ".noentry" in name]
+
+
+def _cell_exit(token: str) -> str | None:
+    fields = token.split("/")
+    return fields[3] if len(fields) == 5 and fields[3] != "None" else None
+
+
+def _noentry_name_tokens(row: DivergentRow, tags: set[str]) -> set[str]:
+    """Return the row's tokens that its `.noentry` names account for by themselves: the name and lock tokens, and `exit-added` when a `.noentry` glyph whose name spells no exit settles with an onward exit. Every other token is a difference of its own, which the rules for that token classify."""
+    found = tags & _NOENTRY_NAME_TOKENS
+    if "old-noentry" in found and "exit-added" in tags:
+        if any(
+            ".ex-" not in row.baseline_glyphs[index] and _cell_exit(row.new_cells[index]) is not None
+            for index in _noentry_glyphs(row)
+        ):
+            found.add("exit-added")
+    return found
+
+
+def _post_marker_exits_restored(row: DivergentRow) -> bool:
+    """Return whether every junction the row gains is the right-side join of a `.noentry` glyph that the old font drew right after a ZWNJ or the namer dot, the join the zwnj-follower-exit-restored ruling restores. `boundary-window` takes every ZWNJ row before this check runs, and the old font draws no `.noentry` glyph right after the namer dot, so the check matches no current row; it keeps the ruling's namer-dot case. The baseline junctions run between codepoints, so a `lig` junction marks two codepoints drawn as one glyph."""
+    starts = [0] + [index + 1 for index, junction in enumerate(row.baseline_junctions) if junction != "lig"]
+    if len(starts) != len(row.baseline_glyphs):
+        return False
+    codepoints = row.codepoints.split(":")
+    old_junctions = [junction for junction in row.baseline_junctions if junction != "lig"]
+    gained = [
+        index
+        for index, (old, new) in enumerate(zip(old_junctions, row.new_junctions))
+        if old == "break" and new != "break"
+    ]
+    return bool(gained) and all(
+        ".noentry" in row.baseline_glyphs[index]
+        and starts[index] > 0
+        and codepoints[starts[index] - 1] in _NOENTRY_MARKERS
+        for index in gained
+    )
+
+
 def classify_divergence(row: DivergentRow) -> str | None:
     """Return the one ledger class for a divergent row, chosen from its divergence tags (which `_compare_row` computes through the alias map), or None when no class applies. The order of the checks below is the precedence, and the ledger's header comment summarizes it. A row with no class can still match a function predicate or an unconditional ledger entry; otherwise it is unmatched and waits for a verdict on the review corpus."""
     tags = set(row.divergence_tags)
@@ -275,7 +322,7 @@ def classify_divergence(row: DivergentRow) -> str | None:
     if gains:
         gain_runes = {item.split(":", 1)[1] for item in gains}
         unentered_it_gain = "junction-gain-unentered:qsIt" in tags
-        if "old-noentry" in tags:
+        if "old-noentry" in tags and _post_marker_exits_restored(row):
             return "zwnj-follower-exit-restored"
         if "E652:E679" in row.codepoints:
             return "pre-ligature-cleanup-regularized"
@@ -286,6 +333,10 @@ def classify_divergence(row: DivergentRow) -> str | None:
         if gain_runes <= {"qsPea"}:
             return "pea-chain-regularized"
         return None
+    # A `.noentry` name that is the row's only difference makes it zwnj-word-initial-unification, below. Any other row is classified by its other tokens, as if its `.noentry` names were the plain ones.
+    noentry_tokens = _noentry_name_tokens(row, tags)
+    noentry_name_only = bool(noentry_tokens) and tags <= noentry_tokens
+    tags -= noentry_tokens
     if "+en-ext-1" in tags:
         return "halves-entry-extension-restored"
     if tags & {"-en-ext-1:same-junction", "-en-ext-2:same-junction"}:
@@ -337,7 +388,7 @@ def classify_divergence(row: DivergentRow) -> str | None:
     # A row with these tokens has an ink change that no class covers, so it must get no class instead of reaching the name-grain classes below.
     if any(item.startswith("+ex-bind-") for item in tags) or "-ex-ext-1" in tags:
         return None
-    if "+locked" in tags or "old-noentry" in tags:
+    if noentry_name_only:
         return "zwnj-word-initial-unification"
     if "entry-dropped" in tags or "exit-dropped" in tags:
         return "dangling-anchor-dropped"

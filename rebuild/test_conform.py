@@ -821,6 +821,63 @@ class TestClassifierRouting:
         row = self._row("ss03", ("ligation",), codepoints="E665:E652:E679")
         assert oracle.classify_divergence(row) == "post-marker-ligature-formation"
 
+    def test_noentry_rows_take_a_noentry_class_only_for_what_the_name_explains(self):
+        """zwnj-word-initial-unification takes a row only when its `.noentry` name, with the onward exit that name does not spell, is the row's only difference; any other row is classified by its other tokens. zwnj-follower-exit-restored takes only the right-side join of a `.noentry` glyph after ZWNJ or the namer dot; the namer-dot row is hypothetical, because the old font draws no `.noentry` glyph there."""
+        after_may = conform.DivergentRow(
+            config="default",
+            codepoints="E665:E657:E67A:E652",
+            kinds=("cell",),
+            position=1,
+            baseline_glyphs=("qsMay", "qsThey_qsUtter.noentry", "qsTea.en-y5"),
+            baseline_junctions=("break", "lig", "y5"),
+            new_cells=(
+                "qsMay/loop/None/None/",
+                "qsThey_qsUtter/sole/None/x-height/",
+                "qsTea/full/x-height/None/",
+            ),
+            new_junctions=("break", "y5"),
+            divergence_tags=("exit-added", "old-noentry"),
+        )
+        assert oracle.classify_divergence(after_may) == "zwnj-word-initial-unification"
+        dangling = replace(
+            after_may,
+            baseline_glyphs=("qsMay", "qsThey_qsUtter.noentry", "qsTea.en-y5.ex-y0"),
+            divergence_tags=("exit-added", "exit-dropped", "old-noentry"),
+        )
+        assert oracle.classify_divergence(dangling) == "dangling-anchor-dropped"
+        spelled_exit = replace(
+            after_may,
+            baseline_glyphs=("qsMay.ex-y5", "qsThey_qsUtter.noentry.ex-con-1", "qsTea.en-y5"),
+            new_cells=("qsMay/loop/None/None/",) + after_may.new_cells[1:],
+            divergence_tags=("exit-dropped", "old-noentry"),
+        )
+        assert oracle.classify_divergence(spelled_exit) == "dangling-anchor-dropped"
+        exit_added_elsewhere = replace(
+            after_may,
+            baseline_glyphs=("qsMay", "qsThey_qsUtter.noentry.ex-con-1", "qsTea.en-y5"),
+            new_cells=("qsMay/loop/None/x-height/",) + after_may.new_cells[1:],
+        )
+        assert oracle.classify_divergence(exit_added_elsewhere) == "bare-name-live-join"
+        gain_after_tea = conform.DivergentRow(
+            config="default",
+            codepoints="E652:E656:E670",
+            kinds=("cell", "junction"),
+            position=1,
+            baseline_glyphs=("qsTea", "qsThaw.noentry", "qsIt"),
+            baseline_junctions=("break", "break"),
+            new_cells=("qsTea/full/None/None/", "qsThaw/sole/None/x-height/", "qsIt/sole/x-height/None/"),
+            new_junctions=("break", "y5"),
+            divergence_tags=("-locked", "exit-added", "junction-gain:qsThaw", "old-noentry"),
+        )
+        assert oracle.classify_divergence(gain_after_tea) is None
+        gain_after_dot = replace(
+            gain_after_tea,
+            codepoints="00B7:E656:E670",
+            baseline_glyphs=("periodcentered", "qsThaw.noentry", "qsIt"),
+            new_cells=("periodcentered",) + gain_after_tea.new_cells[1:],
+        )
+        assert oracle.classify_divergence(gain_after_dot) == "zwnj-follower-exit-restored"
+
 
 class TestConformanceMerge:
     def _result(
