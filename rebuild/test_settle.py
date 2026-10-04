@@ -7,7 +7,7 @@ import itertools
 
 import pytest
 
-from rebuild.pipeline import conform, fixtures, kernel_exec, spec_load
+from rebuild.pipeline import conform, fixtures, geometry, kernel_exec, spec_load, surface
 from rebuild.pipeline.model import CellId, Condition, PolicyRecord, Settled, When
 from rebuild.pipeline.settle import (
     EDGE,
@@ -375,11 +375,115 @@ def test_may_tea_jai_keeps_a_baseline_gap(real_labels, lead, features):
         "qsJai.sole.en-y5.en-con-1",
     )
     assert real_labels[("qsTea qsJai", features)] == (
-        "qsTea.half.ex-y5",
+        "qsTea.half.ex-y5.ex-ext-1",
         "qsJai.sole.en-y5.en-con-1",
     )
     follower_labels = real_labels[("qsMay qsTea qsJai qsTea", features)]
-    assert follower_labels[1] == ("qsTea.full.en-y5" if features else "qsTea.half.ex-y5")
+    assert follower_labels[1] == ("qsTea.full.en-y5" if features else "qsTea.half.ex-y5.ex-ext-1")
+
+
+TEA_CLEARANCE_FEATURES = ((), ("ss03",), ("ss04",), ("ss05",), ("ss03", "ss05"))
+TEA_OTHER_FOLLOWERS = (
+    "qsAwe",
+    "qsAwe qsAh",
+    "qsEight",
+    "qsEight qsAh",
+    "qsEight qsYe",
+    "qsEight qsIt",
+    "qsEt",
+    "qsEt qsAh",
+    "qsEt qsGay",
+    "qsIt",
+    "qsIt qsDay",
+    "qsIt qsAh",
+    "qsJay",
+    "qsJay qsAh",
+    "qsJay qsI",
+    "qsJay qsUtter",
+    "qsNo qsAwe",
+    "qsNo qsFee",
+    "qsOx",
+    "qsOx qsAh",
+    "qsRoe",
+    "qsRoe qsAh",
+    "qsRoe qsI",
+    "qsZoo",
+    "qsZoo qsAh",
+)
+TEA_CLEARANCE_NAMES = (
+    "qsWay qsGay qsTea qsJai",
+    *(
+        f"{lead} qsTea qsJai{tail}"
+        for lead in ("qsGay", "qsI qsMay", "qsThey", "qsVie")
+        for tail in ("", " qsDay", " qsUtter", " qsI")
+    ),
+    *(f"qsI qsMay qsTea {follower}" for follower in TEA_OTHER_FOLLOWERS),
+)
+TEA_JAI_PAIR_NAMES = tuple(
+    f"qsTea qsJai{tail}" for tail in ("", " qsDay", " qsI", " qsUtter", " space", " zwnj", " qsUtter qsDay")
+)
+
+
+@pytest.mark.parametrize("features", TEA_CLEARANCE_FEATURES)
+@pytest.mark.parametrize("names", TEA_CLEARANCE_NAMES)
+def test_half_tea_keeps_nonadjacent_ink_separate(real_spec, real_settled, names, features):
+    settled = real_settled[(names, features)]
+    index = next(i for i, item in enumerate(settled) if item.cell.rune == "qsTea")
+    predecessor, tea, follower = settled[index - 1 : index + 2]
+    assert tea.cell.stance == "half" and tea.cell.entry is None
+    assert predecessor.junction is None and tea.junction == follower.cell.entry == "x-height"
+    predecessor_record, tea_record, follower_record = (
+        geometry.realize(real_spec, surface.resolve_cell(real_spec, item.cell))
+        for item in (predecessor, tea, follower)
+    )
+    assert tea_record.exit is not None and follower_record.entry is not None
+    assert geometry.junction_gap(tea_record, follower_record, "x-height") == 0
+    tea_origin = max(map(len, predecessor_record.bitmap)) + 1
+    follower_origin = tea_origin + tea_record.exit[0] - follower_record.entry[0]
+    predecessor_ink = geometry.ink_cells(predecessor_record)
+    follower_ink = geometry.ink_cells(follower_record, follower_origin)
+    assert min(x for x, y in follower_ink if y < 5) >= tea_origin
+    assert (
+        min(
+            max(abs(left_x - right_x), abs(left_y - right_y))
+            for left_x, left_y in predecessor_ink
+            for right_x, right_y in follower_ink
+        )
+        >= 2
+    )
+    assert tea.cell.adjustments == (("ex-ext-1",) if follower.cell.rune in ("qsJai", "qsJai_qsUtter") else ())
+
+
+@pytest.mark.parametrize("features", TEA_CLEARANCE_FEATURES)
+@pytest.mark.parametrize("names", TEA_JAI_PAIR_NAMES)
+def test_tea_jai_clearance_applies_at_every_word_position(real_spec, real_settled, names, features):
+    tea, follower = real_settled[(names, features)][:2]
+    assert tea.cell == CellId("qsTea", "half", None, "x-height", ("ex-ext-1",))
+    assert follower.cell.rune in ("qsJai", "qsJai_qsUtter")
+    tea_record, follower_record = (
+        geometry.realize(real_spec, surface.resolve_cell(real_spec, item.cell)) for item in (tea, follower)
+    )
+    assert geometry.junction_gap(tea_record, follower_record, "x-height") == 0
+
+
+def test_tea_jai_clearance_does_not_enter_the_isolated_overlay(real_spec):
+    from rebuild.pipeline.explain import explain_many
+
+    reports = explain_many(
+        real_spec,
+        _requests(
+            real_spec,
+            (
+                ("qsWay qsGay qsTea qsJai", frozenset(("ss10",))),
+                ("qsGay qsTea qsJai qsUtter", frozenset(("ss10",))),
+            ),
+        ),
+    )
+    for report in reports:
+        assert len(report.settled) == len(report.codepoints)
+        for item in report.settled:
+            assert item.cell.entry is None and item.cell.exit is None and item.junction is None
+            assert item.cell.adjustments == ()
 
 
 # The orphaned-·Tea windows (doc/rebuild-design.md §3.4). In ·Day·Tea·Utter·Low and ·Oy·Tea·Utter·Low the predecessor would leave its baseline exit unjoined expecting ·Tea to join forward into ·Utter, and qsUtter's ·Low-scoped prefer then refuses that entry, leaving ·Tea joined on neither side. The three-letter `then:` chains on qsDay.policy.prefer[1] and qsOy/qsTea_qsOy.policy.prefer[0] keep the predecessor's exit in those windows, which matches the old font's `·Day ~b~ ·Tea | ·Utter.alt ~b~ ·Low` grouping. The other windows check that the predecessor still leaves its exit unjoined everywhere else. The depth-4 rows show the same change one letter further on: the entry-live exception in qsDay.policy.prefer[5] reads the fourth raw glyph, so in ·Pea·Day·Tea·Utter·Tea·May ·Day leaves its exit unjoined and ·Tea joins forward into ·Utter when the fourth letter after ·Day is one that would otherwise leave ·Utter joined on neither side (the innermost `then:` list of qsDay.policy.prefer[5]). ·Day keeps its exit when the tail can still join (·Pea, or the end of the text), and under ss03 ·Utter joins the following ·Tea at the x-height. These windows are five and six letters long, past the acceptance oracle's four-letter maximum length, so only these rows check them.
@@ -670,6 +774,11 @@ REAL_WINDOWS = tuple(
             *((names, ()) for names, _expected in LIGATURE_TRANSPARENT_PEA_ROWS),
             ("qsTea qsOy qsIt qsNo qsAh", ()),
             ("qsBay qsMay", ()),
+            *(
+                (names, features)
+                for names in (*TEA_CLEARANCE_NAMES, *TEA_JAI_PAIR_NAMES)
+                for features in TEA_CLEARANCE_FEATURES
+            ),
         )
     )
 )
@@ -682,9 +791,15 @@ def real_guard(real_spec):
 
 
 @pytest.fixture(scope="module")
-def real_labels(real_spec):
-    """Every window of REAL_WINDOWS as cell labels, settled in one batch over the loaded rune YAML."""
+def real_settled(real_spec):
+    """Every window of REAL_WINDOWS, settled in one batch over the loaded rune YAML."""
+    return _window_settled(real_spec, REAL_WINDOWS)
+
+
+@pytest.fixture(scope="module")
+def real_labels(real_spec, real_settled):
+    """The same real-spec batch as cell labels."""
     return {
         key: tuple(cell_label(real_spec, settled.cell) for settled in row)
-        for key, row in _window_settled(real_spec, REAL_WINDOWS).items()
+        for key, row in real_settled.items()
     }
