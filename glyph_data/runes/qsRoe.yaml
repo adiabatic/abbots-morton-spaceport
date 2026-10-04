@@ -115,6 +115,9 @@ policy:
         family:
         - qsNo
         - qsRoe
+        except:
+        - family: qsNo
+          then: {family: qsGay}
   extend:
   - entry: baseline
     by: 1

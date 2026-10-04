@@ -77,6 +77,7 @@ stances:
             inks_when: unjoined
           from:
           - family:
+            - qsNo
             - qsAh
             - qsUtter
       exits:
