@@ -361,28 +361,33 @@ def test_bay_may_contracts_mays_baseline_entry(real_labels):
     )
 
 
+TEA_CLEARANCE_FEATURES = ((), ("ss03",), ("ss04",), ("ss05",), ("ss03", "ss05"))
 MAY_TEA_JAI_LEADS = ("qsI", "qsAh")
-MAY_TEA_JAI_WINDOWS = ("qsTea qsJai", "qsMay qsTea qsJai qsTea")
+MAY_TEA_JAI_WINDOWS = ("qsTea qsJai", "qsMay qsTea qsJai", "qsMay qsTea qsJai qsTea")
 
 
 @pytest.mark.parametrize("lead", MAY_TEA_JAI_LEADS)
-@pytest.mark.parametrize("features", ((), ("ss03",)))
-def test_may_tea_jai_keeps_a_baseline_gap(real_labels, lead, features):
+@pytest.mark.parametrize("features", TEA_CLEARANCE_FEATURES)
+def test_may_tea_jai_keeps_the_narrow_crown(real_labels, lead, features):
     assert real_labels[(f"{lead} qsMay qsTea qsJai", features)] == (
         f"{lead}.{'loop' if lead == 'qsI' else 'sole'}.ex-y5.ex-ext-1",
         "qsMay.loop.en-y5",
-        "qsTea.half.ex-y5.ex-ext-1",
+        "qsTea.half.ex-y5",
         "qsJai.sole.en-y5.en-con-1",
     )
     assert real_labels[("qsTea qsJai", features)] == (
-        "qsTea.half.ex-y5.ex-ext-1",
+        "qsTea.half.ex-y5",
         "qsJai.sole.en-y5.en-con-1",
     )
+    assert real_labels[("qsMay qsTea qsJai", features)] == (
+        ("qsMay.loop.ex-y5.ex-ext-1", "qsTea.full.en-y5", "qsJai.sole")
+        if "ss03" in features
+        else ("qsMay.loop", "qsTea.half.ex-y5", "qsJai.sole.en-y5.en-con-1")
+    )
     follower_labels = real_labels[("qsMay qsTea qsJai qsTea", features)]
-    assert follower_labels[1] == ("qsTea.full.en-y5" if features else "qsTea.half.ex-y5.ex-ext-1")
+    assert follower_labels[1] == ("qsTea.full.en-y5" if "ss03" in features else "qsTea.half.ex-y5")
 
 
-TEA_CLEARANCE_FEATURES = ((), ("ss03",), ("ss04",), ("ss05",), ("ss03", "ss05"))
 TEA_OTHER_FOLLOWERS = (
     "qsAwe",
     "qsAwe qsAh",
@@ -410,17 +415,29 @@ TEA_OTHER_FOLLOWERS = (
     "qsZoo",
     "qsZoo qsAh",
 )
-TEA_CLEARANCE_NAMES = (
+TEA_CLEARANCE_NAMES = tuple(f"qsI qsMay qsTea {follower}" for follower in TEA_OTHER_FOLLOWERS)
+TEA_JAI_PAIR_NAMES = (
+    "qsTea qsJai",
+    "qsTea qsJai qsDay",
+    "qsTea qsJai qsI",
+    "qsTea qsJai qsUtter",
+    "qsTea qsJai space",
+    "qsTea qsJai zwnj",
+    "qsTea qsJai qsUtter qsDay",
+    "qsTea qsJai qsTea qsDay",
+)
+TEA_JAI_CONTEXT_NAMES = (
     "qsWay qsGay qsTea qsJai",
     *(
         f"{lead} qsTea qsJai{tail}"
         for lead in ("qsGay", "qsI qsMay", "qsThey", "qsVie")
-        for tail in ("", " qsDay", " qsUtter", " qsI")
+        for tail in ("", " qsDay", " qsI")
     ),
-    *(f"qsI qsMay qsTea {follower}" for follower in TEA_OTHER_FOLLOWERS),
-)
-TEA_JAI_PAIR_NAMES = tuple(
-    f"qsTea qsJai{tail}" for tail in ("", " qsDay", " qsI", " qsUtter", " space", " zwnj", " qsUtter qsDay")
+    *(
+        f"{lead} qsTea qsJai qsUtter{tail}"
+        for lead in ("qsWay qsGay", "qsGay", "qsI qsMay", "qsThey", "qsVie")
+        for tail in ("", " qsDay", " space", " zwnj")
+    ),
 )
 
 
@@ -451,19 +468,38 @@ def test_half_tea_keeps_nonadjacent_ink_separate(real_spec, real_settled, names,
         )
         >= 2
     )
-    assert tea.cell.adjustments == (("ex-ext-1",) if follower.cell.rune in ("qsJai", "qsJai_qsUtter") else ())
+    assert tea.cell.adjustments == ()
 
 
 @pytest.mark.parametrize("features", TEA_CLEARANCE_FEATURES)
-@pytest.mark.parametrize("names", TEA_JAI_PAIR_NAMES)
-def test_tea_jai_clearance_applies_at_every_word_position(real_spec, real_settled, names, features):
-    tea, follower = real_settled[(names, features)][:2]
-    assert tea.cell == CellId("qsTea", "half", None, "x-height", ("ex-ext-1",))
+@pytest.mark.parametrize("names", (*TEA_JAI_PAIR_NAMES, *TEA_JAI_CONTEXT_NAMES))
+def test_half_tea_keeps_the_jai_crown_narrow_in_context(real_spec, real_settled, names, features):
+    settled = real_settled[(names, features)]
+    index = next(i for i, item in enumerate(settled) if item.cell.rune == "qsTea")
+    tea, follower = settled[index : index + 2]
+    assert tea.cell == CellId("qsTea", "half", None, "x-height", ())
     assert follower.cell.rune in ("qsJai", "qsJai_qsUtter")
+    assert "en-con-1" in follower.cell.adjustments
+    assert tea.junction == follower.cell.entry == "x-height"
+    if index:
+        assert settled[index - 1].junction is None
     tea_record, follower_record = (
         geometry.realize(real_spec, surface.resolve_cell(real_spec, item.cell)) for item in (tea, follower)
     )
     assert geometry.junction_gap(tea_record, follower_record, "x-height") == 0
+    assert tea_record.exit is not None and follower_record.entry is not None
+    follower_origin = tea_record.exit[0] - follower_record.entry[0]
+    ink = geometry.ink_cells(tea_record) | geometry.ink_cells(follower_record, follower_origin)
+    expected_crown = {0, 1, 2, 3} | ({7, 8} if follower.cell.rune == "qsJai_qsUtter" else set())
+    assert {x for x, y in ink if y == 5} == expected_crown
+
+
+@pytest.mark.parametrize("features", TEA_CLEARANCE_FEATURES)
+def test_tea_jai_tea_day_keeps_its_joins(real_settled, features):
+    settled = real_settled[("qsTea qsJai qsTea qsDay", features)]
+    middle_join = "baseline" if "ss05" in features else None
+    assert tuple(item.junction for item in settled) == ("x-height", middle_join, "baseline", None)
+    assert settled[2].cell == CellId("qsTea", "full", middle_join, "baseline", ())
 
 
 def test_tea_jai_clearance_does_not_enter_the_isolated_overlay(real_spec):
@@ -760,7 +796,7 @@ REAL_WINDOWS = tuple(
             *((" ".join(["qsMay"] * length), ()) for length, _expected in MAY_CHAIN_ROWS),
             *(
                 (names, features)
-                for features in ((), ("ss03",))
+                for features in TEA_CLEARANCE_FEATURES
                 for lead in MAY_TEA_JAI_LEADS
                 for names in (f"{lead} qsMay qsTea qsJai", *MAY_TEA_JAI_WINDOWS)
             ),
@@ -776,7 +812,7 @@ REAL_WINDOWS = tuple(
             ("qsBay qsMay", ()),
             *(
                 (names, features)
-                for names in (*TEA_CLEARANCE_NAMES, *TEA_JAI_PAIR_NAMES)
+                for names in (*TEA_CLEARANCE_NAMES, *TEA_JAI_PAIR_NAMES, *TEA_JAI_CONTEXT_NAMES)
                 for features in TEA_CLEARANCE_FEATURES
             ),
         )

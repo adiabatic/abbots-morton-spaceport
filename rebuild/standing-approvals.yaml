@@ -1823,17 +1823,6 @@ rules:
         follower_advance: 0
         follower_columns_added: 0
       except_left: []
-  - id: tea-jai-xheight-extension-added
-    verdict: approve
-    note: "Half-·Tea reaches one pixel further into ·J’ai than the old font drew, carrying ·J’ai and everything past it one column right. The reach is qsTea's own extend record, which lengthens that x-height exit by one wherever ·May stands in front of the bar and ·J’ai closes the word, and carries the user's why: on the record itself; it landed in “Make ·May and ·J’ai not touch, even when there’s a ·Tea “between” them”. The divergence is the one-slot-per-glyph limit same-junction-extension-non-summing records from the other side: the old font spends ·May's single extension slot on the ·May·Tea junction and has none left for the ·Tea·J’ai one, while the rebuild puts the whole connector on ·Tea's own exit. gay-jai-xheight-extension-added is the same gained reach into the same letter read off ·Gay's record, and gay-no-xheight-extension-added, vie-utter-xheight-extension-added and day-utter-xheight-extension-added are the rest of that family. What ·J’ai does under the longer reach is a change of its own, so a window where its crown pulls in is the combined match's, with jai-crown-contracted. Every window that reached a review session approved the longer reach"
-    match:
-      before:
-        pivots: [qsTea.half.ex-y5]
-      after:
-        pivots: [qsTea.half.ex-y5.ex-ext-1]
-        gained: [[1, 0]]
-        shift: 1
-      except_left: []
   - id: jai-entry-extension-dropped-reach-kept
     verdict: approve
     note: "·J’ai gives up the two columns of crown entry the old font drew after ·Gay and ·May and keeps the pixel of baseline reach it carries forward, so the letter redraws in place and holds its own advance. jai-entry-extension-dropped is the same crown coming off where the reach goes with it and the follower comes a column closer; the entry extension is a record qsJai does not carry at all — the ·Gay arm was deleted in “Extend ·Gay ~x~ ·J’ai by another pixel”, which put that reach on qsGay's x-height exit at by-3, and the ·May arm never entered the rune, qsMay's own by-2 exit toward the qsJai family carrying it instead — and rebuild/m1-divergences.yaml holds both readings, as same-junction-extension-non-summing and may-jai-extension-consolidated. What the letter's own outgoing junction does is a change of its own: where the reach it keeps newly lands on ·It, jai-it-baseline-join-created-after-dropped-crown covers that junction and the two rules explain the window between them, the cell swap judging the picture ·J’ai settles into and the join the junction that picture opens; where ·Gay in front of it reaches a pixel further, gay-jai-xheight-extension-added does. jai-crown-contracted, jai-entry-contracted-exit-extension-dropped and jai-entry-contracted-by-two-exit-extension-dropped are ·J’ai's other standing changes at the crown, and jai-exit-extension-dropped the reach at the other end. Every window that reached a review session approved the tighter crown"
