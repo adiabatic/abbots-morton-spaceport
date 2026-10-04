@@ -386,7 +386,7 @@ def after_font_glyph_digests(after_font: Path) -> tuple[dict[str, str], str]:
 
 
 # Policy record kinds whose records carry an author `why`, and the kinds whose `why` something downstream reads. `rune_explain_digest` keeps the `why` of the second group and `rune_file_digest` drops it; that is the only difference between them.
-POLICY_PROSE_KINDS = ("prefer", "extend", "contract", "resolve", "refuse")
+POLICY_PROSE_KINDS = ("prefer", "extend", "contract", "pad_left", "resolve", "refuse")
 QUOTED_POLICY_PROSE_KINDS = ("refuse",)
 
 

@@ -1254,3 +1254,40 @@ def test_left_bitmap_refuses_a_stance_with_sibling_drawings(tmp_path):
         {"qsIt": with_sibling, "qsDay": _bitmap_axis_follower("{family: qsIt, bitmap: climbing-loop}")},
     )
     assert any("siblings ['reaching']" in issue.message for issue in error.issues), error.issues
+
+
+PAD_LEFT_POLICY = textwrap.dedent("""\
+    policy:
+      pad_left:
+      - {by: 2, when: {left: {family: qsDay}}}
+    """)
+
+
+def test_pad_left_binds_a_padded_copy_of_the_stance_bitmap_on_its_exit(tmp_path):
+    rune = load_tmp_spec(tmp_path, {"qsIt": MINIMAL_RUNE + PAD_LEFT_POLICY}).runes["qsIt"]
+    (record,) = rune.policy.contract
+    assert (record.stance, record.exit, record.bind, record.by) == ("sole", "baseline", "padded-left-2", None)
+    assert record.provenance is not None and record.provenance.path == "policy.pad_left[0]"
+    assert rune.stances["sole"].bitmaps["padded-left-2"].rows == ("  #",) * 6
+
+
+@pytest.mark.parametrize(
+    ("old", "new", "message"),
+    [
+        (
+            "        baseline: {x: 1, unjoined: safe}\n",
+            "        baseline: {x: 1, unjoined: safe}\n        x-height: {x: 1, unjoined: safe}\n",
+            "has exits ['baseline', 'x-height']",
+        ),
+        (
+            "    surface:\n",
+            '    bitmaps:\n      wide:\n        bitmap: ["##"]\n    surface:\n',
+            "may not declare bitmaps:",
+        ),
+    ],
+)
+def test_pad_left_refuses_a_stance_it_cannot_shift_exactly(tmp_path, old, new, message):
+    text = MINIMAL_RUNE.replace(old, new)
+    assert text != MINIMAL_RUNE
+    error = load_tmp_error(tmp_path, {"qsIt": text + PAD_LEFT_POLICY})
+    assert any(message in issue.message for issue in error.issues), error.issues

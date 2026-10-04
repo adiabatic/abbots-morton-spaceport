@@ -416,6 +416,23 @@ def _surface(raw: dict | None, context: _FileContext, base_path: str) -> Surface
 
 
 _RECORD_KINDS = ("refuse", "prefer", "extend", "contract")
+_PAD_LEFT_ROW_KEYS = ("stub", "joined_x", "selectable", "ink_y", "x_off_convention")
+
+
+def _stance_rows(raw: dict) -> dict[str, dict[str, set[str]]]:
+    """Return each stance's entry and exit heights, unlock rows included."""
+    rows: dict[str, dict[str, set[str]]] = {}
+    for stance_name, stance_raw in (raw.get("stances") or {}).items():
+        surface = stance_raw.get("surface") or {}
+        entries = set(surface.get("entries") or {})
+        exits = set(surface.get("exits") or {})
+        for unlock in surface.get("unlocks", ()):
+            if unlock.get("entry"):
+                entries.add(unlock["entry"])
+            if unlock.get("exit"):
+                exits.add(unlock["exit"])
+        rows[stance_name] = {"entry": entries, "exit": exits}
+    return rows
 
 
 def _policy_record(kind: str, raw: dict, provenance: Provenance) -> PolicyRecord:
@@ -518,20 +535,6 @@ class _Linter:
         self.group_names = set(policy.get("groups") or {}) if isinstance(policy, dict) else set()
         self.stance_rows: dict[str, dict[str, set[str]]] = {}
 
-    def _stance_rows(self) -> dict[str, dict[str, set[str]]]:
-        rows: dict[str, dict[str, set[str]]] = {}
-        for stance_name, stance_raw in (self.raw.get("stances") or {}).items():
-            surface = stance_raw.get("surface") or {}
-            entries = set(surface.get("entries") or {})
-            exits = set(surface.get("exits") or {})
-            for unlock in surface.get("unlocks", ()):
-                if unlock.get("entry"):
-                    entries.add(unlock["entry"])
-                if unlock.get("exit"):
-                    exits.add(unlock["exit"])
-            rows[stance_name] = {"entry": entries, "exit": exits}
-        return rows
-
     def run_shallow(self) -> None:
         """Run the lints that are safe on any document shape. They run even when schema validation already failed, so the design-rule messages always appear beside the schema errors."""
         self._lint_identifiers()
@@ -542,7 +545,7 @@ class _Linter:
         self._lint_right_chain_depth()
 
     def run_deep(self) -> None:
-        self.stance_rows = self._stance_rows()
+        self.stance_rows = _stance_rows(self.raw)
         self._lint_registry_consistency()
         self._lint_stances()
         self._lint_policy()
@@ -614,7 +617,7 @@ class _Linter:
 
     def _lint_right_chain_depth(self) -> None:
         policy = self.raw.get("policy")
-        for kind in ("prefer", "resolve", "extend", "contract"):
+        for kind in ("prefer", "resolve", "extend", "contract", "pad_left"):
             records = policy.get(kind) if isinstance(policy, dict) else None
             for index, record in enumerate(records if isinstance(records, list) else ()):
                 if not isinstance(record, dict):
@@ -798,6 +801,10 @@ class _Linter:
             for index, record in enumerate(policy.get(kind, ())):
                 record_path = f"policy.{kind}[{index}]"
                 self._lint_record(kind, record, record_path, stances)
+        for index, record in enumerate(policy.get("pad_left", ())):
+            record_path = f"policy.pad_left[{index}]"
+            self._lint_record("pad_left", record, record_path, stances)
+            self._lint_pad_left(record, record_path, stances)
         for index, record in enumerate(policy.get("resolve", ())):
             record_path = f"policy.resolve[{index}]"
             if not (record.get("why") or "").strip():
@@ -858,11 +865,43 @@ class _Linter:
                     f"{record_path}.bind", f"bind {bind!r} names no bitmaps: sibling of the targeted stance"
                 )
 
+    def _lint_pad_left(self, record: dict, record_path: str, stances: set[str]) -> None:
+        stance_name = record.get("stance")
+        if stance_name is None and len(stances) > 1:
+            self.context.error(
+                record_path,
+                f"pad_left target is ambiguous: stances {sorted(stances)}; declare stance: explicitly",
+            )
+            return
+        stance_name = stance_name or next(iter(stances), None)
+        if stance_name not in stances:
+            return
+        stance_raw = (self.raw.get("stances") or {})[stance_name]
+        exits = self.stance_rows[stance_name]["exit"]
+        if len(exits) != 1:
+            self.context.error(
+                record_path,
+                f"pad_left binds its padded bitmap on the stance's one exit, but {stance_name!r} has exits {sorted(exits)}",
+            )
+        surface = stance_raw.get("surface") or {}
+        rows = [*(surface.get("entries") or {}).values(), *(surface.get("exits") or {}).values()]
+        keys = sorted({key for row in rows for key in _PAD_LEFT_ROW_KEYS if key in (row or {})})
+        if stance_raw.get("bitmaps"):
+            self.context.error(
+                record_path,
+                f"pad_left pads {stance_name!r}'s one bitmap, so the stance may not declare bitmaps:",
+            )
+        if keys:
+            self.context.error(
+                record_path,
+                f"pad_left re-places {stance_name!r}'s anchors by convention, so its rows may not set {', '.join(keys)}",
+            )
+
 
 def _left_facing_conditions(raw: dict):
     """Yields (path, condition_dict) for every top-level left-facing condition a rune authors: each policy record's and unlock's `when.left`, and each entry row's `from:` scope entries. The `except:` atoms beneath them are not visited, since the schema gives those no `bitmap` key."""
     policy = raw.get("policy") or {}
-    for kind in _RECORD_KINDS + ("resolve",):
+    for kind in _RECORD_KINDS + ("pad_left", "resolve"):
         for index, record in enumerate(policy.get(kind, ()) or ()):
             left = (record.get("when") or {}).get("left") if isinstance(record, dict) else None
             if isinstance(left, dict):
@@ -1291,6 +1330,23 @@ def _resolve_groups(
     return resolved
 
 
+def _pad_left_targets(raw: dict) -> list[tuple[str, str, str, Bitmap]]:
+    """Return each `policy.pad_left` record's stance, that stance's one exit height, and the name and rows of its padded bitmap: the stance's own rows with `by` blank columns in front, which the record binds on that exit (doc/rebuild-design.md section 3.3)."""
+    stances = raw.get("stances") or {}
+    rows = _stance_rows(raw)
+    targets = []
+    for record in (raw.get("policy") or {}).get("pad_left", ()):
+        stance_name = record.get("stance") or next(iter(stances))
+        stance_raw = stances[stance_name]
+        (exit_height,) = rows[stance_name]["exit"]
+        padded = Bitmap(
+            rows=tuple(" " * record["by"] + row for row in stance_raw["bitmap"]),
+            y_offset=stance_raw.get("y_offset", 0),
+        )
+        targets.append((stance_name, exit_height, f"padded-left-{record['by']}", padded))
+    return targets
+
+
 def _build_rune(
     context: _FileContext,
     classes: dict[str, frozenset[str]],
@@ -1298,6 +1354,7 @@ def _build_rune(
 ) -> Rune:
     raw = context.data
     ductus = dict(raw.get("ductus") or {})
+    pads = _pad_left_targets(raw)
     stances = {}
     for stance_name, stance_raw in (raw.get("stances") or {}).items():
         base_path = f"stances.{stance_name}"
@@ -1306,7 +1363,10 @@ def _build_rune(
             motion=stance_raw["motion"],
             traits=tuple(stance_raw.get("traits") or ()),
             bitmap=Bitmap(rows=tuple(stance_raw["bitmap"]), y_offset=stance_raw.get("y_offset", 0)),
-            bitmaps={name: _bitmap(drawing) for name, drawing in (stance_raw.get("bitmaps") or {}).items()},
+            bitmaps={
+                **{name: _bitmap(drawing) for name, drawing in (stance_raw.get("bitmaps") or {}).items()},
+                **{name: padded for target, _height, name, padded in pads if target == stance_name},
+            },
             surface=_surface(stance_raw.get("surface"), context, f"{base_path}.surface"),
         )
     policy_raw = raw.get("policy") or {}
@@ -1324,9 +1384,21 @@ def _build_rune(
             _policy_record("extend", record, context.provenance(f"policy.extend[{index}]"))
             for index, record in enumerate(policy_raw.get("extend", ()))
         ),
-        contract=tuple(
-            _policy_record("contract", record, context.provenance(f"policy.contract[{index}]"))
-            for index, record in enumerate(policy_raw.get("contract", ()))
+        contract=(
+            *(
+                _policy_record("contract", record, context.provenance(f"policy.contract[{index}]"))
+                for index, record in enumerate(policy_raw.get("contract", ()))
+            ),
+            *(
+                _policy_record(
+                    "contract",
+                    {**record, "by": None, "stance": stance_name, "exit": height, "bind": name},
+                    context.provenance(f"policy.pad_left[{index}]"),
+                )
+                for index, (record, (stance_name, height, name, _padded)) in enumerate(
+                    zip(policy_raw.get("pad_left", ()), pads)
+                )
+            ),
         ),
         resolve=tuple(
             _resolve_record(

@@ -372,7 +372,7 @@ def test_may_tea_jai_keeps_the_narrow_crown(real_labels, lead, features):
     assert real_labels[(f"{lead} qsMay qsTea qsJai", features)] == (
         f"{lead}.{'loop' if lead == 'qsI' else 'sole'}.ex-y5.ex-ext-1",
         "qsMay.loop.en-y5",
-        "qsTea.half.ex-y5",
+        "qsTea.half.ex-y5.ex-bind-padded-left-1",
         "qsJai.sole.en-y5.en-con-1",
     )
     assert real_labels[("qsTea qsJai", features)] == (
@@ -382,10 +382,12 @@ def test_may_tea_jai_keeps_the_narrow_crown(real_labels, lead, features):
     assert real_labels[("qsMay qsTea qsJai", features)] == (
         ("qsMay.loop.ex-y5.ex-ext-1", "qsTea.full.en-y5", "qsJai.sole")
         if "ss03" in features
-        else ("qsMay.loop", "qsTea.half.ex-y5", "qsJai.sole.en-y5.en-con-1")
+        else ("qsMay.loop", "qsTea.half.ex-y5.ex-bind-padded-left-1", "qsJai.sole.en-y5.en-con-1")
     )
     follower_labels = real_labels[("qsMay qsTea qsJai qsTea", features)]
-    assert follower_labels[1] == ("qsTea.full.en-y5" if "ss03" in features else "qsTea.half.ex-y5")
+    assert follower_labels[1] == (
+        "qsTea.full.en-y5" if "ss03" in features else "qsTea.half.ex-y5.ex-bind-padded-left-1"
+    )
 
 
 TEA_OTHER_FOLLOWERS = (
@@ -415,7 +417,11 @@ TEA_OTHER_FOLLOWERS = (
     "qsZoo",
     "qsZoo qsAh",
 )
-TEA_CLEARANCE_NAMES = tuple(f"qsI qsMay qsTea {follower}" for follower in TEA_OTHER_FOLLOWERS)
+TEA_JAI_LEADS = ("qsWay qsGay", "qsGay", "qsI qsMay", "qsThey", "qsThey qsZoo", "qsVie", "qsZoo")
+TEA_CLEARANCE_NAMES = (
+    *(f"qsI qsMay qsTea {follower}" for follower in TEA_OTHER_FOLLOWERS),
+    *(f"{lead} qsTea qsJai{tail}" for lead in TEA_JAI_LEADS for tail in ("", " qsDay", " qsI", " qsUtter")),
+)
 TEA_JAI_PAIR_NAMES = (
     "qsTea qsJai",
     "qsTea qsJai qsDay",
@@ -426,18 +432,10 @@ TEA_JAI_PAIR_NAMES = (
     "qsTea qsJai qsUtter qsDay",
     "qsTea qsJai qsTea qsDay",
 )
-TEA_JAI_CONTEXT_NAMES = (
-    "qsWay qsGay qsTea qsJai",
-    *(
-        f"{lead} qsTea qsJai{tail}"
-        for lead in ("qsGay", "qsI qsMay", "qsThey", "qsVie")
-        for tail in ("", " qsDay", " qsI")
-    ),
-    *(
-        f"{lead} qsTea qsJai qsUtter{tail}"
-        for lead in ("qsWay qsGay", "qsGay", "qsI qsMay", "qsThey", "qsVie")
-        for tail in ("", " qsDay", " space", " zwnj")
-    ),
+TEA_JAI_CONTEXT_NAMES = tuple(
+    f"{lead} qsTea qsJai{tail}"
+    for lead in TEA_JAI_LEADS
+    for tail in ("", " qsDay", " qsI", " qsUtter", " qsUtter qsDay", " qsUtter space", " qsUtter zwnj")
 )
 
 
@@ -468,7 +466,9 @@ def test_half_tea_keeps_nonadjacent_ink_separate(real_spec, real_settled, names,
         )
         >= 2
     )
-    assert tea.cell.adjustments == ()
+    assert tea.cell.adjustments == (
+        ("ex-bind-padded-left-1",) if follower.cell.rune in ("qsJai", "qsJai_qsUtter") else ()
+    )
 
 
 @pytest.mark.parametrize("features", TEA_CLEARANCE_FEATURES)
@@ -477,7 +477,7 @@ def test_half_tea_keeps_the_jai_crown_narrow_in_context(real_spec, real_settled,
     settled = real_settled[(names, features)]
     index = next(i for i, item in enumerate(settled) if item.cell.rune == "qsTea")
     tea, follower = settled[index : index + 2]
-    assert tea.cell == CellId("qsTea", "half", None, "x-height", ())
+    assert tea.cell == CellId("qsTea", "half", None, "x-height", ("ex-bind-padded-left-1",) if index else ())
     assert follower.cell.rune in ("qsJai", "qsJai_qsUtter")
     assert "en-con-1" in follower.cell.adjustments
     assert tea.junction == follower.cell.entry == "x-height"
@@ -489,7 +489,9 @@ def test_half_tea_keeps_the_jai_crown_narrow_in_context(real_spec, real_settled,
     assert geometry.junction_gap(tea_record, follower_record, "x-height") == 0
     assert tea_record.exit is not None and follower_record.entry is not None
     follower_origin = tea_record.exit[0] - follower_record.entry[0]
-    ink = geometry.ink_cells(tea_record) | geometry.ink_cells(follower_record, follower_origin)
+    tea_ink = geometry.ink_cells(tea_record)
+    tea_x = min(x for x, y in tea_ink)
+    ink = {(x - tea_x, y) for x, y in tea_ink | geometry.ink_cells(follower_record, follower_origin)}
     expected_crown = {0, 1, 2, 3} | ({7, 8} if follower.cell.rune == "qsJai_qsUtter" else set())
     assert {x for x, y in ink if y == 5} == expected_crown
 

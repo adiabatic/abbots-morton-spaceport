@@ -189,5 +189,21 @@ policy:
     when:
       left: {family: qsJay}
   contract: []
+  pad_left:
+  - stance: half
+    by: 1
+    when:
+      left:
+        family:
+        - qsGay
+        - qsThey
+        - qsThey_qsZoo
+        - qsVie
+        - qsZoo
+        - qsMay
+      right:
+        family:
+        - qsJai
+        - qsJai_qsUtter
   resolve: []
   groups: {}

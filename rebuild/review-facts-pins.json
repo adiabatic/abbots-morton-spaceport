@@ -72,20 +72,20 @@
   "volatile": {
     "manifest": {
       "totals": {
-        "units": 1559667,
-        "rows": 7459726,
-        "batches": 884,
-        "duplicate_groups": 11087
+        "units": 1559671,
+        "rows": 7459744,
+        "batches": 885,
+        "duplicate_groups": 11136
       },
       "machine_approved": {
-        "units": 1249729,
+        "units": 1249443,
         "by_class": {
-          "boundary-window": 185894,
+          "boundary-window": 185874,
           "zwnj-word-initial-unification": 168,
           "halves-entry-extension-restored": 340,
           "same-junction-extension-non-summing": 2194,
-          "dangling-anchor-dropped": 390338,
-          "bare-name-live-join": 664834,
+          "dangling-anchor-dropped": 390084,
+          "bare-name-live-join": 664822,
           "may-jai-extension-consolidated": 1102,
           "jai-entry-contraction-renamed": 411,
           "zoo-entry-contraction-renamed": 1418,
@@ -97,27 +97,27 @@
       },
       "class_unit_count": {
         "boundary-window": 217028,
-        "dangling-anchor-dropped": 401793,
-        "bare-name-live-join": 686993
+        "dangling-anchor-dropped": 401539,
+        "bare-name-live-join": 686981
       },
       "secondary_junctions": {
-        "units_with_markers": 57787,
-        "junctions_with_primary_unit": 6448,
+        "units_with_markers": 57818,
+        "junctions_with_primary_unit": 6479,
         "junctions_without_primary_unit": 55016,
-        "junctions_suppressed_invisible": 1602
+        "junctions_suppressed_invisible": 1606
       }
     },
     "built": {
-      "human_units": 265063,
+      "human_units": 265333,
       "reference_window_duplicate_siblings": 36,
       "config_note_distribution": [
         [
           null,
-          1427259
+          1427262
         ],
         [
           "only when ss03 is off",
-          20217
+          20218
         ],
         [
           "only when ss03 is off and ss04 is off",
@@ -166,12 +166,12 @@
       ]
     },
     "audit": {
-      "row_count": 7459726,
-      "units": 1566532
+      "row_count": 7459744,
+      "units": 1566536
     },
     "ink": {
       "machine_total": 1208834,
-      "non_identical": 357698,
+      "non_identical": 357702,
       "by_class": {
         "boundary-window": 182331,
         "zwnj-word-initial-unification": 168,
@@ -181,7 +181,7 @@
         "roe-shortened-top-renamed": 1812
       },
       "boundary_window_exempt": 50203,
-      "human_units": 307495,
+      "human_units": 307499,
       "batches": 1025
     },
     "unmatched_groups": {
@@ -191,12 +191,12 @@
         "oy-it-baseline": 130,
         "may-utter-gains": 1100,
         "junction-loss-unjoined": 14762,
-        "extension-non-summing": 109766,
+        "extension-non-summing": 110036,
         "unmatched-misc": 13628,
         "deferred-ss04": 12006,
         "deferred-ss03": 23056
       },
-      "total": 178601
+      "total": 178871
     }
   }
 }

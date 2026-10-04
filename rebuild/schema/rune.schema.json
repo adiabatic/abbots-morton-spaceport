@@ -26,7 +26,7 @@
       "propertyNames": {"$ref": "#/$defs/motionName"},
       "additionalProperties": {"$ref": "#/$defs/stance"}
     },
-    "policy": {"$ref": "#/$defs/policy", "description": "Rules that change how this letter joins depending on which letters sit next to it.\n\nThe `surface` block above gives the join geometry that holds no matter the neighbors; `policy` is where the adjustments for specific neighbors go.\n\nIts keys: `order` (blunt default ranking), `refuse` (veto a join), `prefer` (break a tie), `extend`/`contract` (lengthen/shorten the connector), `resolve` (a hand-arbitrated conflict), `groups` (reusable named letter sets). Most carry a `when:` saying which neighbors they fire for."}
+    "policy": {"$ref": "#/$defs/policy", "description": "Rules that change how this letter joins depending on which letters sit next to it.\n\nThe `surface` block above gives the join geometry that holds no matter the neighbors; `policy` is where the adjustments for specific neighbors go.\n\nIts keys: `order` (blunt default ranking), `refuse` (veto a join), `prefer` (break a tie), `extend`/`contract` (lengthen/shorten the connector), `pad_left` (blank columns before the letter), `resolve` (a hand-arbitrated conflict), `groups` (reusable named letter sets). Most carry a `when:` saying which neighbors they fire for."}
   },
   "oneOf": [
     {"required": ["codepoint"], "not": {"required": ["sequence"]}},
@@ -223,6 +223,7 @@
         "prefer": {"type": "array", "items": {"$ref": "#/$defs/preferRecord"}},
         "extend": {"type": "array", "items": {"$ref": "#/$defs/extendRecord"}},
         "contract": {"type": "array", "items": {"$ref": "#/$defs/contractRecord"}},
+        "pad_left": {"type": "array", "items": {"$ref": "#/$defs/padLeftRecord"}},
         "resolve": {"type": "array", "items": {"$ref": "#/$defs/resolveRecord"}},
         "groups": {
           "description": "Named sets of letters this rune's own conditions can call up by name. Define one under a name, then reference it as `class: that-name` anywhere a `when:` takes families. It's for a trigger list this rune reuses across records — name it once instead of repeating the families. Shared, cross-rune sets belong in the script-wide predicate-class registry instead; these `groups` are private to this rune. Each group is a `union`/`minus` of families (see `groupDefinition`), and a `trait` or `stance` qualifier on a member is widened away to its whole family. Most runes need none and leave this `{}`. Example: ·May names the letters and ligatures that arrive at its x-height once — `x-height-arrivers: {union: [{family: qsDay_qsUtter}, {family: qsThey_qsUtter}, …, {family: qsUtter}]}` — and both its loop and its grounded loop pull the whole set into their entry scopes as `from: [{class: x-height-arrivers}]`.",
@@ -324,6 +325,19 @@
           ]
         }
       ]
+    },
+    "padLeftRecord": {
+      "description": "Pad this stance's bitmap with `by` blank columns on the left wherever `when:` matches, so the letter, and whatever joins its exit, moves right while the join keeps its shape.\n\nIt makes room between letters that don't touch each other directly: ·J’ai's descender reaches back under half ·Tea, and after ·Gay, ·They, ·Vie, ·Zoo or ·May it would touch that letter, so ·Tea moves over a pixel instead of the ·J’ai crown growing.\n\nThe build makes the padded bitmap from the stance's own `bitmap` and binds it on the stance's one exit. So the padding applies only where that exit joins, the stance takes no `bitmaps:`, stubs or anchors off convention, and a `contract` on the same exit competes with it on specificity.\n\nExample: half ·Tea before ·J’ai after ·Gay — `{stance: half, by: 1, when: {left: {family: qsGay}, right: {family: qsJai}}}`.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["by", "when"],
+      "properties": {
+        "id": {"$ref": "#/$defs/recordId"},
+        "stance": {"$ref": "#/$defs/motionName"},
+        "by": {"type": "integer", "minimum": 1},
+        "when": {"$ref": "#/$defs/when"},
+        "why": {"type": "string"}
+      }
     },
     "resolveRecord": {
       "description": "A recorded tie-break for a conflict between prefers on two runes.\n\nWhen a prefer on this rune and a prefer on another rune demand different outcomes at one junction and neither is more specific, the build stops with an E-INCOMPARABLE error whose message ends in a resolve ready to paste here. `against` names the other rune and the `id` of its prefer, `when:` narrows the windows the resolve covers, and `pick` names the winner. A resolve on either rune settles the conflict. Its `when:` can't read `self:`, because the build consults a resolve before it chooses any cell at this position.\n\n`why:` is required, since a resolve is a judgment call. `migrated:` is an optional string that marks a resolve carried over wholesale from the old font, so the ones still to revisit stay easy to find; nothing in the build acts on it.\n\nA resolve settles no other conflict. Two prefers on one rune raise E-AMBIGUOUS, and two extend records or two contract records on one rune raise E-INCOMPARABLE, when they match one window, demand different things, and neither is more specific. For those, edit the records instead: narrow one record's `when:` so the conditions nest or no longer overlap, make the records demand the same thing, or remove one. A resolve can itself raise E-INCOMPARABLE, when two matching resolves pick differently or a matching resolve's `pick` leaves no surviving candidate; edit the resolves then.\n\nExample: ·Tea+Oy keeps its baseline exit before ·It·No, over ·It's `withhold-before-no-after-oy` prefer — `{against: {rune: qsIt, id: withhold-before-no-after-oy}, when: {right: {family: qsIt, then: {family: qsNo}}}, pick: {exit: baseline}}`.",
