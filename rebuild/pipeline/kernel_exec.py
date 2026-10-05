@@ -4,7 +4,7 @@ The semantics defaults live here beside the flags that pass them to the kernel. 
 
 The build is `cargo build --release` against the crate's manifest. Release is the only profile anything in the repository runs: the pipeline and the spec-echo test in `rebuild/test_kernel_io.py` both run `target/release/ams-m1-kernel`, and a debug binary is too slow to substitute for it. A machine without `cargo` gets a `KernelBuildError` that says how to install it. `ensure_built` builds once per process, and every caller in the process shares that build.
 
-`build_table_files` is what `run_m1` calls. One `build-tables` process enumerates every settlement configuration and folds each in place. It writes each configuration's settlement TSV, join TSV and plain window enumeration, and returns the table digest of each configuration's pair of tables. No transition stream is written, because the fold reads the product the worklist still holds; that saves writing, reading and parsing several hundred megabytes per configuration. The configurations after `default` are deltas over it. `default` enumerates first and keeps its trace memo, and each other configuration reads that memo for every window whose key names none of its own unlocking runes and whose settlement read none of them, and traces only the rest. The memo is also carried across builds in the `memo-<config>.tsv.gz` files packed beside the tables. The next build reuses a memoized window only if its settlement read no rune whose content has changed and no predicate class whose membership has changed. `rebuild/kernel-rs/src/memo.rs` gives the argument, and `run_m1.previous_memos` decides which files may be read. Before any table is written, the configurations exchange windows (`rebuild/kernel-rs/src/crossconfig.rs`): each configuration's table takes in the windows another configuration keeps live where its own rules would answer them wrongly ahead of every right answer in the order the font ships, so a configuration's tables depend on the whole set it was built with. The windows head lists what each table took in (`table.DecisionTable.imports`), and a guard rule that only such a window reaches carries a certificate the witness stage settles under the configuration the window is live in (`witness.GUARD_MARKER`).
+`build_table_files` is what `run_m1` calls. One `build-tables` process enumerates every settlement configuration and folds each in place. It writes each configuration's settlement TSV, join TSV and plain window enumeration, and returns the table digest of each configuration's pair of tables with the crate's `[t]` lines (`TableBuild`). No transition stream is written, because the fold reads the product the worklist still holds; that saves writing, reading and parsing several hundred megabytes per configuration. The configurations after `default` are deltas over it. `default` enumerates first and keeps its trace memo, and each other configuration reads that memo for every window whose key names none of its own unlocking runes and whose settlement read none of them, and traces only the rest. The memo is also carried across builds in the `memo-<config>.tsv.gz` files packed beside the tables. The next build reuses a memoized window only if its settlement read no rune whose content has changed and no predicate class whose membership has changed. `rebuild/kernel-rs/src/memo.rs` gives the argument, and `run_m1.previous_memos` decides which files may be read. Before any table is written, the configurations exchange windows (`rebuild/kernel-rs/src/crossconfig.rs`): each configuration's table takes in the windows another configuration keeps live where its own rules would answer them wrongly ahead of every right answer in the order the font ships, so a configuration's tables depend on the whole set it was built with. The windows head lists what each table took in (`table.DecisionTable.imports`), and a guard rule that only such a window reaches carries a certificate the witness stage settles under the configuration the window is live in (`witness.GUARD_MARKER`).
 
 `enumerate_configs` is the stream fan-out. One process enumerates every named configuration and writes each one's transition stream to its own file. Nothing on the build's path calls it; `enumerate_transitions` and the tests do.
 
@@ -345,6 +345,14 @@ def enumerate_configs(
     return streams
 
 
+@dataclass(frozen=True)
+class TableBuild:
+    """What `build_table_files` returns: each configuration's table digest, keyed by configuration, and the `[t]` lines the crate wrote under `--timings`, as `_forward_stderr` copied them to stderr. `run_m1.build_tables` keeps the lines for run_m1's check line, which has no captured output to parse them from."""
+
+    digests: dict[str, str]
+    timings: tuple[str, ...]
+
+
 def build_table_files(
     spec_path: Path,
     out_dir: Path,
@@ -359,8 +367,8 @@ def build_table_files(
     edited: Sequence[str] = (),
     moved_classes: Sequence[str] = (),
     memo_stamp: str | None = None,
-) -> dict[str, str]:
-    """Every named configuration folded in the crate: its settlement TSV, its join TSV, its plain window enumeration stamped `inputs`, and the table digest of the pair, returned as `{config: digest}`.
+) -> TableBuild:
+    """Every named configuration folded in the crate: its settlement TSV, its join TSV, its plain window enumeration stamped `inputs`, and the table digest of the pair, returned as `TableBuild.digests` (`{config: digest}`) beside the `[t]` lines `--timings` made the crate write.
 
     This is `enumerate-configs` plus the fold in one process, so there is no stream between them: the fold runs on the product the worklist still holds. The windows payload is written uncompressed because the crate depends only on serde_json, and `run_m1.build_tables` packs it into the `.gz` artifact.
 
@@ -400,7 +408,7 @@ def build_table_files(
         )
     if finished.returncode != 0:
         raise KernelRunError(f"the kernel exited {finished.returncode} on build-tables: {errors}")
-    _forward_stderr(errors, timings, arguments, timings_tag, verb="build-tables")
+    forwarded = _forward_stderr(errors, timings, arguments, timings_tag, verb="build-tables")
     try:
         lines = finished.stdout.decode().splitlines()
     except UnicodeDecodeError as error:
@@ -418,7 +426,7 @@ def build_table_files(
         raise KernelRunError(
             f"build-tables answered for {sorted(digests)} where {sorted(configs)} were asked for"
         )
-    return digests
+    return TableBuild(digests, tuple(forwarded))
 
 
 def memo_path(out_dir: Path, config: str) -> Path:
@@ -648,10 +656,10 @@ def _forward_stderr(
     arguments: list[str],
     tag: str | None = None,
     verb: str = "enumerate-configs",
-) -> None:
-    """Copy the kernel's timing lines to this process's stderr and raise on anything else. Of the flags this module passes, `--timings` is the only one that writes to stderr on a clean exit, and it writes only `[t] <label> <secs>s` lines, buffered and written in `--configs` order. Copying them verbatim puts the kernel's per-configuration wall-clock times in the same journal as the Python stage's, since `cycle_timings` reads both from a step's captured output. A `tag` in brackets is appended to each label that does not already end in one, so a fan-out that runs one process per configuration stays attributable."""
+) -> list[str]:
+    """Copy the kernel's timing lines to this process's stderr, return them as copied, and raise on anything else. Of the flags this module passes, `--timings` is the only one that writes to stderr on a clean exit, and it writes only `[t] <label> <secs>s` lines, buffered and written in `--configs` order. Copying them verbatim puts the kernel's per-configuration wall-clock times in the same journal as the Python stage's, since `cycle_timings` reads both from a step's captured output. A `tag` in brackets is appended to each label that does not already end in one, so a fan-out that runs one process per configuration stays attributable."""
     if not errors:
-        return
+        return []
     lines = errors.split("\n")
     if not timings:
         raise KernelRunError(
@@ -662,9 +670,11 @@ def _forward_stderr(
         raise KernelRunError(
             f"the kernel wrote {len(stray)} non-timing lines to stderr on a clean {verb} exit: {stray[0]}"
         )
-    for line in lines:
-        sys.stderr.write((_tagged(line, tag) if tag else line) + "\n")
+    copied = [_tagged(line, tag) if tag else line for line in lines]
+    for line in copied:
+        sys.stderr.write(line + "\n")
     sys.stderr.flush()
+    return copied
 
 
 def _tagged(line: str, tag: str) -> str:

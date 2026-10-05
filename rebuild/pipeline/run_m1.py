@@ -71,7 +71,13 @@ from rebuild.pipeline.settle import FormationGuard, cell_label
 from rebuild.pipeline.spec_load import load_default_spec
 from rebuild.pipeline.table import DecisionTable
 from rebuild.tools import console
-from rebuild.tools.cycle_timings import CYCLE_RUN_ENV, CheckResult, record_check, record_pool
+from rebuild.tools.cycle_timings import (
+    CYCLE_RUN_ENV,
+    CheckResult,
+    parse_inner_timings,
+    record_check,
+    record_pool,
+)
 from rebuild.tools.memory_budget import describe_fit, usable_cores
 from rebuild.tools.peak_rss import (
     peak_footprint_bytes,
@@ -208,9 +214,10 @@ def memo_edited(previous: str, current: str) -> MemoDelta | None:
 
 @dataclass(frozen=True)
 class PreviousMemos:
-    """The previous build's memo files that a table build reads before settling a window itself: the directory they were unpacked into, and the runes and predicate classes that no memo may be trusted for."""
+    """The previous build's memo files that a table build reads before settling a window itself: the directory they were unpacked into, the configurations whose memo was unpacked, and the runes and predicate classes that no memo may be trusted for."""
 
     directory: Path
+    configs: tuple[str, ...]
     edited: tuple[str, ...]
     moved_classes: tuple[str, ...]
 
@@ -222,7 +229,7 @@ def previous_memos(
     modes = "+".join(kernel_exec.enumeration_tokens()) or "pinned"
     edited: set[str] = set()
     moved_classes: set[str] = set()
-    unpacked = False
+    unpacked: list[str] = []
     for config in configs:
         packed = kernel_exec.memo_path(out_dir, config)
         head = kernel_exec.read_memo_head(packed)
@@ -241,12 +248,74 @@ def previous_memos(
             continue
         edited.update(moved.runes)
         moved_classes.update(moved.classes)
-        unpacked = True
+        unpacked.append(config)
     if not unpacked:
         return None
     return PreviousMemos(
-        directory=scratch, edited=tuple(sorted(edited)), moved_classes=tuple(sorted(moved_classes))
+        directory=scratch,
+        configs=tuple(unpacked),
+        edited=tuple(sorted(edited)),
+        moved_classes=tuple(sorted(moved_classes)),
     )
+
+
+TABLE_BUILD_CODE_MODULES = frozenset({"kernel_exec.py", "kernel_io.py", "model.py"})
+
+
+def table_build_code_paths(root: Path = REPO_ROOT) -> list[Path]:
+    """Return the code a `TableBuildRecord`'s `code` digest covers: the members of `fingerprint.table_code_paths` that decide what the timed `kernel_build_tables` span does. They are the crate's manifest, lock and sources, and the pipeline modules `TABLE_BUILD_CODE_MODULES` names: `kernel_exec`, whose `build_table_files` is the whole span and runs the crate, and `kernel_io` and `model`, which write the spec the crate reads. The rest of `table_code_paths` is left out because a letter batch edits it: every batch adds its code point to `baseline_subset.M1_ALPHABET`, which the table build never reads, and a batch can also touch a gate such as `conform` or `defects`. Hashing those would give every build after a batch a digest no build before it has. An edit to them still moves `memo_structure_stamp`, so the next build is fresh under an unchanged `code`."""
+    kernel = root / "rebuild" / "kernel-rs"
+    pipeline = root / "rebuild" / "pipeline"
+    return [
+        path
+        for path in fingerprint.table_code_paths(root)
+        if kernel in path.parents or (path.parent == pipeline and path.name in TABLE_BUILD_CODE_MODULES)
+    ]
+
+
+@dataclass(frozen=True)
+class TableBuildRecord:
+    """What the timings journal records of a table build into an `out_dir`, so that two builds with the same code and a different alphabet can be paired across a letter batch: the memo structure stamp the build's memos carry (`memo_structure_stamp`), the digest of the code the table build runs (`table_build_code_paths`, prose-insensitive through `fingerprint.code_file_digest`), how many configurations read a previous build's memo, the runes and predicate classes those memos were not trusted for, the table build's width, and the number of runes in the alphabet. A build that read no memo is a fresh build, as the first build after a new rune always is, since the rune moves the structure stamp and `memo_edited` then rejects every memo. `tokens` writes the record as the `key=value` tail of the `[t] kernel_build_tables` line, and `cycle_timings.parse_inner_timings` reads each token back under its key."""
+
+    structure: str
+    code: str
+    memos_read: int
+    edited: tuple[str, ...]
+    classes: tuple[str, ...]
+    width: int
+    runes: int
+
+    def tokens(self) -> str:
+        return " ".join(
+            [
+                f"structure={self.structure}",
+                f"code={self.code}",
+                f"memos_read={self.memos_read}",
+                f"edited={','.join(self.edited) or '-'}",
+                f"classes={','.join(self.classes) or '-'}",
+                f"width={self.width}",
+                f"runes={self.runes}",
+            ]
+        )
+
+
+def table_build_record(
+    spec: ResolvedSpec, stamp: str, previous: PreviousMemos | None, width: int, root: Path = REPO_ROOT
+) -> TableBuildRecord:
+    """Return the `TableBuildRecord` of a build of `spec` at `width` whose memos carry `stamp` and that read `previous`. The structure comes out of `stamp` itself, so the record names the stamp the memos were written under. `build_tables` takes the record beside the stamp, before the crate starts, so an edit made while the crate runs cannot give `code` a tree the build did not run."""
+    return TableBuildRecord(
+        structure=json.loads(stamp)["structure"],
+        code=fingerprint.hash_paths(root, table_build_code_paths(root)),
+        memos_read=len(previous.configs) if previous else 0,
+        edited=previous.edited if previous else (),
+        classes=previous.moved_classes if previous else (),
+        width=width,
+        runes=len(spec.runes),
+    )
+
+
+# The phase lines of the table build this invocation ran, for its check line: the crate's `[t]` lines, then the `kernel_build_tables` line with its `TableBuildRecord` tokens. A cycle's run_m1 step parses the same lines from the output it captured, but a standalone check line has none, so `build_tables` keeps them here, `main` empties the list when an invocation starts, and `_record_cli_check` parses it.
+_table_build_lines: list[str] = []
 
 
 def _table_build_threads(kernel_threads: int | None, configs: int = len(conform.SETTLEMENT_CONFIGS)) -> int:
@@ -354,7 +423,7 @@ def build_tables(
 
     Per configuration, Python reads the enumeration's head back for the rules, the reachable cells and the fired provenance every downstream stage needs, parses the join TSV back for the defect gates, and packs the plain window payload into its `.gz` artifact. The head reads run on a thread pool at the table build's width once the crate has exited, and this call waits for them. The packing (`_pack_config`, memo file included) runs on a `Packing` pool at `_core_bound_threads` width, one packer per configuration up to the cores, whatever the crate's width, because a packer holds only a zlib stream and a copy buffer and the compressor releases the interpreter lock. When `packing` is passed, the tables are returned as soon as the heads are read, and the caller waits on each pack through `Packing.wait` and closes the pool. Without it, packing finishes before the return.
 
-    A build with an `out_dir` also reuses its trace memos across builds. `previous_memos` reads the previous build's `memo-<config>.tsv.gz` files for the configurations this build names, unpacks those whose stamp still matches, and names the runes whose content changed as edited, so a window naming no edited rune settles as it did last time. This build's own memos are packed under the same names, stamped with `memo_stamp` over the spec in hand. A caller with no `out_dir` reads and writes no memo.
+    A build with an `out_dir` also reuses its trace memos across builds. `previous_memos` reads the previous build's `memo-<config>.tsv.gz` files for the configurations this build names, unpacks those whose stamp still matches, and names the runes whose content changed as edited, so a window naming no edited rune settles as it did last time. This build's own memos are packed under the same names, stamped with `memo_stamp` over the spec in hand. Such a build ends its `[t] kernel_build_tables` line with its `TableBuildRecord`, which says whether it read those memos. A caller with no `out_dir` reads and writes no memo, and its line carries no record. Either way the crate's phase lines and that line are kept in `_table_build_lines` for run_m1's check line.
 
     `out_dir`, when given, receives the TSVs listed in `doc/rebuild-design.md` §8. The second returned mapping is each configuration's `table.table_digest` as the crate reported it, computed while the window rows are still in memory, which avoids recomputing the fixpoint. The crate also prints it on stdout, where `rebuild/tools/scaling_sweep.py` reads it. Both returned mappings are built in `configs` order however the configurations finish, so completion order cannot affect an artifact.
 
@@ -388,8 +457,9 @@ def build_tables(
                 time.perf_counter() - start,
                 f"edited={','.join(previous.edited) if previous else '-'} classes={','.join(previous.moved_classes) if previous else '-'}",
             )
+        record = table_build_record(spec, stamp, previous, threads) if stamp is not None else None
         start = time.perf_counter()
-        digests = kernel_exec.build_table_files(
+        crate = kernel_exec.build_table_files(
             spec_path,
             tables_dir,
             list(configs),
@@ -401,7 +471,11 @@ def build_tables(
             moved_classes=previous.moved_classes if previous else (),
             memo_stamp=stamp,
         )
-        console.timing("kernel_build_tables", time.perf_counter() - start)
+        digests = crate.digests
+        line = console.timing(
+            "kernel_build_tables", time.perf_counter() - start, record.tokens() if record else None
+        )
+        _table_build_lines[:] = [*crate.timings, line]
 
         def read_one(config: str) -> tuple[str, tuple]:
             payload = tables_dir / f"windows-{config}.tsv"
@@ -1809,7 +1883,7 @@ def run_oracle(
 
 
 def _record_cli_check(result: CheckResult, started: float) -> None:
-    """Record this invocation's check result in the timings journal, unless the artifact cycle is recording it. The result is recorded before the final `SystemExit`, so the exit cannot change it. `CYCLE_RUN_ENV` in the environment means the artifact cycle started this run and records the same result under its own run id, so this function records nothing, keeping one line per invocation."""
+    """Record this invocation's check result in the timings journal, unless the artifact cycle is recording it. The result is recorded before the final `SystemExit`, so the exit cannot change it. `CYCLE_RUN_ENV` in the environment means the artifact cycle started this run and records the same result under its own run id, so this function records nothing, keeping one line per invocation. When this invocation built tables, the line carries the build's phase lines (`_table_build_lines`) as `inner`, parsed as the cycle parses a run_m1 step's output, so a build run by hand can be paired with another as a cycle's can."""
     if CYCLE_RUN_ENV in os.environ:
         return
     record_check(
@@ -1817,6 +1891,7 @@ def _record_cli_check(result: CheckResult, started: float) -> None:
         argv=sys.argv,
         elapsed_s=time.perf_counter() - started,
         peak_rss_bytes=process_peak_rss_bytes(),
+        inner=parse_inner_timings("\n".join(_table_build_lines)) or None,
     )
 
 
@@ -2052,6 +2127,7 @@ def main(argv: list[str] | None = None) -> None:
     stated = args.jobs if args.jobs is not None else conform_jobs if conform_default else sweep_jobs
     jobs = stated if stated > 1 else 1
     started = time.perf_counter()
+    _table_build_lines.clear()
 
     if args.gates_only:
         run_gates_only(out_dir=OUT_DIR, jobs=jobs, fresh_cache=args.fresh_oracle_cache)

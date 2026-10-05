@@ -307,6 +307,30 @@ def test_an_interactive_run_files_the_gates_result(monkeypatch):
     assert "run" not in checks[0]
 
 
+def test_an_interactive_run_files_its_table_builds_phases_and_a_run_that_builds_nothing_files_none(
+    monkeypatch, tmp_path
+):
+    """A standalone run's check line carries its table build's phase lines as `inner`: the crate's own and the `kernel_build_tables` line with the build's record, which says whether the build read the previous build's memos. An invocation that builds nothing carries none, even in the process that ran the earlier build."""
+    monkeypatch.setattr(ac, "run_m1_skip_fingerprint", lambda root=None: "fp-live")
+    _stub_full_run(monkeypatch)
+    mini = fixtures.mini_spec()
+
+    def building_run(spec, inputs, **rest):
+        run_m1.build_tables(mini, tmp_path, inputs="green-test", kernel_threads=1)
+        return {"defect_errors": [], "notes": []}, _JoinedGates()
+
+    monkeypatch.setattr(run_m1, "run", building_run)
+    run_m1.main([])
+    _stub_full_run(monkeypatch)
+    run_m1.main([])
+    built, bare = _checks()
+    labels = [phase["label"] for phase in built["inner"]]
+    assert "enumerate[default]" in labels and labels[-1] == "kernel_build_tables"
+    assert built["inner"][-1]["memos_read"] == 0
+    assert built["inner"][-1]["runes"] == len(mini.runes)
+    assert "inner" not in bare
+
+
 def test_a_run_that_never_reached_its_evaluator_files_the_message_it_died_with(monkeypatch):
     """A defect gate that stops the build leaves nothing for the evaluator to read, so the red check line carries the message the run raised and no failed ids."""
     monkeypatch.setattr(ac, "run_m1_skip_fingerprint", lambda root=None: "fp-live")

@@ -13,6 +13,7 @@ import pytest
 
 from rebuild.pipeline import (
     conform,
+    fingerprint,
     fixtures,
     kernel_exec,
     kernel_io,
@@ -33,6 +34,7 @@ from rebuild.pipeline.settle import (
     RightToken,
     SettleError,
 )
+from rebuild.tools import cycle_timings as ct
 from rebuild.tools import memory_budget
 
 SPEC = fixtures.mini_spec()
@@ -676,6 +678,62 @@ class TestTheKernelInvocation:
             head = kernel_exec.read_memo_head(kernel_exec.memo_path(reusing, config))
             assert head is not None and head.stamp == run_m1.memo_stamp(edited)
 
+    def test_a_build_into_an_out_dir_records_what_pairs_it_with_another(self, tmp_path, capsys):
+        """A build into an `out_dir` ends its `[t] kernel_build_tables` line with its `TableBuildRecord`, which `cycle_timings.parse_inner_timings` reads back: the structure stamp its memos carry, the digest of the code the table build runs, the width, the rune count, and how many configurations read the previous build's memo. The first build reads none. A rebuild after a rune edit reads every configuration's memo, names the edited rune, and keeps the structure stamp and the code digest. The crate's own phase lines and that line are kept for run_m1's check line."""
+
+        def recorded():
+            (entry,) = [
+                phase
+                for phase in ct.parse_inner_timings(capsys.readouterr().out)
+                if phase["label"] == "kernel_build_tables"
+            ]
+            return entry
+
+        run_m1.build_tables(SPEC, tmp_path, inputs=STAMP, kernel_threads=2)
+        first = recorded()
+        assert first["structure"] == run_m1.memo_structure_stamp(SPEC)
+        assert first["code"] == fingerprint.hash_paths(
+            run_m1.REPO_ROOT, run_m1.table_build_code_paths(run_m1.REPO_ROOT)
+        )
+        assert {
+            path.name for path in run_m1.table_build_code_paths(run_m1.REPO_ROOT) if path.suffix == ".py"
+        } == run_m1.TABLE_BUILD_CODE_MODULES
+        assert (first["memos_read"], first["edited"], first["classes"]) == (0, [], [])
+        assert (first["width"], first["runes"]) == (run_m1._table_build_threads(2), len(SPEC.runes))
+        tea = SPEC.runes["qsTea"]
+        edited = replace(
+            SPEC, runes={**SPEC.runes, "qsTea": replace(tea, policy=replace(tea.policy, refuse=()))}
+        )
+        run_m1.build_tables(edited, tmp_path, inputs=STAMP, kernel_threads=2)
+        second = recorded()
+        assert (second["memos_read"], second["edited"], second["classes"]) == (CONFIG_COUNT, ["qsTea"], [])
+        assert (second["structure"], second["code"]) == (first["structure"], first["code"])
+        labels = [phase["label"] for phase in ct.parse_inner_timings("\n".join(run_m1._table_build_lines))]
+        assert "enumerate[default]" in labels and labels[-1] == "kernel_build_tables"
+
+    def test_the_records_code_digest_keeps_through_a_letter_batch_and_moves_with_the_crate(self, tmp_path):
+        """Every letter batch adds its code point to `baseline_subset.M1_ALPHABET`, and a batch can touch a gate such as `conform`, so the record's `code` keeps through both edits, or no build before a batch could pair with the first build after it. An edit to the crate's code moves it."""
+        pipeline = tmp_path / "rebuild" / "pipeline"
+        source = tmp_path / "rebuild" / "kernel-rs" / "src"
+        pipeline.mkdir(parents=True)
+        source.mkdir(parents=True)
+        (pipeline / "baseline_subset.py").write_text("M1_ALPHABET = frozenset({0xE650})\n", encoding="utf-8")
+        (pipeline / "conform.py").write_text("UNCOVERED = frozenset({'qsAh'})\n", encoding="utf-8")
+        (source / "main.rs").write_text("fn main() {}\n", encoding="utf-8")
+        stamp = json.dumps({"structure": "s"})
+
+        def code() -> str:
+            return run_m1.table_build_record(SPEC, stamp, None, 1, root=tmp_path).code
+
+        before = code()
+        (pipeline / "baseline_subset.py").write_text(
+            "M1_ALPHABET = frozenset({0xE650, 0xE661})\n", encoding="utf-8"
+        )
+        (pipeline / "conform.py").write_text("UNCOVERED = frozenset({'qsAh', 'qsThaw'})\n", encoding="utf-8")
+        assert code() == before
+        (source / "main.rs").write_text("fn main() { std::process::exit(1) }\n", encoding="utf-8")
+        assert code() != before
+
     def test_a_configuration_delta_files_the_bytes_a_from_scratch_build_files(self, tmp_path):
         """Every configuration after `default`, enumerated as a delta over `default`'s memo, writes the same settlement TSV, join TSV, and window enumeration, byte for byte, and returns the same digest as the same configuration enumerated on its own (the window locality rule applied across configurations). The mini fixture's `ss03` unlocks a half-·Tea x-height entry, so the delta has windows to share and windows to settle itself. The memo-sharing run claims its deltas heaviest-first (`fanout::delta_worklist`), and its results must still match the from-scratch run configuration by configuration."""
         spec_path = tmp_path / "spec.json"
@@ -690,7 +748,7 @@ class TestTheKernelInvocation:
                 inputs=STAMP,
                 threads=2,
                 default_memo_sharing=default_memo_sharing,
-            )
+            ).digests
         assert answers["sharing"] == answers["scratch"]
         for config in conform.SETTLEMENT_CONFIGS:
             for family in ("settlement", "joins", "windows"):
@@ -853,6 +911,7 @@ class TestTheMemoStamp:
                 handle.write(head)
         previous = run_m1.previous_memos(tmp_path, stamp, tmp_path / "previous")
         assert previous is not None
+        assert previous.configs == ("default",)
         assert previous.edited == ()
         assert previous.moved_classes == ()
         assert sorted(path.name for path in previous.directory.iterdir()) == ["memo-default.tsv"]
@@ -873,10 +932,12 @@ class TestTheMemoStamp:
                 handle.write(head)
         narrowed = run_m1.previous_memos(tmp_path, stamp, tmp_path / "narrowed", configs=("default",))
         assert narrowed is not None
+        assert narrowed.configs == ("default",)
         assert narrowed.edited == ()
         assert sorted(path.name for path in narrowed.directory.iterdir()) == ["memo-default.tsv"]
         whole = run_m1.previous_memos(tmp_path, stamp, tmp_path / "whole")
         assert whole is not None
+        assert whole.configs == ("default", "ss03")
         assert whole.edited == (rune,)
         assert sorted(path.name for path in whole.directory.iterdir()) == [
             "memo-default.tsv",

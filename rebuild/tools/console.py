@@ -192,10 +192,12 @@ def warn(text: str, *, file: IO[str] | None = None) -> None:
     _write(WARN + text, file)
 
 
-def timing(label: str, seconds: float, tail: str | None = None, *, file: IO[str] | None = None) -> None:
-    """Write a `[t]` line in the format `INNER_LINE` parses, so a new producer cannot write a variant the journal drops. Existing print sites format their own lines."""
+def timing(label: str, seconds: float, tail: str | None = None, *, file: IO[str] | None = None) -> str:
+    """Write a `[t]` line in the format `INNER_LINE` parses, so a new producer cannot write a variant the journal drops, and return it as written. Existing print sites format their own lines."""
     suffix = "" if not tail else f" {tail}"
-    _write(f"{TIMING}{label} {seconds:.1f}s{suffix}", file)
+    line = f"{TIMING}{label} {seconds:.1f}s{suffix}"
+    _write(line, file)
+    return line
 
 
 def parse_line(line: str) -> Event | None:

@@ -2,9 +2,9 @@
 
 The journal is rebuild/out/cycle-timings.ndjson. It is gitignored with the rest of rebuild/out and the retention pass does not prune it, so each machine keeps its own history. It holds four kinds of line.
 
-A "check" line records one evaluated check invocation: the check's name, the outcome (green, red, or skipped), the status string the evaluator printed, the failure messages the cycle adds to its summary, and the ids of the tests that failed. The artifact cycle tags each check it evaluates with its run id. The interactive entry points (rebuild.tools.rebuild_gate, rebuild.tools.make_test_gate, rebuild.tools.deep_replay, rebuild.tools.deep_sweep, and run_m1's CLI) record their checks with no run. Each invocation is recorded by one process: run_m1's CLI and make_test_gate, which a cycle spawns, record nothing when AMS_CYCLE_RUN (`CYCLE_RUN_ENV`) is set, and the cycle records their line instead. A check line carries its own host, cpu count, and total memory, because most check lines have no run line to take them from. `make conform-deep`'s check line also carries each configuration's highest unit peak footprint beside the per-unit need its width was derived from. The outcome is what the evaluator decided, never the process's return code, so a run that died before its evaluator and a run the evaluator failed can be told apart.
+A "check" line records one evaluated check invocation: the check's name, the outcome (green, red, or skipped), the status string the evaluator printed, the failure messages the cycle adds to its summary, and the ids of the tests that failed. The artifact cycle tags each check it evaluates with its run id. The interactive entry points (rebuild.tools.rebuild_gate, rebuild.tools.make_test_gate, rebuild.tools.deep_replay, rebuild.tools.deep_sweep, and run_m1's CLI) record their checks with no run. Each invocation is recorded by one process: run_m1's CLI and make_test_gate, which a cycle spawns, record nothing when AMS_CYCLE_RUN (`CYCLE_RUN_ENV`) is set, and the cycle records their line instead. A check line carries its own host, cpu count, and total memory, because most check lines have no run line to take them from. `make conform-deep`'s check line also carries each configuration's highest unit peak footprint beside the per-unit need its width was derived from. The outcome is what the evaluator decided, never the process's return code, so a run that died before its evaluator and a run the evaluator failed can be told apart. run_m1's own check line, from an invocation that built tables, also carries that build's phase lines as `inner`, in a step line's form: the crate's lines and the `kernel_build_tables` line with its record, described below.
 
-A "step" line records one subprocess the cycle spawned: the driver's step name (run_m1, gate:conform, merge, ...), the argv, the return code, the wall seconds, and the step's peak RSS in bytes. The driver measures the peak as it reaps the child (`peak_rss.reap_peak_rss_bytes`), and it is the largest of the child and its descendants. The line also carries every `[t] <label> <secs>s` phase line parsed from the child's captured output, so the per-configuration conform sweeps and run_m1's phases are kept even for steps whose output is not shown on the console. A phase line may end with a peak-RSS token `rss_gb=<n>` (`peak_rss.rss_token`) and a current-RSS token `rss_now_gb=<n>` (`peak_rss.rss_now_token`), both in decimal GB, which are stored as `rss_gb` and `rss_now_gb`. A step line has a return code and no outcome, and no reader here derives an outcome from it. A skipped stage spawns nothing and so writes no step line; the run line's plan and gates blocks say which stages were skipped.
+A "step" line records one subprocess the cycle spawned: the driver's step name (run_m1, gate:conform, merge, ...), the argv, the return code, the wall seconds, and the step's peak RSS in bytes. The driver measures the peak as it reaps the child (`peak_rss.reap_peak_rss_bytes`), and it is the largest of the child and its descendants. The line also carries every `[t] <label> <secs>s` phase line parsed from the child's captured output, so the per-configuration conform sweeps and run_m1's phases are kept even for steps whose output is not shown on the console. A phase line may end with a peak-RSS token `rss_gb=<n>` (`peak_rss.rss_token`) and a current-RSS token `rss_now_gb=<n>` (`peak_rss.rss_now_token`), both in decimal GB, which are stored as `rss_gb` and `rss_now_gb`. run_m1's `[t] kernel_build_tables` line ends with the table build's record (`run_m1.TableBuildRecord`) as `key=value` tokens, each stored under its key with the reader `TABLE_BUILD_TOKENS` names: the memo structure stamp (`structure`), the digest of the code the table build runs (`code`, over `run_m1.table_build_code_paths`, which a letter batch's `M1_ALPHABET` edit does not touch), how many configurations read a previous build's memo (`memos_read`, 0 for a fresh build), the runes and predicate classes those memos excluded (`edited`, `classes`), the build's width (`width`), and the alphabet's rune count (`runes`). The journal is per machine, so two fresh builds in one machine's journal with the same code digest and width, one on each side of a letter batch, measure that batch's growth in the table build. A step line has a return code and no outcome, and no reader here derives an outcome from it. A skipped stage spawns nothing and so writes no step line; the run line's plan and gates blocks say which stages were skipped.
 
 A "run" line is written when a cycle finishes, including an interrupted one. It carries the host, cpu count, total memory, start and finish stamps, total wall seconds, the cycle summary's exit, failures, gates, plan, and argv, and the carry's counts (`artifact_cycle.carry_counts` parses them from the carry's own output line). The plan block names the width of each pooled step (`sweep_jobs`, `corpus_jobs`, `signature_jobs`, `standing_fill_jobs`, `make_test_workers`, `contracts_workers` and `conform_jobs`), null for a step the pass skipped; its `kernel_threads` and `replay_threads` are null only on a gates-only rerun. The total memory is recorded because a step's peak read months later needs the size of the machine it ran on beside it.
 
@@ -27,7 +27,7 @@ import sys
 import threading
 import time
 import uuid
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -57,6 +57,21 @@ CRITICAL_PATH_SHAPE_STEPS = ("run_m1", "corpus-build", "gate:make-test")
 
 _RSS_TOKEN = re.compile(r"\brss_gb=(\d+(?:\.\d+)?)")
 _RSS_NOW_TOKEN = re.compile(r"\brss_now_gb=(\d+(?:\.\d+)?)")
+
+
+def _names(value: str) -> list[str]:
+    return [] if value in ("", "-") else value.split(",")
+
+
+TABLE_BUILD_TOKENS: dict[str, Callable[[str], object]] = {
+    "structure": str,
+    "code": str,
+    "memos_read": int,
+    "edited": _names,
+    "classes": _names,
+    "width": int,
+    "runes": int,
+}
 
 _JOURNAL_LOCK = threading.Lock()
 _pool_warn_state: list[bool] = [False]
@@ -147,9 +162,10 @@ def record_check(
     peak_rss_bytes: int | None = None,
     worker_peak_footprint_bytes: Mapping[str, int] | None = None,
     worker_estimate_bytes: Mapping[str, int] | None = None,
+    inner: list[dict] | None = None,
     path: Path | None = None,
 ) -> None:
-    """Append one kind:"check" line for an evaluated check invocation. `run` is the optional parent run id: the artifact cycle passes it through `CycleTimings.record_check`, and an interactive entry point passes nothing. A check that runs its own pool can also record each worker's peak footprint (`peak_rss.peak_footprint_bytes`) and the need it was sized for, keyed by worker, as `make conform-deep` does per configuration, so a real run can be held against its estimate.
+    """Append one kind:"check" line for an evaluated check invocation. `run` is the optional parent run id: the artifact cycle passes it through `CycleTimings.record_check`, and an interactive entry point passes nothing. A check that runs its own pool can also record each worker's peak footprint (`peak_rss.peak_footprint_bytes`) and the need it was sized for, keyed by worker, as `make conform-deep` does per configuration, so a real run can be held against its estimate. `inner` is phase lines as `parse_inner_timings` returns them, which run_m1's CLI passes for its table build.
 
     The host, cpu count, and total memory are read here because most check lines have no run line to take them from, and so parented and unparented lines can be compared directly. `recordable` is not written. `elapsed_s` is rounded to a tenth, as step lines are. Nothing here raises, because the callers are gate wrappers and the cycle's reporting path, where an unwritable journal should warn once and never fail a check that already has a result. `path` is resolved at call time, not bound as a default, so a test that patches `JOURNAL` redirects this write too.
     """
@@ -183,6 +199,8 @@ def record_check(
         entry["worker_estimate_bytes"] = {
             worker: int(estimate) for worker, estimate in worker_estimate_bytes.items()
         }
+    if inner is not None:
+        entry["inner"] = [dict(item) for item in inner]
     failure = _append_entry(journal, entry)
     if failure is not None and not _check_warn_state[0]:
         _check_warn_state[0] = True
@@ -190,6 +208,7 @@ def record_check(
 
 
 def parse_inner_timings(text: str) -> list[dict]:
+    """Return every `[t]` line in `text` as a phase entry: its label and seconds, the two RSS tokens, and each `key=value` token `TABLE_BUILD_TOKENS` names, read by that key's reader. A token whose value its reader rejects is left out, and every other part of the tail is dropped."""
     entries: list[dict] = []
     for match in INNER_LINE.finditer(text):
         entry: dict = {"label": match.group(1), "elapsed_s": float(match.group(2))}
@@ -200,6 +219,15 @@ def parse_inner_timings(text: str) -> list[dict]:
         now = _RSS_NOW_TOKEN.search(tail)
         if now:
             entry["rss_now_gb"] = float(now.group(1))
+        for token in tail.split():
+            key, separator, value = token.partition("=")
+            read = TABLE_BUILD_TOKENS.get(key) if separator else None
+            if read is None:
+                continue
+            try:
+                entry[key] = read(value)
+            except ValueError:
+                continue
         entries.append(entry)
     return entries
 
