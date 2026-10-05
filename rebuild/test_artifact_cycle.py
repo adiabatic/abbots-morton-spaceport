@@ -2520,8 +2520,8 @@ class TestTheConformSweepWidth:
             cap(skip_corpus=True, skip_make_test=True),
         )
 
-    def test_the_larger_build_lane_step_is_the_one_that_comes_off(self):
-        """The conformance sweep starts beside the corpus build, and a conformance sweep still running when the build finishes, or one the queue policy starts late, runs beside the verdict-update step, so a pass that runs both subtracts the larger. The corpus build stops at the build lane's share of the cores while the standing fill takes all of them, so on a machine with enough cores the verdict-update step is the larger and is the one subtracted. On one core each pool runs one worker, and a corpus worker outweighs a refill worker, so there the corpus build is the larger; the test states that ordering before relying on it."""
+    def test_the_larger_build_lane_step_is_the_one_that_comes_off(self, monkeypatch):
+        """The conformance sweep starts beside the corpus build, and a conformance sweep still running when the build finishes, or one the queue policy starts late, runs beside the verdict-update step, so a pass that runs both subtracts the larger. The corpus build stops at the build lane's share of the cores while the standing fill takes all of them, so on a machine with enough cores the verdict-update step is the larger and is the one subtracted. On one core each pool runs one worker, and a corpus worker outweighs a refill worker, so with the two parents held equal the corpus build is the larger there; the test states that ordering before relying on it."""
         machine: dict[str, Any] = dict(skip_gates=False, skip_make_test=False, total_bytes=MACHINE_48_GIB)
         wide: dict[str, Any] = dict(machine, ncores=40)
         corpus = ac.CORPUS_PARENT_BYTES + ac.CORPUS_WORKER_BYTES * ac.corpus_job_budget(**wide)
@@ -2541,6 +2541,7 @@ class TestTheConformSweepWidth:
             ac._conform_fit_terms(**wide, skip_corpus=False, verdict_update_runs=True, pool_policy="queue")[1]
             == verdict_update
         )
+        monkeypatch.setattr(ac, "STANDING_FILL_PARENT_BYTES", ac.CORPUS_PARENT_BYTES)
         narrow: dict[str, Any] = dict(machine, ncores=1)
         narrow_corpus = ac.CORPUS_PARENT_BYTES + ac.CORPUS_WORKER_BYTES * ac.corpus_job_budget(**narrow)
         narrow_fill = ac.STANDING_FILL_PARENT_BYTES + ac.STANDING_FILL_WORKER_BYTES * ac.standing_fill_jobs(
