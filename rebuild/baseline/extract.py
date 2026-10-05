@@ -36,7 +36,7 @@ MULTI_HEIGHT_EXAMPLE_CAP = 5
 def _shard_workers_default(*, cgroup_root: str | Path = "/") -> int:
     """Return the default number of shard workers: the cores this process may run on, from `usable_cores()`, which reads the affinity mask and any cgroup CPU quota that `os.cpu_count()` ignores.
 
-    The width is not derived from a memory budget because a worker's peak memory (a `Shaper` and a `JunctionClassifier` over the font, one open shard file, two `Counter`s, and a capped list of multi-height examples) has not been measured. Once it is, the width should become `memory_budget.how_many_fit` over a peak constant, as `kernel_exec.kernel_threads_default` does over `DELTA_PEAK_BYTES`, capped at these cores.
+    The width is not derived from a memory budget because a worker's peak memory (a `Shaper` and a `JunctionClassifier` over the font, one open shard file, two `Counter`s, and a capped list of multi-height examples) has not been measured. Once it is, the width should become `memory_budget.how_many_fit` over a peak constant, as `kernel_exec.kernel_threads_default` does over `DELTA_SLOT_BYTES`, capped at these cores.
 
     The width cannot change the output: each worker writes its own shard file and the writer concatenates them in shard-index order. `rebuild/test_extractor.py` checks this by extracting one subset with two workers and with one and comparing the gzip payloads.
 

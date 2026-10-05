@@ -967,7 +967,7 @@ class TestTheMemoStamp:
 
 
 class TestTheMemoryDerivedThreadDefault:
-    """The default table-build width is the machine's memory, less the OS reserve, `DEFAULT_MEMO_BYTES` and one `PARKED_FOLD_BYTES` per configuration, divided by `DELTA_PEAK_BYTES` less `PARKED_FOLD_BYTES`. Its value depends on the machine running the suite, so these tests pass invented totals through the `total_bytes` keyword of `kernel_threads_default` and `replay_threads_default`, with the settlement set's configuration count."""
+    """The default table-build width is the widest width, up to the configuration count, whose `table_build_booking_bytes` fits the machine's memory less the OS reserve: the configuration count when the whole wave fits, and otherwise the memory less `DEFAULT_MEMO_BYTES` and one `PARKED_FOLD_BYTES` per configuration, divided by `DELTA_SLOT_BYTES` and capped at the delta count. Its value depends on the machine running the suite, so these tests pass invented totals through the `total_bytes` keyword of `kernel_threads_default` and `replay_threads_default`, with the settlement set's configuration count."""
 
     @pytest.fixture(autouse=True)
     def _no_inherited_override(self, monkeypatch):
@@ -983,7 +983,7 @@ class TestTheMemoryDerivedThreadDefault:
 
     @pytest.mark.parametrize("stated, wanted", [("1", 1), ("3", 3), ("12", 12), ("0", 1), ("-3", 1)])
     def test_a_stated_width_short_circuits_ahead_of_the_arithmetic(self, monkeypatch, stated, wanted):
-        """`AMS_KERNEL_THREADS` takes precedence over the memory arithmetic. Its value is floored at one and not otherwise capped here; `run_m1._table_build_threads` applies the configuration and core caps. The invented total is a terabyte, so the derived width would be far above every stated value, and a pass shows the override was used."""
+        """`AMS_KERNEL_THREADS` takes precedence over the memory arithmetic. Its value is floored at one and not otherwise capped here; `run_m1._table_build_threads` applies the configuration and core caps. The invented total is a terabyte, so the derived width would be the configuration count, which no stated value here equals, and a pass shows the override was used."""
         monkeypatch.setenv("AMS_KERNEL_THREADS", stated)
         assert (
             kernel_exec.kernel_threads_default(configs=CONFIG_COUNT, total_bytes=1_000_000_000_000) == wanted
@@ -1004,30 +1004,67 @@ class TestTheMemoryDerivedThreadDefault:
             kernel_exec.replay_threads_default(total_bytes=34_359_738_368)
 
     @pytest.mark.parametrize(
-        "total, wanted", [(4_000_000_000, 1), (34_359_738_368, 3), (32_000_000_000, 3), (64_000_000_000, 8)]
+        "total, wanted", [(4_000_000_000, 1), (34_359_738_368, 3), (32_000_000_000, 3), (64_000_000_000, 5)]
     )
     def test_the_width_follows_the_machine_and_never_falls_below_one(self, total, wanted):
-        """With `DEFAULT_MEMO_BYTES` (2.5 GB) and five parked products at `PARKED_FOLD_BYTES` (1.1 GB) off the machine, a 32 GiB machine fits three deltas at `DELTA_PEAK_BYTES` less a parked product (5.2 GB), and so does a decimal 32 GB machine. A machine too small for one delta gets one, and a 64 GB machine fits eight before the caller's configuration and core caps."""
+        """With `DEFAULT_MEMO_BYTES` (2.1 GB) and five parked products at `PARKED_FOLD_BYTES` (1.5 GB) off the machine, a 32 GiB machine fits three delta slots at `DELTA_SLOT_BYTES` (4.7 GB), and so does a decimal 32 GB machine. A machine too small for one delta gets one, and a 64 GB machine fits the whole wave, every configuration at once, which is as wide as the width goes."""
         assert kernel_exec.kernel_threads_default(configs=CONFIG_COUNT, total_bytes=total) == wanted
 
     def test_a_coresident_pool_comes_off_the_machine_before_it_is_divided(self):
-        """`coresident_bytes` is memory used by something running beside the fan-out, such as the artifact cycle's pytest pool. It is subtracted in addition to `DEFAULT_MEMO_BYTES` and the parked products, so 10 GB costs the 64 GB machine a delta. It defaults to zero because a bare run_m1 runs alone."""
-        assert kernel_exec.kernel_threads_default(configs=CONFIG_COUNT, total_bytes=64_000_000_000) == 8
+        """`coresident_bytes` is memory used by something running beside the fan-out, such as the artifact cycle's pytest pool. It comes off the machine with the reserve, so 3 GB beside a 40 GB machine leaves too little for the whole wave's 30.5 GB booking, and the wave drops the slot of its own that `default`'s fold preparation takes. It defaults to zero because a bare run_m1 runs alone."""
+        assert kernel_exec.kernel_threads_default(configs=CONFIG_COUNT, total_bytes=40_000_000_000) == 5
         assert (
             kernel_exec.kernel_threads_default(
-                configs=CONFIG_COUNT, coresident_bytes=10_000_000_000, total_bytes=64_000_000_000
+                configs=CONFIG_COUNT, coresident_bytes=3_000_000_000, total_bytes=40_000_000_000
             )
-            == 7
+            == 4
         )
 
-    def test_every_configuration_s_parked_product_comes_off_the_machine(self):
-        """Each configuration keeps its prepared fold product parked until the exchange ends, so the width a build of more configurations gets is never wider, and on a machine whose slack is a parked product or two it is narrower. Each slot's delta already counts its own product, so the divisor is `DELTA_PEAK_BYTES` less `PARKED_FOLD_BYTES`."""
-        one = kernel_exec.kernel_threads_default(configs=1, total_bytes=34_359_738_368)
+    def test_the_booking_counts_every_parked_product_and_each_slot_beyond_its_own(self):
+        """Each configuration keeps its prepared fold product parked until the exchange ends, so every width books one `PARKED_FOLD_BYTES` per configuration beside `DEFAULT_MEMO_BYTES`. Each delta slot books `DELTA_SLOT_BYTES` beyond its own product, up to the delta count, and only a width above the delta count books the slot that runs `default`'s fold preparation alone, at `FOLD_PREPARATION_BYTES`. Below the whole wave, the width is the division by `DELTA_SLOT_BYTES` after the memo and the parked products come off the machine."""
+        fixed = kernel_exec.DEFAULT_MEMO_BYTES + CONFIG_COUNT * kernel_exec.PARKED_FOLD_BYTES
+        deltas = CONFIG_COUNT - 1
+        for width in range(1, CONFIG_COUNT + 2):
+            assert kernel_exec.table_build_booking_bytes(width, configs=CONFIG_COUNT) == (
+                fixed
+                + min(width, deltas) * kernel_exec.DELTA_SLOT_BYTES
+                + (kernel_exec.FOLD_PREPARATION_BYTES if width > deltas else 0)
+            )
         every = kernel_exec.kernel_threads_default(configs=CONFIG_COUNT, total_bytes=34_359_738_368)
-        assert one > every
-        budget = 34_359_738_368 - memory_budget.os_reserve_bytes(total_bytes=34_359_738_368)
-        budget -= kernel_exec.DEFAULT_MEMO_BYTES + CONFIG_COUNT * kernel_exec.PARKED_FOLD_BYTES
-        assert every == budget // (kernel_exec.DELTA_PEAK_BYTES - kernel_exec.PARKED_FOLD_BYTES)
+        budget = 34_359_738_368 - memory_budget.os_reserve_bytes(total_bytes=34_359_738_368) - fixed
+        assert every == budget // kernel_exec.DELTA_SLOT_BYTES
+
+    def test_a_build_without_default_s_memo_books_each_slot_from_scratch(self, monkeypatch, tmp_path):
+        """A set without `default` enumerates every configuration from scratch, so its slots book `SCRATCH_PEAK_BYTES` less a parked product, not a delta's slot, and its width is that division, capped at the configuration count. On an invented 24 GB machine a two-configuration build that shares `default`'s memo runs both at once, while the from-scratch division fits one. `run_m1.build_tables` asks for that width exactly when `default` is not in the set it builds."""
+        fixed = kernel_exec.DEFAULT_MEMO_BYTES + 2 * kernel_exec.PARKED_FOLD_BYTES
+        slot = kernel_exec.SCRATCH_PEAK_BYTES - kernel_exec.PARKED_FOLD_BYTES
+        assert kernel_exec.table_build_booking_bytes(2, configs=2, from_scratch=True) == fixed + 2 * slot
+        total = 24_000_000_000
+        budget = total - memory_budget.os_reserve_bytes(total_bytes=total) - fixed
+        assert budget // slot < 2 == kernel_exec.kernel_threads_default(configs=2, total_bytes=total)
+        assert (
+            kernel_exec.kernel_threads_default(configs=2, total_bytes=total, from_scratch=True)
+            == budget // slot
+        )
+        asked = []
+        monkeypatch.setattr(
+            kernel_exec, "kernel_threads_default", lambda **terms: asked.append(terms["from_scratch"]) or 1
+        )
+        for configs in (["ss03", "ss05"], ["default", "ss03"]):
+            self._observe(monkeypatch, tmp_path, configs)
+        assert asked == [True, False]
+
+    @staticmethod
+    def _observe(monkeypatch, tmp_path, configs):
+        """Run `run_m1.build_tables` over `configs` with the crate stubbed out at its first call."""
+
+        def build_table_files(*_args, **_rest):
+            raise Reached
+
+        monkeypatch.setattr(kernel_exec, "ensure_built", lambda: None)
+        monkeypatch.setattr(kernel_exec, "build_table_files", build_table_files)
+        with pytest.raises(Reached):
+            run_m1.build_tables(SPEC, tmp_path, inputs=STAMP, configs=configs)
 
     def test_a_stated_width_outranks_coresident_memory_too(self, monkeypatch):
         """A stated `AMS_KERNEL_THREADS` is used as given even when `coresident_bytes` would narrow the derived width."""

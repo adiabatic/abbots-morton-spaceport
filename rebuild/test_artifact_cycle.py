@@ -33,7 +33,7 @@ from rebuild.tools.peak_rss import format_gb
 from rebuild.tools.cycle_timings import CycleTimings
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-# Width assertions use stated machine sizes, not the host running the suite. With DELTA_PEAK_BYTES at 6.3 GB, DEFAULT_MEMO_BYTES at 2.5 GB and five parked fold products at PARKED_FOLD_BYTES (1.1 GB), 37 GB fits four deltas alone and three beside an eight-core machine's pytest pool, and leaves room to test larger stated pool widths, and 44 GB is `_plan`'s default machine, which the plan and width tests share. Changing either constant changes these expectations and can require a different size to keep the memory set aside for the pool visible in a width.
+# Width assertions use stated machine sizes, not the host running the suite. With DEFAULT_MEMO_BYTES at 2.1 GB, five parked fold products at PARKED_FOLD_BYTES (1.5 GB) and DELTA_SLOT_BYTES at 4.7 GB, 37 GB is too small for the whole wave and fits four deltas alone and three beside an eight-core machine's pytest pool, and leaves room to test larger stated pool widths, and 44 GB is `_plan`'s default machine, which the plan and width tests share. Changing a kernel term changes these expectations and can require a different size to keep the memory set aside for the pool visible in a width.
 MACHINE_44_GB = 44_000_000_000
 MACHINE_37_GB = 37_000_000_000
 MACHINE_36_GB = 36_000_000_000
@@ -2846,13 +2846,13 @@ def test_kernel_threads_budget_takes_the_pytest_pool_off_the_machine_first():
 def test_the_kernel_fits_as_many_deltas_with_the_test_gates_running_as_run_alone_on_both_fleet_machines(
     monkeypatch,
 ):
-    """`kernel_exec.DELTA_PEAK_BYTES`, `DEFAULT_MEMO_BYTES` and `PARKED_FOLD_BYTES` are chosen so that gate:make-test's pytest pool costs neither fleet machine a worker slot, and this test checks the gated widths, which only the cycle computes. On both 48 GiB machines, at eighteen and at twelve cores, the gated and skipped-gate widths are equal and cover every configuration after default, so the delta wave runs in one round. `AMS_KERNEL_THREADS` is cleared first, because an exported width would pass these assertions whatever the constants are."""
+    """The kernel terms (`kernel_exec.table_build_booking_bytes`) are chosen so that gate:make-test's pytest pool costs neither fleet machine a worker slot, and this test checks the gated widths, which only the cycle computes. On both 48 GiB machines, at eighteen and at twelve cores, the gated and skipped-gate widths are equal to the configuration count, every delta and `default`'s fold preparation in a slot of its own, so the wave runs in one round. `AMS_KERNEL_THREADS` is cleared first, because an exported width would pass these assertions whatever the constants are."""
     from rebuild.pipeline.conform import SETTLEMENT_CONFIGS
 
     monkeypatch.delenv("AMS_KERNEL_THREADS", raising=False)
     for ncores in (18, 12):
         gated = ac.kernel_threads_budget(ncores=ncores, total_bytes=MACHINE_48_GIB)
-        assert gated >= len(SETTLEMENT_CONFIGS) - 1
+        assert gated == len(SETTLEMENT_CONFIGS)
         assert (
             ac.kernel_threads_budget(skip_make_test=True, ncores=ncores, total_bytes=MACHINE_48_GIB) == gated
         )
@@ -2935,12 +2935,13 @@ def test_kernel_threads_budget_never_narrows_a_stated_kernel_width(monkeypatch):
 
 
 def test_kernel_threads_budget_holds_its_answer_at_the_configuration_count_and_the_cores(monkeypatch):
-    """The table build's width is capped at the configuration count and the cores, like the replay width. On the 48 GiB machines the memory arithmetic gives more than the configuration count, so without the cap the plan line would show a width that `run_m1._table_build_threads` then narrows. The test also checks that the cores bind when they are smaller, that the rendered line mentions the cap, and that a stated `AMS_KERNEL_THREADS` above the configuration count is cut to it."""
+    """The table build's width is capped at the configuration count and the cores, like the replay width. On the 48 GiB machines the memory arithmetic reaches the configuration count, which is as wide as it goes, so the cores bind only on a machine with fewer of them, and a stated `AMS_KERNEL_THREADS` can exceed the count. The test checks that the cores bind when they are smaller, that the rendered line mentions the cap, and that a stated `AMS_KERNEL_THREADS` above the configuration count is cut to it."""
     from rebuild.pipeline.conform import SETTLEMENT_CONFIGS
     from rebuild.pipeline.kernel_exec import kernel_threads_default
 
+    monkeypatch.delenv("AMS_KERNEL_THREADS", raising=False)
     count = len(SETTLEMENT_CONFIGS)
-    assert kernel_threads_default(configs=count, total_bytes=MACHINE_48_GIB) > count
+    assert kernel_threads_default(configs=count, total_bytes=MACHINE_48_GIB) == count
     assert ac.kernel_threads_budget(ncores=18, total_bytes=MACHINE_48_GIB) == count
     assert ac.kernel_threads_budget(skip_make_test=True, ncores=12, total_bytes=MACHINE_48_GIB) == count
     assert ac.kernel_threads_budget(ncores=2, total_bytes=MACHINE_48_GIB) == 2

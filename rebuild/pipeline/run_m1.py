@@ -318,12 +318,14 @@ def table_build_record(
 _table_build_lines: list[str] = []
 
 
-def _table_build_threads(kernel_threads: int | None, configs: int = len(conform.SETTLEMENT_CONFIGS)) -> int:
-    """Return the table build's width for a build of `configs` configurations: `kernel_threads`, or the memory-derived `kernel_exec.kernel_threads_default`, which parks one fold product per configuration, capped at the settlement configuration count and the cores this process may run on. The string replay uses `_replay_threads` instead."""
+def _table_build_threads(
+    kernel_threads: int | None, configs: int = len(conform.SETTLEMENT_CONFIGS), from_scratch: bool = False
+) -> int:
+    """Return the table build's width for a build of `configs` configurations: `kernel_threads`, or the memory-derived `kernel_exec.kernel_threads_default`, which parks one fold product per configuration and books each slot from scratch when `from_scratch` says no configuration shares `default`'s memo, capped at the settlement configuration count and the cores this process may run on. The string replay uses `_replay_threads` instead."""
     return max(
         1,
         min(
-            kernel_threads or kernel_exec.kernel_threads_default(configs=configs),
+            kernel_threads or kernel_exec.kernel_threads_default(configs=configs, from_scratch=from_scratch),
             len(conform.SETTLEMENT_CONFIGS),
             usable_cores(),
         ),
@@ -419,7 +421,7 @@ def build_tables(
 ) -> tuple[dict[str, tuple], dict[str, str]]:
     """Build the decision and join tables for the named settlement configurations, all of them unless `configs` narrows the set. The resolved spec is dumped once, then one crate `build-tables` process (`kernel_exec.build_table_files`) enumerates `default`'s fixpoint and folds it, then enumerates each other configuration as a delta over `default`'s finished memo, prepares its fold as it finishes, and, once every configuration has exchanged the windows the others keep live (`rebuild/kernel-rs/src/crossconfig.rs`), finishes each fold. The crate writes the settlement TSV, the join TSV and the window enumeration itself; nothing is folded on the Python side.
 
-    A narrowed set is for `rebuild/tools/scratch_build.py`, which searches for a record to change. The crate writes only the configurations it is asked for and deletes nothing, so a narrowed build into a directory another build wrote leaves that build's files for the other settlement configurations in place. `scratch_build.scratch_out_dir` keeps such builds out of `rebuild/out/m1`. A narrowed set writes the same windows and join tables as the whole set, but its settlement tables can differ, since it has fewer configurations to import windows from. A set that does not include `default` enumerates each member from scratch, since there is no finished memo to build a delta over. The build and the artifact cycle ask for the whole set. Overlay configurations get no tables. Any table files named for a configuration outside `conform.SETTLEMENT_CONFIGS`, an overlay configuration's or one that has left the set, are removed first (`stale_table_files`), so a whole-set build leaves only its own tables in the directory.
+    A narrowed set is for `rebuild/tools/scratch_build.py`, which searches for a record to change. The crate writes only the configurations it is asked for and deletes nothing, so a narrowed build into a directory another build wrote leaves that build's files for the other settlement configurations in place. `scratch_build.scratch_out_dir` keeps such builds out of `rebuild/out/m1`. A narrowed set writes the same windows and join tables as the whole set, but its settlement tables can differ, since it has fewer configurations to import windows from. A set that does not include `default` enumerates each member from scratch, since there is no finished memo to build a delta over, so its width is derived from the from-scratch bound. The build and the artifact cycle ask for the whole set. Overlay configurations get no tables. Any table files named for a configuration outside `conform.SETTLEMENT_CONFIGS`, an overlay configuration's or one that has left the set, are removed first (`stale_table_files`), so a whole-set build leaves only its own tables in the directory.
 
     Per configuration, Python reads the enumeration's head back for the rules, the reachable cells and the fired provenance every downstream stage needs, parses the join TSV back for the defect gates, and packs the plain window payload into its `.gz` artifact. The head reads run on a thread pool at the table build's width once the crate has exited, and this call waits for them. The packing (`_pack_config`, memo file included) runs on a `Packing` pool at `_core_bound_threads` width, one packer per configuration up to the cores, whatever the crate's width, because a packer holds only a zlib stream and a copy buffer and the compressor releases the interpreter lock. When `packing` is passed, the tables are returned as soon as the heads are read, and the caller waits on each pack through `Packing.wait` and closes the pool. Without it, packing finishes before the return.
 
@@ -429,10 +431,10 @@ def build_tables(
 
     `inputs` is `tables_inputs` over the sources this spec was loaded from. Passing it with `out_dir` keeps each configuration's window enumeration beside the TSVs under the stamp that names those sources, where `run_font_conformance` reads it instead of rebuilding anything. Without it, the payload is deleted once its head is read. A caller building its own spec must omit it, because the fingerprint names the repository's rune files and does not describe tables built from other runes.
 
-    `kernel_threads` is how many delta configurations are enumerated at once beside `default`, capped at the configuration count and the cores this process may run on, neither of which is a memory limit. The default it falls back to is the memory limit: `kernel_exec.kernel_threads_default` is this machine's memory, less what `default`'s finished memo holds and one parked fold product per configuration this build names, divided by what one delta holds at its peak beyond its own parked product. So the cap only narrows a memory-derived width and never widens one.
+    `kernel_threads` is how many worker slots the build runs at once, each enumerating a delta configuration or running `default`'s fold preparation, capped at the configuration count and the cores this process may run on, neither of which is a memory limit. The default it falls back to is the memory limit: `kernel_exec.kernel_threads_default` is the widest width whose `kernel_exec.table_build_booking_bytes` fits this machine's memory, which books what `default`'s finished memo holds, one parked fold product per configuration this build names, and what each slot holds beyond its own parked product. So the cap only narrows a memory-derived width and never widens one.
     """
     configs = tuple(configs)
-    threads = _table_build_threads(kernel_threads, len(configs))
+    threads = _table_build_threads(kernel_threads, len(configs), from_scratch="default" not in configs)
     kernel_exec.ensure_built()
     built: dict[str, tuple] = {}
     digests: dict[str, str] = {}
@@ -2109,8 +2111,8 @@ def main(argv: list[str] | None = None) -> None:
         type=int,
         default=None,
         help=(
-            "how many delta configurations the kernel enumerates and folds at once beside default's memo, capped at the configuration count and the cores this process may actually run on; the ceiling is memory rather than CPU, so the default is derived from this machine rather than checked in — on this one "
-            f"{describe_fit(kernel_exec.DELTA_PEAK_BYTES - kernel_exec.PARKED_FOLD_BYTES, coresident_bytes=kernel_exec.DEFAULT_MEMO_BYTES + len(conform.SETTLEMENT_CONFIGS) * kernel_exec.PARKED_FOLD_BYTES)}, the co-resident term being default's retained memo and every configuration's parked fold product, the per-delta term a delta's peak beyond its own parked product — which AMS_KERNEL_THREADS short-circuits and this flag beats in turn; the string replay after the build has its own width, --replay-threads"
+            "how many worker slots the kernel's table build runs at once beside default's memo, each holding a delta configuration or default's fold preparation, capped at the configuration count and the cores this process may actually run on; the ceiling is memory rather than CPU, so the default is derived from this machine rather than checked in — on this one "
+            f"{kernel_exec.describe_kernel_threads(configs=len(conform.SETTLEMENT_CONFIGS))}, the booking being default's retained memo, every configuration's parked fold product, what each delta in flight adds beyond its own, and default's fold preparation in a slot of its own once every delta has one — which AMS_KERNEL_THREADS short-circuits and this flag beats in turn; the string replay after the build has its own width, --replay-threads"
         ),
     )
     parser.add_argument(

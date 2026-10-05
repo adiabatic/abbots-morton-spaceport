@@ -507,7 +507,7 @@ def test_the_report_states_the_width_each_constant_implies_here(tmp_path, capsys
 
 
 def test_the_width_clauses_answer_for_the_machine_and_the_tree_they_are_given(tmp_path, capsys):
-    """`render_rows` takes the machine's memory, its cores, and the source tree as arguments, so this test checks the width arithmetic against a stated machine and a fixture tree instead of the machine and checkout running the test. On twelve cores the corpus-parent row's division fits six of the tree's workers, so a hand build's cap of eleven leaves memory to bind it, while a gated cycle's cap, the build lane's six cores less the parent, binds first. On six cores the gated build's parent and 2 workers leave 3, so the conformance sweep's cap beside it is its floor, the tree's 4 acceptance configurations. The kernel's delta wave takes the memo and the tree's 3 settlement configurations' parked products off the 40 GB the reserve leaves, and divides the 30 GB left by a delta less its parked product."""
+    """`render_rows` takes the machine's memory, its cores, and the source tree as arguments, so this test checks the width arithmetic against a stated machine and a fixture tree instead of the machine and checkout running the test. On twelve cores the corpus-parent row's division fits six of the tree's workers, so a hand build's cap of eleven leaves memory to bind it, while a gated cycle's cap, the build lane's six cores less the parent, binds first. On six cores the gated build's parent and 2 workers leave 3, so the conformance sweep's cap beside it is its floor, the tree's 4 acceptance configurations. The kernel's whole wave, the memo, the tree's 3 settlement configurations' parked products, 2 delta slots and default's fold preparation, books 29 GB, which fits the 40 GB the reserve leaves of 48 GB, so all three run at once; of 36 GB the reserve leaves 28 GB, so the wave divides the 18 GB left beside the memo and the parked products by a delta slot, capped at the 2 deltas."""
     tree = tmp_path / "tree"
     (tree / "rebuild" / "tools").mkdir(parents=True)
     (tree / "rebuild" / "tools" / "artifact_cycle.py").write_text(
@@ -518,7 +518,7 @@ def test_the_width_clauses_answer_for_the_machine_and_the_tree_they_are_given(tm
     (tree / "rebuild" / "pipeline").mkdir(parents=True)
     (tree / "rebuild" / "pipeline" / "kernel_exec.py").write_text(
         f"{cb.KERNEL_DELTA_NAME} = 8_000_000_000\n{cb.KERNEL_MEMO_NAME} = 4_000_000_000\n"
-        f"{cb.KERNEL_PARKED_NAME} = 2_000_000_000\n",
+        f"{cb.KERNEL_PARKED_NAME} = 2_000_000_000\n{cb.KERNEL_PREPARATION_NAME} = 3_000_000_000\n",
         encoding="utf-8",
     )
     (tree / cb.CONFORM_SOURCE).write_text(
@@ -552,8 +552,13 @@ def test_the_width_clauses_answer_for_the_machine_and_the_tree_they_are_given(tm
     assert gated.startswith("5 at ")
     assert f"with it off, a hand build runs {solo}, and a gated cycle runs {gated}" in parent_block
     assert (
-        "its delta wave runs 5 at 6.00 GB each out of 48.00 GB total, less a reserve of 8.00 GB, less 10.00 GB co-resident"
+        "its delta wave runs all 3 settlement configurations at once, booked at 29.00 GB of the 40.00 GB the reserve leaves of 48.00 GB ("
         in out
+    )
+    narrow = "\n".join(cb.render_rows(rows, host=HOST, total_bytes=36_000_000_000, cores=12, root=tree))
+    assert (
+        "its delta wave runs 2 at 8.00 GB each out of 36.00 GB total, less a reserve of 8.00 GB, less 10.00 GB co-resident, capped at 2 ("
+        in narrow
     )
     assert (
         "the font suite takes the cores this process may run on (12) by hand and the gate lane's share (6) under a cycle whose build lane runs, not the division"
@@ -686,13 +691,13 @@ def test_a_reading_that_has_used_the_headroom_proposes_a_raise_before_any_overru
 
 
 def test_the_kernel_build_row_proposes_no_value_and_names_the_constants_to_re_measure(tmp_path, capsys):
-    """The kernel-build row reads the whole table build, which the two kernel constants bound together, so no reading of it sets either, and an overrun there proposes no value and names what to re-measure."""
+    """The kernel-build row reads the whole table build, which the kernel constants bound together, so no reading of it sets any of them, and an overrun there proposes no value and names what to re-measure."""
     path = _journal(tmp_path, [_step("run_m1", CONSTANTS["kernel-build"] * 2)])
     code, out = _run(capsys, path, "--check")
     assert code == 1
     proposal = _proposal(_block(out, "kernel-build"))
     assert proposal.startswith("  proposal  : no value — ")
-    assert "DELTA_PEAK_BYTES" in proposal and "DEFAULT_MEMO_BYTES" in proposal
+    assert cb.KERNEL_DELTA_NAME in proposal and "DEFAULT_MEMO_BYTES" in proposal
     assert " GB" not in proposal
 
 

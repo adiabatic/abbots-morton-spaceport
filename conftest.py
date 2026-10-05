@@ -77,7 +77,7 @@ def pytest_configure(config: pytest.Config) -> None:
         _deferred_pyright.append(pyright)
 
 
-# What one font-suite worker holds at its peak. Nothing here divides by it, because the cores limit this pool before memory does (see the hook below). The artifact cycle reads it to estimate `make test`'s pool as a co-resident term when another step shares the machine. Its measurement set is the peak-RSS summary line below, which measured these workers at 0.11–0.28 GB each across runs; the constant is the highest reading rounded up to the tenth of a gigabyte, for the reason kernel_exec.DELTA_PEAK_BYTES rounds up: a per-unit cost that errs low can put the machine into swap, while one that errs high only narrows a pool.
+# What one font-suite worker holds at its peak. Nothing here divides by it, because the cores limit this pool before memory does (see the hook below). The artifact cycle reads it to estimate `make test`'s pool as a co-resident term when another step shares the machine. Its measurement set is the peak-RSS summary line below, which measured these workers at 0.11–0.28 GB each across runs; the constant is the highest reading rounded up to the tenth of a gigabyte, for the reason kernel_exec.DELTA_SLOT_BYTES errs high: a per-unit cost that errs low can put the machine into swap, while one that errs high only narrows a pool.
 FONT_SUITE_WORKER_BYTES = 300_000_000
 
 

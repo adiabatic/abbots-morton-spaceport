@@ -2,9 +2,9 @@
 
 Most tests are pure functions over an invented machine, because `total_bytes`, `floor_bytes` and `fraction` are keyword parameters on every policy function. The probes are tested through their pure parsers over the checked-in samples under `rebuild/fixtures/memory_budget/`, and the two cgroup readers are pointed at those sample roots, so every container case runs on a laptop. The only test that compares a live reading with an outside figure checks `total_memory_bytes()` against `sysctl -n hw.memsize`, on Darwin only.
 
-Three constants here are recorded measurements, kept as literals so that re-measuring a shipped constant cannot move the reproduction of an earlier width. `KERNEL_CONFIG_BYTES` is what one kernel configuration in flight cost when issue #85 was written; it does not follow `kernel_exec.DELTA_PEAK_BYTES`. `FONT_POOL_BYTES` is ten font-suite workers at the top of the 0.11–0.28 GB range the root `conftest.py` records beside `FONT_SUITE_WORKER_BYTES`; it does not follow that constant, which rounds up past the range. `ISSUE_RESERVE_FLOOR_BYTES` is the 4 GB reserve floor issue #85 stated its widths under; the shipped floor, `RESERVE_FLOOR_BYTES`, is 8 GB.
+Three constants here are recorded measurements, kept as literals so that re-measuring a shipped constant cannot move the reproduction of an earlier width. `KERNEL_CONFIG_BYTES` is what one kernel configuration in flight cost when issue #85 was written; it does not follow `kernel_exec.DELTA_SLOT_BYTES`. `FONT_POOL_BYTES` is ten font-suite workers at the top of the 0.11–0.28 GB range the root `conftest.py` records beside `FONT_SUITE_WORKER_BYTES`; it does not follow that constant, which rounds up past the range. `ISSUE_RESERVE_FLOOR_BYTES` is the 4 GB reserve floor issue #85 stated its widths under; the shipped floor, `RESERVE_FLOOR_BYTES`, is 8 GB.
 
-`TestTheWidthsAlreadyOnRecord` shows the formula reproducing widths that were measured independently of it, over an invented 32 GB machine. The shipped kernel width is derived from the running machine, so no test compares it with a fixed number. Instead the tests check that the shipped `DELTA_PEAK_BYTES`, `DEFAULT_MEMO_BYTES` and `PARKED_FOLD_BYTES` still fit the whole delta wave on the fleet's 48 GiB machines when the build runs alone; `rebuild/test_artifact_cycle.py` checks the widths beside the cycle's pytest pool. `TestWhatDashNAutoResolvesTo` drives the repository's two `pytest_xdist_auto_num_workers` hooks, and `TestTheHandRunDefaults` checks that each width a hand run gets without naming one is still derived from the machine.
+`TestTheWidthsAlreadyOnRecord` shows the formula reproducing widths that were measured independently of it, over an invented 32 GB machine. The shipped kernel width is derived from the running machine, so no test compares it with a fixed number. Instead the tests check that the shipped kernel terms (`kernel_exec.table_build_booking_bytes`) still fit the whole wave, every configuration at once, on the fleet's 48 GiB machines when the build runs alone; `rebuild/test_artifact_cycle.py` checks the widths beside the cycle's pytest pool. `TestWhatDashNAutoResolvesTo` drives the repository's two `pytest_xdist_auto_num_workers` hooks, and `TestTheHandRunDefaults` checks that each width a hand run gets without naming one is still derived from the machine.
 
 Nothing here reads a live build artifact, so the module is in the contracts lane. The audit guard in `rebuild/conftest.py` fails any contracts test that reads `rebuild/out/`, `tmp/`, `var/`, or a root `verdicts-*` store.
 """
@@ -20,7 +20,7 @@ from types import ModuleType, SimpleNamespace
 
 import pytest
 
-from rebuild.pipeline.kernel_exec import DEFAULT_MEMO_BYTES, DELTA_PEAK_BYTES
+from rebuild.pipeline.kernel_exec import DEFAULT_MEMO_BYTES, SCRATCH_PEAK_BYTES
 from rebuild.tools import memory_budget
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -155,39 +155,36 @@ class TestTheWidthsAlreadyOnRecord:
             == 2
         )
 
-    def test_the_shipped_pair_fits_the_whole_delta_wave_on_the_48_gib_machines(self, monkeypatch):
-        """The criterion `DELTA_PEAK_BYTES`, `DEFAULT_MEMO_BYTES` and `PARKED_FOLD_BYTES` are chosen against: on the fleet's 48 GiB machines the solo width covers every configuration past `default`, so the delta wave runs in one round with no trailing round of a single delta. A change to any of them that costs those machines their fourth delta fails here. The second assertion checks that `TABLE_BUILD_PEAK_BYTES` is at most the memo, plus every configuration's parked product, plus one delta less its parked product per delta configuration, which is what a width equal to the delta count holds; at a width equal to the configuration count, the extra worker slot runs `default`'s fold preparation after its memo file is written. `AMS_KERNEL_THREADS` is cleared first, because an exported width would satisfy the inequality whatever the constants are."""
+    def test_the_shipped_terms_fit_the_whole_wave_on_the_48_gib_machines(self, monkeypatch):
+        """The criterion the kernel terms are chosen against: on the fleet's 48 GiB machines the solo width is the configuration count, every delta in a slot of its own and `default`'s fold preparation in one more, so the wave runs in one round. A change to any of `DELTA_SLOT_BYTES`, `FOLD_PREPARATION_BYTES`, `DEFAULT_MEMO_BYTES` or `PARKED_FOLD_BYTES` that costs those machines a slot fails here. The second assertion checks that `TABLE_BUILD_PEAK_BYTES`, which `make job-costs` holds the run_m1 step's peak to, is the booking at that width, so re-measuring a term moves it too. `AMS_KERNEL_THREADS` is cleared first, because an exported width would pass whatever the constants are."""
         from rebuild.pipeline.conform import SETTLEMENT_CONFIGS
         from rebuild.pipeline.kernel_exec import (
-            PARKED_FOLD_BYTES,
             TABLE_BUILD_PEAK_BYTES,
             kernel_threads_default,
+            table_build_booking_bytes,
         )
 
         monkeypatch.delenv("AMS_KERNEL_THREADS", raising=False)
         count = len(SETTLEMENT_CONFIGS)
-        assert kernel_threads_default(configs=count, total_bytes=MACHINE_48_GIB) >= count - 1
-        assert TABLE_BUILD_PEAK_BYTES <= (
-            DEFAULT_MEMO_BYTES
-            + count * PARKED_FOLD_BYTES
-            + (count - 1) * (DELTA_PEAK_BYTES - PARKED_FOLD_BYTES)
-        )
+        assert kernel_threads_default(configs=count, total_bytes=MACHINE_48_GIB) == count
+        assert TABLE_BUILD_PEAK_BYTES == table_build_booking_bytes(count, configs=count)
 
     def test_the_replay_divisor_fits_every_configuration_on_both_fleet_machines(self, monkeypatch):
-        """The criterion `REPLAY_PEAK_BYTES` is chosen against: on both fleet machines, 48 GiB each, the string replay's memory-derived width covers every settlement configuration, so all texts replay in one round. The second assertion checks that a replay costs less than a delta, since a replay's engine holds a subset of what a delta holds through enumeration; a value at or above `DELTA_PEAK_BYTES` means the constant no longer measures the replay. `AMS_REPLAY_THREADS` is cleared first, for the same reason as in the delta-wave test."""
+        """The criterion `REPLAY_PEAK_BYTES` is chosen against: on both fleet machines, 48 GiB each, the string replay's memory-derived width covers every settlement configuration, so all texts replay in one round. The second assertion checks that a replay costs less than a configuration enumerated from scratch, since a replay's engine holds a subset of what that enumeration holds; a value at or above `SCRATCH_PEAK_BYTES` means the constant no longer measures the replay. `AMS_REPLAY_THREADS` is cleared first, for the same reason as in the delta-wave test."""
         from rebuild.pipeline.conform import SETTLEMENT_CONFIGS
         from rebuild.pipeline.kernel_exec import REPLAY_PEAK_BYTES, replay_threads_default
 
         monkeypatch.delenv("AMS_REPLAY_THREADS", raising=False)
         assert replay_threads_default(total_bytes=MACHINE_48_GIB) >= len(SETTLEMENT_CONFIGS)
-        assert 0 < REPLAY_PEAK_BYTES < DELTA_PEAK_BYTES
+        assert 0 < REPLAY_PEAK_BYTES < SCRATCH_PEAK_BYTES
 
     def test_the_memo_term_is_smaller_in_kind_than_the_divisor(self):
-        """`DEFAULT_MEMO_BYTES` covers `default`'s memo snapshots kept alive for the wave, stored as compact records with their pools, while `DELTA_PEAK_BYTES` covers a configuration enumerated from scratch and held through its memo write, so the memo term must be the smaller. Setting them equal would charge the wave a whole configuration for a snapshot. A parked fold product is part of what its configuration held at its peak, so `PARKED_FOLD_BYTES` is smaller than `DELTA_PEAK_BYTES` too, or the divisor would not be positive."""
-        from rebuild.pipeline.kernel_exec import PARKED_FOLD_BYTES
+        """`DEFAULT_MEMO_BYTES` covers `default`'s memo snapshots kept alive for the wave, stored as compact records with their pools, while `SCRATCH_PEAK_BYTES` covers a configuration enumerated from scratch and held through its memo write, so the memo term must be the smaller. Setting them equal would charge the wave a whole configuration for a snapshot. A parked fold product is part of what its configuration held at its peak, so `PARKED_FOLD_BYTES` is smaller than `SCRATCH_PEAK_BYTES` too, or a from-scratch slot's divisor would not be positive. The slot that runs only `default`'s fold preparation costs no more than a delta's (`FOLD_PREPARATION_BYTES` at most `DELTA_SLOT_BYTES`), so a width at or below the delta count, where a delta takes that slot once the preparation ends, is booked at its deltas alone."""
+        from rebuild.pipeline.kernel_exec import DELTA_SLOT_BYTES, FOLD_PREPARATION_BYTES, PARKED_FOLD_BYTES
 
-        assert 0 < DEFAULT_MEMO_BYTES < DELTA_PEAK_BYTES
-        assert 0 < PARKED_FOLD_BYTES < DELTA_PEAK_BYTES
+        assert 0 < DEFAULT_MEMO_BYTES < SCRATCH_PEAK_BYTES
+        assert 0 < PARKED_FOLD_BYTES < SCRATCH_PEAK_BYTES
+        assert 0 < FOLD_PREPARATION_BYTES <= DELTA_SLOT_BYTES
 
     @pytest.mark.parametrize("ncores", (18, 12))
     def test_the_shipped_corpus_divisor_holds_the_fleet_at_its_lane_share_by_division(self, ncores: int):
