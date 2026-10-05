@@ -2279,7 +2279,7 @@ def test_sweep_job_budget_is_the_cores_under_the_oracle_shards_memory_clamp():
     assert ac.sweep_job_budget(3, total_bytes=roomy) == 3
     assert ac.sweep_job_budget(1, total_bytes=roomy) == 1
     reserve = memory_budget.os_reserve_bytes(total_bytes=MACHINE_32_GIB)
-    fits = (MACHINE_32_GIB - reserve) // ac.ORACLE_SHARD_BYTES
+    fits = (MACHINE_32_GIB - reserve - ac._oracle_absorb_excess_bytes()) // ac.ORACLE_SHARD_BYTES
     assert 1 < fits < 64
     assert ac.sweep_job_budget(64, total_bytes=MACHINE_32_GIB) == fits
     assert ac.sweep_job_budget(64, total_bytes=ac.ORACLE_SHARD_BYTES) == 1
@@ -2289,6 +2289,24 @@ def test_sweep_job_budget_is_the_cores_under_the_oracle_shards_memory_clamp():
     assert "capped at 64" in ac.sweep_job_derivation(64, total_bytes=roomy)
 
 
+def test_the_oracle_width_prices_one_absorb_per_settlement_configuration(monkeypatch):
+    """The settle-memo absorbs run on the oracle's pool after the ranges, one per settlement configuration at once whatever the width, so the width takes their excess over the range slots they run in off the machine's memory before it divides by `ORACLE_SHARD_BYTES`, and nothing when an absorb fits in a range's slot."""
+    from rebuild.pipeline.conform import SETTLEMENT_CONFIGS
+    from rebuild.tools import memory_budget
+
+    monkeypatch.setattr(ac, "ORACLE_ABSORB_BYTES", ac.ORACLE_SHARD_BYTES)
+    assert ac._oracle_absorb_excess_bytes() == 0
+    monkeypatch.setattr(ac, "ORACLE_ABSORB_BYTES", ac.ORACLE_SHARD_BYTES + 1_000_000_000)
+    excess = len(SETTLEMENT_CONFIGS) * 1_000_000_000
+    assert ac._oracle_absorb_excess_bytes() == excess
+    reserve = memory_budget.os_reserve_bytes(total_bytes=MACHINE_32_GIB)
+    fits = (MACHINE_32_GIB - reserve - excess) // ac.ORACLE_SHARD_BYTES
+    assert ac.sweep_job_budget(64, total_bytes=MACHINE_32_GIB) == fits
+    assert f"less {format_gb(excess)} GB co-resident" in ac.sweep_job_derivation(
+        64, total_bytes=MACHINE_32_GIB
+    )
+
+
 def test_both_fleet_machines_run_the_oracle_at_the_cores():
     """On both fleet machines (`doc/fleet.md`) the oracle runs at the cores: the eighteen-core 48 GiB machine at eighteen and the twelve-core one at twelve, with the division never limiting the width before the cap does. The capped budget cannot distinguish the cap from a division that equals it, so the uncapped division is also checked. A change to `ORACLE_SHARD_BYTES` that narrows either machine below its cores, or puts it at the edge of the division, fails here. The suite does not catch a constant that is too low: only the oracle-shard row of `make job-costs` (the cycle's job-costs step) compares it with the workers that ran."""
     from rebuild.tools import memory_budget
@@ -2296,7 +2314,14 @@ def test_both_fleet_machines_run_the_oracle_at_the_cores():
     for ncores in (18, 12):
         assert ac.sweep_job_budget(ncores, total_bytes=MACHINE_48_GIB) == ncores
         assert ac.sweep_job_derivation(ncores, total_bytes=MACHINE_48_GIB).startswith(f"{ncores} at ")
-        assert memory_budget.how_many_fit(ac.ORACLE_SHARD_BYTES, total_bytes=MACHINE_48_GIB) > ncores
+        assert (
+            memory_budget.how_many_fit(
+                ac.ORACLE_SHARD_BYTES,
+                coresident_bytes=ac._oracle_absorb_excess_bytes(),
+                total_bytes=MACHINE_48_GIB,
+            )
+            > ncores
+        )
 
 
 def test_the_plan_prints_the_sweep_width_with_its_derivation():

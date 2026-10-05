@@ -44,14 +44,18 @@ def bench(tmp_path, monkeypatch):
     return tmp_path
 
 
-def _stub_walk(monkeypatch, walked=None, disagree=None, ceilings=None):
-    def fake(spec, out_dir, configs, *, max_length, families, threads, memo_windows, timings=False):
+def _stub_walk(monkeypatch, walked=None, disagree=None, ceilings=None, peak=None):
+    def fake(
+        spec, out_dir, configs, *, max_length, families, threads, memo_windows, timings=False, on_peak=None
+    ):
         if walked is not None:
             walked.append((max_length, families, threads))
         if ceilings is not None:
             ceilings.append(memo_windows)
         if disagree is not None:
             raise deep_replay.kernel_exec.ReplayDisagreement(disagree)
+        if peak is not None and on_peak is not None:
+            on_peak(peak)
         return {config: {"texts": 1, "windows": 1, "skipped": 0} for config in configs}
 
     monkeypatch.setattr(deep_replay.kernel_exec, "replay_strings", fake)
@@ -374,8 +378,25 @@ def test_the_memo_ceiling_is_the_stated_knob_or_the_checked_in_default(monkeypat
             deep_replay.replay_memo_windows()
 
 
+def test_a_walk_at_the_checked_in_ceiling_records_its_share_of_the_crates_peak(bench, monkeypatch):
+    """A green walk records one `deep-replay-walk` pool observation: the crate process's peak divided by the walks it ran at once, its width capped at the configuration count. A walk at another ceiling records nothing, because `DEEP_REPLAY_PEAK_BYTES` does not estimate it."""
+    from rebuild.tools import cycle_timings
+
+    _stub_walk(monkeypatch, peak=10_000_000_000)
+    assert deep_replay.main(["--families", "qsTea", "--threads", "2"]) == 0
+    monkeypatch.setenv("AMS_DEEP_REPLAY_MEMO_WINDOWS", "2000000")
+    assert deep_replay.main(["--families", "qsTea", "--threads", "2"]) == 0
+    monkeypatch.delenv("AMS_DEEP_REPLAY_MEMO_WINDOWS")
+    assert deep_replay.main(["--families", "qsTea", "--threads", "40"]) == 0
+    records = cycle_timings.load_pool_records(cycle_timings.JOURNAL)
+    assert [(r["unit"], r["width"], r["worker_peak_rss_bytes"]) for r in records] == [
+        ("deep-replay-walk", 2, {"per walk": 5_000_000_000}),
+        ("deep-replay-walk", len(conform.SETTLEMENT_CONFIGS), {"per walk": 2_000_000_000}),
+    ]
+
+
 def test_the_shipped_walk_cost_holds_both_fleet_machines_at_their_widths(monkeypatch):
-    """Both fleet machines (`doc/fleet.md`), 48 GiB each, walk every settlement configuration at once under the checked-in `DEEP_REPLAY_PEAK_BYTES`. No cycle runs this walk, so `make job-costs` does not watch the constant, and the width assertions above pass for any positive value. This test fails if the constant goes above 8.71 GB, which drops the 48 GiB machines to four walks."""
+    """Both fleet machines (`doc/fleet.md`), 48 GiB each, walk every settlement configuration at once under the checked-in `DEEP_REPLAY_PEAK_BYTES`. No cycle runs this walk, so the deep-replay-walk row of `make job-costs` watches the constant only when someone runs it, and the width assertions above pass for any positive value. This test fails if the constant goes above 8.71 GB, which drops the 48 GiB machines to four walks."""
     monkeypatch.delenv("AMS_DEEP_REPLAY_THREADS", raising=False)
     assert deep_replay.replay_threads(total_bytes=MACHINE_48_GIB) == len(conform.SETTLEMENT_CONFIGS)
 

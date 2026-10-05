@@ -1,14 +1,14 @@
 """Check the checked-in per-unit memory peaks against what this machine measured (`make job-costs`).
 
-Several fan-out widths are the machine's memory divided by a measured per-unit peak, such as what one pytest worker or one kernel configuration holds. Each peak is a checked-in constant, and `UNITS` lists the ones this module checks. A memory saving or a heavier fixture can move a real peak away from its constant without failing any test. A constant that is too low shows up as a machine in swap, and one that is too high holds a pool to a fraction of the width it has room for. The measurements that catch this are already recorded on every run: each xdist controller's per-worker peaks, and the peak RSS the cycle records for every step it spawns. This module compares those measurements with the constants. It builds nothing and imports none of the code whose constants it checks.
+Several fan-out widths are the machine's memory divided by a measured per-unit peak, such as what one pytest worker or one kernel configuration holds. Each peak is a checked-in constant, and `UNITS` lists the ones this module checks, beside the constants no width divides by whose argument a width rests on (`LAND_BYTES`, `TABLE_BUILD_PEAK_BYTES`). Three sets of width terms have no row of their own. The kernel's (`DELTA_SLOT_BYTES`, `SCRATCH_PEAK_BYTES`, `DEFAULT_MEMO_BYTES`, `PARKED_FOLD_BYTES` and `FOLD_PREPARATION_BYTES`) are watched only together, through the kernel-build row (below). The deep sweep's `DEEP_SWEEP_WINDOW_BYTES` and `DEEP_SWEEP_BASE_BYTES` have none: `make conform-deep`'s own check line records each configuration's highest unit peak beside the estimate they give, and nothing checks one against the other. `STANDING_FILL_WORKER_BYTES` has none because the refill pool writes no pool record (its comment in `rebuild/tools/artifact_cycle.py` says why). A memory saving or a heavier fixture can move a real peak away from its constant without failing any test. A constant that is too low shows up as a machine in swap, and one that is too high holds a pool to a fraction of the width it has room for. The measurements that catch this are already recorded on every run: each xdist controller's per-worker peaks, the pools run_m1 and the corpus build record, and the peak RSS the cycle records for every step it spawns. This module compares those measurements with the constants. It builds nothing and imports none of the code whose constants it checks.
 
-It reads measurements only from the cycle-timings journal. A `kind:"pool"` record gives one observation per worker, because the unit is one worker. A named `kind:"step"` record gives its `peak_rss_bytes`, which is the largest single process in the step's tree, because `peak_rss.reap_peak_rss_bytes` takes the max over the tree instead of the sum. That reading measures one unit only for some steps. For `run_m1` the widest process is the table-build child, which the kernel-build row checks, and for `corpus-build` it is the parent, which the corpus-parent row checks. It does not measure one unit for `gate:make-test`, whose tree also holds `make all` and `uv run pyright` beside the pool. Each `UNITS` entry states which sources count for it and why.
+It reads measurements only from the cycle-timings journal. A `kind:"pool"` record gives one observation per worker, because the unit is one worker. The string replay's and the deep replay's records give one observation each, the crate process's peak divided by the walks it ran at once, because the walks are threads of that one process. A named `kind:"step"` record gives its `peak_rss_bytes`, which is the largest single process in the step's tree, because `peak_rss.reap_peak_rss_bytes` takes the max over the tree instead of the sum. That reading measures one unit only for some steps. For `run_m1` the widest process is the table-build child, which the kernel-build row checks, and for `corpus-build` it is the parent, which the corpus-parent row checks. It does not measure one unit for `gate:make-test`, whose tree also holds `make all` and `uv run pyright` beside the pool. Each `UNITS` entry states which sources count for it and why.
 
 Constants are read from their source files with `ast`, never imported. pytest loads every conftest under the module name `conftest`, so from under `rebuild/` a plain `import conftest` gets the wrong file, and `import rebuild.conftest` would execute a second copy of a file pytest has already loaded and installed its lane-audit hook from. `ast` executes nothing, and it keeps this tool from importing pytest or inheriting that file's `sys.path` edits. The width clauses read their other inputs the same way, so each prints the width its pool actually takes: the corpus rows read each other's constant and compute both of the build's caps, every core less the parent by hand and the build lane's share less the parent under a gated cycle (`memory_budget.split_cores`), and the conform-sweep row reads the floor of its cap beside a corpus build, the acceptance-configuration count, from the lengths of the configuration tuples in `rebuild/pipeline/conform.py` (`_acceptance_config_count`), along with the corpus constants its second width needs. The kernel row's width is narrowed by the configuration count and the cores in `run_m1._table_build_threads`, which this module does not compute, so that clause prints the memory arithmetic and names the narrowing in words.
 
 A peak above its constant means the constant is out of date. It does not mean an artifact is wrong: the cost is a pool of the wrong width, so the cycle does not fail on it. `--check` exits 1 for an overrun and 2 when the tool itself fails, because the artifact cycle reports an overrun on 1 and an informational line on any other nonzero code, and a crash reported as an overrun would report a measurement nobody took. After an overrun the cycle runs `--moved`, which compares each checked constant's value in the working tree with its value at `HEAD` and prints the ones that differ, so the cycle can say which constants have already been re-measured. The fix is to re-measure the constant and set it from the newer measurement; committing it accepts the new value, as committing `rebuild/review-facts-pins.json` accepts the review facts. The tolerance defaults to zero because each constant is already rounded up above its measured peaks, as its comment says: an estimate that is too low puts the machine into swap, while one that is too high only narrows a pool. A peak that reaches the constant has used all of that headroom; one that comes out above the constant once its rule's headroom is applied (below) has used the headroom that rule sets, which the report marks as headroom used before any overrun. `--tolerance` is for a survey with `--host all`, not for relaxing the default.
 
-Each checked constant's comment but TABLE_BUILD_PEAK_BYTES's states the rule that sets it from its highest reading: a headroom it multiplies the reading by (none for FONT_SUITE_WORKER_BYTES, whose `headroom` is 1) and a multiple it rounds up to, which the unit's `headroom` and `quantum` restate. A row whose highest reading, put through that rule (`proposed_constant`), comes out above the constant prints a proposal: the raised value, how the rule reached it, and the width it gives here, and under `--host all` the width it gives on each host in the window, read from that host's newest run record. The proposal appears on every overrun, and before one, marked as headroom used, once the readings have used the headroom the rule leaves. The tool only proposes raises and writes nothing: a documented worst case can lie outside the recent window, so a lower reading is no case for lowering a constant, and a person edits the constant and the comment that argues it together and commits them. The kernel-build row has no rule and proposes no value: its reading is the whole table build, which DEFAULT_MEMO_BYTES, PARKED_FOLD_BYTES per configuration, DELTA_SLOT_BYTES per delta in flight and FOLD_PREPARATION_BYTES for a slot that runs only default's fold preparation bound together, so no reading of it sets any kernel constant, and an overrun names them to re-measure instead.
+Each checked constant's comment but TABLE_BUILD_PEAK_BYTES's states the rule that sets it from its highest reading: a headroom it multiplies the reading by (none for FONT_SUITE_WORKER_BYTES, whose `headroom` is 1) and a multiple it rounds up to, which the unit's `headroom` and `quantum` restate. A row whose highest reading, put through that rule (`proposed_constant`), comes out above the constant prints a proposal: the raised value, how the rule reached it, and the width it gives here, and under `--host all` the width it gives on each host in the window, read from that host's newest run record. The proposal appears on every overrun, and before one, marked as headroom used, once the readings have used the headroom the rule leaves. The tool only proposes raises and writes nothing: a documented worst case can lie outside the recent window, so a lower reading is no case for lowering a constant, and a person edits the constant and the comment that argues it together and commits them. The kernel-build row has no rule and proposes no value: its reading is the whole table build, which DEFAULT_MEMO_BYTES, PARKED_FOLD_BYTES per configuration, DELTA_SLOT_BYTES per delta in flight and FOLD_PREPARATION_BYTES for a slot that runs only default's fold preparation bound together, so no reading of it sets any kernel constant, and an overrun names them and SCRATCH_PEAK_BYTES to re-measure instead. For the same reason it reads every record since its constant's commit rather than the newest `--recent`: a high reading the window dropped would only hide the warning.
 
 Observations are filtered to this host by default, because a per-unit peak is a property of one machine's working set, and a journal concatenated from several machines mixes machines running different versions of the code. Records that finished before the commit that set a constant's current value are set aside before anything is counted (the measurement cutoff), so that after a re-measure lowers a constant, the older, higher peaks from the same host do not trip the check. `git blame` on the constant's line finds that commit, so a re-measure clears its row on the next pass. A constant that is edited but not yet committed has no such commit and keeps every record until it is committed. Within that cutoff, `--recent` keeps only the newest records per unit and host, so an old high peak stops counting once newer runs replace it, and its default is long enough that one anomalous run cannot hide a regression. The journal records which machine measured a peak but not which machine a constant was sized on, so a unit with no rows from this host is reported as unverified on this host. A unit whose rows from this host all predate the constant's commit is reported as unverified too, with the reason that nothing on this host has measured the constant's current value yet.
 """
@@ -40,14 +40,22 @@ CORPUS_PARENT_NAME = "CORPUS_PARENT_BYTES"
 CORPUS_WORKER_NAME = "CORPUS_WORKER_BYTES"
 STANDING_FILL_PARENT_NAME = "STANDING_FILL_PARENT_BYTES"
 STANDING_FILL_WORKER_NAME = "STANDING_FILL_WORKER_BYTES"
+LAND_NAME = "LAND_BYTES"
 ORACLE_SHARD_NAME = "ORACLE_SHARD_BYTES"
+ORACLE_ABSORB_NAME = "ORACLE_ABSORB_BYTES"
 CONFORM_SWEEP_NAME = "CONFORM_SWEEP_UNIT_BYTES"
 CONFORM_SOURCE = "rebuild/pipeline/conform.py"
+DEEP_REPLAY_SOURCE = "rebuild/tools/deep_replay.py"
+DEEP_REPLAY_NAME = "DEEP_REPLAY_PEAK_BYTES"
+ABSORB_SUFFIX = " absorb"
 
 
 @dataclass(frozen=True)
 class Unit:
-    """One unit that a fan-out width divides the machine's memory by: its constant and the file that holds it (both None for a row that is reported without a constant), the journal records that measure it, the text printed with its figures, and the rule the constant's comment sets it by from its highest reading: `headroom` to multiply the reading by and `quantum`, in bytes, to round the product up to a multiple of. Both are None for a row whose reading does not set its constant."""
+    """One unit that a fan-out width divides the machine's memory by, or that a width's argument rests on: its constant and the file that holds it (both None for a row that is reported without a constant), the journal records that measure it, the text printed with its figures, and the rule the constant's comment sets it by from its highest reading: `headroom` to multiply the reading by and `quantum`, in bytes, to round the product up to a multiple of. Both are None for a row whose reading does not set its constant.
+
+    `absorbs` picks readings out of a pool record by label: None keeps every reading, True only the `<config> absorb` ones, and False every other one, so two rows can split one pool's records. `recency_bound` False reads every record since the constant's commit, where `--recent` would keep only the newest.
+    """
 
     name: str
     constant: str | None
@@ -58,6 +66,8 @@ class Unit:
     note: str
     headroom: float | None = None
     quantum: int | None = None
+    absorbs: bool | None = None
+    recency_bound: bool = True
 
 
 # The kernel's constants live in one file: DELTA_SLOT_BYTES divides the delta fan-out width, DEFAULT_MEMO_BYTES and PARKED_FOLD_BYTES per settlement configuration are subtracted from the machine's memory before that division, FOLD_PREPARATION_BYTES books the slot default's fold preparation takes once every delta has one, SCRATCH_PEAK_BYTES bounds a slot in a build without default's memo, and the kernel-build row checks the run_m1 step peak against TABLE_BUILD_PEAK_BYTES.
@@ -95,8 +105,20 @@ UNITS: tuple[Unit, ...] = (
         source=KERNEL_SOURCE,
         pool_units=(),
         step_names=("run_m1",),
-        step_caveat="run_m1's peak is the widest single process in its tree, the max over its children, and on both fleet machines that is the one build-tables child holding every settlement configuration — default's retained memo beside every delta build in flight, and each configuration's prepared fold product from its preparation until the cross-configuration exchange ends — so the step peak reads the whole table build at whatever width the cycle handed it, never one configuration. The other candidate is the string replay's child, which runs every settlement configuration at once in one wave (REPLAY_PEAK_BYTES apiece, `--replay-threads`) and peaks at about a third of the build on the shipped alphabet (6.10 GB maxrss for the five-configuration wave under `/usr/bin/time -l` on the 18-core M5 Pro 48 GiB MacBook Pro, its footprint level with it, against the table build's maximum this row reports); should a replay ever outrun the build, this row reads the replay, and the constant to re-measure is then that one rather than this one. DELTA_SLOT_BYTES, what each delta in flight adds beyond its parked product and the figure the width is divided out of, DEFAULT_MEMO_BYTES, the memo subtracted from the machine's memory first, PARKED_FOLD_BYTES, one configuration's parked fold product, subtracted once per configuration, and FOLD_PREPARATION_BYTES, the slot default's fold preparation takes once every delta has one, are not measured by any step here: their reading is the direct whole-wave measurement under --cache-stats, and the bound they state, kernel_exec.table_build_booking_bytes, is that this unit's peak stays under the memo, plus every configuration's parked product, plus one delta slot per worker slot of the width up to the delta count, plus the preparation's slot above it.",
-        note="The direct measurement is one build-tables over every settlement configuration under /usr/bin/time -l with --cache-stats, which is what to reach for before re-measuring any kernel constant; this row is the cheap standing watch beside it rather than a replacement for it.",
+        step_caveat="run_m1's peak is the widest single process in its tree, the max over its children, and on both fleet machines that is the one build-tables child holding every settlement configuration — default's retained memo beside every delta build in flight, and each configuration's prepared fold product from its preparation until the cross-configuration exchange ends — so the step peak reads the whole table build at whatever width the cycle handed it, never one configuration. The other candidate is the string replay's child, which runs every settlement configuration at once in one wave (REPLAY_PEAK_BYTES apiece, `--replay-threads`) and peaks at about a third of the build on the shipped alphabet (6.07 GB maxrss for the five-configuration wave under `/usr/bin/time -l` on the 18-core M5 Pro 48 GiB MacBook Pro, its footprint level with it, against the table build's maximum this row reports); should a replay ever outrun the build, this row reads the replay, which the replay-walk row reads on its own, and the constant to re-measure is then that one rather than this one. DELTA_SLOT_BYTES, what each delta in flight adds beyond its parked product and the figure the width is divided out of, DEFAULT_MEMO_BYTES, the memo subtracted from the machine's memory first, PARKED_FOLD_BYTES, one configuration's parked fold product, subtracted once per configuration, and FOLD_PREPARATION_BYTES, the slot default's fold preparation takes once every delta has one, are not measured by any step here: their reading is the direct whole-wave measurement under --cache-stats, and the bound they state, kernel_exec.table_build_booking_bytes, is that this unit's peak stays under the memo, plus every configuration's parked product, plus one delta slot per worker slot of the width up to the delta count, plus the preparation's slot above it.",
+        note="The direct measurement is one build-tables over every settlement configuration under /usr/bin/time -l with --cache-stats, which is what to reach for before re-measuring any kernel constant; this row is the cheap standing watch beside it rather than a replacement for it. It reads every record since its constant's commit, not the newest `--recent`: it proposes no value, so a high reading the window dropped would only hide the warning until the constant was next re-measured.",
+        recency_bound=False,
+    ),
+    Unit(
+        name="replay-walk",
+        constant="REPLAY_PEAK_BYTES",
+        source=KERNEL_SOURCE,
+        pool_units=("replay-walk",),
+        step_names=(),
+        step_caveat="",
+        note="These pool records come from `run_m1.run_replay_strings`: one record per replay that walked any text, at whatever width run_m1 ran it, with one observation, the `replay-strings` crate process's own peak RSS (`kernel_exec.replay_strings` reaps it with `os.wait4`) divided by the walks it ran at once. The walks are threads of that one process, so no reading per walk exists, and the share is the wide run's figure the constant's comment takes beside the solo walk's. A narrowed replay after a rune edit walks fewer texts and reads lower. The run_m1 step peak is deliberately not admitted: that step's widest process is the table build's child, which the kernel-build row measures. Nothing subtracts this constant or divides by it beside the replay, because the replay starts after the table build's process has exited.",
+        headroom=1.25,
+        quantum=100_000_000,
     ),
     Unit(
         name="corpus-parent",
@@ -136,9 +158,22 @@ UNITS: tuple[Unit, ...] = (
         pool_units=("oracle-shard",),
         step_names=(),
         step_caveat="",
-        note="These pool records come from `run_m1.run_oracle`'s own fan-in rather than from a pytest controller: one record per oracle fan-out, one observation per row range that ran, each the range's worker's own peak as it returned it to the parent process. The run_m1 step peak is deliberately not admitted: that step's widest process is the table build's child, which the kernel-build row measures, and it would read a build's footprint as a shard's. The row is quiet on a machine the arithmetic narrows to `--jobs 1`, since the serial oracle starts no pool; a hand `run_m1 --gates-only` at any wider width puts an observation on the record.",
+        note="These pool records come from `run_m1.run_oracle`'s own fan-in rather than from a pytest controller: one record per oracle fan-out, one observation per row range that ran, each the range's worker's own peak as it returned it to the parent process. The same records carry one `<config> absorb` reading per settle-memo absorb, which the oracle-absorb row reads instead: an absorb holds its configuration's settle memo file, which grows with the alphabet and not with the width this constant divides. The run_m1 step peak is deliberately not admitted: that step's widest process is the table build's child, which the kernel-build row measures, and it would read a build's footprint as a shard's. The row is quiet on a machine the arithmetic narrows to `--jobs 1`, since the serial oracle starts no pool; a hand `run_m1 --gates-only` at any wider width puts an observation on the record.",
         headroom=1.25,
         quantum=100_000_000,
+        absorbs=False,
+    ),
+    Unit(
+        name="oracle-absorb",
+        constant=ORACLE_ABSORB_NAME,
+        source=CORPUS_SOURCE,
+        pool_units=("oracle-shard",),
+        step_names=(),
+        step_caveat="",
+        note="These are the `<config> absorb` readings of the oracle's pool records: each settlement configuration's merge of its ranges' settle-memo parts into its file (`run_m1._absorb_settle_memo_parts`), run on the oracle's pool once every range has finished, one per configuration. A worker reports its process peak and the pool reuses its workers, so an absorb reads at or above the range its worker ran before it, and a reading at a range's level says the absorb held less. At most one absorb per settlement configuration runs at once, whatever the width, so `artifact_cycle.sweep_job_budget` prices them as that many slots at this figure in place of ORACLE_SHARD_BYTES.",
+        headroom=1.25,
+        quantum=100_000_000,
+        absorbs=True,
     ),
     Unit(
         name="conform-sweep",
@@ -161,6 +196,28 @@ UNITS: tuple[Unit, ...] = (
         note="This constant is standing_fill_jobs's co-resident parent term, subtracted from the machine's memory before dividing by the worker cost. The verdict update retains every corpus id and a human id/duplicate-group/notation projection. Normal standing fills stream the human records, retain primed keys, decisions and memo entries, and spool pool misses to temporary gzipped storage; submission holds at most one wave of records, bounded by width times _STANDING_POOL_CHUNK. The complaint list retains compact grouping projections from a separate stream. The parent grows with ids and decisions without holding the full human corpus, so its budget still needs checking as the alphabet migrates. Every verdict-update row reads against this constant, including passes that start no pool; a serial memo-drop pass evaluates the whole domain in the parent and can read higher than a pooled pass. Targeted authoring retains full records only for explicitly requested unit ids; the daemon holds its own resident corpus outside this budget.",
         headroom=1.25,
         quantum=1_000_000_000,
+    ),
+    Unit(
+        name="land",
+        constant=LAND_NAME,
+        source=CORPUS_SOURCE,
+        pool_units=(),
+        step_names=("land",),
+        step_caveat="the land is one process that spawns only a `cp -c -R` clone of the corpus, so its step peak is the land's own.",
+        note="No width divides by this constant or subtracts it: the land runs after the corpus build and the verdict update in the build lane, so the reservation the conformance sweep makes for the larger of those two steps (`artifact_cycle._conform_build_lane`) covers it as long as it stays below both of their parents, which `test_the_land_holds_less_than_either_build_lane_step_before_it` checks. Its peak grows with the verdict store, which every letter batch adds to.",
+        headroom=1.25,
+        quantum=1_000_000_000,
+    ),
+    Unit(
+        name="deep-replay-walk",
+        constant=DEEP_REPLAY_NAME,
+        source=DEEP_REPLAY_SOURCE,
+        pool_units=("deep-replay-walk",),
+        step_names=(),
+        step_caveat="",
+        note="These pool records come from `make replay-deep` (`deep_replay.record_walk_peak`): one record per walk at the checked-in memo ceiling, written beside its `replay-deep` check line, with one observation, the crate process's peak RSS divided by the walks it ran at once, as the constant's comment takes the wide run's figure. No cycle runs the deep replay, so the row moves only when someone runs it.",
+        headroom=1.25,
+        quantum=100_000_000,
     ),
 )
 
@@ -377,9 +434,9 @@ def observations(
 
     `since` is the ISO-Z stamp of the commit that set the constant's current value. A record that finished before it is set aside before the recency bound applies, so the bound counts only records measured on the code the constant describes. A record with no stamp is kept. None means no cutoff.
 
-    Each worker peak in a kept pool record is a separate observation, because the unit is one worker: the median is a typical worker, and the max is the worst worker seen, which is the figure a constant has to cover. The controller's own peak is in the record but not counted, because it measures a different process and would pull the median toward a figure no worker held.
+    Each worker peak in a kept pool record is a separate observation, because the unit is one worker: the median is a typical worker, and the max is the worst worker seen, which is the figure a constant has to cover. The unit's `absorbs` keeps only the readings labeled `<config> absorb`, or every other one, when two rows split one pool. The controller's own peak is in the record but not counted, because it measures a different process and would pull the median toward a figure no worker held.
 
-    The recency bound keeps the newest `recent` source records per host (each pool record or step record counts once, not once per worker), ordered by `finished_at` with read order breaking ties; ISO-Z stamps sort correctly as strings. `recent <= 0` keeps everything. The bound keeps one anomalous run from counting for as long as the journal lasts. It applies per host even when no host is selected, so under `--host all` a machine that runs many cycles a day cannot fill the window and leave a quieter machine unchecked. The dropped count is returned so the report can say that records from other hosts exist and were not checked.
+    The recency bound keeps the newest `recent` source records per host (each pool record or step record counts once, not once per worker), ordered by `finished_at` with read order breaking ties; ISO-Z stamps sort correctly as strings. `recent <= 0` keeps everything, and so does a unit whose `recency_bound` is False. The bound keeps one anomalous run from counting for as long as the journal lasts. It applies per host even when no host is selected, so under `--host all` a machine that runs many cycles a day cannot fill the window and leave a quieter machine unchecked. The dropped count is returned so the report can say that records from other hosts exist and were not checked.
     """
     records = _source_records(unit, pool_records, steps_by_run)
     dropped = 0
@@ -396,7 +453,7 @@ def observations(
         ]
         older = len(records) - len(kept)
         records = kept
-    if recent > 0:
+    if recent > 0 and unit.recency_bound:
         by_host: dict[str, list[int]] = {}
         for index, (record, _) in enumerate(records):
             by_host.setdefault(str(record.get("host", "")), []).append(index)
@@ -413,7 +470,9 @@ def observations(
         if source == "pool":
             peaks = record.get("worker_peak_rss_bytes")
             if isinstance(peaks, dict):
-                for peak in peaks.values():
+                for label, peak in peaks.items():
+                    if unit.absorbs is not None and str(label).endswith(ABSORB_SUFFIX) != unit.absorbs:
+                        continue
                     if isinstance(peak, int | float):
                         observed.append(Observation(int(peak), record_host, at, source))
         else:
@@ -554,7 +613,13 @@ def _sources_line(row: UnitRow) -> str | None:
     kinds = {item.source for item in row.observed}
     parts: list[str] = []
     if "pool" in kinds:
-        parts.append("per-worker peaks from this unit's own pool records")
+        parts.append(
+            {
+                None: "per-worker peaks from this unit's own pool records",
+                True: f"the `<config> absorb` readings of its pool records ({', '.join(row.unit.pool_units)})",
+                False: "its pool records' readings but the `<config> absorb` ones",
+            }[row.unit.absorbs]
+        )
     step_names = sorted(name.removeprefix("step:") for name in kinds if name.startswith("step:"))
     if step_names:
         parts.append(f"{', '.join(step_names)} step peaks")
@@ -569,10 +634,15 @@ def _corpus_caps(cores: int) -> tuple[int, int]:
     return max(1, cores - 1), max(1, memory_budget.split_cores(cores)[0] - 1)
 
 
+def _oracle_absorb_excess(shard_bytes: int, absorb_bytes: int, configs: int) -> int:
+    """Return what the oracle's settle-memo absorbs hold beyond the range slots they run in, as `artifact_cycle.sweep_job_budget` takes it off the machine's memory: one absorb per settlement configuration at once, each at `absorb_bytes` in place of a range's `shard_bytes`, and nothing when an absorb fits in a range's slot."""
+    return configs * max(0, absorb_bytes - shard_bytes)
+
+
 def _width_clause(unit: Unit, constant_bytes: int, *, total_bytes: int, cores: int, root: Path) -> str:
     """Return the width this constant implies on the given machine, computed the way the code that sizes that pool computes it.
 
-    The font suite's pool takes the cores without dividing by its constant, so the clause prints the cores a hand run takes, the gate lane's share a cycle whose build lane runs gives gate:make-test's pool (`memory_budget.split_cores`), and, beside them, the width memory would allow. The kernel's table build runs every settlement configuration at once when its whole booking fits (`DEFAULT_MEMO_BYTES`, `PARKED_FOLD_BYTES` for each settlement configuration, `DELTA_SLOT_BYTES` for each delta and `FOLD_PREPARATION_BYTES`), and otherwise divides by `DELTA_SLOT_BYTES` after subtracting `DEFAULT_MEMO_BYTES` and `PARKED_FOLD_BYTES` for each settlement configuration, capped at the delta count, the arithmetic `kernel_exec.kernel_threads_default` does; `run_m1._table_build_threads` then caps it at the cores, which the clause states in words. The corpus build subtracts its parent constant and divides by its worker constant, so neither corpus row is the whole width alone and each reads the other's constant; both print the width at each of the build's caps, every core less the parent by hand and under --skip-gates, and the build lane's share less the parent under a gated cycle. The standing fill's parent is subtracted the same way before dividing by `STANDING_FILL_WORKER_BYTES`. The conformance sweep divides by its own constant and prints two widths: with the build lane idle, capped at the cores, and beside a corpus build at its width under a gated cycle, capped at the cores less the build's parent and workers but never below the acceptance-configuration count (or the cores, where there are fewer), as `artifact_cycle._conform_core_cap` caps it on a pass that skips gate:make-test. None of these widths subtracts gate:make-test's pool; the corpus-worker, standing-fill-parent, and conform-sweep clauses say where a cycle subtracts it. On a pass that runs that gate, a cycle subtracts it before sizing the corpus build under either policy, so the build beside the sweep can be narrower than the clause's, and under the overlap policy before sizing both of the sweep's widths as well. Caps and sibling constants are read from `root`, like the constants, so a test can supply both the machine and the tree.
+    The font suite's pool takes the cores without dividing by its constant, so the clause prints the cores a hand run takes, the gate lane's share a cycle whose build lane runs gives gate:make-test's pool (`memory_budget.split_cores`), and, beside them, the width memory would allow. The kernel's table build runs every settlement configuration at once when its whole booking fits (`DEFAULT_MEMO_BYTES`, `PARKED_FOLD_BYTES` for each settlement configuration, `DELTA_SLOT_BYTES` for each delta and `FOLD_PREPARATION_BYTES`), and otherwise divides by `DELTA_SLOT_BYTES` after subtracting `DEFAULT_MEMO_BYTES` and `PARKED_FOLD_BYTES` for each settlement configuration, capped at the delta count, the arithmetic `kernel_exec.kernel_threads_default` does; `run_m1._table_build_threads` then caps it at the cores, which the clause states in words. The corpus build subtracts its parent constant and divides by its worker constant, so neither corpus row is the whole width alone and each reads the other's constant; both print the width at each of the build's caps, every core less the parent by hand and under --skip-gates, and the build lane's share less the parent under a gated cycle. The standing fill's parent is subtracted the same way before dividing by `STANDING_FILL_WORKER_BYTES`. The conformance sweep divides by its own constant and prints two widths: with the build lane idle, capped at the cores, and beside a corpus build at its width under a gated cycle, capped at the cores less the build's parent and workers but never below the acceptance-configuration count (or the cores, where there are fewer), as `artifact_cycle._conform_core_cap` caps it on a pass that skips gate:make-test. The string replay and the deep replay divide by their per-walk constants, capped at the settlement configuration count, and the string replay at the cores too, as `run_m1._replay_threads` caps it. The oracle's two rows print the oracle's width, capped at the cores, with the settle-memo absorbs' excess over ORACLE_SHARD_BYTES taken off first (`artifact_cycle.sweep_job_budget`), and the land row names the build-lane parents it has to stay below. None of these widths subtracts gate:make-test's pool; the corpus-worker, standing-fill-parent, conform-sweep, and replay-walk clauses say where a cycle subtracts it. On a pass that runs that gate, a cycle subtracts it before sizing the corpus build under either policy, so the build beside the sweep can be narrower than the clause's, and under the overlap policy before sizing both of the sweep's widths as well. Caps and sibling constants are read from `root`, like the constants, so a test can supply both the machine and the tree.
     """
     if unit.name == "font-suite":
         allowed = memory_budget.describe_fit(constant_bytes, total_bytes=total_bytes)
@@ -618,6 +688,39 @@ def _width_clause(unit: Unit, constant_bytes: int, *, total_bytes: int, cores: i
             worker, coresident_bytes=constant_bytes, cap=cores, total_bytes=total_bytes
         )
         return f"the verdict update's process, the refill pool's parent, is subtracted from the machine's memory rather than divided into it; with it off, the refill pool runs {allowed} ({STANDING_FILL_WORKER_NAME}, measured by hand); under a gated cycle gate:make-test's pool is subtracted from the machine's memory before this division too"
+    if unit.name == "replay-walk":
+        configs = _settlement_config_count(root / CONFORM_SOURCE)
+        fit = memory_budget.describe_fit(constant_bytes, cap=min(configs, cores), total_bytes=total_bytes)
+        return f"a bare run_m1 walks {fit}, nothing co-resident since the table build's process has exited, and runs the settle-memo absorbs after a full replay at that width; a gated cycle takes gate:make-test's pool off the machine's memory first (`artifact_cycle.replay_threads_budget`)"
+    if unit.name == "deep-replay-walk":
+        configs = _settlement_config_count(root / CONFORM_SOURCE)
+        fit = memory_budget.describe_fit(constant_bytes, cap=configs, total_bytes=total_bytes)
+        return f"`make replay-deep` walks {fit}, one settlement configuration a walk (`deep_replay.replay_threads`)"
+    if unit.name in ("oracle-shard", "oracle-absorb"):
+        configs = _settlement_config_count(root / CONFORM_SOURCE)
+        if unit.name == "oracle-shard":
+            shard, absorb = constant_bytes, _int_constant(root / CORPUS_SOURCE, ORACLE_ABSORB_NAME)
+        else:
+            shard, absorb = _int_constant(root / CORPUS_SOURCE, ORACLE_SHARD_NAME), constant_bytes
+        excess = _oracle_absorb_excess(shard, absorb, configs)
+        fit = memory_budget.describe_fit(shard, coresident_bytes=excess, cap=cores, total_bytes=total_bytes)
+        absorbs = f"the {configs} settle-memo absorbs that follow the ranges, one per settlement configuration at once, hold {format_gb(configs * absorb)} GB together"
+        if excess:
+            fits = f", {format_gb(excess)} GB more than the range slots they run in, which comes off the machine's memory first"
+        else:
+            fits = " and fit in the range slots they run in, so nothing comes off for them"
+        if unit.name == "oracle-shard":
+            return f"the oracle runs {fit}; {absorbs} ({ORACLE_ABSORB_NAME} each){fits}"
+        return f"no width divides by it: {absorbs}{fits}, and the oracle runs {fit} ({ORACLE_SHARD_NAME} divided in)"
+    if unit.name == "land":
+        parents = {
+            name: _int_constant(root / CORPUS_SOURCE, name)
+            for name in (CORPUS_PARENT_NAME, STANDING_FILL_PARENT_NAME)
+        }
+        stated = " and ".join(f"{name} ({format_gb(value)} GB)" for name, value in parents.items())
+        if constant_bytes < min(parents.values()):
+            return f"no width divides by it or subtracts it; it is below {stated}, the build-lane steps before it, so the conformance sweep's reservation for the larger of those steps covers it"
+        return f"no width divides by it or subtracts it, and it is not below {stated}, so the conformance sweep's reservation for the build lane (`artifact_cycle._conform_build_lane`) no longer covers it"
     if unit.name == "conform-sweep":
         floor = min(_acceptance_config_count(root / CONFORM_SOURCE), cores)
         parent = _int_constant(root / CORPUS_SOURCE, CORPUS_PARENT_NAME)
@@ -774,8 +877,10 @@ def _report(args: argparse.Namespace, constant_commit_times: Mapping[str, str] |
         ),
     )
     scope = f"host {host}" if host else "every host"
+    unbounded = ", ".join(unit.name for unit in UNITS if not unit.recency_bound)
     window = (
         f"most recent {args.recent} records per unit since each constant's commit"
+        + (f" ({unbounded}: every record since it)" if unbounded else "")
         if args.recent > 0
         else "every record"
     )

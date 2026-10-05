@@ -919,6 +919,8 @@ def _run_glyph_chain(spec: ResolvedSpec, tables: Mapping[str, tuple], out_dir: P
 REPLAY_MAX_LENGTH = conform.SWEEP_MAX_LENGTH
 REPLAY_FORMAT = "ams-m1-replay/1"
 REPLAY_SUMMARY = "replay_summary.json"
+# The pool unit a replay that walked any text records its per-walk peak under (`_record_replay_walk`), which the replay-walk row of `make job-costs` holds against `kernel_exec.REPLAY_PEAK_BYTES`.
+REPLAY_POOL_UNIT = "replay-walk"
 RUNE_LABEL_PREFIX = "glyph_data/runes/"
 
 
@@ -1010,7 +1012,7 @@ def run_replay_strings(
 
     The walk also produces the settle memo. With `memo_inputs` (`settle_memo_inputs`, computed before the spec was loaded), every full replay asks the crate to write its window memo for each walked configuration beside the tables (`kernel_exec.replay_memo_dump`) and absorbs each one into the configuration's `conform.SettleMemoFile` under the stamp and family keys `conform.settle_memo_files` computes. So the witness stage, the oracle and the conformance sweep load what the replay settled instead of settling it again. Only the walked configurations' files are touched, so a narrowed walk never dumps, reads, absorbs or deletes a configuration it did not walk. Every dump is deleted in this function whatever the walk or the absorb did, and a failed absorb is a warning, not a failure, since every reader settles what the file lacks. This can widen the walk beyond what the structure stamp requires: the memo stamp covers comparison-side modules the replay's own stamp does not, so when any configuration's file is missing or fails `conform.settle_memo_standing`, every text is walked to refill it. A narrowed walk (a rune edit) writes no memo and leaves the existing files to drop their own stale entries.
 
-    The record written beside the tables is what the next build's walk is narrowed against, so it carries the structure stamp and every rune digest as well as the counts. It is written whether the walk passed or failed: a disagreement is recorded with the crate's message, and `_run_table_gates` raises it as `SystemExit`. The width is `_replay_threads`: `replay_threads` when given, else the machine's memory divided by `kernel_exec.REPLAY_PEAK_BYTES` (what one configuration's walk holds: the trace memo over the windows its texts reach, plus the window memo's inverse label map and block buffer), capped at the configuration count and the cores, so every text replays in one round on both fleet machines. The absorbs run after the crate has exited, one spawn process per walked configuration at that same width. Each holds one configuration's dump, columns and probe index while it builds the file, a fraction of what `REPLAY_PEAK_BYTES` allows for one configuration, so they use the replay's width and have no constant of their own.
+    The record written beside the tables is what the next build's walk is narrowed against, so it carries the structure stamp and every rune digest as well as the counts. It is written whether the walk passed or failed: a disagreement is recorded with the crate's message, and `_run_table_gates` raises it as `SystemExit`. The width is `_replay_threads`: `replay_threads` when given, else the machine's memory divided by `kernel_exec.REPLAY_PEAK_BYTES` (what one configuration's walk holds: the trace memo over the windows its texts reach, plus the window memo's inverse label map and block buffer), capped at the configuration count and the cores, so every text replays in one round on both fleet machines. The absorbs run after the crate has exited, one spawn process per walked configuration at that same width. Each holds one configuration's dump, columns and probe index while it builds the file, a fraction of what `REPLAY_PEAK_BYTES` allows for one configuration, so they use the replay's width and have no constant of their own. A walk that answers records what one walk held (`_record_replay_walk`).
     """
     configs = tuple(configs)
     if inputs is not None and set(configs) != set(conform.SETTLEMENT_CONFIGS):
@@ -1061,6 +1063,7 @@ def run_replay_strings(
                     threads=threads,
                     timings=True,
                     memo_dir=out_dir if emitting else None,
+                    on_peak=functools.partial(_record_replay_walk, walks=min(threads, len(configs))),
                 )
             except kernel_exec.ReplayDisagreement as error:
                 summary["pass"] = False
@@ -1084,6 +1087,16 @@ def run_replay_strings(
     if recordable:
         (out_dir / REPLAY_SUMMARY).write_text(json.dumps(summary, indent=2) + "\n")
     return summary
+
+
+def _record_replay_walk(peak: int, *, walks: int) -> None:
+    """Record what one walk of the string replay held as one observation of the `replay-walk` pool (`cycle_timings.record_pool`): the crate process's own peak RSS (`kernel_exec.replay_strings`'s `on_peak`) divided by the walks it ran at once. The walks are threads of that one process, so no figure per walk exists, and this share is the wide run's figure `REPLAY_PEAK_BYTES`'s comment takes beside the solo walk's."""
+    record_pool(
+        REPLAY_POOL_UNIT,
+        width=walks,
+        worker_peaks={"per walk": peak // walks},
+        controller_peak_bytes=peak_rss_self_bytes(),
+    )
 
 
 def _absorb_replay_memo(
@@ -1716,7 +1729,7 @@ def run_oracle(
 
     Staging is inside this run's pid-named audit scratch directory, so a killed run's stores, segments and memo parts are deleted by `discard_oracle_audit_scratch` along with its audit segments, and two oracles sharing an `out_dir` (a `--gates-only` pass beside a cycle) cannot read or promote each other's files. Promotion happens only after `join_oracle_audit` has accepted the audit, because a store describing an audit that was never written is worse than no store. A split configuration where one range staged no segment is neither joined nor promoted, the all-or-nothing rule `promote_stores` already follows.
 
-    Every range's peak is recorded as one observation of the `oracle-shard` pool (`cycle_timings.record_pool`), which `make job-costs` compares against `artifact_cycle.ORACLE_SHARD_BYTES`.
+    Every range's peak is recorded as one observation of the `oracle-shard` pool (`cycle_timings.record_pool`), which `make job-costs` compares against `artifact_cycle.ORACLE_SHARD_BYTES`, and every absorb's, labeled `<config> absorb`, which it compares against `artifact_cycle.ORACLE_ABSORB_BYTES`.
     """
     if spec is None:
         spec = load_default_spec()
@@ -2082,7 +2095,7 @@ def main(argv: list[str] | None = None) -> None:
         "--jobs",
         type=int,
         default=None,
-        help=f"worker budget for the oracle and the conformance sweep: the oracle cuts every configuration's table into row ranges and runs this many at once, while the conformance sweep runs this many of its units at once, one process each (the ss10 overlay whole and each settlement configuration once per final symbol), and no more than there are units. Each default is a budget the artifact cycle derives from the machine rather than a checked-in width: a bare run takes the oracle's `sweep_job_budget()`, the width the cycle hands run_m1 — {sweep_jobs} on this machine, the cores under the memory clamp that budget's own docstring argues from `ORACLE_SHARD_BYTES` — and --conform-only takes the conformance sweep's own `conform_job_budget()` with the build lane idle, since a hand sweep shares the machine with no corpus build and no make-test pool — on this machine {conform_job_derivation(skip_gates=True, skip_corpus=True)}. `--jobs 1` is serial. The table build's own width is --kernel-threads.",
+        help=f"worker budget for the oracle and the conformance sweep: the oracle cuts every configuration's table into row ranges and runs this many at once, while the conformance sweep runs this many of its units at once, one process each (the ss10 overlay whole and each settlement configuration once per final symbol), and no more than there are units. Each default is a budget the artifact cycle derives from the machine rather than a checked-in width: a bare run takes the oracle's `sweep_job_budget()`, the width the cycle hands run_m1 — {sweep_jobs} on this machine, the cores under the memory clamp that budget's own docstring argues from `ORACLE_SHARD_BYTES` and `ORACLE_ABSORB_BYTES` — and --conform-only takes the conformance sweep's own `conform_job_budget()` with the build lane idle, since a hand sweep shares the machine with no corpus build and no make-test pool — on this machine {conform_job_derivation(skip_gates=True, skip_corpus=True)}. `--jobs 1` is serial. The table build's own width is --kernel-threads.",
     )
     parser.add_argument(
         "--conform-only",

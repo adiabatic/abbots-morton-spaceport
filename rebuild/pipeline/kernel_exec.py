@@ -32,17 +32,19 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import zlib
 from collections import OrderedDict
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import IO
 
 from rebuild.pipeline import kernel_io, settle, table
 from rebuild.pipeline.model import CellId, Provenance, ResolvedSpec, Settled, feature_config_token
 from rebuild.pipeline.table import DecisionTable, FixpointProduct, JoinTable
 from rebuild.tools import memory_budget
-from rebuild.tools.peak_rss import format_gb
+from rebuild.tools.peak_rss import format_gb, reap_peak_rss_bytes
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 BINARY = REPO_ROOT / "rebuild" / "kernel-rs" / "target" / "release" / "ams-m1-kernel"
@@ -57,9 +59,9 @@ SCRATCH_PEAK_BYTES = 7_100_000_000
 DEFAULT_MEMO_BYTES = 2_100_000_000
 # What one configuration's prepared fold product holds while it waits for the cross-configuration exchange (`fanout::run_configs_tables`, `rebuild/kernel-rs/src/crossconfig.rs`): the class rows, their label-grain expansion, the row chains, the window options, its first rules and its source-row index, from its fold's preparation until the exchange ends. Every configuration's parked product is resident at once at the exchange, so a wave that reuses a worker slot holds the finished configurations' products beside the deltas still enumerating; `table_build_booking_bytes` books one per configuration, and DELTA_SLOT_BYTES and FOLD_PREPARATION_BYTES each count a slot beyond its own configuration's product. Most of it is the class rows and their expansion, whose row holds pool ids rather than strings (`fold::FoldRow`, sixteen bytes) and is allocated at its exact length. The reading is `build-tables` with `--cache-stats`, whose `[c] <config> parked_heap` line gives the bytes the process's malloc zones hold allocated at the rendezvous, where every configuration's parked product and the parsed spec are all the process holds (`fixpoint::heap_bytes`, from `/usr/bin/heap`). Measured with ·Way in the alphabet on the 18-core M5 Pro 48 GiB MacBook Pro (`doc/fleet.md`), over every settlement configuration in the whole-wave readings DELTA_SLOT_BYTES cites, one through five wide, it reads 6.11 to 7.13 GB. The resident size and the footprint at the rendezvous are no measure of it: they also count the last enumerations' freed large allocations, which the allocator returns to the system when it chooses, so the `resident_parked` line beside it reads from 8.27 to 13.12 GB over the same runs. The constant is the highest reading divided by the settlement configuration count, the spec's share included, rounded up to the tenth. With the other terms as they stand, a value of 3.57 GB or more costs the 18-core machine its whole wave under a gated cycle. Re-measure it with DELTA_SLOT_BYTES whenever the alphabet grows or what a prepared product holds changes.
 PARKED_FOLD_BYTES = 1_500_000_000
-# The peak `table_build_booking_bytes` books for the one `build-tables` process at the configuration count, the width both 48 GiB machines run (`doc/fleet.md`): DEFAULT_MEMO_BYTES, plus PARKED_FOLD_BYTES per configuration, plus DELTA_SLOT_BYTES per delta, plus FOLD_PREPARATION_BYTES. `rebuild/test_memory_budget.py` checks that it equals that booking, so it moves whenever a term is re-measured. `make job-costs` compares the cycle's sampled run_m1 process peak with it, and an overrun means a build outgrew what its width books, so the kernel constants need re-measuring. Every whole-wave reading DELTA_SLOT_BYTES cites is inside it, the highest, 22.64 GB four wide, by 7.86 GB, and inside the booking at its own width by 1.97 GB or more. Building a snapshot is inside this bound. `Engine::take_memo` releases the other live memos, then collects the trace map into an array, holding both during the collection, and drops the map before partitioning. Partitioning holds a four-byte source position per record and the offset cursors, plus a temporary sort buffer for an unusually large collision bucket. `read_memo` reserves space from a count of the TSV's window lines, stores accepted records directly, and boxes the compacted array after indexing, with no growing hash table. Enumeration, the memo writer and the fold still hold corpus-sized state.
+# The peak `table_build_booking_bytes` books for the one `build-tables` process at the configuration count, the width both 48 GiB machines run (`doc/fleet.md`): DEFAULT_MEMO_BYTES, plus PARKED_FOLD_BYTES per configuration, plus DELTA_SLOT_BYTES per delta, plus FOLD_PREPARATION_BYTES. `rebuild/test_memory_budget.py` checks that it equals that booking, so it moves whenever a term is re-measured. `make job-costs` compares every run_m1 process peak the cycle sampled since its commit with it, and an overrun means a build outgrew what its width books, so the kernel constants need re-measuring. Every whole-wave reading DELTA_SLOT_BYTES cites is inside it, the highest, 22.64 GB four wide, by 7.86 GB, and inside the booking at its own width by 1.97 GB or more. Building a snapshot is inside this bound. `Engine::take_memo` releases the other live memos, then collects the trace map into an array, holding both during the collection, and drops the map before partitioning. Partitioning holds a four-byte source position per record and the offset cursors, plus a temporary sort buffer for an unusually large collision bucket. `read_memo` reserves space from a count of the TSV's window lines, stores accepted records directly, and boxes the compacted array after indexing, with no growing hash table. Enumeration, the memo writer and the fold still hold corpus-sized state.
 TABLE_BUILD_PEAK_BYTES = 30_500_000_000
-# The peak of one configuration's length-4 string replay; `run_m1.run_replay_strings` divides the machine's memory by it for its width. It covers the engine's trace memo over the windows its texts reach, with no liveness probes beyond the prospect's own and no ranking (`Replay::new` turns it off), plus the window memo's inverse label map and block buffer when the walk writes its dump. That is a subset of what the enumeration's engine holds, so it is a fraction of SCRATCH_PEAK_BYTES and measured separately. Nothing is subtracted before the division: the replay starts after the `build-tables` process has exited, so no configuration's memo is alive, and each worker loads one settlement TSV and builds its own engine. At 44 runes, with the trace key packed onto ordinals, the trace entry at sixteen bytes and no ranking, one `replay-strings` over `default` alone at `--threads=1` with `--memo-dir` on (the shipped path, since a full replay always writes its dump) peaks at 1.23 GB under `/usr/bin/time -l` on the 18-core M5 Pro 48 GiB MacBook Pro (`doc/fleet.md`), with its `peak memory footprint` line the same, and walks 1,926,220 texts over 3,256,994 windows in 8.6 s. Under `--cache-stats` its trace memo holds 6,144,028 entries in a table that holds 7,340,032 before it doubles, and its walk memo 3,256,994 in one that holds 3,670,016. Neither table has doubled since the same walk read 1.24 GB with ·Ye, which is why the peak is level with that reading, and the next doubling of either raises it. The same walk over every settlement configuration at the configuration count peaks at 6.07 GB for the whole process, 1.21 GB per worker, with no swaps, the footprint equal to the resident figure, and 0.33 s of system time against 48.9 s of user time. Each configuration's `[t] replay[<config>]` line reads 9.6 to 9.9 s against the solo 8.6 s. The five walks share the machine's memory without paging; paging would show in the system time and in a footprint above the resident figure, and neither rises here. The same divisor sizes the settle-memo absorbs that follow a full replay, since `run_m1.run_replay_strings` runs their pool at the replay's width. One absorb of `default`'s dump (`conform.absorb_replay_memo`, 3,256,994 rows) peaks at 0.29 GB in its own process, a fraction of the divisor. The logs are under `var/keep/issue-495/replay/`. The constant takes the higher of the solo reading and the wide run's per-worker figure, adds a quarter and rounds up to the tenth. It errs high for the reason DELTA_SLOT_BYTES gives, and the headroom also covers neighbors no term subtracts: the replay shares run_m1's process tree with the glyph chain, the window packers and the shipped-order walkers, each a small, flat working set beside it (`run_m1._core_bound_threads` sizes the last two). The criterion is that both fleet machines (`doc/fleet.md`) replay every settlement configuration in one round, alone and in a gated cycle with gate:make-test's pytest pool running; `rebuild/test_memory_budget.py` and `rebuild/test_artifact_cycle.py` check it. Re-measure it whenever the alphabet grows, `REPLAY_MAX_LENGTH` changes or the trace memo's key or entry changes shape: the two runs above, both with the memo dump on, and the absorb over the solo run's dump. If a per-configuration line gets longer in the wide run while the system time rises, the width is causing paging.
+# The peak of one configuration's length-4 string replay; `run_m1.run_replay_strings` divides the machine's memory by it for its width. It covers the engine's trace memo over the windows its texts reach, with no liveness probes beyond the prospect's own and no ranking (`Replay::new` turns it off), plus the window memo's inverse label map and block buffer when the walk writes its dump. That is a subset of what the enumeration's engine holds, so it is a fraction of SCRATCH_PEAK_BYTES and measured separately. Nothing is subtracted before the division: the replay starts after the `build-tables` process has exited, so no configuration's memo is alive, and each worker loads one settlement TSV and builds its own engine. At 44 runes, with the trace key packed onto ordinals, the trace entry at sixteen bytes and no ranking, one `replay-strings` over `default` alone at `--threads=1` with `--memo-dir` on (the shipped path, since a full replay always writes its dump) peaks at 1.23 GB under `/usr/bin/time -l` on the 18-core M5 Pro 48 GiB MacBook Pro (`doc/fleet.md`), with its `peak memory footprint` line the same, and walks 1,926,220 texts over 3,256,994 windows in 8.6 s. Under `--cache-stats` its trace memo holds 6,144,028 entries in a table that holds 7,340,032 before it doubles, and its walk memo 3,256,994 in one that holds 3,670,016. Neither table has doubled since the same walk read 1.24 GB with ·Ye, which is why the peak is level with that reading, and the next doubling of either raises it. The same walk over every settlement configuration at the configuration count peaks at 6.07 GB for the whole process, 1.21 GB per worker, with no swaps, the footprint equal to the resident figure, and 0.33 s of system time against 48.9 s of user time. Each configuration's `[t] replay[<config>]` line reads 9.6 to 9.9 s against the solo 8.6 s. The five walks share the machine's memory without paging; paging would show in the system time and in a footprint above the resident figure, and neither rises here. The same divisor sizes the settle-memo absorbs that follow a full replay, since `run_m1.run_replay_strings` runs their pool at the replay's width. One absorb of `default`'s dump (`conform.absorb_replay_memo`, 3,256,994 rows) peaks at 0.29 GB in its own process, a fraction of the divisor. The logs are under `var/keep/issue-495/replay/`. The constant takes the higher of the solo reading and the wide run's per-worker figure, adds a quarter and rounds up to the tenth. It errs high for the reason DELTA_SLOT_BYTES gives, and the headroom also covers neighbors no term subtracts: the replay shares run_m1's process tree with the glyph chain, the window packers and the shipped-order walkers, each a small, flat working set beside it (`run_m1._core_bound_threads` sizes the last two). The criterion is that both fleet machines (`doc/fleet.md`) replay every settlement configuration in one round, alone and in a gated cycle with gate:make-test's pytest pool running; `rebuild/test_memory_budget.py` and `rebuild/test_artifact_cycle.py` check it. The replay-walk row of `make job-costs` checks it against each walk's share of the crate's peak (`run_m1._record_replay_walk`). Re-measure it whenever the alphabet grows, `REPLAY_MAX_LENGTH` changes or the trace memo's key or entry changes shape: the two runs above, both with the memo dump on, and the absorb over the solo run's dump. If a per-configuration line gets longer in the wide run while the system time rises, the width is causing paging.
 REPLAY_PEAK_BYTES = 1_600_000_000
 
 
@@ -236,13 +238,13 @@ def _relink_lock(mode: int) -> _RelinkLock:
     return _RelinkLock(mode)
 
 
-def _run_kernel(arguments: list[str], verb: str, stdin: bytes | None = None) -> subprocess.CompletedProcess:
-    """Spawn the binary with the relink lock held shared for the spawn only, the moment a concurrent `cargo build` could make the path disappear, then wait without the lock so a long enumeration never blocks a build elsewhere. With `stdin`, the child's stdin is a pipe that carries those bytes and is then closed; without it, the child inherits this process's stdin. Raises `KernelRunError` for a missing binary or a timeout."""
+def _spawn_kernel(arguments: list[str], *, stdin: bool) -> subprocess.Popen:
+    """Spawn the binary with the relink lock held shared for the spawn only, the moment a concurrent `cargo build` could make the path disappear, so the caller waits without the lock and a long enumeration never blocks a build elsewhere. With `stdin`, the child's stdin is a pipe; without it, the child inherits this process's stdin. Raises `KernelRunError` for a missing binary."""
     try:
         with _relink_lock(fcntl.LOCK_SH):
-            process = subprocess.Popen(
+            return subprocess.Popen(
                 arguments,
-                stdin=None if stdin is None else subprocess.PIPE,
+                stdin=subprocess.PIPE if stdin else None,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
             )
@@ -250,15 +252,54 @@ def _run_kernel(arguments: list[str], verb: str, stdin: bytes | None = None) -> 
         raise KernelRunError(
             f"no kernel binary at {BINARY} — run `make kernel-build` first, or let the caller's cargo_build() build it"
         ) from None
+
+
+def _no_answer(arguments: list[str], verb: str) -> KernelRunError:
+    return KernelRunError(
+        f"the kernel gave no answer within {TIMEOUT} seconds on {verb} ({' '.join(arguments)})"
+    )
+
+
+def _run_kernel(arguments: list[str], verb: str, stdin: bytes | None = None) -> subprocess.CompletedProcess:
+    """Run the binary to completion (`_spawn_kernel`) and return its exit code and output. With `stdin`, the child's stdin carries those bytes and is then closed. Raises `KernelRunError` for a missing binary or a timeout."""
+    process = _spawn_kernel(arguments, stdin=stdin is not None)
     try:
         stdout, stderr = process.communicate(stdin, timeout=TIMEOUT)
     except subprocess.TimeoutExpired:
         process.kill()
         process.communicate()
-        raise KernelRunError(
-            f"the kernel gave no answer within {TIMEOUT} seconds on {verb} ({' '.join(arguments)})"
-        ) from None
+        raise _no_answer(arguments, verb) from None
     return subprocess.CompletedProcess(arguments, process.returncode, stdout, stderr)
+
+
+def _run_kernel_reaped(arguments: list[str], verb: str) -> tuple[subprocess.CompletedProcess, int | None]:
+    """`_run_kernel` with no stdin, returning beside the result the child process's own peak RSS in bytes (`peak_rss.reap_peak_rss_bytes`), or None where it cannot be read. `communicate` reaps the child with `waitpid`, which discards its resource usage, so this drains each pipe on a thread of its own and reaps the child with `os.wait4` once both are closed. The crate starts no process of its own, so the figure is the crate's. Raises `KernelRunError` for a missing binary or a timeout."""
+    process = _spawn_kernel(arguments, stdin=False)
+    assert process.stdout is not None and process.stderr is not None
+    drained: dict[str, bytes] = {}
+
+    def drain(name: str, stream: IO[bytes]) -> None:
+        with stream:
+            drained[name] = stream.read()
+
+    readers = [
+        threading.Thread(target=drain, args=("stdout", process.stdout), daemon=True),
+        threading.Thread(target=drain, args=("stderr", process.stderr), daemon=True),
+    ]
+    for reader in readers:
+        reader.start()
+    deadline = time.monotonic() + TIMEOUT
+    for reader in readers:
+        reader.join(max(0.0, deadline - time.monotonic()))
+    if any(reader.is_alive() for reader in readers):
+        process.kill()
+        for reader in readers:
+            reader.join()
+        process.wait()
+        raise _no_answer(arguments, verb)
+    peak = reap_peak_rss_bytes(process)
+    returncode = process.wait()
+    return subprocess.CompletedProcess(arguments, returncode, drained["stdout"], drained["stderr"]), peak
 
 
 def ensure_built() -> None:
@@ -524,12 +565,15 @@ def replay_strings(
     timings: bool = False,
     memo_dir: Path | None = None,
     memo_windows: int | None = None,
+    on_peak: Callable[[int], None] | None = None,
 ) -> dict[str, dict[str, int]]:
     """Replay every named configuration's persisted rules under `out_dir` over every text up to `max_length`, and return `{config: {texts, windows, skipped}}` on a clean walk. With `families`, only the texts naming one of those runes are walked. Rules apply first-match with the settled left fed forward, and each window is checked against the crate's own settlement. `windows` counts window settles: each distinct window once on a walk with no ceiling, and again each time it is met after a release. The spec is the same memoized dump the settlement functions and the guard sweep read.
 
     A disagreement or a refused window raises `ReplayDisagreement` with the crate's message. Every other failure the CLI contract distinguishes raises `KernelRunError`, as does a clean exit whose output names a different set of configurations from the one requested. An empty `families` raises `ValueError` before anything is spawned, because the subcommand treats it as a usage error and a caller with nothing to walk has nothing to ask.
 
     With `memo_dir`, each passing walk writes its window memo to `replay_memo_dump(memo_dir, config)`: every distinct window it settled, keyed in the crate's own form, with every distinct settled record beside them. The result is unchanged. The build asks for one on a full replay, so the settle memo every later phase loads is filled here instead of by the oracle. The deep walk (`rebuild/tools/deep_replay.py`) never asks for a memo and passes `memo_windows` instead, which reaches the subcommand as `--memo-windows=`: the most windows a walk keeps memoized before it releases its memos and continues. Passing both raises `ValueError` before anything is spawned, because a walk that released its memo holds only the windows settled since, and a walk that writes its memo has no ceiling. A ceiling below one window also raises.
+
+    `on_peak`, when given, is called with the crate process's own peak RSS in bytes once a walk has answered cleanly (`_run_kernel_reaped`), before this returns. The walks are threads of that one process, so the figure covers every walk it ran at once. The build's replay (`run_m1.run_replay_strings`) and the deep replay (`rebuild/tools/deep_replay.py`) record it for `make job-costs`.
     """
     if families is not None and not families:
         raise ValueError("replay_strings takes a non-empty family list or None for every text")
@@ -559,7 +603,7 @@ def replay_strings(
         arguments.append(f"--memo-windows={memo_windows}")
     if timings:
         arguments.append("--timings")
-    finished = _run_kernel(arguments, "replay-strings")
+    finished, peak = _run_kernel_reaped(arguments, "replay-strings")
     errors = finished.stderr.decode(errors="replace").strip()
     if finished.returncode == 2:
         raise KernelRunError(
@@ -589,6 +633,8 @@ def replay_strings(
         raise KernelRunError(
             f"replay-strings answered for {sorted(answered)} where {sorted(configs)} were asked for"
         )
+    if on_peak is not None and peak:
+        on_peak(peak)
     return answered
 
 

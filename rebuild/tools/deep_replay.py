@@ -10,6 +10,7 @@ Run as: uv run python -m rebuild.tools.deep_replay, or through `make replay-deep
 from __future__ import annotations
 
 import argparse
+import functools
 import os
 import re
 import sys
@@ -33,7 +34,7 @@ from rebuild.tools.artifact_cycle import (
     recorded_max_length,
     tables_imports_digest,
 )
-from rebuild.tools.cycle_timings import CheckResult, record_check
+from rebuild.tools.cycle_timings import CheckResult, record_check, record_pool
 from rebuild.tools.deep_sweep import tables_stamped
 
 # The most windows one configuration's walk holds memoized (the crate's `--memo-windows`; `AMS_DEEP_REPLAY_MEMO_WINDOWS` overrides it). Before any text that could take the walk memo past it, the walk releases that memo and its engine's memos and continues. It is counted in windows, not bytes, so a release happens at the same point on every machine and the printed window count depends only on the rune set. The value is 7/8 of 2^23, the most entries a hash table of 2^23 buckets holds before it doubles. The memo never passes the ceiling, so it fills that table and never doubles into a larger one that a release's `clear()` would keep; the `--cache-stats` rows of the walks cited under DEEP_REPLAY_PEAK_BYTES show the walk memo at that capacity at every release and at the end of every walk, never above it. Three capacity steps were measured (1,835,008, 3,670,016 and 7,340,032 windows). This is the largest of the three, and its measured peak, as DEEP_REPLAY_PEAK_BYTES derives it, stays below the 8.71 GB per walk at which the 48 GiB machines drop from five walks to four, as the other two do. Its cost, over `default` at maximum length 5 with `--families=qsAh` on the alphabet with ·Ye, on the 18-core M5 Pro 48 GiB MacBook Pro (`doc/fleet.md`): 15,469,605 window settles against the uncapped walk's 14,748,571 distinct windows (4.9% more), in 45.4 s against the uncapped 42.8 s. The two smaller steps settle 10.5% and 18.1% more, in 46.0 s and 48.6 s, so a larger ceiling costs fewer settles and less wall-clock time.
@@ -41,11 +42,13 @@ DEEP_REPLAY_MEMO_WINDOWS = 7_340_032
 
 # What one configuration's walk holds at its peak under DEEP_REPLAY_MEMO_WINDOWS. It holds the walk memo, at most the ceiling. It holds the engine's trace, candidate, prospect, closure, delta and reads memos, with no ranking (`Replay::new` turns it off); these are released with the walk memo and hold what the walk's misses settled since the last release, so the ceiling bounds them only through the engine entries each walk window costs. The trace memo also holds the follower windows a simulated prospect settles, so it grows past the walk memo: at the first release of the solo walk below it holds 13,932,782 entries beside the walk memo's 7,340,028, 95% of what its table holds before it doubles, and at the second 17,625,355 in a table that had doubled to hold 29,360,128, so a walk whose windows each cost more trace entries doubles that table before the walk memo reaches the ceiling. A release replaces the trace table with an empty one (`Engine::release_memos`), but the resident set does not fall across the second release (2.89 GB before it, 2.90 GB after). It also holds what the walk never releases: the settled records, their labels and the input labels (471 records and 558 labels at the end of that walk), which grow with distinct records, not with windows settled.
 # Measured at 44 runes on the 18-core M5 Pro 48 GiB MacBook Pro (`doc/fleet.md`): one `replay-strings` over `default` alone at maximum length 5, `--families=qsAh`, `--threads=1`, `--memo-windows` at the ceiling and `--cache-stats`, under `/usr/bin/time -l`, peaks at 2.84 GB of footprint and 2.90 GB maxrss, walking 9,076,397 texts in 17,427,303 window settles over two releases in 49.6 s. The walk over every text, `make replay-deep ARGS='--all'` under `/usr/bin/time -l`, walks every settlement configuration at once at its width of five and reads 14.35 GB maxrss for the crate process (2.87 GB a configuration), with 6.5 s of system time against 2,671 s of user time and no swaps, each configuration walking 71,270,177 texts in 528.7 to 542.3 s: the five walks share memory without paging. With ·Ye the same solo walk read 2.85 GB of footprint and 2.90 GB maxrss over 8,127,145 texts, and five qsAh walks at once 2.84 GB a configuration, so the peak stays level as the corpus grows. The uncapped walk read 5.60 GB with ·Ye, and 20.52 GB with the ranking on.
-# The constant is the higher of the solo footprint and maxrss, plus a quarter, rounded up to the tenth. The margin covers growth in the holders the walk never releases and run-to-run spread, and it errs high because a per-unit cost that is too low puts the machine into swap. At this figure both fleet machines walk every settlement configuration at once, which `rebuild/test_deep_replay.py` checks. Re-measure it whenever the ceiling changes, the alphabet grows, the trace memo's key or entry or the walk memo's key changes shape, or the engine's memos change what they hold or how many entries each walk window costs them; the last three change a walk's peak at a fixed ceiling. Repeat both runs above: the solo walk, taking the higher of its footprint and maxrss, and the walk over every settlement configuration at once, which `make replay-deep ARGS='--all'` is. In the second, a system time that rises against the user time, or swaps, means the width is causing paging. The logs are under `var/keep/issue-495/replay/`, and those taken with ·Ye under `var/keep/issue-274/m5pro-48gib/`.
+# The constant is the higher of the solo footprint and maxrss, plus a quarter, rounded up to the tenth. The margin covers growth in the holders the walk never releases and run-to-run spread, and it errs high because a per-unit cost that is too low puts the machine into swap. At this figure both fleet machines walk every settlement configuration at once, which `rebuild/test_deep_replay.py` checks. The deep-replay-walk row of `make job-costs` checks it against each walk's share of the crate's peak (`record_walk_peak`). Re-measure it whenever the ceiling changes, the alphabet grows, the trace memo's key or entry or the walk memo's key changes shape, or the engine's memos change what they hold or how many entries each walk window costs them; the last three change a walk's peak at a fixed ceiling. Repeat both runs above: the solo walk, taking the higher of its footprint and maxrss, and the walk over every settlement configuration at once, which `make replay-deep ARGS='--all'` is. In the second, a system time that rises against the user time, or swaps, means the width is causing paging. The logs are under `var/keep/issue-495/replay/`, and those taken with ·Ye under `var/keep/issue-274/m5pro-48gib/`.
 DEEP_REPLAY_PEAK_BYTES = 3_700_000_000
 
 # The check name each walk records itself under in the cycle-timings journal (`rebuild.tools.cycle_timings.record_check`), where `make cycle-timings ARGS='--by-step'` reports it. No cycle runs this tool, so it records its own line.
 CHECK = "replay-deep"
+# The pool unit a walk at the checked-in ceiling records its per-walk peak under beside its check line (`record_walk_peak`), which the deep-replay-walk row of `make job-costs` holds against DEEP_REPLAY_PEAK_BYTES.
+POOL_UNIT = "deep-replay-walk"
 
 
 def replay_threads(total_bytes: int | None = None) -> int:
@@ -60,6 +63,16 @@ def replay_threads(total_bytes: int | None = None) -> int:
             ) from None
     return memory_budget.how_many_fit(
         DEEP_REPLAY_PEAK_BYTES, cap=len(conform.SETTLEMENT_CONFIGS), total_bytes=total_bytes
+    )
+
+
+def record_walk_peak(peak: int, *, walks: int) -> None:
+    """Record what one walk held as one observation of the `deep-replay-walk` pool (`cycle_timings.record_pool`): the crate process's own peak RSS (`kernel_exec.replay_strings`'s `on_peak`) divided by the walks it ran at once. The walks are threads of that one process, so no figure per walk exists, and this share is the wide run's figure DEEP_REPLAY_PEAK_BYTES's comment takes. `main` asks for it only for a walk at `DEEP_REPLAY_MEMO_WINDOWS`, because the constant estimates no other ceiling."""
+    record_pool(
+        POOL_UNIT,
+        width=walks,
+        worker_peaks={"per walk": peak // walks},
+        controller_peak_bytes=peak_rss.peak_rss_self_bytes(),
     )
 
 
@@ -200,6 +213,11 @@ def main(argv: list[str] | None = None) -> int:
             threads=threads,
             memo_windows=memo_windows,
             timings=True,
+            on_peak=(
+                functools.partial(record_walk_peak, walks=min(threads, len(conform.SETTLEMENT_CONFIGS)))
+                if memo_windows == DEEP_REPLAY_MEMO_WINDOWS
+                else None
+            ),
         )
     except kernel_exec.ReplayDisagreement as error:
         message = f"the tables disagree with the engine at maximum length {args.max_length}: {error}"

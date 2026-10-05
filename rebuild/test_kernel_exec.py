@@ -1087,9 +1087,18 @@ class TestTheStringReplay:
         return out_dir
 
     def test_a_clean_walk_answers_every_configuration_over_one_text_set(self, tables_dir):
+        """A clean walk also hands `on_peak` the crate process's own peak RSS, once."""
+        peaks: list[int] = []
         answered = kernel_exec.replay_strings(
-            SPEC, tables_dir, conform.SETTLEMENT_CONFIGS, max_length=3, families=None, threads=2
+            SPEC,
+            tables_dir,
+            conform.SETTLEMENT_CONFIGS,
+            max_length=3,
+            families=None,
+            threads=2,
+            on_peak=peaks.append,
         )
+        assert len(peaks) == 1 and peaks[0] > 0
         assert sorted(answered) == sorted(conform.SETTLEMENT_CONFIGS)
         texts = {counts["texts"] for counts in answered.values()}
         assert len(texts) == 1
@@ -1159,6 +1168,7 @@ class TestTheStringReplay:
             raise AssertionError(f"a refused walk spawned {verb}")
 
         monkeypatch.setattr(kernel_exec, "_run_kernel", spawned)
+        monkeypatch.setattr(kernel_exec, "_run_kernel_reaped", spawned)
         with pytest.raises(ValueError, match="not both"):
             kernel_exec.replay_strings(
                 SPEC,
@@ -1177,6 +1187,8 @@ class TestTheStringReplay:
         assert not list(tmp_path.iterdir())
 
     def test_a_table_edited_behind_the_engine_is_refused_naming_the_text(self, tables_dir, tmp_path):
+        """The refusal reaches `on_peak` with nothing, since only a clean walk is a reading of the replay's cost."""
+        peaks: list[int] = []
         for name in ("settlement-default.tsv", "settlement-ss03.tsv"):
             (tmp_path / name).write_text((tables_dir / name).read_text())
         lines = (tmp_path / "settlement-default.tsv").read_text().splitlines()
@@ -1186,8 +1198,15 @@ class TestTheStringReplay:
         (tmp_path / "settlement-default.tsv").write_text("\n".join(lines) + "\n")
         with pytest.raises(kernel_exec.ReplayDisagreement) as caught:
             kernel_exec.replay_strings(
-                SPEC, tmp_path, ["default", "ss03"], max_length=3, families=None, threads=2
+                SPEC,
+                tmp_path,
+                ["default", "ss03"],
+                max_length=3,
+                families=None,
+                threads=2,
+                on_peak=peaks.append,
             )
+        assert peaks == []
         assert "default" in str(caught.value)
         assert "replay disagreement" in str(caught.value)
         assert "at position" in str(caught.value)
@@ -1265,7 +1284,16 @@ class TestTheReplayStage:
         asked: list = []
 
         def replay_strings(
-            spec, out_dir, configs, *, max_length, families, threads, timings=False, memo_dir=None
+            spec,
+            out_dir,
+            configs,
+            *,
+            max_length,
+            families,
+            threads,
+            timings=False,
+            memo_dir=None,
+            on_peak=None,
         ):
             asked.append((tuple(configs), max_length, families, threads))
             return {config: {"texts": 1, "windows": 1, "skipped": 0} for config in configs}
@@ -1292,6 +1320,34 @@ class TestTheReplayStage:
         assert third["families"] is not None and "qsPea" in third["families"] and third["walked"]
         assert asked[-1][2] == third["families"]
 
+    def test_a_walk_that_answers_records_its_share_of_the_crates_peak(self, monkeypatch, tmp_path):
+        """A walk that answers records one `replay-walk` pool observation for `make job-costs`: the crate process's peak divided by the walks it ran at once."""
+        from rebuild.tools import cycle_timings
+
+        def replay_strings(
+            spec,
+            out_dir,
+            configs,
+            *,
+            max_length,
+            families,
+            threads,
+            timings=False,
+            memo_dir=None,
+            on_peak=None,
+        ):
+            if on_peak is not None:
+                on_peak(9_000_000_000)
+            return {config: {"texts": 1, "windows": 1, "skipped": 0} for config in configs}
+
+        monkeypatch.setattr(kernel_exec, "replay_strings", replay_strings)
+        monkeypatch.setattr(run_m1, "usable_cores", lambda: 64)
+        run_m1.run_replay_strings(SPEC, tmp_path, None, replay_threads=3)
+        records = cycle_timings.load_pool_records(cycle_timings.JOURNAL)
+        assert [(r["unit"], r["width"], r["worker_peak_rss_bytes"]) for r in records] == [
+            (run_m1.REPLAY_POOL_UNIT, 3, {"per walk": 3_000_000_000})
+        ]
+
     def test_the_stage_walks_at_its_own_width_and_a_stated_one_is_only_ever_narrowed(
         self, monkeypatch, tmp_path
     ):
@@ -1299,7 +1355,16 @@ class TestTheReplayStage:
         asked: list = []
 
         def replay_strings(
-            spec, out_dir, configs, *, max_length, families, threads, timings=False, memo_dir=None
+            spec,
+            out_dir,
+            configs,
+            *,
+            max_length,
+            families,
+            threads,
+            timings=False,
+            memo_dir=None,
+            on_peak=None,
         ):
             asked.append(threads)
             return {config: {"texts": 1, "windows": 1, "skipped": 0} for config in configs}
@@ -1322,7 +1387,16 @@ class TestTheReplayStage:
         asked: list = []
 
         def replay_strings(
-            spec, out_dir, configs, *, max_length, families, threads, timings=False, memo_dir=None
+            spec,
+            out_dir,
+            configs,
+            *,
+            max_length,
+            families,
+            threads,
+            timings=False,
+            memo_dir=None,
+            on_peak=None,
         ):
             asked.append((families, memo_dir))
             return {config: {"texts": 1, "windows": 1, "skipped": 0} for config in configs}
@@ -1360,7 +1434,16 @@ class TestTheReplayStage:
         dumps: list = []
 
         def replay_strings(
-            spec, out_dir, configs, *, max_length, families, threads, timings=False, memo_dir=None
+            spec,
+            out_dir,
+            configs,
+            *,
+            max_length,
+            families,
+            threads,
+            timings=False,
+            memo_dir=None,
+            on_peak=None,
         ):
             asked.append((tuple(configs), memo_dir))
             return {config: {"texts": 1, "windows": 1, "skipped": 0} for config in configs}
@@ -1401,7 +1484,16 @@ class TestTheReplayStage:
         asked: list = []
 
         def replay_strings(
-            spec, out_dir, configs, *, max_length, families, threads, timings=False, memo_dir=None
+            spec,
+            out_dir,
+            configs,
+            *,
+            max_length,
+            families,
+            threads,
+            timings=False,
+            memo_dir=None,
+            on_peak=None,
         ):
             asked.append((families, memo_dir))
             return {config: {"texts": 1, "windows": 1, "skipped": 0} for config in configs}

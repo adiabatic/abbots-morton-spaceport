@@ -526,7 +526,16 @@ class TestTheTailWidth:
         monkeypatch.setattr(run_m1, "usable_cores", lambda: 64)
 
         def replay_strings(
-            spec, out_dir, configs, *, max_length, families, threads, timings=False, memo_dir=None
+            spec,
+            out_dir,
+            configs,
+            *,
+            max_length,
+            families,
+            threads,
+            timings=False,
+            memo_dir=None,
+            on_peak=None,
         ):
             widths.append(threads)
             return {config: {"texts": 1, "windows": 1, "skipped": 0} for config in configs}

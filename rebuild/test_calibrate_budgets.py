@@ -144,6 +144,53 @@ def test_an_overrun_of_the_sweep_constant_trips_the_check(tmp_path, capsys):
     assert _main(under, "--host", HOST, "--check") == 0
 
 
+@pytest.mark.parametrize(
+    ("unit", "record"),
+    [
+        ("land", lambda peak: _step("land", peak)),
+        ("replay-walk", lambda peak: _pool("replay-walk", [peak])),
+        ("deep-replay-walk", lambda peak: _pool("deep-replay-walk", [peak])),
+    ],
+)
+def test_check_trips_on_a_land_or_replay_peak_above_its_constant(tmp_path, capsys, unit, record):
+    """The land, the string replay and the deep replay each have a row, so a recorded peak above `LAND_BYTES`, `REPLAY_PEAK_BYTES` or `DEEP_REPLAY_PEAK_BYTES` fails `--check` and names the constant to re-measure, and a peak at the constant passes."""
+    row = _unit(unit)
+    over = _journal(tmp_path, [record(CONSTANTS[unit] + 1)])
+    code, out = _run(capsys, over, "--check")
+    assert code == 1
+    assert f"re-measure {row.constant} in {row.source}" in _block(out, unit)
+    at = _journal(tmp_path, [record(CONSTANTS[unit])])
+    assert _main(at, "--host", HOST, "--check") == 0
+
+
+def test_the_oracle_rows_split_its_pool_records_between_ranges_and_absorbs():
+    """The oracle's pool record carries its ranges' readings and its settle-memo absorbs' (`<config> absorb`) together. The oracle-shard row reads the ranges, which its width divides by, and the oracle-absorb row reads the absorbs, which it prices apart."""
+    record = _pool("oracle-shard", [])
+    record["worker_peak_rss_bytes"] = {
+        "default 1/2": 500_000_000,
+        "default absorb": 650_000_000,
+        "ss10": 330_000_000,
+    }
+    ranges, _, _ = cb.observations(_unit("oracle-shard"), [record], {}, host=HOST, recent=20)
+    absorbs, _, _ = cb.observations(_unit("oracle-absorb"), [record], {}, host=HOST, recent=20)
+    assert sorted(item.peak_bytes for item in ranges) == [330_000_000, 500_000_000]
+    assert [item.peak_bytes for item in absorbs] == [650_000_000]
+
+
+def test_the_kernel_build_row_reads_every_record_since_its_constants_commit(tmp_path, capsys):
+    """The kernel-build row proposes no value, so it keeps a high reading however many newer runs follow it, where the recency bound ages one out of every other row."""
+    over = CONSTANTS["kernel-build"] * 2
+    under = CONSTANTS["kernel-build"] // 2
+    steps = [_step("run_m1", over, at="2026-09-01T00:00:00Z", run="old")] + [
+        _step("run_m1", under, at=f"2026-09-02T00:{minute:02}:00Z", run=f"r{minute}") for minute in range(25)
+    ]
+    path = _journal(tmp_path, steps)
+    code, out = _run(capsys, path, "--check")
+    assert code == 1
+    assert "26 records" in _block(out, "kernel-build")
+    assert "(kernel-build: every record since it)" in out
+
+
 def test_the_sweep_cap_reads_the_acceptance_configurations_the_pipeline_defines():
     """The conformance sweep's cap beside a corpus build never falls below the acceptance-configuration count, which `_acceptance_config_count` parses from `conform.py` without importing it, as `artifact_cycle._conform_core_cap` floors it."""
     from rebuild.pipeline import conform
@@ -512,7 +559,8 @@ def test_the_width_clauses_answer_for_the_machine_and_the_tree_they_are_given(tm
     (tree / "rebuild" / "tools").mkdir(parents=True)
     (tree / "rebuild" / "tools" / "artifact_cycle.py").write_text(
         f"{cb.CORPUS_PARENT_NAME} = 10_000_000_000\n{cb.CORPUS_WORKER_NAME} = 5_000_000_000\n"
-        f"{cb.STANDING_FILL_PARENT_NAME} = 12_000_000_000\n{cb.STANDING_FILL_WORKER_NAME} = 2_000_000_000\n",
+        f"{cb.STANDING_FILL_PARENT_NAME} = 12_000_000_000\n{cb.STANDING_FILL_WORKER_NAME} = 2_000_000_000\n"
+        f"{cb.ORACLE_SHARD_NAME} = {CONSTANTS['oracle-absorb']}\n{cb.ORACLE_ABSORB_NAME} = 3_000_000_000\n",
         encoding="utf-8",
     )
     (tree / "rebuild" / "pipeline").mkdir(parents=True)
@@ -576,6 +624,26 @@ def test_the_width_clauses_answer_for_the_machine_and_the_tree_they_are_given(tm
     assert (
         "beside a corpus build of its parent and 5 workers; on a pass that runs gate:make-test the corpus build can be narrower"
         in beside
+    )
+    oracle_block = out.split("\noracle-shard  ")[1].split("\n\n")[0]
+    oracle_fit = memory_budget.describe_fit(
+        CONSTANTS["oracle-shard"],
+        coresident_bytes=3 * (3_000_000_000 - CONSTANTS["oracle-shard"]),
+        cap=12,
+        total_bytes=48_000_000_000,
+    )
+    assert f"the oracle runs {oracle_fit}; the 3 settle-memo absorbs that follow the ranges" in oracle_block
+    absorb_block = out.split("\noracle-absorb  ")[1].split("\n\n")[0]
+    roomy = memory_budget.describe_fit(CONSTANTS["oracle-absorb"], cap=12, total_bytes=48_000_000_000)
+    assert "fit in the range slots they run in, so nothing comes off for them" in absorb_block
+    assert f"and the oracle runs {roomy} (ORACLE_SHARD_BYTES divided in)" in absorb_block
+    replay = memory_budget.describe_fit(CONSTANTS["replay-walk"], cap=3, total_bytes=48_000_000_000)
+    assert f"a bare run_m1 walks {replay}, nothing co-resident" in out
+    deep = memory_budget.describe_fit(CONSTANTS["deep-replay-walk"], cap=3, total_bytes=48_000_000_000)
+    assert f"`make replay-deep` walks {deep}, one settlement configuration a walk" in out
+    land_block = out.split("\nland  ")[1].split("\n\n")[0]
+    assert (
+        "it is below CORPUS_PARENT_BYTES (10.00 GB) and STANDING_FILL_PARENT_BYTES (12.00 GB)" in land_block
     )
     small = "\n".join(cb.render_rows(rows, host=HOST, total_bytes=48_000_000_000, cores=6, root=tree))
     small_block = small.split("\nconform-sweep  ")[1].split("\n\n")[0]
@@ -650,11 +718,15 @@ def test_each_units_rule_is_the_one_its_constants_comment_states():
     assert {unit.name: (unit.headroom, unit.quantum) for unit in cb.UNITS if unit.constant is not None} == {
         "font-suite": (1.0, 100_000_000),
         "kernel-build": (None, None),
+        "replay-walk": (1.25, 100_000_000),
         "corpus-parent": (1.25, 1_000_000_000),
         "corpus-worker": (1.25, 10_000_000),
         "oracle-shard": (1.25, 100_000_000),
+        "oracle-absorb": (1.25, 100_000_000),
         "conform-sweep": (1.25, 100_000_000),
         "standing-fill-parent": (1.25, 1_000_000_000),
+        "land": (1.25, 1_000_000_000),
+        "deep-replay-walk": (1.25, 100_000_000),
     }
 
 
