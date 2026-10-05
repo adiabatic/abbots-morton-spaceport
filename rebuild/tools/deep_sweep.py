@@ -1,18 +1,20 @@
-"""The deep form of gate:conform: the same exhaustive font-versus-settlement sweep as the per-edit sweep, at maximum length 5 by default (`--max-length` refuses anything below the per-edit sweep's 4). The per-edit sweep shapes every text up to four letters and checks what only shaping the compiled font can test: HarfBuzz's application semantics over the rule shapes the lookup contains. Whether the six-slot window is sufficient for the texts the tables were built for is checked by the crate's string replay, which `run_m1` runs on every build. This tool asks the shaper's question at a depth the per-edit sweep cannot afford, over texts long enough to reach a letter's fourth lookahead slot, which no per-edit sweep text reaches.
+"""The deep form of gate:conform: the same font-versus-settlement sweep as the per-edit sweep, at maximum length 5 by default (`--max-length` refuses anything below the per-edit sweep's 4). The per-edit sweep shapes every text up to four letters and checks what only shaping the compiled font can test: HarfBuzz's application semantics over the rule shapes the lookup contains. Whether the six-slot window is sufficient for the texts the tables were built for is checked by the crate's string replay, which `run_m1` runs on every build. This tool asks the shaper's question at a depth the per-edit sweep cannot afford, over texts long enough to reach a letter's fourth lookahead slot, which no per-edit sweep text reaches.
 
 It runs on demand (`make conform-deep`), not per edit. The key of its green record (`artifact_cycle.deep_sweep_skip_lines`) is the set of behavior classes the build enumerated from the emitted lookup (`emit_gsub.behavior_classes`), the font-compilation code, and the uharfbuzz version. It leaves out the runes and M1.otf, so a rune edit that changes many rules but adds no new rule shape leaves the sweep current. When a build emits a new shape, or the compilation code or the shaper changes, the key changes and the cycle reports the sweep as `due` once per pass. The record stores the maximum length beside the key, and a green shallower than a recorded green under the same key keeps the deeper length (`artifact_cycle.record_deep_sweep_green`); the green line then names both. The per-edit sweep's key is the same lines plus its maximum length (`artifact_cycle.conform_skip_fingerprint`). No gate depends on this sweep: a due deep sweep means it should be run, and the cycle does not fail.
 
 The per-edit sweep's split-buffer check (every text split at a boundary shapes the same as its segments shaped alone) runs at this depth too, and this is the only place it covers texts longer than the per-edit sweep's maximum length, since no build step shapes a length-5 text. The ZWNJ glyph's own properties (zero advance, no ink) need no depth: read-back checks them in the font bytes on every build.
 
-The sweep runs in units, each in a spawn process of its own (`run_sweep`, `sweep_units`): the ss10 overlay whole, and each settlement configuration once per alphabet symbol, over the texts that end in that symbol (`conform.conformance_config_worker` with `last`). The pool takes the units in that order and runs one per process (`max_tasks_per_child=1`), so no unit starts in a process that still holds what an earlier one allocated. A settlement unit's walk shares no memo file at this depth and keeps every distinct window it settles except the pinned ones (`conform._SettledWindowWalk`, `horizon`) until its last text. Every window whose right slots reach its text's end names the unit's symbol, so a unit keeps all of that reuse; a window whose right slots stop at a boundary before the text's end does not, so each unit whose texts reach it settles it again. The results merge per configuration (`conform.merge_unit_results`) and then across configurations in `conform.ACCEPTANCE_CONFIGS` order, and each configuration's summed sequences must equal every text of length 1 to its maximum length before the summary is written, so the summary and its exemplars are the ones a single walk per configuration gives, whatever the width and the order in which units finish.
+Each settlement configuration other than `default` differs from it only through the few runes its features rename (`conform.renamed_runes`; the plan line names them). So the sweep shapes `default` over every text and each other configuration only over the texts that name one of those runes (`sweep_triggers`), when a plan-time check passes for it: every policy record gated on one of its features restricts a slot of its window to a rune that feature renames (`conform.unconfined_feature_records`). A text that names none of those runes then reaches the font's settlement lookup with the glyphs `default` gives it, since the stylistic sets' lookups rename only those runes and the settlement lookup is the same in every configuration, and settles as it does under `default`, since no record or unlock row that reads the configuration's features fires on any of its windows. Its comparison is `default`'s, which this sweep makes. A configuration that fails the check, or renames nothing, is swept over every text, and the plan line names which texts each configuration shapes and any records that failed the check. The per-edit sweep stays exhaustive in every configuration.
 
-A unit's windows grow through its whole walk, so its footprint peaks at the window dict's last doubling late in the walk, when it briefly holds the old and new tables together. The width is therefore fixed before anything is spawned, from the windows a unit's walk holds at its end, priced so that it covers that peak: `window_bound` counts in closed form the windows the walk of the unit whose texts end in one symbol can hold at the requested maximum length, `unit_window_bounds` bounds every symbol's unit, `settlement_worker_bytes` prices the heaviest unit's bound as each settlement unit's need, and `sweep_width` fits that many settlement units into the machine's memory, capped at the cores and the unit count. The bound grows with the alphabet, so a new letter needs no new measurement. When even one settlement unit does not fit, `memory_shortfall` says so before anything is spawned: a warning when it exceeds the memory less the reserve, and a refusal without a stated width when it exceeds the machine's memory in all. The ss10 overlay holds no windows, only what every worker holds before its walk (`DEEP_SWEEP_BASE_BYTES`). The parent holds the spec, the glyph inventory and the guard verdicts, well inside the reserve, as the per-edit sweep's controller does. Each unit returns its peak footprint (`peak_rss.peak_footprint_bytes`), and the run's check line in the cycle-timings journal records each configuration's highest unit peak beside its estimate, so a real run can be held against the estimate.
+The sweep runs in units, each in a spawn process of its own (`run_sweep`, `sweep_units`): the ss10 overlay whole, and each settlement configuration once per alphabet symbol, over the texts that end in that symbol and, in a configuration that skips texts, contain one of its trigger letters (`conform.conformance_config_worker` with `last` and `triggers`). The pool takes the units in that order and runs one per process (`max_tasks_per_child=1`), so no unit starts in a process that still holds what an earlier one allocated. A settlement unit's walk shares no memo file at this depth and keeps every distinct window it settles except the pinned ones (`conform._SettledWindowWalk`, `horizon`) until its last text. Every window whose right slots reach its text's end names the unit's symbol, so a unit keeps all of that reuse; a window whose right slots stop at a boundary before the text's end does not, so each unit whose texts reach it settles it again. The results merge per configuration (`conform.merge_unit_results`) and then across configurations in `conform.ACCEPTANCE_CONFIGS` order, and each configuration's summed sequences must equal every text of length 1 to its maximum length, or in a configuration that skips texts every such text that contains one of its trigger letters (`run_m1.config_texts`), before the summary is written, so the summary and its exemplars are the ones a single walk per configuration gives, whatever the width and the order in which units finish.
+
+A unit's windows grow through its whole walk, so its footprint peaks at the window dict's last doubling late in the walk, when it briefly holds the old and new tables together. The width is therefore fixed before anything is spawned, from the windows a unit's walk holds at its end, priced so that it covers that peak: `window_bound` counts in closed form the windows the walk of the unit whose texts end in one symbol can hold at the requested maximum length, `unit_window_bounds` bounds every symbol's unit in every configuration, including a unit that skips texts, which holds a subset of the windows of its own configuration's unit over every text that ends in its symbol (its docstring has the argument), `settlement_worker_bytes` prices the heaviest unit's bound as each settlement unit's need, and `sweep_width` fits that many settlement units into the machine's memory, capped at the cores and the unit count. The bound grows with the alphabet, so a new letter needs no new measurement. When even one settlement unit does not fit, `memory_shortfall` says so before anything is spawned: a warning when it exceeds the memory less the reserve, and a refusal without a stated width when it exceeds the machine's memory in all. The ss10 overlay holds no windows, only what every worker holds before its walk (`DEEP_SWEEP_BASE_BYTES`). The parent holds the spec, the glyph inventory and the guard verdicts, well inside the reserve, as the per-edit sweep's controller does. Each unit returns its peak footprint (`peak_rss.peak_footprint_bytes`), and the run's check line in the cycle-timings journal records each configuration's highest unit peak beside its estimate, so a real run can be held against the estimate.
 
 While the units run, the parent prints a progress report every 20 minutes (`REPORT_SECONDS_DEFAULT`; `AMS_DEEP_SWEEP_REPORT_SECONDS` sets another interval for a debugging run). Each unit's worker writes the count of texts it has shaped into its unit's slot of a shared array after each chunk of `conform.TEXT_CHUNK` texts, and its pid and the clock time it started into two others; the arrays reach the spawn workers through the pool's initializer, the one way a spawn process can inherit shared memory. One slot has one writer and the parent only reads, so no lock is taken, and the hot loop pays one store per chunk. A worker prints nothing. The parent reads the slots every `SAMPLE_SECONDS`, and each report states, in total and then per configuration over the configuration's units, the texts shaped out of the texts to shape (`SweepUnit.texts`, counted before any worker starts), the time elapsed, the rate since the last report, the estimated finish, and the footprint of every running unit's process (`peak_rss.footprint_bytes`) with the machine's swap in use (`peak_rss.swap_used_bytes`). `SweepProgress` says how the estimate is computed.
 
 The total is a `[progress] <k>/<n> texts` counter line in `console`'s protocol, and the rest of the report rides on the same line: `console.parse_line` reads the counter's two bare counts and takes everything after them as the unit, which the artifact cycle's console reprints verbatim after the counts, which it formats with `console.fmt_count`. The two counts stay bare because the parser reads only digits there; every other count and duration in the report goes through `fmt_count` and `fmt_duration`. Each configuration gets a `deep sweep[<config>]: ` line after it, which sums its units and counts the ones running and finished. It is not a protocol line, so the cycle's console logs it without surfacing it, as it does the per-configuration peak lines at the end, while `tail -f` shows every line. Making them counter lines too would not show them: the console keeps only the latest counter of a burst and surfaces it a heartbeat later.
 
-A green run also refreshes gate:conform's green record, when the per-edit sweep's key did not change during the run, because an exhaustive sweep at depth N covers every text the per-edit sweep at depth 4 shapes. The next cycle can then skip the per-edit sweep. At or past the deep replay's maximum length it also refreshes the deep replay's record (`rebuild.tools.deep_replay`), because it settles every text it shapes against the tables in the font. That record holds the rune digests read before the sweep started, which are the runes the swept font was built from, and the refresh is skipped when a rune changed while the sweep ran. The refresh keeps a deeper maximum length the record already holds for the same digests and structure stamp (`artifact_cycle.record_deep_replay_green`), and its line names that length.
+A green run also refreshes gate:conform's green record, when the per-edit sweep's key did not change during the run, because a sweep at depth N covers every text the per-edit sweep at depth 4 shapes: it shapes each one in every configuration, or, in a configuration that skips it, in `default`, where the configuration shapes and settles it as `default` does. The next cycle can then skip the per-edit sweep. At or past the deep replay's maximum length it also refreshes the deep replay's record (`rebuild.tools.deep_replay`), because it settles every text it shapes against the tables in the font, and every text it skips settles as it does in `default`, where it is settled. Both refreshes rest on the plan-time check, so neither runs unless the check passed in every configuration. That record holds the rune digests read before the sweep started, which are the runes the swept font was built from, and the refresh is skipped when a rune changed while the sweep ran. The refresh keeps a deeper maximum length the record already holds for the same digests and structure stamp (`artifact_cycle.record_deep_replay_green`), and its line names that length.
 
 Run as: uv run python -m rebuild.tools.deep_sweep, or through `make conform-deep`.
 """
@@ -88,7 +90,7 @@ DEEP_SWEEP_BASE_BYTES = 200_000_000
 
 @dataclass(frozen=True)
 class SweepPlan:
-    """What the sweep needs before it spawns anything: the spec, the glyph inventory the workers name settled cells with, the window bound of the heaviest settlement unit at the requested maximum length and the name of the symbol its texts end in, how long the units' bounds took to compute, and the units (`sweep_units`)."""
+    """What the sweep needs before it spawns anything: the spec, the glyph inventory the workers name settled cells with, the window bound of the heaviest settlement unit at the requested maximum length and the name of the symbol its texts end in, how long the units' bounds took to compute, the units (`sweep_units`), and the plan-time check's outcome (`sweep_triggers`): the runes whose texts alone each configuration that skips texts shapes, and the records that failed the check in each configuration that failed it."""
 
     spec: ResolvedSpec
     glyphs: Mapping
@@ -96,6 +98,8 @@ class SweepPlan:
     heaviest: str
     bound_seconds: float
     units: tuple[SweepUnit, ...]
+    trigger_runes: Mapping[str, frozenset[str]] = field(default_factory=dict)
+    unconfined: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
 
 
 def window_bound(
@@ -172,7 +176,7 @@ def window_bound(
 
 
 def unit_window_bounds(spec: ResolvedSpec, glyphs: Mapping, max_length: int) -> dict[str, int]:
-    """Return `window_bound` for each settlement unit of this spec and glyph inventory, keyed by the name of the rune or boundary its texts end in, in `conform.spec_alphabet` order: every rune with a code point is a one-character letter token, every ligature rune a token as long as its sequence that ends in its sequence's last rune, the boundary tokens are the registry's, and a token's cells are the inventory's cells of its family."""
+    """Return `window_bound` for each settlement unit of this spec and glyph inventory, keyed by the name of the rune or boundary its texts end in, in `conform.spec_alphabet` order: every rune with a code point is a one-character letter token, every ligature rune a token as long as its sequence that ends in its sequence's last rune, the boundary tokens are the registry's, and a token's cells are the inventory's cells of its family. Each bound covers its symbol's unit in every configuration. Nothing `window_bound` counts from depends on the configuration: the inventory's cells span every settlement configuration's tables (`run_m1.serialized_tables`), so they cap the settled cells of each one, and the configuration's renaming maps labels one to one. So each bound covers each configuration's unit over every text that ends in its symbol. A unit that skips texts (`SweepUnit.triggers`) shapes a subset of those texts and holds a window only where one of them asks for it at a position that does not pin it, where its configuration's unit over every text asks for it too, so it holds a subset of that unit's windows."""
     tokens = {
         name: len(rune.sequence) if rune.sequence else 1
         for name, rune in spec.runes.items()
@@ -188,6 +192,49 @@ def unit_window_bounds(spec: ResolvedSpec, glyphs: Mapping, max_length: int) -> 
         names[ord(symbol)]: window_bound(max_length, tokens, boundaries, cells, names[ord(symbol)], finals)
         for symbol in conform.spec_alphabet(spec)
     }
+
+
+def sweep_triggers(spec: ResolvedSpec) -> tuple[dict[str, frozenset[str]], dict[str, tuple[str, ...]]]:
+    """Return the plan-time check's outcome over the settlement configurations: the runes each configuration that may skip texts renames (`conform.renamed_runes`), and the records that failed the check (`conform.unconfined_feature_records`) in each configuration that failed it. A configuration that renames runes and passes the check settles and shapes a text that names none of them as `default` does: its stylistic sets' lookups rename only those runes, the font's settlement lookup is the same in every configuration, and no record or unlock row that reads its features fires on a window of such a text. `default` sweeps every text, so its units shape that text against the same font and the same settlement. A configuration that renames nothing, or that fails the check, shapes every text."""
+    triggers: dict[str, frozenset[str]] = {}
+    unconfined: dict[str, tuple[str, ...]] = {}
+    for config in conform.SETTLEMENT_CONFIGS:
+        records = conform.unconfined_feature_records(spec, config)
+        if records:
+            unconfined[config] = records
+            continue
+        runes = conform.renamed_runes(spec, config)
+        if runes:
+            triggers[config] = runes
+    return triggers, unconfined
+
+
+def _series(items: Sequence[str]) -> str:
+    return items[0] if len(items) == 1 else f"{', '.join(items[:-1])} and {items[-1]}"
+
+
+def triggers_clause(plan: SweepPlan) -> str:
+    """Return the plan line's clause naming the texts each settlement configuration shapes: every text, or only the ones that name the runes it renames, and for each configuration that failed the plan-time check, the records that failed it."""
+    groups: dict[frozenset[str], list[str]] = {}
+    for config in conform.SETTLEMENT_CONFIGS:
+        if config in plan.trigger_runes:
+            groups.setdefault(plan.trigger_runes[config], []).append(config)
+    whole = [
+        config
+        for config in conform.SETTLEMENT_CONFIGS
+        if config not in plan.trigger_runes and config not in plan.unconfined
+    ]
+    parts = [f"{_series(whole)} {'shapes' if len(whole) == 1 else 'shape'} every text"] if whole else []
+    parts += [
+        f"{_series(configs)} only the texts that name {_series(sorted(runes))}"
+        for runes, configs in groups.items()
+    ]
+    clause = "settlement configurations: " + "; ".join(parts)
+    if plan.trigger_runes:
+        clause += ", since every record gated on their features restricts a slot of its window to a rune they rename"
+    for config, records in plan.unconfined.items():
+        clause += f"; {config} shapes every text because {_series(list(records))} {'restricts' if len(records) == 1 else 'restrict'} no slot to a rune its feature renames"
+    return clause
 
 
 def settlement_worker_bytes(windows: int) -> int:
@@ -507,7 +554,7 @@ def record_key() -> str:
 
 
 def plan_sweep(max_length: int) -> SweepPlan:
-    """Load what the sweep needs, bound each settlement unit's windows at `max_length` and keep the heaviest, and list the units. The tables are read only for the glyph inventory (`run_m1.mint_cell_glyphs`) and released once it is minted."""
+    """Load what the sweep needs, bound each settlement unit's windows at `max_length` and keep the heaviest, run the plan-time check (`sweep_triggers`), and list the units, each with its configuration's trigger letters (`conform.trigger_letters`) when the configuration may skip texts. The tables are read only for the glyph inventory (`run_m1.mint_cell_glyphs`) and released once it is minted."""
     from rebuild.pipeline.spec_load import load_default_spec
 
     inputs = run_m1.tables_inputs()
@@ -522,13 +569,18 @@ def plan_sweep(max_length: int) -> SweepPlan:
     started = time.perf_counter()
     bounds = unit_window_bounds(spec, glyphs, max_length)
     heaviest = max(bounds, key=lambda symbol: bounds[symbol])
+    bound_seconds = time.perf_counter() - started
+    trigger_runes, unconfined = sweep_triggers(spec)
+    letters = {config: conform.trigger_letters(spec, runes) for config, runes in trigger_runes.items()}
     return SweepPlan(
         spec=spec,
         glyphs=glyphs,
         windows=bounds[heaviest],
         heaviest=heaviest,
-        bound_seconds=time.perf_counter() - started,
-        units=sweep_units(conform.spec_alphabet(spec), max_length),
+        bound_seconds=bound_seconds,
+        units=sweep_units(conform.spec_alphabet(spec), max_length, letters),
+        trigger_runes=trigger_runes,
+        unconfined=unconfined,
     )
 
 
@@ -558,11 +610,27 @@ def _counter_writer(slot: int) -> Callable[[int], None] | None:
 
 
 def _unit_worker(
-    spec, font_path: Path, config: str, last: str | None, max_length: int, glyphs, guard_verdicts, slot: int
+    spec,
+    font_path: Path,
+    config: str,
+    last: str | None,
+    triggers: frozenset[str],
+    max_length: int,
+    glyphs,
+    guard_verdicts,
+    slot: int,
 ):
-    """Run one unit's sweep in its own process, storing its count of texts shaped in its `slot` of the shared array after each chunk, and return the result with the process's peak footprint (`run_m1._peak_footprint`), read just before it returns."""
+    """Run one unit's sweep in its own process, over the texts that contain one of `triggers` when there are any, storing its count of texts shaped in its `slot` of the shared array after each chunk, and return the result with the process's peak footprint (`run_m1._peak_footprint`), read just before it returns."""
     result = conform.conformance_config_worker(
-        spec, font_path, config, max_length, glyphs, guard_verdicts, progress=_counter_writer(slot), last=last
+        spec,
+        font_path,
+        config,
+        max_length,
+        glyphs,
+        guard_verdicts,
+        progress=_counter_writer(slot),
+        last=last,
+        triggers=triggers,
     )
     return result, run_m1._peak_footprint()
 
@@ -570,7 +638,7 @@ def _unit_worker(
 def run_sweep(
     plan: SweepPlan, max_length: int, jobs: int, report_every: float = REPORT_SECONDS_DEFAULT
 ) -> tuple[dict, dict[str, int]]:
-    """Sweep every unit of `plan` at `max_length`, `jobs` at a time, one spawn process per unit, and return the summary `run_m1.run_font_conformance` returns with each configuration's highest unit peak. The units go to the pool in `plan.units` order, so the overlay finishes in the first slot before a settlement unit takes it. The §5.7 guard verdicts are computed once here and passed to every worker. A progress report is printed every `report_every` seconds while any unit runs, as the module docstring describes. Each configuration's units merge into its result (`conform.merge_unit_results`), whose sequences must be every text of its lengths (`config_texts`) before anything is written, and the configurations merge in `conform.ACCEPTANCE_CONFIGS` order. When a unit raises, the units still queued are cancelled, so only the ones already running finish before the error reaches the caller."""
+    """Sweep every unit of `plan` at `max_length`, `jobs` at a time, one spawn process per unit, and return the summary `run_m1.run_font_conformance` returns, with the texts each configuration shaped beside it, and each configuration's highest unit peak. The units go to the pool in `plan.units` order, so the overlay finishes in the first slot before a settlement unit takes it. The §5.7 guard verdicts are computed once here and passed to every worker. A progress report is printed every `report_every` seconds while any unit runs, as the module docstring describes. Each configuration's units merge into its result (`conform.merge_unit_results`), whose sequences must be every text of its lengths, or in a configuration whose units carry trigger letters every such text that contains one (`config_texts`), before anything is written, and the configurations merge in `conform.ACCEPTANCE_CONFIGS` order. When a unit raises, the units still queued are cancelled, so only the ones already running finish before the error reaches the caller."""
     kernel_exec.ensure_built()
     guard_verdicts = kernel_exec.guard_sweep(plan.spec)
     font_path = run_m1.OUT_DIR / "M1.otf"
@@ -597,6 +665,7 @@ def run_sweep(
                 font_path,
                 unit.config,
                 unit.last,
+                unit.triggers,
                 max_length,
                 plan.glyphs,
                 guard_verdicts,
@@ -635,7 +704,8 @@ def run_sweep(
         except BaseException:
             pool.shutdown(wait=True, cancel_futures=True)
             raise
-    expected = config_texts(plan.spec, max_length)
+    triggers = {unit.config: unit.triggers for unit in units if unit.triggers}
+    expected = config_texts(plan.spec, max_length, triggers)
     results = []
     for config in conform.ACCEPTANCE_CONFIGS:
         result = conform.merge_unit_results(
@@ -643,13 +713,14 @@ def run_sweep(
         )
         if result.sequences != expected[config]:
             raise RuntimeError(
-                f"deep sweep[{config}]: its units shaped {result.sequences} texts, not the {expected[config]} of every length it sweeps"
+                f"deep sweep[{config}]: its units shaped {result.sequences} texts, not the {expected[config]} of every length it sweeps{' that contain one of its trigger letters' if config in triggers else ''}"
             )
         results.append(result)
     report = conform.merge_conformance_results(font_path, results)
     report.write(run_m1.OUT_DIR / SUMMARY_NAME)
     summary: dict = {
         "sequences": report.sequences,
+        "sequences_by_config": {result.config: result.sequences for result in results},
         "shaping_runs": report.shaping_runs,
         "divergences": report.divergence_count,
         "pass": report.passed,
@@ -663,7 +734,7 @@ def run_sweep(
 
 
 def refresh_deep_replay(max_length: int, runes: dict[str, str]) -> int:
-    """Record the deep replay as green at `max_length` for every rune at the digest in `runes`, the snapshot taken before the sweep started, since a green sweep at that depth settled every text that names any of them, over the tables' imported windows on disk (`artifact_cycle.tables_imports_digest`). Return the maximum length the record holds, which stays deeper than `max_length` when the record already held every rune deeper at the same digest under the same structure stamp and imported windows."""
+    """Record the deep replay as green at `max_length` for every rune at the digest in `runes`, the snapshot taken before the sweep started, since a green sweep at that depth settled every text that names any of them, in `default` alone where a configuration that passed the plan-time check settles it as `default` does, over the tables' imported windows on disk (`artifact_cycle.tables_imports_digest`). Return the maximum length the record holds, which stays deeper than `max_length` when the record already held every rune deeper at the same digest under the same structure stamp and imported windows."""
     from rebuild.pipeline.spec_load import load_default_spec
 
     return record_deep_replay_green(
@@ -683,7 +754,7 @@ def main(argv: list[str] | None = None) -> int:
         "--horizon",
         type=int,
         default=DEEP_SWEEP_MAX_LENGTH_DEFAULT,
-        help=f"exhaustive sweep length (default {DEEP_SWEEP_MAX_LENGTH_DEFAULT}); anything below the per-edit sweep's own {CONFORM_MAX_LENGTH_DEFAULT} is refused, since the per-edit sweep already covers that on every edit",
+        help=f"maximum sweep length (default {DEEP_SWEEP_MAX_LENGTH_DEFAULT}); anything below the per-edit sweep's own {CONFORM_MAX_LENGTH_DEFAULT} is refused, since the per-edit sweep already covers that on every edit",
     )
     parser.add_argument(
         "--jobs",
@@ -724,7 +795,7 @@ def main(argv: list[str] | None = None) -> int:
     print(
         f"deep sweep: maximum length {args.max_length} over every acceptance configuration at {jobs} jobs {source}, one process per unit, {len(plan.units)} units: the ss10 overlay whole at its own maximum length, and each settlement configuration once per symbol its texts end in; "
         f"the heaviest settlement unit, the texts that end in {plan.heaviest}, holds at most {plan.windows} windows (every unit bounded in {plan.bound_seconds * 1000:.1f} ms), {peak_rss.format_gb(settlement_bytes)} GB at {DEEP_SWEEP_WINDOW_BYTES} bytes each beside {peak_rss.format_gb(DEEP_SWEEP_BASE_BYTES)} GB; "
-        f"{sweep_width_derivation(settlement_bytes, len(plan.units))}; a progress report every {console.fmt_duration(report_every)}",
+        f"{sweep_width_derivation(settlement_bytes, len(plan.units))}; {triggers_clause(plan)}; a progress report every {console.fmt_duration(report_every)}",
         flush=True,
     )
     shortfall = memory_shortfall(settlement_bytes)
@@ -741,10 +812,17 @@ def main(argv: list[str] | None = None) -> int:
         config: settlement_bytes if config in conform.SETTLEMENT_CONFIGS else DEEP_SWEEP_BASE_BYTES
         for config in conform.ACCEPTANCE_CONFIGS
     }
+    shaped = summary.get("sequences_by_config", {})
     for config in conform.ACCEPTANCE_CONFIGS:
         if config in peaks:
+            texts = f"{console.fmt_count(shaped[config])} texts, " if config in shaped else ""
+            only = (
+                f"the ones that name {_series(sorted(plan.trigger_runes[config]))}, "
+                if config in plan.trigger_runes
+                else ""
+            )
             print(
-                f"deep sweep[{config}]: highest unit peak footprint {peak_rss.format_gb(peaks[config])} GB against an estimate of {peak_rss.format_gb(estimates[config])} GB",
+                f"deep sweep[{config}]: {texts}{only}highest unit peak footprint {peak_rss.format_gb(peaks[config])} GB against an estimate of {peak_rss.format_gb(estimates[config])} GB",
                 flush=True,
             )
     print(f"[t] {CHECK} {elapsed:.1f}s", flush=True)
@@ -787,8 +865,15 @@ def main(argv: list[str] | None = None) -> int:
         else f"recorded in {cycle_paths.DEEP_SWEEP_GREEN.name}"
     )
     print(f"deep sweep: green at maximum length {args.max_length} — {note}", flush=True)
+    unchecked = (
+        f"{_series(list(plan.unconfined))} failed the plan-time check, and a refresh stands for the texts a configuration skips only when the check passed in every configuration"
+        if plan.unconfined
+        else None
+    )
     if args.max_length >= DEEP_REPLAY_MAX_LENGTH_DEFAULT:
-        if fingerprint.rune_digests(ROOT) != runes:
+        if unchecked is not None:
+            print(f"deep replay: not recorded — {unchecked}", flush=True)
+        elif fingerprint.rune_digests(ROOT) != runes:
             print(
                 "deep replay: not recorded — the runes changed while the sweep ran, so the swept font does not describe the runes on disk",
                 flush=True,
@@ -801,10 +886,12 @@ def main(argv: list[str] | None = None) -> int:
                 else ""
             )
             print(
-                f"deep replay: green too — every text up to length {args.max_length} was settled here{kept}, so nothing is left for `make replay-deep` to walk",
+                f"deep replay: green too — every text up to length {args.max_length} was settled here, in `default` alone where a configuration settles it as `default` does{kept}, so nothing is left for `make replay-deep` to walk",
                 flush=True,
             )
-    if (
+    if unchecked is not None:
+        print(f"gate:conform: not refreshed — {unchecked}", flush=True)
+    elif (
         args.max_length >= CONFORM_MAX_LENGTH_DEFAULT
         and conform_skip_fingerprint(ROOT, CONFORM_MAX_LENGTH_DEFAULT) == conform_key
     ):
@@ -812,7 +899,7 @@ def main(argv: list[str] | None = None) -> int:
             cycle_paths.CONFORM_GREEN, conform_key, files=conform_skip_files(ROOT, CONFORM_MAX_LENGTH_DEFAULT)
         )
         print(
-            f"gate:conform: green too — every per-edit sweep text up to length {CONFORM_MAX_LENGTH_DEFAULT} was swept here, so the next cycle skips it",
+            f"gate:conform: green too — every per-edit sweep text up to length {CONFORM_MAX_LENGTH_DEFAULT} was swept here, in `default` alone where a configuration shapes and settles it as `default` does, so the next cycle skips it",
             flush=True,
         )
     return 0

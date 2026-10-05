@@ -6,7 +6,7 @@ The isolated-overlay configuration (ss10, `OVERLAY_CONFIGS`) has no settlement t
 
 The conformance sweep does not check rule coverage; other stages do. Read-back (rebuild/pipeline/readback.py) checks that the compiled font holds every emitted rule at its planned position. The crate's fold fails the table build on any rule that no replayed row first-matches (`fold::assert_outcome_partition`). The witness stage (`witness.check_rule_certificates`, run by `run_m1` over the certificates the crate writes beside the rules) settles a string that fires each rule. The crate's `replay-strings` subcommand (`rebuild/kernel-rs/src/replay.rs`, `run_m1.run_replay_strings`) checks enumeration completeness: whether each live raw window a string reaches is one the fixpoint enumerated with its slot restrictions satisfied, or one it left at `#NA` or never reached, which the font handles with a wildcard or default rule. It replays `_SettledWindowWalk` and `witness._first_matching_rule` over the persisted rules at `run_m1.REPLAY_MAX_LENGTH` on every build, over every text after a code or structure change and, after a rune edit, over the texts naming an edited rune or a rune whose records read one (`run_m1.replay_families`).
 
-What only the conformance sweep checks is what needs the real binary: HarfBuzz's application semantics (lookup interaction across features, backtrack reading settled glyphs across subtable breaks, default-ignorable skipping, class matching, Extension indirection) and whether the 6-slot window abstraction is sufficient. Certificates cannot test the second, because they are built from that abstraction. `make conform-deep` (rebuild/tools/deep_sweep.py) runs the same sweep, split-buffer check included, at maximum length 5 or more on demand. It becomes due when `emit_gsub.behavior_classes`, the font-compilation code, or the uharfbuzz version changes, so a rune edit that adds no new rule shape does not make it due. Read-back's boundary-glyphs stage checks the ZWNJ glyph's zero advance and empty outline once per build, so the conformance sweep does not check them per shaped slot.
+What only the conformance sweep checks is what needs the real binary: HarfBuzz's application semantics (lookup interaction across features, backtrack reading settled glyphs across subtable breaks, default-ignorable skipping, class matching, Extension indirection) and whether the 6-slot window abstraction is sufficient. Certificates cannot test the second, because they are built from that abstraction. `make conform-deep` (rebuild/tools/deep_sweep.py) runs the same sweep, split-buffer check included, at maximum length 5 or more on demand, less the texts a configuration other than `default` settles and shapes as `default` does. It becomes due when `emit_gsub.behavior_classes`, the font-compilation code, or the uharfbuzz version changes, so a rune edit that adds no new rule shape does not make it due. Read-back's boundary-glyphs stage checks the ZWNJ glyph's zero advance and empty outline once per build, so the conformance sweep does not check them per shaped slot.
 
 Settlement goes through `_SettledWindowWalk`'s per-configuration window memo: the crate settles each distinct raw window once, in a batch, and every recurrence is a lookup. The oracle's rows are the conformance sweep's texts, so the two share the memo through one file per configuration under rebuild/out/m1 (`SettleMemoFile`), keyed per family like the oracle row cache. The string replay fills that file on every full replay (`absorb_replay_memo`, from the window memo the `replay-strings` subcommand writes). So a window is settled once per configuration until a rune it names changes, and a cold pass does its settling in the replay instead of in the oracle.
 
@@ -2061,11 +2061,64 @@ class DivergenceTally:
             result.exemplars.append(DivergenceExemplar(divergence, len(text), rank))
 
 
-def sweep_texts(alphabet: Sequence[str], length: int, last: str | None = None) -> Iterator[str]:
-    """Yield the conformance sweep's texts of `length` characters over `alphabet` in `itertools.product` order, or, with `last`, only the ones that end in `last`, in the same order."""
+def sweep_texts(
+    alphabet: Sequence[str], length: int, last: str | None = None, triggers: frozenset[str] = frozenset()
+) -> Iterator[str]:
+    """Yield the conformance sweep's texts of `length` characters over `alphabet` in `itertools.product` order, or, with `last`, only the ones that end in `last`, in the same order. With `triggers`, only the ones that contain one of its characters are yielded, in the same order."""
     if last is None:
-        return ("".join(combo) for combo in itertools.product(alphabet, repeat=length))
-    return ("".join(combo) + last for combo in itertools.product(alphabet, repeat=length - 1))
+        texts = ("".join(combo) for combo in itertools.product(alphabet, repeat=length))
+    else:
+        texts = ("".join(combo) + last for combo in itertools.product(alphabet, repeat=length - 1))
+    if not triggers or last in triggers:
+        return texts
+    return (text for text in texts if not triggers.isdisjoint(text))
+
+
+def renamed_runes(spec: ResolvedSpec, config: str) -> frozenset[str]:
+    """Return the runes `config`'s marker renaming renames (`raw_rename_map`): each rune whose unlock rows name one of its features. A text without one of them reaches the font's settlement lookup with the glyphs `default` gives it, since the stylistic sets' lookups rename only these runes. The set is empty for `default` and for an overlay configuration."""
+    return frozenset(name for name in raw_rename_map(spec, features_for_config(config)) if name in spec.runes)
+
+
+def trigger_letters(spec: ResolvedSpec, runes: Iterable[str]) -> frozenset[str]:
+    """Return the characters a text must contain to name one of `runes`: a rune's code point, and each character of a ligature rune's sequence, since a text forms the ligature only where it spells that sequence."""
+    letters: set[str] = set()
+    for name in runes:
+        rune = spec.runes[name]
+        members = rune.sequence or (name,)
+        letters.update(
+            chr(codepoint) for member in members if (codepoint := spec.runes[member].codepoint) is not None
+        )
+    return frozenset(letters)
+
+
+def unconfined_feature_records(spec: ResolvedSpec, config: str) -> tuple[str, ...]:
+    """Return the policy records gated on one of `config`'s features (`when: feature:`) that restrict no slot of their window to the runes their feature renames (`raw_rename_map`), each named by its provenance. A record restricts a slot when it belongs to such a rune, which the text then names, or when its `left:` condition names families and each of them is such a rune, or, for a refuse, extend or contract record, when its `right:` condition does. The left slot holds the left neighbor's settled rune and the right slot the raw letter after the position, and in a text without such a rune neither slot can hold one. A prefer or resolve record's `right:` does not count, because the simulated prospect settles a deeper letter with its right slot `UNKNOWN`, which leaves the condition undecided, and those two kinds treat an undecided condition as firing, while the other three need a definite match. A class or a `then:` hop does not count either: a class's members come from the registry or a rune's group, and a hop past a boundary reads `#NA`, which the engine resolves permissively.
+
+    Unlock rows need no check, since a rune with an unlock row for a feature is renamed under it. So when this returns nothing, no record or unlock row that reads one of `config`'s features fires on a window of a text that names none of `renamed_runes`, and that text settles as it does under `default`.
+    """
+    features = features_for_config(config)
+    unconfined: list[str] = []
+    for name, rune in spec.runes.items():
+        for kind in ("refuse", "prefer", "extend", "contract", "resolve"):
+            for index, record in enumerate(getattr(rune.policy, kind)):
+                feature = record.when.feature
+                if feature is None or feature not in features:
+                    continue
+                renamed = frozenset(raw_rename_map(spec, frozenset({feature})))
+                conditions = (
+                    (record.when.left,)
+                    if kind in ("prefer", "resolve")
+                    else (record.when.left, record.when.right)
+                )
+                if name in renamed or any(
+                    condition is not None and condition.family and renamed.issuperset(condition.family)
+                    for condition in conditions
+                ):
+                    continue
+                unconfined.append(
+                    str(record.provenance) if record.provenance else f"{name}:policy.{kind}[{index}]"
+                )
+    return tuple(unconfined)
 
 
 def _conformance_config(
@@ -2081,10 +2134,13 @@ def _conformance_config(
     settle_memo: SettleMemoFile | None = None,
     progress: Callable[[int], None] | None = None,
     last: str | None = None,
+    triggers: frozenset[str] = frozenset(),
 ) -> ConformanceConfigResult:
     """One configuration's conformance-sweep run: every string of length 1 to `max_length` over the alphabet, shaped with the font and compared with the settled stream, plus the split-buffer and zero-gap checks. Configurations share nothing, so both the serial `run_conformance` and the process-pool worker call this.
 
     With `last`, the run sweeps one unit of the configuration: only the texts that end in `last` (`sweep_texts`), in the same order. The units of every symbol in the alphabet partition the configuration's texts, and `merge_unit_results` merges their results into this function's result without `last`. A unit's `settle_memo`, when it has one, names a `write_path`: the unit writes the windows it settled fresh as a part, prints no `[t] settle_memo` line, and returns its use of the file as `result.memo_reach` (`_SettledWindowWalk.memo_reach`), from which the parent prunes the file once every unit of the configuration has finished (`absorb_sweep_memo`). A unit that replaced the shared file would leave it holding only its own share of the rows, so a memo without a `write_path` fails the unit's assertion.
+
+    With `triggers`, a settlement configuration's run shapes only the texts that contain one of its characters (`sweep_texts`), in the same order, which is how the deep sweep skips the texts a configuration settles and shapes as `default` does (`rebuild/tools/deep_sweep.py`). Such a run shares no settle memo, since a memo pruned of every window its texts did not reach would lose the windows of the texts it skipped, and the assertion refuses one.
 
     An overlay configuration is swept to `OVERLAY_MAX_LENGTH` instead, whatever `max_length` is. Its expected names are `isolated_overlay_labels` over the raw tokens, it uses no walk and no memo, and every slot must sit at zero offset with its `hmtx` advance (`check_isolated_positions`). The split-buffer check runs there too.
 
@@ -2095,6 +2151,7 @@ def _conformance_config(
     assert (
         last is None or settle_memo is None or settle_memo.writes_part
     ), "a unit sweep writes its memo as a part"
+    assert not triggers or settle_memo is None, "a sweep that skips texts shares no settle memo"
     features = features_for_config(config)
     result = ConformanceConfigResult(config=config)
     divergences = DivergenceTally(result, alphabet)
@@ -2137,7 +2194,7 @@ def _conformance_config(
             check_join_gaps(text, config, shaper, shaped, anchors_of, divergences)
 
     for length in range(1, max_length + 1):
-        stream = sweep_texts(alphabet, length, last)
+        stream = sweep_texts(alphabet, length, last, triggers)
         while True:
             chunk = list(itertools.islice(stream, TEXT_CHUNK))
             if not chunk:
@@ -2168,8 +2225,9 @@ def conformance_config_worker(
     settle_memo: SettleMemoFile | None = None,
     progress: Callable[[int], None] | None = None,
     last: str | None = None,
+    triggers: frozenset[str] = frozenset(),
 ) -> ConformanceConfigResult:
-    """One configuration's conformance-sweep run in its own process, building what it needs from the spec and the font. That includes the section 5.7 guard verdicts when the caller passes none (a fifth of a second against a sweep that runs for a minute); an overlay configuration forms nothing and skips them. `settle_memo` is only a path and keys, so the worker reads and writes the file itself, or, for a unit (`last`), reads it and writes its part. `progress` and `last` are `_conformance_config`'s."""
+    """One configuration's conformance-sweep run in its own process, building what it needs from the spec and the font. That includes the section 5.7 guard verdicts when the caller passes none (a fifth of a second against a sweep that runs for a minute); an overlay configuration forms nothing and skips them. `settle_memo` is only a path and keys, so the worker reads and writes the file itself, or, for a unit (`last`), reads it and writes its part. `progress`, `last` and `triggers` are `_conformance_config`'s."""
     shaper = Shaper(Path(font_path))
     alphabet = spec_alphabet(spec)
     splitters = splitting_boundary_chars(spec)
@@ -2191,6 +2249,7 @@ def conformance_config_worker(
         settle_memo=settle_memo,
         progress=progress,
         last=last,
+        triggers=triggers,
     )
 
 
@@ -2222,7 +2281,7 @@ def merge_unit_results(config: str, results: Iterable[ConformanceConfigResult]) 
 
 
 def merge_conformance_results(font_path: Path, results: Iterable[ConformanceConfigResult]) -> ConformReport:
-    """Merge per-configuration results into one ConformReport. `sequences` comes from the first result, because every settlement configuration sweeps the same texts; the overlay's shorter sweep shows only in the shaping runs. Shaping runs are summed, divergence counts are summed by kind in the order each kind first appears, and exemplars and notes are concatenated in the caller's configuration order, the exemplars up to `EXEMPLAR_LIMIT`. Each result keeps its own first `EXEMPLAR_LIMIT` divergences, so the merged exemplars are the first `EXEMPLAR_LIMIT` of every configuration's divergences in that order. The oracle modes are merged and appended in sorted order, so the report does not depend on which configuration finished first."""
+    """Merge per-configuration results into one ConformReport. `sequences` comes from the first result, which sweeps every text: the per-edit sweep sweeps the same texts in every settlement configuration, and the deep sweep, which sweeps some configurations only over the texts that contain their trigger letters (`sweep_texts`), passes `default`'s result first, in `ACCEPTANCE_CONFIGS` order. The overlay's shorter sweep and the texts a configuration skips show only in the shaping runs. Shaping runs are summed, divergence counts are summed by kind in the order each kind first appears, and exemplars and notes are concatenated in the caller's configuration order, the exemplars up to `EXEMPLAR_LIMIT`. Each result keeps its own first `EXEMPLAR_LIMIT` divergences, so the merged exemplars are the first `EXEMPLAR_LIMIT` of every configuration's divergences in that order. The oracle modes are merged and appended in sorted order, so the report does not depend on which configuration finished first."""
     report = ConformReport(font=str(font_path))
     results = list(results)
     report.sequences = results[0].sequences if results else 0

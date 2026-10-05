@@ -494,7 +494,7 @@ def test_the_shipped_walk_cost_walks_more_units_than_configurations_on_both_flee
 
 
 def test_a_green_deep_sweep_refreshes_the_replays_record(tmp_path, monkeypatch):
-    """The deep HarfBuzz sweep over all texts settles every text it shapes, so a passing sweep at the replay's maximum length covers the replay. Its refresh records every rune at the digest the sweep read before it started."""
+    """The deep HarfBuzz sweep settles every text it shapes, in `default` alone where a configuration settles it as `default` does, so a passing sweep at the replay's maximum length covers the replay. Its refresh records every rune at the digest the sweep read before it started."""
     monkeypatch.setattr(
         cycle_paths, "DEEP_REPLAY_GREEN", tmp_path / "rebuild" / "out" / "deep-replay-green.json"
     )

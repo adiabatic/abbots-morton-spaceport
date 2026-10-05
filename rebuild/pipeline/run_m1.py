@@ -1267,39 +1267,54 @@ def settle_memo_inputs() -> oracle_cache.SettleMemoInputs:
 
 @dataclass(frozen=True)
 class SweepUnit:
-    """One process's share of a pooled conformance sweep (`run_font_conformance` and `make conform-deep`'s `deep_sweep.run_sweep`), or of the deep replay, which walks the settlement units (`deep_replay.walk_units`): a configuration, the symbol its texts end in or None for a configuration swept whole, and the count of texts it shapes, which is the `sequences` its worker returns."""
+    """One process's share of a pooled conformance sweep (`run_font_conformance` and `make conform-deep`'s `deep_sweep.run_sweep`), or of the deep replay, which walks the settlement units (`deep_replay.walk_units`): a configuration, the symbol its texts end in or None for a configuration swept whole, the count of texts it shapes, which is the `sequences` its worker returns, and its trigger letters: when there are any, the unit shapes only the texts that contain one (`conform.sweep_texts`), which only the deep sweep asks for."""
 
     config: str
     last: str | None
     texts: int
+    triggers: frozenset[str] = frozenset()
 
     @property
     def overlay(self) -> bool:
         return self.config in conform.OVERLAY_CONFIGS
 
 
-def sweep_units(alphabet: Sequence[str], max_length: int) -> tuple[SweepUnit, ...]:
-    """Return the sweep's units in the order the pool takes them: each overlay configuration whole, to `conform.OVERLAY_MAX_LENGTH`, then each settlement configuration in `conform.SETTLEMENT_CONFIGS` order, one unit per symbol of `alphabet` in its order, each shaping the texts of length 1 to `max_length` that end in its symbol."""
+def sweep_units(
+    alphabet: Sequence[str], max_length: int, triggers: Mapping[str, frozenset[str]] | None = None
+) -> tuple[SweepUnit, ...]:
+    """Return the sweep's units in the order the pool takes them: each overlay configuration whole, to `conform.OVERLAY_MAX_LENGTH`, then each settlement configuration in `conform.SETTLEMENT_CONFIGS` order, one unit per symbol of `alphabet` in its order, each shaping the texts of length 1 to `max_length` that end in its symbol. A settlement configuration that `triggers` maps to letters shapes only the texts that contain one of them: all of a unit's texts when its symbol is one, and otherwise each length's texts less the ones whose other characters avoid them all."""
     size = len(alphabet)
     overlay = sum(size**length for length in range(1, conform.OVERLAY_MAX_LENGTH + 1))
     unit = sum(size ** (length - 1) for length in range(1, max_length + 1))
+
+    def settlement_unit(config: str, symbol: str) -> SweepUnit:
+        letters = (triggers or {}).get(config, frozenset())
+        if not letters or symbol in letters:
+            return SweepUnit(config, symbol, unit, letters)
+        rest = size - len(letters.intersection(alphabet))
+        texts = sum(size ** (length - 1) - rest ** (length - 1) for length in range(1, max_length + 1))
+        return SweepUnit(config, symbol, texts, letters)
+
     return tuple(SweepUnit(config, None, overlay) for config in conform.OVERLAY_CONFIGS) + tuple(
-        SweepUnit(config, symbol, unit) for config in conform.SETTLEMENT_CONFIGS for symbol in alphabet
+        settlement_unit(config, symbol) for config in conform.SETTLEMENT_CONFIGS for symbol in alphabet
     )
 
 
-def config_texts(spec: ResolvedSpec, max_length: int) -> dict[str, int]:
-    """Return how many texts each acceptance configuration's units shape between them: every text of one letter up to its maximum length over the spec's alphabet, which is `max_length` for a settlement configuration and `conform.OVERLAY_MAX_LENGTH` for an overlay. `run_font_conformance` and `deep_sweep.run_sweep` check each configuration's merged `sequences` against it before they write anything, and `deep_replay.main` each settlement configuration's merged texts and skipped texts."""
-    size = len(conform.spec_alphabet(spec))
-    return {
-        config: sum(
-            size**length
-            for length in range(
-                1, (conform.OVERLAY_MAX_LENGTH if config in conform.OVERLAY_CONFIGS else max_length) + 1
-            )
+def config_texts(
+    spec: ResolvedSpec, max_length: int, triggers: Mapping[str, frozenset[str]] | None = None
+) -> dict[str, int]:
+    """Return how many texts each acceptance configuration's units shape between them: every text of one letter up to its maximum length over the spec's alphabet, which is `max_length` for a settlement configuration and `conform.OVERLAY_MAX_LENGTH` for an overlay, and for a settlement configuration that `triggers` maps to letters, only the texts that contain one of them. `run_font_conformance` and `deep_sweep.run_sweep` check each configuration's merged `sequences` against it before they write anything, and `deep_replay.main` each settlement configuration's merged texts and skipped texts."""
+    alphabet = conform.spec_alphabet(spec)
+    size = len(alphabet)
+    counts: dict[str, int] = {}
+    for config in conform.ACCEPTANCE_CONFIGS:
+        longest = conform.OVERLAY_MAX_LENGTH if config in conform.OVERLAY_CONFIGS else max_length
+        letters = (triggers or {}).get(config, frozenset())
+        rest = size - len(letters.intersection(alphabet))
+        counts[config] = sum(
+            size**length - (rest**length if letters else 0) for length in range(1, longest + 1)
         )
-        for config in conform.ACCEPTANCE_CONFIGS
-    }
+    return counts
 
 
 def run_font_conformance(

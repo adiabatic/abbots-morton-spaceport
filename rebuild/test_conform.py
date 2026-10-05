@@ -2595,6 +2595,45 @@ class TestSweepEconomics:
         assert merged.first_seen == whole.first_seen
         assert merged.exemplars == whole.exemplars
 
+    def test_a_unit_with_trigger_letters_shapes_only_the_texts_that_contain_one(
+        self, spec, guard, monkeypatch
+    ):
+        """With `triggers`, a unit shapes only the texts that end in its symbol and contain a trigger letter, in the whole sweep's order, and settles each as the whole sweep does; the unit of a trigger letter shapes every text that ends in it."""
+        monkeypatch.setattr(conform, "check_split_buffer", lambda *args, **kwargs: None)
+        alphabet = (" ", TEA, IT, OY)
+        settled: list[tuple[str, tuple[str, ...]]] = []
+        check_oracle = conform.check_oracle
+
+        def recording_check_oracle(text, config, shaped, expected, divergences, modes) -> None:
+            settled.append((text, tuple(expected)))
+            check_oracle(text, config, shaped, expected, divergences, modes)
+
+        monkeypatch.setattr(conform, "check_oracle", recording_check_oracle)
+
+        def run(last: str | None, triggers: frozenset[str]) -> tuple[int, list[tuple[str, tuple[str, ...]]]]:
+            settled.clear()
+            result = conform._conformance_config(
+                _SilentShaper(),  # pyright: ignore[reportArgumentType]
+                spec,
+                "ss03",
+                alphabet,
+                conform.splitting_boundary_chars(spec),
+                {},
+                None,
+                3,
+                guard,
+                last=last,
+                triggers=triggers,
+            )
+            return result.sequences, list(settled)
+
+        _, whole = run(None, frozenset())
+        for symbol in alphabet:
+            sequences, unit = run(symbol, frozenset({TEA}))
+            assert unit == [(text, names) for text, names in whole if text[-1] == symbol and TEA in text]
+            assert sequences == len(unit) and unit
+        assert len(run(TEA, frozenset({TEA}))[1]) == 1 + 4 + 16
+
 
 class TestRawLabelsLateFormation:
     """`raw_labels` forms ligatures through `settle.form_ligatures`, so the section 5.7 guard applies to the replayed labels as it does to the kernel's stream. The mini spec's qsDay_qsUtter case carries the guard's worked example."""

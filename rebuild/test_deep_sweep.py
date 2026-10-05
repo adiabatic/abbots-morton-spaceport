@@ -1,4 +1,4 @@
-"""Tests for the on-demand deep sweep's decisions, with the sweep stubbed out: which inputs it refuses, what it records on a pass, what it clears on a failure, the per-edit sweep's green record it writes, the width it runs at, the window bound that width comes from, the units it splits the configurations into and how it merges them back, the progress report's interval, estimate, and lines, and how each unit's count reaches the parent's reports. Each unit's sweep is `conform.conformance_config_worker`, which the font-facing gates already exercise; `rebuild/test_conform.py` checks that the units partition a configuration's texts."""
+"""Tests for the on-demand deep sweep's decisions, with the sweep stubbed out: which inputs it refuses, what it records on a pass, what it clears on a failure, the per-edit sweep's green record it writes, the width it runs at, the window bound that width comes from, the units it splits the configurations into and how it merges them back, the plan-time check that lets a configuration shape only the texts that name a rune it renames and the counts that follow from it, the progress report's interval, estimate, and lines, and how each unit's count reaches the parent's reports. Each unit's sweep is `conform.conformance_config_worker`, which the font-facing gates already exercise; `rebuild/test_conform.py` checks that the units partition a configuration's texts."""
 
 import json
 import multiprocessing
@@ -10,7 +10,7 @@ from typing import cast
 
 import pytest
 
-from rebuild.pipeline import conform
+from rebuild.pipeline import conform, model
 from rebuild.pipeline.model import ResolvedSpec
 from rebuild.tools import artifact_cycle as ac
 from rebuild.tools import console, cycle_paths, deep_sweep, memory_budget
@@ -51,7 +51,9 @@ PEAKS = {config: 1_000 + index for index, config in enumerate(conform.ACCEPTANCE
 TOY_ALPHABET = ("a", "b", "c")
 
 
-def _plan(units: tuple[deep_sweep.SweepUnit, ...], windows: int = 1_000) -> deep_sweep.SweepPlan:
+def _plan(
+    units: tuple[deep_sweep.SweepUnit, ...], windows: int = 1_000, unconfined=None
+) -> deep_sweep.SweepPlan:
     return deep_sweep.SweepPlan(
         spec=cast(ResolvedSpec, None),
         glyphs={},
@@ -59,12 +61,13 @@ def _plan(units: tuple[deep_sweep.SweepUnit, ...], windows: int = 1_000) -> deep
         heaviest="a",
         bound_seconds=0.0,
         units=units,
+        unconfined=unconfined or {},
     )
 
 
-def _stub_plan(monkeypatch, windows=1_000):
+def _stub_plan(monkeypatch, windows=1_000, unconfined=None):
     units = deep_sweep.sweep_units(TOY_ALPHABET, 5)
-    monkeypatch.setattr(deep_sweep, "plan_sweep", lambda max_length: _plan(units, windows))
+    monkeypatch.setattr(deep_sweep, "plan_sweep", lambda max_length: _plan(units, windows, unconfined))
 
 
 def _stub_sweep(monkeypatch, summary, swept=None):
@@ -155,7 +158,7 @@ def test_a_build_finishing_mid_sweep_records_nothing(bench, monkeypatch, capsys)
     assert "inputs changed while it ran" in capsys.readouterr().out
 
 
-def _stub_runes_and_sweep(monkeypatch, edit_mid_sweep, replay_kept=None):
+def _stub_runes_and_sweep(monkeypatch, edit_mid_sweep, replay_kept=None, unconfined=None):
     current = {"qsPea": "p1"}
     monkeypatch.setattr("rebuild.pipeline.fingerprint.rune_digests", lambda root: dict(current))
 
@@ -164,7 +167,7 @@ def _stub_runes_and_sweep(monkeypatch, edit_mid_sweep, replay_kept=None):
             current["qsPea"] = "p2"
         return {"pass": True, "divergences": 0}, dict(PEAKS)
 
-    _stub_plan(monkeypatch)
+    _stub_plan(monkeypatch, unconfined=unconfined)
     monkeypatch.setattr(deep_sweep, "run_sweep", fake)
     refreshed: list = []
 
@@ -205,8 +208,22 @@ def test_a_shallower_green_names_the_deeper_length_each_record_keeps(bench, monk
     assert deep_sweep.main(["--max-length", "5"]) == 0
     out = capsys.readouterr().out
     assert "deep sweep: green at maximum length 5 — deep-sweep-green.json keeps maximum length 6" in out
-    assert "settled here, and deep-replay-green.json keeps maximum length 6" in out
+    assert "as `default` does, and deep-replay-green.json keeps maximum length 6" in out
     assert "recorded in deep-sweep-green.json" not in out
+
+
+def test_a_failed_plan_time_check_refreshes_neither_record(bench, monkeypatch, capsys):
+    """A configuration that failed the plan-time check shapes every text, but both refreshes stand for the texts the other configurations skip only through the check, so a green run whose plan names any failure records its own green and refreshes neither gate:conform's record nor the deep replay's, and says why."""
+    refreshed = _stub_runes_and_sweep(
+        monkeypatch, edit_mid_sweep=False, unconfined={"ss03": ("qsFee.yaml:policy.extend[0]",)}
+    )
+    assert deep_sweep.main(["--max-length", str(ac.DEEP_REPLAY_MAX_LENGTH_DEFAULT)]) == 0
+    assert refreshed == []
+    assert ac.read_green_record(bench / "deep-sweep-green.json") is not None
+    assert ac.read_green_record(bench / "conform-green.json") is None
+    out = capsys.readouterr().out
+    assert "deep replay: not recorded — ss03 failed the plan-time check" in out
+    assert "gate:conform: not refreshed — ss03 failed the plan-time check" in out
 
 
 def test_status_exits_on_whether_the_sweep_is_current(bench, monkeypatch, capsys):
@@ -268,6 +285,96 @@ def test_the_units_are_the_overlay_whole_then_each_settlement_configuration_by_l
     assert units[0].overlay and units[0].texts == 3 + 9
     assert all(unit.texts == 1 + 3 + 9 + 27 and not unit.overlay for unit in units[1:])
     assert sum(unit.texts for unit in units if unit.config == "default") == 3 + 9 + 27 + 81
+
+
+def test_a_unit_with_trigger_letters_counts_the_texts_that_contain_one():
+    """A settlement configuration with trigger letters shapes, in the unit of a trigger letter, every text that ends in it, and in any other unit only the texts that contain one, which `conform.sweep_texts` yields; the units' counts sum to `run_m1.config_texts`' count for the configuration. The other configurations, and the overlay, keep every text."""
+    triggers = {"ss03": frozenset("a"), "ss04": frozenset("bc")}
+    units = deep_sweep.sweep_units(TOY_ALPHABET, 4, triggers)
+    spec = _gated_spec(("qsTea",))
+    alphabet = conform.spec_alphabet(spec)
+    for unit in units:
+        if unit.overlay:
+            assert unit.texts == 3 + 9 and not unit.triggers
+            continue
+        assert unit.triggers == triggers.get(unit.config, frozenset())
+        assert unit.texts == sum(
+            1
+            for length in range(1, 5)
+            for _ in conform.sweep_texts(TOY_ALPHABET, length, unit.last, unit.triggers)
+        )
+    assert {unit.texts for unit in units if unit.config == "ss03" and unit.last == "a"} == {1 + 3 + 9 + 27}
+    letters = {"ss03": frozenset(alphabet[1])}
+    counts = deep_sweep.config_texts(spec, 4, letters)
+    for config in conform.ACCEPTANCE_CONFIGS:
+        longest = conform.OVERLAY_MAX_LENGTH if config in conform.OVERLAY_CONFIGS else 4
+        assert counts[config] == sum(
+            1
+            for length in range(1, longest + 1)
+            for _ in conform.sweep_texts(alphabet, length, triggers=letters.get(config, frozenset()))
+        )
+    assert counts["ss03"] == sum(
+        unit.texts for unit in deep_sweep.sweep_units(alphabet, 4, letters) if unit.config == "ss03"
+    )
+
+
+def _gated_spec(right: tuple[str, ...]) -> ResolvedSpec:
+    """A spec of the space, ·Tea with an ss03 unlock row, and ·Fee with an ss03 extend record whose right slot names `right`."""
+    tea = model.Rune(
+        "qsTea",
+        codepoint=0xE652,
+        stances={
+            "full": model.Stance(
+                "full",
+                "stroke",
+                surface=model.Surface(unlocks=(model.Unlock(feature="ss03", entry="x-height"),)),
+            )
+        },
+    )
+    extend = model.PolicyRecord(
+        kind="extend",
+        when=model.When(right=model.Condition(family=right), feature="ss03"),
+        exit="x-height",
+        by=1,
+        provenance=model.Provenance("glyph_data/runes/qsFee.yaml", "policy.extend[0]"),
+    )
+    fee = model.Rune("qsFee", codepoint=0xE658, policy=model.Policy(extend=(extend,)))
+    return ResolvedSpec(
+        runes={"qsTea": tea, "qsFee": fee},
+        registry=model.ScriptRegistry(boundary_tokens={"space": model.BoundaryToken(0x20, True)}),
+    )
+
+
+def test_a_record_gated_on_ss03_whose_window_can_lack_tea_makes_ss03_shape_every_text(monkeypatch):
+    """The plan-time check passes when every record gated on a feature restricts a slot of its window to a rune that feature renames: ·Fee's ss03 extend toward ·Tea, ·Tea being the rune ss03 renames. ss03 and ss03+ss05 then shape only the texts that name ·Tea, while `default`, ss04 and ss05, which rename nothing here, shape every text. Pointed at ·Fee instead, the record can fire in a window without ·Tea, so both configurations fail the check, the plan line names the record, and their units shape every text."""
+    monkeypatch.setattr(deep_sweep.run_m1, "tables_inputs", lambda: "stamp")
+    monkeypatch.setattr(deep_sweep.run_m1, "serialized_tables", lambda out_dir, inputs: {})
+    monkeypatch.setattr(deep_sweep.run_m1, "mint_cell_glyphs", lambda spec, serialized: {})
+    every = 3 + 9 + 27
+    named = every - (2 + 4 + 8)
+    for right, swept, failed in ((("qsTea",), named, {}), (("qsFee",), every, {"ss03", "ss03+ss05"})):
+        spec = _gated_spec(right)
+        monkeypatch.setattr("rebuild.pipeline.spec_load.load_default_spec", lambda: spec)
+        plan = deep_sweep.plan_sweep(3)
+        assert set(plan.unconfined) == set(failed)
+        assert plan.trigger_runes == ({} if failed else {"ss03": {"qsTea"}, "ss03+ss05": {"qsTea"}})
+        texts = {
+            config: sum(unit.texts for unit in plan.units if unit.config == config)
+            for config in conform.SETTLEMENT_CONFIGS
+        }
+        assert texts == {
+            **{config: every for config in conform.SETTLEMENT_CONFIGS},
+            "ss03": swept,
+            "ss03+ss05": swept,
+        }
+        clause = deep_sweep.triggers_clause(plan)
+        if failed:
+            assert (
+                "ss03 shapes every text because glyph_data/runes/qsFee.yaml:policy.extend[0] restricts no slot"
+                in clause
+            )
+        else:
+            assert "ss03 and ss03+ss05 only the texts that name qsTea" in clause
 
 
 def test_a_stated_width_replaces_the_derived_one(bench, monkeypatch, capsys):
@@ -449,24 +556,11 @@ class _ThreadPool(ThreadPoolExecutor):
 
 
 def _thread_sweep(tmp_path, monkeypatch, worker, max_length):
-    """Point `run_sweep` at `worker` through a thread pool in place of the spawn pool, with the crate, the guard verdicts and the output directory stubbed, and each configuration's text count taken from the toy alphabet at `max_length`."""
+    """Point `run_sweep` at `worker` through a thread pool in place of the spawn pool, with the crate, the guard verdicts and the output directory stubbed, and each configuration's text count taken from the toy alphabet at `max_length` (`run_m1.config_texts`)."""
     monkeypatch.setattr(deep_sweep, "_COUNTERS", None)
     monkeypatch.setattr(deep_sweep.kernel_exec, "ensure_built", lambda: None)
     monkeypatch.setattr(deep_sweep.kernel_exec, "guard_sweep", lambda spec: {})
-    size = len(TOY_ALPHABET)
-    monkeypatch.setattr(
-        deep_sweep,
-        "config_texts",
-        lambda spec, length: {
-            config: sum(
-                size**n
-                for n in range(
-                    1, (conform.OVERLAY_MAX_LENGTH if config in conform.OVERLAY_CONFIGS else length) + 1
-                )
-            )
-            for config in conform.ACCEPTANCE_CONFIGS
-        },
-    )
+    monkeypatch.setattr(conform, "spec_alphabet", lambda spec: TOY_ALPHABET)
     monkeypatch.setattr(deep_sweep.run_m1, "OUT_DIR", tmp_path)
     monkeypatch.setattr(deep_sweep, "ProcessPoolExecutor", _ThreadPool)
     monkeypatch.setattr(deep_sweep, "_unit_worker", worker)
@@ -485,7 +579,7 @@ def test_the_sweep_reports_the_counts_its_workers_store_on_the_report_interval(t
     release = threading.Event()
     started: dict[int, float] = {}
 
-    def worker(spec, font_path, config, last, max_length, glyphs, guard_verdicts, slot):
+    def worker(spec, font_path, config, last, triggers, max_length, glyphs, guard_verdicts, slot):
         started[slot] = time.monotonic()
         store = deep_sweep._counter_writer(slot)
         assert store is not None
@@ -547,7 +641,7 @@ def test_the_units_merge_per_configuration_and_a_short_count_records_nothing(tmp
     ranks = {symbol: index for index, symbol in enumerate(TOY_ALPHABET)}
     lost: list[str] = []
 
-    def worker(spec, font_path, config, last, max_length, glyphs, guard_verdicts, slot):
+    def worker(spec, font_path, config, last, triggers, max_length, glyphs, guard_verdicts, slot):
         if last is not None:
             time.sleep(0.01 * (len(TOY_ALPHABET) - ranks[last]))
         result = conform.ConformanceConfigResult(config=config)
@@ -577,13 +671,51 @@ def test_the_units_merge_per_configuration_and_a_short_count_records_nothing(tmp
     assert not (tmp_path / deep_sweep.SUMMARY_NAME).exists()
 
 
+def test_a_configuration_with_trigger_letters_must_shape_exactly_the_texts_that_contain_one(
+    tmp_path, monkeypatch
+):
+    """Each unit's worker gets its unit's trigger letters, and a configuration whose units carry them must shape the texts that contain one, no more, before the summary is written, which then states each configuration's count. A worker that shapes every text where its configuration skips texts raises instead."""
+    max_length = 3
+    units = deep_sweep.sweep_units(TOY_ALPHABET, max_length, {"ss03": frozenset("a")})
+    ignoring: list[str] = []
+
+    def worker(spec, font_path, config, last, triggers, max_length, glyphs, guard_verdicts, slot):
+        assert triggers == units[slot].triggers
+        letters = frozenset() if config in ignoring else triggers
+        longest = conform.OVERLAY_MAX_LENGTH if last is None else max_length
+        result = conform.ConformanceConfigResult(config=config)
+        result.sequences = sum(
+            1
+            for length in range(1, longest + 1)
+            for _ in conform.sweep_texts(TOY_ALPHABET, length, last, letters)
+        )
+        return result, 1
+
+    _thread_sweep(tmp_path, monkeypatch, worker, max_length)
+    summary, _peaks = deep_sweep.run_sweep(_plan(units), max_length, len(units), report_every=60.0)
+    every = 3 + 9 + 27
+    assert summary["sequences_by_config"] == {
+        **{config: every for config in conform.SETTLEMENT_CONFIGS},
+        "ss03": every - (2 + 4 + 8),
+        "ss10": 3 + 9,
+    }
+    (tmp_path / deep_sweep.SUMMARY_NAME).unlink()
+    ignoring.append("ss03")
+    with pytest.raises(
+        RuntimeError,
+        match=r"deep sweep\[ss03\]: its units shaped 39 texts, not the 25 of every length it sweeps that contain one of its trigger letters",
+    ):
+        deep_sweep.run_sweep(_plan(units), max_length, len(units), report_every=60.0)
+    assert not (tmp_path / deep_sweep.SUMMARY_NAME).exists()
+
+
 def test_a_unit_that_raises_cancels_the_units_still_queued(tmp_path, monkeypatch):
     """At width 1, when the first unit raises, `run_sweep` re-raises its error having run at most the one unit its freed slot took before the queue was cancelled, never the rest of the queue."""
     max_length = 2
     units = deep_sweep.sweep_units(TOY_ALPHABET, max_length)
     ran: list[int] = []
 
-    def worker(spec, font_path, config, last, max_length, glyphs, guard_verdicts, slot):
+    def worker(spec, font_path, config, last, triggers, max_length, glyphs, guard_verdicts, slot):
         ran.append(slot)
         raise ValueError(f"unit {slot} failed")
 

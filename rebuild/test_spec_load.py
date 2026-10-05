@@ -1105,6 +1105,19 @@ class TestConfigurationBlindness:
         assert named <= set(spec.registry.features)
         assert not hasattr(Condition(), "feature")
 
+    def test_every_feature_gated_record_restricts_a_slot_to_a_rune_its_feature_renames(self, spec):
+        """`make conform-deep` shapes ss03, ss05 and ss03+ss05 only over the texts that name ·Tea, and ss04 only over the texts that name ·It, the runes each renames (`deep_sweep.sweep_triggers`), because in a text without that rune they settle and shape as `default` does. That holds while every record gated on a feature restricts a slot of its window to a rune the feature renames (`conform.unconfined_feature_records`). The sweep checks it at plan time and shapes every text of a configuration that fails it; this pins it on the real spec, so a record that breaks it fails here instead of slowing the sweep."""
+        assert _feature_conditioned_records(spec)
+        for config in conform.SETTLEMENT_CONFIGS:
+            assert conform.unconfined_feature_records(spec, config) == (), config
+        assert {config: conform.renamed_runes(spec, config) for config in conform.SETTLEMENT_CONFIGS} == {
+            "default": frozenset(),
+            "ss03": {"qsTea"},
+            "ss04": {"qsIt"},
+            "ss05": {"qsTea"},
+            "ss03+ss05": {"qsTea"},
+        }
+
     def test_a_feature_condition_names_one_feature(self):
         """A `when.feature` is one tag, not a list: the schema's `featureTag` is a string, so no record can apply only when two sets are both on. That is why the runes a joint configuration can change are the union of the runes its members can change."""
         schema = json.loads((spec_load.DEFAULT_SCHEMA_DIR / "rune.schema.json").read_text())
