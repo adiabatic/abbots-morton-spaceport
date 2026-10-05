@@ -16,7 +16,6 @@ from rebuild.tools import artifact_cycle as ac
 from rebuild.tools import console, cycle_paths, deep_sweep, memory_budget
 
 MACHINE_48_GIB = 51_539_607_552
-MACHINE_32_GIB = 34_359_738_368
 CHECKS: list = []
 
 
@@ -233,16 +232,16 @@ def test_the_window_bound_counts_every_held_window_of_one_unit():
 
 
 def test_every_fleet_machine_sweeps_as_many_units_as_it_has_cores_at_the_default_maximum_length():
-    """At the length-5 bound of the heaviest settlement unit on the alphabet with ·Ye (`unit_window_bounds`: 809,421 windows, the texts that end in ·Utter), every fleet machine (`doc/fleet.md`) sweeps as many of the 181 units at once as it has cores, with no shortfall, and a sweep with fewer units than cores runs them all at once. At the length-6 bound (66,114,978 windows, ·Utter's again) the 48 GiB machines sweep two units at a time and the 32 GiB machine one, still with no shortfall. The suite does not catch a per-window cost that is too low: only a real run's check line, which records each configuration's highest unit peak beside its estimate, does."""
+    """At the length-5 bound of the heaviest settlement unit on the alphabet with ·Ye (`unit_window_bounds`: 809,421 windows, the texts that end in ·Utter), every fleet machine (`doc/fleet.md`) sweeps as many of the 181 units at once as it has cores, with no shortfall, and a sweep with fewer units than cores runs them all at once. At the length-6 bound (66,114,978 windows, ·Utter's again) the 48 GiB machines sweep two units at a time, still with no shortfall. The suite does not catch a per-window cost that is too low: only a real run's check line, which records each configuration's highest unit peak beside its estimate, does."""
     length_5 = deep_sweep.settlement_worker_bytes(809_421)
-    for cores, total in ((18, MACHINE_48_GIB), (12, MACHINE_48_GIB), (10, MACHINE_32_GIB)):
-        assert deep_sweep.sweep_width(length_5, 181, ncores=cores, total_bytes=total) == cores
-        assert deep_sweep.memory_shortfall(length_5, total_bytes=total) is None
+    for cores in (18, 12):
+        assert deep_sweep.sweep_width(length_5, 181, ncores=cores, total_bytes=MACHINE_48_GIB) == cores
+    assert deep_sweep.memory_shortfall(length_5, total_bytes=MACHINE_48_GIB) is None
     assert deep_sweep.sweep_width(length_5, 16, ncores=18, total_bytes=MACHINE_48_GIB) == 16
     length_6 = deep_sweep.settlement_worker_bytes(66_114_978)
-    for cores, total, width in ((18, MACHINE_48_GIB, 2), (12, MACHINE_48_GIB, 2), (10, MACHINE_32_GIB, 1)):
-        assert deep_sweep.sweep_width(length_6, 181, ncores=cores, total_bytes=total) == width
-        assert deep_sweep.memory_shortfall(length_6, total_bytes=total) is None
+    for cores in (18, 12):
+        assert deep_sweep.sweep_width(length_6, 181, ncores=cores, total_bytes=MACHINE_48_GIB) == 2
+    assert deep_sweep.memory_shortfall(length_6, total_bytes=MACHINE_48_GIB) is None
 
 
 def test_the_overlay_runs_in_a_settlement_units_slot_and_its_need_is_subtracted():
@@ -312,10 +311,9 @@ def test_each_run_records_every_workers_peak_beside_its_estimate(bench, monkeypa
 def test_a_unit_that_exceeds_the_machine_is_refused_unless_a_width_is_stated(bench, monkeypatch, capsys):
     """A settlement unit estimated past a fleet machine's memory in all is refused by `memory_shortfall`, and one past its memory less the reserve but within the memory is only warned about. `main` refuses such a run before sweeping anything and names the way to run it anyway; a stated width starts it with the warning instead."""
     beyond = deep_sweep.settlement_worker_bytes(200_000_000)
-    for total in (MACHINE_48_GIB, MACHINE_32_GIB):
-        shortfall = deep_sweep.memory_shortfall(beyond, total_bytes=total)
-        assert shortfall is not None and shortfall[0]
-    shortfall = deep_sweep.memory_shortfall(30_000_000_000, total_bytes=MACHINE_32_GIB)
+    shortfall = deep_sweep.memory_shortfall(beyond, total_bytes=MACHINE_48_GIB)
+    assert shortfall is not None and shortfall[0]
+    shortfall = deep_sweep.memory_shortfall(48_000_000_000, total_bytes=MACHINE_48_GIB)
     assert shortfall is not None and not shortfall[0] and "may swap" in shortfall[1]
     swept: list = []
     _stub_sweep(monkeypatch, {"pass": True, "divergences": 0}, swept)

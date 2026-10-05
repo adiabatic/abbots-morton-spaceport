@@ -37,8 +37,9 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 MACHINE_44_GB = 44_000_000_000
 MACHINE_37_GB = 37_000_000_000
 MACHINE_36_GB = 36_000_000_000
-# The fleet's two machines (`doc/fleet.md`), for the corpus width's assertions. On both, the corpus build reaches its cap whether or not the pytest pool's bytes are subtracted, so no total separates the gated and solo cases; the arithmetic of the memory set aside for the pool is asserted through `_corpus_fit_terms`, which takes no total.
+# The fleet's RAM size (`doc/fleet.md`), for the fleet machines' width assertions. On both fleet machines the corpus build reaches its cap whether or not the pytest pool's bytes are subtracted, so no total separates the gated and solo cases; the arithmetic of the memory set aside for the pool is asserted through `_corpus_fit_terms`, which takes no total.
 MACHINE_48_GIB = 51_539_607_552
+# A stated machine smaller than any fleet machine, for the plan and width tests that are not about a fleet member's width; most pair it with ten cores.
 MACHINE_32_GIB = 34_359_738_368
 
 
@@ -2289,15 +2290,13 @@ def test_sweep_job_budget_is_the_cores_under_the_oracle_shards_memory_clamp():
 
 
 def test_both_fleet_machines_run_the_oracle_at_the_cores():
-    """On both fleet machines (`doc/fleet.md`) the oracle runs at the cores: the twelve-core 48 GiB machine at twelve and the 32 GiB machine at ten, with the division never limiting the width before the cap does. The capped budget cannot distinguish the cap from a division that equals it, so the uncapped division is also checked. A change to `ORACLE_SHARD_BYTES` that narrows either machine below its cores, or puts it at the edge of the division, fails here. The suite does not catch a constant that is too low: only the oracle-shard row of `make job-costs` (the cycle's job-costs step) compares it with the workers that ran."""
+    """On both fleet machines (`doc/fleet.md`) the oracle runs at the cores: the eighteen-core 48 GiB machine at eighteen and the twelve-core one at twelve, with the division never limiting the width before the cap does. The capped budget cannot distinguish the cap from a division that equals it, so the uncapped division is also checked. A change to `ORACLE_SHARD_BYTES` that narrows either machine below its cores, or puts it at the edge of the division, fails here. The suite does not catch a constant that is too low: only the oracle-shard row of `make job-costs` (the cycle's job-costs step) compares it with the workers that ran."""
     from rebuild.tools import memory_budget
 
-    assert ac.sweep_job_budget(12, total_bytes=MACHINE_48_GIB) == 12
-    assert ac.sweep_job_derivation(12, total_bytes=MACHINE_48_GIB).startswith("12 at ")
-    assert memory_budget.how_many_fit(ac.ORACLE_SHARD_BYTES, total_bytes=MACHINE_48_GIB) > 12
-    assert ac.sweep_job_budget(10, total_bytes=MACHINE_32_GIB) == 10
-    assert ac.sweep_job_derivation(10, total_bytes=MACHINE_32_GIB).startswith("10 at ")
-    assert memory_budget.how_many_fit(ac.ORACLE_SHARD_BYTES, total_bytes=MACHINE_32_GIB) > 10
+    for ncores in (18, 12):
+        assert ac.sweep_job_budget(ncores, total_bytes=MACHINE_48_GIB) == ncores
+        assert ac.sweep_job_derivation(ncores, total_bytes=MACHINE_48_GIB).startswith(f"{ncores} at ")
+        assert memory_budget.how_many_fit(ac.ORACLE_SHARD_BYTES, total_bytes=MACHINE_48_GIB) > ncores
 
 
 def test_the_plan_prints_the_sweep_width_with_its_derivation():
@@ -2329,18 +2328,12 @@ class TestTheCorpusBuildWidth:
         assert ac.corpus_job_budget(skip_gates=True, ncores=1, total_bytes=1_000_000_000_000) == 1
 
     def test_both_fleet_machines_keep_a_pooled_build_under_a_gated_cycle(self):
-        """On the fleet machines (`doc/fleet.md`) the build runs a pool at its lane share beside gate:make-test's pool: eight workers on the 18-core 48 GiB machine, five on the 12-core one, and four on the 10-core 32 GiB machine, which runs more than one alone too. The lower bound is what a change to the worker constant must not cross, because a width of one is the serial build. `test_the_shipped_corpus_divisor_holds_the_32_gib_machine_at_its_lane_share_by_division` in rebuild/test_memory_budget.py checks the 32 GiB machine's division apart from its cap. The derivation is checked too, because the plan line quotes it."""
-        for ncores, total_bytes, width in (
-            (18, MACHINE_48_GIB, 8),
-            (12, MACHINE_48_GIB, 5),
-            (10, MACHINE_32_GIB, 4),
-        ):
-            assert ac.corpus_job_budget(skip_gates=False, ncores=ncores, total_bytes=total_bytes) == width
+        """On the fleet machines (`doc/fleet.md`) the build runs a pool at its lane share beside gate:make-test's pool: eight workers on the 18-core 48 GiB machine and five on the 12-core one. The lower bound is what a change to the worker constant must not cross, because a width of one is the serial build. `test_the_shipped_corpus_divisor_holds_the_fleet_at_its_lane_share_by_division` in rebuild/test_memory_budget.py checks their division apart from the cap. The derivation is checked too, because the plan line quotes it."""
+        for ncores, width in ((18, 8), (12, 5)):
+            assert ac.corpus_job_budget(skip_gates=False, ncores=ncores, total_bytes=MACHINE_48_GIB) == width
             assert ac.corpus_job_derivation(
-                skip_gates=False, ncores=ncores, total_bytes=total_bytes
+                skip_gates=False, ncores=ncores, total_bytes=MACHINE_48_GIB
             ).startswith(f"{width} at ")
-        alone = ac.corpus_job_budget(skip_gates=True, ncores=10, total_bytes=MACHINE_32_GIB)
-        assert 1 < alone <= 9
 
     def test_the_pytest_pool_comes_off_the_machine_before_the_division(self):
         """A cycle runs this build beside gate:make-test's pool, so the pool's bytes at the gate lane's share are added to the co-resident term, and the cap is the build lane's share less the parent. On nine cores the build lane holds five and the gate lane four. The test checks the fit terms directly, because on the fleet machines the memory subtraction does not change the resulting width, and a machine size chosen to sit where it would is a number every change to the constants would have to retune."""
@@ -2393,8 +2386,8 @@ class TestTheStandingFillWidth:
         )
 
     def test_the_cores_bind_on_both_fleet_machines(self):
-        """A refill worker holds a chunk and two shapers, so on both fleet machines memory allows more workers than there are cores: gated, the ten-core 32 GiB machine runs ten beside gate:make-test's pool, and the twelve-core 48 GiB machine alone runs twelve."""
-        assert ac.standing_fill_jobs(skip_gates=False, ncores=10, total_bytes=MACHINE_32_GIB) == 10
+        """A refill worker holds a chunk and two shapers, so on both fleet machines memory allows more workers than there are cores: gated, the eighteen-core 48 GiB machine runs eighteen beside gate:make-test's pool, and the twelve-core one alone runs twelve."""
+        assert ac.standing_fill_jobs(skip_gates=False, ncores=18, total_bytes=MACHINE_48_GIB) == 18
         assert ac.standing_fill_jobs(skip_gates=True, ncores=12, total_bytes=MACHINE_48_GIB) == 12
 
     def test_a_machine_that_cannot_hold_the_parent_floors_at_one(self):
@@ -2561,12 +2554,12 @@ class TestTheConformSweepWidth:
         assert ac._conform_build_lane(**narrow, skip_corpus=True, verdict_update_runs=False) == ("", 0)
 
     def test_every_fleet_machine_runs_the_conform_sweep_as_wide_as_its_cores_allow(self):
-        """On the fleet machines (`doc/fleet.md`), the 48 GiB machines at twelve and eighteen cores and the 32 GiB machine at ten, under either pool policy, the conformance sweep runs as many units as the machine has cores beside the verdict-update step alone, and beside a gated build lane (the corpus build and the verdict-update step) the cores less the build's parent and workers, never fewer than the acceptance configurations; under the overlap policy both widths also lose gate:make-test's pool. The division never limits the width before the cap does. The capped budget cannot distinguish the cap from a division that equals it, so the uncapped division is also checked, and a change to the constant that narrows a fleet machine fails here. The suite does not catch a constant that is too low: only the conform-sweep row of `make job-costs` compares it with the units that ran."""
+        """On the fleet machines (`doc/fleet.md`), the 48 GiB machines at twelve and eighteen cores, under either pool policy, the conformance sweep runs as many units as the machine has cores beside the verdict-update step alone, and beside a gated build lane (the corpus build and the verdict-update step) the cores less the build's parent and workers, never fewer than the acceptance configurations; under the overlap policy both widths also lose gate:make-test's pool. The division never limits the width before the cap does. The capped budget cannot distinguish the cap from a division that equals it, so the uncapped division is also checked, and a change to the constant that narrows a fleet machine fails here. The suite does not catch a constant that is too low: only the conform-sweep row of `make job-costs` compares it with the units that ran."""
         from rebuild.pipeline.conform import ACCEPTANCE_CONFIGS
         from rebuild.tools import memory_budget
 
         configs = len(ACCEPTANCE_CONFIGS)
-        for ncores, total_bytes in ((12, MACHINE_48_GIB), (18, MACHINE_48_GIB), (10, MACHINE_32_GIB)):
+        for ncores, total_bytes in ((12, MACHINE_48_GIB), (18, MACHINE_48_GIB)):
             corpus = 1 + ac.corpus_job_budget(
                 skip_gates=False, skip_make_test=False, ncores=ncores, total_bytes=total_bytes
             )
@@ -2654,7 +2647,7 @@ class TestTheConformSweepWidth:
         assert _argv(by_name["run_m1"])[5:7] == ["--jobs", str(plan.sweep_jobs)]
 
     def test_the_plan_prints_the_conform_sweep_width_with_its_derivation(self):
-        """Every Lane conform line that runs the conformance sweep quotes its width, the constant it divides by, and the derivation over the flags the plan resolved. The co-resident term is the larger build-lane step, plus gate:make-test's pool under the overlap policy: the corpus build when it runs and holds more than the verdict-update step, the verdict-update step when the build does not run or the step holds more. For a pass that runs neither, the line says so and prints no co-resident term unless gate:make-test's pool runs beside the conformance sweep. On the ten-core machine the refill pool takes every core while the corpus build takes the build lane's share, so a gated pass that runs both steps subtracts the verdict-update step, and only a pass that runs the build alone shows the build's term."""
+        """Every Lane conform line that runs the conformance sweep quotes its width, the constant it divides by, and the derivation over the flags the plan resolved. The co-resident term is the larger build-lane step, plus gate:make-test's pool under the overlap policy: the corpus build when it runs and holds more than the verdict-update step, the verdict-update step when the build does not run or the step holds more. For a pass that runs neither, the line says so and prints no co-resident term unless gate:make-test's pool runs beside the conformance sweep. On a ten-core machine the refill pool takes every core while the corpus build takes the build lane's share, so a gated pass that runs both steps subtracts the verdict-update step, and only a pass that runs the build alone shows the build's term."""
         machine: dict[str, Any] = dict(ncores=10, total_bytes=MACHINE_32_GIB)
         cases = {
             "queued": _plan(pool_policy="queue", **machine),
@@ -2853,15 +2846,16 @@ def test_kernel_threads_budget_takes_the_pytest_pool_off_the_machine_first():
 def test_the_kernel_fits_as_many_deltas_with_the_test_gates_running_as_run_alone_on_both_fleet_machines(
     monkeypatch,
 ):
-    """`kernel_exec.DELTA_PEAK_BYTES`, `DEFAULT_MEMO_BYTES` and `PARKED_FOLD_BYTES` are chosen so that gate:make-test's pytest pool costs neither fleet machine a worker slot, and this test checks the gated widths, which only the cycle computes. On the eighteen-core 48 GiB machine the gated and skipped-gate widths are equal and cover every configuration after default, so the delta wave runs in one round. On the 32 GiB machine both widths are three. `AMS_KERNEL_THREADS` is cleared first, because an exported width would pass these assertions whatever the constants are."""
+    """`kernel_exec.DELTA_PEAK_BYTES`, `DEFAULT_MEMO_BYTES` and `PARKED_FOLD_BYTES` are chosen so that gate:make-test's pytest pool costs neither fleet machine a worker slot, and this test checks the gated widths, which only the cycle computes. On both 48 GiB machines, at eighteen and at twelve cores, the gated and skipped-gate widths are equal and cover every configuration after default, so the delta wave runs in one round. `AMS_KERNEL_THREADS` is cleared first, because an exported width would pass these assertions whatever the constants are."""
     from rebuild.pipeline.conform import SETTLEMENT_CONFIGS
 
     monkeypatch.delenv("AMS_KERNEL_THREADS", raising=False)
-    gated = ac.kernel_threads_budget(ncores=18, total_bytes=MACHINE_48_GIB)
-    assert gated >= len(SETTLEMENT_CONFIGS) - 1
-    assert ac.kernel_threads_budget(skip_make_test=True, ncores=18, total_bytes=MACHINE_48_GIB) == gated
-    assert ac.kernel_threads_budget(ncores=10, total_bytes=MACHINE_32_GIB) == 3
-    assert ac.kernel_threads_budget(skip_make_test=True, ncores=10, total_bytes=MACHINE_32_GIB) == 3
+    for ncores in (18, 12):
+        gated = ac.kernel_threads_budget(ncores=ncores, total_bytes=MACHINE_48_GIB)
+        assert gated >= len(SETTLEMENT_CONFIGS) - 1
+        assert (
+            ac.kernel_threads_budget(skip_make_test=True, ncores=ncores, total_bytes=MACHINE_48_GIB) == gated
+        )
 
 
 def test_replay_threads_budget_takes_the_pytest_pool_off_the_machine_first():
@@ -2878,14 +2872,19 @@ def test_replay_threads_budget_takes_the_pytest_pool_off_the_machine_first():
     assert ac.replay_threads_budget(ncores=8, total_bytes=narrow_machine) == 2
 
 
-def test_every_configuration_replays_in_one_wave_with_the_test_gates_running_on_the_fleets_32_gib_machine():
-    """`REPLAY_PEAK_BYTES` is chosen so that every settlement configuration replays in one round even with gate:make-test's pytest pool subtracted. On the 32 GiB machine the gated and skipped-gate widths both equal the configuration count. This test checks the gated width, which only the cycle computes."""
+def test_every_configuration_replays_in_one_wave_with_the_test_gates_running_on_both_fleet_machines():
+    """`REPLAY_PEAK_BYTES` is chosen so that every settlement configuration replays in one round even with gate:make-test's pytest pool subtracted. On both 48 GiB machines, at eighteen and at twelve cores, the gated and skipped-gate widths both equal the configuration count. This test checks the gated width, which only the cycle computes."""
     from rebuild.pipeline.conform import SETTLEMENT_CONFIGS
 
-    gated = ac.replay_threads_budget(ncores=10, total_bytes=MACHINE_32_GIB)
-    assert gated == len(SETTLEMENT_CONFIGS)
-    assert ac.replay_threads_budget(skip_make_test=True, ncores=10, total_bytes=MACHINE_32_GIB) == gated
-    assert ac.replay_threads_derivation(ncores=10, total_bytes=MACHINE_32_GIB).endswith(f"capped at {gated}")
+    for ncores in (18, 12):
+        gated = ac.replay_threads_budget(ncores=ncores, total_bytes=MACHINE_48_GIB)
+        assert gated == len(SETTLEMENT_CONFIGS)
+        assert (
+            ac.replay_threads_budget(skip_make_test=True, ncores=ncores, total_bytes=MACHINE_48_GIB) == gated
+        )
+        assert ac.replay_threads_derivation(ncores=ncores, total_bytes=MACHINE_48_GIB).endswith(
+            f"capped at {gated}"
+        )
 
 
 def test_replay_threads_budget_cuts_a_stated_width_only_to_the_cap(monkeypatch):

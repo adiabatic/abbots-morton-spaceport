@@ -11,7 +11,6 @@ from rebuild.tools import deep_replay, deep_sweep
 
 RUNES = {"qsPea": "p1", "qsTea": "t1", "qsIt": "i1"}
 MACHINE_48_GIB = 51_539_607_552
-MACHINE_32_GIB = 34_359_738_368
 JOURNAL: list = []
 IMPORTS = {"digest": "imports-1"}
 
@@ -375,14 +374,10 @@ def test_the_memo_ceiling_is_the_stated_knob_or_the_checked_in_default(monkeypat
             deep_replay.replay_memo_windows()
 
 
-@pytest.mark.parametrize(
-    "total, wanted",
-    [(MACHINE_32_GIB, len(conform.SETTLEMENT_CONFIGS)), (MACHINE_48_GIB, len(conform.SETTLEMENT_CONFIGS))],
-)
-def test_the_shipped_walk_cost_holds_both_fleet_machines_at_their_widths(total, wanted, monkeypatch):
-    """Both fleet machines (`doc/fleet.md`) walk every settlement configuration at once under the checked-in `DEEP_REPLAY_PEAK_BYTES`. No cycle runs this walk, so `make job-costs` does not watch the constant, and the width assertions above pass for any positive value. This test fails if the constant goes above 5.27 GB, which drops the 32 GiB machine to four walks, or above 8.71 GB, which does the same on the 48 GiB machine."""
+def test_the_shipped_walk_cost_holds_both_fleet_machines_at_their_widths(monkeypatch):
+    """Both fleet machines (`doc/fleet.md`), 48 GiB each, walk every settlement configuration at once under the checked-in `DEEP_REPLAY_PEAK_BYTES`. No cycle runs this walk, so `make job-costs` does not watch the constant, and the width assertions above pass for any positive value. This test fails if the constant goes above 8.71 GB, which drops the 48 GiB machines to four walks."""
     monkeypatch.delenv("AMS_DEEP_REPLAY_THREADS", raising=False)
-    assert deep_replay.replay_threads(total_bytes=total) == wanted
+    assert deep_replay.replay_threads(total_bytes=MACHINE_48_GIB) == len(conform.SETTLEMENT_CONFIGS)
 
 
 def test_a_green_deep_sweep_refreshes_the_replays_record(tmp_path, monkeypatch):

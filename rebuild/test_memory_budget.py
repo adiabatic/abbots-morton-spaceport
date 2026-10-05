@@ -4,7 +4,7 @@ Most tests are pure functions over an invented machine, because `total_bytes`, `
 
 Three constants here are recorded measurements, kept as literals so that re-measuring a shipped constant cannot move the reproduction of an earlier width. `KERNEL_CONFIG_BYTES` is what one kernel configuration in flight cost when issue #85 was written; it does not follow `kernel_exec.DELTA_PEAK_BYTES`. `FONT_POOL_BYTES` is ten font-suite workers at the top of the 0.11–0.28 GB range the root `conftest.py` records beside `FONT_SUITE_WORKER_BYTES`; it does not follow that constant, which rounds up past the range. `ISSUE_RESERVE_FLOOR_BYTES` is the 4 GB reserve floor issue #85 stated its widths under; the shipped floor, `RESERVE_FLOOR_BYTES`, is 8 GB.
 
-`TestTheWidthsAlreadyOnRecord` shows the formula reproducing widths that were measured independently of it, over an invented 32 GB machine. The shipped kernel width is derived from the running machine, so no test compares it with a fixed number. Instead the tests check that the shipped `DELTA_PEAK_BYTES`, `DEFAULT_MEMO_BYTES` and `PARKED_FOLD_BYTES` still fit the whole delta wave on the 48 GiB machine and three deltas on the 32 GiB machine when the build runs alone; `rebuild/test_artifact_cycle.py` checks the widths beside the cycle's pytest pool. `TestWhatDashNAutoResolvesTo` drives the repository's two `pytest_xdist_auto_num_workers` hooks, and `TestTheHandRunDefaults` checks that each width a hand run gets without naming one is still derived from the machine.
+`TestTheWidthsAlreadyOnRecord` shows the formula reproducing widths that were measured independently of it, over an invented 32 GB machine. The shipped kernel width is derived from the running machine, so no test compares it with a fixed number. Instead the tests check that the shipped `DELTA_PEAK_BYTES`, `DEFAULT_MEMO_BYTES` and `PARKED_FOLD_BYTES` still fit the whole delta wave on the fleet's 48 GiB machines when the build runs alone; `rebuild/test_artifact_cycle.py` checks the widths beside the cycle's pytest pool. `TestWhatDashNAutoResolvesTo` drives the repository's two `pytest_xdist_auto_num_workers` hooks, and `TestTheHandRunDefaults` checks that each width a hand run gets without naming one is still derived from the machine.
 
 Nothing here reads a live build artifact, so the module is in the contracts lane. The audit guard in `rebuild/conftest.py` fails any contracts test that reads `rebuild/out/`, `tmp/`, `var/`, or a root `verdicts-*` store.
 """
@@ -155,11 +155,8 @@ class TestTheWidthsAlreadyOnRecord:
             == 2
         )
 
-    @pytest.mark.parametrize("total, wanted", [(MACHINE_32_GIB, 3), (MACHINE_32_GB, 3)])
-    def test_the_shipped_divisor_holds_the_32_gb_machine_at_its_budgeted_width(
-        self, total: int, wanted: int, monkeypatch: pytest.MonkeyPatch
-    ):
-        """The shipped kernel width subtracts `DEFAULT_MEMO_BYTES` and one `PARKED_FOLD_BYTES` per settlement configuration from the machine before dividing the remaining budget by `DELTA_PEAK_BYTES` less `PARKED_FOLD_BYTES`. Both readings of 32 GB fit three of the four delta configurations. The fleet machine is the GiB one, and its 34.36 GB is 2.44 GB short of a fourth; the decimal 32 GB is 4.8 GB short. Changing any of the three constants moves these widths. The second assertion checks that `TABLE_BUILD_PEAK_BYTES` is at most the memo, plus every configuration's parked product, plus one delta less its parked product per delta configuration, which is what a width equal to the delta count holds; at a width equal to the configuration count, the extra worker slot runs `default`'s fold preparation after its memo file is written. `AMS_KERNEL_THREADS` is cleared first, because an exported width would decide the first assertion whatever the constants are."""
+    def test_the_shipped_pair_fits_the_whole_delta_wave_on_the_48_gib_machines(self, monkeypatch):
+        """The criterion `DELTA_PEAK_BYTES`, `DEFAULT_MEMO_BYTES` and `PARKED_FOLD_BYTES` are chosen against: on the fleet's 48 GiB machines the solo width covers every configuration past `default`, so the delta wave runs in one round with no trailing round of a single delta. A change to any of them that costs those machines their fourth delta fails here. The second assertion checks that `TABLE_BUILD_PEAK_BYTES` is at most the memo, plus every configuration's parked product, plus one delta less its parked product per delta configuration, which is what a width equal to the delta count holds; at a width equal to the configuration count, the extra worker slot runs `default`'s fold preparation after its memo file is written. `AMS_KERNEL_THREADS` is cleared first, because an exported width would satisfy the inequality whatever the constants are."""
         from rebuild.pipeline.conform import SETTLEMENT_CONFIGS
         from rebuild.pipeline.kernel_exec import (
             PARKED_FOLD_BYTES,
@@ -169,32 +166,20 @@ class TestTheWidthsAlreadyOnRecord:
 
         monkeypatch.delenv("AMS_KERNEL_THREADS", raising=False)
         count = len(SETTLEMENT_CONFIGS)
-        assert kernel_threads_default(configs=count, total_bytes=total) == wanted
+        assert kernel_threads_default(configs=count, total_bytes=MACHINE_48_GIB) >= count - 1
         assert TABLE_BUILD_PEAK_BYTES <= (
             DEFAULT_MEMO_BYTES
             + count * PARKED_FOLD_BYTES
             + (count - 1) * (DELTA_PEAK_BYTES - PARKED_FOLD_BYTES)
         )
 
-    def test_the_shipped_pair_fits_the_whole_delta_wave_on_the_48_gib_machine(self, monkeypatch):
-        """The criterion `DELTA_PEAK_BYTES`, `DEFAULT_MEMO_BYTES` and `PARKED_FOLD_BYTES` are chosen against: on the fleet's 48 GiB machine the solo width covers every configuration past `default`, so the delta wave runs in one round with no trailing round of a single delta. A change to any of them that costs that machine its fourth delta fails here. The 32 GiB machine fits three of the four deltas, which the test above checks. `AMS_KERNEL_THREADS` is cleared first, because an exported width would satisfy the inequality whatever the constants are."""
-        from rebuild.pipeline.conform import SETTLEMENT_CONFIGS
-        from rebuild.pipeline.kernel_exec import kernel_threads_default
-
-        monkeypatch.delenv("AMS_KERNEL_THREADS", raising=False)
-        count = len(SETTLEMENT_CONFIGS)
-        assert kernel_threads_default(configs=count, total_bytes=MACHINE_48_GIB) >= count - 1
-
-    @pytest.mark.parametrize("total", (MACHINE_32_GIB, MACHINE_48_GIB))
-    def test_the_replay_divisor_fits_every_configuration_on_both_fleet_machines(
-        self, total: int, monkeypatch
-    ):
-        """The criterion `REPLAY_PEAK_BYTES` is chosen against: on both fleet machines the string replay's memory-derived width covers every settlement configuration, so all texts replay in one round. The second assertion checks that a replay costs less than a delta, since a replay's engine holds a subset of what a delta holds through enumeration; a value at or above `DELTA_PEAK_BYTES` means the constant no longer measures the replay. `AMS_REPLAY_THREADS` is cleared first, for the same reason as in the delta-wave test."""
+    def test_the_replay_divisor_fits_every_configuration_on_both_fleet_machines(self, monkeypatch):
+        """The criterion `REPLAY_PEAK_BYTES` is chosen against: on both fleet machines, 48 GiB each, the string replay's memory-derived width covers every settlement configuration, so all texts replay in one round. The second assertion checks that a replay costs less than a delta, since a replay's engine holds a subset of what a delta holds through enumeration; a value at or above `DELTA_PEAK_BYTES` means the constant no longer measures the replay. `AMS_REPLAY_THREADS` is cleared first, for the same reason as in the delta-wave test."""
         from rebuild.pipeline.conform import SETTLEMENT_CONFIGS
         from rebuild.pipeline.kernel_exec import REPLAY_PEAK_BYTES, replay_threads_default
 
         monkeypatch.delenv("AMS_REPLAY_THREADS", raising=False)
-        assert replay_threads_default(total_bytes=total) >= len(SETTLEMENT_CONFIGS)
+        assert replay_threads_default(total_bytes=MACHINE_48_GIB) >= len(SETTLEMENT_CONFIGS)
         assert 0 < REPLAY_PEAK_BYTES < DELTA_PEAK_BYTES
 
     def test_the_memo_term_is_smaller_in_kind_than_the_divisor(self):
@@ -204,18 +189,21 @@ class TestTheWidthsAlreadyOnRecord:
         assert 0 < DEFAULT_MEMO_BYTES < DELTA_PEAK_BYTES
         assert 0 < PARKED_FOLD_BYTES < DELTA_PEAK_BYTES
 
-    def test_the_shipped_corpus_divisor_holds_the_32_gib_machine_at_its_lane_share_by_division(self):
-        """On the 10-core 32 GiB machine under a gated cycle, the corpus build's width is its cap, the build lane's share of the cores less the parent (`memory_budget.split_cores`), because that many workers fit the memory budget beside the parent and gate:make-test's pool, which is the claim the `CORPUS_WORKER_BYTES` comment makes for that machine. The division alone is checked too, since a capped width cannot tell the cap from a division that equals it. This is an upper bound on `CORPUS_WORKER_BYTES` and `CORPUS_PARENT_BYTES`: a change that makes the lane share's workers exceed this machine's budget narrows the width below the cap and fails here. A width test cannot give a lower bound without an invented machine tuned to divide exactly, which every change to the constants would have to re-tune. A worker estimate below what a worker really holds is caught instead by the corpus-worker row of `make job-costs`, against the pool records `rebuild/review/build.py` writes."""
+    @pytest.mark.parametrize("ncores", (18, 12))
+    def test_the_shipped_corpus_divisor_holds_the_fleet_at_its_lane_share_by_division(self, ncores: int):
+        """On both fleet machines (`doc/fleet.md`), 48 GiB at eighteen and at twelve cores, the corpus build's width under a gated cycle is its cap, the build lane's share of the cores less the parent (`memory_budget.split_cores`), because that many workers fit the memory budget beside the parent and gate:make-test's pool, which is the claim the `CORPUS_WORKER_BYTES` comment makes for the fleet. The division alone is checked too, since a capped width cannot tell the cap from a division that equals it. This is an upper bound on `CORPUS_WORKER_BYTES` and `CORPUS_PARENT_BYTES`: a change that makes the lane share's workers exceed either machine's budget narrows the width below the cap and fails here. A width test cannot give a lower bound without an invented machine tuned to divide exactly, which every change to the constants would have to re-tune. A worker estimate below what a worker really holds is caught instead by the corpus-worker row of `make job-costs`, against the pool records `rebuild/review/build.py` writes."""
         import rebuild.tools.artifact_cycle as ac
 
-        lane_share = memory_budget.split_cores(10)[0] - 1
-        per_unit, coresident, cap = ac._corpus_fit_terms(skip_gates=False, skip_make_test=False, ncores=10)
+        lane_share = memory_budget.split_cores(ncores)[0] - 1
+        per_unit, coresident, cap = ac._corpus_fit_terms(
+            skip_gates=False, skip_make_test=False, ncores=ncores
+        )
         assert cap == lane_share
         assert (
-            memory_budget.how_many_fit(per_unit, coresident_bytes=coresident, total_bytes=MACHINE_32_GIB)
+            memory_budget.how_many_fit(per_unit, coresident_bytes=coresident, total_bytes=MACHINE_48_GIB)
             >= lane_share
         )
-        assert ac.corpus_job_budget(skip_gates=False, ncores=10, total_bytes=MACHINE_32_GIB) == lane_share
+        assert ac.corpus_job_budget(skip_gates=False, ncores=ncores, total_bytes=MACHINE_48_GIB) == lane_share
 
 
 class TestWhatDashNAutoResolvesTo:

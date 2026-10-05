@@ -15,7 +15,7 @@ from rebuild.tools import console
 SPEC = fixtures.mini_spec()
 STAMP = "tail-test"
 CONFIGS = conform.SETTLEMENT_CONFIGS
-MACHINE_32_GIB = 34_359_738_368
+MACHINE_48_GIB = 51_539_607_552
 TABLES = {config: (SimpleNamespace(rules=()), SimpleNamespace(rows=())) for config in CONFIGS}
 GREEN_REPLAY = {"pass": True, "error": None, "max_length": run_m1.REPLAY_MAX_LENGTH, "families": None}
 GREEN_WITNESSES = {"pass": True, "failures": [], "configs": {}}
@@ -512,7 +512,7 @@ class TestTheTailWidth:
         assert run_m1._core_bound_threads(len(CONFIGS)) == len(CONFIGS)
 
     def test_the_replay_takes_its_own_width_not_the_builds(self, monkeypatch, tmp_path):
-        """With `kernel_threads=2`, the replay runs at its own width, not at 2. Its width is budgeted from `kernel_exec.REPLAY_PEAK_BYTES`, so `run` passes it `replay_threads` (None for the derived width, or a stated `--replay-threads`, used as given) and never the build's width. `kernel_exec.replay_strings` is stubbed to record the width it is called with. The machine is set to the 32 GiB fleet Mac with many cores, so the derived width is the configuration count on any machine that runs the suite."""
+        """With `kernel_threads=2`, the replay runs at its own width, not at 2. Its width is budgeted from `kernel_exec.REPLAY_PEAK_BYTES`, so `run` passes it `replay_threads` (None for the derived width, or a stated `--replay-threads`, used as given) and never the build's width. `kernel_exec.replay_strings` is stubbed to record the width it is called with. The machine is set to a 48 GiB fleet Mac with many cores, so the derived width is the configuration count on any machine that runs the suite."""
         events: list = []
         widths: list[int] = []
         real_replay = run_m1.run_replay_strings
@@ -522,7 +522,7 @@ class TestTheTailWidth:
         monkeypatch.setattr(run_m1, "replay_structure_stamp", lambda spec, root=None: "s1")
         monkeypatch.setattr(run_m1.fingerprint, "rune_digests", lambda root: {})
         monkeypatch.delenv("AMS_REPLAY_THREADS", raising=False)
-        monkeypatch.setenv("AMS_TOTAL_MEMORY_BYTES", str(MACHINE_32_GIB))
+        monkeypatch.setenv("AMS_TOTAL_MEMORY_BYTES", str(MACHINE_48_GIB))
         monkeypatch.setattr(run_m1, "usable_cores", lambda: 64)
 
         def replay_strings(
