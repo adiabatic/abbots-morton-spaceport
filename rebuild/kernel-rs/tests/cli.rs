@@ -1063,6 +1063,66 @@ fn answers(output: &Output) -> std::collections::BTreeMap<String, Walked> {
         .collect()
 }
 
+/// `--last=` through the binary: the walk over each symbol of the fixture's alphabet, named by its code point, walks every text ending in it, and those walks' texts sum to a whole walk's for every configuration. A code point outside the alphabet exits 1 naming it, with nothing on stdout.
+#[test]
+fn a_replay_narrowed_to_a_last_symbol_walks_the_texts_ending_in_it() {
+    let root = scratch("cli-replay-last");
+    let spec = spec_at(&root);
+    let outdir = root.join("tables");
+    let built = run(&[
+        "build-tables",
+        word(&spec),
+        word(&outdir),
+        "--configs=default,ss03",
+        "--inputs=cli-stamp",
+    ]);
+    assert!(built.status.success(), "{}", stderr_of(&built));
+    let replay = |extra: &[&str]| {
+        let mut arguments = vec![
+            "replay-strings",
+            word(&spec),
+            word(&outdir),
+            "--configs=default,ss03",
+            "--max-length=3",
+        ];
+        arguments.extend_from_slice(extra);
+        run(&arguments)
+    };
+    let whole = replay(&[]);
+    assert!(whole.status.success(), "{}", stderr_of(&whole));
+    let mut summed: std::collections::BTreeMap<String, u64> = std::collections::BTreeMap::new();
+    for last in [
+        "--last=U+0020",
+        "--last=U+200C",
+        "--last=U+E650",
+        "--last=U+E652",
+        "--last=U+E665",
+        "--last=U+E670",
+    ] {
+        let ending = replay(&[last]);
+        assert!(ending.status.success(), "{last}: {}", stderr_of(&ending));
+        for (token, walked) in answers(&ending) {
+            assert_eq!(walked.texts, 1 + 6 + 36, "{token} {last}");
+            assert_eq!(walked.skipped, 0, "{token} {last}");
+            *summed.entry(token).or_default() += walked.texts;
+        }
+    }
+    for (token, walked) in answers(&whole) {
+        assert_eq!(summed.get(&token), Some(&walked.texts), "{token}");
+    }
+    let outside = replay(&["--last=U+0041"]);
+    assert_eq!(outside.status.code(), Some(1), "{}", stderr_of(&outside));
+    assert!(
+        stderr_of(&outside).contains("U+0041"),
+        "{}",
+        stderr_of(&outside)
+    );
+    assert!(
+        outside.stdout.is_empty(),
+        "nothing reaches stdout on a refusal"
+    );
+}
+
 /// The memo ceiling through the binary: a walk that releases its memo before every text reports the same texts and skipped counts as the uncapped walk for every configuration, and settles more windows. A ceiling together with a memo directory is a usage error that writes nothing to stdout and no memo file.
 #[test]
 fn a_replay_with_a_memo_ceiling_answers_the_texts_an_uncapped_walk_answers() {

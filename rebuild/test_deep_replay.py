@@ -1,12 +1,13 @@
-"""Tests for the deep replay's decisions, with the walk stubbed out: which runes it walks after an edit, which inputs it refuses, what it records on a pass and withdraws on a failure, how the cycle reports its status, the width it walks at, and the memo ceiling it passes to the crate. The walk is `kernel_exec.replay_strings`. The build's own length-4 replay exercises it everywhere except the `memo_windows` keyword, which the build never passes. `TestTheStringReplay` in rebuild/test_kernel_exec.py tests `memo_windows` through the subcommand."""
+"""Tests for the deep replay's decisions, with the walk stubbed out: which runes it walks after an edit, which inputs it refuses, what it records on a pass and withdraws on a failure, how the cycle reports its status, the units it walks in and the width it walks them at, and the memo ceiling it passes to the crate. Each unit's walk is a `kernel_exec.replay_strings` call. The build's own length-4 replay exercises it everywhere except the `memo_windows` and `last` keywords, which the build never passes. `TestTheStringReplay` in rebuild/test_kernel_exec.py tests both through the subcommand."""
 
 import json
+from types import SimpleNamespace
 
 import pytest
 
 from rebuild.pipeline import conform
 from rebuild.tools import artifact_cycle as ac
-from rebuild.tools import cycle_paths
+from rebuild.tools import cycle_paths, memory_budget
 from rebuild.tools import deep_replay, deep_sweep
 
 RUNES = {"qsPea": "p1", "qsTea": "t1", "qsIt": "i1"}
@@ -15,15 +16,31 @@ JOURNAL: list = []
 IMPORTS = {"digest": "imports-1"}
 
 
+# The stub spec's alphabet: its boundary token and its three letters, in code point order.
+ALPHABET = (" ", "\ue650", "\ue652", "\ue670")
+
+
 class Spec:
-    runes = {name: None for name in RUNES}
+    """Three letters with code points and one boundary token, an alphabet of four symbols (`ALPHABET`)."""
+
+    runes = {
+        name: SimpleNamespace(codepoint=codepoint)
+        for name, codepoint in zip(RUNES, (0xE650, 0xE652, 0xE670), strict=True)
+    }
+    registry = SimpleNamespace(boundary_tokens={"space": SimpleNamespace(codepoint=0x20)})
+
+
+def every_text(max_length: int, symbols: int = len(ALPHABET)) -> int:
+    return sum(symbols**length for length in range(1, max_length + 1))
 
 
 @pytest.fixture
 def bench(tmp_path, monkeypatch):
-    """A stub repo root: rune digests come from `RUNES`, the tables stamp counts as current, the tables' imported windows hash to `IMPORTS["digest"]`, each rune's closure is itself, `AMS_DEEP_REPLAY_MEMO_WINDOWS` is unset so the walk uses the default ceiling whatever the developer's shell sets, and every record is redirected into tmp_path."""
+    """A stub repo root: rune digests come from `RUNES`, the tables stamp counts as current, the tables' imported windows hash to `IMPORTS["digest"]`, each rune's closure is itself, the crate counts as built, `AMS_DEEP_REPLAY_MEMO_WINDOWS` and `AMS_DEEP_REPLAY_THREADS` are unset so the walk uses the default ceiling and width whatever the developer's shell sets, and every record is redirected into tmp_path."""
     store = tmp_path / "rebuild" / "out" / "deep-replay-green.json"
     monkeypatch.delenv("AMS_DEEP_REPLAY_MEMO_WINDOWS", raising=False)
+    monkeypatch.delenv("AMS_DEEP_REPLAY_THREADS", raising=False)
+    monkeypatch.setattr(deep_replay.kernel_exec, "ensure_built", lambda: None)
     monkeypatch.setattr(deep_replay, "ROOT", tmp_path)
     monkeypatch.setattr(cycle_paths, "DEEP_REPLAY_GREEN", store)
     monkeypatch.setattr(deep_replay, "tables_stamped", lambda: True)
@@ -44,19 +61,48 @@ def bench(tmp_path, monkeypatch):
     return tmp_path
 
 
-def _stub_walk(monkeypatch, walked=None, disagree=None, ceilings=None, peak=None):
+def _stub_walk(
+    monkeypatch,
+    walked=None,
+    disagree=None,
+    ceilings=None,
+    peak=None,
+    calls=None,
+    disagree_on=None,
+    short=None,
+):
+    """Stub `kernel_exec.replay_strings` with a unit's walk as the crate answers it over `ALPHABET`: one configuration on one thread, every text ending in the unit's symbol walked in one window settle, nothing skipped. `walked` and `ceilings` get one entry a run, from the run's first unit; `calls` gets every unit's configuration and symbol as it starts. `disagree` makes a unit fail with that message, every unit or only the `disagree_on` one. `peak` is every unit's peak, and the `short` unit answers one text fewer than it should."""
+
     def fake(
-        spec, out_dir, configs, *, max_length, families, threads, memo_windows, timings=False, on_peak=None
+        spec,
+        out_dir,
+        configs,
+        *,
+        max_length,
+        families,
+        threads,
+        memo_windows,
+        last,
+        timings=False,
+        on_peak=None,
     ):
-        if walked is not None:
-            walked.append((max_length, families, threads))
-        if ceilings is not None:
-            ceilings.append(memo_windows)
-        if disagree is not None:
+        (config,) = configs
+        assert threads == 1
+        if calls is not None:
+            calls.append((config, last))
+        if (config, last) == (conform.SETTLEMENT_CONFIGS[0], ALPHABET[0]):
+            if walked is not None:
+                walked.append((max_length, families))
+            if ceilings is not None:
+                ceilings.append(memo_windows)
+        if disagree is not None and disagree_on in (None, (config, last)):
             raise deep_replay.kernel_exec.ReplayDisagreement(disagree)
         if peak is not None and on_peak is not None:
             on_peak(peak)
-        return {config: {"texts": 1, "windows": 1, "skipped": 0} for config in configs}
+        texts = sum(len(ALPHABET) ** (length - 1) for length in range(1, max_length + 1))
+        if (config, last) == short:
+            texts -= 1
+        return {config: {"texts": texts, "windows": 1, "skipped": 0}}
 
     monkeypatch.setattr(deep_replay.kernel_exec, "replay_strings", fake)
 
@@ -81,7 +127,7 @@ def test_without_a_record_the_walk_needs_families_or_all(bench, monkeypatch):
         deep_replay.main([])
     assert "run `make replay-deep ARGS='--all --max-length 6'` once" in ac.deep_replay_status(bench, 6)[1]
     assert deep_replay.main(["--families", "qsTea", "--threads", "2"]) == 0
-    assert walked == [(ac.DEEP_REPLAY_MAX_LENGTH_DEFAULT, ["qsTea"], 2)]
+    assert walked == [(ac.DEEP_REPLAY_MAX_LENGTH_DEFAULT, ["qsTea"])]
     record = ac.read_green_record(bench / "rebuild" / "out" / "deep-replay-green.json")
     assert record is not None
     assert record["files"] == {"qsTea": "t1"}
@@ -95,7 +141,7 @@ def test_all_walks_every_text_and_records_every_rune(bench, monkeypatch, capsys)
     walked: list = []
     _stub_walk(monkeypatch, walked)
     assert deep_replay.main(["--all", "--threads", "1"]) == 0
-    assert walked == [(ac.DEEP_REPLAY_MAX_LENGTH_DEFAULT, None, 1)]
+    assert walked == [(ac.DEEP_REPLAY_MAX_LENGTH_DEFAULT, None)]
     assert JOURNAL == [("green", ["--all", "--threads", "1"])]
     record = ac.read_green_record(bench / "rebuild" / "out" / "deep-replay-green.json")
     assert record is not None and record["files"] == RUNES
@@ -131,7 +177,7 @@ def test_a_rune_edit_walks_the_moved_runes_and_their_readers(bench, monkeypatch)
     assert ac.deep_replay_status(bench)[0] == "due"
     assert "qsPea" in ac.deep_replay_status(bench)[1]
     assert deep_replay.main(["--threads", "3"]) == 0
-    assert walked == [(5, ["qsPea", "qsTea"], 3)]
+    assert walked == [(5, ["qsPea", "qsTea"])]
     record = ac.read_green_record(bench / "rebuild" / "out" / "deep-replay-green.json")
     assert record is not None and record["files"] == moved
     assert ac.deep_replay_status(bench)[0] == "current"
@@ -163,7 +209,7 @@ def test_a_disagreement_withdraws_the_walked_runes_from_a_green_record(bench, mo
     walked: list = []
     _stub_walk(monkeypatch, walked)
     assert deep_replay.main(["--threads", "1"]) == 0
-    assert walked == [(5, ["qsPea"], 1)]
+    assert walked == [(5, ["qsPea"])]
     assert ac.deep_replay_status(bench)[0] == "current"
     _stub_walk(monkeypatch, disagree="replay disagreement at position 1 of qsTea qsIt")
     assert deep_replay.main(["--all", "--threads", "1"]) == 1
@@ -189,7 +235,7 @@ def test_a_disagreeing_bare_walk_withdraws_the_moved_runes_and_their_readers(ben
     walked: list = []
     _stub_walk(monkeypatch, walked, disagree="replay disagreement at position 1 of qsTea qsPea")
     assert deep_replay.main(["--threads", "1"]) == 1
-    assert walked == [(5, ["qsPea", "qsTea"], 1)]
+    assert walked == [(5, ["qsPea", "qsTea"])]
     record = ac.read_green_record(path)
     assert record is not None
     assert record["files"] == {"qsIt": "i1"}
@@ -209,7 +255,7 @@ def test_the_walk_hands_the_crate_its_memo_ceiling(bench, monkeypatch, capsys):
     assert ceilings == [deep_replay.DEEP_REPLAY_MEMO_WINDOWS]
     out = capsys.readouterr().out
     assert f"at most {deep_replay.DEEP_REPLAY_MEMO_WINDOWS} windows memoized per walk" in out
-    assert "deep replay[default]: 1 texts, 1 window settles, 0 skipped" in out
+    assert f"deep replay[default]: {every_text(5)} texts, {len(ALPHABET)} window settles, 0 skipped" in out
     assert [(outcome, kw["peak_rss_bytes"]) for outcome, kw in checks] == [("green", 123)]
     monkeypatch.setenv("AMS_DEEP_REPLAY_MEMO_WINDOWS", "2000000")
     assert deep_replay.main(["--families", "qsTea", "--threads", "1"]) == 0
@@ -261,15 +307,15 @@ def test_a_bare_walk_deeper_than_the_record_walks_every_text_and_raises_it(bench
     walked: list = []
     _stub_walk(monkeypatch, walked)
     assert deep_replay.main(["--max-length", "6", "--threads", "1"]) == 0
-    assert walked == [(6, None, 1)]
+    assert walked == [(6, None)]
     assert "the record holds maximum length 5, so raising it to 6 walks every text" in capsys.readouterr().out
     assert ac.deep_replay_status(bench, 6) == ("current", "maximum length 6")
     assert deep_replay.main(["--max-length", "6", "--threads", "1"]) == 0
     assert deep_replay.main(["--threads", "1"]) == 0
-    assert walked == [(6, None, 1)]
+    assert walked == [(6, None)]
     _stub_walk(monkeypatch, walked, disagree="replay disagreement at position 1 of qsPea qsIt")
     assert deep_replay.main(["--max-length", "7", "--threads", "1"]) == 1
-    assert walked == [(6, None, 1), (7, None, 1)]
+    assert walked == [(6, None), (7, None)]
     assert ac.read_green_record(path) is None
 
 
@@ -282,12 +328,12 @@ def test_a_bare_walk_deeper_than_the_record_walks_every_text_when_runes_moved(be
     walked: list = []
     _stub_walk(monkeypatch, walked)
     assert deep_replay.main(["--max-length", "6", "--threads", "1"]) == 0
-    assert walked == [(6, None, 1)]
+    assert walked == [(6, None)]
     record = ac.read_green_record(path)
     assert record is not None and record["files"] == moved and record["max_length"] == 6
     path.write_text(json.dumps({"fingerprint": "f", "structure": "structure-1", "files": moved}))
     assert deep_replay.main(["--threads", "1"]) == 0
-    assert walked == [(6, None, 1), (5, None, 1)]
+    assert walked == [(6, None), (5, None)]
     assert (
         "the record holds no maximum length, so raising it to 5 walks every text" in capsys.readouterr().out
     )
@@ -346,19 +392,17 @@ def test_moved_imported_windows_walk_every_text(bench, monkeypatch, capsys):
     assert record is not None and record["files"] == {"qsTea": "t1"} and record["imports"] == "imports-2"
     ac.record_deep_replay_green(dict(RUNES), 5, "structure-1", path=path, imports="imports-1")
     assert deep_replay.main(["--threads", "1"]) == 0
-    assert walked[-1] == (5, None, 1)
+    assert walked[-1] == (5, None)
     assert "covers every text" in capsys.readouterr().out
     record = ac.read_green_record(path)
     assert record is not None and record["files"] == RUNES and record["imports"] == "imports-2"
     assert ac.deep_replay_status(bench, 5) == ("current", "maximum length 5")
 
 
-def test_the_width_is_the_machines_memory_or_the_stated_knob(monkeypatch):
+def test_the_width_is_the_machines_memory_capped_at_its_cores_or_the_stated_knob(monkeypatch):
     monkeypatch.delenv("AMS_DEEP_REPLAY_THREADS", raising=False)
-    assert deep_replay.replay_threads(total_bytes=deep_replay.DEEP_REPLAY_PEAK_BYTES) == 1
-    assert deep_replay.replay_threads(total_bytes=deep_replay.DEEP_REPLAY_PEAK_BYTES * 40) == len(
-        conform.SETTLEMENT_CONFIGS
-    )
+    assert deep_replay.replay_threads(total_bytes=deep_replay.DEEP_REPLAY_PEAK_BYTES, ncores=18) == 1
+    assert deep_replay.replay_threads(total_bytes=deep_replay.DEEP_REPLAY_PEAK_BYTES * 40, ncores=7) == 7
     monkeypatch.setenv("AMS_DEEP_REPLAY_THREADS", "2")
     assert deep_replay.replay_threads() == 2
     monkeypatch.setenv("AMS_DEEP_REPLAY_THREADS", "2GB")
@@ -378,8 +422,8 @@ def test_the_memo_ceiling_is_the_stated_knob_or_the_checked_in_default(monkeypat
             deep_replay.replay_memo_windows()
 
 
-def test_a_walk_at_the_checked_in_ceiling_records_its_share_of_the_crates_peak(bench, monkeypatch):
-    """A green walk records one `deep-replay-walk` pool observation: the crate process's peak divided by the walks it ran at once, its width capped at the configuration count. A walk at another ceiling records nothing, because `DEEP_REPLAY_PEAK_BYTES` does not estimate it."""
+def test_a_walk_at_the_checked_in_ceiling_records_each_configurations_highest_unit_peak(bench, monkeypatch):
+    """A green walk records one `deep-replay-walk` pool record, one observation per settlement configuration, the highest crate peak among its units, at the width its units walked at, which is capped at the unit count. A walk at another ceiling records nothing, because `DEEP_REPLAY_PEAK_BYTES` does not estimate it."""
     from rebuild.tools import cycle_timings
 
     _stub_walk(monkeypatch, peak=10_000_000_000)
@@ -387,18 +431,66 @@ def test_a_walk_at_the_checked_in_ceiling_records_its_share_of_the_crates_peak(b
     monkeypatch.setenv("AMS_DEEP_REPLAY_MEMO_WINDOWS", "2000000")
     assert deep_replay.main(["--families", "qsTea", "--threads", "2"]) == 0
     monkeypatch.delenv("AMS_DEEP_REPLAY_MEMO_WINDOWS")
-    assert deep_replay.main(["--families", "qsTea", "--threads", "40"]) == 0
+    assert deep_replay.main(["--families", "qsTea", "--threads", "400"]) == 0
     records = cycle_timings.load_pool_records(cycle_timings.JOURNAL)
+    per_config = {config: 10_000_000_000 for config in conform.SETTLEMENT_CONFIGS}
     assert [(r["unit"], r["width"], r["worker_peak_rss_bytes"]) for r in records] == [
-        ("deep-replay-walk", 2, {"per walk": 5_000_000_000}),
-        ("deep-replay-walk", len(conform.SETTLEMENT_CONFIGS), {"per walk": 2_000_000_000}),
+        ("deep-replay-walk", 2, per_config),
+        ("deep-replay-walk", len(conform.SETTLEMENT_CONFIGS) * len(ALPHABET), per_config),
     ]
 
 
-def test_the_shipped_walk_cost_holds_both_fleet_machines_at_their_widths(monkeypatch):
-    """Both fleet machines (`doc/fleet.md`), 48 GiB each, walk every settlement configuration at once under the checked-in `DEEP_REPLAY_PEAK_BYTES`. No cycle runs this walk, so the deep-replay-walk row of `make job-costs` watches the constant only when someone runs it, and the width assertions above pass for any positive value. This test fails if the constant goes above 8.71 GB, which drops the 48 GiB machines to four walks."""
+def test_the_units_partition_every_text_and_each_configuration_merges_its_own(bench, monkeypatch, capsys):
+    """A walk over every text runs one unit per settlement configuration and alphabet symbol, each once, at the stated width, and each configuration's line sums its own units: every text of its lengths, one window settle a unit."""
+    calls: list = []
+    _stub_walk(monkeypatch, calls=calls)
+    assert deep_replay.main(["--all", "--threads", "3"]) == 0
+    assert sorted(calls) == sorted(
+        (config, symbol) for config in conform.SETTLEMENT_CONFIGS for symbol in ALPHABET
+    )
+    out = capsys.readouterr().out
+    units = len(conform.SETTLEMENT_CONFIGS) * len(ALPHABET)
+    assert f"in {units} units of one configuration and one last symbol, 3 at a time" in out
+    for config in conform.SETTLEMENT_CONFIGS:
+        assert (
+            f"deep replay[{config}]: {every_text(5)} texts, {len(ALPHABET)} window settles, 0 skipped" in out
+        )
+
+
+def test_units_that_miss_a_text_record_nothing(bench, monkeypatch):
+    """A configuration whose units do not sum to every text of its lengths stops the walk before anything is recorded, so a lost unit cannot pass as a green."""
+    _stub_walk(monkeypatch, short=(conform.SETTLEMENT_CONFIGS[-1], ALPHABET[-1]))
+    with pytest.raises(RuntimeError, match=f"not every one of the {every_text(5)} texts"):
+        deep_replay.main(["--all", "--threads", "2"])
+    assert JOURNAL == []
+    assert ac.read_green_record(bench / "rebuild" / "out" / "deep-replay-green.json") is None
+
+
+def test_a_disagreeing_unit_stops_the_units_not_yet_started(bench, monkeypatch, capsys):
+    """A disagreement in one unit starts none of the units queued behind it, and the walk reports the disagreement and records the red."""
+    calls: list = []
+    second = (conform.SETTLEMENT_CONFIGS[0], ALPHABET[1])
+    _stub_walk(
+        monkeypatch,
+        calls=calls,
+        disagree="replay disagreement at position 1 of qsTea qsPea",
+        disagree_on=second,
+    )
+    assert deep_replay.main(["--all", "--threads", "1"]) == 1
+    assert calls == [(conform.SETTLEMENT_CONFIGS[0], ALPHABET[0]), second]
+    assert JOURNAL == [("red", ["--all", "--threads", "1"])]
+    assert "position 1 of qsTea qsPea" in capsys.readouterr().err
+
+
+def test_the_shipped_walk_cost_walks_more_units_than_configurations_on_both_fleet_machines(monkeypatch):
+    """Each fleet machine (`doc/fleet.md`), 48 GiB with 18 or 12 cores, walks as many units at once as its memory holds at the checked-in `DEEP_REPLAY_PEAK_BYTES`, capped at its cores, and that is more than one walk per settlement configuration. No cycle runs this walk, so the deep-replay-walk row of `make job-costs` watches the constant only when someone runs it. This test fails at 7.26 GB or more, where the 48 GiB machines would walk no more units at once than there are configurations."""
     monkeypatch.delenv("AMS_DEEP_REPLAY_THREADS", raising=False)
-    assert deep_replay.replay_threads(total_bytes=MACHINE_48_GIB) == len(conform.SETTLEMENT_CONFIGS)
+    for cores in (18, 12):
+        width = deep_replay.replay_threads(total_bytes=MACHINE_48_GIB, ncores=cores)
+        assert width == memory_budget.how_many_fit(
+            deep_replay.DEEP_REPLAY_PEAK_BYTES, cap=cores, total_bytes=MACHINE_48_GIB
+        )
+        assert width > len(conform.SETTLEMENT_CONFIGS)
 
 
 def test_a_green_deep_sweep_refreshes_the_replays_record(tmp_path, monkeypatch):

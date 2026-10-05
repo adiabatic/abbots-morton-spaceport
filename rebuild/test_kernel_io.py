@@ -294,7 +294,9 @@ class TestTheCrateEchoesTheDumpByteForByte:
         path = tmp_path / f"spec-{case}.json"
         kernel_io.write_spec(subject, path)
         kernel_exec.ensure_built()
-        finished = kernel_exec._run_kernel([str(kernel_exec.BINARY), "spec-echo", str(path)], "spec-echo")
+        finished = kernel_exec._run_kernel(
+            [str(kernel_exec.BINARY), "spec-echo", str(path)], "spec-echo", timeout=kernel_exec.TIMEOUT
+        )
         written = path.read_bytes()
         assert (
             finished.returncode == 0

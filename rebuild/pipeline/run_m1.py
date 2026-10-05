@@ -467,6 +467,7 @@ def build_tables(
             list(configs),
             inputs=inputs if inputs is not None else kernel_exec.UNSTAMPED_WINDOWS,
             threads=threads,
+            symbols=len(conform.spec_alphabet(spec)),
             timings=True,
             previous_memos=previous.directory if previous else None,
             edited=previous.edited if previous else (),
@@ -915,7 +916,7 @@ def _run_glyph_chain(spec: ResolvedSpec, tables: Mapping[str, tuple], out_dir: P
     return summary
 
 
-# The conformance sweep's maximum length (`conform.SWEEP_MAX_LENGTH`), not one more. The walk's cost is its count of distinct raw windows, and every first-position window of a length-N text is distinct: the alphabet size to the Nth per configuration, each a full settlement, since the engine's trace memo is keyed on the raw slots. So each extra letter of depth multiplies the walk by the alphabet size. Over the whole alphabet, a full replay at maximum length 5 exceeded `kernel_exec.TIMEOUT`, and even narrowed to one family it would cost more than the conformance sweep run it lets the cycle skip. Checking past this depth is the job of the periodic deep sweep (`make conform-deep`), which settles every text it shapes.
+# The conformance sweep's maximum length (`conform.SWEEP_MAX_LENGTH`), not one more. The walk's cost is its count of distinct raw windows, and every first-position window of a length-N text is distinct: the alphabet size to the Nth per configuration, each a full settlement, since the engine's trace memo is keyed on the raw slots. So each extra letter of depth multiplies the walk by the alphabet size. Over the whole alphabet, a full replay at maximum length 5 costs every configuration minutes even under the deep replay's memo ceiling (`make cycle-timings ARGS='--by-step'` reports it under `replay-deep`), and even narrowed to one family it would cost more than the conformance sweep run it lets the cycle skip. Checking past this depth is the job of the periodic deep sweep (`make conform-deep`), which settles every text it shapes.
 REPLAY_MAX_LENGTH = conform.SWEEP_MAX_LENGTH
 REPLAY_FORMAT = "ams-m1-replay/1"
 REPLAY_SUMMARY = "replay_summary.json"
@@ -1266,7 +1267,7 @@ def settle_memo_inputs() -> oracle_cache.SettleMemoInputs:
 
 @dataclass(frozen=True)
 class SweepUnit:
-    """One process's share of a pooled conformance sweep (`run_font_conformance` and `make conform-deep`'s `deep_sweep.run_sweep`): a configuration, the symbol its texts end in or None for a configuration swept whole, and the count of texts it shapes, which is the `sequences` its worker returns."""
+    """One process's share of a pooled conformance sweep (`run_font_conformance` and `make conform-deep`'s `deep_sweep.run_sweep`), or of the deep replay, which walks the settlement units (`deep_replay.walk_units`): a configuration, the symbol its texts end in or None for a configuration swept whole, and the count of texts it shapes, which is the `sequences` its worker returns."""
 
     config: str
     last: str | None
@@ -1288,7 +1289,7 @@ def sweep_units(alphabet: Sequence[str], max_length: int) -> tuple[SweepUnit, ..
 
 
 def config_texts(spec: ResolvedSpec, max_length: int) -> dict[str, int]:
-    """Return how many texts each acceptance configuration's units shape between them: every text of one letter up to its maximum length over the spec's alphabet, which is `max_length` for a settlement configuration and `conform.OVERLAY_MAX_LENGTH` for an overlay. `run_font_conformance` and `deep_sweep.run_sweep` check each configuration's merged `sequences` against it before they write anything."""
+    """Return how many texts each acceptance configuration's units shape between them: every text of one letter up to its maximum length over the spec's alphabet, which is `max_length` for a settlement configuration and `conform.OVERLAY_MAX_LENGTH` for an overlay. `run_font_conformance` and `deep_sweep.run_sweep` check each configuration's merged `sequences` against it before they write anything, and `deep_replay.main` each settlement configuration's merged texts and skipped texts."""
     size = len(conform.spec_alphabet(spec))
     return {
         config: sum(

@@ -6,6 +6,9 @@ No test skips. On a machine without `cargo` these tests fail with the remedy `Ke
 import gzip
 import itertools
 import json
+import os
+import subprocess
+import time
 from collections import OrderedDict
 from dataclasses import replace
 
@@ -84,7 +87,7 @@ class TestTheInvocationInterface:
             stdout = (case + '\t{"settled":"trace"}\n').encode()
             stderr = b""
 
-        def run(arguments, verb, stdin=None):
+        def run(arguments, verb, stdin=None, *, timeout):
             calls.append((arguments, stdin))
             return Finished()
 
@@ -129,6 +132,116 @@ class TestTheInvocationInterface:
                     frozenset(),
                 )
 
+    def test_each_verb_waits_with_its_own_limit(self, monkeypatch, tmp_path):
+        """Each verb hands the call its own limit: `TIMEOUT` for `enumerate-configs`, `settle-cases` and `guard-sweep`; for `build-tables`, `build_tables_timeout` over the alphabet size its caller states; for `replay-strings`, `replay_timeout` over the spec's alphabet, the maximum length, the configurations, the width, and whether one last symbol narrows the walk. A call past its limit fails naming the limit and the verb."""
+        waited = []
+
+        def run(arguments, verb, stdin=None, *, timeout):
+            waited.append((verb, timeout))
+            raise kernel_exec._no_answer(arguments, verb, timeout)
+
+        def reaped(arguments, verb, *, timeout):
+            return run(arguments, verb, timeout=timeout)
+
+        monkeypatch.setattr(kernel_exec, "_run_kernel", run)
+        monkeypatch.setattr(kernel_exec, "_run_kernel_reaped", reaped)
+        monkeypatch.setattr(kernel_exec, "ensure_built", lambda: None)
+        spec_path = tmp_path / "spec.json"
+        symbols = len(conform.spec_alphabet(SPEC))
+        configs = conform.SETTLEMENT_CONFIGS
+        case = kernel_exec.case_line(LeftContext("edge"), RightToken("letter", "qsMay"), (EDGE,) * 4)
+        calls = [
+            lambda: kernel_exec.enumerate_configs(spec_path, tmp_path / "streams", ["default"], threads=1),
+            lambda: kernel_exec.build_table_files(
+                spec_path, tmp_path / "tables", configs, inputs=STAMP, threads=2, symbols=47
+            ),
+            lambda: kernel_exec._settle_cases(spec_path, [case], frozenset()),
+            lambda: kernel_exec._guard_verdicts(SPEC, spec_path),
+            lambda: kernel_exec.replay_strings(
+                SPEC, tmp_path, configs, max_length=5, families=None, threads=len(configs)
+            ),
+            lambda: kernel_exec.replay_strings(
+                SPEC, tmp_path, ["ss03"], max_length=5, families=["qsPea"], threads=1, last="\ue650"
+            ),
+        ]
+        for call in calls:
+            with pytest.raises(kernel_exec.KernelRunError, match="gave no answer within"):
+                call()
+        assert waited == [
+            ("enumerate-configs", kernel_exec.TIMEOUT),
+            ("build-tables", kernel_exec.build_tables_timeout(47)),
+            ("settle-cases", kernel_exec.TIMEOUT),
+            ("guard-sweep", kernel_exec.TIMEOUT),
+            (
+                "replay-strings",
+                kernel_exec.replay_timeout(
+                    symbols=symbols, max_length=5, configs=len(configs), threads=len(configs), last=False
+                ),
+            ),
+            (
+                "replay-strings",
+                kernel_exec.replay_timeout(symbols=symbols, max_length=5, configs=1, threads=1, last=True),
+            ),
+        ]
+
+    def test_the_two_growing_verbs_limits_grow_with_the_alphabet_and_never_fall_below_the_fixed_one(self):
+        """At the measured alphabet a table build and a deep replay unit wait `TIMEOUT`, the floor. A table build's limit grows with the alphabet, and at the full alphabet's 47 symbols a whole replay at maximum length 5 in one call, five walks at once, waits longer than `TIMEOUT`. A narrower width, which walks configurations one after another, waits longer; a walk narrowed to one last symbol waits less."""
+        measured = kernel_exec.MEASURED_SYMBOLS
+        assert kernel_exec.build_tables_timeout(measured) == kernel_exec.TIMEOUT
+        assert (
+            kernel_exec.build_tables_timeout(47) > kernel_exec.build_tables_timeout(42) > kernel_exec.TIMEOUT
+        )
+
+        def replay(symbols, *, configs=5, threads=5, last=False):
+            return kernel_exec.replay_timeout(
+                symbols=symbols, max_length=5, configs=configs, threads=threads, last=last
+            )
+
+        assert replay(measured, configs=1, threads=1, last=True) == kernel_exec.TIMEOUT
+        assert replay(47) > kernel_exec.TIMEOUT
+        assert replay(47, threads=1) > replay(47) > replay(47, last=True)
+
+    def test_a_call_past_its_limit_is_killed_after_waiting_that_long(self, monkeypatch):
+        """Both runners wait for the limit the caller passes and no other. `_run_kernel` hands it to `communicate` and kills the child once it runs out. `_run_kernel_reaped` stops waiting on the child's pipes at that deadline and kills it, which closes them."""
+        killed = []
+
+        class Silent:
+            def communicate(self, stdin=None, timeout=None):
+                if timeout is not None:
+                    killed.append(("waited", timeout))
+                    raise subprocess.TimeoutExpired("ams-m1-kernel", timeout)
+                return b"", b""
+
+            def kill(self):
+                killed.append("killed")
+
+        monkeypatch.setattr(kernel_exec, "_spawn_kernel", lambda arguments, *, stdin: Silent())
+        with pytest.raises(kernel_exec.KernelRunError, match="within 7 seconds on settle-cases"):
+            kernel_exec._run_kernel(["ams-m1-kernel"], "settle-cases", b"", timeout=7)
+        assert killed == [("waited", 7), "killed"]
+
+        class Hung:
+            def __init__(self):
+                out, self._out = os.pipe()
+                err, self._err = os.pipe()
+                self.stdout = os.fdopen(out, "rb")
+                self.stderr = os.fdopen(err, "rb")
+
+            def kill(self):
+                killed.append("hung killed")
+                os.close(self._out)
+                os.close(self._err)
+
+            def wait(self):
+                return -9
+
+        monkeypatch.setattr(kernel_exec, "_spawn_kernel", lambda arguments, *, stdin: Hung())
+        started = time.monotonic()
+        with pytest.raises(kernel_exec.KernelRunError, match="on replay-strings"):
+            kernel_exec._run_kernel_reaped(["ams-m1-kernel"], "replay-strings", timeout=0.2)
+        assert time.monotonic() - started >= 0.2
+        assert killed[-1] == "hung killed"
+
     def test_a_missing_binary_names_the_recipe_that_builds_one(self, monkeypatch, tmp_path):
         monkeypatch.setattr(kernel_exec, "BINARY", tmp_path / "ams-m1-kernel")
         with pytest.raises(kernel_exec.KernelRunError) as raised:
@@ -166,7 +279,7 @@ class TestTheInvocationInterface:
             stdout = (case + '\t{"settled":"trace"}\n').encode()
             stderr = b""
 
-        def run(arguments, verb, stdin=None):
+        def run(arguments, verb, stdin=None, *, timeout):
             calls.append(arguments)
             return Finished()
 
@@ -231,7 +344,7 @@ class TestTheInvocationInterface:
         }
         calls = []
 
-        def run(arguments, verb, stdin=None):
+        def run(arguments, verb, stdin=None, *, timeout):
             calls.append(arguments)
             result = (
                 "qsMay\tfull\t\t\t\t\t0"
@@ -747,6 +860,7 @@ class TestTheKernelInvocation:
                 conform.SETTLEMENT_CONFIGS,
                 inputs=STAMP,
                 threads=2,
+                symbols=len(conform.spec_alphabet(SPEC)),
                 default_memo_sharing=default_memo_sharing,
             ).digests
         assert answers["sharing"] == answers["scratch"]
@@ -1118,6 +1232,42 @@ class TestTheStringReplay:
         with pytest.raises(ValueError):
             kernel_exec.replay_strings(SPEC, tables_dir, ["default"], max_length=3, families=[], threads=1)
 
+    def test_a_last_symbol_walks_only_the_texts_ending_in_it(self, tables_dir, monkeypatch):
+        """`last` reaches the subcommand as `--last=` and the symbol's code point. The walks over every symbol of the alphabet each walk the texts ending in it, and between them they partition a whole walk's texts, and with a family list a narrowed whole walk's texts and skipped texts. A last that is not one character raises `ValueError` before anything is spawned."""
+        alphabet = conform.spec_alphabet(SPEC)
+
+        def walk(families=None, last=None):
+            return kernel_exec.replay_strings(
+                SPEC, tables_dir, ["default"], max_length=3, families=families, threads=1, last=last
+            )["default"]
+
+        whole, named = walk(), walk(["qsPea"])
+        units = [walk(last=symbol) for symbol in alphabet]
+        assert {unit["texts"] for unit in units} == {1 + len(alphabet) + len(alphabet) ** 2}
+        assert sum(unit["texts"] for unit in units) == whole["texts"]
+        narrowed = [walk(["qsPea"], symbol) for symbol in alphabet]
+        assert sum(unit["texts"] for unit in narrowed) == named["texts"]
+        assert sum(unit["skipped"] for unit in narrowed) == named["skipped"]
+
+        def spawned(arguments, verb, **rest):
+            raise AssertionError(f"a refused walk spawned {verb}")
+
+        monkeypatch.setattr(kernel_exec, "_run_kernel_reaped", spawned)
+        for refused in ("", alphabet[:2]):
+            with pytest.raises(ValueError, match="one symbol"):
+                walk(last=refused)
+        with pytest.raises(ValueError, match="memo directory or a last symbol"):
+            kernel_exec.replay_strings(
+                SPEC,
+                tables_dir,
+                ["default"],
+                max_length=3,
+                families=None,
+                threads=1,
+                last=alphabet[0],
+                memo_dir=tables_dir,
+            )
+
     def test_a_memo_directory_files_one_window_memo_per_configuration(self, tables_dir, tmp_path):
         """`memo_dir` is passed as `--memo-dir=`, and each configuration's window memo is written under it with the head `conform.absorb_replay_memo` reads. The counts match a walk without `memo_dir`, and that walk writes no memo beside the tables."""
         answered = kernel_exec.replay_strings(
@@ -1164,7 +1314,7 @@ class TestTheStringReplay:
             assert capped[config]["skipped"] == counts["skipped"]
             assert capped[config]["windows"] > counts["windows"]
 
-        def spawned(arguments, verb):
+        def spawned(arguments, verb, **rest):
             raise AssertionError(f"a refused walk spawned {verb}")
 
         monkeypatch.setattr(kernel_exec, "_run_kernel", spawned)

@@ -14,7 +14,7 @@
 //! - `ams-m1-kernel enumerate <spec> [--features=a,b,…] [--candidacy-prospect] [--follower-prefer-slots-off] [--deep-classes-off] [--timings] [--cache-stats]` runs one configuration's table-build fixpoint and writes the uncompressed `ams-m1-transitions/1` stream (a head line and one row per window), which `kernel_exec.read_stream` reads. `--deep-classes-off` selects label grain, like Python's `AMS_DEEP_CLASSES=0`. With both `--candidacy-prospect` and `--follower-prefer-slots-off`, enumeration is label grain anyway, so the flag is accepted and has no effect.
 //! - `ams-m1-kernel enumerate-configs <spec> <outdir> --configs=a,b,… [--threads=N] [--candidacy-prospect] [--follower-prefer-slots-off] [--deep-classes-off] [--timings] [--cache-stats]` runs several configurations' fixpoints in one process and writes each stream to `<outdir>/transitions-<config>.ndjson`. It creates the directory with its parents and overwrites existing streams. Before writing, it deletes every other `transitions-*.ndjson` in the directory, so after exit 0 the directory holds only the configurations the command line named. stdout stays empty. The files are valid only on exit 0: a failing configuration exits 1 with its name in the message and leaves the other configurations' files in place. `--configs=` is required and uses Python's tokens (`conform.ACCEPTANCE_CONFIGS`): `default` for no features, otherwise a `+`-joined feature list whose names are checked against the spec as `--features=` names are. A token that is not the canonical form of its features (out of order, repeated, empty, or with an empty part between two `+`) is a usage error, so the filename, the stream head's `config`, and the caller's name for the configuration always agree. The mode flags apply to every configuration in the run.
 //! - `ams-m1-kernel build-tables <spec> <outdir> --configs=a,b,… --inputs=<stamp> [--threads=N] [--no-default-memo-sharing] [--previous-memos=<dir> [--edited=a,b,…] [--moved-classes=a,b,…]] [--memo-stamp=<text>] [--candidacy-prospect] [--follower-prefer-slots-off] [--deep-classes-off] [--timings] [--cache-stats]` runs the same fixpoints and folds each product in memory, writing `<outdir>/settlement-<config>.tsv`, `<outdir>/joins-<config>.tsv`, and the uncompressed `<outdir>/windows-<config>.tsv` under the fingerprint `--inputs=` names, and one `{"config":…,"digest":…}` line per configuration to stdout in command-line order. `default` enumerates first and alone and keeps its trace memo. The other configurations then run as deltas, `--threads` at a time, heaviest first by unlocking-rune count, with `default`'s fold preparation taking one of the worker slots. Before any table is written, the configurations exchange the windows each keeps live that another's rules would answer wrongly in the order the font ships ([`ams_m1_kernel::crossconfig`]), so a configuration's tables depend on the set `--configs=` names. Each delta reads `default`'s memo for every window that names none of its own unlocking runes ([`ams_m1_kernel::memo`]) and writes the same bytes a from-scratch enumeration writes. `--no-default-memo-sharing` enumerates every configuration from scratch, and a set without `default` does so anyway. `--memo-stamp=<text>` writes each configuration's finished memo as `<outdir>/memo-<config>.tsv`, with a head naming the configuration, the mode set, and the stamp. `--previous-memos=<dir>` reads a previous build's memo files from that directory. `--edited=` names the runes whose content changed since that build and `--moved-classes=` the predicate classes whose membership changed, and a window whose settlement read none of them reuses its earlier answer. A previous memo file for another configuration or mode set is an error, a missing one is skipped, a moved class this spec no longer declares is ignored (no valid memo entry can have read it), and `--edited=` or `--moved-classes=` without `--previous-memos=` is a usage error. No stream is written or read, because the fold runs on the product the worklist still holds; this saves writing and reading back several hundred megabytes per configuration. `run_m1.build_tables` gzips the windows payload and the memo files, because the crate has no compressor. The directory is created if needed and nothing in it is deleted, because a build writes into its artifact directory beside other artifacts. `--inputs=` is required because a persisted enumeration is accepted or rejected on the stamp it carries.
-//! - `ams-m1-kernel replay-strings <spec> <outdir> --configs=a,b,… --max-length=N [--families=a,b,…] [--memo-dir=<dir> | --memo-windows=N] [--threads=N] [--candidacy-prospect] [--follower-prefer-slots-off] [--timings] [--cache-stats]` reads each configuration's `<outdir>/settlement-<config>.tsv` and walks every text of length 1 through `N` over the spec's alphabet ([`ams_m1_kernel::replay`]). With `--families=`, it walks only the texts that name one of those runes; a ligature is named through its components. It applies the rules first-match, feeding each settled left forward, and compares every window's rule outcome with this engine's settlement of that window. `run_m1` runs it after every table build as the enumeration-completeness check. A clean run writes one `{"config":…,"texts":…,"windows":…,"skipped":…}` line per configuration to stdout. `--memo-dir=<dir>` also writes each passing walk's window memo there as `replay-windows-<config>.bin`, the input to the build's settle memo ([`ams_m1_kernel::replay::Replay::write_window_memo`]). `--memo-windows=N` caps each walk's memo at `N` windows, or at one text's windows when `N` is below the maximum length: before any text that could push the memo past the cap, the walk releases its memo and its engine's memos. The walk's memory then does not grow with the size of the text set, apart from the settled records and labels it keeps, and `windows` counts window settles instead of distinct windows. `--memo-windows=` with `--memo-dir=` is a usage error, because a released memo is incomplete. A window where the rules and the engine disagree, or that the engine refuses, exits 1 with a message naming the configuration, the window, and the text it was reached in. The maximum length is required because the caller records the depth the walk covered. There is no grain flag, because a replay settles single windows, which have no grain.
+//! - `ams-m1-kernel replay-strings <spec> <outdir> --configs=a,b,… --max-length=N [--families=a,b,…] [--last=U+XXXX] [--memo-dir=<dir> | --memo-windows=N] [--threads=N] [--candidacy-prospect] [--follower-prefer-slots-off] [--timings] [--cache-stats]` reads each configuration's `<outdir>/settlement-<config>.tsv` and walks every text of length 1 through `N` over the spec's alphabet ([`ams_m1_kernel::replay`]). With `--families=`, it walks only the texts that name one of those runes; a ligature is named through its components. With `--last=`, it walks only the texts whose last symbol is the alphabet symbol at that code point, a letter or a boundary token, written as `U+` and four to six uppercase hexadecimal digits; a code point outside the alphabet exits 1. The walks over every symbol partition the texts between them, and `skipped` counts only the texts ending in that symbol that `--families=` leaves out. It applies the rules first-match, feeding each settled left forward, and compares every window's rule outcome with this engine's settlement of that window. `run_m1` runs it after every table build as the enumeration-completeness check. A clean run writes one `{"config":…,"texts":…,"windows":…,"skipped":…}` line per configuration to stdout. `--memo-dir=<dir>` also writes each passing walk's window memo there as `replay-windows-<config>.bin`, the input to the build's settle memo ([`ams_m1_kernel::replay::Replay::write_window_memo`]). `--memo-windows=N` caps each walk's memo at `N` windows, or at one text's windows when `N` is below the maximum length: before any text that could push the memo past the cap, the walk releases its memo and its engine's memos. The walk's memory then does not grow with the size of the text set, apart from the settled records and labels it keeps, and `windows` counts window settles instead of distinct windows. `--memo-windows=` with `--memo-dir=` is a usage error, because a released memo is incomplete. A window where the rules and the engine disagree, or that the engine refuses, exits 1 with a message naming the configuration, the window, and the text it was reached in. The maximum length is required because the caller records the depth the walk covered. There is no grain flag, because a replay settles single windows, which have no grain.
 //! - `ams-m1-kernel replay-emitted <windows> --config=<token> --table=<settlement.tsv> --order=<order.tsv> --context=<context.tsv> [--timings]` walks one configuration's window enumeration (the plain `ams-m1-windows/3` payload at `<windows>`, or standard input for `-`) against the settlement order the font ships ([`ams_m1_kernel::shipped_order`]). `--order=` holds every configuration's rules in the order the emitter ships them, written as a settlement TSV whose provenance column names the table rules each row was folded from. `--context=` holds the configuration's marker renames, deep classes, and foreign labels (the bare runes, marker copies and locked copies its stream never carries, as `emit_gsub.emitted_context_tsv` lists them), one `rename`, `class`, or `foreign` record per line. `--table=` is the configuration's own settlement TSV, read only to name the table's rule in a disagreement. Each row is renamed through the configuration's marker renames, and the first emitted rule for its input that matches it must give the row's outcome, on the row itself and on every continuation of a `#NA` it leaves open after a letter. A clean run writes one `{"config":…,"rows":…,"checked_per_member":…,"open_rows":…,"continued":…}` line to stdout, where `checked_per_member` counts the rows tried member by member because an emitted lookahead class matched only part of their deep class, `open_rows` the rows that leave a slot open after a letter, and `continued` those whose continuations the walk searched because their deciding rule constrains the open slot or a later one. A row for which the shipped order gives a different outcome exits 1 with a message naming the configuration, the row, the continuation, the emitted rule that fired, and the table's rule; so does a row that carries a foreign label. No spec is read: the tables already hold the settled answers, and the walk checks that the shipped lookup reproduces them.
 //! - `ams-m1-kernel liveness-cases <spec> <keys> [--features=a,b,…] [--candidacy-prospect] [--follower-prefer-slots-off]` reads one deep-slot query per line of the key file. `3<tab><input><tab><r1><tab><r2>` and `4<tab><input><tab><r1><tab><r2><tab><r3>` return `live` or `dead`, the full filter verdict (the chain check and the liveness check together). `fibers<tab><input><tab><r1><tab><r2>` returns the context's fiber partition as compact JSON. Every name must be a rune family name, and any other name stops the run. Each output line is the key line, a tab, and the answer, in file order.
 //!
@@ -45,7 +45,7 @@ use ams_m1_kernel::options::WindowOptions;
 use ams_m1_kernel::stream::feature_config_token;
 use ams_m1_kernel::{artifacts, cases, emit, fanout, guard, parse, shipped_order};
 
-const USAGE: &str = "usage: ams-m1-kernel spec-echo <spec>\n       ams-m1-kernel settle-cases <spec> <cases> [--features=a,b] [--settled-only] [--candidacy-prospect] [--follower-prefer-slots-off]\n       ams-m1-kernel guard-sweep <spec> [--config=default|ss03+ss05]\n       ams-m1-kernel enumerate <spec> [--features=a,b] [--candidacy-prospect] [--follower-prefer-slots-off] [--deep-classes-off] [--timings] [--cache-stats]\n       ams-m1-kernel enumerate-configs <spec> <outdir> --configs=default,ss03 [--threads=N] [--candidacy-prospect] [--follower-prefer-slots-off] [--deep-classes-off] [--timings] [--cache-stats]\n       ams-m1-kernel build-tables <spec> <outdir> --configs=default,ss03 --inputs=<stamp> [--threads=N] [--no-default-memo-sharing] [--previous-memos=<dir> [--edited=qsPea,qsTea] [--moved-classes=a,b]] [--memo-stamp=<text>] [--candidacy-prospect] [--follower-prefer-slots-off] [--deep-classes-off] [--timings] [--cache-stats]\n       ams-m1-kernel replay-strings <spec> <outdir> --configs=default,ss03 --max-length=N [--families=qsPea,qsTea] [--memo-dir=<dir> | --memo-windows=N] [--threads=N] [--candidacy-prospect] [--follower-prefer-slots-off] [--timings] [--cache-stats]\n       ams-m1-kernel replay-emitted <windows> --config=default --table=<settlement.tsv> --order=<order.tsv> --context=<context.tsv> [--timings]\n       ams-m1-kernel liveness-cases <spec> <keys> [--features=a,b] [--candidacy-prospect] [--follower-prefer-slots-off]";
+const USAGE: &str = "usage: ams-m1-kernel spec-echo <spec>\n       ams-m1-kernel settle-cases <spec> <cases> [--features=a,b] [--settled-only] [--candidacy-prospect] [--follower-prefer-slots-off]\n       ams-m1-kernel guard-sweep <spec> [--config=default|ss03+ss05]\n       ams-m1-kernel enumerate <spec> [--features=a,b] [--candidacy-prospect] [--follower-prefer-slots-off] [--deep-classes-off] [--timings] [--cache-stats]\n       ams-m1-kernel enumerate-configs <spec> <outdir> --configs=default,ss03 [--threads=N] [--candidacy-prospect] [--follower-prefer-slots-off] [--deep-classes-off] [--timings] [--cache-stats]\n       ams-m1-kernel build-tables <spec> <outdir> --configs=default,ss03 --inputs=<stamp> [--threads=N] [--no-default-memo-sharing] [--previous-memos=<dir> [--edited=qsPea,qsTea] [--moved-classes=a,b]] [--memo-stamp=<text>] [--candidacy-prospect] [--follower-prefer-slots-off] [--deep-classes-off] [--timings] [--cache-stats]\n       ams-m1-kernel replay-strings <spec> <outdir> --configs=default,ss03 --max-length=N [--families=qsPea,qsTea] [--last=U+E650] [--memo-dir=<dir> | --memo-windows=N] [--threads=N] [--candidacy-prospect] [--follower-prefer-slots-off] [--timings] [--cache-stats]\n       ams-m1-kernel replay-emitted <windows> --config=default --table=<settlement.tsv> --order=<order.tsv> --context=<context.tsv> [--timings]\n       ams-m1-kernel liveness-cases <spec> <keys> [--features=a,b] [--candidacy-prospect] [--follower-prefer-slots-off]";
 
 /// The flags and positionals a command line named, before the subcommand checks its positional count. The three mode flags are written as negations because the default modes turn all three on.
 struct Flags<'a> {
@@ -57,6 +57,7 @@ struct Flags<'a> {
     threads: Option<usize>,
     max_length: Option<usize>,
     families: Option<Vec<&'a str>>,
+    last: Option<i64>,
     memo_dir: Option<&'a str>,
     memo_windows: Option<usize>,
     timings: bool,
@@ -88,7 +89,7 @@ struct Vocabulary {
     inputs: bool,
     /// `--timings` and `--cache-stats`, the two stderr diagnostics.
     timings: bool,
-    /// The string replay's `--max-length=`, `--families=`, `--memo-dir=`, and `--memo-windows=`: how deep to walk, which runes' texts to walk, where to write each walk's window memo, and the most windows a walk keeps memoized.
+    /// The string replay's `--max-length=`, `--families=`, `--last=`, `--memo-dir=`, and `--memo-windows=`: how deep to walk, which runes' texts to walk, which symbol they end in, where to write each walk's window memo, and the most windows a walk keeps memoized.
     max_length: bool,
     /// `--table=`, `--order=`, and `--context=`, the three files of `replay-emitted`, which requires all three and `--config=`.
     emitted: bool,
@@ -158,7 +159,7 @@ const TABLES_FLAGS: Vocabulary = Vocabulary {
     settled: false,
     stdin: false,
 };
-/// The string replay accepts the fan-out's configuration flags, both stderr diagnostics, and its own four. It has no grain flag, because it settles single windows, and no stamp, because the one file it writes (the window memo, under `--memo-dir=`) is a build input and not an artifact.
+/// The string replay accepts the fan-out's configuration flags, both stderr diagnostics, and its own five. It has no grain flag, because it settles single windows, and no stamp, because the one file it writes (the window memo, under `--memo-dir=`) is a build input and not an artifact.
 const REPLAY_FLAGS: Vocabulary = Vocabulary {
     grain: false,
     features: false,
@@ -274,6 +275,7 @@ struct ReplayPlan<'a> {
     configs: Vec<ConfigRequest<'a>>,
     max_length: usize,
     families: Option<Vec<&'a str>>,
+    last: Option<i64>,
     memo_dir: Option<&'a str>,
     memo_windows: Option<usize>,
     threads: Option<usize>,
@@ -386,7 +388,7 @@ fn usage() -> ExitCode {
 
 /// Scans the arguments for every subcommand, returning `None` on a usage error. A flag outside `vocabulary` is unknown, and a value flag given twice is a usage error.
 ///
-/// An empty `--features=` is a usage error, not the no-feature configuration: `kernel_exec` omits the flag when no feature is active, so an empty value means the two sides disagree about the flags. An empty `--configs=` is a usage error because a run needs at least one configuration. A count (`--threads=`, `--max-length=`, `--memo-windows=`) must be ASCII digits with a positive value that fits in `usize`, so `+3`, which `usize`'s parser would accept, is rejected.
+/// An empty `--features=` is a usage error, not the no-feature configuration: `kernel_exec` omits the flag when no feature is active, so an empty value means the two sides disagree about the flags. An empty `--configs=` is a usage error because a run needs at least one configuration. A count (`--threads=`, `--max-length=`, `--memo-windows=`) must be ASCII digits with a positive value that fits in `usize`, so `+3`, which `usize`'s parser would accept, is rejected. A code point (`--last=`) has the one spelling [`codepoint_flag`] reads.
 fn scan_flags(rest: &[String], vocabulary: Vocabulary) -> Option<Flags<'_>> {
     let mut positionals: Vec<&str> = Vec::new();
     let mut features: Option<Vec<&str>> = None;
@@ -396,6 +398,7 @@ fn scan_flags(rest: &[String], vocabulary: Vocabulary) -> Option<Flags<'_>> {
     let mut threads: Option<usize> = None;
     let mut max_length: Option<usize> = None;
     let mut families: Option<Vec<&str>> = None;
+    let mut last: Option<i64> = None;
     let mut memo_dir: Option<&str> = None;
     let mut memo_windows: Option<usize> = None;
     let mut timings = false;
@@ -526,6 +529,13 @@ fn scan_flags(rest: &[String], vocabulary: Vocabulary) -> Option<Flags<'_>> {
             }
             families = Some(list.split(',').collect());
         } else if vocabulary.max_length
+            && let Some(codepoint) = argument.strip_prefix("--last=")
+        {
+            if last.is_some() {
+                return None;
+            }
+            last = Some(codepoint_flag(codepoint)?);
+        } else if vocabulary.max_length
             && let Some(dir) = argument.strip_prefix("--memo-dir=")
         {
             if dir.is_empty() || memo_dir.is_some() {
@@ -556,6 +566,7 @@ fn scan_flags(rest: &[String], vocabulary: Vocabulary) -> Option<Flags<'_>> {
         threads,
         max_length,
         families,
+        last,
         memo_dir,
         memo_windows,
         timings,
@@ -573,6 +584,19 @@ fn scan_flags(rest: &[String], vocabulary: Vocabulary) -> Option<Flags<'_>> {
         follower_prefer_slots,
         deep_classes,
     })
+}
+
+/// A `--last=` value: `U+` and four to six uppercase hexadecimal digits, the one form `kernel_exec` writes, or `None` for any other spelling.
+fn codepoint_flag(text: &str) -> Option<i64> {
+    let digits = text.strip_prefix("U+")?;
+    if !(4..=6).contains(&digits.len())
+        || !digits
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'A'..=b'F').contains(&byte))
+    {
+        return None;
+    }
+    i64::from_str_radix(digits, 16).ok()
 }
 
 fn plan_cases(rest: &[String]) -> Option<CasesPlan<'_>> {
@@ -729,6 +753,7 @@ fn plan_replay(rest: &[String]) -> Option<ReplayPlan<'_>> {
         configs,
         max_length: flags.max_length?,
         families: flags.families,
+        last: flags.last,
         memo_dir: flags.memo_dir,
         memo_windows: flags.memo_windows,
         threads: flags.threads,
@@ -1020,6 +1045,13 @@ fn replay_strings(plan: &ReplayPlan<'_>) -> Result<(), String> {
         ),
         None => None,
     };
+    let last = match plan.last {
+        Some(codepoint) => Some(
+            ams_m1_kernel::replay::symbol_at(&index, codepoint)
+                .map_err(|error| format!("{}: {error}", plan.spec))?,
+        ),
+        None => None,
+    };
     let modes = EnumerationModes {
         simulated_prospect: plan.simulated_prospect,
         follower_prefer_slots: plan.follower_prefer_slots,
@@ -1033,6 +1065,7 @@ fn replay_strings(plan: &ReplayPlan<'_>) -> Result<(), String> {
     let text_set = ams_m1_kernel::replay::TextSet {
         max_length: plan.max_length,
         families: families.as_deref(),
+        last,
         memo_windows: plan.memo_windows,
     };
     let answers = fanout::run_configs_replay(
@@ -1449,6 +1482,7 @@ mod tests {
         configs: Vec<String>,
         max_length: usize,
         families: Option<Vec<String>>,
+        last: Option<i64>,
         memo_dir: Option<String>,
         memo_windows: Option<usize>,
         threads: Option<usize>,
@@ -1470,6 +1504,7 @@ mod tests {
                 .collect(),
             max_length: plan.max_length,
             families: plan.families.as_deref().map(owned),
+            last: plan.last,
             memo_dir: plan.memo_dir.map(str::to_owned),
             memo_windows: plan.memo_windows,
             threads: plan.threads,
@@ -1480,7 +1515,7 @@ mod tests {
         })
     }
 
-    /// The replay takes configurations and mode flags as the fan-out does, requires a maximum length, and accepts a family list, a memo directory, and a memo ceiling.
+    /// The replay takes configurations and mode flags as the fan-out does, requires a maximum length, and accepts a family list, a last symbol, a memo directory, and a memo ceiling.
     #[test]
     fn a_replay_names_its_configurations_its_max_length_and_its_families() {
         let plan = replayed(&[
@@ -1506,7 +1541,24 @@ mod tests {
         let whole = replayed(&["spec.json", "out", "--configs=default", "--max-length=4"])
             .expect("no family list walks every text");
         assert_eq!(whole.families, None);
+        assert_eq!(whole.last, None, "no last symbol walks every text");
         assert_eq!(whole.memo_windows, None, "no ceiling never releases");
+        for (flag, codepoint) in [
+            ("--last=U+E650", 0xE650),
+            ("--last=U+0020", 0x20),
+            ("--last=U+1F600", 0x1F600),
+        ] {
+            let ending = replayed(&[
+                "spec.json",
+                "out",
+                "--configs=default",
+                "--max-length=5",
+                "--families=qsPea",
+                flag,
+            ])
+            .expect("a last symbol narrows the walk to the texts ending in it");
+            assert_eq!(ending.last, Some(codepoint), "{flag}");
+        }
         assert!(!whole.timings && whole.threads.is_none());
         let ceilinged = replayed(&[
             "spec.json",
@@ -1539,7 +1591,7 @@ mod tests {
         assert!(!pinned.simulated_prospect && !pinned.follower_prefer_slots);
     }
 
-    /// The replay rejects a missing, repeated, or non-positive maximum length; an empty or repeated family list or memo directory; a memo ceiling that is not a positive count, is repeated, or is given with a memo directory; a missing configuration set or output directory; and the flags it does not accept (the grain flag, the stamp, and a feature list). No other subcommand accepts the replay's own flags.
+    /// The replay rejects a missing, repeated, or non-positive maximum length; an empty or repeated family list or memo directory; a last symbol that is repeated or not `U+` and four to six uppercase hexadecimal digits; a memo ceiling that is not a positive count, is repeated, or is given with a memo directory; a missing configuration set or output directory; and the flags it does not accept (the grain flag, the stamp, and a feature list). No other subcommand accepts the replay's own flags.
     #[test]
     fn a_replay_without_a_max_length_or_with_a_flag_it_does_not_spell_is_refused() {
         assert!(replayed(&["spec.json", "out", "--configs=default"]).is_none());
@@ -1594,6 +1646,39 @@ mod tests {
                 "--max-length=4",
                 "--memo-dir=a",
                 "--memo-dir=b"
+            ])
+            .is_none()
+        );
+        for last in [
+            "--last=",
+            "--last=E650",
+            "--last=U+",
+            "--last=U+e650",
+            "--last=U+650",
+            "--last=U+1234567",
+            "--last=U+E65G",
+            "--last=u+E650",
+        ] {
+            assert!(
+                replayed(&[
+                    "spec.json",
+                    "out",
+                    "--configs=default",
+                    "--max-length=4",
+                    last
+                ])
+                .is_none(),
+                "{last} is not a code point"
+            );
+        }
+        assert!(
+            replayed(&[
+                "spec.json",
+                "out",
+                "--configs=default",
+                "--max-length=4",
+                "--last=U+E650",
+                "--last=U+E651"
             ])
             .is_none()
         );
@@ -1657,6 +1742,7 @@ mod tests {
         assert!(fanned(&["spec.json", "out", "--configs=default", "--families=qsPea"]).is_none());
         assert!(fanned(&["spec.json", "out", "--configs=default", "--memo-dir=memos"]).is_none());
         assert!(fanned(&["spec.json", "out", "--configs=default", "--memo-windows=5"]).is_none());
+        assert!(fanned(&["spec.json", "out", "--configs=default", "--last=U+E650"]).is_none());
         assert!(enumerated(&["spec.json", "--memo-windows=5"]).is_none());
     }
 

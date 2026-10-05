@@ -271,7 +271,7 @@ def _refusing_kernel(monkeypatch, bucket):
             case_lines = stdin.decode().splitlines()
             self.stdout = "".join(f"{line}\t{refusal}\n" for line in case_lines).encode()
 
-    monkeypatch.setattr(kernel_exec, "_run_kernel", lambda arguments, verb, stdin: Finished(stdin))
+    monkeypatch.setattr(kernel_exec, "_run_kernel", lambda arguments, verb, stdin, **rest: Finished(stdin))
 
 
 @pytest.mark.parametrize("bucket", ["E-INCOMPARABLE", "E-AMBIGUOUS"])

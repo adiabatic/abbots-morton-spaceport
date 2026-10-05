@@ -6,7 +6,7 @@
 //!
 //! The walk's memo is also the build's settle memo. After a passing walk, [`Replay::write_window_memo`] writes it per configuration: one row per distinct window, keyed on the input rune, the settled left, and the four raw rights, with every distinct settled record beside it. That is the key `conform._SettledWindowWalk` uses, in this crate's labels. The input is its `right_token_label`, or after a ZWNJ the ZWNJ lock's locked name. The rights are raw labels. The left is a boundary label where the reach stops and otherwise an index into the record table, because `cell_label` and `geometry.display_name` are two formats of one function of the cell and the Python side converts an index to its own label. The marker renaming also happens on the Python side (`conform.absorb_replay_memo`, over `model.raw_rename_map`), so the crate never needs a configuration's marker names and the file holds only raw labels and record indexes. The file is uncompressed, like every file this crate writes, and `run_m1.run_replay_strings` reads and deletes it in the same phase.
 //!
-//! Within the walk, each window key is settled once per configuration, and every later occurrence is a memo lookup. When the text set sets a ceiling, the walk clears its memo and the engine's memos together before any text that could exceed it. A window met again after a release is settled again with the same result, because every memo here is a pure cache and a left label names one left state. A walk can write its memo only if it never released it. A miss costs one engine call in the same process, with no batched round trip and no shaper, which is why walking every text is affordable here and not in Python. The cost still grows with the number of distinct raw windows, which is the alphabet size to the power of the maximum length, so each build walks to the conformance sweep's maximum length (`run_m1.REPLAY_MAX_LENGTH`) and deeper walks belong to the periodic sweep. Under the window locality rule in `doc/rebuild-design.md` §10, a rune edit needs only the texts naming an edited family or a rune whose records read one, so `run_m1` passes those families and the walk skips every other text.
+//! Within the walk, each window key is settled once per configuration, and every later occurrence is a memo lookup. When the text set sets a ceiling, the walk clears its memo and the engine's memos together before any text that could exceed it. A window met again after a release is settled again with the same result, because every memo here is a pure cache and a left label names one left state. A walk can write its memo only if it never released it. A miss costs one engine call in the same process, with no batched round trip and no shaper, which is why walking every text is affordable here and not in Python. The cost still grows with the number of distinct raw windows, which is the alphabet size to the power of the maximum length, so each build walks to the conformance sweep's maximum length (`run_m1.REPLAY_MAX_LENGTH`) and deeper walks belong to the periodic sweep. Under the window locality rule in `doc/rebuild-design.md` §10, a rune edit needs only the texts naming an edited family or a rune whose records read one, so `run_m1` passes those families and the walk skips every other text. A walk can also be narrowed to the texts ending in one alphabet symbol ([`TextSet::last`]), which is how the deep replay (`rebuild/tools/deep_replay.py`) runs in units of one configuration and one last symbol.
 
 use std::io::Write as _;
 use std::path::Path;
@@ -36,11 +36,13 @@ pub struct Report {
 /// How many disagreements a walk names before it stops: enough to show a pattern while keeping the error message short.
 const NAMED_DISAGREEMENTS: usize = 5;
 
-/// The texts one walk covers and the ceiling on its memos. The texts are every text of length 1 through `max_length` over the alphabet, narrowed to the texts naming one of `families` when a set is given.
+/// The texts one walk covers and the ceiling on its memos. The texts are every text of length 1 through `max_length` over the alphabet, narrowed to the texts ending in `last` when a symbol is given, and to the texts naming one of `families` when a set is given.
 #[derive(Clone, Copy, Debug)]
 pub struct TextSet<'a> {
     pub max_length: usize,
     pub families: Option<&'a [Sym]>,
+    /// The alphabet symbol every walked text ends in, or `None` for every last symbol. The walks over each symbol of the alphabet partition the texts between them, as the deep sweep's units do (`run_m1.sweep_units`). A text the narrowing leaves out is not walked and not counted, so `skipped` counts only the texts ending in `last` that the family filter leaves out.
+    pub last: Option<RightToken>,
     /// The most windows the walk keeps memoized, or one text's windows when the ceiling is below the maximum length. A text of `length` raw tokens settles at most `length` new windows, because formation only merges tokens, so before any text that could push the walk memo past the ceiling, the walk releases that memo and its engine's memos. `None` never releases.
     pub memo_windows: Option<usize>,
 }
@@ -51,6 +53,7 @@ impl<'a> TextSet<'a> {
         Self {
             max_length,
             families: None,
+            last: None,
             memo_windows: None,
         }
     }
@@ -60,6 +63,7 @@ impl<'a> TextSet<'a> {
         Self {
             max_length,
             families: Some(families),
+            last: None,
             memo_windows: None,
         }
     }
@@ -67,6 +71,23 @@ impl<'a> TextSet<'a> {
 
 /// The sweep's alphabet, after `labels.spec_alphabet`: every modeled letter with a code point and every registered boundary token, in code point order. The texts are walked in this order, so disagreements are found in it too. A rune's code point is its own record's, or its registry family's when the record has none; `labels.spec_alphabet` reads only the record's. Where both are set they agree, because `spec_load` rejects a rune whose code point differs from its family's.
 pub fn alphabet(index: &SpecIndex) -> Result<Vec<RightToken>, String> {
+    Ok(coded_alphabet(index)?
+        .into_iter()
+        .map(|(_, token)| token)
+        .collect())
+}
+
+/// The alphabet symbol whose code point is `codepoint`, a letter or a boundary token, which is how `--last=` names a symbol. A code point outside the alphabet is an error.
+pub fn symbol_at(index: &SpecIndex, codepoint: i64) -> Result<RightToken, String> {
+    coded_alphabet(index)?
+        .into_iter()
+        .find(|(coded, _)| *coded == codepoint)
+        .map(|(_, token)| token)
+        .ok_or_else(|| format!("U+{codepoint:04X} is not a symbol of the walk's alphabet"))
+}
+
+/// [`alphabet`] with each symbol's code point beside it.
+fn coded_alphabet(index: &SpecIndex) -> Result<Vec<(i64, RightToken)>, String> {
     let mut by_codepoint: Vec<(i64, RightToken)> = Vec::new();
     for (name, _) in index.runes() {
         if let Some(codepoint) = codepoint_of(index, *name) {
@@ -91,7 +112,7 @@ pub fn alphabet(index: &SpecIndex) -> Result<Vec<RightToken>, String> {
         ));
     }
     by_codepoint.sort_by_key(|(codepoint, _)| *codepoint);
-    Ok(by_codepoint.into_iter().map(|(_, token)| token).collect())
+    Ok(by_codepoint)
 }
 
 /// One modeled rune's code point: its own record's, else its registry family's.
@@ -497,6 +518,15 @@ impl<'i> Replay<'i> {
         let wanted = text_set
             .families
             .map(|families| wanted_positions(self.index, &alphabet, families));
+        let last = match text_set.last {
+            Some(symbol) => Some(
+                alphabet
+                    .iter()
+                    .position(|token| *token == symbol)
+                    .ok_or_else(|| "the last symbol is not in the walk's alphabet".to_owned())?,
+            ),
+            None => None,
+        };
         let mut report = Report::default();
         let mut positions: Vec<usize> = Vec::new();
         let mut raw: Vec<RightToken> = Vec::new();
@@ -504,6 +534,13 @@ impl<'i> Replay<'i> {
         for length in 1..=text_set.max_length {
             positions.clear();
             positions.resize(length, 0);
+            let free = match last {
+                Some(position) => {
+                    positions[length - 1] = position;
+                    length - 1
+                }
+                None => length,
+            };
             loop {
                 let named = wanted
                     .as_ref()
@@ -525,7 +562,7 @@ impl<'i> Replay<'i> {
                     report.skipped += 1;
                 }
                 let mut advanced = false;
-                for slot in (0..length).rev() {
+                for slot in (0..free).rev() {
                     positions[slot] += 1;
                     if positions[slot] < alphabet.len() {
                         advanced = true;
@@ -1164,6 +1201,78 @@ mod tests {
         let it = fixtures::sym(&index, "qsIt");
         let mut elsewhere = replay(&index, &perturbed);
         let _ = elsewhere.walk_texts(TextSet::naming(3, &[it]));
+    }
+
+    /// A walk narrowed to a last symbol walks the texts ending in it: one text of length 1, and with a family filter that names the symbol's own letter, every text it walks names that letter. The walks over every symbol partition a whole walk's texts, with or without a family filter, and a disagreement a whole walk finds is found by some symbol's walk. `symbol_at` names each symbol by its code point and refuses one outside the alphabet.
+    #[test]
+    fn a_last_symbol_walks_only_the_texts_ending_in_it() {
+        let index = fixtures::mini();
+        let rules = folded_rules(&index);
+        let tokens = alphabet(&index).expect("the fixture has an alphabet");
+        let pea = fixtures::sym(&index, "qsPea");
+        let ending = |last: RightToken, text_set: TextSet<'_>| {
+            replay(&index, &rules)
+                .walk_texts(TextSet {
+                    last: Some(last),
+                    ..text_set
+                })
+                .expect("the table is complete")
+        };
+        let whole = replay(&index, &rules)
+            .walk_texts(TextSet::all(4))
+            .expect("the table is complete");
+        let named = replay(&index, &rules)
+            .walk_texts(TextSet::naming(4, &[pea]))
+            .expect("the table is complete");
+        let (mut texts, mut named_texts, mut skipped) = (0, 0, 0);
+        for symbol in &tokens {
+            assert_eq!(ending(*symbol, TextSet::all(1)).texts, 1);
+            let report = ending(*symbol, TextSet::all(4));
+            assert_eq!(report.texts, 1 + 6 + 36 + 216);
+            assert_eq!(report.skipped, 0);
+            texts += report.texts;
+            let narrowed = ending(*symbol, TextSet::naming(4, &[pea]));
+            assert_eq!(narrowed.texts + narrowed.skipped, report.texts);
+            named_texts += narrowed.texts;
+            skipped += narrowed.skipped;
+            if let Some(rune) = symbol.rune() {
+                let own = ending(*symbol, TextSet::naming(4, &[rune]));
+                assert_eq!((own.texts, own.skipped), (report.texts, 0));
+            }
+        }
+        assert_eq!(texts, whole.texts);
+        assert_eq!((named_texts, skipped), (named.texts, named.skipped));
+
+        for symbol in &tokens {
+            let codepoint = coded_alphabet(&index)
+                .expect("the fixture has an alphabet")
+                .into_iter()
+                .find(|(_, token)| token == symbol)
+                .map(|(codepoint, _)| codepoint)
+                .expect("every symbol has a code point");
+            assert_eq!(symbol_at(&index, codepoint), Ok(*symbol));
+        }
+        let outside = symbol_at(&index, 0x41).expect_err("U+0041 is no symbol of the fixture");
+        assert!(outside.contains("U+0041"), "{outside}");
+
+        let mut perturbed = folded_rules(&index);
+        let input = Rc::clone(&perturbed[0].input_glyph);
+        perturbed[0].outcome = Rc::from(format!("{input}.perturbed").as_str());
+        let found: Vec<String> = tokens
+            .iter()
+            .filter_map(|symbol| {
+                replay(&index, &perturbed)
+                    .walk_texts(TextSet {
+                        last: Some(*symbol),
+                        ..TextSet::all(4)
+                    })
+                    .err()
+            })
+            .collect();
+        assert!(
+            found.iter().any(|error| error.contains(".perturbed")),
+            "{found:?}"
+        );
     }
 
     /// A ligature is named through its components' positions, so a walk narrowed to the ligature still reaches every text that could form it. The ligature has no code point, so it has no position of its own.

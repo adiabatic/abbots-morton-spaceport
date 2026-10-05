@@ -18,6 +18,8 @@ The settlement and replay functions share the memoized spec dump. `replay_string
 
 The codecs between the transport lines and the pipeline's model types live here too, because every settlement caller needs them: `case_line` for case lines, and `trace_of` and `_settled_of_fields` for case results. A window the crate refuses returns `{raise, message}`. That becomes a `settle.SettleError` carrying the crate's error code as its bucket and its message verbatim, so a caller can sort refusals without parsing text. Any other malformed case result means the kernel interface itself is wrong and raises `KernelRunError`.
 
+Every invocation is waited for up to a limit, and one that has not answered by then is killed and raises `KernelRunError` (`_run_kernel`'s `timeout`). The verbs that answer in seconds or minutes at any alphabet size wait `TIMEOUT`. `build-tables` and `replay-strings` grow with the alphabet, so each derives its limit at the call from the size of the spec's alphabet (`build_tables_timeout`, `replay_timeout`), and neither waits less than `TIMEOUT`.
+
 Every invocation's result is checked strictly against the CLI contract. Exit 2 is a usage error, which for a well-formed invocation means the subcommand is missing or the flag sets on the two sides have diverged. Any other nonzero exit is the kernel rejecting its inputs. Output on stderr after a clean exit is a failure unless timings were requested. In that case every `[t]` line is copied to this process's stderr verbatim, so the cycle journal records the kernel's per-configuration wall-clock times the same way it records Python's, and any other stderr line is still a failure. Enumeration writes its results to files, so any stdout output there is a failure. `build-tables` also writes files but reports its digests on stdout, one JSON object per line, and the configurations they name are checked against the ones requested. `guard-sweep` writes every verdict to stdout as TSV, which is parsed strictly.
 """
 
@@ -40,7 +42,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import IO
 
-from rebuild.pipeline import kernel_io, settle, table
+from rebuild.pipeline import kernel_io, labels, settle, table
 from rebuild.pipeline.model import CellId, Provenance, ResolvedSpec, Settled, feature_config_token
 from rebuild.pipeline.table import DecisionTable, FixpointProduct, JoinTable
 from rebuild.tools import memory_budget
@@ -143,7 +145,18 @@ def replay_threads_default(*, coresident_bytes: float = 0, total_bytes: int | No
     )
 
 
+# How long a crate call that answers in seconds or minutes at any alphabet size is waited for before `_run_kernel` kills it: `enumerate-configs`, which only the tests run, `settle-cases`, `guard-sweep`, `replay-emitted`, and `cargo build`. A limit is there to stop a crate that has hung, not to bound a slow one, and a call it kills records nothing. So `build-tables` and `replay-strings`, whose time grows with the alphabet, derive their limits from it at the call (`build_tables_timeout`, `replay_timeout`), and neither waits less than this.
 TIMEOUT = 1800
+# The factor between the duration `build_tables_timeout` or `replay_timeout` scales from a measurement and the limit it returns. It covers what the scaling leaves out: the 12-core M4 Pro Mac mini (`doc/fleet.md`), which has no measured duration; a call that shares its cores with another pool; and for the replay, the growth in what a text costs as the tables grow, which the full-alphabet projection puts at up to 1.3 times. A limit set too low kills a healthy call and loses its whole work, while one set too high only delays the error a hung crate gets, so the margin errs high.
+KERNEL_TIMEOUT_MARGIN = 3
+# The alphabet the two measured durations below were taken over: the 44-rune alphabet's 34 letters and three boundary tokens (`labels.spec_alphabet`).
+MEASURED_SYMBOLS = 37
+# The slowest whole-set table build at MEASURED_SYMBOLS: one `build-tables` over every settlement configuration one wide, from scratch with memo output, 465.7 s on the 18-core M5 Pro 48 GiB MacBook Pro (`doc/fleet.md`), the slowest of the whole-wave readings DELTA_SLOT_BYTES cites. Every wider build of the same alphabet took less.
+BUILD_TABLES_SECONDS = 465.7
+# How the table build's time grows with the alphabet: as the symbol count to this power, the number of slots in a window (its input, its left and four rights). It gives the 35th, 36th and 37th symbols 19.0%, 18.4% and 17.9% more time, against the 16.4%, 15.5–16.3% and 18.8% that fresh builds of the same code grew by when ·Jay, ·Ye and ·Way were added, and from 37 symbols to the full alphabet's 47 it gives 4.2 times, above the 3.6 to 3.8 times that is the pessimistic projection of that growth.
+BUILD_TABLES_GROWTH = 6
+# What one text costs the replay at MEASURED_SYMBOLS: the slowest of five walks over every text at maximum length 5, one configuration each, run at once in one `replay-strings` process at the deep replay's memo ceiling on the 18-core M5 Pro 48 GiB MacBook Pro (`doc/fleet.md`), 71,270,177 texts in 542.3 s (`var/keep/issue-495/replay/replay-deep-all.log`). The build's own replay at maximum length 4 costs less a text: 9.9 s for 1,926,220 texts at most, in REPLAY_PEAK_BYTES's wide run.
+REPLAY_TEXT_SECONDS = 542.3 / 71_270_177
 # On macOS, where cargo copies the binary into target/release instead of hard-linking it, every `cargo build` replaces it there (it removes the file, then copies the new one in) even when nothing recompiled, so a build in one process can make another process's exec miss the file for an instant. This lock orders the two: a build holds it exclusively for the whole `cargo build`, and an invocation holds it shared for the spawn only, never for the run.
 LOCK_PATH = MANIFEST.parent / "target" / ".ams-kernel-relink.lock"
 # How many lines of a failed build's stderr the exception includes: cargo reports the error in its last few lines, after the full compilation log.
@@ -187,6 +200,20 @@ _SPEC_DUMPS_LOCK = threading.Lock()
 _GUARD_SWEEPS: OrderedDict[int, tuple[ResolvedSpec, FormationGuard]] = OrderedDict()
 _GUARD_SWEEPS_CAP = 4
 _GUARD_SWEEPS_LOCK = threading.Lock()
+
+
+def build_tables_timeout(symbols: int) -> float:
+    """How long one `build-tables` call over an alphabet of `symbols` symbols is waited for: `KERNEL_TIMEOUT_MARGIN` times `BUILD_TABLES_SECONDS` scaled by `symbols` over `MEASURED_SYMBOLS` to the `BUILD_TABLES_GROWTH` power, and at least `TIMEOUT`. It takes no width or configuration count, because the duration it scales is the whole set one wide, the slowest form the build runs in."""
+    scaled = BUILD_TABLES_SECONDS * (symbols / MEASURED_SYMBOLS) ** BUILD_TABLES_GROWTH
+    return max(float(TIMEOUT), KERNEL_TIMEOUT_MARGIN * scaled)
+
+
+def replay_timeout(*, symbols: int, max_length: int, configs: int, threads: int, last: bool) -> float:
+    """How long one `replay-strings` call is waited for: `KERNEL_TIMEOUT_MARGIN` times what its walks take at `REPLAY_TEXT_SECONDS` a text, and at least `TIMEOUT`. A walk covers every text of length 1 to `max_length` over `symbols` symbols, or with `last` the texts ending in one of them; a family list only narrows that, so the limit counts every text. A call's workers each walk their configurations one after another, so it takes as many walks' time as the most configurations one worker walks: `configs` over the width, rounded up, where the width is the smallest of `threads`, `configs` and the usable cores, as the crate caps it."""
+    texts = sum(symbols ** (length - 1 if last else length) for length in range(1, max_length + 1))
+    width = max(1, min(threads, configs, memory_budget.usable_cores()))
+    rounds = -(-configs // width)
+    return max(float(TIMEOUT), KERNEL_TIMEOUT_MARGIN * REPLAY_TEXT_SECONDS * texts * rounds)
 
 
 class KernelBuildError(RuntimeError):
@@ -254,25 +281,29 @@ def _spawn_kernel(arguments: list[str], *, stdin: bool) -> subprocess.Popen:
         ) from None
 
 
-def _no_answer(arguments: list[str], verb: str) -> KernelRunError:
+def _no_answer(arguments: list[str], verb: str, timeout: float) -> KernelRunError:
     return KernelRunError(
-        f"the kernel gave no answer within {TIMEOUT} seconds on {verb} ({' '.join(arguments)})"
+        f"the kernel gave no answer within {timeout:.0f} seconds on {verb} ({' '.join(arguments)})"
     )
 
 
-def _run_kernel(arguments: list[str], verb: str, stdin: bytes | None = None) -> subprocess.CompletedProcess:
-    """Run the binary to completion (`_spawn_kernel`) and return its exit code and output. With `stdin`, the child's stdin carries those bytes and is then closed. Raises `KernelRunError` for a missing binary or a timeout."""
+def _run_kernel(
+    arguments: list[str], verb: str, stdin: bytes | None = None, *, timeout: float
+) -> subprocess.CompletedProcess:
+    """Run the binary to completion (`_spawn_kernel`) and return its exit code and output, waiting at most `timeout` seconds, the limit the caller states for its verb. With `stdin`, the child's stdin carries those bytes and is then closed. Raises `KernelRunError` for a missing binary or a call that has not answered within `timeout`, after killing it."""
     process = _spawn_kernel(arguments, stdin=stdin is not None)
     try:
-        stdout, stderr = process.communicate(stdin, timeout=TIMEOUT)
+        stdout, stderr = process.communicate(stdin, timeout=timeout)
     except subprocess.TimeoutExpired:
         process.kill()
         process.communicate()
-        raise _no_answer(arguments, verb) from None
+        raise _no_answer(arguments, verb, timeout) from None
     return subprocess.CompletedProcess(arguments, process.returncode, stdout, stderr)
 
 
-def _run_kernel_reaped(arguments: list[str], verb: str) -> tuple[subprocess.CompletedProcess, int | None]:
+def _run_kernel_reaped(
+    arguments: list[str], verb: str, *, timeout: float
+) -> tuple[subprocess.CompletedProcess, int | None]:
     """`_run_kernel` with no stdin, returning beside the result the child process's own peak RSS in bytes (`peak_rss.reap_peak_rss_bytes`), or None where it cannot be read. `communicate` reaps the child with `waitpid`, which discards its resource usage, so this drains each pipe on a thread of its own and reaps the child with `os.wait4` once both are closed. The crate starts no process of its own, so the figure is the crate's. Raises `KernelRunError` for a missing binary or a timeout."""
     process = _spawn_kernel(arguments, stdin=False)
     assert process.stdout is not None and process.stderr is not None
@@ -288,7 +319,7 @@ def _run_kernel_reaped(arguments: list[str], verb: str) -> tuple[subprocess.Comp
     ]
     for reader in readers:
         reader.start()
-    deadline = time.monotonic() + TIMEOUT
+    deadline = time.monotonic() + timeout
     for reader in readers:
         reader.join(max(0.0, deadline - time.monotonic()))
     if any(reader.is_alive() for reader in readers):
@@ -296,7 +327,7 @@ def _run_kernel_reaped(arguments: list[str], verb: str) -> tuple[subprocess.Comp
         for reader in readers:
             reader.join()
         process.wait()
-        raise _no_answer(arguments, verb)
+        raise _no_answer(arguments, verb, timeout)
     peak = reap_peak_rss_bytes(process)
     returncode = process.wait()
     return subprocess.CompletedProcess(arguments, returncode, drained["stdout"], drained["stderr"]), peak
@@ -404,7 +435,7 @@ def enumerate_configs(
     ]
     if timings:
         arguments.append("--timings")
-    finished = _run_kernel(arguments, "enumerate-configs")
+    finished = _run_kernel(arguments, "enumerate-configs", timeout=TIMEOUT)
     errors = finished.stderr.decode(errors="replace").strip()
     if finished.returncode == 2:
         raise KernelRunError(
@@ -442,6 +473,7 @@ def build_table_files(
     *,
     inputs: str,
     threads: int,
+    symbols: int,
     timings: bool = False,
     timings_tag: str | None = None,
     default_memo_sharing: bool = True,
@@ -457,6 +489,8 @@ def build_table_files(
     One process handles every named configuration because the configurations after `default` are enumerated as deltas over it. `default` enumerates first and keeps its trace memo. Each other configuration reads that memo for every window whose key names none of its own unlocking runes and whose settlement read none of them, and settles only the rest, `threads` worker slots at a time, with `default`'s fold preparation in one of them. `rebuild/kernel-rs/src/memo.rs` gives the argument; the window locality rule, applied across configurations, makes the shared results exact. `default_memo_sharing=False` enumerates every configuration from scratch, and `rebuild/test_kernel_exec.py` checks that it writes the same bytes as the delta build.
 
     The memo is also carried across builds. `previous_memos` is a directory of a previous build's plain `memo-<config>.tsv` files. They are read with `edited` (the runes whose content changed since) and `moved_classes` (the predicate classes whose membership changed) excluded, so a window whose settlement read none of them settles as it did then. The crate's read journal records what each entry read (`rebuild/kernel-rs/src/index.rs`). `memo_stamp` is the stamp this build writes its own plain `memo-<config>.tsv` files under, beside the tables; `run_m1.build_tables` packs them into `.gz` artifacts. Python decides which files may be read and which runes count as edited (`run_m1.previous_memos`), from the stamp in each head; the crate checks only that a file matches its configuration and mode set.
+
+    `symbols` is the size of the spec's alphabet (`labels.spec_alphabet`), which sets how long the call is waited for (`build_tables_timeout`).
 
     The digests are returned on stdout, one JSON object per line in the order the configurations were named, because a digest is a value the caller keeps and reports, not a separate artifact. Raises `KernelRunError` for every kind of failure the CLI contract distinguishes, and for a clean exit whose output names a different set of configurations from the one requested.
     """
@@ -482,7 +516,7 @@ def build_table_files(
         arguments.append(f"--memo-stamp={memo_stamp}")
     if timings:
         arguments.append("--timings")
-    finished = _run_kernel(arguments, "build-tables")
+    finished = _run_kernel(arguments, "build-tables", timeout=build_tables_timeout(symbols))
     errors = finished.stderr.decode(errors="replace").strip()
     if finished.returncode == 2:
         raise KernelRunError(
@@ -565,9 +599,10 @@ def replay_strings(
     timings: bool = False,
     memo_dir: Path | None = None,
     memo_windows: int | None = None,
+    last: str | None = None,
     on_peak: Callable[[int], None] | None = None,
 ) -> dict[str, dict[str, int]]:
-    """Replay every named configuration's persisted rules under `out_dir` over every text up to `max_length`, and return `{config: {texts, windows, skipped}}` on a clean walk. With `families`, only the texts naming one of those runes are walked. Rules apply first-match with the settled left fed forward, and each window is checked against the crate's own settlement. `windows` counts window settles: each distinct window once on a walk with no ceiling, and again each time it is met after a release. The spec is the same memoized dump the settlement functions and the guard sweep read.
+    """Replay every named configuration's persisted rules under `out_dir` over every text up to `max_length`, and return `{config: {texts, windows, skipped}}` on a clean walk. With `families`, only the texts naming one of those runes are walked. With `last`, one symbol of the spec's alphabet (`labels.spec_alphabet`), only the texts ending in it are walked, as in the deep sweep's units (`run_m1.sweep_units`): the walks over every symbol partition the texts between them, and `skipped` counts only the texts ending in it that `families` leaves out. It reaches the subcommand as `--last=` and the symbol's code point, and a string that is not one character raises `ValueError` before anything is spawned, as does `last` beside `memo_dir`, since a memo written from one symbol's texts would hold only part of a configuration's windows. Rules apply first-match with the settled left fed forward, and each window is checked against the crate's own settlement. `windows` counts window settles: each distinct window once on a walk with no ceiling, and again each time it is met after a release. The spec is the same memoized dump the settlement functions and the guard sweep read.
 
     A disagreement or a refused window raises `ReplayDisagreement` with the crate's message. Every other failure the CLI contract distinguishes raises `KernelRunError`, as does a clean exit whose output names a different set of configurations from the one requested. An empty `families` raises `ValueError` before anything is spawned, because the subcommand treats it as a usage error and a caller with nothing to walk has nothing to ask.
 
@@ -577,11 +612,17 @@ def replay_strings(
     """
     if families is not None and not families:
         raise ValueError("replay_strings takes a non-empty family list or None for every text")
+    if last is not None and len(last) != 1:
+        raise ValueError(f"replay_strings takes one symbol as the last, not {last!r}")
     if memo_windows is not None and memo_windows < 1:
         raise ValueError(f"replay_strings takes a memo ceiling of at least one window, not {memo_windows}")
     if memo_windows is not None and memo_dir is not None:
         raise ValueError(
             "replay_strings takes a memo directory or a memo ceiling, not both: a walk that writes its memo walks with no ceiling, since a released memo holds only the windows settled since the release"
+        )
+    if last is not None and memo_dir is not None:
+        raise ValueError(
+            "replay_strings takes a memo directory or a last symbol, not both: a walk over the texts ending in one symbol settles only part of its configuration's windows"
         )
     spec_path = _spec_dump(spec)
     ensure_built()
@@ -597,13 +638,22 @@ def replay_strings(
     ]
     if families is not None:
         arguments.append(f"--families={','.join(families)}")
+    if last is not None:
+        arguments.append(f"--last=U+{ord(last):04X}")
     if memo_dir is not None:
         arguments.append(f"--memo-dir={memo_dir}")
     if memo_windows is not None:
         arguments.append(f"--memo-windows={memo_windows}")
     if timings:
         arguments.append("--timings")
-    finished, peak = _run_kernel_reaped(arguments, "replay-strings")
+    timeout = replay_timeout(
+        symbols=len(labels.spec_alphabet(spec)),
+        max_length=max_length,
+        configs=len(configs),
+        threads=threads,
+        last=last is not None,
+    )
+    finished, peak = _run_kernel_reaped(arguments, "replay-strings", timeout=timeout)
     errors = finished.stderr.decode(errors="replace").strip()
     if finished.returncode == 2:
         raise KernelRunError(
@@ -795,7 +845,9 @@ def _settle_cases(
     if settled_only:
         arguments.append("--settled-only")
     arguments.extend(settlement_flags(modes))
-    finished = _run_kernel(arguments, "settle-cases", "".join(line + "\n" for line in cases).encode())
+    finished = _run_kernel(
+        arguments, "settle-cases", "".join(line + "\n" for line in cases).encode(), timeout=TIMEOUT
+    )
     errors = finished.stderr.decode(errors="replace").strip()
     if finished.returncode == 2:
         raise KernelRunError(
@@ -1188,7 +1240,7 @@ def _guard_verdicts(spec: ResolvedSpec, spec_path: Path, config: str | None = No
     arguments = [str(BINARY), "guard-sweep", str(spec_path)]
     if config is not None:
         arguments.append(f"--config={config}")
-    finished = _run_kernel(arguments, "guard-sweep")
+    finished = _run_kernel(arguments, "guard-sweep", timeout=TIMEOUT)
     errors = finished.stderr.decode(errors="replace").strip()
     if finished.returncode == 2:
         raise KernelRunError(
@@ -1316,7 +1368,14 @@ def build_tables(spec: ResolvedSpec, features: frozenset[str]) -> tuple[Decision
         ensure_built()
         config = feature_config_token(features)
         tables = directory / "tables"
-        build_table_files(spec_path, tables, [config], inputs=UNSTAMPED_WINDOWS, threads=1)
+        build_table_files(
+            spec_path,
+            tables,
+            [config],
+            inputs=UNSTAMPED_WINDOWS,
+            threads=1,
+            symbols=len(labels.spec_alphabet(spec)),
+        )
         with (tables / f"windows-{config}.tsv").open("rt", encoding="utf-8") as handle:
             _stamp, decision = table.read_windows(handle)
         return decision, table.read_join_tsv(tables / f"joins-{config}.tsv")

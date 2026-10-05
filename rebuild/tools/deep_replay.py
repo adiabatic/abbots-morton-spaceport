@@ -1,20 +1,23 @@
 """The cheap form of the deep sweep: the crate's `replay-strings` walk at one letter past the per-edit sweep's maximum length, over the texts that name the runes whose content changed since the last recorded walk. Every per-edit gate walks at maximum length 4. At that length a text reaches a letter's third lookahead slot only behind a boundary on the left, and its fourth slot never, so a fault confined to the deep slots behind a letter on the left is invisible to all of them (§10's fault table in `doc/rebuild-design.md`, row 4). `make conform-deep` can see such a fault in hours of HarfBuzz sweeping. This tool sees it in minutes, because it settles only what an edit could have changed and shapes nothing.
 
-It is not part of the per-edit path because of its cost. On the live alphabet, a walk over the texts that name one family costs each configuration several times what the build's own full replay at maximum length 4 costs (`make cycle-timings ARGS='--by-step'` reports every run under `replay-deep`, the check name this tool records itself under). Running it inside `run_m1` would multiply every rune-edit build's replay time. The cycle instead reports whether it is due beside the deep sweep (`artifact_cycle.deep_replay_status`), and `make replay-deep` runs it. The window ceiling (`DEEP_REPLAY_MEMO_WINDOWS`) keeps a walk's memory flat as the corpus grows, apart from the settled records and labels, which are never released and grow with the number of distinct records. At the measured ceiling every configuration walks at once on either fleet machine, which `rebuild/test_deep_replay.py` checks.
+It is not part of the per-edit path because of its cost. On the live alphabet, a walk over the texts that name one family costs each configuration several times what the build's own full replay at maximum length 4 costs (`make cycle-timings ARGS='--by-step'` reports every run under `replay-deep`, the check name this tool records itself under). Running it inside `run_m1` would multiply every rune-edit build's replay time. The cycle instead reports whether it is due beside the deep sweep (`artifact_cycle.deep_replay_status`), and `make replay-deep` runs it. The window ceiling (`DEEP_REPLAY_MEMO_WINDOWS`) keeps a walk's memory flat as the corpus grows, apart from the settled records and labels, which are never released and grow with the number of distinct records.
+
+The walk runs in units, as the deep sweep does (`walk_units`): each settlement configuration once per alphabet symbol, over the texts that end in that symbol, each unit one `replay-strings` call of its own on one thread (`kernel_exec.replay_strings` with `last`). A `--families` walk narrows every unit to the texts naming those runes. Every window whose right slots reach a text's end names the unit's symbol, so a unit keeps that reuse within its memo, and only the windows a boundary cuts short before the text's end are settled again in each unit whose texts reach them. The units go to a pool of `replay_threads` at once: the machine's memory over `DEEP_REPLAY_PEAK_BYTES`, capped at its cores, so the walk is not held to one core per configuration, and each crate call walks a fraction of a configuration's texts, far inside its limit (`kernel_exec.replay_timeout`). Each configuration's counts merge over its units, and before anything is recorded its texts and skipped texts must sum to every text of its lengths (`run_m1.config_texts`), so a lost or doubled unit cannot pass as a green. A disagreement in any unit stops the units not yet started; the units already running finish, and every disagreement they found is reported. The check line's peak is the largest unit's crate process (`peak_rss.peak_rss_children_bytes`), not the sum of the units running at once.
 
 The green record (`cycle_paths.DEEP_REPLAY_GREEN`) stores every rune's prose-insensitive digest and one maximum length, the least depth any of its runes was walked to. A family walk deeper than the record therefore leaves it at the depth of the runes the walk carried over, and a shallower walk, or a deep sweep's refresh, over runes whose digests and structure stamp match the record keeps the deeper length; `artifact_cycle.record_deep_replay_green` states the rule, and the green line names the length the record holds when it differs from the walk's. The next walk covers the runes whose digest changed since, closed under `spec_load.rune_closure` (every rune whose records read a changed rune's content), which the window locality rule in `doc/rebuild-design.md` permits. That rule has one exception a narrowed walk must honor, the imported windows (§10): each configuration's table takes in the windows other configurations keep live, so a rune edit can reshape a configuration's rules for texts that name no edited rune. The record therefore stores the tables' imported windows (`artifact_cycle.tables_imports_digest`), and when they differ from the tables on disk, a walk without `--families` walks every text, the status reports it due, and a family walk carries no other rune's claim. A walk without `--families` or `--all` deeper than the record's maximum length (or over a record without one) walks every text instead, whether or not a rune moved, because only a walk over every text raises the record's depth; it says so before it starts. The record also stores the replay structure stamp, but the stamp never widens the walk: a code or structure change is for the deep sweep over every text, and the cycle's deep-sweep line reports it. The stamp only decides whether a walk keeps the record's deeper length for the runes it covers. A walk that finds a disagreement withdraws what the record claims for the runes it walked (`withdraw_walked`). After a family walk the status reports the walked runes due and the next bare walk covers them again; after a walk over every text, whether `--all` or a bare walk past the record's depth, the record is gone and the status reports `never-run`.
 
-Run as: uv run python -m rebuild.tools.deep_replay, or through `make replay-deep`. `--families` names the runes to walk instead of reading them from the record, at any depth. `--all` walks every text at any depth, which on the live alphabet takes minutes on the 18-core M5 Pro (`doc/fleet.md`).
+Run as: uv run python -m rebuild.tools.deep_replay, or through `make replay-deep`. `--families` names the runes to walk instead of reading them from the record, at any depth. `--all` walks every text at any depth, which on the live alphabet takes minutes on the 18-core M5 Pro (`doc/fleet.md`). `--threads` sets how many units walk at once.
 """
 
 from __future__ import annotations
 
 import argparse
-import functools
 import os
 import re
 import sys
 import time
+from collections.abc import Sequence
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -22,8 +25,10 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from rebuild.pipeline import conform, fingerprint, kernel_exec, run_m1, spec_load
+from rebuild.pipeline.model import ResolvedSpec
+from rebuild.pipeline.run_m1 import SweepUnit
 from rebuild.pipeline.spec_load import load_default_spec
-from rebuild.tools import cycle_paths, memory_budget, peak_rss
+from rebuild.tools import console, cycle_paths, memory_budget, peak_rss
 from rebuild.tools.artifact_cycle import (
     CONFORM_MAX_LENGTH_DEFAULT,
     DEEP_REPLAY_MAX_LENGTH_DEFAULT,
@@ -37,47 +42,122 @@ from rebuild.tools.artifact_cycle import (
 from rebuild.tools.cycle_timings import CheckResult, record_check, record_pool
 from rebuild.tools.deep_sweep import tables_stamped
 
-# The most windows one configuration's walk holds memoized (the crate's `--memo-windows`; `AMS_DEEP_REPLAY_MEMO_WINDOWS` overrides it). Before any text that could take the walk memo past it, the walk releases that memo and its engine's memos and continues. It is counted in windows, not bytes, so a release happens at the same point on every machine and the printed window count depends only on the rune set. The value is 7/8 of 2^23, the most entries a hash table of 2^23 buckets holds before it doubles. The memo never passes the ceiling, so it fills that table and never doubles into a larger one that a release's `clear()` would keep; the `--cache-stats` rows of the walks cited under DEEP_REPLAY_PEAK_BYTES show the walk memo at that capacity at every release and at the end of every walk, never above it. Three capacity steps were measured (1,835,008, 3,670,016 and 7,340,032 windows). This is the largest of the three, and its measured peak, as DEEP_REPLAY_PEAK_BYTES derives it, stays below the 8.71 GB per walk at which the 48 GiB machines drop from five walks to four, as the other two do. Its cost, over `default` at maximum length 5 with `--families=qsAh` on the alphabet with ·Ye, on the 18-core M5 Pro 48 GiB MacBook Pro (`doc/fleet.md`): 15,469,605 window settles against the uncapped walk's 14,748,571 distinct windows (4.9% more), in 45.4 s against the uncapped 42.8 s. The two smaller steps settle 10.5% and 18.1% more, in 46.0 s and 48.6 s, so a larger ceiling costs fewer settles and less wall-clock time.
+# The most windows one walk holds memoized (the crate's `--memo-windows`; `AMS_DEEP_REPLAY_MEMO_WINDOWS` overrides it). Before any text that could take the walk memo past it, the walk releases that memo and its engine's memos and continues. It is counted in windows, not bytes, so a release happens at the same point on every machine and the printed window count depends only on the rune set. The value is 7/8 of 2^23, the most entries a hash table of 2^23 buckets holds before it doubles. The memo never passes the ceiling, so it fills that table and never doubles into a larger one that a release's `clear()` would keep; the `--cache-stats` rows of the solo walks cited under DEEP_REPLAY_PEAK_BYTES show the walk memo at that capacity at every release and at the end of every walk, never above it. Three capacity steps were measured (1,835,008, 3,670,016 and 7,340,032 windows). This is the largest of the three, and the peak it allows, as DEEP_REPLAY_PEAK_BYTES derives it, sets how many units walk at once (`replay_threads`). Its cost, over `default` at maximum length 5 with `--families=qsAh` on the alphabet with ·Ye, on the 18-core M5 Pro 48 GiB MacBook Pro (`doc/fleet.md`): 15,469,605 window settles against the uncapped walk's 14,748,571 distinct windows (4.9% more), in 45.4 s against the uncapped 42.8 s. The two smaller steps settle 10.5% and 18.1% more, in 46.0 s and 48.6 s, so a larger ceiling costs fewer settles and less wall-clock time.
 DEEP_REPLAY_MEMO_WINDOWS = 7_340_032
 
-# What one configuration's walk holds at its peak under DEEP_REPLAY_MEMO_WINDOWS. It holds the walk memo, at most the ceiling. It holds the engine's trace, candidate, prospect, closure, delta and reads memos, with no ranking (`Replay::new` turns it off); these are released with the walk memo and hold what the walk's misses settled since the last release, so the ceiling bounds them only through the engine entries each walk window costs. The trace memo also holds the follower windows a simulated prospect settles, so it grows past the walk memo: at the first release of the solo walk below it holds 13,932,782 entries beside the walk memo's 7,340,028, 95% of what its table holds before it doubles, and at the second 17,625,355 in a table that had doubled to hold 29,360,128, so a walk whose windows each cost more trace entries doubles that table before the walk memo reaches the ceiling. A release replaces the trace table with an empty one (`Engine::release_memos`), but the resident set does not fall across the second release (2.89 GB before it, 2.90 GB after). It also holds what the walk never releases: the settled records, their labels and the input labels (471 records and 558 labels at the end of that walk), which grow with distinct records, not with windows settled.
-# Measured at 44 runes on the 18-core M5 Pro 48 GiB MacBook Pro (`doc/fleet.md`): one `replay-strings` over `default` alone at maximum length 5, `--families=qsAh`, `--threads=1`, `--memo-windows` at the ceiling and `--cache-stats`, under `/usr/bin/time -l`, peaks at 2.84 GB of footprint and 2.90 GB maxrss, walking 9,076,397 texts in 17,427,303 window settles over two releases in 49.6 s. The walk over every text, `make replay-deep ARGS='--all'` under `/usr/bin/time -l`, walks every settlement configuration at once at its width of five and reads 14.35 GB maxrss for the crate process (2.87 GB a configuration), with 6.5 s of system time against 2,671 s of user time and no swaps, each configuration walking 71,270,177 texts in 528.7 to 542.3 s: the five walks share memory without paging. With ·Ye the same solo walk read 2.85 GB of footprint and 2.90 GB maxrss over 8,127,145 texts, and five qsAh walks at once 2.84 GB a configuration, so the peak stays level as the corpus grows. The uncapped walk read 5.60 GB with ·Ye, and 20.52 GB with the ranking on.
-# The constant is the higher of the solo footprint and maxrss, plus a quarter, rounded up to the tenth. The margin covers growth in the holders the walk never releases and run-to-run spread, and it errs high because a per-unit cost that is too low puts the machine into swap. At this figure both fleet machines walk every settlement configuration at once, which `rebuild/test_deep_replay.py` checks. The deep-replay-walk row of `make job-costs` checks it against each walk's share of the crate's peak (`record_walk_peak`). Re-measure it whenever the ceiling changes, the alphabet grows, the trace memo's key or entry or the walk memo's key changes shape, or the engine's memos change what they hold or how many entries each walk window costs them; the last three change a walk's peak at a fixed ceiling. Repeat both runs above: the solo walk, taking the higher of its footprint and maxrss, and the walk over every settlement configuration at once, which `make replay-deep ARGS='--all'` is. In the second, a system time that rises against the user time, or swaps, means the width is causing paging. The logs are under `var/keep/issue-495/replay/`, and those taken with ·Ye under `var/keep/issue-274/m5pro-48gib/`.
+# What one walk, one unit's crate process (`walk_units`), holds at its peak under DEEP_REPLAY_MEMO_WINDOWS. It holds the walk memo, at most the ceiling. It holds the engine's trace, candidate, prospect, closure, delta and reads memos, with no ranking (`Replay::new` turns it off); these are released with the walk memo and hold what the walk's misses settled since the last release, so the ceiling bounds them only through the engine entries each walk window costs. The trace memo also holds the follower windows a simulated prospect settles, so it grows past the walk memo: at the first release of the solo walk below it holds 13,932,782 entries beside the walk memo's 7,340,028, 95% of what its table holds before it doubles, and at the second 17,625,355 in a table that had doubled to hold 29,360,128, so a walk whose windows each cost more trace entries doubles that table before the walk memo reaches the ceiling. A release replaces the trace table with an empty one (`Engine::release_memos`), but the resident set does not fall across the second release (2.89 GB before it, 2.90 GB after). It also holds what the walk never releases: the settled records, their labels and the input labels (471 records and 558 labels at the end of that walk), which grow with distinct records, not with windows settled.
+# Measured at 44 runes on the 18-core M5 Pro 48 GiB MacBook Pro (`doc/fleet.md`): one `replay-strings` over `default` alone at maximum length 5, `--families=qsAh`, `--threads=1`, `--memo-windows` at the ceiling and `--cache-stats`, under `/usr/bin/time -l`, peaks at 2.84 GB of footprint and 2.90 GB maxrss, walking 9,076,397 texts in 17,427,303 window settles over two releases in 49.6 s. The walk over every text, `make replay-deep ARGS='--all'` under `/usr/bin/time -l`, runs its 185 units eleven at once. No unit reaches the ceiling at 44 runes: the units of `ss03+ss05`, walked again with `--cache-stats`, settle at most 3,258,864 windows each and release nothing. So each configuration's highest unit reads 1.26 GB maxrss, and the running units' footprints, sampled every half second, sum to at most 13.71 GB with eleven running. The run takes 19.1 s of system time against 2,343 s of user time, with no swaps and no change in the swap in use: the units share memory without paging. A unit's texts grow with the alphabet (`run_m1.sweep_units`), and a unit whose settles pass the ceiling holds what the solo walk above holds, which is what this constant estimates. With ·Ye the same solo walk read 2.85 GB of footprint and 2.90 GB maxrss over 8,127,145 texts, and five qsAh walks at once 2.84 GB a configuration, so the peak stays level as the corpus grows. The uncapped walk read 5.60 GB with ·Ye, and 20.52 GB with the ranking on.
+# The constant is the higher of the solo footprint and maxrss, plus a quarter, rounded up to the tenth. The margin covers growth in the holders the walk never releases and run-to-run spread, and it errs high because a per-unit cost that is too low puts the machine into swap. At this figure both fleet machines walk more units at once than there are settlement configurations, which `rebuild/test_deep_replay.py` checks. The deep-replay-walk row of `make job-costs` checks it against each configuration's highest unit peak (`record_walk_peaks`), which reads well below it while no unit reaches the ceiling. Re-measure it whenever the ceiling changes, the alphabet grows, the trace memo's key or entry or the walk memo's key changes shape, or the engine's memos change what they hold or how many entries each walk window costs them; the last three change a walk's peak at a fixed ceiling. Repeat both runs above: the solo walk, taking the higher of its footprint and maxrss, and the walk over every text in units, which `make replay-deep ARGS='--all'` is, with the running units' footprints sampled. In the second, a system time that rises against the user time, or swaps, means the width is causing paging. The logs are under `var/keep/issue-495/replay/` (the solo walk) and `var/keep/issue-494/` (the units), and those taken with ·Ye under `var/keep/issue-274/m5pro-48gib/`.
 DEEP_REPLAY_PEAK_BYTES = 3_700_000_000
 
 # The check name each walk records itself under in the cycle-timings journal (`rebuild.tools.cycle_timings.record_check`), where `make cycle-timings ARGS='--by-step'` reports it. No cycle runs this tool, so it records its own line.
 CHECK = "replay-deep"
-# The pool unit a walk at the checked-in ceiling records its per-walk peak under beside its check line (`record_walk_peak`), which the deep-replay-walk row of `make job-costs` holds against DEEP_REPLAY_PEAK_BYTES.
+# The pool unit a walk at the checked-in ceiling records its units' peaks under beside its check line (`record_walk_peaks`), which the deep-replay-walk row of `make job-costs` holds against DEEP_REPLAY_PEAK_BYTES.
 POOL_UNIT = "deep-replay-walk"
 
 
-def replay_threads(total_bytes: int | None = None) -> int:
-    """Return how many configurations walk at once: `AMS_DEEP_REPLAY_THREADS` when it is set, else `memory_budget.how_many_fit` over `DEEP_REPLAY_PEAK_BYTES`, capped at the settlement configuration count. A stated width is floored at one and not capped, as in `kernel_exec.kernel_threads_default`, and a value that is not a bare count raises. `DEEP_REPLAY_PEAK_BYTES` is measured at `DEEP_REPLAY_MEMO_WINDOWS`, so a higher ceiling set through `AMS_DEEP_REPLAY_MEMO_WINDOWS` has no memory estimate here; set `AMS_DEEP_REPLAY_THREADS` with it."""
+def replay_threads(total_bytes: int | None = None, ncores: int | None = None) -> int:
+    """Return how many units walk at once: `AMS_DEEP_REPLAY_THREADS` when it is set, else `memory_budget.how_many_fit` over `DEEP_REPLAY_PEAK_BYTES`, capped at the usable cores, since each unit is one crate process walking on one thread. A stated width is floored at one and not capped here, as in `kernel_exec.kernel_threads_default`, and a value that is not a bare count raises; `main` caps either at the unit count. `DEEP_REPLAY_PEAK_BYTES` is measured at `DEEP_REPLAY_MEMO_WINDOWS`, so a higher ceiling set through `AMS_DEEP_REPLAY_MEMO_WINDOWS` has no memory estimate here; set `AMS_DEEP_REPLAY_THREADS` with it. `total_bytes` and `ncores` let a test compute the width for an invented machine."""
     stated = os.environ.get("AMS_DEEP_REPLAY_THREADS")
     if stated is not None:
         try:
             return max(1, int(stated))
         except ValueError:
             raise RuntimeError(
-                f"AMS_DEEP_REPLAY_THREADS={stated!r} is not a width: it takes a bare decimal count of configurations to walk at once"
+                f"AMS_DEEP_REPLAY_THREADS={stated!r} is not a width: it takes a bare decimal count of units to walk at once"
             ) from None
     return memory_budget.how_many_fit(
-        DEEP_REPLAY_PEAK_BYTES, cap=len(conform.SETTLEMENT_CONFIGS), total_bytes=total_bytes
+        DEEP_REPLAY_PEAK_BYTES, cap=ncores or memory_budget.usable_cores(), total_bytes=total_bytes
     )
 
 
-def record_walk_peak(peak: int, *, walks: int) -> None:
-    """Record what one walk held as one observation of the `deep-replay-walk` pool (`cycle_timings.record_pool`): the crate process's own peak RSS (`kernel_exec.replay_strings`'s `on_peak`) divided by the walks it ran at once. The walks are threads of that one process, so no figure per walk exists, and this share is the wide run's figure DEEP_REPLAY_PEAK_BYTES's comment takes. `main` asks for it only for a walk at `DEEP_REPLAY_MEMO_WINDOWS`, because the constant estimates no other ceiling."""
+def walk_units(spec: ResolvedSpec, max_length: int) -> tuple[SweepUnit, ...]:
+    """Return the walk's units in the order the pool takes them: each settlement configuration in `conform.SETTLEMENT_CONFIGS` order, once per symbol of the spec's alphabet in its order, over the texts of length 1 to `max_length` that end in that symbol. They are the deep sweep's settlement units (`run_m1.sweep_units`); the ss10 overlay has no tables to replay."""
+    return tuple(
+        unit for unit in run_m1.sweep_units(conform.spec_alphabet(spec), max_length) if not unit.overlay
+    )
+
+
+def run_units(
+    spec: ResolvedSpec,
+    units: Sequence[SweepUnit],
+    *,
+    max_length: int,
+    families: list[str] | None,
+    width: int,
+    memo_windows: int,
+) -> tuple[dict[str, dict[str, int]], dict[str, int], list[str]]:
+    """Walk every unit, `width` at a time, each in a `replay-strings` call of its own over its configuration and the texts ending in its symbol, narrowed to `families` when given, and return each configuration's counts summed over its units, each configuration's highest unit peak RSS (`kernel_exec.replay_strings`'s `on_peak`; a unit whose peak cannot be read adds none), and the disagreement each disagreeing unit reported, in unit order. The calls are subprocesses, so the pool's threads only wait on them. Units are started as slots free up, only after every unit that finished in the same wait has been read and only while no unit has disagreed, so the first disagreement starts nothing after it, and the units already running finish. Any other failure is raised once the running units have finished."""
+    answered = {config: {"texts": 0, "windows": 0, "skipped": 0} for config in conform.SETTLEMENT_CONFIGS}
+    peaks: dict[str, int] = {}
+    found: dict[int, str] = {}
+    queue = iter(enumerate(units))
+    running: dict[Future, int] = {}
+    walked = 0
+
+    def walk(unit: SweepUnit) -> tuple[dict[str, dict[str, int]], int | None]:
+        held: list[int] = []
+        counts = kernel_exec.replay_strings(
+            spec,
+            run_m1.OUT_DIR,
+            [unit.config],
+            max_length=max_length,
+            families=families,
+            threads=1,
+            memo_windows=memo_windows,
+            last=unit.last,
+            on_peak=held.append,
+        )
+        return counts, max(held, default=None)
+
+    with ThreadPoolExecutor(max_workers=width, thread_name_prefix="deep-replay") as pool:
+
+        def submit_next() -> None:
+            following = next(queue, None)
+            if following is not None:
+                slot, unit = following
+                running[pool.submit(walk, unit)] = slot
+
+        try:
+            for _ in range(width):
+                submit_next()
+            while running:
+                finished, _ = wait(running, return_when=FIRST_COMPLETED)
+                for future in finished:
+                    slot = running.pop(future)
+                    try:
+                        counts, peak = future.result()
+                    except kernel_exec.ReplayDisagreement as error:
+                        found[slot] = str(error)
+                        continue
+                    config = units[slot].config
+                    for key, value in counts[config].items():
+                        answered[config][key] += value
+                    if peak is not None:
+                        peaks[config] = max(peaks.get(config, 0), peak)
+                    walked += 1
+                    console.progress(walked, len(units), "units")
+                if not found:
+                    for _ in finished:
+                        submit_next()
+        except BaseException:
+            pool.shutdown(wait=True, cancel_futures=True)
+            raise
+    return answered, peaks, [found[slot] for slot in sorted(found)]
+
+
+def record_walk_peaks(peaks: dict[str, int], *, width: int) -> None:
+    """Record what the walks held as one record of the `deep-replay-walk` pool (`cycle_timings.record_pool`), with one observation per settlement configuration: the highest peak RSS among its units' crate processes. Each unit is one walk in a process of its own, so each reading is one walk's whole cost, the figure DEEP_REPLAY_PEAK_BYTES estimates. `main` asks for it only for a walk at `DEEP_REPLAY_MEMO_WINDOWS`, because the constant estimates no other ceiling."""
     record_pool(
         POOL_UNIT,
-        width=walks,
-        worker_peaks={"per walk": peak // walks},
+        width=width,
+        worker_peaks=peaks,
         controller_peak_bytes=peak_rss.peak_rss_self_bytes(),
     )
 
 
 def replay_memo_windows() -> int:
-    """Return the most windows each configuration's walk holds memoized before it releases its memos: `AMS_DEEP_REPLAY_MEMO_WINDOWS` when it is set, else `DEEP_REPLAY_MEMO_WINDOWS`. A set value must be a bare decimal count of at least one; anything else raises. The ceiling is in windows because a byte limit would trigger at a different point on each machine, and the window count the walk prints (which counts settles once a release happens) would then depend on the machine instead of the runes."""
+    """Return the most windows each unit's walk holds memoized before it releases its memos: `AMS_DEEP_REPLAY_MEMO_WINDOWS` when it is set, else `DEEP_REPLAY_MEMO_WINDOWS`. A set value must be a bare decimal count of at least one; anything else raises. The ceiling is in windows because a byte limit would trigger at a different point on each machine, and the window count the walk prints (which counts settles once a release happens) would then depend on the machine instead of the runes."""
     stated = os.environ.get("AMS_DEEP_REPLAY_MEMO_WINDOWS")
     if stated is None:
         return DEEP_REPLAY_MEMO_WINDOWS
@@ -137,7 +217,7 @@ def main(argv: list[str] | None = None) -> int:
         "--threads",
         type=int,
         default=None,
-        help="how many settlement configurations walk at once (default: what this machine's memory fits, AMS_DEEP_REPLAY_THREADS to state one)",
+        help="how many units, each one settlement configuration over the texts ending in one symbol, walk at once (default: what this machine's memory fits, capped at its cores; AMS_DEEP_REPLAY_THREADS to state one)",
     )
     parser.add_argument(
         "--status",
@@ -195,35 +275,33 @@ def main(argv: list[str] | None = None) -> int:
             if not families:
                 print(f"deep replay: nothing moved since the last walk at maximum length {recorded}")
                 return 0
-    threads = max(1, args.threads) if args.threads is not None else replay_threads()
+    units = walk_units(spec, args.max_length)
+    width = min(max(1, args.threads) if args.threads is not None else replay_threads(), len(units))
     memo_windows = replay_memo_windows()
     walked = "every text" if families is None else f"{len(families)} families ({', '.join(families)})"
     print(
-        f"deep replay: maximum length {args.max_length} over {walked}, {threads} configurations at a time, at most {memo_windows} windows memoized per walk",
+        f"deep replay: maximum length {args.max_length} over {walked}, in {len(units)} units of one configuration and one last symbol, {width} at a time, at most {memo_windows} windows memoized per walk",
         flush=True,
     )
     started = time.perf_counter()
-    try:
-        answered = kernel_exec.replay_strings(
-            spec,
-            run_m1.OUT_DIR,
-            conform.SETTLEMENT_CONFIGS,
-            max_length=args.max_length,
-            families=families,
-            threads=threads,
-            memo_windows=memo_windows,
-            timings=True,
-            on_peak=(
-                functools.partial(record_walk_peak, walks=min(threads, len(conform.SETTLEMENT_CONFIGS)))
-                if memo_windows == DEEP_REPLAY_MEMO_WINDOWS
-                else None
-            ),
-        )
-    except kernel_exec.ReplayDisagreement as error:
-        message = f"the tables disagree with the engine at maximum length {args.max_length}: {error}"
-        print(f"deep replay: {message}", file=sys.stderr)
+    kernel_exec.ensure_built()
+    answered, peaks, disagreements = run_units(
+        spec,
+        units,
+        max_length=args.max_length,
+        families=families,
+        width=width,
+        memo_windows=memo_windows,
+    )
+    if disagreements:
+        failures = [
+            f"the tables disagree with the engine at maximum length {args.max_length}: {error}"
+            for error in disagreements
+        ]
+        for failure in failures:
+            print(f"deep replay: {failure}", file=sys.stderr)
         record_check(
-            CheckResult(check=CHECK, outcome="red", status="FAILED", failures=[message], failed_ids=[]),
+            CheckResult(check=CHECK, outcome="red", status="FAILED", failures=failures, failed_ids=[]),
             argv=list(argv) if argv is not None else sys.argv[1:],
             elapsed_s=time.perf_counter() - started,
             peak_rss_bytes=peak_rss.peak_rss_children_bytes(),
@@ -232,12 +310,23 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     elapsed = time.perf_counter() - started
     print(f"[t] {CHECK} {elapsed:.1f}s", flush=True)
+    expected = run_m1.config_texts(spec, args.max_length)
+    for config in conform.SETTLEMENT_CONFIGS:
+        counts = answered[config]
+        if counts["texts"] + counts["skipped"] != expected[config] or (
+            families is None and counts["skipped"]
+        ):
+            raise RuntimeError(
+                f"deep replay[{config}]: its units walked {counts['texts']} texts and skipped {counts['skipped']}, not every one of the {expected[config]} texts of its lengths"
+            )
     record_check(
         CheckResult(check=CHECK, outcome="green", status="green", failures=[], failed_ids=[]),
         argv=list(argv) if argv is not None else sys.argv[1:],
         elapsed_s=elapsed,
         peak_rss_bytes=peak_rss.peak_rss_children_bytes(),
     )
+    if memo_windows == DEEP_REPLAY_MEMO_WINDOWS and peaks:
+        record_walk_peaks(peaks, width=width)
     for config in conform.SETTLEMENT_CONFIGS:
         counts = answered[config]
         print(

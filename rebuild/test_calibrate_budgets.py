@@ -639,8 +639,8 @@ def test_the_width_clauses_answer_for_the_machine_and_the_tree_they_are_given(tm
     assert f"and the oracle runs {roomy} (ORACLE_SHARD_BYTES divided in)" in absorb_block
     replay = memory_budget.describe_fit(CONSTANTS["replay-walk"], cap=3, total_bytes=48_000_000_000)
     assert f"a bare run_m1 walks {replay}, nothing co-resident" in out
-    deep = memory_budget.describe_fit(CONSTANTS["deep-replay-walk"], cap=3, total_bytes=48_000_000_000)
-    assert f"`make replay-deep` walks {deep}, one settlement configuration a walk" in out
+    deep = memory_budget.describe_fit(CONSTANTS["deep-replay-walk"], cap=12, total_bytes=48_000_000_000)
+    assert f"`make replay-deep` walks {deep}, one unit a crate process" in out
     land_block = out.split("\nland  ")[1].split("\n\n")[0]
     assert (
         "it is below CORPUS_PARENT_BYTES (10.00 GB) and STANDING_FILL_PARENT_BYTES (12.00 GB)" in land_block
