@@ -4,7 +4,7 @@ After each write to verdicts-autosave.json, the review server's store (`rebuild.
 
 An append that crashes can leave the file ending in a line with no newline. Each append holds an exclusive `flock` on the file and first ends the file on a newline: a final line that parses as an entry keeps its bytes and gets the newline, and any other final line is cut off, so the lines appended after it stay readable. A base event names how many set lines follow it, and one followed by fewer is torn. The store from a torn base until the next complete base is unknown: replay raises `JournalGap` for a moment in that span and is exact again from the next complete base on, and compaction never starts the journal at a torn base. A writer that records the journal's length and inode before it appends (the land, `rebuild.review.landing`) lets the recovery of a land that died mid-append cut the journal back to that length (`truncate_to`) before it appends the land's event again.
 
-Every writer appends while it holds the verdict store's lock (`rebuild.review.store_lock`), so the long reads that retention makes run without it. `scan_events` reads the journal's events once without the lock and then only the tail appended since, under it. Compaction is two phases: `compact_prepare` copies the kept lines to a temporary file without the lock, and `compact_finish` copies the tail appended since and replaces the journal under it, so an append made during the copy is kept.
+Every writer appends while it holds the verdict store's lock (`rebuild.review.store_lock`), so the long reads that retention makes run without it. `scan` reads the journal's events and the set lines after each once without the lock, and then only the tail appended since, under it. Compaction is two phases: `compact_prepare` resumes that scan to choose the floor and copies the kept lines to a temporary file without the lock, and `compact_finish` copies the tail appended since and replaces the journal under it, so an append made during the copy is kept. Retention saves the last scan's state (`save_scan_state`), rebased onto the compacted file when it compacted, and the next pass's scan resumes from it, so each pass parses only what was appended since the last one. A scan resumes only while the journal still holds the bytes just before where the state ends and every event line the state recorded (`_scan_handle`), and reads from the start otherwise.
 """
 
 from __future__ import annotations
@@ -15,11 +15,12 @@ import hashlib
 import json
 import os
 from collections.abc import Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
 
 EXPORT_FORMAT = "ams-review-verdicts/1"
+SCAN_STATE_FORMAT = "ams-journal-scan/1"
 JOURNAL_NAME = "verdicts-journal.ndjson"
 _TAIL_BLOCK = 1 << 16
 _RESUME_CHECK_BYTES = 1 << 16
@@ -257,7 +258,7 @@ def _digest_before(handle, offset: int) -> str:
 
 
 def _iter_entries(journal_path):
-    """Yield the journal's parseable entries, reading one line at a time so only one line is in memory. Scanning stops at the first line that does not decode or parse (`_read_lines`), so a tail torn by a crashed append is never misread. `scan_events` and `compact_prepare` split the file with the same `_read_lines`, so every reader agrees on where each line begins and where parsing stops."""
+    """Yield the journal's parseable entries, reading one line at a time so only one line is in memory. Scanning stops at the first line that does not decode or parse (`_read_lines`), so a tail torn by a crashed append is never misread. `scan` and `compact_prepare` split the file with the same `_read_lines`, so every reader agrees on where each line begins and where parsing stops."""
     try:
         handle = Path(journal_path).open("rb")
     except OSError:
@@ -352,50 +353,204 @@ def replay(journal_path, as_of: str | None = None) -> tuple[str | None, dict[str
 
 
 @dataclass(frozen=True)
-class EventScan:
-    """The events a scan of the journal read, from byte offset `start` of the file with inode `inode`, and `end`, the offset just past the last newline-terminated line it read. `check` is the digest of the bytes just before `end` (`_digest_before`). A final line with no newline that parses is read, as `_iter_entries` reads it, but `end` stops before it, so a scan resumed from `end` reads it again."""
+class EventMark:
+    """One event line as a scan records it: the byte `offset` and the line index `line` at which it begins, its `at`, `base` and `stashed` (`at` and `stashed` are None where the line holds no string), the set lines it names (`sets`, as `_expected_sets` reads them), `counted`, the set lines that follow it before the next event or where parsing stops, and `digest`, the digest of the line's bytes with its newline, which a scan resuming from a state that holds the mark compares (`_holds`). A base event whose `counted` falls short of its `sets` is torn. The pending line's mark (`JournalScan.events`) has an empty `digest`, since no state holds it."""
 
-    events: list[dict]
-    start: int
-    end: int
+    offset: int
+    line: int
+    at: str | None
+    base: bool
+    stashed: str | None
+    sets: int
+    counted: int
+    digest: str
+
+
+def _mark(entry: dict, offset: int, line: int, digest: str) -> EventMark:
+    at = entry.get("at")
+    stashed = entry.get("stashed")
+    return EventMark(
+        offset,
+        line,
+        at if isinstance(at, str) else None,
+        bool(entry.get("base")),
+        stashed if isinstance(stashed, str) and stashed else None,
+        _expected_sets(entry),
+        0,
+        digest,
+    )
+
+
+@dataclass(frozen=True)
+class ScanState:
+    """What a scan of the journal read, for a later scan to resume from. `end` is the offset just past the last newline-terminated line read before parsing stopped, in the file with inode `inode`; `lines` is the number of lines before it, `check` the digest of the bytes just before it (`_digest_before`), and `marks` every event before it."""
+
     inode: int | None
+    end: int
+    lines: int
     check: str
+    marks: tuple[EventMark, ...]
 
 
-def scan_events(journal_path, *, resume: EventScan | None = None) -> EventScan:
-    """Return the journal's events, stopping where `_iter_entries` stops, at the first line that does not decode or parse. Given `resume`, an earlier scan of the same journal, it reads only what was appended since: from `resume.end` when the file has the same inode, is at least that long, and still holds the same bytes just before that offset, and from the start otherwise, which `start` then records. The byte check catches a writer that cut the journal shorter and appended past the old end again (`rekey_verdicts --undo`), which inode and length alone would miss. The caller scans without the store's lock, then resumes under it; every append holds that lock, so the second scan sees each line the first one missed."""
+_EMPTY_STATE = ScanState(None, 0, 0, _digest_of(b""), ())
+
+
+@dataclass(frozen=True)
+class JournalScan:
+    """A scan of the journal (`scan`): `state`, which a later scan resumes from, and what the file held past `state.end` when it was read. `start` is the offset this scan began reading at, 0 or the resumed state's `end`. `pending` is a final line with no newline that parses as an entry, read where parsing had not stopped: it counts, as `_iter_entries` counts it, but `state` stops before it, so a resumed scan reads it again. `complete_end` is the offset just past the file's last newline-terminated line, past any line where parsing stopped, and `complete_lines` and `total_lines` count the lines before it and every line."""
+
+    state: ScanState
+    start: int
+    pending: dict | None
+    complete_end: int
+    complete_lines: int
+    total_lines: int
+
+    @property
+    def events(self) -> tuple[EventMark, ...]:
+        """Every event the scan read, the pending line included."""
+        marks = self.state.marks
+        kind = self.pending.get("kind") if self.pending is not None else None
+        if kind == "event" and self.pending is not None:
+            return (*marks, _mark(self.pending, self.state.end, self.state.lines, ""))
+        if kind == "set" and marks:
+            return (*marks[:-1], replace(marks[-1], counted=marks[-1].counted + 1))
+        return marks
+
+
+def _holds(handle, state: ScanState, size: int) -> bool:
+    """Return whether the binary `handle`, `size` bytes long, still holds what `state` read where a resumed scan relies on it: at least `state.end` bytes, the same bytes just before that offset (`_digest_before`), and each event line `state` recorded, byte for byte at its offset. That is one short read per event."""
+    if size < state.end or _digest_before(handle, state.end) != state.check:
+        return False
+    for mark in state.marks:
+        handle.seek(mark.offset)
+        if _digest_of(handle.readline()) != mark.digest:
+            return False
+    return True
+
+
+def _scan_handle(handle, resume: ScanState | None) -> JournalScan:
+    """Scan the binary `handle` from its start, or from `resume.end` when the file has `resume`'s inode and still holds what `resume` read (`_holds`). The byte checks catch a writer that cut the journal shorter and appended past the old end again (`rekey_verdicts --undo`, a land recovery's `truncate_to`), which inode and length alone would miss. Each such writer cuts the journal back to the start of the event line it appended, so the next append writes its own event line at the offset of an event the state recorded, and that line differs from the recorded one unless the append repeats it byte for byte, `at` included, within the same second. So the check on the event lines catches the cut even where the appends repeat the bytes just before the old end, as a re-key undone and run again does. Parsing stops where `_iter_entries` stops, at the first line that does not decode or parse, and the lines after it are only counted. Reading stops after the first line with no newline, as at the file's end, so a scan made while a writer appends never reads the rest of a line it began as a line of its own."""
+    stat = os.fstat(handle.fileno())
+    state = replace(_EMPTY_STATE, inode=stat.st_ino)
+    if resume is not None and resume.inode == stat.st_ino and _holds(handle, resume, stat.st_size):
+        state = resume
+    marks = list(state.marks)
+    current = marks.pop() if marks else None
+    counted = current.counted if current is not None else 0
+    start = offset = end = state.end
+    lines = count = state.lines
+    pending = None
+    unterminated = False
+    handle.seek(start)
+    for line, entry, stopped in _read_lines(handle):
+        if not line.endswith(b"\n"):
+            pending, unterminated = entry, True
+            break
+        if entry is not None:
+            kind = entry.get("kind")
+            if kind == "event":
+                if current is not None:
+                    marks.append(replace(current, counted=counted))
+                current = _mark(entry, offset, count, _digest_of(line))
+                counted = 0
+            elif kind == "set" and current is not None:
+                counted += 1
+        offset += len(line)
+        count += 1
+        if not stopped:
+            end, lines = offset, count
+    if current is not None:
+        marks.append(replace(current, counted=counted))
+    check = state.check if end == start else _digest_before(handle, end)
+    return JournalScan(
+        ScanState(stat.st_ino, end, lines, check, tuple(marks)),
+        start,
+        pending,
+        offset,
+        count,
+        count + unterminated,
+    )
+
+
+def scan(journal_path, *, resume: ScanState | None = None) -> JournalScan:
+    """Read the journal's events once, with the set lines that follow each, stopping where `_iter_entries` stops. Given `resume`, the state of an earlier scan of the same journal, it reads only what was appended since, and from the start when the file no longer holds what `resume` read (`_holds`); `start` records which. Retention scans without the store's lock and then resumes under it, and every append holds that lock, so the second scan sees each line the first one missed. Retention saves the state at the end of its pass (`save_scan_state`), so the next pass parses only what was appended since."""
     try:
         handle = Path(journal_path).open("rb")
     except OSError:
-        return EventScan([], 0, 0, None, _digest_of(b""))
+        return JournalScan(_EMPTY_STATE, 0, None, 0, 0, 0)
     with handle:
-        stat = os.fstat(handle.fileno())
-        start = 0
-        if (
-            resume is not None
-            and resume.inode == stat.st_ino
-            and stat.st_size >= resume.end
-            and _digest_before(handle, resume.end) == resume.check
-        ):
-            start = resume.end
-        handle.seek(start)
-        events: list[dict] = []
-        end = start
-        for line, entry, stopped in _read_lines(handle):
-            if stopped:
-                break
-            if entry is not None and entry.get("kind") == "event":
-                events.append(entry)
-            if not line.endswith(b"\n"):
-                break
-            end += len(line)
-        check = _digest_before(handle, end)
-    return EventScan(events, start, end, stat.st_ino, check)
+        return _scan_handle(handle, resume)
+
+
+def save_scan_state(path, state: ScanState | None) -> None:
+    """Write `state` to `path` for a later scan to resume from, replacing the file atomically, or remove the file when there is no state to resume from. A state a scan produced is safe to save, because a later scan resumes from it only after checking it against the journal (`_holds`)."""
+    path = Path(path)
+    if state is None or state.inode is None:
+        path.unlink(missing_ok=True)
+        return
+    payload = {
+        "format": SCAN_STATE_FORMAT,
+        "inode": state.inode,
+        "end": state.end,
+        "lines": state.lines,
+        "check": state.check,
+        "marks": [
+            [mark.offset, mark.line, mark.at, mark.base, mark.stashed, mark.sets, mark.counted, mark.digest]
+            for mark in state.marks
+        ],
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(payload, separators=(",", ":")))
+    os.replace(tmp, path)
+
+
+def load_scan_state(path) -> ScanState | None:
+    """Return the state `save_scan_state` wrote to `path`, or None when the file is missing, unreadable, or in another format, so the scan starts over."""
+    try:
+        payload = json.loads(Path(path).read_text())
+        if payload.get("format") != SCAN_STATE_FORMAT:
+            return None
+        return ScanState(
+            int(payload["inode"]),
+            int(payload["end"]),
+            int(payload["lines"]),
+            str(payload["check"]),
+            tuple(
+                EventMark(
+                    int(offset),
+                    int(line),
+                    at if isinstance(at, str) else None,
+                    bool(base),
+                    stashed if isinstance(stashed, str) and stashed else None,
+                    int(sets),
+                    int(counted),
+                    str(digest),
+                )
+                for offset, line, at, base, stashed, sets, counted, digest in payload["marks"]
+            ),
+        )
+    except OSError, ValueError, TypeError, KeyError, AttributeError:
+        return None
+
+
+def _rebased(state: ScanState, floor: EventMark, handle) -> ScanState:
+    """Return `state` as it reads in the journal a compaction to `floor` writes, whose bytes are the old file's from `floor.offset` on: every offset and line index less the floor's, the events before the floor dropped, and the check over the bytes the new file holds before the new end, read from the binary `handle` on the old file. The inode is unset until `compact_finish` writes the file."""
+    start = max(floor.offset, state.end - _RESUME_CHECK_BYTES)
+    handle.seek(start)
+    check = _digest_of(handle.read(state.end - start))
+    marks = tuple(
+        replace(mark, offset=mark.offset - floor.offset, line=mark.line - floor.line)
+        for mark in state.marks
+        if mark.offset >= floor.offset
+    )
+    return ScanState(None, state.end - floor.offset, state.lines - floor.line, check, marks)
 
 
 @dataclass(frozen=True)
 class PreparedCompaction:
-    """A compaction `compact_prepare` staged: the kept lines up to `copied_to` are already in `tmp`, and `compact_finish` appends the rest and replaces the journal. `check` is the digest of the journal's bytes just before `copied_to` (`_digest_before`). `tmp` is None when there is nothing to rewrite, and `untouched` is then the result."""
+    """A compaction `compact_prepare` staged: the kept lines up to `copied_to` are already in `tmp`, and `compact_finish` appends the rest and replaces the journal. `check` is the digest of the journal's bytes just before `copied_to` (`_digest_before`). `tmp` is None when there is nothing to rewrite, and `untouched` is then the result. `read` is the state of the scan that chose the floor, and `rebased` that state as it reads in the compacted journal (`_rebased`)."""
 
     journal_path: Path
     tmp: Path | None
@@ -406,63 +561,38 @@ class PreparedCompaction:
     dropped_lines: int
     copied_lines: int
     untouched: dict
+    read: ScanState | None = None
+    rebased: ScanState | None = None
 
 
-def compact_prepare(journal_path, *, cutoff: str) -> PreparedCompaction:
-    """Stage a rewrite of the journal to begin at the newest complete base event whose `at` is lexicographically at or before `cutoff` (an ISO-Z stamp), dropping every earlier line. A base event carries the full store, so replay and --restore-as-of stay exact for every moment from that base on, and every earlier moment becomes unrecoverable; that is why the caller chooses the cutoff. The scan counts each base's set lines as `replay` does, so a torn base is never chosen and a complete base after it can be, and it stops choosing where `_iter_entries` stops, at the first line that does not decode or parse. A journal with no complete base at or before the cutoff, or one that already starts at that base, stages nothing.
+def compact_prepare(journal_path, *, cutoff: str, resume: ScanState | None = None) -> PreparedCompaction:
+    """Stage a rewrite of the journal to begin at the newest complete base event whose `at` is lexicographically at or before `cutoff` (an ISO-Z stamp), dropping every earlier line. A base event carries the full store, so replay and --restore-as-of stay exact for every moment from that base on, and every earlier moment becomes unrecoverable; that is why the caller chooses the cutoff. The scan counts each base's set lines as `replay` does, so a torn base is never chosen and a complete base after it can be, and it stops choosing where `_iter_entries` stops, at the first line that does not decode or parse. A journal with no complete base at or before the cutoff, or one that already starts at that base, stages nothing. Given `resume`, an earlier scan's state, it reads only what was appended since (`_scan_handle`).
 
-    It runs without the store's lock. It copies the kept lines byte for byte into a temporary file beside the journal, up to the end of the file's last newline-terminated line: every byte before that offset is final unless a writer cuts the journal shorter, because appends only add lines and the tail repair (`_end_on_a_newline`) only touches a final line with no newline. `compact_finish` checks for such a cut. The scan and the copy read one handle in fixed-size blocks, so memory use stays at one line plus one block.
+    It runs without the store's lock. It copies the kept lines byte for byte into a temporary file beside the journal, up to the end of the file's last newline-terminated line: every byte before that offset is final unless a writer cuts the journal shorter, because appends only add lines and the tail repair (`_end_on_a_newline`) only touches a final line with no newline. `compact_finish` checks for such a cut. The scan and the copy read one handle in fixed-size blocks, so memory use stays at one line plus one block, and the events' marks.
     """
     journal_path = Path(journal_path)
-    floor: tuple[int, str | None, int] | None = None
-    candidate: tuple[int, str | None, int] | None = None
-    expected_sets = 0
-    base_sets = 0
-    total_lines = 0
-    complete_lines = 0
-    offset = 0
-    complete_end = 0
 
-    def settle_candidate() -> None:
-        nonlocal floor, candidate
-        if candidate is not None and base_sets >= expected_sets:
-            floor = candidate
-        candidate = None
-
-    def nothing(inode: int | None = None, kept_lines: int = 0) -> PreparedCompaction:
+    def nothing(
+        inode: int | None = None, kept_lines: int = 0, read: ScanState | None = None
+    ) -> PreparedCompaction:
         untouched = {"compacted": False, "floor_at": None, "dropped_lines": 0, "kept_lines": kept_lines}
-        return PreparedCompaction(journal_path, None, inode, 0, _digest_of(b""), None, 0, 0, untouched)
+        return PreparedCompaction(journal_path, None, inode, 0, _digest_of(b""), None, 0, 0, untouched, read)
 
     try:
         handle = journal_path.open("rb")
     except OSError:
         return nothing()
     with handle:
-        inode = os.fstat(handle.fileno()).st_ino
-        for line, entry, stopped in _read_lines(handle):
-            if stopped:
-                settle_candidate()
-            elif entry is not None:
-                kind = entry.get("kind")
-                if kind == "event":
-                    settle_candidate()
-                    if entry.get("base"):
-                        at = entry.get("at")
-                        expected_sets = _expected_sets(entry)
-                        base_sets = 0
-                        if (at or "") <= cutoff:
-                            candidate = (total_lines, at, offset)
-                elif kind == "set":
-                    base_sets += 1
-            offset += len(line)
-            total_lines += 1
-            if line.endswith(b"\n"):
-                complete_end = offset
-                complete_lines = total_lines
-        settle_candidate()
-        floor_index, floor_at, floor_offset = floor if floor is not None else (None, None, 0)
-        if not floor_index:
-            return nothing(inode, total_lines)
+        scanned = _scan_handle(handle, resume)
+        inode = scanned.state.inode
+        floor = None
+        for mark in scanned.events:
+            if mark.base and mark.counted >= mark.sets and (mark.at or "") <= cutoff:
+                floor = mark
+        if floor is None or not floor.line:
+            return nothing(inode, scanned.total_lines, scanned.state)
+        floor_at, floor_offset, complete_end = floor.at, floor.offset, scanned.complete_end
+        rebased = _rebased(scanned.state, floor, handle)
         tmp = journal_path.with_name(journal_path.name + ".tmp")
         handle.seek(floor_offset)
         with tmp.open("wb") as target:
@@ -481,25 +611,27 @@ def compact_prepare(journal_path, *, cutoff: str) -> PreparedCompaction:
         complete_end,
         check,
         floor_at,
-        floor_index,
-        complete_lines - floor_index,
+        floor.line,
+        scanned.complete_lines - floor.line,
         {"compacted": False, "floor_at": None, "dropped_lines": 0, "kept_lines": 0},
+        scanned.state,
+        rebased,
     )
 
 
 def compact_finish(
     prepared: PreparedCompaction, *, lock: contextlib.AbstractContextManager | None = None
 ) -> dict:
-    """Finish a staged compaction under `lock`, the store's lock: append what the journal gained past `prepared.copied_to` to the temporary file, and replace the journal with it atomically. A journal that was replaced, cut shorter, or rewritten before `copied_to` since the scan (a different inode, a shorter file, or different bytes just before that offset) is left as it is, the staged file is removed, and the result says `replaced`. Returns whether it compacted, the floor's `at`, and the dropped and kept line counts."""
+    """Finish a staged compaction under `lock`, the store's lock: append what the journal gained past `prepared.copied_to` to the temporary file, and replace the journal with it atomically. A journal that was replaced, cut shorter, or rewritten before `copied_to` since the scan (a different inode, a shorter file, or different bytes just before that offset) is left as it is, the staged file is removed, and the result says `replaced`. Returns whether it compacted, the floor's `at`, the dropped and kept line counts, and under `resume` the scan state a later scan resumes from: `prepared.rebased` on the new file once it compacted, `prepared.read` when there was nothing to rewrite, and None when the journal was replaced."""
     if prepared.tmp is None:
-        return dict(prepared.untouched)
+        return {**prepared.untouched, "resume": prepared.read}
     journal_path = prepared.journal_path
     try:
         with lock if lock is not None else contextlib.nullcontext():
             try:
                 source = journal_path.open("rb")
             except OSError:
-                return {**prepared.untouched, "replaced": True}
+                return {**prepared.untouched, "replaced": True, "resume": None}
             with source:
                 stat = os.fstat(source.fileno())
                 if (
@@ -507,11 +639,12 @@ def compact_finish(
                     or stat.st_size < prepared.copied_to
                     or _digest_before(source, prepared.copied_to) != prepared.check
                 ):
-                    return {**prepared.untouched, "replaced": True}
+                    return {**prepared.untouched, "replaced": True, "resume": None}
                 tail_lines = 0
                 last = b"\n"
                 source.seek(prepared.copied_to)
                 with prepared.tmp.open("ab") as target:
+                    inode = os.fstat(target.fileno()).st_ino
                     while block := source.read(_COPY_BLOCK):
                         target.write(block)
                         tail_lines += block.count(b"\n")
@@ -526,6 +659,7 @@ def compact_finish(
         "floor_at": prepared.floor_at,
         "dropped_lines": prepared.dropped_lines,
         "kept_lines": prepared.copied_lines + tail_lines,
+        "resume": replace(prepared.rebased, inode=inode) if prepared.rebased is not None else None,
     }
 
 

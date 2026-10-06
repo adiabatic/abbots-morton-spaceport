@@ -62,7 +62,7 @@ Retention holds the store's lock only for the tail of the journal appended since
 
 Every pass holds the pass lock (`pass_lock`, var/cycle/pass.lock) from before it recovers a superseded corpus and resolves its plan until it ends, so a second pass waits for the first instead of planning against a tree the first is still writing. The land inherits the lock, so a driver killed while its land runs still holds the next pass back until the land has finished. A staging pass holds it too, because a live pass's promotion reads the corpus a staging pass writes. A dry run takes it without waiting, and when another pass holds it the dry run skips the recovery, which could rename a tree that pass is landing. Each non-staging pass gets a scratch directory under var/cycle/ named like its build-log run directory and deletes it when it ends; the next pass deletes any that a killed pass left (`sweep_run_dirs`). A staging pass and a dry run get no scratch directory.
 
-A green finish ends with a retention pass over the cycle's own files, all of them regenerable or covered by the journal. Root verdicts-carried-*.json files not stamped for the live corpus are deleted, since `status.pick_fullest_verdicts` reads only files stamped for the live corpus, and the tracked copy under rebuild/evidence/ is never touched. verdicts-autosave-* stashes not referenced by a journal event at or after the last base event are deleted. The journal, not the stashes, is the supported recovery path, and the check uses the journal's references because a stash's mtime predates the event that created it. The journal is compacted to the newest base event older than RETENTION_WINDOW_DAYS, keeping at least that many days of --restore-as-of history, and build-log run directories beyond the newest `cycle_paths.BUILD_LOGS_KEEP` are deleted. Failed, interrupted, first-run, and staging passes never prune, --keep-history turns retention off, and a retention error prints a warning and never turns a green cycle red.
+A green finish ends with a retention pass over the cycle's own files, all of them regenerable or covered by the journal. Root verdicts-carried-*.json files not stamped for the live corpus are deleted, since `status.pick_fullest_verdicts` reads only files stamped for the live corpus, and the tracked copy under rebuild/evidence/ is never touched. verdicts-autosave-* stashes not referenced by a journal event at or after the last base event are deleted. The journal, not the stashes, is the supported recovery path, and the check uses the journal's references because a stash's mtime predates the event that created it. The journal is compacted to the newest base event older than RETENTION_WINDOW_DAYS, keeping at least that many days of --restore-as-of history, and build-log run directories beyond the newest `cycle_paths.BUILD_LOGS_KEEP` are deleted. Both journal steps share one scan, which resumes from where the last pass's scan stopped (`journal_scan_path`). Failed, interrupted, first-run, and staging passes never prune, --keep-history turns retention off, and a retention error prints a warning and never turns a green cycle red.
 
 Run as: uv run python rebuild/tools/artifact_cycle.py. The carry source is resolved from the autosave and the verdicts-*.json exports; pass --verdicts to name one.
 """
@@ -4628,29 +4628,26 @@ def prune_carried(root: Path, stamp: str | None, keep: Path | None) -> tuple[lis
 
 
 def prune_stashes(
-    root: Path, journal_path: Path, *, lock: contextlib.AbstractContextManager | None = None
+    root: Path,
+    journal_path: Path,
+    *,
+    lock: contextlib.AbstractContextManager | None = None,
+    scan: journal.JournalScan | None = None,
 ) -> list[Path] | None:
     """Delete the `verdicts-autosave-*` stashes that no journal event at or after the last base event references, and return them. Returns None and deletes nothing when the journal has no base event. The test uses journal references because mtime is wrong here: `os.replace` keeps the displaced store's mtime, so the stash the latest base created looks older than that base. `merge_verdicts --restore-as-of` can rebuild a deleted stash's state from the journal back to the journal's compaction floor.
 
-    The journal is read in two phases (`journal.scan_events`): the whole file without `lock`, the verdict store's lock, then under it only the tail appended since, together with the glob and the deletions. Every writer that stashes a store and journals it holds that lock, so no stash can appear between the check and the deletion without its event being in the tail.
+    The journal is read in two phases (`journal.scan`): first without `lock`, the verdict store's lock (the caller's `scan`, or a scan of the whole file made here when the caller passes none), then under it only the tail appended since, together with the glob and the deletions. Every writer that stashes a store and journals it holds that lock, so no stash can appear between the check and the deletion without its event being in the tail.
     """
-    from rebuild.review import journal
-
-    first = journal.scan_events(journal_path)
+    first = scan if scan is not None else journal.scan(journal_path)
     with lock if lock is not None else contextlib.nullcontext():
-        tail = journal.scan_events(journal_path, resume=first)
-        events = tail.events if tail.start == 0 else [*first.events, *tail.events]
+        events = journal.scan(journal_path, resume=first.state).events
         last_base_at = None
         for event in events:
-            if event.get("base"):
-                last_base_at = event.get("at") or ""
+            if event.base:
+                last_base_at = event.at or ""
         if last_base_at is None:
             return None
-        keep_names = {
-            event["stashed"]
-            for event in events
-            if event.get("stashed") and (event.get("at") or "") >= last_base_at
-        }
+        keep_names = {event.stashed for event in events if event.stashed and (event.at or "") >= last_base_at}
         removed: list[Path] = []
         for path in sorted(root.glob("verdicts-autosave-*.json")):
             if path.name in keep_names:
@@ -4658,6 +4655,11 @@ def prune_stashes(
             path.unlink(missing_ok=True)
             removed.append(path)
     return removed
+
+
+def journal_scan_path() -> Path:
+    """The scan state retention saves after each pass (`journal.save_scan_state`), from which the next pass's scan of the journal resumes."""
+    return cycle_paths.CYCLE_VAR / "journal-scan.json"
 
 
 def retention_cutoff(now: datetime | None = None) -> str:
@@ -4698,8 +4700,7 @@ def _retention_detail(removed: list[str], intact: list[str], journal_state: str)
 
 
 def run_retention(plan: Plan) -> RetentionResult:
-    """Prune stale carried files, build logs, autosave stashes, and old journal history after a green pass, and return the summary lines and detail. It returns the lines instead of printing them so they appear in the summary block below the table. The stash sweep and the compaction read the journal without the verdict store's lock and take it only for the tail appended since, the deletions, and the journal's replacement (`prune_stashes`, `journal.compact_prepare`, `journal.compact_finish`), so another writer (the review server, a merge, a re-key) waits for at most that long; the server answers a save made in that window with a retryable 503, as it does during a land. Every append holds the lock, so no line can fall between the scan and the replacement. A lock still held after `RETENTION_LOCK_TIMEOUT_S` leaves that part for a later pass. A review server from before the land protocol (`Plan.legacy_server`) appends to the journal and moves stashes without the lock, so while one listens the stashes and the journal are left for a later pass."""
-    from rebuild.review import journal
+    """Prune stale carried files, build logs, autosave stashes, and old journal history after a green pass, and return the summary lines and detail. It returns the lines instead of printing them so they appear in the summary block below the table. The stash sweep and the compaction share one scan of the journal, made without the verdict store's lock and resumed from the state the last pass saved (`journal_scan_path`), so a pass parses only what was appended since the last one. They take the lock only for the tail appended since, the deletions, and the journal's replacement (`prune_stashes`, `journal.compact_prepare`, `journal.compact_finish`), so another writer (the review server, a merge, a re-key) waits for at most that long; the server answers a save made in that window with a retryable 503, as it does during a land. Every append holds the lock, so no line can fall between the scan and the replacement. A lock still held after `RETENTION_LOCK_TIMEOUT_S` leaves that part for a later pass. A review server from before the land protocol (`Plan.legacy_server`) appends to the journal and moves stashes without the lock, so while one listens the stashes and the journal are left for a later pass."""
 
     def rel(path: Path) -> str:
         try:
@@ -4752,8 +4753,10 @@ def run_retention(plan: Plan) -> RetentionResult:
         return landing.locked_store(store, timeout=RETENTION_LOCK_TIMEOUT_S, quiet=True)
 
     busy = f"left intact (the verdict store stayed locked for {RETENTION_LOCK_TIMEOUT_S:g} s)"
+    state_path = journal_scan_path()
+    scan = journal.scan(journal_path, resume=journal.load_scan_state(state_path))
     try:
-        removed_stashes = prune_stashes(ROOT, journal_path, lock=locked())
+        removed_stashes = prune_stashes(ROOT, journal_path, lock=locked(), scan=scan)
     except store_lock.LockBusy:
         lines.append(f"  stashes   : {busy}")
         intact.append("stashes")
@@ -4767,11 +4770,14 @@ def run_retention(plan: Plan) -> RetentionResult:
                 f"  stashes   : removed {console.fmt_count(len(removed_stashes))} verdicts-autosave-* stashes older than the journal's last base"
             )
 
+    prepared = journal.compact_prepare(journal_path, cutoff=retention_cutoff(), resume=scan.state)
     try:
-        result = journal.compact(journal_path, cutoff=retention_cutoff(), lock=locked())
+        result = journal.compact_finish(prepared, lock=locked())
     except store_lock.LockBusy:
+        journal.save_scan_state(state_path, prepared.read)
         lines.append(f"  journal   : {busy}")
         return RetentionResult(lines, _retention_detail(removed_counts, intact, "journal intact"))
+    journal.save_scan_state(state_path, result["resume"])
     if result["compacted"]:
         total = result["dropped_lines"] + result["kept_lines"]
         lines.append(

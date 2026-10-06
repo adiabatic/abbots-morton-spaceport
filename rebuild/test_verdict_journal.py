@@ -685,21 +685,25 @@ def test_compact_finish_leaves_a_journal_replaced_since_the_scan_alone(tmp_path)
     assert not path.with_name(path.name + ".tmp").exists()
 
 
-def test_a_resumed_event_scan_reads_only_what_was_appended_since(tmp_path):
+def test_a_resumed_scan_reads_only_what_was_appended_since(tmp_path):
     path = tmp_path / "journal.ndjson"
     _append_base(path, "S1", None, [], ["u-1"], "2026-07-10T01:00:00Z")
-    first = journal.scan_events(path)
-    assert [event["stamp"] for event in first.events] == ["S1"]
-    _append_base(path, "S2", "S1", ["u-1"], ["u-2"], "2026-07-10T02:00:00Z")
-    tail = journal.scan_events(path, resume=first)
-    assert tail.start == first.end
-    assert [event["stamp"] for event in tail.events] == ["S2"]
+    first = journal.scan(path)
+    assert [event.at for event in first.events] == ["2026-07-10T01:00:00Z"]
+    _append_base(path, "S2", "S1", ["u-1"], ["u-2", "u-3"], "2026-07-10T02:00:00Z")
+    tail = journal.scan(path, resume=first.state)
+    assert tail.start == first.state.end
+    assert tail.state == journal.scan(path).state
+    assert [(event.at, event.counted) for event in tail.events] == [
+        ("2026-07-10T01:00:00Z", 1),
+        ("2026-07-10T02:00:00Z", 2),
+    ]
     replacement = tmp_path / "replacement.ndjson"
     _append_base(replacement, "S3", None, [], ["u-3"], "2026-07-10T05:00:00Z")
     replacement.replace(path)
-    rescanned = journal.scan_events(path, resume=tail)
+    rescanned = journal.scan(path, resume=tail.state)
     assert rescanned.start == 0
-    assert [event["stamp"] for event in rescanned.events] == ["S3"]
+    assert [event.at for event in rescanned.events] == ["2026-07-10T05:00:00Z"]
 
 
 def test_a_journal_cut_shorter_and_regrown_between_the_phases_is_rescanned_and_never_compacted(tmp_path):
@@ -709,21 +713,154 @@ def test_a_journal_cut_shorter_and_regrown_between_the_phases_is_rescanned_and_n
     cut = path.stat().st_size
     _append_base(path, "S2", "S1", ["u-1"], ["u-2"], "2026-07-10T03:00:00Z")
     inode = path.stat().st_ino
-    first = journal.scan_events(path)
+    first = journal.scan(path)
     prepared = journal.compact_prepare(path, cutoff="2026-07-10T09:00:00Z")
     assert prepared.tmp is not None
     with path.open("r+b") as handle:
         handle.truncate(cut)
     _append_base(path, "S3", "S1", ["u-1"], ["u-3", "u-4", "u-5"], "2026-07-10T05:00:00Z")
-    assert path.stat().st_ino == inode and path.stat().st_size >= first.end
-    rescanned = journal.scan_events(path, resume=first)
+    assert path.stat().st_ino == inode and path.stat().st_size >= first.state.end
+    rescanned = journal.scan(path, resume=first.state)
     assert rescanned.start == 0
-    assert [event["stamp"] for event in rescanned.events] == ["S1", "S3"]
+    assert [event.at for event in rescanned.events] == ["2026-07-10T01:00:00Z", "2026-07-10T05:00:00Z"]
     after = path.read_bytes()
     result = journal.compact_finish(prepared)
     assert result["compacted"] is False and result["replaced"] is True
     assert path.read_bytes() == after
     assert not path.with_name(path.name + ".tmp").exists()
+
+
+def test_a_scan_resumed_after_a_compaction_reads_as_a_full_scan_of_the_compacted_journal(tmp_path):
+    """`compact_finish` hands back the state `compact_prepare`'s scan read, rebased onto the compacted file: every offset and line index less the floor's, on the new inode. A scan resumed from it reads only the lines appended since and agrees with a full scan, whether the rebased end sits more or less than the check's span past the floor."""
+    for padding in ("", "x" * 70_000):
+        path = tmp_path / f"journal-{len(padding)}.ndjson"
+        _append_base(path, "S1", None, [], ["u-1"], "2026-07-10T01:00:00Z")
+        _append_base(path, "S2", "S1", ["u-1"], ["u-2"], "2026-07-10T03:00:00Z")
+        journal.record_transition(
+            path,
+            source="autosave",
+            stamp="S2",
+            old_stamp="S2",
+            old_verdicts=[v("u-2")],
+            new_verdicts=[v("u-2"), v("u-3", note=padding)],
+            stashed="verdicts-autosave-x.json",
+            at="2026-07-10T04:00:00Z",
+        )
+        first = journal.scan(path)
+        prepared = journal.compact_prepare(path, cutoff="2026-07-10T09:00:00Z", resume=first.state)
+        assert prepared.read == first.state
+        result = journal.compact_finish(prepared)
+        assert result["compacted"] is True and result["floor_at"] == "2026-07-10T03:00:00Z"
+        assert result["resume"] == journal.scan(path).state
+        assert result["resume"].inode == path.stat().st_ino != first.state.inode
+        journal.record_transition(
+            path,
+            source="autosave",
+            stamp="S2",
+            old_stamp="S2",
+            old_verdicts=[v("u-2"), v("u-3", note=padding)],
+            new_verdicts=[v("u-2")],
+            at="2026-07-10T05:00:00Z",
+        )
+        resumed = journal.scan(path, resume=result["resume"])
+        assert resumed.start == result["resume"].end > 0
+        assert resumed.state == journal.scan(path).state
+        assert [(event.at, event.base, event.stashed) for event in resumed.events] == [
+            ("2026-07-10T03:00:00Z", True, None),
+            ("2026-07-10T04:00:00Z", False, "verdicts-autosave-x.json"),
+            ("2026-07-10T05:00:00Z", False, None),
+        ]
+
+
+@pytest.mark.parametrize("regrowth", ["other-lines", "same-lines"])
+@pytest.mark.parametrize("cut", ["rekey-undo", "land-recovery"])
+def test_a_journal_cut_shorter_between_passes_is_scanned_from_the_start(tmp_path, cut, regrowth):
+    """A saved scan state can outlive what it read. `rekey_verdicts --undo` cuts the journal back to the length it had before the re-key, and a land recovery's `truncate_to` to the length the land recorded; either can drop lines the state read, and the appends after it can grow the file past the state's end on the same inode. A re-key undone and run again appends the same set lines, so even the bytes just before that end come out the same, but its event line at the cut has a later `at`. Either way the resumed scan starts over and agrees with a full scan, and a compaction never starts at the base that was cut."""
+    path = tmp_path / "journal.ndjson"
+    units = [f"u-{n:04d}" for n in range(1_000)]
+    _append_base(path, "S1", None, [], ["u-1"], "2026-07-10T01:00:00Z")
+    length, inode = path.stat().st_size, path.stat().st_ino
+    _append_base(path, "S2", "S1", ["u-1"], units, "2026-07-10T03:00:00Z")
+    before = path.read_bytes()
+    state_path = tmp_path / "cycle" / "journal-scan.json"
+    journal.save_scan_state(state_path, journal.scan(path).state)
+    saved = journal.load_scan_state(state_path)
+    assert saved is not None and saved == journal.scan(path).state
+    if cut == "rekey-undo":
+        with path.open("r+b") as handle:
+            handle.truncate(length)
+    else:
+        assert journal.truncate_to(path, length, inode) is True
+    if regrowth == "same-lines":
+        _append_base(path, "S2", "S1", ["u-1"], units, "2026-07-10T05:00:00Z")
+        window = slice(saved.end - journal._RESUME_CHECK_BYTES, saved.end)
+        assert window.start > length and path.read_bytes()[window] == before[window]
+    else:
+        _append_base(
+            path, "S3", "S1", ["u-1"], [f"u-{n:04d}" for n in range(1_000, 2_001)], "2026-07-10T05:00:00Z"
+        )
+    assert path.stat().st_ino == saved.inode and path.stat().st_size >= saved.end
+    rescanned = journal.scan(path, resume=saved)
+    assert rescanned.start == 0
+    assert rescanned.state == journal.scan(path).state
+    assert [event.at for event in rescanned.events] == ["2026-07-10T01:00:00Z", "2026-07-10T05:00:00Z"]
+    prepared = journal.compact_prepare(path, cutoff="2026-07-10T04:00:00Z", resume=saved)
+    assert prepared.tmp is None and prepared.read == rescanned.state
+
+
+def test_a_scan_counts_a_final_line_with_no_newline_but_resumes_before_it(tmp_path):
+    """A final line that lost only its newline counts, as `_iter_entries` counts it: a set line toward its base's sets, an event as an event. The state stops before it, so a resumed scan reads it again once an append ends it, and counts it once."""
+    path = tmp_path / "journal.ndjson"
+    _append_base(path, "S1", None, [], ["u-1", "u-2"], "2026-07-10T01:00:00Z")
+    path.write_bytes(path.read_bytes().rstrip(b"\n"))
+    torn = journal.scan(path)
+    assert torn.pending is not None and torn.state.marks[0].counted == 1
+    assert [(event.at, event.counted) for event in torn.events] == [("2026-07-10T01:00:00Z", 2)]
+    prepared = journal.compact_prepare(path, cutoff="2026-07-10T09:00:00Z", resume=torn.state)
+    assert prepared.tmp is None and prepared.untouched["kept_lines"] == 3
+    _append_base(path, "S2", "S1", ["u-1", "u-2"], ["u-3"], "2026-07-10T02:00:00Z")
+    resumed = journal.scan(path, resume=torn.state)
+    assert resumed.start == torn.state.end > 0
+    assert resumed.state == journal.scan(path).state
+    assert [(event.at, event.counted) for event in resumed.events] == [
+        ("2026-07-10T01:00:00Z", 2),
+        ("2026-07-10T02:00:00Z", 1),
+    ]
+
+
+def test_a_scan_that_meets_a_line_still_being_appended_stops_before_it(tmp_path, monkeypatch):
+    """Retention's first scan runs without the store's lock, so it can read the start of a line a writer is still appending, and then, on its next read, the rest of that line. The scan stops at the first line with no newline, so the state it saves ends before that line and a scan resumed from it agrees with a full one."""
+    path = tmp_path / "journal.ndjson"
+    _append_base(path, "S1", None, [], ["u-1", "u-2"], "2026-07-10T01:00:00Z")
+    whole = path.read_bytes()
+    path.write_bytes(whole[:-1])
+    real = journal._read_lines
+
+    def racing(handle):
+        for item in real(handle):
+            if not item[0].endswith(b"\n"):
+                with path.open("ab") as tail:
+                    tail.write(b"\n")
+            yield item
+
+    monkeypatch.setattr(journal, "_read_lines", racing)
+    raced = journal.scan(path)
+    monkeypatch.setattr(journal, "_read_lines", real)
+    assert path.read_bytes() == whole
+    assert raced.state.end == whole.rstrip(b"\n").rfind(b"\n") + 1
+    assert [(event.at, event.counted) for event in raced.events] == [("2026-07-10T01:00:00Z", 2)]
+    assert journal.scan(path, resume=raced.state).state == journal.scan(path).state
+
+
+def test_a_saved_scan_state_in_another_format_or_unreadable_is_not_resumed(tmp_path):
+    state_path = tmp_path / "journal-scan.json"
+    assert journal.load_scan_state(state_path) is None
+    state_path.write_text("{not json")
+    assert journal.load_scan_state(state_path) is None
+    state_path.write_text(json.dumps({"format": "ams-journal-scan/0", "inode": 1}))
+    assert journal.load_scan_state(state_path) is None
+    journal.save_scan_state(state_path, None)
+    assert not state_path.exists()
 
 
 def test_truncate_to_cuts_only_the_file_whose_length_was_taken(tmp_path):

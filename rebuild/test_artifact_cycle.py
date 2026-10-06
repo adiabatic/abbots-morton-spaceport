@@ -7725,6 +7725,62 @@ def test_retention_leaves_the_journal_and_stashes_for_a_later_pass_while_the_sto
     assert not journal_path.with_name(journal_path.name + ".tmp").exists()
 
 
+def _two_retention_passes(root, monkeypatch, plan, *, resume):
+    """Run retention over `_retention_repo`, append a later base that stashes the S2 store, and run it again, keeping the scan state the first pass saved when `resume` and removing it otherwise. Returns the journal path, the second pass's lines, and the offset each of the second pass's scans began reading at."""
+    root.mkdir()
+    monkeypatch.setattr(cycle_paths, "CYCLE_VAR", root / "cycle")
+    monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: False)
+    journal_path = _retention_repo(root, monkeypatch)
+    ac.run_retention(plan)
+    assert journal.load_scan_state(ac.journal_scan_path()) == journal.scan(journal_path).state
+    if not resume:
+        ac.journal_scan_path().unlink()
+    journal.record_transition(
+        journal_path,
+        source="land",
+        stamp="S3",
+        old_stamp="S2",
+        old_verdicts=[],
+        new_verdicts=[{"unit": "u-2", "verdict": "approve", "note": "", "at": "2020-03-01T00:00:00Z"}],
+        stashed="verdicts-autosave-S2.json",
+        at="2020-03-01T00:00:00Z",
+    )
+    (root / "verdicts-autosave-S2.json").write_text("{}")
+    starts: list[int] = []
+    real_scan = journal.scan
+
+    def spy(path, *, resume=None):
+        scanned = real_scan(path, resume=resume)
+        starts.append(scanned.start)
+        return scanned
+
+    monkeypatch.setattr(journal, "scan", spy)
+    lines = ac.run_retention(plan).lines
+    monkeypatch.setattr(journal, "scan", real_scan)
+    return journal_path, lines, starts
+
+
+def test_retention_resumes_its_journal_scan_where_the_last_pass_stopped(tmp_path, monkeypatch):
+    """Retention reads the journal once per pass and saves where that scan stopped, rebased onto the compacted file when it compacts. The next pass parses only what was appended since, and it removes the same stashes, reports the same lines, and leaves the same journal bytes as a pass that scans from the start."""
+    plan = _plan(skip_verdict_update=True, verdict_update_note=ac.VERDICT_UPDATE_SKIP_NOTE)
+    resumed_path, resumed_lines, resumed_starts = _two_retention_passes(
+        tmp_path / "resumed", monkeypatch, plan, resume=True
+    )
+    full_path, full_lines, full_starts = _two_retention_passes(
+        tmp_path / "full", monkeypatch, plan, resume=False
+    )
+
+    assert full_starts[0] == 0 < resumed_starts[0]
+    assert resumed_lines == full_lines
+    assert any("stashes   : removed 1 " in line for line in resumed_lines)
+    assert any("restore floor now 2020-03-01T00:00:00Z" in line for line in resumed_lines)
+    assert resumed_path.read_bytes() == full_path.read_bytes()
+    assert sorted(path.name for path in (tmp_path / "resumed").glob("verdicts-autosave-*.json")) == sorted(
+        path.name for path in (tmp_path / "full").glob("verdicts-autosave-*.json")
+    )
+    assert journal.load_scan_state(ac.journal_scan_path()) == journal.scan(full_path).state
+
+
 def test_prune_stashes_keeps_a_stash_journaled_while_it_waited_for_the_lock(tmp_path):
     """The sweep reads the journal before it holds the lock, so it re-reads the tail under it: a stash another writer made and journaled in between is kept."""
     journal_path = tmp_path / "verdicts-journal.ndjson"

@@ -1,6 +1,6 @@
 """The lock that every writer of the review app's verdict store holds: the review server around each POST and while it loads the store at boot, `merge_verdicts` (a merge and `--restore-as-of --apply`), `rekey_verdicts`, the artifact cycle's store snapshot and retention pass (around its stash deletions and journal rewrite), and the land that moves a pass's corpus and store into place (`rebuild.review.landing`). The writers other than a server POST take it through `landing.locked_store`, which first finishes a land whose holder died. It is an exclusive `fcntl.flock` on `<store>.lock` beside the store (verdicts-autosave.json.lock for the live store), so one lock guards the store file and its journal together, and the kernel releases it when its holder exits for any reason, `kill -9` included.
 
-Every journal append is made under it, so a reader can scan the journal without the lock and handle only the tail appended since then under it (`journal.scan_events`, `journal.compact_prepare` and `journal.compact_finish`).
+Every journal append is made under it, so a reader can scan the journal without the lock and handle only the tail appended since then under it (`journal.scan`, `journal.compact_prepare` and `journal.compact_finish`).
 
 `hold_flock` is the primitive, and the artifact cycle's pass lock uses it too; `holder` reports who holds a lock without taking it, which the readiness checks use to name a running pass. Standard library only.
 """
