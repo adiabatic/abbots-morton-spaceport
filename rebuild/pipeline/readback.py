@@ -6,11 +6,11 @@ On the same bytes it checks that the two word-boundary glyphs are inert. No subs
 
 It also checks that the ss10 overlay is isolated (`_check_isolation`, `_check_anchorless_copies`). The ss10 input substitution covers every letter cmap glyph, and no `.ss10` copy has its own cmap entry, appears in any formation sequence, marker line, ZWNJ lock class, or settlement input, or carries a cursive anchor. So under ss10 nothing forms, settles, or attaches. That is why the overlay configuration needs no settlement table, why gate:conform's sweep covers it with texts of at most two letters, and why the oracle can compare it against the bare stream at the copies' `hmtx` advances.
 
-The stage is a structural comparison with the plan only. It does not simulate shaping: it does not apply lookups to a buffer, compose stages, or decide which of two competing rules wins. It checks `pack_gsub`'s repack on the written bytes by decompiling the settlement lookup through `pack_gsub.per_glyph_sequences` and comparing each input glyph's ordered rules with the plan. Ordered rules are compared per input glyph for settlement and per lead glyph for formation, because first-match-wins only orders rules that share an input glyph, and feaLib may regroup the others. feaLib compiles each chained-context ruleset in whichever of the three formats is smallest, so the guarded formation is format 1 in a small font and format 3 in the shipped one, and the settlement lookup arrives as a packed mix of formats 2 and 3.
+The stage is a structural comparison with the plan only. It does not simulate shaping: it does not apply lookups to a buffer, compose stages, or decide which of two competing rules wins. It checks `pack_gsub`'s repack on the written bytes by decompiling the settlement lookup through `pack_gsub.per_glyph_sequences` and reassembling each input glyph's ordered rules into the plan's (`_reassemble`). The packer splits a rule whose own slot sets cannot share ClassDefs into disjoint pieces, so a plan rule is matched to a run of consecutive font rules with its outcome that lie inside it, miss each other, together cover it, and hold `uni200C` wherever it does short of the farthest slot on a side, since HarfBuzz skips a ZWNJ that a context slot does not hold. Pieces that overlap, that leave part of the plan rule uncovered, that sit out of order, or that drop such a `uni200C` are divergences. The reassembly never calls the packer's splitter, which would then be checking itself. Ordered rules are compared per input glyph for settlement and per lead glyph for formation, because first-match-wins only orders rules that share an input glyph, and feaLib may regroup the others. feaLib compiles each chained-context ruleset in whichever of the three formats is smallest, so the guarded formation is format 1 in a small font and format 3 in the shipped one, and the packed settlement lookup arrives as format 2, with a format-3 subtable for any rule the packer keeps whole, beside any format-2 subtable feaLib wrote itself.
 
 `verify_font` does not raise on a divergence. It collects messages and reports `pass`, the first `MAX_DIVERGENCES` messages, and the total count. `run_m1` writes the report to `readback_summary.json` and then raises `ReadbackError` naming that total, so the evidence survives the failure. The GSUB offset budget is reported the same way: `gsub_offset_budget` reads the uint16 subtable-offset headroom from the raw table bytes of this same parse, the report records it under `checked["gsub_budget"]`, and headroom below `SUBTABLE_OFFSET_HEADROOM_FLOOR` is a divergence. An actual overflow cannot ship, because fontTools' save fails on an overflow of a lookup's subtable-offset array, so the floor is an early warning. In the Extension-wrapped settlement lookup each subtable costs a 2-byte offset entry plus an 8-byte ExtensionSubst record, so the 16,384-byte floor sits about 1,600 subtables short of the overflow. The floor has twice caught a font that fontTools would have saved without error: the depth-4 rules, which led `m1_settle` to use Extension, and the simulated-prospect table, which led to `pack_gsub`. Those two catches are why it stays at this value.
 
-The same parse gates a second size limit, the rule tables of one packed group. hb.repack cannot split a chained-context subtable, so a format-2 group whose rule tables pass about 65 KB cannot be serialized, and `compile_font` stops such a build before the save (`compile_font.GROUP_RULE_BYTES_LIMIT`; `compile_font`'s module docstring has the measurement). Read-back computes each format-2 settlement subtable's rule bytes from the decompiled rules (`pack_gsub.largest_group`), records the largest and its subtable index under `checked["gsub_budget"]`, and reports a divergence when it passes `GROUP_RULE_BYTES_CEILING`. The ceiling is 65,535 less `SUBTABLE_OFFSET_HEADROOM_FLOOR`, so it keeps the margin the floor keeps, and it sits well under the largest group that serialized.
+The same parse gates a second size limit, the rule tables of one packed group. hb.repack cannot split a chained-context subtable, so a format-2 group whose rule tables pass about 65 KB cannot be serialized, and `compile_font` stops such a build before the save (`compile_font.GROUP_RULE_BYTES_LIMIT`; `compile_font`'s module docstring has the measurement). Read-back computes each format-2 settlement subtable's rule bytes from the decompiled rules (`pack_gsub.largest_group`), records the largest and its subtable index under `checked["gsub_budget"]`, and reports a divergence when it passes `GROUP_RULE_BYTES_CEILING`. The ceiling is 65,535 less `SUBTABLE_OFFSET_HEADROOM_FLOOR`, so it keeps the margin the floor keeps, and it sits well under the largest group that serialized. The packer caps its own groups under it (`pack_gsub.GROUP_RULE_BYTES_CAP`), so the ceiling checks the written bytes rather than limiting growth.
 
 The widest offset inside a packed subtable is not gated, because it is not headroom. hb.repack lets a region of tables shared across Extension subtables fill up to the uint16 limit, then splits the region and duplicates the shared tables, so that offset sits just under 65,535 in every font whatever the size of its groups. A floor on it would fail builds that save without trouble.
 """
@@ -603,8 +603,95 @@ def _check_zwnj_lock(
     return _check_single_stage(stage, inner, expected_mapping, divergences)
 
 
-def _check_settle(plan: GsubPlan, lookup: Any, lookups: list[Any], divergences: list[str]) -> tuple[int, int]:
-    """Compare settlement per input glyph: for each glyph, the ordered (backtrack, lookahead, outcome) triples the font holds against the ones the plan emitted. Decompiling the written lookup through `pack_gsub.per_glyph_sequences` also checks the repack, since per-glyph order is what the packing must preserve. Returns the rule count and the number of input glyphs."""
+def _contexts(slots: tuple[frozenset[str], ...]) -> int:
+    """How many glyph tuples a rule's context slots match: the product of the slot sizes."""
+    count = 1
+    for slot in slots:
+        count *= len(slot)
+    return count
+
+
+def _settle_text(rule: tuple) -> str:
+    return f"{_slots_text(rule[0])} {_slots_text(rule[1])} -> {rule[2]}"
+
+
+def _within(piece: tuple, rule: tuple) -> bool:
+    """Whether a font rule can be a piece of a plan rule: the same outcome, as many backtrack and lookahead slots, and each slot a nonempty subset of the plan rule's."""
+    return (
+        piece[2] == rule[2]
+        and len(piece[0]) == len(rule[0])
+        and len(piece[1]) == len(rule[1])
+        and all(part and part <= whole for part, whole in zip(piece[0] + piece[1], rule[0] + rule[1]))
+    )
+
+
+def _disjoint(one: tuple, other: tuple) -> bool:
+    return any(not first & second for first, second in zip(one[0] + one[1], other[0] + other[1]))
+
+
+def _dropped_zwnj(piece: tuple, rule: tuple) -> str | None:
+    """The first slot, short of the farthest on its side, where the plan rule holds `uni200C` and the font rule does not, as `lookahead slot 2 of 3`, or None. Backtrack slots count outward from the input, as the font stores them. HarfBuzz skips a ZWNJ that a context slot does not hold and tries the slot on the glyph beyond it, so such a piece can skip a ZWNJ that the plan rule matches in that slot, read its later slots one glyph further on, and match a buffer the plan rule does not. Where the plan rule matches a ZWNJ in its farthest slot it has already matched, so a piece may drop `uni200C` there."""
+    for side, parts, wholes in (("backtrack", piece[0], rule[0]), ("lookahead", piece[1], rule[1])):
+        for slot, (part, whole) in enumerate(zip(parts[:-1], wholes[:-1])):
+            if "uni200C" in whole and "uni200C" not in part:
+                return f"{side} slot {slot + 1} of {len(wholes)}"
+    return None
+
+
+def _reassemble(glyph: str, want: list[tuple], have: list[tuple]) -> tuple[int, str | None]:
+    """Match one input glyph's plan rules, in order, to runs of its consecutive font rules, as (backtrack, lookahead, outcome) triples. A plan rule's run starts at the first font rule its predecessor's run left, and takes font rules while they have its outcome and slot shape, lie inside its slots, miss every earlier piece of the run, and keep `uni200C` in every slot short of the farthest on a side where the plan rule holds it (`_dropped_zwnj`), until their contexts add up to all of the plan rule's. Pieces that lie inside a product and miss each other cover it exactly when their context counts sum to its own, so a run partitions its plan rule's contexts read as plain glyph positions. HarfBuzz also skips a ZWNJ that a context slot does not hold, and with `uni200C` kept in those slots a run matches exactly the buffers its plan rule matches, ZWNJs included, so first-match-wins picks the same outcome in the font as in the plan in every buffer. `pack_gsub` splits a rule whose own slot sets cannot share ClassDefs into such pieces; this walk never calls its splitter, so the splitter cannot check itself. Returns the rule count, with each run counted once and, after a failure, each font rule from the failed run on counted alone, and the first failure, or None when every plan rule has its run and no font rule is left over."""
+    position = 0
+    for index, rule in enumerate(want):
+        start = position
+        total = _contexts(rule[0] + rule[1])
+        covered = 0
+        while position == start or covered < total:
+            piece = have[position] if position < len(have) else None
+            if piece is None or not _within(piece, rule):
+                if position == start:
+                    found = (
+                        "has no more font rules"
+                        if piece is None
+                        else f"font rule {position} is {_settle_text(piece)}"
+                    )
+                    problem = f"{glyph} {found}, expected a piece of plan rule {index}, {_settle_text(rule)}"
+                else:
+                    run = (
+                        f"font rule {start} covers"
+                        if position - start == 1
+                        else f"font rules {start}–{position - 1} cover"
+                    )
+                    after = "" if piece is None else f", and font rule {position} is {_settle_text(piece)}"
+                    problem = f"{glyph} {run} {covered:,} of the {total:,} contexts of plan rule {index}, {_settle_text(rule)}{after}"
+                return index + len(have) - start, problem
+            overlapped = next(
+                (other for other in range(start, position) if not _disjoint(have[other], piece)), None
+            )
+            if overlapped is not None:
+                return (
+                    index + len(have) - start,
+                    f"{glyph} font rule {position} overlaps font rule {overlapped}, both pieces of plan rule {index}, {_settle_text(rule)}",
+                )
+            dropped = _dropped_zwnj(piece, rule)
+            if dropped is not None:
+                return (
+                    index + len(have) - start,
+                    f"{glyph} font rule {position}, a piece of plan rule {index}, {_settle_text(rule)}, lacks uni200C in its {dropped}, where HarfBuzz would skip a ZWNJ that the plan rule matches",
+                )
+            covered += _contexts(piece[0] + piece[1])
+            position += 1
+    if position < len(have):
+        return (
+            len(want) + len(have) - position,
+            f"{glyph} carries {len(have) - position} font rules past the pieces of its {len(want)} plan rules",
+        )
+    return len(want), None
+
+
+def _check_settle(
+    plan: GsubPlan, lookup: Any, lookups: list[Any], divergences: list[str]
+) -> tuple[int, int, int]:
+    """Compare settlement per input glyph: the ordered (backtrack, lookahead, outcome) triples the font holds, reassembled into the plan's rules by `_reassemble`, against the ones the plan emitted. Decompiling the written lookup through `pack_gsub.per_glyph_sequences` also checks the repack, since per-glyph order is what the packing must preserve, and the reassembly checks its split. Returns the reassembled rule count, the number of input glyphs, and the font's own rule count, in which each piece of a split rule counts."""
     stage = "settle"
     expected: dict[str, list[tuple]] = {}
     for rule in plan.settle_rules:
@@ -614,7 +701,7 @@ def _check_settle(plan: GsubPlan, lookup: Any, lookups: list[Any], divergences: 
         sequences = pack_gsub.per_glyph_sequences(lookup)
     except pack_gsub.PackError as error:
         divergences.append(f"{stage}: the lookup does not decompile — {error}")
-        return 0, 0
+        return 0, 0, 0
     got: dict[str, list[tuple]] = {}
     for glyph in sorted(sequences):
         for index, rule in enumerate(sequences[glyph]):
@@ -638,28 +725,18 @@ def _check_settle(plan: GsubPlan, lookup: Any, lookups: list[Any], divergences: 
                     outcome = mapping[glyph]
             got.setdefault(glyph, []).append((rule.backtrack, rule.lookahead, outcome))
     reported = 0
+    total = 0
     for glyph in sorted(set(expected) | set(got)):
-        want = expected.get(glyph, [])
-        have = got.get(glyph, [])
-        if want == have:
+        count, problem = _reassemble(glyph, expected.get(glyph, []), got.get(glyph, []))
+        total += count
+        if problem is None:
             continue
         reported += 1
-        if reported > 10:
-            continue
-        if len(want) != len(have):
-            divergences.append(f"{stage}: {glyph} carries {len(have)} rules, expected {len(want)}")
-            continue
-        for index, (one, other) in enumerate(zip(want, have)):
-            if one == other:
-                continue
-            divergences.append(
-                f"{stage}: {glyph} rule {index} is {_slots_text(other[0])} {_slots_text(other[1])} -> {other[2]}, expected {_slots_text(one[0])} {_slots_text(one[1])} -> {one[2]}"
-            )
-            break
-    total = sum(len(rules) for rules in got.values())
+        if reported <= 10:
+            divergences.append(f"{stage}: {problem}")
     if total != plan.rule_count:
         divergences.append(f"{stage}: {total} rules in the font, expected the plan's {plan.rule_count}")
-    return total, len(got)
+    return total, len(got), sum(len(rules) for rules in got.values())
 
 
 def _check_namer_dot(
@@ -831,9 +908,12 @@ def verify_font(
                             plan, lookup, lookups, all_glyphs, divergences
                         )
                     elif stage_name == "m1_settle":
-                        settle_rules, settle_inputs = _check_settle(plan, lookup, lookups, divergences)
+                        settle_rules, settle_inputs, settle_pieces = _check_settle(
+                            plan, lookup, lookups, divergences
+                        )
                         checked["settle_rules"] = settle_rules
                         checked["settle_input_glyphs"] = settle_inputs
+                        checked["settle_font_rules"] = settle_pieces
                         formats = [getattr(subtable, "Format", None) for subtable in _unwrapped(lookup)]
                         checked["settle_subtable_formats"] = {
                             "format2": formats.count(2),

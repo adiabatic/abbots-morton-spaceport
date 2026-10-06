@@ -6,7 +6,7 @@ Lookups are defined in the order they must apply, because definition order fixes
 2. Formation: a type-4 lookup over the registry's ligature sequences. A ligature that the design section 5.7 late-formation guard ever blocks moves into its own chaining-context lookup, `m1_formation_guarded`, which runs first. Its generated `ignore sub` rows implement the guard over the two raw lookahead slots. ZWNJ-explicit forming rows come before them, because HarfBuzz skips a ZWNJ in contextual matching and a guard class could otherwise match across one. The verdicts come from one `guard-sweep` call to the kernel crate, which does not depend on the configuration, so formation can run before the marker substitutions.
 3. The stylistic-set marker substitutions: unconditional, one lookup per set, after formation so that turning on a set cannot undo a ligature. Composite markers represent several sets on at once.
 4. The ZWNJ lock: `sub uni200C @m1_entry_capable' by @m1_entry_locked`.
-5. One single-substitution lookup per distinct (input glyph, outcome) pair in the settlement rows, registered in no feature and referenced by name from those rows. feaLib resolves `lookup NAME` through a dict, while an inline `by` makes it rescan every rule since the last `subtable;` for a compatible inner lookup, which is quadratic in the rows per family.
+5. The settlement rows' outcome lookups, registered in no feature and referenced by name from those rows. Each is a single substitution, and lookup k holds each input glyph's k-th distinct outcome, for the input glyphs whose rows name that many, so there are as many as the most outcomes any input glyph has (`_settle_outcome_lookups`). feaLib resolves `lookup NAME` through a dict, while an inline `by` makes it rescan every rule since the last `subtable;` for a compatible inner lookup, which is quadratic in the rows per family.
 6. One settlement lookup, `m1_settle`, of chained-context rows of the form `sub <backtrack> X' lookup NAME <lookahead>;`, with a `subtable;` break between input families and positive rules only. It is marked `useExtension` so that its per-rule format-3 subtables sit behind 32-bit Extension offsets. Without it, the depth-4 rules push the uint16 subtable-offset headroom below `readback.SUBTABLE_OFFSET_HEADROOM_FLOOR`.
 7. The namer-dot calt, after settlement. It is emitted here because `tools/build_font.py`'s own namer-dot calt emits nothing for the mini font: `compile_font` passes no context sets, so there is no `shorts` set. Its follower class includes the ss10 copies of the Short letters, so the dot still lowers under ss10.
 
@@ -547,20 +547,24 @@ def _ordered_settle_rules(rules: Iterable, marker_names: frozenset[str] = frozen
 
 
 def _settle_outcome_lookups(grouped: Iterable) -> tuple[dict[tuple[str, str], str], list[str]]:
-    """One single-substitution lookup per distinct (input glyph, outcome) pair, in first-seen order so the FEA text is deterministic. Returns the lookup name per pair and the FEA blocks that define them. feaLib's `Builder.start_lookup_block` requires unique names, so the counter is keyed on the `_fea_safe` form of the glyph name, which can map two glyph names to one."""
+    """The single-substitution lookups that hold the distinct (input glyph, outcome) pairs: a pair goes in lookup k when its outcome is the k-th its input glyph takes, in first-seen order, so no lookup maps an input glyph twice and there are as many lookups as the most outcomes any input glyph has. First-seen order keeps the FEA text deterministic. Returns the lookup name per pair and the FEA blocks that define them."""
     names: dict[tuple[str, str], str] = {}
-    counters: dict[str, int] = {}
-    blocks: list[str] = []
+    outcomes_seen: dict[str, int] = {}
+    lines: list[list[str]] = []
     for rule in grouped:
         pair = (rule.input_glyph, rule.outcome)
         if pair in names:
             continue
-        base = _fea_safe(rule.input_glyph)
-        index = counters.get(base, 0)
-        counters[base] = index + 1
-        name = f"m1_settle_{base}_{index}"
-        names[pair] = name
-        blocks.append(f"lookup {name} {{\n    sub {rule.input_glyph} by {rule.outcome};\n}} {name};")
+        index = outcomes_seen.get(rule.input_glyph, 0)
+        outcomes_seen[rule.input_glyph] = index + 1
+        if index == len(lines):
+            lines.append([])
+        names[pair] = f"m1_settle_outcome_{index}"
+        lines[index].append(f"    sub {rule.input_glyph} by {rule.outcome};")
+    blocks = [
+        f"lookup m1_settle_outcome_{index} {{\n" + "\n".join(subs) + f"\n}} m1_settle_outcome_{index};"
+        for index, subs in enumerate(lines)
+    ]
     return names, blocks
 
 

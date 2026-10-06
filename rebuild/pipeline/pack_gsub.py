@@ -2,17 +2,17 @@
 
 FEA has no syntax that requests chain-context format 2. feaLib builds each ruleset (the rules between `subtable;` breaks) in every format it can and keeps the smallest. Format 2 is possible only when all the ruleset's class sets fit shared ClassDefs; when they do not, feaLib writes one format-3 subtable per rule. In the Extension-wrapped settlement lookup each subtable costs 10 bytes of uint16 offset space. Unpacked, the simulated-prospect table measured less subtable-offset headroom than the 16,384-byte floor that read-back enforces (`readback.SUBTABLE_OFFSET_HEADROOM_FLOOR`), and a measured ceiling showed that tightening the liveness filter could not recover the difference. Format 2 spends those 10 bytes once per group of class-compatible rules, which also leaves room for the letters not yet migrated. Section 7 of `doc/rebuild-design.md` permits this split: the settlement lookup may be divided into subtables but not into per-family lookups, because subtables share the lookup's single left-to-right pass, so backtrack still sees settled neighbors.
 
-The pass changes only the encoding. Each format-3 subtable is one rule: a coverage set per slot, plus SubstLookupRecords that point at the single-substitution lookups the emitter defines by name, one per distinct (input glyph, outcome) pair. The pass groups class-compatible rules and replaces each group with one ChainContextSubst format 2 subtable that reuses those SubstLookupRecords unchanged, wrapped in Extension when the lookup is type 7. Within a group, every backtrack set must be equal to or disjoint from every other, because they share the group's one backtrack ClassDef. The same holds for the lookahead sets and for the input sets. A rule may join only a group at or after the last group any of its input glyphs used, so each input glyph still meets its rules in their original order. Generated rules never reference class 0 (the class of unclassed glyphs), every referenced glyph is explicitly classed, and the rules in a ChainSubClassSet keep their original per-glyph order.
+The pass changes only the encoding. Each format-3 subtable is one rule: a coverage set per slot, plus SubstLookupRecords that point at the single-substitution lookups the emitter defines by name (`emit_gsub._settle_outcome_lookups`). The pass groups class-compatible rules and replaces each group with one ChainContextSubst format 2 subtable that reuses those SubstLookupRecords unchanged, wrapped in Extension when the lookup is type 7. Within a group, every backtrack set must be equal to or disjoint from every other, because they share the group's one backtrack ClassDef. The same holds for the lookahead sets and for the input sets. A rule may join only a group at or after the last group any of its input glyphs used, so each input glyph still meets its rules in their original order. Generated rules never reference class 0 (the class of unclassed glyphs), every referenced glyph is explicitly classed, and the rules in a ChainSubClassSet keep their original per-glyph order.
 
-A rule whose own slot sets cannot share ClassDefs cannot be written in format 2. The real table has such rules: one lookahead slot holds the singleton {qsNo} and another holds a broad class that also contains qsNo. Such a rule keeps its original format-3 subtable as a singleton group at its position in its input stream (`_self_compatible`). The two formats can mix inside one lookup.
+A rule whose own slot sets cannot share ClassDefs cannot be written in format 2 as it stands. The real table has such rules: one lookahead slot holds the singleton {qsNo} and another holds a broad class that also contains qsNo. Before grouping, the pass splits each such rule into pieces whose own sets can share them (`_split_rule`): it refines the rule's backtrack sets, and separately its lookahead sets, until within each side every pair of sets is equal or disjoint. The {qsNo} rule becomes a piece whose broad slot holds the rest of the class, then one whose broad slot holds only qsNo. Read as plain glyph positions, the pieces are disjoint and together match exactly the contexts the rule matched. HarfBuzz does not read context slots as plain positions, though: it skips a ZWNJ (`uni200C`, the only default-ignorable glyph the font maps) that a backtrack or lookahead slot does not hold, and tries that slot on the glyph beyond it; the formation guard's ZWNJ-explicit rows and the settlement table's boundary rows are ordered for this (the ZWNJ row of section 7's table). So a piece that lacks `uni200C` in a slot where the rule holds it can skip a ZWNJ that the rule matches in that slot, read the later slots one glyph further on, and match a buffer the rule does not. In the farthest slot on a side the rule has already matched, so dropping `uni200C` there is harmless. A rule whose split would drop it from a nearer slot is not split (`_keeps_zwnj`): it keeps its original format-3 subtable, placed in its input stream where a new group would go. Otherwise the pieces match exactly the buffers the rule matched, and since they share its outcome their order among themselves changes nothing; they take the rule's place in its input stream in the fixed order `_split_slots` gives, and join groups like any other rule. The split happens here, after the plan and never in `emit_gsub` or the crate, because the crate's fold (`fold::assert_outcome_partition`) and the witness stage fail the build on a rule that no window first-matches, and a piece that no string reaches would trip both.
 
-When every rule in a run has a single input glyph, the rules split into one stream per input glyph. Streams are processed largest first, with ties in first-seen order, and each stream keeps its rules in their original order. A new group or format-3 passthrough goes immediately after the stream's previous group, or at the beginning for the stream's first rule. This is the earliest legal position, and it leaves the groups after it free for the stream's later rules to share. A run that contains any multi-glyph input keeps its original order and appends new groups.
+When every rule in a run has a single input glyph, the rules split into one stream per input glyph. Streams are processed largest first, with ties in first-seen order, and each stream keeps its rules in their original order. A new group or a kept format-3 subtable goes immediately after the stream's previous group, or at the beginning for the stream's first rule. This is the earliest legal position, and it leaves the groups after it free for the stream's later rules to share. A run that contains any multi-glyph input keeps its original order and appends new groups and kept subtables.
 
 Native format-2 subtables from feaLib stay in place as barriers. Each contiguous run of format-3 subtables packs on its own, so no rule crosses a native subtable. A lookup qualifies when it is chained-context, has at least `min_subtables` subtables, all of format 2 or 3 and at least one of format 3, and every rule has one input slot and substitutes only at sequence index 0. At M1 scale only `m1_settle` qualifies; the guarded-formation lookup's multi-input forming rows disqualify it.
 
-Grouping admits a rule on class compatibility alone, with no size test, and hb.repack cannot split a chained-context subtable, so the rule tables of one group must stay under the uint16 offsets inside it. `largest_group` measures them; `compile_font` stops a build whose group passes the limit before the save, and read-back holds the settlement lookup's largest group to a ceiling under that limit.
+hb.repack cannot split a chained-context subtable, so the rule tables of one group must stay under the uint16 offsets inside it. A group keeps a running total of its rules' bytes and refuses a rule that would take it past `GROUP_RULE_BYTES_CAP`, which sends the rule to a later group or a new one, as a class conflict does. The cap sits under read-back's ceiling (`readback.GROUP_RULE_BYTES_CEILING`), so a group this pass writes never trips it, and each group it adds costs 10 bytes of the settlement lookup's subtable-offset headroom. `largest_group` measures the written groups; `compile_font` stops a build whose group passes hb.repack's limit before the save, and read-back holds the settlement lookup's largest group to its ceiling.
 
-Read-back checks the packing on the written font: `rebuild/pipeline/readback.py` decompiles the settlement lookup through `per_glyph_sequences` and compares each input glyph's ordered rules with the plan. gate:conform then shapes the packed font like any other build.
+Read-back checks the packing on the written font: `rebuild/pipeline/readback.py` decompiles the settlement lookup through `per_glyph_sequences` and reassembles each input glyph's planned rules from their pieces without calling this module's splitter. gate:conform then shapes the packed font like any other build.
 """
 
 from __future__ import annotations
@@ -21,6 +21,8 @@ from dataclasses import dataclass
 from typing import Any
 
 MIN_SUBTABLES = 64
+GROUP_RULE_BYTES_CAP = 48_000
+ZWNJ = "uni200C"
 
 
 class PackError(Exception):
@@ -132,6 +134,11 @@ def group_rule_bytes(subtable: Any) -> int:
     return total
 
 
+def _rule_bytes(rule: LogicalRule) -> int:
+    """The bytes `group_rule_bytes` counts for this rule once it is written into a format-2 group, whose rules have one input slot."""
+    return 8 + 2 * (len(rule.backtrack) + len(rule.lookahead)) + 4 * len(rule.records)
+
+
 def largest_group(lookup: Any) -> tuple[int, int | None]:
     """Return the `group_rule_bytes` of the lookup's largest format-2 chained-context subtable and that subtable's index in the lookup, the first of equals, or (0, None) when the lookup holds none."""
     largest, largest_index = 0, None
@@ -169,13 +176,14 @@ def _qualifies(lookup: Any, min_subtables: int) -> bool:
 
 
 class _Group:
-    __slots__ = ("backtrack_sets", "lookahead_sets", "input_sets", "rules")
+    __slots__ = ("backtrack_sets", "lookahead_sets", "input_sets", "rules", "rule_bytes")
 
     def __init__(self) -> None:
         self.backtrack_sets: dict[str, frozenset[str]] = {}
         self.lookahead_sets: dict[str, frozenset[str]] = {}
         self.input_sets: dict[str, frozenset[str]] = {}
         self.rules: list[LogicalRule] = []
+        self.rule_bytes = 0
 
     @staticmethod
     def _admits(owner: dict[str, frozenset[str]], sets: list[frozenset[str]]) -> bool:
@@ -190,7 +198,8 @@ class _Group:
 
     def accepts(self, rule: LogicalRule) -> bool:
         return (
-            self._admits(self.backtrack_sets, list(rule.backtrack))
+            self.rule_bytes + _rule_bytes(rule) <= GROUP_RULE_BYTES_CAP
+            and self._admits(self.backtrack_sets, list(rule.backtrack))
             and self._admits(self.lookahead_sets, list(rule.lookahead))
             and self._admits(self.input_sets, [rule.input])
         )
@@ -206,66 +215,91 @@ class _Group:
         self._own(self.lookahead_sets, list(rule.lookahead))
         self._own(self.input_sets, [rule.input])
         self.rules.append(rule)
+        self.rule_bytes += _rule_bytes(rule)
 
 
-def _self_compatible(rule: LogicalRule) -> bool:
-    """Whether one rule's own slot sets fit shared ClassDefs: within the backtrack slots, and within the lookahead slots, every pair of sets must be equal or disjoint. The real settlement table has rules that fail this, such as one whose second lookahead is a singleton and whose third is a broad class holding the same glyph. Such a rule cannot be written in format 2, so it keeps its original format-3 subtable as a singleton group."""
-    for sets in (rule.backtrack, rule.lookahead):
-        owner: dict[str, frozenset[str]] = {}
-        for candidate in sets:
-            for glyph in candidate:
-                prior = owner.get(glyph)
-                if prior is not None and prior != candidate:
-                    return False
-                owner[glyph] = candidate
-    return True
+def _split_slots(sets: tuple[frozenset[str], ...]) -> list[tuple[frozenset[str], ...]]:
+    """Partition the product of one side's slot sets (a rule's backtrack slots, or its lookahead slots) into products whose sets are pairwise equal or disjoint, so each fits one shared ClassDef. At the first pair of slots, in slot order, whose sets overlap without being equal, the slot whose set is not inside the other's splits into the rest of its glyphs and then the glyphs the two share, the first slot when neither set is inside the other, and each half is partitioned again. Putting the rest first packs the settlement lookup into fewer groups than the other order. The halves are disjoint and together are the slot's set, so the products are disjoint and together are the original product. A product whose sets already fit is returned as it is."""
+    for first_index, first in enumerate(sets):
+        for second_index in range(first_index + 1, len(sets)):
+            second = sets[second_index]
+            shared = first & second
+            if not shared or first == second:
+                continue
+            slot, whole = (first_index, first) if shared != first else (second_index, second)
+            return [
+                piece
+                for part in (whole - shared, shared)
+                for piece in _split_slots(sets[:slot] + (part,) + sets[slot + 1 :])
+            ]
+    return [sets]
+
+
+def _keeps_zwnj(rule: LogicalRule, piece: LogicalRule) -> bool:
+    """Whether the piece holds `ZWNJ` in every slot where the rule holds it, the farthest slot on each side aside. HarfBuzz skips a ZWNJ that a context slot does not hold and tries the slot on the glyph beyond it, so a piece without `ZWNJ` in a nearer slot can skip a ZWNJ that the rule matches there, read its later slots one glyph further on, and match a buffer the rule does not. Where the rule matches a ZWNJ in its farthest slot it has already matched, whatever the piece skips to."""
+    return all(
+        ZWNJ in part or ZWNJ not in whole
+        for parts, wholes in ((piece.backtrack, rule.backtrack), (piece.lookahead, rule.lookahead))
+        for part, whole in zip(parts[:-1], wholes[:-1])
+    )
+
+
+def _split_rule(rule: LogicalRule) -> list[LogicalRule] | None:
+    """The rule's pieces, each of whose own slot sets fit shared ClassDefs, backtrack pieces outermost: the products of `_split_slots` over its backtrack and over its lookahead, with its input and records. A rule that already fits is its own only piece. None when a piece would lack `ZWNJ` in a slot short of the farthest on its side where the rule holds it (`_keeps_zwnj`), since that piece could match a buffer the rule does not; the caller keeps such a rule whole, in its original format-3 subtable."""
+    pieces = [
+        LogicalRule(backtrack=backtrack, input=rule.input, lookahead=lookahead, records=rule.records)
+        for backtrack in _split_slots(rule.backtrack)
+        for lookahead in _split_slots(rule.lookahead)
+    ]
+    if all(_keeps_zwnj(rule, piece) for piece in pieces):
+        return pieces
+    return None
 
 
 def _group_rules(entries: list[tuple[LogicalRule, Any]]) -> list[_Group | Any]:
-    """Group (logical rule, original subtable) pairs greedily, preserving per-glyph rule order. Singleton-input streams run largest first, with ties in first-seen order and each stream in original rule order. Each rule joins the earliest compatible group at or after its stream's last group, or inserts a new group immediately after that position (at the beginning for a stream's first rule). A rule that fails `_self_compatible` inserts its original subtable at that same position. A run containing any multi-glyph input keeps its original order and appends new groups, because input sets that intersect can compete."""
+    """Group (rule, kept subtable) pairs greedily, preserving per-glyph rule order. A rule paired with None has slot sets that fit shared ClassDefs; a rule `_split_rule` keeps whole is paired with its original format-3 subtable, which goes where a new group for the rule would. Singleton-input streams run largest first, with ties in first-seen order and each stream in original rule order. Each rule joins the earliest group at or after its stream's last group that accepts it, or inserts a new group immediately after that position (at the beginning for a stream's first rule). A run containing any multi-glyph input keeps its original order and appends new groups and kept subtables, because input sets that intersect can compete."""
     groups: list[_Group | Any] = []
-    if all(len(rule.input) == 1 for rule, _original in entries):
+    if all(len(rule.input) == 1 for rule, _kept in entries):
         streams: dict[frozenset[str], list[tuple[LogicalRule, Any]]] = {}
         for entry in entries:
             streams.setdefault(entry[0].input, []).append(entry)
         for stream in sorted(streams.values(), key=len, reverse=True):
             last_index = -1
-            for rule, original in stream:
-                if _self_compatible(rule):
-                    for index in range(max(last_index, 0), len(groups)):
-                        candidate = groups[index]
-                        if isinstance(candidate, _Group) and candidate.accepts(rule):
-                            candidate.add(rule)
-                            last_index = index
-                            break
-                    else:
-                        group = _Group()
-                        group.add(rule)
-                        last_index += 1
-                        groups.insert(last_index, group)
-                else:
+            for rule, kept in stream:
+                if kept is not None:
                     last_index += 1
-                    groups.insert(last_index, original)
+                    groups.insert(last_index, kept)
+                    continue
+                for index in range(max(last_index, 0), len(groups)):
+                    candidate = groups[index]
+                    if isinstance(candidate, _Group) and candidate.accepts(rule):
+                        candidate.add(rule)
+                        last_index = index
+                        break
+                else:
+                    group = _Group()
+                    group.add(rule)
+                    last_index += 1
+                    groups.insert(last_index, group)
         return groups
     last_group_of_glyph: dict[str, int] = {}
-    for rule, original in entries:
+    for rule, kept in entries:
         start = max((last_group_of_glyph.get(glyph, 0) for glyph in rule.input), default=0)
-        if not _self_compatible(rule):
-            placed_index = len(groups)
-            groups.append(original)
+        placed_index = len(groups)
+        if kept is not None:
+            groups.append(kept)
         else:
-            placed = None
-            placed_index = len(groups)
-            for index in range(start, len(groups)):
-                candidate_group = groups[index]
-                if isinstance(candidate_group, _Group) and candidate_group.accepts(rule):
-                    placed = candidate_group
-                    placed_index = index
-                    break
-            if placed is None:
-                placed = _Group()
-                groups.append(placed)
-            placed.add(rule)
+            placed_index = next(
+                (
+                    index
+                    for index in range(start, len(groups))
+                    if isinstance(groups[index], _Group) and groups[index].accepts(rule)
+                ),
+                len(groups),
+            )
+            if placed_index == len(groups):
+                groups.append(_Group())
+            groups[placed_index].add(rule)
         for glyph in rule.input:
             last_group_of_glyph[glyph] = placed_index
     return groups
@@ -338,8 +372,8 @@ def _format2_subtable(group: _Group, order: dict[str, int]) -> Any:
     return subtable
 
 
-def pack_lookup(lookup: Any, glyph_order: list[str]) -> tuple[int, int, int]:
-    """Repack one qualifying lookup in place, leaving native format-2 subtables as barriers. Returns (rule count, format-2 subtable count including native ones, kept format-3 count)."""
+def pack_lookup(lookup: Any, glyph_order: list[str]) -> tuple[int, int, int, int]:
+    """Repack one qualifying lookup in place, leaving native format-2 subtables as barriers. Returns (rule count, rule count once split rules count their pieces, format-2 subtable count including native ones, count of rules kept whole in format 3)."""
     ot = _ot()
 
     order = {glyph: index for index, glyph in enumerate(glyph_order)}
@@ -348,26 +382,35 @@ def pack_lookup(lookup: Any, glyph_order: list[str]) -> tuple[int, int, int]:
     entries: list[tuple[LogicalRule, Any]] = []
     groups: list[_Group | Any] = []
     rule_count = 0
+    packed_rule_count = 0
+    kept_count = 0
     for subtable, original in zip(inner, originals):
         if subtable.Format == 3:
-            entries.append((_format3_rule(subtable), original))
+            rule = _format3_rule(subtable)
+            pieces = _split_rule(rule)
+            if pieces is None:
+                entries.append((rule, original))
+                kept_count += 1
+                packed_rule_count += 1
+            else:
+                entries.extend((piece, None) for piece in pieces)
+                packed_rule_count += len(pieces)
             rule_count += 1
         else:
             groups.extend(_group_rules(entries))
             entries.clear()
             groups.append(original)
-            rule_count += sum(
+            native = sum(
                 len(class_set.ChainSubClassRule)
                 for class_set in subtable.ChainSubClassSet or []
                 if class_set is not None
             )
+            rule_count += native
+            packed_rule_count += native
     groups.extend(_group_rules(entries))
     packed_subtables = []
-    kept = 0
     for group in groups:
         if not isinstance(group, _Group):
-            inner_group = group.ExtSubTable if lookup.LookupType == 7 else group
-            kept += inner_group.Format == 3
             packed_subtables.append(group)
             continue
         subtable = _format2_subtable(group, order)
@@ -381,11 +424,11 @@ def pack_lookup(lookup: Any, glyph_order: list[str]) -> tuple[int, int, int]:
             packed_subtables.append(subtable)
     lookup.SubTable = packed_subtables
     lookup.SubTableCount = len(packed_subtables)
-    return rule_count, len(groups) - kept, kept
+    return rule_count, packed_rule_count, len(groups) - kept_count, kept_count
 
 
 def pack_font(font: Any, min_subtables: int = MIN_SUBTABLES) -> dict:
-    """Pack every qualifying chained-context lookup in the font's GSUB in place. Returns, per packed lookup, its index and its counts of rules, format-2 subtables, and kept format-3 subtables."""
+    """Pack every qualifying chained-context lookup in the font's GSUB in place. Returns, per packed lookup, its index, its rule count, its rule count once split rules count their pieces, its format-2 subtable count, and its count of rules kept whole in format 3."""
     packed: list[dict] = []
     if "GSUB" in font:
         lookups = font["GSUB"].table.LookupList.Lookup
@@ -399,11 +442,12 @@ def pack_font(font: Any, min_subtables: int = MIN_SUBTABLES) -> dict:
                 continue
             if not _qualifies(lookup, min_subtables):
                 continue
-            rule_count, group_count, kept_count = pack_lookup(lookup, glyph_order)
+            rule_count, packed_rule_count, group_count, kept_count = pack_lookup(lookup, glyph_order)
             packed.append(
                 {
                     "lookup_index": index,
                     "rules": rule_count,
+                    "packed_rules": packed_rule_count,
                     "format2_subtables": group_count,
                     "kept_format3": kept_count,
                 }

@@ -67,13 +67,19 @@ def guard_verdicts(spec):
     return kernel_exec.guard_sweep(spec)
 
 
-_OUTCOME_BLOCK = re.compile(r"lookup (\S+) \{\n    sub (\S+) by (\S+);\n\} \1;")
+_OUTCOME_BLOCK = re.compile(r"lookup (\S+) \{\n((?:    sub \S+ by \S+;\n)+)\} \1;")
+_OUTCOME_SUB = re.compile(r"    sub (\S+) by (\S+);")
+
+
+def _outcome_blocks(fea):
+    """The settlement outcome lookups as {name: [(input glyph, outcome), ...]} in definition order, parsed from the FEA text between the ZWNJ lock lookup and the settlement lookup."""
+    region = fea.split("} m1_zwnj;")[1].split("lookup m1_settle useExtension {")[0]
+    return {name: _OUTCOME_SUB.findall(body) for name, body in _OUTCOME_BLOCK.findall(region)}
 
 
 def _outcome_lookups(fea):
-    """The settlement outcome lookups as {(input glyph, outcome): name}, parsed from the FEA text between the ZWNJ lock lookup and the settlement lookup."""
-    region = fea.split("} m1_zwnj;")[1].split("lookup m1_settle useExtension {")[0]
-    return {(glyph, outcome): name for name, glyph, outcome in _OUTCOME_BLOCK.findall(region)}
+    """The settlement outcome lookups as {(input glyph, outcome): name}."""
+    return {pair: name for name, pairs in _outcome_blocks(fea).items() for pair in pairs}
 
 
 def _settle_block(fea):
@@ -199,19 +205,40 @@ class TestEmitGsub:
             assert match.groups() == (rule.input_glyph, lookups[(rule.input_glyph, rule.outcome)])
         zwnj_lock = fea.index("lookup m1_zwnj {")
         settlement = fea.index("lookup m1_settle useExtension {")
-        for (glyph, outcome), name in lookups.items():
-            block = f"lookup {name} {{\n    sub {glyph} by {outcome};\n}} {name};"
-            assert fea.count(block) == 1
-            assert zwnj_lock < fea.index(block) < settlement
+        blocks = _outcome_blocks(fea)
+        assert sum(len(pairs) for pairs in blocks.values()) == len(lookups)
+        for name in blocks:
+            assert fea.count(f"lookup {name} {{") == 1
+            assert zwnj_lock < fea.index(f"lookup {name} {{") < settlement
 
-    def test_one_lookup_per_input_and_outcome_pair(self, spec, glyphs):
+    def test_each_input_glyph_s_kth_outcome_is_in_the_kth_outcome_lookup(self, spec, glyphs):
+        """The outcome lookups hold every distinct (input glyph, outcome) pair once, the k-th outcome an input glyph takes, in first-seen order, in the k-th lookup. No lookup maps an input glyph twice, and there are as many lookups as the most outcomes any input glyph takes, however many input glyphs there are."""
+        extra = FakeRule("qsIt", None, ("qsTea",), None, "qsIt", provenance=("p4",))
+        plan = emit_gsub.emit_gsub(
+            spec, {frozenset(): FakeDecision([*_rules(spec, glyphs), extra])}, glyphs=glyphs
+        )
+        first_seen: dict[str, list[str]] = {}
+        for rule in plan.settle_rules:
+            outcomes = first_seen.setdefault(rule.input_glyph, [])
+            if rule.outcome not in outcomes:
+                outcomes.append(rule.outcome)
+        assert len(first_seen) > 2 and max(len(outcomes) for outcomes in first_seen.values()) == 2
+        blocks = _outcome_blocks(plan.fea_text)
+        assert list(blocks) == ["m1_settle_outcome_0", "m1_settle_outcome_1"]
+        for pairs in blocks.values():
+            inputs = [glyph for glyph, _outcome in pairs]
+            assert len(inputs) == len(set(inputs))
+        for glyph, outcomes in first_seen.items():
+            assert [dict(pairs).get(glyph) for pairs in blocks.values()][: len(outcomes)] == outcomes
+            assert all(glyph not in dict(pairs) for pairs in list(blocks.values())[len(outcomes) :])
+        assert sum(line.startswith("lookup m1_settle_") for line in plan.fea_text.splitlines()) == 2
+
+    def test_rules_that_share_an_outcome_name_one_lookup(self, spec, glyphs):
         plan = emit_gsub.emit_gsub(spec, {frozenset(): FakeDecision(_rules(spec, glyphs))}, glyphs=glyphs)
         pairs = {(rule.input_glyph, rule.outcome) for rule in plan.settle_rules}
         assert len(pairs) < len(plan.settle_rules)
         lookups = _outcome_lookups(plan.fea_text)
         assert set(lookups) == pairs
-        assert len(set(lookups.values())) == len(pairs)
-        assert sum(line.startswith("lookup m1_settle_") for line in plan.fea_text.splitlines()) == len(pairs)
         it_rules = [rule for rule in plan.settle_rules if rule.input_glyph == "qsIt"]
         assert len(it_rules) == 2 and len({rule.outcome for rule in it_rules}) == 1
         it_rows = [line for line in _settle_block(plan.fea_text).splitlines() if "sub qsIt' " in line]

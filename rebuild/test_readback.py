@@ -1,4 +1,8 @@
-"""Read-back tests over a real build of the mini fixture spec. The fixture runs the whole emit and compile path, so the font under test has every stage the shipped font has: the ss10 input substitution, the guarded and plain formation lookups, the marker lookups, the ZWNJ lock, a packed settlement lookup, and the namer dot. A clean build must verify with zero divergences. Each corruption test edits the compiled font so it no longer matches the plan, and checks that read-back reports the mismatch under the right stage name."""
+"""Read-back tests over a real build of the mini fixture spec. The fixture runs the whole emit and compile path, so the font under test has every stage the shipped font has: the ss10 input substitution, the guarded and plain formation lookups, the marker lookups, the ZWNJ lock, a packed settlement lookup that holds split rules, and the namer dot. A clean build must verify with zero divergences. Each corruption test edits the compiled font so it no longer matches the plan, and checks that read-back reports the mismatch under the right stage name."""
+
+import dataclasses
+import math
+from typing import Any
 
 import pytest
 
@@ -136,6 +140,77 @@ def _named(report, needle):
     return [line for line in report["divergences"] if needle in line]
 
 
+def _plan_shapes(plan, glyph):
+    return [
+        ((rule.backtrack,) if rule.backtrack else (), rule.lookahead)
+        for rule in plan.settle_rules
+        if rule.input_glyph == glyph
+    ]
+
+
+def _whole_rule_site(sequences, plan):
+    """The first input glyph whose font rules are its planned rules, unsplit, with a rule followed by another and holding a slot of two or more glyphs: (glyph, rule index, `backtrack` or `lookahead`, slot index)."""
+    for glyph in sorted(sequences):
+        rules = sequences[glyph]
+        if [(rule.backtrack, rule.lookahead) for rule in rules] != _plan_shapes(plan, glyph):
+            continue
+        for index, rule in enumerate(rules[:-1]):
+            for side in ("backtrack", "lookahead"):
+                for slot, members in enumerate(getattr(rule, side)):
+                    if len(members) > 1:
+                        return glyph, index, side, slot
+    raise AssertionError(
+        "the fixture's settlement lookup holds no unsplit rule with a slot of two or more glyphs"
+    )
+
+
+def _with_slot(rule, side, slot, members):
+    slots = list(getattr(rule, side))
+    slots[slot] = members
+    return dataclasses.replace(rule, **{side: tuple(slots)})
+
+
+def _rewrite_settlement(font, plan, edit):
+    """Replace the settlement lookup's subtables with one Extension-wrapped format-3 subtable per rule, from its decompiled per-glyph sequences once `edit` has changed them in place, input glyph by input glyph in sorted order."""
+    from rebuild.pipeline import pack_gsub
+
+    ot = pack_gsub._ot()
+    lookup = font["GSUB"].table.LookupList.Lookup[_stage_index(font, plan, "m1_settle")]
+    sequences = pack_gsub.per_glyph_sequences(lookup)
+    edit(sequences)
+
+    def coverage(glyphs):
+        table = ot.Coverage()
+        table.glyphs = sorted(glyphs, key=font.getGlyphID)
+        return table
+
+    wrappers = []
+    for glyph in sorted(sequences):
+        for rule in sequences[glyph]:
+            subtable = ot.ChainContextSubst()
+            subtable.Format = 3
+            subtable.BacktrackCoverage = [coverage(members) for members in rule.backtrack]
+            subtable.BacktrackGlyphCount = len(rule.backtrack)
+            subtable.InputCoverage = [coverage({glyph})]
+            subtable.InputGlyphCount = 1
+            subtable.LookAheadCoverage = [coverage(members) for members in rule.lookahead]
+            subtable.LookAheadGlyphCount = len(rule.lookahead)
+            subtable.SubstLookupRecord = []
+            for sequence_index, lookup_index in rule.records:
+                record = ot.SubstLookupRecord()
+                record.SequenceIndex = sequence_index
+                record.LookupListIndex = lookup_index
+                subtable.SubstLookupRecord.append(record)
+            subtable.SubstCount = len(subtable.SubstLookupRecord)
+            wrapper = ot.ExtensionSubst()
+            wrapper.Format = 1
+            wrapper.ExtensionLookupType = 6
+            wrapper.ExtSubTable = subtable
+            wrappers.append(wrapper)
+    lookup.SubTable = wrappers
+    lookup.SubTableCount = len(wrappers)
+
+
 class TestReadback:
     def test_a_clean_build_verifies(self, built):
         font_path, plan, cursive, _copies = built
@@ -143,6 +218,7 @@ class TestReadback:
         assert report["divergences"] == []
         assert report["pass"]
         assert report["checked"]["settle_rules"] == plan.rule_count
+        assert report["checked"]["settle_font_rules"] > plan.rule_count
         assert report["checked"]["guarded_rows"] == len(plan.formation_guarded_rows) > 0
         assert report["checked"]["cursive_anchors"]
 
@@ -187,7 +263,7 @@ class TestReadback:
         assert plan.namer_dot_stage is not None and plan.namer_dot_stage[0] == "periodcentered"
 
     def test_settlement_resolves_through_lookups_between_the_zwnj_lock_and_settlement(self, built):
-        """Every settlement rule's outcome is a single-substitution lookup that the emitter defines after the ZWNJ lock and before the settlement lookup, and each one maps only its rule's input glyph. The lookups between those two stages are these, plus the one feaLib creates for the ZWNJ lock's inline `by`, directly after the ZWNJ lock."""
+        """Every settlement rule's outcome is a single-substitution lookup that the emitter defines after the ZWNJ lock and before the settlement lookup. The lookups between those two stages are these, plus the one feaLib creates for the ZWNJ lock's inline `by`, directly after the ZWNJ lock. The k-th of them maps each input glyph to the k-th distinct outcome its planned rules name, so there are as many as the most outcomes any input glyph takes."""
         from fontTools.ttLib import TTFont
 
         from rebuild.pipeline import pack_gsub
@@ -202,26 +278,28 @@ class TestReadback:
             sequences = pack_gsub.per_glyph_sequences(lookups[settlement])
             assert sequences
             reached: set[int] = set()
-            for glyph, rules in sequences.items():
+            for rules in sequences.values():
                 for rule in rules:
                     assert len(rule.records) == 1 and rule.records[0][0] == 0
-                    index = rule.records[0][1]
-                    assert zwnj_lock < index < settlement
-                    reached.add(index)
-                    inner = lookups[index]
-                    assert inner.LookupType == 1 and inner.SubTableCount == 1
-                    assert list(readback._single_mapping(inner) or {}) == [glyph]
-            assert reached == set(range(zwnj_lock + 2, settlement))
+                    reached.add(rule.records[0][1])
+            outcome_lookups = range(zwnj_lock + 2, settlement)
+            assert reached == set(outcome_lookups)
             assert readback._single_mapping(lookups[zwnj_lock + 1]) is not None
-            outcomes = {
-                (glyph, (readback._single_mapping(lookups[rule.records[0][1]]) or {})[glyph])
-                for glyph, rules in sequences.items()
-                for rule in rules
-            }
-            assert outcomes == {(rule.input_glyph, rule.outcome) for rule in plan.settle_rules}
-            assert len(reached) == len(outcomes)
+            for index in outcome_lookups:
+                assert lookups[index].LookupType == 1 and lookups[index].SubTableCount == 1
+            mappings = [readback._single_mapping(lookups[index]) or {} for index in outcome_lookups]
         finally:
             font.close()
+        first_seen: dict[str, list[str]] = {}
+        for rule in plan.settle_rules:
+            outcomes = first_seen.setdefault(rule.input_glyph, [])
+            if rule.outcome not in outcomes:
+                outcomes.append(rule.outcome)
+        assert len(mappings) == max(len(outcomes) for outcomes in first_seen.values()) > 1
+        for glyph, outcomes in first_seen.items():
+            assert [mapping[glyph] for mapping in mappings if glyph in mapping] == outcomes
+            assert all(glyph in mapping for mapping in mappings[: len(outcomes)])
+        assert set().union(*mappings) == set(first_seen)
 
     def test_the_offset_budget_is_read_off_the_raw_table(self, built):
         """The lookup and subtable counts from the raw GSUB byte walk match the decoded table's counts, which checks that the walk reads the right uint16 fields. The same parse records how many settlement subtables use formats 2 and 3."""
@@ -242,6 +320,7 @@ class TestReadback:
         assert budget["floor"] == readback.SUBTABLE_OFFSET_HEADROOM_FLOOR
         formats = report["checked"]["settle_subtable_formats"]
         assert formats["format2"] >= 1
+        assert formats["format3"] == 0
         assert formats["format2"] + formats["format3"] == settle_subtables
 
     def test_the_largest_group_is_measured_in_serialized_rule_bytes(self, built):
@@ -400,6 +479,88 @@ class TestCorruptions:
         assert settled and any("expected" in line for line in settled)
         assert report["checked"]["settle_rules"] == plan.rule_count
 
+    @pytest.mark.parametrize(
+        ("arrangement", "expected"),
+        [
+            ("consecutive", None),
+            ("overlapping", "overlaps"),
+            ("partial", "cover"),
+            ("out of order", "cover"),
+        ],
+    )
+    def test_split_pieces_reassemble_only_into_the_rule_they_partition(
+        self, built, tmp_path, arrangement, expected
+    ):
+        """Read-back reassembles a plan rule from a run of consecutive font rules that lie inside it, miss each other, and cover it. The test rewrites the settlement lookup as one format-3 subtable per rule and splits a whole planned rule with a slot of two or more glyphs into the rest of that slot and one glyph of it. Consecutive pieces verify. Pieces that overlap, that leave a glyph of the slot uncovered, or whose second piece sits after the next planned rule are each a divergence."""
+        site: dict[str, Any] = {}
+
+        def mutate(font, plan):
+            def split(sequences):
+                glyph, index, side, slot = _whole_rule_site(sequences, plan)
+                rule, after = sequences[glyph][index], sequences[glyph][index + 1]
+                members = getattr(rule, side)[slot]
+                single = frozenset({min(members)})
+                rest, alone = _with_slot(rule, side, slot, members - single), _with_slot(
+                    rule, side, slot, single
+                )
+                pieces = {
+                    "consecutive": [rest, alone, after],
+                    "overlapping": [rest, rule, after],
+                    "partial": [rest, after],
+                    "out of order": [rest, after, alone],
+                }[arrangement]
+                sequences[glyph][index : index + 2] = pieces
+                site.update(
+                    glyph=glyph,
+                    index=index,
+                    contexts=math.prod(len(member) for member in rule.backtrack + rule.lookahead),
+                    remaining=math.prod(len(member) for member in rest.backtrack + rest.lookahead),
+                )
+
+            _rewrite_settlement(font, plan, split)
+
+        report = _corrupted_report(built, tmp_path, f"split-{arrangement.replace(' ', '-')}", mutate)
+        _font_path, plan, _cursive, _copies = built
+        glyph, index = site["glyph"], site["index"]
+        settled = _named(report, "settle:")
+        if expected is None:
+            assert report["divergences"] == []
+            assert report["checked"]["settle_rules"] == plan.rule_count
+            assert report["checked"]["settle_subtable_formats"] == {
+                "format2": 0,
+                "format3": report["checked"]["settle_font_rules"],
+            }
+            return
+        assert not report["pass"]
+        if expected == "overlaps":
+            assert settled[0].startswith(
+                f"settle: {glyph} font rule {index + 1} overlaps font rule {index}, both pieces of plan rule {index}, "
+            )
+        else:
+            assert settled[0].startswith(
+                f"settle: {glyph} font rule {index} covers {site['remaining']:,} of the {site['contexts']:,} contexts of plan rule {index}, "
+            )
+
+    def test_a_piece_that_drops_zwnj_from_a_nearer_slot_does_not_reassemble(self):
+        """HarfBuzz skips a ZWNJ that a context slot does not hold, so a piece without `uni200C` in a slot where its plan rule holds it, short of the farthest on its side, can match a buffer the plan rule does not, though the pieces partition its glyph tuples. Without it in the farthest slot it cannot."""
+        zwnj_or_b, wide = frozenset({"B", "uni200C"}), frozenset({"B", "C", "uni200C"})
+        rest, after = frozenset({"C"}), frozenset({"D"})
+
+        count, problem = readback._reassemble(
+            "A",
+            [((), (zwnj_or_b, wide, after), "A.alt1")],
+            [((), (zwnj_or_b, rest, after), "A.alt1"), ((), (zwnj_or_b, zwnj_or_b, after), "A.alt1")],
+        )
+
+        assert count == 2
+        assert problem is not None and problem.startswith("A font rule 0, a piece of plan rule 0, ")
+        assert "lacks uni200C in its lookahead slot 2 of 3" in problem
+        assert readback._reassemble(
+            "A",
+            [((), (zwnj_or_b, wide), "A.alt1")],
+            [((), (zwnj_or_b, rest), "A.alt1"), ((), (zwnj_or_b, zwnj_or_b), "A.alt1")],
+        ) == (1, None)
+
     def test_a_headroom_under_the_floor_is_a_divergence(self, built, monkeypatch):
         """Raising the floor above the uint16 range makes a clean font fall under it. That must be reported as a single named divergence, not raised as an exception."""
         font_path, plan, cursive, _copies = built
@@ -473,19 +634,23 @@ class TestCorruptions:
         named = _named(report, "boundary glyphs:")
         assert named and any("uni200C" in line for line in named)
 
-    def test_a_settlement_input_coverage_admitting_space(self, built, tmp_path):
-        """A format-3 settlement rule whose input coverage includes a space would fire on a word boundary, where nothing may substitute."""
+    def test_a_settlement_input_class_admitting_space(self, built, tmp_path):
+        """A packed settlement rule whose input class includes a space would fire on a word boundary, where nothing may substitute. The test classes the space with a populated input class and adds it to the subtable's coverage."""
 
         def mutate(font, plan):
             lookup = font["GSUB"].table.LookupList.Lookup[_stage_index(font, plan, "m1_settle")]
             inner = next(
                 candidate
                 for candidate in (_inner(subtable) for subtable in lookup.SubTable)
-                if candidate.Format == 3
+                if candidate.Format == 2
             )
-            glyphs = inner.InputCoverage[0].glyphs
-            glyphs.append("space")
-            glyphs.sort(key=font.getGlyphID)
+            populated = next(
+                index
+                for index, class_set in enumerate(inner.ChainSubClassSet)
+                if index > 0 and class_set is not None
+            )
+            inner.InputClassDef.classDefs["space"] = populated
+            inner.Coverage.glyphs = sorted(set(inner.Coverage.glyphs) | {"space"}, key=font.getGlyphID)
 
         report = _corrupted_report(built, tmp_path, "space-in-input", mutate)
         assert not report["pass"]
