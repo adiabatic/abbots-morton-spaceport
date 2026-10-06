@@ -436,6 +436,7 @@ def build_tables(
     kernel_threads: int | None = None,
     packing: Packing | None = None,
     configs: Sequence[str] = conform.SETTLEMENT_CONFIGS,
+    overlap_memo_writes: bool | None = None,
 ) -> tuple[dict[str, tuple], dict[str, str]]:
     """Build the decision and join tables for the named settlement configurations, all of them unless `configs` narrows the set. The resolved spec is dumped once, then one crate `build-tables` process (`kernel_exec.build_table_files`) enumerates `default`'s fixpoint and folds it, then enumerates each other configuration as a delta over `default`'s finished memo, prepares its fold as it finishes, and, once every configuration has exchanged the windows the others keep live (`rebuild/kernel-rs/src/crossconfig.rs`), finishes each fold. The crate writes the settlement TSV, the join TSV and the window enumeration itself; nothing is folded on the Python side.
 
@@ -450,9 +451,16 @@ def build_tables(
     `inputs` is `tables_inputs` over the sources this spec was loaded from. Passing it with `out_dir` keeps each configuration's window enumeration beside the TSVs under the stamp that names those sources, where `run_font_conformance` reads it instead of rebuilding anything. Without it, the payload is deleted once its head is read. A caller building its own spec must omit it, because the fingerprint names the repository's rune files and does not describe tables built from other runes.
 
     `kernel_threads` is how many worker slots the build runs at once, each enumerating a delta configuration or running `default`'s fold preparation, capped at the configuration count and the cores this process may run on, neither of which is a memory limit. The default it falls back to is the memory limit: `kernel_exec.kernel_threads_default` is the widest width whose `kernel_exec.table_build_booking_bytes` fits this machine's memory, which books what `default`'s finished memo holds, one parked fold product per configuration this build names, and what each slot holds beyond its own parked product. So the cap only narrows a memory-derived width and never widens one.
+
+    `overlap_memo_writes` says whether the crate writes the memo files beside the delta wave and the folds rather than ahead of them. The artifact cycle passes the choice it derives beside gate:make-test's pytest pool; when it is `None`, as for a bare run, `kernel_exec.memo_writes_overlap` derives it at the width the build takes with nothing beside it, so it is on wherever that width's booking with `kernel_exec.MEMO_WRITE_OVERLAP_BYTES` added still fits the memory.
     """
     configs = tuple(configs)
-    threads = _table_build_threads(kernel_threads, len(configs), from_scratch="default" not in configs)
+    from_scratch = "default" not in configs
+    threads = _table_build_threads(kernel_threads, len(configs), from_scratch=from_scratch)
+    if overlap_memo_writes is None:
+        overlap_memo_writes = kernel_exec.memo_writes_overlap(
+            threads, configs=len(configs), from_scratch=from_scratch
+        )
     kernel_exec.ensure_built()
     built: dict[str, tuple] = {}
     digests: dict[str, str] = {}
@@ -491,6 +499,7 @@ def build_tables(
             edited=previous.edited if previous else (),
             moved_classes=previous.moved_classes if previous else (),
             memo_stamp=stamp,
+            overlap_memo_writes=overlap_memo_writes,
         )
         digests = crate.digests
         line = console.timing(
@@ -817,10 +826,11 @@ def run(
     kernel_threads: int | None = None,
     memo_inputs: oracle_cache.SettleMemoInputs | None = None,
     replay_threads: int | None = None,
+    overlap_memo_writes: bool | None = None,
 ) -> tuple[dict, TableGates]:
     """Build the tables, then run two branches over them. The table-only branch (`_run_table_gates`, on one background thread) runs the string replay, the witness stage and the shipped-order walks. The glyph chain (minting, the defect gates, the emission, the compile and read-back) runs on the calling thread, writes `pipeline_summary.json` and the Stage A record, and returns its summary with the branch's `TableGates` handle without joining the branch. The caller joins it: `main` calls `wait_for_replay` before the oracle, passes `wait_for_memo` for the oracle to call before its memo writes, calls `join` after the oracle so the gate covers both branches, and calls `close` in a `finally`. When the glyph chain raises, the branch's first failure is raised in its place if there is one, so a failed replay is reported as incomplete tables and not as whatever the glyph chain made of them.
 
-    `inputs` is `tables_inputs` over the sources `spec` was loaded from, computed before the load so it can only name content the tables are at least as new as. Passing it keeps the window enumeration under `out_dir` for the conformance sweep and the shipped-order walk. A caller running its own spec omits it, and the walk does not run. `memo_inputs` is `settle_memo_inputs`, computed at the same moment. It names the settle memo files the string replay fills and the witness stage, the oracle and the conformance sweep then load; without it the replay writes no memo, the witness stage settles every certificate, and nothing is shared. `kernel_threads` applies only to the table build, whose per-configuration memory cost that width was derived from. `replay_threads` applies only to the string replay, whose memory cost is `kernel_exec.REPLAY_PEAK_BYTES` and which derives its own width (`_replay_threads`) when none is given. The packing and the shipped-order walks run one task per configuration up to the cores (`_core_bound_threads`) regardless of either width. The witness stage and the walks can still be running when the oracle's pool starts, since the oracle waits only for the string replay (`TableGates.wait_for_replay`), and they share the machine with that pool.
+    `inputs` is `tables_inputs` over the sources `spec` was loaded from, computed before the load so it can only name content the tables are at least as new as. Passing it keeps the window enumeration under `out_dir` for the conformance sweep and the shipped-order walk. A caller running its own spec omits it, and the walk does not run. `memo_inputs` is `settle_memo_inputs`, computed at the same moment. It names the settle memo files the string replay fills and the witness stage, the oracle and the conformance sweep then load; without it the replay writes no memo, the witness stage settles every certificate, and nothing is shared. `kernel_threads` applies only to the table build, whose per-configuration memory cost that width was derived from, and so does `overlap_memo_writes` (`build_tables`). `replay_threads` applies only to the string replay, whose memory cost is `kernel_exec.REPLAY_PEAK_BYTES` and which derives its own width (`_replay_threads`) when none is given. The packing and the shipped-order walks run one task per configuration up to the cores (`_core_bound_threads`) regardless of either width. The witness stage and the walks can still be running when the oracle's pool starts, since the oracle waits only for the string replay (`TableGates.wait_for_replay`), and they share the machine with that pool.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
     commit = head_commit()
@@ -835,7 +845,12 @@ def run(
     packing = Packing(_core_bound_threads(len(conform.SETTLEMENT_CONFIGS)))
     try:
         tables, _digests = build_tables(
-            spec, out_dir, inputs=inputs, kernel_threads=kernel_threads, packing=packing
+            spec,
+            out_dir,
+            inputs=inputs,
+            kernel_threads=kernel_threads,
+            packing=packing,
+            overlap_memo_writes=overlap_memo_writes,
         )
     except BaseException:
         with suppress(Exception):
@@ -2168,6 +2183,15 @@ def main(argv: list[str] | None = None) -> None:
         ),
     )
     parser.add_argument(
+        "--overlap-memo-writes",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help=(
+            "whether the kernel's table build writes its memo files on threads of their own beside the delta wave and the folds (the same bytes, sooner) or each ahead of the work that follows it; the default is derived from this machine at the build's width: on when the booking --kernel-threads is sized by, with kernel_exec.MEMO_WRITE_OVERLAP_BYTES added for those writers, still fits the memory — "
+            f"{'on' if kernel_exec.memo_writes_overlap(len(conform.SETTLEMENT_CONFIGS), configs=len(conform.SETTLEMENT_CONFIGS)) else 'off'} on this one at the whole wave's width; the artifact cycle passes the choice it derives beside gate:make-test's pool"
+        ),
+    )
+    parser.add_argument(
         "--replay-threads",
         type=int,
         default=None,
@@ -2247,6 +2271,7 @@ def main(argv: list[str] | None = None) -> None:
             kernel_threads=args.kernel_threads,
             memo_inputs=memo_inputs,
             replay_threads=args.replay_threads,
+            overlap_memo_writes=args.overlap_memo_writes,
         )
         console.timing("run_total", time.perf_counter() - start, rss_token(process_peak_rss_bytes()))
         console.say(json.dumps(summary, indent=2))

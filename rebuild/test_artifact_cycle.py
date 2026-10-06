@@ -300,6 +300,7 @@ def test_dry_run_plan_default():
         "rebuild.pipeline.run_m1",
         "--kernel-threads",
         str(plan.kernel_threads),
+        "--overlap-memo-writes" if plan.overlap_memo_writes else "--no-overlap-memo-writes",
         "--replay-threads",
         str(plan.replay_threads),
     ]
@@ -2872,7 +2873,7 @@ def test_kernel_threads_budget_takes_the_pytest_pool_off_the_machine_first():
 def test_the_kernel_fits_as_many_deltas_with_the_test_gates_running_as_run_alone_on_both_fleet_machines(
     monkeypatch,
 ):
-    """The kernel terms (`kernel_exec.table_build_booking_bytes`) are chosen so that gate:make-test's pytest pool costs neither fleet machine a worker slot, and this test checks the gated widths, which only the cycle computes. On both 48 GiB machines, at eighteen and at twelve cores, the gated and skipped-gate widths are equal to the configuration count, every delta and `default`'s fold preparation in a slot of its own, so the wave runs in one round. `AMS_KERNEL_THREADS` is cleared first, because an exported width would pass these assertions whatever the constants are."""
+    """The kernel terms (`kernel_exec.table_build_booking_bytes`) are chosen so that gate:make-test's pytest pool costs neither fleet machine a worker slot or the memo writes beside the wave, and this test checks the gated widths and memo write orders, which only the cycle computes. On both 48 GiB machines, at eighteen and at twelve cores, the gated and skipped-gate widths are equal to the configuration count, every delta and `default`'s fold preparation in a slot of its own, so the wave runs in one round, and at that width both write the memo files beside the wave. `AMS_KERNEL_THREADS` is cleared first, because an exported width would pass these assertions whatever the constants are."""
     from rebuild.pipeline.conform import SETTLEMENT_CONFIGS
 
     monkeypatch.delenv("AMS_KERNEL_THREADS", raising=False)
@@ -2882,6 +2883,34 @@ def test_the_kernel_fits_as_many_deltas_with_the_test_gates_running_as_run_alone
         assert (
             ac.kernel_threads_budget(skip_make_test=True, ncores=ncores, total_bytes=MACHINE_48_GIB) == gated
         )
+        for skip_make_test in (False, True):
+            assert ac.memo_writes_overlap_budget(
+                gated, skip_make_test=skip_make_test, ncores=ncores, total_bytes=MACHINE_48_GIB
+            )
+
+
+def test_the_memo_write_order_takes_the_pytest_pool_off_the_machine_as_the_width_does():
+    """The cycle decides the memo write order with gate:make-test's pool off the machine, because run_m1 cannot see that pool. On an invented machine just large enough for the whole wave with the memo writers beside it and nothing else, the width stays the configuration count with the pool running, but the writers no longer fit beside it, so the plan passes `--no-overlap-memo-writes`, and a pass that skips the gate passes `--overlap-memo-writes`."""
+    from rebuild.pipeline.conform import SETTLEMENT_CONFIGS
+    from rebuild.pipeline.kernel_exec import table_build_booking_bytes
+    from rebuild.tools import memory_budget
+
+    count = len(SETTLEMENT_CONFIGS)
+    beside = table_build_booking_bytes(count, configs=count, overlap=True)
+    total = next(
+        total
+        for total in range(beside, 2 * beside, 10_000_000)
+        if total - memory_budget.os_reserve_bytes(total_bytes=total) >= beside
+    )
+    pool = ac._make_test_pool_bytes(skip_make_test=False, ncores=8)
+    assert table_build_booking_bytes(count, configs=count) + pool <= total - memory_budget.os_reserve_bytes(
+        total_bytes=total
+    ), "the invented machine is meant to keep the whole wave with the pool running"
+    for skip_make_test, flag in ((False, "--no-overlap-memo-writes"), (True, "--overlap-memo-writes")):
+        assert ac.kernel_threads_budget(skip_make_test=skip_make_test, ncores=8, total_bytes=total) == count
+        plan = _plan(ncores=8, total_bytes=total, skip_make_test=skip_make_test)
+        assert plan.overlap_memo_writes is skip_make_test
+        assert flag in plan.argv("run_m1")
 
 
 def test_replay_threads_budget_takes_the_pytest_pool_off_the_machine_first():
@@ -3209,6 +3238,7 @@ def test_cycle_summary_payload_plan_block_and_argv():
         "do_merge": True,
         "conform_max_length": ac.CONFORM_MAX_LENGTH_DEFAULT,
         "kernel_threads": plan.kernel_threads,
+        "overlap_memo_writes": plan.overlap_memo_writes,
         "replay_threads": plan.replay_threads,
         "sweep_jobs": plan.sweep_jobs,
         "corpus_jobs": plan.corpus_jobs,
@@ -3255,6 +3285,7 @@ def test_cycle_summary_payload_names_the_gates_only_rerun_and_passes_no_kernel_w
     assert payload["plan"]["rerun_gates_only"] is True
     assert payload["plan"]["skip_run_m1"] is False
     assert payload["plan"]["kernel_threads"] is None
+    assert payload["plan"]["overlap_memo_writes"] is None
     assert payload["plan"]["replay_threads"] is None
 
 
@@ -5367,10 +5398,10 @@ def test_main_forces_the_rebuild_suite_under_fresh(tmp_path, monkeypatch, capsys
 
 
 def _full_build_step(out: str):
-    """Return the match for the rendered run_m1 step of a plan that builds, so the negative cases can show a build was planned instead of the gates-only argv. `--jobs` appears before `--kernel-threads` only when the sweep width is above one, `--replay-threads` always follows `--kernel-threads`, and `--fresh-oracle-cache` appears only under `--fresh`."""
+    """Return the match for the rendered run_m1 step of a plan that builds, so the negative cases can show a build was planned instead of the gates-only argv. `--jobs` appears before `--kernel-threads` only when the sweep width is above one, the memo write order and then `--replay-threads` always follow `--kernel-threads`, and `--fresh-oracle-cache` appears only under `--fresh`."""
     return re.search(
         r"^ +\$ uv run python -m rebuild\.pipeline\.run_m1"
-        r"( --jobs \d+)? --kernel-threads \d+ --replay-threads \d+( --fresh-oracle-cache)?$",
+        r"( --jobs \d+)? --kernel-threads \d+ --(no-)?overlap-memo-writes --replay-threads \d+( --fresh-oracle-cache)?$",
         _step_lines(out, "run_m1"),
         re.MULTILINE,
     )

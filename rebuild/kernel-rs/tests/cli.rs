@@ -435,6 +435,51 @@ fn a_table_build_sharing_defaults_memo_files_the_bytes_a_from_scratch_one_files(
     }
 }
 
+/// Writing the memo files beside the rest of the build does not change any file: a table build with `--overlap-memo-writes` writes the same tables, memo files and digests as one without, and still times each configuration's memo write.
+#[test]
+fn a_table_build_writing_its_memos_beside_the_wave_files_the_bytes_one_writing_them_ahead_files() {
+    let root = scratch("cli-overlap-memo-writes");
+    let spec = spec_at(&root);
+    let ahead = root.join("ahead");
+    let beside = root.join("beside");
+    let mut answers: Vec<String> = Vec::new();
+    for (outdir, extra) in [(&ahead, None), (&beside, Some("--overlap-memo-writes"))] {
+        let mut arguments = vec![
+            "build-tables",
+            word(&spec),
+            word(outdir),
+            "--configs=default,ss03",
+            "--inputs=cli-stamp",
+            "--threads=2",
+            "--memo-stamp=cli-memo",
+            "--timings",
+        ];
+        arguments.extend(extra);
+        let output = run(&arguments);
+        assert!(output.status.success(), "{}", stderr_of(&output));
+        let stderr = stderr_of(&output);
+        let phases: Vec<&str> = stderr.lines().map(timing_phase).collect();
+        for (token, _) in CONFIGS {
+            assert!(
+                phases.contains(&format!("memo[{token}]").as_str()),
+                "{phases:?}"
+            );
+        }
+        answers.push(String::from_utf8(output.stdout).expect("the digests are text"));
+    }
+    assert_eq!(answers[0], answers[1]);
+    for (token, _) in CONFIGS {
+        for family in ["settlement", "joins", "windows", "memo"] {
+            let name = format!("{family}-{token}.tsv");
+            assert_eq!(
+                std::fs::read(ahead.join(&name)).expect("the build writing ahead wrote it"),
+                std::fs::read(beside.join(&name)).expect("and so did the build writing beside"),
+                "{name}"
+            );
+        }
+    }
+}
+
 /// A table file with its windows head's `fold_order` left out, the one field that names which configurations a build was given.
 fn without_fold_order(bytes: Vec<u8>) -> String {
     let text = String::from_utf8(bytes).expect("a table file is UTF-8");

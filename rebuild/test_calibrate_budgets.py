@@ -554,7 +554,7 @@ def test_the_report_states_the_width_each_constant_implies_here(tmp_path, capsys
 
 
 def test_the_width_clauses_answer_for_the_machine_and_the_tree_they_are_given(tmp_path, capsys):
-    """`render_rows` takes the machine's memory, its cores, and the source tree as arguments, so this test checks the width arithmetic against a stated machine and a fixture tree instead of the machine and checkout running the test. On twelve cores the corpus-parent row's division fits six of the tree's workers, so a hand build's cap of eleven leaves memory to bind it, while a gated cycle's cap, the build lane's six cores less the parent, binds first. On six cores the gated build's parent and 2 workers leave 3, so the conformance sweep's cap beside it is its floor, the tree's 4 acceptance configurations. The kernel's whole wave, the memo, the tree's 3 settlement configurations' parked products, 2 delta slots and default's fold preparation, books 29 GB, which fits the 40 GB the reserve leaves of 48 GB, so all three run at once; of 36 GB the reserve leaves 28 GB, so the wave divides the 18 GB left beside the memo and the parked products by a delta slot, capped at the 2 deltas."""
+    """`render_rows` takes the machine's memory, its cores, and the source tree as arguments, so this test checks the width arithmetic against a stated machine and a fixture tree instead of the machine and checkout running the test. On twelve cores the corpus-parent row's division fits six of the tree's workers, so a hand build's cap of eleven leaves memory to bind it, while a gated cycle's cap, the build lane's six cores less the parent, binds first. On six cores the gated build's parent and 2 workers leave 3, so the conformance sweep's cap beside it is its floor, the tree's 4 acceptance configurations. The kernel's whole wave, the memo, the tree's 3 settlement configurations' parked products, 2 delta slots and default's fold preparation, books 29 GB, which fits the 40 GB the reserve leaves of 48 GB, so all three run at once, and with the tree's 3 GB for the memo writers beside the wave added it books 32 GB, which fits too; of 36 GB the reserve leaves 28 GB, so the wave divides the 18 GB left beside the memo and the parked products by a delta slot, capped at the 2 deltas, and those 26 GB with the writers' 3 GB do not fit."""
     tree = tmp_path / "tree"
     (tree / "rebuild" / "tools").mkdir(parents=True)
     (tree / "rebuild" / "tools" / "artifact_cycle.py").write_text(
@@ -566,7 +566,8 @@ def test_the_width_clauses_answer_for_the_machine_and_the_tree_they_are_given(tm
     (tree / "rebuild" / "pipeline").mkdir(parents=True)
     (tree / "rebuild" / "pipeline" / "kernel_exec.py").write_text(
         f"{cb.KERNEL_DELTA_NAME} = 8_000_000_000\n{cb.KERNEL_MEMO_NAME} = 4_000_000_000\n"
-        f"{cb.KERNEL_PARKED_NAME} = 2_000_000_000\n{cb.KERNEL_PREPARATION_NAME} = 3_000_000_000\n",
+        f"{cb.KERNEL_PARKED_NAME} = 2_000_000_000\n{cb.KERNEL_PREPARATION_NAME} = 3_000_000_000\n"
+        f"{cb.KERNEL_OVERLAP_NAME} = 3_000_000_000\n",
         encoding="utf-8",
     )
     (tree / cb.CONFORM_SOURCE).write_text(
@@ -603,9 +604,17 @@ def test_the_width_clauses_answer_for_the_machine_and_the_tree_they_are_given(tm
         "its delta wave runs all 3 settlement configurations at once, booked at 29.00 GB of the 40.00 GB the reserve leaves of 48.00 GB ("
         in out
     )
+    assert (
+        f"that booking with {cb.KERNEL_OVERLAP_NAME} added, 32.00 GB, fits, so it writes its memo files beside the wave"
+        in out
+    )
     narrow = "\n".join(cb.render_rows(rows, host=HOST, total_bytes=36_000_000_000, cores=12, root=tree))
     assert (
         "its delta wave runs 2 at 8.00 GB each out of 36.00 GB total, less a reserve of 8.00 GB, less 10.00 GB co-resident, capped at 2 ("
+        in narrow
+    )
+    assert (
+        f"that booking with {cb.KERNEL_OVERLAP_NAME} added, 29.00 GB, does not fit, so it writes each memo file ahead of the work that follows it"
         in narrow
     )
     assert (
@@ -770,6 +779,7 @@ def test_the_kernel_build_row_proposes_no_value_and_names_the_constants_to_re_me
     proposal = _proposal(_block(out, "kernel-build"))
     assert proposal.startswith("  proposal  : no value — ")
     assert cb.KERNEL_DELTA_NAME in proposal and "DEFAULT_MEMO_BYTES" in proposal
+    assert cb.KERNEL_OVERLAP_NAME in proposal
     assert " GB" not in proposal
 
 

@@ -1250,6 +1250,7 @@ class Plan:
     sweep_reason: str = ""
     kernel_threads: int = 1
     kernel_reason: str = ""
+    overlap_memo_writes: bool = False
     replay_threads: int = 1
     replay_reason: str = ""
     make_test_workers: int = 1
@@ -1344,7 +1345,7 @@ def _make_test_pool_bytes(*, skip_make_test: bool, ncores: int | None) -> float:
 
 
 def _wave_fit_terms(*, skip_make_test: bool, ncores: int | None) -> tuple[float, int]:
-    """Return the co-resident bytes and the width cap that `kernel_threads_budget`, `replay_threads_budget` and `replay_threads_derivation` share. The co-resident term is gate:make-test's pytest pool (`_make_test_pool_bytes`) only: `kernel_exec.kernel_threads_default` adds `default`'s retained memo and the parked fold products itself, and the replay builds its engines after the table build's process has exited. The cap is the smaller of the configuration count and the usable cores, the same bounds `run_m1._table_build_threads` and `run_m1._replay_threads` apply."""
+    """Return the co-resident bytes and the width cap that `kernel_threads_budget`, `memo_writes_overlap_budget`, `replay_threads_budget` and `replay_threads_derivation` share. The co-resident term is gate:make-test's pytest pool (`_make_test_pool_bytes`) only: `kernel_exec.kernel_threads_default` adds `default`'s retained memo and the parked fold products itself, and the replay builds its engines after the table build's process has exited. The cap is the smaller of the configuration count and the usable cores, the same bounds `run_m1._table_build_threads` and `run_m1._replay_threads` apply."""
     from rebuild.pipeline.conform import SETTLEMENT_CONFIGS
     from rebuild.tools import memory_budget
 
@@ -1367,6 +1368,23 @@ def kernel_threads_budget(
         configs=len(SETTLEMENT_CONFIGS), coresident_bytes=coresident, total_bytes=total_bytes
     )
     return max(1, min(derived, cap))
+
+
+def memo_writes_overlap_budget(
+    kernel_threads: int,
+    *,
+    skip_make_test: bool = False,
+    ncores: int | None = None,
+    total_bytes: int | None = None,
+) -> bool:
+    """Return whether this cycle's table build writes its memo files beside the delta wave and the folds, the `--overlap-memo-writes` or `--no-overlap-memo-writes` the plan passes run_m1: `kernel_exec.memo_writes_overlap` at `kernel_threads`, the width `kernel_threads_budget` gave, with gate:make-test's pytest pool off the machine as that width has it (`_wave_fit_terms`). run_m1 cannot derive this itself under a cycle, because it does not know that pool is running beside it. `ncores` and `total_bytes` are keywords so a test can compute the choice for an invented machine."""
+    from rebuild.pipeline.conform import SETTLEMENT_CONFIGS
+    from rebuild.pipeline.kernel_exec import memo_writes_overlap
+
+    coresident, _cap = _wave_fit_terms(skip_make_test=skip_make_test, ncores=ncores)
+    return memo_writes_overlap(
+        kernel_threads, configs=len(SETTLEMENT_CONFIGS), coresident_bytes=coresident, total_bytes=total_bytes
+    )
 
 
 def replay_threads_budget(
@@ -2033,6 +2051,9 @@ def build_plan(
             "" if kernel_workers == 1 else "s"
         )
     kernel_reason += ", capped at the configuration count and the cores"
+    overlap_memo_writes = memo_writes_overlap_budget(
+        kernel_threads, skip_make_test=no_make_test, ncores=ncores, total_bytes=total_bytes
+    )
     replay_threads = replay_threads_budget(
         skip_make_test=no_make_test, ncores=ncores, total_bytes=total_bytes
     )
@@ -2098,6 +2119,7 @@ def build_plan(
         sweep_reason=sweep_reason,
         kernel_threads=kernel_threads,
         kernel_reason=kernel_reason,
+        overlap_memo_writes=overlap_memo_writes,
         replay_threads=replay_threads,
         replay_reason=replay_reason,
         make_test_workers=make_test_workers,
@@ -2144,7 +2166,13 @@ def build_plan(
         run_m1_argv = ["uv", "run", "python", "-m", "rebuild.pipeline.run_m1"]
         if sweep_jobs > 1:
             run_m1_argv += ["--jobs", str(sweep_jobs)]
-        run_m1_argv += ["--kernel-threads", str(kernel_threads), "--replay-threads", str(replay_threads)]
+        run_m1_argv += [
+            "--kernel-threads",
+            str(kernel_threads),
+            "--overlap-memo-writes" if overlap_memo_writes else "--no-overlap-memo-writes",
+            "--replay-threads",
+            str(replay_threads),
+        ]
         if fresh:
             run_m1_argv += ["--fresh-oracle-cache"]
         plan.steps.append(Step("run_m1", run_m1_argv, run_m1_note, lane="build"))
@@ -2627,6 +2655,9 @@ def _render_concurrency(plan: Plan) -> list[str]:
         )
     else:
         lines.append(f"    run_m1 --kernel-threads          : {plan.kernel_threads}  ({plan.kernel_reason})")
+        lines.append(
+            f"    run_m1 --overlap-memo-writes     : {'on' if plan.overlap_memo_writes else 'off'}  (the table build's booking at that width, with MEMO_WRITE_OVERLAP_BYTES added for the memo writers beside the wave, {'fits the memory that width is sized from' if plan.overlap_memo_writes else 'does not fit the memory that width is sized from, so each memo file is written ahead of the work that follows it'})"
+        )
     if plan.rerun_gates_only:
         lines.append(
             "    run_m1 --replay-threads          : not passed (a gates-only rerun replays nothing, so there is no wave to size)"
@@ -4384,6 +4415,7 @@ def cycle_summary_payload(report: CycleReport, failures: list[str], plan: Plan, 
             "do_merge": plan.do_merge,
             "conform_max_length": plan.conform_max_length,
             "kernel_threads": None if plan.rerun_gates_only else plan.kernel_threads,
+            "overlap_memo_writes": None if plan.rerun_gates_only else plan.overlap_memo_writes,
             "replay_threads": None if plan.rerun_gates_only else plan.replay_threads,
             "sweep_jobs": plan.sweep_jobs if plan.runs("run_m1") else None,
             "corpus_jobs": plan.corpus_jobs if plan.runs("corpus-build") else None,

@@ -530,7 +530,7 @@ fn pool_id(index: usize) -> u32 {
     u32::try_from(index).expect("a memo pool holds fewer than 2^32 records")
 }
 
-/// The memo file one configuration's build writes: its path, its head, and the shared memos whose admitted windows are written with its own, so the file is the union a later build reads. [`crate::fixpoint::enumerate_for_tables`] writes it at the enumeration's release point, from the finished snapshot the engine returns after freeing its other memos and before that snapshot is dropped, so a configuration that does not keep its memo for other enumerations (`keep_memo`) holds none past its enumeration.
+/// The memo file one configuration's build writes: its path, its head, and the shared memos whose admitted windows are written with its own, so the file is the union a later build reads. [`crate::fixpoint::enumerate_for_tables`] writes it at the enumeration's release point, from the finished snapshot the engine returns after freeing its other memos and before that snapshot is dropped, so a configuration that does not keep its memo for other enumerations (`keep_memo`) holds none past its enumeration; or it hands the file and the snapshot there to a writer that runs beside the rest of the build ([`crate::fixpoint::MemoWrite::Beside`]), which holds the snapshot until the write ends.
 pub struct MemoFile {
     pub path: PathBuf,
     pub head: MemoHead,
@@ -1255,7 +1255,11 @@ mod tests {
             None,
         )
         .expect("the fixture closes");
-        (enumeration.product, enumeration.memo.expect("kept"))
+        let memo = enumeration.memo.and_then(Arc::into_inner);
+        (
+            enumeration.product,
+            memo.expect("kept, and held by no writer"),
+        )
     }
 
     /// Written and read back over the same spec, the file holds every window with its record, notes, delta, read set and stage. An enumeration using it as a shared memo reads every window from it and reaches the same product. A union of two shared memos that both hold every window writes the same file as the memo alone, with each window written once, from the first one.

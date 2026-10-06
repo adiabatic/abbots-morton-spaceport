@@ -736,6 +736,30 @@ class TestTheKernelInvocation:
         assert stamp == STAMP
         assert default_memo_sharing
 
+    def test_the_memo_write_order_reaches_the_crate(self, monkeypatch, tmp_path):
+        """`run_m1.build_tables` passes the crate the memo write order its caller chose. When the caller chose none, as a bare run does, it passes what `kernel_exec.memo_writes_overlap` derives at the build's width for the configurations it builds, with nothing beside it."""
+        passed = []
+        asked = []
+
+        def build_table_files(*_args, overlap_memo_writes=False, **_rest):
+            passed.append(overlap_memo_writes)
+            raise Reached
+
+        def memo_writes_overlap(width, **terms):
+            asked.append((width, terms))
+            return "derived"
+
+        monkeypatch.setattr(kernel_exec, "ensure_built", lambda: None)
+        monkeypatch.setattr(kernel_exec, "build_table_files", build_table_files)
+        monkeypatch.setattr(kernel_exec, "memo_writes_overlap", memo_writes_overlap)
+        for chosen in (None, True, False):
+            with pytest.raises(Reached):
+                run_m1.build_tables(
+                    SPEC, tmp_path, inputs=STAMP, kernel_threads=2, overlap_memo_writes=chosen
+                )
+        assert passed == ["derived", True, False]
+        assert asked == [(min(2, run_m1.usable_cores()), {"configs": CONFIG_COUNT, "from_scratch": False})]
+
     def test_a_narrowed_cpu_allowance_narrows_the_fan_out(self, monkeypatch, tmp_path):
         """The width is also capped at `usable_cores()`, the cores this process may run on, so a container limited to part of its host's CPUs stays within that limit whatever the memory allows. The test fixes the allowance at two and asks for every configuration, so the test passes only if the cap applies."""
         allowance = 2
@@ -1147,6 +1171,33 @@ class TestTheMemoryDerivedThreadDefault:
         every = kernel_exec.kernel_threads_default(configs=CONFIG_COUNT, total_bytes=34_359_738_368)
         budget = 34_359_738_368 - memory_budget.os_reserve_bytes(total_bytes=34_359_738_368) - fixed
         assert every == budget // kernel_exec.DELTA_SLOT_BYTES
+
+    def test_the_memo_files_are_written_beside_the_wave_only_where_their_writers_still_fit(self):
+        """`memo_writes_overlap` books `MEMO_WRITE_OVERLAP_BYTES` on top of a build's booking at its width. Over a range of invented machines, at the width `kernel_threads_default` derives, the memo files go beside the wave exactly when taking that term off the memory first would leave the width unchanged, except where taking it off floors that width at one, and the range holds a machine that runs the whole wave with its memo files written ahead. Memory something else holds beside the build counts against the writers as it does against the width, and a build without `default`'s memo writes each file ahead of its drain on any machine."""
+        whole = kernel_exec.table_build_booking_bytes(CONFIG_COUNT, configs=CONFIG_COUNT)
+        assert (
+            kernel_exec.table_build_booking_bytes(CONFIG_COUNT, configs=CONFIG_COUNT, overlap=True)
+            == whole + kernel_exec.MEMO_WRITE_OVERLAP_BYTES
+        )
+        seen = set()
+        for total in range(4_000_000_000, 80_000_000_000, 250_000_000):
+            width = kernel_exec.kernel_threads_default(configs=CONFIG_COUNT, total_bytes=total)
+            narrowed = kernel_exec.kernel_threads_default(
+                configs=CONFIG_COUNT, coresident_bytes=kernel_exec.MEMO_WRITE_OVERLAP_BYTES, total_bytes=total
+            )
+            usable = total - memory_budget.os_reserve_bytes(total_bytes=total)
+            floored = kernel_exec.table_build_booking_bytes(1, configs=CONFIG_COUNT, overlap=True) > usable
+            overlaps = kernel_exec.memo_writes_overlap(width, configs=CONFIG_COUNT, total_bytes=total)
+            assert overlaps == (narrowed == width and not floored), total
+            seen.add((width, overlaps))
+        assert {(CONFIG_COUNT, True), (CONFIG_COUNT, False), (1, False)} <= seen
+        roomy = 1_000_000_000_000
+        usable = roomy - memory_budget.os_reserve_bytes(total_bytes=roomy)
+        assert kernel_exec.memo_writes_overlap(CONFIG_COUNT, configs=CONFIG_COUNT, total_bytes=roomy)
+        assert not kernel_exec.memo_writes_overlap(
+            CONFIG_COUNT, configs=CONFIG_COUNT, coresident_bytes=usable - whole, total_bytes=roomy
+        )
+        assert not kernel_exec.memo_writes_overlap(2, configs=2, total_bytes=roomy, from_scratch=True)
 
     def test_a_build_without_default_s_memo_books_each_slot_from_scratch(self, monkeypatch, tmp_path):
         """A set without `default` enumerates every configuration from scratch, so its slots book `SCRATCH_PEAK_BYTES` less a parked product, not a delta's slot, and its width is that division, capped at the configuration count. On an invented 24 GB machine a two-configuration build that shares `default`'s memo runs both at once, while the from-scratch division fits one. `run_m1.build_tables` asks for that width exactly when `default` is not in the set it builds."""

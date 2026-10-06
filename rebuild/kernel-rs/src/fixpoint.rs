@@ -10,6 +10,7 @@
 
 use std::collections::BTreeSet;
 use std::rc::Rc;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crate::deep_slots::{FourthSlotFilter, ThirdSlotFilter, fourth_slot_inputs, third_slot_inputs};
@@ -89,7 +90,7 @@ impl EnumerationModes {
     }
 }
 
-/// What one enumeration may read before settling a window itself, and whether it returns its own memo ([`crate::memo`]). The shared memos are consulted in the order given. `keep_memo` is set for the configuration other enumerations will read; it returns the snapshot to the caller, at the cost of holding it through the drain and the sort. Writing the memo to a file is independent of it: [`enumerate_for_tables`] writes the file at the release point whether or not the snapshot is kept.
+/// What one enumeration may read before settling a window itself, and whether it returns its own memo ([`crate::memo`]). The shared memos are consulted in the order given. `keep_memo` is set for the configuration other enumerations will read; it returns the snapshot to the caller, at the cost of holding it through the drain and the sort. Writing the memo to a file is independent of it: [`enumerate_for_tables`] writes the file, or hands it to a writer, at the release point whether or not the snapshot is kept.
 #[derive(Debug, Default)]
 pub struct MemoAccess {
     pub shared_memos: Vec<SharedMemo>,
@@ -233,22 +234,30 @@ pub fn enumerate_transitions(
     .map(|enumeration| enumeration.product)
 }
 
-/// What [`enumerate_for_tables`] returns: the fixpoint, the [`WindowOptions`] it ran over, the engine's finished memo when `access` asked to keep it, and how long the memo file took to write when one was named. The write runs inside the enumeration, so it is timed here for the caller to report under its own label.
+/// Where [`enumerate_for_tables`] sends its memo file at the release point.
+pub enum MemoWrite<'w> {
+    /// Written there, on the enumeration's own thread, before the drain and the sort.
+    Inline(MemoFile),
+    /// Handed there, with the finished snapshot, to a writer that runs beside the drain, the sort and whatever the caller does next. The enumeration neither waits for the writer nor times it, and a configuration that keeps no memo holds its snapshot until the writer lets go of it.
+    Beside(MemoFile, Box<dyn FnOnce(MemoFile, Arc<MemoSnapshot>) + 'w>),
+}
+
+/// What [`enumerate_for_tables`] returns: the fixpoint, the [`WindowOptions`] it ran over, the engine's finished memo when `access` asked to keep it, and how long the memo file took to write when it was written in line. That write runs inside the enumeration, so it is timed here for the caller to report under its own label.
 pub struct TablesEnumeration<'i> {
     pub product: FixpointProduct,
     pub options: WindowOptions<'i>,
-    pub memo: Option<MemoSnapshot>,
+    pub memo: Option<Arc<MemoSnapshot>>,
     pub memo_write: Option<Duration>,
 }
 
-/// [`enumerate_transitions`] that also returns the [`WindowOptions`] it ran over, the `--cache-stats` lines when `cache_stats` is given, and the engine's finished memo when `access` asks for it. The table build folds the product it holds, and the fold's certificates read the formation guard through the same options, whose verdict memo the worklist already filled, instead of sweeping the guard again. The memo access lets one configuration's enumeration read another's settled windows ([`crate::memo`]). With a `file`, the finished memo is written there at the release point, after the engine's other memos are freed, so a configuration whose memo access does not keep the memo holds none through its drain or its sort.
+/// [`enumerate_transitions`] that also returns the [`WindowOptions`] it ran over, the `--cache-stats` lines when `cache_stats` is given, and the engine's finished memo when `access` asks for it. The table build folds the product it holds, and the fold's certificates read the formation guard through the same options, whose verdict memo the worklist already filled, instead of sweeping the guard again. The memo access lets one configuration's enumeration read another's settled windows ([`crate::memo`]). With a `file`, the finished memo is written at the release point, after the engine's other memos are freed, so a configuration whose memo access does not keep the memo holds none through its drain or its sort; or, under [`MemoWrite::Beside`], it is handed to a writer there, so the write runs beside the drain and the sort instead of ahead of them.
 pub fn enumerate_for_tables<'i>(
     index: &'i SpecIndex,
     features: &[Sym],
     modes: EnumerationModes,
     cache_stats: Option<&mut Vec<String>>,
     access: MemoAccess,
-    file: Option<MemoFile>,
+    file: Option<MemoWrite<'_>>,
 ) -> Result<TablesEnumeration<'i>, String> {
     enumerate_from_seeds(
         index,
@@ -261,7 +270,7 @@ pub fn enumerate_for_tables<'i>(
     )
 }
 
-/// [`enumerate_transitions`] that also appends the `--cache-stats` lines to `cache_stats`: each collection's length and capacity once the worklist finishes, the size of the elimination text the memos hold, the shared memo hits in total and per shared memo, and the process's resident size before the memo release, after it, after the memo file is written (when [`enumerate_for_tables`] names one), and after the sort. The caller writes the lines to stderr. None of this is computed unless asked for.
+/// [`enumerate_transitions`] that also appends the `--cache-stats` lines to `cache_stats`: each collection's length and capacity once the worklist finishes, the size of the elimination text the memos hold, the shared memo hits in total and per shared memo, and the process's resident size before the memo release, after it, after the memo file is written (when [`enumerate_for_tables`] writes one in line), and after the sort. The caller writes the lines to stderr. None of this is computed unless asked for.
 ///
 /// Memory decisions in this crate come down to entry counts, and a count read from a live alphabet settles in one run what a struct-size argument can only estimate.
 pub fn enumerate_with_cache_stats(
@@ -290,7 +299,7 @@ fn enumerate_from_seeds<'i>(
     seeds: fn(&WindowOptions<'_>) -> Vec<Item>,
     mut cache_stats: Option<&mut Vec<String>>,
     access: MemoAccess,
-    file: Option<MemoFile>,
+    file: Option<MemoWrite<'_>>,
 ) -> Result<TablesEnumeration<'i>, String> {
     let mut engine = Engine::with_modes(
         index,
@@ -856,9 +865,9 @@ fn enumerate_from_seeds<'i>(
         .iter()
         .map(|pointer| pointer.text(index))
         .collect();
-    // The drain and the sort below are the run's other large working set, and they do not need the memos. Releasing the memos here keeps the two from coexisting, which would otherwise be the enumeration's peak memory. The memo file is written here too, from the trace memo the engine returns as a snapshot after freeing its prospect, candidate and closure memos, so the writer's buffers never coexist with them. The snapshot is then dropped, except for the configuration other enumerations will read, whose snapshot is held through the drain and the sort.
+    // The drain and the sort below are the run's other large working set, and they do not need the memos. Releasing the memos here keeps the two from coexisting, which would otherwise be the enumeration's peak memory. The memo file is written here too, or handed to its writer, from the trace memo the engine returns as a snapshot after freeing its prospect, candidate and closure memos, so the writer's buffers never coexist with them. The snapshot is then dropped, except for the configuration other enumerations will read, whose snapshot is held through the drain and the sort, and except while a writer beside the drain still holds it.
     let memo = if access.keep_memo || file.is_some() {
-        engine.take_memo()
+        engine.take_memo().map(Arc::new)
     } else {
         engine.release_memos();
         None
@@ -870,17 +879,27 @@ fn enumerate_from_seeds<'i>(
         ));
     }
     let mut memo_write = None;
-    if let Some(file) = file {
-        let started = Instant::now();
-        write_memo(
-            index,
-            &file.path,
-            &file.head,
-            memo.as_ref()
-                .expect("a memo file is written from a kept memo"),
-            &file.carried,
-        )?;
-        memo_write = Some(started.elapsed());
+    match file {
+        Some(MemoWrite::Inline(file)) => {
+            let started = Instant::now();
+            write_memo(
+                index,
+                &file.path,
+                &file.head,
+                memo.as_ref()
+                    .expect("a memo file is written from a kept memo"),
+                &file.carried,
+            )?;
+            memo_write = Some(started.elapsed());
+        }
+        Some(MemoWrite::Beside(file, writer)) => writer(
+            file,
+            Arc::clone(
+                memo.as_ref()
+                    .expect("a memo file is written from a kept memo"),
+            ),
+        ),
+        None => {}
     }
     let memo = memo.filter(|_| access.keep_memo);
     if memo_write.is_some()
@@ -2499,8 +2518,8 @@ mod tests {
             None,
         )
         .expect("default closes")
-        .memo;
-        let memo = Arc::new(memo.expect("a kept memo comes back"));
+        .memo
+        .expect("a kept memo comes back");
         assert!(!memo.is_empty());
         let scratch = enumerate_from_seeds(
             &index,
@@ -2577,7 +2596,6 @@ mod tests {
         .expect("default closes")
         .memo
         .expect("a kept memo comes back");
-        let default_memo = Arc::new(default_memo);
         let shared = || {
             vec![SharedMemo {
                 memo: Arc::clone(&default_memo),
@@ -2617,11 +2635,11 @@ mod tests {
                 shared_memos: shared(),
                 keep_memo: false,
             },
-            Some(MemoFile {
+            Some(MemoWrite::Inline(MemoFile {
                 path: path.clone(),
                 head: head.clone(),
                 carried: Vec::new(),
-            }),
+            })),
         )
         .expect("ss03 closes over a shared memo");
         assert!(

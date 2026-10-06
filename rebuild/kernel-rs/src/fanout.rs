@@ -1,6 +1,6 @@
 //! Runs settlement configurations: one into a caller's sink, or a named set concurrently into a directory of files. The `enumerate` and `enumerate-configs` subcommands both serialize a configuration through [`run_config`], so a file the fan-out writes cannot differ from what `enumerate` writes to stdout for the same configuration.
 //!
-//! The output does not depend on the thread count. All configurations share one [`SpecIndex`], which has no mutable state. The engine, the window options, the two slot filters, the liveness probe, and the fiber deriver are built inside the fixpoint on each call, so each configuration has its own. Enumerations share only read-only memo snapshots behind an [`Arc`], each read through an exclusion that says which of its windows a reader may use ([`crate::memo`]): `default`'s finished memo, and, when the previous memo directory has one, the previous build's `default` memo. `default`'s enumeration, including its memo file write, finishes before any delta starts. Its fold preparation then runs in one of the wave's worker slots and does not use the memo. A table build's folds also share what [`crate::crossconfig`] exchanges between them, each configuration's published rules and the rows it sends the others, read only at the rendezvous [`run_configs_tables`] describes, so no fold depends on when another finished.
+//! The output does not depend on the thread count. All configurations share one [`SpecIndex`], which has no mutable state. The engine, the window options, the two slot filters, the liveness probe, and the fiber deriver are built inside the fixpoint on each call, so each configuration has its own. Enumerations share only read-only memo snapshots behind an [`Arc`], each read through an exclusion that says which of its windows a reader may use ([`crate::memo`]): `default`'s finished memo, and, when the previous memo directory has one, the previous build's `default` memo. `default`'s enumeration finishes before any delta starts. Its memo file write finishes inside it, unless the build writes its memo files beside the rest of the build ([`MemoSharing`]); a write reads only the finished snapshot and what it carries, and the deltas read `default`'s snapshot, never its file, so the file's bytes do not depend on when it is written. Its fold preparation then runs in one of the wave's worker slots and does not use the memo. A table build's folds also share what [`crate::crossconfig`] exchanges between them, each configuration's published rules and the rows it sends the others, read only at the rendezvous [`run_configs_tables`] describes, so no fold depends on when another finished.
 //!
 //! Parallelism stops at the configuration. A configuration's product depends only on its row set, not on the order the worklist visits windows, because a class-grain row is traced at its fiber's canonical representative. The fixpoint keeps its LIFO worklist order fixed anyway. A configuration's `cited_provenance` is what its one engine fired while tracing its windows. Splitting one configuration's worklist across threads would require the threads to share one engine's memo and fired set to reproduce the sequential result, which would cost what the split was meant to save.
 
@@ -11,17 +11,19 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
+use std::thread::{Scope, ScopedJoinHandle};
 use std::time::{Duration, Instant};
 
 use crate::artifacts;
 use crate::crossconfig::{self, ForeignRow, Imports, SharedRules, Source, SourceRows, Spellings};
 use crate::engine::EngineModes;
-use crate::fixpoint::{self, EnumerationModes, MemoAccess};
+use crate::fixpoint::{self, EnumerationModes, MemoAccess, MemoWrite};
 use crate::fold;
 use crate::hash::HashSet;
 use crate::index::SpecIndex;
 use crate::memo::{
     Exclusion, MemoFile, MemoHead, MemoSnapshot, SharedMemo, memo_path, read_memo, unlocking_runes,
+    write_memo,
 };
 use crate::model::Sym;
 use crate::options::WindowOptions;
@@ -39,6 +41,7 @@ pub struct Configuration<'a> {
 /// - `default_memo_sharing`: `default` enumerates first, alone, and every other configuration then reads `default`'s finished memo for the windows that name none of its own unlocking runes. When it is off, no configuration reads `default`'s in-process memo; `tests/cli.rs` checks that both settings write the same tables.
 /// - `previous_memos`: a previous build's memo files, each read as a shared memo for its own configuration behind an exclusion of `edited` (the runes whose content changed since that build) and `moved_classes` (the predicate classes whose membership changed). A configuration with no file there reads nothing.
 /// - `memo_stamp`: the stamp this build writes its own memo files under, beside its tables. With no stamp, no memo files are written.
+/// - `overlap_memo_writes`: in a build that shares `default`'s memo, each configuration's memo file is written on a thread of its own from the configuration's release point, beside its drain, sort and fold and the rest of the wave, instead of on the configuration's own thread ahead of them ([`run_configs_tables`]). The files are the same bytes either way. A build in which every configuration enumerates from scratch writes each file ahead of its drain whatever this says.
 #[derive(Clone, Debug)]
 pub struct MemoSharing {
     pub default_memo_sharing: bool,
@@ -46,6 +49,7 @@ pub struct MemoSharing {
     pub edited: Vec<Sym>,
     pub moved_classes: Vec<Sym>,
     pub memo_stamp: Option<String>,
+    pub overlap_memo_writes: bool,
 }
 
 impl Default for MemoSharing {
@@ -56,6 +60,7 @@ impl Default for MemoSharing {
             edited: Vec::new(),
             moved_classes: Vec::new(),
             memo_stamp: None,
+            overlap_memo_writes: false,
         }
     }
 }
@@ -356,7 +361,12 @@ const EXCHANGE_ROUNDS: usize = 64;
 /// - Once every configuration has published, the exchange runs in rounds ([`crossconfig`]). In each, every configuration evaluates every configuration's rules over its own rows, for the inputs any configuration refolded in the last round, and leaves each the rows it answers wrongly where the shipped order lets that answer fire; then every configuration takes in what it was left, refolds the inputs that gained rows, and publishes again. The rounds end when no configuration took in anything. The exchange holds no slot: what a configuration holds through it is its parked product, expansion and row chains, and the evaluation adds little.
 /// - Each configuration then finishes its fold inside a slot: the partition replay over its own and its imported rows, the certificates, the three artifact files, and the digest.
 ///
-/// When `default_memo_sharing` is on and the set has the no-feature configuration and at least one other, `default` enumerates first and alone on the calling thread, keeps its memo, and writes its memo file inside that enumeration. The calling thread then continues as `default`'s thread, whose preparation takes the first slot, while each delta takes a slot in [`delta_worklist`] order and reads `default`'s memo behind an exclusion of its own unlocking runes. Because `default`'s memo write finishes before any delta starts, the rows the writer holds for the largest memo are never resident at the same time as a delta at its peak. Each delta writes its own memo file at its fixpoint's release point, so it holds no memo through its drain, sort, or fold; `default`'s memo is freed when the last delta has enumerated. A delta also reads `default`'s previous memo file behind its unlocking runes, the edited runes, and the moved classes, and reads its own previous file only for the windows that name one of its unlocking runes, which are the windows `default`'s memo cannot answer for it. Otherwise there is no in-process memo to share, every configuration enumerates from scratch, takes its slot in list order, and reads only its own previous file.
+/// When `default_memo_sharing` is on and the set has the no-feature configuration and at least one other, `default` enumerates first and alone on the calling thread and keeps its memo. The calling thread then continues as `default`'s thread, whose preparation takes the first slot, while each delta takes a slot in [`delta_worklist`] order and reads `default`'s memo behind an exclusion of its own unlocking runes; `default`'s memo is freed when the last delta has enumerated. A delta also reads `default`'s previous memo file behind its unlocking runes, the edited runes, and the moved classes, and reads its own previous file only for the windows that name one of its unlocking runes, which are the windows `default`'s memo cannot answer for it. Otherwise there is no in-process memo to share, every configuration enumerates from scratch, takes its slot in list order, reads only its own previous file, and writes its memo file ahead of its drain.
+///
+/// Where the memo files of a build that shares `default`'s memo are written depends on `overlap_memo_writes`:
+///
+/// - Off, `default` writes its memo file inside its enumeration, so the write finishes before any delta starts and the rows the writer holds for the largest memo are never resident at the same time as a delta at its peak. Each delta writes its own memo file at its fixpoint's release point, so it holds no memo through its drain, sort, or fold.
+/// - On, every configuration hands its memo file at its release point to a writer thread of its own, which takes no slot and which the configuration's thread joins once its files are written. `default`'s write runs beside its own drain and sort and the start of the wave, so the wave does not wait for it, and each delta's beside its drain, sort and fold, which holds the delta's snapshot until the write ends. `kernel_exec.MEMO_WRITE_OVERLAP_BYTES` books what the writers hold beside the wave.
 ///
 /// Every previous memo is loaded without the keys that name edited runes, since those entries cannot answer a lookup or be carried into the written memo. The exclusions still check the remaining entries' reads for edited runes and moved classes at lookup and when writing.
 ///
@@ -425,7 +435,9 @@ pub fn run_configs_tables(
                                 .collect();
                             let file =
                                 memo_file(sharing, outdir, config.token, mode_token, carried);
-                            enumerate_config_tables(index, config, modes, report, access, file)
+                            enumerate_config_tables(
+                                index, config, modes, report, access, file, None,
+                            )
                         });
                         (listed, answer)
                     })
@@ -440,37 +452,39 @@ pub fn run_configs_tables(
         !edited.names(key)
     })
     .map_err(|error| format!("{}: {error}", default.token))?;
-    let pending = enumerate_config_tables(
-        index,
-        default,
-        modes,
-        report,
-        MemoAccess {
-            shared_memos: shared_behind(previous_default.as_ref(), edited.clone())
-                .into_iter()
-                .collect(),
-            keep_memo: true,
-        },
-        memo_file(
-            &sharing,
-            outdir,
-            default.token,
-            &mode_token,
-            shared_behind(previous_default.as_ref(), edited.clone())
-                .into_iter()
-                .collect(),
-        ),
-    )
-    .map_err(|error| format!("{}: {error}", default.token))?;
-    let memo: Arc<MemoSnapshot> = Arc::clone(
-        pending
-            .memo
-            .as_ref()
-            .expect("a kept memo comes back from a trace-memo enumeration"),
-    );
     let rest = delta_worklist(index, configs, default_position);
     let (run, rest, sharing, edited, mode_token) = (&run, &rest, &sharing, &edited, &mode_token);
-    let ended: Vec<(usize, Result<TableAnswer, Stop>)> = std::thread::scope(move |scope| {
+    let ended = std::thread::scope(move |scope| {
+        let beside = sharing.overlap_memo_writes.then_some(scope);
+        let pending = enumerate_config_tables(
+            index,
+            default,
+            modes,
+            report,
+            MemoAccess {
+                shared_memos: shared_behind(previous_default.as_ref(), edited.clone())
+                    .into_iter()
+                    .collect(),
+                keep_memo: true,
+            },
+            memo_file(
+                sharing,
+                outdir,
+                default.token,
+                mode_token,
+                shared_behind(previous_default.as_ref(), edited.clone())
+                    .into_iter()
+                    .collect(),
+            ),
+            beside,
+        )
+        .map_err(|error| format!("{}: {error}", default.token))?;
+        let memo: Arc<MemoSnapshot> = Arc::clone(
+            pending
+                .memo
+                .as_ref()
+                .expect("a kept memo comes back from a trace-memo enumeration"),
+        );
         let handles: Vec<_> = rest
             .iter()
             .enumerate()
@@ -508,7 +522,7 @@ pub fn run_configs_tables(
                             shared_memos: shared,
                             keep_memo: false,
                         };
-                        enumerate_config_tables(index, config, modes, report, access, file)
+                        enumerate_config_tables(index, config, modes, report, access, file, beside)
                     });
                     (listed, answer)
                 })
@@ -519,8 +533,8 @@ pub fn run_configs_tables(
         let lead = table_thread(run, default_position, default.token, 0, move || Ok(pending));
         let mut ended = joined(handles);
         ended.push((default_position, lead));
-        ended
-    });
+        Ok::<_, String>(ended)
+    })?;
     settle_ends(ended, configs.len())
 }
 
@@ -757,13 +771,13 @@ fn settle_ends(
     }
 }
 
-/// One configuration's table build on its own thread, from its enumeration to its files, as [`run_configs_tables`] describes. `enumerate` runs inside the slot `ticket` is due. When asked, the timing lines are the enumeration's `enumerate[<config>]` and `memo[<config>]` after the cache stats' `[c]` lines, then `fold.prefixes[<config>]`, then, with the cache stats, `[c] <config> resident_parked`, the process's resident size once every configuration has parked its prepared product and before the exchange's first round, and on the first-listed configuration's thread `[c] <config> parked_heap`, the bytes the process's malloc zones hold allocated at that point ([`crate::fixpoint::heap_bytes`]), which every other thread waits for before the exchange starts and which `kernel_exec.PARKED_FOLD_BYTES` is set from, then `fold.exchange[<config>]` (the time this configuration spent evaluating, taking in and refolding, without the waits), and `fold.partition[<config>]` at millisecond precision, then `fold[<config>]`, which covers the preparation and the finish.
-fn table_thread<'a>(
+/// One configuration's table build on its own thread, from its enumeration to its files, as [`run_configs_tables`] describes. `enumerate` runs inside the slot `ticket` is due. A memo writer the enumeration started beside it is joined once the files are written, outside any slot, and a write that failed fails the configuration. When asked, the timing lines are the enumeration's `enumerate[<config>]` and `memo[<config>]` after the cache stats' `[c]` lines, the second the writer's own time when it ran beside, then `fold.prefixes[<config>]`, then, with the cache stats, `[c] <config> resident_parked`, the process's resident size once every configuration has parked its prepared product and before the exchange's first round, and on the first-listed configuration's thread `[c] <config> parked_heap`, the bytes the process's malloc zones hold allocated at that point ([`crate::fixpoint::heap_bytes`]), which every other thread waits for before the exchange starts and which `kernel_exec.PARKED_FOLD_BYTES` is set from, then `fold.exchange[<config>]` (the time this configuration spent evaluating, taking in and refolding, without the waits), and `fold.partition[<config>]` at millisecond precision, then `fold[<config>]`, which covers the preparation and the finish.
+fn table_thread<'a, 's>(
     run: &TableRun<'a>,
     listed: usize,
     token: &str,
     ticket: usize,
-    enumerate: impl FnOnce() -> Result<EnumeratedTables<'a>, String>,
+    enumerate: impl FnOnce() -> Result<EnumeratedTables<'a, 's>, String>,
 ) -> Result<TableAnswer, Stop> {
     let mut watch = Watch {
         board: run.board,
@@ -777,8 +791,10 @@ fn table_thread<'a>(
         mut options,
         memo,
         mut timed,
+        writer,
     } = enumerate().map_err(fail)?;
     drop(memo);
+    let memo_line_at = timed.len();
     let started = Instant::now();
     let mut fold_lines: Vec<String> = Vec::new();
     let prepared = if timings {
@@ -923,6 +939,15 @@ fn table_thread<'a>(
         .and_then(|folded| write_tables(run, token, &folded));
     run.board.give_slot();
     watch.armed = false;
+    if let Some(writer) = writer {
+        let wrote = writer
+            .join()
+            .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+            .map_err(fail)?;
+        if timings {
+            timed.insert(memo_line_at, timing_line(&format!("memo[{token}]"), wrote));
+        }
+    }
     let digest = finished.map_err(fail)?;
     timed.append(&mut fold_lines);
     folding += started.elapsed();
@@ -948,28 +973,44 @@ fn write_tables(run: &TableRun<'_>, token: &str, folded: &fold::Folded) -> Resul
     ))
 }
 
-/// One configuration enumerated and holding what its fold needs, its memo file already written.
+/// One configuration enumerated and holding what its fold needs, its memo file already written or its writer running beside it.
 ///
-/// It cannot cross threads, because the product's label pool holds `Rc<str>` ([`crate::stream`]) and the window options hold `Rc<FollowerMap>` ([`crate::options`]). That is why each configuration of a table build runs on one thread from its enumeration to its files, and why a caller clones the memo out first: behind its [`Arc`], the memo is the only part of an enumeration that other configurations read. Only a configuration whose memo access set `keep_memo` has a memo here. A delta's memo was written to its file and dropped at the fixpoint's release point.
-struct EnumeratedTables<'i> {
+/// It cannot cross threads, because the product's label pool holds `Rc<str>` ([`crate::stream`]) and the window options hold `Rc<FollowerMap>` ([`crate::options`]). That is why each configuration of a table build runs on one thread from its enumeration to its files, and why a caller clones the memo out first: behind its [`Arc`], the memo is the only part of an enumeration that other configurations read. Only a configuration whose memo access set `keep_memo` has a memo here. A delta's memo was written to its file and dropped at the fixpoint's release point, or is held by its writer until the write ends. `writer` is that writer, which returns how long the write took.
+struct EnumeratedTables<'i, 's> {
     product: FixpointProduct,
     options: WindowOptions<'i>,
     memo: Option<Arc<MemoSnapshot>>,
     timed: Vec<String>,
+    writer: Option<ScopedJoinHandle<'s, Result<Duration, String>>>,
 }
 
-/// One configuration's enumeration for its tables: the fixpoint over what `access` allows, writing the memo file at the release point when one is named, and keeping the finished memo behind an [`Arc`] when `access` asks. The timing lines are `enumerate[<config>]`, which excludes the memo write, and `memo[<config>]`, which is the write, after the cache stats' `[c]` lines.
-fn enumerate_config_tables<'i>(
+/// One configuration's enumeration for its tables: the fixpoint over what `access` allows, writing the memo file at the release point when one is named, and keeping the finished memo behind an [`Arc`] when `access` asks. With a `beside` scope, the file is instead handed at the release point to a writer spawned in that scope, and the writer comes back for the caller to join. The timing lines are `enumerate[<config>]`, which excludes a write in line, and for that write `memo[<config>]`, after the cache stats' `[c]` lines.
+fn enumerate_config_tables<'i: 's, 's>(
     index: &'i SpecIndex,
     config: &Configuration<'_>,
     modes: EnumerationModes,
     report: Report,
     access: MemoAccess,
     file: Option<MemoFile>,
-) -> Result<EnumeratedTables<'i>, String> {
+    beside: Option<&'s Scope<'s, '_>>,
+) -> Result<EnumeratedTables<'i, 's>, String> {
     let token = config.token;
     let mut timed: Vec<String> = Vec::new();
     let mut stats: Vec<String> = Vec::new();
+    let mut writer = None;
+    let file = file.map(|file| match beside {
+        None => MemoWrite::Inline(file),
+        Some(scope) => MemoWrite::Beside(
+            file,
+            Box::new(|file: MemoFile, memo: Arc<MemoSnapshot>| {
+                writer = Some(scope.spawn(move || {
+                    let started = Instant::now();
+                    write_memo(index, &file.path, &file.head, &memo, &file.carried)
+                        .map(|()| started.elapsed())
+                }));
+            }),
+        ),
+    });
     let started = Instant::now();
     let fixpoint::TablesEnumeration {
         product,
@@ -999,8 +1040,9 @@ fn enumerate_config_tables<'i>(
     Ok(EnumeratedTables {
         product,
         options,
-        memo: memo.map(Arc::new),
+        memo,
         timed,
+        writer,
     })
 }
 
@@ -1454,6 +1496,14 @@ mod tests {
         }
     }
 
+    /// [`stamped`] with every memo file handed at its release point to a writer beside the rest of the build.
+    fn overlapped() -> MemoSharing {
+        MemoSharing {
+            overlap_memo_writes: true,
+            ..stamped()
+        }
+    }
+
     /// What one width of the table fan-out wrote: every configuration's digest, and every configuration's files as [`table_files`] reads them.
     type Filed = (Vec<String>, Vec<Vec<(String, Vec<u8>)>>);
 
@@ -1510,16 +1560,18 @@ mod tests {
             .expect("a directory can occupy a settlement table's path");
     }
 
-    /// The table fan-out writes the same bytes at every width, over the set whose claim order differs from its listed order. Tables, memo files, and digests match per configuration at 0, 1, 2, and 8 workers. At 2, one worker takes the heavy delta and the lead claims the cheap one after `default`'s fold, which is the case the claim order is for. At 8, the deltas enumerate while `default`'s fold runs on the calling thread. In the stamped case, every configuration writes its memo file at its release point, and those files are compared too. The stamped case's tables and digests must also match the unstamped case's at the same width, which shows that writing the memo file changes no table.
+    /// The table fan-out writes the same bytes at every width, over the set whose claim order differs from its listed order. Tables, memo files, and digests match per configuration at 0, 1, 2, and 8 workers. At 2, one worker takes the heavy delta and the lead claims the cheap one after `default`'s fold, which is the case the claim order is for. At 8, the deltas enumerate while `default`'s fold runs on the calling thread. In the stamped case, every configuration writes its memo file at its release point, and those files are compared too. The stamped case's tables and digests must also match the unstamped case's at the same width, which shows that writing the memo file changes no table. In the overlapped case, every memo file is written beside the rest of the build, `default`'s beside the wave, and every file and digest must match the stamped case's at the same width.
     #[test]
     fn a_table_fan_out_files_the_same_bytes_at_every_width() {
         let index = fixtures::mini();
         let configs = permuting(&index);
         let root = scratch("fan-out-tables");
         let mut unstamped: Vec<Filed> = Vec::new();
+        let mut in_line: Vec<Filed> = Vec::new();
         for (arm, sharing) in [
             ("unstamped", MemoSharing::default()),
             ("stamped", stamped()),
+            ("overlapped", overlapped()),
         ] {
             let with_memo = sharing.memo_stamp.is_some();
             let mut first: Option<Filed> = None;
@@ -1558,6 +1610,22 @@ mod tests {
                     unstamped.push((digests, files));
                     continue;
                 }
+                if sharing.overlap_memo_writes {
+                    let (written_digests, written_files) = in_line.get(width).expect(
+                        "the stamped case writes every width before the overlapped one runs",
+                    );
+                    assert_eq!(
+                        &digests, written_digests,
+                        "overlapped at {workers} workers: the digests the stamped case wrote"
+                    );
+                    same_files(
+                        &files,
+                        written_files,
+                        &format!("overlapped at {workers} workers"),
+                        "the stamped case",
+                    );
+                    continue;
+                }
                 let (plain_digests, plain_files) = unstamped
                     .get(width)
                     .expect("the unstamped case writes every width before the stamped one runs");
@@ -1581,19 +1649,25 @@ mod tests {
                     &format!("stamped at {workers} workers"),
                     "the unstamped case",
                 );
+                in_line.push((digests, files));
             }
         }
         std::fs::remove_dir_all(&root).expect("the scratch directory is removable");
     }
 
-    /// A table build's timing lines come back in the caller's configuration order, with each configuration's phases in the order they ran, at any width. `default`'s fold lines follow its enumerate and memo lines even when its preparation ran alongside the deltas, and `ss03`'s lines come last although its slot comes first among the deltas.
+    /// A table build's timing lines come back in the caller's configuration order, with each configuration's phases in the order they ran, at any width and in either memo-write order. `default`'s fold lines follow its enumerate and memo lines even when its preparation ran alongside the deltas, a memo line stays next to its enumerate line when the write ran beside the fold, and `ss03`'s lines come last although its slot comes first among the deltas.
     #[test]
     fn a_table_build_times_its_phases_in_configuration_order_at_any_width() {
         let index = fixtures::mini();
         let configs = permuting(&index);
         let root = scratch("fan-out-tables-timings");
-        for workers in [1, 2, 8] {
-            let outdir = root.join(format!("at-{workers}"));
+        for (arm, sharing, workers) in [1, 2, 8].into_iter().flat_map(|workers| {
+            [
+                ("stamped", stamped(), workers),
+                ("overlapped", overlapped(), workers),
+            ]
+        }) {
+            let outdir = root.join(arm).join(format!("at-{workers}"));
             let answers = run_configs_tables(
                 &index,
                 &configs,
@@ -1602,7 +1676,7 @@ mod tests {
                 INPUTS,
                 workers,
                 Report::timed(true),
-                stamped(),
+                sharing,
             )
             .expect("every configuration answers");
             let labels: Vec<String> = answers
@@ -1637,10 +1711,42 @@ mod tests {
                     "fold.partition[ss03]",
                     "fold[ss03]"
                 ],
-                "at {workers} workers"
+                "{arm} at {workers} workers"
             );
         }
         std::fs::remove_dir_all(&root).expect("the scratch directory is removable");
+    }
+
+    /// A memo file written beside the build that cannot be written fails its configuration once the configuration's files are written, and the run reports that failure: with a directory in `default`'s memo path, the overlapped build reports `default`'s error naming the file, while `default`'s tables and the delta's tables and memo file are all filed.
+    #[test]
+    fn a_memo_write_beside_the_build_that_fails_is_what_the_run_reports() {
+        let index = fixtures::mini();
+        let configs = configurations(&index);
+        let outdir = scratch("fan-out-tables-memo-blocked");
+        std::fs::create_dir_all(memo_path(&outdir, TOKENS[0]))
+            .expect("a directory can occupy a memo file's path");
+        let error = run_configs_tables(
+            &index,
+            &configs,
+            DEFAULT_MODES,
+            &outdir,
+            INPUTS,
+            2,
+            Report::timed(false),
+            overlapped(),
+        )
+        .expect_err("a directory in the memo file's place is not writable");
+        assert!(
+            error.starts_with(&format!("{}: ", TOKENS[0])),
+            "the error names the configuration that failed: {error}"
+        );
+        assert!(
+            error.contains(&format!("memo-{}.tsv", TOKENS[0])),
+            "and the file it failed on: {error}"
+        );
+        table_files(&outdir, TOKENS[0], false);
+        table_files(&outdir, TOKENS[1], true);
+        std::fs::remove_dir_all(&outdir).expect("the scratch directory is removable");
     }
 
     /// If `default`'s second half fails while the wave runs, the run reports `default`'s error. When only `default` is blocked, the error names the file it failed on. When every configuration is blocked, the run reports `default`'s error instead of the delta's, whether or not the delta was claimed before the stop. `a_lead_runs_beside_the_worker_that_claims_while_it_does` checks that the lead overlaps the workers; this test checks only which error the run returns.
