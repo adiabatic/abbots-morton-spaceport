@@ -815,6 +815,27 @@ def test_unit_store_environment_ignores_the_contact_allow_list(tmp_path):
     assert stamp() != base
 
 
+def test_unit_store_environment_ignores_a_schema_hover_and_a_registry_comment(tmp_path):
+    """Rewording a schema's `description` or a comment in the registry leaves the store valid, because the `data` line hashes both through `fingerprint.data_path_lines`. A changed schema keyword still drops it."""
+    spec = fixtures.mini_spec()
+    root = tmp_path / "repo"
+    (root / "rebuild" / "schema").mkdir(parents=True)
+    registry = root / "rebuild" / "script.yaml"
+    schema = root / "rebuild" / "schema" / "rune.schema.json"
+    registry.write_text("alphabet: []\n", encoding="utf-8")
+    schema.write_text('{"type": "object", "description": "One rune per file."}\n', encoding="utf-8")
+
+    def stamp():
+        return unit_cache.environment_stamp(root, spec, MINI, MINI_FONT, MINI_FONT, "after-helpers")
+
+    base = stamp()
+    registry.write_text("# Registries only.\nalphabet: []  # none yet\n", encoding="utf-8")
+    schema.write_text('{"type": "object", "description": "One rune to a file."}\n', encoding="utf-8")
+    assert stamp() == base
+    schema.write_text('{"type": "array", "description": "One rune to a file."}\n', encoding="utf-8")
+    assert stamp() != base
+
+
 CORPUS_UNREAD_CODE = (
     "rebuild/pipeline/run_m1.py",
     "rebuild/pipeline/oracle.py",

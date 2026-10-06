@@ -4521,14 +4521,20 @@ def test_deep_sweep_skip_lines_name_the_classes_the_code_and_the_shaper(tmp_path
 
 
 def test_deep_sweep_fingerprint_moves_with_a_class_or_the_compile_code(tmp_path):
+    """A new behavior class, a statement edit to a compile module, and a new tools/ file each move the key. Rewording a compile module's docstring or comment does not, because both halves of the compile code are hashed through `fingerprint.path_lines`."""
     _write_behavior_classes(tmp_path, ["namer-dot"])
     base = ac.deep_sweep_skip_fingerprint(tmp_path)
     _write_behavior_classes(tmp_path, ["namer-dot", "guard-form:zwnj"])
     grown = ac.deep_sweep_skip_fingerprint(tmp_path)
     assert grown != base
-    (tmp_path / ac.COMPILE_CODE_FILES[0]).write_text("# rewritten\n")
+    code = tmp_path / ac.COMPILE_CODE_FILES[0]
+    code.write_text('"""Emit."""\nEMIT = 1\n')
+    written = ac.deep_sweep_skip_fingerprint(tmp_path)
+    code.write_text('"""Emit, reworded."""\n\nEMIT = 1  # noted\n')
+    assert ac.deep_sweep_skip_fingerprint(tmp_path) == written
+    code.write_text('"""Emit, reworded."""\nEMIT = 2\n')
     rewritten = ac.deep_sweep_skip_fingerprint(tmp_path)
-    assert rewritten != grown
+    assert rewritten != written
     (tmp_path / "tools").mkdir()
     (tmp_path / "tools" / "build_font.py").write_text("# fea emitter\n")
     with_tools = ac.deep_sweep_skip_fingerprint(tmp_path)

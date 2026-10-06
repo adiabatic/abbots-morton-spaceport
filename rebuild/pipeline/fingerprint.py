@@ -16,9 +16,11 @@ The three human-reviewed ledgers have prose-insensitive digests, like the rune f
 
 The crate appends a refuse record's `why` to that refusal's elimination message when it builds a ranking. The table fixpoint never requests a ranking; only the review corpus's explain panel shows rankings. So the refuse `why` is hashed by `rune_explain_digest`, which the review unit cache's family keys are built from, and by the Stage B `explain_prose` component. Rewording one re-enriches the windows whose explain text quotes it and restamps the corpus. No key built from `rune_file_digest` or `rune_digests` sees it.
 
+The other data inputs have prose-insensitive digests too, chosen by `_data_digest`. A schema under rebuild/schema/ is hashed by `schema_file_digest`: its parsed JSON with key order kept and every `title` and `description` annotation removed from the positions where a schema sits. The schema checker skips both keywords (`spec_load._SchemaChecker._IGNORED`), and `rebuild/review/drafts.py` validates with the same checker. A property named `description` stays, because the projection removes keywords from schemas and never names from `properties`; rebuild/schema/script.schema.json declares one. rebuild/script.yaml, glyph_data/punctuation.yaml, the alias map, and the kern sidecar are hashed by `yaml_data_digest`, their parsed documents with key order kept, which drops comments and formatting and nothing else. Key order stays because no reader of these files has been shown not to depend on it, so a pure reorder still moves the digest. A file that fails to parse is hashed raw. `data_path_lines` hashes every data input this way wherever one reaches a key: the `data` component and the run_m1 skip key, `tables_value` and `run_m1.locality_lines`, the `data` line of the oracle row cache's and settle memo's stamps (`oracle_cache.stamped_data_paths`), and the `data` line of the review unit cache's stamp. Rewording a schema hover or a comment in one of these files therefore moves none of them. Outside the gate closures described below, the oracle's position stamp is the one key that still hashes a data input's bytes: `oracle_cache.position_keys` hashes the kern sidecar raw, so after a comment edit there, the next pass that runs the oracle re-shapes every position.
+
 `code_file_digest` projects code files the same way. A `.py` file is hashed as its syntax tree with every docstring's text set to None, and a `.rs` file with its whole-line `//` comments removed, so rewording either moves no key built by `path_lines` or `hash_paths`. Everything the interpreter or compiler sees stays in: every identifier, every non-docstring string constant (matchers compare against error text), every annotation, default, and decorator, and every Rust code line including its trailing comment. The presence of each docstring stays too. A file that fails to parse or decode is hashed as raw bytes, as `_projected_digest` does, so the failure stays visible. Every other file type that reaches `path_lines`, such as the app's static files and the crate's manifest and lock, is hashed raw by `file_sha256`. `baseline_subset.stamp_key` also uses `code_file_digest`.
 
-Three closures outside this module hash code files raw. The rebuild-lane closure (`artifact_cycle._closure_digest`) and gate:make-test's closure (`artifact_cycle.make_test_closure_fingerprint`) do so because test fixtures and the closure tests read source text, so gate:rebuild-contracts and gate:make-test still run after a prose-only edit. The pyright gate's closure (`pyright_gate.closure_fingerprint`) does so because a `# pyright: ignore` comment changes pyright's result. rebuild/test_fingerprint.py checks what the projection keeps and drops.
+Three closures outside this module hash code files raw. The rebuild-lane closure (`artifact_cycle._closure_digest`) and gate:make-test's closure (`artifact_cycle.make_test_closure_fingerprint`) do so because test fixtures and the closure tests read source text, so gate:rebuild-contracts and gate:make-test still run after a prose-only edit. The pyright gate's closure (`pyright_gate.closure_fingerprint`) does so because a `# pyright: ignore` comment changes pyright's result. The first two hash data inputs raw as well. The rebuild-lane closure hashes the schemas and the other YAML data inputs, so a schema hover or a data-file comment still re-runs the contracts tests whose closure holds the file. gate:make-test's closure hashes glyph_data/punctuation.yaml and the kern sidecar, which `make all` reads, so a comment edit to either still runs `make test`. rebuild/test_fingerprint.py checks what the projection keeps and drops.
 
 The two files a version bump rewrites have version-blind digests too, so a bump moves no key. `make all` writes the new version into both site fonts' `name` table and `head.fontRevision`, and the bump-minor skill refreshes `uv.lock`, where only the project's own `[[package]]` block changes.
 
@@ -441,14 +443,24 @@ def _projected_rune(document: object, *, quoted_prose: bool = False) -> object:
     return projected
 
 
-def _projected_digest(path: Path, project: Callable[[object], object]) -> str:
-    """Return the SHA-256 of a YAML file's parsed content after `project`, so comments, formatting, and whatever `project` drops don't affect it. A file that fails to parse or serialize digests to its raw bytes, so a malformed file still changes the digest and two broken drafts don't share a value."""
+def _load_yaml(text: str) -> object:
+    return yaml.load(text, Loader=_SAFE_LOADER)
+
+
+def _load_yaml_stream(text: str) -> object:
+    return list(yaml.load_all(text, Loader=_SAFE_LOADER))
+
+
+def _projected_digest(
+    path: Path, project: Callable[[object], object], load: Callable[[str], object] = _load_yaml
+) -> str:
+    """Return the SHA-256 of a file's parsed content after `project`, so comments, formatting, and whatever `project` drops don't affect it. `load` parses the text, one YAML document by default. A file that fails to parse or serialize digests to its raw bytes, so a malformed file still changes the digest and two broken drafts don't share a value."""
     raw = path.read_bytes()
     try:
-        payload = json.dumps(project(yaml.load(raw.decode(), Loader=_SAFE_LOADER)), ensure_ascii=False)
+        payload = json.dumps(project(load(raw.decode())), ensure_ascii=False).encode()
     except yaml.YAMLError, UnicodeDecodeError, TypeError, ValueError:
         return hashlib.sha256(raw).hexdigest()
-    return hashlib.sha256(payload.encode()).hexdigest()
+    return hashlib.sha256(payload).hexdigest()
 
 
 def rune_file_digest(path: Path) -> str:
@@ -511,24 +523,66 @@ def standing_approvals_digest(path: Path) -> str:
     return _projected_digest(path, _projected_standing_rules)
 
 
+SCHEMA_ANNOTATIONS = ("title", "description")
+_SUBSCHEMA_KEYWORDS = frozenset({"items", "additionalProperties", "propertyNames", "not", "if", "then"})
+_SUBSCHEMA_LIST_KEYWORDS = frozenset({"allOf", "anyOf", "oneOf"})
+_SUBSCHEMA_MAP_KEYWORDS = frozenset({"properties", "patternProperties", "$defs"})
+
+
+def _projected_schema(schema: object) -> object:
+    """Return a parsed JSON Schema with every string-valued `title` and `description` keyword removed, key order kept. It descends only through the keywords whose values are schemas: one schema, a list of them, or a map from a name to one. So the names under `properties` stay, a property named `description` among them, and a `const`, `enum`, or `required` value is kept whole. A keyword it does not descend into keeps its annotations, which can only make the digest move more often."""
+    if not isinstance(schema, dict):
+        return schema
+    projected: dict[object, object] = {}
+    for keyword, value in schema.items():
+        if keyword in SCHEMA_ANNOTATIONS and isinstance(value, str):
+            continue
+        if keyword in _SUBSCHEMA_KEYWORDS:
+            value = _projected_schema(value)
+        elif keyword in _SUBSCHEMA_LIST_KEYWORDS and isinstance(value, list):
+            value = [_projected_schema(item) for item in value]
+        elif keyword in _SUBSCHEMA_MAP_KEYWORDS and isinstance(value, dict):
+            value = {name: _projected_schema(item) for name, item in value.items()}
+        projected[keyword] = value
+    return projected
+
+
+def schema_file_digest(path: Path) -> str:
+    """Return a schema's digest without its `title` and `description` annotations (`_projected_schema`). The schema checker skips both keywords (`spec_load._SchemaChecker._IGNORED`), so they are hover text for the editor and change no validation."""
+    return _projected_digest(path, _projected_schema, json.loads)
+
+
+def yaml_data_digest(path: Path) -> str:
+    """Return the digest of a YAML file's parsed documents in order, key order kept, so only comments and formatting leave it. Each file is parsed as a stream, because the kern sidecar holds one document per rule."""
+    return _projected_digest(path, lambda documents: documents, _load_yaml_stream)
+
+
 def _data_digest(root: Path, path: Path, runes: set[Path]) -> str:
-    """Return one data input's digest for `data_lines`: the prose-insensitive digest for rune files and the divergence ledger, and the raw bytes for everything else."""
+    """Return one data input's digest for `data_path_lines`: the prose-insensitive digest for rune files and the divergence ledger, `schema_file_digest` for a schema, and `yaml_data_digest` for the other YAML inputs."""
     if path in runes:
         return rune_file_digest(path)
     if _label(root, path) == DIVERGENCE_LEDGER_LABEL:
         return divergence_ledger_digest(path)
+    if path.suffix == ".json":
+        return schema_file_digest(path)
+    if path.suffix == ".yaml":
+        return yaml_data_digest(path)
     return file_sha256(path)
 
 
-def data_lines(repo_root: Path) -> list[str]:
-    """Return the sorted `label\\tdigest` lines behind the `data` component, one per existing data input, each hashed as `_data_digest` says. Exposed for the same reason as `path_lines`."""
+def data_path_lines(repo_root: Path, paths: Iterable[Path]) -> list[str]:
+    """Return the sorted `label\\tdigest` lines for `paths`, one per existing file, each hashed as `_data_digest` says. `data_lines` passes every data input; the oracle row cache's and the review unit cache's whole-store stamps pass the subsets they cover."""
     root = Path(repo_root)
     runes = set(rune_paths(root))
     return sorted(
-        f"{_label(root, path)}\t{_data_digest(root, path, runes)}"
-        for path in data_paths(root)
-        if path.is_file()
+        f"{_label(root, path)}\t{_data_digest(root, path, runes)}" for path in paths if path.is_file()
     )
+
+
+def data_lines(repo_root: Path) -> list[str]:
+    """Return the sorted `label\\tdigest` lines behind the `data` component, one per existing data input (`data_path_lines`). Exposed for the same reason as `path_lines`."""
+    root = Path(repo_root)
+    return data_path_lines(root, data_paths(root))
 
 
 def data_value(repo_root: Path) -> str:

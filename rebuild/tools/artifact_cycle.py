@@ -439,7 +439,7 @@ def _subset_tables(root: Path) -> list[Path]:
 
 
 def run_m1_skip_lines(root: Path = ROOT) -> list[str]:
-    """Return the per-file `label\\tdigest` lines behind `run_m1_skip_fingerprint`: every data input and pipeline module individually (rune files and the divergence ledger by their prose-insensitive digests), the contact allow-list by its own prose-insensitive digest, the full baselines as one value, the oracle's subset tables, and uv.lock by its dependency pins (`fingerprint.lock_digest`, which ignores the project's own version block, so a version bump leaves the line unchanged and a fontTools or uharfbuzz bump changes it). The green record stores these lines, so a skip miss can name which input changed, and the pass can check whether every changed label is comparison-side (`comparison_side_label`) and rerun the gates over the artifacts on disk instead of rebuilding them.
+    """Return the per-file `label\\tdigest` lines behind `run_m1_skip_fingerprint`: every data input and pipeline module individually (each data input by its prose-insensitive digest, `fingerprint.data_lines`), the contact allow-list by its own prose-insensitive digest, the full baselines as one value, the oracle's subset tables, and uv.lock by its dependency pins (`fingerprint.lock_digest`, which ignores the project's own version block, so a version bump leaves the line unchanged and a fontTools or uharfbuzz bump changes it). The green record stores these lines, so a skip miss can name which input changed, and the pass can check whether every changed label is comparison-side (`comparison_side_label`) and rerun the gates over the artifacts on disk instead of rebuilding them.
 
     The allow-list is here and in no fingerprint component. Only the defect gate reads it, so a bless must change this key and should not change the corpus's stamp or drop the unit cache. A missing allow-list contributes no line, as `path_lines` drops a missing file.
     """
@@ -613,7 +613,7 @@ def conform_skip_fingerprint(root: Path = ROOT, max_length: int = CONFORM_MAX_LE
 
 
 def deep_sweep_skip_lines(root: Path = ROOT) -> list[str] | None:
-    """Return the deep sweep's record key lines: the behavior-class set the build enumerated (rebuild/out/m1/behavior_classes.json, written by `emit_gsub.behavior_classes`), the font-compilation code that turns a plan into bytes (the pipeline modules in `COMPILE_CODE_FILES` and the tools/ closure compile_font passes the mini font to, `fingerprint.font_compile_tool_paths`, since an edit to the glyph compiler or the FEA emitter changes M1.otf's bytes and must make this sweep and the per-edit sweep due together), and the shaper version. None when no build has left a sidecar, in which case the caller should run the cycle before asking whether the deep sweep is due.
+    """Return the deep sweep's record key lines: the behavior-class set the build enumerated (rebuild/out/m1/behavior_classes.json, written by `emit_gsub.behavior_classes`), the font-compilation code that turns a plan into bytes (the pipeline modules in `COMPILE_CODE_FILES` and the tools/ closure compile_font passes the mini font to, `fingerprint.font_compile_tool_paths`, since an edit to the glyph compiler or the FEA emitter changes M1.otf's bytes and must make this sweep and the per-edit sweep due together), and the shaper version. Both halves of the code are hashed through `fingerprint.path_lines`, so rewording a docstring or a comment in one leaves both sweeps' greens valid. None when no build has left a sidecar, in which case the caller should run the cycle before asking whether the deep sweep is due.
 
     The key leaves out the rune digests and M1.otf's bytes, because a rune edit changes both on every pass, and the deep sweep tests HarfBuzz behavior at a depth the per-edit sweep cannot reach. It tests the set of shapes the emitted lookup gives the shaper, so an edit that creates no new shape leaves nothing new for a deeper run to find, and its green stays valid. There is no maximum-length line: a deep sweep runs at any maximum length from the per-edit sweep's 4 up (5 by default), so the depth a green covered is stored in the record's payload and compared with >=. Hashing it into the key would make a length-6 green fail a length-5 question.
 
@@ -634,7 +634,7 @@ def deep_sweep_skip_lines(root: Path = ROOT) -> list[str] | None:
     if not isinstance(classes, list) or not all(isinstance(token, str) for token in classes):
         return None
     lines = [f"class:{token}\tpresent" for token in classes]
-    lines += [f"{rel}\t{_sha256_path(root / rel)}" for rel in COMPILE_CODE_FILES]
+    lines += fingerprint.path_lines(root, [root / rel for rel in COMPILE_CODE_FILES])
     lines += fingerprint.path_lines(root, fingerprint.font_compile_tool_paths(root))
     lines.append(f"uharfbuzz\t{importlib.metadata.version('uharfbuzz')}")
     return lines

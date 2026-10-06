@@ -116,7 +116,7 @@ def _sha256_file(path: Path, digest: Callable[[Path], str] = fingerprint.file_sh
 
 
 def stamped_data_paths(repo_root: Path) -> list[Path]:
-    """Return the data inputs the whole-store stamp hashes: `fingerprint.data_paths` without the rune files, the alias map, the divergence ledger and the kern sidecar, each of which is covered another way. The rune files are covered per family by the keys. The alias map's family heads are covered per family, and its two boundary heads have their own stamp line. The divergence ledger is read again by classification on every pass. The kern sidecar is in the position stamp, so an edit to it re-shapes every position and re-derives no row verdict. The contact allow-list is not in `fingerprint.data_paths`, so it needs no exclusion here. `artifact_cycle.oracle_cache_note` calls this to report what a moved input will cost the store before the oracle runs, so there is no second copy of this list to keep in step with the stamp."""
+    """Return the data inputs the whole-store stamp and the settle memo's stamp hash, each as `fingerprint.data_path_lines` hashes it, so a schema hover or a comment in a data file moves neither stamp. They are `fingerprint.data_paths` without the rune files, the alias map, the divergence ledger and the kern sidecar, each of which is covered another way. The rune files are covered per family by the keys. The alias map's family heads are covered per family, and its two boundary heads have their own stamp line. The divergence ledger is read again by classification on every pass. The kern sidecar is in the position stamp, so an edit to it re-shapes every position and re-derives no row verdict. The contact allow-list is not in `fingerprint.data_paths`, so it needs no exclusion here. `artifact_cycle.oracle_cache_note` calls this to report what a moved input will cost the store before the oracle runs, so there is no second copy of this list to keep in step with the stamp."""
     root = Path(repo_root)
     runes = set(fingerprint.rune_paths(root))
     excluded = {
@@ -205,7 +205,7 @@ def settle_memo_inputs(repo_root: Path) -> SettleMemoInputs:
     return SettleMemoInputs(
         rune_digests=fingerprint.rune_digests(root),
         oracle_code=fingerprint.hash_paths(root, oracle_code_paths(root)),
-        data=fingerprint.hash_paths(root, stamped_data_paths(root)),
+        data=fingerprint.digest_lines(fingerprint.data_path_lines(root, stamped_data_paths(root))),
     )
 
 
@@ -251,7 +251,7 @@ def environment_stamp(
         f"config\t{config}",
         "features\t" + json.dumps(sorted(features)),
         f"oracle_code\t{fingerprint.hash_paths(root, oracle_code_paths(root))}",
-        f"data\t{fingerprint.hash_paths(root, stamped_data_paths(root))}",
+        f"data\t{fingerprint.digest_lines(fingerprint.data_path_lines(root, stamped_data_paths(root)))}",
         f"spec_structure\t{spec_load.spec_structure_digest(spec)}",
         "capability_features\t" + json.dumps(spec_load.capability_features(spec)),
         "settlement_flags\t" + json.dumps(kernel_exec.settlement_flags()),

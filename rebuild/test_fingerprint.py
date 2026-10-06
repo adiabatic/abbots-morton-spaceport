@@ -756,11 +756,133 @@ def test_data_value_falls_back_to_bytes_on_unparseable_rune(tmp_path):
     assert _data_after(root, "rune: qsPea\n\t: [broken again") != before
 
 
-def test_data_value_tracks_non_rune_data_bytes(tmp_path):
+SCHEMA = textwrap.dedent("""\
+    {
+      "title": "Rune file",
+      "description": "One rune per file.",
+      "type": "object",
+      "properties": {
+        "rune": {"type": "string", "description": "The family name."},
+        "stances": {"type": "array", "items": {"$ref": "#/$defs/stance"}, "minItems": 1}
+      },
+      "anyOf": [{"required": ["rune"], "description": "A named rune."}],
+      "$defs": {"stance": {"type": "object", "title": "Stance", "description": "One stance.", "minProperties": 0}}
+    }
+    """)
+KERN = "# Senior kerning.\n---\nleft: [qsPea]\nvalue: -1\n---\nleft: [qsBay]\nvalue: 1\n"
+DATA_FILES = {
+    "rebuild/schema/rune.schema.json": SCHEMA,
+    "rebuild/script.yaml": "heights: {baseline: 0, x-height: 5}\n",
+    "glyph_data/punctuation.yaml": "glyphs:\n  exclam.prop:\n    y_offset: -1\n",
+    "rebuild/m1-aliases.yaml": "space: boundary\nqsPea: {rune: qsPea, stance: full}\n",
+    "glyph_data/senior_quikscript_kerning.yaml": KERN,
+}
+
+
+def _write_data(root, files):
+    for label, text in files.items():
+        (root / label).write_text(text)
+
+
+def test_a_schema_annotation_or_a_data_file_comment_moves_no_data_key(tmp_path):
+    """Rewording a schema's `title` or `description` wherever a schema sits (the root, under `properties`, inside `anyOf`, under `$defs`), or the comments and formatting of a YAML data input, leaves `data_value`, `tables_value` and the run_m1 skip key unchanged. The kern sidecar holds one document per rule, so this also checks that it parses as a stream and does not fall back to its bytes. Dropping the annotations is sound only while the schema checker skips them."""
+    from rebuild.pipeline import spec_load
+
+    assert set(fingerprint.SCHEMA_ANNOTATIONS) <= spec_load._SchemaChecker._IGNORED
     root = _fake_repo(tmp_path)
+    _write_data(root, DATA_FILES)
+    before = (
+        fingerprint.data_value(root),
+        fingerprint.tables_value(root),
+        artifact_cycle.run_m1_skip_fingerprint(root),
+    )
+    _write_data(
+        root,
+        {
+            "rebuild/schema/rune.schema.json": SCHEMA.replace("One rune per file.", "One rune to a file.")
+            .replace("The family name.", "The PostScript family name.")
+            .replace("A named rune.", "Named.")
+            .replace('"title": "Stance"', '"title": "A stance"')
+            .replace('"minItems": 1', '"minItems":   1'),
+            "rebuild/script.yaml": "# Registries only.\nheights: {baseline: 0,   x-height: 5}  # in pixels\n",
+            "glyph_data/punctuation.yaml": "glyphs:\n  exclam.prop:  # ! U+0021\n    y_offset: -1\n",
+            "rebuild/m1-aliases.yaml": "# Hand-written.\nspace: boundary\n\nqsPea:\n  rune: qsPea\n  stance: full\n",
+            "glyph_data/senior_quikscript_kerning.yaml": KERN.replace(
+                "---\nleft: [qsBay]", "# The second rule.\n---\nleft: [qsBay]"
+            ),
+        },
+    )
+    assert (
+        fingerprint.data_value(root),
+        fingerprint.tables_value(root),
+        artifact_cycle.run_m1_skip_fingerprint(root),
+    ) == before
+
+
+@pytest.mark.parametrize(
+    ("label", "old", "new"),
+    [
+        ("rebuild/schema/rune.schema.json", '"minItems": 1', '"minItems": 2'),
+        ("rebuild/schema/rune.schema.json", '"minProperties": 0', '"maxProperties": 0'),
+        (
+            "rebuild/schema/rune.schema.json",
+            '"type": "object", "title": "Stance", "description": "One stance.", "minProperties": 0',
+            '"minProperties": 0, "type": "object", "title": "Stance", "description": "One stance."',
+        ),
+        ("rebuild/script.yaml", "x-height: 5", "x-height: 4"),
+        (
+            "rebuild/m1-aliases.yaml",
+            "space: boundary\nqsPea: {rune: qsPea, stance: full}\n",
+            "qsPea: {rune: qsPea, stance: full}\nspace: boundary\n",
+        ),
+        ("glyph_data/senior_quikscript_kerning.yaml", "value: -1", "value: -2"),
+        (
+            "glyph_data/senior_quikscript_kerning.yaml",
+            "left: [qsPea]\nvalue: -1\n---\nleft: [qsBay]\nvalue: 1",
+            "left: [qsBay]\nvalue: 1\n---\nleft: [qsPea]\nvalue: -1",
+        ),
+    ],
+)
+def test_a_keyword_a_value_or_an_order_moves_the_data_value(tmp_path, label, old, new):
+    """The data projections drop annotations, comments and formatting and nothing else: a changed or renamed schema keyword, a changed YAML value, and a reorder of keys or of the kern sidecar's documents each move `data_value`. Order is kept because no reader has been shown not to depend on it."""
+    root = _fake_repo(tmp_path)
+    _write_data(root, DATA_FILES)
     before = fingerprint.data_value(root)
-    (root / "rebuild" / "m1-aliases.yaml").write_text("[] # commented\n")
+    assert DATA_FILES[label].count(old) == 1
+    (root / label).write_text(DATA_FILES[label].replace(old, new))
     assert fingerprint.data_value(root) != before
+
+
+def test_a_schema_property_named_description_stays_in_the_digest(tmp_path):
+    """Under `properties`, `description` names a property, as in rebuild/schema/script.schema.json's feature records, so its schema is hashed and a change to it moves the digest, while that schema's own `description` annotation is still dropped. A `const` value is kept whole, even a `description` key inside it."""
+    path = tmp_path / "script.schema.json"
+
+    def digest(schema):
+        path.write_text(json.dumps(schema))
+        return fingerprint.schema_file_digest(path)
+
+    def feature(prop):
+        return {"type": "object", "required": ["description"], "properties": {"description": prop}}
+
+    base = digest(feature({"type": "string", "description": "What the set does."}))
+    assert digest(feature({"type": "string", "description": "What the stylistic set does."})) == base
+    assert digest(feature({"type": "string"})) == base
+    assert digest(feature({"type": "integer", "description": "What the set does."})) != base
+    assert digest({"const": {"description": "one"}}) != digest({"const": {"description": "two"}})
+
+
+def test_an_unparseable_data_file_hashes_raw(tmp_path):
+    """A schema that is not JSON, a schema whose parsed text cannot be encoded (a lone surrogate escape), and a YAML input that does not parse are hashed by their bytes, as an unparseable rune is, so the load failure stays visible and two broken drafts do not share a value."""
+    root = _fake_repo(tmp_path)
+    broken = {
+        "rebuild/schema/rune.schema.json": '{"type": "object",',
+        "rebuild/schema/script.schema.json": '{"type": "string", "pattern": "[\\ud800-\\udfff]"}',
+        "rebuild/script.yaml": "heights: [unclosed\n",
+    }
+    _write_data(root, broken)
+    digests = dict(line.split("\t", 1) for line in fingerprint.data_lines(root))
+    for label in broken:
+        assert digests[label] == fingerprint.file_sha256(root / label)
 
 
 def test_stage_a_data_component_is_the_prose_insensitive_value(tmp_path):

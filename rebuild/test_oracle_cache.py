@@ -6,6 +6,7 @@ The stamp tests matter most. A per-family key covers only the routes that stay i
 """
 
 import gzip
+import json
 import shutil
 from array import array
 from dataclasses import replace
@@ -51,7 +52,7 @@ def _script(root: Path) -> Path:
 
 
 def _rewrite_script(root: Path, edit=None) -> None:
-    """Round-trip the registry through the YAML loader, applying `edit` to the parsed document. Every variant a stamp test compares is written this way, so the `data` line's raw byte hash changes only for the edit. A text patch compared against the unformatted original would also change the hash through formatting alone."""
+    """Round-trip the registry through the YAML loader, applying `edit` to the parsed document. Every variant a stamp test compares is written this way, with sorted keys, so the `data` line, which keeps key order, changes only for the edit."""
     document = yaml.safe_load(_script(root).read_text(encoding="utf-8"))
     if edit is not None:
         edit(document)
@@ -210,6 +211,24 @@ def test_blessing_a_contact_signature_leaves_the_whole_store_stamp_untouched(rep
     allow.write_text("- {signature: 'contact:qsPea.full.ex-y0:qsTea.full.en-y0:y2'}\n", encoding="utf-8")
     assert _stamp(repo, spec).lines == base.lines
     assert oracle_cache.moved_note(base.labels, _stamp(repo, spec).labels) is None
+
+
+def test_a_schema_hover_or_a_registry_comment_leaves_both_stamps_untouched(repo):
+    """The `data` line hashes the schemas without their `title` and `description` annotations and the registry without its comments (`fingerprint.data_path_lines`), so rewording either keeps every row and every memoized settlement. A keyword edit still moves both stamps."""
+    spec = fixtures.mini_spec()
+    schema_path = repo / "rebuild" / "schema" / "rune.schema.json"
+    base, memo = _stamp(repo, spec), oracle_cache.settle_memo_inputs(repo).data
+    schema = json.loads(schema_path.read_text(encoding="utf-8"))
+    schema["description"] = "Reworded."
+    schema["$defs"]["stance"]["description"] = "Reworded as well."
+    schema_path.write_text(json.dumps(schema, indent=4), encoding="utf-8")
+    _script(repo).write_text("# A comment.\n" + _script(repo).read_text(encoding="utf-8"), encoding="utf-8")
+    assert _stamp(repo, spec).lines == base.lines
+    assert oracle_cache.settle_memo_inputs(repo).data == memo
+    schema["$defs"]["stance"]["minProperties"] = 1
+    schema_path.write_text(json.dumps(schema, indent=4), encoding="utf-8")
+    assert oracle_cache.moved_note(base.labels, _stamp(repo, spec).labels) == "data (changed)"
+    assert oracle_cache.settle_memo_inputs(repo).data != memo
 
 
 # --- the family key's grain --------------------------------------------------------------

@@ -227,15 +227,13 @@ def environment_stamp(
     after_helpers_digest: str,
     subset_digests: Mapping[str, str] | None = None,
 ) -> fingerprint.EnvironmentStamp:
-    """Return the unit store's whole-store stamp. A change to any of its lines invalidates the whole store, and over-invalidation is the safe direction. The code line is `corpus_code_paths`, so a pipeline or crate edit outside the code the build runs leaves the store valid. The two site fonts are hashed through `_font_digest`, which ignores `head` and `name`, so the fonts a version bump rebuilds leave it valid too. The rune files are left out because the family keys cover them per unit, and the divergence ledger is left out for the reason the module docstring gives. The stamp carries the code closure's per-file lines as its `corpus_code` detail, from the same `path_lines` read the code digest is computed from, so the file a miss note names is the file the digest saw. `subset_digests` is each acceptance configuration's subset table, already hashed by the caller; the build hashes them once for this line and for the subset pack's header. When it is None, the tables are hashed here."""
+    """Return the unit store's whole-store stamp. A change to any of its lines invalidates the whole store, and over-invalidation is the safe direction. The code line is `corpus_code_paths`, so a pipeline or crate edit outside the code the build runs leaves the store valid. The two site fonts are hashed through `_font_digest`, which ignores `head` and `name`, so the fonts a version bump rebuilds leave it valid too. The rune files are left out because the family keys cover them per unit, and the divergence ledger is left out for the reason the module docstring gives. The other data inputs are hashed by `fingerprint.data_path_lines`, so a schema hover or a comment in one of them leaves the store valid. The stamp carries the code closure's per-file lines as its `corpus_code` detail, from the same `path_lines` read the code digest is computed from, so the file a miss note names is the file the digest saw. `subset_digests` is each acceptance configuration's subset table, already hashed by the caller; the build hashes them once for this line and for the subset pack's header. When it is None, the tables are hashed here."""
     root = Path(repo_root)
     code_lines = fingerprint.path_lines(root, corpus_code_paths(root))
     runes = set(fingerprint.rune_paths(root))
     ledger = root / "rebuild" / "m1-divergences.yaml"
-    data_lines = sorted(
-        f"{path.name}\t{_sha256_file(path)}"
-        for path in fingerprint.data_paths(root)
-        if path.is_file() and path not in runes and path != ledger
+    data_lines = fingerprint.data_path_lines(
+        root, [path for path in fingerprint.data_paths(root) if path not in runes and path != ledger]
     )
     harness_paths = [root / "test" / "test_shaping.py", root / "postscript_glyph_names.yaml"]
     harness_paths += sorted((root / "tools").glob("*.py"))
