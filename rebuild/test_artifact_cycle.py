@@ -3284,6 +3284,7 @@ def test_cycle_summary_payload_plan_block_and_argv():
         "replay_threads": plan.replay_threads,
         "sweep_jobs": plan.sweep_jobs,
         "corpus_jobs": plan.corpus_jobs,
+        "corpus_gates_idle_jobs": plan.corpus_gates_idle_jobs,
         "signature_jobs": plan.signature_jobs,
         "standing_fill_jobs": plan.standing_fill_jobs,
         "make_test_workers": plan.make_test_workers,
@@ -3337,6 +3338,7 @@ def test_cycle_summary_payload_records_null_for_the_width_of_each_step_the_pass_
     widths = (
         "sweep_jobs",
         "corpus_jobs",
+        "corpus_gates_idle_jobs",
         "signature_jobs",
         "standing_fill_jobs",
         "make_test_workers",
@@ -3361,6 +3363,7 @@ def test_cycle_summary_payload_records_null_for_the_width_of_each_step_the_pass_
         None,
     )
     assert gates_off["corpus_jobs"] is not None
+    assert gates_off["corpus_gates_idle_jobs"] is None
     proved = _green_report()
     proved.conform_proven = True
     assert ac.cycle_summary_payload(proved, [], _plan(), "ok")["plan"]["conform_jobs"] is None
@@ -4080,6 +4083,98 @@ def test_skip_make_test_frees_the_corpus_build_budget():
         f"{gated_width} at {format_gb(ac.CORPUS_WORKER_BYTES)} GB each out of 51.54 GB total, less a reserve of 8.00 GB, less {format_gb(gated_coresident)} GB co-resident, capped at 4)"
         in _plan_text(gated)
     )
+
+
+def test_a_gated_corpus_build_is_offered_every_core_less_its_parent_for_an_idle_gate_lane():
+    """A gated pass passes the corpus build two widths, the build lane's share less the parent and a hand build's every core less the parent, with the marker file that picks between them when the units pool starts, and the plan prints both widths and the condition. On the 18-core 48 GiB machine memory binds neither, so the two are the caps. `--skip-gates` already gives every core and is offered nothing wider, and neither is a machine whose memory holds both widths to one worker."""
+    from rebuild.tools import memory_budget
+
+    plan = _plan(ncores=18, total_bytes=MACHINE_48_GIB)
+    lane = memory_budget.split_cores(18)[0] - 1
+    assert (
+        plan.corpus_jobs
+        == lane
+        == ac.corpus_job_budget(skip_gates=False, ncores=18, total_bytes=MACHINE_48_GIB)
+    )
+    assert (
+        plan.corpus_gates_idle_jobs
+        == 17
+        == ac.corpus_job_budget(skip_gates=True, ncores=18, total_bytes=MACHINE_48_GIB)
+    )
+    marker = ac.gates_idle_marker_path()
+    assert plan.gates_idle_marker == marker
+    assert _argv({step.name: step for step in plan.steps}["corpus-build"])[-8:] == [
+        "--gates-idle-jobs",
+        "17",
+        "--gates-idle-marker",
+        str(marker),
+        "--jobs",
+        str(lane),
+        "--signature-jobs",
+        "18",
+    ]
+    rendered = _plan_text(plan)
+    assert f"    corpus-build --jobs              : {lane}  (the build lane holds 9 of 18 cores" in rendered
+    assert (
+        "    corpus-build --gates-idle-jobs   : 17  (taken in place of --jobs when, as the units pool starts, gate:make-test, gate:conform and gate:rebuild-contracts have each skipped or finished, which the driver signals by writing "
+        f"{marker}; every usable core less its parent; 17 at {format_gb(ac.CORPUS_WORKER_BYTES)} GB each"
+    ) in rendered
+
+    for unwidened in (
+        _plan(skip_gates=True, ncores=18, total_bytes=MACHINE_48_GIB),
+        _plan(ncores=10, total_bytes=MACHINE_32_GIB // 4),
+    ):
+        assert (unwidened.corpus_gates_idle_jobs, unwidened.gates_idle_marker) == (None, None)
+        assert "--gates-idle-jobs" not in _argv({step.name: step for step in unwidened.steps}["corpus-build"])
+        assert "--gates-idle-jobs" not in _plan_text(unwidened)
+
+
+def test_the_corpus_build_finds_the_gates_idle_marker_only_once_every_gate_pool_has_finished(monkeypatch):
+    """The driver writes the marker the corpus build reads when its units pool starts once gate:make-test, gate:conform and gate:rebuild-contracts have each finished or been skipped. A marker an earlier pass left is deleted before the build is spawned, so a build spawned while gate:make-test still runs does not find one; it appears when that gate finishes during the build, and the driver deletes it once the build exits. On a pass that skips all three gates the marker is there when the build starts."""
+    seen: list[tuple[bool, bool]] = []
+    release_make = threading.Event()
+
+    def fake_make(argv, spawn, emit, registry):
+        release_make.wait()
+        return _step("gate:make-test", 0)
+
+    def fake_corpus(report, *, spawn, emit, registry, review_out, **_):
+        marker = ac.gates_idle_marker_path()
+        at_spawn = marker.exists()
+        release_make.set()
+        deadline = time.monotonic() + 30
+        while not marker.exists() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        seen.append((at_spawn, marker.exists()))
+        return True
+
+    monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
+    monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
+    monkeypatch.setattr(ac, "_gate_make_test_task", fake_make)
+    monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
+    monkeypatch.setattr(ac, "_gate_contracts_task", _contracts_green)
+    _patch_build_chain(monkeypatch)
+    monkeypatch.setattr(ac, "_do_corpus_build", fake_corpus)
+    _patch_gate_fingerprints(monkeypatch)
+    marker = ac.gates_idle_marker_path()
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.touch()
+
+    busy = _plan()
+    idle = _plan(
+        skip_make_test=True,
+        make_test_note="closure unchanged",
+        skip_conform=True,
+        skip_contracts=True,
+        contracts_note="inputs unchanged",
+    )
+    for plan in (busy, idle):
+        assert plan.gates_idle_marker == marker
+        ac._run_cycle(
+            plan, ac.CycleReport(), ac._Emitter(), ac._ChildRegistry(), spawn=lambda *a, **k: _step()
+        )
+        assert not marker.exists()
+    assert seen == [(False, True), (True, True)]
 
 
 def test_summary_payload_carries_the_fingerprint_only_while_green(tmp_path):

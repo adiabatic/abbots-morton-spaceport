@@ -1219,6 +1219,17 @@ def _handout_width(recomputed: int, nworkers: int) -> int:
     return max(1, min(PHASE1_HANDOUT_UNITS, math.ceil(recomputed / (2 * nworkers))))
 
 
+def _units_pool_width(
+    jobs: int, gates_idle_jobs: int | None, gates_idle_marker: Path | None
+) -> tuple[int, str]:
+    """Return the units pool's width and, under a gated cycle, the gate lane's state that chose it. The cycle passes `gates_idle_jobs` and `gates_idle_marker` beside `jobs` (`artifact_cycle.corpus_gates_idle_job_budget`) and writes the marker once gate:make-test, gate:conform and gate:rebuild-contracts have each skipped or finished, so the build reads it here, as the pool starts, after its load and plan phases: the wider width when the marker exists, and `jobs`, the build lane's share, otherwise. A hand build passes neither and takes `jobs`."""
+    if gates_idle_jobs is None or gates_idle_marker is None:
+        return jobs, ""
+    if gates_idle_marker.exists():
+        return max(1, gates_idle_jobs), "gate lane idle"
+    return jobs, "gate lane busy"
+
+
 def _phase_timing(label: str, started: float, note: str = "") -> None:
     """Print the `[t]` line that closes one `review.build` phase, with this process's peak RSS so far (`peak_rss.rss_token`, as on run_m1's phase lines) and, where it can be read, its current resident set (`peak_rss.rss_now_token`), before any note. `make cycle-timings ARGS='--inner'` shows both per phase. The peak only rises, so the first phase whose peak shows the step's figure is the phase that reached it. The current reading shows what the phase leaves resident once its temporary allocations are freed, which the peak cannot separate from the load phase's."""
     tail = rss_token(peak_rss_self_bytes())
@@ -1928,6 +1939,8 @@ def build_m1(
     recompute_all_units: bool = False,
     spec_root: Path | None = None,
     subset_pack: Path | None = None,
+    gates_idle_jobs: int | None = None,
+    gates_idle_marker: Path | None = None,
 ) -> dict:
     # The enricher re-settles every window from the spec, so a frozen bundle of audit rows, subsets and a font stays consistent only while the runes match it. `spec_root` lets such a bundle use its own frozen spec (the objects rebuild/review/fixtures/mini/pin.json names, which the `mini_bundle` fixture in rebuild/conftest.py materializes out of git), so rune edits do not affect it. What is read from the spec follows `spec_root`: the enrichment, the unit cache's family keys, the environment stamp's spec lines, and the `explain_prose` fingerprint component, because the explain text quotes the spec's refuse and ledger rationales. What describes this checkout stays on `repo_root`: the other fingerprint components, the git head, the manifest's relative paths, and the rest of the environment stamp.
     spec_root = Path(spec_root) if spec_root is not None else Path(repo_root)
@@ -2120,9 +2133,10 @@ def build_m1(
 
     console.phase("review.build units", file=sys.stderr)
     phase = time.perf_counter()
+    units_jobs, gate_lane = _units_pool_width(jobs, gates_idle_jobs, gates_idle_marker)
     runner = _RecomputeRunner(
         recomputed,
-        jobs,
+        units_jobs,
         subset_dir,
         before_font,
         after_font,
@@ -2217,7 +2231,7 @@ def build_m1(
         _phase_timing(
             "review.build units",
             phase,
-            f"(jobs={jobs}, recomputed={len(recomputed):,}, verified={len(verified):,} cached)",
+            f"jobs={units_jobs} ({gate_lane + '; ' if gate_lane else ''}recomputed={len(recomputed):,}, verified={len(verified):,} cached)",
         )
 
         # The write (phase 2) is one pass over recomputed and cached units, each read by the address the store holds for it as its shard is written. A recomputed fragment is read from the runner's spool, patched with this build's scaffold, ink deltas and primary units through `patch_fragment` (on a unit record materialized for the patch), checked by `check_scaffold`, and released once the shard, the checker and the sidecar spools have used it. A cached fragment is read from the previous corpus. When `UnitStore.cached_as_is` says every field the patch would write already matches, it is copied as bytes without parsing, which lets the shard writer leave it, and a part made only of such fragments, in place; the checker reads its identity from the columns (`_cached_identity`). Otherwise it is parsed, patched and serialized again. This runs inside the runner's `try` because the spool belongs to the runner.
@@ -3677,7 +3691,17 @@ def main(argv: list[str] | None = None) -> None:
         "--jobs",
         type=int,
         default=corpus_jobs,
-        help=f"per-unit worker budget for the corpus build; the default is `corpus_job_budget(skip_gates=True)`, the width a `--skip-gates` artifact cycle passes rather than a checked-in one: every usable core less the parent, with no memory set aside for a gate pool because a hand run has no co-resident `make test` pool to leave cores or bytes to (a gated cycle passes the build lane's share of the cores less the parent instead, `memory_budget.split_cores`) — on this machine {corpus_job_derivation(skip_gates=True)}, where the per-unit figure is one worker's own peak and the co-resident one is the parent that holds the whole corpus beside it. `--jobs 1` is serial, and it is the width a machine gets when the pooled shape does not fit; a deliberate `--jobs N` is also how a wider run gets measured, since a pooled build records its per-worker peaks for `make job-costs`.",
+        help=f"per-unit worker budget for the corpus build; the default is `corpus_job_budget(skip_gates=True)`, the width a `--skip-gates` artifact cycle passes rather than a checked-in one: every usable core less the parent, with no memory set aside for a gate pool because a hand run has no co-resident `make test` pool to leave cores or bytes to (a gated cycle passes the build lane's share of the cores less the parent instead, `memory_budget.split_cores`, with `--gates-idle-jobs` for when the gate lane is idle) — on this machine {corpus_job_derivation(skip_gates=True)}, where the per-unit figure is one worker's own peak and the co-resident one is the parent that holds the whole corpus beside it. `--jobs 1` is serial, and it is the width a machine gets when the pooled shape does not fit; a deliberate `--jobs N` is also how a wider run gets measured, since a pooled build records its per-worker peaks for `make job-costs`.",
+    )
+    parser.add_argument(
+        "--gates-idle-jobs",
+        type=int,
+        help="the units pool's width in place of `--jobs` when the file `--gates-idle-marker` names exists as the pool starts, after the load and plan phases. A gated artifact cycle passes both (`artifact_cycle.corpus_gates_idle_job_budget`, every usable core less the parent) and writes that file once gate:make-test, gate:conform and gate:rebuild-contracts have each skipped or finished; a hand run passes neither.",
+    )
+    parser.add_argument(
+        "--gates-idle-marker",
+        type=Path,
+        help="the file whose presence as the units pool starts selects `--gates-idle-jobs`",
     )
     parser.add_argument(
         "--signature-jobs",
@@ -3716,6 +3740,8 @@ def main(argv: list[str] | None = None) -> None:
             jobs=args.jobs if args.jobs and args.jobs > 1 else 1,
             signature_jobs=args.signature_jobs if args.signature_jobs and args.signature_jobs > 1 else 1,
             recompute_all_units=args.recompute_all_units,
+            gates_idle_jobs=args.gates_idle_jobs,
+            gates_idle_marker=args.gates_idle_marker,
         )
     totals = manifest["totals"]
     print(

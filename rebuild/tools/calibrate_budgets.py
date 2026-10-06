@@ -708,7 +708,7 @@ def _width_clause(unit: Unit, constant_bytes: int, *, total_bytes: int, cores: i
             )
             for cap in _corpus_caps(cores)
         )
-        return f"a hand build runs {solo}; a gated cycle runs {gated}, its cap the build lane's share of the cores less the parent, and on a pass that runs gate:make-test it subtracts that gate's pool from the machine's memory before this division too"
+        return f"a hand build runs {solo}; a gated cycle runs {gated}, its cap the build lane's share of the cores less the parent while the gate lane still has work as the units pool starts, and the hand build's width once it has none, and on a pass that runs gate:make-test it subtracts that gate's pool from the machine's memory before this division too"
     if unit.name == "standing-fill-parent":
         worker = _int_constant(root / CORPUS_SOURCE, STANDING_FILL_WORKER_NAME)
         allowed = memory_budget.describe_fit(

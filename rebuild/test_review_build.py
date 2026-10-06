@@ -903,11 +903,12 @@ def test_a_pooled_build_counts_its_units_and_closes_every_phase_it_opens(
     assert all(
         item.startswith("rss_now_gb=") and float(item.removeprefix("rss_now_gb=")) > 0 for item in current
     )
-    assert note == f"(jobs=2, recomputed={total:,}, verified=0 cached)"
+    assert note == f"jobs=2 (recomputed={total:,}, verified=0 cached)"
     _tokens, note = timings["review.build load"].tail.split("\t")
     assert re.fullmatch(_SIGNATURE_NOTE, note), note
     inner = {entry["label"]: entry for entry in parse_inner_timings(captured.err)}
     assert list(inner) == phases
+    assert inner["review.build units"]["jobs"] == 2
     assert all(inner[phase]["rss_gb"] > 0 for phase in phases)
     assert all(inner[phase].get("rss_now_gb", 1.0) > 0 for phase in phases)
     counters = [event for event in events if isinstance(event, console.Progress)]
@@ -938,6 +939,15 @@ def test_a_pooled_build_counts_its_units_and_closes_every_phase_it_opens(
         assert parent_only[boundary]["unit_store"] == total
     assert parent_only["units"]["runner.subset_pack"] == 0
     assert not _subsumed_collections(parent_only)
+
+
+def test_the_units_pool_takes_the_gates_idle_width_only_while_the_marker_exists(tmp_path):
+    """The cycle passes a gated build its lane share as `jobs` and a wider width for when the gate lane is idle, with the marker file the driver writes at that moment. The build reads the marker when the units pool starts and names the gate lane's state for its `[t]` line; a hand build passes neither and keeps `jobs`."""
+    marker = tmp_path / "gates-idle"
+    assert review_build._units_pool_width(8, None, None) == (8, "")
+    assert review_build._units_pool_width(8, 17, marker) == (8, "gate lane busy")
+    marker.touch()
+    assert review_build._units_pool_width(8, 17, marker) == (17, "gate lane idle")
 
 
 def test_the_pool_is_handed_the_recomputed_units_in_configuration_order(mini_bundle):
