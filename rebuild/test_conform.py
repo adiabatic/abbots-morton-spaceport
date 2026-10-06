@@ -2749,6 +2749,34 @@ class TestSettledWindowWalk:
         assert set(bounded.windows) == set(plain.windows) - pinned
         assert not bounded._pinned
 
+    def test_a_walk_with_a_window_ceiling_settles_the_same_and_never_holds_more(self, spec, monkeypatch):
+        """A horizon walk with `max_windows` settles every text to the same (settled, names) as the plain walk, never holds more windows than the ceiling, even with a ceiling below one wave's batch, and settles again the windows it meets after a release, so it settles more fresh than the uncapped walk."""
+        import itertools
+
+        max_length, ceiling = 4, 37
+        guard = kernel_exec.guard_sweep(spec)
+        plain = conform._SettledWindowWalk(spec, frozenset(), {}, guard, horizon=max_length)
+        capped = conform._SettledWindowWalk(
+            spec, frozenset(), {}, guard, horizon=max_length, max_windows=ceiling
+        )
+        original = capped._record
+
+        def record(window, item, state):
+            original(window, item, state)
+            assert len(capped.windows) <= ceiling
+
+        monkeypatch.setattr(capped, "_record", record)
+        for length in range(1, max_length + 1):
+            stream = itertools.product(conform.spec_alphabet(spec), repeat=length)
+            while True:
+                texts = ["".join(combo) for combo in itertools.islice(stream, self.SWEEP_CHUNK)]
+                if not texts:
+                    break
+                assert capped.walk_many(texts) == plain.walk_many(texts)
+        assert len(plain.windows) > ceiling
+        assert capped.releases > 0
+        assert capped.fresh_windows > plain.fresh_windows
+
     def test_deep_slot_keys_replay_the_real_chains(self):
         """The mini spec has no depth-3 or depth-4 prefers, so this test uses the real spec: the chain letters of its deep inputs plus a space, swept to length 5 so both right3 and right4 are reachable. The walk keys its deep slots on raw labels, which is finer than the table's own grain, so some memo key must have its third slot open, not `#NA`."""
         import warnings

@@ -21,7 +21,7 @@ CHECKS: list = []
 
 @pytest.fixture
 def bench(tmp_path, monkeypatch):
-    """A stub repo root with a behavior-class sidecar and the compile code files, a tables stamp that counts as current, `AMS_DEEP_SWEEP_JOBS` and `AMS_DEEP_SWEEP_REPORT_SECONDS` unset whatever the developer's shell sets, and every green record and journal line redirected so nothing touches rebuild/out. The journal lines land in `CHECKS`."""
+    """A stub repo root with a behavior-class sidecar and the compile code files, a tables stamp that counts as current, `AMS_DEEP_SWEEP_JOBS`, `AMS_DEEP_SWEEP_REPORT_SECONDS` and `AMS_DEEP_SWEEP_MEMO_WINDOWS` unset whatever the developer's shell sets, and every green record and journal line redirected so nothing touches rebuild/out. The journal lines land in `CHECKS`."""
     from rebuild.pipeline.emit_gsub import BEHAVIOR_CLASSES_FORMAT
 
     m1 = tmp_path / "rebuild" / "out" / "m1"
@@ -41,6 +41,7 @@ def bench(tmp_path, monkeypatch):
     monkeypatch.setattr(deep_sweep, "refresh_deep_replay", lambda max_length, runes: max_length)
     monkeypatch.delenv(deep_sweep.JOBS_ENV, raising=False)
     monkeypatch.delenv(deep_sweep.REPORT_ENV, raising=False)
+    monkeypatch.delenv(deep_sweep.MEMO_WINDOWS_ENV, raising=False)
     CHECKS.clear()
     monkeypatch.setattr(deep_sweep, "record_check", lambda result, **kw: CHECKS.append((result.outcome, kw)))
     return tmp_path
@@ -52,7 +53,10 @@ TOY_ALPHABET = ("a", "b", "c")
 
 
 def _plan(
-    units: tuple[deep_sweep.SweepUnit, ...], windows: int = 1_000, unconfined=None
+    units: tuple[deep_sweep.SweepUnit, ...],
+    windows: int = 1_000,
+    unconfined=None,
+    memo_windows: int = deep_sweep.DEEP_SWEEP_MEMO_WINDOWS,
 ) -> deep_sweep.SweepPlan:
     return deep_sweep.SweepPlan(
         spec=cast(ResolvedSpec, None),
@@ -61,13 +65,18 @@ def _plan(
         heaviest="a",
         bound_seconds=0.0,
         units=units,
+        memo_windows=memo_windows,
         unconfined=unconfined or {},
     )
 
 
 def _stub_plan(monkeypatch, windows=1_000, unconfined=None):
     units = deep_sweep.sweep_units(TOY_ALPHABET, 5)
-    monkeypatch.setattr(deep_sweep, "plan_sweep", lambda max_length: _plan(units, windows, unconfined))
+    monkeypatch.setattr(
+        deep_sweep,
+        "plan_sweep",
+        lambda max_length, memo_windows: _plan(units, windows, unconfined, memo_windows),
+    )
 
 
 def _stub_sweep(monkeypatch, summary, swept=None):
@@ -248,17 +257,21 @@ def test_the_window_bound_counts_every_held_window_of_one_unit():
     assert deep_sweep.window_bound(4, ligature, ("|",), {}, "b", {"ab": "b"}) == 67
 
 
-def test_every_fleet_machine_sweeps_as_many_units_as_it_has_cores_at_the_default_maximum_length():
-    """At the length-5 bound of the heaviest settlement unit on the alphabet with ·Ye (`unit_window_bounds`: 809,421 windows, the texts that end in ·Utter), every fleet machine (`doc/fleet.md`) sweeps as many of the 181 units at once as it has cores, with no shortfall, and a sweep with fewer units than cores runs them all at once. At the length-6 bound (66,114,978 windows, ·Utter's again) the 48 GiB machines sweep two units at a time, still with no shortfall. The suite does not catch a per-window cost that is too low: only a real run's check line, which records each configuration's highest unit peak beside its estimate, does."""
-    length_5 = deep_sweep.settlement_worker_bytes(809_421)
+def test_every_fleet_machine_sweeps_as_many_units_as_it_has_cores_at_length_5_and_length_6():
+    """At the length-5 bound of the heaviest settlement unit on the alphabet with ·Way (`unit_window_bounds`: 884,172 windows, the texts that end in ·Utter), below the window ceiling, every fleet machine (`doc/fleet.md`) sweeps as many of the 186 units at once as it has cores, with no shortfall, and a sweep with fewer units than cores runs them all at once. At the length-6 bound (75,807,484 windows, ·Utter's again), and at 262,522,290, the bound `window_bound` gives ·Utter's unit on a projection of the 57-rune alphabet in which each letter still to come has as many cells as the most any letter has on the alphabet with ·Way, and each ligature still to come as many as the most any ligature has, a unit is priced at the ceiling, so both machines still sweep as many units as they have cores, with no shortfall. The suite does not catch a per-window cost that is too low: only a real run's check line, which records each configuration's highest unit peak beside its estimate, does."""
+    ceiling = deep_sweep.DEEP_SWEEP_MEMO_WINDOWS
+    length_5 = deep_sweep.settlement_worker_bytes(884_172, ceiling)
+    assert length_5 == deep_sweep.DEEP_SWEEP_BASE_BYTES + 884_172 * deep_sweep.DEEP_SWEEP_WINDOW_BYTES
     for cores in (18, 12):
-        assert deep_sweep.sweep_width(length_5, 181, ncores=cores, total_bytes=MACHINE_48_GIB) == cores
+        assert deep_sweep.sweep_width(length_5, 186, ncores=cores, total_bytes=MACHINE_48_GIB) == cores
     assert deep_sweep.memory_shortfall(length_5, total_bytes=MACHINE_48_GIB) is None
     assert deep_sweep.sweep_width(length_5, 16, ncores=18, total_bytes=MACHINE_48_GIB) == 16
-    length_6 = deep_sweep.settlement_worker_bytes(66_114_978)
-    for cores in (18, 12):
-        assert deep_sweep.sweep_width(length_6, 181, ncores=cores, total_bytes=MACHINE_48_GIB) == 2
-    assert deep_sweep.memory_shortfall(length_6, total_bytes=MACHINE_48_GIB) is None
+    for bound in (75_807_484, 262_522_290):
+        length_6 = deep_sweep.settlement_worker_bytes(bound, ceiling)
+        assert length_6 == deep_sweep.settlement_worker_bytes(ceiling, ceiling)
+        for cores in (18, 12):
+            assert deep_sweep.sweep_width(length_6, 186, ncores=cores, total_bytes=MACHINE_48_GIB) == cores
+        assert deep_sweep.memory_shortfall(length_6, total_bytes=MACHINE_48_GIB) is None
 
 
 def test_the_overlay_runs_in_a_settlement_units_slot_and_its_need_is_subtracted():
@@ -355,7 +368,7 @@ def test_a_record_gated_on_ss03_whose_window_can_lack_tea_makes_ss03_shape_every
     for right, swept, failed in ((("qsTea",), named, {}), (("qsFee",), every, {"ss03", "ss03+ss05"})):
         spec = _gated_spec(right)
         monkeypatch.setattr("rebuild.pipeline.spec_load.load_default_spec", lambda: spec)
-        plan = deep_sweep.plan_sweep(3)
+        plan = deep_sweep.plan_sweep(3, deep_sweep.DEEP_SWEEP_MEMO_WINDOWS)
         assert set(plan.unconfined) == set(failed)
         assert plan.trigger_runes == ({} if failed else {"ss03": {"qsTea"}, "ss03+ss05": {"qsTea"}})
         texts = {
@@ -396,7 +409,37 @@ def test_a_stated_width_replaces_the_derived_one(bench, monkeypatch, capsys):
     assert len(swept) == 4
     monkeypatch.delenv(deep_sweep.JOBS_ENV)
     assert deep_sweep.main([]) == 0
-    assert swept[-1][1] == deep_sweep.sweep_width(deep_sweep.settlement_worker_bytes(1_000), units)
+    assert swept[-1][1] == deep_sweep.sweep_width(
+        deep_sweep.settlement_worker_bytes(1_000, deep_sweep.DEEP_SWEEP_MEMO_WINDOWS), units
+    )
+
+
+def test_a_stated_window_ceiling_prices_each_unit_and_reaches_the_plan(bench, monkeypatch, capsys):
+    """Without `AMS_DEEP_SWEEP_MEMO_WINDOWS` the plan carries DEEP_SWEEP_MEMO_WINDOWS. A stated ceiling replaces it in the plan, and a settlement unit is priced at the smaller of its bound and the ceiling, which the plan line and the check line's estimate both show. A value that is not a bare count of at least one raises an error naming the variable before anything is swept."""
+    swept: list = []
+    _stub_sweep(monkeypatch, {"pass": True, "divergences": 0}, swept)
+    planned: list[int] = []
+    stub = deep_sweep.plan_sweep
+    monkeypatch.setattr(
+        deep_sweep,
+        "plan_sweep",
+        lambda max_length, memo_windows: planned.append(memo_windows) or stub(max_length, memo_windows),
+    )
+    assert deep_sweep.main([]) == 0
+    monkeypatch.setenv(deep_sweep.MEMO_WINDOWS_ENV, "400")
+    assert deep_sweep.main([]) == 0
+    assert planned == [deep_sweep.DEEP_SWEEP_MEMO_WINDOWS, 400]
+    assert (
+        "releases its windows before they pass 400, so a unit holds at most 400," in capsys.readouterr().out
+    )
+    capped = deep_sweep.settlement_worker_bytes(1_000, 400)
+    assert capped == deep_sweep.DEEP_SWEEP_BASE_BYTES + 400 * deep_sweep.DEEP_SWEEP_WINDOW_BYTES
+    assert CHECKS[-1][1]["worker_estimate_bytes"]["default"] == capped
+    for stated in ("0", "5e6", "4GB"):
+        monkeypatch.setenv(deep_sweep.MEMO_WINDOWS_ENV, stated)
+        with pytest.raises(RuntimeError, match=deep_sweep.MEMO_WINDOWS_ENV):
+            deep_sweep.main([])
+    assert len(swept) == 2
 
 
 def test_each_run_records_every_workers_peak_beside_its_estimate(bench, monkeypatch):
@@ -406,7 +449,7 @@ def test_each_run_records_every_workers_peak_beside_its_estimate(bench, monkeypa
     _stub_sweep(monkeypatch, {"pass": False, "divergences": 2})
     assert deep_sweep.main([]) == 1
     assert [outcome for outcome, _ in CHECKS] == ["green", "red"]
-    estimate = deep_sweep.settlement_worker_bytes(1_000)
+    estimate = deep_sweep.settlement_worker_bytes(1_000, deep_sweep.DEEP_SWEEP_MEMO_WINDOWS)
     for _, kw in CHECKS:
         assert kw["worker_peak_footprint_bytes"] == PEAKS
         assert kw["worker_estimate_bytes"] == {
@@ -416,8 +459,15 @@ def test_each_run_records_every_workers_peak_beside_its_estimate(bench, monkeypa
 
 
 def test_a_unit_that_exceeds_the_machine_is_refused_unless_a_width_is_stated(bench, monkeypatch, capsys):
-    """A settlement unit estimated past a fleet machine's memory in all is refused by `memory_shortfall`, and one past its memory less the reserve but within the memory is only warned about. `main` refuses such a run before sweeping anything and names the way to run it anyway; a stated width starts it with the warning instead."""
-    beyond = deep_sweep.settlement_worker_bytes(200_000_000)
+    """A settlement unit estimated past a fleet machine's memory in all is refused by `memory_shortfall`, and one past its memory less the reserve but within the memory is only warned about. Under the checked-in window ceiling no bound reaches either, so only a ceiling stated far above it can. `main` refuses such a run before sweeping anything and names the way to run it anyway; a stated width starts it with the warning instead."""
+    beyond = deep_sweep.settlement_worker_bytes(200_000_000, 200_000_000)
+    assert (
+        deep_sweep.memory_shortfall(
+            deep_sweep.settlement_worker_bytes(200_000_000, deep_sweep.DEEP_SWEEP_MEMO_WINDOWS),
+            total_bytes=MACHINE_48_GIB,
+        )
+        is None
+    )
     shortfall = deep_sweep.memory_shortfall(beyond, total_bytes=MACHINE_48_GIB)
     assert shortfall is not None and shortfall[0]
     shortfall = deep_sweep.memory_shortfall(48_000_000_000, total_bytes=MACHINE_48_GIB)
@@ -425,6 +475,7 @@ def test_a_unit_that_exceeds_the_machine_is_refused_unless_a_width_is_stated(ben
     swept: list = []
     _stub_sweep(monkeypatch, {"pass": True, "divergences": 0}, swept)
     _stub_plan(monkeypatch, windows=10**15)
+    monkeypatch.setenv(deep_sweep.MEMO_WINDOWS_ENV, str(10**15))
     with pytest.raises(SystemExit, match=deep_sweep.JOBS_ENV):
         deep_sweep.main([])
     assert swept == []
@@ -579,7 +630,9 @@ def test_the_sweep_reports_the_counts_its_workers_store_on_the_report_interval(t
     release = threading.Event()
     started: dict[int, float] = {}
 
-    def worker(spec, font_path, config, last, triggers, max_length, glyphs, guard_verdicts, slot):
+    def worker(
+        spec, font_path, config, last, triggers, max_length, glyphs, guard_verdicts, memo_windows, slot
+    ):
         started[slot] = time.monotonic()
         store = deep_sweep._counter_writer(slot)
         assert store is not None
@@ -641,7 +694,9 @@ def test_the_units_merge_per_configuration_and_a_short_count_records_nothing(tmp
     ranks = {symbol: index for index, symbol in enumerate(TOY_ALPHABET)}
     lost: list[str] = []
 
-    def worker(spec, font_path, config, last, triggers, max_length, glyphs, guard_verdicts, slot):
+    def worker(
+        spec, font_path, config, last, triggers, max_length, glyphs, guard_verdicts, memo_windows, slot
+    ):
         if last is not None:
             time.sleep(0.01 * (len(TOY_ALPHABET) - ranks[last]))
         result = conform.ConformanceConfigResult(config=config)
@@ -674,13 +729,15 @@ def test_the_units_merge_per_configuration_and_a_short_count_records_nothing(tmp
 def test_a_configuration_with_trigger_letters_must_shape_exactly_the_texts_that_contain_one(
     tmp_path, monkeypatch
 ):
-    """Each unit's worker gets its unit's trigger letters, and a configuration whose units carry them must shape the texts that contain one, no more, before the summary is written, which then states each configuration's count. A worker that shapes every text where its configuration skips texts raises instead."""
+    """Each unit's worker gets its unit's trigger letters and the plan's window ceiling, and a configuration whose units carry them must shape the texts that contain one, no more, before the summary is written, which then states each configuration's count. A worker that shapes every text where its configuration skips texts raises instead."""
     max_length = 3
     units = deep_sweep.sweep_units(TOY_ALPHABET, max_length, {"ss03": frozenset("a")})
     ignoring: list[str] = []
 
-    def worker(spec, font_path, config, last, triggers, max_length, glyphs, guard_verdicts, slot):
-        assert triggers == units[slot].triggers
+    def worker(
+        spec, font_path, config, last, triggers, max_length, glyphs, guard_verdicts, memo_windows, slot
+    ):
+        assert triggers == units[slot].triggers and memo_windows == 4_321
         letters = frozenset() if config in ignoring else triggers
         longest = conform.OVERLAY_MAX_LENGTH if last is None else max_length
         result = conform.ConformanceConfigResult(config=config)
@@ -692,7 +749,9 @@ def test_a_configuration_with_trigger_letters_must_shape_exactly_the_texts_that_
         return result, 1
 
     _thread_sweep(tmp_path, monkeypatch, worker, max_length)
-    summary, _peaks = deep_sweep.run_sweep(_plan(units), max_length, len(units), report_every=60.0)
+    summary, _peaks = deep_sweep.run_sweep(
+        _plan(units, memo_windows=4_321), max_length, len(units), report_every=60.0
+    )
     every = 3 + 9 + 27
     assert summary["sequences_by_config"] == {
         **{config: every for config in conform.SETTLEMENT_CONFIGS},
@@ -705,7 +764,7 @@ def test_a_configuration_with_trigger_letters_must_shape_exactly_the_texts_that_
         RuntimeError,
         match=r"deep sweep\[ss03\]: its units shaped 39 texts, not the 25 of every length it sweeps that contain one of its trigger letters",
     ):
-        deep_sweep.run_sweep(_plan(units), max_length, len(units), report_every=60.0)
+        deep_sweep.run_sweep(_plan(units, memo_windows=4_321), max_length, len(units), report_every=60.0)
     assert not (tmp_path / deep_sweep.SUMMARY_NAME).exists()
 
 
@@ -715,7 +774,9 @@ def test_a_unit_that_raises_cancels_the_units_still_queued(tmp_path, monkeypatch
     units = deep_sweep.sweep_units(TOY_ALPHABET, max_length)
     ran: list[int] = []
 
-    def worker(spec, font_path, config, last, triggers, max_length, glyphs, guard_verdicts, slot):
+    def worker(
+        spec, font_path, config, last, triggers, max_length, glyphs, guard_verdicts, memo_windows, slot
+    ):
         ran.append(slot)
         raise ValueError(f"unit {slot} failed")
 

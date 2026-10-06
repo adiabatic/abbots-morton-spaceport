@@ -1582,6 +1582,8 @@ class _SettledWindowWalk:
 
     Without `horizon`, `windows` has no size bound: it keeps every window the walk settles. A walk with no memo file and no dedupe audit may name `horizon`, the length in characters of its longest text, and then `windows` keeps every window except the pinned ones. A window is pinned when its right slots reach the text's last token, the slot after that token is `#EDGE` or the text is at the horizon, and its index is 0, or 1 with the text at the horizon (`_is_pinned`; positions count tokens after ligature formation). Its key then spells out its whole text, because the left slot is the edge, a boundary, or a display name that names the letter before. The conformance sweep walks each text once, so only the state that asked for a pinned window reaches it, and a text walked again would settle its pinned windows again. A pinned outcome goes into `_pinned`, which `_advance` reads after `windows` and the cold store, and `_run` clears it once the wave's states have advanced.
 
+    A horizon walk may also name `max_windows`, a ceiling on `windows`. Before a wave whose settles could take `windows` past it, `_run` empties `windows` and counts a release in `releases`, and the walk continues, settling again any window it meets after that. Each state carries its own settled stream, so a release costs only the settles of windows met again, counted in `fresh_windows` with the rest. The ceiling is counted in windows, not bytes, so a release happens at the same point on every machine. It also caps `batch`, so one wave never settles more than the ceiling. A ceiling at the most entries a dict holds before it doubles keeps `windows` in one table, so the walk's peak has a bound that does not depend on how many texts it walks.
+
     `memo` names the file this walk shares with the other walks over the same texts. The string replay fills it on a full replay (`absorb_replay_memo`), and the witness stage, the oracle, and the conformance sweep each map it and settle what it lacks. It is mapped on the first wave that would otherwise reach the crate, so a walk that settles nothing (an oracle pass whose rows are all served) never opens it. `save_memo` writes it back only when this walk settled a window the file lacked, or pruned one. `_write_settle_memo` describes the file layout, and `_MemoStore` how a walk maps it: the tables go on the heap, and the columns and index stay pages of the mapping, shared in the page cache by every walk that maps the file. An entry whose window names a family whose key changed since the file was written is dropped at load (`oracle_cache.StaleMask` at label grain, including the ligature clause).
 
     Loaded entries stay in `_cold`, the `_MemoStore` over the mapping, which marks each row it returns as reached. With `promote` (a constructor keyword, on by default) a hit is also copied into `windows`, so the oracle and the witness stage run the store's probe once per window and a dict lookup after that. The conformance sweep runs with `promote=False` and serves every window from the columns: it reaches nearly every loaded window, so promoted copies would cost the key tuples the columns exist to avoid. `save_memo(prune=True)` keeps only the reached rows. The conformance sweep walks every text every pass, so an entry it never reached is a window no text produces any more (its left slot named a settlement an edit has since changed), and keeping it would grow the file with every rune edit. The serial sweep prunes in its own save. The pooled sweep's units each walk a share of the texts, so none of them may prune: each writes its part and returns its `reached` flags (`memo_reach`), and the parent prunes through `absorb_sweep_memo` over the union of those flags. A pruning save writes the fresh windows first and then the reached rows in file order, a permutation of what a promoting walk would write; no reader can tell the difference, because a load does not depend on row order and the file holds one row per window. The oracle does not prune, because it does not walk the rows its row cache serves, so their windows are never reached. Its whole-file save writes `windows` and then, in file order, every live row `windows` does not hold.
@@ -1608,20 +1610,26 @@ class _SettledWindowWalk:
         memo: SettleMemoFile | None = None,
         promote: bool = True,
         horizon: int | None = None,
+        max_windows: int | None = None,
     ):
         assert horizon is None or (
             memo is None and not audit_dedupe
         ), "a horizon walk has no memo file and no dedupe audit"
+        assert max_windows is None or (
+            horizon is not None and max_windows >= 1
+        ), "a window ceiling is for a horizon walk, and holds at least one window"
         self.spec = spec
         self.features = features
         self.glyph_names = glyph_names
         self.guard_verdicts = guard_verdicts
-        self.batch = max(1, batch)
+        self.batch = max(1, batch if max_windows is None else min(batch, max_windows))
         self.audit_dedupe = audit_dedupe
         self.on_error = on_error
         self.memo = memo
         self._promote = promote
         self.horizon = horizon
+        self.max_windows = max_windows
+        self.releases = 0
         self.windows: dict[_Window, _Outcome | _RefusedWindow] = {}
         self._pinned: dict[_Window, _Outcome | _RefusedWindow] = {}
         self._cold = _MemoStore()
@@ -1939,6 +1947,9 @@ class _SettledWindowWalk:
                 )
                 if self.audit_dedupe:
                     self._audit_seen.add((state.left, state.tokens[state.index], self._rights(state)))
+            if self.max_windows is not None and len(self.windows) + len(keys) > self.max_windows:
+                self.windows.clear()
+                self.releases += 1
             for window, asker, item in zip(keys, reached_in, self._settle(cases)):
                 self._record(window, item, asker)
             pending = [state for state in pending if self._advance(state, tolerant)]
@@ -2135,6 +2146,7 @@ def _conformance_config(
     progress: Callable[[int], None] | None = None,
     last: str | None = None,
     triggers: frozenset[str] = frozenset(),
+    max_windows: int | None = None,
 ) -> ConformanceConfigResult:
     """One configuration's conformance-sweep run: every string of length 1 to `max_length` over the alphabet, shaped with the font and compared with the settled stream, plus the split-buffer and zero-gap checks. Configurations share nothing, so both the serial `run_conformance` and the process-pool worker call this.
 
@@ -2144,7 +2156,7 @@ def _conformance_config(
 
     An overlay configuration is swept to `OVERLAY_MAX_LENGTH` instead, whatever `max_length` is. Its expected names are `isolated_overlay_labels` over the raw tokens, it uses no walk and no memo, and every slot must sit at zero offset with its `hmtx` advance (`check_isolated_positions`). The split-buffer check runs there too.
 
-    Settlement goes through `_SettledWindowWalk`'s memo, which only saves time. `settle_memo` shares that memo with the other walks over the same texts: it is loaded on the first miss, and a run without `last` writes it back at the end if this sweep settled anything the file lacked, pruned of every entry no text reached. This sweep walks every text, so it is the only walk that can tell which windows still exist. Without `settle_memo`, the walk takes `horizon=max_length` and does not memoize pinned windows. Each length's texts go through the walk `TEXT_CHUNK` at a time, because at larger maximum lengths a length has millions of texts and only the current chunk needs to be in memory. The split-buffer check runs only on texts that contain a splitter, since a text without one is its own single segment.
+    Settlement goes through `_SettledWindowWalk`'s memo, which only saves time. `settle_memo` shares that memo with the other walks over the same texts: it is loaded on the first miss, and a run without `last` writes it back at the end if this sweep settled anything the file lacked, pruned of every entry no text reached. This sweep walks every text, so it is the only walk that can tell which windows still exist. Without `settle_memo`, the walk takes `horizon=max_length` and does not memoize pinned windows, and `max_windows`, when given, is its ceiling on the windows it holds (`_SettledWindowWalk`), which the deep sweep sets so that a unit's memory has a bound that does not depend on the alphabet. Each length's texts go through the walk `TEXT_CHUNK` at a time, because at larger maximum lengths a length has millions of texts and only the current chunk needs to be in memory. The split-buffer check runs only on texts that contain a splitter, since a text without one is its own single segment.
 
     `progress`, when given, is called with the count of texts shaped so far after each chunk, and after each length for an overlay configuration, so a caller can report a long sweep's progress from another process without the sweep printing anything or paying for a call per text.
     """
@@ -2152,6 +2164,7 @@ def _conformance_config(
         last is None or settle_memo is None or settle_memo.writes_part
     ), "a unit sweep writes its memo as a part"
     assert not triggers or settle_memo is None, "a sweep that skips texts shares no settle memo"
+    assert max_windows is None or settle_memo is None, "a window ceiling is for a walk with no settle memo"
     features = features_for_config(config)
     result = ConformanceConfigResult(config=config)
     divergences = DivergenceTally(result, alphabet)
@@ -2182,6 +2195,7 @@ def _conformance_config(
         memo=settle_memo,
         promote=False,
         horizon=max_length if settle_memo is None else None,
+        max_windows=max_windows,
     )
 
     def sweep_text(text: str, names: list[str]) -> None:
@@ -2226,8 +2240,9 @@ def conformance_config_worker(
     progress: Callable[[int], None] | None = None,
     last: str | None = None,
     triggers: frozenset[str] = frozenset(),
+    max_windows: int | None = None,
 ) -> ConformanceConfigResult:
-    """One configuration's conformance-sweep run in its own process, building what it needs from the spec and the font. That includes the section 5.7 guard verdicts when the caller passes none (a fifth of a second against a sweep that runs for a minute); an overlay configuration forms nothing and skips them. `settle_memo` is only a path and keys, so the worker reads and writes the file itself, or, for a unit (`last`), reads it and writes its part. `progress`, `last` and `triggers` are `_conformance_config`'s."""
+    """One configuration's conformance-sweep run in its own process, building what it needs from the spec and the font. That includes the section 5.7 guard verdicts when the caller passes none (a fifth of a second against a sweep that runs for a minute); an overlay configuration forms nothing and skips them. `settle_memo` is only a path and keys, so the worker reads and writes the file itself, or, for a unit (`last`), reads it and writes its part. `progress`, `last`, `triggers` and `max_windows` are `_conformance_config`'s."""
     shaper = Shaper(Path(font_path))
     alphabet = spec_alphabet(spec)
     splitters = splitting_boundary_chars(spec)
@@ -2250,6 +2265,7 @@ def conformance_config_worker(
         progress=progress,
         last=last,
         triggers=triggers,
+        max_windows=max_windows,
     )
 
 

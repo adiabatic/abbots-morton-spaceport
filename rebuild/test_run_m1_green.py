@@ -895,9 +895,10 @@ class TestConformFanIn:
         progress=None,
         last=None,
         triggers=frozenset(),
+        max_windows=None,
     ):
-        """A deterministic sweep that shapes nothing: every text of the configuration's lengths that ends in `last` (every text without it) is a sequence costing the configuration's own count of shaping runs, and every text ending in the configuration's own symbol diverges, so a merge that misordered the units or the configurations would write a different report. The per-edit sweep shapes every text in every configuration, so no unit gets trigger letters."""
-        assert not triggers
+        """A deterministic sweep that shapes nothing: every text of the configuration's lengths that ends in `last` (every text without it) is a sequence costing the configuration's own count of shaping runs, and every text ending in the configuration's own symbol diverges, so a merge that misordered the units or the configurations would write a different report. The per-edit sweep shapes every text in every configuration, so no unit gets trigger letters, and its walks share a settle memo, so none gets a window ceiling."""
+        assert not triggers and max_windows is None
         index = conform.ACCEPTANCE_CONFIGS.index(config)
         top = conform.OVERLAY_MAX_LENGTH if config in conform.OVERLAY_CONFIGS else max_length
         result = conform.ConformanceConfigResult(config=config)

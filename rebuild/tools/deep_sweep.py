@@ -6,9 +6,9 @@ The per-edit sweep's split-buffer check (every text split at a boundary shapes t
 
 Each settlement configuration other than `default` differs from it only through the few runes its features rename (`conform.renamed_runes`; the plan line names them). So the sweep shapes `default` over every text and each other configuration only over the texts that name one of those runes (`sweep_triggers`), when a plan-time check passes for it: every policy record gated on one of its features restricts a slot of its window to a rune that feature renames (`conform.unconfined_feature_records`). A text that names none of those runes then reaches the font's settlement lookup with the glyphs `default` gives it, since the stylistic sets' lookups rename only those runes and the settlement lookup is the same in every configuration, and settles as it does under `default`, since no record or unlock row that reads the configuration's features fires on any of its windows. Its comparison is `default`'s, which this sweep makes. A configuration that fails the check, or renames nothing, is swept over every text, and the plan line names which texts each configuration shapes and any records that failed the check. The per-edit sweep stays exhaustive in every configuration.
 
-The sweep runs in units, each in a spawn process of its own (`run_sweep`, `sweep_units`): the ss10 overlay whole, and each settlement configuration once per alphabet symbol, over the texts that end in that symbol and, in a configuration that skips texts, contain one of its trigger letters (`conform.conformance_config_worker` with `last` and `triggers`). The pool takes the units in that order and runs one per process (`max_tasks_per_child=1`), so no unit starts in a process that still holds what an earlier one allocated. A settlement unit's walk shares no memo file at this depth and keeps every distinct window it settles except the pinned ones (`conform._SettledWindowWalk`, `horizon`) until its last text. Every window whose right slots reach its text's end names the unit's symbol, so a unit keeps all of that reuse; a window whose right slots stop at a boundary before the text's end does not, so each unit whose texts reach it settles it again. The results merge per configuration (`conform.merge_unit_results`) and then across configurations in `conform.ACCEPTANCE_CONFIGS` order, and each configuration's summed sequences must equal every text of length 1 to its maximum length, or in a configuration that skips texts every such text that contains one of its trigger letters (`run_m1.config_texts`), before the summary is written, so the summary and its exemplars are the ones a single walk per configuration gives, whatever the width and the order in which units finish.
+The sweep runs in units, each in a spawn process of its own (`run_sweep`, `sweep_units`): the ss10 overlay whole, and each settlement configuration once per alphabet symbol, over the texts that end in that symbol and, in a configuration that skips texts, contain one of its trigger letters (`conform.conformance_config_worker` with `last` and `triggers`). The pool takes the units in that order and runs one per process (`max_tasks_per_child=1`), so no unit starts in a process that still holds what an earlier one allocated. A settlement unit's walk shares no memo file at this depth and keeps every distinct window it settles except the pinned ones (`conform._SettledWindowWalk`, `horizon`) until its last text, or until a wave of settles could take them past the window ceiling below. Every window whose right slots reach its text's end names the unit's symbol, so a unit keeps all of that reuse while it holds the window; a window whose right slots stop at a boundary before the text's end does not, so each unit whose texts reach it settles it again. The results merge per configuration (`conform.merge_unit_results`) and then across configurations in `conform.ACCEPTANCE_CONFIGS` order, and each configuration's summed sequences must equal every text of length 1 to its maximum length, or in a configuration that skips texts every such text that contains one of its trigger letters (`run_m1.config_texts`), before the summary is written, so the summary and its exemplars are the ones a single walk per configuration gives, whatever the width and the order in which units finish.
 
-A unit's windows grow through its whole walk, so its footprint peaks at the window dict's last doubling late in the walk, when it briefly holds the old and new tables together. The width is therefore fixed before anything is spawned, from the windows a unit's walk holds at its end, priced so that it covers that peak: `window_bound` counts in closed form the windows the walk of the unit whose texts end in one symbol can hold at the requested maximum length, `unit_window_bounds` bounds every symbol's unit in every configuration, including a unit that skips texts, which holds a subset of the windows of its own configuration's unit over every text that ends in its symbol (its docstring has the argument), `settlement_worker_bytes` prices the heaviest unit's bound as each settlement unit's need, and `sweep_width` fits that many settlement units into the machine's memory, capped at the cores and the unit count. The bound grows with the alphabet, so a new letter needs no new measurement. When even one settlement unit does not fit, `memory_shortfall` says so before anything is spawned: a warning when it exceeds the memory less the reserve, and a refusal without a stated width when it exceeds the machine's memory in all. The ss10 overlay holds no windows, only what every worker holds before its walk (`DEEP_SWEEP_BASE_BYTES`). The parent holds the spec, the glyph inventory and the guard verdicts, well inside the reserve, as the per-edit sweep's controller does. Each unit returns its peak footprint (`peak_rss.peak_footprint_bytes`), and the run's check line in the cycle-timings journal records each configuration's highest unit peak beside its estimate, so a real run can be held against the estimate.
+A unit's windows grow through its walk until they would pass the window ceiling (`sweep_memo_windows`: DEEP_SWEEP_MEMO_WINDOWS unless `AMS_DEEP_SWEEP_MEMO_WINDOWS` states another). Before a wave of settles that could take them past it, the walk empties its window dict and continues, settling again any window it meets after that (`conform._SettledWindowWalk`, `max_windows`). Below the ceiling a unit's footprint peaks at the window dict's last doubling late in the walk, when it briefly holds the old and new tables together. DEEP_SWEEP_MEMO_WINDOWS is the most a dict holds before it doubles, so a walk at that ceiling fills one table and never doubles past it. The width is therefore fixed before anything is spawned, from the most windows a unit's walk holds, priced so that it covers that peak: `window_bound` counts in closed form the windows the walk of the unit whose texts end in one symbol can hold at the requested maximum length with no ceiling, `unit_window_bounds` bounds every symbol's unit in every configuration, including a unit that skips texts, which holds a subset of the windows of its own configuration's unit over every text that ends in its symbol (its docstring has the argument), `settlement_worker_bytes` prices the smaller of the heaviest unit's bound and the ceiling as each settlement unit's need, and `sweep_width` fits that many settlement units into the machine's memory, capped at the cores and the unit count. At maximum length 5 every unit's bound is below the ceiling, on the alphabet projected to every letter too, so no walk releases and the bound sets the width; it grows with the alphabet, so a new letter needs no new measurement. At maximum length 6 the heaviest unit's bound is many times the ceiling, so every settlement unit is priced at the ceiling, and a unit's price, and with it the width, does not depend on the alphabet: every fleet machine sweeps as many units at once as it has cores, which `rebuild/test_deep_sweep.py` checks. When even one settlement unit does not fit, which only a ceiling stated well above DEEP_SWEEP_MEMO_WINDOWS can cause on a fleet machine, `memory_shortfall` says so before anything is spawned: a warning when it exceeds the memory less the reserve, and a refusal without a stated width when it exceeds the machine's memory in all. The ss10 overlay holds no windows, only what every worker holds before its walk (`DEEP_SWEEP_BASE_BYTES`). The parent holds the spec, the glyph inventory and the guard verdicts, well inside the reserve, as the per-edit sweep's controller does. Each unit returns its peak footprint (`peak_rss.peak_footprint_bytes`), and the run's check line in the cycle-timings journal records each configuration's highest unit peak beside its estimate, so a real run can be held against the estimate.
 
 While the units run, the parent prints a progress report every 20 minutes (`REPORT_SECONDS_DEFAULT`; `AMS_DEEP_SWEEP_REPORT_SECONDS` sets another interval for a debugging run). Each unit's worker writes the count of texts it has shaped into its unit's slot of a shared array after each chunk of `conform.TEXT_CHUNK` texts, and its pid and the clock time it started into two others; the arrays reach the spawn workers through the pool's initializer, the one way a spawn process can inherit shared memory. One slot has one writer and the parent only reads, so no lock is taken, and the hot loop pays one store per chunk. A worker prints nothing. The parent reads the slots every `SAMPLE_SECONDS`, and each report states, in total and then per configuration over the configuration's units, the texts shaped out of the texts to shape (`SweepUnit.texts`, counted before any worker starts), the time elapsed, the rate since the last report, the estimated finish, and the footprint of every running unit's process (`peak_rss.footprint_bytes`) with the machine's swap in use (`peak_rss.swap_used_bytes`). `SweepProgress` says how the estimate is computed.
 
@@ -27,6 +27,7 @@ import json
 import math
 import multiprocessing
 import os
+import re
 import sys
 import time
 from collections import Counter, deque
@@ -70,6 +71,8 @@ JOBS_ENV = "AMS_DEEP_SWEEP_JOBS"
 
 REPORT_ENV = "AMS_DEEP_SWEEP_REPORT_SECONDS"
 
+MEMO_WINDOWS_ENV = "AMS_DEEP_SWEEP_MEMO_WINDOWS"
+
 REPORT_SECONDS_DEFAULT = 20 * 60.0
 
 # How often the parent reads the workers' counters between reports. A count is dated to the first reading that shows it, so it is late by at most this much, against walks that run for hours and chunks that take seconds. A configuration's start is the clock time its worker recorded, so a worker that finishes between two readings, as the ss10 overlay's does, still has its duration.
@@ -78,19 +81,24 @@ SAMPLE_SECONDS = 5.0
 # The share of a configuration's texts that the rate its estimate uses spans (`smoothed_rate`). A walk's rate changes as it moves through the alphabet: it takes the letters in order in the first position, one after another across its longest texts, and the letters' rules cost different amounts to settle and shape. A tenth of the texts spans several first letters, so one costly letter moves the rate little, while the rate still trails the walk by only a twentieth of it, half the window.
 RATE_WINDOW_SHARE = 0.1
 
-# What one settlement unit's worker holds per window at its peak, the variable term of its need (`settlement_worker_bytes`). The walk keeps `conform._SettledWindowWalk.windows`, a dict from a six-label key tuple to a shared outcome, and shares no settle memo at a deep length, so it holds one key tuple and one dict entry for every distinct window it settles except the pinned ones (`horizon`), until its walk ends. Labels and outcomes are interned and shared, so nothing else grows with the windows. The dict doubles its tables when it passes two thirds of its slots, and for that moment it holds the old tables and the new ones together, so a worker's peak is that transient at the last doubling, not its size at the end of the walk. Per window held, the peak is highest when the walk ends just past a doubling.
+# What one settlement unit's worker holds per window at its peak, the variable term of its need (`settlement_worker_bytes`). The walk keeps `conform._SettledWindowWalk.windows`, a dict from a six-label key tuple to a shared outcome, and shares no settle memo at a deep length, so it holds one key tuple and one dict entry for every distinct window it settles except the pinned ones (`horizon`), until its walk ends or until a wave of settles could take them past the window ceiling (DEEP_SWEEP_MEMO_WINDOWS), when it empties the dict. Labels and outcomes are interned and shared, so nothing else grows with the windows. The dict doubles its tables when it passes two thirds of its slots, and for that moment it holds the old tables and the new ones together, so below the ceiling a worker's peak is that transient at the last doubling, not its size at the end of the walk. Per window held, the peak is highest when the walk ends just past a doubling.
 # Measured on the 18-core M5 Pro 48 GiB MacBook Pro (`doc/fleet.md`) on the alphabet with ·Ye, reading footprint (`peak_rss.peak_footprint_bytes`) with nothing else running and swap in use unchanged, by the harness `var/keep/issue-482/harness/measure.py`, which runs one unit in a fresh spawn worker as `run_sweep` does; its records are in `var/keep/issue-482/after-step4/runs.ndjson` and `after-step3-gates/runs.ndjson`. At maximum length 5, `default`'s unit of the texts that end in ·Et holds 393,118 windows at its end and peaks at 0.234 GB, 0.009 GB above its end: the old tables of its doubling past 349,525 windows, so it is the worst case per window. ·Utter's unit holds 393,088 and peaks at 0.231 GB, and the space's holds 349,342 and peaks at 0.219 GB. `default`'s whole walk over the first 16 symbols of the harness's order holds 160,020 windows and peaks at 0.183 GB, and each of its units holds 23,363 to 26,804 and peaks at 0.153 to 0.167 GB.
 # The line through the highest peak, ·Et's unit at 0.234 GB over 393,118 windows, and the reduced alphabet's whole walk at 0.183 GB over 160,020 has a slope of 218.9 bytes a window over a base of 0.148 GB. ·Utter's and the space's units peak higher than the reduced walk, but ·Utter's holds nearly ·Et's window count, and the space's is too close to it to fix a slope as well as a count less than half as large. The constant is the slope plus a quarter, rounded up to ten bytes, and DEEP_SWEEP_BASE_BYTES is the base plus a quarter, rounded up to the tenth, because a cost that is too low pushes the machine into swap. `window_bound` overcounts on top of that, 727,377 against ·Et's 393,118, 809,421 against ·Utter's 393,088, and 673,878 against the space's 349,342. The heaviest unit's bound, ·Utter's, prices every settlement unit at maximum length 5 at 0.43 GB against the 0.234 GB measured, so every fleet machine sweeps as many units at once as it has cores (18 and 12), which `rebuild/test_deep_sweep.py` checks. The window count follows the alphabet through `window_bound`, so re-measure only when the window key or what the walk holds per window changes shape, or `conform.TEXT_CHUNK` grows.
 # The first full run at maximum length 5 on the same machine and alphabet (width 18, 181 units, 2,106 s, with no swapout; its records are in `var/keep/issue-482/deep-run/run-1/`) peaked at 0.246 to 0.250 GB in each settlement configuration's highest unit and at 0.052 GB in the overlay's worker, against estimates of 0.43 GB and 0.20 GB. Its check line in the cycle-timings journal records each configuration's highest unit peak but not that unit's window count, so the run tests the constants without refitting the slope. They cover a 0.250 GB peak in any unit that holds more than 177,650 windows, about half the space's 349,342, the fewest a full-alphabet unit holds above. Even the line through the space's unit at that peak and the reduced walk, 351.3 bytes a window over 0.127 GB, prices ·Utter's bound at 0.41 GB, under the 0.43 GB these constants give. On the line through ·Et's unit the run's peaks fall at 447,000 to 464,000 windows, more than ·Et's unit holds and fewer than the smallest unit bound, the space's 673,878.
+# The one-unit runs at maximum length 6 under DEEP_SWEEP_MEMO_WINDOWS's comment test these constants on a far larger walk: the uncapped walk of `default`'s ·Utter unit on the alphabet with ·Way holds 49,436,318 windows at its end and peaks at 8.53 GB, under the 14.04 GB these constants give for that count, and the walk at the ceiling peaks at 0.91 GB against 1.77 GB.
 DEEP_SWEEP_WINDOW_BYTES = 280
 
 # What a worker holds before its walk holds a window: its interpreter, the spec, a HarfBuzz `Shaper` over M1.otf, the glyph names and anchors, the guard verdicts the parent passes, a chunk of `conform.TEXT_CHUNK` texts in flight, and one wave's pinned outcomes. It is a settlement unit's fixed term and all the ss10 overlay's worker holds, since the overlay walks nothing; that worker peaks at 0.045 GB in #480's length-4 measurement (`var/keep/issue-480/len4-full/`) and at 0.052 GB in the first full run at maximum length 5. DEEP_SWEEP_WINDOW_BYTES's comment derives it and holds that run against it.
 DEEP_SWEEP_BASE_BYTES = 200_000_000
 
+# The most windows one settlement unit's walk holds (`conform._SettledWindowWalk`, `max_windows`; `AMS_DEEP_SWEEP_MEMO_WINDOWS` states another through `sweep_memo_windows`). Before a wave of settles that could take its window dict past the ceiling, the walk empties the dict and continues, settling again the windows it meets after that. It is counted in windows, not bytes, so a walk releases at the same point on every machine. The value is the most entries a Python dict of 2^23 slots holds before it doubles, so a walk at the ceiling fills that table and never allocates the next. `settlement_worker_bytes` prices a unit at the smaller of its bound and the ceiling at DEEP_SWEEP_WINDOW_BYTES a window, 1.77 GB at the ceiling, so both 48 GiB machines (`doc/fleet.md`) sweep as many units at once as they have cores at any maximum length and on any alphabet, which `rebuild/test_deep_sweep.py` checks. The next dict size, 11,184,810 windows, would price a unit at 3.33 GB and narrow the 18-core M5 Pro to 13 units. No unit's bound at maximum length 5 reaches the ceiling: the heaviest, ·Utter's, is 884,172 windows on the alphabet with ·Way and 2,201,144 on a projection of the 57-rune alphabet in which each letter still to come has as many cells as the most any letter has on the alphabet with ·Way, and each ligature still to come as many as the most any ligature has, so a length-5 walk never releases.
+# Picked by measurement on the 18-core M5 Pro 48 GiB MacBook Pro on the alphabet with ·Way (44 runes), one run at a time with nothing else running, by the harness `var/keep/issue-497/harness/measure.py`, which runs `default`'s unit of the texts that end in ·Utter at maximum length 6 (71,270,178 texts) in a fresh spawn worker as `run_sweep` does; its records are in `var/keep/issue-497/runs.ndjson`. Uncapped, the walk settles 109,726,262 windows, holds 49,436,318 at its end against a `window_bound` of 75,807,484, peaks at 8.53 GB, and takes 6,567 s. At this ceiling it releases 14 times, settles 139,664,902 windows (27.3% more), peaks at 0.91 GB, and takes 6,149 s. At the two smaller dict sizes, 2,796,202 and 1,398,101 windows, it releases 39 and 83 times, settles 54.5% and 60.3% more, peaks at 0.62 GB and 0.40 GB, and takes 6,172 s and 6,163 s. Every capped walk is faster than the uncapped one: the walk's own time outside its kernel calls falls from 2,216 s uncapped to 1,531 to 1,574 s, more than the 187 to 346 s that the repeated settles add to those calls. This ceiling settles the fewest windows of the three. All four walks settle the same stream (the harness's stream hash) and shape every text with no divergence, and none changed the swap in use. The peak at this ceiling is about half its 1.77 GB estimate, and DEEP_SWEEP_WINDOW_BYTES's comment holds the uncapped walk's peak against that constant.
+DEEP_SWEEP_MEMO_WINDOWS = 5_592_405
+
 
 @dataclass(frozen=True)
 class SweepPlan:
-    """What the sweep needs before it spawns anything: the spec, the glyph inventory the workers name settled cells with, the window bound of the heaviest settlement unit at the requested maximum length and the name of the symbol its texts end in, how long the units' bounds took to compute, the units (`sweep_units`), and the plan-time check's outcome (`sweep_triggers`): the runes whose texts alone each configuration that skips texts shapes, and the records that failed the check in each configuration that failed it."""
+    """What the sweep needs before it spawns anything: the spec, the glyph inventory the workers name settled cells with, the window bound of the heaviest settlement unit at the requested maximum length and the name of the symbol its texts end in, how long the units' bounds took to compute, the units (`sweep_units`), the window ceiling each settlement unit's walk releases its windows at (`sweep_memo_windows`), and the plan-time check's outcome (`sweep_triggers`): the runes whose texts alone each configuration that skips texts shapes, and the records that failed the check in each configuration that failed it."""
 
     spec: ResolvedSpec
     glyphs: Mapping
@@ -98,6 +106,7 @@ class SweepPlan:
     heaviest: str
     bound_seconds: float
     units: tuple[SweepUnit, ...]
+    memo_windows: int
     trigger_runes: Mapping[str, frozenset[str]] = field(default_factory=dict)
     unconfined: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
 
@@ -237,9 +246,9 @@ def triggers_clause(plan: SweepPlan) -> str:
     return clause
 
 
-def settlement_worker_bytes(windows: int) -> int:
-    """Return what one settlement unit's worker needs at the peak of a walk that holds `windows` windows at its end: DEEP_SWEEP_BASE_BYTES plus DEEP_SWEEP_WINDOW_BYTES a window."""
-    return DEEP_SWEEP_BASE_BYTES + windows * DEEP_SWEEP_WINDOW_BYTES
+def settlement_worker_bytes(windows: int, memo_windows: int) -> int:
+    """Return what one settlement unit's worker needs at the peak of a walk that would hold `windows` windows at its end and releases them before they pass `memo_windows`: DEEP_SWEEP_BASE_BYTES plus DEEP_SWEEP_WINDOW_BYTES for each window of the smaller of the two, since the walk never holds more than its ceiling."""
+    return DEEP_SWEEP_BASE_BYTES + min(windows, memo_windows) * DEEP_SWEEP_WINDOW_BYTES
 
 
 def _fit_terms(settlement_bytes: int, units: int, ncores: int | None) -> tuple[int, int, int]:
@@ -294,6 +303,18 @@ def stated_jobs() -> int | None:
         raise RuntimeError(
             f"{JOBS_ENV}={stated!r} is not a width: it takes a bare decimal count of units to sweep at once"
         ) from None
+
+
+def sweep_memo_windows() -> int:
+    """Return the most windows each settlement unit's walk holds before it releases them: `AMS_DEEP_SWEEP_MEMO_WINDOWS` when it is set, else DEEP_SWEEP_MEMO_WINDOWS. A set value must be a bare decimal count of at least one; anything else raises, as `deep_replay.replay_memo_windows` does for its own variable. The ceiling is in windows, not bytes, so a walk releases at the same point on every machine."""
+    stated = os.environ.get(MEMO_WINDOWS_ENV)
+    if stated is None:
+        return DEEP_SWEEP_MEMO_WINDOWS
+    if re.fullmatch(r"[0-9]+", stated) is None or int(stated) < 1:
+        raise RuntimeError(
+            f"{MEMO_WINDOWS_ENV}={stated!r} is not a window ceiling: it takes a bare decimal count of windows, at least one"
+        )
+    return int(stated)
 
 
 def report_seconds() -> float:
@@ -553,8 +574,8 @@ def record_key() -> str:
     return fingerprint
 
 
-def plan_sweep(max_length: int) -> SweepPlan:
-    """Load what the sweep needs, bound each settlement unit's windows at `max_length` and keep the heaviest, run the plan-time check (`sweep_triggers`), and list the units, each with its configuration's trigger letters (`conform.trigger_letters`) when the configuration may skip texts. The tables are read only for the glyph inventory (`run_m1.mint_cell_glyphs`) and released once it is minted."""
+def plan_sweep(max_length: int, memo_windows: int) -> SweepPlan:
+    """Load what the sweep needs, bound each settlement unit's windows at `max_length` and keep the heaviest beside `memo_windows`, the ceiling each settlement unit's walk releases its windows at, run the plan-time check (`sweep_triggers`), and list the units, each with its configuration's trigger letters (`conform.trigger_letters`) when the configuration may skip texts. The tables are read only for the glyph inventory (`run_m1.mint_cell_glyphs`) and released once it is minted."""
     from rebuild.pipeline.spec_load import load_default_spec
 
     inputs = run_m1.tables_inputs()
@@ -579,6 +600,7 @@ def plan_sweep(max_length: int) -> SweepPlan:
         heaviest=heaviest,
         bound_seconds=bound_seconds,
         units=sweep_units(conform.spec_alphabet(spec), max_length, letters),
+        memo_windows=memo_windows,
         trigger_runes=trigger_runes,
         unconfined=unconfined,
     )
@@ -618,9 +640,10 @@ def _unit_worker(
     max_length: int,
     glyphs,
     guard_verdicts,
+    memo_windows: int,
     slot: int,
 ):
-    """Run one unit's sweep in its own process, over the texts that contain one of `triggers` when there are any, storing its count of texts shaped in its `slot` of the shared array after each chunk, and return the result with the process's peak footprint (`run_m1._peak_footprint`), read just before it returns."""
+    """Run one unit's sweep in its own process, over the texts that contain one of `triggers` when there are any, with a settlement unit's walk releasing its windows before they pass `memo_windows`, storing its count of texts shaped in its `slot` of the shared array after each chunk, and return the result with the process's peak footprint (`run_m1._peak_footprint`), read just before it returns."""
     result = conform.conformance_config_worker(
         spec,
         font_path,
@@ -631,6 +654,7 @@ def _unit_worker(
         progress=_counter_writer(slot),
         last=last,
         triggers=triggers,
+        max_windows=memo_windows,
     )
     return result, run_m1._peak_footprint()
 
@@ -669,6 +693,7 @@ def run_sweep(
                 max_length,
                 plan.glyphs,
                 guard_verdicts,
+                plan.memo_windows,
                 slot,
             ): slot
             for slot, unit in enumerate(units)
@@ -783,8 +808,8 @@ def main(argv: list[str] | None = None) -> int:
     conform_key = conform_skip_fingerprint(ROOT, CONFORM_MAX_LENGTH_DEFAULT)
     stated = args.jobs if args.jobs is not None else stated_jobs()
     report_every = report_seconds()
-    plan = plan_sweep(args.max_length)
-    settlement_bytes = settlement_worker_bytes(plan.windows)
+    plan = plan_sweep(args.max_length, sweep_memo_windows())
+    settlement_bytes = settlement_worker_bytes(plan.windows, plan.memo_windows)
     derived = sweep_width(settlement_bytes, len(plan.units))
     jobs = min(max(1, stated), len(plan.units)) if stated is not None else derived
     source = (
@@ -794,7 +819,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     print(
         f"deep sweep: maximum length {args.max_length} over every acceptance configuration at {jobs} jobs {source}, one process per unit, {len(plan.units)} units: the ss10 overlay whole at its own maximum length, and each settlement configuration once per symbol its texts end in; "
-        f"the heaviest settlement unit, the texts that end in {plan.heaviest}, holds at most {plan.windows} windows (every unit bounded in {plan.bound_seconds * 1000:.1f} ms), {peak_rss.format_gb(settlement_bytes)} GB at {DEEP_SWEEP_WINDOW_BYTES} bytes each beside {peak_rss.format_gb(DEEP_SWEEP_BASE_BYTES)} GB; "
+        f"the heaviest settlement unit, the texts that end in {plan.heaviest}, would hold at most {plan.windows} windows (every unit bounded in {plan.bound_seconds * 1000:.1f} ms) and every unit's walk releases its windows before they pass {plan.memo_windows}, so a unit holds at most {min(plan.windows, plan.memo_windows)}, {peak_rss.format_gb(settlement_bytes)} GB at {DEEP_SWEEP_WINDOW_BYTES} bytes each beside {peak_rss.format_gb(DEEP_SWEEP_BASE_BYTES)} GB; "
         f"{sweep_width_derivation(settlement_bytes, len(plan.units))}; {triggers_clause(plan)}; a progress report every {console.fmt_duration(report_every)}",
         flush=True,
     )
