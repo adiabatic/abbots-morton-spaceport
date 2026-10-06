@@ -1,5 +1,6 @@
-"""Tests for the on-demand deep sweep's decisions, with the sweep stubbed out: which inputs it refuses, what it records on a pass, what it clears on a failure, the per-edit sweep's green record it writes, the width it runs at, the window bound that width comes from, the units it splits the configurations into and how it merges them back, the plan-time check that lets a configuration shape only the texts that name a rune it renames and the counts that follow from it, the progress report's interval, estimate, and lines, and how each unit's count reaches the parent's reports. Each unit's sweep is `conform.conformance_config_worker`, which the font-facing gates already exercise; `rebuild/test_conform.py` checks that the units partition a configuration's texts."""
+"""Tests for the on-demand deep sweep's decisions, with the sweep stubbed out: which inputs it refuses, what it records on a pass, what it clears on a failure, the per-edit sweep's green record it writes, the width it runs at, the window bound that width comes from, the units it splits the configurations into and how it merges them back, the plan-time check that lets a configuration shape only the texts that name a rune it renames and the counts that follow from it, the progress report's interval, estimate, and lines, how each unit's count reaches the parent's reports, and the targeted mode's texts, units, and green record. Each unit's sweep is `conform.conformance_config_worker`, which the font-facing gates already exercise; `rebuild/test_conform.py` checks that the units partition a configuration's texts."""
 
+import gzip
 import json
 import multiprocessing
 import os
@@ -10,7 +11,7 @@ from typing import cast
 
 import pytest
 
-from rebuild.pipeline import conform, model
+from rebuild.pipeline import conform, model, table
 from rebuild.pipeline.model import ResolvedSpec
 from rebuild.tools import artifact_cycle as ac
 from rebuild.tools import console, cycle_paths, deep_sweep, memory_budget
@@ -38,6 +39,7 @@ def bench(tmp_path, monkeypatch):
     monkeypatch.setattr(cycle_paths, "CONFORM_GREEN", tmp_path / "conform-green.json")
     monkeypatch.setattr(deep_sweep, "tables_stamped", lambda: True)
     monkeypatch.setattr(cycle_paths, "DEEP_REPLAY_GREEN", tmp_path / "deep-replay-green.json")
+    monkeypatch.setattr(cycle_paths, "TARGETED_SWEEP_GREEN", tmp_path / "targeted-sweep-green.json")
     monkeypatch.setattr(deep_sweep, "refresh_deep_replay", lambda max_length, runes: max_length)
     monkeypatch.delenv(deep_sweep.JOBS_ENV, raising=False)
     monkeypatch.delenv(deep_sweep.REPORT_ENV, raising=False)
@@ -784,3 +786,171 @@ def test_a_unit_that_raises_cancels_the_units_still_queued(tmp_path, monkeypatch
     with pytest.raises(ValueError, match="unit 0 failed"):
         deep_sweep.run_sweep(_plan(units), max_length, 1, report_every=60.0)
     assert ran[0] == 0 and len(ran) <= 2 < len(units)
+
+
+TEA, FEE = "\ue652", "\ue658"
+
+
+def _toy_rule(input_glyph: str, backtrack, look4, outcome: str) -> table.Rule:
+    return table.Rule(
+        input_glyph, backtrack, ("qsTea_qsFee",), ("qsTea@ss03",), ("qsFee",), look4, outcome, (), False
+    )
+
+
+def _toy_tables(look4=("qsTea", "space"), outcome="qsFee.sole.ex-y0") -> dict[str, table.DecisionTable]:
+    """`default`'s table holds one settle:bk1-la4 rule, whose backtrack class names ·Tea twice (two settled glyphs) and ·Fee once, and whose lookahead names the ·Tea·Fee ligature, an ss03 marker tag, and the space, beside a rule with no backtrack and one with no fourth lookahead slot. The other configurations' tables are empty."""
+    targeted = _toy_rule(
+        "qsFee", ("qsTea.full.ex-y5", "qsTea.full.ex-y0", "qsFee.sole.ex-y0"), look4, outcome
+    )
+    rules = (
+        targeted,
+        _toy_rule("qsFee", None, ("qsTea",), "qsFee.sole.ex-y5"),
+        _toy_rule("qsTea", ("qsFee.sole.ex-y0",), None, "qsTea.full.ex-y5"),
+    )
+    certificates = (
+        ("qsTea", "qsFee", "qsTea_qsFee", "qsTea", "qsFee", "space", "qsTea"),
+        ("qsFee", "qsTea"),
+        ("qsFee", "qsTea", "qsFee"),
+    )
+    return {
+        config: (
+            table.DecisionTable(config=config, rules=rules, certificates=certificates)
+            if config == "default"
+            else table.DecisionTable(config=config)
+        )
+        for config in conform.SETTLEMENT_CONFIGS
+    }
+
+
+def _toy_spec() -> ResolvedSpec:
+    runes = {
+        "qsTea": model.Rune("qsTea", codepoint=0xE652),
+        "qsFee": model.Rune("qsFee", codepoint=0xE658),
+        "qsTea_qsFee": model.Rune("qsTea_qsFee", sequence=("qsTea", "qsFee")),
+    }
+    return ResolvedSpec(
+        runes=runes,
+        registry=model.ScriptRegistry(boundary_tokens={"space": model.BoundaryToken(0x20, True)}),
+    )
+
+
+def test_the_targeted_set_holds_each_bk1_la4_rules_certificate_and_its_six_slot_contexts():
+    """Only the settle:bk1-la4 rule contributes. Its contexts take ·Tea or ·Fee before the input, ·Fee as the input, the ligature spelled by its sequence, the marker tag by its rune, ·Fee, then ·Tea or the space: four texts, each alone and after each of the three symbols. Its certificate is shaped too, and the other two rules' certificates are not. The units hold every text once, each group whole, each unit's texts in length and product order."""
+    spec = _toy_spec()
+    texts = deep_sweep.targeted_texts(spec, _toy_tables())
+    assert texts.rules == {config: int(config == "default") for config in conform.SETTLEMENT_CONFIGS}
+    assert texts.guards == {config: 0 for config in conform.SETTLEMENT_CONFIGS}
+    contexts = {left + FEE + TEA + FEE + TEA + FEE + right for left in (TEA, FEE) for right in (TEA, " ")}
+    alphabet = conform.spec_alphabet(spec)
+    shaped = [text for group in texts.groups["default"] for text in group]
+    certificate = TEA + FEE + TEA + FEE + TEA + FEE + " " + TEA
+    assert sorted(shaped) == sorted(
+        {certificate} | contexts | {symbol + text for text in contexts for symbol in alphabet}
+    )
+    assert FEE + TEA not in shaped and FEE + TEA + FEE not in shaped
+    assert all(not groups for config, groups in texts.groups.items() if config != "default")
+    units, slices = deep_sweep.targeted_units(alphabet, texts.groups, unit_texts=5)
+    assert [(unit.config, unit.texts) for unit in units] == [("default", 8), ("default", 8), ("default", 1)]
+    assert sorted(text for unit_texts in slices for text in unit_texts) == sorted(shaped)
+    rank = {symbol: index for index, symbol in enumerate(alphabet)}
+    for unit_texts in slices:
+        keys = [(len(text), [rank[ch] for ch in text]) for text in unit_texts]
+        assert keys == sorted(keys)
+
+
+def _write_heads(root, tables: dict[str, table.DecisionTable]) -> None:
+    out_dir = root / "rebuild" / "out" / "m1"
+    for config, decision in tables.items():
+        head = {
+            "inputs": "stamp",
+            "config": config,
+            "rules": [table._rule_row(rule) for rule in decision.rules],
+            "identity_guard_rules": 0,
+            "cited_provenance": [],
+            "deep_classes": [],
+            "certificates": [list(tokens) for tokens in decision.certificates],
+            "cells": [],
+        }
+        with gzip.open(table.windows_path(out_dir, config), "wt") as handle:
+            handle.write(f"# {table.WINDOWS_FORMAT}\t{json.dumps(head)}\n")
+
+
+def _stub_targeted(monkeypatch, summary):
+    plan = deep_sweep.TargetedPlan(
+        spec=_toy_spec(),
+        glyphs={},
+        texts=deep_sweep.TargetedTexts(
+            groups={config: () for config in conform.SETTLEMENT_CONFIGS},
+            rules={config: 0 for config in conform.SETTLEMENT_CONFIGS},
+            guards={config: 0 for config in conform.SETTLEMENT_CONFIGS},
+        ),
+        units=(),
+        slices=(),
+        windows=0,
+        memo_windows=deep_sweep.DEEP_SWEEP_MEMO_WINDOWS,
+    )
+    monkeypatch.setattr(deep_sweep, "plan_targeted", lambda memo_windows: plan)
+    monkeypatch.setattr(deep_sweep, "run_targeted", lambda plan, jobs, report_every: (summary, {}))
+
+
+def test_a_rune_edit_makes_the_targeted_mode_due_only_when_it_changes_a_bk1_la4_rule(
+    bench, monkeypatch, capsys
+):
+    """The targeted mode keeps its own green record and refreshes no other. Under it, a build whose only change is a rule outside the settle:bk1-la4 class leaves the mode current, while a changed bk1-la4 rule or certificate makes it due and names its configuration. A red run clears the record it contradicts. `--targeted` takes no `--max-length`."""
+    _write_heads(bench, _toy_tables())
+    _stub_targeted(monkeypatch, {"pass": True, "divergences": 0, "sequences_by_config": {}})
+    assert deep_sweep.main(["--targeted", "--status"]) == 1
+    assert "never-run" in capsys.readouterr().out
+    assert deep_sweep.main(["--targeted"]) == 0
+    assert "targeted green — recorded in targeted-sweep-green.json" in capsys.readouterr().out
+    assert [outcome for outcome, _ in CHECKS] == ["green"]
+    assert ac.read_green_record(bench / "deep-sweep-green.json") is None
+    assert ac.read_green_record(bench / "conform-green.json") is None
+    assert deep_sweep.main(["--targeted", "--status"]) == 0
+    tables = _toy_tables()
+    first, _second, third = tables["default"].rules
+    tables["default"].rules = (first, _toy_rule("qsFee", None, ("qsFee",), "qsFee.sole.ex-y5"), third)
+    _write_heads(bench, tables)
+    assert deep_sweep.main(["--targeted", "--status"]) == 0
+    _write_heads(bench, _toy_tables(look4=("qsTea",)))
+    assert deep_sweep.main(["--targeted", "--status"]) == 1
+    assert "settle:bk1-la4[default] (changed)" in capsys.readouterr().out
+    _write_heads(bench, _toy_tables())
+    _stub_targeted(monkeypatch, {"pass": False, "divergences": 1, "sequences_by_config": {}})
+    assert deep_sweep.main(["--targeted"]) == 1
+    assert ac.read_green_record(bench / "targeted-sweep-green.json") is None
+    with pytest.raises(SystemExit, match="drop --max-length"):
+        deep_sweep.main(["--targeted", "--max-length", "6"])
+
+
+def test_the_targeted_units_run_in_the_pool_and_must_shape_every_planned_text(tmp_path, monkeypatch):
+    """`run_targeted` hands each unit's worker its configuration and its own texts and merges each configuration's units, writing its own summary and counting every configuration's texts there. A configuration whose units shaped fewer texts than were planned for it raises before the summary is written."""
+    spec = _toy_spec()
+    texts = deep_sweep.targeted_texts(spec, _toy_tables())
+    units, slices = deep_sweep.targeted_units(conform.spec_alphabet(spec), texts.groups, unit_texts=5)
+    plan = deep_sweep.TargetedPlan(spec, {}, texts, units, slices, 24, deep_sweep.DEEP_SWEEP_MEMO_WINDOWS)
+    handed: list = []
+    short: list[str] = []
+
+    def worker(spec, font_path, config, unit_texts, glyphs, guard_verdicts, memo_windows, slot):
+        handed.append((config, unit_texts))
+        shaped = len(unit_texts) - (config in short and slot == 0)
+        return conform.ConformanceConfigResult(config=config, sequences=shaped, shaping_runs=shaped), 1
+
+    _thread_sweep(tmp_path, monkeypatch, worker, 8)
+    monkeypatch.setattr(deep_sweep, "_texts_worker", worker)
+    summary, peaks = deep_sweep.run_targeted(plan, 2, report_every=60.0)
+    assert sorted(handed) == sorted(zip((unit.config for unit in units), slices))
+    assert summary["pass"] and summary["sequences"] == 17
+    assert summary["sequences_by_config"] == {
+        config: 17 * (config == "default") for config in conform.SETTLEMENT_CONFIGS
+    }
+    assert peaks == {"default": 1}
+    assert json.loads((tmp_path / deep_sweep.TARGETED_SUMMARY_NAME).read_text())["sequences"] == 17
+    (tmp_path / deep_sweep.TARGETED_SUMMARY_NAME).unlink()
+    short.append("default")
+    with pytest.raises(
+        RuntimeError, match=r"deep sweep\[default\]: its targeted units shaped 16 texts, not the 17"
+    ):
+        deep_sweep.run_targeted(plan, 2, report_every=60.0)
+    assert not (tmp_path / deep_sweep.TARGETED_SUMMARY_NAME).exists()

@@ -16,13 +16,17 @@ The total is a `[progress] <k>/<n> texts` counter line in `console`'s protocol, 
 
 A green run also refreshes gate:conform's green record, when the per-edit sweep's key did not change during the run, because a sweep at depth N covers every text the per-edit sweep at depth 4 shapes: it shapes each one in every configuration, or, in a configuration that skips it, in `default`, where the configuration shapes and settles it as `default` does. The next cycle can then skip the per-edit sweep. At or past the deep replay's maximum length it also refreshes the deep replay's record (`rebuild.tools.deep_replay`), because it settles every text it shapes against the tables in the font, and every text it skips settles as it does in `default`, where it is settled. Both refreshes rest on the plan-time check, so neither runs unless the check passed in every configuration. That record holds the rune digests read before the sweep started, which are the runes the swept font was built from, and the refresh is skipped when a rune changed while the sweep ran. The refresh keeps a deeper maximum length the record already holds for the same digests and structure stamp (`artifact_cycle.record_deep_replay_green`), and its line names that length.
 
+`--targeted` runs the same per-text checks over the texts the `settle:bk1-la4` rules give instead of over every text up to a maximum length. Such a rule reads one glyph before its input and four after it (`targeted_rule`), so it can match only a run of at least six glyphs, and no text at the sweep's default maximum length reaches one. For each such rule in each settlement configuration's table (`targeted_texts`) the mode shapes its certificate, the token stream the crate built to make it fire (`table.DecisionTable.certificates`, which otherwise only the witness stage settles), and every text whose six positions take a family from its backtrack class, its input and its four lookahead classes (`rule_contexts`), alone and after each alphabet symbol, so the backtrack letter's own left varies too. Each configuration's texts are deduplicated and cut into units of at least TARGETED_UNIT_TEXTS texts (`targeted_units`), which run in the same kind of pool as the exhaustive units (`_run_units`, `_texts_worker`), and the run reports per configuration how many of these rules' certificates it shaped. It is targeted, not exhaustive: it misses a fault that appears only where these rules meet other rules in contexts the enumeration does not produce, and it places no ZWNJ where no context class names one. Its green record (`cycle_paths.TARGETED_SWEEP_GREEN`) is keyed on the deep sweep's lines and a digest of each configuration's settle:bk1-la4 rules and their certificates (`targeted_lines`), so a rune edit that changes one of those rules makes it due and one that changes none leaves it current. `--targeted --status` asks. It runs on demand: the artifact cycle neither runs nor reports it, and a green targeted run refreshes no other record.
+
 Run as: uv run python -m rebuild.tools.deep_sweep, or through `make conform-deep`.
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import heapq
+import itertools
 import json
 import math
 import multiprocessing
@@ -31,7 +35,7 @@ import re
 import sys
 import time
 from collections import Counter, deque
-from collections.abc import Callable, Collection, Hashable, Mapping, MutableSequence, Sequence
+from collections.abc import Callable, Collection, Hashable, Iterator, Mapping, MutableSequence, Sequence
 from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
 from dataclasses import dataclass, field
 from functools import cache
@@ -42,9 +46,11 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from rebuild.pipeline import conform, fingerprint, kernel_exec, run_m1
+from rebuild.pipeline import conform, fingerprint, kernel_exec, run_m1, table, witness
+from rebuild.pipeline.labels import features_for_config
 from rebuild.pipeline.run_m1 import SweepUnit, config_texts, sweep_units
-from rebuild.pipeline.model import ResolvedSpec
+from rebuild.pipeline.model import MARKER_TAG_SEPARATOR, ResolvedSpec
+from rebuild.pipeline.table import DecisionTable, Rule
 from rebuild.tools import console, cycle_paths, memory_budget, peak_rss
 from rebuild.tools.artifact_cycle import (
     CONFORM_MAX_LENGTH_DEFAULT,
@@ -55,17 +61,32 @@ from rebuild.tools.artifact_cycle import (
     conform_skip_fingerprint,
     deep_sweep_skip_files,
     deep_sweep_skip_fingerprint,
+    deep_sweep_skip_lines,
     deep_sweep_status,
+    moved_inputs_note,
+    read_green_record,
     record_deep_replay_green,
     record_deep_sweep_green,
     record_green,
     tables_imports_digest,
 )
 from rebuild.tools.cycle_timings import CheckResult, record_check
+from rebuild.tools.green_record import _digest_lines
 
 SUMMARY_NAME = "deep_sweep_summary.json"
 
 CHECK = "conform-deep"
+
+TARGETED_SUMMARY_NAME = "deep_sweep_targeted_summary.json"
+
+TARGETED_CHECK = "conform-deep-targeted"
+
+TARGETED_CLASS = "settle:bk1-la4"
+
+TARGETED_COMMAND = "`make conform-deep ARGS='--targeted'`"
+
+# The fewest texts in a targeted unit, all but each configuration's last (`targeted_units`). A unit's walk shares windows only within itself, and each unit pays for a spawn process, so larger units settle less and start fewer processes, while smaller ones leave fewer slots idle at the end. Measured on the 18-core M5 Pro 48 GiB MacBook Pro (`doc/fleet.md`) on the alphabet with ·Way (44 runes), one run at a time with nothing else running, over 7,826,390 texts: 121 units of this size took 60.5 s, and 62 units of twice the size 61.9 s. Each configuration's highest unit peaked at 0.18 GB against an estimate of 0.36 GB, and the highest at twice the size at 0.21 GB against 0.51 GB, so every fleet machine runs as many units at once as it has cores. The logs are in `var/keep/issue-496/`, and the `conform-deep-targeted` check lines in the cycle-timings journal hold the peaks.
+TARGETED_UNIT_TEXTS = 65_536
 
 JOBS_ENV = "AMS_DEEP_SWEEP_JOBS"
 
@@ -251,38 +272,54 @@ def settlement_worker_bytes(windows: int, memo_windows: int) -> int:
     return DEEP_SWEEP_BASE_BYTES + min(windows, memo_windows) * DEEP_SWEEP_WINDOW_BYTES
 
 
-def _fit_terms(settlement_bytes: int, units: int, ncores: int | None) -> tuple[int, int, int]:
-    """Return the settlement unit's need, the overlay worker's need subtracted as co-resident, and the cap on units at once: the smaller of the unit count and the usable cores."""
+def _fit_terms(settlement_bytes: int, units: int, ncores: int | None, overlay: bool) -> tuple[int, int, int]:
+    """Return the settlement unit's need, the overlay worker's need subtracted as co-resident when the run has an overlay unit, and the cap on units at once: the smaller of the unit count and the usable cores."""
     cores = ncores or memory_budget.usable_cores()
-    return settlement_bytes, DEEP_SWEEP_BASE_BYTES, min(cores, units)
+    return settlement_bytes, DEEP_SWEEP_BASE_BYTES if overlay else 0, min(cores, units)
 
 
 def sweep_width(
-    settlement_bytes: int, units: int, *, ncores: int | None = None, total_bytes: int | None = None
+    settlement_bytes: int,
+    units: int,
+    *,
+    ncores: int | None = None,
+    total_bytes: int | None = None,
+    overlay: bool = True,
 ) -> int:
-    """Return how many of `units` units sweep at once: `memory_budget.how_many_fit` over `settlement_bytes`, one settlement unit's need, with the overlay worker's need subtracted as co-resident, capped at the unit count and the cores, and floored at one. The overlay runs first in one of those slots (`run_sweep` submits it first), and any slot can take a settlement unit once it is free, so the width is counted in settlement units and any set of units that can run together fits: the overlay beside one fewer settlement unit, or the width's worth of settlement units with the overlay's need subtracted anyway. `ncores` and `total_bytes` are keywords so a test can compute the width for an invented machine."""
-    per_unit, overlay, cap = _fit_terms(settlement_bytes, units, ncores)
-    return memory_budget.how_many_fit(per_unit, coresident_bytes=overlay, cap=cap, total_bytes=total_bytes)
+    """Return how many of `units` units sweep at once: `memory_budget.how_many_fit` over `settlement_bytes`, one settlement unit's need, with the overlay worker's need subtracted as co-resident, capped at the unit count and the cores, and floored at one. The overlay runs first in one of those slots (`run_sweep` submits it first), and any slot can take a settlement unit once it is free, so the width is counted in settlement units and any set of units that can run together fits: the overlay beside one fewer settlement unit, or the width's worth of settlement units with the overlay's need subtracted anyway. The targeted mode has no overlay unit and passes `overlay=False`, which subtracts nothing. `ncores` and `total_bytes` are keywords so a test can compute the width for an invented machine."""
+    per_unit, coresident, cap = _fit_terms(settlement_bytes, units, ncores, overlay)
+    return memory_budget.how_many_fit(per_unit, coresident_bytes=coresident, cap=cap, total_bytes=total_bytes)
 
 
 def sweep_width_derivation(
-    settlement_bytes: int, units: int, *, ncores: int | None = None, total_bytes: int | None = None
+    settlement_bytes: int,
+    units: int,
+    *,
+    ncores: int | None = None,
+    total_bytes: int | None = None,
+    overlay: bool = True,
 ) -> str:
-    """Return `sweep_width`'s arithmetic as a clause for the plan line: `memory_budget.describe_fit` over the same terms, then where the overlay runs."""
-    per_unit, overlay, cap = _fit_terms(settlement_bytes, units, ncores)
-    fit = memory_budget.describe_fit(per_unit, coresident_bytes=overlay, cap=cap, total_bytes=total_bytes)
-    return f"settlement units: {fit}; the ss10 overlay runs first in one of their slots"
+    """Return `sweep_width`'s arithmetic as a clause for the plan line: `memory_budget.describe_fit` over the same terms, then where the overlay runs when there is one."""
+    per_unit, coresident, cap = _fit_terms(settlement_bytes, units, ncores, overlay)
+    fit = memory_budget.describe_fit(per_unit, coresident_bytes=coresident, cap=cap, total_bytes=total_bytes)
+    return f"settlement units: {fit}" + (
+        "; the ss10 overlay runs first in one of their slots" if overlay else ""
+    )
 
 
-def memory_shortfall(settlement_bytes: int, *, total_bytes: int | None = None) -> tuple[bool, str] | None:
-    """Return None when one settlement unit's estimate beside the overlay's fits this machine's memory less the reserve, the budget `sweep_width` divides. Otherwise the floor at one, not the memory, set the width, and this returns whether to refuse without a stated width and the sentence that says why. The run is refused when that need exceeds the machine's total memory, which no reserve or margin in the estimate can make fit, and only warned about when it exceeds the budget alone, since the estimate runs above the measured peak (DEEP_SWEEP_WINDOW_BYTES's comment) and the unit may still fit. `total_bytes` is a keyword so a test can ask about an invented machine."""
+def memory_shortfall(
+    settlement_bytes: int, *, total_bytes: int | None = None, overlay: bool = True
+) -> tuple[bool, str] | None:
+    """Return None when one settlement unit's estimate, beside the overlay's when the run has one (`overlay`), fits this machine's memory less the reserve, the budget `sweep_width` divides. Otherwise the floor at one, not the memory, set the width, and this returns whether to refuse without a stated width and the sentence that says why. The run is refused when that need exceeds the machine's total memory, which no reserve or margin in the estimate can make fit, and only warned about when it exceeds the budget alone, since the estimate runs above the measured peak (DEEP_SWEEP_WINDOW_BYTES's comment) and the unit may still fit. `total_bytes` is a keyword so a test can ask about an invented machine."""
     total = memory_budget.total_memory_bytes() if total_bytes is None else total_bytes
     reserve = memory_budget.os_reserve_bytes(total_bytes=total)
-    need = settlement_bytes + DEEP_SWEEP_BASE_BYTES
+    need = settlement_bytes + (DEEP_SWEEP_BASE_BYTES if overlay else 0)
     if need <= total - reserve:
         return None
     gb = peak_rss.format_gb
-    estimate = f"one settlement unit is estimated at {gb(settlement_bytes)} GB beside the overlay's {gb(DEEP_SWEEP_BASE_BYTES)} GB"
+    estimate = f"one settlement unit is estimated at {gb(settlement_bytes)} GB" + (
+        f" beside the overlay's {gb(DEEP_SWEEP_BASE_BYTES)} GB" if overlay else ""
+    )
     if need > total:
         return True, (
             f"{estimate}, more than this machine's {gb(total)} GB in all, so the run would swap for its whole length"
@@ -659,14 +696,10 @@ def _unit_worker(
     return result, run_m1._peak_footprint()
 
 
-def run_sweep(
-    plan: SweepPlan, max_length: int, jobs: int, report_every: float = REPORT_SECONDS_DEFAULT
-) -> tuple[dict, dict[str, int]]:
-    """Sweep every unit of `plan` at `max_length`, `jobs` at a time, one spawn process per unit, and return the summary `run_m1.run_font_conformance` returns, with the texts each configuration shaped beside it, and each configuration's highest unit peak. The units go to the pool in `plan.units` order, so the overlay finishes in the first slot before a settlement unit takes it. The §5.7 guard verdicts are computed once here and passed to every worker. A progress report is printed every `report_every` seconds while any unit runs, as the module docstring describes. Each configuration's units merge into its result (`conform.merge_unit_results`), whose sequences must be every text of its lengths, or in a configuration whose units carry trigger letters every such text that contains one (`config_texts`), before anything is written, and the configurations merge in `conform.ACCEPTANCE_CONFIGS` order. When a unit raises, the units still queued are cancelled, so only the ones already running finish before the error reaches the caller."""
-    kernel_exec.ensure_built()
-    guard_verdicts = kernel_exec.guard_sweep(plan.spec)
-    font_path = run_m1.OUT_DIR / "M1.otf"
-    units = plan.units
+def _run_units(
+    units: Sequence[SweepUnit], jobs: int, report_every: float, task: Callable[[int], tuple]
+) -> tuple[dict[int, conform.ConformanceConfigResult], dict[str, int]]:
+    """Run every unit `jobs` at a time, one spawn process per unit, in `units` order, and return each slot's result and each configuration's highest unit peak. `task(slot)` gives the worker function and its arguments for the unit in `slot`; the worker returns its result and its peak. A progress report is printed every `report_every` seconds while any unit runs, as the module docstring describes. When a unit raises, the units still queued are cancelled, so only the ones already running finish before the error reaches the caller."""
     collected: dict[int, conform.ConformanceConfigResult] = {}
     peaks: dict[str, int] = {}
     context = multiprocessing.get_context("spawn")
@@ -682,22 +715,7 @@ def run_sweep(
         initializer=_attach_counters,
         initargs=(shaped, pids, began),
     ) as pool:
-        slot_of = {
-            pool.submit(
-                _unit_worker,
-                plan.spec,
-                font_path,
-                unit.config,
-                unit.last,
-                unit.triggers,
-                max_length,
-                plan.glyphs,
-                guard_verdicts,
-                plan.memo_windows,
-                slot,
-            ): slot
-            for slot, unit in enumerate(units)
-        }
+        slot_of = {pool.submit(*task(slot)): slot for slot in range(len(units))}
         pending = set(slot_of)
         try:
             while pending:
@@ -729,6 +747,52 @@ def run_sweep(
         except BaseException:
             pool.shutdown(wait=True, cancel_futures=True)
             raise
+    return collected, peaks
+
+
+def _summary(report: conform.ConformReport, results: Sequence[conform.ConformanceConfigResult]) -> dict:
+    """Return the summary a sweep prints and records: the report's counts beside the texts each configuration shaped, and its exemplars one line each."""
+    summary: dict = {
+        "sequences": report.sequences,
+        "sequences_by_config": {result.config: result.sequences for result in results},
+        "shaping_runs": report.shaping_runs,
+        "divergences": report.divergence_count,
+        "pass": report.passed,
+        "notes": report.notes,
+    }
+    for divergence in (exemplar.divergence for exemplar in report.exemplars):
+        summary.setdefault("divergence_exemplars", []).append(
+            f"{divergence.config} {':'.join(f'{ord(ch):04X}' for ch in divergence.text)} position {divergence.position} [{divergence.kind}] expected {divergence.expected} got {divergence.got}"
+        )
+    return summary
+
+
+def run_sweep(
+    plan: SweepPlan, max_length: int, jobs: int, report_every: float = REPORT_SECONDS_DEFAULT
+) -> tuple[dict, dict[str, int]]:
+    """Sweep every unit of `plan` at `max_length`, `jobs` at a time, one spawn process per unit (`_run_units`), and return the summary `run_m1.run_font_conformance` returns, with the texts each configuration shaped beside it, and each configuration's highest unit peak. The units go to the pool in `plan.units` order, so the overlay finishes in the first slot before a settlement unit takes it. The §5.7 guard verdicts are computed once here and passed to every worker. Each configuration's units merge into its result (`conform.merge_unit_results`), whose sequences must be every text of its lengths, or in a configuration whose units carry trigger letters every such text that contains one (`config_texts`), before anything is written, and the configurations merge in `conform.ACCEPTANCE_CONFIGS` order."""
+    kernel_exec.ensure_built()
+    guard_verdicts = kernel_exec.guard_sweep(plan.spec)
+    font_path = run_m1.OUT_DIR / "M1.otf"
+    units = plan.units
+    collected, peaks = _run_units(
+        units,
+        jobs,
+        report_every,
+        lambda slot: (
+            _unit_worker,
+            plan.spec,
+            font_path,
+            units[slot].config,
+            units[slot].last,
+            units[slot].triggers,
+            max_length,
+            plan.glyphs,
+            guard_verdicts,
+            plan.memo_windows,
+            slot,
+        ),
+    )
     triggers = {unit.config: unit.triggers for unit in units if unit.triggers}
     expected = config_texts(plan.spec, max_length, triggers)
     results = []
@@ -743,19 +807,7 @@ def run_sweep(
         results.append(result)
     report = conform.merge_conformance_results(font_path, results)
     report.write(run_m1.OUT_DIR / SUMMARY_NAME)
-    summary: dict = {
-        "sequences": report.sequences,
-        "sequences_by_config": {result.config: result.sequences for result in results},
-        "shaping_runs": report.shaping_runs,
-        "divergences": report.divergence_count,
-        "pass": report.passed,
-        "notes": report.notes,
-    }
-    for divergence in (exemplar.divergence for exemplar in report.exemplars):
-        summary.setdefault("divergence_exemplars", []).append(
-            f"{divergence.config} {':'.join(f'{ord(ch):04X}' for ch in divergence.text)} position {divergence.position} [{divergence.kind}] expected {divergence.expected} got {divergence.got}"
-        )
-    return summary, peaks
+    return _summary(report, results), peaks
 
 
 def refresh_deep_replay(max_length: int, runes: dict[str, str]) -> int:
@@ -770,6 +822,371 @@ def refresh_deep_replay(max_length: int, runes: dict[str, str]) -> int:
     )
 
 
+def targeted_rule(rule: Rule) -> bool:
+    """Return whether a table rule is in the `settle:bk1-la4` behavior class (`emit_gsub.behavior_classes`): it reads one glyph before its input and four after it, so it can match only a run of at least six glyphs."""
+    return rule.backtrack is not None and rule.look4 is not None
+
+
+def _sweep_key(alphabet: Sequence[str]) -> Callable[[str], tuple[int, list[int]]]:
+    """Return the sort key that orders texts by length and then by `itertools.product` rank over `alphabet`, the order the exhaustive sweep walks them in."""
+    order = {symbol: index for index, symbol in enumerate(alphabet)}
+    return lambda text: (len(text), [order[ch] for ch in text])
+
+
+def _family_text(spec: ResolvedSpec, label: str) -> str:
+    """Return the characters that spell the family of one member of a rule's class. A settled glyph, a marker copy or tag, and a locked copy name their rune before the first `.` or `@`; `witness._token_text` spells a ligature rune by its sequence and a boundary label by its character."""
+    return witness._token_text(spec, (label.partition(MARKER_TAG_SEPARATOR)[0].split(".")[0],))
+
+
+def rule_contexts(spec: ResolvedSpec, rule: Rule) -> Iterator[str]:
+    """Yield every text whose six positions take a family from `rule`'s backtrack class, its input, and its four lookahead classes in turn. A ligature family spans its sequence, so a context can be longer than six characters, and formation can merge two positions or keep a ligature's components apart, so a context places the rule's families without promising that the rule fires; its certificate does that."""
+    slots = (rule.backtrack, (rule.input_glyph,), rule.look1, rule.look2, rule.look3, rule.look4)
+    spellings = [sorted({_family_text(spec, label) for label in slot or ()}) for slot in slots]
+    for parts in itertools.product(*spellings):
+        yield "".join(parts)
+
+
+@dataclass(frozen=True)
+class TargetedTexts:
+    """What the targeted mode shapes in each settlement configuration (`targeted_texts`): `groups` holds its texts in sweep order, one group per context with its variants and one per certificate, with no text in two groups. `rules` counts the configuration's own settle:bk1-la4 rules, whose certificates are all shaped, and `guards` counts those among them whose certificate is a guard certificate and is shaped under the configuration it names."""
+
+    groups: Mapping[str, tuple[tuple[str, ...], ...]]
+    rules: Mapping[str, int]
+    guards: Mapping[str, int]
+
+
+def targeted_texts(spec: ResolvedSpec, tables: Mapping[str, DecisionTable]) -> TargetedTexts:
+    """Return the targeted mode's texts for every settlement configuration's table in `tables`. For each settle:bk1-la4 rule (`targeted_rule`) they are its certificate, the token stream the crate built to make it fire (`DecisionTable.certificates`), and its contexts (`rule_contexts`), each alone and after each alphabet symbol, so the backtrack letter's own left varies too. A certificate is shaped under its own configuration, except a guard certificate (`witness.GUARD_MARKER`), which is shaped under the configuration it names, the one whose stream the rule fires in. Each configuration's texts are deduplicated and grouped by context or certificate, the groups ordered by their base text's length and then its rank in `itertools.product` order over the alphabet. A table whose certificates do not match its rules one for one raises ValueError."""
+    alphabet = conform.spec_alphabet(spec)
+    certificates: dict[str, set[str]] = {config: set() for config in conform.SETTLEMENT_CONFIGS}
+    contexts: dict[str, set[str]] = {config: set() for config in conform.SETTLEMENT_CONFIGS}
+    rules: dict[str, int] = {}
+    guards: dict[str, int] = {}
+    for config in conform.SETTLEMENT_CONFIGS:
+        decision = tables[config]
+        if len(decision.certificates) != len(decision.rules):
+            raise ValueError(
+                f"{config}: the table carries {len(decision.certificates)} certificate(s) for {len(decision.rules)} rule(s)"
+            )
+        rules[config] = guards[config] = 0
+        for rule, tokens in zip(decision.rules, decision.certificates):
+            if not targeted_rule(rule):
+                continue
+            rules[config] += 1
+            source = config
+            if tokens and tokens[0] == witness.GUARD_MARKER:
+                source, tokens = tokens[1], tokens[2:]
+                guards[config] += 1
+            certificates[source].add(witness._token_text(spec, tokens))
+            contexts[config].update(rule_contexts(spec, rule))
+    groups: dict[str, tuple[tuple[str, ...], ...]] = {}
+    for config in conform.SETTLEMENT_CONFIGS:
+        seen: set[str] = set()
+        ordered: list[tuple[str, ...]] = []
+        for base in sorted(contexts[config] | certificates[config], key=_sweep_key(alphabet)):
+            variants = (
+                (base, *(symbol + base for symbol in alphabet)) if base in contexts[config] else (base,)
+            )
+            fresh = tuple(text for text in variants if text not in seen)
+            seen.update(fresh)
+            if fresh:
+                ordered.append(fresh)
+        groups[config] = tuple(ordered)
+    return TargetedTexts(groups=groups, rules=rules, guards=guards)
+
+
+def targeted_units(
+    alphabet: Sequence[str],
+    groups: Mapping[str, Sequence[Sequence[str]]],
+    unit_texts: int = TARGETED_UNIT_TEXTS,
+) -> tuple[tuple[SweepUnit, ...], tuple[tuple[str, ...], ...]]:
+    """Return the targeted mode's units and each unit's texts: each settlement configuration's groups, in order, cut into units of at least `unit_texts` texts, its last unit holding the rest, so a context's variants share one walk. A unit's `last` is None, since it covers a slice of one configuration's texts rather than the texts that end in one symbol. Within a unit the texts are in sweep order, by length and then `itertools.product` rank over `alphabet`, the order `conform.DivergenceTally` ranks a unit's divergences in and `conform.merge_unit_results` merges them back in."""
+    key = _sweep_key(alphabet)
+    units: list[SweepUnit] = []
+    slices: list[tuple[str, ...]] = []
+
+    def cut(config: str, texts: list[str]) -> None:
+        units.append(SweepUnit(config, None, len(texts)))
+        slices.append(tuple(sorted(texts, key=key)))
+
+    for config in conform.SETTLEMENT_CONFIGS:
+        pending: list[str] = []
+        for group in groups.get(config, ()):
+            pending.extend(group)
+            if len(pending) >= unit_texts:
+                cut(config, pending)
+                pending = []
+        if pending:
+            cut(config, pending)
+    return tuple(units), tuple(slices)
+
+
+@dataclass(frozen=True)
+class TargetedPlan:
+    """What the targeted mode needs before it spawns anything: the spec, the glyph inventory, the texts (`targeted_texts`), the units and each unit's texts (`targeted_units`), the most characters any unit's texts hold, which bounds the windows its walk can hold, and the window ceiling each unit's walk releases its windows at."""
+
+    spec: ResolvedSpec
+    glyphs: Mapping
+    texts: TargetedTexts
+    units: tuple[SweepUnit, ...]
+    slices: tuple[tuple[str, ...], ...]
+    windows: int
+    memo_windows: int
+
+
+def plan_targeted(memo_windows: int) -> TargetedPlan:
+    """Load the spec, the stamped tables' heads and the glyph inventory, derive the targeted texts and cut them into units. A unit's walk asks for at most one window per letter position of its texts, so the count of its texts' characters bounds the windows it holds."""
+    from rebuild.pipeline.spec_load import load_default_spec
+
+    inputs = run_m1.tables_inputs()
+    spec = load_default_spec()
+    serialized = run_m1.serialized_tables(run_m1.OUT_DIR, inputs)
+    if serialized is None:
+        raise SystemExit(
+            f"the stamped window enumerations under {run_m1.OUT_DIR} are missing, unreadable, or were built from other sources than the ones on disk — run `make artifact-cycle` first"
+        )
+    glyphs = run_m1.mint_cell_glyphs(spec, serialized)
+    texts = targeted_texts(spec, serialized)
+    del serialized
+    units, slices = targeted_units(conform.spec_alphabet(spec), texts.groups)
+    return TargetedPlan(
+        spec=spec,
+        glyphs=glyphs,
+        texts=texts,
+        units=units,
+        slices=slices,
+        windows=max((sum(map(len, unit_texts)) for unit_texts in slices), default=0),
+        memo_windows=memo_windows,
+    )
+
+
+def _texts_worker(
+    spec,
+    font_path: Path,
+    config: str,
+    texts: Sequence[str],
+    glyphs,
+    guard_verdicts,
+    memo_windows: int,
+    slot: int,
+):
+    """Run one targeted unit in its own process: settle `texts` in order through a `conform._SettledWindowWalk` whose horizon is the longest of them and whose windows are released before they pass `memo_windows`, and give each the per-text checks `conform._conformance_config` gives a settlement configuration's text, `conform.check_split_buffer` where it holds a splitter, `conform.check_oracle`, and `conform.check_join_gaps`. Store the count of texts shaped in the unit's `slot` after each chunk of `conform.TEXT_CHUNK`, and return the result with the process's peak footprint. It lives here and not as a mode of `conform._conformance_config` because conform.py is in the tables' stamp and the oracle's row-code closure, which an edit there invalidates."""
+    store = _counter_writer(slot)
+    shaper = conform.Shaper(Path(font_path))
+    features = features_for_config(config)
+    splitters = conform.splitting_boundary_chars(spec)
+    anchors_of = (
+        conform.anchors_in_font_units({record.name: record for record in glyphs.values()}) if glyphs else None
+    )
+    result = conform.ConformanceConfigResult(config=config)
+    divergences = conform.DivergenceTally(result, conform.spec_alphabet(spec))
+    modes: set[str] = set()
+    walker = conform._SettledWindowWalk(
+        spec,
+        features,
+        {cell: record.name for cell, record in glyphs.items()},
+        guard_verdicts,
+        promote=False,
+        horizon=max(map(len, texts)),
+        max_windows=memo_windows,
+    )
+    for start in range(0, len(texts), conform.TEXT_CHUNK):
+        chunk = texts[start : start + conform.TEXT_CHUNK]
+        for text, (_settled, names) in zip(chunk, walker.walk_many(chunk)):
+            shaped = shaper.shape(text, features)
+            result.shaping_runs += 1
+            if splitters.intersection(text):
+                conform.check_split_buffer(text, config, features, shaper, shaped, divergences, splitters)
+            conform.check_oracle(text, config, shaped, names, divergences, modes)
+            if anchors_of is not None:
+                conform.check_join_gaps(text, config, shaper, shaped, anchors_of, divergences)
+        result.sequences += len(chunk)
+        if store is not None:
+            store(result.sequences)
+    result.modes = sorted(modes)
+    return result, run_m1._peak_footprint()
+
+
+def run_targeted(
+    plan: TargetedPlan, jobs: int, report_every: float = REPORT_SECONDS_DEFAULT
+) -> tuple[dict, dict[str, int]]:
+    """Shape every targeted unit of `plan`, `jobs` at a time, one spawn process per unit (`_run_units`), and return the summary, with the texts each configuration shaped beside it, and each configuration's highest unit peak. Each configuration's units merge into its result, whose sequences must be every text planned for it before anything is written, and the summary written to TARGETED_SUMMARY_NAME counts every configuration's texts."""
+    kernel_exec.ensure_built()
+    guard_verdicts = kernel_exec.guard_sweep(plan.spec)
+    font_path = run_m1.OUT_DIR / "M1.otf"
+    units = plan.units
+    collected, peaks = _run_units(
+        units,
+        jobs,
+        report_every,
+        lambda slot: (
+            _texts_worker,
+            plan.spec,
+            font_path,
+            units[slot].config,
+            plan.slices[slot],
+            plan.glyphs,
+            guard_verdicts,
+            plan.memo_windows,
+            slot,
+        ),
+    )
+    results = []
+    for config in conform.SETTLEMENT_CONFIGS:
+        result = conform.merge_unit_results(
+            config, [collected[slot] for slot, unit in enumerate(units) if unit.config == config]
+        )
+        planned = sum(len(group) for group in plan.texts.groups.get(config, ()))
+        if result.sequences != planned:
+            raise RuntimeError(
+                f"deep sweep[{config}]: its targeted units shaped {result.sequences} texts, not the {planned} planned for it"
+            )
+        results.append(result)
+    report = conform.merge_conformance_results(font_path, results)
+    report.sequences = sum(result.sequences for result in results)
+    report.write(run_m1.OUT_DIR / TARGETED_SUMMARY_NAME)
+    return _summary(report, results), peaks
+
+
+def targeted_rules_digest(decision: DecisionTable) -> str:
+    """Return a hash of a table's settle:bk1-la4 rules in rule order: each one's input, backtrack and lookahead classes, outcome, and certificate. Provenance and the joint flag are left out, and so is the alphabet each context is also shaped after, so a new letter that changes none of these rules leaves the mode current."""
+    rows = [
+        [
+            rule.input_glyph,
+            *(list(slot or ()) for slot in (rule.backtrack, rule.look1, rule.look2, rule.look3, rule.look4)),
+            rule.outcome,
+            list(decision.certificates[index]) if index < len(decision.certificates) else None,
+        ]
+        for index, rule in enumerate(decision.rules)
+        if targeted_rule(rule)
+    ]
+    return hashlib.sha256(json.dumps(rows, separators=(",", ":")).encode()).hexdigest()
+
+
+def targeted_lines(root: Path = ROOT) -> list[str] | None:
+    """Return the targeted mode's record key lines: the deep sweep's (`deep_sweep_skip_lines`) and one `settle:bk1-la4[<config>]` line per settlement configuration with `targeted_rules_digest` over the table head its M1 build left. A rune edit that changes a settle:bk1-la4 rule or its certificate therefore makes the mode due, as does a change in the deep sweep's lines, and a rune edit that changes none leaves it current. None when there is no behavior-class sidecar or a head is missing or unreadable."""
+    lines = deep_sweep_skip_lines(root)
+    if lines is None:
+        return None
+    out_dir = root / "rebuild" / "out" / "m1"
+    for config in conform.SETTLEMENT_CONFIGS:
+        try:
+            _stamp, decision = table.read_windows(table.windows_path(out_dir, config), windows=False)
+        except OSError, ValueError:
+            return None
+        lines.append(f"{TARGETED_CLASS}[{config}]\t{targeted_rules_digest(decision)}")
+    return lines
+
+
+def targeted_status(root: Path = ROOT) -> tuple[str, str]:
+    """Return whether the targeted mode is current for what the build emits, as (status, note): `current` when its green record matches the key (`targeted_lines`), `due` naming what moved since, `never-run` without a record, and `unknown` when the build has left no key to compare. The artifact cycle does not run or report it."""
+    lines = targeted_lines(root)
+    if lines is None:
+        return "unknown", "no behavior-class sidecar or table heads yet; they land with the next M1 build"
+    record = read_green_record(cycle_paths.TARGETED_SWEEP_GREEN)
+    if record is None:
+        return "never-run", f"no targeted sweep has been recorded; run {TARGETED_COMMAND}"
+    if record["fingerprint"] != _digest_lines(lines):
+        moved = moved_inputs_note(record, dict(line.split("\t", 1) for line in lines))
+        return "due", f"{f'{moved}; ' if moved else ''}run {TARGETED_COMMAND}"
+    return "current", f"every {TARGETED_CLASS} rule's certificate and contexts shaped"
+
+
+def run_targeted_mode(args: argparse.Namespace, argv: list[str] | None) -> int:
+    """`main` for `--targeted`: plan, shape, report, record a check line, and record the targeted green record on a green run whose key did not move while it ran, or clear a contradicted one on a red run. It refreshes no other record."""
+    record_key()
+    lines = targeted_lines(ROOT)
+    if lines is None:
+        raise SystemExit(
+            "no settlement table heads under rebuild/out/m1 — run `make artifact-cycle` first so a build can leave them"
+        )
+    key = _digest_lines(lines)
+    stated = args.jobs if args.jobs is not None else stated_jobs()
+    report_every = report_seconds()
+    plan = plan_targeted(sweep_memo_windows())
+    settlement_bytes = settlement_worker_bytes(plan.windows, plan.memo_windows)
+    derived = sweep_width(settlement_bytes, len(plan.units), overlay=False)
+    jobs = max(1, min(stated, len(plan.units))) if stated is not None else derived
+    source = (
+        f"stated by {'--jobs' if args.jobs is not None else JOBS_ENV}, where this machine's memory fits {derived}"
+        if stated is not None
+        else "from this machine's memory"
+    )
+    planned = {
+        config: sum(len(group) for group in plan.texts.groups[config])
+        for config in conform.SETTLEMENT_CONFIGS
+    }
+    counts = "; ".join(
+        f"{config} {console.fmt_count(plan.texts.rules[config])} rules, {console.fmt_count(planned[config])} texts"
+        for config in conform.SETTLEMENT_CONFIGS
+    )
+    print(
+        f"deep sweep: targeted at the {TARGETED_CLASS} rules, every rule's certificate and every text whose six positions take a family from its backtrack class, its input and its four lookahead classes, alone and after each of the {len(conform.spec_alphabet(plan.spec))} symbols, over every settlement configuration ({counts}) at {jobs} jobs {source}, one process per unit, {len(plan.units)} units of at least {console.fmt_count(TARGETED_UNIT_TEXTS)} texts but each configuration's last; "
+        f"the heaviest unit's texts hold {plan.windows} characters, so its walk holds at most {min(plan.windows, plan.memo_windows)} windows, {peak_rss.format_gb(settlement_bytes)} GB at {DEEP_SWEEP_WINDOW_BYTES} bytes each beside {peak_rss.format_gb(DEEP_SWEEP_BASE_BYTES)} GB; "
+        f"{sweep_width_derivation(settlement_bytes, len(plan.units), overlay=False)}; a progress report every {console.fmt_duration(report_every)}",
+        flush=True,
+    )
+    shortfall = memory_shortfall(settlement_bytes, overlay=False)
+    if shortfall is not None:
+        refuse, sentence = shortfall
+        if refuse and stated is None:
+            raise SystemExit(f"deep sweep: {sentence}; pass --jobs 1 or set {JOBS_ENV}=1 to run it anyway")
+        console.warn(f"deep sweep: {sentence}")
+    started = time.perf_counter()
+    summary, peaks = run_targeted(plan, jobs, report_every=report_every)
+    elapsed = time.perf_counter() - started
+    print(json.dumps(summary, indent=2))
+    shaped = summary.get("sequences_by_config", {})
+    for config in conform.SETTLEMENT_CONFIGS:
+        guarded = plan.texts.guards[config]
+        under = f" ({guarded} of them under the configuration their guard names)" if guarded else ""
+        peak = (
+            f", highest unit peak footprint {peak_rss.format_gb(peaks[config])} GB against an estimate of {peak_rss.format_gb(settlement_bytes)} GB"
+            if config in peaks
+            else ""
+        )
+        print(
+            f"deep sweep[{config}]: targeted, {console.fmt_count(shaped.get(config, 0))} texts, the certificates of its {console.fmt_count(plan.texts.rules[config])} {TARGETED_CLASS} rules among them{under}{peak}",
+            flush=True,
+        )
+    print(f"[t] {TARGETED_CHECK} {elapsed:.1f}s", flush=True)
+    green = bool(summary["pass"]) and not summary["divergences"]
+    record_check(
+        CheckResult(
+            check=TARGETED_CHECK,
+            outcome="green" if green else "red",
+            status="green" if green else f"FAILED ({summary['divergences']} divergences)",
+            failures=(
+                []
+                if green
+                else [f"{summary['divergences']} font-vs-settle divergence(s) in the targeted sweep"]
+            ),
+            failed_ids=[],
+        ),
+        argv=list(argv) if argv is not None else sys.argv[1:],
+        elapsed_s=elapsed,
+        peak_rss_bytes=peak_rss.peak_rss_children_bytes(),
+        worker_peak_footprint_bytes=peaks,
+        worker_estimate_bytes={config: settlement_bytes for config in conform.SETTLEMENT_CONFIGS},
+    )
+    if not green:
+        clear_contradicted_green(cycle_paths.TARGETED_SWEEP_GREEN, key)
+        print(
+            f"deep sweep: {summary['divergences']} font-vs-settle divergence(s) in the targeted sweep; see {TARGETED_SUMMARY_NAME}",
+            file=sys.stderr,
+        )
+        return 1
+    after = targeted_lines(ROOT)
+    if after is None or _digest_lines(after) != key:
+        print(
+            "deep sweep: targeted green, but its inputs changed while it ran — green not recorded", flush=True
+        )
+        return 0
+    record_green(cycle_paths.TARGETED_SWEEP_GREEN, key, files=dict(line.split("\t", 1) for line in lines))
+    print(f"deep sweep: targeted green — recorded in {cycle_paths.TARGETED_SWEEP_GREEN.name}", flush=True)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Run the deep form of the font-vs-settle conformance sweep and record its green."
@@ -778,8 +1195,13 @@ def main(argv: list[str] | None = None) -> int:
         "--max-length",
         "--horizon",
         type=int,
-        default=DEEP_SWEEP_MAX_LENGTH_DEFAULT,
+        default=None,
         help=f"maximum sweep length (default {DEEP_SWEEP_MAX_LENGTH_DEFAULT}); anything below the per-edit sweep's own {CONFORM_MAX_LENGTH_DEFAULT} is refused, since the per-edit sweep already covers that on every edit",
+    )
+    parser.add_argument(
+        "--targeted",
+        action="store_true",
+        help=f"shape only the texts derived from the {TARGETED_CLASS} rules, which no text up to maximum length 5 can fire: each rule's certificate and every text whose six positions take a family from its six classes, alone and after each symbol; it has its own green record, keyed on those rules, and takes no --max-length",
     )
     parser.add_argument(
         "--jobs",
@@ -790,9 +1212,22 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--status",
         action="store_true",
-        help="print whether the deep sweep is current or due and exit, sweeping nothing (exit 0 when current)",
+        help="print whether the deep sweep, or with --targeted the targeted mode, is current or due and exit, sweeping nothing (exit 0 when current)",
     )
     args = parser.parse_args(argv)
+
+    if args.targeted:
+        if args.max_length is not None:
+            raise SystemExit(
+                f"--targeted shapes the texts the {TARGETED_CLASS} rules give, not every text up to a maximum length; drop --max-length"
+            )
+        if args.status:
+            status, note = targeted_status(ROOT)
+            print(f"deep sweep, targeted: {status} — {note}")
+            return 0 if status == "current" else 1
+        return run_targeted_mode(args, argv)
+    if args.max_length is None:
+        args.max_length = DEEP_SWEEP_MAX_LENGTH_DEFAULT
 
     if args.status:
         status, note = deep_sweep_status(ROOT, args.max_length)
