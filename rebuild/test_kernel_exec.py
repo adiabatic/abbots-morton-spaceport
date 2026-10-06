@@ -760,6 +760,37 @@ class TestTheKernelInvocation:
         assert passed == ["derived", True, False]
         assert asked == [(min(2, run_m1.usable_cores()), {"configs": CONFIG_COUNT, "from_scratch": False})]
 
+    def test_the_count_of_deltas_from_scratch_reaches_the_crate(self, monkeypatch, tmp_path):
+        """`run_m1.build_tables` passes the crate the count of deltas to start from scratch beside `default` that its caller chose. When the caller chose none, as a bare run does, it passes what `kernel_exec.deltas_from_scratch` derives at the build's width and memo-write order for the configurations it builds, with nothing beside it."""
+        passed = []
+        asked = []
+
+        def build_table_files(*_args, scratch_beside_default=0, **_rest):
+            passed.append(scratch_beside_default)
+            raise Reached
+
+        def deltas_from_scratch(width, **terms):
+            asked.append((width, terms))
+            return 3
+
+        monkeypatch.setattr(kernel_exec, "ensure_built", lambda: None)
+        monkeypatch.setattr(kernel_exec, "build_table_files", build_table_files)
+        monkeypatch.setattr(kernel_exec, "deltas_from_scratch", deltas_from_scratch)
+        for chosen in (None, 0, 2):
+            with pytest.raises(Reached):
+                run_m1.build_tables(
+                    SPEC,
+                    tmp_path,
+                    inputs=STAMP,
+                    kernel_threads=2,
+                    overlap_memo_writes=True,
+                    scratch_beside_default=chosen,
+                )
+        assert passed == [3, 0, 2]
+        assert asked == [
+            (min(2, run_m1.usable_cores()), {"configs": CONFIG_COUNT, "overlap": True, "from_scratch": False})
+        ]
+
     def test_a_narrowed_cpu_allowance_narrows_the_fan_out(self, monkeypatch, tmp_path):
         """The width is also capped at `usable_cores()`, the cores this process may run on, so a container limited to part of its host's CPUs stays within that limit whatever the memory allows. The test fixes the allowance at two and asks for every configuration, so the test passes only if the cap applies."""
         allowance = 2
@@ -872,28 +903,44 @@ class TestTheKernelInvocation:
         assert code() != before
 
     def test_a_configuration_delta_files_the_bytes_a_from_scratch_build_files(self, tmp_path):
-        """Every configuration after `default`, enumerated as a delta over `default`'s memo, writes the same settlement TSV, join TSV, and window enumeration, byte for byte, and returns the same digest as the same configuration enumerated on its own (the window locality rule applied across configurations). The mini fixture's `ss03` unlocks a half-·Tea x-height entry, so the delta has windows to share and windows to settle itself. The memo-sharing run claims its deltas heaviest-first (`fanout::delta_worklist`), and its results must still match the from-scratch run configuration by configuration."""
+        """Every configuration after `default`, enumerated as a delta over `default`'s memo, writes the same settlement TSV, join TSV, and window enumeration, byte for byte, and returns the same digest as the same configuration enumerated on its own (the window locality rule applied across configurations). The mini fixture's `ss03` unlocks a half-·Tea x-height entry, so the delta has windows to share and windows to settle itself. The memo-sharing run claims its deltas heaviest-first (`fanout::delta_worklist`), and its results must still match the from-scratch run configuration by configuration. So must those of a run three wide that starts the two heaviest deltas from scratch beside `default` and runs `ss04` and `ss05` as deltas: in the mini fixture `ss03` and `ss03+ss05` unlock the same runes, so they form the top tier the crate takes whole (`fanout::scratch_tiers`). Its memo files show that schedule ran, because a configuration enumerated from scratch memoizes every window it settles, while a delta memoizes only what `default`'s memo could not answer."""
         spec_path = tmp_path / "spec.json"
         kernel_io.write_spec(SPEC, spec_path)
         kernel_exec.ensure_built()
         answers = {}
-        for name, default_memo_sharing in (("sharing", True), ("scratch", False)):
+        for name, default_memo_sharing, threads, beside in (
+            ("sharing", True, 2, 0),
+            ("scratch", False, 2, 0),
+            ("beside", True, 3, 2),
+        ):
             answers[name] = kernel_exec.build_table_files(
                 spec_path,
                 tmp_path / name,
                 conform.SETTLEMENT_CONFIGS,
                 inputs=STAMP,
-                threads=2,
+                threads=threads,
                 symbols=len(conform.spec_alphabet(SPEC)),
                 default_memo_sharing=default_memo_sharing,
+                memo_stamp=run_m1.memo_stamp(SPEC),
+                scratch_beside_default=beside,
             ).digests
-        assert answers["sharing"] == answers["scratch"]
+        assert answers["sharing"] == answers["scratch"] == answers["beside"]
         for config in conform.SETTLEMENT_CONFIGS:
             for family in ("settlement", "joins", "windows"):
                 name = f"{family}-{config}.tsv"
-                assert (tmp_path / "sharing" / name).read_bytes() == (
-                    tmp_path / "scratch" / name
-                ).read_bytes(), name
+                for other in ("scratch", "beside"):
+                    assert (tmp_path / "sharing" / name).read_bytes() == (
+                        tmp_path / other / name
+                    ).read_bytes(), (other, name)
+        memos = {
+            (arm, config): (tmp_path / arm / f"memo-{config}.tsv").read_bytes()
+            for arm in answers
+            for config in conform.SETTLEMENT_CONFIGS
+        }
+        for config in ("ss03", "ss03+ss05"):
+            assert memos["sharing", config] != memos["scratch", config] == memos["beside", config], config
+        for config in ("default", "ss04", "ss05"):
+            assert memos["sharing", config] == memos["beside", config], config
 
     def test_an_unstamped_build_names_a_stamp_the_kernel_will_accept(self, monkeypatch, tmp_path):
         """`build-tables` requires a stamp, so a build called without `inputs` passes `kernel_exec.UNSTAMPED_WINDOWS`. The windows payload is then read for its head and deleted, so that stamp never reaches an artifact."""
@@ -1198,6 +1245,66 @@ class TestTheMemoryDerivedThreadDefault:
             CONFIG_COUNT, configs=CONFIG_COUNT, coresident_bytes=usable - whole, total_bytes=roomy
         )
         assert not kernel_exec.memo_writes_overlap(2, configs=2, total_bytes=roomy, from_scratch=True)
+
+    def test_deltas_are_started_from_scratch_beside_default_while_their_peaks_fit(self):
+        """`table_build_booking_bytes` books each delta started from scratch beside `default` at `SCRATCH_PEAK_BYTES` less its parked product in place of a delta's slot, and books such a build at no less than its start, where `default` and each of them hold a `SCRATCH_PEAK_BYTES` together; the count is capped at the delta count and one less than the width, as the crate caps it. `deltas_from_scratch` is the largest count whose booking, with the memo-write order given, fits the memory less the reserve and what runs beside, so over a range of invented machines it never shrinks as the memory grows and covers every count from none to all the deltas. A from-scratch build starts nothing beside `default`."""
+        fixed = kernel_exec.DEFAULT_MEMO_BYTES + CONFIG_COUNT * kernel_exec.PARKED_FOLD_BYTES
+        deltas = CONFIG_COUNT - 1
+        slot = kernel_exec.SCRATCH_PEAK_BYTES - kernel_exec.PARKED_FOLD_BYTES
+        for count in range(CONFIG_COUNT + 1):
+            taken = min(count, deltas)
+            wave = (
+                fixed
+                + taken * slot
+                + (deltas - taken) * kernel_exec.DELTA_SLOT_BYTES
+                + kernel_exec.FOLD_PREPARATION_BYTES
+                + kernel_exec.MEMO_WRITE_OVERLAP_BYTES
+            )
+            assert kernel_exec.table_build_booking_bytes(
+                CONFIG_COUNT, configs=CONFIG_COUNT, overlap=True, scratch_beside_default=count
+            ) == (max(wave, (1 + taken) * kernel_exec.SCRATCH_PEAK_BYTES) if taken else wave)
+        assert kernel_exec.table_build_booking_bytes(
+            1, configs=CONFIG_COUNT, scratch_beside_default=deltas
+        ) == kernel_exec.table_build_booking_bytes(1, configs=CONFIG_COUNT)
+        roomy = 1_000_000_000_000
+        for width in range(1, CONFIG_COUNT + 1):
+            assert kernel_exec.deltas_from_scratch(
+                width, configs=CONFIG_COUNT, overlap=True, total_bytes=roomy
+            ) == min(deltas, width - 1)
+        seen = []
+        for total in range(30_000_000_000, 60_000_000_000, 100_000_000):
+            usable = total - memory_budget.os_reserve_bytes(total_bytes=total)
+            count = kernel_exec.deltas_from_scratch(
+                CONFIG_COUNT, configs=CONFIG_COUNT, overlap=True, total_bytes=total
+            )
+            fits = [
+                taken
+                for taken in range(CONFIG_COUNT)
+                if kernel_exec.table_build_booking_bytes(
+                    CONFIG_COUNT, configs=CONFIG_COUNT, overlap=True, scratch_beside_default=taken
+                )
+                <= usable
+            ]
+            assert count == max(fits, default=0), total
+            assert not seen or count >= seen[-1], total
+            seen.append(count)
+        assert set(range(CONFIG_COUNT)) <= set(seen)
+        usable = roomy - memory_budget.os_reserve_bytes(total_bytes=roomy)
+        whole = kernel_exec.table_build_booking_bytes(CONFIG_COUNT, configs=CONFIG_COUNT, overlap=True)
+        assert (
+            kernel_exec.deltas_from_scratch(
+                CONFIG_COUNT,
+                configs=CONFIG_COUNT,
+                overlap=True,
+                coresident_bytes=usable - whole,
+                total_bytes=roomy,
+            )
+            == 0
+        )
+        assert (
+            kernel_exec.deltas_from_scratch(2, configs=2, overlap=False, total_bytes=roomy, from_scratch=True)
+            == 0
+        )
 
     def test_a_build_without_default_s_memo_books_each_slot_from_scratch(self, monkeypatch, tmp_path):
         """A set without `default` enumerates every configuration from scratch, so its slots book `SCRATCH_PEAK_BYTES` less a parked product, not a delta's slot, and its width is that division, capped at the configuration count. On an invented 24 GB machine a two-configuration build that shares `default`'s memo runs both at once, while the from-scratch division fits one. `run_m1.build_tables` asks for that width exactly when `default` is not in the set it builds."""

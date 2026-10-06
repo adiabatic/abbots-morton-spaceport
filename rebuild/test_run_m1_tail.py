@@ -76,7 +76,7 @@ def _stub_gates(
     monkeypatch.setattr(
         run_m1,
         "build_tables",
-        lambda spec, out_dir=None, inputs=None, kernel_threads=None, packing=None, overlap_memo_writes=None: (
+        lambda spec, out_dir=None, inputs=None, kernel_threads=None, packing=None, overlap_memo_writes=None, scratch_beside_default=None: (
             TABLES,
             {},
         ),

@@ -480,6 +480,67 @@ fn a_table_build_writing_its_memos_beside_the_wave_files_the_bytes_one_writing_t
     }
 }
 
+/// Starting the heaviest delta from scratch beside `default` changes no table: a build with `--scratch-beside-default=1` writes the tables and digests of a build that runs it as a delta, and writes for it the memo file a `--no-default-memo-sharing` build writes rather than the delta's, since a configuration enumerated from scratch memoizes every window it settles. A count of zero is a usage error, since leaving the flag out asks for none.
+#[test]
+fn a_table_build_starting_a_delta_from_scratch_beside_default_files_the_tables_a_sharing_one_files()
+{
+    let root = scratch("cli-scratch-beside-default");
+    let spec = spec_at(&root);
+    let mut answers: Vec<String> = Vec::new();
+    let outdirs = ["delta", "beside", "scratch"].map(|arm| root.join(arm));
+    for (outdir, extra) in outdirs.iter().zip([
+        None,
+        Some("--scratch-beside-default=1"),
+        Some("--no-default-memo-sharing"),
+    ]) {
+        let mut arguments = vec![
+            "build-tables",
+            word(&spec),
+            word(outdir),
+            "--configs=default,ss03",
+            "--inputs=cli-stamp",
+            "--threads=2",
+            "--memo-stamp=cli-memo",
+        ];
+        arguments.extend(extra);
+        let output = run(&arguments);
+        assert!(output.status.success(), "{}", stderr_of(&output));
+        answers.push(String::from_utf8(output.stdout).expect("the digests are text"));
+    }
+    let [delta, beside, scratch_built] = &outdirs;
+    assert_eq!(answers[0], answers[1]);
+    for (token, _) in CONFIGS {
+        for family in ["settlement", "joins", "windows"] {
+            let name = format!("{family}-{token}.tsv");
+            assert_eq!(
+                std::fs::read(delta.join(&name)).expect("the delta build wrote it"),
+                std::fs::read(beside.join(&name)).expect("and so did the build beside default"),
+                "{name}"
+            );
+        }
+        let memo = format!("memo-{token}.tsv");
+        assert_eq!(
+            std::fs::read(beside.join(&memo)).expect("the build beside default wrote it"),
+            std::fs::read(scratch_built.join(&memo)).expect("and so did the scratch build"),
+            "{memo}"
+        );
+    }
+    assert_ne!(
+        std::fs::read(delta.join("memo-ss03.tsv")).expect("the delta build wrote it"),
+        std::fs::read(scratch_built.join("memo-ss03.tsv")).expect("and so did the scratch build"),
+        "a delta memoizes only the windows default's memo could not answer"
+    );
+    let output = run(&[
+        "build-tables",
+        word(&spec),
+        word(&root.join("misuse")),
+        "--configs=default,ss03",
+        "--inputs=cli-stamp",
+        "--scratch-beside-default=0",
+    ]);
+    assert_eq!(output.status.code(), Some(2), "{}", stderr_of(&output));
+}
+
 /// A table file with its windows head's `fold_order` left out, the one field that names which configurations a build was given.
 fn without_fold_order(bytes: Vec<u8>) -> String {
     let text = String::from_utf8(bytes).expect("a table file is UTF-8");
