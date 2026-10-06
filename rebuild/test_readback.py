@@ -100,6 +100,23 @@ def _inner(subtable):
     return getattr(subtable, "ExtSubTable", subtable)
 
 
+def _compiled_size(font, table):
+    from fontTools.ttLib.tables.otBase import OTTableWriter
+
+    writer = OTTableWriter()
+    table.compile(writer, font)
+    return len(writer.getAllData())
+
+
+def _rule_tables_size(font, subtable):
+    return sum(
+        _compiled_size(font, rule)
+        for class_set in subtable.ChainSubClassSet or []
+        if class_set is not None
+        for rule in class_set.ChainSubClassRule
+    )
+
+
 def _corrupted_report(built, tmp_path, name, mutate):
     from fontTools.ttLib import TTFont
 
@@ -225,6 +242,26 @@ class TestReadback:
         formats = report["checked"]["settle_subtable_formats"]
         assert formats["format2"] >= 1
         assert formats["format2"] + formats["format3"] == settle_subtables
+
+    def test_the_largest_group_is_measured_in_serialized_rule_bytes(self, built):
+        """The largest-group figure is the serialized size of that subtable's ChainSubClassRule tables, which each rule's own compile measures independently of read-back's count arithmetic, and it names the largest format-2 settlement subtable."""
+        from fontTools.ttLib import TTFont
+
+        font_path, plan, cursive, _copies = built
+        budget = readback.verify_font(font_path, plan, cursive)["checked"]["gsub_budget"]
+        font = TTFont(str(font_path))
+        try:
+            lookup = font["GSUB"].table.LookupList.Lookup[_stage_index(font, plan, "m1_settle")]
+            sizes = {
+                index: _rule_tables_size(font, _inner(subtable))
+                for index, subtable in enumerate(lookup.SubTable)
+                if _inner(subtable).Format == 2
+            }
+        finally:
+            font.close()
+        assert budget["largest_group_rule_bytes"] == max(sizes.values()) > 0
+        assert sizes[budget["largest_group_subtable_index"]] == max(sizes.values())
+        assert budget["group_rule_bytes_ceiling"] == readback.GROUP_RULE_BYTES_CEILING == 49_151
 
     def test_the_boundary_glyphs_are_inert_on_the_bytes(self, built):
         """Checked once on the written font instead of at every shaped ZWNJ slot: no substituted position of any lookup admits a boundary glyph, `uni200C` has zero advance, and neither boundary glyph draws an outline."""
@@ -354,6 +391,41 @@ class TestCorruptions:
         breached = _named(report, "gsub budget:")
         assert len(breached) == 1 and "65,536-byte floor" in breached[0]
         assert report["divergences"] == breached
+
+    def test_a_packed_group_over_the_ceiling_is_a_divergence(self, built, tmp_path):
+        """A format-2 settlement subtable whose rule tables pass `GROUP_RULE_BYTES_CEILING` is reported under the gsub budget, naming the subtable. The test pads one group with copies of one of its rules, each with a longer lookahead than the last, so every copy is a distinct table the serializer cannot share, and stops once the group passes the ceiling, well under the size hb.repack can serialize."""
+        from copy import copy
+
+        grown: dict[str, int] = {}
+
+        def mutate(font, plan):
+            lookup = font["GSUB"].table.LookupList.Lookup[_stage_index(font, plan, "m1_settle")]
+            index, inner = next(
+                (index, _inner(subtable))
+                for index, subtable in enumerate(lookup.SubTable)
+                if _inner(subtable).Format == 2 and _inner(subtable).LookAheadClassDef.classDefs
+            )
+            class_set = next(class_set for class_set in inner.ChainSubClassSet if class_set is not None)
+            rule = class_set.ChainSubClassRule[0]
+            pad = min(inner.LookAheadClassDef.classDefs.values())
+            size = _rule_tables_size(font, inner)
+            while size <= readback.GROUP_RULE_BYTES_CEILING:
+                padded = copy(rule)
+                padded.LookAhead = list(rule.LookAhead or []) + [pad] * len(class_set.ChainSubClassRule)
+                padded.LookAheadGlyphCount = len(padded.LookAhead)
+                class_set.ChainSubClassRule.append(padded)
+                size += _compiled_size(font, padded)
+            class_set.ChainSubClassRuleCount = len(class_set.ChainSubClassRule)
+            grown.update(index=index, size=size)
+
+        report = _corrupted_report(built, tmp_path, "oversize-group", mutate)
+        assert not report["pass"]
+        budget = report["checked"]["gsub_budget"]
+        assert budget["largest_group_rule_bytes"] == grown["size"]
+        assert budget["largest_group_subtable_index"] == grown["index"]
+        assert _named(report, "gsub budget:") == [
+            f"gsub budget: settlement subtable {grown['index']} holds {grown['size']:,} bytes of format-2 rules, over the 49,151-byte ceiling"
+        ]
 
     def test_the_report_counts_every_divergence_past_the_trimmed_list(self, built, monkeypatch):
         """When more divergences are found than `MAX_DIVERGENCES`, `divergences` holds the first ones and one line saying how many more, and `divergence_count` holds the total."""

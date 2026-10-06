@@ -10,6 +10,8 @@ When every rule in a run has a single input glyph, the rules split into one stre
 
 Native format-2 subtables from feaLib stay in place as barriers. Each contiguous run of format-3 subtables packs on its own, so no rule crosses a native subtable. A lookup qualifies when it is chained-context, has at least `min_subtables` subtables, all of format 2 or 3 and at least one of format 3, and every rule has one input slot and substitutes only at sequence index 0. At M1 scale only `m1_settle` qualifies; the guarded-formation lookup's multi-input forming rows disqualify it.
 
+Grouping admits a rule on class compatibility alone, with no size test, and hb.repack cannot split a chained-context subtable, so the rule tables of one group must stay under the uint16 offsets inside it. `largest_group` measures them; `compile_font` stops a build whose group passes the limit before the save, and read-back holds the settlement lookup's largest group to a ceiling under that limit.
+
 Read-back checks the packing on the written font: `rebuild/pipeline/readback.py` decompiles the settlement lookup through `per_glyph_sequences` and compares each input glyph's ordered rules with the plan. gate:conform then shapes the packed font like any other build.
 """
 
@@ -116,6 +118,30 @@ def per_glyph_sequences(lookup: Any) -> dict[str, list[LogicalRule]]:
         else:
             raise PackError(f"unexpected chained-context subtable format {subtable.Format}")
     return out
+
+
+def group_rule_bytes(subtable: Any) -> int:
+    """Return the bytes of a format-2 chained-context subtable's ChainSubClassRule tables, from its decompiled or packed rules. A rule is four uint16 counts, a uint16 class per backtrack slot, per input slot after the first, and per lookahead slot, and a 4-byte SubstLookupRecord per substitution."""
+    total = 0
+    for class_set in subtable.ChainSubClassSet or []:
+        if class_set is None:
+            continue
+        for rule in class_set.ChainSubClassRule:
+            slots = len(rule.Backtrack or []) + len(rule.Input or []) + len(rule.LookAhead or [])
+            total += 8 + 2 * slots + 4 * len(rule.SubstLookupRecord or [])
+    return total
+
+
+def largest_group(lookup: Any) -> tuple[int, int | None]:
+    """Return the `group_rule_bytes` of the lookup's largest format-2 chained-context subtable and that subtable's index in the lookup, the first of equals, or (0, None) when the lookup holds none."""
+    largest, largest_index = 0, None
+    for index, subtable in enumerate(_inner_subtables(lookup)):
+        if type(subtable).__name__ != "ChainContextSubst" or subtable.Format != 2:
+            continue
+        size = group_rule_bytes(subtable)
+        if largest_index is None or size > largest:
+            largest, largest_index = size, index
+    return largest, largest_index
 
 
 def _qualifies(lookup: Any, min_subtables: int) -> bool:

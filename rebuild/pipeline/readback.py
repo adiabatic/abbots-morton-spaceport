@@ -9,6 +9,10 @@ It also checks that the ss10 overlay is isolated (`_check_isolation`, `_check_an
 The stage is a structural comparison with the plan only. It does not simulate shaping: it does not apply lookups to a buffer, compose stages, or decide which of two competing rules wins. It checks `pack_gsub`'s repack on the written bytes by decompiling the settlement lookup through `pack_gsub.per_glyph_sequences` and comparing each input glyph's ordered rules with the plan. Ordered rules are compared per input glyph for settlement and per lead glyph for formation, because first-match-wins only orders rules that share an input glyph, and feaLib may regroup the others. feaLib compiles each chained-context ruleset in whichever of the three formats is smallest, so the guarded formation is format 1 in a small font and format 3 in the shipped one, and the settlement lookup arrives as a packed mix of formats 2 and 3.
 
 `verify_font` does not raise on a divergence. It collects messages and reports `pass`, the first `MAX_DIVERGENCES` messages, and the total count. `run_m1` writes the report to `readback_summary.json` and then raises `ReadbackError` naming that total, so the evidence survives the failure. The GSUB offset budget is reported the same way: `gsub_offset_budget` reads the uint16 subtable-offset headroom from the raw table bytes of this same parse, the report records it under `checked["gsub_budget"]`, and headroom below `SUBTABLE_OFFSET_HEADROOM_FLOOR` is a divergence. An actual overflow cannot ship, because fontTools' save fails on an overflow of a lookup's subtable-offset array, so the floor is an early warning. In the Extension-wrapped settlement lookup each subtable costs a 2-byte offset entry plus an 8-byte ExtensionSubst record, so the 16,384-byte floor sits about 1,600 subtables short of the overflow. The floor has twice caught a font that fontTools would have saved without error: the depth-4 rules, which led `m1_settle` to use Extension, and the simulated-prospect table, which led to `pack_gsub`. Those two catches are why it stays at this value.
+
+The same parse gates a second size limit, the rule tables of one packed group. hb.repack cannot split a chained-context subtable, so a format-2 group whose rule tables pass about 65 KB cannot be serialized, and `compile_font` stops such a build before the save (`compile_font.GROUP_RULE_BYTES_LIMIT`; `compile_font`'s module docstring has the measurement). Read-back computes each format-2 settlement subtable's rule bytes from the decompiled rules (`pack_gsub.largest_group`), records the largest and its subtable index under `checked["gsub_budget"]`, and reports a divergence when it passes `GROUP_RULE_BYTES_CEILING`. The ceiling is 65,535 less `SUBTABLE_OFFSET_HEADROOM_FLOOR`, so it keeps the margin the floor keeps, and it sits well under the largest group that serialized.
+
+The widest offset inside a packed subtable is not gated, because it is not headroom. hb.repack lets a region of tables shared across Extension subtables fill up to the uint16 limit, then splits the region and duplicates the shared tables, so that offset sits just under 65,535 in every font whatever the size of its groups. A floor on it would fail builds that save without trouble.
 """
 
 from __future__ import annotations
@@ -26,6 +30,7 @@ from rebuild.pipeline.emit_gsub import GsubPlan, SettleRule
 MAX_DIVERGENCES = 50
 BOUNDARY_GLYPHS = ("uni200C", "space")
 SUBTABLE_OFFSET_HEADROOM_FLOOR = 16_384
+GROUP_RULE_BYTES_CEILING = 65_535 - SUBTABLE_OFFSET_HEADROOM_FLOOR
 NO_REQUIRED_FEATURE = 0xFFFF
 
 Row = tuple[tuple[str, ...], tuple[frozenset[str], ...], str | None]
@@ -763,7 +768,7 @@ def verify_font(
     plan: GsubPlan,
     cursive: Mapping[int, Mapping[str, Registration]],
 ) -> dict:
-    """Re-parse the font at `font_path` and run every check in this module against the emitters' plan: registrations, lookup order, lookupFlags, lookup contents, the boundary glyphs, the overlay's isolation, and the GSUB offset budget. Returns the JSON-ready report `run_m1` writes to `readback_summary.json`. Divergences are collected in the report, not raised: `divergences` holds the first `MAX_DIVERGENCES` messages and, when there are more, one line saying how many more, and `divergence_count` holds the total."""
+    """Re-parse the font at `font_path` and run every check in this module against the emitters' plan: registrations, lookup order, lookupFlags, lookup contents, the boundary glyphs, the overlay's isolation, the GSUB offset budget, and the settlement lookup's largest packed group. Returns the JSON-ready report `run_m1` writes to `readback_summary.json`. Divergences are collected in the report, not raised: `divergences` holds the first `MAX_DIVERGENCES` messages and, when there are more, one line saying how many more, and `divergence_count` holds the total."""
     from fontTools.ttLib import TTFont
 
     divergences: list[str] = []
@@ -834,6 +839,16 @@ def verify_font(
                             "format2": formats.count(2),
                             "format3": formats.count(3),
                         }
+                        group_bytes, group_index = pack_gsub.largest_group(lookup)
+                        checked["gsub_budget"].update(
+                            largest_group_rule_bytes=group_bytes,
+                            largest_group_subtable_index=group_index,
+                            group_rule_bytes_ceiling=GROUP_RULE_BYTES_CEILING,
+                        )
+                        if group_bytes > GROUP_RULE_BYTES_CEILING:
+                            divergences.append(
+                                f"gsub budget: settlement subtable {group_index} holds {group_bytes:,} bytes of format-2 rules, over the {GROUP_RULE_BYTES_CEILING:,}-byte ceiling"
+                            )
                     elif stage_name == "m1_namer_dot_word_start":
                         checked["namer_rows"] = _check_namer_dot(
                             plan, lookup, lookups, all_glyphs, divergences
