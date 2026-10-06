@@ -105,6 +105,15 @@ def test_a_corpus_pool_record_calibrates_the_worker_constant():
     assert parent == []
 
 
+def test_a_corpus_write_pool_record_calibrates_the_write_worker_constant_only():
+    """The corpus build's write runs a pool of its own after the units pool has stopped, whose workers each hold a copy of the corpus's columns, so it writes its records under the unit `corpus-write`. Only the corpus-write-worker row reads them, and the corpus-worker row reads none of them."""
+    record = _pool("corpus-write", [800_000_000, 600_000_000])
+    observed, _, _ = cb.observations(_unit("corpus-write-worker"), [record], {}, host=HOST, recent=20)
+    assert [item.peak_bytes for item in observed] == [800_000_000, 600_000_000]
+    units, _, _ = cb.observations(_unit("corpus-worker"), [record], {}, host=HOST, recent=20)
+    assert units == []
+
+
 def test_a_conform_sweep_pool_record_goes_to_the_sweep_row_only():
     """The conformance sweep and the oracle both fan out from run_m1 over the acceptance configurations, but a conformance-sweep worker and an oracle range worker hold different data. Each row reads only its own pool's records, because a record read by the other row would misstate that row's peak."""
     sweep = _pool("conform-sweep", [390_000_000, 920_000_000])
@@ -590,6 +599,18 @@ def test_the_width_clauses_answer_for_the_machine_and_the_tree_they_are_given(tm
         f"a hand build runs {worker_fits[0]}; a gated cycle runs {worker_fits[1]}, its cap the build lane's share of the cores less the parent"
         in worker_block
     )
+    write_block = out.split("\ncorpus-write-worker  ")[1].split("\n\n")[0]
+    units = [
+        memory_budget.how_many_fit(
+            5_000_000_000, coresident_bytes=10_000_000_000, cap=cap, total_bytes=48_000_000_000
+        )
+        for cap in (11, 5)
+    ]
+    room = [max(1, width * 5_000_000_000 // CONSTANTS["corpus-write-worker"]) for width in units]
+    assert (
+        f"at most {room[0]} at {cb.format_gb(CONSTANTS['corpus-write-worker'])} GB each in place of a hand build's {units[0]} units workers at 5.00 GB, and at most {room[1]} in place of a gated cycle's {units[1]} "
+        in write_block
+    )
     parent_block = out.split("\ncorpus-parent  ")[1].split("\n\n")[0]
     solo, gated = (
         memory_budget.describe_fit(
@@ -735,6 +756,7 @@ def test_each_units_rule_is_the_one_its_constants_comment_states():
         "replay-walk": (1.25, 100_000_000),
         "corpus-parent": (1.25, 1_000_000_000),
         "corpus-worker": (1.25, 10_000_000),
+        "corpus-write-worker": (1.25, 10_000_000),
         "oracle-shard": (1.25, 100_000_000),
         "oracle-absorb": (1.25, 100_000_000),
         "conform-sweep": (1.25, 100_000_000),

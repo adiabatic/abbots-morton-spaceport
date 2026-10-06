@@ -28,11 +28,12 @@ from __future__ import annotations
 import gzip
 import hashlib
 import json
+import os
 import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import BinaryIO, Container, Iterable, Iterator, Mapping, Protocol
+from typing import Container, Iterable, Iterator, Mapping, Protocol
 
 from rebuild.pipeline import fingerprint, kernel_exec, spec_load
 from rebuild.pipeline.model import ResolvedSpec
@@ -857,12 +858,13 @@ def locate_prior_fragments(out_dir: Path, wanted: Mapping[str, set[str]]) -> dic
 
 
 class PriorFragmentReader:
-    """Reads cached fragments from the prior shards by address, from the store record or from the walk, keeping one part open at a time. The build reads them in shard order, so the file handle changes once per part, not once per unit. Each read is checked against the address it came from: the element must still be the unit with the stamp the plan reused it under. Otherwise the file changed under this build, and the read raises ValueError. For a store-addressed fragment, this is the only time its bytes are checked against its record."""
+    """Reads fragments by address, from the store record or from the walk: cached fragments from the prior shards, and recomputed ones from the build's spool (`build._FragmentSpool`). Each read is one `os.pread` on a descriptor kept open per part, up to `OPEN_PARTS` at once, the oldest closed first. The write reads a class's cached fragments in shard order, part after part, but its recomputed fragments in id order, which jumps between the parts the units pool's workers spooled in configuration order. On the 18-core M5 Pro MacBook Pro (`doc/fleet.md`), reopening the part on each such read costs about 16–17 µs more than an `os.pread`, which over a full recompute's spool makes reading the spool back the largest cost in the write, and a seek and read on a buffered handle kept open costs 4–5 µs more. Each read is checked against the address it came from: the element must still be the unit with the stamp the plan reused it under. Otherwise the file changed under this build, and the read raises ValueError. For a store-addressed fragment, this is the only time its bytes are checked against its record."""
+
+    OPEN_PARTS = 64
 
     def __init__(self, out_dir: Path) -> None:
         self._out_dir = Path(out_dir)
-        self._part: str | None = None
-        self._handle: BinaryIO | None = None
+        self._descriptors: dict[str, int] = {}
 
     def _refusal(self, located: PriorFragment) -> ValueError:
         return ValueError(
@@ -871,12 +873,13 @@ class PriorFragmentReader:
         )
 
     def _bytes(self, located: PriorFragment) -> bytes:
-        if self._handle is None or self._part != located.part:
-            self.close()
-            self._handle = (self._out_dir / located.part).open("rb")
-            self._part = located.part
-        self._handle.seek(located.start)
-        return self._handle.read(located.length)
+        descriptor = self._descriptors.get(located.part)
+        if descriptor is None:
+            if len(self._descriptors) >= self.OPEN_PARTS:
+                os.close(self._descriptors.pop(next(iter(self._descriptors))))
+            descriptor = os.open(self._out_dir / located.part, os.O_RDONLY)
+            self._descriptors[located.part] = descriptor
+        return os.pread(descriptor, located.length, located.start)
 
     def read(self, located: PriorFragment) -> dict:
         fragment = json.loads(self._bytes(located))
@@ -899,10 +902,9 @@ class PriorFragmentReader:
         return body
 
     def close(self) -> None:
-        if self._handle is not None:
-            self._handle.close()
-            self._handle = None
-            self._part = None
+        descriptors, self._descriptors = self._descriptors, {}
+        for descriptor in descriptors.values():
+            os.close(descriptor)
 
     def __enter__(self) -> "PriorFragmentReader":
         return self

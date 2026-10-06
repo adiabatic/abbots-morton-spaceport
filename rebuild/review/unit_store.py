@@ -39,6 +39,36 @@ BYTE_COPIED = 128
 
 _ALPHABET_INDEX = {symbol: index for index, symbol in enumerate(unit_cache.BASE58_ALPHABET)}
 
+# The columns the corpus write (`build._write_class`) never reads: the primary-unit projection and the store's copy of the window, which the whole-corpus passes before the write read; the diff digest, cluster, unmatched group and judged pair, which the plan, those passes and the cache write read; the shard address and config note, which the write produces and the parent stores; and the id index. `build._dump_columns` leaves them out of the copy each write worker loads.
+WRITE_UNREAD_COLUMNS = (
+    "_diffs_digest",
+    "_cluster",
+    "_unmatched_group",
+    "_pair_l",
+    "_pair_r",
+    "_out_part",
+    "_out_start",
+    "_out_len",
+    "_config_note",
+    "_codepoints_start",
+    "_codepoints_n",
+    "_codepoint_values",
+    "_after_start",
+    "_after_junction_start",
+    "_after_n",
+    "_before_start",
+    "_before_junction_start",
+    "_before_n",
+    "_after_spans",
+    "_after_cells",
+    "_after_junctions",
+    "_before_spans",
+    "_before_glyphs",
+    "_before_junctions",
+    "_id_words",
+    "_id_ordinals",
+)
+
 
 class Flags(NamedTuple):
     """One unit's flag byte, unpacked. The flag byte is the only place the three machine checks are stored; a materialized `audit.Unit` copies them from here. `slim` says the build writes the fragment in the slim shape: set when a machine check approves the unit or the ledger exempts it (`audit.slim_fragment`), and for a cached unit copied from the store record's `slim`. `cached`, `exemplar`, `no_verdict` and `byte_copied` are set only for a cached unit: whether it was taken from the previous corpus, the exemplar and exemption flags its store record says the fragment was written with, and whether its address is the shard writer's own (`unit_cache.PriorFragment.byte_copied`). They read False on a recomputed unit."""
@@ -720,6 +750,14 @@ class UnitStore:
                 )
             self._primary_unit[start + offset] = target
             self._primary_unit_suppressed[start + offset] = 1 if suppressed else 0
+
+    def primary_unit_ids(self) -> frozenset[str]:
+        """Return the id of every unit an unsuppressed secondary junction names as its primary unit. Those are the junctions the written fragments carry, so these are the units whose identity the corpus check's primary-unit predicates read beside the units that name them."""
+        return frozenset(
+            self.unit_id(target)
+            for target, suppressed in zip(self._primary_unit, self._primary_unit_suppressed)
+            if target != NO_PRIMARY_UNIT and not suppressed
+        )
 
     def primary_unit_ordinals(self, ordinal: int) -> tuple[tuple[int | None, bool], ...]:
         start, count = self._junction_start[ordinal], self._junction_n[ordinal]

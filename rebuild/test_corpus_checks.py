@@ -397,6 +397,49 @@ def test_a_picture_identical_primary_unit_fails_the_build_the_same_way():
     _expect_error(check_shards(manifest, shards), "shows no visible change")
 
 
+def _not_a_substring(shards: dict[str, list[dict]]) -> None:
+    _unit(shards, PRIMARY_UNIT)["codepoints"] = "E652:E670"
+
+
+def _no_primary_pair(shards: dict[str, list[dict]]) -> None:
+    _unit(shards, PRIMARY_UNIT)["pair"] = None
+
+
+def _nothing_to_see(shards: dict[str, list[dict]]) -> None:
+    _unit(shards, PRIMARY_UNIT)["ink_identical"] = True
+
+
+@pytest.mark.parametrize("breaks", [None, _not_a_substring, _no_primary_pair, _nothing_to_see])
+def test_the_writes_per_class_checkers_folded_together_find_what_one_checker_finds(breaks):
+    """The m1 write feeds each class to a checker of its own, keeping identities only for the units in a secondary-junction relation (`identity_for`, the ids some unit names as its primary unit), and folds the checkers together in shard order (`_CorpusCheck.absorb`) before the cross-unit predicates run. Over the fixture corpus with a resolver-shaped primary unit, as shipped and with each primary-unit predicate broken, the folded checkers report the same errors as `check_shards`' one checker that keeps every unit's identity."""
+    manifest, shards = _corpus_with_primary_unit()
+    if breaks is not None:
+        breaks(shards)
+
+    def checker() -> review_build._CorpusCheck:
+        return review_build._CorpusCheck(
+            mode=manifest["mode"],
+            descriptions=manifest["feature_descriptions"],
+            batch_size=manifest["batch_size"],
+            repo_root=None,
+            cached_ids=(),
+            identity_for=frozenset({PRIMARY_UNIT}),
+        )
+
+    folded = checker()
+    for meta in sorted(manifest["classes"], key=lambda meta: unit_index.class_shard_key(meta["id"])):
+        one = checker()
+        one.class_start(meta)
+        for unit in shards[meta["id"]]:
+            one.unit(unit)
+        one.class_end()
+        folded.absorb(one)
+    assert len(folded._identity) == 2
+    expected = check_shards(manifest, shards)
+    assert bool(expected) == (breaks is not None)
+    assert sorted(folded.finish(manifest)) == sorted(expected)
+
+
 # --- the files beside the manifest --------------------------------------------------------------
 
 

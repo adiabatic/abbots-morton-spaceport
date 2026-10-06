@@ -525,8 +525,12 @@ def test_a_shard_rewritten_underneath_the_store_is_walked_rather_than_trusted(
     assert _tree(corpus) == _tree(mini_corpus)
 
 
-def test_an_edit_in_place_under_a_trusted_address_is_refused_at_the_write(mini_corpus, mini_bundle, tmp_path):
-    """The size check cannot see an edit that leaves a part the same length, so such a fragment is trusted into the plan. The reader catches it at the write, where every cached fragment is checked against its record, and the build fails instead of reusing bytes the store does not describe."""
+@pytest.mark.parametrize("write_jobs", [1, 3])
+def test_an_edit_in_place_under_a_trusted_address_is_refused_at_the_write(
+    mini_corpus, mini_bundle, tmp_path, monkeypatch, write_jobs
+):
+    """The size check cannot see an edit that leaves a part the same length, so such a fragment is trusted into the plan. The reader catches it at the write, where every cached fragment is checked against its record, and the build fails instead of reusing bytes the store does not describe. The write fails the same way in this process and in a write worker, which hands the parent its message, and either way it leaves no staged part, spooled sidecar line or columns file behind. The width is set because the mini bundle's largest class would bound it below three (`_write_width`)."""
+    monkeypatch.setattr("rebuild.review.build._write_width", lambda classes, fit: fit)
     corpus = _copy(mini_corpus, tmp_path)
     path = next(path for path in _shard_paths(corpus) if json.loads(path.read_text(encoding="utf-8")))
     fragments = json.loads(path.read_text(encoding="utf-8"))
@@ -536,8 +540,9 @@ def test_an_edit_in_place_under_a_trusted_address_is_refused_at_the_write(mini_c
     assert len(edited) == len(raw)
     path.write_bytes(edited)
     with pytest.raises(SystemExit) as raised:
-        _build(corpus, mini_bundle, jobs=1)
+        _build(corpus, mini_bundle, jobs=1, write_jobs=write_jobs)
     assert "cannot be read back" in str(raised.value)
+    assert not list(corpus.rglob("*.partial"))
 
 
 def test_a_store_whose_ink_deltas_moved_fails_the_verification_sample(mini_corpus, mini_bundle, tmp_path):
@@ -627,6 +632,49 @@ def test_serial_and_parallel_builds_are_byte_identical(mini_corpus, mini_bundle,
     parallel = tmp_path / "parallel"
     _build(parallel, mini_bundle, jobs=2)
     assert _tree(parallel) == _tree(mini_corpus)
+
+
+def test_a_pooled_write_is_byte_identical_to_the_serial_one(
+    mini_corpus, mini_bundle, tmp_path, capfd, monkeypatch
+):
+    """The write cuts the classes into runs of shard order (`_write_runs`) and, wider than one, writes the runs in worker processes, each from its own copy of the workload table and the unit store, with its own shard writer, sidecar spool and copy-forward cursors, and the parent folds the results back in shard order. So a cold build and a cached rebuild whose write runs three wide match the serial mini corpus byte for byte. The cold build reads, patches and serializes every fragment in the workers. The cached rebuild copies every fragment and every sidecar row forward, each run's cursors reading past the lines of the runs before it. Each pass files one `corpus-write` pool record in the journal the autouse fixture redirects. The width is set because the mini bundle's largest class would bound it below three (`_write_width`)."""
+    from rebuild.tools import cycle_timings
+
+    monkeypatch.setattr("rebuild.review.build._write_width", lambda classes, fit: fit)
+    cold = tmp_path / "cold"
+    _build(cold, mini_bundle, jobs=1, write_jobs=3)
+    assert "review.build manifest+check" in capfd.readouterr().err
+    assert _tree(cold) == _tree(mini_corpus)
+    cached = _copy(mini_corpus, tmp_path)
+    _build(cached, mini_bundle, jobs=1, write_jobs=3)
+    err = capfd.readouterr().err
+    assert re.search(r"jobs=3 \(byte-copied", err), err
+    byte_copied, total, copied_forward = _counts(err, BYTE_COPIED)
+    assert byte_copied == total == copied_forward
+    assert _tree(cached) == _tree(mini_corpus)
+    records = [json.loads(line) for line in cycle_timings.JOURNAL.read_text(encoding="utf-8").splitlines()]
+    assert [(record["unit"], record["width"]) for record in records] == [("corpus-write", 3)] * 2
+
+
+def test_the_write_cuts_shard_order_into_contiguous_runs_no_wider_than_its_largest_class_bounds():
+    """A class is written by one process, so the largest class bounds the write, and the width stops where that class alone is the even share: with the unit total over the largest class, rounded up. Runs are contiguous stretches of shard order, each closed before the class that would take it past the even share, and a class larger than the share is a run of its own. At a width of one the whole corpus is one run."""
+    from array import array
+
+    def classes(*sizes):
+        return [
+            review_build._ClassToWrite(f"c{index}", "", False, False, "", array("I", range(size)), ())
+            for index, size in enumerate(sizes)
+        ]
+
+    def cut(sizes, width):
+        return [[entry.id for entry in run] for run in review_build._write_runs(classes(*sizes), width)]
+
+    shaped = (686, 217, 401, 1, 23, 12, 110, 109)
+    assert review_build._write_width(classes(*shaped), 17) == 3
+    assert review_build._write_width(classes(*shaped), 2) == 2
+    assert cut(shaped, 3) == [["c0"], ["c1"], ["c2", "c3", "c4", "c5"], ["c6", "c7"]]
+    assert cut(shaped, 1) == [[f"c{index}" for index in range(len(shaped))]]
+    assert review_build._write_width(classes(), 8) == 1 and cut((), 8) == [[]]
 
 
 def test_a_narrowed_hand_out_pool_is_byte_identical_to_the_serial_build(

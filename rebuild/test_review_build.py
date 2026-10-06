@@ -713,7 +713,9 @@ def test_the_serial_runner_spools_every_fragment_and_keeps_no_enrichment(tmp_pat
         assert all(shared for _, shared in handed)
         assert not NO_DELTAS
         assert any(store.ink_deltas(ordinal) for ordinal in range(table.n))
-        assert (tmp_path / review_build.RECOMPUTED_SPOOL_NAME).is_dir()
+        assert runner.spool_dir == tmp_path / review_build.RECOMPUTED_SPOOL_NAME
+        assert runner.spool_dir.is_dir()
+        reader = unit_cache.PriorFragmentReader(runner.spool_dir)
         shapes = {True: 0, False: 0}
         for unit in table.units(store):
             assert store.unit_id(unit.ordinal) == unit.unit_id
@@ -724,7 +726,7 @@ def test_the_serial_runner_spools_every_fragment_and_keeps_no_enrichment(tmp_pat
             )
             source = store.source(unit.ordinal)
             assert source is not None and source.part == "units/serial.000.json"
-            fragment = runner.fragment(source)
+            fragment = reader.read(source)
             assert fragment["id"] == unit.unit_id == unit_cache.unit_id_for(fragment["content_key"])
             assert fragment["content_key"] == unit_cache.carry_content_hash(fragment)
             assert "batch" not in fragment and fragment["duplicate_group"] is None
@@ -736,6 +738,7 @@ def test_the_serial_runner_spools_every_fragment_and_keeps_no_enrichment(tmp_pat
             assert (unit.unit_id in drafted) == (not slim), unit.unit_id
             shapes[slim] += 1
         assert shapes[True] and shapes[False], "the mini workload must hold both fragment shapes"
+        reader.close()
     finally:
         runner.close()
     assert not (tmp_path / review_build.RECOMPUTED_SPOOL_NAME).exists()
@@ -950,6 +953,41 @@ def test_the_units_pool_takes_the_gates_idle_width_only_while_the_marker_exists(
     assert review_build._units_pool_width(8, 17, marker) == (17, "gate lane idle")
 
 
+def test_the_write_reads_the_gate_lanes_state_again_as_it_starts(tmp_path, mini_bundle, monkeypatch, capfd):
+    """The write's pool fits in the memory a units pool started as the write starts would hold (`artifact_cycle.corpus_write_job_budget`), so the build reads the gates-idle marker again then. A marker the driver writes after the units pool started at the build lane's share sizes the write from the gate-idle width, a units phase after the units pool read it."""
+    from rebuild.tools import artifact_cycle
+
+    marker = tmp_path / "gates-idle"
+    asked: list[int] = []
+
+    def budget(units_jobs: int) -> int:
+        asked.append(units_jobs)
+        return 1
+
+    stop_workers = review_build._RecomputeRunner.stop_workers
+
+    def stop_then_idle(self) -> None:
+        stop_workers(self)
+        marker.touch()
+
+    monkeypatch.setattr(artifact_cycle, "corpus_write_job_budget", budget)
+    monkeypatch.setattr(review_build._RecomputeRunner, "stop_workers", stop_then_idle)
+    review_build.build_m1(
+        tmp_path / "corpus",
+        audit_path=MINI / "audit.tsv",
+        ledger_path=mini_bundle.ledger,
+        subset_dir=MINI,
+        after_font=MINI / "M1.otf",
+        spec_root=mini_bundle.spec_root,
+        subset_pack=mini_bundle.subset_pack,
+        jobs=1,
+        gates_idle_jobs=5,
+        gates_idle_marker=marker,
+    )
+    assert "jobs=1 (gate lane busy;" in capfd.readouterr().err
+    assert asked == [5]
+
+
 def test_the_pool_is_handed_the_recomputed_units_in_configuration_order(mini_bundle):
     """The workers' queue is the recomputed units sorted by the configuration each unit settles under, so consecutive batches read one configuration's key range of the mapped subset pack. Over the mini workload, whose units lead with four of the six acceptance configurations (`default` and `ss10` for many units, `ss03` and `ss04` for one each), `_configuration_order` returns every unit once, with `audit._config_index` never decreasing, and keeps the incoming order within each configuration (a stable sort). The within-configuration check therefore has depth only for `default` and `ss10`. The order belongs to the parent's hand-out, not to any worker."""
     table = load_workload(MINI / "audit.tsv", mini_bundle.ledger, dict(LETTERS)).table
@@ -1162,7 +1200,7 @@ def _packed_collections(text: str) -> dict[str, dict[str, int]]:
 def test_a_serial_build_tallies_its_collections_at_every_phase_boundary_and_writes_the_same_bytes(
     tmp_path, mini_bundle, capsys, monkeypatch
 ):
-    """The tally only reports and changes no output. With `AMS_CORPUS_MEMORY_TALLY=1` a serial build prints one boundary per phase on stdout, listing the collections the parent holds and their counts. The workload table has a row per unit at every boundary, its line is exact in the same way as the store's (packed columns and pools plus the string table), and it shrinks at the units boundary when the name tuples leave it. The audit's row columns are exact, full at load, and empty once the content keys have read them. The pre-merge snapshot has a row per pre-merge unit. The packed unit store has a row per unit from the plan boundary on, is exact, and prints in place of every per-unit collection it replaces. The checker's identity collection has an entry for every unit written. The cache boundary has no collection of store records, because the store is written record by record, and no boundary has a collection of enrichments. The shards and manifest are byte-identical to those the same build writes with the variable unset."""
+    """The tally only reports and changes no output. With `AMS_CORPUS_MEMORY_TALLY=1` a serial build prints one boundary per phase on stdout, listing the collections the parent holds and their counts. The workload table has a row per unit at every boundary, its line is exact in the same way as the store's (packed columns and pools plus the string table), and it shrinks at the units boundary when the name tuples leave it. The audit's row columns are exact, full at load, and empty once the content keys have read them. The pre-merge snapshot has a row per pre-merge unit. The packed unit store has a row per unit from the plan boundary on, is exact, and prints in place of every per-unit collection it replaces. The checker's identity collection has an entry for every unit in a secondary-junction relation, a unit that names a primary unit or the primary unit it names, and for no other unit. The cache boundary has no collection of store records, because the store is written record by record, and no boundary has a collection of enrichments. The shards and manifest are byte-identical to those the same build writes with the variable unset."""
 
     def build(out: Path) -> dict:
         return review_build.build_m1(
@@ -1202,7 +1240,14 @@ def test_a_serial_build_tallies_its_collections_at_every_phase_boundary_and_writ
     for boundary in ("plan", "units", "manifest+check", "review-facts", "cache"):
         assert tallies[boundary]["unit_store"] == total
     assert tallies["units"]["runner.subset_pack"] > 0
-    assert tallies["manifest+check"]["checker.identity"] == total
+    junctions = [
+        (fragment["id"], junction["primary_unit"])
+        for fragment in unit_index.iter_shard_fragments(tallied)
+        for junction in fragment.get("secondary_junctions") or ()
+        if junction.get("primary_unit") is not None
+    ]
+    related = {unit_id for pair in junctions for unit_id in pair}
+    assert tallies["manifest+check"]["checker.identity"] == len(related) < total
     assert "unit_cache.records" not in tallies["cache"]
     for name in tallies:
         assert "/" not in name
@@ -1423,7 +1468,7 @@ def _drive_worker_in_thread(mini_bundle, out_dir: Path, chunks: list[list]) -> l
 
 
 def _refuting_every_pin(monkeypatch) -> None:
-    """Corrupt what drafting produces: every human fragment leaves `unit_to_json` with a pin the after font refuted, which the `DRAFTED` subset of `check_unit` rejects and which nothing the parent patches touches. The drafts are outside the carry projection, so the fragment's stamp still matches the fragment as written."""
+    """Corrupt what drafting produces: every human fragment leaves `unit_to_json` with a pin the after font refuted, which the `DRAFTED` subset of `check_unit` rejects and which nothing the write patches touches. The drafts are outside the carry projection, so the fragment's stamp still matches the fragment as written."""
     unit_to_json = review_build.unit_to_json
 
     def refuted(*args, **kwargs):
