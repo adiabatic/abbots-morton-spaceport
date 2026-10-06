@@ -11,7 +11,7 @@ make review-cycle SERVE=0        # same pass; prints the serve command instead o
 make review-cycle SERVE=bg       # same pass; starts the server detached if it is not running, and waits for the port
 make verdict-ready               # the readiness checklist; the app's banner shows the same status
 make review-serve                # serve rebuild/out/review/ on http://localhost:7294/
-make cycle-timings               # what each step costs on this machine; ARGS='--by-step', '--by-outcome', '--inner'
+make cycle-timings               # what each step costs on this machine; ARGS='--by-step', '--by-outcome', '--by-commit', '--inner'
 ```
 
 Flags are passed to the cycle through `ARGS`. `--verdicts <file>` names the master to carry, `--fresh` runs every stage, `--force-make-test` forces that one gate, `--skip-gates` and `--no-merge` narrow a pass (a `--no-merge` or `--no-carry` pass that moves the corpus still lands it, with an empty store in place of `verdicts-autosave.json`, which is kept as its stash), `--keep-history` skips retention, and `--stop-server` (which `make review-cycle` passes) permits the pass to stop a review server from before the land protocol, which is the only kind a pass ever stops.

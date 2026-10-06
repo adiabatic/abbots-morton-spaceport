@@ -2,7 +2,7 @@
 
 First, `build_tables` builds the decision and join tables for every settlement configuration (`conform.SETTLEMENT_CONFIGS`) in one kernel-crate process. It enumerates and folds `default` first and each other configuration as a delta over `default`'s memo. As it folds each configuration it checks first-match-wins against the rows, writes the TSVs, writes one certificate per rule built from the table's row chains, and writes the window enumeration stamped with the fingerprint of its sources. `--conform-only` takes its glyph inventory from that enumeration and stops with an error when it is stale or missing. The payloads are packed on a background pool once their heads are read.
 
-Two branches then run over the tables. The table-only branch (`_run_table_gates`, on one background thread) runs the string replay (`run_replay_strings`, recorded in `replay_summary.json`), which walks every configuration's stored rules over every text up to `REPLAY_MAX_LENGTH` against the crate's own settlement, then the witness stage (`run_rule_witnesses`, recorded in `witness_summary.json`), which settles every certificate and checks that its rule fires. Beside those two it runs the shipped-order walk (`run_emitted_order`), where each configuration's walk waits for that configuration's pack. The glyph chain (`_run_glyph_chain`, on the calling thread) mints the glyphs (settled cells named by their cell labels, the raw cmap glyphs, the marker, locked and ss10 copies, and the namer dot pair), runs the defect gates under the reviewed allow-list, emits GSUB and GPOS (also writing `behavior_classes.json`, the record key `rebuild/tools/deep_sweep.py` reads), compiles the font, and runs read-back (rebuild/pipeline/readback.py). Read-back re-parses the written font, checks it against the emitters' plan, and checks the GSUB's uint16 subtable-offset headroom against its floor and the settlement lookup's largest packed group against its ceiling in the same parse.
+Two branches then run over the tables. The table-only branch (`_run_table_gates`, on one background thread) runs the string replay (`run_replay_strings`, recorded in `replay_summary.json`), which walks every configuration's stored rules over every text up to `REPLAY_MAX_LENGTH` against the crate's own settlement, then the witness stage (`run_rule_witnesses`, recorded in `witness_summary.json`), which settles every certificate and checks that its rule fires. Beside those two it runs the shipped-order walk (`run_emitted_order`), where each configuration's walk waits for that configuration's pack. The glyph chain (`_run_glyph_chain`, on the calling thread) mints the glyphs (settled cells named by their cell labels, the raw cmap glyphs, the marker, locked and ss10 copies, and the namer dot pair), runs the defect gates under the reviewed allow-list, emits GSUB and GPOS (also writing `behavior_classes.json`, the record key `rebuild/tools/deep_sweep.py` reads), compiles the font, and runs read-back (rebuild/pipeline/readback.py). Read-back re-parses the written font, checks it against the emitters' plan, and checks the GSUB's uint16 subtable-offset headroom against its floor and the settlement lookup's largest packed group against its ceiling in the same parse. Its `[t] readback` line ends with HEAD's short commit id and the settlement lookup's size figures (`readback.budget_figures`), so the timings journal keeps them for every build and `make cycle-timings ARGS='--by-commit'` lists them.
 
 `main` then runs the Manual-pin gate and the oracle. The oracle starts once the string replay has returned, beside the witness stage, and writes to the settle memo files only after the witness stage's writes are on disk. `main` joins the table-only branch after the oracle, before it decides the run_m1 gate. The join raises the first failure in serial order (the packing, the replay, the witnesses, the shipped order), and any of those is raised in place of a glyph-chain failure, so a failing build reports what a serial build would.
 
@@ -26,6 +26,7 @@ import json
 import multiprocessing
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 import threading
@@ -314,8 +315,25 @@ def table_build_record(
     )
 
 
-# The phase lines of the table build this invocation ran, for its check line: the crate's `[t]` lines, then the `kernel_build_tables` line with its `TableBuildRecord` tokens. A cycle's run_m1 step parses the same lines from the output it captured, but a standalone check line has none, so `build_tables` keeps them here, `main` empties the list when an invocation starts, and `_record_cli_check` parses it.
-_table_build_lines: list[str] = []
+# The phase lines of the build this invocation ran, for its check line: the crate's `[t]` lines, the `kernel_build_tables` line with its `TableBuildRecord` tokens, then the `readback` line with the settlement lookup's figures and the commit. A cycle's run_m1 step parses the same lines from the output it captured, but a standalone check line has none, so `build_tables` and the glyph chain keep them here, `main` empties the list when an invocation starts, and `_record_cli_check` parses it.
+_build_phase_lines: list[str] = []
+
+
+def head_commit(root: Path = REPO_ROOT) -> str | None:
+    """Return HEAD's short commit id, or None when git cannot name one. It names the commit the working tree was at, not the tree itself: a build of uncommitted edits, such as the pass made before a commit, records the commit those edits sit on."""
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"], cwd=root, capture_output=True, text=True, check=True
+        )
+    except OSError, subprocess.CalledProcessError:
+        return None
+    return result.stdout.strip() or None
+
+
+def readback_tokens(report: Mapping, commit: str | None) -> str:
+    """Return the `key=value` tail of the `[t] readback` line: `commit`, then the settlement lookup's figures from `readback.budget_figures`. `cycle_timings.parse_inner_timings` reads each token back under its key (`cycle_timings.READBACK_TOKENS`). A commit git could not name, and a figure the report lacks, are left out."""
+    figures = {"commit": commit, **readback.budget_figures(report)}
+    return " ".join(f"{name}={value}" for name, value in figures.items() if value is not None)
 
 
 def _table_build_threads(
@@ -425,7 +443,7 @@ def build_tables(
 
     Per configuration, Python reads the enumeration's head back for the rules, the reachable cells and the fired provenance every downstream stage needs, parses the join TSV back for the defect gates, and packs the plain window payload into its `.gz` artifact. The head reads run on a thread pool at the table build's width once the crate has exited, and this call waits for them. The packing (`_pack_config`, memo file included) runs on a `Packing` pool at `_core_bound_threads` width, one packer per configuration up to the cores, whatever the crate's width, because a packer holds only a zlib stream and a copy buffer and the compressor releases the interpreter lock. When `packing` is passed, the tables are returned as soon as the heads are read, and the caller waits on each pack through `Packing.wait` and closes the pool. Without it, packing finishes before the return.
 
-    A build with an `out_dir` also reuses its trace memos across builds. `previous_memos` reads the previous build's `memo-<config>.tsv.gz` files for the configurations this build names, unpacks those whose stamp still matches, and names the runes whose content changed as edited, so a window naming no edited rune settles as it did last time. This build's own memos are packed under the same names, stamped with `memo_stamp` over the spec in hand. Such a build ends its `[t] kernel_build_tables` line with its `TableBuildRecord`, which says whether it read those memos. A caller with no `out_dir` reads and writes no memo, and its line carries no record. Either way the crate's phase lines and that line are kept in `_table_build_lines` for run_m1's check line.
+    A build with an `out_dir` also reuses its trace memos across builds. `previous_memos` reads the previous build's `memo-<config>.tsv.gz` files for the configurations this build names, unpacks those whose stamp still matches, and names the runes whose content changed as edited, so a window naming no edited rune settles as it did last time. This build's own memos are packed under the same names, stamped with `memo_stamp` over the spec in hand. Such a build ends its `[t] kernel_build_tables` line with its `TableBuildRecord`, which says whether it read those memos. A caller with no `out_dir` reads and writes no memo, and its line carries no record. Either way the crate's phase lines and that line are kept in `_build_phase_lines` for run_m1's check line.
 
     `out_dir`, when given, receives the TSVs listed in `doc/rebuild-design.md` §8. The second returned mapping is each configuration's `table.table_digest` as the crate reported it, computed while the window rows are still in memory, which avoids recomputing the fixpoint. The crate also prints it on stdout, where `rebuild/tools/scaling_sweep.py` reads it. Both returned mappings are built in `configs` order however the configurations finish, so completion order cannot affect an artifact.
 
@@ -478,7 +496,7 @@ def build_tables(
         line = console.timing(
             "kernel_build_tables", time.perf_counter() - start, record.tokens() if record else None
         )
-        _table_build_lines[:] = [*crate.timings, line]
+        _build_phase_lines[:] = [*crate.timings, line]
 
         def read_one(config: str) -> tuple[str, tuple]:
             payload = tables_dir / f"windows-{config}.tsv"
@@ -805,6 +823,7 @@ def run(
     `inputs` is `tables_inputs` over the sources `spec` was loaded from, computed before the load so it can only name content the tables are at least as new as. Passing it keeps the window enumeration under `out_dir` for the conformance sweep and the shipped-order walk. A caller running its own spec omits it, and the walk does not run. `memo_inputs` is `settle_memo_inputs`, computed at the same moment. It names the settle memo files the string replay fills and the witness stage, the oracle and the conformance sweep then load; without it the replay writes no memo, the witness stage settles every certificate, and nothing is shared. `kernel_threads` applies only to the table build, whose per-configuration memory cost that width was derived from. `replay_threads` applies only to the string replay, whose memory cost is `kernel_exec.REPLAY_PEAK_BYTES` and which derives its own width (`_replay_threads`) when none is given. The packing and the shipped-order walks run one task per configuration up to the cores (`_core_bound_threads`) regardless of either width. The witness stage and the walks can still be running when the oracle's pool starts, since the oracle waits only for the string replay (`TableGates.wait_for_replay`), and they share the machine with that pool.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
+    commit = head_commit()
     console.phase("spec_load")
     start = time.perf_counter()
     if spec is None:
@@ -843,7 +862,7 @@ def run(
         ),
     )
     try:
-        summary = _run_glyph_chain(spec, tables, out_dir)
+        summary = _run_glyph_chain(spec, tables, out_dir, commit)
     except BaseException as error:
         red = gates.first_red() if isinstance(error, (Exception, SystemExit)) else None
         gates.close()
@@ -853,8 +872,10 @@ def run(
     return summary, gates
 
 
-def _run_glyph_chain(spec: ResolvedSpec, tables: Mapping[str, tuple], out_dir: Path) -> dict:
-    """Run the glyph chain over one build's tables: minting, the defect gates, the feature emission, the compile and read-back, then write `pipeline_summary.json` and the Stage A record. It reads the spec and the tables and writes nothing the table-only branch reads."""
+def _run_glyph_chain(
+    spec: ResolvedSpec, tables: Mapping[str, tuple], out_dir: Path, commit: str | None
+) -> dict:
+    """Run the glyph chain over one build's tables: minting, the defect gates, the feature emission, the compile and read-back, then write `pipeline_summary.json` and the Stage A record. It reads the spec and the tables and writes nothing the table-only branch reads. The `[t] readback` line carries `readback_tokens` for `commit`, the commit `run` took before the build read its inputs, and is printed before a failed read-back raises, so a build that falls through the headroom floor still records its figures."""
     console.phase("glyph_minting")
     start = time.perf_counter()
     cell_glyphs = mint_cell_glyphs(spec, tables)
@@ -896,7 +917,9 @@ def _run_glyph_chain(spec: ResolvedSpec, tables: Mapping[str, tuple], out_dir: P
         font_path, gsub_plan, emit_gpos.cursive_registrations(curs_glyphs, spec=spec)
     )
     (out_dir / "readback_summary.json").write_text(json.dumps(readback_report, indent=2) + "\n")
-    console.timing("readback", time.perf_counter() - start)
+    _build_phase_lines.append(
+        console.timing("readback", time.perf_counter() - start, readback_tokens(readback_report, commit))
+    )
     if not readback_report["pass"]:
         raise readback.ReadbackError(
             f"{readback_report['divergence_count']} read-back divergence(s) between the compiled font and the plan; see {out_dir / 'readback_summary.json'}"
@@ -1914,7 +1937,7 @@ def run_oracle(
 
 
 def _record_cli_check(result: CheckResult, started: float) -> None:
-    """Record this invocation's check result in the timings journal, unless the artifact cycle is recording it. The result is recorded before the final `SystemExit`, so the exit cannot change it. `CYCLE_RUN_ENV` in the environment means the artifact cycle started this run and records the same result under its own run id, so this function records nothing, keeping one line per invocation. When this invocation built tables, the line carries the build's phase lines (`_table_build_lines`) as `inner`, parsed as the cycle parses a run_m1 step's output, so a build run by hand can be paired with another as a cycle's can."""
+    """Record this invocation's check result in the timings journal, unless the artifact cycle is recording it. The result is recorded before the final `SystemExit`, so the exit cannot change it. `CYCLE_RUN_ENV` in the environment means the artifact cycle started this run and records the same result under its own run id, so this function records nothing, keeping one line per invocation. When this invocation built tables, the line carries the build's phase lines (`_build_phase_lines`) as `inner`, parsed as the cycle parses a run_m1 step's output, so a build run by hand can be paired with another as a cycle's can."""
     if CYCLE_RUN_ENV in os.environ:
         return
     record_check(
@@ -1922,7 +1945,7 @@ def _record_cli_check(result: CheckResult, started: float) -> None:
         argv=sys.argv,
         elapsed_s=time.perf_counter() - started,
         peak_rss_bytes=process_peak_rss_bytes(),
-        inner=parse_inner_timings("\n".join(_table_build_lines)) or None,
+        inner=parse_inner_timings("\n".join(_build_phase_lines)) or None,
     )
 
 
@@ -2158,7 +2181,7 @@ def main(argv: list[str] | None = None) -> None:
     stated = args.jobs if args.jobs is not None else conform_jobs if conform_default else sweep_jobs
     jobs = stated if stated > 1 else 1
     started = time.perf_counter()
-    _table_build_lines.clear()
+    _build_phase_lines.clear()
 
     if args.gates_only:
         run_gates_only(out_dir=OUT_DIR, jobs=jobs, fresh_cache=args.fresh_oracle_cache)

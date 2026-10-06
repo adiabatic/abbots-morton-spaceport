@@ -878,3 +878,19 @@ def verify_font(
         "divergences": reported,
         "divergence_count": len(divergences),
     }
+
+
+def budget_figures(report: Mapping) -> dict[str, int]:
+    """Return the settlement lookup's size figures from a `verify_font` report, under the names the timings journal records them by (`cycle_timings.READBACK_TOKENS`): its format-2 and format-3 subtable counts, whose sum N is what the subtable-offset headroom is spent on, that headroom, the GSUB lookup count, the merged rule count, and the largest packed group's rule bytes. A figure the report lacks, as when the font has no settlement lookup, is left out."""
+    checked = report.get("checked") or {}
+    budget = checked.get("gsub_budget") or {}
+    formats = checked.get("settle_subtable_formats") or {}
+    figures = {
+        "settle_format2": formats.get("format2"),
+        "settle_format3": formats.get("format3"),
+        "subtable_offset_headroom": budget.get("subtable_offset_headroom"),
+        "gsub_lookups": budget.get("lookups"),
+        "settle_rules": checked.get("settle_rules"),
+        "largest_group_rule_bytes": budget.get("largest_group_rule_bytes"),
+    }
+    return {name: int(value) for name, value in figures.items() if isinstance(value, int)}

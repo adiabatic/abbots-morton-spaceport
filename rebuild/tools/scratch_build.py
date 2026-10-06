@@ -7,7 +7,7 @@ Usage:
 
 The out dir may not resolve under rebuild/out/m1 (`scratch_out_dir`), whether or not the run is narrowed. A narrowed build there would rewrite the settlement, join and memo files of the configurations it names and leave the others as the last whole build wrote them, because the crate deletes nothing. The directory's readers (`rebuild/review/tablediff.py` reads it as one build) cannot tell that mixed set from a whole one. A whole-set build there would rewrite every table, `M1.otf` and `divergence-audit.tsv` from the candidate's runes but leave the stamped window enumerations, because it passes no inputs stamp. The artifact cycle's run_m1 skip key hashes the repo's inputs and only checks that those files exist, so the next pass would build the review corpus over the candidate's font and audit.
 
-Prints a JSON line with the configurations built (`configs`), the configurations the oracle walked (`oracle_configs`, which a plain run's ss10 overlay makes the longer list), the defect gate's errors, the oracle's `rows_compared`, `divergent_rows`, `unmatched` and `multi_matched`, and the audit path. It follows `rebuild.pipeline.run_m1.run()` and `run_oracle()`, read-back included, with the spec as a parameter.
+Prints a JSON line with the configurations built (`configs`), the configurations the oracle walked (`oracle_configs`, which a plain run's ss10 overlay makes the longer list), the defect gate's errors, the oracle's `rows_compared`, `divergent_rows`, `unmatched` and `multi_matched`, and the audit path. It follows `rebuild.pipeline.run_m1.run()` and `run_oracle()`, read-back included, with the spec as a parameter. `build_font` is the build and read-back without the defect gates or the oracle, which `rebuild/tools/scaling_sweep.py` runs on each alphabet size of its series.
 """
 
 from __future__ import annotations
@@ -15,12 +15,14 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from rebuild.pipeline import compile_font, conform, emit_gpos, emit_gsub, oracle, readback
 from rebuild.pipeline import run_m1
+from rebuild.pipeline.model import ResolvedSpec
 from rebuild.pipeline.spec_load import (
     DEFAULT_REGISTRY_PATH,
     DEFAULT_SCHEMA_DIR,
@@ -50,23 +52,23 @@ def scratch_out_dir(requested: str) -> Path:
     return out_dir
 
 
-def build_and_oracle(
-    runes_dir: Path, out_dir: Path, build_configs: list[str], oracle_configs: list[str]
-) -> dict:
+@dataclass(frozen=True)
+class FontBuild:
+    """One scratch build's tables, its settled cell glyphs, and its read-back report."""
+
+    tables: dict[str, tuple]
+    cell_glyphs: dict
+    readback: dict
+
+
+def build_font(spec: ResolvedSpec, out_dir: Path, build_configs: list[str]) -> FontBuild:
+    """Build `spec`'s tables for `build_configs` into `out_dir`, compile `M1.otf` there, read it back, and write `readback_summary.json`, as run_m1's glyph chain does without its defect gates. Raises `readback.ReadbackError` after writing the report when read-back finds a divergence."""
     out_dir.mkdir(parents=True, exist_ok=True)
-    # The baseline (old-font) subset tables are independent of the rune edits under test, so seed them from the real out dir.
-    for gz in M1_OUT.glob("baseline-*.subset.tsv.gz"):
-        target = out_dir / gz.name
-        if not target.exists():
-            target.write_bytes(gz.read_bytes())
-    spec = load_spec(runes_dir, DEFAULT_REGISTRY_PATH, DEFAULT_SCHEMA_DIR)
     tables, _digests = run_m1.build_tables(spec, out_dir, configs=build_configs)
 
     cell_glyphs = run_m1.mint_cell_glyphs(spec, tables)
     bare, copies, ss10_copies = run_m1.mint_raw_glyphs(spec)
     dots = run_m1.namer_dot_glyphs()
-
-    defect_report = run_m1._run_defect_gates(spec, tables, cell_glyphs)
 
     gsub_plan = emit_gsub.emit_gsub(spec, tables, glyphs={**cell_glyphs, **bare}, ss10_copies=ss10_copies)
     gpos_fea = emit_gpos.emit_gpos({**cell_glyphs, **bare, **copies}, spec=spec)
@@ -84,6 +86,21 @@ def build_and_oracle(
         raise readback.ReadbackError(
             f"{readback_report['divergence_count']} read-back divergence(s) between the scratch font and the plan; see {out_dir / 'readback_summary.json'}"
         )
+    return FontBuild(tables=tables, cell_glyphs=cell_glyphs, readback=readback_report)
+
+
+def build_and_oracle(
+    runes_dir: Path, out_dir: Path, build_configs: list[str], oracle_configs: list[str]
+) -> dict:
+    out_dir.mkdir(parents=True, exist_ok=True)
+    # The baseline (old-font) subset tables are independent of the rune edits under test, so seed them from the real out dir.
+    for gz in M1_OUT.glob("baseline-*.subset.tsv.gz"):
+        target = out_dir / gz.name
+        if not target.exists():
+            target.write_bytes(gz.read_bytes())
+    spec = load_spec(runes_dir, DEFAULT_REGISTRY_PATH, DEFAULT_SCHEMA_DIR)
+    built = build_font(spec, out_dir, build_configs)
+    defect_report = run_m1._run_defect_gates(spec, built.tables, built.cell_glyphs)
 
     report = oracle.compare_against_baseline(
         spec,

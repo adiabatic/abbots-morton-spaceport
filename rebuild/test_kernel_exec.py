@@ -821,7 +821,7 @@ class TestTheKernelInvocation:
         second = recorded()
         assert (second["memos_read"], second["edited"], second["classes"]) == (CONFIG_COUNT, ["qsTea"], [])
         assert (second["structure"], second["code"]) == (first["structure"], first["code"])
-        labels = [phase["label"] for phase in ct.parse_inner_timings("\n".join(run_m1._table_build_lines))]
+        labels = [phase["label"] for phase in ct.parse_inner_timings("\n".join(run_m1._build_phase_lines))]
         assert "enumerate[default]" in labels and labels[-1] == "kernel_build_tables"
 
     def test_the_records_code_digest_keeps_through_a_letter_batch_and_moves_with_the_crate(self, tmp_path):

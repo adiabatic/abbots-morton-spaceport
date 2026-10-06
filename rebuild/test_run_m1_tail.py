@@ -11,6 +11,7 @@ from rebuild.pipeline import conform, defects, fixtures, kernel_exec, run_m1
 from rebuild.pipeline import table as table_module
 from rebuild.tools import artifact_cycle as ac
 from rebuild.tools import console
+from rebuild.tools import cycle_timings as ct
 
 SPEC = fixtures.mini_spec()
 STAMP = "tail-test"
@@ -165,6 +166,55 @@ class TestTheBranches:
         gates.join()
         gates.close()
         assert "emitted:done" in events
+
+
+class TestTheReadbackRecord:
+    @pytest.mark.parametrize("passed", [True, False])
+    def test_the_readback_line_carries_the_commit_and_the_figures_even_when_read_back_fails(
+        self, monkeypatch, tmp_path, capsys, passed
+    ):
+        """The `[t] readback` line ends with the commit `run` took before the build and the settlement lookup's figures from the read-back report, and is kept for run_m1's check line. A failed read-back prints the line before it raises, so a build that falls through the headroom floor still records its figures."""
+        events: list = []
+        _stub_chain(monkeypatch, events)
+        report = {
+            "pass": passed,
+            "checked": {
+                "gsub_budget": {
+                    "lookups": 549,
+                    "subtable_offset_headroom": 27_997,
+                    "largest_group_rule_bytes": 33_542,
+                },
+                "settle_rules": 29_214,
+                "settle_subtable_formats": {"format2": 2_298, "format3": 927},
+            },
+            "divergences": [] if passed else ["gsub budget: under the floor"],
+            "divergence_count": 0 if passed else 1,
+        }
+        monkeypatch.setattr(run_m1.readback, "verify_font", lambda font, plan, registrations: report)
+        monkeypatch.setattr(run_m1, "head_commit", lambda root=run_m1.REPO_ROOT: "95521363")
+        _stub_gates(monkeypatch, events)
+        if passed:
+            _summary, gates = _run(tmp_path)
+            gates.join()
+            gates.close()
+        else:
+            with pytest.raises(run_m1.readback.ReadbackError):
+                _run(tmp_path)
+        (line,) = [
+            phase for phase in ct.parse_inner_timings(capsys.readouterr().out) if phase["label"] == "readback"
+        ]
+        del line["elapsed_s"]
+        assert line == {
+            "label": "readback",
+            "commit": "95521363",
+            "settle_format2": 2_298,
+            "settle_format3": 927,
+            "subtable_offset_headroom": 27_997,
+            "gsub_lookups": 549,
+            "settle_rules": 29_214,
+            "largest_group_rule_bytes": 33_542,
+        }
+        assert ct.parse_inner_timings(run_m1._build_phase_lines[-1])[0]["commit"] == "95521363"
 
 
 class TestTheFirstRed:

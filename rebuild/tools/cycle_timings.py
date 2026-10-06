@@ -2,15 +2,15 @@
 
 The journal is rebuild/out/cycle-timings.ndjson. It is gitignored with the rest of rebuild/out and the retention pass does not prune it, so each machine keeps its own history. It holds four kinds of line.
 
-A "check" line records one evaluated check invocation: the check's name, the outcome (green, red, or skipped), the status string the evaluator printed, the failure messages the cycle adds to its summary, and the ids of the tests that failed. The artifact cycle tags each check it evaluates with its run id. The interactive entry points (rebuild.tools.rebuild_gate, rebuild.tools.make_test_gate, rebuild.tools.deep_replay, rebuild.tools.deep_sweep, and run_m1's CLI) record their checks with no run. Each invocation is recorded by one process: run_m1's CLI and make_test_gate, which a cycle spawns, record nothing when AMS_CYCLE_RUN (`CYCLE_RUN_ENV`) is set, and the cycle records their line instead. A check line carries its own host, cpu count, and total memory, because most check lines have no run line to take them from. `make conform-deep`'s check line also carries each configuration's highest unit peak footprint beside the per-unit need its width was derived from. The outcome is what the evaluator decided, never the process's return code, so a run that died before its evaluator and a run the evaluator failed can be told apart. run_m1's own check line, from an invocation that built tables, also carries that build's phase lines as `inner`, in a step line's form: the crate's lines and the `kernel_build_tables` line with its record, described below.
+A "check" line records one evaluated check invocation: the check's name, the outcome (green, red, or skipped), the status string the evaluator printed, the failure messages the cycle adds to its summary, and the ids of the tests that failed. The artifact cycle tags each check it evaluates with its run id. The interactive entry points (rebuild.tools.rebuild_gate, rebuild.tools.make_test_gate, rebuild.tools.deep_replay, rebuild.tools.deep_sweep, and run_m1's CLI) record their checks with no run. Each invocation is recorded by one process: run_m1's CLI and make_test_gate, which a cycle spawns, record nothing when AMS_CYCLE_RUN (`CYCLE_RUN_ENV`) is set, and the cycle records their line instead. A check line carries its own host, cpu count, and total memory, because most check lines have no run line to take them from. `make conform-deep`'s check line also carries each configuration's highest unit peak footprint beside the per-unit need its width was derived from. The outcome is what the evaluator decided, never the process's return code, so a run that died before its evaluator and a run the evaluator failed can be told apart. run_m1's own check line, from an invocation that built tables, also carries that build's phase lines as `inner`, in a step line's form: the crate's lines, the `kernel_build_tables` line with its record, and the `readback` line with the settlement lookup's figures, both described below.
 
-A "step" line records one subprocess the cycle spawned: the driver's step name (run_m1, gate:conform, merge, ...), the argv, the return code, the wall seconds, and the step's peak RSS in bytes. The driver measures the peak as it reaps the child (`peak_rss.reap_peak_rss_bytes`), and it is the largest of the child and its descendants. The line also carries every `[t] <label> <secs>s` phase line parsed from the child's captured output, so the per-configuration conform sweeps and run_m1's phases are kept even for steps whose output is not shown on the console. A phase line may end with a peak-RSS token `rss_gb=<n>` (`peak_rss.rss_token`) and a current-RSS token `rss_now_gb=<n>` (`peak_rss.rss_now_token`), both in decimal GB, which are stored as `rss_gb` and `rss_now_gb`. run_m1's `[t] kernel_build_tables` line ends with the table build's record (`run_m1.TableBuildRecord`) as `key=value` tokens, each stored under its key with the reader `TABLE_BUILD_TOKENS` names: the memo structure stamp (`structure`), the digest of the code the table build runs (`code`, over `run_m1.table_build_code_paths`, which a letter batch's `M1_ALPHABET` edit does not touch), how many configurations read a previous build's memo (`memos_read`, 0 for a fresh build), the runes and predicate classes those memos excluded (`edited`, `classes`), the build's width (`width`), and the alphabet's rune count (`runes`). The journal is per machine, so two fresh builds in one machine's journal with the same code digest and width, one on each side of a letter batch, measure that batch's growth in the table build. A step line has a return code and no outcome, and no reader here derives an outcome from it. A skipped stage spawns nothing and so writes no step line; the run line's plan and gates blocks say which stages were skipped.
+A "step" line records one subprocess the cycle spawned: the driver's step name (run_m1, gate:conform, merge, ...), the argv, the return code, the wall seconds, and the step's peak RSS in bytes. The driver measures the peak as it reaps the child (`peak_rss.reap_peak_rss_bytes`), and it is the largest of the child and its descendants. The line also carries every `[t] <label> <secs>s` phase line parsed from the child's captured output, so the per-configuration conform sweeps and run_m1's phases are kept even for steps whose output is not shown on the console. A phase line may end with a peak-RSS token `rss_gb=<n>` (`peak_rss.rss_token`) and a current-RSS token `rss_now_gb=<n>` (`peak_rss.rss_now_token`), both in decimal GB, which are stored as `rss_gb` and `rss_now_gb`. run_m1's `[t] kernel_build_tables` line ends with the table build's record (`run_m1.TableBuildRecord`) as `key=value` tokens, each stored under its key with the reader `TABLE_BUILD_TOKENS` names: the memo structure stamp (`structure`), the digest of the code the table build runs (`code`, over `run_m1.table_build_code_paths`, which a letter batch's `M1_ALPHABET` edit does not touch), how many configurations read a previous build's memo (`memos_read`, 0 for a fresh build), the runes and predicate classes those memos excluded (`edited`, `classes`), the build's width (`width`), and the alphabet's rune count (`runes`). The journal is per machine, so two fresh builds in one machine's journal with the same code digest and width, one on each side of a letter batch, measure that batch's growth in the table build. run_m1's `[t] readback` line ends with the settlement lookup's size figures, each stored under its key with the reader `READBACK_TOKENS` names: HEAD's short commit id when the build ran (`commit`), the format-2 and format-3 subtable counts whose sum N the subtable-offset headroom is spent on (`settle_format2`, `settle_format3`), that headroom (`subtable_offset_headroom`), the GSUB lookup count (`gsub_lookups`), the merged rule count (`settle_rules`), and the largest packed group's rule bytes (`largest_group_rule_bytes`). The figures are the ones `readback_summary.json` holds, and they do not depend on the machine. A step line has a return code and no outcome, and no reader here derives an outcome from it. A skipped stage spawns nothing and so writes no step line; the run line's plan and gates blocks say which stages were skipped.
 
 A "run" line is written when a cycle finishes, including an interrupted one. It carries the host, cpu count, total memory, start and finish stamps, total wall seconds, the cycle summary's exit, failures, gates, plan, and argv, and the carry's counts (`artifact_cycle.carry_counts` parses them from the carry's own output line). The plan block names the width of each pooled step (`sweep_jobs`, `corpus_jobs`, `signature_jobs`, `standing_fill_jobs`, `make_test_workers`, `contracts_workers` and `conform_jobs`), null for a step the pass skipped; its `kernel_threads` and `replay_threads` are null only on a gates-only rerun. The total memory is recorded because a step's peak read months later needs the size of the machine it ran on beside it.
 
 A "pool" line records one finished worker pool: its unit name, width, and the controller's and every worker's peak. A pytest controller writes one when AMS_POOL_UNIT (`POOL_UNIT_ENV`) is set, which the two gate wrappers and the cycle's rebuild-lane spawns do. run_m1's conformance sweep and oracle shards and the review build's signature and corpus pools write them too. `load_pool_records` reads them, and `make job-costs` compares the peaks with the checked-in per-worker constants.
 
-The reporter is `make cycle-timings` (`uv run python -m rebuild.tools.cycle_timings`). By default it shows recent runs with steps slowest first. `--inner` expands the phase lines. `--by-step` reports count, median, max, and latest seconds per step and host. `--by-outcome` reports, per check, how many times it ran, how it came out, and which test ids it failed on. `--critical-path` reports, per host, pool policy and pass shape, which step ended each finished pass and how long its lane ran past the other lane, computed from the step lines (`critical_path`). `--journal` reads another journal, such as journals from two machines concatenated.
+The reporter is `make cycle-timings` (`uv run python -m rebuild.tools.cycle_timings`). By default it shows recent runs with steps slowest first. `--inner` expands the phase lines. `--by-step` reports count, median, max, and latest seconds per step and host. `--by-outcome` reports, per check, how many times it ran, how it came out, and which test ids it failed on. `--by-commit` lists the settlement lookup's figures from every run_m1 build that recorded them, by commit (`readback_readings`, `render_by_commit`). `--critical-path` reports, per host, pool policy and pass shape, which step ended each finished pass and how long its lane ran past the other lane, computed from the step lines (`critical_path`). `--journal` reads another journal, such as journals from two machines concatenated.
 
 The file, the module, and the `make cycle-timings` target keep the "cycle-timings" name although the cycle is not the only writer. The journal is per-machine and gitignored, so renaming the file would leave each machine's existing history behind.
 """
@@ -72,6 +72,18 @@ TABLE_BUILD_TOKENS: dict[str, Callable[[str], object]] = {
     "width": int,
     "runes": int,
 }
+
+READBACK_TOKENS: dict[str, Callable[[str], object]] = {
+    "commit": str,
+    "settle_format2": int,
+    "settle_format3": int,
+    "subtable_offset_headroom": int,
+    "gsub_lookups": int,
+    "settle_rules": int,
+    "largest_group_rule_bytes": int,
+}
+PHASE_TOKENS: dict[str, Callable[[str], object]] = {**TABLE_BUILD_TOKENS, **READBACK_TOKENS}
+READBACK_FIGURES = tuple(name for name in READBACK_TOKENS if name != "commit")
 
 _JOURNAL_LOCK = threading.Lock()
 _pool_warn_state: list[bool] = [False]
@@ -208,7 +220,7 @@ def record_check(
 
 
 def parse_inner_timings(text: str) -> list[dict]:
-    """Return every `[t]` line in `text` as a phase entry: its label and seconds, the two RSS tokens, and each `key=value` token `TABLE_BUILD_TOKENS` names, read by that key's reader. A token whose value its reader rejects is left out, and every other part of the tail is dropped."""
+    """Return every `[t]` line in `text` as a phase entry: its label and seconds, the two RSS tokens, and each `key=value` token `PHASE_TOKENS` names (the table build's record and the read-back's figures), read by that key's reader. A token whose value its reader rejects is left out, and every other part of the tail is dropped."""
     entries: list[dict] = []
     for match in INNER_LINE.finditer(text):
         entry: dict = {"label": match.group(1), "elapsed_s": float(match.group(2))}
@@ -221,7 +233,7 @@ def parse_inner_timings(text: str) -> list[dict]:
             entry["rss_now_gb"] = float(now.group(1))
         for token in tail.split():
             key, separator, value = token.partition("=")
-            read = TABLE_BUILD_TOKENS.get(key) if separator else None
+            read = PHASE_TOKENS.get(key) if separator else None
             if read is None:
                 continue
             try:
@@ -610,6 +622,109 @@ def render_critical_path(runs: dict[str, dict], steps: dict[str, list[dict]]) ->
     return lines
 
 
+def readback_readings(path: Path) -> list[dict]:
+    """Return one reading per run_m1 build whose `[t] readback` phase carries the settlement lookup's figures, oldest first by `finished_at`, so journals concatenated from several machines interleave. A reading holds the line's `finished_at`, the phase's `commit` and figures, and the rune count from the same build's `kernel_build_tables` phase. The readings come from the cycle's run_m1 step lines and from run_m1 check lines recorded outside a cycle; a cycle's own run_m1 check line carries no phases. A build whose read-back failed still printed its figures, so it is read like any other. Malformed lines are skipped, and a missing journal reads as no readings."""
+    readings: list[dict] = []
+    if not path.exists():
+        return readings
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            entry = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(entry, dict):
+            continue
+        step = entry.get("kind") == "step" and entry.get("name") == "run_m1"
+        check = entry.get("kind") == "check" and entry.get("check") == "run_m1" and entry.get("run") is None
+        if not (step or check):
+            continue
+        phases = [item for item in entry.get("inner") or [] if isinstance(item, dict)]
+        figures = [
+            item
+            for item in phases
+            if item.get("label") == "readback" and any(name in item for name in READBACK_FIGURES)
+        ]
+        if not figures:
+            continue
+        runes = [
+            item["runes"] for item in phases if item.get("label") == "kernel_build_tables" and "runes" in item
+        ]
+        readback = figures[-1]
+        readings.append(
+            {
+                "finished_at": entry.get("finished_at"),
+                "commit": readback.get("commit"),
+                "runes": runes[-1] if runes else None,
+                **{name: readback.get(name) for name in READBACK_FIGURES},
+            }
+        )
+    readings.sort(key=lambda reading: str(reading.get("finished_at") or ""))
+    return readings
+
+
+def render_by_commit(readings: list[dict]) -> list[str]:
+    """Return one row per run of consecutive readings that share a commit and every figure, oldest first: the commit, the rune count, N (the format-2 and format-3 subtable counts summed) with its two parts, the subtable-offset headroom, the GSUB lookup count, the merged rule count, the largest group's rule bytes, how many builds the row stands for, and when the first of them finished. A rebuild that reproduces the figures adds to its row's count. A commit whose builds gave different figures gets a row for each, because the commit is HEAD when the build ran and the working tree can hold uncommitted edits on top of it: the pass made before a commit records the figures that commit will hold under the commit before it. A missing figure prints as `-`."""
+
+    def cell(value) -> str:
+        if value is None:
+            return "-"
+        return f"{value:,}" if isinstance(value, int) else str(value)
+
+    groups: list[tuple[tuple, dict, int]] = []
+    for reading in readings:
+        key = (reading.get("commit"), reading.get("runes"), *(reading.get(name) for name in READBACK_FIGURES))
+        if groups and groups[-1][0] == key:
+            groups[-1] = (key, groups[-1][1], groups[-1][2] + 1)
+        else:
+            groups.append((key, reading, 1))
+    header = (
+        "commit",
+        "runes",
+        "N",
+        "format2",
+        "format3",
+        "headroom",
+        "lookups",
+        "rules",
+        "largest group",
+        "builds",
+        "first finished",
+    )
+    rows = []
+    for _key, reading, count in groups:
+        format2, format3 = reading.get("settle_format2"), reading.get("settle_format3")
+        total = format2 + format3 if isinstance(format2, int) and isinstance(format3, int) else None
+        rows.append(
+            (
+                cell(reading.get("commit")),
+                cell(reading.get("runes")),
+                cell(total),
+                cell(format2),
+                cell(format3),
+                cell(reading.get("subtable_offset_headroom")),
+                cell(reading.get("gsub_lookups")),
+                cell(reading.get("settle_rules")),
+                cell(reading.get("largest_group_rule_bytes")),
+                str(count),
+                cell(reading.get("finished_at")),
+            )
+        )
+    if not rows:
+        return ["\nNo run_m1 build in this journal has recorded its read-back figures yet."]
+    widths = [max(len(row[column]) for row in [header, *rows]) for column in range(len(header) - 1)]
+    lines: list[str] = []
+    for index, row in enumerate([header, *rows]):
+        cells = [
+            cell_text.ljust(width) if column == 0 else cell_text.rjust(width)
+            for column, (cell_text, width) in enumerate(zip(row, widths))
+        ]
+        lines.append(("\n" if index == 0 else "") + "  ".join([*cells, row[-1]]))
+    return lines
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Summarize what this repo's checks cost and how they came out, host-tagged so machines are comparable."
@@ -637,6 +752,11 @@ def main(argv: list[str] | None = None) -> int:
         help="aggregate across every finished run whose run line carries its start stamp, from their step lines; an interrupted run is left out. Per host, pool policy and pass shape (which of run_m1, corpus-build and gate:make-test ran): how often each step ended last, the median margin by which the lane that ended the pass outlasted the other lane, the median wall, and the median gate:make-test width",
     )
     parser.add_argument(
+        "--by-commit",
+        action="store_true",
+        help="list the settlement lookup's figures that run_m1's read-back recorded, oldest first: the commit HEAD was at, the rune count, N (format-2 plus format-3 subtables), the subtable-offset headroom, the GSUB lookup count, the merged rule count and the largest group's rule bytes, one row per run of consecutive builds that agree on all of them",
+    )
+    parser.add_argument(
         "--by-outcome",
         action="store_true",
         help="aggregate across all recorded checks: invocations, green/red/skipped counts, and a histogram of the test ids each check has failed on",
@@ -650,6 +770,8 @@ def main(argv: list[str] | None = None) -> int:
     print(f"{args.journal} — {len(order)} runs recorded")
     if args.by_outcome:
         body = render_by_outcome(checks)
+    elif args.by_commit:
+        body = render_by_commit(readback_readings(args.journal))
     elif args.by_step:
         body = render_by_step(steps, order, checks)
     elif args.critical_path:

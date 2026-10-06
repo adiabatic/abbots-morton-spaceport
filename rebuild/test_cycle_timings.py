@@ -117,6 +117,24 @@ def test_parse_inner_timings_reads_the_table_builds_record():
     ]
 
 
+def test_parse_inner_timings_reads_the_readback_figures():
+    """run_m1's `readback` line ends with the commit HEAD was at and the settlement lookup's figures; the commit is kept as text and each figure as an integer."""
+    text = "[t] readback 41.2s commit=95521363 settle_format2=2298 settle_format3=927 subtable_offset_headroom=27997 gsub_lookups=549 settle_rules=29214 largest_group_rule_bytes=33542"
+    assert ct.parse_inner_timings(text) == [
+        {
+            "label": "readback",
+            "elapsed_s": 41.2,
+            "commit": "95521363",
+            "settle_format2": 2298,
+            "settle_format3": 927,
+            "subtable_offset_headroom": 27997,
+            "gsub_lookups": 549,
+            "settle_rules": 29214,
+            "largest_group_rule_bytes": 33542,
+        }
+    ]
+
+
 def test_parse_inner_timings_ignores_lines_without_seconds():
     assert ct.parse_inner_timings("[t] build_tables[default] done") == []
     assert ct.parse_inner_timings("plain noise\nnot a [t] line 3.0s") == []
@@ -776,6 +794,117 @@ def test_main_default_view_flags_a_run_with_no_run_record(tmp_path, capsys):
     assert "no run record" in out
     assert "host=h1" in out
     assert "2026-01-01T00:05:00Z" in out
+
+
+def _build_phases(commit, format2, headroom):
+    return [
+        {"label": "kernel_build_tables", "elapsed_s": 220.2, "runes": 44},
+        {
+            "label": "readback",
+            "elapsed_s": 41.2,
+            "commit": commit,
+            "settle_format2": format2,
+            "settle_format3": 927,
+            "subtable_offset_headroom": headroom,
+            "gsub_lookups": 549,
+            "settle_rules": 29_214,
+            "largest_group_rule_bytes": 33_542,
+        },
+    ]
+
+
+def test_main_by_commit_lists_each_builds_figures_under_its_commit(tmp_path, capsys):
+    """The view reads the cycle's run_m1 step lines and the run_m1 check lines recorded outside a cycle, oldest first by finish time. A rebuild that reproduces a row's figures adds to its count, and builds under one commit that disagree get a row each, since the tree can hold edits HEAD does not. A cycle's own check line and a read-back line without figures are not readings."""
+    path = tmp_path / "j.ndjson"
+    _write_journal(
+        path,
+        [
+            {
+                "kind": "step",
+                "run": "r1",
+                "name": "run_m1",
+                "finished_at": "2026-10-04T08:00:00Z",
+                "inner": _build_phases("779dcad4", 2_100, 29_000),
+            },
+            {
+                "kind": "check",
+                "check": "run_m1",
+                "run": "r1",
+                "finished_at": "2026-10-04T08:00:01Z",
+                "inner": _build_phases("779dcad4", 9_999, 1),
+            },
+            {
+                "kind": "check",
+                "check": "run_m1",
+                "finished_at": "2026-10-05T09:00:00Z",
+                "inner": _build_phases("95521363", 2_298, 27_997),
+            },
+            {
+                "kind": "step",
+                "run": "r2",
+                "name": "run_m1",
+                "finished_at": "2026-10-05T10:00:00Z",
+                "inner": _build_phases("95521363", 2_298, 27_997),
+            },
+            {
+                "kind": "step",
+                "run": "r3",
+                "name": "run_m1",
+                "finished_at": "2026-10-04T09:00:00Z",
+                "inner": _build_phases("779dcad4", 2_200, 28_500),
+            },
+            {
+                "kind": "step",
+                "run": "r4",
+                "name": "run_m1",
+                "finished_at": "2026-10-05T11:00:00Z",
+                "inner": [{"label": "readback", "elapsed_s": 40.0}],
+            },
+        ],
+    )
+    assert ct.main(["--journal", str(path), "--by-commit"]) == 0
+    rows = [line.split() for line in capsys.readouterr().out.splitlines() if re.match(r"^[0-9a-f]{8} ", line)]
+    assert rows == [
+        [
+            "779dcad4",
+            "44",
+            "3,027",
+            "2,100",
+            "927",
+            "29,000",
+            "549",
+            "29,214",
+            "33,542",
+            "1",
+            "2026-10-04T08:00:00Z",
+        ],
+        [
+            "779dcad4",
+            "44",
+            "3,127",
+            "2,200",
+            "927",
+            "28,500",
+            "549",
+            "29,214",
+            "33,542",
+            "1",
+            "2026-10-04T09:00:00Z",
+        ],
+        [
+            "95521363",
+            "44",
+            "3,225",
+            "2,298",
+            "927",
+            "27,997",
+            "549",
+            "29,214",
+            "33,542",
+            "2",
+            "2026-10-05T09:00:00Z",
+        ],
+    ]
 
 
 def test_main_by_step_aggregates_median_max_latest(tmp_path, capsys):

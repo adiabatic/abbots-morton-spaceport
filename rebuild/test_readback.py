@@ -12,6 +12,7 @@ from rebuild.pipeline import (
     readback,
     run_m1,
 )
+from rebuild.tools import cycle_timings as ct
 
 CONFIGS = ("default", "ss03")
 
@@ -273,6 +274,23 @@ class TestReadback:
         assert boundary["uni200C"]["inked"] is False
         assert boundary["space"]["inked"] is False
         assert report["pass"]
+
+    def test_the_budget_figures_are_the_reports_own_under_the_names_the_journal_reads(self, built):
+        """`budget_figures` hands the timings journal and the scaling series the report's own figures, under exactly the names `cycle_timings.READBACK_TOKENS` reads, so a renamed report key cannot drop a figure from the journal unnoticed. A report with no settlement lookup gives no figure."""
+        font_path, plan, cursive, _copies = built
+        report = readback.verify_font(font_path, plan, cursive)
+        checked = report["checked"]
+        figures = readback.budget_figures(report)
+        assert figures == {
+            "settle_format2": checked["settle_subtable_formats"]["format2"],
+            "settle_format3": checked["settle_subtable_formats"]["format3"],
+            "subtable_offset_headroom": checked["gsub_budget"]["subtable_offset_headroom"],
+            "gsub_lookups": checked["gsub_budget"]["lookups"],
+            "settle_rules": checked["settle_rules"],
+            "largest_group_rule_bytes": checked["gsub_budget"]["largest_group_rule_bytes"],
+        }
+        assert tuple(figures) == ct.READBACK_FIGURES
+        assert readback.budget_figures({"pass": False, "checked": {}}) == {}
 
     def test_verification_is_deterministic(self, built):
         font_path, plan, cursive, _copies = built
