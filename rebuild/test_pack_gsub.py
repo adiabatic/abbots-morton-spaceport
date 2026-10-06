@@ -1,6 +1,6 @@
 """Round-trip tests for pack_gsub, which repacks a lookup's per-rule format-3 chained-context subtables (the shape feaLib compiles most `m1_settle` rules to) into format-2 groups. The packed font must shape every string in `PROBES` the same, choose the same substitution as the unpacked font in every context (`_first_matches`), reference no class 0, leave the inner lookups unchanged, and pack deterministically.
 
-`FEA` covers the cases that constrain packing: several rules on the same input glyph whose order matters, overlapping but unequal lookahead classes (which force a second group), a rule with backtrack, a ZWNJ-lookahead row ordered first, a no-lookahead fallback row, and a rule whose own lookahead sets overlap without being equal, which splits into pieces that join format-2 groups. A rule whose split would take ZWNJ out of a slot short of the farthest on its side stays whole in format 3, and the font shapes the same across a ZWNJ. `_mixed_font` puts an existing format-2 subtable between format-3 runs; it must stay an ordered barrier through packing and serialization, and a multi-input rule in it disqualifies the lookup. `FEA_NAMED` writes the seven `FEA` rules with each outcome as a `lookup NAME` reference to a standalone single substitution, the form `m1_settle` uses, and must pack and shape the same as the inline form.
+`FEA` covers the cases that constrain packing: several rules on the same input glyph whose order matters, overlapping but unequal lookahead classes (which force a second group), a rule with backtrack, a ZWNJ-lookahead row ordered first, a no-lookahead fallback row, and a rule whose own lookahead sets overlap without being equal. Each family's rules refine into the pieces of its atoms, which join format-2 groups. A rule whose refinement would take ZWNJ out of a slot short of the farthest on its side stays whole in format 3, and the font shapes the same across a ZWNJ. `_mixed_font` puts an existing format-2 subtable between format-3 runs; it must stay an ordered barrier through packing and serialization, and a multi-input rule in it disqualifies the lookup. `FEA_NAMED` writes the seven `FEA` rules with each outcome as a `lookup NAME` reference to a standalone single substitution, the form `m1_settle` uses, and must pack and shape the same as the inline form.
 """
 
 import io
@@ -120,8 +120,13 @@ def _shape_all(font, tmp_path, probes=PROBES):
 
 
 def _settle_lookup(font):
+    """The font's one chained-context lookup, Extension-wrapped or not."""
     lookups = font["GSUB"].table.LookupList.Lookup
-    return max(lookups, key=lambda lookup: lookup.SubTableCount)
+    return next(
+        lookup
+        for lookup in lookups
+        if lookup.LookupType == 6 or (lookup.LookupType == 7 and lookup.SubTable[0].ExtensionLookupType == 6)
+    )
 
 
 def _resolved_sequences(font):
@@ -201,54 +206,73 @@ def packed_pair(tmp_path_factory):
 class TestPackGsub:
     @pytest.mark.parametrize("kept", [False, True])
     def test_smaller_stream_inserts_before_groups_its_later_rules_can_share(self, kept):
-        early_context = "[B uni200C] [B C uni200C] D" if kept else "[B C]"
-        font = _build_font(f"""
-lookup t_settle useExtension {{
-    sub A' B by A.alt1;
-    sub A' B C by A.alt2;
-    sub A' B D by A.alt3;
-    sub B' {early_context} by B.alt1;
-    sub B' B by B.alt1;
-}} t_settle;
-feature calt {{ lookup t_settle; }} calt;
-""")
-        lookup = _settle_lookup(font)
-        before = pack_gsub.per_glyph_sequences(lookup)
+        """A stream's first rule that no group accepts, or that `_refine` keeps whole in format 3, goes at the beginning, before the larger stream's group, so the stream's later rule can still join that group."""
+        one = frozenset
+        larger = [
+            pack_gsub.LogicalRule((), one({"A"}), lookahead, ((0, index),))
+            for index, lookahead in enumerate(
+                [(one({"B"}),), (one({"B"}), one({"C"})), (one({"B"}), one({"D"}))]
+            )
+        ]
+        early = pack_gsub.LogicalRule((), one({"B"}), (one({"B", "C"}),), ((0, 3),))
+        later = pack_gsub.LogicalRule((), one({"B"}), (one({"B"}),), ((0, 3),))
+        format3 = object()
 
-        pack_gsub.pack_lookup(lookup, font.getGlyphOrder())
-
-        assert lookup.SubTableCount == 2
-        assert [subtable.ExtSubTable.Format for subtable in lookup.SubTable] == [3 if kept else 2, 2]
-        assert pack_gsub.per_glyph_sequences(lookup) == before
-
-    def test_a_singleton_slot_inside_a_later_broad_class_splits_the_broad_class(self):
-        """The real table's shape: one lookahead slot holds a singleton and a later one a broad class holding the same glyph, so the rule's own lookahead sets cannot share a ClassDef. The broad slot splits into the rest of the class, then the singleton, and the rule's other slots stay as they are."""
-        singleton, broad = frozenset({"B"}), frozenset({"B", "C", "D"})
-        rule = pack_gsub.LogicalRule(
-            (frozenset({"C"}),), frozenset({"A"}), (frozenset({"A"}), singleton, broad), ((0, 3),)
+        groups = pack_gsub._group_rules(
+            [(rule, None) for rule in larger] + [(early, format3 if kept else None), (later, None)]
         )
 
-        assert pack_gsub._split_rule(rule) == [
-            pack_gsub.LogicalRule(
-                rule.backtrack, rule.input, (frozenset({"A"}), singleton, broad - singleton), rule.records
-            ),
-            pack_gsub.LogicalRule(
-                rule.backtrack, rule.input, (frozenset({"A"}), singleton, singleton), rule.records
-            ),
+        assert len(groups) == 2
+        if kept:
+            assert groups[0] is format3
+        else:
+            assert groups[0].rules == [early]
+        assert groups[1].rules == larger + [later]
+
+    def test_a_familys_rules_refine_into_the_product_of_its_atoms(self):
+        """Every rule of a family is cut by the atoms of all the family's sets on its side: ·A's singleton-inside-a-broad-class rule and an `A.alt1` rule together cut the broad slot into three atoms, so the rule becomes three pieces in glyph order, each holding one combination. The `A.alt1` rule's set is already an atom. Family B's rule over the same broad set is not cut by family A's atoms."""
+        one = frozenset
+        broad = one({"B", "C", "D"})
+        rules = [
+            pack_gsub.LogicalRule((one({"C"}),), one({"A"}), (one({"A"}), one({"B"}), broad), ((0, 3),)),
+            pack_gsub.LogicalRule((), one({"A.alt1"}), (one({"C"}),), ((0, 4),)),
+            pack_gsub.LogicalRule((), one({"B"}), (broad,), ((0, 5),)),
+        ]
+        order = {glyph: index for index, glyph in enumerate(GLYPHS)}
+
+        refined = pack_gsub._refine(rules, order)
+
+        first = rules[0]
+        assert refined == [
+            [
+                pack_gsub.LogicalRule(
+                    first.backtrack, first.input, (one({"A"}), one({"B"}), one({glyph})), first.records
+                )
+                for glyph in "BCD"
+            ],
+            [rules[1]],
+            [rules[2]],
         ]
 
-    def test_sets_that_each_hold_glyphs_the_other_lacks_split_both(self):
-        first, second = frozenset({"B", "C"}), frozenset({"C", "D"})
+    def test_atoms_are_the_coarsest_common_refinement_of_the_sets(self):
+        """Two glyphs share an atom exactly when the same sets hold them. Each set maps to the atoms it holds, in glyph order, and a set that no other set cuts is its own only atom."""
+        one = frozenset
+        order = {glyph: index for index, glyph in enumerate(GLYPHS)}
 
-        assert pack_gsub._split_slots((first, second)) == [
-            (frozenset({"B"}), second),
-            (frozenset({"C"}), frozenset({"D"})),
-            (frozenset({"C"}), frozenset({"C"})),
-        ]
-        assert pack_gsub._split_slots((first, frozenset({"A"}), first)) == [(first, frozenset({"A"}), first)]
+        atoms = pack_gsub._atoms([one({"B", "C"}), one({"C", "D"}), one({"A"}), one({"B", "C"})], order)
 
-    def test_a_split_rule_packs_into_format2_and_shapes_the_same(self, tmp_path):
-        """Two rules of the singleton-inside-a-broad-class shape, between rules of the same input glyph that they must stay ahead of and behind, split into two pieces each and pack with every other rule into format-2 groups, and the packed lookup chooses the same substitution as the unpacked one in every context."""
+        assert atoms == {
+            one({"B", "C"}): (one({"B"}), one({"C"})),
+            one({"C", "D"}): (one({"C"}), one({"D"})),
+            one({"A"}): (one({"A"}),),
+        }
+        assert pack_gsub._atoms([one({"B", "C"}), one({"B", "C", "D"})], order) == {
+            one({"B", "C"}): (one({"B", "C"}),),
+            one({"B", "C", "D"}): (one({"B", "C"}), one({"D"})),
+        }
+
+    def test_refined_rules_pack_into_one_format2_group_and_shape_the_same(self, tmp_path):
+        """Two rules of the singleton-inside-a-broad-class shape, between rules of the same input glyph that they must stay ahead of and behind, refine with the rest of family A into the atoms {B}, {C} and {D}, and every piece packs with family B's rule into one format-2 group. The packed lookup chooses the same substitution as the unpacked one in every context."""
         fea = """
 lookup t_settle useExtension {
     sub A' B B by A.alt1;
@@ -267,14 +291,14 @@ feature calt { lookup t_settle; } calt;
         stats = pack_gsub.pack_font(font, min_subtables=2)
 
         assert stats["packed_lookups"][0]["rules"] == 5
-        assert stats["packed_lookups"][0]["packed_rules"] == 7
+        assert stats["packed_lookups"][0]["packed_rules"] == 11
         lookup = _settle_lookup(font)
-        assert {subtable.ExtSubTable.Format for subtable in lookup.SubTable} == {2}
+        assert [subtable.ExtSubTable.Format for subtable in lookup.SubTable] == [2]
         assert _first_matches(lookup) == reference
         assert _shape_all(font, tmp_path) == shaped
 
-    def test_a_split_that_would_drop_zwnj_from_a_nearer_slot_keeps_the_rule_whole(self, tmp_path):
-        """HarfBuzz skips a ZWNJ that a context slot does not hold and tries the slot on the glyph beyond it. Splitting the first rule's second lookahead slot, or the second rule's nearer backtrack slot, would leave a piece without ZWNJ there, which skips the ZWNJ in the text A B ZWNJ C D or B C ZWNJ A and fires where the rule does not, so both rules keep their format-3 subtables. The third rule's split slot is its farthest, where the rule has already matched a ZWNJ the piece skips, so it splits and packs into format 2."""
+    def test_a_refinement_that_would_drop_zwnj_from_a_nearer_slot_keeps_the_rule_whole(self, tmp_path):
+        """HarfBuzz skips a ZWNJ that a context slot does not hold and tries the slot on the glyph beyond it. Family A's atoms cut the first rule's second lookahead slot, and the second rule's nearer backtrack slot, into {B, ZWNJ} and {C}, which would leave a piece without ZWNJ there that skips the ZWNJ in the text A B ZWNJ C D or B C ZWNJ A and fires where the rule does not, so both rules keep their format-3 subtables. The third rule's cut slot is its farthest, where the rule has already matched a ZWNJ the piece skips, so it refines and packs into format 2."""
         fea = """
 lookup t_settle useExtension {
     sub A' [B uni200C] [B C uni200C] D by A.alt1;
@@ -376,7 +400,7 @@ feature calt { lookup t_settle; } calt;
         assert len(stats["packed_lookups"]) == 1
         entry = stats["packed_lookups"][0]
         assert entry["rules"] == 7
-        assert entry["packed_rules"] == 8
+        assert entry["packed_rules"] == 11
         assert entry["format2_subtables"] < entry["rules"]
         assert entry["kept_format3"] == 0
         assert _settle_lookup(packed).SubTableCount == entry["format2_subtables"]

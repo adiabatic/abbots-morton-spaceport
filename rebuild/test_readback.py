@@ -1,4 +1,4 @@
-"""Read-back tests over a real build of the mini fixture spec. The fixture runs the whole emit and compile path, so the font under test has every stage the shipped font has: the ss10 input substitution, the guarded and plain formation lookups, the marker lookups, the ZWNJ lock, a packed settlement lookup that holds split rules, and the namer dot. A clean build must verify with zero divergences. Each corruption test edits the compiled font so it no longer matches the plan, and checks that read-back reports the mismatch under the right stage name."""
+"""Read-back tests over a real build of the mini fixture spec. The fixture runs the whole emit and compile path, so the font under test has every stage the shipped font has: the ss10 input substitution, the guarded and plain formation lookups, the marker lookups, the ZWNJ lock, a packed settlement lookup that holds refined rules, and the namer dot. A clean build must verify with zero divergences. Each corruption test edits the compiled font so it no longer matches the plan, and checks that read-back reports the mismatch under the right stage name."""
 
 import dataclasses
 import math
@@ -437,7 +437,7 @@ class TestCorruptions:
         assert _named(report, "formation guarded:")
 
     def test_reordering_packed_settlement_rules(self, built, tmp_path):
-        """First match wins, so a lookup that holds every planned rule in the wrong order shapes differently. The rule count stays correct and only the order is wrong. The packing could produce this corruption, and read-back's decompile through `per_glyph_sequences` is there to catch it."""
+        """First match wins, so a lookup that holds every planned rule in the wrong order shapes differently. The font holds the same rules as the clean build and only their order is wrong, so read-back reports a run that does not reassemble into its plan rule. The packing could produce this corruption, and read-back's decompile through `per_glyph_sequences` is there to catch it."""
 
         def mutate(font, plan):
             from rebuild.pipeline import pack_gsub
@@ -473,11 +473,12 @@ class TestCorruptions:
             )
 
         report = _corrupted_report(built, tmp_path, "reordered-settle", mutate)
-        _font_path, plan, _cursive, _copies = built
+        font_path, plan, cursive, _copies = built
         assert not report["pass"]
         settled = _named(report, "settle:")
-        assert settled and any("expected" in line for line in settled)
-        assert report["checked"]["settle_rules"] == plan.rule_count
+        assert settled and "of plan rule" in settled[0]
+        clean = readback.verify_font(font_path, plan, cursive)
+        assert report["checked"]["settle_font_rules"] == clean["checked"]["settle_font_rules"]
 
     @pytest.mark.parametrize(
         ("arrangement", "expected"),
