@@ -1898,11 +1898,14 @@ def run_oracle(
                 worker_peaks=worker_peaks,
                 controller_peak_bytes=peak_rss_self_bytes(),
             )
-            ordered = [
-                oracle.merge_config_shards(
-                    [result for _shard, result in sorted(landed[config], key=lambda pair: pair[0].first_row)]
-                )
+            in_row_order = {
+                config: [
+                    result for _shard, result in sorted(landed[config], key=lambda pair: pair[0].first_row)
+                ]
                 for config in conform.ACCEPTANCE_CONFIGS
+            }
+            ordered = [
+                oracle.merge_config_shards(in_row_order[config]) for config in conform.ACCEPTANCE_CONFIGS
             ]
             report = oracle.merge_oracle_results(ordered)
             oracle.join_oracle_audit(
@@ -1915,12 +1918,11 @@ def run_oracle(
                         oracle_cache.join_store_segments(
                             scratch,
                             merged.config,
-                            segments[merged.config],
+                            [result.rows_compared for result in in_row_order[merged.config]],
                             stamp,
                             stamp.labels["subset"],
                             merged.pass_ordinal,
                             row_cache.family_keys,
-                            merged.rows_compared,
                             row_cache.position_environment,
                             row_cache.position_keys,
                         )

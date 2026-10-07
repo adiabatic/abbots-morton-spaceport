@@ -7,6 +7,8 @@ The stamp tests matter most. A per-family key covers only the routes that stay i
 
 import gzip
 import json
+import os
+import random
 import shutil
 from array import array
 from dataclasses import replace
@@ -498,6 +500,40 @@ def test_the_verification_sample_hands_back_the_rows_it_drew():
     assert (0, 0, rows[0]) < (0, 1, rows[1])
 
 
+def test_offer_many_draws_what_offer_draws():
+    """The oracle offers its served rows a chunk at a time through `offer_many`, so it must keep exactly the rows `offer` keeps: each family's `per_family` rows with the smallest mix, the same `Row` objects, whatever order and chunks the rows arrive in. The rows cover a family with fewer rows than the cap, one with exactly the cap, a row with no family, equal families tuples that are different objects, and ordinals past 2**32."""
+    rng = random.Random(512)
+    common = ("qsPea", "qsTea", "qsOy", "qsSee", "qsMay")
+    tuples = [tuple(sorted(rng.sample(common, rng.randint(1, 3)))) for _ in range(12)]
+    indexes = sorted(rng.sample(range(1 << 40), 3000))
+    offers = [(index, _row(index % 50), tuples[rng.randrange(len(tuples))]) for index in indexes]
+    offers += [(index, _row(1), ("qsRare", "qsPea")) for index in (5, 1 << 33, 1 << 39)]
+    offers += [
+        (index, _row(2), tuple(["qsCap"]))
+        for index in range(7_000, 7_000 + oracle_cache.VERIFICATION_SAMPLE_PER_FAMILY)
+    ]
+    offers += [(9, _row(3), ())]
+    shuffled = offers[:]
+    rng.shuffle(shuffled)
+    for ordinal in (0, 1, 7):
+        reference = oracle_cache.VerificationSample("stamp", ordinal)
+        for offer in offers:
+            reference.offer(*offer)
+        drawn = reference.by_family()
+        assert (
+            len(drawn["qsRare"]) == 3 and len(drawn["qsCap"]) == oracle_cache.VERIFICATION_SAMPLE_PER_FAMILY
+        )
+        for order in (offers, shuffled):
+            for size in (1, 7, 500, len(order)):
+                batched = oracle_cache.VerificationSample("stamp", ordinal)
+                for start in range(0, len(order), size):
+                    batched.offer_many(order[start : start + size])
+                assert batched.by_family() == drawn
+                assert [(index, id(row)) for index, row in batched.sampled_rows()] == [
+                    (index, id(row)) for index, row in reference.sampled_rows()
+                ]
+
+
 def _store_at(tmp_path: Path, repo: Path, spec, pass_ordinal: int, ages, name: str) -> oracle_cache.RowStore:
     stamp = _stamp(repo, spec)
     path = tmp_path / f"{name}.tsv.gz"
@@ -568,6 +604,57 @@ def test_a_read_only_pass_rotates_its_scheduled_re_derivation(repo, tmp_path):
     assert len(due) == rows // oracle_cache.MAX_RECORD_AGE
 
 
+def test_servable_answers_both_staleness_tests_at_once(repo):
+    """The oracle's scan asks `servable` once per row in place of `stale` and `position_stale`, so it must answer what those are defined to: a row is stale where a family it reaches moved or `due` holds, and its position is stale where the row is, where the position stamp or a position key it reaches moved, or where `position_due` holds. The grid takes every rotation, so the ordinal clause lands on every row, beside both age clauses, a moved row key, a moved position key, a moved position stamp, and a row recorded at `UNCOVERED_AGE`, which no pass may serve."""
+    spec = fixtures.mini_spec()
+    stamp, keys = _stamp(repo, spec), _keys(repo, spec)
+    position_keys, position_stamp = _position(repo, spec, MINI_FONT)
+    rows = ((PEA,), (TEA,), (OY,), (PEA, TEA), (TEA, OY), (PEA, OY), (PEA,), (TEA,))
+    ages = (
+        (30, 30),
+        (11, 30),
+        (30, 11),
+        (12, 12),
+        (oracle_cache.UNCOVERED_AGE, 30),
+        (25, 29),
+        (29, 25),
+        (30, 30),
+    )
+    path = repo / "store.tsv.gz"
+    with oracle_cache.RowWriter(
+        path, stamp, "subset-digest", 30, keys, position_stamp, position_keys
+    ) as writer:
+        for codepoints, (age, position_age) in zip(rows, ages):
+            writer.append(codepoints, None, age, None, position_age)
+    moved_stamp = oracle_cache.EnvironmentStamp(lines=position_stamp.lines[:-1] + ("kern\tanother",))
+    variants = (
+        (keys, position_stamp, position_keys),
+        ({**keys, "qsOy": "moved"}, position_stamp, position_keys),
+        (keys, position_stamp, {**position_keys, "qsTea": "moved"}),
+        (keys, moved_stamp, position_keys),
+    )
+    answers: set[int] = set()
+    for rotation in range(oracle_cache.MAX_RECORD_AGE):
+        for row_keys, environment, current in variants:
+            store = oracle_cache.load_store(
+                path, stamp, "subset-digest", spec, row_keys, rotation, environment, current
+            )
+            assert store is not None
+            for index, codepoints in enumerate(rows):
+                mask = store.mask.mask_of(codepoints)
+                row_stale = store.mask.stale(mask) or store.due(index)
+                position_stale = row_stale or store.position_mask.stale(mask) or store.position_due(index)
+                answer = store.servable(index, mask)
+                assert answer == (
+                    oracle_cache.SERVE_NOTHING
+                    if row_stale
+                    else oracle_cache.SERVE_ROW if position_stale else oracle_cache.SERVE_BOTH
+                )
+                answers.add(answer)
+            assert store.servable(4, store.mask.mask_of(rows[4])) == oracle_cache.SERVE_NOTHING
+    assert answers == {oracle_cache.SERVE_NOTHING, oracle_cache.SERVE_ROW, oracle_cache.SERVE_BOTH}
+
+
 def test_a_served_row_keeps_the_age_it_was_derived_at(repo, tmp_path):
     """The age measures how long a verdict has stood, not how old the file is, so a pass that only served a row writes the age it read and not its own ordinal. Writing its own ordinal would give a stale verdict a fresh age on every pass, which the age cap exists to prevent and which the store cannot detect afterward."""
     spec = fixtures.mini_spec()
@@ -602,7 +689,7 @@ def test_a_segment_writer_writes_records_only_and_the_join_puts_the_frame_around
         payload = gzip.decompress(path.read_bytes())
         assert not payload.startswith(b"{") and oracle_cache.ROW_COUNT_TRAILER.encode() not in payload
         assert payload.count(b"\n") == len(rows)
-    joined = oracle_cache.join_store_segments(scratch, "default", 2, stamp, "subset-digest", 4, keys, 6)
+    joined = oracle_cache.join_store_segments(scratch, "default", [2, 4], stamp, "subset-digest", 4, keys)
     assert joined is not None and joined == oracle_cache.scratch_store_path(scratch, "default")
     assert gzip.decompress(joined.read_bytes()) == gzip.decompress(whole.read_bytes())
     store = oracle_cache.load_store(joined, stamp, "subset-digest", spec, keys)
@@ -611,7 +698,136 @@ def test_a_segment_writer_writes_records_only_and_the_join_puts_the_frame_around
     assert store.serve(5, (PEA, PEA + 5)) == oracle_cache.decode_record(
         gzip.decompress(whole.read_bytes()).decode().splitlines()[6]
     )
-    assert oracle_cache.join_store_segments(scratch, "default", 3, stamp, "subset-digest", 4, keys, 6) is None
+    assert (
+        oracle_cache.join_store_segments(scratch, "default", [2, 4, 0], stamp, "subset-digest", 4, keys)
+        is None
+    )
+
+
+def _joined_store(tmp_path: Path, repo: Path, spec, segment_rows=(3, 2, 4), pass_ordinal=3):
+    """Write a cut configuration's store at `pass_ordinal` from segments of `segment_rows` records whose ages vary by row, and a whole store of the same records, and return both paths, the stamp, the keys, and each segment's compressed bytes."""
+    stamp = _stamp(repo, spec)
+    keys = _keys(repo, spec)
+    scratch = tmp_path / "scratch"
+    whole = tmp_path / "whole.tsv.gz"
+    with oracle_cache.RowWriter(whole, stamp, "subset-digest", pass_ordinal, keys) as writer:
+        for index in range(sum(segment_rows)):
+            writer.append((PEA, PEA + index), None, pass_ordinal - index % 3, None, pass_ordinal - index % 2)
+    first = 0
+    for segment, count in enumerate(segment_rows):
+        path = oracle_cache.scratch_store_path(scratch, "default", segment)
+        with oracle_cache.RowWriter(path, stamp, "subset-digest", pass_ordinal, keys, segment=True) as writer:
+            for index in range(first, first + count):
+                writer.append(
+                    (PEA, PEA + index), None, pass_ordinal - index % 3, None, pass_ordinal - index % 2
+                )
+        first += count
+    joined = oracle_cache.join_store_segments(
+        scratch, "default", list(segment_rows), stamp, "subset-digest", pass_ordinal, keys
+    )
+    assert joined is not None
+    segments = [
+        oracle_cache.scratch_store_path(scratch, "default", segment).read_bytes()
+        for segment in range(len(segment_rows))
+    ]
+    return joined, whole, stamp, keys, segments
+
+
+def test_a_range_on_one_segment_s_bounds_inflates_that_segment_alone(repo, tmp_path, monkeypatch):
+    """A joined store's header member carries the member index in its gzip header's extra field, which no reader decompresses, so the store's content is still the whole store's. A range that starts and ends on one segment's bounds inflates that segment and no other, and loads what the whole-file read of the same range loads. A range over several segments, one that cuts a segment, and one past the table's end read the whole file and inflate no segment on their own."""
+    spec = fixtures.mini_spec()
+    joined, whole, stamp, keys, segments = _joined_store(tmp_path, repo, spec)
+    assert gzip.decompress(joined.read_bytes()) == gzip.decompress(whole.read_bytes())
+    inflated: list[bytes] = []
+    real = oracle_cache.zlib.decompress
+
+    def spy(data, *args):
+        inflated.append(bytes(data))
+        return real(data, *args)
+
+    cases = (
+        (0, 3, [0]),
+        (3, 5, [1]),
+        (5, None, [2]),
+        (3, None, []),
+        (0, None, []),
+        (1, 3, []),
+        (0, 4, []),
+        (9, None, []),
+    )
+    for first_row, stop_row, held in cases:
+        reference = oracle_cache.load_store(
+            whole, stamp, "subset-digest", spec, keys, first_row=first_row, stop_row=stop_row
+        )
+        inflated.clear()
+        with monkeypatch.context() as patched:
+            patched.setattr(oracle_cache.zlib, "decompress", spy)
+            loaded = oracle_cache.load_store(
+                joined, stamp, "subset-digest", spec, keys, first_row=first_row, stop_row=stop_row
+            )
+        assert inflated == [segments[segment] for segment in held]
+        assert loaded is not None and reference is not None
+        assert (loaded.first_row, loaded.stop_row, loaded.rows) == (
+            reference.first_row,
+            reference.stop_row,
+            9,
+        )
+        for index in range(loaded.first_row, loaded.stop_row):
+            codepoints = (PEA, PEA + index)
+            assert loaded.serve(index, codepoints) == reference.serve(index, codepoints)
+            assert (loaded.age(index), loaded.position_age(index)) == (
+                reference.age(index),
+                reference.position_age(index),
+            )
+
+
+@pytest.mark.parametrize(
+    "damage", ("a byte in the first segment", "bytes after the trailer", "a short trailer")
+)
+def test_every_range_refuses_a_joined_store_its_join_did_not_write(repo, tmp_path, damage):
+    """All ranges of one configuration must agree on whether the store loads, or a full pass's ranges would write their segments under different pass ordinals. A range on one segment's bounds inflates only that segment, so it first checks every segment against the CRC-32 the member index records and the trailer against the index's row total; on any disagreement it reads the whole file, which refuses the store too. So damage in another range's segment, or around the trailer, refuses the store in every range, as it does with no index."""
+    spec = fixtures.mini_spec()
+    joined, _whole, stamp, keys, segments = _joined_store(tmp_path, repo, spec)
+    data = bytearray(joined.read_bytes())
+    if damage == "a byte in the first segment":
+        at = data.index(segments[0]) + len(segments[0]) // 2
+        data[at] ^= 0xFF
+    elif damage == "bytes after the trailer":
+        data += b"junk"
+    else:
+        del data[-3:]
+    joined.write_bytes(bytes(data))
+    for first_row, stop_row in ((0, None), (0, 3), (3, 5), (5, None), (1, 4)):
+        assert (
+            oracle_cache.load_store(
+                joined, stamp, "subset-digest", spec, keys, first_row=first_row, stop_row=stop_row
+            )
+            is None
+        )
+
+
+def test_a_store_promoted_during_a_load_is_read_from_the_file_its_header_came_from(
+    repo, tmp_path, monkeypatch
+):
+    """A `--gates-only` pass can load a store while a pass beside it promotes a newer one over the same path with `os.replace`. `load_store` reads the header through its own open and the one-segment read opens the path again, so a range that paired the newer file's segment with the older file's header would serve records under a stamp, keys and pass ordinal they were not written with. The one-segment read refuses a file whose header member is not the header the caller read, and the range reads its records whole through the handle its header came from."""
+    spec = fixtures.mini_spec()
+    joined, _whole, stamp, keys, _segments = _joined_store(tmp_path, repo, spec)
+    expected = oracle_cache.load_store(joined, stamp, "subset-digest", spec, keys, first_row=3, stop_row=5)
+    newer = _joined_store(tmp_path / "newer", repo, spec, pass_ordinal=7)[0]
+    real = oracle_cache._indexed_records
+
+    def promoted_first(path, *args):
+        os.replace(newer, path)
+        return real(path, *args)
+
+    monkeypatch.setattr(oracle_cache, "_indexed_records", promoted_first)
+    loaded = oracle_cache.load_store(joined, stamp, "subset-digest", spec, keys, first_row=3, stop_row=5)
+    assert loaded is not None and expected is not None and loaded.pass_ordinal == 3
+    for index in range(3, 5):
+        assert (loaded.age(index), loaded.position_age(index)) == (
+            expected.age(index),
+            expected.position_age(index),
+        )
 
 
 # --- the reader's refusals --------------------------------------------------------------

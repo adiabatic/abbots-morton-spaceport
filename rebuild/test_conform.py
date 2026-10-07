@@ -1,5 +1,6 @@
 """Tests for conform.py and the oracle stages that consume it: label normalization, the raw GSUB replay, the isolated overlay, alias and ledger matching, kern evaluation and the position comparison, the oracle's audit shards, row cache and row ranges, the conformance sweep's bookkeeping, and the memoized settle walk and its memo file, checked against settling the same texts without a memo. The conformance sweep at its full maximum length runs in run_m1 against the compiled M1 font. Settlement comes from the Rust crate, so these tests need a built kernel: the formation-guard sweep and the settle walk both call it."""
 
+import gc
 import gzip
 import hashlib
 import inspect
@@ -11,6 +12,7 @@ import shutil
 import struct
 import subprocess
 import sys
+import weakref
 import zlib
 from array import array
 from collections.abc import Sequence
@@ -1968,6 +1970,45 @@ class TestOracleRowCache:
             assert set(ages) == {0, 1}
             assert {index for index, age in enumerate(ages) if age == 1} == _cache_rederived(len(ages), 0)
 
+    def test_a_row_whose_glyph_names_reach_past_its_keys_is_never_served(self, spec, tmp_path, monkeypatch):
+        """A row whose old glyph names have a `qs` head that none of its codepoints reach used alias entries no key it compares covers, so no store may serve it. The pass that writes the store checks this as it derives each row and records such a row at `UNCOVERED_AGE`, which every later pass under the same stamp finds due. The next pass therefore derives that row again while it serves the others, and writes the cold pass's audit."""
+        tables, aliases, _stamps, configs = self._bench(tmp_path, configs=("default",))
+        table = tables / "baseline-default.subset.tsv.gz"
+        lines = gzip.decompress(table.read_bytes()).decode("utf-8").splitlines(keepends=True)
+        fields = lines[1].split("\t")
+        assert fields[0] == f"{CACHE_LETTERS[0]:04X}"
+        fields[1] = "qsTea.half"
+        lines[1] = "\t".join(fields)
+        table.write_bytes(gzip.compress("".join(lines).encode("utf-8")))
+        ledger = tmp_path / "ledger.yaml"
+        ledger.write_text("[]\n")
+        shared: dict[str, Any] = dict(
+            tables=tables,
+            aliases=aliases,
+            ledger=ledger,
+            stamps={"default": _cache_stamp("default", table)},
+            keys=self._keys(spec),
+            configs=configs,
+        )
+        _cold, cold_audit, cold_stores = self._pass(spec, tmp_path, "cold", **shared)
+        ages = _cache_ages(oracle_cache.store_path(cold_stores, "default"))
+        assert ages[0] == oracle_cache.UNCOVERED_AGE and set(ages[1:]) == {0}
+
+        served: list[int] = []
+        real = oracle_cache.RowStore.serve
+
+        def spy(store, index, codepoints):
+            served.append(index)
+            return real(store, index, codepoints)
+
+        monkeypatch.setattr(oracle_cache.RowStore, "serve", spy)
+        _served, served_audit, served_stores = self._pass(
+            spec, tmp_path, "served", read_dir=cold_stores, **shared
+        )
+        assert served and 0 not in served
+        assert served_audit.read_bytes() == cold_audit.read_bytes()
+        assert _cache_ages(oracle_cache.store_path(served_stores, "default"))[0] == oracle_cache.UNCOVERED_AGE
+
     def test_a_served_verdict_that_disagrees_with_a_fresh_comparison_is_a_hard_stop(
         self, spec, tmp_path, monkeypatch
     ):
@@ -2262,12 +2303,11 @@ class TestOracleRowRanges:
                     assert oracle_cache.join_store_segments(
                         scratch,
                         result.config,
-                        segments[result.config],
+                        [part.rows_compared for part in by_config[result.config]],
                         stamp,
                         stamp.labels["subset"],
                         result.pass_ordinal,
                         keys,
-                        result.rows_compared,
                         position_stamp,
                         position_keys,
                     )
@@ -2409,6 +2449,42 @@ class TestOracleRowRanges:
             oracle.OracleConfigResult(config="default", notes=["default: subset table missing at x"]),
         ]
         assert oracle.merge_config_shards(results).notes == ["default: subset table missing at x"]
+
+    def test_a_range_runs_with_the_collector_held_and_leaves_it_as_it_found_it(self):
+        """A range worker collects once before its range runs, so the cycles a previous task left are freed rather than frozen, then holds the cyclic collector off with the heap it loaded frozen. On exit the collector is enabled again if it was, the heap it froze is unfrozen, and a heap something else had frozen stays frozen."""
+
+        class Node:
+            partner: object = None
+
+        def cycle() -> weakref.ref:
+            node = Node()
+            node.partner = node
+            return weakref.ref(node)
+
+        before = (gc.isenabled(), gc.get_freeze_count())
+        thresholds = gc.get_threshold()
+        gc.set_threshold(1 << 30)
+        try:
+            left = cycle()
+            with oracle._collector_held():
+                assert left() is None
+                assert not gc.isenabled() and gc.get_freeze_count() > 0
+                built = cycle()
+                assert built() is not None
+        finally:
+            gc.set_threshold(*thresholds)
+        assert (gc.isenabled(), gc.get_freeze_count()) == before
+        gc.collect()
+        assert built() is None
+        if before[1] == 0:
+            gc.freeze()
+            try:
+                frozen = gc.get_freeze_count()
+                with oracle._collector_held():
+                    pass
+                assert gc.get_freeze_count() >= frozen > 0
+            finally:
+                gc.unfreeze()
 
 
 class TestFontBlindComparison:

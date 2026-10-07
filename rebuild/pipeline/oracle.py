@@ -13,6 +13,7 @@ For the overlay configuration (ss10), no settlement table produces the new side.
 
 from __future__ import annotations
 
+import gc
 import itertools
 import math
 import os
@@ -44,7 +45,7 @@ from rebuild.pipeline.conform import (
 from rebuild.pipeline.labels import BOUNDARY_GLYPH_NAMES, features_for_config, load_alias_map
 from rebuild.pipeline.model import ResolvedSpec, isolated_overlay_active
 from rebuild.tools.peak_rss import peak_rss_self_bytes
-from rebuild.validation.rowmodel import iter_rows
+from rebuild.validation.rowmodel import Row, iter_rows
 
 # Baseline rows read and walked at a time: the oracle's counterpart of `conform.TEXT_CHUNK`.
 ORACLE_ROW_CHUNK = 65536
@@ -698,6 +699,8 @@ def _compare_config(
         else None
     )
     this_pass = writer.pass_ordinal if writer is not None else 0
+    # A writing pass records each row it derives that `oracle_cache.unreachable_glyph_heads` refuses at `UNCOVERED_AGE`. Reach depends only on the registry, so a pass that loaded no store asks a mask of its own.
+    coverage = None if writer is None else (store.mask if store is not None else oracle_cache.StaleMask(spec))
     while True:
         chunk = list(itertools.islice(rows, ORACLE_ROW_CHUNK))
         if not chunk:
@@ -705,26 +708,26 @@ def _compare_config(
         served_at: dict[int, oracle_cache.StoredRecord] = {}
         positions_at: dict[int, tuple[oracle_cache.StoredRecord, tuple[str, ...]]] = {}
         fresh_at: list[int] = []
+        offered: list[tuple[int, Row, tuple[str, ...]]] = []
+        positions_offered: list[tuple[int, Row, tuple[str, ...]]] = []
         for offset, row in enumerate(chunk):
             index = first_row + offset
             if store is None or index >= store.rows:
                 fresh_at.append(offset)
                 continue
             mask = store.mask.mask_of(row.codepoints)
-            if store.stale(index, mask):
-                fresh_at.append(offset)
-                continue
-            reachable = store.mask.families_of(mask)
-            if oracle_cache.unreachable_glyph_heads(row.glyphs, reachable):
-                # The row uses alias entries of a family none of its keys cover, so no key on this store could report them changed. Nothing in the live subset does this; a row that does is walked instead of served.
+            servable = store.servable(index, mask)
+            if servable == oracle_cache.SERVE_NOTHING:
                 fresh_at.append(offset)
                 continue
             record = store.serve(index, row.codepoints)
             served_at[offset] = record
-            if sample is not None:
-                sample.offer(index, row, reachable)
-            if record.position is not oracle_cache.UNSHAPED and not store.position_stale(index, mask):
+            reachable = store.mask.families_of(mask)
+            offered.append((index, row, reachable))
+            if servable == oracle_cache.SERVE_BOTH and record.position is not oracle_cache.UNSHAPED:
                 positions_at[offset] = (record, reachable)
+        if sample is not None:
+            sample.offer_many(offered)
         walked = dict(zip(fresh_at, walker.walk_many([chunk[offset].text for offset in fresh_at])))
         for offset, row in enumerate(chunk):
             index = first_row + offset
@@ -739,6 +742,10 @@ def _compare_config(
                 divergent = _compare_row(spec, aliases, config, features, row, settled)
                 cached = _cached_verdict(divergent)
                 derived_at = this_pass
+                if coverage is not None and oracle_cache.unreachable_glyph_heads(
+                    row.glyphs, coverage.families_of(coverage.mask_of(row.codepoints))
+                ):
+                    derived_at = oracle_cache.UNCOVERED_AGE
             carried = positions_at.get(offset)
             position: oracle_cache.PositionVerdict = oracle_cache.UNSHAPED
             position_at = this_pass
@@ -755,7 +762,7 @@ def _compare_config(
                         assert not isinstance(position, oracle_cache._Unshaped)
                         mismatch = oracle_positions._served_position(position)
                         store.positions_served += 1
-                        position_sample.offer(index, row, carried[1])
+                        positions_offered.append((index, row, carried[1]))
                     else:
                         mismatch = oracle_positions._position_mismatch(shaper, kern, features, row)
                         position, position_at = oracle_positions._cached_position(mismatch), this_pass
@@ -824,6 +831,8 @@ def _compare_config(
                     )
                     + "\n"
                 )
+        if position_sample is not None:
+            position_sample.offer_many(positions_offered)
         first_row += len(chunk)
     served_rows = 0 if store is None else store.served
     result.positions_served = 0 if store is None else store.positions_served
@@ -841,6 +850,23 @@ def _compare_config(
     )
     result.peak_rss_bytes = peak_rss_self_bytes()
     return result
+
+
+@contextmanager
+def _collector_held() -> Iterator[None]:
+    """Hold Python's cyclic collector off while one row range runs. A range allocates container objects for every row it reads, serves and compares, so with the collector on it runs thousands of collections, and each also walks part of the heap the worker loaded before the range (the spec, the ledger, the store and the shaper). One full collection first frees what the worker's previous task left (a pool worker runs several ranges and absorbs, and a task's arguments die only after it returns), and `gc.freeze()` then takes the heap that is left out of every collection, so nothing the previous task left is held through this range. A range builds few reference cycles, so holding the collector costs little memory, and the collector, enabled again on exit, or the next range's first collection reclaims them; the `oracle-shard` row of `make job-costs` checks the range's peak against `artifact_cycle.ORACLE_SHARD_BYTES`. On exit the collector is enabled again only if it was enabled on entry, and the heap is unfrozen only if nothing had frozen it before: when something had, nothing is unfrozen, so the range's own heap stays frozen too."""
+    enabled = gc.isenabled()
+    frozen = gc.get_freeze_count()
+    gc.collect()
+    gc.freeze()
+    gc.disable()
+    try:
+        yield
+    finally:
+        if not frozen:
+            gc.unfreeze()
+        if enabled:
+            gc.enable()
 
 
 def oracle_config_worker(
@@ -874,7 +900,7 @@ def oracle_config_worker(
     )
     if guard_verdicts is None and not overlay:
         guard_verdicts = kernel_exec.guard_sweep(spec)
-    with ExitStack() as stack:
+    with _collector_held(), ExitStack() as stack:
         audit = stack.enter_context(segment_path.open("w", encoding="utf-8", newline="\n"))
         if writer is not None:
             stack.enter_context(writer)

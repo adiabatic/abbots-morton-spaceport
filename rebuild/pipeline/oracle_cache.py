@@ -20,7 +20,7 @@ Records are positional and carry no row key: the subset table is the complete pr
 
 Two mechanisms stop a wrong record from being served indefinitely. They are needed because a served record is written again under the current stamp, so its provenance never ages it out, and `gate:conform` checks the font against a fresh settlement but never compares a cached verdict with a fresh one. First, each record keeps the pass at which each of its two verdicts was derived, not the pass that last wrote it, and `RowStore.due` and `RowStore.position_due` force a re-derivation once that age reaches `MAX_RECORD_AGE`. The scheduled re-derivation is spread by row ordinal, so one row in `MAX_RECORD_AGE` re-derives on every pass instead of the whole table on one pass. Second, `VerificationSample` draws up to `VERIFICATION_SAMPLE_PER_FAMILY` served rows for every family that served any, seeded on the stamp, the family and the pass's coverage ordinal, so the checked rows change from pass to pass. A pass that writes no store, such as `--gates-only`, advances that ordinal by the clock (see `RowStore`). The caller re-derives the sampled rows and compares whole records, and a second sample of the same shape re-shapes the rows whose positions were served. Because every family that served rows is sampled, a family whose records are all wrong is always caught, not with probability equal to the sample size over the rows served. A rune edited during a run produces that kind of error.
 
-The key relies on one assumption that nothing else in the pipeline checks: every old compiled glyph name in a row belongs to a family the row's codepoints reach, so the alias entries a served row used are inside its own key. `unreachable_glyph_heads` lets the caller check it for each row.
+The key relies on one assumption that nothing else in the pipeline checks: every old compiled glyph name in a row belongs to a family the row's codepoints reach, so the alias entries a served row used are inside its own key. `unreachable_glyph_heads` checks it. Its answer depends only on the subset row and the registry, which the whole-store stamp covers, so the check runs when a pass that writes a store derives a row, not when a row is served: a row that fails it is recorded at `UNCOVERED_AGE`, which every later pass under the same stamp finds due.
 
 Every failure falls back toward a full pass. `load_store` returns None for an absent, unreadable, format-mismatched, stamp-mismatched, digest-mismatched, short or trailer-less store, and None costs one uncached oracle pass. A store whose position stamp or position keys do not match loads with every position stale, which costs one pass of shaping.
 
@@ -32,12 +32,16 @@ from __future__ import annotations
 import gzip
 import hashlib
 import heapq
+import itertools
 import json
 import os
 import shutil
+import struct
+import sys
 import zlib
 from array import array
 from dataclasses import dataclass
+from operator import itemgetter
 from pathlib import Path
 from typing import IO, Callable, Collection, Iterable, Mapping, Sequence
 
@@ -56,6 +60,13 @@ ROW_CHECK_WIDTH = 12
 
 MAX_RECORD_AGE = 20
 VERIFICATION_SAMPLE_PER_FAMILY = 8
+
+# What `RowStore.servable` lets the caller take from a row's record.
+SERVE_NOTHING = 0
+SERVE_ROW = 1
+SERVE_BOTH = 2
+# The row age a writer records for a row `unreachable_glyph_heads` refuses. Every pass finds a record this old due, so the row is derived on every pass and never served.
+UNCOVERED_AGE = -MAX_RECORD_AGE
 
 # The position comparison's code that the row stamp does not cover: `_position_mismatch`, `_kern_normalized_positions`, the position record codec, `_verify_served_positions`, `KernEvaluator` and `_shaper_for`, which picks the shaper every stored position comes from. They share one module so this stamp works at module grain, like `ORACLE_ROW_CODE_PATHS`, and rebuild/test_oracle_code_closure.py walks that module's imports. The classifier in oracle.py is outside this stamp, so a classifier edit re-shapes no position. `Shaper` and `geometry.PIXEL` are in `ORACLE_ROW_CODE_PATHS`, so the row stamp covers them for both verdicts.
 POSITION_CODE_PATHS = ("rebuild/pipeline/oracle_positions.py",)
@@ -321,11 +332,9 @@ class StaleMask:
         return self._bit.get(family, 0)
 
     def stale(self, mask: int) -> bool:
-        if self.everything:
+        if self.everything or mask & self._stale_symbols:
             return True
-        if mask & self._stale_symbols:
-            return True
-        return any((mask & bits) == bits for bits in self._stale_ligatures)
+        return bool(self._stale_ligatures) and any((mask & bits) == bits for bits in self._stale_ligatures)
 
     def families_of(self, mask: int) -> tuple[str, ...]:
         """Return every family a row with this mask can reach: the letters its codepoints name, plus each ligature rune whose components are all among them. Memoized on the mask, because many rows share a mask."""
@@ -539,19 +548,35 @@ class RowStore:
         return self.coverage_ordinal % MAX_RECORD_AGE == index % MAX_RECORD_AGE
 
     def due(self, index: int) -> bool:
-        """Whether this row's verdict must be re-derived regardless of its families. The ordinal clause selects one row in `MAX_RECORD_AGE` on every pass, so no verdict stands that many passes and the scheduled re-derivation is spread across passes. The age clause is a second check that catches a store whose pass ordinals skipped. Only the ordinal clause uses the rotated ordinal. The age arithmetic uses the true one, because a rotated ordinal would make every record look older than the cap and re-derive the whole table."""
+        """Whether this row's verdict must be re-derived regardless of its families. The ordinal clause selects one row in `MAX_RECORD_AGE` on every pass, so no verdict stands that many passes and the scheduled re-derivation is spread across passes. The age clause is a second check that catches a store whose pass ordinals skipped, and it holds on every pass for a row recorded at `UNCOVERED_AGE`. Only the ordinal clause uses the rotated ordinal. The age arithmetic uses the true one, because a rotated ordinal would make every record look older than the cap and re-derive the whole table."""
         return self._due(index, self._ages[self._at(index)])
 
     def position_due(self, index: int) -> bool:
         """`due` over the position verdict's own age. The ordinal clause re-derives both of a row's verdicts on the same pass, and the age clause reads the pass the position was shaped at."""
         return self._due(index, self._position_ages[self._at(index)])
 
+    def servable(self, index: int, mask: int) -> int:
+        """Return which of this row's verdicts may be served: `SERVE_NOTHING` where `stale` holds, `SERVE_ROW` where only `position_stale` does, and `SERVE_BOTH` otherwise. The oracle's scan asks both questions of nearly every row, so they are decided here in one pass over the row's slot, and the ordinal clause `due` and `position_due` share is evaluated once."""
+        if self.mask.stale(mask):
+            return SERVE_NOTHING
+        at = self._at(index)
+        after = self.pass_ordinal + 1
+        if (
+            after - self._ages[at] >= MAX_RECORD_AGE
+            or (after + self.rotation) % MAX_RECORD_AGE == index % MAX_RECORD_AGE
+        ):
+            return SERVE_NOTHING
+        if self.position_mask.stale(mask) or after - self._position_ages[at] >= MAX_RECORD_AGE:
+            return SERVE_ROW
+        return SERVE_BOTH
+
     def stale(self, index: int, mask: int) -> bool:
-        return self.mask.stale(mask) or self.due(index)
+        """Whether this row's verdict must be re-derived: a family it reaches moved, or `due` holds."""
+        return self.servable(index, mask) == SERVE_NOTHING
 
     def position_stale(self, index: int, mask: int) -> bool:
-        """Whether this row's position verdict must be shaped again: wherever its row verdict must be re-derived (the position key includes the row key, and a served position over a fresh settlement would describe the previous pass's cells), or wherever a family it reaches changed its glyphs, the position stamp moved, or the scheduled re-derivation is due."""
-        return self.stale(index, mask) or self.position_mask.stale(mask) or self.position_due(index)
+        """Whether this row's position verdict must be shaped again: wherever its row verdict must be re-derived (the position key includes the row key, and a served position over a fresh settlement would describe the previous pass's cells), or wherever a family it reaches changed its glyphs, the position stamp moved, or `position_due` holds."""
+        return self.servable(index, mask) != SERVE_BOTH
 
     def serve(self, index: int, codepoints: Sequence[int]) -> StoredRecord:
         """Return this row's full record after checking its row check digest. The caller decides which of the two verdicts the keys allow it to use, and counts a served position in `positions_served` itself. A mismatched row check digest is not a miss: it means the table under this store was replaced or reordered and every other record is wrong in the same way, so it exits."""
@@ -615,13 +640,14 @@ def load_store(
     first_row: int = 0,
     stop_row: int | None = None,
 ) -> RowStore | None:
-    """Return the previous pass's records for rows `[first_row, stop_row)` of one configuration (`stop_row` None means the table's end), or `None` when the store cannot be trusted: absent, unreadable, format- or stamp-mismatched, written against another subset table, or missing its row-count trailer. `None` costs one uncached oracle pass, so every parse failure returns `None`, including `zlib.error`, which a corrupt deflate body raises instead of `OSError`. The file is read to its end whatever the range: the trailer is the last line and holds the count the store is checked against, and every record's two ages are parsed in range or out, so all ranges of one configuration agree on whether the store loads. Only the range's records are kept, in one buffer with three packed arrays. A range whose kept bytes exceed the packed offsets' width returns `None` like any other parse failure. The position stamp and keys do not affect loading: `position_stale_mask` decides which position verdicts may be served. `rotation` is passed to the store unread; see `RowStore`."""
+    """Return the previous pass's records for rows `[first_row, stop_row)` of one configuration (`stop_row` None means the table's end), or `None` when the store cannot be trusted: absent, unreadable, format- or stamp-mismatched, written against another subset table, or missing its row-count trailer. `None` costs one uncached oracle pass, so every parse failure returns `None`, including `zlib.error`, which a corrupt deflate body raises instead of `OSError`. A range that starts and ends on one segment of a joined store inflates that segment alone (`_indexed_records`), after checking the file's header member against the header line read here, and every segment's bytes and the trailer against the store's member index. Any other range, and every range of a store with no index (an uncut configuration's, or one the index does not describe), reads the file to its end: the trailer is the last line and holds the count the store is checked against, and every record's two ages are parsed in range or out. Both reads load a store only when it is the one its writer wrote, so all ranges of one configuration agree on whether the store loads. Only the range's records are kept, in one buffer with three packed arrays. A range whose kept bytes exceed the packed offsets' width returns `None` like any other parse failure. The position stamp and keys do not affect loading: `position_stale_mask` decides which position verdicts may be served. `rotation` is passed to the store unread; see `RowStore`."""
     store_file = Path(path)
     if not store_file.is_file():
         return None
     try:
         with gzip.open(store_file, "rb") as stream:
-            header = json.loads(stream.readline())
+            header_line = stream.readline()
+            header = json.loads(header_line)
             if header["format"] != STORE_FORMAT:
                 return None
             recorded_lines = tuple(header["environment"])
@@ -632,33 +658,39 @@ def load_store(
             recorded_keys = {str(name): str(value) for name, value in header["family_keys"].items()}
             pass_ordinal = int(header["pass_ordinal"])
 
-            blob = bytearray()
-            offsets: array[int] = array("I", [0])
-            ages: array[int] = array("i")
-            position_ages: array[int] = array("i")
-            seen = 0
-            pending = stream.readline()
-            if not pending:
-                return None
-            for line in stream:
-                end = len(pending) - 1
-                last_tab = pending.rindex(b"\t", 0, end)
-                position_age = int(pending[last_tab + 1 : end])
-                age = int(pending[pending.rindex(b"\t", 0, last_tab) + 1 : last_tab])
-                if seen >= first_row and (stop_row is None or seen < stop_row):
-                    blob += pending
-                    offsets.append(len(blob))
-                    ages.append(age)
-                    position_ages.append(position_age)
-                seen += 1
-                pending = line
-            if not pending.endswith(b"\n"):
-                return None
-            trailer = pending[:-1].decode("utf-8").split("\t")
-            if trailer[0] != ROW_COUNT_TRAILER:
-                return None
-            if seen != int(trailer[1]):
-                return None
+            blob: bytes | bytearray
+            indexed = _indexed_records(store_file, header_line, first_row, stop_row)
+            if indexed is not None:
+                blob, seen = indexed
+                offsets, ages, position_ages = _record_arrays(blob)
+            else:
+                blob = bytearray()
+                offsets = array("I", [0])
+                ages = array("i")
+                position_ages = array("i")
+                seen = 0
+                pending = stream.readline()
+                if not pending:
+                    return None
+                for line in stream:
+                    end = len(pending) - 1
+                    last_tab = pending.rindex(b"\t", 0, end)
+                    position_age = int(pending[last_tab + 1 : end])
+                    age = int(pending[pending.rindex(b"\t", 0, last_tab) + 1 : last_tab])
+                    if seen >= first_row and (stop_row is None or seen < stop_row):
+                        blob += pending
+                        offsets.append(len(blob))
+                        ages.append(age)
+                        position_ages.append(position_age)
+                    seen += 1
+                    pending = line
+                if not pending.endswith(b"\n"):
+                    return None
+                trailer = pending[:-1].decode("utf-8").split("\t")
+                if trailer[0] != ROW_COUNT_TRAILER:
+                    return None
+                if seen != int(trailer[1]):
+                    return None
     except OSError, EOFError, ValueError, KeyError, IndexError, TypeError, OverflowError, zlib.error:
         return None
     moved = moved_families(recorded_keys, current_keys)
@@ -712,6 +744,128 @@ def _open_member(raw: IO[bytes]) -> gzip.GzipFile:
     return gzip.GzipFile(filename="", fileobj=raw, mode="wb", mtime=0, compresslevel=1)
 
 
+# The subfield of a joined store's header member that holds its member index, and one entry of that index per segment: the segment's row count, its compressed length in bytes, and the CRC-32 of those bytes.
+_MEMBER_INDEX_ID = b"AM"
+_MEMBER_ENTRY = struct.Struct("<QQI")
+
+
+def _crc32_of(stream: IO[bytes], length: int | None = None) -> tuple[int, int]:
+    """Return the CRC-32 of the next `length` bytes of `stream`, or of the rest of it when `length` is None, and how many bytes it read, which is fewer at the end of the file."""
+    crc = read = 0
+    while length is None or read < length:
+        chunk = stream.read(1 << 20 if length is None else min(1 << 20, length - read))
+        if not chunk:
+            break
+        crc = zlib.crc32(chunk, crc)
+        read += len(chunk)
+    return crc, read
+
+
+def _indexed_member(payload: bytes, index: bytes) -> bytes:
+    """Return one gzip member holding `payload`, written with `_open_member`'s settings, whose header carries `index` in an extra-field subfield (RFC 1952's FEXTRA, under `_MEMBER_INDEX_ID`). A gzip reader skips the extra field, so the member decompresses as `_open_member`'s would."""
+    compressor = zlib.compressobj(1, zlib.DEFLATED, -zlib.MAX_WBITS)
+    body = compressor.compress(payload) + compressor.flush()
+    extra = _MEMBER_INDEX_ID + struct.pack("<H", len(index)) + index
+    return b"".join(
+        (
+            b"\x1f\x8b\x08\x04\x00\x00\x00\x00\x04\xff",
+            struct.pack("<H", len(extra)),
+            extra,
+            body,
+            struct.pack("<II", zlib.crc32(payload), len(payload) & 0xFFFFFFFF),
+        )
+    )
+
+
+def _member_index(stream: IO[bytes]) -> list[tuple[int, int, int]] | None:
+    """Return the member index `_indexed_member` put in the first gzip header of the file `stream` is at the start of, or None when that header carries none."""
+    head = stream.read(12)
+    if len(head) < 12 or head[:3] != b"\x1f\x8b\x08" or not head[3] & 0x04:
+        return None
+    extra = stream.read(int.from_bytes(head[10:12], "little"))
+    at = 0
+    while at + 4 <= len(extra):
+        length = int.from_bytes(extra[at + 2 : at + 4], "little")
+        field = extra[at + 4 : at + 4 + length]
+        if (
+            extra[at : at + 2] == _MEMBER_INDEX_ID
+            and len(field) == length
+            and length % _MEMBER_ENTRY.size == 0
+        ):
+            return list(_MEMBER_ENTRY.iter_unpack(field))
+        at += 4 + length
+    return None
+
+
+def _indexed_records(
+    path: Path, header: bytes, first_row: int, stop_row: int | None
+) -> tuple[bytes, int] | None:
+    """Return the records of rows `[first_row, stop_row)` of a joined store and the table's row count by inflating the one segment that holds exactly those rows, or None when the caller must read the whole file instead: the store has no member index, no segment starts and ends on the range's bounds, the file's header member is not `header`, or the file disagrees with the index. `header` is the line the caller read through its own open of `path`, so a store promoted over the path between the two opens (`os.replace`, by a pass beside this one) is read whole through the caller's handle rather than paired with the header of the file it replaced. Every segment's compressed bytes are checked against the CRC-32 the index records, and the trailer member against the index's row total, before any record is used. A range therefore loads here only from a file whose every byte is the one `join_store_segments` wrote, which the whole-file read would also load, so all ranges of one configuration agree on whether the store loads, whichever of the two reads each takes. The segment is inflated into a buffer of the size its gzip trailer records, so its records are held once; a range over several segments reads the whole file instead, because joining their records would hold them twice."""
+    try:
+        with path.open("rb") as stream:
+            index = _member_index(stream)
+            if not index:
+                return None
+            bounds = list(itertools.accumulate((rows for rows, _length, _crc in index), initial=0))
+            spans = list(zip(bounds, bounds[1:]))
+            stop = bounds[-1] if stop_row is None else stop_row
+            if (first_row, stop) not in spans:
+                return None
+            held_at = spans.index((first_row, stop))
+            stream.seek(0)
+            inflater = zlib.decompressobj(16 + zlib.MAX_WBITS)
+            consumed = 0
+            head = bytearray()
+            while not inflater.eof:
+                chunk = stream.read(1 << 16)
+                if not chunk:
+                    return None
+                head += inflater.decompress(chunk)
+                consumed += len(chunk)
+            if head != header:
+                return None
+            stream.seek(consumed - len(inflater.unused_data))
+            held = b""
+            for member, (_rows, length, crc) in enumerate(index):
+                if member == held_at:
+                    held = stream.read(length)
+                    found = (zlib.crc32(held), len(held))
+                else:
+                    found = _crc32_of(stream, length)
+                if found != (crc, length):
+                    return None
+            inflater = zlib.decompressobj(16 + zlib.MAX_WBITS)
+            trailer = inflater.decompress(stream.read())
+            if (
+                trailer != f"{ROW_COUNT_TRAILER}\t{bounds[-1]}\n".encode()
+                or not inflater.eof
+                or inflater.unused_data
+            ):
+                return None
+            records = zlib.decompress(held, 16 + zlib.MAX_WBITS, max(1, int.from_bytes(held[-4:], "little")))
+    except OSError, ValueError, zlib.error:
+        return None
+    if records.count(b"\n") != stop - first_row or not records.endswith(b"\n"):
+        return None
+    return records, bounds[-1]
+
+
+def _record_arrays(records: bytes) -> tuple["array[int]", "array[int]", "array[int]"]:
+    """Return the packed arrays `RowStore` keeps beside a buffer of whole records: each record's end offset after a leading zero, its row age and its position age."""
+    offsets: array[int] = array("I", [0])
+    ages: array[int] = array("i")
+    position_ages: array[int] = array("i")
+    at = 0
+    while at < len(records):
+        end = records.index(b"\n", at)
+        last_tab = records.rindex(b"\t", at, end)
+        position_ages.append(int(records[last_tab + 1 : end]))
+        ages.append(int(records[records.rindex(b"\t", at, last_tab) + 1 : last_tab]))
+        at = end + 1
+        offsets.append(at)
+    return offsets, ages, position_ages
+
+
 class RowWriter:
     """One configuration's store being written, one record per subset row in table order. The row count is a trailer instead of a header field, so the header can be written before the count is known, and a truncated store has no trailer and fails to load. The file is written to a temporary path and moved into place with `os.replace`, so a store on disk is always complete. A `segment` writer writes one row range of a cut configuration as its own gzip member, with records only and no header or trailer, for `join_store_segments` to place between a header member and a trailer member once every range has finished. A store with one range is written whole."""
 
@@ -749,7 +903,7 @@ class RowWriter:
         position: PositionVerdict = UNSHAPED,
         position_at_pass: int = 0,
     ) -> None:
-        """Record one row, divergent or clean. Every subset row gets a record, in table order, because the ordinal is the key and a clean row with no age could never be re-derived on schedule. `derived_at_pass` is the pass the row verdict was computed at: `RowStore.age(index)` for a verdict this pass only served, `self.pass_ordinal` for one it derived. `position_at_pass` is the same for the position verdict, from `RowStore.position_age(index)` when it was served. Recording this pass for a served verdict would reset its age and defeat the age cap."""
+        """Record one row, divergent or clean. Every subset row gets a record, in table order, because the ordinal is the key and a clean row with no age could never be re-derived on schedule. `derived_at_pass` is the pass the row verdict was computed at: `RowStore.age(index)` for a verdict this pass only served, `self.pass_ordinal` for one it derived, and `UNCOVERED_AGE` for a derived row whose glyph names `unreachable_glyph_heads` refuses. `position_at_pass` is the same for the position verdict, from `RowStore.position_age(index)` when it was served. Recording this pass for a served verdict would reset its age and defeat the age cap."""
         self._stream.write(
             (encode_record(codepoints, cached, derived_at_pass, position, position_at_pass) + "\n").encode()
         )
@@ -784,33 +938,40 @@ class RowWriter:
 def join_store_segments(
     scratch_dir: Path,
     config: str,
-    segments: int,
+    segment_rows: Sequence[int],
     environment: EnvironmentStamp,
     subset_digest: str,
     pass_ordinal: int,
     family_keys: Mapping[str, str],
-    rows: int,
     position_environment: EnvironmentStamp | None = None,
     position_keys: Mapping[str, str] | None = None,
 ) -> Path | None:
-    """Assemble one cut configuration's staged store from the `segments` its row ranges wrote, and return its path. The file is a header member, then each segment's compressed bytes copied in row order, then a trailer member counting `rows`. It is written through a temporary file and `os.replace` to `scratch_store_path(scratch_dir, config)`, where `promote_stores` finds it as it would an uncut configuration's store. Nothing is decompressed, so the parent's cost is a copy. The result is a multi-member gzip stream and is not byte-identical to the single-member store the same records would make, but its decompressed content is. `gzip.open(...)` reads across members, empty ones included, so `load_store`'s trailer check, row check digest and ages work unchanged, and a store missing a segment's tail still loads as `None`. The different framing is safe because nothing hashes this file (see `store_path`). Returns `None`, and stages nothing, when a segment is missing."""
-    paths = [scratch_store_path(scratch_dir, config, segment) for segment in range(segments)]
+    """Assemble one cut configuration's staged store from the segments its row ranges wrote, one per entry of `segment_rows`, which counts each range's rows in row order, and return its path. The file is a header member, then each segment's compressed bytes copied in row order, then a trailer member counting every row. The header member's gzip header carries the member index (`_indexed_member`): each segment's row count, compressed length and CRC-32, which lets `load_store` inflate a range's own segment alone. It is written through a temporary file and `os.replace` to `scratch_store_path(scratch_dir, config)`, where `promote_stores` finds it as it would an uncut configuration's store. Nothing is decompressed, so the parent's cost is a copy and a CRC over the segments. The result is a multi-member gzip stream and is not byte-identical to the single-member store the same records would make, but its decompressed content is, since a gzip reader skips a header's extra field. `gzip.open(...)` reads across members, empty ones included, so `load_store`'s whole-file read, trailer check, row check digest and ages work unchanged, and a store missing a segment's tail still loads as `None`. The different framing is safe because nothing hashes this file (see `store_path`). Returns `None`, and stages nothing, when a segment is missing."""
+    paths = [scratch_store_path(scratch_dir, config, segment) for segment in range(len(segment_rows))]
     if any(not path.is_file() for path in paths):
         return None
+    entries = []
+    for path, rows in zip(paths, segment_rows):
+        with path.open("rb") as stream:
+            crc, length = _crc32_of(stream)
+        entries.append(_MEMBER_ENTRY.pack(rows, length, crc))
+    index = b"".join(entries)
     target = scratch_store_path(scratch_dir, config)
     staged = target.with_name(target.name + ".tmp")
     with staged.open("wb") as raw:
-        with _open_member(raw) as head:
-            head.write(
+        raw.write(
+            _indexed_member(
                 store_header(
                     environment, subset_digest, pass_ordinal, family_keys, position_environment, position_keys
-                )
+                ),
+                index,
             )
+        )
         for path in paths:
             with path.open("rb") as segment_file:
                 shutil.copyfileobj(segment_file, raw, 1 << 20)
         with _open_member(raw) as tail:
-            tail.write(f"{ROW_COUNT_TRAILER}\t{rows}\n".encode())
+            tail.write(f"{ROW_COUNT_TRAILER}\t{sum(segment_rows)}\n".encode())
     os.replace(staged, target)
     return target
 
@@ -832,10 +993,49 @@ def discard_stores(out_dir: Path, configs: Iterable[str]) -> None:
         store_path(out_dir, config).unlink(missing_ok=True)
 
 
+_LOW64 = 0xFFFFFFFFFFFFFFFF
+_ORDINAL_SPREAD = 0x9E3779B97F4A7C15
+_MIX_FIRST = 0xBF58476D1CE4E5B9
+_MIX_SECOND = 0x94D049BB133111EB
+# One 128-bit lane holding 1, little-endian, which `_lane_masks` repeats once per lane.
+_LANE_ONE = b"\x01" + bytes(15)
+
+
 def _mix64(value: int) -> int:
-    value = (value ^ (value >> 30)) * 0xBF58476D1CE4E5B9 & 0xFFFFFFFFFFFFFFFF
-    value = (value ^ (value >> 27)) * 0x94D049BB133111EB & 0xFFFFFFFFFFFFFFFF
+    value = (value ^ (value >> 30)) * _MIX_FIRST & _LOW64
+    value = (value ^ (value >> 27)) * _MIX_SECOND & _LOW64
     return value ^ (value >> 31)
+
+
+_lane_masks_built: tuple[int, int, int] = (0, 0, 0)
+
+
+def _lane_masks(count: int) -> tuple[int, int]:
+    """Return the lowest bit and the low 64 bits of each of `count` 128-bit lanes, as two integers. They are shifted down from the widest pair built so far in this process, which costs less than building them again for every family."""
+    global _lane_masks_built
+    built, ones, low = _lane_masks_built
+    if count > built:
+        ones = int.from_bytes(_LANE_ONE * count, "little")
+        low = ones * _LOW64
+        _lane_masks_built = built, ones, low = count, ones, low
+    drop = 128 * (built - count)
+    return ones >> drop, low >> drop
+
+
+def _lanes(values: Sequence[int]) -> int:
+    """Pack 64-bit values into one integer, one value in the low half of each 128-bit lane and the first value in the lowest lane."""
+    words = array("Q", bytes(16 * len(values)))
+    words[0::2] = array("Q", values)
+    if sys.byteorder == "big":
+        words.byteswap()
+    return int.from_bytes(words.tobytes(), "little")
+
+
+def _mix64_lanes(packed: int, low: int) -> int:
+    """Return `_mix64` of every value `_lanes` packed, packed the same way. `low` has the low 64 bits of every lane set. Each step is one operation over the whole integer: masking back to 64 bits after every shift drops what a shift moved in from the next lane, and the empty upper half of a lane holds the full product of a multiplication, so no lane carries into its neighbor."""
+    value = ((packed ^ (packed >> 30)) & low) * _MIX_FIRST & low
+    value = ((value ^ (value >> 27)) & low) * _MIX_SECOND & low
+    return (value ^ (value >> 31)) & low
 
 
 class VerificationSample:
@@ -862,12 +1062,70 @@ class VerificationSample:
         if self.per_family <= 0:
             return
         for family in families:
-            kept = self._kept.setdefault(family, [])
-            score = -_mix64(self._seed(family) ^ (index * 0x9E3779B97F4A7C15 & 0xFFFFFFFFFFFFFFFF))
-            if len(kept) < self.per_family:
-                heapq.heappush(kept, (score, index, row))
-            elif score > kept[0][0]:
-                heapq.heapreplace(kept, (score, index, row))
+            self._keep(family, -_mix64(self._seed(family) ^ (index * _ORDINAL_SPREAD & _LOW64)), index, row)
+
+    def _keep(self, family: str, score: int, index: int, row: Row) -> None:
+        kept = self._kept.setdefault(family, [])
+        if len(kept) < self.per_family:
+            heapq.heappush(kept, (score, index, row))
+        elif score > kept[0][0]:
+            heapq.heapreplace(kept, (score, index, row))
+
+    def offer_many(self, offers: Sequence[tuple[int, Row, tuple[str, ...]]]) -> None:
+        """Offer several `(index, row, families)` rows at once, and draw what `offer` draws from the same rows in any order. The oracle offers a chunk of rows at a time, because `offer` runs `_mix64` in the interpreter for every family of every row. Here the rows are grouped by their families tuple, so the oracle's rows, which carry `StaleMask.families_of`'s memoized tuples, are gathered per family a group at a time, and each family's rows are scored together: their ordinals are packed one to a lane (`_lanes`), the seed and the mix are applied to every lane at once (`_mix64_lanes`), and one subtraction marks the lanes whose mix is at or below the family's bound, which is the largest mix it keeps once it holds `per_family` rows. Only the marked rows reach the heap, through the comparison `offer` makes."""
+        if self.per_family <= 0 or not offers:
+            return
+        groups: dict[tuple[str, ...], list[int]] = {}
+        for position, (_index, _row, families) in enumerate(offers):
+            group = groups.get(families)
+            if group is None:
+                groups[families] = [position]
+            else:
+                group.append(position)
+        by_family: dict[str, list[int]] = {}
+        for families, positions in groups.items():
+            for family in families:
+                gathered = by_family.get(family)
+                if gathered is None:
+                    by_family[family] = list(positions)
+                else:
+                    gathered.extend(positions)
+        indexes = [index for index, _row, _families in offers]
+        for family, positions in by_family.items():
+            picked = itemgetter(*positions)(indexes) if len(positions) > 1 else (indexes[positions[0]],)
+            self._offer_family(family, picked, positions, offers)
+
+    def _offer_family(
+        self,
+        family: str,
+        indexes: Sequence[int],
+        positions: Sequence[int],
+        offers: Sequence[tuple[int, Row, tuple[str, ...]]],
+    ) -> None:
+        count = len(indexes)
+        ones, low = _lane_masks(count)
+        mixed = _mix64_lanes((_lanes(indexes) * _ORDINAL_SPREAD & low) ^ (self._seed(family) * ones), low)
+        kept = self._kept.get(family)
+        if kept is not None and len(kept) == self.per_family:
+            bound = -kept[0][0]
+        elif count > self.per_family:
+            words = array("Q")
+            words.frombytes(mixed.to_bytes(16 * count, "little"))
+            if sys.byteorder == "big":
+                words.byteswap()
+            bound = heapq.nsmallest(self.per_family, words[0::2])[-1]
+        else:
+            bound = _LOW64
+        flags = (((1 << 64) | bound) * ones - mixed) >> 64 & ones
+        if not flags:
+            return
+        marked = flags.to_bytes(16 * count, "little")
+        values = mixed.to_bytes(16 * count, "little")
+        lane = marked.find(1)
+        while lane >= 0:
+            index, row, _families = offers[positions[lane >> 4]]
+            self._keep(family, -int.from_bytes(values[lane : lane + 8], "little"), index, row)
+            lane = marked.find(1, lane + 16)
 
     def by_family(self) -> dict[str, tuple[int, ...]]:
         return {
