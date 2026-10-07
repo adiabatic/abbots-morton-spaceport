@@ -18,43 +18,98 @@ use crate::engine::{
     DeltaId, Pointer, ReadsId, TraceEntry, TraceKey, TraceNotesId, TraceSettledId,
 };
 use crate::hash::{FastHasher, HashMap, HashSet};
-use crate::index::{Read, SpecIndex};
+use crate::index::{Ordinal, Read, SpecIndex};
 use crate::model::{PolicyRecord, Provenance, Sym, When};
 use crate::types::{
     AdjustmentToken, CellId, DecidedStage, LeftOrdinals, PackedKinds, Settled, TokenKind,
     TransitionTrace, adjustment_from_text, adjustment_text, boundary_settled,
 };
 
-/// Immutable full-key records partitioned into buckets by a hash prefix, with keys sorted inside each bucket. The bucket count is the record count over sixteen, rounded up to a power of two, which gives eight to sixteen records per bucket on average once there is more than one bucket. The index costs four bytes per bucket plus a final offset. A lookup hashes once, then binary-searches complete keys within its bucket; the hash never stands in for equality.
+/// Immutable full-key records grouped into hash buckets, with a [`Block`] per bucket that a lookup reads before any record. The bucket count is the record count over [`SnapshotEntries::PER_BUCKET`], rounded up, and a key's bucket is the high half of its hash scaled onto that count. Records are contiguous per bucket and sorted by key inside it. A lookup hashes once and reads its bucket's block, which holds a tag per record from the hash's low byte, then compares the full key of each record whose tag matches, usually one. So a hit reads one block and, in the common case, one record, where a binary search over the bucket would read several records' cache lines one after another. The hash never stands in for equality. A bucket holding more records than a block has tags for is binary-searched on the full key instead. The index costs thirty-two bytes per bucket, two bytes per record, beside a record's thirty-six.
 #[derive(Debug, Default)]
 pub(crate) struct SnapshotEntries {
     records: Box<[(TraceKey, TraceEntry)]>,
-    offsets: Box<[u32]>,
-    prefix_bits: u32,
+    /// One per bucket, then one more whose start is the record count, so a bucket's end is the next block's start.
+    blocks: Box<[Block]>,
+}
+
+/// One bucket's part of a snapshot's index: where the bucket's records start, how many there are, and a one-byte tag per record. Thirty-two bytes, so a block never straddles a cache line in an array that starts on a line boundary, as a large allocation does. The type asks for no more than its fields' alignment: an over-aligned array is allocated through `posix_memalign`, and at a thirty-two-byte alignment a build of `default` alone holds 3.3 GB more resident just after its release point (issue #511).
+#[derive(Clone, Copy, Debug, Default)]
+#[repr(C)]
+struct Block {
+    start: u32,
+    len: u8,
+    tags: [u8; Block::TAGS],
+}
+
+const _: () = assert!(std::mem::size_of::<Block>() == 32);
+
+impl Block {
+    const TAGS: usize = 27;
+    /// The `len` of a bucket holding more records than [`Block::TAGS`], whose tags are not filled.
+    const OVERFLOW: u8 = u8::MAX;
+
+    /// One bit per record in the bucket whose tag is `tag`, the first record at bit zero. Only for a block that is not [`Block::OVERFLOW`].
+    fn matches(&self, tag: u8) -> u32 {
+        let mut mask = 0u32;
+        for (slot, held) in self.tags.iter().enumerate() {
+            mask |= u32::from(*held == tag) << slot;
+        }
+        mask & ((1u32 << self.len) - 1)
+    }
 }
 
 impl SnapshotEntries {
-    fn bucket(key: &TraceKey, prefix_bits: u32) -> usize {
-        if prefix_bits == 0 {
-            return 0;
-        }
+    /// The mean bucket size the index is sized for. If bucket sizes are Poisson-distributed about it, fewer than one record in a hundred sits in a bucket larger than [`Block::TAGS`].
+    const PER_BUCKET: usize = 16;
+
+    /// The key's hash for bucketing and tags: its rune, stance, junction, extension and token fields packed into three words, then its kinds word, folded through [`FastHasher`]. That is four folds, where the derived `Hash` folds once or twice per field. Two keys pack alike only when they are equal, and the snapshot alone uses this hash, so it need not agree with the derived one the engine's live memo uses.
+    fn hash(key: &TraceKey) -> u64 {
+        let raw = |ordinal: Option<Ordinal>| u64::from(ordinal.map_or(0, Ordinal::get));
         let mut hash = FastHasher::default();
-        key.hash(&mut hash);
-        (hash.finish() >> (64 - prefix_bits)) as usize
+        hash.write_u64(
+            raw(key.left_rune)
+                | (raw(key.left_stance) << 16)
+                | (raw(key.left_junction) << 32)
+                | (u64::from(key.left_extension as u16) << 48),
+        );
+        hash.write_u64(
+            u64::from(key.token.get())
+                | (raw(key.runes[0]) << 16)
+                | (raw(key.runes[1]) << 32)
+                | (raw(key.runes[2]) << 48),
+        );
+        hash.write_u64(raw(key.runes[3]));
+        key.kinds.hash(&mut hash);
+        hash.finish()
     }
 
-    /// Construction holds a four-byte source position per record beside the records. Counting and in-place bucket partitioning hash each key a bounded number of times. Each bucket is sorted on key and source position, so a duplicate key keeps its last input even though partitioning reorders equal keys. Buckets of up to sixty-four records are insertion-sorted; larger ones use a temporary decorated sort, which bounds the sorting time when many keys collide. The positions and partition cursors are freed before the final array is boxed. If removing duplicates lowers the bucket count needed, the index is rebuilt over the surviving records.
-    fn from_records(mut records: Vec<(TraceKey, TraceEntry)>) -> Result<Self, String> {
+    fn bucket(hash: u64, buckets: usize) -> usize {
+        (((hash >> 32) * buckets as u64) >> 32) as usize
+    }
+
+    fn tag(hash: u64) -> u8 {
+        hash as u8
+    }
+
+    fn from_records(records: Vec<(TraceKey, TraceEntry)>) -> Result<Self, String> {
+        Self::from_records_per_bucket(records, Self::PER_BUCKET)
+    }
+
+    /// Construction holds a four-byte source position per record and a four-byte offset per bucket beside the records. Counting and in-place bucket partitioning hash each key a bounded number of times. Each bucket is sorted on key and source position, so a duplicate key keeps its last input even though partitioning reorders equal keys. Buckets of up to sixty-four records are insertion-sorted; larger ones use a temporary decorated sort, which bounds the sorting time when many keys collide. The positions and partition cursors are freed before the blocks are built, and the offsets after. Building the blocks hashes each surviving key once more. If removing duplicates lowers the bucket count needed, the index is rebuilt over the surviving records.
+    fn from_records_per_bucket(
+        mut records: Vec<(TraceKey, TraceEntry)>,
+        per_bucket: usize,
+    ) -> Result<Self, String> {
         let count = u32::try_from(records.len())
             .map_err(|_| "a memo holds fewer than 2^32 windows".to_owned())?;
         if records.is_empty() {
             return Ok(Self::default());
         }
-        let buckets = records.len().div_ceil(16).next_power_of_two();
-        let prefix_bits = buckets.trailing_zeros();
+        let buckets = records.len().div_ceil(per_bucket);
         let mut offsets = vec![0u32; buckets + 1];
         for (key, _) in &records {
-            offsets[Self::bucket(key, prefix_bits) + 1] += 1;
+            offsets[Self::bucket(Self::hash(key), buckets) + 1] += 1;
         }
         for bucket in 0..buckets {
             offsets[bucket + 1] += offsets[bucket];
@@ -64,7 +119,7 @@ impl SnapshotEntries {
         for bucket in 0..buckets {
             while next[bucket] < offsets[bucket + 1] {
                 let at = next[bucket] as usize;
-                let destination = Self::bucket(&records[at].0, prefix_bits);
+                let destination = Self::bucket(Self::hash(&records[at].0), buckets);
                 if destination == bucket {
                     next[bucket] += 1;
                 } else {
@@ -118,14 +173,30 @@ impl SnapshotEntries {
         }
         offsets[buckets] = written as u32;
         records.truncate(written);
-        if written.div_ceil(16).next_power_of_two() < buckets {
+        if written.div_ceil(per_bucket) < buckets {
             drop(offsets);
-            return Self::from_records(records);
+            return Self::from_records_per_bucket(records, per_bucket);
         }
+        let mut blocks = vec![Block::default(); buckets + 1];
+        for (bucket, block) in blocks.iter_mut().enumerate() {
+            block.start = offsets[bucket];
+            if bucket == buckets {
+                break;
+            }
+            let held = &records[offsets[bucket] as usize..offsets[bucket + 1] as usize];
+            if held.len() > Block::TAGS {
+                block.len = Block::OVERFLOW;
+                continue;
+            }
+            block.len = held.len() as u8;
+            for (tag, (key, _)) in block.tags.iter_mut().zip(held) {
+                *tag = Self::tag(Self::hash(key));
+            }
+        }
+        drop(offsets);
         Ok(Self {
             records: records.into_boxed_slice(),
-            offsets: offsets.into_boxed_slice(),
-            prefix_bits,
+            blocks: blocks.into_boxed_slice(),
         })
     }
 
@@ -141,13 +212,26 @@ impl SnapshotEntries {
         if self.is_empty() {
             return None;
         }
-        let bucket = Self::bucket(key, self.prefix_bits);
-        let records =
-            &self.records[self.offsets[bucket] as usize..self.offsets[bucket + 1] as usize];
-        records
-            .binary_search_by_key(key, |(key, _)| *key)
-            .ok()
-            .map(|at| &records[at].1)
+        let hash = Self::hash(key);
+        let bucket = Self::bucket(hash, self.blocks.len() - 1);
+        let block = &self.blocks[bucket];
+        let start = block.start as usize;
+        if block.len == Block::OVERFLOW {
+            let records = &self.records[start..self.blocks[bucket + 1].start as usize];
+            return records
+                .binary_search_by_key(key, |(key, _)| *key)
+                .ok()
+                .map(|at| &records[at].1);
+        }
+        let mut matches = block.matches(Self::tag(hash));
+        while matches != 0 {
+            let (held, entry) = &self.records[start + matches.trailing_zeros() as usize];
+            if held == key {
+                return Some(entry);
+            }
+            matches &= matches - 1;
+        }
+        None
     }
 
     pub(crate) fn iter(&self) -> impl Iterator<Item = (&TraceKey, &TraceEntry)> {
@@ -188,7 +272,7 @@ impl std::ops::Index<&TraceKey> for SnapshotEntries {
     }
 }
 
-/// One engine's finished trace memo: compact immutable entries and the four tables their ids index. The tables are the engine memo's own pools flattened, so an entry read through the snapshot resolves as it did in the engine that recorded it. The live engine's memo is a hash map; the snapshot has no hash-table slack or control bytes.
+/// One engine's finished trace memo: compact immutable entries and the four tables their ids index. The tables are the engine memo's own pools flattened, so an entry read through the snapshot resolves as it did in the engine that recorded it. The live engine's memo is a hash map; the snapshot has no hash-table slack, and its index costs two bytes a record.
 #[derive(Debug, Default)]
 pub struct MemoSnapshot {
     pub(crate) entries: SnapshotEntries,
@@ -1133,25 +1217,42 @@ mod tests {
             records.push((template, entry));
             expected.insert(template, entry);
         }
-        let entries = SnapshotEntries::from_records(records).expect("the records fit");
-        assert_eq!(entries.len(), expected.len());
         assert_eq!(std::mem::size_of::<(TraceKey, TraceEntry)>(), 36);
-        assert!(entries.offsets.windows(2).any(|pair| pair[1] - pair[0] > 1));
-        for (key, expected) in expected {
-            assert_eq!(entries.get(&key).expect("present").notes, expected.notes);
-        }
-        for extension in [-1, 512, i16::MAX] {
-            let missing = TraceKey {
-                left_extension: extension,
-                ..template
-            };
-            assert!(entries.get(&missing).is_none());
+        for per_bucket in [1, SnapshotEntries::PER_BUCKET, 64] {
+            let entries = SnapshotEntries::from_records_per_bucket(records.clone(), per_bucket)
+                .expect("the records fit");
+            assert_eq!(entries.len(), expected.len());
+            let blocks = &entries.blocks[..entries.blocks.len() - 1];
+            if per_bucket == SnapshotEntries::PER_BUCKET {
+                assert!(
+                    blocks.iter().any(|block| {
+                        block.len != Block::OVERFLOW
+                            && block.tags[..usize::from(block.len)]
+                                .iter()
+                                .any(|tag| block.matches(*tag).count_ones() > 1)
+                    }),
+                    "two keys in one bucket share a tag, so only the full key tells them apart"
+                );
+            }
+            if per_bucket == 64 {
+                assert!(blocks.iter().all(|block| block.len == Block::OVERFLOW));
+            }
+            for (key, expected) in &expected {
+                assert_eq!(entries.get(key).expect("present").notes, expected.notes);
+            }
+            for extension in [-1, 512, i16::MAX] {
+                let missing = TraceKey {
+                    left_extension: extension,
+                    ..template
+                };
+                assert!(entries.get(&missing).is_none());
+            }
         }
         assert!(SnapshotEntries::default().get(&template).is_none());
         let empty = SnapshotEntries::from_records(Vec::new()).expect("empty fits");
         assert!(empty.is_empty());
         assert_eq!(empty.iter().count(), 0);
-        assert!(empty.offsets.is_empty());
+        assert!(empty.blocks.is_empty());
     }
 
     #[test]

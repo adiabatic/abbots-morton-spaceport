@@ -33,7 +33,7 @@ from rebuild.tools.peak_rss import format_gb
 from rebuild.tools.cycle_timings import CycleTimings
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-# Width assertions use stated machine sizes, not the host running the suite. With DEFAULT_MEMO_BYTES at 2.1 GB, five parked fold products at PARKED_FOLD_BYTES (1.5 GB) and DELTA_SLOT_BYTES at 4.7 GB, 37 GB is too small for the whole wave and fits four deltas alone and three beside an eight-core machine's pytest pool, and leaves room to test larger stated pool widths, and 44 GB is `_plan`'s default machine, which the plan and width tests share. Changing a kernel term changes these expectations and can require a different size to keep the memory set aside for the pool visible in a width.
+# Width assertions use stated machine sizes, not the host running the suite. With DEFAULT_MEMO_BYTES at 2.2 GB, five parked fold products at PARKED_FOLD_BYTES (1.6 GB) and DELTA_SLOT_BYTES at 4.7 GB, 37 GB is too small for the whole wave and fits four deltas alone and three beside an eight-core machine's pytest pool, and leaves room to test larger stated pool widths, and 44 GB is `_plan`'s default machine, which the plan and width tests share. Changing a kernel term changes these expectations and can require a different size to keep the memory set aside for the pool visible in a width.
 MACHINE_44_GB = 44_000_000_000
 MACHINE_37_GB = 37_000_000_000
 MACHINE_36_GB = 36_000_000_000

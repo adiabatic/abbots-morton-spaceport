@@ -1189,14 +1189,14 @@ class TestTheMemoryDerivedThreadDefault:
             kernel_exec.replay_threads_default(total_bytes=34_359_738_368)
 
     @pytest.mark.parametrize(
-        "total, wanted", [(4_000_000_000, 1), (34_359_738_368, 3), (32_000_000_000, 3), (64_000_000_000, 5)]
+        "total, wanted", [(4_000_000_000, 1), (34_359_738_368, 3), (32_000_000_000, 2), (64_000_000_000, 5)]
     )
     def test_the_width_follows_the_machine_and_never_falls_below_one(self, total, wanted):
-        """With `DEFAULT_MEMO_BYTES` (2.1 GB) and five parked products at `PARKED_FOLD_BYTES` (1.5 GB) off the machine, a 32 GiB machine fits three delta slots at `DELTA_SLOT_BYTES` (4.7 GB), and so does a decimal 32 GB machine. A machine too small for one delta gets one, and a 64 GB machine fits the whole wave, every configuration at once, which is as wide as the width goes."""
+        """With `DEFAULT_MEMO_BYTES` (2.2 GB) and five parked products at `PARKED_FOLD_BYTES` (1.6 GB) off the machine, a 32 GiB machine fits three delta slots at `DELTA_SLOT_BYTES` (4.7 GB), and a decimal 32 GB machine fits two. A machine too small for one delta gets one, and a 64 GB machine fits the whole wave, every configuration at once, which is as wide as the width goes."""
         assert kernel_exec.kernel_threads_default(configs=CONFIG_COUNT, total_bytes=total) == wanted
 
     def test_a_coresident_pool_comes_off_the_machine_before_it_is_divided(self):
-        """`coresident_bytes` is memory used by something running beside the fan-out, such as the artifact cycle's pytest pool. It comes off the machine with the reserve, so 3 GB beside a 40 GB machine leaves too little for the whole wave's 30.5 GB booking, and the wave drops the slot of its own that `default`'s fold preparation takes. It defaults to zero because a bare run_m1 runs alone."""
+        """`coresident_bytes` is memory used by something running beside the fan-out, such as the artifact cycle's pytest pool. It comes off the machine with the reserve, so 3 GB beside a 40 GB machine leaves too little for the whole wave's 31.1 GB booking, and the wave drops the slot of its own that `default`'s fold preparation takes. It defaults to zero because a bare run_m1 runs alone."""
         assert kernel_exec.kernel_threads_default(configs=CONFIG_COUNT, total_bytes=40_000_000_000) == 5
         assert (
             kernel_exec.kernel_threads_default(
