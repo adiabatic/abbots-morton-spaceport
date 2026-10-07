@@ -1,4 +1,4 @@
-"""Tests for the verdict journal (`rebuild/review/journal.py`): the sets, clears, and base events a transition writes, the seed event that opens a journal over an existing store, replay with and without an as-of cutoff, compaction in two phases that keep an append made between them, the event scan resumed from where an earlier one ended, a journal cut shorter and regrown between the phases, which neither resumes over, tolerance of a trailing line torn by a crashed append, which the next append cuts off unless only its newline is missing, a base event torn short of its set lines, which opens a span replay refuses until the next complete base and which compaction never starts at, and the cut back to the length a dead land recorded, made only while the journal is the same file."""
+"""Tests for the verdict journal (`rebuild/review/journal.py`): the sets, clears, and base events a transition writes, a stamp change the land writes as sets and clears against the store it replaced (an event line alone when the records are the same) unless a base is due (`base_due`) or there is no previous store or journal, the seed event that opens a journal over an existing store, replay with and without an as-of cutoff, compaction in two phases that keep an append made between them, the event scan resumed from where an earlier one ended, a journal cut shorter and regrown between the phases, which neither resumes over, tolerance of a trailing line torn by a crashed append, which the next append cuts off unless only its newline is missing, a base event torn short of its set lines, which opens a span replay refuses until the next complete base and which compaction never starts at, a compaction that floors at a base before stamp changes written as sets and clears, and the cut back to the length a dead land recorded, made only while the journal is the same file."""
 
 import json
 import os
@@ -888,3 +888,155 @@ def test_truncate_to_cuts_only_the_file_whose_length_was_taken(tmp_path):
     )
     assert journal.truncate_to(fresh, None, None) is True
     assert not fresh.exists()
+
+
+def test_a_stamp_change_given_no_base_journals_sets_and_clears_against_the_previous_store(tmp_path):
+    """The land passes `base=False` when the journal is not due a base. A unit's id is its content key, so the stamp change is written against the store it replaced: the units whose records changed or are new, and the units the new store lacks, under one event that names the new stamp and the stash. Replay reads the old store before it and the new store from it on."""
+    path = tmp_path / "journal.ndjson"
+    _append_base(path, "S1", None, [], ["u-1", "u-2", "u-3"], "2026-07-10T01:00:00Z")
+    reject = v("u-2", verdict="reject", at="2026-07-10T02:00:00Z")
+    result = journal.record_transition(
+        path,
+        source="land",
+        stamp="S2",
+        old_stamp="S1",
+        old_verdicts=[v("u-1"), v("u-2"), v("u-3")],
+        new_verdicts=[v("u-1"), reject, v("u-4")],
+        stashed="verdicts-autosave-S1.json",
+        at="2026-07-10T02:00:00Z",
+        base=False,
+    )
+    assert result == {"base": False, "sets": 2, "clears": 1, "recorded": True}
+    assert read_lines(path)[4:] == [
+        {
+            "kind": "event",
+            "source": "land",
+            "at": "2026-07-10T02:00:00Z",
+            "stamp": "S2",
+            "base": False,
+            "stashed": "verdicts-autosave-S1.json",
+            "sets": 2,
+            "clears": 1,
+        },
+        {"kind": "set", **reject},
+        {"kind": "set", **v("u-4")},
+        {"kind": "clear", "unit": "u-3"},
+    ]
+    assert journal.replay(path, as_of="2026-07-10T01:30:00Z") == (
+        "S1",
+        {u: v(u) for u in ("u-1", "u-2", "u-3")},
+    )
+    assert journal.replay(path) == ("S2", {"u-1": v("u-1"), "u-2": reject, "u-4": v("u-4")})
+
+
+def test_a_stamp_change_onto_the_same_records_journals_its_event_line_alone(tmp_path):
+    """Most lands that move the stamp land the same records as the store they replace. When no base is due, such a land skips the base it would have written: it journals only its event line, with or without a stash, and replay moves to the new stamp with the same records."""
+    path = tmp_path / "journal.ndjson"
+    _append_base(path, "S1", None, [], ["u-1", "u-2"], "2026-07-10T01:00:00Z")
+    for stamp, old_stamp, stashed, hour in (
+        ("S2", "S1", "verdicts-autosave-S1.json", 2),
+        ("S3", "S2", None, 3),
+    ):
+        result = journal.record_transition(
+            path,
+            source="land",
+            stamp=stamp,
+            old_stamp=old_stamp,
+            old_verdicts=[v("u-1"), v("u-2")],
+            new_verdicts=[v("u-2"), v("u-1")],
+            stashed=stashed,
+            at=f"2026-07-10T0{hour}:00:00Z",
+            base=False,
+        )
+        assert result == {"base": False, "sets": 0, "clears": 0, "recorded": True}
+        assert journal.replay(path) == (stamp, {"u-1": v("u-1"), "u-2": v("u-2")})
+    assert [line["kind"] for line in read_lines(path)] == ["event", "set", "set", "event", "event"]
+
+
+def test_a_stamp_change_from_no_store_or_onto_no_journal_is_a_base_even_when_none_is_due(tmp_path):
+    """A diff needs a previous store that the journal replays to. With no journal yet, or no previous store, `base=False` still writes a base event, and never a seed holding the previous store under the new stamp."""
+    path = tmp_path / "journal.ndjson"
+    result = journal.record_transition(
+        path,
+        source="land",
+        stamp="S2",
+        old_stamp="S1",
+        old_verdicts=[v("u-1")],
+        new_verdicts=[v("u-1"), v("u-2")],
+        at="2026-07-10T01:00:00Z",
+        base=False,
+    )
+    assert result["base"] is True
+    assert [(event["source"], event["stamp"], event["base"]) for event in journal.iter_events(path)] == [
+        ("land", "S2", True)
+    ]
+    result = journal.record_transition(
+        path,
+        source="land",
+        stamp="S3",
+        old_stamp=None,
+        old_verdicts=[],
+        new_verdicts=[v("u-3")],
+        at="2026-07-10T02:00:00Z",
+        base=False,
+    )
+    assert result["base"] is True
+    assert journal.replay(path) == ("S3", {"u-3": v("u-3")})
+
+
+def test_a_base_is_due_once_the_last_one_is_a_day_old_or_torn(tmp_path):
+    """A land that moves the stamp writes a base when the journal has none, when the journal's last base is torn, or when its last base is at least `BASE_INTERVAL` older than the land, and a diff otherwise. A diff after the last base does not restart the interval, and a complete base after a torn one does."""
+    path = tmp_path / "journal.ndjson"
+    assert journal.base_due(journal.scan(path).events, "2026-07-10T01:00:00Z") is True
+    _append_base(path, "S1", None, [], ["u-1"], "2026-07-10T01:00:00Z")
+    journal.record_transition(
+        path,
+        source="land",
+        stamp="S2",
+        old_stamp="S1",
+        old_verdicts=[v("u-1")],
+        new_verdicts=[v("u-2")],
+        at="2026-07-10T20:00:00Z",
+        base=False,
+    )
+    events = journal.scan(path).events
+    assert [(event.stamp, event.base) for event in events] == [("S1", True), ("S2", False)]
+    assert journal.base_due(events, "2026-07-11T00:59:59Z") is False
+    assert journal.base_due(events, "2026-07-11T01:00:00Z") is True
+    _append_base(path, "S3", "S2", ["u-2"], ["u-3", "u-4"], "2026-07-11T02:00:00Z")
+    path.write_bytes(b"".join(path.read_bytes().splitlines(keepends=True)[:-1]))
+    assert journal.base_due(journal.scan(path).events, "2026-07-11T02:30:00Z") is True
+    _append_base(path, "S4", "S3", ["u-3"], ["u-5"], "2026-07-11T03:00:00Z")
+    assert journal.base_due(journal.scan(path).events, "2026-07-11T03:30:00Z") is False
+
+
+def test_compaction_floors_at_a_base_and_replays_the_stamp_changes_journaled_after_it(tmp_path):
+    """A stamp change journaled as sets and clears is never a compaction floor, so the journal is compacted to the newest base at or before the cutoff and every moment from that base on replays as it did before."""
+    path = tmp_path / "journal.ndjson"
+    _append_base(path, "S1", None, [], ["u-1"], "2026-07-10T01:00:00Z")
+    _append_base(path, "S2", "S1", ["u-1"], ["u-1", "u-2"], "2026-07-11T01:00:00Z")
+    for stamp, old_stamp, old_units, new_units, hour in (
+        ("S3", "S2", ["u-1", "u-2"], ["u-1", "u-2", "u-3"], 5),
+        ("S4", "S3", ["u-1", "u-2", "u-3"], ["u-2", "u-3"], 9),
+    ):
+        journal.record_transition(
+            path,
+            source="land",
+            stamp=stamp,
+            old_stamp=old_stamp,
+            old_verdicts=[v(unit) for unit in old_units],
+            new_verdicts=[v(unit) for unit in new_units],
+            at=f"2026-07-11T0{hour}:00:00Z",
+            base=False,
+        )
+    as_ofs = ["2026-07-11T01:00:00Z", "2026-07-11T05:00:00Z", "2026-07-11T08:00:00Z", None]
+    before = {as_of: journal.replay(path, as_of=as_of) for as_of in as_ofs}
+    result = journal.compact(path, cutoff="2026-07-11T08:00:00Z")
+    assert result["compacted"] is True and result["floor_at"] == "2026-07-11T01:00:00Z"
+    assert [(event["stamp"], event["base"]) for event in journal.iter_events(path)] == [
+        ("S2", True),
+        ("S3", False),
+        ("S4", False),
+    ]
+    assert {as_of: journal.replay(path, as_of=as_of) for as_of in as_ofs} == before
+    assert before[None] == ("S4", {"u-2": v("u-2"), "u-3": v("u-3")})

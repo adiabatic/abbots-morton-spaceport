@@ -372,7 +372,9 @@ def _undo_locked(root: Path, backup_dir: Path) -> int:
         print(
             f"ERROR: {record['journal']['path']} was compacted or replaced since the re-key, so its recorded length no "
             "longer marks the re-key. Nothing was restored; copy the files back by hand as backup.json lists them. The "
-            "next corpus-stamp change writes a base event, from which the journal replays again."
+            "journal does not record a copy made by hand, so merge_verdicts --restore-as-of gives a wrong store for "
+            "every moment from the copy until the journal's next base event, such as the next stamp change made by any "
+            "writer but the land, or the first land that moves the stamp once journal.base_due says the journal is due a base."
         )
         return 1
     for entry in record["files"]:

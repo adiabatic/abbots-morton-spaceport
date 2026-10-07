@@ -7347,6 +7347,7 @@ def test_main_keeps_a_current_server_running_through_a_rebuild(tmp_path, monkeyp
     assert land[land.index("--staged") + 1] == str(ac.next_corpus_dir())
     assert land[land.index("--live") + 1] == str(ac.REVIEW_OUT)
     assert land[land.index("--autosave") + 1] == str(ac.AUTOSAVE)
+    assert land[land.index("--scan-state") + 1] == str(ac.journal_scan_path())
 
 
 def test_preflight_restarts_a_server_running_other_code_and_refuses_when_it_does_not_return(
@@ -7590,6 +7591,54 @@ def test_prune_stashes_keeps_from_the_last_base_onward(tmp_path):
     assert stashes["C"].exists()
     assert stashes["D"].exists()
     assert live.exists()
+
+
+def _land_history(journal_path, *, base):
+    """Journal a store's history with every land journaled as a base (`base` None) or as sets and clears (`base` False): a merge base, a land that stashes S1, a same-stamp restore that stashes the store it replaced, a land onto the same records that stashes S2, and an autosave."""
+    store = [{"unit": "u-1", "verdict": "approve", "note": "", "at": "2026-07-10T00:00:00Z"}]
+    landed = [*store, {"unit": "u-2", "verdict": "approve", "note": "", "at": "2026-07-10T02:00:00Z"}]
+    for source, stamp, old_stamp, old, new, stashed, hour, land in (
+        ("merge", "S1", None, [], store, None, 1, False),
+        ("land", "S2", "S1", store, landed, "verdicts-autosave-S1.json", 2, True),
+        ("restore", "S2", "S2", landed, store, "verdicts-autosave-pre-restore-a.json", 3, False),
+        ("land", "S3", "S2", store, store, "verdicts-autosave-S2.json", 4, True),
+        ("autosave", "S3", "S3", store, landed, None, 5, False),
+    ):
+        journal.record_transition(
+            journal_path,
+            source=source,
+            stamp=stamp,
+            old_stamp=old_stamp,
+            old_verdicts=old,
+            new_verdicts=new,
+            stashed=stashed,
+            at=f"2026-07-10T0{hour}:00:00Z",
+            base=base if land else None,
+        )
+
+
+@pytest.mark.parametrize("base", [None, False])
+def test_prune_stashes_keeps_the_same_stashes_whether_lands_journal_bases_or_sets_and_clears(tmp_path, base):
+    """The sweep anchors on the last event that is a base or moves the stamp, so a land journaled as sets and clears anchors it where the base it replaced did: the sweep keeps the stash the latest land named and those named since, and drops the earlier ones."""
+    journal_path = tmp_path / "verdicts-journal.ndjson"
+    _land_history(journal_path, base=base)
+    assert [event.base for event in journal.scan(journal_path).events] == [
+        True,
+        base is None,
+        False,
+        base is None,
+        False,
+    ]
+    names = ["S1", "pre-restore-a", "S2", "stray"]
+    for name in names:
+        (tmp_path / f"verdicts-autosave-{name}.json").write_text("{}")
+
+    removed = ac.prune_stashes(tmp_path, journal_path)
+
+    assert removed == [
+        tmp_path / f"verdicts-autosave-{name}.json" for name in ("S1", "pre-restore-a", "stray")
+    ]
+    assert (tmp_path / "verdicts-autosave-S2.json").exists()
 
 
 def test_prune_stashes_returns_none_without_a_base_event(tmp_path):

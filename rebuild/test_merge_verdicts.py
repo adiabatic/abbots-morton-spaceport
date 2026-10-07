@@ -1,4 +1,4 @@
-"""Tests for `rebuild/tools/merge_verdicts.py`, which merges verdict files into the autosave outside the browser: the review app's union in which the newer `at` wins, the store's tombstones kept through an aligned merge, the stamp checks (only inputs stamped for the current corpus, a stale autosave stashed, no merge onto an outdated corpus), the store lock a merge waits on and the land a dead holder left, which it finishes first, the refusal while the review server is listening, which takes no lock, idempotence, and the restore from the journal."""
+"""Tests for `rebuild/tools/merge_verdicts.py`, which merges verdict files into the autosave outside the browser: the review app's union in which the newer `at` wins, the store's tombstones kept through an aligned merge, the stamp checks (only inputs stamped for the current corpus, a stale autosave stashed, no merge onto an outdated corpus), the store lock a merge waits on and the land a dead holder left, which it finishes first, the refusal while the review server is listening, which takes no lock, idempotence, and the restore from the journal, which gives the same store at every moment whether a land that moved the stamp was journaled as a base or as sets and clears."""
 
 import json
 import threading
@@ -290,6 +290,87 @@ def test_restore_refuses_a_moment_between_a_torn_base_and_the_next_complete_one(
     assert not out.exists()
     assert run(repo, "--restore-as-of", "2026-07-10T05:30", "--out", str(out)) == 0
     assert [record["unit"] for record in json.loads(out.read_text())["verdicts"]] == ["u-9"]
+
+
+def journal_lands(path, *, base):
+    """Journal a history whose lands move the stamp, each journaled as a base (`base` None) or as the sets and clears against the store it replaced (`base` False): a merge, an autosave that changes one verdict and clears another, a land that drops a unit and fills a new one, an autosave on the new stamp, a land onto the same records, and an autosave after it."""
+    first = [v("u-1"), v("u-2"), v("u-3", "reject")]
+    saved = [v("u-1"), v("u-2", "reject", at="2026-07-10T02:00:00Z")]
+    landed = [saved[1], v("u-4", note="fill")]
+    edited = [saved[1], v("u-4", "either", at="2026-07-10T04:00:00Z")]
+    for source, stamp, old_stamp, old, new, hour, land in (
+        ("merge", "S1", None, [], first, 1, False),
+        ("autosave", "S1", "S1", first, saved, 2, False),
+        ("land", "S2", "S1", saved, landed, 3, True),
+        ("autosave", "S2", "S2", landed, edited, 4, False),
+        ("land", "S3", "S2", edited, edited, 5, True),
+        ("autosave", "S3", "S3", edited, [*edited, v("u-5")], 6, False),
+    ):
+        journal.record_transition(
+            path,
+            source=source,
+            stamp=stamp,
+            old_stamp=old_stamp,
+            old_verdicts=old,
+            new_verdicts=new,
+            stashed=f"verdicts-autosave-{old_stamp}.json" if land else None,
+            at=f"2026-07-10T0{hour}:00:00Z",
+            base=base if land else None,
+        )
+
+
+def test_restore_gives_the_same_store_at_every_moment_whether_lands_journal_bases_or_sets_and_clears(
+    repo, capsys
+):
+    """A land that moves the stamp journals the sets and clears from the store it replaced unless a base is due. `--restore-as-of` gives the same store at every recorded moment, and between them, as it does from a journal where every such land wrote a base."""
+    bases, deltas = repo["root"] / "bases.ndjson", repo["root"] / "deltas.ndjson"
+    journal_lands(bases, base=None)
+    journal_lands(deltas, base=False)
+    assert [event["base"] for event in journal.iter_events(bases)] == [True, False, True, False, True, False]
+    assert [event["base"] for event in journal.iter_events(deltas)] == [
+        True,
+        False,
+        False,
+        False,
+        False,
+        False,
+    ]
+    assert deltas.stat().st_size < bases.stat().st_size
+    moments = [f"2026-07-10T0{hour}:{minute}" for hour in range(7) for minute in ("00", "30")]
+    restored: dict[str, list[tuple]] = {}
+    for moment in moments:
+        restored[moment] = []
+        for path in (bases, deltas):
+            out = repo["root"] / f"restored-{path.stem}.json"
+            out.unlink(missing_ok=True)
+            code = mv.main(
+                [
+                    "--restore-as-of",
+                    moment,
+                    "--out",
+                    str(out),
+                    "--autosave",
+                    str(repo["autosave"]),
+                    "--corpus",
+                    str(repo["corpus"]),
+                    "--journal",
+                    str(path),
+                ]
+            )
+            data = json.loads(out.read_text()) if out.exists() else {}
+            restored[moment].append((code, data.get("manifest_generated_at"), data.get("verdicts")))
+        assert restored[moment][0] == restored[moment][1], moment
+    capsys.readouterr()
+    assert restored[moments[0]][0] == (1, None, None)
+    assert restored[moments[-1]][0] == (
+        0,
+        "S3",
+        [
+            v("u-2", "reject", at="2026-07-10T02:00:00Z"),
+            v("u-4", "either", at="2026-07-10T04:00:00Z"),
+            v("u-5"),
+        ],
+    )
 
 
 def test_restore_apply_replaces_and_stashes_the_autosave(repo, monkeypatch):

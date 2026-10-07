@@ -62,7 +62,7 @@ Retention holds the store's lock only for the tail of the journal appended since
 
 Every pass holds the pass lock (`pass_lock`, var/cycle/pass.lock) from before it recovers a superseded corpus and resolves its plan until it ends, so a second pass waits for the first instead of planning against a tree the first is still writing. The land inherits the lock, so a driver killed while its land runs still holds the next pass back until the land has finished. A staging pass holds it too, because a live pass's promotion reads the corpus a staging pass writes. A dry run takes it without waiting, and when another pass holds it the dry run skips the recovery, which could rename a tree that pass is landing. Each non-staging pass gets a scratch directory under var/cycle/ named like its build-log run directory and deletes it when it ends; the next pass deletes any that a killed pass left (`sweep_run_dirs`). A staging pass and a dry run get no scratch directory.
 
-A green finish ends with a retention pass over the cycle's own files, all of them regenerable or covered by the journal. Root verdicts-carried-*.json files not stamped for the live corpus are deleted, since `status.pick_fullest_verdicts` reads only files stamped for the live corpus, and the tracked copy under rebuild/evidence/ is never touched. verdicts-autosave-* stashes not referenced by a journal event at or after the last base event are deleted. The journal, not the stashes, is the supported recovery path, and the check uses the journal's references because a stash's mtime predates the event that created it. The journal is compacted to the newest base event older than RETENTION_WINDOW_DAYS, keeping at least that many days of --restore-as-of history, and build-log run directories beyond the newest `cycle_paths.BUILD_LOGS_KEEP` are deleted. Both journal steps share one scan, which resumes from where the last pass's scan stopped (`journal_scan_path`). Failed, interrupted, first-run, and staging passes never prune, --keep-history turns retention off, and a retention error prints a warning and never turns a green cycle red.
+A green finish ends with a retention pass over the cycle's own files, all of them regenerable or covered by the journal. Root verdicts-carried-*.json files not stamped for the live corpus are deleted, since `status.pick_fullest_verdicts` reads only files stamped for the live corpus, and the tracked copy under rebuild/evidence/ is never touched. verdicts-autosave-* stashes not referenced by a journal event at or after the last event that moved the stamp or wrote a base are deleted. The journal, not the stashes, is the supported recovery path, and the check uses the journal's references because a stash's mtime predates the event that created it. The journal is compacted to the newest base event older than RETENTION_WINDOW_DAYS, keeping at least that many days of --restore-as-of history, and build-log run directories beyond the newest `cycle_paths.BUILD_LOGS_KEEP` are deleted. Both journal steps share one scan, which resumes from where the last pass's scan stopped (`journal_scan_path`). Failed, interrupted, first-run, and staging passes never prune, --keep-history turns retention off, and a retention error prints a warning and never turns a green cycle red.
 
 Run as: uv run python rebuild/tools/artifact_cycle.py. The carry source is resolved from the autosave and the verdicts-*.json exports; pass --verdicts to name one.
 """
@@ -2401,7 +2401,7 @@ def build_plan(
             land_argv += ["--prepared", str(prepared)]
         if next_corpus is not None:
             land_argv += ["--staged", str(next_corpus), "--live", str(REVIEW_OUT), "--keep-discard"]
-        land_argv += ["--tombstone-cutoff", retention_cutoff()]
+        land_argv += ["--tombstone-cutoff", retention_cutoff(), "--scan-state", str(journal_scan_path())]
         if next_corpus is None:
             land_note = "puts the prepared store in place under the verdict store's lock, with the saves made during the pass laid over it"
         else:
@@ -2509,7 +2509,7 @@ def build_plan(
             Step(
                 "retention",
                 None,
-                f"on green finish: keep only the stamp-aligned verdicts-carried-*.json, drop verdicts-autosave-* stashes older than the journal's last base event, compact the journal to a {RETENTION_WINDOW_DAYS}-day restore floor; --keep-history skips",
+                f"on green finish: keep only the stamp-aligned verdicts-carried-*.json, drop verdicts-autosave-* stashes older than the journal's last stamp change or base event, compact the journal to a {RETENTION_WINDOW_DAYS}-day restore floor; --keep-history skips",
             )
         )
     elif keep_history:
@@ -4745,20 +4745,22 @@ def prune_stashes(
     lock: contextlib.AbstractContextManager | None = None,
     scan: journal.JournalScan | None = None,
 ) -> list[Path] | None:
-    """Delete the `verdicts-autosave-*` stashes that no journal event at or after the last base event references, and return them. Returns None and deletes nothing when the journal has no base event. The test uses journal references because mtime is wrong here: `os.replace` keeps the displaced store's mtime, so the stash the latest base created looks older than that base. `merge_verdicts --restore-as-of` can rebuild a deleted stash's state from the journal back to the journal's compaction floor.
+    """Delete the `verdicts-autosave-*` stashes that no journal event at or after the anchor references, and return them. The anchor is the last event that is a base or moves the stamp (its stamp differs from the event's before it), so it falls on the latest land that moved the stamp whether that land was journaled as a base or as sets and clears (`journal.base_due`), and the sweep keeps the stash that land named and those named since. Anchoring on bases alone would keep every stash named since the last base, about one per land between two bases. Returns None and deletes nothing when the journal has no anchor. The test uses journal references because mtime is wrong here: `os.replace` keeps the displaced store's mtime, so the stash the latest stamp change created looks older than that change. `merge_verdicts --restore-as-of` can rebuild a deleted stash's state from the journal back to the journal's compaction floor.
 
     The journal is read in two phases (`journal.scan`): first without `lock`, the verdict store's lock (the caller's `scan`, or a scan of the whole file made here when the caller passes none), then under it only the tail appended since, together with the glob and the deletions. Every writer that stashes a store and journals it holds that lock, so no stash can appear between the check and the deletion without its event being in the tail.
     """
     first = scan if scan is not None else journal.scan(journal_path)
     with lock if lock is not None else contextlib.nullcontext():
         events = journal.scan(journal_path, resume=first.state).events
-        last_base_at = None
+        anchor_at = None
+        previous = None
         for event in events:
-            if event.base:
-                last_base_at = event.at or ""
-        if last_base_at is None:
+            if event.base or (previous is not None and event.stamp != previous.stamp):
+                anchor_at = event.at or ""
+            previous = event
+        if anchor_at is None:
             return None
-        keep_names = {event.stashed for event in events if event.stashed and (event.at or "") >= last_base_at}
+        keep_names = {event.stashed for event in events if event.stashed and (event.at or "") >= anchor_at}
         removed: list[Path] = []
         for path in sorted(root.glob("verdicts-autosave-*.json")):
             if path.name in keep_names:
@@ -4769,7 +4771,7 @@ def prune_stashes(
 
 
 def journal_scan_path() -> Path:
-    """The scan state retention saves after each pass (`journal.save_scan_state`), from which the next pass's scan of the journal resumes."""
+    """The scan state retention saves after each pass (`journal.save_scan_state`), from which the next pass's scan of the journal resumes, and the land's read of it too (`--scan-state`)."""
     return cycle_paths.CYCLE_VAR / "journal-scan.json"
 
 
@@ -4873,12 +4875,14 @@ def run_retention(plan: Plan) -> RetentionResult:
         intact.append("stashes")
     else:
         if removed_stashes is None:
-            lines.append("  stashes   : left intact (the journal holds no base event to anchor on)")
+            lines.append(
+                "  stashes   : left intact (the journal holds no base event or stamp change to anchor on)"
+            )
             intact.append("stashes")
         else:
             removed_counts.append(swept(len(removed_stashes), "stash", "stashes"))
             lines.append(
-                f"  stashes   : removed {console.fmt_count(len(removed_stashes))} verdicts-autosave-* stashes older than the journal's last base"
+                f"  stashes   : removed {console.fmt_count(len(removed_stashes))} verdicts-autosave-* stashes older than the journal's last stamp change or base"
             )
 
     prepared = journal.compact_prepare(journal_path, cutoff=retention_cutoff(), resume=scan.state)

@@ -1,10 +1,10 @@
 """Append-only log of changes to the review app's verdict store.
 
-After each write to verdicts-autosave.json, the review server's store (`rebuild.review.verdict_store`) and `rebuild.tools.merge_verdicts` append the change to verdicts-journal.ndjson: one event line (source, time, manifest stamp) followed by one line per changed verdict. Clears get their own lines, because the store files cannot represent them (a cleared verdict is absent). A base event carries the full store instead of a diff. One is written at every corpus-stamp change, and one seeds a new journal when the store it starts from is not empty, so `replay(as_of=...)` can reconstruct the store at any recorded moment from the journal alone. `rebuild.tools.merge_verdicts --restore-as-of` uses that replay to undo a bad merge, an overwritten store, or an accidental clear.
+After each write to verdicts-autosave.json, the review server's store (`rebuild.review.verdict_store`) and `rebuild.tools.merge_verdicts` append the change to verdicts-journal.ndjson: one event line (source, time, manifest stamp) followed by one line per changed verdict. Clears get their own lines, because the store files cannot represent them (a cleared verdict is absent). A base event carries the full store instead of a diff. One seeds a new journal when the store it starts from is not empty, and every writer but the land writes one at each corpus-stamp change. The land (`rebuild.review.landing`) writes one only when the journal is due a new one (`base_due`), and otherwise journals a stamp change as the sets and clears against the store it replaces, because a unit's id is its content key and names the same unit on either stamp. So `replay(as_of=...)` can reconstruct the store at any recorded moment from the journal alone. `rebuild.tools.merge_verdicts --restore-as-of` uses that replay to undo a bad merge, an overwritten store, or an accidental clear.
 
-An append that crashes can leave the file ending in a line with no newline. Each append holds an exclusive `flock` on the file and first ends the file on a newline: a final line that parses as an entry keeps its bytes and gets the newline, and any other final line is cut off, so the lines appended after it stay readable. A base event names how many set lines follow it, and one followed by fewer is torn. The store from a torn base until the next complete base is unknown: replay raises `JournalGap` for a moment in that span and is exact again from the next complete base on, and compaction never starts the journal at a torn base. A writer that records the journal's length and inode before it appends (the land, `rebuild.review.landing`) lets the recovery of a land that died mid-append cut the journal back to that length (`truncate_to`) before it appends the land's event again.
+An append that crashes can leave the file ending in a line with no newline. Each append holds an exclusive `flock` on the file and first ends the file on a newline: a final line that parses as an entry keeps its bytes and gets the newline, and any other final line is cut off, so the lines appended after it stay readable. A base event names how many set lines follow it, and one followed by fewer is torn. The store from a torn base until the next complete base is unknown: replay raises `JournalGap` for a moment in that span and is exact again from the next complete base on, and compaction never starts the journal at a torn base. A writer that records the journal's length and inode before it appends (the land, `rebuild.review.landing`) lets the recovery of a land that died mid-append cut the journal back to that length (`truncate_to`), the start of the land's event line, before it journals the landed store again as a base event.
 
-Every writer appends while it holds the verdict store's lock (`rebuild.review.store_lock`), so the long reads that retention makes run without it. `scan` reads the journal's events and the set lines after each once without the lock, and then only the tail appended since, under it. Compaction is two phases: `compact_prepare` resumes that scan to choose the floor and copies the kept lines to a temporary file without the lock, and `compact_finish` copies the tail appended since and replaces the journal under it, so an append made during the copy is kept. Retention saves the last scan's state (`save_scan_state`), rebased onto the compacted file when it compacted, and the next pass's scan resumes from it, so each pass parses only what was appended since the last one. A scan resumes only while the journal still holds the bytes just before where the state ends and every event line the state recorded (`_scan_handle`), and reads from the start otherwise.
+Every writer appends while it holds the verdict store's lock (`rebuild.review.store_lock`), so the long reads that retention makes run without it. `scan` reads the journal's events and the set lines after each once without the lock, and then only the tail appended since, under it. Compaction is two phases: `compact_prepare` resumes that scan to choose the floor and copies the kept lines to a temporary file without the lock, and `compact_finish` copies the tail appended since and replaces the journal under it, so an append made during the copy is kept. Retention saves the last scan's state (`save_scan_state`), rebased onto the compacted file when it compacted, and the next pass's scan resumes from it, so each pass parses only what was appended since the last one; the land resumes from the same saved state to decide whether a stamp change is due a base. A scan resumes only while the journal still holds the bytes just before where the state ends and every event line the state recorded (`_scan_handle`), and reads from the start otherwise.
 """
 
 from __future__ import annotations
@@ -16,15 +16,16 @@ import json
 import os
 from collections.abc import Iterator
 from dataclasses import dataclass, replace
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 EXPORT_FORMAT = "ams-review-verdicts/1"
-SCAN_STATE_FORMAT = "ams-journal-scan/1"
+SCAN_STATE_FORMAT = "ams-journal-scan/2"
 JOURNAL_NAME = "verdicts-journal.ndjson"
 _TAIL_BLOCK = 1 << 16
 _RESUME_CHECK_BYTES = 1 << 16
 _COPY_BLOCK = 1 << 20
+BASE_INTERVAL = timedelta(days=1)
 
 
 def now_stamp() -> str:
@@ -81,11 +82,16 @@ def record_transition(
     new_verdicts,
     stashed: str | None = None,
     at: str | None = None,
+    base: bool | None = None,
 ) -> dict:
-    """Append the change from the store's previous content to its new content. A same-stamp change is written as a diff (sets and clears). A stamp change is written as a base event holding the full new store, because unit ids from different stamps cannot be matched. When the journal file does not exist yet and the previous store has the same stamp and is not empty, a seed base event holding the previous store is written first, so replay is complete from the journal's first line."""
+    """Append the change from the store's previous content to its new content. A same-stamp change is written as a diff (sets and clears). A stamp change is written as a base event holding the full new store, unless `base` is False: the land passes False when the journal is not due a base (`base_due`), and the stamp change is then written as a diff against `old_verdicts`, which must be the store the journal replays to, with its event line written even when the diff is empty, so replay moves to the new stamp. A stamp change from no previous store, or onto a journal that does not exist yet, is always a base. When the journal file does not exist yet and the previous store has the same stamp and is not empty, a seed base event holding the previous store is written first, so replay is complete from the journal's first line."""
     journal_path = Path(journal_path)
     at = at or now_stamp()
-    base = old_stamp != stamp
+    moved = old_stamp != stamp
+    if base is None:
+        base = moved
+    elif moved and (old_stamp is None or not journal_path.exists()):
+        base = True
     old_records = {} if base else latest_by_unit(old_verdicts)
     new_records = latest_by_unit(new_verdicts)
     sets = [
@@ -108,6 +114,7 @@ def record_transition(
         sets=sets,
         clears=clears,
         seed=seed,
+        moved=moved,
     )
     return {"base": base, "sets": len(sets), "clears": len(clears), "recorded": recorded}
 
@@ -136,14 +143,14 @@ def record_delta(
     return {"base": False, "sets": len(sets), "clears": len(clears), "recorded": recorded}
 
 
-def _append(journal_path, *, source, at, stamp, base, stashed, sets, clears, seed) -> bool:
+def _append(journal_path, *, source, at, stamp, base, stashed, sets, clears, seed, moved=False) -> bool:
     lines: list[dict] = []
     if seed:
         lines.append(
             _event_line(source="seed", at=at, stamp=stamp, base=True, stashed=None, sets=len(seed), clears=0)
         )
         lines.extend(_set_line(record) for _, record in sorted(seed.items()))
-    if base or sets or clears or stashed is not None:
+    if base or moved or sets or clears or stashed is not None:
         lines.append(
             _event_line(
                 source=source,
@@ -354,11 +361,12 @@ def replay(journal_path, as_of: str | None = None) -> tuple[str | None, dict[str
 
 @dataclass(frozen=True)
 class EventMark:
-    """One event line as a scan records it: the byte `offset` and the line index `line` at which it begins, its `at`, `base` and `stashed` (`at` and `stashed` are None where the line holds no string), the set lines it names (`sets`, as `_expected_sets` reads them), `counted`, the set lines that follow it before the next event or where parsing stops, and `digest`, the digest of the line's bytes with its newline, which a scan resuming from a state that holds the mark compares (`_holds`). A base event whose `counted` falls short of its `sets` is torn. The pending line's mark (`JournalScan.events`) has an empty `digest`, since no state holds it."""
+    """One event line as a scan records it: the byte `offset` and the line index `line` at which it begins, its `at`, `stamp`, `base` and `stashed` (`at`, `stamp` and `stashed` are None where the line holds no string), the set lines it names (`sets`, as `_expected_sets` reads them), `counted`, the set lines that follow it before the next event or where parsing stops, and `digest`, the digest of the line's bytes with its newline, which a scan resuming from a state that holds the mark compares (`_holds`). A base event whose `counted` falls short of its `sets` is torn. The pending line's mark (`JournalScan.events`) has an empty `digest`, since no state holds it."""
 
     offset: int
     line: int
     at: str | None
+    stamp: str | None
     base: bool
     stashed: str | None
     sets: int
@@ -368,11 +376,13 @@ class EventMark:
 
 def _mark(entry: dict, offset: int, line: int, digest: str) -> EventMark:
     at = entry.get("at")
+    stamp = entry.get("stamp")
     stashed = entry.get("stashed")
     return EventMark(
         offset,
         line,
         at if isinstance(at, str) else None,
+        stamp if isinstance(stamp, str) else None,
         bool(entry.get("base")),
         stashed if isinstance(stashed, str) and stashed else None,
         _expected_sets(entry),
@@ -474,13 +484,25 @@ def _scan_handle(handle, resume: ScanState | None) -> JournalScan:
 
 
 def scan(journal_path, *, resume: ScanState | None = None) -> JournalScan:
-    """Read the journal's events once, with the set lines that follow each, stopping where `_iter_entries` stops. Given `resume`, the state of an earlier scan of the same journal, it reads only what was appended since, and from the start when the file no longer holds what `resume` read (`_holds`); `start` records which. Retention scans without the store's lock and then resumes under it, and every append holds that lock, so the second scan sees each line the first one missed. Retention saves the state at the end of its pass (`save_scan_state`), so the next pass parses only what was appended since."""
+    """Read the journal's events once, with the set lines that follow each, stopping where `_iter_entries` stops. Given `resume`, the state of an earlier scan of the same journal, it reads only what was appended since, and from the start when the file no longer holds what `resume` read (`_holds`); `start` records which. Retention scans without the store's lock and then resumes under it, and every append holds that lock, so the second scan sees each line the first one missed. Retention saves the state at the end of its pass (`save_scan_state`), so the next pass parses only what was appended since. The land resumes from that saved state the same way, before and under the lock, to decide whether a stamp change is due a base (`base_due`)."""
     try:
         handle = Path(journal_path).open("rb")
     except OSError:
         return JournalScan(_EMPTY_STATE, 0, None, 0, 0, 0)
     with handle:
         return _scan_handle(handle, resume)
+
+
+def base_due(events, at: str) -> bool:
+    """Return whether a land at `at` that moves the stamp writes its store as a base event, given the journal's `events` (`scan`): when the journal holds no base event, when its last base event is torn, so a diff after it would replay only from the next complete base on (`replay`), or when its last base is at least `BASE_INTERVAL` older than `at`. Otherwise the land journals the move as sets and clears. Compaction starts the journal at the newest complete base at or before its cutoff (`compact_prepare`), so the history a compacted journal keeps before the cutoff is at most the span between two bases. A base at most once per `BASE_INTERVAL` bounds that span to the interval plus the wait for the next land that moves the stamp, and leaves about one base per interval in the retention window rather than one per land. Measuring the interval from the last base, not from the start of a calendar day, never puts two bases minutes apart on either side of midnight."""
+    last = None
+    for mark in events:
+        if mark.base:
+            last = mark
+    if last is None or last.counted < last.sets:
+        return True
+    threshold = datetime.fromisoformat(at.replace("Z", "+00:00")) - BASE_INTERVAL
+    return (last.at or "") <= threshold.isoformat().replace("+00:00", "Z")
 
 
 def save_scan_state(path, state: ScanState | None) -> None:
@@ -496,7 +518,17 @@ def save_scan_state(path, state: ScanState | None) -> None:
         "lines": state.lines,
         "check": state.check,
         "marks": [
-            [mark.offset, mark.line, mark.at, mark.base, mark.stashed, mark.sets, mark.counted, mark.digest]
+            [
+                mark.offset,
+                mark.line,
+                mark.at,
+                mark.stamp,
+                mark.base,
+                mark.stashed,
+                mark.sets,
+                mark.counted,
+                mark.digest,
+            ]
             for mark in state.marks
         ],
     }
@@ -522,13 +554,14 @@ def load_scan_state(path) -> ScanState | None:
                     int(offset),
                     int(line),
                     at if isinstance(at, str) else None,
+                    stamp if isinstance(stamp, str) else None,
                     bool(base),
                     stashed if isinstance(stashed, str) and stashed else None,
                     int(sets),
                     int(counted),
                     str(digest),
                 )
-                for offset, line, at, base, stashed, sets, counted, digest in payload["marks"]
+                for offset, line, at, stamp, base, stashed, sets, counted, digest in payload["marks"]
             ),
         )
     except OSError, ValueError, TypeError, KeyError, AttributeError:
