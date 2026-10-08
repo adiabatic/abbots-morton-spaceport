@@ -123,15 +123,6 @@ policy:
               - qsOwe
               - qsFoot
   extend:
-  - entry: x-height
-    by: 1
-    when:
-      left: {family: qsIt}
-      right:
-        except:
-        - {family: qsYe}
-        - {family: qsExam}
-        - {family: qsI}
   - exit: baseline
     by: 1
     when:

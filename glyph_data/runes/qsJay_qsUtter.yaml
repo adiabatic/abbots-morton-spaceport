@@ -93,10 +93,6 @@ policy:
     by: 1
     when:
       right: {family: qsGay}
-  - entry: x-height
-    by: 1
-    when:
-      left: {family: qsIt}
   contract:
   - entry: x-height
     by: 1
