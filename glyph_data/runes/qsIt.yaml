@@ -158,6 +158,11 @@ policy:
         family: qsDay
         stance: half
       right: {family: qsUtter}
+  - exit: baseline
+    when:
+      self: {entry: live}
+      left: {class: talls}
+      right: {family: qsThaw}
   - entry: x-height
     when:
       left: {family: qsThey}
@@ -171,6 +176,11 @@ policy:
         family: qsOy
         joined_at: baseline
       right: {family: qsNo}
+  - cell: {entry: x-height}
+    over: {exit: baseline}
+    when:
+      left: {class: talls}
+      right: {family: qsThaw}
   - cell:
       entry: none
       exit: baseline

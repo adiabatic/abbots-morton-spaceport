@@ -72,10 +72,10 @@
   "volatile": {
     "manifest": {
       "totals": {
-        "units": 1559706,
+        "units": 1559556,
         "rows": 7459939,
-        "batches": 893,
-        "duplicate_groups": 11193
+        "batches": 892,
+        "duplicate_groups": 11197
       },
       "machine_approved": {
         "units": 1246964,
@@ -96,24 +96,24 @@
         }
       },
       "class_unit_count": {
-        "boundary-window": 217032,
+        "boundary-window": 217024,
         "dangling-anchor-dropped": 400716,
         "bare-name-live-join": 685461
       },
       "secondary_junctions": {
-        "units_with_markers": 57996,
+        "units_with_markers": 57997,
         "junctions_with_primary_unit": 6511,
-        "junctions_without_primary_unit": 55155,
+        "junctions_without_primary_unit": 55159,
         "junctions_suppressed_invisible": 1607
       }
     },
     "built": {
-      "human_units": 267694,
+      "human_units": 267552,
       "reference_window_duplicate_siblings": 36,
       "config_note_distribution": [
         [
           null,
-          1427305
+          1427455
         ],
         [
           "only when ss03 is off",
@@ -141,7 +141,7 @@
         ],
         [
           "only when ss04 is off",
-          21644
+          21494
         ],
         [
           "only when ss04 is off and ss05 is off",
@@ -149,7 +149,7 @@
         ],
         [
           "only when ss04 is on",
-          22108
+          21958
         ],
         [
           "only when ss05 is off",
@@ -167,11 +167,11 @@
     },
     "audit": {
       "row_count": 7459939,
-      "units": 1566575
+      "units": 1566425
     },
     "ink": {
       "machine_total": 1206366,
-      "non_identical": 360209,
+      "non_identical": 360059,
       "by_class": {
         "boundary-window": 182181,
         "zwnj-word-initial-unification": 168,
@@ -180,8 +180,8 @@
         "zoo-entry-contraction-renamed": 1412,
         "roe-shortened-top-renamed": 1812
       },
-      "boundary_window_exempt": 50356,
-      "human_units": 309853,
+      "boundary_window_exempt": 50348,
+      "human_units": 309711,
       "batches": 1033
     },
     "unmatched_groups": {
@@ -190,13 +190,13 @@
         "tea-it-xheight": 165,
         "oy-it-baseline": 131,
         "may-utter-gains": 1100,
-        "junction-loss-unjoined": 14722,
-        "extension-non-summing": 111402,
+        "junction-loss-unjoined": 14930,
+        "extension-non-summing": 111194,
         "unmatched-misc": 13628,
-        "deferred-ss04": 12016,
+        "deferred-ss04": 11945,
         "deferred-ss03": 23061
       },
-      "total": 181531
+      "total": 181460
     }
   }
 }
