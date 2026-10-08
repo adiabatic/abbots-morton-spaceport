@@ -12,11 +12,12 @@
 
 use std::hash::{Hash, Hasher};
 use std::num::NonZeroU16;
+use std::rc::Rc;
 
 use crate::error::SettleError;
 use crate::hash::{HashMap, HashSet};
 use crate::index::{Ordinal, Read, SpecIndex, StanceId};
-use crate::memo::{MemoSnapshot, SharedMemo};
+use crate::memo::{MemoSnapshot, SharedMemo, SnapshotVerdicts};
 use crate::model::{
     Condition, PolicyRecord, Provenance, Rune, Stance, SurfaceRow, Sym, Table, When,
 };
@@ -616,6 +617,157 @@ impl ReadsPool {
     }
 }
 
+/// Which probe a [`VerdictKey`] names: the prospect, follower prefer and input replay probes, at the third slot and at the fourth.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub(crate) enum VerdictKind {
+    Prospect3,
+    FollowerPrefer3,
+    Replay3,
+    Prospect4,
+    FollowerPrefer4,
+    Replay4,
+}
+
+/// One probe as `default` publishes it and a delta looks it up: the kind, the family it ran for, the probe shape (absent for an input replay, which runs over every representative left), and the letter slots. Each field is its [`Ordinal`], as in a trace key, so the key is fourteen bytes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub(crate) struct VerdictKey {
+    pub(crate) kind: VerdictKind,
+    pub(crate) family: Ordinal,
+    pub(crate) stance: Option<Ordinal>,
+    pub(crate) junction: Option<Ordinal>,
+    pub(crate) right1: Ordinal,
+    pub(crate) right2: Ordinal,
+    pub(crate) right3: Option<Ordinal>,
+}
+
+const _: () = assert!(std::mem::size_of::<VerdictKey>() == 14);
+
+impl VerdictKey {
+    /// Every rune this key names, as rune-field ordinals: the family and each letter slot. [`Engine::begin_verdict`] publishes a verdict for no group whose runes these include, as a shared memo refuses a window whose key names an excluded rune.
+    pub(crate) fn runes_named(&self) -> impl Iterator<Item = Ordinal> {
+        [
+            Some(self.family),
+            Some(self.right1),
+            Some(self.right2),
+            self.right3,
+        ]
+        .into_iter()
+        .flatten()
+    }
+}
+
+/// What a published liveness verdict holds beside its [`VerdictKey`]: the step its probe stopped at, and where its slots start in the snapshot's slot array ([`crate::memo::SnapshotVerdicts`]). A probe stops only at a variance, which is a live verdict, or at its end, [`VerdictEntry::RAN_OUT`], which is a dead one, so the step is the verdict too. Eight bytes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct VerdictEntry {
+    pub(crate) stop: u32,
+    pub(crate) slots: u32,
+}
+
+impl VerdictEntry {
+    /// The stop of a probe that ran through every step without a variance.
+    pub(crate) const RAN_OUT: u32 = u32::MAX;
+}
+
+/// The verdicts an engine publishes ([`Engine::publish_verdicts`]), and the probe whose capture is open.
+#[derive(Debug)]
+struct Publication {
+    /// The unlocking-rune sets the verdicts are published for.
+    groups: Vec<HashSet<Sym>>,
+    /// Per rune-field ordinal, one bit per group whose set holds that rune.
+    marks: Box<[u32]>,
+    /// Every rune some group's set holds, sorted, beside its groups' bits, for the reads a probe journaled.
+    read_marks: Box<[(Sym, u32)]>,
+    records: HashMap<VerdictKey, VerdictEntry>,
+    /// One slot per group per record, in group order: the fired delta of the probe's asks that name none of the group's runes, or `None` where the verdict is not published for the group.
+    slots: Vec<Option<DeltaId>>,
+    /// The bytes of the fired deltas the verdicts added to the engine's delta pool, as its table holds them.
+    pooled: usize,
+    open: Option<OpenVerdict>,
+}
+
+impl Publication {
+    /// The bits of the groups whose sets hold any of these runes.
+    fn marked(&self, ordinals: impl Iterator<Item = Ordinal>) -> u32 {
+        ordinals.fold(0, |bits, ordinal| {
+            bits | self
+                .marks
+                .get(usize::from(ordinal.get()))
+                .copied()
+                .unwrap_or(0)
+        })
+    }
+
+    /// The bits of the groups whose sets hold the rune one journaled read is of; none for a class.
+    fn read_marked(&self, read: Read) -> u32 {
+        let Read::Rune(rune) = read else {
+            return 0;
+        };
+        self.read_marks
+            .binary_search_by_key(&rune, |(held, _)| *held)
+            .map_or(0, |at| self.read_marks[at].1)
+    }
+}
+
+/// The capture around one published probe: where it began in the fired log and the read journal, the groups its key leaves it published for, and the asks it ran that name a rune of one of those groups.
+#[derive(Debug)]
+struct OpenVerdict {
+    log: usize,
+    journal: usize,
+    published: u32,
+    asks: Vec<MarkedAsk>,
+}
+
+/// One ask a published probe ran that names a rune of some group: the groups' bits, and the spans of the fired log and the read journal the ask wrote.
+#[derive(Clone, Copy, Debug)]
+struct MarkedAsk {
+    groups: u32,
+    log: (usize, usize),
+    journal: (usize, usize),
+}
+
+/// What `all` holds from `start` on outside the spans of the asks marked for `bit`, sorted with repeats collapsed. A run of one item is collapsed as it is copied, so the sort sees fewer.
+fn kept_outside<T: Copy + Ord>(
+    all: &[T],
+    start: usize,
+    asks: &[MarkedAsk],
+    bit: u32,
+    span: impl Fn(&MarkedAsk) -> (usize, usize),
+) -> Box<[T]> {
+    let mut kept: Vec<T> = Vec::new();
+    let mut keep = |items: &[T]| {
+        for &item in items {
+            if kept.last() != Some(&item) {
+                kept.push(item);
+            }
+        }
+    };
+    let mut at = start;
+    for ask in asks.iter().filter(|ask| ask.groups & bit != 0) {
+        let (from, to) = span(ask);
+        keep(&all[at..from]);
+        at = to;
+    }
+    keep(&all[at..]);
+    kept.sort_unstable();
+    kept.dedup();
+    kept.into_boxed_slice()
+}
+
+/// Where a delta's engine reads published verdicts: the shared memo that carries them, the group its exclusion matches, and the runes that group marks, as flags by rune-field ordinal.
+#[derive(Debug)]
+struct VerdictSource {
+    memo: usize,
+    group: usize,
+    marked: Rc<[bool]>,
+}
+
+/// A published verdict a shared memo admits for a probe: the step `default`'s probe stopped at, the runes whose asks the delta runs itself, and the fired delta of every other ask.
+pub(crate) struct ServedVerdict {
+    pub(crate) stop: u32,
+    pub(crate) marked: Rc<[bool]>,
+    delta: DeltaId,
+}
+
 /// What one closed capture returns: the pointers the evaluation fired, in first-fired order, and the set of runes and classes it read.
 struct Captured {
     delta: Box<[Pointer]>,
@@ -807,6 +959,15 @@ pub struct Engine<'i> {
     shared_memo_fired: Vec<Vec<bool>>,
     /// How many windows each shared memo supplied, in lookup order, for the cache stats.
     shared_memo_hits: Vec<u64>,
+    /// The liveness verdicts this engine publishes, present only while it publishes them ([`Engine::publish_verdicts`]). Their delta ids index this engine's delta pool, so they leave with the trace memo's snapshot.
+    publication: Option<Publication>,
+    /// Where this engine is served published verdicts, when a shared memo carries them for its exclusion.
+    verdict_source: Option<VerdictSource>,
+    /// How many probes a published verdict answered, how many it was served for but disagreed with on a rerun ask, how many the shared memo held a verdict for but not for this engine's group, and how many it held none for, for the cache stats.
+    shared_verdict_hits: u64,
+    shared_verdict_divergences: u64,
+    shared_verdict_refusals: u64,
+    shared_verdict_misses: u64,
 }
 
 impl<'i> Engine<'i> {
@@ -844,6 +1005,12 @@ impl<'i> Engine<'i> {
             shared_memos: Vec::new(),
             shared_memo_fired: Vec::new(),
             shared_memo_hits: Vec::new(),
+            publication: None,
+            verdict_source: None,
+            shared_verdict_hits: 0,
+            shared_verdict_divergences: 0,
+            shared_verdict_refusals: 0,
+            shared_verdict_misses: 0,
         }
     }
 
@@ -858,6 +1025,22 @@ impl<'i> Engine<'i> {
             .map(|shared| vec![false; shared.memo.deltas.len()])
             .collect();
         self.shared_memo_hits = vec![0; memos.len()];
+        self.verdict_source = memos.iter().enumerate().find_map(|(memo, shared)| {
+            if !shared.excluded.classes().is_empty() {
+                return None;
+            }
+            let group = shared
+                .memo
+                .verdicts
+                .groups
+                .iter()
+                .position(|group| group == shared.excluded.runes())?;
+            Some(VerdictSource {
+                memo,
+                group,
+                marked: Rc::from(shared.excluded.named()),
+            })
+        });
         self.shared_memos = memos;
     }
 
@@ -871,7 +1054,7 @@ impl<'i> Engine<'i> {
         &self.shared_memo_hits
     }
 
-    /// Detach this engine's trace memo: the entries compacted into an immutable array, with the tables their ids index and every fired delta and read set the engine stored. The candidate, closure and prospect memos are released before compaction, as [`Engine::release_memos`] releases them, because they index the delta table that leaves with the snapshot. The live trace map is consumed and freed before the array is partitioned and sorted. Returns `None` for an engine without a trace memo. The shared memos are not included: a snapshot holds only what this engine settled, and a caller that wants the union reads the shared memos beside it.
+    /// Detach this engine's trace memo: the entries compacted into an immutable array, with the tables their ids index and every fired delta and read set the engine stored, and the liveness verdicts it published, compacted the same way. The candidate, closure and prospect memos are released before compaction, as [`Engine::release_memos`] releases them, because they index the delta table that leaves with the snapshot. The live trace map is consumed and freed before the array is partitioned and sorted. The engine stops publishing verdicts here, since a verdict captured later could read windows the snapshot lacks. Returns `None` for an engine without a trace memo. The shared memos are not included: a snapshot holds only what this engine settled, and a caller that wants the union reads the shared memos beside it.
     pub fn take_memo(&mut self) -> Option<MemoSnapshot> {
         let memo = self.trace_cache.take()?;
         let deltas = std::mem::take(&mut self.deltas);
@@ -880,12 +1063,25 @@ impl<'i> Engine<'i> {
         self.candidates_cache = CandidatesMemo::default();
         self.prospect_cache = HashMap::default();
         self.closure_cache = HashMap::default();
+        let verdicts =
+            self.publication
+                .take()
+                .map_or_else(SnapshotVerdicts::default, |publication| {
+                    let mut records = publication.records;
+                    records.shrink_to_fit();
+                    SnapshotVerdicts {
+                        groups: publication.groups,
+                        records,
+                        slots: publication.slots.into_boxed_slice(),
+                    }
+                });
         Some(MemoSnapshot {
             entries: memo.entries.into(),
             settled: memo.settled.into_table(),
             notes: memo.notes.into_table(),
             deltas: deltas.table,
             reads: reads.table,
+            verdicts,
         })
     }
 
@@ -934,6 +1130,7 @@ impl<'i> Engine<'i> {
         self.closure_cache = HashMap::default();
         self.deltas = DeltaPool::default();
         self.reads = ReadsPool::default();
+        self.publication = None;
     }
 
     /// Every authored record that fired under this configuration: refusals that removed a candidate, unlocks that granted a capability, row scopes that admitted a side, and the adjustments, prefers and resolves that shaped a committed cell. The dead-policy check reads this. Iteration order never reaches an output, so a hash set is enough.
@@ -1011,6 +1208,18 @@ impl<'i> Engine<'i> {
                 self.pairing_sets.capacity(),
             ),
         ];
+        if let Some(publication) = self.publication.as_ref() {
+            out.push(CacheSize::of(
+                "verdicts",
+                publication.records.len(),
+                publication.records.capacity(),
+            ));
+            out.push(CacheSize::of(
+                "verdict_slots",
+                publication.slots.len(),
+                publication.slots.capacity(),
+            ));
+        }
         if let Some(memo) = self.trace_cache.as_ref() {
             out.push(CacheSize::of(
                 "trace_cache",
@@ -1128,6 +1337,280 @@ impl<'i> Engine<'i> {
             crate::index::journal_clear();
             crate::index::journal_arm(false);
         }
+    }
+
+    // --- published liveness verdicts -----------------------------------------------
+
+    /// Capture every liveness verdict this engine's probes compute from here on, for the snapshot [`Engine::take_memo`] returns, published for each of `groups`: the unlocking-rune sets of the deltas that will read it, each named once. The table build sets this on `default` when some delta reads its memo ([`crate::liveness`]). Only a trace-memo engine journals, so only it can publish; setting it on any other engine panics, and so do more than thirty-two groups.
+    pub fn publish_verdicts(&mut self, groups: Vec<HashSet<Sym>>) {
+        assert!(
+            self.trace_cache.is_some(),
+            "a verdict is published with what it fired, which only the trace-memo engine journals"
+        );
+        assert!(
+            groups.len() <= 32,
+            "a verdict's groups fit one word of bits"
+        );
+        let index = self.index;
+        let mut marks: Vec<u32> = Vec::new();
+        let mut read_marks: Vec<(Sym, u32)> = Vec::new();
+        for (bit, group) in groups.iter().enumerate() {
+            for rune in group {
+                if let Some(ordinal) = index.rune_ordinal(*rune) {
+                    let at = usize::from(ordinal.get());
+                    if marks.len() <= at {
+                        marks.resize(at + 1, 0);
+                    }
+                    marks[at] |= 1 << bit;
+                }
+                match read_marks.iter_mut().find(|(held, _)| held == rune) {
+                    Some((_, bits)) => *bits |= 1 << bit,
+                    None => read_marks.push((*rune, 1 << bit)),
+                }
+            }
+        }
+        read_marks.sort_unstable();
+        self.publication = Some(Publication {
+            groups,
+            marks: marks.into_boxed_slice(),
+            read_marks: read_marks.into_boxed_slice(),
+            records: HashMap::default(),
+            slots: Vec::new(),
+            pooled: 0,
+            open: None,
+        });
+    }
+
+    /// How many bytes the verdicts this engine publishes hold, as the snapshot [`Engine::take_memo`] returns will hold them: the record table's buckets, each a record and a control byte, at the power of two its capacity of seven eighths of them implies, the slot array, and the fired deltas the verdicts added to the delta pool. `None` while it publishes none.
+    pub fn published_verdict_bytes(&self) -> Option<usize> {
+        let publication = self.publication.as_ref()?;
+        let buckets = (publication.records.capacity() * 8 / 7).next_power_of_two();
+        Some(
+            buckets * (size_of::<(VerdictKey, VerdictEntry)>() + 1)
+                + publication.slots.len() * size_of::<Option<DeltaId>>()
+                + publication.pooled,
+        )
+    }
+
+    /// Whether this engine captures the verdicts its probes compute.
+    pub(crate) fn publishes_verdicts(&self) -> bool {
+        self.publication.is_some()
+    }
+
+    /// Whether some shared memo serves this engine published verdicts.
+    pub(crate) fn reads_verdicts(&self) -> bool {
+        self.verdict_source.is_some()
+    }
+
+    /// Open the capture around one probe this engine publishes under `key`, and return true; or return false and open nothing when the key names a rune of every group, since no delta that reads the verdict could be served it. The capture nests like any other, so the windows the probe settles record their own deltas as before. A probe never runs inside another.
+    pub(crate) fn begin_verdict(&mut self, key: &VerdictKey) -> bool {
+        let publication = self
+            .publication
+            .as_ref()
+            .expect("a verdict is captured only while this engine publishes");
+        assert!(
+            publication.open.is_none(),
+            "a probe runs inside no other probe"
+        );
+        if publication.groups.is_empty() {
+            return false;
+        }
+        let every = u32::MAX >> (32 - publication.groups.len());
+        let published = every & !publication.marked(key.runes_named());
+        if published == 0 {
+            return false;
+        }
+        self.begin_capture();
+        let log = *self.capture_starts.last().expect("the capture just opened");
+        let journal = *self.read_starts.last().expect("the capture just opened");
+        self.publication.as_mut().expect("checked above").open = Some(OpenVerdict {
+            log,
+            journal,
+            published,
+            asks: Vec::new(),
+        });
+        true
+    }
+
+    /// Run one ask of a probe, whose varying runes, the swept token and the representative left, are `names`. While a published probe's capture is open, an ask naming a rune of some group it is published for is marked with the spans it wrote, so [`Engine::end_verdict`] leaves it out of that group's slot. Otherwise the ask just runs.
+    pub(crate) fn probe_ask<T>(
+        &mut self,
+        names: [Option<Ordinal>; 2],
+        ask: impl FnOnce(&mut Self) -> T,
+    ) -> T {
+        let groups = match self.publication.as_ref() {
+            Some(publication) => match publication.open.as_ref() {
+                Some(open) => open.published & publication.marked(names.into_iter().flatten()),
+                None => 0,
+            },
+            None => 0,
+        };
+        if groups == 0 {
+            return ask(self);
+        }
+        let log = self.fired_log.as_ref().map_or(0, Vec::len);
+        let journal = crate::index::journal_len();
+        let answer = ask(self);
+        let marked = MarkedAsk {
+            groups,
+            log: (log, self.fired_log.as_ref().map_or(0, Vec::len)),
+            journal: (journal, crate::index::journal_len()),
+        };
+        self.publication
+            .as_mut()
+            .and_then(|publication| publication.open.as_mut())
+            .expect("the capture is still open")
+            .asks
+            .push(marked);
+        answer
+    }
+
+    /// Close the capture [`Engine::begin_verdict`] opened and publish the verdict under `key`, with the step the probe stopped at. A group's slot holds what the probe fired outside the asks naming one of the group's runes: what a delta in that group would fire running the asks it does not run itself. The slot is left empty where the key names one of those runes, or where those other asks read one, since a delta in that group would then settle some of their windows itself ([`crate::memo::Exclusion::admits`]). The fired delta is stored sorted, because a served verdict is replayed only into the fired set, which has no order, and sorted deltas intern to far fewer distinct entries.
+    pub(crate) fn end_verdict(&mut self, key: VerdictKey, stop: u32) {
+        let publication = self
+            .publication
+            .as_mut()
+            .expect("a verdict is captured only while this engine publishes");
+        let open = publication
+            .open
+            .take()
+            .expect("begin_verdict opened the capture");
+        let publication = self.publication.as_ref().expect("checked above");
+        let every = u32::MAX >> (32 - publication.groups.len());
+        let mut published = open.published;
+        crate::index::journal_view(|journal| {
+            let mut read = |span: &[Read], counted: u32| {
+                let mut last = None;
+                for &item in span {
+                    if last != Some(item) {
+                        last = Some(item);
+                        published &= !(publication.read_marked(item) & counted);
+                    }
+                }
+            };
+            let mut at = open.journal;
+            for ask in &open.asks {
+                read(&journal[at..ask.journal.0], every);
+                read(&journal[ask.journal.0..ask.journal.1], !ask.groups);
+                at = ask.journal.1;
+            }
+            read(&journal[at..], every);
+        });
+        let count = publication.groups.len();
+        let first = u32::try_from(publication.slots.len())
+            .expect("a configuration publishes fewer than 2^32 verdict slots");
+        let log = self
+            .fired_log
+            .as_ref()
+            .expect("captures only open in trace-memo mode");
+        let deltas = &mut self.deltas;
+        let mut pooled = 0;
+        let mut unmarked: Option<DeltaId> = None;
+        let slots: Vec<Option<DeltaId>> = (0..count)
+            .map(|group| {
+                let bit = 1 << group;
+                if published & bit == 0 {
+                    return None;
+                }
+                let marked = open.asks.iter().any(|ask| ask.groups & bit != 0);
+                if !marked && unmarked.is_some() {
+                    return unmarked;
+                }
+                let held = deltas.len();
+                let delta = kept_outside(log, open.log, &open.asks, bit, |ask| ask.log);
+                let bytes = size_of_val::<[Pointer]>(&delta) + size_of::<Box<[Pointer]>>();
+                let id = deltas.intern(delta);
+                if deltas.len() > held {
+                    pooled += bytes;
+                }
+                if !marked {
+                    unmarked = Some(id);
+                }
+                Some(id)
+            })
+            .collect();
+        let publication = self.publication.as_mut().expect("checked above");
+        publication.pooled += pooled;
+        if slots.iter().any(Option::is_some) {
+            publication.slots.extend(slots);
+            publication
+                .records
+                .insert(key, VerdictEntry { stop, slots: first });
+        }
+        self.abort_capture();
+    }
+
+    /// Abandon the capture [`Engine::begin_verdict`] opened, for a probe that raised. Nothing is published, as a raising window is never memoized.
+    pub(crate) fn abort_verdict(&mut self) {
+        if let Some(publication) = self.publication.as_mut() {
+            publication.open = None;
+        }
+        self.abort_capture();
+    }
+
+    /// The verdict a shared memo published for this probe under the group this engine's exclusion matches, when it holds one and published it for that group: the key names none of the group's runes, and the asks naming none of them read none. `None` means the caller runs the probe, and so does a probe asked inside a capture, which a served verdict could not journal what it read into.
+    pub(crate) fn shared_verdict(&mut self, key: &VerdictKey) -> Option<ServedVerdict> {
+        let source = self.verdict_source.as_ref()?;
+        if !self.capture_starts.is_empty() {
+            return None;
+        }
+        let verdicts = &self.shared_memos[source.memo].memo.verdicts;
+        let Some(entry) = verdicts.records.get(key).copied() else {
+            self.shared_verdict_misses += 1;
+            return None;
+        };
+        let Some(delta) = verdicts.slots[entry.slots as usize + source.group] else {
+            self.shared_verdict_refusals += 1;
+            return None;
+        };
+        Some(ServedVerdict {
+            stop: entry.stop,
+            marked: Rc::clone(&source.marked),
+            delta,
+        })
+    }
+
+    /// Take a served verdict whose rerun asks agreed with the probe that published it: replay what its other asks fired, as a shared window hit replays its entry.
+    pub(crate) fn serve_verdict(&mut self, served: &ServedVerdict) {
+        let source = self
+            .verdict_source
+            .as_ref()
+            .expect("a verdict is served only from its source");
+        let shared = &self.shared_memos[source.memo];
+        replay_shared(
+            &mut self.fired,
+            &mut self.fired_log,
+            &self.capture_starts,
+            &mut self.shared_memo_fired[source.memo],
+            served.delta,
+            &shared.memo.deltas[served.delta.index()],
+        );
+        self.shared_verdict_hits += 1;
+    }
+
+    /// Count a served verdict one of whose rerun asks disagreed, so the caller ran the whole probe.
+    pub(crate) fn diverged_from_verdict(&mut self) {
+        self.shared_verdict_divergences += 1;
+    }
+
+    /// How many probes a published verdict answered.
+    pub fn shared_verdict_hits(&self) -> u64 {
+        self.shared_verdict_hits
+    }
+
+    /// How many probes ran whole because a rerun ask disagreed with the published verdict.
+    pub fn shared_verdict_divergences(&self) -> u64 {
+        self.shared_verdict_divergences
+    }
+
+    /// How many probes ran because the shared memo held their verdict but did not publish it for this engine's group.
+    pub fn shared_verdict_refusals(&self) -> u64 {
+        self.shared_verdict_refusals
+    }
+
+    /// How many probes ran because the shared memo held no verdict for them.
+    pub fn shared_verdict_misses(&self) -> u64 {
+        self.shared_verdict_misses
     }
 
     // --- condition matching ---------------------------------------------------
@@ -1988,12 +2471,13 @@ impl<'i> Engine<'i> {
     ///
     /// The memo stores a term beside the id of its fired delta, and with a trace memo in simulated mode it holds only the asks whose replayed settlement raised (issue #166). A settling replay's delta equals the trace memo's delta for the follower's window: the synthetic left journals nothing, and deduplicating what [`Engine::with_settled`] journaled (a replayed trace delta, or the raw firings the trace memo deduplicated into that same delta) gives that delta again. The trace memo already holds that entry, under a key without this candidate's entry, so the capture is discarded instead of stored ([`Engine::abort_capture`]). The next ask with this key reads the trace memo through `with_settled`, which replays the same first-fired sequence into the same enclosing capture at the same point. A raising replay is never stored in the trace memo, so its fallback is what this memo is for. Candidacy mode runs no replay and memoizes every ask, and so does simulated mode without a trace memo, where nothing else can answer the next ask.
     ///
-    /// A replayed settlement asked for while no window is being evaluated is a probe's ask. [`Engine::probe_prospect`] is the only caller that reaches the term that way, because the ranking asks only from inside a trace. Its follower window is settled through [`Engine::with_settled_unrecorded`]: read from the trace memo when the memo holds it, and not added when it does not (issue #168). The probes memoize their verdicts above this call on their own keys, so the window is asked for again only by a row whose ranking reaches the same shifted window. An instrumented run over the whole alphabet measured how rarely that happens: the probes' replays wrote well over a third of the trace memo's entries and nearly all were never read, and the fourth-slot probes' windows (a letter third and an unknown fourth, which a row reaches only past a live fourth slot) almost never. In that run, recording them pushed the memo's bucket table past a power-of-two doubling, and leaving them out kept it under. The replays that a probe's replay runs in turn are recorded as usual, since every ranking shares those windows.
+    /// `recorded` says whether the follower's window may enter the trace memo. The ranking asks with it on, from inside a trace. [`Engine::probe_prospect`], a liveness probe's ask, passes it off, so its follower window is settled through [`Engine::with_settled_unrecorded`]: read from the trace memo when the memo holds it, and not added when it does not (issue #168). The probes memoize their verdicts above this call on their own keys, so the window is asked for again only by a row whose ranking reaches the same shifted window. An instrumented run over the whole alphabet measured how rarely that happens: the probes' replays wrote well over a third of the trace memo's entries and nearly all were never read, and the fourth-slot probes' windows (a letter third and an unknown fourth, which a row reaches only past a live fourth slot) almost never. In that run, recording them pushed the memo's bucket table past a power-of-two doubling, and leaving them out kept it under. The replays that a probe's replay runs in turn are recorded as usual, since every ranking shares those windows.
     fn prospect(
         &mut self,
         rune_name: Sym,
         candidate: Candidate,
         slots: Slots,
+        recorded: bool,
     ) -> Result<i64, SettleError> {
         let Some(follower) = slots.right1.rune() else {
             return Ok(0);
@@ -2039,7 +2523,6 @@ impl<'i> Engine<'i> {
             return Ok(i64::from(cached));
         }
         let capturing = self.fired_log.is_some();
-        let recorded = !self.capture_starts.is_empty();
         if capturing {
             self.begin_capture();
         }
@@ -2244,7 +2727,7 @@ impl<'i> Engine<'i> {
         candidate: Candidate,
         slots: Slots,
     ) -> Result<i64, SettleError> {
-        self.prospect(rune_name, candidate, slots)
+        self.prospect(rune_name, candidate, slots, false)
     }
 
     /// [`Engine::prefer_favors`], exposed to the liveness probe's follower prefer branch, like [`Engine::probe_prospect`].
@@ -2978,7 +3461,7 @@ impl<'i> Engine<'i> {
         let mut ranked_order: Vec<Candidate> = Vec::new();
         let mut ranked: HashMap<Candidate, RankedCandidate> = HashMap::default();
         for candidate in &survivors {
-            let prospect = self.prospect(rune_name, *candidate, slots)?;
+            let prospect = self.prospect(rune_name, *candidate, slots, true)?;
             let join_count = Self::score(*candidate, committed, prospect);
             let scored = RankedCandidate {
                 candidate: *candidate,

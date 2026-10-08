@@ -903,15 +903,16 @@ class TestTheKernelInvocation:
         assert code() != before
 
     def test_a_configuration_delta_files_the_bytes_a_from_scratch_build_files(self, tmp_path):
-        """Every configuration after `default`, enumerated as a delta over `default`'s memo, writes the same settlement TSV, join TSV, and window enumeration, byte for byte, and returns the same digest as the same configuration enumerated on its own (the window locality rule applied across configurations). The mini fixture's `ss03` unlocks a half-·Tea x-height entry, so the delta has windows to share and windows to settle itself. The memo-sharing run claims its deltas heaviest-first (`fanout::delta_worklist`), and its results must still match the from-scratch run configuration by configuration. So must those of a run three wide that starts the two heaviest deltas from scratch beside `default` and runs `ss04` and `ss05` as deltas: in the mini fixture `ss03` and `ss03+ss05` unlock the same runes, so they form the top tier the crate takes whole (`fanout::scratch_tiers`). Its memo files show that schedule ran, because a configuration enumerated from scratch memoizes every window it settles, while a delta memoizes only what `default`'s memo could not answer."""
+        """Every configuration after `default`, enumerated as a delta over `default`'s memo, writes the same settlement TSV, join TSV, and window enumeration, byte for byte, and returns the same digest as the same configuration enumerated on its own (the window locality rule applied across configurations). The mini fixture's `ss03` unlocks a half-·Tea x-height entry, so the delta has windows to share and windows to settle itself. The memo-sharing run claims its deltas heaviest-first (`fanout::delta_worklist`), and its results must still match the from-scratch run configuration by configuration. So must those of a run three wide that starts the two heaviest deltas from scratch beside `default` and runs `ss04` and `ss05` as deltas: in the mini fixture `ss03` and `ss03+ss05` unlock the same runes, so they form the top tier the crate takes whole (`fanout::scratch_tiers`). Its memo files show that schedule ran, because a configuration enumerated from scratch memoizes every window it settles, while a delta memoizes only what `default`'s memo could not answer. A run that serves the deltas none of `default`'s liveness verdicts writes the sharing run's tables and memo files, byte for byte."""
         spec_path = tmp_path / "spec.json"
         kernel_io.write_spec(SPEC, spec_path)
         kernel_exec.ensure_built()
         answers = {}
-        for name, default_memo_sharing, threads, beside in (
-            ("sharing", True, 2, 0),
-            ("scratch", False, 2, 0),
-            ("beside", True, 3, 2),
+        for name, default_memo_sharing, threads, beside, verdict_sharing in (
+            ("sharing", True, 2, 0, True),
+            ("scratch", False, 2, 0, True),
+            ("beside", True, 3, 2, True),
+            ("unserved", True, 2, 0, False),
         ):
             answers[name] = kernel_exec.build_table_files(
                 spec_path,
@@ -923,12 +924,13 @@ class TestTheKernelInvocation:
                 default_memo_sharing=default_memo_sharing,
                 memo_stamp=run_m1.memo_stamp(SPEC),
                 scratch_beside_default=beside,
+                verdict_sharing=verdict_sharing,
             ).digests
-        assert answers["sharing"] == answers["scratch"] == answers["beside"]
+        assert answers["sharing"] == answers["scratch"] == answers["beside"] == answers["unserved"]
         for config in conform.SETTLEMENT_CONFIGS:
             for family in ("settlement", "joins", "windows"):
                 name = f"{family}-{config}.tsv"
-                for other in ("scratch", "beside"):
+                for other in ("scratch", "beside", "unserved"):
                     assert (tmp_path / "sharing" / name).read_bytes() == (
                         tmp_path / other / name
                     ).read_bytes(), (other, name)
@@ -941,6 +943,8 @@ class TestTheKernelInvocation:
             assert memos["sharing", config] != memos["scratch", config] == memos["beside", config], config
         for config in ("default", "ss04", "ss05"):
             assert memos["sharing", config] == memos["beside", config], config
+        for config in conform.SETTLEMENT_CONFIGS:
+            assert memos["sharing", config] == memos["unserved", config], config
 
     def test_an_unstamped_build_names_a_stamp_the_kernel_will_accept(self, monkeypatch, tmp_path):
         """`build-tables` requires a stamp, so a build called without `inputs` passes `kernel_exec.UNSTAMPED_WINDOWS`. The windows payload is then read for its head and deleted, so that stamp never reaches an artifact."""
@@ -1192,15 +1196,15 @@ class TestTheMemoryDerivedThreadDefault:
         "total, wanted", [(4_000_000_000, 1), (34_359_738_368, 3), (32_000_000_000, 2), (64_000_000_000, 5)]
     )
     def test_the_width_follows_the_machine_and_never_falls_below_one(self, total, wanted):
-        """With `DEFAULT_MEMO_BYTES` (2.2 GB) and five parked products at `PARKED_FOLD_BYTES` (1.6 GB) off the machine, a 32 GiB machine fits three delta slots at `DELTA_SLOT_BYTES` (4.7 GB), and a decimal 32 GB machine fits two. A machine too small for one delta gets one, and a 64 GB machine fits the whole wave, every configuration at once, which is as wide as the width goes."""
+        """With `DEFAULT_MEMO_BYTES` (2.3 GB) and five parked products at `PARKED_FOLD_BYTES` (1.6 GB) off the machine, a 32 GiB machine fits three delta slots at `DELTA_SLOT_BYTES` (4.7 GB), and a decimal 32 GB machine fits two. A machine too small for one delta gets one, and a 64 GB machine fits the whole wave, every configuration at once, which is as wide as the width goes."""
         assert kernel_exec.kernel_threads_default(configs=CONFIG_COUNT, total_bytes=total) == wanted
 
     def test_a_coresident_pool_comes_off_the_machine_before_it_is_divided(self):
-        """`coresident_bytes` is memory used by something running beside the fan-out, such as the artifact cycle's pytest pool. It comes off the machine with the reserve, so 3 GB beside a 40 GB machine leaves too little for the whole wave's 31.1 GB booking, and the wave drops the slot of its own that `default`'s fold preparation takes. It defaults to zero because a bare run_m1 runs alone."""
-        assert kernel_exec.kernel_threads_default(configs=CONFIG_COUNT, total_bytes=40_000_000_000) == 5
+        """`coresident_bytes` is memory used by something running beside the fan-out, such as the artifact cycle's pytest pool. It comes off the machine with the reserve, so 3 GB beside a 41 GB machine leaves too little for the whole wave's 31.2 GB booking, and the wave drops the slot of its own that `default`'s fold preparation takes. It defaults to zero because a bare run_m1 runs alone."""
+        assert kernel_exec.kernel_threads_default(configs=CONFIG_COUNT, total_bytes=41_000_000_000) == 5
         assert (
             kernel_exec.kernel_threads_default(
-                configs=CONFIG_COUNT, coresident_bytes=3_000_000_000, total_bytes=40_000_000_000
+                configs=CONFIG_COUNT, coresident_bytes=3_000_000_000, total_bytes=41_000_000_000
             )
             == 4
         )

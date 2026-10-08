@@ -43,6 +43,7 @@ pub struct Configuration<'a> {
 /// - `memo_stamp`: the stamp this build writes its own memo files under, beside its tables. With no stamp, no memo files are written.
 /// - `overlap_memo_writes`: in a build that shares `default`'s memo, each delta's memo file and `default`'s are written on a thread of their own from the configuration's release point, beside its drain, sort and fold and the rest of the wave, instead of on the configuration's own thread ahead of them ([`run_configs_tables`]). The files are the same bytes either way. A configuration enumerated from scratch writes its file ahead of its drain whatever this says.
 /// - `scratch_beside_default`: in a build that shares `default`'s memo, at most how many of the deltas, taken heaviest first from [`delta_worklist`], enumerate from scratch instead, starting at the same moment as `default` rather than after it. They are taken in whole tiers of equal unlocking-rune count ([`scratch_tiers`]), and the count is capped at the delta count and at one less than the worker slots, so `default`'s enumeration and theirs never run more than the width at once. The tables are the same bytes either way.
+/// - `verdict_sharing`: in a build where at least one delta reads `default`'s memo, `default` also publishes its liveness verdicts in that memo, for each distinct unlocking-rune set among those deltas ([`verdict_groups`]), and each delta is served the ones its exclusion admits, rerunning only the asks that name one of its unlocking runes ([`crate::liveness`]). A build whose deltas all enumerate from scratch publishes none, since the capture costs `default` time. The tables and memo files are the same bytes either way.
 #[derive(Clone, Debug)]
 pub struct MemoSharing {
     pub default_memo_sharing: bool,
@@ -52,6 +53,7 @@ pub struct MemoSharing {
     pub memo_stamp: Option<String>,
     pub overlap_memo_writes: bool,
     pub scratch_beside_default: usize,
+    pub verdict_sharing: bool,
 }
 
 impl Default for MemoSharing {
@@ -64,6 +66,7 @@ impl Default for MemoSharing {
             memo_stamp: None,
             overlap_memo_writes: false,
             scratch_beside_default: 0,
+            verdict_sharing: true,
         }
     }
 }
@@ -346,6 +349,17 @@ fn delta_worklist<'c>(
     work
 }
 
+/// The unlocking-rune sets `default` publishes its liveness verdicts for: one per distinct set among the deltas that read its memo, in worklist order, and none when no delta does ([`crate::liveness`]).
+fn verdict_groups(deltas: &[(usize, DeltaWork<'_>)]) -> Vec<HashSet<Sym>> {
+    let mut groups: Vec<HashSet<Sym>> = Vec::new();
+    for (_, work) in deltas {
+        if !groups.contains(&work.unlocking) {
+            groups.push(work.unlocking.clone());
+        }
+    }
+    groups
+}
+
 /// How many entries at the head of the wave's worklist a build starts from scratch beside `default` when it may start up to `most`: the longest head of at most `most` entries that takes whole tiers of equal unlocking-rune count, so it ends at the end of the worklist or where the count drops. A delta whose count ties one taken would still run as a delta after `default`'s enumeration, on the build's path as long as the one taken would have been, while `default` enumerates more slowly beside the ones taken; so part of a tier costs time and saves none.
 fn scratch_tiers(work: &[(usize, DeltaWork<'_>)], most: usize) -> usize {
     (0..=most.min(work.len()))
@@ -484,6 +498,11 @@ pub fn run_configs_tables(
                     .into_iter()
                     .collect(),
                 keep_memo: true,
+                publish_verdicts: if sharing.verdict_sharing {
+                    verdict_groups(deltas)
+                } else {
+                    Vec::new()
+                },
             },
             memo_file(
                 sharing,
@@ -537,6 +556,7 @@ pub fn run_configs_tables(
                         let access = MemoAccess {
                             shared_memos: shared,
                             keep_memo: false,
+                            publish_verdicts: Vec::new(),
                         };
                         enumerate_config_tables(index, config, modes, report, access, file, beside)
                     });
@@ -1008,6 +1028,7 @@ fn enumerate_from_scratch<'a: 's, 's>(
             .into_iter()
             .collect(),
         keep_memo: false,
+        publish_verdicts: Vec::new(),
     };
     let carried = shared_behind(previous.as_ref(), edited.clone())
         .into_iter()
@@ -1611,7 +1632,7 @@ mod tests {
             .expect("a directory can occupy a settlement table's path");
     }
 
-    /// The table fan-out writes the same bytes at every width, over the set whose claim order differs from its listed order. Tables, memo files, and digests match per configuration at 0, 1, 2, and 8 workers. At 2, one worker takes the heavy delta and the lead claims the cheap one after `default`'s fold, which is the case the claim order is for. At 8, the deltas enumerate while `default`'s fold runs on the calling thread. In the stamped case, every configuration writes its memo file at its release point, and those files are compared too. The stamped case's tables and digests must also match the unstamped case's at the same width, which shows that writing the memo file changes no table, and so must those of the case that enumerates every configuration from scratch. In the overlapped case, every memo file is written beside the rest of the build, `default`'s beside the wave, and every file and digest must match the stamped case's at the same width.
+    /// The table fan-out writes the same bytes at every width, over the set whose claim order differs from its listed order. Tables, memo files, and digests match per configuration at 0, 1, 2, and 8 workers. At 2, one worker takes the heavy delta and the lead claims the cheap one after `default`'s fold, which is the case the claim order is for. At 8, the deltas enumerate while `default`'s fold runs on the calling thread. In the stamped case, every configuration writes its memo file at its release point, and those files are compared too. The stamped case's tables and digests must also match the unstamped case's at the same width, which shows that writing the memo file changes no table, and so must those of the case that enumerates every configuration from scratch. In the overlapped case, every memo file is written beside the rest of the build, `default`'s beside the wave, and every file and digest must match the stamped case's at the same width. So must those of the case without verdict sharing, in which every delta runs every liveness probe instead of being served `default`'s verdicts.
     ///
     /// The case that enumerates deltas from scratch beside `default` starts as many as the width leaves room for: none at 0 and 1 workers, the heavy delta at 2, and both at 8. Its tables and digests must match the stamped case's at the same width. A configuration enumerated from scratch memoizes every window it settles, where a delta memoizes only the windows `default`'s memo could not answer, so each memo file must match the stamped case's for a delta and the from-scratch case's for a configuration started beside `default`.
     #[test]
@@ -1645,6 +1666,13 @@ mod tests {
                 },
             ),
             ("overlapped", overlapped()),
+            (
+                "without verdict sharing",
+                MemoSharing {
+                    verdict_sharing: false,
+                    ..stamped()
+                },
+            ),
             ("beside default", beside_default()),
         ] {
             let with_memo = sharing.memo_stamp.is_some();
@@ -1712,10 +1740,10 @@ mod tests {
                     unstamped.push((digests, files));
                     continue;
                 }
-                if sharing.overlap_memo_writes {
-                    let (written_digests, written_files) = in_line.get(width).expect(
-                        "the stamped case writes every width before the overlapped one runs",
-                    );
+                if sharing.overlap_memo_writes || !sharing.verdict_sharing {
+                    let (written_digests, written_files) = in_line
+                        .get(width)
+                        .expect("the stamped case writes every width before this case runs");
                     assert_eq!(
                         &digests, written_digests,
                         "{run}: the digests the stamped case wrote"
@@ -1933,6 +1961,20 @@ mod tests {
         assert_eq!(work[0].1.unlocking.len(), 1);
         assert!(work[0].1.unlocking.contains(&may));
         assert!(work[1].1.unlocking.is_empty());
+    }
+
+    /// `default` publishes its verdicts once for each distinct unlocking-rune set among the deltas that read its memo, in worklist order, and for none when no delta reads it, as when every delta enumerates from scratch beside it. `ss08` and `ss09` unlock nothing, so beside `ss03` the three deltas make two sets.
+    #[test]
+    fn default_publishes_its_verdicts_once_per_unlocking_set_of_the_deltas_over_its_memo() {
+        let index = fixtures::mini();
+        let configs = configurations_of(&index, &["default", "ss09", "ss03", "ss08"]);
+        let work = delta_worklist(&index, &configs, 0);
+        let may = fixtures::sym(&index, "qsMay");
+        assert_eq!(
+            verdict_groups(&work),
+            [HashSet::from_iter([may]), HashSet::default()]
+        );
+        assert!(verdict_groups(&work[work.len()..]).is_empty());
     }
 
     /// A build starts deltas from scratch beside `default` in whole tiers of equal unlocking-rune count. Over `default`, `ss03`, which unlocks `qsMay`, and two deltas that unlock nothing, the worklist is `ss03` then the two tied ones: up to one entry takes `ss03`, up to two still takes only `ss03` because the second would split the tie, and three or more take every delta.

@@ -397,17 +397,19 @@ fn a_table_build_files_three_artifacts_and_answers_one_digest_per_configuration(
     }
 }
 
-/// Sharing `default`'s memo does not change the artifacts: a table build that reuses `default`'s memo for the other configurations writes the same three files per configuration, byte for byte, and the same digests as a build with `--no-default-memo-sharing`, which enumerates every configuration from scratch.
+/// Sharing `default`'s memo does not change the artifacts: a table build that reuses `default`'s memo for the other configurations writes the same three files per configuration, byte for byte, and the same digests as a build with `--no-default-memo-sharing`, which enumerates every configuration from scratch. Serving the deltas `default`'s liveness verdicts changes no file either: a build with `--no-verdict-sharing` writes the sharing build's tables, digests and memo files.
 #[test]
 fn a_table_build_sharing_defaults_memo_files_the_bytes_a_from_scratch_one_files() {
     let root = scratch("cli-default-memo-sharing");
     let spec = spec_at(&root);
     let shared = root.join("shared");
     let scratch_built = root.join("scratch");
+    let unserved = root.join("unserved");
     let mut answers: Vec<String> = Vec::new();
     for (outdir, extra) in [
         (&shared, None),
         (&scratch_built, Some("--no-default-memo-sharing")),
+        (&unserved, Some("--no-verdict-sharing")),
     ] {
         let mut arguments = vec![
             "build-tables",
@@ -416,6 +418,7 @@ fn a_table_build_sharing_defaults_memo_files_the_bytes_a_from_scratch_one_files(
             "--configs=default,ss03",
             "--inputs=cli-stamp",
             "--threads=2",
+            "--memo-stamp=cli-memo",
         ];
         arguments.extend(extra);
         let output = run(&arguments);
@@ -423,15 +426,24 @@ fn a_table_build_sharing_defaults_memo_files_the_bytes_a_from_scratch_one_files(
         answers.push(String::from_utf8(output.stdout).expect("the digests are text"));
     }
     assert_eq!(answers[0], answers[1]);
+    assert_eq!(answers[0], answers[2]);
     for (token, _) in CONFIGS {
         for family in ["settlement", "joins", "windows"] {
             let name = format!("{family}-{token}.tsv");
-            assert_eq!(
-                std::fs::read(shared.join(&name)).expect("the memo-sharing build wrote it"),
-                std::fs::read(scratch_built.join(&name)).expect("and so did the other"),
-                "{name}"
-            );
+            for other in [&scratch_built, &unserved] {
+                assert_eq!(
+                    std::fs::read(shared.join(&name)).expect("the memo-sharing build wrote it"),
+                    std::fs::read(other.join(&name)).expect("and so did the other"),
+                    "{name}"
+                );
+            }
         }
+        let memo = format!("memo-{token}.tsv");
+        assert_eq!(
+            std::fs::read(shared.join(&memo)).expect("the memo-sharing build wrote it"),
+            std::fs::read(unserved.join(&memo)).expect("and so did the build serving no verdicts"),
+            "{memo}"
+        );
     }
 }
 

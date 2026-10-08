@@ -17,13 +17,15 @@
 //! Evaluation order affects the output. Every probe records the pointers it fires in `Engine::fired`, which the fixpoint reports as the product's `cited_provenance`, and a probe that never runs fires nothing. So each short-circuit, early return, loop order, and memo key must stay as it is. The prospect and follower prefer branches key their memos on the left-condition signature instead of the input family, so two families with the same signature share one verdict and run its probes once. The input replay and the fourth-slot fallback key on the family.
 //!
 //! One instance serves a whole fixpoint run and is lent to both filters and to [`crate::fiber::DeepFiberDeriver`]. It holds no engine. Every call takes the caller's engine, so the probes share its trace memo and fired set. The memos are not keyed on engine modes, so every call on one instance must pass the same engine.
+//!
+//! A delta configuration reads `default`'s probes beside `default`'s windows ([`crate::memo`]). Each probe a verdict memo stores (the third and fourth slots' prospect, follower prefer and input replay probes) is a function of its [`VerdictKey`]: the family that asked, its probe shape, and the slots. An engine that publishes its verdicts ([`Engine::publish_verdicts`], which the table build sets on `default` when some delta reads its memo) captures each probe it runs whole, with the step it stopped at and, for each delta's unlocking-rune set, what it fired outside the asks that name one of those runes, unless the key names one or those other asks read one ([`Engine::end_verdict`]), and the snapshot it returns carries them. A delta's engine looks each probe up there under its own unlocking-rune set ([`Engine::shared_verdict`]), and where `default` published the verdict for that set, runs the probe partially: only the asks that name one of its unlocking runes, which settle and memoize the windows naming those runes as the whole probe would, while every other ask before `default`'s stop is one the shared memo answers entirely ([`Partial`] gives the argument). Where every ask it runs agrees with `default`'s run, it replays the rest's fired delta and returns `default`'s verdict; otherwise it runs the whole probe. The delta's fired set, its memo file and its tables are therefore the bytes it writes without shared verdicts. The verdict memos above the probes fill in the same order either way, which is why the key names the family and shape instead of the signature: a signature-keyed memo holds the verdict of whichever family asked first, and a delta must run, or be served, the probe its own first asker runs. The fourth-slot fallback in [`ProspectLiveness::third_live`] is not shared as one verdict, because which fourth-slot verdicts it computes depends on which ones other callers memoized first; the probes beneath it are shared.
 
 use std::rc::Rc;
 
-use crate::engine::{Engine, Slots};
+use crate::engine::{Engine, Slots, VerdictEntry, VerdictKey, VerdictKind};
 use crate::error::{SettleError, SettleErrorKind};
 use crate::hash::{HashMap, HashSet};
-use crate::index::SpecIndex;
+use crate::index::{Ordinal, SpecIndex};
 use crate::model::{Condition, PolicyRecord, Sym};
 use crate::types::{
     Candidate, CandidateOrdinals, CellId, EDGE, LeftContext, NAMER_DOT, NO_EXIT_INDEX, RightToken,
@@ -120,7 +122,15 @@ impl<'i> ProspectLiveness<'i> {
             let verdict = match self.replay3.get(&key) {
                 Some(&cached) => cached,
                 None => {
-                    let verdict = self.input_varies(engine, family, r1tok, r2tok, None)?;
+                    let verdict = self.verdict(
+                        engine,
+                        Probe::Replay {
+                            family,
+                            r1tok,
+                            r2tok,
+                            r3tok: None,
+                        },
+                    )?;
                     self.replay3.insert(key, verdict);
                     verdict
                 }
@@ -179,9 +189,51 @@ impl<'i> ProspectLiveness<'i> {
         if let Some(&cached) = self.replay4.get(&key) {
             return Ok(cached);
         }
-        let verdict = self.input_varies(engine, family, r1tok, r2tok, Some(r3tok))?;
+        let verdict = self.verdict(
+            engine,
+            Probe::Replay {
+                family,
+                r1tok,
+                r2tok,
+                r3tok: Some(r3tok),
+            },
+        )?;
         self.replay4.insert(key, verdict);
         Ok(verdict)
+    }
+
+    /// One probe's verdict. Where a shared memo serves this engine a verdict `default` published for the probe ([`Engine::shared_verdict`]), the probe runs partially behind it ([`Partial`]); when every ask it runs agrees with `default`'s run, the verdict is served, with what the other asks fired replayed ([`Engine::serve_verdict`]), and otherwise the whole probe runs. An engine that publishes its verdicts captures the whole run with the step it stopped at ([`Publishing`]). Anywhere else the probe just runs ([`Whole`]). The key is built only where it is read.
+    fn verdict(&mut self, engine: &mut Engine<'_>, probe: Probe) -> Result<bool, SettleError> {
+        if engine.reads_verdicts() {
+            if let Some(served) = engine.shared_verdict(&probe.key(self)) {
+                let mut partial = Partial::behind(served.stop, Rc::clone(&served.marked));
+                let verdict = probe.run(self, engine, &mut partial)?;
+                if !partial.diverged {
+                    debug_assert_eq!(verdict, served.stop != VerdictEntry::RAN_OUT);
+                    engine.serve_verdict(&served);
+                    return Ok(verdict);
+                }
+                engine.diverged_from_verdict();
+            }
+            return probe.run(self, engine, &mut Whole);
+        }
+        if engine.publishes_verdicts() {
+            let key = probe.key(self);
+            if engine.begin_verdict(&key) {
+                let mut publishing = Publishing::new();
+                return match probe.run(self, engine, &mut publishing) {
+                    Ok(verdict) => {
+                        engine.end_verdict(key, publishing.stopped);
+                        Ok(verdict)
+                    }
+                    Err(error) => {
+                        engine.abort_verdict();
+                        Err(error)
+                    }
+                };
+            }
+        }
+        probe.run(self, engine, &mut Whole)
     }
 
     /// The representative lefts the input replay and the fiber probes settle this family against: the four boundary lefts, then one synthetic `(family, stance, junction)` left per distinct left-condition signature.
@@ -364,8 +416,17 @@ impl<'i> ProspectLiveness<'i> {
             let verdict = match self.prospect3.get(&key) {
                 Some(&cached) => cached,
                 None => {
-                    let verdict =
-                        self.third_class_live(engine, family, stance, junction, r1tok, r2tok)?;
+                    let verdict = self.verdict(
+                        engine,
+                        Probe::Prospect {
+                            family,
+                            stance,
+                            junction,
+                            r1tok,
+                            r2tok,
+                            r3tok: None,
+                        },
+                    )?;
                     self.prospect3.insert(key, verdict);
                     verdict
                 }
@@ -377,10 +438,12 @@ impl<'i> ProspectLiveness<'i> {
         Ok(false)
     }
 
-    /// One shape's third-slot prospect probe. For each token, `(right1, right2, token, EDGE)` is compared with the baseline `(right1, right2, EDGE, EDGE)`, and then `(right1, right2, token, UNKNOWN)` with `(right1, right2, token, EDGE)`. The second comparison catches a prospect that the fourth slot changes at this third.
+    /// One shape's third-slot prospect probe. For each token, `(right1, right2, token, EDGE)` is compared with the baseline `(right1, right2, EDGE, EDGE)`, and then `(right1, right2, token, UNKNOWN)` with `(right1, right2, token, EDGE)`. The second comparison catches a prospect that the fourth slot changes at this third. The baseline is step zero and token `i`'s two asks are steps `1 + 2i` and `2 + 2i` ([`Asks`]).
+    #[allow(clippy::too_many_arguments)]
     fn third_class_live(
         &mut self,
         engine: &mut Engine<'_>,
+        asks: &mut impl Asks,
         family: Sym,
         stance: Sym,
         junction: Option<Sym>,
@@ -388,22 +451,62 @@ impl<'i> ProspectLiveness<'i> {
         r2tok: RightToken,
     ) -> Result<bool, SettleError> {
         let candidate = probe_candidate(self.index, family, stance, junction);
-        let baseline =
-            engine.probe_prospect(family, candidate, Slots::new(r1tok, r2tok, EDGE, EDGE))?;
+        let base = Slots::new(r1tok, r2tok, EDGE, EDGE);
+        let mut baseline = match asks.take(0, [None, None]) {
+            Take::Varies => return Ok(asks.varied(0)),
+            Take::Agrees => None,
+            Take::Run => Some(asks.ask(engine, [None, None], |engine| {
+                engine.probe_prospect(family, candidate, base)
+            })?),
+        };
         let tokens = self.probe_tokens();
-        for &token in tokens.iter() {
-            let edge4 =
-                engine.probe_prospect(family, candidate, Slots::new(r1tok, r2tok, token, EDGE))?;
-            if edge4 != baseline {
-                return Ok(true);
-            }
-            if engine.probe_prospect(family, candidate, Slots::new(r1tok, r2tok, token, UNKNOWN))?
-                != edge4
-            {
-                return Ok(true);
+        for (at, &token) in (0u32..).zip(tokens.iter()) {
+            let names = [token.ordinal(), None];
+            let step = 1 + 2 * at;
+            let edge4 = match asks.take(step, names) {
+                Take::Varies => return Ok(asks.varied(step)),
+                Take::Agrees => None,
+                Take::Run => {
+                    let reference = known(&mut baseline, || {
+                        engine.probe_prospect(family, candidate, base)
+                    })?;
+                    let edge4 = asks.ask(engine, names, |engine| {
+                        engine.probe_prospect(
+                            family,
+                            candidate,
+                            Slots::new(r1tok, r2tok, token, EDGE),
+                        )
+                    })?;
+                    if edge4 != reference {
+                        return Ok(asks.varied(step));
+                    }
+                    Some(edge4)
+                }
+            };
+            match asks.take(step + 1, names) {
+                Take::Varies => return Ok(asks.varied(step + 1)),
+                Take::Agrees => {}
+                Take::Run => {
+                    let reference = match edge4 {
+                        Some(edge4) => edge4,
+                        None => known(&mut baseline, || {
+                            engine.probe_prospect(family, candidate, base)
+                        })?,
+                    };
+                    let unknown4 = asks.ask(engine, names, |engine| {
+                        engine.probe_prospect(
+                            family,
+                            candidate,
+                            Slots::new(r1tok, r2tok, token, UNKNOWN),
+                        )
+                    })?;
+                    if unknown4 != reference {
+                        return Ok(asks.varied(step + 1));
+                    }
+                }
             }
         }
-        Ok(false)
+        Ok(asks.ran_out())
     }
 
     /// Stage one's prospect branch at the fourth slot: [`ProspectLiveness::prospect_varies_third`] with the concrete third in the memo key.
@@ -425,8 +528,17 @@ impl<'i> ProspectLiveness<'i> {
             let verdict = match self.prospect4.get(&key) {
                 Some(&cached) => cached,
                 None => {
-                    let verdict = self
-                        .fourth_class_live(engine, family, stance, junction, r1tok, r2tok, r3tok)?;
+                    let verdict = self.verdict(
+                        engine,
+                        Probe::Prospect {
+                            family,
+                            stance,
+                            junction,
+                            r1tok,
+                            r2tok,
+                            r3tok: Some(r3tok),
+                        },
+                    )?;
                     self.prospect4.insert(key, verdict);
                     verdict
                 }
@@ -438,11 +550,12 @@ impl<'i> ProspectLiveness<'i> {
         Ok(false)
     }
 
-    /// One shape's fourth-slot prospect probe: `(right1, right2, right3, token)` compared with the baseline `(right1, right2, right3, EDGE)`. There is no slot past the fourth, so there is no second comparison.
+    /// One shape's fourth-slot prospect probe: `(right1, right2, right3, token)` compared with the baseline `(right1, right2, right3, EDGE)`. There is no slot past the fourth, so there is no second comparison. The baseline is step zero and token `i`'s ask is step `1 + i`.
     #[allow(clippy::too_many_arguments)]
     fn fourth_class_live(
         &mut self,
         engine: &mut Engine<'_>,
+        asks: &mut impl Asks,
         family: Sym,
         stance: Sym,
         junction: Option<Sym>,
@@ -451,17 +564,39 @@ impl<'i> ProspectLiveness<'i> {
         r3tok: RightToken,
     ) -> Result<bool, SettleError> {
         let candidate = probe_candidate(self.index, family, stance, junction);
-        let baseline =
-            engine.probe_prospect(family, candidate, Slots::new(r1tok, r2tok, r3tok, EDGE))?;
+        let base = Slots::new(r1tok, r2tok, r3tok, EDGE);
+        let mut baseline = match asks.take(0, [None, None]) {
+            Take::Varies => return Ok(asks.varied(0)),
+            Take::Agrees => None,
+            Take::Run => Some(asks.ask(engine, [None, None], |engine| {
+                engine.probe_prospect(family, candidate, base)
+            })?),
+        };
         let tokens = self.probe_tokens();
-        for &token in tokens.iter() {
-            if engine.probe_prospect(family, candidate, Slots::new(r1tok, r2tok, r3tok, token))?
-                != baseline
-            {
-                return Ok(true);
+        for (at, &token) in (0u32..).zip(tokens.iter()) {
+            let names = [token.ordinal(), None];
+            let step = 1 + at;
+            match asks.take(step, names) {
+                Take::Varies => return Ok(asks.varied(step)),
+                Take::Agrees => {}
+                Take::Run => {
+                    let reference = known(&mut baseline, || {
+                        engine.probe_prospect(family, candidate, base)
+                    })?;
+                    let varied = asks.ask(engine, names, |engine| {
+                        engine.probe_prospect(
+                            family,
+                            candidate,
+                            Slots::new(r1tok, r2tok, r3tok, token),
+                        )
+                    })?;
+                    if varied != reference {
+                        return Ok(asks.varied(step));
+                    }
+                }
             }
         }
-        Ok(false)
+        Ok(asks.ran_out())
     }
 
     /// Stage one's follower prefer branch at the third slot. It returns false at once when the follower is the input's own family or has no `prefer` records (see the module doc).
@@ -483,8 +618,16 @@ impl<'i> ProspectLiveness<'i> {
             let verdict = match self.follower_prefer3.get(&key) {
                 Some(&cached) => cached,
                 None => {
-                    let verdict = self.follower_prefer_class_live(
-                        engine, family, stance, junction, r1tok, r2tok, None,
+                    let verdict = self.verdict(
+                        engine,
+                        Probe::FollowerPrefer {
+                            family,
+                            stance,
+                            junction,
+                            r1tok,
+                            r2tok,
+                            r3tok: None,
+                        },
                     )?;
                     self.follower_prefer3.insert(key, verdict);
                     verdict
@@ -519,14 +662,16 @@ impl<'i> ProspectLiveness<'i> {
             let verdict = match self.follower_prefer4.get(&key) {
                 Some(&cached) => cached,
                 None => {
-                    let verdict = self.follower_prefer_class_live(
+                    let verdict = self.verdict(
                         engine,
-                        family,
-                        stance,
-                        junction,
-                        r1tok,
-                        r2tok,
-                        Some(r3tok),
+                        Probe::FollowerPrefer {
+                            family,
+                            stance,
+                            junction,
+                            r1tok,
+                            r2tok,
+                            r3tok: Some(r3tok),
+                        },
                     )?;
                     self.follower_prefer4.insert(key, verdict);
                     verdict
@@ -541,11 +686,12 @@ impl<'i> ProspectLiveness<'i> {
 
     /// Whether some follower prefer's verdict at this window changes with the probed deep token.
     ///
-    /// With `r3tok` absent this probes the third slot, with the same two comparisons as [`ProspectLiveness::third_class_live`]. With a concrete `r3tok` it probes the fourth slot at that third. The records are the outer loop and the probe tokens the inner one, and the first variance returns.
+    /// With `r3tok` absent this probes the third slot, with the same two comparisons as [`ProspectLiveness::third_class_live`]. With a concrete `r3tok` it probes the fourth slot at that third. The records are the outer loop and the probe tokens the inner one, and the first variance returns. Record `j`'s steps start at `j` times one more than its asks per token times the token count, its baseline first, then each token's asks as in the prospect probe at the same slot.
     #[allow(clippy::too_many_arguments)]
     fn follower_prefer_class_live(
         &mut self,
         engine: &mut Engine<'_>,
+        asks: &mut impl Asks,
         family: Sym,
         stance: Sym,
         junction: Option<Sym>,
@@ -558,76 +704,83 @@ impl<'i> ProspectLiveness<'i> {
         let edge_left = LeftContext::boundary(TokenKind::Edge);
         let records = self.follower_prefer_records(owner);
         let tokens = self.probe_tokens();
-        for record in records.iter() {
-            match r3tok {
-                None => {
-                    let baseline = engine.probe_prefer_favors(
-                        owner,
-                        record,
-                        family,
-                        candidate,
-                        &edge_left,
-                        Slots::new(r1tok, r2tok, EDGE, EDGE),
-                    )?;
-                    for &token in tokens.iter() {
-                        let edge4 = engine.probe_prefer_favors(
-                            owner,
-                            record,
-                            family,
-                            candidate,
-                            &edge_left,
-                            Slots::new(r1tok, r2tok, token, EDGE),
-                        )?;
-                        if edge4 != baseline {
-                            return Ok(true);
-                        }
-                        if engine.probe_prefer_favors(
-                            owner,
-                            record,
-                            family,
-                            candidate,
-                            &edge_left,
-                            Slots::new(r1tok, r2tok, token, UNKNOWN),
-                        )? != edge4
-                        {
-                            return Ok(true);
+        let span = 1 + if r3tok.is_some() { 1 } else { 2 } * steps_of(&tokens);
+        for (at_record, record) in (0u32..).zip(records.iter()) {
+            let first = at_record * span;
+            let favors = |engine: &mut Engine<'_>, slots: Slots| {
+                engine.probe_prefer_favors(owner, record, family, candidate, &edge_left, slots)
+            };
+            let base = Slots::new(r1tok, r2tok, r3tok.unwrap_or(EDGE), EDGE);
+            let mut baseline = match asks.take(first, [None, None]) {
+                Take::Varies => return Ok(asks.varied(first)),
+                Take::Agrees => None,
+                Take::Run => Some(asks.ask(engine, [None, None], |engine| favors(engine, base))?),
+            };
+            for (at, &token) in (0u32..).zip(tokens.iter()) {
+                let names = [token.ordinal(), None];
+                match r3tok {
+                    None => {
+                        let step = first + 1 + 2 * at;
+                        let edge4 = match asks.take(step, names) {
+                            Take::Varies => return Ok(asks.varied(step)),
+                            Take::Agrees => None,
+                            Take::Run => {
+                                let reference = known(&mut baseline, || favors(engine, base))?;
+                                let edge4 = asks.ask(engine, names, |engine| {
+                                    favors(engine, Slots::new(r1tok, r2tok, token, EDGE))
+                                })?;
+                                if edge4 != reference {
+                                    return Ok(asks.varied(step));
+                                }
+                                Some(edge4)
+                            }
+                        };
+                        match asks.take(step + 1, names) {
+                            Take::Varies => return Ok(asks.varied(step + 1)),
+                            Take::Agrees => {}
+                            Take::Run => {
+                                let reference = match edge4 {
+                                    Some(edge4) => edge4,
+                                    None => known(&mut baseline, || favors(engine, base))?,
+                                };
+                                let unknown4 = asks.ask(engine, names, |engine| {
+                                    favors(engine, Slots::new(r1tok, r2tok, token, UNKNOWN))
+                                })?;
+                                if unknown4 != reference {
+                                    return Ok(asks.varied(step + 1));
+                                }
+                            }
                         }
                     }
-                }
-                Some(third) => {
-                    let baseline = engine.probe_prefer_favors(
-                        owner,
-                        record,
-                        family,
-                        candidate,
-                        &edge_left,
-                        Slots::new(r1tok, r2tok, third, EDGE),
-                    )?;
-                    for &token in tokens.iter() {
-                        if engine.probe_prefer_favors(
-                            owner,
-                            record,
-                            family,
-                            candidate,
-                            &edge_left,
-                            Slots::new(r1tok, r2tok, third, token),
-                        )? != baseline
-                        {
-                            return Ok(true);
+                    Some(third) => {
+                        let step = first + 1 + at;
+                        match asks.take(step, names) {
+                            Take::Varies => return Ok(asks.varied(step)),
+                            Take::Agrees => {}
+                            Take::Run => {
+                                let reference = known(&mut baseline, || favors(engine, base))?;
+                                let varied = asks.ask(engine, names, |engine| {
+                                    favors(engine, Slots::new(r1tok, r2tok, third, token))
+                                })?;
+                                if varied != reference {
+                                    return Ok(asks.varied(step));
+                                }
+                            }
                         }
                     }
                 }
             }
         }
-        Ok(false)
+        Ok(asks.ran_out())
     }
 
     /// Stage two: the input letter's own transition replayed for each probe token over its representative lefts. Returns true where some representative left's settled cell changes.
     ///
-    /// A left whose baseline window is unreachable is skipped, because the fixpoint cannot reach it either. A raise at the baseline is live, and so is any probe token whose window raises, is unreachable, or settles to a different cell. With `r3tok` absent this probes the third slot, with the fourth set first to `EDGE` and then to `UNKNOWN`; with a concrete `r3tok` it probes the fourth slot.
+    /// A left whose baseline window is unreachable is skipped, because the fixpoint cannot reach it either. A raise at the baseline is live, and so is any probe token whose window raises, is unreachable, or settles to a different cell. With `r3tok` absent this probes the third slot, with the fourth set first to `EDGE` and then to `UNKNOWN`; with a concrete `r3tok` it probes the fourth slot. Left `k`'s steps start at `k` times one more than its asks per token times the token count, its baseline first. A partial run settles a left's baseline before any ask of that left it runs, so it skips the left exactly where the whole run does.
     fn input_varies(
         &mut self,
         engine: &mut Engine<'_>,
+        asks: &mut impl Asks,
         family: Sym,
         r1tok: RightToken,
         r2tok: RightToken,
@@ -636,62 +789,416 @@ impl<'i> ProspectLiveness<'i> {
         let token = self.letter(family);
         let lefts = self.representative_lefts(engine, family)?;
         let tokens = self.probe_tokens();
-        for left in lefts.iter() {
-            let third = r3tok.unwrap_or(EDGE);
-            let baseline =
-                replay_outcome(engine, left, token, Slots::new(r1tok, r2tok, third, EDGE));
-            let baseline = match baseline {
-                ReplayOutcome::Raised => return Ok(true),
-                ReplayOutcome::Unreachable => continue,
-                ReplayOutcome::Cell(cell) => cell,
+        let span = 1 + if r3tok.is_some() { 1 } else { 2 } * steps_of(&tokens);
+        'lefts: for (at_left, left) in (0u32..).zip(lefts.iter()) {
+            let first = at_left * span;
+            let left_rune = left.ordinals.rune;
+            let base = Slots::new(r1tok, r2tok, r3tok.unwrap_or(EDGE), EDGE);
+            let mut baseline = match asks.take(first, [left_rune, None]) {
+                Take::Varies => return Ok(asks.varied(first)),
+                Take::Agrees => None,
+                Take::Run => match asks.ask(engine, [left_rune, None], |engine| {
+                    replay_outcome(engine, left, token, base)
+                }) {
+                    ReplayOutcome::Raised => return Ok(asks.varied(first)),
+                    ReplayOutcome::Unreachable => continue,
+                    ReplayOutcome::Cell(cell) => Some(cell),
+                },
             };
-            for &probe in tokens.iter() {
-                match r3tok {
-                    None => {
-                        let edge4 = replay_outcome(
-                            engine,
-                            left,
-                            token,
-                            Slots::new(r1tok, r2tok, probe, EDGE),
-                        );
-                        let ReplayOutcome::Cell(edge4) = edge4 else {
-                            return Ok(true);
-                        };
-                        if edge4 != baseline {
-                            return Ok(true);
+            for (at, &probe) in (0u32..).zip(tokens.iter()) {
+                let names = [left_rune, probe.ordinal()];
+                let (step, slots) = match r3tok {
+                    None => (first + 1 + 2 * at, Slots::new(r1tok, r2tok, probe, EDGE)),
+                    Some(third) => (first + 1 + at, Slots::new(r1tok, r2tok, third, probe)),
+                };
+                let edge4 = match asks.take(step, names) {
+                    Take::Varies => return Ok(asks.varied(step)),
+                    Take::Agrees => None,
+                    Take::Run => {
+                        if baseline.is_none() {
+                            match replay_outcome(engine, left, token, base) {
+                                ReplayOutcome::Cell(cell) => baseline = Some(cell),
+                                ReplayOutcome::Unreachable => continue 'lefts,
+                                ReplayOutcome::Raised => return Ok(asks.varied(first)),
+                            }
                         }
-                        let unknown4 = replay_outcome(
-                            engine,
-                            left,
-                            token,
-                            Slots::new(r1tok, r2tok, probe, UNKNOWN),
-                        );
-                        let ReplayOutcome::Cell(unknown4) = unknown4 else {
-                            return Ok(true);
+                        let ReplayOutcome::Cell(cell) = asks.ask(engine, names, |engine| {
+                            replay_outcome(engine, left, token, slots)
+                        }) else {
+                            return Ok(asks.varied(step));
                         };
-                        if unknown4 != edge4 {
-                            return Ok(true);
+                        if Some(&cell) != baseline.as_ref() {
+                            return Ok(asks.varied(step));
                         }
+                        Some(cell)
                     }
-                    Some(third) => {
-                        let varied = replay_outcome(
-                            engine,
-                            left,
-                            token,
-                            Slots::new(r1tok, r2tok, third, probe),
-                        );
-                        let ReplayOutcome::Cell(varied) = varied else {
-                            return Ok(true);
+                };
+                if r3tok.is_some() {
+                    continue;
+                }
+                match asks.take(step + 1, names) {
+                    Take::Varies => return Ok(asks.varied(step + 1)),
+                    Take::Agrees => {}
+                    Take::Run => {
+                        if edge4.is_none() && baseline.is_none() {
+                            match replay_outcome(engine, left, token, base) {
+                                ReplayOutcome::Cell(cell) => baseline = Some(cell),
+                                ReplayOutcome::Unreachable => continue 'lefts,
+                                ReplayOutcome::Raised => return Ok(asks.varied(first)),
+                            }
+                        }
+                        let ReplayOutcome::Cell(unknown4) = asks.ask(engine, names, |engine| {
+                            replay_outcome(
+                                engine,
+                                left,
+                                token,
+                                Slots::new(r1tok, r2tok, probe, UNKNOWN),
+                            )
+                        }) else {
+                            return Ok(asks.varied(step + 1));
                         };
-                        if varied != baseline {
-                            return Ok(true);
+                        if Some(&unknown4) != edge4.as_ref().or(baseline.as_ref()) {
+                            return Ok(asks.varied(step + 1));
                         }
                     }
                 }
             }
         }
-        Ok(false)
+        Ok(asks.ran_out())
     }
+}
+
+/// How a probe takes one ask ([`Asks::take`]): run it, take it to agree with its reference, or take it to vary there.
+enum Take {
+    Run,
+    Agrees,
+    Varies,
+}
+
+/// How one run of a probe takes its asks ([`ProspectLiveness::verdict`]). The probes are generic over it, so a run that takes every ask compiles to the loop with no step bookkeeping.
+///
+/// Every probe compares a fixed sequence of asks, each a settlement or a prospect or prefer evaluation at one window, with a reference: a baseline, or the same token's ask at an `EDGE` fourth. Each ask has a step, its position in the loop order the probe would run with no early return, so the steps of a probe are the same in every configuration. An ask's varying runes are the swept token and, in the input replay, the representative left's rune; the rest it names, the family and the slots, are the key's.
+///
+/// [`Whole`] and [`Publishing`] take every ask, in order; [`Publishing`] also records the step the probe stopped at and marks each ask for the engine's capture ([`Engine::probe_ask`]). [`Partial`] is a delta's run behind a verdict `default` published for the same key, and the argument for it is there.
+trait Asks {
+    /// How to take the ask at `step` whose varying runes are `names`.
+    fn take(&mut self, step: u32, names: [Option<Ordinal>; 2]) -> Take;
+
+    /// Run an ask this run takes.
+    fn ask<'e, T>(
+        &mut self,
+        engine: &mut Engine<'e>,
+        names: [Option<Ordinal>; 2],
+        ask: impl FnOnce(&mut Engine<'e>) -> T,
+    ) -> T;
+
+    /// The probe varied at `step`, and returns its live verdict.
+    fn varied(&mut self, step: u32) -> bool;
+
+    /// The probe ran through its last step, and returns its dead verdict.
+    fn ran_out(&mut self) -> bool;
+}
+
+/// A run that takes every ask and records nothing.
+struct Whole;
+
+impl Asks for Whole {
+    #[inline]
+    fn take(&mut self, _step: u32, _names: [Option<Ordinal>; 2]) -> Take {
+        Take::Run
+    }
+
+    #[inline]
+    fn ask<'e, T>(
+        &mut self,
+        engine: &mut Engine<'e>,
+        _names: [Option<Ordinal>; 2],
+        ask: impl FnOnce(&mut Engine<'e>) -> T,
+    ) -> T {
+        ask(engine)
+    }
+
+    #[inline]
+    fn varied(&mut self, _step: u32) -> bool {
+        true
+    }
+
+    #[inline]
+    fn ran_out(&mut self) -> bool {
+        false
+    }
+}
+
+/// A run that takes every ask, through the engine's capture of a published probe, and records the step it stopped at, [`VerdictEntry::RAN_OUT`] when it ran through.
+struct Publishing {
+    stopped: u32,
+}
+
+impl Publishing {
+    fn new() -> Self {
+        Self {
+            stopped: VerdictEntry::RAN_OUT,
+        }
+    }
+}
+
+impl Asks for Publishing {
+    fn take(&mut self, _step: u32, _names: [Option<Ordinal>; 2]) -> Take {
+        Take::Run
+    }
+
+    fn ask<'e, T>(
+        &mut self,
+        engine: &mut Engine<'e>,
+        names: [Option<Ordinal>; 2],
+        ask: impl FnOnce(&mut Engine<'e>) -> T,
+    ) -> T {
+        engine.probe_ask(names, ask)
+    }
+
+    fn varied(&mut self, step: u32) -> bool {
+        self.stopped = step;
+        true
+    }
+
+    fn ran_out(&mut self) -> bool {
+        false
+    }
+}
+
+/// A delta's run behind a verdict `default` published for the same key, which names none of the delta's unlocking runes (`marked`, flags by rune-field ordinal).
+///
+/// It runs the asks with a marked varying rune, and takes every other ask before `default`'s stop to agree with its reference and the one at the stop to vary, as each did in `default`'s run: such an ask names no marked rune and its windows read none (`default` checked what those asks read when it published the verdict for the delta's set), so it settles in the delta as in `default`, and every window beneath it is one the shared memo answers. A reference that a run ask needs and the partial run has not taken is settled first, which settles nothing new for the same reason. The run diverges when a run ask varies before the stop, or when the probe reaches a step past it, because a run ask at the stop agreed; the caller then runs the whole probe.
+///
+/// Its step numbers count the same asks as `default`'s run because a probe's asks and their order read only the spec and the index, never a configuration's features: [`ProspectLiveness::probe_tokens`], the representative lefts, whose signatures [`Engine::cond_matches_left`] answers, and the probe candidate shapes, which take every unlock's exit whatever the configuration. A left list or token order that read the features would misapply verdicts without failing.
+///
+/// So a partial run that does not diverge runs exactly the asks the whole run would run that name a marked rune, in the same order, and the asks it takes on trust are the ones the whole run would answer entirely from the shared memo. The delta's memo, which records only windows no shared memo answers, gains the same windows either way, and its fired set gains the same pointers once the served verdict's slot is replayed.
+struct Partial {
+    stop: u32,
+    marked: Rc<[bool]>,
+    diverged: bool,
+}
+
+impl Partial {
+    fn behind(stop: u32, marked: Rc<[bool]>) -> Self {
+        Self {
+            stop,
+            marked,
+            diverged: false,
+        }
+    }
+}
+
+impl Asks for Partial {
+    fn take(&mut self, step: u32, names: [Option<Ordinal>; 2]) -> Take {
+        if step > self.stop {
+            self.diverged = true;
+            return Take::Varies;
+        }
+        let run = names
+            .into_iter()
+            .flatten()
+            .any(|ordinal| self.marked.get(usize::from(ordinal.get())).copied() == Some(true));
+        if run {
+            Take::Run
+        } else if step == self.stop {
+            Take::Varies
+        } else {
+            Take::Agrees
+        }
+    }
+
+    fn ask<'e, T>(
+        &mut self,
+        engine: &mut Engine<'e>,
+        _names: [Option<Ordinal>; 2],
+        ask: impl FnOnce(&mut Engine<'e>) -> T,
+    ) -> T {
+        ask(engine)
+    }
+
+    fn varied(&mut self, step: u32) -> bool {
+        if step != self.stop {
+            self.diverged = true;
+        }
+        true
+    }
+
+    fn ran_out(&mut self) -> bool {
+        if self.stop != VerdictEntry::RAN_OUT {
+            self.diverged = true;
+        }
+        false
+    }
+}
+
+/// One probe a verdict memo stores, with what it runs over: the prospect and follower prefer probes for one shape of the family, and the input replay over its representative lefts, at the third slot with `r3tok` absent and at the fourth with it given.
+#[derive(Clone, Copy)]
+enum Probe {
+    Prospect {
+        family: Sym,
+        stance: Sym,
+        junction: Option<Sym>,
+        r1tok: RightToken,
+        r2tok: RightToken,
+        r3tok: Option<RightToken>,
+    },
+    FollowerPrefer {
+        family: Sym,
+        stance: Sym,
+        junction: Option<Sym>,
+        r1tok: RightToken,
+        r2tok: RightToken,
+        r3tok: Option<RightToken>,
+    },
+    Replay {
+        family: Sym,
+        r1tok: RightToken,
+        r2tok: RightToken,
+        r3tok: Option<RightToken>,
+    },
+}
+
+impl Probe {
+    /// The key `default` publishes this probe under and a delta looks it up by.
+    fn key(self, liveness: &ProspectLiveness<'_>) -> VerdictKey {
+        let (kind, family, shape, r1tok, r2tok, r3tok) = match self {
+            Probe::Prospect {
+                family,
+                stance,
+                junction,
+                r1tok,
+                r2tok,
+                r3tok,
+            } => (
+                if r3tok.is_some() {
+                    VerdictKind::Prospect4
+                } else {
+                    VerdictKind::Prospect3
+                },
+                family,
+                Some((stance, junction)),
+                r1tok,
+                r2tok,
+                r3tok,
+            ),
+            Probe::FollowerPrefer {
+                family,
+                stance,
+                junction,
+                r1tok,
+                r2tok,
+                r3tok,
+            } => (
+                if r3tok.is_some() {
+                    VerdictKind::FollowerPrefer4
+                } else {
+                    VerdictKind::FollowerPrefer3
+                },
+                family,
+                Some((stance, junction)),
+                r1tok,
+                r2tok,
+                r3tok,
+            ),
+            Probe::Replay {
+                family,
+                r1tok,
+                r2tok,
+                r3tok,
+            } => (
+                if r3tok.is_some() {
+                    VerdictKind::Replay4
+                } else {
+                    VerdictKind::Replay3
+                },
+                family,
+                None,
+                r1tok,
+                r2tok,
+                r3tok,
+            ),
+        };
+        let (family, stance, junction) = match shape {
+            Some((stance, junction)) => {
+                let ordinals =
+                    CandidateOrdinals::of(liveness.index, family, stance, None, junction);
+                (ordinals.rune, Some(ordinals.stance), ordinals.junction)
+            }
+            None => (liveness.letter(family).letter_ordinal(), None, None),
+        };
+        VerdictKey {
+            kind,
+            family,
+            stance,
+            junction,
+            right1: r1tok.letter_ordinal(),
+            right2: r2tok.letter_ordinal(),
+            right3: r3tok.map(RightToken::letter_ordinal),
+        }
+    }
+
+    /// Run the probe, taking its asks as `asks` says.
+    fn run(
+        self,
+        liveness: &mut ProspectLiveness<'_>,
+        engine: &mut Engine<'_>,
+        asks: &mut impl Asks,
+    ) -> Result<bool, SettleError> {
+        match self {
+            Probe::Prospect {
+                family,
+                stance,
+                junction,
+                r1tok,
+                r2tok,
+                r3tok: None,
+            } => liveness.third_class_live(engine, asks, family, stance, junction, r1tok, r2tok),
+            Probe::Prospect {
+                family,
+                stance,
+                junction,
+                r1tok,
+                r2tok,
+                r3tok: Some(r3tok),
+            } => liveness
+                .fourth_class_live(engine, asks, family, stance, junction, r1tok, r2tok, r3tok),
+            Probe::FollowerPrefer {
+                family,
+                stance,
+                junction,
+                r1tok,
+                r2tok,
+                r3tok,
+            } => liveness.follower_prefer_class_live(
+                engine, asks, family, stance, junction, r1tok, r2tok, r3tok,
+            ),
+            Probe::Replay {
+                family,
+                r1tok,
+                r2tok,
+                r3tok,
+            } => liveness.input_varies(engine, asks, family, r1tok, r2tok, r3tok),
+        }
+    }
+}
+
+/// How many steps a probe token list spans per ask.
+fn steps_of(tokens: &[RightToken]) -> u32 {
+    u32::try_from(tokens.len()).expect("a probe sweeps fewer than 2^32 tokens")
+}
+
+/// The reference `held`, settled by `settle` first when the run has not taken it.
+fn known<T: Clone>(
+    held: &mut Option<T>,
+    settle: impl FnOnce() -> Result<T, SettleError>,
+) -> Result<T, SettleError> {
+    if let Some(value) = held {
+        return Ok(value.clone());
+    }
+    let value = settle()?;
+    *held = Some(value.clone());
+    Ok(value)
 }
 
 /// The synthetic left for one `(family, stance, junction)` shape: the cell with no entry and no adjustments, settled at that junction with no extension. Nothing a deep token can reach reads the entry, so all entries collapse to this one.
@@ -757,6 +1264,7 @@ pub(crate) mod tests {
     use crate::engine::EngineModes;
     use crate::fixpoint::{EnumerationModes, enumerate_transitions};
     use crate::index::fixtures;
+    use crate::memo::Exclusion;
     use crate::stream::FixpointProduct;
 
     /// A JSON object over already-built keys and values.
@@ -1359,7 +1867,7 @@ pub(crate) mod tests {
             "and no follower prefer reads it either"
         );
         assert_eq!(
-            liveness.input_varies(&mut engine, pea, r1tok, r2tok, None),
+            liveness.input_varies(&mut engine, &mut Whole, pea, r1tok, r2tok, None),
             Ok(false),
             "the input replay agrees at the third grain — which is the whole point, since a port without the fallback would answer dead here"
         );
@@ -1438,6 +1946,7 @@ pub(crate) mod tests {
         assert_eq!(
             liveness.input_varies(
                 &mut engine,
+                &mut Whole,
                 pea,
                 index.letter(tea).expect("the fixture models it"),
                 index.letter(may).expect("the fixture models it"),
@@ -1476,6 +1985,7 @@ pub(crate) mod tests {
         assert_eq!(
             liveness.input_varies(
                 &mut engine,
+                &mut Whole,
                 pea,
                 index.letter(tea).expect("the fixture models it"),
                 index.letter(may).expect("the fixture models it"),
@@ -1516,6 +2026,64 @@ pub(crate) mod tests {
             0,
             "and the input replay is keyed on the family itself, which nothing above has asked for yet"
         );
+    }
+
+    /// A partial run trusts the run it stands behind for every ask it does not rerun, and checks the ones it does. `prospect_spec`'s third-slot probe at `qsPea·qsTea·qsMay` varies first at the `qsIt` token's `EDGE` ask, step `1 + 2 * 4` among the four boundaries and the four letters sorted by name. Behind that stop, rerunning the asks that name `qsIt` reaches the same verdict without diverging, and so does rerunning none, since the ask at the stop is then taken to vary. Behind a stop that says the probe ran out, the rerun `qsIt` ask varies before it, so the run diverges and the caller runs the whole probe.
+    #[test]
+    fn a_partial_probe_run_agrees_behind_its_own_stop_and_diverges_behind_another() {
+        let index = prospect_spec();
+        let pea = fixtures::sym(&index, "qsPea");
+        let tea = fixtures::sym(&index, "qsTea");
+        let it = fixtures::sym(&index, "qsIt");
+        let r1tok = index.letter(tea).expect("the fixture models it");
+        let r2tok = index
+            .letter(fixtures::sym(&index, "qsMay"))
+            .expect("the fixture models it");
+        let mut liveness = ProspectLiveness::new(&index);
+        let shapes = liveness.probe_candidate_shapes(pea);
+        let mut engine = engine_in(&index, true, true);
+        let (stance, junction, stop) = shapes
+            .iter()
+            .find_map(|&(stance, junction)| {
+                let mut publishing = Publishing::new();
+                let live = liveness
+                    .third_class_live(
+                        &mut engine,
+                        &mut publishing,
+                        pea,
+                        stance,
+                        junction,
+                        r1tok,
+                        r2tok,
+                    )
+                    .expect("the probe settles");
+                live.then_some((stance, junction, publishing.stopped))
+            })
+            .expect("some shape of qsPea varies with the third token");
+        assert_eq!(stop, 1 + 2 * 4, "the first variance is at qsIt's EDGE ask");
+        let marked: Rc<[bool]> = Rc::from(Exclusion::of(&index, [it]).named());
+        let unmarked: Rc<[bool]> = Rc::from(Vec::new());
+        for (behind, rerun, verdict, diverged) in [
+            (stop, &marked, true, false),
+            (stop, &unmarked, true, false),
+            (VerdictEntry::RAN_OUT, &marked, true, true),
+        ] {
+            let mut engine = engine_in(&index, true, true);
+            let mut partial = Partial::behind(behind, Rc::clone(rerun));
+            assert_eq!(
+                liveness.third_class_live(
+                    &mut engine,
+                    &mut partial,
+                    pea,
+                    stance,
+                    junction,
+                    r1tok,
+                    r2tok
+                ),
+                Ok(verdict)
+            );
+            assert_eq!(partial.diverged, diverged, "behind stop {behind}");
+        }
     }
 
     /// Liveness and fibers under their real caller: a whole configuration enumerated at class grain expands, member set by member set, to the same window rows a label-grain enumeration (`--deep-classes-off`) emits. The fixpoint's partition assertion also runs on both products.

@@ -123,6 +123,11 @@ pub(crate) fn journal_since(start: usize) -> Box<[Read]> {
     })
 }
 
+/// Lend the whole journal to `read`, for a capture that takes its slice apart instead of as one set ([`crate::engine::Engine::end_verdict`]).
+pub(crate) fn journal_view<R>(read: impl FnOnce(&[Read]) -> R) -> R {
+    LOG.with(|log| read(&log.borrow()))
+}
+
 /// A memo hit's recorded reads replayed into the journal, so an open capture's own slice carries what the hit's evaluation read; a no-op while the journal is off.
 pub(crate) fn journal_extend(reads: &[Read]) {
     if ARMED.with(Cell::get) {

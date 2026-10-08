@@ -90,11 +90,12 @@ impl EnumerationModes {
     }
 }
 
-/// What one enumeration may read before settling a window itself, and whether it returns its own memo ([`crate::memo`]). The shared memos are consulted in the order given. `keep_memo` is set for the configuration other enumerations will read; it returns the snapshot to the caller, at the cost of holding it through the drain and the sort. Writing the memo to a file is independent of it: [`enumerate_for_tables`] writes the file, or hands it to a writer, at the release point whether or not the snapshot is kept.
+/// What one enumeration may read before settling a window itself, and whether it returns its own memo ([`crate::memo`]). The shared memos are consulted in the order given. `keep_memo` is set for the configuration other enumerations will read; it returns the snapshot to the caller, at the cost of holding it through the drain and the sort. Writing the memo to a file is independent of it: [`enumerate_for_tables`] writes the file, or hands it to a writer, at the release point whether or not the snapshot is kept. `publish_verdicts` names the unlocking-rune sets of the enumerations that will read that snapshot, each once; when it names any, the enumeration also captures the liveness verdicts its probes compute into the snapshot, published for each set, for those enumerations to be served them ([`crate::liveness`]). It costs a capture per probe, so it is left empty wherever no enumeration reads the snapshot.
 #[derive(Debug, Default)]
 pub struct MemoAccess {
     pub shared_memos: Vec<SharedMemo>,
     pub keep_memo: bool,
+    pub publish_verdicts: Vec<HashSet<Sym>>,
 }
 
 /// The content-addressed id one deep-slot member set carries, `table.deep_class_id`: `#C` plus the first twelve hex digits of the SHA-256 of the tab-joined members.
@@ -314,6 +315,9 @@ fn enumerate_from_seeds<'i>(
         },
     );
     engine.attach_shared_memos(access.shared_memos);
+    if !access.publish_verdicts.is_empty() {
+        engine.publish_verdicts(access.publish_verdicts);
+    }
     let config = feature_config_token(index, features.iter().copied());
     let mut options = WindowOptions::new(index).map_err(error_message)?;
     // Either engine mode makes a deep mode set. This is the only place the enumeration combines the two flags.
@@ -853,6 +857,16 @@ fn enumerate_from_seeds<'i>(
                 "[c] {config} shared_memo_hits id={id} count={count}"
             ));
         }
+        if let Some(bytes) = engine.published_verdict_bytes() {
+            lines.push(format!("[c] {config} published_verdicts bytes={bytes}"));
+        }
+        lines.push(format!(
+            "[c] {config} shared_verdicts hits={} diverged={} refused={} misses={}",
+            engine.shared_verdict_hits(),
+            engine.shared_verdict_divergences(),
+            engine.shared_verdict_refusals(),
+            engine.shared_verdict_misses()
+        ));
         lines.push(format!(
             "[c] {config} resident_before_release kb={}",
             resident_kb()
@@ -2499,7 +2513,7 @@ mod tests {
         );
     }
 
-    /// An `ss03` enumeration that reads `default`'s finished memo for every window naming no unlocking rune of `ss03` produces the from-scratch product byte for byte (rows, classes, cells and fired provenance, which is what the stream contains) while answering windows from the shared memo. The exclusion is required: the same shared memo read without one gives `ss03` the wrong results for `qsMay`'s windows, which is what makes the equality assertion able to fail.
+    /// An `ss03` enumeration that reads `default`'s finished memo for every window naming no unlocking rune of `ss03` produces the from-scratch product byte for byte (rows, classes, cells and fired provenance, which is what the stream contains) while answering windows from the shared memo, and liveness probes from the verdicts `default` published there for `ss03`'s unlocking runes. The exclusion is required: the same shared memo read without one gives `ss03` the wrong results for `qsMay`'s windows, which is what makes the equality assertion able to fail.
     #[test]
     fn a_configuration_sharing_defaults_memo_reaches_its_from_scratch_product() {
         let index = fixtures::mini();
@@ -2514,6 +2528,7 @@ mod tests {
             MemoAccess {
                 shared_memos: Vec::new(),
                 keep_memo: true,
+                publish_verdicts: vec![unlocking_runes(&index, &[ss03])],
             },
             None,
         )
@@ -2521,6 +2536,7 @@ mod tests {
         .memo
         .expect("a kept memo comes back");
         assert!(!memo.is_empty());
+        assert!(memo.verdicts() > 0, "default published its probes");
         let scratch = enumerate_from_seeds(
             &index,
             &[ss03],
@@ -2546,6 +2562,7 @@ mod tests {
                         excluded,
                     }],
                     keep_memo: false,
+                    publish_verdicts: Vec::new(),
                 },
                 None,
             )
@@ -2558,16 +2575,27 @@ mod tests {
                 .parse::<u64>()
                 .expect("as a count");
             assert!(stats.contains(&format!("[c] ss03 shared_memo_hits id=0 count={hits}")));
-            (product, hits)
+            let served = stats
+                .iter()
+                .find_map(|line| line.strip_prefix("[c] ss03 shared_verdicts hits="))
+                .and_then(|rest| rest.split(' ').next())
+                .expect("the cache stats report the shared verdicts")
+                .parse::<u64>()
+                .expect("as a count");
+            (product, hits, served)
         };
-        let (over_shared, hits) =
+        let (over_shared, hits, served) =
             shared_with(Exclusion::of(&index, unlocking_runes(&index, &[ss03])));
         assert!(hits > 0, "the shared memo answered windows");
+        assert!(
+            served > 0,
+            "default's verdicts answered probes, each rerunning only the asks that name qsMay"
+        );
         assert_eq!(
             emit_transitions(&index, &scratch),
             emit_transitions(&index, &over_shared)
         );
-        let (unfiltered, _) = shared_with(Exclusion::none());
+        let (unfiltered, _, _) = shared_with(Exclusion::none());
         assert_ne!(
             emit_transitions(&index, &scratch),
             emit_transitions(&index, &unfiltered),
@@ -2590,6 +2618,7 @@ mod tests {
             MemoAccess {
                 shared_memos: Vec::new(),
                 keep_memo: true,
+                publish_verdicts: Vec::new(),
             },
             None,
         )
@@ -2611,6 +2640,7 @@ mod tests {
             MemoAccess {
                 shared_memos: shared(),
                 keep_memo: true,
+                publish_verdicts: Vec::new(),
             },
             None,
         )
@@ -2634,6 +2664,7 @@ mod tests {
             MemoAccess {
                 shared_memos: shared(),
                 keep_memo: false,
+                publish_verdicts: Vec::new(),
             },
             Some(MemoWrite::Inline(MemoFile {
                 path: path.clone(),

@@ -15,7 +15,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::engine::{
-    DeltaId, Pointer, ReadsId, TraceEntry, TraceKey, TraceNotesId, TraceSettledId,
+    DeltaId, Pointer, ReadsId, TraceEntry, TraceKey, TraceNotesId, TraceSettledId, VerdictEntry,
+    VerdictKey,
 };
 use crate::hash::{FastHasher, HashMap, HashSet};
 use crate::index::{Read, SpecIndex};
@@ -258,7 +259,15 @@ impl std::ops::Index<&TraceKey> for SnapshotEntries {
     }
 }
 
-/// One engine's finished trace memo: compact immutable entries and the four tables their ids index. The tables are the engine memo's own pools flattened, so an entry read through the snapshot resolves as it did in the engine that recorded it. The live engine's memo is a hash map; the snapshot has no hash-table slack, and its index costs two bytes a record.
+/// The liveness verdicts one engine published ([`crate::engine::Engine::publish_verdicts`]), whose delta ids index the snapshot's delta pool as its windows' do. `groups` are the unlocking-rune sets they were published for, one per distinct set among the deltas that read them. Each record's [`VerdictEntry::slots`] is where its slots start in `slots`, one per group in group order: the fired delta of the probe's asks that name none of that group's runes, or `None` where the verdict is not published for that group ([`crate::engine::Engine::end_verdict`], [`crate::liveness`]).
+#[derive(Debug, Default)]
+pub(crate) struct SnapshotVerdicts {
+    pub(crate) groups: Vec<HashSet<Sym>>,
+    pub(crate) records: HashMap<VerdictKey, VerdictEntry>,
+    pub(crate) slots: Box<[Option<DeltaId>]>,
+}
+
+/// One engine's finished trace memo: compact immutable entries and the four tables their ids index. The tables are the engine memo's own pools flattened, so an entry read through the snapshot resolves as it did in the engine that recorded it. The live engine's memo is a hash map; the snapshot has no hash-table slack, and its index costs two bytes a record. `verdicts` holds the liveness verdicts the engine published, empty for every other engine and for a memo read from a file, which carries none.
 #[derive(Debug, Default)]
 pub struct MemoSnapshot {
     pub(crate) entries: SnapshotEntries,
@@ -266,12 +275,18 @@ pub struct MemoSnapshot {
     pub(crate) notes: Vec<Vec<String>>,
     pub(crate) deltas: Vec<Box<[Pointer]>>,
     pub(crate) reads: Vec<Box<[Read]>>,
+    pub(crate) verdicts: SnapshotVerdicts,
 }
 
 impl MemoSnapshot {
     /// How many windows this snapshot holds.
     pub fn len(&self) -> usize {
         self.entries.len()
+    }
+
+    /// How many liveness verdicts this snapshot carries.
+    pub fn verdicts(&self) -> usize {
+        self.verdicts.records.len()
     }
 
     pub fn is_empty(&self) -> bool {
@@ -363,6 +378,11 @@ impl Exclusion {
                 Read::Rune(rune) => self.runes.contains(rune),
                 Read::Class(class) => self.classes.contains(class),
             })
+    }
+
+    /// One flag per rune-field ordinal, true for this exclusion's runes, as [`Exclusion::admits`] tests them.
+    pub(crate) fn named(&self) -> &[bool] {
+        &self.named
     }
 
     /// The runes this exclusion names.
@@ -1338,6 +1358,7 @@ mod tests {
             MemoAccess {
                 shared_memos,
                 keep_memo: true,
+                publish_verdicts: Vec::new(),
             },
             None,
         )
@@ -1511,6 +1532,7 @@ mod tests {
                     MemoAccess {
                         shared_memos: shared.clone(),
                         keep_memo: true,
+                        publish_verdicts: Vec::new(),
                     },
                     None,
                 )
