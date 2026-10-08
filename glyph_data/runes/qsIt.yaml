@@ -412,6 +412,7 @@ policy:
         - {family: qsDay_qsUtter}
         - {family: qsVie}
         - {family: qsVie_qsUtter}
+        - {family: qsZoo}
         - {family: qsMay}
         - {family: qsLow}
         - {family: qsI}
