@@ -524,7 +524,6 @@ def _ledger_entry(identifier: str, *, ink_identical: bool = False, no_verdict: b
         why="",
         ink_identical=ink_identical,
         no_verdict=no_verdict,
-        count=0,
         exemplar_keys=frozenset(),
     )
 

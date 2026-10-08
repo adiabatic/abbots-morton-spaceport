@@ -335,7 +335,6 @@ LEDGER = textwrap.dedent("""\
       status: intended
       no_verdict: true
       match: {predicate: boundary_window, configs: all}
-      count: 12
       exemplars:
         - {config: default, codepoints: "0020:E650", baseline: "space|qsPea", new: "space|qsPea.half"}
       why: |
@@ -343,7 +342,6 @@ LEDGER = textwrap.dedent("""\
     - id: junction-moved
       status: accepted-pending-review
       match: {predicate: junction_moved, configs: all}
-      count: 3
       exemplars:
         - {config: default, codepoints: "E67A:E665", baseline: "qsUtter|qsMay.en-y5", new: "qsUtter|qsMay.en-y0"}
       why: |
@@ -374,7 +372,7 @@ def _ledger_digest(path, text):
 
 
 def test_divergence_ledger_digest_ignores_prose_and_falls_back_to_bytes(tmp_path):
-    """Every ledger field except `why` moves the digest, since `audit.load_ledger`, `oracle.classify_divergence`, and the review facts read them: changing a class's status, its `no_verdict` flag, its count, or an exemplar, or adding a class. Rewording a `why`, editing a comment, or reformatting moves nothing. A malformed ledger digests to its raw bytes, so two broken drafts get different values."""
+    """Every ledger field except `why` moves the digest, since `audit.load_ledger`, `oracle.classify_divergence`, and the review facts read them: changing a class's status, its `no_verdict` flag, or an exemplar, or adding a class. Rewording a `why`, editing a comment, or reformatting moves nothing. A malformed ledger digests to its raw bytes, so two broken drafts get different values."""
     path = tmp_path / "m1-divergences.yaml"
     parsed = _ledger_digest(path, LEDGER)
     assert _ledger_digest(path, REWORDED_CLASS) == parsed
@@ -389,11 +387,10 @@ def test_divergence_ledger_digest_ignores_prose_and_falls_back_to_bytes(tmp_path
         _ledger_digest(path, LEDGER.replace("status: accepted-pending-review", "status: reviewed-approved"))
         != parsed
     )
-    assert _ledger_digest(path, LEDGER.replace("count: 12", "count: 13")) != parsed
     assert (
         _ledger_digest(path, LEDGER.replace('new: "space|qsPea.half"', 'new: "space|qsPea.full"')) != parsed
     )
-    assert _ledger_digest(path, LEDGER + "- id: added\n  status: intended\n  count: 0\n") != parsed
+    assert _ledger_digest(path, LEDGER + "- id: added\n  status: intended\n") != parsed
     broken = "- id: boundary-window\n  match: {predicate: unclosed\n"
     broken_digest = _ledger_digest(path, broken)
     assert broken_digest == hashlib.sha256(broken.encode()).hexdigest()

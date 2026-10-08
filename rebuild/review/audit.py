@@ -61,7 +61,6 @@ class LedgerClass:
     why: str
     ink_identical: bool
     no_verdict: bool
-    count: int
     exemplar_keys: frozenset[tuple[str, str]]  # (config, codepoints)
 
 
@@ -205,7 +204,6 @@ def load_ledger(path: Path) -> list[LedgerClass]:
                 why=(entry.get("why") or "").strip(),
                 ink_identical=bool(entry.get("ink_identical", False)),
                 no_verdict=bool(entry.get("no_verdict", False)),
-                count=int(entry.get("count", 0)),
                 exemplar_keys=frozenset(
                     (exemplar["config"], exemplar["codepoints"]) for exemplar in entry.get("exemplars", ())
                 ),
@@ -219,7 +217,7 @@ def synthesize_unmatched_group_classes(
     group_order: list[str],
     group_why: dict[str, str],
 ) -> list[LedgerClass]:
-    """Synthetic `LedgerClass` records for the unmatched groups present among the UNMATCHED units, in `group_order`, counted from the table's unmatched-group column. `status='unmatched'` marks them as a grouping for presentation only: they have no ledger predicate, so the oracle matches no row to them. Their units' unmatched rows, which do not fail the gate, stay unmatched until a ledger entry matches them or the rows stop diverging. The build appends them after the ledger classes, so each group gets a shard and a manifest entry the way a ledger class does. The build passes `unmatched_groups.UNMATCHED_GROUP_ORDER` and `unmatched_groups.UNMATCHED_GROUP_WHY`."""
+    """Synthetic `LedgerClass` records for the unmatched groups present among the UNMATCHED units, in `group_order`, found in the table's unmatched-group column. `status='unmatched'` marks them as a grouping for presentation only: they have no ledger predicate, so the oracle matches no row to them. Their units' unmatched rows, which do not fail the gate, stay unmatched until a ledger entry matches them or the rows stop diverging. The build appends them after the ledger classes, so each group gets a shard and a manifest entry the way a ledger class does. The build passes `unmatched_groups.UNMATCHED_GROUP_ORDER` and `unmatched_groups.UNMATCHED_GROUP_WHY`."""
     counts = table.unmatched_group_counts()
     return [
         LedgerClass(
@@ -228,7 +226,6 @@ def synthesize_unmatched_group_classes(
             why=group_why.get(group_id, ""),
             ink_identical=False,
             no_verdict=False,
-            count=counts[group_id],
             exemplar_keys=frozenset(),
         )
         for group_id in group_order

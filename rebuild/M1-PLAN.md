@@ -417,7 +417,7 @@ def run_conformance(font_path, spec, configs=ACCEPTANCE_CONFIGS, glyphs=None, ma
 # oracle.py
 def compare_against_baseline(spec, subset_tables_dir, alias_path, ledger_path, configs=ACCEPTANCE_CONFIGS, ...) -> BaselineReport: ...
     # the oracle gate over ligation, junctions, cell identity, and positions; procedure in §6 of this plan.
-    # Ledger counts go to BaselineReport and divergence-audit.tsv; the run never rewrites the ledger YAML.
+    # Per-class row counts go to BaselineReport and divergence-audit.tsv; the run never rewrites the ledger YAML.
 
 # coretext_smoke.py — keeps its own copy of the Swift harness in rebuild/pipeline/ and compiles it with swiftc
 # when its binary is missing or older than the source, passes hex codepoints on argv, asserts that CoreText
@@ -469,7 +469,7 @@ The old font’s behavior outranks a literal reading of its YAML when the two di
 
 ### Ledger format — `rebuild/m1-divergences.yaml` (checked-in, human-reviewed)
 
-One entry per divergence **class**, with a matching predicate, the observed count, example rows, and a required `why:`:
+One entry per divergence **class**, with a matching predicate, example rows, and a required `why:`:
 
 ```yaml
 - id: zwnj-word-initial-unification
@@ -477,7 +477,6 @@ One entry per divergence **class**, with a matching predicate, the observed coun
   match: {predicate: zwnj_word_initial_unification, configs: all}
     # predicate = a named matcher registered in oracle.py (small, reviewed functions over the row pair);
     # structured field predicates ({window: ..., junction_change: ...}) are also legal match shapes
-  count: 0                        # copied from the run's audit and reviewed as a diff; the run never writes this file
   exemplars:
     - {config: default, codepoints: "200C:E650", baseline: "uni200C qsPea.noentry", new: "uni200C qsPea"}
   why: |

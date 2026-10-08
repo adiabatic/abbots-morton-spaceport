@@ -1,5 +1,5 @@
 # The M1 divergence ledger (M1-PLAN section 6): one entry per reviewed class of divergence between settlement and the section 13.1 baseline oracle, over the letters in `baseline_subset.M1_ALPHABET`.
-# Every divergent row should match exactly one entry. A row that matches two or more fails the run_m1 gate; a row that matches none is unmatched and waits for a verdict on the review corpus. `oracle.classify_divergence` gives each row the highest-precedence class its divergence tags allow, and its code is the authority on the order: boundary-window first (any row without a position divergence whose window contains a run-splitting boundary, space or ZWNJ), then no class for any other ss10 row, then ligation, then junction changes, then cell-grain changes. The cell-grain order is halves-entry-extension-restored, same-junction-extension-non-summing, the extension-dropped classes, the renamed and consolidated classes, then zwnj-word-initial-unification, dangling-anchor-dropped and bare-name-live-join; a row with a `+ex-bind-*` or `-ex-ext-1` token gets none of those last three. The classifier leaves some rows unassigned, and two entries match rows with a position divergence among them with function predicates: kern_out_of_scope and may_ligature_junction_loosened. `count` comes from the conformance run's figures and is reviewed as a diff; the run never writes this file. Per-row detail is written to rebuild/out/m1/divergence-audit.tsv.
+# Every divergent row should match exactly one entry. A row that matches two or more fails the run_m1 gate; a row that matches none is unmatched and waits for a verdict on the review corpus. `oracle.classify_divergence` gives each row the highest-precedence class its divergence tags allow, and its code is the authority on the order: boundary-window first (any row without a position divergence whose window contains a run-splitting boundary, space or ZWNJ), then no class for any other ss10 row, then ligation, then junction changes, then cell-grain changes. The cell-grain order is halves-entry-extension-restored, same-junction-extension-non-summing, the extension-dropped classes, the renamed and consolidated classes, then zwnj-word-initial-unification, dangling-anchor-dropped and bare-name-live-join; a row with a `+ex-bind-*` or `-ex-ext-1` token gets none of those last three. The classifier leaves some rows unassigned, and two entries match rows with a position divergence among them with function predicates: kern_out_of_scope and may_ligature_junction_loosened. The run never writes this file: `counts_by_entry` in rebuild/out/m1/oracle_summary.json gives each class's row count, and rebuild/out/m1/divergence-audit.tsv holds the per-row detail.
 # Status values: intended (designed behavior, needs no review) | accepted-pending-review (an observed mismatch, accepted pending human review) | triaged (per-row triage decisions, never accepted automatically) | reviewed-approved (the user approved the class's behavior in the round-1 verdict pass) | reviewed-rejected (the user rejected the class's behavior in the round-1 verdict pass; that round's policy records restore the old behavior, and the entry's why documents the remaining rows).
 # `no_verdict: true` means a ratified rule decides the whole class, so no unit in it needs its own verdict. The review build gives those units no batch, the review app disables their verdict buttons, and the verdict carry skips them.
 
@@ -7,7 +7,6 @@
   status: intended
   no_verdict: true
   match: {predicate: boundary_window, configs: all}
-  count: 33508
   exemplars:
     - {config: default, codepoints: "200C:E67A:E665", baseline: "space|qsUtter.noentry|qsMay.en-y5 (y5 join on the shadow)", new: "uni200C|qsUtter.alternate.locked|qsMay.loop.en-y0 (y0 join, word-initial)"}
     - {config: default, codepoints: "0020:E650:E650", baseline: "space|qsPea.half.en-y6.ex-y6|qsPea.en-y6", new: "space|qsPea.half.ex-y6|qsPea.full.en-y6 (the bare E650:E650 row's name-grain divergence, repeated across a space)"}
@@ -22,7 +21,6 @@
   status: intended
   match: {predicate: zwnj_word_initial_unification, configs: all}
   ink_identical: true
-  count: 0
   exemplars:
     - {config: default, codepoints: "200C:E670:E670", baseline: "space|qsIt.ex-y5|qsIt", new: "uni200C|qsIt.sole.locked|qsIt.sole"}
   why: |
@@ -31,7 +29,6 @@
 - id: post-marker-ligature-formation
   status: intended
   match: {predicate: post_marker_ligature_formation, configs: all}
-  count: 187
   exemplars:
     - {config: default, codepoints: "200C:E652:E679", baseline: "space|qsTea.noentry|qsOy (unformed)", new: "uni200C|qsTea_qsOy.sole.locked"}
   why: |
@@ -40,7 +37,6 @@
 - id: zwnj-follower-exit-restored
   status: reviewed-approved
   match: {predicate: zwnj_follower_exit_restored, configs: all}
-  count: 0
   exemplars:
     - {config: default, codepoints: "200C:E665:E665:E670", baseline: "space|qsMay.noentry|qsMay.ex-ext-1|qsIt.en-y5.ex-y0 (break after the locked May)", new: "uni200C|qsMay.grounded-loop.ex-y0.locked|qsMay.loop.en-y0.ex-y5.ex-ext-1|qsIt.sole.en-y5 (y0 join gained)"}
   why: |
@@ -49,7 +45,6 @@
 - id: zwnj-word-initial-junction-moved
   status: accepted-pending-review
   match: {predicate: zwnj_word_initial_junction_moved, configs: all}
-  count: 0
   exemplars:
     - {config: default, codepoints: "200C:E67A:E665", baseline: "space|qsUtter.noentry|qsMay.en-y5 (y5 join on the shadow)", new: "uni200C|qsUtter.alternate.ex-baseline|qsMay.loop.en-baseline (y0 join, word-initial)"}
   why: |
@@ -58,7 +53,6 @@
 - id: pre-ligature-cleanup-regularized
   status: reviewed-approved
   match: {predicate: pre_ligature_cleanup_regularized, configs: all}
-  count: 38
   exemplars:
     - {config: default, codepoints: "E652:E670:E652:E679", baseline: "qsTea|qsIt|qsTea_qsOy (Tea.It break)", new: "qsTea.half.ex-y5|qsIt.sole.en-y5|qsTea_qsOy (y5 join kept)"}
   why: |
@@ -67,7 +61,6 @@
 - id: regrouped-chain
   status: reviewed-rejected
   match: {predicate: regrouped_chain, configs: all}
-  count: 34
   exemplars:
     - {config: default, codepoints: "E650:E665:E650:E650", baseline: "qsPea|qsMay.en-y0.ex-y5.en-ext-1|qsPea.half.en-y6.ex-y6|qsPea.en-y6 (y0,break,y6)", new: "qsPea.full.ex-y0|qsMay.loop.en-y0.ex-y5.en-ext-1.ex-ext-1|qsPea.full.en-y5|qsPea.full (y0,y5,break)"}
     - {config: default, codepoints: "200C:E665:E665:E665", baseline: "space|qsMay.noentry|qsMay.ex-y0|qsMay.en-y0.ex-y5 (break,y0 on the second pair)", new: "uni200C|qsMay.grounded-loop.ex-y0.locked|qsMay.loop.en-y0.ex-bind-pulled-back|qsMay.loop (y0 on the first pair)"}
@@ -86,7 +79,6 @@
 - id: ss03-chain-join-gains
   status: reviewed-approved
   match: {predicate: ss03_chain_join_gains, configs: [ss03, ss03+ss05]}
-  count: 2346
   exemplars:
     - {config: ss03, codepoints: "E652:E665:E652", baseline: "qsTea|qsMay.ex-ext-1|qsTea.half.en-y5.after-xheight-exit (break,y5)", new: "qsTea.full.ex-y0|qsMay.en-y0.ex-y5.en-ext-1.ex-ext-1|qsTea.half.en-y5 (y0,y5)"}
     - {config: ss03, codepoints: "E670:E665:E652", baseline: "qsIt|qsMay.ex-ext-1|qsTea.half.en-y5.after-xheight-exit (break,y5)", new: "qsIt.sole.ex-y0|qsMay.loop.en-y0.ex-y5.en-ext-1.ex-ext-1|qsTea.half.en-y5 (y0,y5)"}
@@ -100,7 +92,6 @@
 - id: entered-it-baseline-join-gain
   status: reviewed-approved
   match: {predicate: entered_it_baseline_join_gain, configs: all}
-  count: 0
   exemplars:
     - {config: default, codepoints: "E652:E670:E670", baseline: "qsTea.half.ex-y5|qsIt.en-y5.ex-y0|qsIt (y5,break)", new: "qsTea.half.ex-y5|qsIt.sole.en-y5.ex-y0.ex-ext-1|qsIt.sole.en-y0 (y5,y0)"}
   why: |
@@ -111,7 +102,6 @@
 - id: pea-chain-regularized
   status: reviewed-approved
   match: {predicate: pea_chain_regularized, configs: all}
-  count: 101
   exemplars:
     - {config: default, codepoints: "E650:E650:E67A", baseline: "qsPea.half.en-y6.ex-y6|qsPea.en-y6|qsUtter (y6,break)", new: "qsPea.half.ex-y6|qsPea.full.en-y6.ex-y0|qsUtter.mono.en-y0 (y6,y0)"}
   why: |
@@ -123,7 +113,6 @@
 - id: halves-entry-extension-restored
   status: reviewed-rejected
   match: {predicate: halves_entry_extension_restored, configs: all}
-  count: 3
   exemplars:
     - {config: ss03, codepoints: "E652:E653:E67A:E652", baseline: "qsTea.ex-y0|qsDay_qsUtter.half.en-y0.ex-y5.ex-ext-1|qsTea.half.en-y5.after-xheight-exit", new: "qsTea/full/None/baseline/|qsDay_qsUtter/half/baseline/x-height/en-ext-1+ex-ext-1|qsTea/half/x-height/None/"}
   why: |
@@ -135,7 +124,6 @@
 - id: same-junction-extension-non-summing
   status: reviewed-approved
   match: {predicate: same_junction_extension_non_summing, configs: all}
-  count: 71
   exemplars:
     - {config: default, codepoints: "E650:E670:E665", baseline: "qsPea.half.ex-y5.ex-dips|qsIt.en-y5.ex-y0.ex-ext-1|qsMay.en-y0.ex-y5.en-ext-1", new: "...|qsIt...ex-ext-1|qsMay.loop.en-y0 (no en-ext-1)"}
     - {config: default, codepoints: "E655:E65D", baseline: "qsGay.ex-y5.ex-ext-2|qsJai.en-y5.ex-y0.en-ext-2", new: "qsGay/sole/None/x-height/ex-ext-3|qsJai/sole/x-height/None/ (no en-ext-2; ·Gay's exit carries the whole connector)"}
@@ -149,14 +137,12 @@
 - id: may-baseline-entry-extension-dropped
   status: intended
   match: {predicate: may_baseline_entry_extension_dropped, configs: all}
-  count: 636
   exemplars:
     - {config: default, codepoints: "E650:E665", baseline: "qsPea|qsMay.en-y0.ex-y5.en-ext-1", new: "qsPea.full.ex-y0|qsMay.loop.en-y0 (no en-ext-1)"}
 
 - id: day-baseline-entry-extension-dropped
   status: intended
   match: {predicate: day_baseline_entry_extension_dropped, configs: all}
-  count: 127
   exemplars:
     - {config: default, codepoints: "E652:E679:E653", baseline: "qsTea_qsOy|qsDay.half.en-y0.ex-y0.en-ext-1", new: "qsTea_qsOy/sole/None/baseline/|qsDay/half/baseline/None/ (no en-ext-1)"}
     - {config: default, codepoints: "E652:E679:E653:E67A", baseline: "qsTea_qsOy|qsDay_qsUtter.half.en-y0.ex-y5.en-ext-1", new: "qsTea_qsOy/sole/None/baseline/|qsDay_qsUtter/half/baseline/None/ (no en-ext-1)"}
@@ -167,7 +153,6 @@
   status: intended
   no_verdict: true
   match: {predicate: vie_baseline_entry_extension_dropped, configs: all}
-  count: 5938
   exemplars:
     - {config: default, codepoints: "E652:E659", baseline: "qsTea.ex-y0|qsVie.en-ext-1", new: "qsTea/full/None/baseline/|qsVie/normal/baseline/None/ (no en-ext-1)"}
     - {config: default, codepoints: "E670:E659", baseline: "qsIt.ex-y0|qsVie.en-ext-1", new: "qsIt/sole/None/baseline/|qsVie/normal/baseline/None/ (no en-ext-1)"}
@@ -181,7 +166,6 @@
   status: intended
   no_verdict: true
   match: {predicate: no_xheight_entry_extension_dropped, configs: all}
-  count: 952
   exemplars:
     - {config: default, codepoints: "E652:E666:E653", baseline: "qsTea.half.ex-y5|qsNo.en-ext-1|qsDay", new: "qsTea/half/None/x-height/|qsNo/loop/x-height/x-height/|qsDay/full/x-height/None/ (no en-ext-1, ·No and everything after it one pixel tighter)"}
     - {config: default, codepoints: "E652:E666:E666", baseline: "qsTea.half.ex-y5|qsNo.en-ext-1|qsNo", new: "qsTea/half/None/x-height/|qsNo/loop/x-height/x-height/|qsNo/loop/x-height/None/ (no en-ext-1)"}
@@ -190,7 +174,6 @@
   status: intended
   no_verdict: true
   match: {predicate: may_ligature_junction_loosened, configs: all}
-  count: 109
   exemplars:
     - {config: default, codepoints: "E652:E653:E67A:E665", baseline: "qsTea.ex-y0|qsDay_qsUtter.half.en-y0.ex-y5.en-ext-1|qsMay.en-y5", new: "slot 2 (qsMay.en-y5): origin want (350, 0), got (400, 0)"}
 
@@ -198,7 +181,6 @@
   status: intended
   match: {predicate: dangling_anchor_dropped, configs: all}
   ink_identical: true
-  count: 10586
   exemplars:
     - {config: default, codepoints: "E670:E670", baseline: "qsIt.ex-y5|qsIt", new: "qsIt.sole|qsIt.sole"}
     - {config: default, codepoints: "E650:E650", baseline: "qsPea.half.en-y6.ex-y6|qsPea.en-y6 (left entry name at word start)", new: "qsPea.half.ex-y6|qsPea.full.en-y6"}
@@ -209,7 +191,6 @@
   status: intended
   match: {predicate: bare_name_live_join, configs: all}
   ink_identical: true
-  count: 914
   exemplars:
     - {config: default, codepoints: "E679:E652", baseline: "qsOy|qsTea.en-y0 (y0 join on the bare glyph)", new: "qsOy.sole.ex-y0|qsTea.full.en-y0"}
   why: |
@@ -219,7 +200,6 @@
   status: intended
   match: {predicate: see_out_fusion_renamed, configs: all}
   ink_identical: true
-  count: 2624
   exemplars:
     - {config: default, codepoints: "E65A:E67B:E653", baseline: "qsSee.ex-y0.ex-con-1|qsOut.en-y0.ex-y5.after-see.before-other|qsDay", new: "qsSee/straighter/None/baseline/|qsOut/swept-up/baseline/x-height/en-bind-raked+en-trim-1|qsDay/full/x-height/None/"}
     - {config: default, codepoints: "E65A:E67B:E652", baseline: "qsSee.ex-y0.ex-con-1|qsOut_qsTea.after-see", new: "qsSee/straighter/None/baseline/|qsOut_qsTea/sole/baseline/None/en-bind-raked+en-trim-1"}
@@ -229,7 +209,6 @@
 - id: may-jai-extension-consolidated
   status: intended
   match: {predicate: may_jai_extension_consolidated, configs: all}
-  count: 1736
   exemplars:
     - {config: default, codepoints: "E665:E65D", baseline: "qsMay.ex-ext-1|qsJai.en-y5.ex-y0.en-ext-2", new: "qsMay/loop/None/x-height/ex-ext-2|qsJai/sole/x-height/None/"}
     - {config: default, codepoints: "E665:E65D:E67A", baseline: "qsMay.ex-ext-1|qsJai_qsUtter.en-ext-2", new: "qsMay/loop/None/x-height/ex-ext-2|qsJai_qsUtter/sole/x-height/None/"}
@@ -240,7 +219,6 @@
   status: intended
   match: {predicate: jai_entry_contraction_renamed, configs: all}
   ink_identical: true
-  count: 425
   exemplars:
     - {config: default, codepoints: "E67A:E65D", baseline: "qsUtter.ex-con-2|qsJai.en-y5.ex-y0", new: "qsUtter/mono/None/x-height/|qsJai/sole/x-height/None/en-con-2"}
     - {config: default, codepoints: "E666:E65D:E652", baseline: "qsNo.ex-con-1|qsJai.en-y5.ex-y0.ex-ext-1|qsTea.en-y0", new: "qsNo/loop/None/x-height/|qsJai/sole/x-height/baseline/en-con-1+ex-ext-1|qsTea/full/baseline/None/"}
@@ -251,7 +229,6 @@
   status: intended
   match: {predicate: zoo_entry_contraction_renamed, configs: all}
   ink_identical: true
-  count: 4261
   exemplars:
     - {config: default, codepoints: "E652:E65B", baseline: "qsTea.half.ex-y5.ex-con-1|qsZoo.en-trim-1", new: "qsTea/half/None/x-height/|qsZoo/full/x-height/None/en-con-1"}
   why: |
@@ -261,7 +238,6 @@
   status: intended
   match: {predicate: roe_shortened_top_renamed, configs: all}
   ink_identical: true
-  count: 8341
   exemplars:
     - {config: default, codepoints: "E660:E668", baseline: "qsYe.ex-y0|qsRoe.en-ext-1-at-0", new: "qsYe/loop/None/baseline/|qsRoe/sole/baseline/None/en-bind-shortened-top+en-ext-1"}
   why: |
@@ -271,7 +247,6 @@
   status: intended
   no_verdict: true
   match: {predicate: ss03_out_tea_ligature_kept, configs: [ss03, ss03+ss05]}
-  count: 1944
   exemplars:
     - {config: ss03, codepoints: "E67B:E652", baseline: "qsOut.en-y0.ex-y5.ex-ext-1|qsTea.half.en-y5.after-xheight-exit (y5)", new: "qsOut_qsTea (the ligature glyph)"}
     - {config: ss03, codepoints: "E65A:E67B:E652", baseline: "qsSee.ex-y0.ex-con-1|qsOut.en-y0.ex-y5.after-see.before-other|qsTea.half.en-y5.after-xheight-exit (y0,y5)", new: "qsSee.ex-y0.ex-con-1|qsOut_qsTea.after-see (y0,lig)"}
@@ -280,7 +255,6 @@
 - id: kern-out-of-scope
   status: triaged
   match: {predicate: kern_out_of_scope, configs: all}
-  count: 0
   exemplars: []
   why: |
     Position-only rows that the comparison marks kern-attributable. The oracle shapes every row whose junctions and ligation match against the new font and compares per-slot positions with the baseline, with sidecar kerns removed (KernEvaluator over glyph_data/senior_quikscript_kerning.yaml). What remains can only be a kern the normalization modeled wrongly or a ZWNJ-adjacency artifact: the predicate requires the mismatched slots to sit on a kerned pair or a ZWNJ adjacency, and any other position mismatch stays unmatched. Expected to be zero. It is kept as the explicit triage entry for M1-PLAN section 6 class 9; remove it at review if it is still zero at cutover.

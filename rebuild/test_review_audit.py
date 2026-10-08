@@ -407,8 +407,8 @@ def test_sort_for_triage_orders_by_class_group_window_then_id():
         AuditRow("default", "0020:E650:E652", ("cell",), "class-b", ("a",), ("b",)),
     ]
     ledger = [
-        LedgerClass("class-b", "intended", "", False, False, 0, frozenset()),
-        LedgerClass("class-a", "intended", "", False, False, 0, frozenset()),
+        LedgerClass("class-b", "intended", "", False, False, frozenset()),
+        LedgerClass("class-a", "intended", "", False, False, frozenset()),
     ]
     table, _rows = load_table(rows, ledger, dict(LETTERS))
     store = UnitStore(table.n, strings=table.strings)
@@ -449,7 +449,6 @@ def test_no_verdict_flag_mirrors_the_ledger_class():
             why="",
             ink_identical=False,
             no_verdict=True,
-            count=0,
             exemplar_keys=frozenset(),
         ),
         LedgerClass(
@@ -458,7 +457,6 @@ def test_no_verdict_flag_mirrors_the_ledger_class():
             why="",
             ink_identical=False,
             no_verdict=False,
-            count=0,
             exemplar_keys=frozenset(),
         ),
     ]
