@@ -251,23 +251,43 @@ def _cell_exit(token: str) -> str | None:
 
 
 def _noentry_name_tokens(row: DivergentRow, tags: set[str]) -> set[str]:
-    """Return the row's tokens that its `.noentry` names account for by themselves: the name and lock tokens, and `exit-added` when a `.noentry` glyph whose name spells no exit settles with an onward exit. Every other token is a difference of its own, which the rules for that token classify."""
+    """Return the row's tokens that its `.noentry` names account for by themselves: the name and lock tokens, and `exit-added` when every glyph that settles with an onward exit its old name does not spell is a `.noentry` glyph. The tag is row-level, so it is attributed per glyph here, the way `conform._cell_deltas` computes it, with the name's spelled exit standing for the alias's: another glyph's added exit in the same row keeps the token. Every other token is a difference of its own, which the rules for that token classify."""
     found = tags & _NOENTRY_NAME_TOKENS
     if "old-noentry" in found and "exit-added" in tags:
-        if any(
-            ".ex-" not in row.baseline_glyphs[index] and _cell_exit(row.new_cells[index]) is not None
-            for index in _noentry_glyphs(row)
-        ):
+        gained = {
+            index
+            for index, (old, new) in enumerate(zip(row.baseline_glyphs, row.new_cells))
+            if ".ex-" not in old and _cell_exit(new) is not None
+        }
+        if gained and gained <= set(_noentry_glyphs(row)):
             found.add("exit-added")
     return found
 
 
-def _post_marker_exits_restored(row: DivergentRow) -> bool:
-    """Return whether every junction the row gains is the right-side join of a `.noentry` glyph that the old font drew right after a ZWNJ or the namer dot, the join the zwnj-follower-exit-restored ruling restores. `boundary-window` takes every ZWNJ row before this check runs, and the old font draws no `.noentry` glyph right after the namer dot, so the check matches no current row; it keeps the ruling's namer-dot case. The baseline junctions run between codepoints, so a `lig` junction marks two codepoints drawn as one glyph."""
+def _glyph_starts(row: DivergentRow) -> list[int] | None:
+    """Return the codepoint index each baseline glyph starts at, or None when the junctions do not account for every glyph. The baseline junctions run between codepoints, so a `lig` junction marks two codepoints drawn as one glyph."""
     starts = [0] + [index + 1 for index, junction in enumerate(row.baseline_junctions) if junction != "lig"]
-    if len(starts) != len(row.baseline_glyphs):
+    return starts if len(starts) == len(row.baseline_glyphs) else None
+
+
+def _follows_marker(row: DivergentRow, starts: list[int], index: int) -> bool:
+    return starts[index] > 0 and row.codepoints.split(":")[starts[index] - 1] in _NOENTRY_MARKERS
+
+
+def _noentry_glyphs_follow_markers(row: DivergentRow) -> bool:
+    """Return whether every `.noentry` glyph in the row follows a ZWNJ or the namer dot, the post-marker variants the zwnj-word-initial rulings cover. The old font also draws some `.noentry` variants after a letter (its `noentry_after` derives), and those rows are not post-marker rows."""
+    starts = _glyph_starts(row)
+    indices = _noentry_glyphs(row)
+    return (
+        starts is not None and bool(indices) and all(_follows_marker(row, starts, index) for index in indices)
+    )
+
+
+def _post_marker_exits_restored(row: DivergentRow) -> bool:
+    """Return whether every junction the row gains is the right-side join of a `.noentry` glyph that the old font drew right after a ZWNJ or the namer dot, the join the zwnj-follower-exit-restored ruling restores. `boundary-window` takes every ZWNJ row before this check runs, and the old font draws no `.noentry` glyph right after the namer dot, so the check matches no current row; it keeps the ruling's namer-dot case."""
+    starts = _glyph_starts(row)
+    if starts is None:
         return False
-    codepoints = row.codepoints.split(":")
     old_junctions = [junction for junction in row.baseline_junctions if junction != "lig"]
     gained = [
         index
@@ -275,10 +295,7 @@ def _post_marker_exits_restored(row: DivergentRow) -> bool:
         if old == "break" and new != "break"
     ]
     return bool(gained) and all(
-        ".noentry" in row.baseline_glyphs[index]
-        and starts[index] > 0
-        and codepoints[starts[index] - 1] in _NOENTRY_MARKERS
-        for index in gained
+        ".noentry" in row.baseline_glyphs[index] and _follows_marker(row, starts, index) for index in gained
     )
 
 
@@ -312,8 +329,13 @@ def classify_divergence(row: DivergentRow) -> str | None:
         return None
     gains = {item for item in tags if item.startswith("junction-gain:")}
     if "junction-moved" in tags:
-        # The old font drew a letter after a ZWNJ with a .noentry variant that joined its follower at one height. The new model settles that letter as word-initial, the same as after a space, and the join is at another height. This class applies only when the move is the row's only junction change. Any other row with a moved junction gets no class, including one that also gains or loses a junction.
-        if "old-noentry" in tags and not gains and "junction-loss" not in tags:
+        # The old font drew a letter after a ZWNJ with a .noentry variant that joined its follower at one height. The new model settles that letter as word-initial, the same as after a space, and the join is at another height. This class applies only when the move is the row's only junction change and every `.noentry` glyph follows a marker. Any other row with a moved junction gets no class, including one that also gains or loses a junction and one whose `.noentry` variant follows a letter.
+        if (
+            "old-noentry" in tags
+            and not gains
+            and "junction-loss" not in tags
+            and _noentry_glyphs_follow_markers(row)
+        ):
             return "zwnj-word-initial-junction-moved"
         return None
     if "junction-loss" in tags:

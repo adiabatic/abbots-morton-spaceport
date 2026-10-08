@@ -869,6 +869,38 @@ class TestClassifierRouting:
             )
             assert oracle.classify_divergence(row) == class_id, lead
 
+    def test_noentry_name_leaves_another_glyph_s_added_exit_in_place(self):
+        row = self._row(
+            "default",
+            ("exit-added", "old-noentry"),
+            "E662:E65E:E652",
+            baseline_glyphs=("qsHe", "qsCheer.noentry", "qsTea.en-y0"),
+            baseline_junctions=("break", "y0"),
+            new_cells=(
+                "qsHe/full/None/baseline/",
+                "qsCheer/sole/None/baseline/",
+                "qsTea/full/baseline/None/",
+            ),
+            new_junctions=("break", "y0"),
+        )
+        assert oracle.classify_divergence(row) == "bare-name-live-join"
+
+    def test_noentry_junction_move_takes_its_class_only_after_a_marker(self):
+        for lead_codepoint, lead, lead_cell, class_id in (
+            ("00B7", "periodcentered", "namer-dot/boundary/None/None/", "zwnj-word-initial-junction-moved"),
+            ("E662", "qsHe", "qsHe/full/None/None/", None),
+        ):
+            row = self._row(
+                "default",
+                ("junction-moved", "old-noentry", "stance", "exit-moved", "entry-moved"),
+                f"{lead_codepoint}:E67A:E665",
+                baseline_glyphs=(lead, "qsUtter.noentry", "qsMay.en-y5"),
+                baseline_junctions=("break", "y5"),
+                new_cells=(lead_cell, "qsUtter/alternate/None/baseline/", "qsMay/loop/baseline/None/"),
+                new_junctions=("break", "y0"),
+            )
+            assert oracle.classify_divergence(row) == class_id, lead
+
     def test_noentry_follower_exit_restored_takes_a_join_gained_only_after_a_marker(self):
         for lead_codepoint, lead, lead_cell, class_id in (
             ("00B7", "periodcentered", "namer-dot/boundary/None/None/", "zwnj-follower-exit-restored"),
