@@ -75,7 +75,7 @@
         "units": 1559710,
         "rows": 7460709,
         "batches": 902,
-        "duplicate_groups": 11339
+        "duplicate_groups": 11321
       },
       "machine_approved": {
         "units": 1243730,
@@ -191,12 +191,12 @@
         "oy-it-baseline": 131,
         "may-utter-gains": 1100,
         "junction-loss-unjoined": 14930,
-        "extension-non-summing": 113760,
+        "extension-non-summing": 113758,
         "unmatched-misc": 13628,
         "deferred-ss04": 11948,
         "deferred-ss03": 23071
       },
-      "total": 184039
+      "total": 184037
     }
   }
 }
