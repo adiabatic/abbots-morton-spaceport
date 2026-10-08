@@ -106,6 +106,7 @@ from rebuild.tools.green_record import (  # noqa: E402
     clear_contradicted_green,
     read_green_record,
     record_green,
+    settle_green,
 )
 from rebuild.tools.cycle_timings import CYCLE_RUN_ENV, CheckResult  # noqa: E402
 from rebuild.tools.peak_rss import reap_peak_rss_bytes  # noqa: E402
@@ -3135,15 +3136,20 @@ def _do_run_m1(
 ) -> CheckResult | None:
     """Run the M1 build, or reuse it when `skip` is set, and evaluate its gate from the three summary JSONs. The skip path leaves rebuild/out/m1 untouched and re-evaluates the summaries on disk, which is sound because run_m1's outputs are deterministic and carry no timestamps. A live green is recorded only if the fingerprint still matches after the run, because an input edited mid-run means the tested content is no longer on disk. A live red whose fingerprint matches the green record deletes the record.
 
-    With `gates_only`, the child is `run_m1 --gates-only` over the tables and font on disk. It rewrites the defect fields of `pipeline_summary.json` in place and exits with an error when that file is missing, so it is the one summary not deleted before the spawn. Everything after the spawn follows the full build's path, green recording included. That green rests on the conditions the rerun was planned on (`gates_only_rerun` and `m1_tables_stamped`), which the child checks again before recording its own green. The child spawns as `RUN_M1_GATES_ONLY_STEP`, not `run_m1`, because `make cycle-timings ARGS='--by-step'` groups rows by step name and host, and a gates-only run of a few seconds recorded as `run_m1` would distort the figures for a full M1 build.
+    With `gates_only`, the child is `run_m1 --gates-only` over the tables and font on disk. It rewrites the defect fields of `pipeline_summary.json` in place and exits with an error when that file is missing, so it is the one summary not deleted before the spawn. Its green rests on a prior completed build with only comparison-side changes (`gates_only_rerun`) and tables stamped before and after the child runs (`m1_tables_stamped`). The cycle is the sole green-record writer for its children, and a nonzero exit overrides passing summaries. The child spawns as `RUN_M1_GATES_ONLY_STEP`, not `run_m1`, because `make cycle-timings ARGS='--by-step'` groups rows by step name and host, and a gates-only run of a few seconds recorded as `run_m1` would distort the figures for a full M1 build.
 
     Every path, the skip included, records a check line in the timings journal, because a skip is an evaluation of this build's summaries. The child records none of its own, because it inherits CYCLE_RUN_ENV. A build that wrote no summaries is recorded red with `_NO_SUMMARIES_REASONS`, the reason the cycle's failure list also gets.
     """
     step = RUN_M1_GATES_ONLY_STEP if gates_only else "run_m1"
     result: _StepResult | None = None
+    gates_only_eligible = False
     if skip:
         emit.step_skipped("run_m1", f"{skip_note}; evaluating the gate from the recorded summaries")
     else:
+        if gates_only and record and fingerprint is not None:
+            prior = read_green_record(cycle_paths.RUN_M1_GREEN)
+            current = run_m1_skip_files(ROOT)
+            gates_only_eligible = gates_only_rerun(prior, current) is not None and m1_tables_stamped()
         for name, path in cycle_paths.M1_SUMMARY_FILES.items():
             if gates_only and name == "pipeline":
                 continue
@@ -3158,6 +3164,8 @@ def _do_run_m1(
             )
         if result is not None:
             _close_step(emit, report, step, result, "FAILED (no summaries)")
+        if record and fingerprint is not None:
+            settle_green(cycle_paths.RUN_M1_GREEN, fingerprint, False, lambda: run_m1_skip_fingerprint(ROOT))
         if timings is not None:
             timings.record_check(
                 CheckResult(
@@ -3171,6 +3179,14 @@ def _do_run_m1(
         return None
     summaries = {name: _load_summary(path) for name, path in cycle_paths.M1_SUMMARY_FILES.items()}
     gate = evaluate_run_m1_gate(summaries["pipeline"], summaries["manual_pins"], summaries["oracle"])
+    if result is not None and result.returncode != 0 and gate.ok:
+        gate = CheckResult(
+            check="run_m1",
+            outcome="red",
+            status=f"FAILED (exit {result.returncode})",
+            failures=[f"run_m1 gate: exited {result.returncode} despite passing summaries"],
+            failed_ids=[],
+        )
     if timings is not None:
         timings.record_check(gate)
     report.unmatched = summaries["oracle"].get("unmatched")
@@ -3180,11 +3196,20 @@ def _do_run_m1(
         _close_step(emit, report, step, result, "ok" if gate.ok else "FAILED")
     if record and fingerprint is not None:
         if not gate.ok:
-            clear_contradicted_green(cycle_paths.RUN_M1_GREEN, fingerprint)
+            settle_green(cycle_paths.RUN_M1_GREEN, fingerprint, False, lambda: run_m1_skip_fingerprint(ROOT))
         elif not skip:
-            if run_m1_skip_fingerprint(ROOT) == fingerprint:
-                record_green(cycle_paths.RUN_M1_GREEN, fingerprint, files=run_m1_skip_files(ROOT))
-            else:
+            if gates_only and (not gates_only_eligible or not m1_tables_stamped()):
+                emit.note(
+                    "run_m1",
+                    "run_m1 gates-only green, but the prior build or tables stamp does not permit reusing these artifacts — green not recorded",
+                )
+            elif not settle_green(
+                cycle_paths.RUN_M1_GREEN,
+                fingerprint,
+                True,
+                lambda: run_m1_skip_fingerprint(ROOT),
+                files_of=lambda: run_m1_skip_files(ROOT),
+            ):
                 emit.note("run_m1", "run_m1 green, but its inputs changed while it ran — green not recorded")
     return gate
 
@@ -3912,19 +3937,19 @@ def _record_gate_greens(
 ) -> None:
     """Write the green records of the gates that ran beside the build, after they joined. gate:conform's key is taken right after run_m1 finishes, where its skip is decided, and the rebuild suite's just before the corpus build, where the suite is submitted. Later steps cannot change either key: the corpus build writes only review output, which the suite's closure excludes, and the review-facts pins are exempt from that closure. Each key is recomputed here before recording, so a source file edited while the gates ran is never recorded green. A red gate whose key matches its existing record deletes that record."""
     key = gate_keys.get("conform")
-    if key:
-        if report.gate_conform_green is True:
-            if conform_skip_fingerprint(ROOT, plan.conform_max_length) == key:
-                record_green(
-                    cycle_paths.CONFORM_GREEN, key, files=conform_skip_files(ROOT, plan.conform_max_length)
-                )
-            else:
-                emit.note(
-                    "gate:conform",
-                    "gate:conform green, but its inputs changed while the cycle ran — green not recorded",
-                )
-        elif report.gate_conform_green is False:
-            clear_contradicted_green(cycle_paths.CONFORM_GREEN, key)
+    if key and report.gate_conform_green is not None:
+        settled = settle_green(
+            cycle_paths.CONFORM_GREEN,
+            key,
+            report.gate_conform_green,
+            lambda: conform_skip_fingerprint(ROOT, plan.conform_max_length),
+            files_of=lambda: conform_skip_files(ROOT, plan.conform_max_length),
+        )
+        if report.gate_conform_green and not settled:
+            emit.note(
+                "gate:conform",
+                "gate:conform green, but its inputs changed while the cycle ran — green not recorded",
+            )
     for lane, recordable, green in (("contracts", report.contracts_recordable, report.gate_contracts_green),):
         key = gate_keys.get(lane)
         if not key:

@@ -1,6 +1,7 @@
 """Tests for the end of `run_m1.run`: the table-only branch (the string replay, the witness stage, the shipped-order walks) running beside the glyph chain, the window packing that runs after the head reads, and the join that decides the gate. The build reports the first failure in serial order, whatever the glyph chain made of the tables. The witness stage runs after the replay that fills the settle memo it loads. The oracle starts once the replay has returned, but writes the settle memo only once the witness stage's writes are on disk. Every stage that runs the crate or compiles a font is stubbed with a barrier or a recorder; the packing tests build the mini fixture's real tables, because the packer is what they test."""
 
 import functools
+import json
 import threading
 import time
 from types import SimpleNamespace
@@ -10,7 +11,7 @@ import pytest
 from rebuild.pipeline import conform, defects, fixtures, kernel_exec, run_m1
 from rebuild.pipeline import table as table_module
 from rebuild.tools import artifact_cycle as ac
-from rebuild.tools import console
+from rebuild.tools import console, cycle_paths
 from rebuild.tools import cycle_timings as ct
 
 SPEC = fixtures.mini_spec()
@@ -411,6 +412,60 @@ class TestMain:
         with pytest.raises(SystemExit, match="shipped settlement order"):
             run_m1.main([])
         assert "oracle" in events
+
+    @pytest.mark.parametrize("cycle_owned", [True, False])
+    def test_a_late_red_walk_cannot_leave_a_standalone_green(self, monkeypatch, tmp_path, cycle_owned):
+        """The emitted-order stage waits until the oracle writes a passing summary. Its failure then decides the CLI result even though all three summaries pass; a standalone run invalidates its green, while a cycle child leaves the same record for its parent to invalidate."""
+        events: list = []
+        oracle_written = threading.Event()
+        store = tmp_path / "run-m1-green.json"
+        monkeypatch.setattr(cycle_paths, "RUN_M1_GREEN", store)
+        ac.record_green(store, "fp-tail")
+        before = store.read_bytes()
+        if cycle_owned:
+            monkeypatch.setenv(ct.CYCLE_RUN_ENV, "cafef00d1234")
+
+        def emitted():
+            assert oracle_written.wait(timeout=20), "the emitted-order stage did not reach the oracle"
+
+        def write_oracle():
+            (tmp_path / "oracle_summary.json").write_text(json.dumps({"unmatched": 0, "multi_matched": 0}))
+            oracle_written.set()
+
+        _stub_main(
+            monkeypatch,
+            tmp_path,
+            events,
+            emitted=RED_EMITTED,
+            on_emitted=emitted,
+            after_memo=write_oracle,
+        )
+
+        def pin_gate(spec):
+            summary = {"pass": True, "disagreements": [], "pins_in_scope": 3, "replayed": 3}
+            (tmp_path / "manual_pins_summary.json").write_text(json.dumps(summary))
+            return summary
+
+        monkeypatch.setattr(run_m1, "run_manual_pin_gate", pin_gate)
+        try:
+            with pytest.raises(SystemExit, match="shipped settlement order"):
+                run_m1.main([])
+        finally:
+            oracle_written.set()
+        summaries = [
+            json.loads((tmp_path / name).read_text())
+            for name in ("pipeline_summary.json", "manual_pins_summary.json", "oracle_summary.json")
+        ]
+        assert ac.evaluate_run_m1_gate(*summaries).ok
+        assert "oracle" in events
+        if cycle_owned:
+            assert store.read_bytes() == before
+            assert ct.load_checks(ct.JOURNAL) == []
+        else:
+            assert ac.read_green_record(store) is None
+            checks = ct.load_checks(ct.JOURNAL)
+            assert len(checks) == 1 and checks[0]["outcome"] == "red"
+            assert "shipped settlement order" in checks[0]["failures"][0]
 
     def test_a_red_replay_is_raised_ahead_of_the_oracle(self, monkeypatch, tmp_path):
         events: list = []

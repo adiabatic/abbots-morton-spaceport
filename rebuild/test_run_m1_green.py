@@ -13,7 +13,7 @@ from rebuild.pipeline import conform, defects, fixtures, oracle, oracle_cache, r
 from rebuild.tools import artifact_cycle as ac
 from rebuild.tools import calibrate_budgets as cb
 from rebuild.tools import console
-from rebuild.tools import cycle_paths
+from rebuild.tools import cycle_paths, green_record
 from rebuild.tools import cycle_timings as ct
 
 
@@ -132,6 +132,16 @@ def test_red_leaves_a_record_for_other_content_alone(green_store):
     record = ac.read_green_record(green_store)
     assert record is not None
     assert record["fingerprint"] == "fp-other"
+
+
+@pytest.mark.parametrize("ok", [True, False])
+def test_a_cycle_child_leaves_green_finalization_to_its_parent(monkeypatch, green_store, ok):
+    """The presence of the cycle run id gives the parent ownership, including when its value is empty. A child neither publishes nor invalidates, and does not read finalization inputs."""
+    monkeypatch.setenv(ct.CYCLE_RUN_ENV, "")
+    monkeypatch.setattr(
+        green_record, "settle_green", lambda *args, **kwargs: pytest.fail("child finalized a green")
+    )
+    run_m1._settle_green(green_store, "fp-1", ok, _keys([]), "run_m1")
 
 
 class _JoinedGates:
@@ -346,12 +356,24 @@ def test_a_run_that_never_reached_its_evaluator_files_the_message_it_died_with(m
     assert checks[0]["failed_ids"] == []
 
 
-def test_a_cycle_spawned_run_files_nothing(monkeypatch):
-    """The artifact cycle records run_m1's check line itself, tagged with its run id, so a run_m1 child that inherits that id records nothing. Each invocation gets one line."""
+@pytest.mark.parametrize("multi_matched", [0, 2])
+@pytest.mark.parametrize("prior_key", [None, "fp-live", "fp-other"])
+def test_a_cycle_spawned_run_publishes_no_checks_or_greens(monkeypatch, tmp_path, multi_matched, prior_key):
+    """The cycle owns a launched child's check line and green record. A passing child cannot publish or refresh a record, and a failed child leaves matching and unrelated prior records for the parent to settle."""
+    store = tmp_path / "run-m1-green.json"
+    monkeypatch.setattr(cycle_paths, "RUN_M1_GREEN", store)
+    if prior_key is not None:
+        ac.record_green(store, prior_key)
+    before = store.read_bytes() if store.exists() else None
     monkeypatch.setenv(ct.CYCLE_RUN_ENV, "cafef00d1234")
     monkeypatch.setattr(ac, "run_m1_skip_fingerprint", lambda root=None: "fp-live")
-    _stub_full_run(monkeypatch)
-    run_m1.main([])
+    _stub_full_run(monkeypatch, multi_matched=multi_matched)
+    if multi_matched:
+        with pytest.raises(SystemExit, match="multi_matched = 2"):
+            run_m1.main([])
+    else:
+        run_m1.main([])
+    assert (store.read_bytes() if store.exists() else None) == before
     assert _checks() == []
 
 
@@ -404,16 +426,43 @@ def test_conform_only_records_its_own_green(monkeypatch, tmp_path):
     assert record["fingerprint"] == "fp-conform"
 
 
-def test_conform_only_divergences_record_no_green(monkeypatch, tmp_path):
+@pytest.mark.parametrize("reported_pass", [True, False])
+def test_conform_only_divergences_fail_and_clear_a_matching_green(monkeypatch, tmp_path, reported_pass):
     store = tmp_path / "conform-green.json"
     monkeypatch.setattr(cycle_paths, "CONFORM_GREEN", store)
     monkeypatch.setattr(ac, "conform_skip_fingerprint", lambda root=None, max_length=4: "fp-conform")
+    ac.record_green(store, "fp-conform")
     monkeypatch.setattr(
-        run_m1, "run_font_conformance", lambda max_length, jobs: {"pass": False, "divergences": 3}
+        run_m1, "run_font_conformance", lambda max_length, jobs: {"pass": reported_pass, "divergences": 3}
     )
     with pytest.raises(SystemExit):
         run_m1.main(["--conform-only"])
     assert ac.read_green_record(store) is None
+
+
+@pytest.mark.parametrize("passed", [True, False])
+@pytest.mark.parametrize("prior_key", [None, "fp-conform", "fp-other"])
+def test_a_cycle_conform_child_publishes_no_checks_or_greens(monkeypatch, tmp_path, passed, prior_key):
+    store = tmp_path / "conform-green.json"
+    monkeypatch.setattr(cycle_paths, "CONFORM_GREEN", store)
+    monkeypatch.setattr(ac, "conform_skip_fingerprint", lambda root=None, max_length=4: "fp-conform")
+    monkeypatch.setattr(ac, "conform_skip_files", lambda root=None, max_length=4: {})
+    if prior_key is not None:
+        ac.record_green(store, prior_key)
+    before = store.read_bytes() if store.exists() else None
+    monkeypatch.setenv(ct.CYCLE_RUN_ENV, "cafef00d1234")
+    monkeypatch.setattr(
+        run_m1,
+        "run_font_conformance",
+        lambda max_length, jobs: {"pass": passed, "divergences": 0 if passed else 3},
+    )
+    if passed:
+        run_m1.main(["--conform-only"])
+    else:
+        with pytest.raises(SystemExit, match="font conformance failed"):
+            run_m1.main(["--conform-only"])
+    assert (store.read_bytes() if store.exists() else None) == before
+    assert _checks() == []
 
 
 def test_conform_only_files_its_own_check(monkeypatch):
@@ -1404,6 +1453,33 @@ class TestGatesOnly:
         assert record is not None
         assert record["fingerprint"] == "fp-now"
         assert record["files"] == current
+
+    @pytest.mark.parametrize("multi_matched", [0, 2])
+    @pytest.mark.parametrize("prior_key", ["fp-now", "fp-other"])
+    def test_a_cycle_gates_only_child_publishes_no_checks_or_greens(
+        self, monkeypatch, tmp_path, multi_matched, prior_key
+    ):
+        """The child still checks the reused build and comparison-side eligibility, while the cycle owns publication and invalidation. Even an eligible green leaves the prior record byte-identical, and a red leaves a matching record for the parent to clear."""
+        ran = self._reuse(monkeypatch, {})
+        self._build(monkeypatch, tmp_path, ran)
+        self._summary(tmp_path)
+        store = self._green(
+            monkeypatch,
+            tmp_path,
+            files={"rebuild/m1-divergences.yaml": "after", "uv.lock": "pinned"},
+            prior={"rebuild/m1-divergences.yaml": "before", "uv.lock": "pinned"},
+            prior_key=prior_key,
+        )
+        before = store.read_bytes()
+        self._gates(monkeypatch, ran, multi_matched=multi_matched)
+        monkeypatch.setenv(ct.CYCLE_RUN_ENV, "cafef00d1234")
+        if multi_matched:
+            with pytest.raises(SystemExit, match="multi_matched = 2"):
+                run_m1.main(["--gates-only"])
+        else:
+            run_m1.main(["--gates-only"])
+        assert store.read_bytes() == before
+        assert _checks() == []
 
     def test_no_prior_green_records_nothing_and_says_why(self, monkeypatch, tmp_path, capsys):
         """A green here is a claim about artifacts this pass did not build, and without a prior green nothing shows those artifacts came from a completed build. The pass still runs and records its check line, which reports only how this invocation came out and does not let a later pass skip work."""

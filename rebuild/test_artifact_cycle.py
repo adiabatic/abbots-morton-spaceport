@@ -148,6 +148,11 @@ def _pass_summaries():
     }
 
 
+def _write_pass_summaries(files):
+    for name, summary in _pass_summaries().items():
+        files[name].write_text(json.dumps(summary))
+
+
 def test_gate_passes_on_clean_summaries():
     s = _pass_summaries()
     result = ac.evaluate_run_m1_gate(s["pipeline"], s["manual_pins"], s["oracle"])
@@ -5735,6 +5740,13 @@ def test_do_run_m1_skip_reads_recorded_summaries(monkeypatch, tmp_path):
     files["pipeline"].write_text(json.dumps({"defect_errors": []}))
     files["manual_pins"].write_text(json.dumps({"pass": True, "pins_in_scope": 143, "replayed": 143}))
     files["oracle"].write_text(json.dumps({"unmatched": 7, "multi_matched": 0}))
+    green = tmp_path / "run-m1-green.json"
+    monkeypatch.setattr(cycle_paths, "RUN_M1_GREEN", green)
+    ac.record_green(green, "fp-live")
+    original = green.read_bytes()
+    monkeypatch.setattr(
+        ac, "run_m1_skip_fingerprint", lambda root=None: pytest.fail("skip recomputed inputs")
+    )
 
     def no_spawn(*a, **k):
         raise AssertionError("skip path must not spawn")
@@ -5747,10 +5759,13 @@ def test_do_run_m1_skip_reads_recorded_summaries(monkeypatch, tmp_path):
         registry=ac._ChildRegistry(),
         skip=True,
         skip_note="test skip",
+        record=True,
+        fingerprint="fp-live",
     )
     assert gate is not None and gate.ok
     assert report.unmatched == 7
     assert files["pipeline"].exists()
+    assert green.read_bytes() == original
 
 
 def test_do_run_m1_records_green_only_when_fingerprint_stable(monkeypatch, tmp_path):
@@ -5805,6 +5820,8 @@ def test_do_run_m1_gates_only_spares_the_summary_that_pass_rewrites(monkeypatch,
     monkeypatch.setattr(cycle_paths, "RUN_M1_GREEN", green)
     monkeypatch.setattr(ac, "run_m1_skip_fingerprint", lambda root=None: "fp-live")
     monkeypatch.setattr(ac, "run_m1_skip_files", lambda root=None: {"rebuild/m1-divergences.yaml": "d2"})
+    monkeypatch.setattr(ac, "m1_tables_stamped", lambda: True)
+    ac.record_green(green, "fp-prior", files={"rebuild/m1-divergences.yaml": "d1"})
     for path in files.values():
         path.write_text(json.dumps({"stale": True}))
     files["pipeline"].write_text(json.dumps({"defect_errors": [], "gsub_rule_count": 4212}))
@@ -5911,6 +5928,184 @@ def test_do_run_m1_red_deletes_matching_green(monkeypatch, tmp_path):
     assert ac.read_green_record(green) is None
 
 
+@pytest.mark.parametrize("gates_only", [False, True])
+@pytest.mark.parametrize("prior", ["matching", "unrelated", "invalidated"])
+def test_do_run_m1_nonzero_exit_overrides_passing_summaries(monkeypatch, tmp_path, gates_only, prior):
+    files = {name: tmp_path / f"{name}.json" for name in cycle_paths.M1_SUMMARY_FILES}
+    monkeypatch.setattr(cycle_paths, "M1_SUMMARY_FILES", files)
+    green = tmp_path / "run-m1-green.json"
+    monkeypatch.setattr(cycle_paths, "RUN_M1_GREEN", green)
+    monkeypatch.setattr(ac, "run_m1_skip_fingerprint", lambda root=None: "fp-live")
+    monkeypatch.setattr(ac, "run_m1_skip_files", lambda root=None: {"rebuild/m1-divergences.yaml": "d2"})
+    monkeypatch.setattr(ac, "m1_tables_stamped", lambda: True)
+    key = "fp-unrelated" if prior == "unrelated" else "fp-live"
+    ac.record_green(green, key, files={"rebuild/m1-divergences.yaml": "d1"})
+    original = green.read_bytes()
+    _write_pass_summaries(files)
+    timings = CycleTimings(tmp_path / "timings.ndjson")
+
+    def child(name, argv, **kwargs):
+        _write_pass_summaries(files)
+        if prior == "invalidated":
+            ac.clear_contradicted_green(green, "fp-live")
+        return _step(name, 9)
+
+    report = ac.CycleReport()
+    gate = ac._do_run_m1(
+        report,
+        spawn=child,
+        emit=ac._Emitter(),
+        registry=ac._ChildRegistry(),
+        gates_only=gates_only,
+        record=True,
+        fingerprint="fp-live",
+        timings=timings,
+    )
+
+    assert gate is not None and not gate.ok
+    assert gate.status == "FAILED (exit 9)"
+    assert gate.failures == ["run_m1 gate: exited 9 despite passing summaries"]
+    (line,) = ct.load_checks(timings.path)
+    assert (line["outcome"], line["status"]) == ("red", gate.status)
+    if prior == "unrelated":
+        assert green.read_bytes() == original
+    else:
+        assert not green.exists()
+
+
+@pytest.mark.parametrize("mode", ["full", "gates-only", "skip"])
+@pytest.mark.parametrize("key", ["fp-live", "fp-unrelated"])
+def test_do_run_m1_missing_summaries_clear_only_matching_green(monkeypatch, tmp_path, mode, key):
+    files = {name: tmp_path / f"{name}.json" for name in cycle_paths.M1_SUMMARY_FILES}
+    monkeypatch.setattr(cycle_paths, "M1_SUMMARY_FILES", files)
+    green = tmp_path / "run-m1-green.json"
+    monkeypatch.setattr(cycle_paths, "RUN_M1_GREEN", green)
+    ac.record_green(green, key, files={"rebuild/m1-divergences.yaml": "d1"})
+    original = green.read_bytes()
+    monkeypatch.setattr(ac, "run_m1_skip_files", lambda root=None: {"rebuild/m1-divergences.yaml": "d2"})
+    monkeypatch.setattr(ac, "m1_tables_stamped", lambda: True)
+    monkeypatch.setattr(ac, "run_m1_skip_fingerprint", lambda root=None: pytest.fail("red recomputed inputs"))
+
+    def child(name, argv, **kwargs):
+        assert mode != "skip"
+        return _step(name, 2)
+
+    gate = ac._do_run_m1(
+        ac.CycleReport(),
+        spawn=child,
+        emit=ac._Emitter(),
+        registry=ac._ChildRegistry(),
+        skip=mode == "skip",
+        gates_only=mode == "gates-only",
+        record=True,
+        fingerprint="fp-live",
+    )
+
+    assert gate is None
+    if key == "fp-live":
+        assert not green.exists()
+    else:
+        assert green.read_bytes() == original
+
+
+@pytest.mark.parametrize(
+    "condition",
+    [
+        "eligible",
+        "missing-prior",
+        "legacy-prior",
+        "build-side",
+        "unchanged",
+        "stale-before",
+        "stale-after",
+        "drift",
+    ],
+)
+def test_do_run_m1_gates_only_records_only_an_eligible_stable_rerun(monkeypatch, tmp_path, capsys, condition):
+    files = {name: tmp_path / f"{name}.json" for name in cycle_paths.M1_SUMMARY_FILES}
+    monkeypatch.setattr(cycle_paths, "M1_SUMMARY_FILES", files)
+    green = tmp_path / "run-m1-green.json"
+    monkeypatch.setattr(cycle_paths, "RUN_M1_GREEN", green)
+    prior_files = {"rebuild/m1-divergences.yaml": "d1", "glyph_data/runes/qsPea.yaml": "r1"}
+    current = {**prior_files, "rebuild/m1-divergences.yaml": "d2"}
+    if condition == "build-side":
+        current["glyph_data/runes/qsPea.yaml"] = "r2"
+    elif condition == "unchanged":
+        current = dict(prior_files)
+    if condition != "missing-prior":
+        ac.record_green(green, "fp-prior", files=None if condition == "legacy-prior" else prior_files)
+    original = green.read_bytes() if green.exists() else None
+    monkeypatch.setattr(ac, "run_m1_skip_files", lambda root=None: dict(current))
+    state = {"finished": False}
+    monkeypatch.setattr(
+        ac,
+        "run_m1_skip_fingerprint",
+        lambda root=None: "fp-edited" if condition == "drift" and state["finished"] else "fp-live",
+    )
+    monkeypatch.setattr(
+        ac,
+        "m1_tables_stamped",
+        lambda: condition != "stale-before" and not (condition == "stale-after" and state["finished"]),
+    )
+    _write_pass_summaries(files)
+
+    def child(name, argv, **kwargs):
+        _write_pass_summaries(files)
+        state["finished"] = True
+        return _step(name)
+
+    gate = ac._do_run_m1(
+        ac.CycleReport(),
+        spawn=child,
+        emit=ac._Emitter(),
+        registry=ac._ChildRegistry(),
+        gates_only=True,
+        record=True,
+        fingerprint="fp-live",
+    )
+
+    assert gate is not None and gate.ok
+    if condition == "eligible":
+        record = ac.read_green_record(green)
+        assert record is not None and record["fingerprint"] == "fp-live"
+        assert record["files"] == current
+    else:
+        assert (green.read_bytes() if green.exists() else None) == original
+        assert "green not recorded" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("gates_only", [False, True])
+def test_run_cycle_stops_before_corpus_and_land_on_nonzero_m1_with_passing_summaries(
+    monkeypatch, tmp_path, gates_only
+):
+    files = {name: tmp_path / f"{name}.json" for name in cycle_paths.M1_SUMMARY_FILES}
+    monkeypatch.setattr(cycle_paths, "M1_SUMMARY_FILES", files)
+
+    def must_not_run(*args, **kwargs):
+        pytest.fail("failed run_m1 reached the corpus build or land")
+
+    monkeypatch.setattr(ac, "_do_corpus_build", must_not_run)
+    monkeypatch.setattr(ac, "_do_land", must_not_run)
+    spawned = []
+
+    def child(name, argv, **kwargs):
+        spawned.append(name)
+        _write_pass_summaries(files)
+        return _step(name, 9)
+
+    report = ac.CycleReport()
+    rc = ac._run_cycle(
+        _plan(skip_gates=True, rerun_gates_only=gates_only),
+        report,
+        ac._Emitter(),
+        ac._ChildRegistry(),
+        spawn=child,
+    )
+
+    assert rc == 1 and report.run_m1_failed
+    assert spawned == [ac.RUN_M1_GATES_ONLY_STEP if gates_only else "run_m1"]
+
+
 def test_do_corpus_build_skip_reads_manifest_totals(monkeypatch, tmp_path):
     corpus = tmp_path / "review"
     corpus.mkdir()
@@ -5988,6 +6183,42 @@ def test_record_gate_greens_records_refuses_and_clears(monkeypatch, tmp_path):
     report.gate_conform_green = False
     ac._record_gate_greens(report, plan, {"conform": "cfp"}, ac._Emitter())
     assert ac.read_green_record(conform_green) is None
+
+
+@pytest.mark.parametrize("child_invalidates", [False, True])
+def test_cycle_conform_nonzero_exit_cannot_publish_passing_summary(monkeypatch, tmp_path, child_invalidates):
+    green = tmp_path / "conform-green.json"
+    summary = tmp_path / "conform_summary.json"
+    monkeypatch.setattr(cycle_paths, "CONFORM_GREEN", green)
+    monkeypatch.setattr(cycle_paths, "CONFORM_SUMMARY", summary)
+    _patch_gate_fingerprints(monkeypatch)
+    monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
+    monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
+    monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
+    monkeypatch.setattr(ac, "_gate_contracts_task", _contracts_green)
+    _patch_build_chain(monkeypatch)
+    ac.record_green(green, "cfp")
+
+    def child(name, argv, **kwargs):
+        assert name == "gate:conform"
+        summary.write_text(json.dumps({"divergences": 0, "pass": True}))
+        if child_invalidates:
+            ac.clear_contradicted_green(green, "cfp")
+        return _step(name, 9)
+
+    report = ac.CycleReport()
+    rc = ac._run_cycle(
+        _plan(record_greens=True, fresh=True),
+        report,
+        ac._Emitter(),
+        ac._ChildRegistry(),
+        spawn=child,
+    )
+
+    assert rc == 1
+    assert report.gate_conform_green is False
+    assert report.gate_conform == "FAILED (exit 9)"
+    assert not green.exists()
 
 
 def test_classify_rebuild_recordable_whenever_it_is_green():

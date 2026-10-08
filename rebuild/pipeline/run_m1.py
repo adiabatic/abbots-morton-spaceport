@@ -2137,16 +2137,15 @@ def _settle_green(
     label: str,
     files_of: Callable[[], dict[str, str]] | None = None,
 ) -> None:
-    """Record or clear a last-green record, by the rule `rebuild.tools.make_test_gate` follows: the key is taken before the work, recomputed after, and recorded only if it still matches, since inputs edited mid-run describe content that was never tested. A failed result whose key still matches the record deletes the record, since the result contradicts it. Recording lets the artifact cycle skip work an interactive run already verified. `files_of` supplies the per-file digest lines behind the key, so a later skip miss can name the input that changed."""
-    from rebuild.tools.artifact_cycle import clear_contradicted_green, record_green
+    """Finalize a standalone green through `green_record.settle_green` and report publication or input drift. `CYCLE_RUN_ENV` gives the cycle ownership of both publication and invalidation, so a child leaves its records untouched. `files_of` supplies the per-file digest lines behind the key, so a later skip miss can name the input that changed."""
+    if CYCLE_RUN_ENV in os.environ:
+        return
+    from rebuild.tools.green_record import settle_green
 
-    if not ok:
-        clear_contradicted_green(green_path, key)
+    if not settle_green(green_path, key, ok, recompute, files_of=files_of):
+        if ok:
+            console.warn(f"{label}: green, but its inputs changed while it ran — green not recorded")
         return
-    if recompute() != key:
-        console.warn(f"{label}: green, but its inputs changed while it ran — green not recorded")
-        return
-    record_green(green_path, key, files=files_of() if files_of is not None else None)
     where = green_path.relative_to(REPO_ROOT) if green_path.is_relative_to(REPO_ROOT) else green_path
     print(f"{label}: green — fingerprint recorded in {where}", flush=True)
 
@@ -2264,7 +2263,7 @@ def main(argv: list[str] | None = None) -> None:
             files_of=lambda: conform_skip_files(REPO_ROOT, args.conform_max_length),
         )
         _record_cli_check(result, started)
-        if not conformance["pass"]:
+        if not result.ok:
             raise SystemExit("font conformance failed; see conform_summary.json")
         return
 

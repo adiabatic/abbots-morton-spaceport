@@ -8,6 +8,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -48,6 +49,24 @@ def clear_contradicted_green(path: Path, fingerprint: str | None) -> None:
     record = read_green_record(path)
     if fingerprint is not None and record is not None and record["fingerprint"] == fingerprint:
         path.unlink(missing_ok=True)
+
+
+def settle_green(
+    path: Path,
+    fingerprint: str,
+    ok: bool,
+    recompute: Callable[[], str],
+    *,
+    files_of: Callable[[], dict[str, str]] | None = None,
+) -> bool:
+    """Finalize one invocation's green record: a red clears only a record for the same content, and a green is written only while its input fingerprint still matches. Return whether a green was written. The caller owns publication for its invocation and reports input drift itself."""
+    if not ok:
+        clear_contradicted_green(path, fingerprint)
+        return False
+    if recompute() != fingerprint:
+        return False
+    record_green(path, fingerprint, files=files_of() if files_of is not None else None)
+    return True
 
 
 def _sha256_path(path: Path) -> str:
