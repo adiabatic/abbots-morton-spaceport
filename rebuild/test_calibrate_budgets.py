@@ -78,7 +78,7 @@ def test_every_unit_with_a_constant_names_one_its_source_file_actually_defines()
 def test_every_pool_name_a_gate_wrapper_sets_is_one_the_registry_reads():
     """The gate wrappers set a pool's unit name in the child's environment, and the registry looks the name up in the journal; no import links the two. Nothing else catches a mismatch: the pool's records match no unit, and the unit reports no observations, which looks the same as a lane this machine has not run."""
     known = {name for unit in cb.UNITS for name in unit.pool_units}
-    assert {mtg.POOL_UNIT, *rg.POOL_UNIT_BY_LANE.values()} <= known
+    assert {mtg.POOL_UNIT, rg.POOL_UNIT} <= known
 
 
 def test_a_pool_record_supplies_one_observation_per_worker():

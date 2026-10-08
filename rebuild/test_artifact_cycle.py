@@ -84,6 +84,16 @@ def _redirect_contracts_lane_reads(monkeypatch, tmp_path):
     real_baselines = fingerprint.baselines_value
     real_subsets = ac._subset_tables
     real_sha = ac._sha256_path
+    real_contracts_closure = ac.contracts_closure
+    monkeypatch.setattr(
+        ac,
+        "contracts_closure",
+        lambda root: (
+            ("contracts-fixture", {"fixture": "contracts-fixture"})
+            if root == ac.ROOT
+            else real_contracts_closure(root)
+        ),
+    )
     monkeypatch.setattr(ac, "REVIEW_OUT", tmp_path / "review")
     monkeypatch.setattr(ac, "AUTOSAVE", tmp_path / "verdicts-autosave.json")
     monkeypatch.setattr(ac, "capabilities", lambda port=ac.REVIEW_PORT: ac.NO_CAPABILITIES)
@@ -351,14 +361,12 @@ def test_dry_run_plan_default():
         "--corpus",
         str(ac.REVIEW_OUT),
     ]
-    contracts_record = ac.rebuild_lane_green("contracts")
+    contracts_record = ac.contracts_green()
     assert by_name["gate:rebuild-contracts"].argv == [
         "uv",
         "run",
         "pytest",
         "rebuild/",
-        "--lane",
-        "contracts",
         "-n",
         "auto",
         "--dist",
@@ -1094,7 +1102,9 @@ def _make_ok(argv, spawn, emit, registry):
     return _step("gate:make-test", 0)
 
 
-def _contracts_green(pool_policy, conform_fut, make_fut, spawn, emit, registry, argv):
+def _contracts_green(
+    pool_policy, conform_fut, make_fut, spawn, emit, registry, argv, force=False, _record=False
+):
     return _lane_result("rebuild-contracts")
 
 
@@ -1103,12 +1113,10 @@ def _conform_green(pool_policy, make_fut, spawn, emit, registry, argv):
 
 
 def _patch_gate_fingerprints(monkeypatch):
-    """Stub the gate green records' keys, for tests that only check whether a green was recorded. The live keys are computed by `_run_cycle` before the gates and again by `_record_gate_greens` after them, and each computation hashes files across the repo, which takes seconds per test and depends on the working tree. A separate test checks that a changed key prevents recording the green."""
+    """Stub the gate green records' keys, for tests that only check whether a green was recorded. Conformance keys are computed around the sweep; the contracts lifecycle snapshots and checks its roster around the suite, and each computation hashes files across the repo, which takes seconds per test and depends on the working tree. A separate test checks that a changed key prevents recording the green."""
     monkeypatch.setattr(ac, "conform_skip_fingerprint", lambda root=None, max_length=None: "cfp")
-    monkeypatch.setattr(ac, "rebuild_lane_fingerprint", lambda root, lane: f"rfp-{lane}")
-    monkeypatch.setattr(
-        ac, "rebuild_lane_closure", lambda root, lane: (f"rfp-{lane}", {"key": f"rfp-{lane}"})
-    )
+    monkeypatch.setattr(ac, "contracts_fingerprint", lambda root: "rfp-contracts")
+    monkeypatch.setattr(ac, "contracts_closure", lambda root: ("rfp-contracts", {"key": "rfp-contracts"}))
 
 
 def _patch_build_chain(monkeypatch):
@@ -1406,7 +1414,9 @@ def test_the_rebuild_suite_waits_for_run_m1_pass(monkeypatch):
         record["run_m1_finish"] = time.monotonic()
         return _run_m1_green()
 
-    def fake_contracts(pool_policy, conform_fut, make_fut, spawn, emit, registry, argv):
+    def fake_contracts(
+        pool_policy, conform_fut, make_fut, spawn, emit, registry, argv, force=False, _record=False
+    ):
         record["contracts_invoked"] = time.monotonic()
         return _lane_result("rebuild-contracts")
 
@@ -1430,7 +1440,9 @@ def test_the_rebuild_suite_is_skipped_when_run_m1_fails(monkeypatch, capsys):
     def fake_run_m1(report, *, spawn, emit, registry, **_):
         return None
 
-    def fake_contracts(pool_policy, conform_fut, make_fut, spawn, emit, registry, argv):
+    def fake_contracts(
+        pool_policy, conform_fut, make_fut, spawn, emit, registry, argv, force=False, _record=False
+    ):
         called["contracts"] = True
         return _lane_result("rebuild-contracts")
 
@@ -1590,7 +1602,7 @@ def test_pool_queue_runs_make_test_then_conform_then_contracts(monkeypatch):
 
     assert record["contracts_start"] >= record["conform_finish"]
     assert record["contracts_start"] >= record["make_finish"]
-    assert record["contracts_argv"] == ac.rebuild_lane_argv("contracts")
+    assert record["contracts_argv"] == ac.contracts_argv()
     assert report.gate_contracts == "green"
     assert box["rc"] == 0
 
@@ -1677,7 +1689,9 @@ def test_summary_exact_under_out_of_order_completion(monkeypatch, capsys):
         ev_make.wait()
         return _step("gate:make-test", 0)
 
-    def fake_contracts(pool_policy, conform_fut, make_fut, spawn, emit, registry, argv):
+    def fake_contracts(
+        pool_policy, conform_fut, make_fut, spawn, emit, registry, argv, force=False, _record=False
+    ):
         ev_contracts.wait()
         return _lane_result("rebuild-contracts", "green (annotated)")
 
@@ -1825,8 +1839,7 @@ def test_two_verbatim_children_interleave_between_lines_and_never_inside_one(cap
         assert pattern.match(line) is not None, line
 
 
-@pytest.mark.parametrize("lane", ac.REBUILD_LANES)
-def test_a_rebuild_lane_stays_captured_and_parses_failures(lane, capsys):
+def test_contracts_stays_captured_and_parses_failures(capsys):
     stdout = "\n".join(
         [
             "FAILED rebuild/test_unknown_thing.py::test_x - boom",
@@ -1843,12 +1856,12 @@ def test_a_rebuild_lane_stays_captured_and_parses_failures(lane, capsys):
 
     emit = ac._Emitter()
     registry = ac._ChildRegistry()
-    argv = ac.rebuild_lane_argv(lane)
+    argv = ac.contracts_argv()
     result = ac._gate_contracts_task("overlap", None, None, fake_spawn, emit, registry, argv)
 
-    assert seen["name"] == f"gate:rebuild-{lane}"
+    assert seen["name"] == "gate:rebuild-contracts"
     assert seen["stream"] is False
-    assert result.check == f"rebuild-{lane}"
+    assert result.check == "rebuild-contracts"
     assert len(result.failed_ids) == 3
     assert result.status == "FAILED (3 unexplained)"
 
@@ -1860,8 +1873,8 @@ def test_a_rebuild_lane_stays_captured_and_parses_failures(lane, capsys):
     assert report.gate_contracts == "FAILED (3 unexplained)"
 
     out = capsys.readouterr().out
-    assert not any(line.startswith(f"[gate:rebuild-{lane}]") for line in out.splitlines())
-    assert f"hard rebuild failure ({lane}): rebuild/test_boom.py::test_y" in out
+    assert not any(line.startswith("[gate:rebuild-contracts]") for line in out.splitlines())
+    assert "hard rebuild failure (contracts): rebuild/test_boom.py::test_y" in out
 
 
 def test_gate_make_test_says_so_when_the_font_suite_skipped_itself(capsys):
@@ -1980,7 +1993,7 @@ def test_gate_task_exception_still_prints_one_summary(monkeypatch, capsys):
     assert "gate:js raised: FileNotFoundError('node not found')" in out
 
 
-def test_queue_policy_rebuild_lanes_run_when_make_test_task_raises(monkeypatch, capsys):
+def test_queue_policy_contracts_runs_when_make_test_task_raises(monkeypatch, capsys):
     def raising_make(argv, spawn, emit, registry):
         raise FileNotFoundError("make not found")
 
@@ -2000,7 +2013,7 @@ def test_queue_policy_rebuild_lanes_run_when_make_test_task_raises(monkeypatch, 
     assert capsys.readouterr().out.count("ARTIFACT CYCLE SUMMARY") == 1
 
 
-def test_queue_policy_rebuild_lanes_run_when_conform_task_raises(monkeypatch, capsys):
+def test_queue_policy_contracts_runs_when_conform_task_raises(monkeypatch, capsys):
     def raising_conform(pool_policy, make_fut, spawn, emit, registry, argv):
         raise FileNotFoundError("conform pool blew up")
 
@@ -3275,6 +3288,40 @@ def test_cycle_summary_payload_failures_exit_failed():
     assert payload["failures"] == ["make test failed"]
 
 
+@pytest.mark.parametrize("planned_skip", [False, True])
+@pytest.mark.parametrize("runtime", ["green", "red", "skipped"])
+def test_contracts_summary_tracks_the_runtime_decision(planned_skip, runtime):
+    from concurrent.futures import Future
+
+    plan = _plan(skip_contracts=planned_skip, contracts_note="input closure unchanged")
+    report = ac.CycleReport()
+    gate = (
+        ct.CheckResult(
+            check="rebuild-contracts",
+            outcome="skipped",
+            status="skipped (input closure unchanged)",
+            failures=[],
+            failed_ids=[],
+        )
+        if runtime == "skipped"
+        else ac.classify_rebuild_output("", 0 if runtime == "green" else 1, "rebuild-contracts")
+    )
+    future = Future()
+    future.set_result(gate)
+    failures = []
+    ac._join_contracts(report, failures, future, ac._Emitter())
+    payload = ac.cycle_summary_payload(report, failures, plan, "ok" if gate.ok else "failed")
+    entry = payload["gates"]["rebuild_contracts"]
+    assert entry["skip"] == ("proved" if runtime == "skipped" else None)
+    assert entry["green"] == (runtime == "green")
+    assert payload["plan"]["skip_contracts"] == (runtime == "skipped")
+    assert payload["plan"]["contracts_workers"] == (None if runtime == "skipped" else plan.contracts_workers)
+    row = {row.name: row for row in ac.summary_rows(report, plan, retention_ran=False)}[
+        "gate:rebuild-contracts"
+    ]
+    assert row.outcome == {"green": "ok", "red": "FAILED", "skipped": "skipped"}[runtime]
+
+
 def test_cycle_summary_payload_plan_block_and_argv():
     plan = _plan()
     payload = ac.cycle_summary_payload(_green_report(), [], plan, "ok")
@@ -3358,10 +3405,17 @@ def test_cycle_summary_payload_records_null_for_the_width_of_each_step_the_pass_
         skip_contracts=True,
         skip_conform=True,
     )
+    skipped_report = _green_report()
+    skipped_report.gate_contracts = "skipped (input closure unchanged)"
+    skipped_report.gate_contracts_green = None
+    skipped_report.gate_make_test = "skipped (closure unchanged)"
+    skipped_report.gate_make_test_green = None
+    skipped_report.gate_conform = "skipped (--skip-conform)"
+    skipped_report.gate_conform_green = None
     assert {
-        key: ac.cycle_summary_payload(_green_report(), [], skipped, "ok")["plan"][key] for key in widths
+        key: ac.cycle_summary_payload(skipped_report, [], skipped, "ok")["plan"][key] for key in widths
     } == dict.fromkeys(widths)
-    gates_off = ac.cycle_summary_payload(_green_report(), [], _plan(skip_gates=True), "ok")["plan"]
+    gates_off = ac.cycle_summary_payload(ac.CycleReport(), [], _plan(skip_gates=True), "ok")["plan"]
     assert (gates_off["make_test_workers"], gates_off["contracts_workers"], gates_off["conform_jobs"]) == (
         None,
         None,
@@ -4868,22 +4922,20 @@ def test_an_absent_artifact_hashes_to_a_sentinel_rather_than_raising(tmp_path):
     assert ac._sha256_path(built) != "absent"
 
 
-@pytest.mark.parametrize("lane", ac.REBUILD_LANES)
-def test_both_lane_fingerprints_ignore_prose_in_runes(lane, tmp_path):
+def test_contracts_fingerprint_ignores_prose_in_runes(tmp_path):
     """The lane key includes the rune files, because contracts tests load the live spec. A structural edit to a rune changes the key, and a ductus prose edit does not."""
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
     (tmp_path / "glyph_data" / "runes").mkdir(parents=True)
     rune = tmp_path / "glyph_data" / "runes" / "qsX.yaml"
     rune.write_text("rune: qsX\nductus:\n  sole: |\n    A stroke.\n")
-    before = ac.rebuild_lane_fingerprint(tmp_path, lane)
+    before = ac.contracts_fingerprint(tmp_path)
     rune.write_text("rune: qsX\nductus:\n  sole: |\n    A different stroke.\n")
-    assert ac.rebuild_lane_fingerprint(tmp_path, lane) == before
+    assert ac.contracts_fingerprint(tmp_path) == before
     rune.write_text("rune: qsY\nductus:\n  sole: |\n    A different stroke.\n")
-    assert ac.rebuild_lane_fingerprint(tmp_path, lane) != before
+    assert ac.contracts_fingerprint(tmp_path) != before
 
 
-@pytest.mark.parametrize("lane", ac.REBUILD_LANES)
-def test_both_lane_fingerprints_ignore_prose_in_the_ledgers(lane, tmp_path):
+def test_contracts_fingerprint_ignores_prose_in_the_ledgers(tmp_path):
     """The closure includes the divergence ledger and the standing approvals, with prose-insensitive hashes like a rune's. Tests across the suite read the review facts and class ids from the divergence ledger and each rule's `match` from the standing approvals, never a `why` or `note`, so re-running the suite after a reword would reproduce the same result. Reclassifying a class or changing a rule's verdict still changes the key."""
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
     (tmp_path / "rebuild").mkdir()
@@ -4893,7 +4945,7 @@ def test_both_lane_fingerprints_ignore_prose_in_the_ledgers(lane, tmp_path):
     standing.write_text(
         "format: ams-standing-approvals/1\nrules:\n  - id: r1\n    verdict: approve\n    note: one\n"
     )
-    before = ac.rebuild_lane_fingerprint(tmp_path, lane)
+    before = ac.contracts_fingerprint(tmp_path)
 
     ledger.write_text(
         "# a header nobody classifies by\n- id: junction-moved\n  status: intended\n  no_verdict: true\n  why: two, at greater length\n"
@@ -4901,32 +4953,31 @@ def test_both_lane_fingerprints_ignore_prose_in_the_ledgers(lane, tmp_path):
     standing.write_text(
         "format: ams-standing-approvals/1\n# a header nobody matches on\nrules:\n  - id: r1\n    verdict: approve\n    note: two, at greater length\n"
     )
-    assert ac.rebuild_lane_fingerprint(tmp_path, lane) == before
+    assert ac.contracts_fingerprint(tmp_path) == before
 
     ledger.write_text(
         "- id: junction-moved\n  status: intended\n  no_verdict: false\n  why: two, at greater length\n"
     )
-    reclassified = ac.rebuild_lane_fingerprint(tmp_path, lane)
+    reclassified = ac.contracts_fingerprint(tmp_path)
     assert reclassified != before
 
     standing.write_text(
         "format: ams-standing-approvals/1\nrules:\n  - id: r1\n    verdict: neither\n    note: two, at greater length\n"
     )
-    assert ac.rebuild_lane_fingerprint(tmp_path, lane) != reclassified
+    assert ac.contracts_fingerprint(tmp_path) != reclassified
 
 
-@pytest.mark.parametrize("lane", ac.REBUILD_LANES)
-def test_every_harness_file_moves_both_lane_keys(lane, tmp_path):
+def test_every_harness_file_moves_the_contracts_key(tmp_path):
     """Every file in `REBUILD_GATE_HARNESS_PATHS` is read under `pytest rebuild/`: the tests that replay or draft data-expect pins import test/test_shaping.py, and the tools/ compile modules with it, and `rebuild_gate_closure_files` names the reader of every other entry. So editing any of them must change the lane key instead of skipping on a green record that did not see the edit."""
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
     for rel in ac.REBUILD_GATE_HARNESS_PATHS:
         harness_file = tmp_path / rel
         harness_file.parent.mkdir(parents=True, exist_ok=True)
         harness_file.write_text("")
-    previous = ac.rebuild_lane_fingerprint(tmp_path, lane)
+    previous = ac.contracts_fingerprint(tmp_path)
     for rel in ac.REBUILD_GATE_HARNESS_PATHS:
         (tmp_path / rel).write_text(f"{rel} moved\n")
-        current = ac.rebuild_lane_fingerprint(tmp_path, lane)
+        current = ac.contracts_fingerprint(tmp_path)
         assert current != previous, rel
         previous = current
 
@@ -4938,9 +4989,8 @@ def test_the_harness_roster_names_the_whole_tools_tree():
     }
 
 
-def test_both_lane_fingerprints_are_none_outside_git(tmp_path):
-    for lane in ac.REBUILD_LANES:
-        assert ac.rebuild_lane_fingerprint(tmp_path, lane) is None
+def test_contracts_fingerprint_is_none_outside_git(tmp_path):
+    assert ac.contracts_fingerprint(tmp_path) is None
 
 
 def test_corpus_build_skippable_matches_manifest(tmp_path):
@@ -5264,7 +5314,7 @@ def _upstream_keys(root):
         "conform": ac.conform_skip_fingerprint(root),
         "tables": fingerprint.tables_value(root),
         "stage_a": fingerprint.stage_a(root),
-        **{f"lane:{lane}": ac.rebuild_lane_fingerprint(root, lane) for lane in ac.REBUILD_LANES},
+        "contracts": ac.contracts_fingerprint(root),
     }
 
 
@@ -5306,8 +5356,7 @@ def test_a_ledger_why_edit_restamps_the_corpus_and_nothing_upstream(tmp_path):
     reclassified = _upstream_keys(root)
     assert reclassified["run_m1"] != upstream["run_m1"]
     assert reclassified["stage_a"] != upstream["stage_a"]
-    for lane in ac.REBUILD_LANES:
-        assert reclassified[f"lane:{lane}"] != upstream[f"lane:{lane}"]
+    assert reclassified["contracts"] != upstream["contracts"]
 
 
 def test_a_standing_note_reword_moves_the_verdict_update_key_and_nothing_else(tmp_path):
@@ -5339,8 +5388,7 @@ def test_a_standing_note_reword_moves_the_verdict_update_key_and_nothing_else(tm
     )
     flipped = _upstream_keys(root)
     assert flipped["run_m1"] == upstream["run_m1"]
-    for lane in ac.REBUILD_LANES:
-        assert flipped[f"lane:{lane}"] != upstream[f"lane:{lane}"]
+    assert flipped["contracts"] != upstream["contracts"]
 
 
 def test_the_review_facts_pins_are_outside_the_rebuild_closure(tmp_path):
@@ -5351,10 +5399,9 @@ def test_the_review_facts_pins_are_outside_the_rebuild_closure(tmp_path):
     pins = tmp_path / "rebuild" / "review-facts-pins.json"
     pins.write_text(json.dumps({"invariant": {"classes": 3}, "volatile": {"rows": 1}}))
     assert ac.rebuild_gate_closure_files(tmp_path) == ["rebuild/test_x.py"]
-    before = {lane: ac.rebuild_lane_fingerprint(tmp_path, lane) for lane in ac.REBUILD_LANES}
+    before = ac.contracts_fingerprint(tmp_path)
     pins.write_text(json.dumps({"invariant": {"classes": 3}, "volatile": {"rows": 2}}))
-    for lane in ac.REBUILD_LANES:
-        assert ac.rebuild_lane_fingerprint(tmp_path, lane) == before[lane]
+    assert ac.contracts_fingerprint(tmp_path) == before
 
 
 def test_dry_run_plan_skip_run_m1_and_corpus_still_runs_the_review_facts():
@@ -5401,7 +5448,9 @@ def test_dry_run_plan_auto_skip_conform_note():
 def test_run_cycle_never_spawns_a_skipped_rebuild_suite(monkeypatch):
     record = {"contracts": 0}
 
-    def fake_contracts(pool_policy, conform_fut, make_fut, spawn, emit, registry, argv):
+    def fake_contracts(
+        pool_policy, conform_fut, make_fut, spawn, emit, registry, argv, force=False, _record=False
+    ):
         record["contracts"] += 1
         return _lane_result("rebuild-contracts")
 
@@ -5424,6 +5473,12 @@ def test_run_cycle_never_spawns_a_skipped_rebuild_suite(monkeypatch):
 
 def test_cycle_summary_payload_tells_a_proved_skip_from_a_forced_one():
     report = _green_report()
+    report.gate_contracts = "skipped (input closure unchanged)"
+    report.gate_contracts_green = None
+    report.gate_make_test = "skipped (closure unchanged)"
+    report.gate_make_test_green = None
+    report.gate_conform = "skipped (--skip-conform)"
+    report.gate_conform_green = None
     plan = _plan(
         skip_contracts=True,
         skip_conform=True,
@@ -5503,9 +5558,9 @@ def _unsettled_repo(tmp_path, monkeypatch, stamp="2026-07-17T20:24:44Z"):
     (tmp_path / "verdicts-autosave.json").write_text(json.dumps(_verdicts_doc(stamp, ["u-1"])))
     monkeypatch.setattr(ac, "run_m1_skip_fingerprint", lambda root=None: "key")
     monkeypatch.setattr(ac, "make_test_closure_fingerprint", lambda root=None: None)
-    monkeypatch.setattr(ac, "rebuild_lane_fingerprint", lambda root, lane: f"no-match-{lane}")
+    monkeypatch.setattr(ac, "contracts_fingerprint", lambda root: "no-match-contracts")
     monkeypatch.setattr(
-        ac, "rebuild_lane_closure", lambda root, lane: (f"no-match-{lane}", {"key": f"no-match-{lane}"})
+        ac, "contracts_closure", lambda root: ("no-match-contracts", {"key": "no-match-contracts"})
     )
 
 
@@ -5522,10 +5577,8 @@ def test_main_runs_every_heavy_gate_on_a_pass_that_rebuilds(tmp_path, monkeypatc
 def test_main_auto_skips_the_rebuild_suite_even_when_run_m1_runs_live(tmp_path, monkeypatch, capsys):
     """The suite's closure includes no build artifact, so a live M1 rebuild cannot change its key during the pass, and the preflight can decide that skip in every run_m1 mode."""
     _unsettled_repo(tmp_path, monkeypatch)
-    monkeypatch.setattr(ac, "rebuild_lane_fingerprint", lambda root, lane: f"key-{lane}")
-    monkeypatch.setattr(
-        ac, "rebuild_lane_closure", lambda root, lane: (f"key-{lane}", {"key": f"key-{lane}"})
-    )
+    monkeypatch.setattr(ac, "contracts_fingerprint", lambda root: "key-contracts")
+    monkeypatch.setattr(ac, "contracts_closure", lambda root: ("key-contracts", {"key": "key-contracts"}))
     ac.record_green(cycle_paths.REBUILD_CONTRACTS_GREEN, "key-contracts")
     assert ac.main(["--dry-run"]) == 0
     out = capsys.readouterr().out
@@ -5535,10 +5588,8 @@ def test_main_auto_skips_the_rebuild_suite_even_when_run_m1_runs_live(tmp_path, 
 
 def test_main_forces_the_rebuild_suite_under_fresh(tmp_path, monkeypatch, capsys):
     _unsettled_repo(tmp_path, monkeypatch)
-    monkeypatch.setattr(ac, "rebuild_lane_fingerprint", lambda root, lane: f"key-{lane}")
-    monkeypatch.setattr(
-        ac, "rebuild_lane_closure", lambda root, lane: (f"key-{lane}", {"key": f"key-{lane}"})
-    )
+    monkeypatch.setattr(ac, "contracts_fingerprint", lambda root: "key-contracts")
+    monkeypatch.setattr(ac, "contracts_closure", lambda root: ("key-contracts", {"key": "key-contracts"}))
     ac.record_green(cycle_paths.REBUILD_CONTRACTS_GREEN, "key-contracts")
     assert ac.main(["--dry-run", "--fresh"]) == 0
     out = capsys.readouterr().out
@@ -5671,10 +5722,8 @@ def test_run_cycle_skips_the_sweep_after_run_m1_on_the_key_the_finished_artifact
     """The conform skip is decided after run_m1, not in the plan, because only a finished build knows what the font came out as. All three run_m1 modes (skipped, gates-only, rebuilt) end on this same key. A skip over the artifacts the pass leaves behind is recorded as "proved", which is what `review/status.py` needs to call a corpus ready for review."""
     monkeypatch.setattr(cycle_paths, "CONFORM_GREEN", tmp_path / "conform-green.json")
     monkeypatch.setattr(ac, "conform_skip_fingerprint", lambda root=None, max_length=None: "cfp")
-    monkeypatch.setattr(ac, "rebuild_lane_fingerprint", lambda root, lane: f"rfp-{lane}")
-    monkeypatch.setattr(
-        ac, "rebuild_lane_closure", lambda root, lane: (f"rfp-{lane}", {"key": f"rfp-{lane}"})
-    )
+    monkeypatch.setattr(ac, "contracts_fingerprint", lambda root: "rfp-contracts")
+    monkeypatch.setattr(ac, "contracts_closure", lambda root: ("rfp-contracts", {"key": "rfp-contracts"}))
     ac.record_green(cycle_paths.CONFORM_GREEN, "cfp")
     swept: list[list[str]] = []
 
@@ -5706,10 +5755,8 @@ def test_run_cycle_sweeps_when_the_finished_artifacts_carry_no_green(monkeypatch
     """The converse: when the finished artifacts' key matches no green record, the sweep runs. This is why the skip cannot be decided in the plan, which is resolved before run_m1 has changed the font."""
     monkeypatch.setattr(cycle_paths, "CONFORM_GREEN", tmp_path / "conform-green.json")
     monkeypatch.setattr(ac, "conform_skip_fingerprint", lambda root=None, max_length=None: "cfp")
-    monkeypatch.setattr(ac, "rebuild_lane_fingerprint", lambda root, lane: f"rfp-{lane}")
-    monkeypatch.setattr(
-        ac, "rebuild_lane_closure", lambda root, lane: (f"rfp-{lane}", {"key": f"rfp-{lane}"})
-    )
+    monkeypatch.setattr(ac, "contracts_fingerprint", lambda root: "rfp-contracts")
+    monkeypatch.setattr(ac, "contracts_closure", lambda root: ("rfp-contracts", {"key": "rfp-contracts"}))
     ac.record_green(cycle_paths.CONFORM_GREEN, "a-font-ago")
     swept: list[list[str]] = []
 
@@ -6136,52 +6183,26 @@ def test_do_corpus_build_skip_reads_manifest_totals(monkeypatch, tmp_path):
     )
 
 
-def test_record_gate_greens_records_refuses_and_clears(monkeypatch, tmp_path):
+def test_record_conform_green_records_refuses_and_clears(monkeypatch, tmp_path):
     conform_green = tmp_path / "conform-green.json"
-    contracts_green = tmp_path / "rebuild-contracts-green.json"
     monkeypatch.setattr(cycle_paths, "CONFORM_GREEN", conform_green)
-    monkeypatch.setattr(cycle_paths, "REBUILD_CONTRACTS_GREEN", contracts_green)
     monkeypatch.setattr(ac, "conform_skip_fingerprint", lambda root=None, max_length=None: "cfp")
-    _patch_gate_fingerprints(monkeypatch)
-    keys = {"conform": "cfp", "contracts": "rfp-contracts"}
     plan = _plan()
     report = ac.CycleReport()
     report.gate_conform = "green"
     report.gate_conform_green = True
-    report.gate_contracts = "green (annotated)"
-    report.gate_contracts_green = True
-    report.contracts_recordable = True
-    ac._record_gate_greens(report, plan, keys, ac._Emitter())
-    for path, expected in (
-        (conform_green, "cfp"),
-        (contracts_green, "rfp-contracts"),
-    ):
-        record = ac.read_green_record(path)
-        assert record is not None
-        assert record["fingerprint"] == expected
+    ac._record_conform_green(report, plan, "cfp", ac._Emitter())
+    record = ac.read_green_record(conform_green)
+    assert record is not None and record["fingerprint"] == "cfp"
 
     conform_green.unlink()
-    contracts_green.unlink()
-    moved = {"conform": "moved", "contracts": "moved-too"}
-    ac._record_gate_greens(report, plan, moved, ac._Emitter())
-    for path in (conform_green, contracts_green):
-        assert ac.read_green_record(path) is None
-
-    ac.record_green(contracts_green, "rfp-contracts")
-    ac.record_green(conform_green, "cfp")
-    report.gate_contracts = "FAILED (1 unexplained)"
-    report.gate_contracts_green = False
-    report.contracts_recordable = False
-    ac._record_gate_greens(report, plan, keys, ac._Emitter())
-    assert ac.read_green_record(contracts_green) is None
-    surviving = ac.read_green_record(conform_green)
-    assert surviving is not None
-    assert surviving["fingerprint"] == "cfp"
+    ac._record_conform_green(report, plan, "moved", ac._Emitter())
+    assert ac.read_green_record(conform_green) is None
 
     ac.record_green(conform_green, "cfp")
     report.gate_conform = "FAILED"
     report.gate_conform_green = False
-    ac._record_gate_greens(report, plan, {"conform": "cfp"}, ac._Emitter())
+    ac._record_conform_green(report, plan, "cfp", ac._Emitter())
     assert ac.read_green_record(conform_green) is None
 
 
@@ -6724,7 +6745,9 @@ def test_the_contracts_suite_is_submitted_before_the_corpus_build_starts(monkeyp
         order.append("run_m1")
         return _run_m1_green()
 
-    def fake_contracts(pool_policy, conform_fut, make_fut, spawn, emit, registry, argv):
+    def fake_contracts(
+        pool_policy, conform_fut, make_fut, spawn, emit, registry, argv, force=False, _record=False
+    ):
         order.append("contracts")
         contracts_invoked.set()
         return _lane_result("rebuild-contracts")
@@ -6756,7 +6779,9 @@ def test_corpus_build_failure_still_joins_the_rebuild_suite_it_started(monkeypat
     """A failed corpus build stops the build lane, but the suite was already submitted and is running on a pool worker. The pass joins it and reports its real result; reporting it as not run would be false and would leave the worker unjoined."""
     calls = {"contracts": 0}
 
-    def fake_contracts(pool_policy, conform_fut, make_fut, spawn, emit, registry, argv):
+    def fake_contracts(
+        pool_policy, conform_fut, make_fut, spawn, emit, registry, argv, force=False, _record=False
+    ):
         calls["contracts"] += 1
         return _lane_result("rebuild-contracts")
 
@@ -9045,9 +9070,7 @@ def test_a_red_lane_files_the_ids_it_failed_on(tmp_path):
     report = ac.CycleReport()
     failures: list[str] = []
     with ThreadPoolExecutor(max_workers=1) as pool:
-        ac._join_rebuild_lane(
-            report, failures, pool.submit(lambda: result), "contracts", ac._Emitter(), timings
-        )
+        ac._join_contracts(report, failures, pool.submit(lambda: result), ac._Emitter(), timings)
 
     (line,) = ct.load_checks(timings.path)
     assert line["check"] == "rebuild-contracts"
@@ -9068,7 +9091,7 @@ def test_a_lane_that_raised_files_no_check_line(tmp_path):
     report = ac.CycleReport()
     failures: list[str] = []
     with ThreadPoolExecutor(max_workers=1) as pool:
-        ac._join_rebuild_lane(report, failures, pool.submit(boom), "contracts", ac._Emitter(), timings)
+        ac._join_contracts(report, failures, pool.submit(boom), ac._Emitter(), timings)
 
     assert report.gate_contracts == "FAILED (exception)"
     assert ct.load_checks(timings.path) == []

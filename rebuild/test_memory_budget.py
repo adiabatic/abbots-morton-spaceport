@@ -1,12 +1,12 @@
-"""Tests for the memory-budget policy in `rebuild/tools/memory_budget.py`, for the widths derived from it, and for the `-n auto` hooks.
+"""Tests for the memory-budget policy in `rebuild/tools/memory_budget.py`, for the widths derived from it, and for the `-n auto` hook.
 
 Most tests are pure functions over an invented machine, because `total_bytes`, `floor_bytes` and `fraction` are keyword parameters on every policy function. The probes are tested through their pure parsers over the checked-in samples under `rebuild/fixtures/memory_budget/`, and the two cgroup readers are pointed at those sample roots, so every container case runs on a laptop. The only test that compares a live reading with an outside figure checks `total_memory_bytes()` against `sysctl -n hw.memsize`, on Darwin only.
 
 Three constants here are recorded measurements, kept as literals so that re-measuring a shipped constant cannot move the reproduction of an earlier width. `KERNEL_CONFIG_BYTES` is what one kernel configuration in flight cost when issue #85 was written; it does not follow `kernel_exec.DELTA_SLOT_BYTES`. `FONT_POOL_BYTES` is ten font-suite workers at the top of the 0.11–0.28 GB range the root `conftest.py` records beside `FONT_SUITE_WORKER_BYTES`; it does not follow that constant, which rounds up past the range. `ISSUE_RESERVE_FLOOR_BYTES` is the 4 GB reserve floor issue #85 stated its widths under; the shipped floor, `RESERVE_FLOOR_BYTES`, is 8 GB.
 
-`TestTheWidthsAlreadyOnRecord` shows the formula reproducing widths that were measured independently of it, over an invented 32 GB machine. The shipped kernel width is derived from the running machine, so no test compares it with a fixed number. Instead the tests check that the shipped kernel terms (`kernel_exec.table_build_booking_bytes`) still fit the whole wave, every configuration at once, on the fleet's 48 GiB machines when the build runs alone; `rebuild/test_artifact_cycle.py` checks the widths beside the cycle's pytest pool. `TestWhatDashNAutoResolvesTo` drives the repository's two `pytest_xdist_auto_num_workers` hooks, and `TestTheHandRunDefaults` checks that each width a hand run gets without naming one is still derived from the machine.
+`TestTheWidthsAlreadyOnRecord` shows the formula reproducing widths that were measured independently of it, over an invented 32 GB machine. The shipped kernel width is derived from the running machine, so no test compares it with a fixed number. Instead the tests check that the shipped kernel terms (`kernel_exec.table_build_booking_bytes`) still fit the whole wave, every configuration at once, on the fleet's 48 GiB machines when the build runs alone; `rebuild/test_artifact_cycle.py` checks the widths beside the cycle's pytest pool. `TestWhatDashNAutoResolvesTo` drives the root `pytest_xdist_auto_num_workers` hook, and `TestTheHandRunDefaults` checks that each width a hand run gets without naming one is still derived from the machine.
 
-Nothing here reads a live build artifact, so the module is in the contracts lane. The audit guard in `rebuild/conftest.py` fails any contracts test that reads `rebuild/out/`, `tmp/`, `var/`, or a root `verdicts-*` store.
+Nothing here reads a live build artifact. The audit guard in `rebuild/conftest.py` fails any contracts test that reads `rebuild/out/`, `tmp/`, `var/`, or a root `verdicts-*` store.
 """
 
 import argparse
@@ -16,7 +16,7 @@ import subprocess
 import sys
 from collections.abc import Callable
 from pathlib import Path
-from types import ModuleType, SimpleNamespace
+from types import ModuleType
 
 import pytest
 
@@ -86,19 +86,6 @@ def _loaded_conftest(pytestconfig: pytest.Config, path: Path) -> ModuleType:
     plugin = pytestconfig.pluginmanager.get_plugin(str(path))
     assert isinstance(plugin, ModuleType), f"pytest has not loaded {path} as a plugin"
     return plugin
-
-
-class _StubConfig:
-    """A stand-in for the `Config` the width hooks receive. The rebuild hook reads only `--lane`, and the root hook reads nothing from its config, so the argv paths a test passes only label the kind of run. It is stubbed because building a real `Config` over an invented argv would load this repository's conftests a second time just to register the `--lane` option."""
-
-    def __init__(self, *args: str, lane: str = "all") -> None:
-        self.args = list(args)
-        self.invocation_params = SimpleNamespace(dir=REPO_ROOT)
-        self._lane = lane
-
-    def getoption(self, name: str, default: object = None) -> object:
-        assert name == "lane", f"a width hook asked for an option this stub does not carry: {name}"
-        return self._lane
 
 
 class _ParserBuilt(Exception):
@@ -212,56 +199,36 @@ class TestTheWidthsAlreadyOnRecord:
 
 
 class TestWhatDashNAutoResolvesTo:
-    """Tests of the two `pytest_xdist_auto_num_workers` hooks, asserted at the widths they return, which nothing else in the repository checks. They fail if the rebuild hook stops deferring to the root hook or if the root hook returns anything but the cores. Neither hook reads memory, so the tests set `AMS_TOTAL_MEMORY_BYTES` to a small and a large machine to check that the answer does not move."""
-
-    @pytest.fixture
-    def lane_hook(self, pytestconfig: pytest.Config):
-        return _loaded_conftest(pytestconfig, REPO_ROOT / "rebuild" / "conftest.py")
+    """The root hook resolves every repository collection to the usable cores unless the environment names a width. Memory never narrows this pool, so the tests vary `AMS_TOTAL_MEMORY_BYTES` while pinning the same core count."""
 
     @pytest.fixture
     def root_hook(self, pytestconfig: pytest.Config):
         return _loaded_conftest(pytestconfig, REPO_ROOT / "conftest.py")
 
-    def test_the_contracts_lane_takes_every_core_and_no_memory_argument_narrows_it(
-        self, lane_hook: ModuleType, monkeypatch: pytest.MonkeyPatch
-    ):
-        """No test in the rebuild suite reads a live artifact, so no worker holds a working set that needs a memory bound, and even a small machine gets every core this process may run on."""
-        monkeypatch.setenv("AMS_TOTAL_MEMORY_BYTES", "4000000000")
-        answer = lane_hook.pytest_xdist_auto_num_workers(_StubConfig("rebuild/", lane="contracts"))
-        assert answer == memory_budget.usable_cores()
-
-    def test_a_run_that_names_no_lane_falls_through_to_the_root_conftest(self, lane_hook: ModuleType):
-        """Without `--lane contracts` the rebuild hook returns None and the root conftest decides. A bare `uv run pytest rebuild/`, a single rebuild test file and a mixed collection all arrive as lane `all`."""
-        assert lane_hook.pytest_xdist_auto_num_workers(_StubConfig("rebuild/")) is None
-
-    def test_the_font_suite_takes_the_cores_whatever_the_machine_has_to_say(
-        self, root_hook: ModuleType, monkeypatch: pytest.MonkeyPatch
-    ):
-        """The root hook returns the cores for a font-suite run. A font-suite worker is small enough that the cores limit the pool before memory does, so the answer is right even on a machine too small for a memory-derived width."""
-        monkeypatch.setenv("AMS_TOTAL_MEMORY_BYTES", "4000000000")
-        assert root_hook.pytest_xdist_auto_num_workers(_StubConfig("test/", "site/")) == (
-            memory_budget.usable_cores()
-        )
-
     @pytest.mark.parametrize("total", ["4000000000", str(MACHINE_1_TB)])
-    def test_a_run_this_hook_cannot_narrow_takes_the_cores_whatever_the_machine(
-        self, root_hook: ModuleType, monkeypatch: pytest.MonkeyPatch, total: str
+    def test_every_core_is_used_regardless_of_memory(
+        self,
+        root_hook: ModuleType,
+        pytestconfig: pytest.Config,
+        monkeypatch: pytest.MonkeyPatch,
+        total: str,
     ):
-        """The root hook also returns the cores for a rebuild run: no rebuild worker reads a live artifact, so there is no per-worker cost to divide by, and a small machine and a large one both get the cores this process may run on."""
+        """No rebuild worker reads a live artifact, and font-suite workers are small enough that cores limit their pool before memory does."""
         monkeypatch.setenv("AMS_TOTAL_MEMORY_BYTES", total)
-        assert root_hook.pytest_xdist_auto_num_workers(_StubConfig("rebuild/")) == (
-            memory_budget.usable_cores()
-        )
+        monkeypatch.setattr(memory_budget, "usable_cores", lambda: 7)
+        assert root_hook.pytest_xdist_auto_num_workers(pytestconfig) == 7
 
-    @pytest.mark.parametrize("lane", ["contracts", "all"])
-    def test_the_environment_override_outranks_every_width_either_hook_would_choose(
-        self, lane_hook: ModuleType, root_hook: ModuleType, monkeypatch: pytest.MonkeyPatch, lane: str
+    @pytest.mark.parametrize("width", ["3", "0"])
+    def test_the_environment_override_outranks_the_default_and_keeps_one_worker(
+        self,
+        root_hook: ModuleType,
+        pytestconfig: pytest.Config,
+        monkeypatch: pytest.MonkeyPatch,
+        width: str,
     ):
-        """`PYTEST_XDIST_AUTO_NUM_WORKERS` overrides every width. It works in two steps: the rebuild hook returns None whatever the lane when the variable is set, so the root hook reads it, and the root hook returns it for a font run and a rebuild run alike."""
-        monkeypatch.setenv("PYTEST_XDIST_AUTO_NUM_WORKERS", "3")
-        assert lane_hook.pytest_xdist_auto_num_workers(_StubConfig("rebuild/", lane=lane)) is None
-        assert root_hook.pytest_xdist_auto_num_workers(_StubConfig("rebuild/")) == 3
-        assert root_hook.pytest_xdist_auto_num_workers(_StubConfig("test/", "site/")) == 3
+        monkeypatch.setenv("PYTEST_XDIST_AUTO_NUM_WORKERS", width)
+        monkeypatch.setattr(memory_budget, "usable_cores", lambda: pytest.fail("override probed cores"))
+        assert root_hook.pytest_xdist_auto_num_workers(pytestconfig) == max(1, int(width))
 
 
 class TestTheHandRunDefaults:

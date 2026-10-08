@@ -1,11 +1,11 @@
-"""Tests for the live-artifact guard in `rebuild/conftest.py`: which paths count as live artifacts, which test files the guard governs, and, in a child pytest, that a rebuild test reading a live artifact fails whether or not the run names the lane. The child runs in a subprocess because the guard is a `sys.addaudithook`, which cannot be uninstalled, so an in-process run would leave its hook in place for every test after it."""
+"""Tests for the live-artifact guard in `rebuild/conftest.py`: which paths count as live artifacts, which test files the guard governs, and, in a child pytest, that a rebuild test reading a live artifact fails. The child runs in a subprocess because the guard is a `sys.addaudithook`, which cannot be uninstalled, so an in-process run would leave its hook in place for every test after it."""
 
 import os
 from pathlib import Path
 
 import pytest
 
-from rebuild.conftest import LANES, collect_ignore, governs, is_live_artifact_path
+from rebuild.conftest import collect_ignore, governs, is_live_artifact_path
 from rebuild.tools import contracts_closure
 
 pytest_plugins = ("pytester",)
@@ -35,11 +35,6 @@ def _child(pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch, *args: st
     monkeypatch.setenv("PYTHONPATH", str(REPO_ROOT))
     pytester.makepyfile(test_child=CHILD_TESTS.format(root=str(REPO_ROOT)))
     return pytester.runpytest_subprocess("-p", "rebuild.conftest", "-p", "no:cacheprovider", *args)
-
-
-def test_the_suite_has_one_lane_and_it_is_the_one_the_gate_names():
-    """The rebuild suite has one lane, `contracts`. `artifact_cycle.REBUILD_LANES` is a separate copy of this tuple, so a new lane must be added in both places."""
-    assert LANES == ("contracts",)
 
 
 class TestGovernedScope:
@@ -113,20 +108,107 @@ class TestForbiddenPaths:
 
 
 class TestGuardEndToEnd:
-    def test_the_lane_fails_the_bare_read_and_keeps_the_fixture_read(
-        self, pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
+    @pytest.mark.parametrize("workers", ["0", "2", "auto"])
+    def test_the_bare_read_fails_and_the_fixture_read_passes_at_each_worker_mode(
+        self, pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch, workers: str
     ):
-        result = _child(pytester, monkeypatch, "--lane", "contracts")
+        monkeypatch.setenv("PYTEST_XDIST_AUTO_NUM_WORKERS", "3")
+        result = _child(pytester, monkeypatch, "-n", workers)
         result.assert_outcomes(passed=1, failed=1)
-        result.stdout.fnmatch_lines(["*rebuild lane: contracts*"])
+        result.stdout.fnmatch_lines(["*ContractsLaneViolation*"])
+        if workers != "0":
+            expected = "3" if workers == "auto" else workers
+            result.stdout.fnmatch_lines([f"*{expected} workers*2 items*"])
+
+    @pytest.mark.parametrize("choice", ["contracts", "all"])
+    def test_the_compatibility_option_keeps_the_same_collection_and_guard(
+        self, pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch, choice: str
+    ):
+        result = _child(pytester, monkeypatch, "--lane", choice, "-n", "0")
+        result.assert_outcomes(passed=1, failed=1)
         result.stdout.fnmatch_lines(["*ContractsLaneViolation*"])
 
-    def test_without_a_lane_every_test_runs_and_the_bare_read_still_fails(
-        self, pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
+
+def _mixed_child(pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch, *args: str):
+    """Collect a synthetic rebuild/ and font-test tree through the plugin, retaining the live-path boundary so live reads are guarded only in the rebuild file."""
+    monkeypatch.setenv("PYTHONPATH", str(REPO_ROOT))
+    pytester.makeconftest("""
+from pathlib import Path
+from rebuild import conftest as contracts
+
+contracts.REPO_ROOT = Path(__file__).resolve().parent
+contracts.REBUILD_DIR = contracts.REPO_ROOT / "rebuild"
+""")
+    pytester.makepyfile(
+        **{
+            "rebuild/test_contract": CHILD_TESTS.format(root=str(REPO_ROOT)),
+            "test/test_font": f"""
+from pathlib import Path
+
+def test_live_read_is_outside_the_rebuild_guard():
+    assert Path({str(REPO_ROOT / "rebuild" / "review-facts-pins.json")!r}).read_bytes()
+""",
+        }
+    )
+    return pytester.runpytest_subprocess(
+        "-p",
+        "rebuild.conftest",
+        "-p",
+        "no:cacheprovider",
+        "--rootdir",
+        str(pytester.path),
+        "-n",
+        "0",
+        *args,
+    )
+
+
+class TestCollectionModes:
+    @pytest.mark.parametrize(
+        ("targets", "passed"),
+        [
+            (("rebuild",), 1),
+            (("rebuild/test_contract.py",), 1),
+            (("rebuild", "test"), 2),
+            ((".",), 2),
+        ],
+    )
+    def test_collection_guards_the_rebuild_tests_and_leaves_the_font_test_alone(
+        self,
+        pytester: pytest.Pytester,
+        monkeypatch: pytest.MonkeyPatch,
+        targets: tuple[str, ...],
+        passed: int,
     ):
-        result = _child(pytester, monkeypatch)
-        result.assert_outcomes(passed=1, failed=1)
+        result = _mixed_child(pytester, monkeypatch, *targets)
+        result.assert_outcomes(passed=passed, failed=1)
         result.stdout.fnmatch_lines(["*ContractsLaneViolation*"])
+
+    def test_a_selection_file_deselects_and_records_only_the_rebuild_items(
+        self, pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ):
+        selection = tmp_path / "selection.json"
+        sidecar = tmp_path / "closures.json"
+        rebuild_id = "rebuild/test_contract.py::test_bare_live_read"
+        font_id = "test/test_font.py::test_live_read_is_outside_the_rebuild_guard"
+        contracts_closure.write_selection(selection, [rebuild_id, font_id])
+        result = _mixed_child(
+            pytester,
+            monkeypatch,
+            "rebuild",
+            "test",
+            "--closure-skip",
+            str(selection),
+            "--closure-record",
+            str(sidecar),
+        )
+        result.assert_outcomes(passed=2, deselected=1)
+        payload = contracts_closure.read_sidecar(sidecar)
+        assert payload is not None
+        assert rebuild_id in payload["collected"]
+        assert rebuild_id not in payload["tests"]
+        assert font_id not in payload["collected"]
+        assert font_id not in payload["tests"]
 
 
 def test_the_collection_walk_leaves_the_crate_and_the_build_output_alone():

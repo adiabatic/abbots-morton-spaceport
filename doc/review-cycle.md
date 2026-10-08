@@ -32,6 +32,8 @@ pkill -f 'rebuild\.review\.serve'
 
 The cycle owns publication and invalidation of its M1 and conformance green records; its `run_m1` children leave those records alone when `CYCLE_RUN_ENV` is set. Standalone full, gates-only, and conform-only runs own their records, using the same finalization rule in `rebuild/tools/green_record.py::settle_green`: success records only an unchanged input fingerprint, and failure deletes only a matching record. A launched M1 child must exit zero and pass its summary gates before corpus work starts. A skipped build re-evaluates the verified summaries without publishing another green. Gates-only publication also requires a prior green, a matching tables stamp, and changes confined to comparison-side inputs (`gates_only_rerun` and `m1_tables_stamped` in `rebuild/tools/artifact_cycle.py`).
 
+The cycle and `make test-rebuild` prepare and complete contracts runs through `rebuild/tools/contracts_closure.py`. The roster fingerprint keys the green record; a separate digest projection covers extra paths the recorded tests read. Both must match for a skip, and both are checked for drift before publication, including on a forced run. The cycle refreshes its selection after any gate queue wait, immediately before spawning. The shared lifecycle removes stale sidecars before a run and merges the run's closures with those of collected tests it skipped. Scheduling, worker budgets, timings, and terminal output belong to each entry point.
+
 ### The review facts
 
 Every non-staging pass rewrites `rebuild/review-facts-pins.json` from the review-facts sidecar the corpus build writes, and compares the result with the copy in the git index. The checked-in file holds the last accepted review facts, and committing the rewritten file accepts the new ones. The summary's `review facts` line says what that commit would accept:
@@ -42,7 +44,7 @@ Every non-staging pass rewrites `rebuild/review-facts-pins.json` from the review
 
 ## Which hashes ignore prose
 
-The fingerprints for the table build, the conform sweep, and the rebuild suite's one lane (`contracts`) ignore prose in rune files and ledgers, so rewording those triggers no heavy rebuild. The other data files' prose and code-file prose are covered in the last two items below. `rebuild/pipeline/fingerprint.py` is the authority. In outline:
+The fingerprints for the table build, the conform sweep, and the contracts suite ignore prose in rune files and ledgers, so rewording those triggers no heavy rebuild. The other data files' prose and code-file prose are covered in the last two items below. `rebuild/pipeline/fingerprint.py` is the authority. In outline:
 
 - Rune files under `glyph_data/runes/` are hashed by `rune_file_digest`, which ignores YAML comments, formatting, and the documentation fields (`ductus`, `notes`, and every `why`, including those on refuse records).
 - A refuse record's `why` is the only rune prose any later step reads: the corpus's explain panel quotes it. It is hashed into `rune_explain_digest` and the corpus's Stage B `explain_prose` component, so rewording one restamps the corpus and re-enriches only the windows that quote it.

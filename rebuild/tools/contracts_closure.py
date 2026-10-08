@@ -10,7 +10,7 @@ A test's closure is the union of these:
 
 Selection runs a test whenever skipping it cannot be shown safe. A test with no recorded closure runs, which covers a new or renamed test id. A test that spawned a child runs, because the hook sees nothing a subprocess or multiprocessing worker reads, with two exceptions. A `git` command that reads only the object store or a ref (`hermetic_child`) cannot see the diff. The M1 kernel and the `cargo build` that makes it (`kernel_child`) read only the crate's sources beyond the scratch files the parent wrote, so every tracked file under `KERNEL_PREFIX` is added to that test's closure. A diff that adds or removes any input runs the whole lane, because `Path.exists()` and `os.stat` raise no audit event and a test may depend on a directory listing or an existence check. A diff that touches a global label runs the whole lane. Any other test whose closure contains no changed file is skipped, because every input it reads is byte-identical to the run it passed.
 
-The record is stored in the lane's green record beside the key; `rebuild_gate` and the artifact cycle both write it through `record_payload`. `files` is the per-label digest map the selection diffs against: the lane's roster plus any path a test read outside it. `closures` holds `static` (module file to its import closure), `module_reads` (module file to what its body reads when imported), and `tests` (test id to its reads, its dynamically imported modules, whether it spawned the kernel, and whether its inputs are untraced). A narrowed run merges its sidecar into the previous record: tests that ran replace their entries, tests the selection skipped keep theirs, and ids the run did not collect are dropped.
+The record is stored beside the roster key in the contracts green record. `prepare_run`, `start_run`, and `finish_run` own the selection snapshot, its recorder files, and publication for both `rebuild_gate` and the artifact cycle. `files` is the per-label digest map the selection diffs against: the lane's roster plus any path a test read outside it. `closures` holds `static` (module file to its import closure), `module_reads` (module file to what its body reads when imported), and `tests` (test id to its reads, its dynamically imported modules, whether it spawned the kernel, and whether its inputs are untraced). A narrowed run merges its sidecar into the previous record: tests that ran replace their entries, tests the selection skipped keep theirs, and ids the run did not collect are dropped.
 
 The recorder's helpers (read normalization, the two spawn checks, and the selection and sidecar files) are defined in `rebuild.tools.closure_record` and re-exported here. The conftests import that leaf module, not this one, because the selection functions here import the cycle driver, and through it rebuild/pipeline/ and rebuild/review/. `closure_of` adds the conftests' static import closures to every test's closure, so a conftest that imported this module would put a pipeline edit in every closure and no test could be skipped. `rebuild/test_contracts_closure.py` checks the conftests' import edges and that neither reaches a pipeline or review module.
 """
@@ -20,6 +20,7 @@ from __future__ import annotations
 import ast
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Literal
 
 from rebuild.tools.closure_record import (
     HERMETIC_GIT_SUBCOMMANDS,
@@ -194,7 +195,11 @@ def select(record: dict | None, current: dict[str, str]) -> Selection:
     known = len(closures.get("tests", {}))
     moved = moved_input_labels(record, current) or []
     stored = record["files"]
-    structural = sorted(label for label in moved if label not in stored or label not in current)
+    structural = sorted(
+        label
+        for label in moved
+        if label not in stored or label not in current or "absent" in (stored[label], current[label])
+    )
     if structural:
         return Selection(
             changed=tuple(moved), known=known, reason=f"inputs added or removed: {capped_labels(structural)}"
@@ -268,12 +273,16 @@ def extra_paths(closures: dict | None, roster: dict[str, str]) -> list[str]:
 
 
 def current_files(root: Path, roster: dict[str, str], record: dict | None) -> dict[str, str]:
-    """Return the lane's per-label digests plus a digest of every extra path a previous record's closures name, so the selection diffs every path a closure can contain."""
+    """Return the roster digests plus each extra path a previous record names, through either its closures or its file projection. Keeping the latter preserves known extra inputs when a passing run left no sidecar."""
     from rebuild.tools.artifact_cycle import _closure_digest
 
     closures = record.get("closures") if isinstance(record, dict) else None
     files = dict(roster)
-    for rel in extra_paths(closures, roster):
+    recorded_files = record.get("files", {}) if isinstance(record, dict) else {}
+    extras = set(extra_paths(closures, roster))
+    if isinstance(recorded_files, dict):
+        extras.update(recorded_files.keys() - roster.keys())
+    for rel in sorted(extras):
         files[rel] = _closure_digest(root, rel)
     return files
 
@@ -300,3 +309,73 @@ def record_payload(
             files[rel] = _closure_digest(root, rel)
     moved = tuple(sorted(rel for rel in before if files[rel] != before[rel]))
     return RecordPayload(files=files, closures=closures, moved=moved)
+
+
+@dataclass(frozen=True)
+class ContractsRun:
+    """The read-only snapshot a contracts selection and its completion share. The roster key covers the suite's declared inputs; `files` also covers the extra paths the previous record names."""
+
+    record_path: Path
+    key: str | None
+    previous: dict | None
+    files: dict[str, str] | None
+    selection: Selection
+    skippable: bool
+
+
+def prepare_run(root: Path, force: bool = False) -> ContractsRun:
+    """Read the contracts record and input digests, and decide whether the suite or any recorded tests can be skipped. This writes nothing, so the cycle can use the same preparation for a dry-run plan. A matching roster key skips the suite only when its recorded extra paths also retain their bytes."""
+    from rebuild.tools.artifact_cycle import contracts_closure, contracts_green, moved_input_labels
+    from rebuild.tools.green_record import read_green_record
+
+    record = contracts_green()
+    key, roster = contracts_closure(root)
+    previous = read_green_record(record)
+    files = current_files(root, roster, previous) if roster is not None else None
+    if force:
+        selection = Selection(reason="forced run of the whole suite")
+    elif files is None:
+        selection = Selection(reason="closure fingerprint unavailable without git")
+    else:
+        selection = select(previous, files)
+    skippable = (
+        not force
+        and key is not None
+        and previous is not None
+        and key == previous["fingerprint"]
+        and files is not None
+        and not moved_input_labels(previous, files)
+    )
+    return ContractsRun(record, key, previous, files, selection, skippable)
+
+
+def start_run(run: ContractsRun) -> None:
+    """Write the prepared test selection and remove the previous sidecar before a spawn, so a failed or interrupted suite cannot publish stale closures."""
+    sidecar_path(run.record_path).unlink(missing_ok=True)
+    write_selection(selection_path(run.record_path), run.selection.skip)
+
+
+@dataclass(frozen=True)
+class FinishOutcome:
+    status: Literal["recorded", "failed", "unavailable", "drifted"]
+    payload: RecordPayload | None = None
+
+
+def finish_run(root: Path, run: ContractsRun, green: bool) -> FinishOutcome:
+    """Finish one contracts invocation. A failure clears only a green for the tested roster key; a pass records only when that key and every pre-run projected path still match. The closure merge uses the record captured by preparation, including on a forced run, and a missing sidecar records no per-test closures."""
+    from rebuild.tools.artifact_cycle import contracts_closure
+    from rebuild.tools.green_record import clear_contradicted_green, record_green
+
+    if not green:
+        clear_contradicted_green(run.record_path, run.key)
+        return FinishOutcome("failed")
+    if run.key is None:
+        return FinishOutcome("unavailable")
+    key, roster = contracts_closure(root)
+    if key != run.key or roster is None:
+        return FinishOutcome("drifted")
+    payload = record_payload(root, run.files or {}, roster, run.previous, sidecar_path(run.record_path))
+    if payload.moved:
+        return FinishOutcome("drifted", payload)
+    record_green(run.record_path, run.key, files=payload.files, closures=payload.closures)
+    return FinishOutcome("recorded", payload)

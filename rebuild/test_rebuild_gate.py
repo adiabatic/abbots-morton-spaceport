@@ -10,7 +10,6 @@ from rebuild.tools import cycle_timings as ct
 from rebuild.tools import rebuild_gate as rg
 
 HARD_STDOUT = "FAILED rebuild/test_settle.py::test_x"
-LANE = "contracts"
 
 
 def _checks():
@@ -20,7 +19,7 @@ def _checks():
 
 @pytest.fixture
 def green_store(tmp_path, monkeypatch):
-    """The lane's green record under tmp_path. `rebuild_lane_green` reads the `cycle_paths` constant at call time, so this redirect reaches both the wrapper and the artifact cycle."""
+    """The lane's green record under tmp_path. `contracts_green` reads the `cycle_paths` constant at call time, so this redirect reaches both the wrapper and the artifact cycle."""
     store = tmp_path / "rebuild-contracts-green.json"
     monkeypatch.setattr(cycle_paths, "REBUILD_CONTRACTS_GREEN", store)
     return store
@@ -30,11 +29,11 @@ def _fingerprints(monkeypatch, values):
     """Stub the lane closure with one key per call. A green run reads it twice, before and after the suite. The stub returns the key with a one-label digest map, so the selection finds no recorded per-test closures and runs the whole suite."""
     calls = iter(values)
 
-    def closure(root, lane):
+    def closure(root):
         key = next(calls)
         return key, (None if key is None else {"key": key})
 
-    monkeypatch.setattr(rg, "rebuild_lane_closure", closure)
+    monkeypatch.setattr(ac, "contracts_closure", closure)
 
 
 def _suite_stub(monkeypatch, outcome):
@@ -50,9 +49,8 @@ def _suite_stub(monkeypatch, outcome):
     return spawned
 
 
-def test_the_suite_is_one_lane():
-    assert ac.REBUILD_LANES == (LANE,)
-    assert list(rg.POOL_UNIT_BY_LANE) == [LANE]
+def test_the_suite_uses_the_contracts_pool_name():
+    assert rg.POOL_UNIT == "rebuild-contracts"
 
 
 def test_the_lane_skips_without_spawning_when_its_record_matches(green_store, monkeypatch, capsys):
@@ -69,7 +67,7 @@ def test_force_runs_the_lane_despite_a_matching_record(green_store, monkeypatch)
     _fingerprints(monkeypatch, ["fp-contracts"] * 2)
     spawned = _suite_stub(monkeypatch, (0, ""))
     assert rg.main(["--force"]) == 0
-    assert [argv for argv, _ in spawned] == [ac.rebuild_lane_argv(LANE)]
+    assert [argv for argv, _ in spawned] == [ac.contracts_argv()]
 
 
 def test_a_clean_run_records_a_green(green_store, monkeypatch):
@@ -168,7 +166,7 @@ def test_a_green_run_files_its_result_under_the_lanes_check_name(green_store, mo
     assert check["outcome"] == "green"
     assert check["status"] == "green"
     assert check["failed_ids"] == []
-    assert check["argv"] == ac.rebuild_lane_argv(LANE)
+    assert check["argv"] == ac.contracts_argv()
     assert isinstance(check["elapsed_s"], int | float)
     assert "run" not in check
 
@@ -195,4 +193,4 @@ def test_a_hard_failure_files_the_ids_it_failed_on(green_store, monkeypatch):
     assert check["check"] == "rebuild-contracts"
     assert check["outcome"] == "red"
     assert check["failed_ids"] == ["rebuild/test_settle.py::test_x"]
-    assert check["argv"] == ac.rebuild_lane_argv(LANE)
+    assert check["argv"] == ac.contracts_argv()

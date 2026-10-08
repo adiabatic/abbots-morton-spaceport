@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+from concurrent.futures import Future
 from pathlib import Path
 
 import pytest
@@ -282,6 +283,299 @@ class TestSelectionFiles:
         assert cc.read_selection(tmp_path / "other.json") == frozenset()
 
 
+@pytest.fixture
+def contracts_tree(tmp_path, monkeypatch):
+    root = tmp_path / "repo"
+    root.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+    for rel in (*cc.CONFTEST_PATHS, "rebuild/test_t.py", "rebuild/test_u.py"):
+        _write(root, rel)
+    _write(root, "extra.txt", "one")
+    subprocess.run(["git", "add", "-A"], cwd=root, check=True)
+    monkeypatch.setattr(cycle_paths, "REBUILD_CONTRACTS_GREEN", root / "out" / "rebuild-contracts-green.json")
+    return root
+
+
+def _save_contracts_record(root: Path) -> dict:
+    key, roster = ac.contracts_closure(root)
+    assert key is not None and roster is not None
+    tests = {
+        "rebuild/test_t.py::reads_extra": {"reads": ["extra.txt"], "modules": [], "untraced_inputs": False},
+        "rebuild/test_u.py::plain": {"reads": [], "modules": [], "untraced_inputs": False},
+    }
+    previous = _record(roster, tests)
+    files = cc.current_files(root, roster, previous)
+    ac.record_green(ac.contracts_green(), key, files=files, closures=previous["closures"])
+    previous["files"] = files
+    return previous
+
+
+class TestContractsLifecycle:
+    def test_preparation_leaves_recorder_files_untouched(self, contracts_tree):
+        _save_contracts_record(contracts_tree)
+        sidecar = cc.sidecar_path(ac.contracts_green())
+        sidecar.write_text("stale sidecar")
+        run = cc.prepare_run(contracts_tree)
+        assert run.skippable
+        assert sidecar.read_text() == "stale sidecar"
+        assert not cc.selection_path(run.record_path).exists()
+
+    def test_an_extra_edit_prevents_a_roster_match_from_skipping(self, contracts_tree):
+        _save_contracts_record(contracts_tree)
+        original_key = ac.contracts_fingerprint(contracts_tree)
+        _write(contracts_tree, "extra.txt", "two")
+        run = cc.prepare_run(contracts_tree)
+        assert run.key == original_key
+        assert not run.skippable
+        assert run.selection.skip == {"rebuild/test_u.py::plain"}
+        assert run.selection.changed == ("extra.txt",)
+
+    @pytest.mark.parametrize("force", [False, True])
+    def test_an_extra_edit_during_a_run_withholds_publication(self, contracts_tree, force):
+        previous = _save_contracts_record(contracts_tree)
+        run = cc.prepare_run(contracts_tree, force)
+        assert run.files is not None and run.files["extra.txt"] == previous["files"]["extra.txt"]
+        cc.start_run(run)
+        _write(contracts_tree, "extra.txt", "two")
+        finished = cc.finish_run(contracts_tree, run, True)
+        assert finished.status == "drifted"
+        assert finished.payload is not None and finished.payload.moved == ("extra.txt",)
+        record = ac.read_green_record(run.record_path)
+        assert record is not None and record["files"] == previous["files"]
+
+    def test_a_missing_sidecar_drops_closures_and_keeps_known_extra_inputs(self, contracts_tree):
+        _save_contracts_record(contracts_tree)
+        run = cc.prepare_run(contracts_tree, True)
+        cc.write_sidecar(cc.sidecar_path(run.record_path), ["stale"], {"stale": {}})
+        cc.start_run(run)
+        assert not cc.sidecar_path(run.record_path).exists()
+        assert cc.read_selection(cc.selection_path(run.record_path)) == frozenset()
+        assert cc.finish_run(contracts_tree, run, True).status == "recorded"
+        record = ac.read_green_record(run.record_path)
+        assert record is not None and "closures" not in record
+        assert "extra.txt" in record["files"]
+        assert cc.prepare_run(contracts_tree).skippable
+        _write(contracts_tree, "extra.txt", "two")
+        assert not cc.prepare_run(contracts_tree).skippable
+
+    def test_a_key_only_record_can_skip_on_its_roster(self, contracts_tree):
+        key = ac.contracts_fingerprint(contracts_tree)
+        assert key is not None
+        ac.record_green(ac.contracts_green(), key)
+        assert cc.prepare_run(contracts_tree).skippable
+
+    def test_completion_merges_the_record_captured_by_preparation(self, contracts_tree):
+        previous = _save_contracts_record(contracts_tree)
+        _write(contracts_tree, "extra.txt", "two")
+        run = cc.prepare_run(contracts_tree)
+        cc.start_run(run)
+        collected = list(previous["closures"]["tests"])
+        cc.write_sidecar(
+            cc.sidecar_path(run.record_path),
+            collected,
+            {collected[0]: previous["closures"]["tests"][collected[0]]},
+        )
+        ac.record_green(run.record_path, "unrelated", files={}, closures={"tests": {}})
+        assert cc.finish_run(contracts_tree, run, True).status == "recorded"
+        recorded = ac.read_green_record(run.record_path)
+        assert recorded is not None
+        assert recorded["closures"]["tests"][collected[1]] == previous["closures"]["tests"][collected[1]] | {
+            "kernel": False
+        }
+
+    def test_a_tracked_unlink_and_reappearance_run_every_test(self, contracts_tree):
+        _save_contracts_record(contracts_tree)
+        source = contracts_tree / "rebuild" / "test_t.py"
+        source.unlink()
+        absent = cc.prepare_run(contracts_tree)
+        assert absent.selection.skip == frozenset()
+        assert "added or removed" in absent.selection.reason
+        assert absent.files is not None and absent.files["rebuild/test_t.py"] == "absent"
+        _save_contracts_record(contracts_tree)
+        _write(contracts_tree, "rebuild/test_t.py")
+        returned = cc.prepare_run(contracts_tree)
+        assert returned.selection.skip == frozenset()
+        assert "added or removed" in returned.selection.reason
+
+    @pytest.mark.parametrize("matching", [False, True])
+    def test_failure_clears_only_a_record_with_the_invocation_key(self, contracts_tree, matching):
+        _save_contracts_record(contracts_tree)
+        run = cc.prepare_run(contracts_tree, True)
+        if not matching:
+            ac.record_green(run.record_path, "unrelated")
+        assert cc.finish_run(contracts_tree, run, False).status == "failed"
+        record = ac.read_green_record(run.record_path)
+        if matching:
+            assert record is None
+        else:
+            assert record is not None and record["fingerprint"] == "unrelated"
+
+    def test_no_git_runs_every_test_without_publication(self, contracts_tree, monkeypatch):
+        monkeypatch.setattr(ac, "contracts_closure", lambda root: (None, None))
+        run = cc.prepare_run(contracts_tree)
+        assert not run.skippable and not run.selection.skip
+        cc.start_run(run)
+        assert cc.finish_run(contracts_tree, run, True).status == "unavailable"
+        assert ac.read_green_record(run.record_path) is None
+
+
+@pytest.mark.parametrize("caller", ["wrapper", "cycle"])
+@pytest.mark.parametrize(
+    "case",
+    [
+        "unchanged",
+        "extra",
+        "forced-extra-drift",
+        "roster-drift",
+        "global",
+        "failure",
+        "no-git",
+        "missing-sidecar",
+    ],
+)
+def test_both_contracts_callers_make_the_same_lifecycle_decisions(contracts_tree, monkeypatch, caller, case):
+    previous = _save_contracts_record(contracts_tree)
+    monkeypatch.setattr(ac, "ROOT", contracts_tree)
+    monkeypatch.setattr(rg, "ROOT", contracts_tree)
+    record_path = ac.contracts_green()
+    original = record_path.read_bytes()
+    cc.write_sidecar(cc.sidecar_path(record_path), ["stale"], {"stale": {}})
+    force = case in {"forced-extra-drift", "failure", "missing-sidecar"}
+    if case in {"extra", "roster-drift"}:
+        _write(contracts_tree, "extra.txt", "two")
+    elif case == "global":
+        _write(contracts_tree, "conftest.py", "VALUE = 1\n")
+    elif case == "no-git":
+        record_path.unlink()
+        monkeypatch.setattr(ac, "contracts_closure", lambda root: (None, None))
+    spawned = []
+
+    def execute(argv):
+        skip = cc.read_selection(Path(argv[argv.index("--closure-skip") + 1]))
+        spawned.append(skip)
+        assert not cc.sidecar_path(record_path).exists()
+        if case != "missing-sidecar":
+            tests = previous["closures"]["tests"]
+            cc.write_sidecar(
+                cc.sidecar_path(record_path),
+                list(tests),
+                {nodeid: entry for nodeid, entry in tests.items() if nodeid not in skip},
+            )
+        if case == "forced-extra-drift":
+            _write(contracts_tree, "extra.txt", "three")
+        elif case == "roster-drift":
+            _write(contracts_tree, "rebuild/test_u.py", "VALUE = 1\n")
+        return (1, "FAILED rebuild/test_t.py::reads_extra") if case == "failure" else (0, "")
+
+    if caller == "wrapper":
+        monkeypatch.setattr(rg, "_run_suite", lambda argv, env: execute(argv))
+        result_ok = rg.main(["--force"] if force else []) == 0
+    else:
+
+        def spawn(name, argv, **kwargs):
+            returncode, stdout = execute(argv)
+            return ac._StepResult(name, returncode, stdout, "", 0.1)
+
+        gate = ac._gate_contracts_task(
+            "overlap", None, None, spawn, ac._Emitter(), ac._ChildRegistry(), ac.contracts_argv(), force, True
+        )
+        result_ok = gate.outcome in {"green", "skipped"}
+    assert result_ok == (case != "failure")
+    record = ac.read_green_record(record_path)
+    if case == "unchanged":
+        assert not spawned
+        assert record_path.read_bytes() == original
+        sidecar = cc.read_sidecar(cc.sidecar_path(record_path))
+        assert sidecar is not None and sidecar["collected"] == ["stale"]
+    elif case in {"failure", "no-git"}:
+        assert len(spawned) == 1 and not spawned[0]
+        assert record is None
+    elif case in {"forced-extra-drift", "roster-drift"}:
+        assert len(spawned) == 1
+        assert record_path.read_bytes() == original
+    else:
+        assert len(spawned) == 1 and record is not None
+        assert spawned[0] == ({"rebuild/test_u.py::plain"} if case == "extra" else frozenset())
+        if case == "missing-sidecar":
+            assert "closures" not in record
+        else:
+            assert set(record["closures"]["tests"]) == set(previous["closures"]["tests"])
+
+
+def test_queued_contracts_refreshes_selection_after_waiting(contracts_tree, monkeypatch):
+    _save_contracts_record(contracts_tree)
+    monkeypatch.setattr(ac, "ROOT", contracts_tree)
+    planned = cc.prepare_run(contracts_tree)
+    assert planned.skippable
+    finished = Future()
+
+    def awaited(conform_fut, make_fut):
+        assert make_fut is finished
+        _write(contracts_tree, "conftest.py", "VALUE = 1\n")
+        finished.set_result(None)
+
+    monkeypatch.setattr(ac, "_await_gate_futures", awaited)
+    selected = []
+
+    def spawn(name, argv, **kwargs):
+        selected.append(cc.read_selection(cc.selection_path(ac.contracts_green())))
+        return ac._StepResult(name, 0, "", "", 0.1)
+
+    gate = ac._gate_contracts_task(
+        "queue", None, finished, spawn, ac._Emitter(), ac._ChildRegistry(), ac.contracts_argv(), False, True
+    )
+    assert gate.ok and selected == [frozenset()]
+    record = ac.read_green_record(ac.contracts_green())
+    assert record is not None and record["fingerprint"] == ac.contracts_fingerprint(contracts_tree)
+
+
+@pytest.mark.parametrize("caller", ["wrapper", "cycle"])
+def test_spawn_exception_clears_the_matching_record_and_propagates(contracts_tree, monkeypatch, caller):
+    _save_contracts_record(contracts_tree)
+    monkeypatch.setattr(ac, "ROOT", contracts_tree)
+    monkeypatch.setattr(rg, "ROOT", contracts_tree)
+
+    def failed(*args, **kwargs):
+        raise FileNotFoundError("suite unavailable")
+
+    with pytest.raises(FileNotFoundError, match="suite unavailable"):
+        if caller == "wrapper":
+            monkeypatch.setattr(rg, "_run_suite", failed)
+            rg.main(["--force"])
+        else:
+            ac._gate_contracts_task(
+                "overlap",
+                None,
+                None,
+                failed,
+                ac._Emitter(),
+                ac._ChildRegistry(),
+                ac.contracts_argv(),
+                True,
+                True,
+            )
+    assert ac.read_green_record(ac.contracts_green()) is None
+
+
+def test_an_unpublished_cycle_run_leaves_the_green_record_alone(contracts_tree, monkeypatch):
+    _save_contracts_record(contracts_tree)
+    monkeypatch.setattr(ac, "ROOT", contracts_tree)
+    original = ac.contracts_green().read_bytes()
+    gate = ac._gate_contracts_task(
+        "overlap",
+        None,
+        None,
+        lambda name, argv, **kwargs: ac._StepResult(name, 1, "", "", 0.1),
+        ac._Emitter(),
+        ac._ChildRegistry(),
+        ac.contracts_argv(),
+        True,
+        False,
+    )
+    assert not gate.ok
+    assert ac.contracts_green().read_bytes() == original
+
+
 class TestMerge:
     def test_a_narrowed_run_keeps_the_previous_closures_of_the_tests_it_kept_off(self, synthetic_tree: Path):
         _write(synthetic_tree, "rebuild/test_t.py", "from pkg import a\n")
@@ -365,11 +659,11 @@ class TestTheGateNarrows:
     def _closures(self, monkeypatch, files_before, files_after):
         calls = iter([files_before, files_after])
 
-        def closure(root, lane):
+        def closure(root):
             files = next(calls)
             return ac._digest_lines([f"{k}\t{v}" for k, v in files.items()]), files
 
-        monkeypatch.setattr(rg, "rebuild_lane_closure", closure)
+        monkeypatch.setattr(ac, "contracts_closure", closure)
 
     def test_a_narrowed_run_keeps_off_what_the_record_checked_and_records_the_merge(
         self, contracts_store, monkeypatch, capsys
@@ -381,25 +675,23 @@ class TestTheGateNarrows:
         spawned = []
 
         def fake_run(argv, env):
-            lane = argv[argv.index("--lane") + 1]
             spawned.append(list(argv))
-            if lane == "contracts":
-                skip = cc.read_selection(Path(argv[argv.index("--closure-skip") + 1]))
-                assert skip == {"rebuild/test_t.py::reads_b", "rebuild/test_u.py::imports_m"}
-                cc.write_sidecar(
-                    Path(argv[argv.index("--closure-record") + 1]),
-                    list(TESTS),
-                    {
-                        nodeid: {"reads": ["a.yaml", "c.yaml"], "modules": [], "untraced_inputs": False}
-                        for nodeid in TESTS
-                        if nodeid not in skip
-                    },
-                )
+            skip = cc.read_selection(Path(argv[argv.index("--closure-skip") + 1]))
+            assert skip == {"rebuild/test_t.py::reads_b", "rebuild/test_u.py::imports_m"}
+            cc.write_sidecar(
+                Path(argv[argv.index("--closure-record") + 1]),
+                list(TESTS),
+                {
+                    nodeid: {"reads": ["a.yaml", "c.yaml"], "modules": [], "untraced_inputs": False}
+                    for nodeid in TESTS
+                    if nodeid not in skip
+                },
+            )
             return 0, ""
 
         monkeypatch.setattr(rg, "_run_suite", fake_run)
         assert rg.main([]) == 0
-        assert spawned[0] == ac.rebuild_lane_argv("contracts")
+        assert spawned[0] == ac.contracts_argv()
         out = capsys.readouterr().out
         assert "2 of 4 recorded tests run" in out
         assert "per-test closures recorded" in out
@@ -424,7 +716,7 @@ class TestTheGateNarrows:
 
         monkeypatch.setattr(rg, "_run_suite", fake_run)
         assert rg.main(["--force"]) == 0
-        assert "--force runs the whole lane" in capsys.readouterr().out
+        assert "forced run of the whole suite" in capsys.readouterr().out
 
     def test_a_green_without_a_sidecar_records_no_closures(self, contracts_store, monkeypatch, capsys):
         self._closures(monkeypatch, dict(BASE_FILES), dict(BASE_FILES))
@@ -456,7 +748,7 @@ class TestTheGateNarrows:
 def test_the_lane_argv_names_the_closure_files_beside_the_record(tmp_path, monkeypatch):
     store = tmp_path / "rebuild-contracts-green.json"
     monkeypatch.setattr(cycle_paths, "REBUILD_CONTRACTS_GREEN", store)
-    argv = ac.rebuild_lane_argv("contracts")
+    argv = ac.contracts_argv()
     assert argv[argv.index("--closure-skip") + 1] == str(tmp_path / "rebuild-contracts-selection.json")
     assert argv[argv.index("--closure-record") + 1] == str(tmp_path / "rebuild-contracts-closures.json")
 
@@ -466,9 +758,9 @@ def test_the_lane_key_is_the_digest_of_its_labels(tmp_path):
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
     _write(tmp_path, "rebuild/test_x.py", "")
     _write(tmp_path, "glyph_data/runes/qsX.yaml", "rune: qsX\n")
-    key, labels = ac.rebuild_lane_closure(tmp_path, "contracts")
+    key, labels = ac.contracts_closure(tmp_path)
     assert key is not None and labels is not None
-    assert key == ac.rebuild_lane_fingerprint(tmp_path, "contracts")
+    assert key == ac.contracts_fingerprint(tmp_path)
     assert key == ac._digest_lines([f"{label}\t{digest}" for label, digest in labels.items()])
     assert {"rebuild/test_x.py", "glyph_data/runes/qsX.yaml", "fonts"} <= labels.keys()
 
@@ -479,8 +771,8 @@ def test_the_cycle_plan_names_the_narrowing(tmp_path, monkeypatch):
     stale = _record(BASE_FILES, TESTS, dict(STATIC))
     ac.record_green(store, "old", files=stale["files"], closures=stale["closures"])
     before = {**BASE_FILES, "a.yaml": "9"}
-    monkeypatch.setattr(ac, "rebuild_lane_closure", lambda root, lane: ("new", dict(before)))
-    monkeypatch.setattr(ac, "rebuild_lane_fingerprint", lambda root, lane: "new")
+    monkeypatch.setattr(ac, "contracts_closure", lambda root: ("new", dict(before)))
+    monkeypatch.setattr(ac, "contracts_fingerprint", lambda root: "new")
     monkeypatch.setattr(cc, "current_files", lambda root, roster, record: dict(roster))
     plan = ac.build_plan(
         verdicts=None,
@@ -489,13 +781,17 @@ def test_the_cycle_plan_names_the_narrowing(tmp_path, monkeypatch):
         skip_gates=False,
         first_run=False,
         short_id="abc",
-        contracts_skip=sorted(cc.select(ac.read_green_record(store), before).skip),
+        contracts_run=cc.prepare_run(ac.ROOT),
         contracts_note=cc.select(ac.read_green_record(store), before).describe(),
     )
-    assert plan.contracts_skip == ["rebuild/test_t.py::reads_b", "rebuild/test_u.py::imports_m"]
+    assert plan.contracts_run is not None
+    assert sorted(plan.contracts_run.selection.skip) == [
+        "rebuild/test_t.py::reads_b",
+        "rebuild/test_u.py::imports_m",
+    ]
     assert "2 of 4 recorded tests run" in plan.note_for("gate:rebuild-contracts")
-    ac._write_contracts_selection(plan)
-    assert cc.read_selection(cc.selection_path(store)) == set(plan.contracts_skip)
+    cc.start_run(plan.contracts_run)
+    assert cc.read_selection(cc.selection_path(store)) == plan.contracts_run.selection.skip
 
 
 CHILD_CONFTEST = """
@@ -580,9 +876,7 @@ class TestTheRecorderEndToEnd:
     @pytest.mark.parametrize("workers", ["0", "2"])
     def test_every_recorded_fact_is_written_to_the_sidecar(self, pytester, monkeypatch, tmp_path, workers):
         sidecar = tmp_path / "closures.json"
-        result = _child(
-            pytester, monkeypatch, "--lane", "contracts", "-n", workers, "--closure-record", str(sidecar)
-        )
+        result = _child(pytester, monkeypatch, "-n", workers, "--closure-record", str(sidecar))
         result.assert_outcomes(passed=9)
         payload = cc.read_sidecar(sidecar)
         assert payload is not None
@@ -614,8 +908,6 @@ class TestTheRecorderEndToEnd:
         result = _child(
             pytester,
             monkeypatch,
-            "--lane",
-            "contracts",
             "-n",
             "0",
             "--closure-record",
@@ -630,7 +922,7 @@ class TestTheRecorderEndToEnd:
         assert "test_child.py::test_plain_read" not in payload["tests"]
 
     def test_without_the_option_no_sidecar_is_written(self, pytester, monkeypatch, tmp_path):
-        result = _child(pytester, monkeypatch, "--lane", "contracts", "-n", "0")
+        result = _child(pytester, monkeypatch, "-n", "0")
         result.assert_outcomes(passed=9)
         assert not list(tmp_path.glob("*.json"))
 
@@ -649,7 +941,6 @@ CONFTEST_EDGES = {
         "rebuild/tools/closure_record.py",
         "rebuild/tools/cycle_paths.py",
         "rebuild/tools/cycle_timings.py",
-        "rebuild/tools/memory_budget.py",
         "rebuild/tools/standing_client.py",
     },
 }
@@ -730,8 +1021,6 @@ class TestTheAnnouncedImport:
             "no:cacheprovider",
             "--rootdir",
             str(pytester.path),
-            "--lane",
-            "contracts",
             "-n",
             "0",
             "--closure-record",

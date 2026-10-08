@@ -36,7 +36,7 @@ Every other heavy stage skips on the same principle: a content fingerprint over 
 
 - run_m1 skips on rebuild/out/run-m1-green.json (the Stage A fingerprint components plus the contact allow-list, the oracle's subset tables and uv.lock's dependency pins) and re-evaluates its gate from the summary JSONs on disk.
 - gate:conform skips on conform-green.json, keyed on what the conformance sweep tests for, not on run_m1's closure: the emitted lookup's behavior classes, the font-compilation code and its tools/ closure, the uharfbuzz version, and the sweep's maximum length (`conform_skip_fingerprint`). A rune edit that creates no new rule shape leaves that key unchanged, because the crate's string replay inside run_m1 has already checked the new tables against the engine over every string.
-- The rebuild suite skips on rebuild-contracts-green.json, keyed by `rebuild_lane_fingerprint` over its closure: the repo files under rebuild/ and glyph_data/, the harness files in REBUILD_GATE_HARNESS_PATHS, conftest.py, pyproject.toml, uv.lock by its dependency pins, and the site fonts without their head and name tables. The closure contains no build artifact, so the suite can skip whether or not run_m1 rebuilt: an M1 rebuild writes only under rebuild/out, which the closure does not include. The record also stores each test's input closure, so a pass whose key changed runs only the tests whose closure the diff reaches; a rune edit reruns the tests that load the spec and nothing else. rebuild.tools.contracts_closure defines what a closure holds and when a test may be skipped, and runs the test whenever it cannot tell. rebuild.tools.rebuild_gate (`make test-rebuild`) writes the same record, so interactive and cycle greens share it.
+- The rebuild suite skips on rebuild-contracts-green.json, keyed by `contracts_fingerprint` over its closure: the repo files under rebuild/ and glyph_data/, the harness files in REBUILD_GATE_HARNESS_PATHS, conftest.py, pyproject.toml, uv.lock by its dependency pins, and the site fonts without their head and name tables. The closure contains no build artifact, so the suite can skip whether or not run_m1 rebuilt: an M1 rebuild writes only under rebuild/out, which the closure does not include. The record also stores each test's input closure and digests of the extra paths it names; a skip requires those paths to match too. The shared contracts lifecycle prepares the plan without writes, refreshes the selection after any queue wait, and checks that runtime snapshot before publishing. A pass whose inputs changed runs only the tests whose closure the diff reaches; a rune edit reruns the tests that load the spec and nothing else. rebuild.tools.contracts_closure defines what a closure holds and when a test may be skipped, and runs the test whenever it cannot tell. rebuild.tools.rebuild_gate (`make test-rebuild`) writes the same record, so interactive and cycle greens share it.
 - corpus-build skips when the manifest's recorded inputs fingerprint equals the one a build would stamp now. A rebuild would then reproduce its content byte for byte, but `generated_at` is the latest input mtime, floored, so a rebuild after an mtime-only change (a checkout, a touch) could restamp it; skipping keeps the stamp, so the autosave stays aligned. When the live corpus does not match but a corpus built beside it does (a complete rebuild/out/review.next a stopped pass left, the last cycle summary's `plan.review_out`, or var/staged-review), the land swaps that directory in with its stores instead of a rebuild (`promotable_corpus` checks the preconditions). Every stamp inside a corpus depends only on content relative to its manifest, and the swap keeps the `generated_at` a rebuild could reset.
 - The review-facts step has no key and never skips: it reads the corpus build's review-facts.json sidecar and rewrites one small checked-in file in milliseconds.
 
@@ -99,6 +99,7 @@ if str(ROOT) not in sys.path:
 from rebuild.review import app_index, facts, journal, landing, store_lock, unit_index  # noqa: E402
 from rebuild.review.audit import load_ledger  # noqa: E402
 from rebuild.tools import console, cycle_paths  # noqa: E402
+from rebuild.tools import contracts_closure as contracts  # noqa: E402
 from rebuild.tools.green_record import (  # noqa: E402
     _digest_lines,
     _record_outcome,
@@ -196,23 +197,20 @@ COMPILE_CODE_FILES = (
 RETENTION_WINDOW_DAYS = 7
 # How long retention waits for the verdict store's lock before it leaves the stashes or the journal for a later pass. A merge of the whole store holds the lock for seconds, and a server POST for milliseconds.
 RETENTION_LOCK_TIMEOUT_S = 60.0
-REBUILD_LANES = ("contracts",)
 
 
-def rebuild_lane_green(lane: str) -> Path:
-    """Return the path of the lane's green record. It is read from `cycle_paths` at call time because the rebuild conftest redirects the constant under tmp_path, so a test that drives the cycle cannot leave a record in rebuild/out that the next real pass would trust."""
-    return {"contracts": cycle_paths.REBUILD_CONTRACTS_GREEN}[lane]
+def contracts_green() -> Path:
+    """Return the contracts green-record path from `cycle_paths` at call time, so the rebuild conftest's synthetic-root redirect reaches both callers."""
+    return cycle_paths.REBUILD_CONTRACTS_GREEN
 
 
-def rebuild_lane_argv(lane: str) -> list[str]:
-    """Return the argv for one rebuild-suite lane. `--lane` is the rebuild conftest's option and also sets the pool width: under the contracts lane `-n auto` resolves to the cores this process may run on, since no worker holds a live build artifact, and under a cycle the width the plan sets in the child's environment (`contracts_pool_width`) narrows it to the cores the corpus build leaves, less gate:make-test's pool under the overlap policy on a pass that runs that gate. Every run prints its twenty-five slowest tests, so the lane's own log shows where its time went. The argv also names the two closure files beside the green record: the selection file the caller writes just before the spawn, naming the tests the record shows are unaffected, and the sidecar the suite writes at session end with every test's recorded closure. Both are resolved from `rebuild_lane_green` at call time, so a test that redirects the record redirects them too."""
+def contracts_argv() -> list[str]:
+    """Return the contracts suite's argv with its selection and sidecar paths beside the green record. `-n auto` uses the cores available to this process or the cycle's explicit worker override; the suite reports its slowest tests in its own log."""
     argv = [
         "uv",
         "run",
         "pytest",
         "rebuild/",
-        "--lane",
-        lane,
         "-n",
         "auto",
         "--dist",
@@ -222,16 +220,13 @@ def rebuild_lane_argv(lane: str) -> list[str]:
         "-rfE",
         "--durations=25",
     ]
-    if lane == "contracts":
-        from rebuild.tools import contracts_closure
-
-        record = rebuild_lane_green(lane)
-        argv += [
-            "--closure-skip",
-            str(contracts_closure.selection_path(record)),
-            "--closure-record",
-            str(contracts_closure.sidecar_path(record)),
-        ]
+    record = contracts_green()
+    argv += [
+        "--closure-skip",
+        str(contracts.selection_path(record)),
+        "--closure-record",
+        str(contracts.sidecar_path(record)),
+    ]
     return argv
 
 
@@ -857,17 +852,15 @@ def rebuild_gate_closure_files(root: Path) -> list[str] | None:
     )
 
 
-def rebuild_lane_fingerprint(root: Path, lane: str) -> str | None:
-    """Return the content key over one lane's input closure: the digest `rebuild_lane_closure` computes, whose per-label lines define what the key covers."""
-    return rebuild_lane_closure(root, lane)[0]
+def contracts_fingerprint(root: Path) -> str | None:
+    """Return the contracts roster key from `contracts_closure`, whose per-label digests define what the key covers."""
+    return contracts_closure(root)[0]
 
 
-def rebuild_lane_closure(root: Path, lane: str) -> tuple[str | None, dict[str, str] | None]:
+def contracts_closure(root: Path) -> tuple[str | None, dict[str, str] | None]:
     """Return the rebuild suite's input closure as the key and the per-label digest map the key is computed from. One pass over the files produces both, and because the map is the key's only source, every input that can change the key is a label the per-test selection can see change. The closure covers the repo files from `rebuild_gate_closure_files`, which has already dropped the exempt paths, so a contact-signature bless changes nothing here. It also covers the site fonts, hashed as one `fonts` label through `fingerprint.fonts_value` without their `head` and `name` tables. They are `make all` output that the shaping tests measure against, no rune edit changes them, every baseline header records the Senior font's sha, and `baseline_subset.check_font_provenance` checks the oracle's tables against it. Leaving out those two tables means the `make all` a version bump runs changes nothing here, while a glyph, anchor or layout change does. The closure contains no build artifact, so a verdict-only or artifact-only cycle re-runs nothing here, and an M1 rebuild, which writes only under rebuild/out, cannot change the key during a pass. The harness list is included because collecting rebuild/ imports test/test_shaping.py in every process, and that imports the tools/ modules. The rune files, the divergence ledger and the standing approvals get prose-insensitive hashes, because the tests that load the live spec and ledgers read structure, not prose. The verdict store is not in the closure (the suite uses it only through fixtures), so a verdict-only cycle skips the suite. None when git is unavailable, in which case the caller must run the suite."""
     from rebuild.pipeline import fingerprint
 
-    if lane not in REBUILD_LANES:
-        raise ValueError(f"{lane!r} is not a lane of the rebuild suite; the lanes are {REBUILD_LANES}")
     files = rebuild_gate_closure_files(root)
     if files is None:
         return None, None
@@ -1234,8 +1227,7 @@ class Plan:
     corpus_note: str = ""
     skip_contracts: bool = False
     contracts_note: str = ""
-    contracts_skip: list[str] = field(default_factory=list)
-    contracts_files: dict[str, str] | None = None
+    contracts_run: contracts.ContractsRun | None = None
     conform_note: str = ""
     conform_proven: bool = False
     skip_verdict_update: bool = False
@@ -1960,8 +1952,7 @@ def build_plan(
     corpus_note: str = "",
     skip_contracts: bool = False,
     contracts_note: str = "",
-    contracts_skip: list[str] | None = None,
-    contracts_files: dict[str, str] | None = None,
+    contracts_run: contracts.ContractsRun | None = None,
     conform_note: str = "",
     conform_proven: bool = False,
     skip_verdict_update: bool = False,
@@ -2185,8 +2176,7 @@ def build_plan(
         corpus_note=corpus_note,
         skip_contracts=skip_contracts,
         contracts_note=contracts_note,
-        contracts_skip=list(contracts_skip or []),
-        contracts_files=contracts_files,
+        contracts_run=contracts_run,
         conform_note=conform_note,
         conform_proven=conform_proven,
         skip_verdict_update=skip_verdict_update,
@@ -2475,7 +2465,7 @@ def build_plan(
             plan.steps.append(
                 Step(
                     "gate:rebuild-contracts",
-                    rebuild_lane_argv("contracts"),
+                    contracts_argv(),
                     contracts_submission_note(skip_corpus=skip_corpus)
                     + (f"; {contracts_note}" if contracts_note else ""),
                     lane="contracts",
@@ -2878,7 +2868,7 @@ class CycleReport:
     gate_conform_green: bool | None = None
     gate_make_test: str = "not run"
     gate_make_test_green: bool | None = None
-    contracts_recordable: bool = False
+    contracts_proven: bool = False
     conform_proven: bool = False
     interrupted: bool = False
     run_m1_failed: bool = False
@@ -3823,12 +3813,42 @@ def _gate_contracts_task(
     emit: console.CycleConsole,
     registry: _ChildRegistry,
     argv: list[str],
+    force: bool = False,
+    record: bool = False,
 ) -> CheckResult:
     """Run gate:rebuild-contracts, the rebuild suite (every test under rebuild/, none of which reads a live build artifact), and return its result. Because it reads no build output, it is submitted right after gate:conform, once the run_m1 gate has passed, and runs beside the corpus build at the width `contracts_pool_width` sets on its environment: the cores the build's parent and workers leave free, less gate:make-test's pool under the overlap policy on a pass that runs that gate. Under the overlap policy it shares those cores with gate:conform's sweep. Under the queue policy it also waits for gate:make-test and gate:conform, so only one heavy gate pool runs at a time."""
     if pool_policy == "queue":
         _await_gate_futures(conform_fut, make_fut)
-    result = spawn("gate:rebuild-contracts", argv, emit=emit, registry=registry, stream=False)
+    run = contracts.prepare_run(ROOT, force)
+    if run.skippable:
+        emit.step_skipped("gate:rebuild-contracts", "input closure unchanged since its last green run")
+        return CheckResult(
+            check="rebuild-contracts",
+            outcome="skipped",
+            status="skipped (input closure unchanged since its last green run)",
+            failures=[],
+            failed_ids=[],
+        )
+    emit.note("gate:rebuild-contracts", run.selection.describe())
+    contracts.start_run(run)
+    try:
+        result = spawn("gate:rebuild-contracts", argv, emit=emit, registry=registry, stream=False)
+    except Exception:
+        if record:
+            contracts.finish_run(ROOT, run, False)
+        raise
     gate = classify_rebuild_output(result.stdout, result.returncode, "rebuild-contracts")
+    if record:
+        finished = contracts.finish_run(ROOT, run, gate.ok)
+        if finished.status == "drifted":
+            emit.note(
+                "gate:rebuild-contracts",
+                "gate:rebuild-contracts green, but its input closure changed while the cycle ran — green not recorded",
+            )
+        elif finished.status == "unavailable":
+            emit.note(
+                "gate:rebuild-contracts", "closure fingerprint unavailable without git — green not recorded"
+            )
     _close_gate(emit, "gate:rebuild-contracts", result, gate)
     return gate
 
@@ -3852,27 +3872,26 @@ def _rc_result(check: str, returncode: int, failure: str) -> CheckResult:
     )
 
 
-def _join_rebuild_lane(
+def _join_contracts(
     report: CycleReport,
     failures: list[str],
     fut: Future,
-    lane: str,
     emit: console.CycleConsole,
     timings: CycleTimings | None = None,
 ) -> None:
-    """Record one rebuild lane's outcome in the report and its check result in the timings journal. A task that raised records no check line, because the exception is a failure of the thread pool, not a result from the suite; the report shows "FAILED (exception)"."""
-    gate = _gate_result(fut, f"gate:rebuild-{lane}", failures)
+    """Record the contracts outcome and its timings check. A task that raised records no check line, because the exception is a failure of the thread pool, not a suite result."""
+    gate = _gate_result(fut, "gate:rebuild-contracts", failures)
     if gate is None:
-        status, green, recordable = "FAILED (exception)", False, False
+        status, green = "FAILED (exception)", False
     else:
-        status, green, recordable = gate.status, not gate.failures, gate.recordable
+        status, green = gate.status, None if gate.outcome == "skipped" else gate.ok
+        report.contracts_proven = gate.outcome == "skipped"
         for test_id in gate.failed_ids:
-            emit.note(f"gate:rebuild-{lane}", f"hard rebuild failure ({lane}): {test_id}")
+            emit.note("gate:rebuild-contracts", f"hard rebuild failure (contracts): {test_id}")
         failures.extend(gate.failures)
         if timings is not None:
             timings.record_check(gate)
     report.gate_contracts, report.gate_contracts_green = status, green
-    report.contracts_recordable = recordable
 
 
 def _join_gates(
@@ -3899,7 +3918,7 @@ def _join_gates(
             if timings is not None:
                 timings.record_check(gate)
     if contracts_fut is not None:
-        _join_rebuild_lane(report, failures, contracts_fut, "contracts", emit, timings)
+        _join_contracts(report, failures, contracts_fut, emit, timings)
     if conform_fut is not None:
         conform = _gate_result(conform_fut, "gate:conform", failures)
         if conform is None:
@@ -3932,11 +3951,10 @@ def _verdict_update_settled(report: CycleReport) -> bool:
     return report.verdict_update_fixpoint
 
 
-def _record_gate_greens(
-    report: CycleReport, plan: Plan, gate_keys: dict[str, str], emit: console.CycleConsole
+def _record_conform_green(
+    report: CycleReport, plan: Plan, key: str | None, emit: console.CycleConsole
 ) -> None:
-    """Write the green records of the gates that ran beside the build, after they joined. gate:conform's key is taken right after run_m1 finishes, where its skip is decided, and the rebuild suite's just before the corpus build, where the suite is submitted. Later steps cannot change either key: the corpus build writes only review output, which the suite's closure excludes, and the review-facts pins are exempt from that closure. Each key is recomputed here before recording, so a source file edited while the gates ran is never recorded green. A red gate whose key matches its existing record deletes that record."""
-    key = gate_keys.get("conform")
+    """Publish the joined conformance result against the key captured after run_m1. A passing sweep records only while its key still matches, and a failure clears only a record for that key. The contracts task finalizes its own input snapshot through the shared contracts lifecycle."""
     if key and report.gate_conform_green is not None:
         settled = settle_green(
             cycle_paths.CONFORM_GREEN,
@@ -3950,52 +3968,6 @@ def _record_gate_greens(
                 "gate:conform",
                 "gate:conform green, but its inputs changed while the cycle ran — green not recorded",
             )
-    for lane, recordable, green in (("contracts", report.contracts_recordable, report.gate_contracts_green),):
-        key = gate_keys.get(lane)
-        if not key:
-            continue
-        record = rebuild_lane_green(lane)
-        if recordable:
-            drifted = f"gate:rebuild-{lane} green, but its input closure changed while the cycle ran — green not recorded"
-            if lane == "contracts":
-                now, roster = rebuild_lane_closure(ROOT, lane)
-                payload = _contracts_payload(plan, roster) if now == key else None
-                if payload is None:
-                    emit.note(f"gate:rebuild-{lane}", drifted)
-                else:
-                    record_green(record, key, files=payload.files, closures=payload.closures)
-            elif rebuild_lane_fingerprint(ROOT, lane) == key:
-                record_green(record, key)
-            else:
-                emit.note(f"gate:rebuild-{lane}", drifted)
-        elif green is False:
-            clear_contradicted_green(record, key)
-
-
-def _write_contracts_selection(plan: Plan) -> None:
-    """Write the selection file the contracts spawn reads from the ids the plan resolved, and delete the previous run's sidecar so that a suite that dies before session end cannot leave a stale one to be merged as this run's."""
-    from rebuild.tools import contracts_closure
-
-    record = rebuild_lane_green("contracts")
-    contracts_closure.write_selection(contracts_closure.selection_path(record), plan.contracts_skip)
-    contracts_closure.sidecar_path(record).unlink(missing_ok=True)
-
-
-def _contracts_payload(plan: Plan, roster: dict[str, str] | None):
-    """Return what a green contracts gate records beside its key, or None when the roster is unavailable or a label the selection was taken over has changed since (`contracts_closure.record_payload`)."""
-    from rebuild.tools import contracts_closure
-
-    if roster is None:
-        return None
-    record = rebuild_lane_green("contracts")
-    payload = contracts_closure.record_payload(
-        ROOT,
-        plan.contracts_files or {},
-        roster,
-        read_green_record(record),
-        contracts_closure.sidecar_path(record),
-    )
-    return None if payload.moved else payload
 
 
 def _timed_spawn(spawn, report: CycleReport):
@@ -4044,7 +4016,7 @@ def _run_cycle(
         )
         contracts_fut: Future | None = None
         conform_fut: Future | None = None
-        gate_keys: dict[str, str] = {}
+        conform_key: str | None = None
         if plan.skip_gates:
             emit.step_skipped("gates", "--skip-gates")
         if not plan.skip_gates and plan.skip_conform:
@@ -4083,9 +4055,9 @@ def _run_cycle(
             return _finish(report, failures, plan, timings, emit)
 
         if not plan.skip_gates and not plan.skip_conform:
-            conform_key = conform_skip_fingerprint(ROOT, plan.conform_max_length)
+            current_conform_key = conform_skip_fingerprint(ROOT, plan.conform_max_length)
             green = None if plan.fresh else read_green_record(cycle_paths.CONFORM_GREEN)
-            if green is not None and green["fingerprint"] == conform_key:
+            if green is not None and green["fingerprint"] == current_conform_key:
                 report.conform_proven = True
                 report.gate_conform = f"skipped ({CONFORM_SKIP_NOTE})"
                 emit.step_skipped(
@@ -4094,7 +4066,7 @@ def _run_cycle(
                 )
             else:
                 if plan.record_greens:
-                    gate_keys["conform"] = conform_key
+                    conform_key = current_conform_key
                 conform_fut = pool.submit(
                     _gate_conform_task,
                     plan.pool_policy,
@@ -4105,10 +4077,7 @@ def _run_cycle(
                     plan.argv("gate:conform"),
                 )
 
-        if not plan.skip_gates and not plan.skip_contracts:
-            if plan.record_greens:
-                gate_keys["contracts"] = rebuild_lane_fingerprint(ROOT, "contracts") or ""
-            _write_contracts_selection(plan)
+        if not plan.skip_gates and (not plan.skip_contracts or plan.contracts_run is not None):
             contracts_fut = pool.submit(
                 _gate_contracts_task,
                 plan.pool_policy,
@@ -4123,13 +4092,15 @@ def _run_cycle(
                 ),
                 emit,
                 registry,
-                plan.argv("gate:rebuild-contracts"),
+                contracts_argv() if plan.skip_contracts else plan.argv("gate:rebuild-contracts"),
+                plan.fresh,
+                plan.record_greens,
             )
 
         def stop_here(failure: str) -> int:
             failures.append(failure)
             _join_gates(report, failures, js_fut, contracts_fut, conform_fut, make_fut, emit, timings)
-            _record_gate_greens(report, plan, gate_keys, emit)
+            _record_conform_green(report, plan, conform_key, emit)
             return _finish(report, failures, plan, timings, emit)
 
         served_before = _served_generated_at() if plan.review_out is None else None
@@ -4225,7 +4196,7 @@ def _run_cycle(
             record_verdict_update_green(verdict_update_key)
 
         _join_gates(report, failures, js_fut, contracts_fut, conform_fut, make_fut, emit, timings)
-        _record_gate_greens(report, plan, gate_keys, emit)
+        _record_conform_green(report, plan, conform_key, emit)
         _do_job_costs(report, spawn=spawn, emit=emit, registry=registry, plan=plan)
         return _finish(report, failures, plan, timings, emit)
     except KeyboardInterrupt as stop:
@@ -4529,7 +4500,10 @@ def cycle_summary_payload(report: CycleReport, failures: list[str], plan: Plan, 
             "rebuild_contracts": _gate_entry(
                 report.gate_contracts,
                 report.gate_contracts_green,
-                _skip_kind(proved=plan.skip_contracts),
+                _skip_kind(
+                    proved=report.contracts_proven
+                    or (plan.skip_contracts and report.gate_contracts_green is None)
+                ),
             ),
             "conform": _gate_entry(
                 report.gate_conform,
@@ -4595,7 +4569,12 @@ def cycle_summary_payload(report: CycleReport, failures: list[str], plan: Plan, 
             "signature_jobs": plan.signature_jobs if plan.runs("corpus-build") else None,
             "standing_fill_jobs": plan.standing_fill_jobs if plan.runs("verdict-update") else None,
             "make_test_workers": plan.make_test_workers if plan.runs("gate:make-test") else None,
-            "contracts_workers": plan.contracts_workers if plan.runs("gate:rebuild-contracts") else None,
+            "contracts_workers": (
+                plan.contracts_workers
+                if report.gate_contracts_green is not None
+                or (plan.runs("gate:rebuild-contracts") and not report.contracts_proven)
+                else None
+            ),
             "conform_jobs": (
                 plan.conform_jobs if plan.runs("gate:conform") and not report.conform_proven else None
             ),
@@ -4609,7 +4588,8 @@ def cycle_summary_payload(report: CycleReport, failures: list[str], plan: Plan, 
             "promote_corpus": _as_str(plan.promote_corpus),
             "next_corpus": _as_str(plan.next_corpus),
             "land": plan.land,
-            "skip_contracts": plan.skip_contracts,
+            "skip_contracts": report.contracts_proven
+            or (plan.skip_contracts and report.gate_contracts_green is None),
             "skip_verdict_update": plan.skip_verdict_update,
             "review_out": _as_str(plan.review_out),
             "first_run": plan.first_run,
@@ -5113,21 +5093,14 @@ def _run_pass(args: argparse.Namespace, *, recover: bool = True) -> int:
     contracts_note = ""
     conform_note = ""
     auto_skip_conform = False
-    contracts_skip: list[str] = []
-    contracts_files: dict[str, str] | None = None
-    if not args.fresh and not args.skip_gates:
-        from rebuild.tools import contracts_closure
-
-        contracts_key, contracts_roster = rebuild_lane_closure(ROOT, "contracts")
-        green = read_green_record(cycle_paths.REBUILD_CONTRACTS_GREEN)
-        if contracts_key is not None and green is not None and green["fingerprint"] == contracts_key:
+    contracts_run = None
+    if not args.skip_gates:
+        contracts_run = contracts.prepare_run(ROOT, args.fresh)
+        if contracts_run.skippable:
             skip_contracts = True
             contracts_note = "input closure unchanged since its last green run; --fresh overrides"
-        elif contracts_roster is not None:
-            contracts_files = contracts_closure.current_files(ROOT, contracts_roster, green)
-            selection = contracts_closure.select(green, contracts_files)
-            contracts_skip = sorted(selection.skip)
-            contracts_note = selection.describe()
+        else:
+            contracts_note = contracts_run.selection.describe()
     if not args.fresh:
         green = read_green_record(cycle_paths.RUN_M1_GREEN)
         if green is not None and green["fingerprint"] == run_m1_fp and m1_artifacts_present(ROOT):
@@ -5255,8 +5228,7 @@ def _run_pass(args: argparse.Namespace, *, recover: bool = True) -> int:
         corpus_note=corpus_note,
         skip_contracts=skip_contracts,
         contracts_note=contracts_note,
-        contracts_skip=contracts_skip,
-        contracts_files=contracts_files,
+        contracts_run=contracts_run,
         conform_note=conform_note,
         conform_proven=auto_skip_conform,
         skip_verdict_update=skip_verdict_update,

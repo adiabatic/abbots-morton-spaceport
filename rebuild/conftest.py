@@ -1,8 +1,8 @@
 """Shared fixtures for the rebuild suite, and the guard that keeps every test in it off live build artifacts.
 
-The suite is one lane, **contracts**: every test reads only checked-in inputs and what it builds itself, so the suite runs at full xdist width. The build checks its own artifacts (`check_unit` and `check_shards` in `rebuild/review/build.py` for the corpus, `run_m1.run_rule_witnesses` for the tables' rule certificates), so no test needs to read `rebuild/out/`. `--lane contracts` names the lane, and the default, `all`, collects the same tests. `pytest_xdist_auto_num_workers` here resolves `-n auto` under `--lane contracts` and otherwise defers to the root conftest. `PYTEST_XDIST_AUTO_NUM_WORKERS` overrides both.
+Every test reads only checked-in inputs and what it builds itself, so the suite runs at full xdist width. The build checks its own artifacts (`check_unit` and `check_shards` in `rebuild/review/build.py` for the corpus, `run_m1.run_rule_witnesses` for the tables' rule certificates), so no test needs to read `rebuild/out/`. The root conftest resolves `-n auto` to every usable core and honors `PYTEST_XDIST_AUTO_NUM_WORKERS` for every collection mode.
 
-A `sys.addaudithook` guard enforces the lane. It is installed once per process and is active only during the setup, call, and teardown of an item this conftest governs. While it is active, any audited file operation on a path under the live trees (`rebuild/out/`, all of `tmp/` and `var/`, the gate's exempt prefixes that are not source, and the root `verdicts-*` stores) raises `ContractsLaneViolation`, naming the test and the path. A phase that catches that exception still fails through `pytest_runtest_makereport`. The guard does not see subprocess children or `Path.exists()` and `os.stat`; `_audit` describes both gaps.
+A `sys.addaudithook` guard enforces that boundary. It is installed once per process and is active only during the setup, call, and teardown of an item this conftest governs. While it is active, any audited file operation on a path under the live trees (`rebuild/out/`, all of `tmp/` and `var/`, the gate's exempt prefixes that are not source, and the root `verdicts-*` stores) raises `ContractsLaneViolation`, naming the test and the path. A phase that catches that exception still fails through `pytest_runtest_makereport`. The guard does not see subprocess children or `Path.exists()` and `os.stat`; `_audit` describes both gaps.
 
 The same hook records each contracts item's input closure. `rebuild.tools.contracts_closure` reads the record and decides when a closure lets a test be skipped. The recorder adds to an item's closure every repo file the item opens, including a font `uharfbuzz` maps (`_wrap_blob_reads` reports that read as an `open` event), and every module the item imports for the first time in this process. A child process leaves the item's inputs untraced, with two exceptions: the git commands `closure_record.hermetic_child` accepts, and the kernel or its cargo build (`closure_record.kernel_child`), which flags the item so the crate's sources are added to its closure. A multiprocessing worker raises no audit event, so `BaseProcess.start` is wrapped to report it. A file a module opens while its body is being imported is credited to that module (`_attribute_import_read`), so every test whose closure includes the module gets the read. What a fixture scoped wider than a function reads during its setup is credited to the fixture and added to every item that requests it, because the fixture sets up once, under a single item. `--closure-record PATH` makes the controller write every worker's closures to a sidecar at session end, and `--closure-skip PATH` deselects the contracts items a selection file names. The gate passes both options, and a bare `uv run pytest rebuild/` neither records nor skips.
 
@@ -24,7 +24,7 @@ from types import ModuleType
 
 import pytest
 
-from rebuild.tools import closure_record, cycle_paths, cycle_timings, memory_budget, standing_client
+from rebuild.tools import closure_record, cycle_paths, cycle_timings, standing_client
 
 LIVE_DELETION_TARGETS = (
     *cycle_paths.M1_SUMMARY_FILES.values(),
@@ -43,7 +43,6 @@ GREEN_RECORDS = (
 
 REBUILD_DIR = Path(__file__).resolve().parent
 MINI = REBUILD_DIR / "review" / "fixtures" / "mini"
-LANES = ("contracts",)
 # Collection skips the crate, whose target/ tree is nearly every entry the walk would otherwise visit, and the build output. Every visited entry costs each xdist worker a `collect_ignore_glob` lookup that misses on each conftest, since none defines it, and on CPython 3.13+ a module attribute miss formats its error through getcwd() when sys.path[0] is empty, as it is in xdist's `python -c` workers, so without these entries the walk is most of a narrowed run's fixed startup cost.
 collect_ignore = ["kernel-rs", "out"]
 # The live trees: rebuild/out/, all of tmp/ and var/, the root verdicts-* stores, and the rebuild gate's exempt prefixes, minus `_EXEMPT_SOURCE`. The gate exempts rebuild/evidence/ and the review-facts pins because they are regenerated state, but it exempts rebuild/review/jstests/ (the JS suite) and rebuild/m1-contact-allow.yaml (read only by the defect gate) only because it has no reason to hash them. Those two are checked-in source, which a contracts test may read. A test that needs a scratch directory takes `tmp_path`.
@@ -60,7 +59,7 @@ _FORBIDDEN = tuple(
 )
 _FORBIDDEN_TREES = frozenset(prefix.rstrip(os.sep) for prefix in _FORBIDDEN if prefix.endswith(os.sep))
 _ROOT_PREFIX = str(REPO_ROOT) + os.sep
-# Events whose first argument is a path the process reads, which the closure records. os.scandir and os.listdir are checked for violations but not recorded, because a listing changes only when an input is added or removed, and that diff runs the whole lane.
+# Events whose first argument is a path the process reads, which the closure records. os.scandir and os.listdir are checked for violations but not recorded, because a listing changes only when an input is added or removed, and that diff runs the whole suite.
 _READ_EVENTS = frozenset(("open", "shutil.copyfile", "shutil.copytree", "shutil.move"))
 # Every way this interpreter starts a child that the hook can see. Only a subprocess.Popen argv is passed to `closure_record.hermetic_child` and `kernel_child`, so the os.* events always mark the item's inputs untraced.
 _SPAWN_EVENTS = frozenset(
@@ -309,23 +308,23 @@ def pytest_addoption(parser: pytest.Parser) -> None:
     parser.addoption(
         "--lane",
         action="store",
-        default="all",
-        choices=[*LANES, "all"],
-        help="Name the rebuild suite's one lane, contracts: no live build artifacts, every core this process may run on. The default, all, collects the same tests.",
+        default=None,
+        choices=["contracts", "all"],
+        help="Compatibility option for standing-approval workflows; contracts and all collect the same tests.",
     )
     parser.addoption(
         "--closure-record",
         action="store",
         default=None,
         metavar="PATH",
-        help="Write every item's recorded input closure to this sidecar at session end (rebuild.tools.contracts_closure reads it into the lane's green record).",
+        help="Write every item's recorded input closure to this sidecar at session end (rebuild.tools.contracts_closure reads it into the suite's green record).",
     )
     parser.addoption(
         "--closure-skip",
         action="store",
         default=None,
         metavar="PATH",
-        help="Deselect the items this selection file names as shown unaffected by the diff since the lane's last green run.",
+        help="Deselect the items this selection file names as shown unaffected by the diff since the suite's last green run.",
     )
 
 
@@ -340,7 +339,7 @@ def pytest_configure(config: pytest.Config) -> None:
 
 
 def governs(path: Path) -> bool:
-    """Return whether this conftest governs a collected file: everything under rebuild/, plus anything collected outside the repo. The second case lets the pytester subprocesses in test_lanes.py, which load this module with `-p rebuild.conftest` and collect from their own temp directory, see the same selection the real suite does. The rest of the repo's suite is excluded, so a combined `pytest rebuild/ test/` never guards or deselects the font tests."""
+    """Return whether this conftest governs a collected file: everything under rebuild/, plus anything collected outside the repo. The second case lets the pytester subprocesses in test_contracts.py, which load this module with `-p rebuild.conftest` and collect from their own temp directory, see the same selection the real suite does. The rest of the repo's suite is excluded, so a combined `pytest rebuild/ test/` never guards or deselects the font tests."""
     if REBUILD_DIR == path.parent or REBUILD_DIR in path.parents:
         return True
     return REPO_ROOT != path.parent and REPO_ROOT not in path.parents
@@ -352,7 +351,7 @@ def _governed(item: pytest.Item) -> bool:
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
-    """Deselect the governed items the `--closure-skip` selection file names. Every governed id is recorded as collected first, because `merge_closures` keeps a skipped test's previous closure only when the sidecar lists the test as collected. `--lane` deselects nothing."""
+    """Deselect the governed items the `--closure-skip` selection file names. Every governed id is recorded as collected first, because `merge_closures` keeps a skipped test's previous closure only when the sidecar lists the test as collected."""
     skip_path = config.getoption("closure_skip", default=None)
     skip = closure_record.read_selection(Path(skip_path)) if skip_path else frozenset()
     kept: list[pytest.Item] = []
@@ -368,26 +367,6 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
     if dropped:
         config.hook.pytest_deselected(items=dropped)
     items[:] = kept
-
-
-@pytest.hookimpl(tryfirst=True)
-def pytest_xdist_auto_num_workers(config: pytest.Config) -> int | None:
-    """Resolve `-n auto` under `--lane contracts` to `memory_budget.usable_cores()`, which unlike `os.cpu_count` counts a container's CPU quota. No test here reads a live artifact, so no worker holds a working set that would need a memory bound.
-
-    Any other run returns None and falls through to the root conftest, which resolves it to the same cores. That covers a bare `uv run pytest rebuild/`, a single rebuild test file, and a mixed `pytest rebuild/ test/`, which all arrive as lane `all`. It also covers `pytest .`, which does not load this file until collection, after xdist has resolved `-n auto`.
-
-    When `PYTEST_XDIST_AUTO_NUM_WORKERS` is set, this returns None so that the root conftest reads the variable, which overrides every default.
-    """
-    if os.environ.get("PYTEST_XDIST_AUTO_NUM_WORKERS"):
-        return None
-    if config.getoption("lane", default=None) == "contracts":
-        return memory_budget.usable_cores()
-    return None
-
-
-def pytest_report_header(config: pytest.Config) -> str:
-    lane = config.getoption("lane", default="all")
-    return f"rebuild lane: {lane}"
 
 
 @pytest.hookimpl(wrapper=True)
@@ -422,7 +401,7 @@ def pytest_runtest_teardown(item: pytest.Item, nextitem: pytest.Item | None):
 
 
 def pytest_sessionfinish(session: pytest.Session) -> None:
-    """Return a worker's closures through workeroutput, or, on the controller or in an unpooled run, write the `--closure-record` sidecar after every node has reported. Nothing is written without the option, so a bare run and the pytester children of test_lanes leave no file behind."""
+    """Return a worker's closures through workeroutput, or, on the controller or in an unpooled run, write the `--closure-record` sidecar after every node has reported. Nothing is written without the option, so a bare run and the pytester children of test_contracts leave no file behind."""
     config = session.config
     local = {
         "collected": list(_collected_contracts),
@@ -479,7 +458,7 @@ def _redirect_cycle_writes(monkeypatch, tmp_path):
 
     The green records in `GREEN_RECORDS` and the cycle summary are redirected because a test driving `_run_cycle` over mocked stages would otherwise leave a record in rebuild/out that the next real cycle reads as a pass. The build-log root is redirected because `main` creates a run directory and a `latest` symlink under it, which the next reader would take for the newest real pass. The cycle directory (`cycle_paths.CYCLE_VAR`) is redirected because `main` takes the pass lock there and creates a scratch directory under it, and a real pass holds that lock while the rebuild suite runs as its child, so a test driving `main` against the live one would wait on its own parent.
 
-    The timings journal (`cycle_timings.JOURNAL`) is redirected because most of its writers are not the cycle. A pooled corpus build records its per-worker peaks there, so a test that runs `build_m1` at more than one job would record a mini-bundle worker's peak as a measurement for the real worker's `*_BYTES` constant, and `make job-costs` would compare the constant with that peak. Every evaluated check records its outcome there too, so a test driving either gate wrapper or run_m1's CLI would add a stubbed suite's outcome to what `make cycle-timings --by-outcome` reports. `record_pool` and `record_check` read the constant at call time, so this redirect reaches every writer. The lane's own pool record is unaffected, because the root conftest writes it on the controller from `pytest_terminal_summary`, after every fixture is torn down.
+    The timings journal (`cycle_timings.JOURNAL`) is redirected because most of its writers are not the cycle. A pooled corpus build records its per-worker peaks there, so a test that runs `build_m1` at more than one job would record a mini-bundle worker's peak as a measurement for the real worker's `*_BYTES` constant, and `make job-costs` would compare the constant with that peak. Every evaluated check records its outcome there too, so a test driving either gate wrapper or run_m1's CLI would add a stubbed suite's outcome to what `make cycle-timings --by-outcome` reports. `record_pool` and `record_check` read the constant at call time, so this redirect reaches every writer. The suite's own pool record is unaffected, because the root conftest writes it on the controller from `pytest_terminal_summary`, after every fixture is torn down.
 
     `cycle_timings.CYCLE_RUN_ENV` (AMS_CYCLE_RUN) is removed from the environment, because run_m1's CLI and the make-test gate wrapper skip recording their check line when it is set. It can come from outside, because the rebuild suite runs as a cycle child and inherits a real pass's run id, or from inside, because `artifact_cycle.main` sets it on this process and it would stay set for whatever test the xdist worker runs next. `setenv` comes before `delenv` so that `delenv` cannot raise on an absent variable and so that teardown restores the variable's original state, removing any value the test set. A test that wants to be a cycle's child sets the variable itself.
 

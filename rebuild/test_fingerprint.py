@@ -1090,17 +1090,14 @@ def test_the_gate_closures_stay_raw_through_a_docstring_edit(tmp_path):
     table.write_text('"""The table."""\n\nTABLE = 1\n')
     build_font.write_text('"""The compile."""\n\nBUILD_FONT = 1\n')
     subprocess.run(["git", "-C", str(root), "add", "-A"], check=True)
-    lanes = {
-        lane: artifact_cycle.rebuild_lane_fingerprint(root, lane) for lane in artifact_cycle.REBUILD_LANES
-    }
+    contracts = artifact_cycle.contracts_fingerprint(root)
     make_test = artifact_cycle.make_test_closure_fingerprint(root)
-    assert all(key is not None for key in lanes.values()) and make_test is not None
+    assert contracts is not None and make_test is not None
     components = fingerprint.compute_all(root)
     table.write_text('"""The table, reworded."""\n\nTABLE = 1\n')
     build_font.write_text('"""The compile, reworded."""\n\nBUILD_FONT = 1\n')
     assert fingerprint.compute_all(root) == components
-    for lane in artifact_cycle.REBUILD_LANES:
-        assert artifact_cycle.rebuild_lane_fingerprint(root, lane) != lanes[lane], lane
+    assert artifact_cycle.contracts_fingerprint(root) != contracts
     assert artifact_cycle.make_test_closure_fingerprint(root) != make_test
 
 
@@ -1364,7 +1361,7 @@ def test_the_font_content_digest_is_memoized_on_the_bytes_and_recomputed_when_th
 
 def _version_bump_keys(root):
     before, junior = fingerprint.font_paths(root)
-    _key, labels = artifact_cycle.rebuild_lane_closure(root, artifact_cycle.REBUILD_LANES[0])
+    _key, labels = artifact_cycle.contracts_closure(root)
     assert labels is not None, "the lane closure needs git"
     return (
         fingerprint.stage_b(root, before, junior)["fonts"],
