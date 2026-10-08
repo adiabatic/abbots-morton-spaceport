@@ -18,7 +18,7 @@ use crate::engine::{
     DeltaId, Pointer, ReadsId, TraceEntry, TraceKey, TraceNotesId, TraceSettledId,
 };
 use crate::hash::{FastHasher, HashMap, HashSet};
-use crate::index::{Ordinal, Read, SpecIndex};
+use crate::index::{Read, SpecIndex};
 use crate::model::{PolicyRecord, Provenance, Sym, When};
 use crate::types::{
     AdjustmentToken, CellId, DecidedStage, LeftOrdinals, PackedKinds, Settled, TokenKind,
@@ -63,24 +63,10 @@ impl SnapshotEntries {
     /// The mean bucket size the index is sized for. If bucket sizes are Poisson-distributed about it, fewer than one record in a hundred sits in a bucket larger than [`Block::TAGS`].
     const PER_BUCKET: usize = 16;
 
-    /// The key's hash for bucketing and tags: its rune, stance, junction, extension and token fields packed into three words, then its kinds word, folded through [`FastHasher`]. That is four folds, where the derived `Hash` folds once or twice per field. Two keys pack alike only when they are equal, and the snapshot alone uses this hash, so it need not agree with the derived one the engine's live memo uses.
+    /// The key's hash for bucketing and tags: its own packed `Hash` ([`TraceKey`]'s, the one the engine's live trace memo uses) folded through [`FastHasher`].
     fn hash(key: &TraceKey) -> u64 {
-        let raw = |ordinal: Option<Ordinal>| u64::from(ordinal.map_or(0, Ordinal::get));
         let mut hash = FastHasher::default();
-        hash.write_u64(
-            raw(key.left_rune)
-                | (raw(key.left_stance) << 16)
-                | (raw(key.left_junction) << 32)
-                | (u64::from(key.left_extension as u16) << 48),
-        );
-        hash.write_u64(
-            u64::from(key.token.get())
-                | (raw(key.runes[0]) << 16)
-                | (raw(key.runes[1]) << 32)
-                | (raw(key.runes[2]) << 48),
-        );
-        hash.write_u64(raw(key.runes[3]));
-        key.kinds.hash(&mut hash);
+        key.hash(&mut hash);
         hash.finish()
     }
 

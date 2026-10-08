@@ -10,6 +10,7 @@
 //!
 //! Condition matching raises three spec defects: a left condition carrying `then:`, a right condition carrying a left-only axis, and an unresolvable class name (raised by [`SpecIndex::class_members`]). Enumeration reports every other rejection as an elimination: an unavailable entry, a forbidden pairing, an exit the closure rules out, and a refusal. A window with no candidates at all is reported by [`Engine::transition_trace`].
 
+use std::hash::{Hash, Hasher};
 use std::num::NonZeroU16;
 
 use crate::error::SettleError;
@@ -302,7 +303,7 @@ struct CandidatesMemo {
 /// The candidate memo's key. The left is reduced to its kind and the settled cell's rune, stance and junction. The left's entry, adjustments and extension are left out because enumeration reads none of them, so two lefts differing only there share one entry. The trace memo's key keeps the extension, because the commit's same-junction suppression reads it.
 ///
 /// It is packed to fourteen bytes like [`TraceKey`]: each rune, stance and junction is its field's [`Ordinal`], each slot is its rune's ordinal beside its kind, and the left's kind and the two slot kinds share one [`PackedKinds`] word. Each token has exactly one encoding, so two windows share a key exactly when their slots are equal. A key is only compared and hashed, never resolved.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct CandidatesKey {
     left_rune: Option<Ordinal>,
     left_stance: Option<Ordinal>,
@@ -311,6 +312,20 @@ struct CandidatesKey {
     runes: [Option<Ordinal>; 2],
     /// The left's kind at slot zero, then the two slots' kinds.
     kinds: PackedKinds,
+}
+
+/// The left's rune, stance and junction and the input rune in one word, the two slots' runes in a second, then the kinds word: three writes, packed as [`TraceKey`]'s are.
+impl Hash for CandidatesKey {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        state.write_u64(
+            packed(self.left_rune)
+                | (packed(self.left_stance) << 16)
+                | (packed(self.left_junction) << 32)
+                | (u64::from(self.rune.get()) << 48),
+        );
+        state.write_u64(packed(self.runes[0]) | (packed(self.runes[1]) << 16));
+        self.kinds.hash(state);
+    }
 }
 
 /// The lookahead closure's key: the proposed candidate, the follower, and the raw slot past it.
@@ -327,7 +342,7 @@ struct ClosureKey {
 /// The trace memo's key: the reduced left with its extension, the input rune, and all four raw slots. The kernel reads the left only through these fields, so lefts differing only in their cell's entry or adjustments share one entry.
 ///
 /// It is packed to twenty bytes because the memo holds one per window, over a million windows per configuration, as measured in issues #165 and #266. Each rune, stance and junction field is its field's [`Ordinal`]: two bytes naming one of the few symbols the spec offers for that position, where a `Sym` into the whole pool takes four. Each slot is its rune's ordinal beside its kind, which is what a [`RightToken`] is: a letter is its kind with a rune, and every other kind has no rune, so each token has one encoding and two windows share a key exactly when their slots are equal. The left's kind and the four slot kinds share one [`PackedKinds`] word, and the extension is an `i16` count of connector pixels. Eight ordinals, the word and the count sit at alignment two with no padding. A key is compared, hashed and sorted, and is read back only by the memo writer, which resolves each ordinal through the index that minted it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) struct TraceKey {
     pub(crate) left_rune: Option<Ordinal>,
     pub(crate) left_stance: Option<Ordinal>,
@@ -379,10 +394,35 @@ impl TraceKey {
     }
 }
 
+/// An optional ordinal as the sixteen bits a packed key hash gives it: zero for `None`, which no [`Ordinal`] takes, so two fields pack alike only when they are equal.
+fn packed(ordinal: Option<Ordinal>) -> u64 {
+    u64::from(ordinal.map_or(0, Ordinal::get))
+}
+
+/// The left's rune, stance, junction and extension in one word, the token and the first three slots' runes in a second, the last slot's rune in a third, then the kinds word: four writes, where a derived `Hash` writes once or twice per field and once more for the array's length. Two keys write alike only when they are equal. The live trace memo and the shared snapshot ([`crate::memo::SnapshotEntries`]) both hash a key this way.
+impl Hash for TraceKey {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        state.write_u64(
+            packed(self.left_rune)
+                | (packed(self.left_stance) << 16)
+                | (packed(self.left_junction) << 32)
+                | (u64::from(self.left_extension as u16) << 48),
+        );
+        state.write_u64(
+            u64::from(self.token.get())
+                | (packed(self.runes[0]) << 16)
+                | (packed(self.runes[1]) << 32)
+                | (packed(self.runes[2]) << 48),
+        );
+        state.write_u64(packed(self.runes[3]));
+        self.kinds.hash(state);
+    }
+}
+
 /// The prospect memo's key, with one shape per prospect mode. An engine's mode is fixed at construction, so one engine only ever uses one shape. The candidacy key ends at `right2`'s rune because the estimate reads nothing past the follower's right. The simulated key carries the three slots from `right2` on because the follower's replayed settlement reads them.
 ///
 /// Each field is its [`Ordinal`], as in [`TraceKey`] (issues #166 and #266), and the simulated key's three slots are their runes' ordinals beside one [`PackedKinds`] word of their kinds, so two asks share a key exactly when their slots are equal. The larger variant is eight ordinals and the word, eighteen bytes. The enum discriminant is stored in the unused zero value of a bare `Ordinal` field. An `Option<Ordinal>` field cannot hold it, because its `None` already uses that zero. A key is only compared and hashed, never resolved.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ProspectKey {
     Candidacy {
         rune: Ordinal,
@@ -401,6 +441,49 @@ enum ProspectKey {
         runes: [Option<Ordinal>; 3],
         kinds: PackedKinds,
     },
+}
+
+/// The proposed rune, stance, entry and junction in one word, then the follower and what follows it: `right1` and `right2` in a second word for a candidacy key, `right1` and the three slots' runes in a second word and the kinds word for a simulated one. That is two or three writes, packed as [`TraceKey`]'s are. No write names the variant: an engine uses one shape, so its memo never holds both, and keys of different shapes are unequal whatever they hash to.
+impl Hash for ProspectKey {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        let head = |rune: Ordinal, stance: Ordinal, entry, junction| {
+            u64::from(rune.get())
+                | (u64::from(stance.get()) << 16)
+                | (packed(entry) << 32)
+                | (packed(junction) << 48)
+        };
+        match *self {
+            Self::Candidacy {
+                rune,
+                stance,
+                entry,
+                junction,
+                right1,
+                right2,
+            } => {
+                state.write_u64(head(rune, stance, entry, junction));
+                state.write_u64(u64::from(right1.get()) | (u64::from(right2.get()) << 16));
+            }
+            Self::Simulated {
+                rune,
+                stance,
+                entry,
+                junction,
+                right1,
+                runes,
+                kinds,
+            } => {
+                state.write_u64(head(rune, stance, entry, junction));
+                state.write_u64(
+                    u64::from(right1.get())
+                        | (packed(runes[0]) << 16)
+                        | (packed(runes[1]) << 32)
+                        | (packed(runes[2]) << 48),
+                );
+                kinds.hash(state);
+            }
+        }
+    }
 }
 
 /// How one prospect ask was computed, which [`Engine::prospect`] reads to decide whether to store an entry (issue #166). A term read from the follower's simulated trace left that trace in the trace memo, when there is one, and the next ask reads it there. A term from the candidacy estimate, because the mode asks for it or because the follower's replayed settlement raised and fell back, left nothing a later ask could read, so the prospect memo keeps it.
@@ -5037,6 +5120,104 @@ mod tests {
         assert_ne!(hasher.hash_one(base), hasher.hash_one(third_space));
         assert_ne!(hasher.hash_one(base), hasher.hash_one(left_space));
         assert_eq!(base.runes_named().count(), 2);
+    }
+
+    /// The trace, candidate and prospect keys hash their fields packed into words. Over every combination of two or three values per field, where each ordinal and the extension take one value with all sixteen bits set, distinct keys hash apart, so no field is left out of its key's hash and no two fields' bits overlap.
+    #[test]
+    fn distinct_memo_keys_hash_apart_over_every_combination_of_field_values() {
+        use std::hash::BuildHasher as _;
+        let hasher = std::hash::BuildHasherDefault::<crate::hash::FastHasher>::default();
+        let optional = [None, Ordinal::new(1), Ordinal::new(u16::MAX)];
+        let bare = |choice: usize| optional[choice + 1].expect("a test ordinal is nonzero");
+        let kinds = [
+            PackedKinds::of(&[TokenKind::Edge, TokenKind::Letter]),
+            PackedKinds::of(&[TokenKind::Space, TokenKind::Letter]),
+        ];
+        let combinations = |widths: &[usize]| -> Vec<Vec<usize>> {
+            widths.iter().fold(vec![Vec::new()], |partial, &width| {
+                partial
+                    .into_iter()
+                    .flat_map(|prefix| {
+                        (0..width).map(move |choice| {
+                            let mut next = prefix.clone();
+                            next.push(choice);
+                            next
+                        })
+                    })
+                    .collect()
+            })
+        };
+        let assert_apart = |hashes: Vec<u64>| {
+            let unique: HashSet<u64> = hashes.iter().copied().collect();
+            assert_eq!(unique.len(), hashes.len());
+        };
+        assert_apart(
+            combinations(&[3, 3, 3, 3, 2, 3, 3, 3, 3, 2])
+                .iter()
+                .map(|c| {
+                    hasher.hash_one(TraceKey {
+                        left_rune: optional[c[0]],
+                        left_stance: optional[c[1]],
+                        left_junction: optional[c[2]],
+                        left_extension: c[3] as i16 - 1,
+                        token: bare(c[4]),
+                        runes: [
+                            optional[c[5]],
+                            optional[c[6]],
+                            optional[c[7]],
+                            optional[c[8]],
+                        ],
+                        kinds: kinds[c[9]],
+                    })
+                })
+                .collect(),
+        );
+        assert_apart(
+            combinations(&[3, 3, 3, 2, 3, 3, 2])
+                .iter()
+                .map(|c| {
+                    hasher.hash_one(CandidatesKey {
+                        left_rune: optional[c[0]],
+                        left_stance: optional[c[1]],
+                        left_junction: optional[c[2]],
+                        rune: bare(c[3]),
+                        runes: [optional[c[4]], optional[c[5]]],
+                        kinds: kinds[c[6]],
+                    })
+                })
+                .collect(),
+        );
+        assert_apart(
+            combinations(&[2, 2, 3, 3, 2, 2])
+                .iter()
+                .map(|c| {
+                    hasher.hash_one(ProspectKey::Candidacy {
+                        rune: bare(c[0]),
+                        stance: bare(c[1]),
+                        entry: optional[c[2]],
+                        junction: optional[c[3]],
+                        right1: bare(c[4]),
+                        right2: bare(c[5]),
+                    })
+                })
+                .collect(),
+        );
+        assert_apart(
+            combinations(&[2, 2, 3, 3, 2, 3, 3, 3, 2])
+                .iter()
+                .map(|c| {
+                    hasher.hash_one(ProspectKey::Simulated {
+                        rune: bare(c[0]),
+                        stance: bare(c[1]),
+                        entry: optional[c[2]],
+                        junction: optional[c[3]],
+                        right1: bare(c[4]),
+                        runes: [optional[c[5]], optional[c[6]], optional[c[7]]],
+                        kinds: kinds[c[8]],
+                    })
+                })
+                .collect(),
+        );
     }
 
     /// A traced window's entry records the runes its evaluation read: at least the input's and the follower's, and none the window does not name. A hit replays those reads into an open capture, as it replays its delta.
