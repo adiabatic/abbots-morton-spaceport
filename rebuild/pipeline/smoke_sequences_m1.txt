@@ -1,6 +1,6 @@
 # Curated sequence set for the M1 CoreText-vs-HarfBuzz smoke harness (M1-PLAN section 5, coretext_smoke).
 # One sequence per line as whitespace-separated hex codepoints; text after "#" is the label.
-# Codepoints: qsPea E650, qsBay E651, qsTea E652, qsDay E653, qsKey E654, qsGay E655, qsThaw E656, qsThey E657, qsFee E658, qsVie E659, qsSee E65A, qsZoo E65B, qsShe E65C, qsJai E65D, qsCheer E65E, qsJay E65F, qsYe E660, qsWay E661, qsMay E665, qsNo E666, qsLow E667, qsRoe E668, qsIt E670, qsEt E672, qsEight E673, qsAt E674, qsI E675, qsAh E676, qsAwe E677, qsOx E678, qsOy E679, qsUtter E67A, qsOut E67B, qsOoze E67E, space 0020, namer dot 00B7, ZWNJ 200C.
+# Codepoints: qsPea E650, qsBay E651, qsTea E652, qsDay E653, qsKey E654, qsGay E655, qsThaw E656, qsThey E657, qsFee E658, qsVie E659, qsSee E65A, qsZoo E65B, qsShe E65C, qsJai E65D, qsCheer E65E, qsJay E65F, qsYe E660, qsWay E661, qsHe E662, qsMay E665, qsNo E666, qsLow E667, qsRoe E668, qsIt E670, qsEt E672, qsEight E673, qsAt E674, qsI E675, qsAh E676, qsAwe E677, qsOx E678, qsOy E679, qsUtter E67A, qsOut E67B, qsOoze E67E, space 0020, namer dot 00B7, ZWNJ 200C.
 # The driver runs every line under all eight acceptance configurations.
 #
 # The prototype probe rows, carried forward.
@@ -1884,3 +1884,123 @@ E661 200C E655           # ZWNJ severs the half's exit into ·Gay
 E661 200C E67A           # ZWNJ severs the ligature
 00B7 E661                # Namer dot before Deep ·Way
 00B7 E661 E67A           # Namer dot before ·Way+Utter
+
+# ·He
+E662                     # ·He in isolation
+E650 E662                # ·Pea before ·He (break)
+E662 E650                # ·He before ·Pea (break)
+E651 E662                # ·Bay's baseline exit into ·He
+E662 E651                # ·He before ·Bay (break)
+E652 E662                # ·Tea before ·He (break)
+E662 E652                # ·He before ·Tea (break)
+E653 E662                # ·Day's baseline exit into ·He
+E662 E653                # ·He's baseline exit into half-·Day
+E654 E662                # ·Key's baseline exit into ·He
+E662 E654                # ·He before ·Key (break)
+E655 E662                # ·Gay before ·He (break)
+E662 E655                # ·He before ·Gay (break)
+E656 E662                # ·Thaw before ·He (break)
+E662 E656                # ·He before ·Thaw (break)
+E657 E662                # ·They before ·He (break)
+E662 E657                # ·He before ·They (break)
+E658 E662                # ·Fee before ·He (break)
+E662 E658                # ·He before ·Fee (break)
+E659 E662                # ·Vie before ·He (break)
+E662 E659                # ·He's baseline exit into ·Vie
+E65A E662                # ·See before ·He (break)
+E662 E65A                # ·He before ·See (break)
+E65B E662                # ·Zoo's baseline exit into ·He
+E662 E65B                # ·He's half into ·Zoo, whose entry contracts by one
+E65C E662                # ·She before ·He (break)
+E662 E65C                # ·He before ·She (break)
+E65D E662                # ·J’ai before ·He (break)
+E662 E65D                # ·He's half into ·J’ai at the x-height
+E65E E662                # ·Cheer's baseline exit into ·He
+E662 E65E                # ·He before ·Cheer (break)
+E65F E662                # ·Jay before ·He (break)
+E662 E65F                # ·He's half into ·Jay at the x-height
+E660 E662                # ·Ye before ·He (break)
+E662 E660                # ·He before ·Ye (break)
+E661 E662                # ·Way before ·He (break)
+E662 E661                # ·He before ·Way (break)
+E662 E662                # ·He before ·He (break)
+E665 E662                # ·May before ·He (break)
+E662 E665                # ·He's baseline exit into ·May
+E666 E662                # ·No before ·He (break)
+E662 E666                # ·He's half into ·No at the x-height
+E667 E662                # ·Low before ·He (break)
+E662 E667                # ·He's baseline exit into ·Low
+E668 E662                # ·Roe before ·He (break)
+E662 E668                # ·He's half into ·Roe at the x-height
+E670 E662                # ·It before ·He (break)
+E662 E670                # ·He's half into ·It at the x-height
+E672 E662                # ·Et's baseline exit into ·He
+E662 E672                # ·He's half into ·Et at the x-height
+E673 E662                # ·Eight's baseline exit into ·He
+E662 E673                # ·He's half into ·Eight at the x-height
+E674 E662                # ·At before ·He (break)
+E662 E674                # ·He's baseline exit into ·At
+E675 E662                # ·I before ·He (break)
+E662 E675                # ·He's extended baseline exit into ·I
+E676 E662                # ·Ah before ·He (break)
+E662 E676                # ·He's baseline exit into ·Ah
+E677 E662                # ·Awe's baseline exit into ·He
+E662 E677                # ·He's half into ·Awe at the x-height
+E678 E662                # ·Ox's baseline exit into ·He
+E662 E678                # ·He's half into ·Ox at the x-height
+E679 E662                # ·Oy's baseline exit into ·He
+E662 E679                # ·He before ·Oy (break)
+E67A E662                # ·Utter before ·He (break)
+E662 E67A                # ·He's baseline exit into ·Utter
+E67B E662                # ·Out before ·He (break)
+E662 E67B                # ·He's baseline exit into ·Out
+E67E E662                # ·Ooze's baseline exit into ·He
+E662 E67E                # ·He's baseline exit into ·Ooze
+E652 E679 E662           # qsTea_qsOy's baseline exit into ·He
+E662 E652 E679           # ·He before qsTea_qsOy (break)
+E653 E67A E662           # qsDay_qsUtter before ·He (break)
+E662 E653 E67A           # ·He's baseline exit into half qsDay_qsUtter
+E657 E65B E662           # qsThey_qsZoo before ·He (break)
+E662 E657 E65B           # ·He before qsThey_qsZoo (break)
+E657 E67A E662           # qsThey_qsUtter before ·He (break)
+E662 E657 E67A           # ·He before qsThey_qsUtter (break)
+E659 E67A E662           # qsVie_qsUtter before ·He (break)
+E662 E659 E67A           # ·He's baseline exit into qsVie_qsUtter's extended entry
+E65A E67A E662           # qsSee_qsUtter before ·He (break)
+E662 E65A E67A           # ·He before qsSee_qsUtter (break)
+E65D E67A E662           # qsJai_qsUtter before ·He (break)
+E662 E65D E67A           # ·He's half into qsJai_qsUtter, whose entry contracts by one
+E65F E67A E662           # qsJay_qsUtter before ·He (break)
+E662 E65F E67A           # ·He's half into qsJay_qsUtter, whose entry contracts by one
+E661 E67A E662           # qsWay_qsUtter before ·He (break)
+E662 E661 E67A           # ·He before qsWay_qsUtter (break)
+E67B E652 E662           # qsOut_qsTea before ·He (break)
+E662 E67B E652           # ·He's baseline exit into qsOut_qsTea
+E651 E662 E653           # ·He yields its entry from ·Bay to its baseline exit into half-·Day
+E653 E662 E653           # ·He yields its entry from ·Day to its baseline exit into half-·Day
+E651 E662 E65D           # ·He yields its entry from ·Bay to its half's exit into ·Jai
+E651 E662 E655           # ·Bay joins ·He when ·He cannot exit into ·Gay
+E651 E662 E670 E65F      # ·He yields its entry from ·Bay to its baseline exit into ·It, which joins ·Jay at the x-height
+E651 E662 E67A E656      # ·Bay joins ·He, and the alternate ·Utter takes the baseline join into ·Thaw
+E651 E662 E674 E665      # ·Bay joins ·He, and the falling ·At's extended exit takes ·May
+E662 E670 E65D           # ·He's baseline exit into ·It, whose extended x-height exit reaches ·Jai
+E662 E670 E656           # ·He's half into ·It, which does not join ·Thaw after a Tall letter
+E662 E670 E653           # ·He's half into ·It, which joins half-·Day at the baseline
+E662 E655                # ·He before ·Gay (break)
+E652 E653 E662           # ·Tea·Day keeps its join ahead of ·Day's exit into ·He
+E67A E652 E653 E662      # ·Utter·Tea·Day keeps the ·Tea·Day join ahead of ·Day's exit into ·He
+E662 E674 E653           # Manual: `·He ~b~ ·At ~x~ ·Day`
+E662 E67A E668           # Manual: `·He ~b~ ·Utter ~x~ ·Roe`
+E662 E670 E667           # Manual: `·He.half ~x~ ·It ~b~ ·Low`
+E662 E672 E653           # Manual: `·He.half ~x~ ·Et ~b~ ·Day.half`
+E662 E673 E65B           # Manual: `·He.half ~x~ ·Eight ~b~ ·Zoo.half`
+E662 E677 E667           # Manual: `·He ~x~ ·Awe ~b~ ·Low`
+E662 E67E E65B           # Manual: `·He ~b~ ·Ooze ~b~ ·Zoo.half`
+E662 E659 E666 E652      # Manual: `·He ~b~ ·Vie ~b~ ·No.alt ~b~ ·Tea`
+200C E662                # Locked ·He copy
+200C E662 E653           # Locked ·He keeps its baseline exit into half-·Day
+200C E662 E65D           # Locked ·He keeps its half's exit into ·Jai
+E662 200C E653           # ZWNJ severs the exit into ·Day
+E662 200C E65D           # ZWNJ severs the half's exit into ·Jai
+E651 200C E662           # ZWNJ severs the entry from ·Bay
+00B7 E662                # Namer dot before Tall ·He

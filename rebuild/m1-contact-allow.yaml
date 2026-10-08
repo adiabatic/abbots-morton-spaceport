@@ -2113,3 +2113,102 @@
 - signature: contact:qsWay.full.ex-y5:qsIt.sole.en-y5:y4
 - signature: contact:qsWay.full.ex-y5:qsIt.sole.en-y5.ex-y0:y4
 - signature: contact:qsWay.full.ex-y5:qsIt.sole.en-y5.ex-y0.ex-ext-1:y4
+
+# ·He's baseline entry sits on the foot of its stem, so a Short left letter joining at the baseline puts its last column against the stem, and the two bodies stand side by side above the junction: the bowl or tail beside the stem at y1 (·Ox, and ·Oy with no entry) or at y1 and y2 (·Ooze, the entered ·Oy, and the ·Tea·Oy ligature), the off-junction contact of the ·Ye block above. The old font places the same anchors with no adjustment (baseline rows E67E:E662, E678:E662, E679:E662, E652:E679:E662), and those composites are pixel-identical to the rebuild's. There is one signature per left entry, adjustment, and lock variant and per touching row; the junction is identical in all of them.
+- signature: contact:qsOoze.sole.en-y0.ex-y0:qsHe.full.en-y0:y1
+- signature: contact:qsOoze.sole.en-y0.ex-y0:qsHe.full.en-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the junction row.
+- signature: contact:qsOoze.sole.ex-y0:qsHe.full.en-y0:y1
+- signature: contact:qsOoze.sole.ex-y0:qsHe.full.en-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the junction row.
+- signature: contact:qsOoze.sole.ex-y0.locked:qsHe.full.en-y0:y1
+- signature: contact:qsOoze.sole.ex-y0.locked:qsHe.full.en-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the junction row.
+- signature: contact:qsOx.sole.en-y5.ex-y0:qsHe.full.en-y0:y1
+- signature: contact:qsOx.sole.en-y5.ex-y0.en-ext-1:qsHe.full.en-y0:y1
+- signature: contact:qsOx.sole.ex-y0:qsHe.full.en-y0:y1
+- signature: contact:qsOx.sole.ex-y0.locked:qsHe.full.en-y0:y1
+- signature: contact:qsOy.sole.en-y5.ex-y0:qsHe.full.en-y0:y1
+- signature: contact:qsOy.sole.en-y5.ex-y0:qsHe.full.en-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the junction row.
+- signature: contact:qsOy.sole.ex-y0:qsHe.full.en-y0:y1
+- signature: contact:qsOy.sole.ex-y0.locked:qsHe.full.en-y0:y1
+- signature: contact:qsTea_qsOy.sole.ex-y0:qsHe.full.en-y0:y1
+- signature: contact:qsTea_qsOy.sole.ex-y0:qsHe.full.en-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the junction row.
+
+# ·He's baseline exit is one column right of its stem, so a baseline follower's left edge stands beside the stem where it rises from the junction: ·Utter and the normal ·Out at y1, ·Ooze, the swept-up ·Out, and the ·Out·Tea ligature at y1 and y2, and the bar of an ·It that exits at the x-height from y1 to y5, the off-junction contact of the ·Ye block above. The old font places the same anchors with no adjustment (baseline rows E662:E67A, E662:E67B, E662:E67E, E662:E67B:E652, E662:E670:E65D, E662:E670:E65E), and those composites are pixel-identical to the rebuild's. There is one signature per ·He lock variant, per follower exit variant, and per touching row; the junction is identical in all of them.
+- signature: contact:qsHe.full.ex-y0:qsIt.sole.en-y0.ex-y5:y1
+- signature: contact:qsHe.full.ex-y0:qsIt.sole.en-y0.ex-y5:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the junction row.
+- signature: contact:qsHe.full.ex-y0:qsIt.sole.en-y0.ex-y5:y3
+  why: The pair in the `:y1` signature above also touches at y3, off the junction row.
+- signature: contact:qsHe.full.ex-y0:qsIt.sole.en-y0.ex-y5:y4
+  why: The pair in the `:y1` signature above also touches at y4, off the junction row.
+- signature: contact:qsHe.full.ex-y0:qsIt.sole.en-y0.ex-y5:y5
+  why: The pair in the `:y1` signature above also touches at y5, off the junction row.
+- signature: contact:qsHe.full.ex-y0:qsIt.sole.en-y0.ex-y5.ex-ext-1:y1
+- signature: contact:qsHe.full.ex-y0:qsIt.sole.en-y0.ex-y5.ex-ext-1:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the junction row.
+- signature: contact:qsHe.full.ex-y0:qsIt.sole.en-y0.ex-y5.ex-ext-1:y3
+  why: The pair in the `:y1` signature above also touches at y3, off the junction row.
+- signature: contact:qsHe.full.ex-y0:qsIt.sole.en-y0.ex-y5.ex-ext-1:y4
+  why: The pair in the `:y1` signature above also touches at y4, off the junction row.
+- signature: contact:qsHe.full.ex-y0:qsIt.sole.en-y0.ex-y5.ex-ext-1:y5
+  why: The pair in the `:y1` signature above also touches at y5, off the junction row.
+- signature: contact:qsHe.full.ex-y0:qsOoze.sole.en-y0:y1
+- signature: contact:qsHe.full.ex-y0:qsOoze.sole.en-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the junction row.
+- signature: contact:qsHe.full.ex-y0:qsOoze.sole.en-y0.ex-y0:y1
+- signature: contact:qsHe.full.ex-y0:qsOoze.sole.en-y0.ex-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the junction row.
+- signature: contact:qsHe.full.ex-y0:qsOut.normal.en-y0:y1
+- signature: contact:qsHe.full.ex-y0:qsOut.swept-up.en-y0.ex-y5:y1
+- signature: contact:qsHe.full.ex-y0:qsOut.swept-up.en-y0.ex-y5:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the junction row.
+- signature: contact:qsHe.full.ex-y0:qsOut.swept-up.en-y0.ex-y5.ex-ext-1:y1
+- signature: contact:qsHe.full.ex-y0:qsOut.swept-up.en-y0.ex-y5.ex-ext-1:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the junction row.
+- signature: contact:qsHe.full.ex-y0:qsOut_qsTea.sole.en-y0:y1
+- signature: contact:qsHe.full.ex-y0:qsOut_qsTea.sole.en-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the junction row.
+- signature: contact:qsHe.full.ex-y0:qsUtter.mono.en-y0:y1
+- signature: contact:qsHe.full.ex-y0:qsUtter.mono.en-y0.ex-y5:y1
+- signature: contact:qsHe.full.ex-y0:qsUtter.mono.en-y0.ex-y5.ex-ext-1:y1
+- signature: contact:qsHe.full.ex-y0.locked:qsIt.sole.en-y0.ex-y5:y1
+- signature: contact:qsHe.full.ex-y0.locked:qsIt.sole.en-y0.ex-y5:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the junction row.
+- signature: contact:qsHe.full.ex-y0.locked:qsIt.sole.en-y0.ex-y5:y3
+  why: The pair in the `:y1` signature above also touches at y3, off the junction row.
+- signature: contact:qsHe.full.ex-y0.locked:qsIt.sole.en-y0.ex-y5:y4
+  why: The pair in the `:y1` signature above also touches at y4, off the junction row.
+- signature: contact:qsHe.full.ex-y0.locked:qsIt.sole.en-y0.ex-y5:y5
+  why: The pair in the `:y1` signature above also touches at y5, off the junction row.
+- signature: contact:qsHe.full.ex-y0.locked:qsIt.sole.en-y0.ex-y5.ex-ext-1:y1
+- signature: contact:qsHe.full.ex-y0.locked:qsIt.sole.en-y0.ex-y5.ex-ext-1:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the junction row.
+- signature: contact:qsHe.full.ex-y0.locked:qsIt.sole.en-y0.ex-y5.ex-ext-1:y3
+  why: The pair in the `:y1` signature above also touches at y3, off the junction row.
+- signature: contact:qsHe.full.ex-y0.locked:qsIt.sole.en-y0.ex-y5.ex-ext-1:y4
+  why: The pair in the `:y1` signature above also touches at y4, off the junction row.
+- signature: contact:qsHe.full.ex-y0.locked:qsIt.sole.en-y0.ex-y5.ex-ext-1:y5
+  why: The pair in the `:y1` signature above also touches at y5, off the junction row.
+- signature: contact:qsHe.full.ex-y0.locked:qsOoze.sole.en-y0:y1
+- signature: contact:qsHe.full.ex-y0.locked:qsOoze.sole.en-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the junction row.
+- signature: contact:qsHe.full.ex-y0.locked:qsOoze.sole.en-y0.ex-y0:y1
+- signature: contact:qsHe.full.ex-y0.locked:qsOoze.sole.en-y0.ex-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the junction row.
+- signature: contact:qsHe.full.ex-y0.locked:qsOut.normal.en-y0:y1
+- signature: contact:qsHe.full.ex-y0.locked:qsOut.swept-up.en-y0.ex-y5:y1
+- signature: contact:qsHe.full.ex-y0.locked:qsOut.swept-up.en-y0.ex-y5:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the junction row.
+- signature: contact:qsHe.full.ex-y0.locked:qsOut.swept-up.en-y0.ex-y5.ex-ext-1:y1
+- signature: contact:qsHe.full.ex-y0.locked:qsOut.swept-up.en-y0.ex-y5.ex-ext-1:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the junction row.
+- signature: contact:qsHe.full.ex-y0.locked:qsOut_qsTea.sole.en-y0:y1
+- signature: contact:qsHe.full.ex-y0.locked:qsOut_qsTea.sole.en-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the junction row.
+- signature: contact:qsHe.full.ex-y0.locked:qsUtter.mono.en-y0:y1
+- signature: contact:qsHe.full.ex-y0.locked:qsUtter.mono.en-y0.ex-y5:y1
+- signature: contact:qsHe.full.ex-y0.locked:qsUtter.mono.en-y0.ex-y5.ex-ext-1:y1

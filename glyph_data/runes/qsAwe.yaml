@@ -35,6 +35,7 @@ stances:
             - qsThey
             - qsFee
             - qsWay
+            - qsHe
             - qsMay
             - qsNo
             - qsLow
@@ -62,6 +63,7 @@ stances:
             - qsSee
             - qsZoo
             - qsYe
+            - qsHe
             - qsMay
             - qsNo
             - qsLow

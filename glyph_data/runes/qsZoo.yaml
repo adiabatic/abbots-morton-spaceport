@@ -43,6 +43,7 @@ stances:
             - qsTea
             - qsFee
             - qsWay
+            - qsHe
             - qsMay
             - qsNo
             - qsLow
@@ -70,6 +71,7 @@ stances:
             - qsSee
             - qsZoo
             - qsYe
+            - qsHe
             - qsMay
             - qsNo
             - qsLow
@@ -144,6 +146,7 @@ stances:
             - qsSee
             - qsZoo
             - qsYe
+            - qsHe
             - qsMay
             - qsNo
             - qsLow
@@ -216,7 +219,10 @@ policy:
     entry: x-height
     by: 1
     when:
-      left: {family: qsTea}
+      left:
+        family:
+        - qsTea
+        - qsHe
   - stance: full
     entry: x-height
     by: 2

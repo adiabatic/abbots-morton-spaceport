@@ -1,0 +1,148 @@
+rune: qsHe
+codepoint: 0xE662
+ductus:
+  full: | # DRAFT — pending author sign-off
+    - Begun at the right end of the top, the stroke runs leftward over the top, turns down, and runs straight down the left side to the baseline, where it may connect to the next letter.
+    - Entered from a previous letter at the foot of the stem on the baseline, the stroke climbs the stem, turns right at the top, and finishes at the right end of the top.
+  half: | # DRAFT — pending author sign-off
+    As the first drawing order of the full motion, but the stem stops at the x-height, where the stroke connects to the next letter.
+mono:
+  bitmap:
+  - "  ## "
+  - " #   "
+  - " #   "
+  - " #   "  #
+  - " #   "
+  - " #   "
+  - " #   "
+  - " #   "
+  - " #   "  #
+stances:
+  full:
+    motion: full
+    traits: []
+    bitmap:
+    - " ##"
+    - "#  "
+    - "#  "
+    - "#  "  #
+    - "#  "
+    - "#  "
+    - "#  "
+    - "#  "
+    - "#  "  #
+    surface:
+      entries:
+        baseline:
+          x: 0
+          stroke: vertical
+          from:
+          - family:
+            - qsBay
+            - qsDay
+            - qsKey
+            - qsZoo
+            - qsCheer
+            - qsIng
+            - qsLlan
+            - qsEt
+            - qsEight
+            - qsAwe
+            - qsOx
+            - qsOy
+            - qsOoze
+            except:
+            - {family: qsThey_qsZoo}
+      exits:
+        baseline:
+          x: 1
+          stroke: vertical
+          unjoined: safe
+          toward:
+          - family:
+            - qsDay
+            - qsDay_qsUtter
+            - qsVie
+            - qsVie_qsUtter
+            - qsMay
+            - qsLow
+            - qsExam
+            - qsIt
+            - qsEat
+            - qsAt
+            - qsI
+            - qsAh
+            - qsUtter
+            - qsOut
+            - qsOut_qsTea
+            - qsOoze
+      pairings:
+        never:
+        - entry: baseline
+          exit: baseline
+      cells: []
+      unlocks: []
+      require: []
+  half:
+    motion: half
+    traits:
+    - half
+    bitmap:
+    - " ##"
+    - "#  "
+    - "#  "
+    - "#  "  #
+    - "   "
+    - "   "
+    - "   "
+    - "   "
+    - "   "  #
+    surface:
+      entries: {}
+      exits:
+        x-height:
+          x: 1
+          stroke: vertical
+          toward:
+          - family:
+            - qsZoo
+            - qsJai
+            - qsJai_qsUtter
+            - qsJay
+            - qsJay_qsUtter
+            - qsNo
+            - qsRoe
+            - qsLlan
+            - qsIt
+            - qsEt
+            - qsEight
+            - qsAwe
+            - qsOx
+            - qsFoot
+      cells: []
+      unlocks: []
+      require:
+      - exit
+policy:
+  order:
+  - full
+  - half
+  refuse: []
+  prefer:
+  - cell: {entry: none}
+    over: {entry: baseline}
+  - cell: {exit: x-height}
+    over: {exit: baseline}
+    when:
+      right: {family: qsIt}
+  extend:
+  - exit: baseline
+    by: 1
+    when:
+      right:
+        family:
+        - qsExam
+        - qsI
+  contract: []
+  resolve: []
+  groups: {}

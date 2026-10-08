@@ -299,6 +299,13 @@ def _post_marker_exits_restored(row: DivergentRow) -> bool:
     )
 
 
+# The old unentered half letters whose exit tuck before ·Zoo pairs with ·Zoo's entry trim, each mapped to its new cell.
+_ZOO_TUCK_LEADS = {
+    "qsTea.half.ex-y5.ex-con-1": "qsTea/half/None/x-height/",
+    "qsHe.half.ex-y5.ex-con-1": "qsHe/half/None/x-height/",
+}
+
+
 def classify_divergence(row: DivergentRow) -> str | None:
     """Return the one ledger class for a divergent row, chosen from its divergence tags (which `_compare_row` computes through the alias map), or None when no class applies. The order of the checks below is the precedence, and the ledger's header comment summarizes it. A row with no class can still match a function predicate or an unconditional ledger entry; otherwise it is unmatched and waits for a verdict on the review corpus."""
     tags = set(row.divergence_tags)
@@ -387,11 +394,10 @@ def classify_divergence(row: DivergentRow) -> str | None:
         return "jai-entry-contraction-renamed"
     if (
         tags == {"+en-con-1", "-en-trim-1"}
-        and "E652:E65B" in row.codepoints
+        and ("E652:E65B" in row.codepoints or "E662:E65B" in row.codepoints)
         and any(
-            old_left == "qsTea.half.ex-y5.ex-con-1"
+            _ZOO_TUCK_LEADS.get(old_left) == new_left
             and old_right == "qsZoo.en-trim-1"
-            and new_left == "qsTea/half/None/x-height/"
             and new_right
             in {
                 "qsZoo/full/x-height/None/en-con-1",
@@ -406,7 +412,7 @@ def classify_divergence(row: DivergentRow) -> str | None:
             for left, right in zip(row.baseline_glyphs, row.baseline_glyphs[1:])
         )
     ):
-        # ·Zoo's entry contraction places the same crown as the old ·Tea exit tuck plus ·Zoo entry trim. The unrelated ·It·Roe redraw changes ink without moving origins or advances, so the position comparison cannot catch it, and this class excludes that old pair explicitly.
+        # ·Zoo's entry contraction places the same crown as the old half-·Tea or half-·He exit tuck plus ·Zoo entry trim. The unrelated ·It·Roe redraw changes ink without moving origins or advances, so the position comparison cannot catch it, and this class excludes that old pair explicitly.
         return "zoo-entry-contraction-renamed"
     # A row with these tokens has an ink change that no class covers, so it must get no class instead of reaching the name-grain classes below.
     if any(item.startswith("+ex-bind-") for item in tags) or "-ex-ext-1" in tags:
