@@ -241,6 +241,8 @@ policy:
         family:
         - qsJai
         - qsJai_qsUtter
+        - qsJay
+        - qsJay_qsUtter
     why: I want another pixel of extension between ·Gay and ·J'ai
   - exit: x-height
     by: 2
