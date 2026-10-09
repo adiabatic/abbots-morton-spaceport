@@ -47,7 +47,7 @@ fn stderr_of(output: &Output) -> String {
     String::from_utf8_lossy(&output.stderr).into_owned()
 }
 
-/// Returns the phase label of one `[t]` line, parsed as `console.INNER_LINE` (the pattern `cycle_timings.py` uses) parses it, but without the optional trailing fields that pattern allows. Panics on a line that does not match. The parser is hand-written because the crate's only dependency is serde_json, and adding a regex dependency would lengthen every build.
+/// Returns the phase label of one `[t]` line, parsed as `console.INNER_LINE` (the pattern `cycle_timings.py` uses) parses it, but without the optional trailing fields that pattern allows. Panics on a line that does not match. The parser uses string operations for this small grammar to avoid a regex dependency's build cost.
 fn timing_phase(line: &str) -> &str {
     let body = line
         .strip_prefix("[t] ")

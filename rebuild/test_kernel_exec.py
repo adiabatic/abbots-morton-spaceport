@@ -645,6 +645,20 @@ def test_the_default_configuration_enumerates_at_class_grain(products):
 
 
 class TestTheKernelInvocation:
+    def test_every_configuration_digest_and_class_id_matches_python_hashlib(self, tmp_path):
+        """The digests returned by `run_m1.build_tables` and the deep-class tokens in every configuration match Python's independent `hashlib` contracts. The returned tables hold only their heads, so the digest comparison reads each synthetic build's retained windows to include every row the crate hashes."""
+        tables, digests = run_m1.build_tables(SPEC, tmp_path, inputs=STAMP)
+        assert list(tables) == list(conform.SETTLEMENT_CONFIGS)
+        assert list(digests) == list(conform.SETTLEMENT_CONFIGS)
+        assert any(head.deep_classes for head, _joins in tables.values())
+        for config, (_head, joins) in tables.items():
+            stamp, decision = table_module.read_windows(table_module.windows_path(tmp_path, config))
+            assert stamp == STAMP
+            assert decision.transitions
+            assert digests[config] == table_module.table_digest(decision, joins), config
+            for token, members in decision.deep_classes.items():
+                assert token == table_module.deep_class_id(members), (config, token, members)
+
     def test_a_caller_with_nowhere_to_write_still_gets_its_tables(self, tmp_path, monkeypatch):
         """A caller with no `out_dir` gets the tables and leaves no files: the kernel writes into a temporary directory, and the call returns each configuration's decision head and join rows."""
         monkeypatch.chdir(tmp_path)

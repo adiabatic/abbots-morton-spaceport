@@ -69,7 +69,7 @@ Each fan-out below defines its per-unit cost where its width is computed.
 
 In a table build that reads previous memos, the shared `default` memory holds two corpus-sized memos: the fresh `default` snapshot and the previous build's `default` memo, filtered at load to drop keys that name edited runes. The previous memo answers unaffected windows that the `default` enumeration does not add to its fresh snapshot, and `default`'s memo write, in line or beside the wave, does not release it. Each delta's own previous memo keeps only keys naming its unlocking runes and drops keys naming edited runes. Read-journal exclusions still apply to the kept entries at lookup and when writing. The aggregate and per-memo `shared_memo_hits` cache-stats lines show which retained shared memos answer windows (`fanout.rs` sets their lookup order), so the memory they cost can be weighed against how much they are used.
 
-The kernel's table digest (`table_digest` in `rebuild/kernel-rs/src/artifacts.rs`) streams each section through `sha256::Sha256` and holds no copy of the message. The folded transitions and the sorted cells and provenance stay resident, so streaming the hash does not bound the fold's memory.
+The kernel's table digest (`table_digest` in `rebuild/kernel-rs/src/artifacts.rs`) defines the byte stream and hashes each section incrementally through `sha256::Sha256`, the constant-space RustCrypto `sha2::Sha256` wrapper in `rebuild/kernel-rs/src/sha256.rs`, holding no copy of the message. The folded transitions and the sorted cells and provenance stay resident, so streaming the hash does not bound the fold's memory.
 
 ## Everything else
 

@@ -14,6 +14,8 @@ pid=$!
 
 If the tool harness kills the shell's process group when the command returns, launch the command in a new session with `subprocess.Popen(..., start_new_session=True)` through `uv run python`, with standard input disconnected and output redirected to the log. `nohup` ignores hangup signals but does not create a new session.
 
+A Python wrapper that calls M1 guards its entry point with `if __name__ == "__main__":`, because multiprocessing spawn workers import the wrapper and otherwise start the build again.
+
 ## Where the output lands
 
 - The redirect log under `tmp/` is scratch. It holds the same terminal output, plus an `rc=` line when the launch command echoes one (the skills' `sh -c` chains run `echo "rc=$?"`), and the next run overwrites it. The run directory is the lasting record.
