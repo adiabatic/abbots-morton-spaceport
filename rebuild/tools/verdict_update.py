@@ -1,8 +1,8 @@
-"""Run the cycle's verdict update in one process: carry, merge, duplicate fill, standing fill, their merges, a duplicate-fill fixpoint, and the complaint list.
+"""Run the cycle's verdict update in one process: carry, merge, duplicate fill and merge, standing fill and merge, a final duplicate fill and merge, and the complaint list.
 
-The first index walk keeps every corpus id and, for human units, only the `duplicate_record` projection (id, duplicate group, notation). The carry reads that projection, and every duplicate-fill round reuses it. The standing fill and the complaint list each get a fresh stream of human index records, so full records stay in memory only for the step that reads them. Machine units' index lines contribute their ids without being parsed.
+The first index walk keeps every corpus id and, for human units, only the `duplicate_record` projection (id, duplicate group, notation). The carry reads that projection, and both duplicate fills reuse it. The standing fill and the complaint list each get a fresh stream of human index records, so full records stay in memory only for the step that reads them. Machine units' index lines contribute their ids without being parsed.
 
-The standing fill runs with `--open-only --require-reach`, its persistent memo, and the cycle's `--standing-fill-jobs` width. Each step opens with a `[phase]` line and closes with a `[t]` line; the failure and fixpoint lines use the `[verdict-update]` prefix. The duplicate-fill rounds after the standing merge spread what the standing fill wrote, and the duplicate-fill output file holds the union of the fills from every round.
+The standing fill runs with `--open-only --require-reach`, its persistent memo, and the cycle's `--standing-fill-jobs` width. Each step opens with a `[phase]` line and closes with a `[t]` line; the failure and completion lines use the `[verdict-update]` prefix. A duplicate fill proposes every blank member of an agreeing group at once, so the initial fill and the final fill after standing seeds groups are sufficient. Completion names this schedule, not acceptance of every proposal: a newer clear in the store can refuse a fill. The duplicate-fill output file holds the union of both passes' proposals, retaining the first proposal for each unit.
 """
 
 from __future__ import annotations
@@ -32,8 +32,6 @@ CORPUS = ROOT / "rebuild/out/review"
 AUTOSAVE = ROOT / "verdicts-autosave.json"
 DUPLICATE_FILL = ROOT / "verdicts-duplicate-fill.json"
 STANDING_FILL = ROOT / "verdicts-standing-fill.json"
-# Two duplicate-fill rounds should write every fill, because the standing fill runs once and can only feed the duplicate fill, and a duplicate fill only removes blanks. When the second round writes something, the third checks that nothing is left. A fourth runs only if that argument is wrong.
-MAX_DUPLICATE_ROUNDS = 4
 
 
 def _run(name: str, call: Callable[[], int | None]) -> int:
@@ -172,92 +170,82 @@ def main(argv: list[str] | None = None) -> int:
             return code
 
     duplicate_argv = [str(args.autosave), "--corpus", str(corpus), "--out", str(args.duplicate_out)]
-    fills: list[dict] = []
-    settled = False
-    for round_ in range(MAX_DUPLICATE_ROUNDS):
-        suffix = "" if round_ == 0 else f"-{round_ + 1}"
-        code = _run("duplicate-fill" + suffix, lambda: duplicate_verdicts.main(duplicate_argv, units=units))
-        if code:
-            return code
-        known = {record["unit"] for record in fills}
-        landed = json.loads(args.duplicate_out.read_text())["verdicts"]
-        fresh = [record for record in landed if record["unit"] not in known]
-        fills += fresh
-        # Each duplicate fill overwrites the file with only the units still blank when it ran, so the file is rewritten with the union of every round's fills.
-        _write_fills(args.duplicate_out, stamp, fills)
-        if round_ and not fresh:
-            settled = True
-            break
-        code = _merge(
-            "duplicate-merge" + suffix,
-            args.duplicate_out,
-            autosave=args.autosave,
-            corpus=corpus,
-            journal=args.journal,
+    code = _run("duplicate-fill", lambda: duplicate_verdicts.main(duplicate_argv, units=units))
+    if code:
+        return code
+    fills = json.loads(args.duplicate_out.read_text())["verdicts"]
+    code = _merge(
+        "duplicate-merge", args.duplicate_out, autosave=args.autosave, corpus=corpus, journal=args.journal
+    )
+    if code:
+        return code
+
+    standing_argv = [
+        str(args.autosave),
+        "--corpus",
+        str(corpus),
+        "--rules",
+        str(args.rules),
+        "--out",
+        str(args.standing_out),
+        "--open-only",
+        "--require-reach",
+        "--memo",
+        str(args.standing_memo or corpus.parent / standing_verdicts.MEMO_NAME),
+        "--jobs",
+        str(args.standing_fill_jobs),
+    ]
+    if args.fresh_standing_memo:
+        standing_argv.append("--fresh-memo")
+    code = _run(
+        "standing-fill",
+        lambda: standing_verdicts.main(
+            standing_argv, unit_source=lambda: unit_index.iter_human_units(corpus)
+        ),
+    )
+    if code:
+        return code
+    code = _merge(
+        "standing-merge", args.standing_out, autosave=args.autosave, corpus=corpus, journal=args.journal
+    )
+    if code:
+        return code
+
+    code = _run("duplicate-fill-2", lambda: duplicate_verdicts.main(duplicate_argv, units=units))
+    if code:
+        return code
+    known = {record["unit"] for record in fills}
+    fills += [
+        record
+        for record in json.loads(args.duplicate_out.read_text())["verdicts"]
+        if record["unit"] not in known
+    ]
+    _write_fills(args.duplicate_out, stamp, fills)
+    code = _merge(
+        "duplicate-merge-2", args.duplicate_out, autosave=args.autosave, corpus=corpus, journal=args.journal
+    )
+    if code:
+        return code
+
+    if not args.no_complaints:
+        code = _run(
+            "complaints",
+            lambda: complaint_list.main(
+                [
+                    str(args.autosave),
+                    "--corpus",
+                    str(corpus),
+                    "--data-out",
+                    str(args.complaints_out),
+                ],
+                units=unit_index.iter_human_units(corpus),
+                unit_ids=unit_ids,
+            ),
         )
         if code:
             return code
-        if round_ == 0:
-            standing_argv = [
-                str(args.autosave),
-                "--corpus",
-                str(corpus),
-                "--rules",
-                str(args.rules),
-                "--out",
-                str(args.standing_out),
-                "--open-only",
-                "--require-reach",
-                "--memo",
-                str(args.standing_memo or corpus.parent / standing_verdicts.MEMO_NAME),
-                "--jobs",
-                str(args.standing_fill_jobs),
-            ]
-            if args.fresh_standing_memo:
-                standing_argv.append("--fresh-memo")
-            code = _run(
-                "standing-fill",
-                lambda: standing_verdicts.main(
-                    standing_argv, unit_source=lambda: unit_index.iter_human_units(corpus)
-                ),
-            )
-            if code:
-                return code
-            code = _merge(
-                "standing-merge",
-                args.standing_out,
-                autosave=args.autosave,
-                corpus=corpus,
-                journal=args.journal,
-            )
-            if code:
-                return code
-    print(
-        console.FIXPOINT_LINE
-        + (
-            "reached — a rerun of the fills writes nothing"
-            if settled
-            else f"not reached after {MAX_DUPLICATE_ROUNDS} duplicate-fill rounds"
-        ),
-        flush=True,
-    )
-
-    if args.no_complaints:
-        return 0
-    return _run(
-        "complaints",
-        lambda: complaint_list.main(
-            [
-                str(args.autosave),
-                "--corpus",
-                str(corpus),
-                "--data-out",
-                str(args.complaints_out),
-            ],
-            units=unit_index.iter_human_units(corpus),
-            unit_ids=unit_ids,
-        ),
-    )
+    print(console.COMPLETE_LINE + "duplicate, standing, duplicate", flush=True)
+    return 0
 
 
 if __name__ == "__main__":

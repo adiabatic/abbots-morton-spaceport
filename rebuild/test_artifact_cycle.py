@@ -989,8 +989,8 @@ def _corpus_ok(report, *, spawn, emit, registry, review_out, **_):
     return True
 
 
-def _verdict_update_stdout(*sections, fixpoint=True, failed=None):
-    """Return a synthetic verdict_update stdout: for each step, the `[phase] <step>` line, the step's own lines and the closing `[t] <step>` line, then the fixpoint or failure line. Those last two keep the verdict update's `[verdict-update] ` prefix, which `verdict_update_sections` uses to keep a `failed:` line out of the complaints section."""
+def _verdict_update_stdout(*sections, complete=True, failed=None):
+    """Return a synthetic verdict_update stdout: for each step, the `[phase] <step>` line, the step's own lines and the closing `[t] <step>` line, then the completion or failure line. Those last two keep the verdict update's `[verdict-update] ` prefix, which `verdict_update_sections` uses to keep result lines out of the complaints section."""
     lines = []
     for name, body in sections:
         lines.append(console.PHASE + name)
@@ -999,8 +999,8 @@ def _verdict_update_stdout(*sections, fixpoint=True, failed=None):
         if failed == name:
             lines.append(f"{console.FAILED_LINE}{name} (exit 1)")
             break
-    if failed is None and fixpoint:
-        lines.append(f"{console.FIXPOINT_LINE}reached — a rerun of the fills writes nothing")
+    if failed is None and complete:
+        lines.append(f"{console.COMPLETE_LINE}duplicate, standing, duplicate")
     return "\n".join(lines) + "\n"
 
 
@@ -1049,7 +1049,14 @@ _FULL_VERDICT_UPDATE = (
         "standing-merge",
         ["nothing changed: the autosave already holds all 65 verdicts (65 effective)."],
     ),
-    ("duplicate-fill-2", ["wrote verdicts-duplicate-fill.json: 0 duplicate-fill verdicts onto manifest S1"]),
+    ("duplicate-fill-2", ["wrote verdicts-duplicate-fill.json: 3 duplicate-fill verdicts onto manifest S1"]),
+    (
+        "duplicate-merge-2",
+        [
+            "merged 1 file(s) into verdicts-autosave.json: 3 added, 0 replaced, 0 kept newer; "
+            "store holds 68 verdicts (68 effective) on manifest S1"
+        ],
+    ),
     ("complaints", ["no open complaints"]),
 )
 
@@ -1078,7 +1085,7 @@ def _verdict_update_ok(report, *, spawn, emit, registry, plan):
     report.standing_fill_status = "filled"
     report.standing_merge_status = "merged"
     report.standing_merge_lines = ["nothing changed: the autosave already holds all 3 verdicts"]
-    report.verdict_update_fixpoint = True
+    report.verdict_update_complete = True
     report.complaints_status = "no open complaints"
     report.complaints_ok = True
     report.carry_out = plan.carry_out
@@ -1239,7 +1246,7 @@ def test_a_later_duplicate_fill_round_failure_leaves_the_first_round_reported_as
 def test_a_carry_only_verdict_update_reports_the_fills_as_never_run():
     """--no-merge and a staging pass both stop the verdict update after the carry, so the fills print no `[phase]` line and the summary reports them as not run."""
     report, failures = _run_verdict_update(
-        _plan(no_merge=True), _verdict_update_stdout(_FULL_VERDICT_UPDATE[0], fixpoint=False)
+        _plan(no_merge=True), _verdict_update_stdout(_FULL_VERDICT_UPDATE[0], complete=False)
     )
     assert failures == []
     assert report.merge_status == "not run"
@@ -1247,6 +1254,7 @@ def test_a_carry_only_verdict_update_reports_the_fills_as_never_run():
     assert report.duplicate_merge_status == "not run"
     assert report.standing_fill_status == "not run"
     assert report.standing_merge_status == "not run"
+    assert report.verdict_update_complete is False
 
 
 def test_the_driver_reads_a_line_per_step_out_of_one_child(capsys):
@@ -1280,7 +1288,9 @@ def test_the_driver_reads_a_line_per_step_out_of_one_child(capsys):
     assert report.carry_counts == {"human": 60000, "matched": 51946, "unmatched": 8054, "orphaned": 12}
     assert ac.cycle_summary_payload(report, [], _plan(), "ok")["carry"] == report.carry_counts
     assert report.complaints_status == "no open complaints"
-    assert report.verdict_update_fixpoint is True
+    assert report.verdict_update_complete is True
+    assert len(report.duplicate_fill_lines) == 2
+    assert len(report.duplicate_merge_lines) == 2
 
 
 def test_standing_fill_news_keeps_rules_and_drops_steady_state_combined_matches():
@@ -7179,12 +7189,12 @@ def test_run_cycle_records_the_verdict_update_green_only_after_a_complete_run(mo
     assert not green.exists()
 
 
-def test_run_cycle_records_no_verdict_update_green_until_it_reaches_its_fixpoint(monkeypatch, tmp_path):
-    """The verdict-update green is recorded only when the verdict update reports a fixpoint. The verdict update reruns the duplicate-fill pass after the standing merge until a round fills nothing, up to `MAX_DUPLICATE_ROUNDS` rounds in all, and reports whether it got there; if the verdict update stopped short of that, the next pass runs it again."""
+def test_run_cycle_records_no_verdict_update_green_without_schedule_completion(monkeypatch, tmp_path):
+    """The verdict-update green requires completion of the duplicate, standing, duplicate schedule. A missing completion makes the next pass run the update again, even when its step statuses look successful."""
 
-    def unsettled(report, *, spawn, emit, registry, plan):
+    def incomplete(report, *, spawn, emit, registry, plan):
         _verdict_update_ok(report, spawn=spawn, emit=emit, registry=registry, plan=plan)
-        report.verdict_update_fixpoint = False
+        report.verdict_update_complete = False
         return []
 
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
@@ -7200,7 +7210,7 @@ def test_run_cycle_records_no_verdict_update_green_until_it_reaches_its_fixpoint
     green = tmp_path / "verdict-update-green.json"
     monkeypatch.setattr(cycle_paths, "VERDICT_UPDATE_GREEN", green)
 
-    monkeypatch.setattr(ac, "_do_verdict_update", unsettled)
+    monkeypatch.setattr(ac, "_do_verdict_update", incomplete)
     rc = ac._run_cycle(
         _plan(record_greens=True),
         ac.CycleReport(),
@@ -7223,15 +7233,60 @@ def test_run_cycle_records_no_verdict_update_green_until_it_reaches_its_fixpoint
     assert green.exists()
 
 
-def test_verdict_update_settled_reads_its_own_fixpoint_line():
+def test_verdict_update_completed_requires_its_own_completion_line():
     report = ac.CycleReport()
-    assert ac._verdict_update_settled(report) is False
+    assert ac._verdict_update_completed(report) is False
     report, _failures = _run_verdict_update(
-        _plan(), _verdict_update_stdout(*_FULL_VERDICT_UPDATE, fixpoint=False)
+        _plan(), _verdict_update_stdout(*_FULL_VERDICT_UPDATE, complete=False)
     )
-    assert ac._verdict_update_settled(report) is False
+    assert ac._verdict_update_completed(report) is False
     report, _failures = _run_verdict_update(_plan(), _verdict_update_stdout(*_FULL_VERDICT_UPDATE))
-    assert ac._verdict_update_settled(report) is True
+    assert ac._verdict_update_completed(report) is True
+
+
+def test_verdict_update_completion_requires_a_successful_child():
+    report, failures = _run_verdict_update(
+        _plan(), _verdict_update_stdout(*_FULL_VERDICT_UPDATE), returncode=3
+    )
+    assert failures == ["the verdict update failed (exit 3)"]
+    assert ac._verdict_update_completed(report) is False
+
+
+@pytest.mark.parametrize("returncode", [0, 1])
+def test_verdict_update_completion_rejects_a_failed_phase(returncode):
+    stdout = _verdict_update_stdout(
+        *_FULL_VERDICT_UPDATE[:7],
+        ("duplicate-merge-2", ["boom"]),
+        failed="duplicate-merge-2",
+    )
+    stdout += console.COMPLETE_LINE + "duplicate, standing, duplicate\n"
+    report, failures = _run_verdict_update(_plan(), stdout, returncode=returncode)
+    assert failures == ["duplicate-merge round 2 failed"]
+    assert ac._verdict_update_completed(report) is False
+
+
+def test_verdict_update_completion_rejects_failed_complaints():
+    stdout = _verdict_update_stdout(*_FULL_VERDICT_UPDATE[:-1], ("complaints", ["boom"]), failed="complaints")
+    stdout += console.COMPLETE_LINE + "duplicate, standing, duplicate\n"
+    report, failures = _run_verdict_update(_plan(), stdout, returncode=2)
+    assert failures == []
+    assert report.complaints_ok is False
+    assert report.complaints_status == "FAILED (exit 2) — informational"
+    assert ac._verdict_update_completed(report) is False
+
+
+def test_verdict_update_completion_line_stays_out_of_the_complaints_section():
+    sections = ac.verdict_update_sections(_verdict_update_stdout(*_FULL_VERDICT_UPDATE))
+    assert sections["complaints"] == ["no open complaints", "[t] complaints 0.1s"]
+
+
+def test_verdict_update_without_complaints_can_complete():
+    plan = _plan()
+    assert "--no-complaints" in plan.argv("verdict-update")
+    report, failures = _run_verdict_update(plan, _verdict_update_stdout(*_FULL_VERDICT_UPDATE[:-1]))
+    assert failures == []
+    assert ac._verdict_update_completed(report) is True
+    assert report.complaints_ok is None
 
 
 def _settled_repo(tmp_path, monkeypatch):

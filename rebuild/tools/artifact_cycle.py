@@ -6,7 +6,7 @@ The terminal shows one banner per step with that step's description, the phases 
 
 The job-costs step never fails the pass, for the same reason the review-facts pins are not a gate: a stale constant makes a pool the wrong width, which costs time but makes no artifact wrong. It is reported, and committing the re-measured constant accepts it. When the check reports an overrun, the OVERRUN status quotes each tripped row's proposal (the value its constant's rule sets from the peak and the width that value gives here, or for the kernel-build row which constants to re-measure), and the driver asks `calibrate_budgets --moved` which checked constants differ from their values at `HEAD`, so a constant already re-measured shows up by name.
 
-The verdict update is one step run by one child process, rebuild.tools.verdict_update. It carries prior verdicts forward onto the fresh manifest, merges the carried file into the store (--no-merge opts out), writes duplicate-fill verdicts for the blanks in unanimously judged duplicate groups, writes standing-approval verdicts from the rules in rebuild/standing-approvals.yaml, merges each fill as it is written, repeats the duplicate-fill pass until it writes nothing, and clusters the open complaints. The verdict update reads the build's per-unit index sidecar, and its one process holds one copy of it. Each of the verdict update's steps opens with a `[phase] <step>` line and closes with `[t] <step>`. The cycle console pairs the two into one line per step, and the cycle-timings journal reads the step's cost from the `[t]` line. The `[verdict-update] fixpoint:` and `[verdict-update] failed:` lines are results, not phases: `verdict_update_sections` starts a section at each `[phase]` line and closes it at either `[verdict-update]` line.
+The verdict update is one step run by one child process, rebuild.tools.verdict_update. It carries prior verdicts forward onto the fresh manifest, merges the carried file into the store (--no-merge opts out), runs duplicate-fill, standing-fill from the rules in rebuild/standing-approvals.yaml, and duplicate-fill again, merges each fill as it is written, and clusters the open complaints. The verdict update reads the build's per-unit index sidecar, and its one process holds one copy of it. Each of the verdict update's steps opens with a `[phase] <step>` line and closes with `[t] <step>`. The cycle console pairs the two into one line per step, and the cycle-timings journal reads the step's cost from the `[t]` line. The `[verdict-update] complete:` and `[verdict-update] failed:` lines are results, not phases: `verdict_update_sections` starts a section at each `[phase]` line and closes it at either `[verdict-update]` line.
 
 run_m1's exit status is its own gate's result, but this driver evaluates the three summary JSONs it writes, so a build that died before its evaluator is reported by what it left behind. The gates are defect_errors, the Manual-pin gate (including its scope, so a gate that replayed nothing cannot pass), and multi_matched == 0.
 
@@ -28,7 +28,7 @@ gate:make-test is skipped when its input closure is unchanged since its last gre
 
 The verdict update skips the same way, on rebuild/out/verdict-update-green.json. Each step of the verdict update is a pure function of the corpus, the verdicts master, the live store, the checked-in standing approvals, and its own code, so the key covers the corpus's inputs fingerprint and stamp, the master (named `autosave` when it is the live store, otherwise by its path and bytes), the live store's records, standing-approvals' bytes, and the verdict update's code (`verdict_update_code_paths` plus the review/ modules the verdict update runs). The master is in the key because the autosave's hash cannot see it: an export at the repo root can outrank the autosave in the auto-resolution and carry verdicts the store has never held. The code is in the key because no other fingerprint reads the verdict update's modules, and without it a fix to a fill's matcher or to the carry's join would be skipped. `verdict_update_code_paths` lists the verdict update's modules instead of all of rebuild/tools/, and rebuild/test_verdict_update_closure.py checks on every contracts run that the list covers the verdict update's import graph.
 
-The key is taken right after the land, over the store the land wrote (`landing.LANDED_NAME`), and only when the land laid no save made during the pass over the prepared store: a verdict the fills never saw then changes the next plan's key, so the next pass runs the fills again, and a save made after the land changes the live store the next plan hashes. The record is written later, after the complaint list step has also succeeded. The fixpoint is claimed only when the verdict update has observed it. The carry's merge gives duplicate-fill new agreement to read, and duplicate-fill only removes blanks, so it never creates work for standing-fill. But standing-fill runs last, and a standing fill can make a duplicate group unanimous while a blank member remains. Refusing the green whenever the standing merge changed anything would cost another full pass. In one process another duplicate-fill pass costs about a second, so the verdict update repeats it until a pass writes nothing, and the green is recorded only after that pass.
+The key is taken right after the land, over the store the land wrote (`landing.LANDED_NAME`), and only when the land laid no save made during the pass over the prepared store: a verdict the fills never saw then changes the next plan's key, so the next pass runs the fills again, and a save made after the land changes the live store the next plan hashes. The record is written later, after the complaint list step has also succeeded. Each duplicate pass fills every blank in each unanimously judged duplicate group; the scalar groups are disjoint, so a duplicate fill cannot seed another group. Standing-fill runs once and can seed a blank duplicate sibling, which the final duplicate pass fills. The prepared store has one writer, so this fixed schedule needs no further duplicate pass. The completion line reports successful fills and merges and, when enabled, complaints; it does not claim every proposed verdict was accepted, because a newer tombstone can win a merge. The green requires both that completion line and a successful child.
 
 The verdict-update skip also requires the corpus build to skip, which is what makes the stamp known before the pass runs. A flag that names a carry output disables the skip, since skipping would write nothing to that output.
 
@@ -1166,7 +1166,7 @@ STEP_DESCRIPTIONS = {
     "corpus-build": "Rebuilds the review corpus: every unit the tables reach is drafted, enriched, and checked, with cached units re-verified by content key. Writes the shards, manifest, and review-facts sidecar that the app and the verdict update read, into rebuild/out/review.next beside the served corpus (in place only on a first run).",
     "assets-refresh": "Overwrites the served copy of the review app's JS, CSS, and HTML and restamps only the manifest's static component. No shard or sidecar moves, so the open tab's store stays aligned.",
     "store-snapshot": "Copies the live verdict store into this pass's scratch directory under the store's lock, as the snapshot the land compares against and the store the verdict update prepares. Takes milliseconds; the review server keeps saving into the live store.",
-    "verdict-update": "Carries the verdicts master onto the new corpus by unit id, merges it into a scratch copy of the store, and runs the duplicate and standing fills to their fixpoint. Ends by writing the complaint list of what still needs a human.",
+    "verdict-update": "Carries the verdicts master onto the new corpus by unit id, merges it into a scratch copy of the store, and runs duplicate-fill, standing-fill, and duplicate-fill again, merging each fill. Ends by writing the complaint list of what still needs a human.",
     "land": "Moves the new corpus and the prepared store into place together, under the verdict store's lock, in one child that a stop signal does not interrupt: verdicts saved during the pass are laid over the prepared store, the corpus is swapped in with one rename, and the change is journaled. The open tabs then move onto it.",
     "review-facts": "Rewrites rebuild/review-facts-pins.json from the review-facts sidecar the corpus build emitted, names what moved in its invariant block against the last accepted review facts (diffing that block alone when it did), and holds the ledger's declarations against the classes the corpus reached. Committing the rewritten pins is how the review facts are accepted.",
     "gates": "The four post-build gates, skipped together under --skip-gates.",
@@ -2364,10 +2364,10 @@ def build_plan(
         elif direct_merge:
             note = (
                 "the corpus did not move, so the carry is the identity — merging the master straight in, "
-                "then the fills and the complaint list"
+                "then duplicate fill, standing fill, duplicate fill, with each fill merged, and the complaint list"
             )
         else:
-            note = "carry -> merge -> duplicate fill -> standing fill -> the fills' fixpoint -> complaint list, in one process"
+            note = "carry -> merge -> duplicate fill -> standing fill -> duplicate fill -> complaint list, with each fill merged, in one process"
         if prepared is not None:
             note += f", into {prepared}, a copy of the store; the land puts it in place"
         plan.steps.append(Step("verdict-update", verdict_update_argv, note, lane="build"))
@@ -2852,7 +2852,7 @@ class CycleReport:
     standing_fill_lines: list[str] = field(default_factory=list)
     standing_merge_status: str = "not run"
     standing_merge_lines: list[str] = field(default_factory=list)
-    verdict_update_fixpoint: bool = False
+    verdict_update_complete: bool = False
     facts_status: str = "not run"
     ledger_coverage: str = "not run"
     ledger_coverage_sets: dict | None = None
@@ -3443,11 +3443,11 @@ _VERDICT_UPDATE_FAILURES = {
 
 
 def verdict_update_sections(text: str) -> dict[str, list[str]]:
-    """Split the verdict update's output into sections at the `[phase] <step>` line each step starts with, so the summary can report each of the verdict update's steps although one subprocess runs them all. Its `[verdict-update] fixpoint:` and `[verdict-update] failed:` result lines close the open section without opening one, which keeps a `failed:` line out of the complaints section. Later duplicate-fill rounds (`duplicate-fill-2` and so on) are merged into the first round's section."""
+    """Split the verdict update's output into sections at the `[phase] <step>` line each step starts with, so the summary can report each of the verdict update's steps although one subprocess runs them all. Its `[verdict-update] complete:` and `[verdict-update] failed:` result lines close the open section without opening one, which keeps result lines out of the complaints section. The second duplicate pass (`duplicate-fill-2` and `duplicate-merge-2`) is merged into the first pass's sections."""
     sections: dict[str, list[str]] = {}
     current: str | None = None
     for line in text.splitlines():
-        if line.startswith(console.FIXPOINT_LINE) or line.startswith(console.FAILED_LINE):
+        if line.startswith(console.COMPLETE_LINE) or line.startswith(console.FAILED_LINE):
             current = None
             continue
         if line.startswith(console.PHASE):
@@ -3483,7 +3483,7 @@ def _do_verdict_update(
 ) -> list[str]:
     """Run the verdict update as one child and fill the per-step report from its output. Return the failure messages for the cycle's failure list, one per failed step.
 
-    A failure in a later duplicate-fill round (`duplicate-fill-2`, `duplicate-merge-3`, and so on) comes after the whole first round, standing fill and merge included, has run. Those steps keep their done words, and the failing step's status adds the round, as in `filled, round 2 FAILED (exit 1)`. Only a first-round failure marks the steps after it as not run.
+    A failure in the second duplicate pass (`duplicate-fill-2` or `duplicate-merge-2`) comes after the first duplicate pass and the standing fill and merge have run. Those steps keep their done words, and the failing step's status adds the round, as in `filled, round 2 FAILED (exit 1)`. Only a first-pass failure marks the steps after it as not run.
     """
     result = spawn("verdict-update", plan.argv("verdict-update"), emit=emit, registry=registry, stream=False)
     report.carry_out = plan.carry_out if plan.carry_out is not None else fullest_verdicts_carry_out()
@@ -3497,8 +3497,13 @@ def _do_verdict_update(
             if match := re.fullmatch(r"(.+)-(\d+)", failed):
                 failed, failed_round = match.group(1), int(match.group(2))
     later_round = failed_round > 1
-    report.verdict_update_fixpoint = any(
-        line.startswith(console.FIXPOINT_LINE + "reached") for line in result.stdout.splitlines()
+    report.verdict_update_complete = (
+        result.returncode == 0
+        and not failed
+        and any(
+            line == console.COMPLETE_LINE + "duplicate, standing, duplicate"
+            for line in result.stdout.splitlines()
+        )
     )
 
     report.carry_lines = _scrape(
@@ -3946,9 +3951,9 @@ def _join_gates(
                 timings.record_check(gate)
 
 
-def _verdict_update_settled(report: CycleReport) -> bool:
-    """Return whether the verdict update reached a fixpoint, which the verdict-update green record claims. The verdict update prints its `fixpoint: reached` line only after a duplicate-fill round writes nothing new. A standing merge that writes nothing would not be enough: a standing fill on one unit can make its duplicate group unanimous and leave a blank member that only another duplicate fill would fill."""
-    return report.verdict_update_fixpoint
+def _verdict_update_completed(report: CycleReport) -> bool:
+    """Return whether the verdict update successfully completed its fixed duplicate, standing, duplicate schedule. The parsed completion requires both the child's successful exit and its completion line, with no failed phase. Each duplicate pass fills disjoint scalar groups fully, and the second fills blank siblings the standing pass seeds. Completion allows merges to keep newer tombstones instead of accepting every proposed fill."""
+    return report.verdict_update_complete
 
 
 def _record_conform_green(
@@ -4163,7 +4168,7 @@ def _run_cycle(
             plan.runs("verdict-update")
             and not verdict_update_failures
             and plan.do_merge
-            and _verdict_update_settled(report)
+            and _verdict_update_completed(report)
             and landed is not None
             and not landed.get("overlaid")
             and plan.scratch_dir is not None

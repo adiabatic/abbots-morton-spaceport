@@ -2,7 +2,7 @@
 
 Everything written here is append-only: no color, ANSI escapes, spinners, or carriage returns. A redirect and a terminal get the same bytes, and `tail -f` never shows a line rewritten. Progress is a counter line, printed at most once per heartbeat window (60 seconds by default), instead of a progress bar. Counts carry thousand separators (`fmt_count`), durations use minutes and hours past a minute (`fmt_duration`), and peak memory is in decimal gigabytes, the unit `peak_rss` uses.
 
-The protocol is four line prefixes. `[phase] <name>` opens a stretch of work and `[t] <label> <secs>s` closes it, optionally followed by a space or tab and a tail. `[progress] <k>/<n> <unit>` is a counter, with `?` for an unknown total. `[warn] <text>` always reaches the terminal. The verdict update's `[verdict-update]` banner and its two result lines (fixpoint and failure) are defined here too, because the verdict update writes them and the cycle splits its output on them. `INNER_LINE` is the one pattern for the `[t]` line; `cycle_timings` parses the journal with it, and `timing()` writes a line it matches.
+The protocol is four line prefixes. `[phase] <name>` opens a stretch of work and `[t] <label> <secs>s` closes it, optionally followed by a space or tab and a tail. `[progress] <k>/<n> <unit>` is a counter, with `?` for an unknown total. `[warn] <text>` always reaches the terminal. The verdict update's `[verdict-update]` banner and its two result lines (completion and failure) are defined here too, because the verdict update writes them and the cycle splits its output on them. `INNER_LINE` is the one pattern for the `[t]` line; `cycle_timings` parses the journal with it, and `timing()` writes a line it matches.
 
 A `[phase]` line is surfaced when it arrives. A `[t]` line whose label matches an open phase closes it, and the surfaced line carries the child's measured duration and the tail. A `[t]` line with no open phase of that label, such as the crate's per-configuration enumerate lines, the oracle's per-configuration lines, or the verdict update's step timings, goes to the log only. This keeps a step that prints many timings from flooding the terminal without any producer knowing which of its timings the console shows.
 
@@ -41,7 +41,7 @@ WARN = "[warn] "
 INNER_LINE = re.compile(r"^\[t\] (.+?) (\d+(?:\.\d+)?)s(?:[ \t](.*))?$", re.MULTILINE)
 
 VERDICT_UPDATE_BANNER = "[verdict-update] "
-FIXPOINT_LINE = VERDICT_UPDATE_BANNER + "fixpoint: "
+COMPLETE_LINE = VERDICT_UPDATE_BANNER + "complete: "
 FAILED_LINE = VERDICT_UPDATE_BANNER + "failed: "
 
 STDOUT = "stdout"
