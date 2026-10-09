@@ -77,7 +77,7 @@ def data_paths(repo_root: Path) -> list[Path]:
     return paths
 
 
-# Pipeline modules that only run against tables and a font already built: the oracle's driver and classifier (oracle.py) and its position comparison (oracle_positions.py, which the oracle row cache also stamps on its own as `oracle_cache.POSITION_CODE_PATHS`). They stay in `pipeline_code_paths`, and `table_code_paths` leaves them out, so an edit to one re-runs the gates over the tables on disk instead of forcing a full build. A module of this kind that is missing from the set is hashed into the tables' stamp, so every edit to it forces a full build. rebuild/test_build_code_closure.py fails if the build imports any module listed here.
+# Pipeline modules that only run against tables and a font already built: the oracle's driver and classifier (oracle.py) and its position comparison (oracle_positions.py, whose import closure the oracle row cache stamps on its own as `oracle_cache.POSITION_CODE_PATHS`). They stay in `pipeline_code_paths`, and `table_code_paths` leaves them out, so an edit to one re-runs the gates over the tables on disk instead of forcing a full build. A module of this kind that is missing from the set is hashed into the tables' stamp, so every edit to it forces a full build. rebuild/test_build_code_closure.py fails if the build imports any module listed here.
 COMPARISON_CODE_MODULES = frozenset({"oracle.py", "oracle_positions.py"})
 
 

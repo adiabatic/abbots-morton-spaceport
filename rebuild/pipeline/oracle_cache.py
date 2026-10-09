@@ -1,8 +1,8 @@
-"""Stores the baseline oracle's per-row verdicts between runs, keyed per rune family. After a rune edit, only the subset rows that can reach an edited family are compared again; the rest are served from the previous pass's store.
+"""Stores the baseline oracle's per-row verdicts between runs, keyed per rune family. After a rune edit, only the subset rows that can reach an edited family are compared again; the rest are served from the previous pass's store. A row's position verdict also outlives a move of the whole-store stamp wherever the row's settled stream did not change.
 
-Each row has two verdicts, each under its own key. The row verdict is `conform._compare_row`'s result, a `DivergentRow` or None. `_compare_row(spec, aliases, config, features, row, settled)` takes no font and no shaper, so the row key covers no font: `M1.otf`, the GSUB fold and `glyph_data/senior_quikscript_kerning.yaml` are outside it, and a rune edit serves every row that reaches no edited family. The position verdict is `oracle_positions._position_mismatch`'s result for the same row: the mismatch descriptions and the kern-attribution flag, or None. Its per-family key (`position_family_keys`) adds the after font's compiled-glyph digest for that family (`fingerprint.after_font_glyph_digests`: decomposed outlines, advances, cursive anchors) to the row key. Its whole-store stamp (`position_keys`) covers `POSITION_CODE_PATHS`, the toolchain lock that pins uharfbuzz and fontTools, the font's non-family glyphs, cmap and GPOS wiring, and the kern sidecar. `_position_mismatch(shaper, kern, features, row)` takes no settled stream, so the position key needs no settlement input beyond the row key it contains.
+Each row has two verdicts, each under its own key. The row verdict is `conform._compare_row`'s result, a `DivergentRow` or None. `_compare_row(spec, aliases, config, features, row, settled)` takes no font and no shaper, so the row key covers no font: `M1.otf`, the GSUB fold and `glyph_data/senior_quikscript_kerning.yaml` are outside it, and a rune edit serves every row that reaches no edited family. The position verdict is `oracle_positions._position_mismatch`'s result for the same row: the mismatch descriptions and the kern-attribution flag, or None. Its per-family key (`position_family_keys`) adds the after font's compiled-glyph digest for that family (`fingerprint.after_font_glyph_digests`: decomposed outlines, advances, cursive anchors) to the row key. Its whole-store stamp (`position_keys`) covers `POSITION_CODE_PATHS`, the toolchain lock that pins uharfbuzz and fontTools, the font's non-family glyphs, cmap and GPOS wiring, and the kern sidecar. `_position_mismatch(shaper, kern, features, row)` takes no settled stream, so the position key needs no settlement input beyond the row key it contains. Each record also keeps the digest of the settled stream both of its verdicts were derived against (`oracle_positions.settled_digest`), which keys the position verdict when the row key cannot.
 
-The after font's GSUB wiring is in neither key, for the reason `fingerprint.after_font_glyph_digests` gives: a rune edit changes the lookup list on nearly every cycle, and the glyphs a row shapes to are already covered. A position is served only while the row's key is unchanged, so its settled cells are unchanged, and `gate:conform` checks every cycle that the compiled font selects the settlement's cells.
+The after font's GSUB wiring is in neither key, for the reason `fingerprint.after_font_glyph_digests` gives: a rune edit changes the lookup list on nearly every cycle, and the glyphs a row shapes to are already covered. A position is served only while its settled cells are unchanged: either the row's key and the row stamp are unchanged, or the row was walked again and its settled stream has the digest its record holds. `gate:conform` checks every cycle that the compiled font selects the settlement's cells.
 
 The position comparison adds `"position"` to a row's `kinds` and `"position-mismatch"`, and optionally `"position-kern-attributable"`, to its `divergence_tags`, and changes nothing else, so a served row verdict and a fresh one enter the position comparison in the same state. The position verdict is stored before the ledger decides whether the row goes through the position comparison. A row the previous pass never shaped is recorded as `UNSHAPED` and is shaped when a ledger edit makes it eligible, and a shaped row's position verdict is written forward even when this pass's ledger excludes the row. If any of the facts above stops holding, the cache serves wrong verdicts without any error, and `STORE_FORMAT` must change.
 
@@ -12,17 +12,27 @@ The staleness test is per family and has no threshold. A row is served when no f
 
 The row key is not `review.unit_cache.family_content_keys`. That key includes a `glyphs` line over the after font's compiled outlines, which suits a cache of rendered review cards. The row verdict never reads a font, so that line would drop row verdicts on every font change. The position key includes the same per-family glyph digest because its verdict is shaped through that font, so a glyph edit re-shapes the rows that reach the family and re-derives none. `rebuild/review/` imports `rebuild/pipeline/` and not the reverse, so the parts both caches use (`fingerprint.rune_digests` here and `fingerprint.rune_explain_digests` in the unit cache, `fingerprint.after_font_glyph_digests`, `spec_load.rune_closure`, `spec_load.capability_features`, `spec_load.spec_structure_digest`) live in the pipeline.
 
-The row store's whole-store stamp (`environment_stamp`) leaves out `M1.otf` and the kern sidecar, which the position stamp covers; `rebuild/m1-divergences.yaml`, because classification always runs again; `rebuild/m1-contact-allow.yaml`, which no oracle stage reads and which is not in `fingerprint.data_paths`; and the rune files, which the per-family keys cover. It covers everything that can change a verdict without changing a named family's key: the comparison's code closure, the other data inputs, the resolved spec structure and the capability-feature set, the engine's settlement flags, the configuration's feature set, and the subset table's bytes. The spec structure and the capability features cover cross-rune routes that the per-family keys cannot split: a predicate class gaining a member, a rune-local group, a ligature sequence, a feature unlock. For example, the kernel's specificity order (`rebuild/kernel-rs/src/specificity.rs`) expands a class reference to its whole member set before it compares records, so a rune joining a class can change the result in a window that contains no such rune. The position stamp is checked after the row stamp: a store whose row stamp moved is not loaded, and one whose position stamp alone moved serves rows and re-shapes positions.
+The row store's whole-store stamp (`environment_stamp`) leaves out `M1.otf` and the kern sidecar, which the position stamp covers; `rebuild/m1-divergences.yaml`, because classification always runs again; `rebuild/m1-contact-allow.yaml`, which no oracle stage reads and which is not in `fingerprint.data_paths`; and the rune files, which the per-family keys cover. It covers everything that can change a verdict without changing a named family's key: the comparison's code closure, the other data inputs, the resolved spec structure and the capability-feature set, the engine's settlement flags, the configuration's feature set, and the subset table's bytes. The spec structure and the capability features cover cross-rune routes that the per-family keys cannot split: a predicate class gaining a member, a rune-local group, a ligature sequence, a feature unlock. For example, the kernel's specificity order (`rebuild/kernel-rs/src/specificity.rs`) expands a class reference to its whole member set before it compares records, so a rune joining a class can change the result in a window that contains no such rune. A store whose position stamp alone moved serves rows and re-shapes positions; one whose row stamp moved is the next paragraph's case.
+
+A position verdict outlives a move of the row stamp, which drops every row verdict. `load_store` still loads a store whose row stamp differs only outside `POSITION_ROW_STAMP_LABELS`, with every row stale, and a row the walk settles again keeps its stored position when its fresh settled digest equals the record's, no family it reaches moved its position key, the position stamp holds, and `position_due` does not (`RowStore.position_servable`). The verdict is `_position_mismatch(shaper, kern, features, row)`, and each of its inputs is covered without the row stamp:
+
+- The row, its baseline glyphs, positions and clusters: the `subset` line and the header's subset digest pin the table, so the ordinal still names the row, and the row check digest checks it on every read.
+- `features`: the `config` and `features` lines, which must hold, with `format`, for the store to load.
+- The glyphs HarfBuzz selects for the row: while `gate:conform` passes they are a function of the row's settled cells, and the settled digest names those cells slot by slot, with each junction and extension and with which of the two shapers the configuration uses.
+- Those glyphs' outlines, advances and cursive anchors: the position keys of every family the row reaches. They embed the row keys, so a rune edit still re-shapes the rows that reach its family.
+- The rest of the font apart from GSUB, the kern sidecar, the toolchain and the position comparison's code: the position stamp. `POSITION_CODE_PATHS` is the position comparison's whole import closure, so its `position_code` line covers that code without the row stamp.
+
+The row stamp's other lines reach a position only through settlement, which the settled digest covers: the crate, the code of the walk and of this module (the part of `ORACLE_ROW_CODE_PATHS` outside the position closure), the data inputs, the spec structure, the capability features and the settlement flags. Its `alias_boundary` line is read by the row comparison alone. So a crate edit, a pipeline edit outside the position closure, or a predicate class gaining a member re-derives every row and re-shapes only the rows whose settled cells changed. A store whose `subset` line moved, which every letter addition does, still does not load: its records would have to be matched to the new table's rows by codepoints instead of by ordinal, and a letter addition also moves the position keys of every neighbor whose rune it edits.
 
 Keying by settled window instead of by row was measured and rejected. A settled window spans six slots and a row has at most four letters, so windows name more letters than rows (287,280 of 499,989 distinct windows name four letters). With four edited runes, window keys served 45.4% of the work against row keys' 48.6%. Window keys cover only settlement, not the comparison, and a window's left slot is keyed on the previous window's output, so an edit changes keys downstream and produces misses. Added on top of a row store, window keys served 1.40% more lookups.
 
-Records are positional and carry no row key: the subset table is the complete product over the M1 alphabet in canonical order, so the ordinal is the key. Each record starts with a row check digest (`row_check_digest`), a digest prefix of its row's codepoints that is checked on every serve. A store whose alignment was checked only by a whole-file digest and a row count would serve every row wrong with no error if the table changed under it; the row check digest makes that an abort. `baseline_glyphs`, `baseline_junctions` and `codepoints` are read from the table instead of stored, to keep the store small.
+Records are positional and carry no row key: the subset table is the complete product over the M1 alphabet in canonical order, so the ordinal is the key. Each record starts with a row check digest (`row_check_digest`), a digest prefix of its row's codepoints that is checked on every serve, and then the settled digest. A store whose alignment was checked only by a whole-file digest and a row count would serve every row wrong with no error if the table changed under it; the row check digest makes that an abort. `baseline_glyphs`, `baseline_junctions` and `codepoints` are read from the table instead of stored, to keep the store small.
 
 Two mechanisms stop a wrong record from being served indefinitely. They are needed because a served record is written again under the current stamp, so its provenance never ages it out, and `gate:conform` checks the font against a fresh settlement but never compares a cached verdict with a fresh one. First, each record keeps the pass at which each of its two verdicts was derived, not the pass that last wrote it, and `RowStore.due` and `RowStore.position_due` force a re-derivation once that age reaches `MAX_RECORD_AGE`. The scheduled re-derivation is spread by row ordinal, so one row in `MAX_RECORD_AGE` re-derives on every pass instead of the whole table on one pass. Second, `VerificationSample` draws up to `VERIFICATION_SAMPLE_PER_FAMILY` served rows for every family that served any, seeded on the stamp, the family and the pass's coverage ordinal, so the checked rows change from pass to pass. A pass that writes no store, such as `--gates-only`, advances that ordinal by the clock (see `RowStore`). The caller re-derives the sampled rows and compares whole records, and a second sample of the same shape re-shapes the rows whose positions were served. Because every family that served rows is sampled, a family whose records are all wrong is always caught, not with probability equal to the sample size over the rows served. A rune edited during a run produces that kind of error.
 
 The key relies on one assumption that nothing else in the pipeline checks: every old compiled glyph name in a row belongs to a family the row's codepoints reach, so the alias entries a served row used are inside its own key. `unreachable_glyph_heads` checks it. Its answer depends only on the subset row and the registry, which the whole-store stamp covers, so the check runs when a pass that writes a store derives a row, not when a row is served: a row that fails it is recorded at `UNCOVERED_AGE`, which every later pass under the same stamp finds due.
 
-Every failure falls back toward a full pass. `load_store` returns None for an absent, unreadable, format-mismatched, stamp-mismatched, digest-mismatched, short or trailer-less store, and None costs one uncached oracle pass. A store whose position stamp or position keys do not match loads with every position stale, which costs one pass of shaping.
+Every failure falls back toward a full pass. `load_store` returns None for an absent, unreadable, format-mismatched, digest-mismatched, short or trailer-less store, and for one whose row stamp moved in a `POSITION_ROW_STAMP_LABELS` line, and None costs one uncached oracle pass. A store whose row stamp moved in another line loads with every row stale, which costs one pass of deriving rows and shaping the positions whose settled cells changed. A store whose position stamp or position keys do not match loads with every position stale, which costs one pass of shaping.
 
 The settle memo that the oracle shares with the conformance sweep (`conform.SettleMemoFile`) keys its entries with the same primitives, so they live here too. `settle_family_keys` is `family_keys` without the alias line, because the walk never reads the alias map. `settle_memo_stamp` is the row stamp without the format, subset and alias-boundary lines, because a memo entry is only a settlement. A memo entry's reach is read from its window's labels instead of a row's codepoints: the six slots' families, the rune a formed ligature label names, and every ligature rune whose components all appear among them. `StaleMask.bit_of` maps one label to its bit. `SettleMemoInputs` is the disk-derived half of both keys, read before the spec is loaded, as `run_m1.tables_inputs` is. The settlements are then at least as new as the content the keys name, so a rune edited during a run ends up under a key the next pass reports as moved, whichever side of the load the edit happened on.
 """
@@ -43,16 +53,23 @@ from array import array
 from dataclasses import dataclass
 from operator import itemgetter
 from pathlib import Path
-from typing import IO, Callable, Collection, Iterable, Mapping, Sequence
+from typing import IO, Callable, Collection, Iterable, Mapping, NoReturn, Sequence
 
 import yaml
 
 from rebuild.pipeline import fingerprint, kernel_exec, spec_load
 from rebuild.pipeline.fingerprint import EnvironmentStamp, moved_note
 from rebuild.pipeline.model import ResolvedSpec
+from rebuild.pipeline.position_record import (
+    NO_SETTLED_DIGEST,
+    SETTLED_DIGEST_WIDTH,
+    UNSHAPED,
+    CachedPosition,
+    PositionVerdict,
+)
 from rebuild.validation.rowmodel import Row, format_codepoints
 
-STORE_FORMAT = "ams-m1-oracle-rows/3"
+STORE_FORMAT = "ams-m1-oracle-rows/4"
 STORE_STEM = "oracle-rows"
 SCRATCH_SUBDIR = "oracle-rows"
 ROW_COUNT_TRAILER = "#rows"
@@ -68,15 +85,26 @@ SERVE_BOTH = 2
 # The row age a writer records for a row `unreachable_glyph_heads` refuses. Every pass finds a record this old due, so the row is derived on every pass and never served.
 UNCOVERED_AGE = -MAX_RECORD_AGE
 
-# The position comparison's code that the row stamp does not cover: `_position_mismatch`, `_kern_normalized_positions`, the position record codec, `_verify_served_positions`, `KernEvaluator` and `_shaper_for`, which picks the shaper every stored position comes from. They share one module so this stamp works at module grain, like `ORACLE_ROW_CODE_PATHS`, and rebuild/test_oracle_code_closure.py walks that module's imports. The classifier in oracle.py is outside this stamp, so a classifier edit re-shapes no position. `Shaper` and `geometry.PIXEL` are in `ORACLE_ROW_CODE_PATHS`, so the row stamp covers them for both verdicts.
-POSITION_CODE_PATHS = ("rebuild/pipeline/oracle_positions.py",)
+# The position comparison's whole import closure, which the position stamp hashes on its own because a stored position is served across a move of the row stamp: oracle_positions.py (`_position_mismatch`, `_kern_normalized_positions`, the position record codec, `settled_digest`, `_verify_served_positions`, `KernEvaluator` and `_shaper_for`, which picks the shaper every stored position comes from), the shapers, the record types, `geometry.PIXEL`, the row model, and what they import. rebuild/test_oracle_code_closure.py walks the imports from oracle_positions.py and checks that this list names exactly the modules it reaches, and that the classifier in oracle.py, this module, and conform.py are unreachable: a classifier edit re-shapes no position, and an edit to the walk, the crate driver or the store re-shapes only the rows whose settled cells changed. Every module here but oracle_positions.py is in `ORACLE_ROW_CODE_PATHS` too, so an edit to one drops both verdicts.
+POSITION_CODE_PATHS = (
+    "rebuild/pipeline/geometry.py",
+    "rebuild/pipeline/labels.py",
+    "rebuild/pipeline/model.py",
+    "rebuild/pipeline/oracle_positions.py",
+    "rebuild/pipeline/position_record.py",
+    "rebuild/pipeline/settle.py",
+    "rebuild/pipeline/shapers.py",
+    "rebuild/validation/rowmodel.py",
+)
+# The row stamp's lines a position verdict reads apart from settlement: the store's format, the configuration and the features it shapes under, and the subset table that pins every row to its ordinal. `load_store` loads a store whose row stamp moved only in other lines, with every row verdict stale, so its positions can be served by settled digest (see the module docstring).
+POSITION_ROW_STAMP_LABELS = ("format", "config", "features", "subset")
 # The lock that pins uharfbuzz and fontTools, which decide the positions the same font bytes shape to. It is hashed by its dependency pins (`fingerprint.lock_digest`), so a change to the project's own version block does not move the stamp. For the same reason `artifact_cycle.comparison_side_label` does not count it as a comparison-side input, so a toolchain bump rebuilds the tables and the font.
 TOOLCHAIN_LOCK = "uv.lock"
 
 # The two alias heads that name a boundary glyph instead of a family. `_compare_row` skips every name in `labels.BOUNDARY_GLYPH_NAMES` before it reads the alias map, so these entries never reach a verdict. They are hashed into the whole-store stamp instead of a family key, and `alias_family_digests` raises on any other head that has no rune digest.
 BOUNDARY_ALIAS_HEADS = frozenset({"space", "periodcentered"})
 
-# The modules that `_compare_row` and `_SettledWindowWalk` import, directly or transitively: the comparison and its settlement, the stream vocabulary (`labels`), the crate driver, the spec loader, the fingerprints the keys are computed from, and this module. rebuild/test_oracle_code_closure.py walks the import graph from conform.py on every contracts run and fails when a reachable module is missing here or a listed module is unreachable. conform.py holds the producer this cache serves: `_compare_row`, the walk, and the record codec. The classifier in oracle.py must stay out: if conform.py reached it, this test would fail until it was listed, and rebuild/test_build_code_closure.py fails when this list names it. The position comparison in oracle_positions.py is `POSITION_CODE_PATHS`, stamped on top of this list, and the test also checks that it never reaches oracle.py, which would put the classifier in the position stamp. The witness stage's rule replay is in witness.py, which imports conform.py and emit_gsub.py, so emit_gsub.py is outside this closure and an emitter edit keeps the store. The four rebuild/tools modules cannot change a verdict: `kernel_exec` imports `memory_budget` to size its fan-out, `memory_budget` imports `peak_rss`, and the streams are byte-identical at any width; `fingerprint` imports `site_fonts.font_paths` and `lock_digest.lock_digest`. They are listed because the walk works at module grain and the test fails on an omission, and they change rarely, so the whole-store drops they cause are rare.
+# The modules that `_compare_row` and `_SettledWindowWalk` import, directly or transitively: the comparison and its settlement, the stream vocabulary (`labels`), the crate driver, the spec loader, the fingerprints the keys are computed from, and this module. rebuild/test_oracle_code_closure.py walks the import graph from conform.py on every contracts run and fails when a reachable module is missing here or a listed module is unreachable. conform.py holds the producer this cache serves: `_compare_row`, the walk, and the record codec. The classifier in oracle.py must stay out: if conform.py reached it, this test would fail until it was listed, and rebuild/test_build_code_closure.py fails when this list names it. The shapers and the record types are listed because conform.py and this module import them; the position comparison's own closure is `POSITION_CODE_PATHS`, stamped on its own, and the test also checks that it never reaches oracle.py, which would put the classifier in the position stamp. The witness stage's rule replay is in witness.py, which imports conform.py and emit_gsub.py, so emit_gsub.py is outside this closure and an emitter edit keeps the store. The four rebuild/tools modules cannot change a verdict: `kernel_exec` imports `memory_budget` to size its fan-out, `memory_budget` imports `peak_rss`, and the streams are byte-identical at any width; `fingerprint` imports `site_fonts.font_paths` and `lock_digest.lock_digest`. They are listed because the walk works at module grain and the test fails on an omission, and they change rarely, so the passes that re-derive every row verdict because of them are rare.
 ORACLE_ROW_CODE_PATHS = (
     "rebuild/pipeline/conform.py",
     "rebuild/pipeline/fingerprint.py",
@@ -86,7 +114,9 @@ ORACLE_ROW_CODE_PATHS = (
     "rebuild/pipeline/labels.py",
     "rebuild/pipeline/model.py",
     "rebuild/pipeline/oracle_cache.py",
+    "rebuild/pipeline/position_record.py",
     "rebuild/pipeline/settle.py",
+    "rebuild/pipeline/shapers.py",
     "rebuild/pipeline/spec_load.py",
     "rebuild/pipeline/table.py",
     "rebuild/tools/lock_digest.py",
@@ -189,7 +219,7 @@ def position_family_keys(row_keys: Mapping[str, str], glyph_digests: Mapping[str
 def position_keys(
     repo_root: Path, row_keys: Mapping[str, str], font_path: Path, kern_sidecar_path: Path | None
 ) -> tuple[dict[str, str], EnvironmentStamp]:
-    """Return the position store's per-family keys (`position_family_keys`) and its whole-store position stamp, from one read of the font. The stamp covers the position comparison's module (`POSITION_CODE_PATHS`), the toolchain lock's dependency pins, the digest `fingerprint.after_font_glyph_digests` returns for the font's non-family glyphs, cmap and GPOS wiring, and the kern sidecar's bytes, or `-` when there is no sidecar. The row stamp is not repeated here, because a store is loaded only when its row stamp matches."""
+    """Return the position store's per-family keys (`position_family_keys`) and its whole-store position stamp, from one read of the font. The stamp covers the position comparison's code closure (`POSITION_CODE_PATHS`), the toolchain lock's dependency pins, the digest `fingerprint.after_font_glyph_digests` returns for the font's non-family glyphs, cmap and GPOS wiring, and the kern sidecar's bytes, or `-` when there is no sidecar. The row stamp's lines a position reads apart from settlement are `POSITION_ROW_STAMP_LABELS`, which a store must match to load at all, so they are not repeated here."""
     root = Path(repo_root)
     glyph_digests, helpers = fingerprint.after_font_glyph_digests(Path(font_path))
     lines = (
@@ -366,29 +396,8 @@ class CachedRow:
 
 
 @dataclass(frozen=True, slots=True)
-class CachedPosition:
-    """One row's position-comparison verdict when the row's positions do not match: `oracle_positions._position_mismatch`'s mismatch descriptions, which the audit prints as a position-only row's new cells, and whether every mismatched slot follows a kern-attributable one. A row whose positions matched is stored as `None`, and a row the position comparison never shaped as `UNSHAPED`. Only a `CachedPosition` or `None` may be served, and `==` over them is the verification sample's check."""
-
-    mismatches: tuple[str, ...]
-    kern_attributable: bool
-
-
-class _Unshaped:
-    """The position record of a row the previous pass never shaped, because the row was kept out of the position comparison (a ligation or junction divergence, or a divergence without exactly one ledger match that claims identical ink) or no font was open. It is distinct from `None`, a shaped row that matched, so that a row the position comparison never saw is not counted as clean."""
-
-    __slots__ = ()
-
-    def __repr__(self) -> str:
-        return "UNSHAPED"
-
-
-UNSHAPED = _Unshaped()
-PositionVerdict = CachedPosition | None | _Unshaped
-
-
-@dataclass(frozen=True, slots=True)
 class StoredRecord:
-    """One row's full record in the store: both verdicts and the pass each was derived at. The ages are per verdict because the two re-derive on different keys: a font compile that changes a family's outlines re-shapes its rows' positions while every row verdict is still served."""
+    """One row's verdicts in the store and the pass each was derived at. The ages are per verdict because the two re-derive on different keys: a font compile that changes a family's outlines re-shapes its rows' positions while every row verdict is still served. The record's settled digest is not decoded here, because only a writing pass and a row whose row verdict is derived again read it, and they read it in place (`RowStore.settled`)."""
 
     row: CachedRow | None
     row_age: int
@@ -411,9 +420,12 @@ def encode_record(
     derived_at_pass: int,
     position: PositionVerdict = UNSHAPED,
     position_at_pass: int = 0,
+    settled: str = NO_SETTLED_DIGEST,
 ) -> str:
-    """Return one store line: the row check digest; then `-` for a clean row, or `P` and the row verdict's five fields; then `?` for a position never shaped, `-` for one that matched, or `D`, the `|`-joined mismatch descriptions and `k` or `n` for the kern-attribution flag; then the two derivation passes, the row verdict's first. `|` separates cells and `,` separates the token tuples, as in `divergence-audit.tsv`. The mismatch descriptions contain commas, so they are joined on `|` alone and the flag has its own field."""
-    fields = [row_check_digest(codepoints)]
+    """Return one store line: the row check digest; the settled digest, `SETTLED_DIGEST_WIDTH` characters wide; then `-` for a clean row, or `P` and the row verdict's five fields; then `?` for a position never shaped, `-` for one that matched, or `D`, the `|`-joined mismatch descriptions and `k` or `n` for the kern-attribution flag; then the two derivation passes, the row verdict's first. `|` separates cells and `,` separates the token tuples, as in `divergence-audit.tsv`. The mismatch descriptions contain commas, so they are joined on `|` alone and the flag has its own field."""
+    if len(settled) != SETTLED_DIGEST_WIDTH:
+        raise ValueError(f"a settled digest is {SETTLED_DIGEST_WIDTH} characters, not {settled!r}")
+    fields = [row_check_digest(codepoints), settled]
     if cached is None:
         fields.append("-")
     else:
@@ -438,7 +450,7 @@ def encode_record(
 
 def decode_record(line: str) -> StoredRecord:
     fields = line.split("\t")
-    at = 1
+    at = 2
     row: CachedRow | None = None
     if fields[at] == "-":
         at += 1
@@ -462,6 +474,23 @@ def decode_record(line: str) -> StoredRecord:
         position = CachedPosition(mismatches=_split(fields[at], "|"), kern_attributable=fields[at + 1] == "k")
         at += 2
     return StoredRecord(row=row, row_age=int(fields[at]), position=position, position_age=int(fields[at + 1]))
+
+
+def decode_position(line: str) -> tuple[PositionVerdict, int]:
+    """Return one store line's position verdict and the pass it was shaped at, the last field, without building its row verdict. The position tag follows the row check digest, the settled digest, and the row verdict's one field for a clean row or six for a divergent one."""
+    fields = line.split("\t")
+    at = 3 if fields[2] == "-" else 8
+    tag = fields[at]
+    position: PositionVerdict
+    if tag == "?":
+        position = UNSHAPED
+    elif tag == "-":
+        position = None
+    else:
+        position = CachedPosition(
+            mismatches=_split(fields[at + 1], "|"), kern_attributable=fields[at + 2] == "k"
+        )
+    return position, int(fields[-1])
 
 
 class RowStore:
@@ -575,21 +604,49 @@ class RowStore:
         return self.servable(index, mask) == SERVE_NOTHING
 
     def position_stale(self, index: int, mask: int) -> bool:
-        """Whether this row's position verdict must be shaped again: wherever its row verdict must be re-derived (the position key includes the row key, and a served position over a fresh settlement would describe the previous pass's cells), or wherever a family it reaches changed its glyphs, the position stamp moved, or `position_due` holds."""
+        """Whether this row's position verdict must be shaped again: wherever its row verdict must be re-derived (the position key includes the row key, and a served position over a fresh settlement would describe the previous pass's cells), or wherever a family it reaches changed its glyphs, the position stamp moved, or `position_due` holds. `position_servable` names the rows among the first kind whose position may still be served once the walk shows their settled stream unchanged."""
         return self.servable(index, mask) != SERVE_BOTH
+
+    def position_servable(self, index: int, mask: int) -> bool:
+        """Whether this row's stored position verdict may be served after its row verdict has been derived again, provided the fresh settled stream has the digest the record holds (`settled`): no family the row reaches moved its position key, the position stamp holds, and `position_due` does not hold. The oracle asks this of the rows `servable` refuses outright, which on a pass whose row stamp moved is every row and on any other pass includes a row due only for its row age or recorded at `UNCOVERED_AGE`, and the module docstring argues why the settled digest stands in for the row key there."""
+        if self.position_mask.stale(mask):
+            return False
+        after = self.pass_ordinal + 1
+        return not (
+            after - self._position_ages[self._at(index)] >= MAX_RECORD_AGE
+            or (after + self.rotation) % MAX_RECORD_AGE == index % MAX_RECORD_AGE
+        )
+
+    def settled(self, index: int) -> str:
+        """Return the settled digest this row's record holds, read in place without checking the row check digest or decoding the record. A writing pass carries it forward for a served row, and the oracle compares it with a walked row's fresh digest before `serve_position` checks the row and decodes its position."""
+        start = self._offsets[self._at(index)] + ROW_CHECK_WIDTH + 1
+        return self._blob[start : start + SETTLED_DIGEST_WIDTH].decode("ascii")
 
     def serve(self, index: int, codepoints: Sequence[int]) -> StoredRecord:
         """Return this row's full record after checking its row check digest. The caller decides which of the two verdicts the keys allow it to use, and counts a served position in `positions_served` itself. A mismatched row check digest is not a miss: it means the table under this store was replaced or reordered and every other record is wrong in the same way, so it exits."""
         at = self._at(index)
         start = self._offsets[at]
         end = self._offsets[at + 1] - 1
-        digest = self._blob[start : start + ROW_CHECK_WIDTH].decode("ascii")
-        if digest != row_check_digest(codepoints):
-            raise SystemExit(
-                f"the oracle row cache does not match the table at row {index}: the record's row check digest is {digest} where the table holds {format_codepoints(tuple(codepoints))} — the store describes a different table and nothing it holds can be served"
-            )
+        if self._blob[start : start + ROW_CHECK_WIDTH].decode("ascii") != row_check_digest(codepoints):
+            self._misaligned(index, codepoints)
         self.served += 1
         return decode_record(self._blob[start:end].decode("utf-8"))
+
+    def serve_position(self, index: int, codepoints: Sequence[int]) -> tuple[PositionVerdict, int]:
+        """Return this row's stored position verdict and the pass it was shaped at, after the row check `serve` makes, without building the row verdict or counting the row in `served`. A row whose row verdict is derived again reads only this, and so does the served-position verifier."""
+        at = self._at(index)
+        start = self._offsets[at]
+        end = self._offsets[at + 1] - 1
+        if self._blob[start : start + ROW_CHECK_WIDTH].decode("ascii") != row_check_digest(codepoints):
+            self._misaligned(index, codepoints)
+        return decode_position(self._blob[start:end].decode("utf-8"))
+
+    def _misaligned(self, index: int, codepoints: Sequence[int]) -> NoReturn:
+        start = self._offsets[self._at(index)]
+        digest = self._blob[start : start + ROW_CHECK_WIDTH].decode("ascii")
+        raise SystemExit(
+            f"the oracle row cache does not match the table at row {index}: the record's row check digest is {digest} where the table holds {format_codepoints(tuple(codepoints))} — the store describes a different table and nothing it holds can be served"
+        )
 
 
 def read_header(path: Path) -> dict | None:
@@ -640,7 +697,7 @@ def load_store(
     first_row: int = 0,
     stop_row: int | None = None,
 ) -> RowStore | None:
-    """Return the previous pass's records for rows `[first_row, stop_row)` of one configuration (`stop_row` None means the table's end), or `None` when the store cannot be trusted: absent, unreadable, format- or stamp-mismatched, written against another subset table, or missing its row-count trailer. `None` costs one uncached oracle pass, so every parse failure returns `None`, including `zlib.error`, which a corrupt deflate body raises instead of `OSError`. A range that starts and ends on one segment of a joined store inflates that segment alone (`_indexed_records`), after checking the file's header member against the header line read here, and every segment's bytes and the trailer against the store's member index. Any other range, and every range of a store with no index (an uncut configuration's, or one the index does not describe), reads the file to its end: the trailer is the last line and holds the count the store is checked against, and every record's two ages are parsed in range or out. Both reads load a store only when it is the one its writer wrote, so all ranges of one configuration agree on whether the store loads. Only the range's records are kept, in one buffer with three packed arrays. A range whose kept bytes exceed the packed offsets' width returns `None` like any other parse failure. The position stamp and keys do not affect loading: `position_stale_mask` decides which position verdicts may be served. `rotation` is passed to the store unread; see `RowStore`."""
+    """Return the previous pass's records for rows `[first_row, stop_row)` of one configuration (`stop_row` None means the table's end), or `None` when the store cannot be trusted: absent, unreadable, format-mismatched, stamp-mismatched in a `POSITION_ROW_STAMP_LABELS` line, written against another subset table, or missing its row-count trailer. A store whose row stamp moved only in other lines loads with every row stale (`StaleMask.everything`), so that only its position verdicts can be served (`RowStore.position_servable`). `None` costs one uncached oracle pass, so every parse failure returns `None`, including `zlib.error`, which a corrupt deflate body raises instead of `OSError`. A range that starts and ends on one segment of a joined store inflates that segment alone (`_indexed_records`), after checking the file's header member against the header line read here, and every segment's bytes and the trailer against the store's member index. Any other range, and every range of a store with no index (an uncut configuration's, or one the index does not describe), reads the file to its end: the trailer is the last line and holds the count the store is checked against, and every record's two ages are parsed in range or out. Both reads load a store only when it is the one its writer wrote, so all ranges of one configuration agree on whether the store loads. Only the range's records are kept, in one buffer with three packed arrays. A range whose kept bytes exceed the packed offsets' width returns `None` like any other parse failure. The position stamp and keys do not affect loading: `position_stale_mask` decides which position verdicts may be served. `rotation` is passed to the store unread; see `RowStore`."""
     store_file = Path(path)
     if not store_file.is_file():
         return None
@@ -651,7 +708,8 @@ def load_store(
             if header["format"] != STORE_FORMAT:
                 return None
             recorded_lines = tuple(header["environment"])
-            if recorded_lines != environment.lines:
+            rows_hold = recorded_lines == environment.lines
+            if not rows_hold and not _positions_outlive(recorded_lines, environment):
                 return None
             if header["subset_digest"] != subset_digest:
                 return None
@@ -694,13 +752,16 @@ def load_store(
     except OSError, EOFError, ValueError, KeyError, IndexError, TypeError, OverflowError, zlib.error:
         return None
     moved = moved_families(recorded_keys, current_keys)
+    mask = StaleMask(spec, moved)
+    if not rows_hold:
+        mask.everything = True
     return RowStore(
         environment=environment,
         recorded_lines=recorded_lines,
         recorded_keys=recorded_keys,
         subset_digest=subset_digest,
         pass_ordinal=pass_ordinal,
-        mask=StaleMask(spec, moved),
+        mask=mask,
         blob=blob,
         offsets=offsets,
         ages=ages,
@@ -710,6 +771,13 @@ def load_store(
         first_row=first_row,
         rows=seen,
     )
+
+
+def _positions_outlive(recorded_lines: Sequence[str], environment: EnvironmentStamp) -> bool:
+    """Whether a store whose row stamp moved may still serve position verdicts: no `POSITION_ROW_STAMP_LABELS` line differs between the recorded stamp and this pass's."""
+    recorded = EnvironmentStamp(lines=tuple(recorded_lines)).labels
+    current = environment.labels
+    return all(recorded.get(label) == current.get(label) for label in POSITION_ROW_STAMP_LABELS)
 
 
 def next_pass_ordinal(store: RowStore | None) -> int:
@@ -902,10 +970,13 @@ class RowWriter:
         derived_at_pass: int,
         position: PositionVerdict = UNSHAPED,
         position_at_pass: int = 0,
+        settled: str = NO_SETTLED_DIGEST,
     ) -> None:
-        """Record one row, divergent or clean. Every subset row gets a record, in table order, because the ordinal is the key and a clean row with no age could never be re-derived on schedule. `derived_at_pass` is the pass the row verdict was computed at: `RowStore.age(index)` for a verdict this pass only served, `self.pass_ordinal` for one it derived, and `UNCOVERED_AGE` for a derived row whose glyph names `unreachable_glyph_heads` refuses. `position_at_pass` is the same for the position verdict, from `RowStore.position_age(index)` when it was served. Recording this pass for a served verdict would reset its age and defeat the age cap."""
+        """Record one row, divergent or clean. Every subset row gets a record, in table order, because the ordinal is the key and a clean row with no age could never be re-derived on schedule. `derived_at_pass` is the pass the row verdict was computed at: `RowStore.age(index)` for a verdict this pass only served, `self.pass_ordinal` for one it derived, and `UNCOVERED_AGE` for a derived row whose glyph names `unreachable_glyph_heads` refuses. `position_at_pass` is the same for the position verdict, from `RowStore.position_age(index)` when it was served. Recording this pass for a served verdict would reset its age and defeat the age cap. `settled` is the digest of the settled stream the row verdict was derived against: the served record's (`RowStore.settled`) for a served verdict, and `oracle_positions.settled_digest` of this pass's walk for a derived one."""
         self._stream.write(
-            (encode_record(codepoints, cached, derived_at_pass, position, position_at_pass) + "\n").encode()
+            (
+                encode_record(codepoints, cached, derived_at_pass, position, position_at_pass, settled) + "\n"
+            ).encode()
         )
         self.rows += 1
 

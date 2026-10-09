@@ -6,7 +6,7 @@ The walk is at module grain, as in `rebuild/test_verdict_update_closure.py`. Tha
 
 Because of the module grain, the witness stage's rule replay is in `rebuild/pipeline/witness.py` and not in conform.py. The replay imports `rebuild/pipeline/emit_gsub.py`, and if it were in conform.py, the roster would have to name the emitter.
 
-The position comparison has its own walk, from `rebuild/pipeline/oracle_positions.py`, the only module `POSITION_CODE_PATHS` names. The position stamp is added on top of the row stamp, so everything the position comparison reaches must be named by one of the two rosters. `rebuild/pipeline/oracle.py`, the classifier, must be unreachable from the position comparison: it re-runs over every served verdict and is in neither roster, and if the position comparison imported it, a predicate edit would change `position_code` and re-shape every position.
+The position comparison has its own walk, from `rebuild/pipeline/oracle_positions.py`, and `POSITION_CODE_PATHS` must name exactly the modules it reaches. The position stamp is checked on its own, without the row stamp, because a stored position is served across a move of the row stamp when the row's settled stream did not change, so a module the position comparison reaches is covered only when that roster names it. `rebuild/pipeline/oracle.py`, the classifier, must be unreachable from the position comparison: it re-runs over every served verdict and is in neither roster, and if the position comparison imported it, a predicate edit would change `position_code` and re-shape every position. The row store, the settlement walk and the crate driver must be unreachable too, or an edit to one would re-shape every position where the settled digest already covers what it decides.
 """
 
 from __future__ import annotations
@@ -26,6 +26,7 @@ POSITION_COMPARISON_NAMES = frozenset(
         "_kern_normalized_positions",
         "_cached_position",
         "_served_position",
+        "settled_digest",
         "_verify_served_positions",
         "KernEvaluator",
         "_shaper_for",
@@ -159,22 +160,30 @@ def test_the_position_comparison_s_entry_points_live_in_the_walked_module():
     assert all(hasattr(oracle_positions, name) for name in POSITION_COMPARISON_NAMES)
 
 
-def test_the_position_comparison_s_import_graph_is_inside_the_two_rosters():
-    """The position stamp is added on top of the row stamp, so a module the position comparison reaches is covered when either roster names it. A fix to a module neither roster names would be skipped for served positions."""
+def test_the_position_comparison_s_import_graph_is_inside_its_own_roster():
+    """A stored position is served across a move of the row stamp, so the position stamp covers the position comparison's code on its own: every module the comparison reaches must be named by `POSITION_CODE_PATHS`. A fix to a module it does not name would be served around as though the previous pass had already applied it."""
     files = _position_reached_files()
     assert (
-        REPO_ROOT / "rebuild" / "pipeline" / "conform.py" in files
+        REPO_ROOT / "rebuild" / "pipeline" / "shapers.py" in files
     ), "the walk found nothing; the entry module moved"
-    named = {
-        REPO_ROOT / relative
-        for relative in oracle_cache.ORACLE_ROW_CODE_PATHS + oracle_cache.POSITION_CODE_PATHS
-    }
+    named = {REPO_ROOT / relative for relative in oracle_cache.POSITION_CODE_PATHS}
     uncovered = sorted(str(path.relative_to(REPO_ROOT)) for path in files - named)
     assert uncovered == [], (
-        "these modules run in the oracle's position comparison but neither ORACLE_ROW_CODE_PATHS nor "
-        "POSITION_CODE_PATHS names them, so a fix to one would be served around as though the previous pass had "
-        f"already applied it: {', '.join(uncovered)}"
+        "these modules run in the oracle's position comparison but POSITION_CODE_PATHS does not name them, so a fix "
+        f"to one would be served around as though the previous pass had already applied it: {', '.join(uncovered)}"
     )
+
+
+def test_the_position_comparison_reaches_neither_the_store_nor_the_walk():
+    """The position stamp leaves out the row store (oracle_cache.py), the settlement walk and settle memo (conform.py) and the crate driver (kernel_exec.py), because the settled digest a record keeps covers what they decide, so an edit to one re-derives every row and re-shapes only the rows whose settled cells changed. The roster tests would accept the position comparison importing one of them again if `POSITION_CODE_PATHS` named it too; this test fails on that import, which would re-shape every position on the commonest pipeline edits."""
+    reached = reachable_modules(POSITION_ENTRY_MODULES)
+    for module in (
+        "rebuild.pipeline.oracle_cache",
+        "rebuild.pipeline.conform",
+        "rebuild.pipeline.kernel_exec",
+    ):
+        assert module not in reached, f"the position comparison's import closure reaches {module}"
+        assert f"{module.replace('.', '/')}.py" not in oracle_cache.POSITION_CODE_PATHS
 
 
 def test_the_classifier_lives_outside_the_position_comparison_s_closure():

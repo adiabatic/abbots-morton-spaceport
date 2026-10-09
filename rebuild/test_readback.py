@@ -15,6 +15,7 @@ from rebuild.pipeline import (
     kernel_exec,
     readback,
     run_m1,
+    shapers,
 )
 from rebuild.tools import cycle_timings as ct
 
@@ -70,7 +71,7 @@ class TestOverlayCase:
         spec = fixtures.mini_spec()
         font_path, _plan, _cursive, _copies = built
         real = conform.Shaper(font_path)
-        synthetic = conform.IsolatedOverlayShaper(font_path, spec)
+        synthetic = shapers.IsolatedOverlayShaper(font_path, spec)
         features = conform.features_for_config("ss10")
         alphabet = conform.spec_alphabet(spec)
         texts = [

@@ -4835,20 +4835,24 @@ def test_oracle_cache_note_speaks_the_labels_a_skip_miss_actually_reports():
     code = oracle_cache.ORACLE_ROW_CODE_PATHS[0]
     assert any(line.startswith(f"{rune}\t") for line in fingerprint.data_lines(ac.ROOT))
 
+    assert code not in oracle_cache.POSITION_CODE_PATHS
+    for row_only in (code, "rebuild/script.yaml", "rebuild/kernel-rs/Cargo.toml"):
+        assert (
+            ac.oracle_cache_note(f"{row_only} (changed)")
+            == f"the oracle row cache re-derives every row and keeps each position whose settled cells did not change: {row_only} is inside its row stamp"
+        )
+    shared = "rebuild/pipeline/settle.py"
+    assert shared in oracle_cache.ORACLE_ROW_CODE_PATHS and shared in oracle_cache.POSITION_CODE_PATHS
     assert (
-        ac.oracle_cache_note(f"{code} (changed)")
-        == f"the oracle row cache drops whole: {code} is inside its stamp"
-    )
-    assert (
-        ac.oracle_cache_note("rebuild/script.yaml (changed)")
-        == "the oracle row cache drops whole: rebuild/script.yaml is inside its stamp"
+        ac.oracle_cache_note(f"{shared} (changed)")
+        == f"the oracle row cache drops whole: {shared} is inside its row and position stamps"
     )
     assert (
         ac.oracle_cache_note(f"{rune} (changed)")
         == "the oracle row cache re-derives only the rows reaching those runes"
     )
     note = ac.oracle_cache_note(f"{rune} (changed), {code} (changed)")
-    assert note is not None and note.startswith("the oracle row cache drops whole")
+    assert note is not None and note.startswith("the oracle row cache re-derives every row")
     for positional in (
         "rebuild/pipeline/oracle_positions.py",
         "glyph_data/senior_quikscript_kerning.yaml",

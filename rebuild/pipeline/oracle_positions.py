@@ -1,19 +1,22 @@
-"""The baseline oracle's position comparison (M1-PLAN section 6): the kern-normalized old positions, the mismatch between them and the new font's shaped positions, the codec between a mismatch and the row store's position record, the served-position verifier, the kern sidecar evaluator, and `_shaper_for`, which picks the shaper every stored position comes from. The oracle.py module docstring says why `oracle._compare_config` calls these through the module.
+"""The baseline oracle's position comparison (M1-PLAN section 6): the kern-normalized old positions, the mismatch between them and the new font's shaped positions, the codec between a mismatch and the row store's position record, the digest of the settled stream a stored position is keyed on (`settled_digest`), the served-position verifier, the kern sidecar evaluator, and `_shaper_for`, which picks the shaper every stored position comes from. The oracle.py module docstring says why `oracle._compare_config` calls these through the module.
 
-This module is the only entry in `oracle_cache.POSITION_CODE_PATHS`: the position store's stamp covers this file's prose-insensitive digest and nothing else from the comparison side. It must never import rebuild/pipeline/oracle.py, or the classifier's code would be in the position stamp and a classifier edit would re-shape every position. rebuild/test_oracle_code_closure.py walks the import graph from here and checks that every reachable module is named by `ORACLE_ROW_CODE_PATHS` or `POSITION_CODE_PATHS` and that `rebuild.pipeline.oracle` is unreachable. What the position comparison reads outside this file (`conform.Shaper`, `geometry.PIXEL`, the row model) is in `ORACLE_ROW_CODE_PATHS`, and a store whose row stamp moved is not loaded at all.
+This module is the entry of `oracle_cache.POSITION_CODE_PATHS`, which names its whole import closure: the shapers (rebuild/pipeline/shapers.py), `geometry.PIXEL`, the row model, the record types (rebuild/pipeline/position_record.py), and what those import. The position stamp hashes that closure on its own, because a stored position is served across a move of the row stamp (rebuild/pipeline/oracle_cache.py). So this module imports neither the row store's module nor conform.py, whose settlement walk, settle memo and crate driver the settled digest covers instead. It must never import rebuild/pipeline/oracle.py either, or the classifier's code would be in the position stamp and a classifier edit would re-shape every position. rebuild/test_oracle_code_closure.py walks the import graph from here, checks that `POSITION_CODE_PATHS` names exactly the modules it reaches, and checks that the classifier, the store, and the walk are unreachable.
 
 For the tables' stamp this module is comparison code: `fingerprint.COMPARISON_CODE_MODULES` names it with oracle.py, so it is in `pipeline_code_paths` and the run_m1 green record but not in `table_code_paths`, and a cycle after an edit here runs `run_m1 --gates-only` instead of a rebuild. rebuild/test_build_code_closure.py checks that the build never imports it.
 """
 
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
+from typing import Iterable, Sequence
 
 import yaml
 
-from rebuild.pipeline import geometry, oracle_cache
-from rebuild.pipeline.conform import IsolatedOverlayShaper, Shaper
-from rebuild.pipeline.model import ResolvedSpec
+from rebuild.pipeline import geometry
+from rebuild.pipeline.model import ResolvedSpec, Settled
+from rebuild.pipeline.position_record import SETTLED_DIGEST_WIDTH, CachedPosition, PositionVerdict
+from rebuild.pipeline.shapers import IsolatedOverlayShaper, Shaper
 from rebuild.validation.rowmodel import Row, format_codepoints
 
 ZWNJ_CODEPOINT = 0x200C
@@ -89,31 +92,38 @@ def _position_mismatch(
     return (tuple(mismatches), kern_attributable)
 
 
-def _cached_position(mismatch: tuple[tuple[str, ...], bool] | None) -> oracle_cache.CachedPosition | None:
+def _cached_position(mismatch: tuple[tuple[str, ...], bool] | None) -> CachedPosition | None:
     """Convert a fresh `_position_mismatch` result to the stored form: `None` for a row that matched, otherwise a `CachedPosition` with the mismatch descriptions and the kern flag."""
-    return (
-        None
-        if mismatch is None
-        else oracle_cache.CachedPosition(mismatches=mismatch[0], kern_attributable=mismatch[1])
-    )
+    return None if mismatch is None else CachedPosition(mismatches=mismatch[0], kern_attributable=mismatch[1])
 
 
-def _served_position(cached: oracle_cache.CachedPosition | None) -> tuple[tuple[str, ...], bool] | None:
+def _served_position(cached: CachedPosition | None) -> tuple[tuple[str, ...], bool] | None:
     """Convert a stored position verdict back to `_position_mismatch`'s return shape, so the code after the position comparison cannot tell a served row from a freshly shaped one."""
     return None if cached is None else (cached.mismatches, cached.kern_attributable)
+
+
+def settled_digest(settled: Sequence[Settled], overlay: bool) -> str:
+    """Return the digest a record keys its position verdict on: `SETTLED_DIGEST_WIDTH` hex characters of a BLAKE2b over the row's settled stream, every slot's cell (rune, stance, entry, exit, adjustments) with its junction and extension, and over which shaper the configuration shapes through (`overlay`). `gate:conform` checks every cycle that the compiled font selects the settlement's cells, so while the digest and the per-family position keys hold, the glyphs a row shapes to and their geometry hold too. A record carries the digest of the stream both of its verdicts were derived against, and `oracle._compare_config` serves its position after a fresh walk only where the fresh stream has the same digest."""
+    text = "|".join(
+        [
+            f"{item.cell.rune}/{item.cell.stance}/{item.cell.entry}/{item.cell.exit}/{'+'.join(item.cell.adjustments)}/{item.junction}/{item.extension}"
+            for item in settled
+        ]
+    )
+    return hashlib.blake2b(
+        f"{'overlay' if overlay else 'settled'}|{text}".encode(), digest_size=SETTLED_DIGEST_WIDTH // 2
+    ).hexdigest()
 
 
 def _verify_served_positions(
     shaper: "Shaper | IsolatedOverlayShaper",
     kern: "KernEvaluator | None",
     features: frozenset[str],
-    store: "oracle_cache.RowStore",
-    sample: "oracle_cache.VerificationSample",
+    served: Iterable[tuple[Row, PositionVerdict]],
 ) -> None:
-    """Shape the pass's stratified sample of served positions again and compare each with the record it was served from; the position counterpart of `conform._verify_served_sample`. The sample is drawn per family over the rows whose position was served, so a family whose glyphs changed without its key changing is always caught. A mismatch exits, as a row mismatch does, because the audit is a fingerprinted artifact and a stale position in it would never be detected later. Each sampled entry carries the `Row` the main loop offered it with, so nothing here re-reads the table."""
-    for index, row in sample.sampled_rows():
+    """Shape the pass's stratified sample of served positions again and compare each with the position verdict it was served from; the position counterpart of `conform._verify_served_sample`. The caller draws the sample per family over the rows whose position was served, whether the row's verdict was served too or derived again with an unchanged settled digest, so a family whose glyphs changed without its key changing is always caught. A mismatch exits, as a row mismatch does, because the audit is a fingerprinted artifact and a stale position in it would never be detected later. Each sampled `Row` is the one the main loop offered, so nothing here re-reads the table."""
+    for row, recorded in served:
         fresh = _cached_position(_position_mismatch(shaper, kern, features, row))
-        recorded = store.serve(index, row.codepoints).position
         if fresh != recorded:
             raise SystemExit(
                 f"the oracle position store served a stale verdict for {format_codepoints(row.codepoints)}: it holds {recorded}, and shaping the row again gives {fresh} — nothing this store holds can be trusted, so rerun with --fresh-oracle-cache and treat the difference as a staleness bug in the position key"

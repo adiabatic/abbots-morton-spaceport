@@ -2,13 +2,13 @@
 
 Nothing here builds a table or a font; everything runs against tables and an M1.otf that are already built. So this module is left out of the stamp a serialized window enumeration carries (`fingerprint.table_code_paths` subtracts `fingerprint.COMPARISON_CODE_MODULES`), and rebuild/test_build_code_closure.py fails if the import graph from any build-side module or from `run_m1.run` reaches it. An edit to `classify_divergence`, a predicate, `compile_ledger`, `_match_compiled`, or the position comparison therefore keeps every enumeration on disk, and `run_m1 --gates-only` re-runs the oracle over them. Both files stay in `fingerprint.pipeline_code_paths`, so an edit here still changes the Stage A `pipeline_code` component, the artifact cycle's run_m1 skip key, and the Stage A record the review corpus's manifest copies.
 
-The rows the oracle classifies are produced in conform.py. `_compare_row` and `_SettledWindowWalk` are the entry points whose import graph `oracle_cache.ORACLE_ROW_CODE_PATHS` must cover, and the record codec (`_cached_verdict`, `_served_verdict`) and `_verify_served_sample` sit beside them. No module under that stamp imports this one, so after a classifier edit every row verdict is still served from the store; rebuild/test_oracle_code_closure.py fails if conform.py's import graph reaches this module. The position comparison is rebuild/pipeline/oracle_positions.py, the only module `oracle_cache.POSITION_CODE_PATHS` names. It never imports this module either, so a classifier edit also keeps every stored position, and the same test checks that direction. `_compare_config` calls the position comparison through the `oracle_positions` module, not through imported names, so monkeypatching `oracle_positions._position_mismatch` affects both the rows this pass shapes and `_verify_served_positions` (rebuild/test_conform.py relies on this).
+The rows the oracle classifies are produced in conform.py. `_compare_row` and `_SettledWindowWalk` are the entry points whose import graph `oracle_cache.ORACLE_ROW_CODE_PATHS` must cover, and the record codec (`_cached_verdict`, `_served_verdict`) and `_verify_served_sample` sit beside them. No module under that stamp imports this one, so after a classifier edit every row verdict is still served from the store; rebuild/test_oracle_code_closure.py fails if conform.py's import graph reaches this module. The position comparison's entry module is rebuild/pipeline/oracle_positions.py, and `oracle_cache.POSITION_CODE_PATHS` names its whole import closure. No module in that closure imports this one either, so a classifier edit also keeps every stored position, and the same test checks that direction. `_compare_config` calls the position comparison through the `oracle_positions` module, not through imported names, so monkeypatching `oracle_positions._position_mismatch` affects both the rows this pass shapes and `_verify_served_positions` (rebuild/test_conform.py relies on this).
 
 `compare_against_baseline` is the serial path. For each configuration it streams the subset table and settles each row, or, given an `OracleRowCache`, serves the row verdict from the previous pass's store and walks only the rows an edit can reach (rebuild/pipeline/oracle_cache.py documents what the keys cover). It compares ligation, junctions, and cells through the alias map and matches each divergent row against the `CompiledLedger` (`compile_ledger`). Rows the ledger calls ink-identical are shaped against M1.otf to compare positions, or have their position verdict served from the same store under the position key.
 
 run_m1's parallel path splits the work into row ranges of one configuration's table (`OracleShard`, planned by `oracle_shard_plan` for the worker count). `oracle_config_worker` runs `_compare_config` over one range in its own process and writes its own audit segment under `oracle_audit_scratch` and its own store segment. `join_oracle_audit` and `oracle_cache.join_store_segments` join those in row order, and `merge_config_shards` sums the ranges' counts. The output is the same as the serial path's, because `_compare_config` addresses every row by its absolute index in the table: the store records, the scheduled re-derivation, and the verification samples all key on it.
 
-For the overlay configuration (ss10), no settlement table produces the new side. Its rows are walked by `conform.IsolatedOverlayWalk`, which returns every letter bare from the registry alone, and shaped by `conform.IsolatedOverlayShaper`, which uses the copies' `hmtx` advances instead of HarfBuzz. Read-back's isolation check and the conformance sweep over the overlay are what make both valid. So the old font's ss10 rows are compared with an all-bare stream, and no settlement or shaping runs for them.
+For the overlay configuration (ss10), no settlement table produces the new side. Its rows are walked by `conform.IsolatedOverlayWalk`, which returns every letter bare from the registry alone, and shaped by `shapers.IsolatedOverlayShaper`, which uses the copies' `hmtx` advances instead of HarfBuzz. Read-back's isolation check and the conformance sweep over the overlay are what make both valid. So the old font's ss10 rows are compared with an all-bare stream, and no settlement or shaping runs for them.
 """
 
 from __future__ import annotations
@@ -27,15 +27,20 @@ from typing import Callable, Container, Iterable, Iterator, Mapping, Sequence, T
 
 import yaml
 
-from rebuild.pipeline import baseline_subset, kernel_exec, oracle_cache, oracle_positions, settle
+from rebuild.pipeline import (
+    baseline_subset,
+    kernel_exec,
+    oracle_cache,
+    oracle_positions,
+    position_record,
+    settle,
+)
 from rebuild.pipeline.conform import (
     ACCEPTANCE_CONFIGS,
     OVERLAY_CONFIGS,
     DivergentRow,
-    IsolatedOverlayShaper,
     IsolatedOverlayWalk,
     SettleMemoFile,
-    Shaper,
     _cached_verdict,
     _compare_row,
     _served_verdict,
@@ -44,6 +49,7 @@ from rebuild.pipeline.conform import (
 )
 from rebuild.pipeline.labels import BOUNDARY_GLYPH_NAMES, features_for_config, load_alias_map
 from rebuild.pipeline.model import ResolvedSpec, isolated_overlay_active
+from rebuild.pipeline.shapers import IsolatedOverlayShaper, Shaper
 from rebuild.tools.peak_rss import peak_rss_self_bytes
 from rebuild.validation.rowmodel import Row, iter_rows
 
@@ -715,7 +721,7 @@ def _compare_config(
         walker = _SettledWindowWalk(spec, features, {}, guard_verdicts, memo=settle_memo)
     config_started = time.perf_counter()
     rows = iter_rows(table_path, first_row, stop_row)
-    # Only stale rows are walked. A served row's verdict comes from the store in the same form as a fresh one before `_match_compiled` sees it, and the second loop visits the chunk in table order, so the audit bytes do not depend on which rows were served. Verification samples are drawn from served rows, not from written ones, because a read-only pass (`--gates-only`) serves verdicts without writing any. A served position verdict is used only when this pass's ledger sends the row through the position comparison. For a row the ledger excludes, the stored position verdict is written forward unchanged, so a later ledger edit that includes the row again can use it.
+    # Only stale rows are walked. A served row's verdict comes from the store in the same form as a fresh one before `_match_compiled` sees it, and the second loop visits the chunk in table order, so the audit bytes do not depend on which rows were served. A walked row whose stored position `store.position_servable` allows keeps that position when its fresh settled digest equals the record's, which on a pass whose row stamp moved is how positions are served at all. Verification samples are drawn from served rows, not from written ones, because a read-only pass (`--gates-only`) serves verdicts without writing any. A served position verdict is used only when this pass's ledger sends the row through the position comparison. For a row the ledger excludes, the stored position verdict is written forward unchanged, so a later ledger edit that includes the row again can use it.
     sample = (
         oracle_cache.VerificationSample(store.environment.value, store.coverage_ordinal)
         if store is not None
@@ -727,6 +733,10 @@ def _compare_config(
         else None
     )
     this_pass = writer.pass_ordinal if writer is not None else 0
+    overlay = isinstance(walker, IsolatedOverlayWalk)
+    unkeyed = position_record.NO_SETTLED_DIGEST
+    # A writing pass carries each served row's settled digest forward from its record; a pass that writes nothing never reads it.
+    carried_settled = store.settled if store is not None and writer is not None else None
     # A writing pass records each row it derives that `oracle_cache.unreachable_glyph_heads` refuses at `UNCOVERED_AGE`. Reach depends only on the registry, so a pass that loaded no store asks a mask of its own.
     coverage = None if writer is None else (store.mask if store is not None else oracle_cache.StaleMask(spec))
     while True:
@@ -734,7 +744,8 @@ def _compare_config(
         if not chunk:
             break
         served_at: dict[int, oracle_cache.StoredRecord] = {}
-        positions_at: dict[int, tuple[oracle_cache.StoredRecord, tuple[str, ...]]] = {}
+        positions_at: dict[int, tuple[oracle_cache.PositionVerdict, int, tuple[str, ...]]] = {}
+        settled_at: dict[int, tuple[str, ...]] = {}
         fresh_at: list[int] = []
         offered: list[tuple[int, Row, tuple[str, ...]]] = []
         positions_offered: list[tuple[int, Row, tuple[str, ...]]] = []
@@ -747,24 +758,29 @@ def _compare_config(
             servable = store.servable(index, mask)
             if servable == oracle_cache.SERVE_NOTHING:
                 fresh_at.append(offset)
+                if store.position_servable(index, mask):
+                    settled_at[offset] = store.mask.families_of(mask)
                 continue
             record = store.serve(index, row.codepoints)
             served_at[offset] = record
             reachable = store.mask.families_of(mask)
             offered.append((index, row, reachable))
             if servable == oracle_cache.SERVE_BOTH and record.position is not oracle_cache.UNSHAPED:
-                positions_at[offset] = (record, reachable)
+                positions_at[offset] = (record.position, record.position_age, reachable)
         if sample is not None:
             sample.offer_many(offered)
         walked = dict(zip(fresh_at, walker.walk_many([chunk[offset].text for offset in fresh_at])))
         for offset, row in enumerate(chunk):
             index = first_row + offset
             result.rows_compared += 1
+            settled_digest = unkeyed
             if offset in served_at:
                 record = served_at[offset]
                 cached = record.row
                 divergent = None if cached is None else _served_verdict(config, row, cached)
                 derived_at = record.row_age
+                if carried_settled is not None:
+                    settled_digest = carried_settled(index)
             else:
                 settled, _names = walked[offset]
                 divergent = _compare_row(spec, aliases, config, features, row, settled)
@@ -774,11 +790,22 @@ def _compare_config(
                     row.glyphs, coverage.families_of(coverage.mask_of(row.codepoints))
                 ):
                     derived_at = oracle_cache.UNCOVERED_AGE
+                position_reach = settled_at.get(offset)
+                if writer is not None or position_reach is not None:
+                    settled_digest = oracle_positions.settled_digest(settled, overlay)
+                if (
+                    position_reach is not None
+                    and store is not None
+                    and store.settled(index) == settled_digest
+                ):
+                    stored, stored_at = store.serve_position(index, row.codepoints)
+                    if stored is not position_record.UNSHAPED:
+                        positions_at[offset] = (stored, stored_at, position_reach)
             carried = positions_at.get(offset)
             position: oracle_cache.PositionVerdict = oracle_cache.UNSHAPED
             position_at = this_pass
             if carried is not None:
-                position, position_at = carried[0].position, carried[0].position_age
+                position, position_at = carried[0], carried[1]
             matches = _match_compiled(ledger, divergent) if divergent is not None else []
             if shaper is not None:
                 topology_clean = divergent is None or not ({"ligation", "junction"} & set(divergent.kinds))
@@ -787,10 +814,10 @@ def _compare_config(
                 )
                 if topology_clean and class_claims_ink_identity:
                     if carried is not None and store is not None and position_sample is not None:
-                        assert not isinstance(position, oracle_cache._Unshaped)
+                        assert not isinstance(position, position_record._Unshaped)
                         mismatch = oracle_positions._served_position(position)
                         store.positions_served += 1
-                        positions_offered.append((index, row, carried[1]))
+                        positions_offered.append((index, row, carried[2]))
                     else:
                         mismatch = oracle_positions._position_mismatch(shaper, kern, features, row)
                         position, position_at = oracle_positions._cached_position(mismatch), this_pass
@@ -828,7 +855,7 @@ def _compare_config(
                 else:
                     result.positions_excluded += 1
             if writer is not None:
-                writer.append(row.codepoints, cached, derived_at, position, position_at)
+                writer.append(row.codepoints, cached, derived_at, position, position_at, settled_digest)
             if divergent is None:
                 continue
             result.divergent_rows += 1
@@ -867,7 +894,15 @@ def _compare_config(
     if store is not None and sample is not None:
         _verify_served_sample(spec, aliases, config, features, walker, store, sample)
     if store is not None and position_sample is not None and shaper is not None:
-        oracle_positions._verify_served_positions(shaper, kern, features, store, position_sample)
+        oracle_positions._verify_served_positions(
+            shaper,
+            kern,
+            features,
+            (
+                (row, store.serve_position(index, row.codepoints)[0])
+                for index, row in position_sample.sampled_rows()
+            ),
+        )
     memo_line = walker.memo_line(label, walker.save_memo())
     if memo_line is not None:
         print(memo_line, file=sys.stderr, flush=True)

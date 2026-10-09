@@ -12,7 +12,7 @@ The split-buffer check runs inside gate:conform's sweep, at maximum length 4 on 
 
 Run as `uv run python -m rebuild.pipeline.run_m1`. `--conform-only` runs only the conformance sweep against the M1.otf on disk. `--gates-only` re-runs the defect gate, the Manual-pin gate and the oracle over the tables and font already on disk, without rebuilding anything. It is the fast way to re-check an edit to a comparison-side input: the divergence ledger, the alias map, the kern sidecar, the contact allow-list the defect gate reads, or the oracle's own code (the classifier and ledger match in rebuild/pipeline/oracle.py, the position comparison in rebuild/pipeline/oracle_positions.py). The tables' stamp leaves all of these out (`fingerprint.table_code_paths`; rebuild/test_build_code_closure.py checks that the build never imports either module). A `--gates-only` pass records run_m1's green when a prior green exists and everything that changed since is comparison-side, so the artifact cycle plans this gates-only rerun itself and the pass after it skips run_m1.
 
-A full run and a `--gates-only` rerun both serve what they can from the per-row verdict stores that rebuild/pipeline/oracle_cache.py keeps beside the tables. A ledger edit changes no family key and no stamp line, so every row and position verdict is served and only the ledger match and the audit run. An alias edit changes the family keys of the families it names, so only the rows that reach them are re-derived. An edit to the kern sidecar or to the position comparison's module keeps the row verdicts and re-shapes the positions, and a classifier edit serves both. `--fresh-oracle-cache` ignores the stores, and `--gates-only` may read them but never writes one.
+A full run and a `--gates-only` rerun both serve what they can from the per-row verdict stores that rebuild/pipeline/oracle_cache.py keeps beside the tables. A ledger edit changes no family key and no stamp line, so every row and position verdict is served and only the ledger match and the audit run. An alias edit changes the family keys of the families it names, so only the rows that reach them are re-derived. An edit to the kern sidecar or to the position comparison's code closure keeps the row verdicts and re-shapes the positions, an edit to the comparison's code outside that closure (the walk, the crate, the store) re-derives every row and keeps each position whose settled cells did not change, and a classifier edit serves both. `--fresh-oracle-cache` ignores the stores, and `--gates-only` may read them but never writes one.
 """
 
 from __future__ import annotations
@@ -1525,7 +1525,7 @@ def _report_oracle_cache(
     position_keys: Mapping[str, str] | None = None,
     position_stamp: oracle_cache.EnvironmentStamp | None = None,
 ) -> None:
-    """Print, before the fan-out, which stored verdicts will and will not be served. The hit rate is bimodal, and a whole-store drop looks like a bug unless the line that caused it is named. A changed stamp line (a pipeline module, a predicate class gaining a member, the settlement mode flags `kernel_exec.settlement_flags` returns) drops every row of every configuration. A changed family key re-derives only the rows that can reach that family, the usual result of a rune edit. The position store is reported on its own line: a changed position stamp line (the position comparison's module, the kern sidecar, the font's helpers) re-shapes every row while the row verdicts are still served, and a changed position key re-shapes only the rows that reach that family, the usual result of a glyph edit."""
+    """Print, before the fan-out, which stored verdicts will and will not be served. The hit rate is bimodal, and a whole-store drop looks like a bug unless the line that caused it is named. A changed stamp line (a pipeline module, a predicate class gaining a member, the settlement mode flags `kernel_exec.settlement_flags` returns) re-derives every row of every configuration; unless the line is one of `oracle_cache.POSITION_ROW_STAMP_LABELS` or the position stamp moved too, each position whose settled cells did not change is still served. A changed family key re-derives only the rows that can reach that family, the usual result of a rune edit. The position store is reported on its own line: a changed position stamp line (the position comparison's code closure, the kern sidecar, the font's helpers) re-shapes every row while the row verdicts are still served, and a changed position key re-shapes only the rows that reach that family, the usual result of a glyph edit."""
     recorded = oracle_cache.read_header(oracle_cache.store_path(out_dir, conform.ACCEPTANCE_CONFIGS[0]))
     if recorded is None:
         console.say("oracle row cache: no store on disk — this pass derives every row and writes one")
@@ -1536,25 +1536,45 @@ def _report_oracle_cache(
         for label, _, digest in (str(line).partition("\t") for line in recorded.get("environment") or ())
     }
     moved_stamp = oracle_cache.moved_note(stored_lines, stamp.labels)
-    if moved_stamp is not None:
-        console.warn(f"oracle row cache: dropped — the stamp moved at {moved_stamp}")
-        return
-    stored_keys = {str(name): str(value) for name, value in (recorded.get("family_keys") or {}).items()}
-    moved_keys = oracle_cache.moved_note(stored_keys, dict(keys))
-    if moved_keys is None:
-        console.say("oracle row cache: the stamp and every family key still stand")
-    else:
-        console.warn(f"oracle row cache: re-deriving the rows that reach {moved_keys}")
-    if position_keys is None or position_stamp is None:
-        console.say("oracle position store: no font to shape against — every position is shaped")
-        return
     stored_position_lines = {
         label: digest
         for label, _, digest in (
             str(line).partition("\t") for line in recorded.get("position_environment") or ()
         )
     }
-    moved_position_stamp = oracle_cache.moved_note(stored_position_lines, position_stamp.labels)
+    moved_position_stamp = (
+        None
+        if position_stamp is None
+        else oracle_cache.moved_note(stored_position_lines, position_stamp.labels)
+    )
+    if moved_stamp is not None:
+        if any(
+            stored_lines.get(label) != stamp.labels.get(label)
+            for label in oracle_cache.POSITION_ROW_STAMP_LABELS
+        ):
+            console.warn(f"oracle row cache: dropped — the stamp moved at {moved_stamp}")
+            return
+        positions_outlive = (
+            position_keys is not None and position_stamp is not None and moved_position_stamp is None
+        )
+        console.warn(
+            f"oracle row cache: re-deriving every row — the stamp moved at {moved_stamp}"
+            + (
+                "; each position whose settled cells did not change is still served"
+                if positions_outlive
+                else ""
+            )
+        )
+    else:
+        stored_keys = {str(name): str(value) for name, value in (recorded.get("family_keys") or {}).items()}
+        moved_keys = oracle_cache.moved_note(stored_keys, dict(keys))
+        if moved_keys is None:
+            console.say("oracle row cache: the stamp and every family key still stand")
+        else:
+            console.warn(f"oracle row cache: re-deriving the rows that reach {moved_keys}")
+    if position_keys is None or position_stamp is None:
+        console.say("oracle position store: no font to shape against — every position is shaped")
+        return
     if moved_position_stamp is not None:
         console.warn(
             f"oracle position store: re-shaping every row — the position stamp moved at {moved_position_stamp}"

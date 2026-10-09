@@ -17,7 +17,17 @@ from pathlib import Path
 import pytest
 import yaml
 
-from rebuild.pipeline import conform, fingerprint, fixtures, kernel_exec, oracle_cache, run_m1
+from rebuild.pipeline import (
+    conform,
+    fingerprint,
+    fixtures,
+    kernel_exec,
+    oracle_cache,
+    oracle_positions,
+    position_record,
+    run_m1,
+)
+from rebuild.pipeline.model import CellId, Settled
 from rebuild.tools import artifact_cycle
 from rebuild.validation.rowmodel import Row
 
@@ -1167,7 +1177,7 @@ def test_the_position_key_embeds_the_row_key(repo):
 def test_the_position_stamp_names_the_position_comparison_s_code_the_toolchain_and_the_kern_sidecar(
     repo, tmp_path
 ):
-    """Checks each line of the whole-store position stamp: the position comparison's module, the toolchain lock that pins the shaper, and the kern sidecar's bytes each move their own named line and no other. The position stamp repeats nothing from the row stamp except `format`, so a store loads or is dropped on the row stamp alone, and the position stamp decides only whether the stored positions may be served. The classifier's module is copied beside the position comparison's and edited the same way, and the edit moves no line, so a classifier edit keeps every stored position. Both module edits add a statement, not a blank line, because `fingerprint.code_file_digest` is prose-insensitive and ignores comments, docstrings, and blank lines."""
+    """Checks each line of the whole-store position stamp: the position comparison's module, the toolchain lock that pins the shaper, and the kern sidecar's bytes each move their own named line and no other. The position stamp repeats nothing from the row stamp except `format`: the row stamp lines a position reads apart from settlement are `POSITION_ROW_STAMP_LABELS`, which a store must match to load at all, and the position stamp decides only whether the stored positions may be served. The classifier's module is copied beside the position comparison's and edited the same way, and the edit moves no line, so a classifier edit keeps every stored position. Both module edits add a statement, not a blank line, because `fingerprint.code_file_digest` is prose-insensitive and ignores comments, docstrings, and blank lines."""
     spec = fixtures.mini_spec()
     kern = tmp_path / "kern.yaml"
     kern.write_text("global:\n  value: 0\n", encoding="utf-8")
@@ -1205,7 +1215,7 @@ def test_the_position_stamp_names_the_position_comparison_s_code_the_toolchain_a
 
 
 def test_a_record_carries_both_verdicts_and_their_ages():
-    """Round-trips every form of position verdict (not shaped, shaped with no mismatch, and mismatched with descriptions that contain commas) alongside both forms of row verdict, each with its own age."""
+    """Round-trips every form of position verdict (not shaped, shaped with no mismatch, and mismatched with descriptions that contain commas) alongside both forms of row verdict, each with its own age, and the settled digest after the row check digest. A record written without a settled digest holds `NO_SETTLED_DIGEST`, which no digest equals, and a digest of another width is refused, because the store reads it in place at a fixed width."""
     mismatched = oracle_cache.CachedPosition(
         mismatches=(
             "slot 1 (qsTea.en-y0): origin want (150, 0), got (100, 0)",
@@ -1220,25 +1230,33 @@ def test_a_record_carries_both_verdicts_and_their_ages():
         new_junctions=("y5",),
         divergence_tags=("stance",),
     )
+    settled = oracle_positions.settled_digest(
+        [Settled(CellId("qsPea", "full", None, "baseline", ()), "baseline", 0)], overlay=False
+    )
+    assert len(settled) == position_record.SETTLED_DIGEST_WIDTH
     for cached, position, ages in (
         (None, oracle_cache.UNSHAPED, (3, 3)),
         (None, None, (3, 4)),
         (row, mismatched, (2, 5)),
         (row, oracle_cache.UNSHAPED, (7, 0)),
     ):
-        line = oracle_cache.encode_record((PEA, TEA), cached, ages[0], position, ages[1])
+        line = oracle_cache.encode_record((PEA, TEA), cached, ages[0], position, ages[1], settled)
         record = oracle_cache.decode_record(line)
         assert record.row == cached
         assert (
             record.position is position if position is oracle_cache.UNSHAPED else record.position == position
         )
         assert (record.row_age, record.position_age) == ages
-        assert line.startswith(oracle_cache.row_check_digest((PEA, TEA)))
-    assert oracle_cache.encode_record((PEA,), None, 1).endswith("\t-\t?\t1\t0")
+        assert oracle_cache.decode_position(line) == (record.position, record.position_age)
+        assert line.startswith(f"{oracle_cache.row_check_digest((PEA, TEA))}\t{settled}\t")
+    unkeyed = oracle_cache.encode_record((PEA,), None, 1)
+    assert unkeyed.endswith(f"\t{position_record.NO_SETTLED_DIGEST}\t-\t?\t1\t0")
+    with pytest.raises(ValueError, match="settled digest"):
+        oracle_cache.encode_record((PEA,), None, 1, settled=settled[:-1])
 
 
 def test_a_moved_position_stamp_keeps_the_rows_and_retires_every_position(repo):
-    """A store loads on the row stamp alone, and each position verdict is served only where the position stamp and every position key the row reaches are unchanged. A moved stamp makes every position stale and no row; a moved key makes stale the positions of the rows that reach that family; a pass with no position keys serves no position. `serve` returns `UNSHAPED` as stored, and the oracle never uses it as a served position."""
+    """A store whose row stamp holds loads whatever its position stamp says, and each position verdict is served only where the position stamp and every position key the row reaches are unchanged. A moved stamp makes every position stale and no row; a moved key makes stale the positions of the rows that reach that family; a pass with no position keys serves no position. `serve` returns `UNSHAPED` as stored, and the oracle never uses it as a served position."""
     spec = fixtures.mini_spec()
     stamp, keys = _stamp(repo, spec), _keys(repo, spec)
     position_keys, position_stamp = _position(repo, spec, MINI_FONT)
@@ -1282,6 +1300,94 @@ def test_a_moved_position_stamp_keeps_the_rows_and_retires_every_position(repo):
 
     assert opened(None, None).position_mask.everything
     assert opened(position_stamp, None).position_mask.everything
+
+
+def test_a_row_stamp_move_outside_the_position_lines_keeps_the_positions_servable(repo, tmp_path):
+    """A store whose row stamp moved loads with every row verdict stale, so that its positions can be served by settled digest, when only lines outside `POSITION_ROW_STAMP_LABELS` moved: here `oracle_code`, as a crate or walk edit moves it. `position_servable` still refuses a position whose family moved its position key, one the scheduled re-derivation takes, and every one under a moved position stamp. A move of the format, the configuration, its features or the subset table refuses the store, because each of those reaches a position without passing through settlement. A store whose row stamp holds still makes every row verdict stale when a moved family is one the registry cannot place, as `StaleMask` rules. The settled digest each record holds reads back in place."""
+    spec = fixtures.mini_spec()
+    stamp, keys = _stamp(repo, spec), _keys(repo, spec)
+    position_keys, position_stamp = _position(repo, spec, MINI_FONT)
+    rows = ((PEA, TEA), (TEA, OY), (PEA,), (OY,))
+    digests = [f"{index:016x}" for index in range(len(rows))]
+    path = repo / "store.tsv.gz"
+    with oracle_cache.RowWriter(
+        path, stamp, "subset-digest", 21, keys, position_stamp, position_keys
+    ) as writer:
+        for codepoints, digest in zip(rows, digests):
+            writer.append(codepoints, None, 21, None, 21, digest)
+
+    def moved(label: str, value: str = "moved") -> oracle_cache.EnvironmentStamp:
+        return oracle_cache.EnvironmentStamp(
+            lines=tuple(
+                f"{label}\t{value}" if line.startswith(f"{label}\t") else line for line in stamp.lines
+            )
+        )
+
+    def opened(environment, current=position_keys, environment_of_positions=position_stamp):
+        return oracle_cache.load_store(
+            path, environment, "subset-digest", spec, keys, 0, environment_of_positions, current
+        )
+
+    held = opened(stamp)
+    assert held is not None and not held.mask.everything
+    assert [held.settled(index) for index in range(len(rows))] == digests
+    assert [held.serve_position(index, row) for index, row in enumerate(rows)] == [(None, 21)] * len(rows)
+    assert held.served == 0
+
+    unplaced = oracle_cache.load_store(
+        path,
+        stamp,
+        "subset-digest",
+        spec,
+        {**keys, "qsNotInTheRegistry": "new"},
+        0,
+        position_stamp,
+        position_keys,
+    )
+    assert unplaced is not None and unplaced.mask.everything
+    assert all(
+        unplaced.servable(index, unplaced.mask.mask_of(row)) == oracle_cache.SERVE_NOTHING
+        for index, row in enumerate(rows)
+    )
+
+    code = opened(moved("oracle_code"))
+    assert code is not None and code.mask.everything
+    due = _due_rows(len(rows), 21)
+    assert due == {2}
+    for index, row in enumerate(rows):
+        mask = code.mask.mask_of(row)
+        assert code.servable(index, mask) == oracle_cache.SERVE_NOTHING
+        assert code.position_servable(index, mask) == (index not in due)
+    assert [code.settled(index) for index in range(len(rows))] == digests
+
+    tea = opened(moved("oracle_code"), {**position_keys, "qsTea": "moved"})
+    assert tea is not None
+    assert [tea.position_servable(index, tea.mask.mask_of(row)) for index, row in enumerate(rows)] == [
+        False,
+        False,
+        False,
+        True,
+    ]
+    stamp_moved = oracle_cache.EnvironmentStamp(lines=position_stamp.lines[:-1] + ("kern\tanother",))
+    dropped = opened(moved("oracle_code"), environment_of_positions=stamp_moved)
+    assert dropped is not None
+    assert not any(
+        dropped.position_servable(index, dropped.mask.mask_of(row)) for index, row in enumerate(rows)
+    )
+
+    assert set(oracle_cache.POSITION_ROW_STAMP_LABELS) <= set(stamp.labels)
+    for label in oracle_cache.POSITION_ROW_STAMP_LABELS:
+        assert opened(moved(label)) is None, label
+
+
+def _due_rows(rows: int, pass_ordinal: int) -> set[int]:
+    """The rows the ordinal clause of `RowStore.due` takes on the pass after `pass_ordinal`."""
+    after = pass_ordinal + 1
+    return {
+        index
+        for index in range(rows)
+        if after % oracle_cache.MAX_RECORD_AGE == index % oracle_cache.MAX_RECORD_AGE
+    }
 
 
 def test_the_position_keys_are_reverified_at_promotion(repo, tmp_path, monkeypatch, capsys):

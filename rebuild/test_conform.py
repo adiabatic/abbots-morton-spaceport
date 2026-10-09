@@ -1558,7 +1558,7 @@ def _cache_position_tags(path: Path) -> list[str]:
     tags: list[str] = []
     for line in gzip.decompress(path.read_bytes()).decode("utf-8").splitlines()[1:-1]:
         fields = line.split("\t")
-        tags.append(fields[2] if fields[1] == "-" else fields[7])
+        tags.append(fields[3] if fields[2] == "-" else fields[8])
     return tags
 
 
@@ -1893,6 +1893,78 @@ class TestOracleRowCache:
         assert {
             index for index, age in enumerate(_cache_position_ages(store)) if age == 1
         } == expected | excluded
+
+    def test_a_row_stamp_move_serves_each_position_whose_settled_stream_held(self, spec, tmp_path):
+        """A pass whose row stamp moved (here its `oracle_code` line, as a crate or walk edit moves it) re-derives every row verdict, and serves the stored position of each row whose fresh settled stream has the digest its record holds. The settlement changes under it without any family key moving, as a crate edit changes it: ·Tea prefers its half stance before ·May. The rows whose settled cells changed are shaped again, with the scheduled re-derivation and the rows the position comparison excludes, and every other position is served. The carried audit equals the audit a pass with no store writes over the edited settlement."""
+        tables, aliases, ledger, stamps, configs, rows = self._position_bench(spec, tmp_path)
+        keys = self._keys(spec)
+        position = oracle_cache.position_keys(REPO_ROOT, keys, MINI / "M1.otf", None)
+        shared: dict[str, Any] = dict(
+            tables=tables, aliases=aliases, ledger=ledger, keys=keys, configs=configs, font=MINI / "M1.otf"
+        )
+        _cold, cold_audit, cold_stores = self._pass(
+            spec, tmp_path, "cold", stamps=stamps, position=position, **shared
+        )
+        moved = {
+            config: oracle_cache.EnvironmentStamp(
+                lines=tuple(
+                    "oracle_code\tmoved" if line.startswith("oracle_code\t") else line for line in stamp.lines
+                )
+            )
+            for config, stamp in stamps.items()
+        }
+        edited = _tea_prefers_half_before_may(spec)
+        carried_report, carried_audit, carried_stores = self._pass(
+            edited, tmp_path, "carried", stamps=moved, position=position, read_dir=cold_stores, **shared
+        )
+        _fresh, fresh_audit, _ = self._pass(edited, tmp_path, "fresh", stamps=moved, cached=False, **shared)
+
+        assert carried_audit.read_bytes() == fresh_audit.read_bytes()
+
+        def new_cells(audit: Path) -> list[str]:
+            return [line.split("\t")[5] for line in audit.read_text().splitlines()[1:]]
+
+        changed = {
+            index
+            for index, (before, after) in enumerate(zip(new_cells(cold_audit), new_cells(fresh_audit)))
+            if before != after
+        }
+        assert changed and changed <= {index for index, codepoints in enumerate(rows) if 0xE652 in codepoints}
+        excluded = _excluded_from_the_position_comparison(fresh_audit, len(rows))
+        reshaped = changed | _cache_rederived(len(rows), 0) | excluded
+        store = oracle_cache.store_path(carried_stores, "default")
+        assert set(_cache_ages(store)) == {1}
+        assert {index for index, age in enumerate(_cache_position_ages(store)) if age == 1} == reshaped
+        assert carried_report.positions_served == len(rows) - len(reshaped)
+
+    def test_a_position_served_across_a_row_stamp_move_is_verified(self, spec, tmp_path, monkeypatch):
+        """The served-position sample covers the positions a pass serves by settled digest, not only those it serves beside a served row verdict: with `_position_mismatch` poisoned after the cold pass, a pass whose row stamp moved must stop at the verifier instead of writing the stored positions into its audit. Every row verdict on that pass is derived again, so the row sample has nothing to check and only the position sample can catch this."""
+        tables, aliases, ledger, stamps, configs, _rows = self._position_bench(spec, tmp_path)
+        keys = self._keys(spec)
+        position = oracle_cache.position_keys(REPO_ROOT, keys, MINI / "M1.otf", None)
+        shared: dict[str, Any] = dict(
+            tables=tables, aliases=aliases, ledger=ledger, keys=keys, configs=configs, font=MINI / "M1.otf"
+        )
+        _cold, _, cold_stores = self._pass(spec, tmp_path, "cold", stamps=stamps, position=position, **shared)
+        moved = {
+            config: oracle_cache.EnvironmentStamp(
+                lines=tuple(
+                    "oracle_code\tmoved" if line.startswith("oracle_code\t") else line for line in stamp.lines
+                )
+            )
+            for config, stamp in stamps.items()
+        }
+        real = oracle_positions._position_mismatch
+
+        def poisoned(shaper, kern, features, row):
+            mismatch = real(shaper, kern, features, row)
+            return (("poisoned",), False) if mismatch is None else (mismatch[0] + ("poisoned",), mismatch[1])
+
+        monkeypatch.setattr(oracle_positions, "_position_mismatch", poisoned)
+        with pytest.raises(SystemExit, match="the oracle position store served a stale verdict"):
+            self._pass(
+                spec, tmp_path, "carried", stamps=moved, position=position, read_dir=cold_stores, **shared
+            )
 
     def test_a_kern_sidecar_edit_re_shapes_every_row_and_serves_every_verdict(self, spec, tmp_path):
         """The position stamp end to end: a kern sidecar edit changes what every row's old positions normalize to, so every position re-shapes while every row verdict is still served, and the carried audit equals the audit written from scratch with the edited sidecar."""

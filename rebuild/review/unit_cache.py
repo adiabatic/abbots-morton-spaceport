@@ -153,8 +153,10 @@ PIPELINE_NON_CORPUS_MODULES = frozenset(
         "oracle_cache.py",
         "oracle_positions.py",
         "pack_gsub.py",
+        "position_record.py",
         "readback.py",
         "run_m1.py",
+        "shapers.py",
         "surface.py",
         "witness.py",
     }
