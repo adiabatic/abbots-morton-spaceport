@@ -3,12 +3,14 @@
 There is no sweep over the whole corpus. The drafter raises `DraftError` where it makes a pin that does not parse or does not replay as "pass", a policy record the rune schema rejects, or an any-of candidate that does not parse, so a shipped fragment cannot carry a failing draft. A machine-approved or verdict-exempt unit is never drafted, so its slim fragment has no `drafts`. `check_unit` checks that a policy record names only the unit's own provenance, and `check_shards` checks that the record's file exists. The tests take their example windows from `example_units`, a filtered load of the frozen mini bundle's audit, and shape them in the bundle's font, so no test here reads the live corpus.
 """
 
+import json
 import warnings
 from pathlib import Path
 
 import pytest
 
 from rebuild.review.drafts import (
+    DraftError,
     Drafter,
     _import_test_shaping,
     build_corpus_index,
@@ -86,6 +88,54 @@ def test_policy_draft_prefers_contract_for_gained_extension(drafter, enricher, e
     assert policy.file == "glyph_data/runes/qsDay_qsUtter.yaml"
     assert "by: 1" in policy.suggested_record
     assert any("policy.extend" in pointer for pointer in policy.names_provenance)
+    assert policy.schema_valid
+
+
+@pytest.mark.parametrize(
+    ("kind", "valid", "invalid"),
+    [
+        (
+            "refuse",
+            {"exit": "baseline", "when": {"right": {"family": "qsIt"}}},
+            {"exit": "baseline", "when": {"right": {"family": "qsIt", "then": {"family": "qsDay"}}}},
+        ),
+        (
+            "contract",
+            {"exit": "baseline", "by": 1, "when": {"right": {"family": "qsIt"}}},
+            {"exit": "baseline", "by": 1.0, "when": {"right": {"family": "qsIt"}}},
+        ),
+        (
+            "prefer",
+            {"cell": {"exit": "none"}, "mode": "absolute", "why": "Reviewer selected this join."},
+            {"cell": {"exit": "none"}, "mode": "absolute"},
+        ),
+    ],
+)
+def test_policy_draft_validators_apply_rune_definition_constraints(drafter, kind, valid, invalid):
+    validator = getattr(drafter, f"_{kind}_checker")
+    assert not validator.check(valid)
+    assert validator.check(invalid)
+
+
+@pytest.mark.parametrize(
+    ("codepoints", "config", "kind"),
+    [
+        ("E665:E670:E652:E679", "default", "refuse"),
+        ("E652:E653:E67A:E652", "ss03", "contract"),
+        ("E650:200C:E650:E665", "default", "prefer"),
+    ],
+)
+def test_policy_drafts_refuse_records_rejected_by_the_supplied_schema(
+    tmp_path, enricher, example_units, codepoints, config, kind
+):
+    schema = json.loads((REPO_ROOT / "rebuild" / "schema" / "rune.schema.json").read_text())
+    schema["$defs"][f"{kind}Record"] = {"not": {}}
+    schema_path = tmp_path / "rune.schema.json"
+    schema_path.write_text(json.dumps(schema))
+    drafter = Drafter(MINI_FONT, schema_path=schema_path, corpus_index={}, repo_root=REPO_ROOT)
+    enriched = enricher.enrich(example_units[(codepoints, config)])
+    with pytest.raises(DraftError, match=rf"policy\.{kind}.*not validate against the rune schema"):
+        drafter.draft_policy(enriched)
 
 
 def test_policy_draft_refuses_when_the_divergence_includes_a_new_join(drafter, enricher, example_units):

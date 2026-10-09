@@ -1,4 +1,4 @@
-"""Tests for spec_load: the checked-in spec loads with predicate-class and group memberships that match a re-derivation from the raw YAML, the lints raise errors that carry file, path, and line, and the built-in schema checker agrees with jsonschema when jsonschema is installed."""
+"""Tests for spec_load: the checked-in spec loads with predicate-class and group memberships that match a re-derivation from the raw YAML, schema validation preserves the closed vocabulary and YAML types, and errors carry file, path, and line."""
 
 import itertools
 import json
@@ -705,38 +705,324 @@ BROKEN_DOCUMENTS = (
 )
 
 
-def test_jsonschema_agrees_with_builtin_checker():
-    jsonschema = pytest.importorskip("jsonschema")
-    import json
-
-    import yaml
-
-    schema = json.loads((spec_load.DEFAULT_SCHEMA_DIR / "rune.schema.json").read_text())
-    validator = jsonschema.Draft202012Validator(schema)
-    checker = spec_load._SchemaChecker(schema, "rune.schema.json")
+def test_checked_in_documents_pass_schema_validation():
+    validator = spec_load._load_schema(spec_load.DEFAULT_SCHEMA_DIR, "rune.schema.json")
     for path in sorted(spec_load.DEFAULT_RUNES_DIR.glob("*.yaml")):
         document = yaml.safe_load(path.read_text())
-        assert not list(validator.iter_errors(document)), path
-        assert not checker.check(document), path
-    script_schema = json.loads((spec_load.DEFAULT_SCHEMA_DIR / "script.schema.json").read_text())
+        assert not validator.check(document), path
     script_document = yaml.safe_load(spec_load.DEFAULT_REGISTRY_PATH.read_text())
-    assert not list(jsonschema.Draft202012Validator(script_schema).iter_errors(script_document))
-    assert not spec_load._SchemaChecker(script_schema, "script.schema.json").check(script_document)
+    script_validator = spec_load._load_schema(spec_load.DEFAULT_SCHEMA_DIR, "script.schema.json")
+    assert not script_validator.check(script_document)
+
+
+def test_schema_validator_rejects_broken_documents():
+    validator = spec_load._load_schema(spec_load.DEFAULT_SCHEMA_DIR, "rune.schema.json")
     for text in BROKEN_DOCUMENTS:
-        document = yaml.safe_load(text)
-        assert list(validator.iter_errors(document)), text
-        assert checker.check(document), text
+        assert validator.check(yaml.safe_load(text)), text
 
 
-def test_builtin_checker_rejects_broken_documents():
-    import json
+def test_schema_errors_collect_registry_and_rune_locations(tmp_path):
+    it = MINIMAL_RUNE.replace("codepoint: 0xE670", "codepoint: wrong")
+    may = MINIMAL_RUNE.replace("rune: qsIt", "rune: qsMay").replace("{x: 0}", "{x: 0, anchor: 3}")
+    registry = MINIMAL_REGISTRY.replace("x-height: 5", "x-height: wrong")
+    error = load_tmp_error(tmp_path, {"qsIt": it, "qsMay": may}, registry)
+    expected = {
+        ("script.yaml", "heights.x-height", 1),
+        ("qsIt.yaml", "codepoint", 2),
+        ("qsMay.yaml", "stances.sole.surface.entries.baseline.anchor", 18),
+    }
+    actual = {(Path(issue.file).name, issue.path, issue.line) for issue in error.issues}
+    assert expected <= actual
+    assert all(issue.message for issue in error.issues)
 
-    import yaml
 
-    schema = json.loads((spec_load.DEFAULT_SCHEMA_DIR / "rune.schema.json").read_text())
-    checker = spec_load._SchemaChecker(schema, "rune.schema.json")
-    for text in BROKEN_DOCUMENTS:
-        assert checker.check(yaml.safe_load(text)), text
+def test_schema_missing_required_key_names_the_child(tmp_path):
+    text = MINIMAL_RUNE.replace("    motion: sole\n", "")
+    error = load_tmp_error(tmp_path, {"qsIt": text})
+    issue = next(issue for issue in error.issues if issue.path == "stances.sole.motion")
+    assert Path(issue.file).name == "qsIt.yaml"
+    assert issue.line == text.splitlines().index("  sole:", 6) + 1
+
+
+def test_schema_property_name_error_names_the_child_and_its_line(tmp_path):
+    text = MINIMAL_RUNE.replace("ductus:\n", "ductus:\n  Invalid: Another stroke.\n")
+    error = load_tmp_error(tmp_path, {"qsIt": text})
+    issue = next(issue for issue in error.issues if issue.path == "ductus.Invalid")
+    assert Path(issue.file).name == "qsIt.yaml"
+    assert issue.line == 4
+
+
+@pytest.mark.parametrize("key", ["true", "yes", "17", "+1", "1.5"])
+def test_non_string_yaml_keys_are_structured_errors_at_the_source_line(tmp_path, key):
+    text = MINIMAL_RUNE.replace("      entries:\n", f"      entries:\n        {key}: {{x: 0}}\n")
+    error = load_tmp_error(tmp_path, {"qsIt": text})
+    line = text.splitlines().index(f"        {key}: {{x: 0}}") + 1
+    issues = [issue for issue in error.issues if issue.line == line]
+    assert issues
+    assert all(Path(issue.file).name == "qsIt.yaml" for issue in issues)
+    assert any(issue.path == f"stances.sole.surface.entries.{key}" for issue in issues)
+
+
+@pytest.mark.parametrize("key", ["true", "17"])
+@pytest.mark.parametrize("placement", ["root", "stances", "ductus"])
+def test_non_string_yaml_keys_do_not_reach_the_shallow_linter(tmp_path, key, placement):
+    if placement == "root":
+        inserted = f"{key}: wrong"
+        text = MINIMAL_RUNE + inserted + "\n"
+        key_path = key
+    elif placement == "stances":
+        inserted = f'  {key}: {{motion: sole, bitmap: ["#"]}}'
+        text = MINIMAL_RUNE.replace("stances:\n", f"stances:\n{inserted}\n")
+        key_path = f"stances.{key}"
+    else:
+        inserted = f"  {key}: Another stroke."
+        text = MINIMAL_RUNE.replace("ductus:\n", f"ductus:\n{inserted}\n")
+        key_path = f"ductus.{key}"
+    error = load_tmp_error(tmp_path, {"qsIt": text})
+    issue = next(issue for issue in error.issues if issue.path == key_path)
+    assert Path(issue.file).name == "qsIt.yaml"
+    assert issue.line == text.splitlines().index(inserted) + 1
+
+
+@pytest.mark.parametrize("key", ["[]", "{}"])
+def test_complex_yaml_keys_collect_source_locations_across_malformed_files(tmp_path, key):
+    it = MINIMAL_RUNE + f"? {key}\n: wrong\n"
+    may = MINIMAL_RUNE.replace("rune: qsIt", "rune: qsMay").replace(
+        "      entries:\n", f"      entries:\n        ? {key}\n        : {{x: 0}}\n"
+    )
+    error = load_tmp_error(tmp_path, {"qsIt": it, "qsMay": may})
+    expected = {
+        ("qsIt.yaml", key, it.splitlines().index(f"? {key}") + 1),
+        (
+            "qsMay.yaml",
+            f"stances.sole.surface.entries.{key}",
+            may.splitlines().index(f"        ? {key}") + 1,
+        ),
+    }
+    actual = {(Path(issue.file).name, issue.path, issue.line) for issue in error.issues}
+    assert expected <= actual
+
+
+def test_yaml_merge_keys_preserve_valid_rune_mapping_values(tmp_path):
+    text = MINIMAL_RUNE.replace("baseline: {x: 1, unjoined: safe}", "baseline: {<<: {x: 1}, unjoined: safe}")
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", SpecWarning)
+        loaded = load_tmp_spec(tmp_path, {"qsIt": text})
+    assert loaded.runes["qsIt"].stances["sole"].surface.exits["baseline"].x == 1
+
+
+def test_yaml_value_tag_key_reports_a_closed_vocabulary_error(tmp_path):
+    text = MINIMAL_RUNE + "=: wrong\n"
+    error = load_tmp_error(tmp_path, {"qsIt": text})
+    issue = next(issue for issue in error.issues if issue.path == "=")
+    assert Path(issue.file).name == "qsIt.yaml"
+    assert issue.line == text.splitlines().index("=: wrong") + 1
+
+
+@pytest.mark.parametrize("value", [True, False, 1.0, 1.5, "1"])
+def test_schema_integer_type_rejects_non_python_integers(value):
+    validator = spec_load._SchemaValidator({"type": "integer"}, "synthetic.schema.json")
+    assert validator.check(value)
+    assert not validator.check(1)
+
+
+@pytest.mark.parametrize("value", [True, 1.0])
+def test_schema_root_reference_preserves_strict_integer_validation(value):
+    validator = spec_load._SchemaValidator(
+        {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "type": "integer",
+            "$defs": {"root": {"$ref": "#"}},
+        },
+        "synthetic.schema.json",
+    ).for_definition("root")
+    assert not validator.check(1)
+    assert validator.check(value)
+
+
+@pytest.mark.parametrize(
+    "schema",
+    [
+        {"maximum": 10},
+        {"$defs": {"unused": {"format": "uri"}}},
+        {"properties": {"name": {"default": "name"}}},
+        {"patternProperties": {"^name": {"typo": True}}},
+        {"items": {"type": "integer", "maximum": 10}},
+        {"if": {"required": ["flag"]}, "then": {"else": {"type": "string"}}},
+    ],
+)
+def test_schema_vocabulary_is_checked_before_any_document(schema):
+    with pytest.raises(ValueError, match="unsupported JSON Schema keyword"):
+        spec_load._SchemaValidator(schema, "synthetic.schema.json")
+
+
+@pytest.mark.parametrize("expected_type", ["number", "null", ["integer", "string"]])
+def test_schema_type_vocabulary_is_closed(expected_type):
+    with pytest.raises(ValueError, match="unsupported.*type"):
+        spec_load._SchemaValidator({"type": expected_type}, "synthetic.schema.json")
+
+
+@pytest.mark.parametrize(
+    "schema",
+    [
+        {"$schema": "http://json-schema.org/draft-07/schema#"},
+        {"$defs": {"unused": {"$id": "https://example.invalid/child.schema.json"}}},
+        {"properties": {"value": {"$schema": "https://json-schema.org/draft/2020-12/schema"}}},
+    ],
+)
+def test_schema_validation_dialect_and_reference_scope_are_fixed(schema):
+    with pytest.raises(ValueError):
+        spec_load._SchemaValidator(schema, "synthetic.schema.json")
+
+
+def test_schema_member_names_are_not_schema_keywords():
+    names = ("type", "title", "description", "$id", "default", "otherwise")
+    schema = {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {name: {"$ref": f"#/$defs/{name}"} for name in names},
+        "$defs": {name: {"type": "integer"} for name in names},
+    }
+    validator = spec_load._SchemaValidator(schema, "synthetic.schema.json")
+    assert not validator.check({name: 1 for name in names})
+    assert validator.check({"description": "wrong"})
+
+
+@pytest.mark.parametrize(
+    "reference",
+    [
+        "#/$defs/missing",
+        "#/properties/missing",
+        "#named-anchor",
+        "#%2F%24defs%2Fvalue",
+        "other.schema.json#/$defs/value",
+        "https://example.invalid/schema.json#/$defs/value",
+        "file:///schema.json#/$defs/value",
+    ],
+)
+def test_schema_references_must_resolve_locally_at_construction(reference):
+    schema = {"$defs": {"value": {"type": "integer"}, "unused": {"$ref": reference}}}
+    with pytest.raises(ValueError, match="ref|reference"):
+        spec_load._SchemaValidator(schema, "synthetic.schema.json")
+
+
+@pytest.mark.parametrize(
+    "schema",
+    [
+        {"required": ["value"], "$ref": "#/required/0"},
+        {"allOf": [{"$ref": "other.schema.json#/$defs/value"}]},
+        {"anyOf": [{"$ref": "#/$defs/missing"}, {"type": "integer"}]},
+    ],
+)
+def test_schema_reference_guard_visits_combinators_and_rejects_data_targets(schema):
+    with pytest.raises(ValueError, match="ref|reference"):
+        spec_load._SchemaValidator(schema, "synthetic.schema.json")
+
+
+def test_schema_closed_pattern_properties_report_each_unknown_child():
+    validator = spec_load._SchemaValidator(
+        {
+            "type": "object",
+            "patternProperties": {"^allowed-": {"type": "integer"}},
+            "additionalProperties": False,
+        },
+        "synthetic.schema.json",
+    )
+    errors = validator.check({"allowed-value": 1, "unexpected": 2, "another": 3})
+    assert {path for path, _message in errors} == {"unexpected", "another"}
+    assert len(errors) == 2
+
+
+def test_schema_property_name_combinator_reports_the_invalid_child():
+    validator = spec_load._SchemaValidator(
+        {"type": "object", "propertyNames": {"anyOf": [{"pattern": "^allowed-"}, {"const": "other"}]}},
+        "synthetic.schema.json",
+    )
+    assert not validator.check({"allowed-value": 1, "other": 2})
+    assert {path for path, _message in validator.check({"unexpected": 1})} == {"unexpected"}
+
+
+def test_schema_local_json_pointers_resolve_escaped_names_and_non_definition_paths():
+    schema = {
+        "type": "object",
+        "properties": {
+            "source": {"type": "string", "pattern": "^valid$"},
+            "copy": {"$ref": "#/properties/source"},
+            "escaped": {"$ref": "#/$defs/slash~1name~0"},
+            "encoded": {"$ref": "#/$defs/%73lash~1name~0"},
+        },
+        "$defs": {"slash/name~": {"type": "integer"}},
+    }
+    validator = spec_load._SchemaValidator(schema, "synthetic.schema.json")
+    assert not validator.check({"copy": "valid", "escaped": 1, "encoded": 2})
+    paths = {
+        path for path, _message in validator.check({"copy": "wrong", "escaped": "wrong", "encoded": "wrong"})
+    }
+    assert paths == {"copy", "escaped", "encoded"}
+    assert not validator.for_definition("slash/name~").check(1)
+    assert validator.for_definition("slash/name~").check("wrong")
+
+
+def test_schema_reference_siblings_and_standard_value_equality():
+    validator = spec_load._SchemaValidator(
+        {"$defs": {"positive": {"type": "integer", "minimum": 1}}, "$ref": "#/$defs/positive", "const": 2},
+        "synthetic.schema.json",
+    )
+    assert not validator.check(2)
+    assert validator.check(1)
+    assert validator.check(0)
+    assert spec_load._SchemaValidator({"const": True}, "synthetic.schema.json").check(1)
+    assert spec_load._SchemaValidator({"enum": [1]}, "synthetic.schema.json").check(True)
+
+
+@pytest.mark.parametrize(
+    ("schema", "valid", "invalid"),
+    [
+        ({"anyOf": [{"type": "integer"}, {"type": "string", "pattern": "^x$"}]}, "x", "y"),
+        ({"oneOf": [{"type": "integer"}, {"minimum": 1}]}, -1, 1),
+        ({"allOf": [{"type": "integer"}, {"minimum": 1}]}, 1, 0),
+        ({"type": "integer", "not": {"const": 1}}, 2, 1),
+        (
+            {"type": "object", "if": {"required": ["flag"]}, "then": {"required": ["value"]}},
+            {"flag": True, "value": 1},
+            {"flag": True},
+        ),
+    ],
+)
+def test_schema_combinators_and_conditions_apply_standard_validation(schema, valid, invalid):
+    validator = spec_load._SchemaValidator(schema, "synthetic.schema.json")
+    assert not validator.check(valid)
+    assert validator.check(invalid)
+
+
+def test_schema_loader_shares_unchanged_validation_and_reloads_changed_bytes(tmp_path):
+    schema_path = tmp_path / "synthetic.schema.json"
+    schema_path.write_text(json.dumps({"type": "integer"}))
+    first = spec_load._load_schema(tmp_path, schema_path.name)
+    assert spec_load._load_schema(tmp_path, schema_path.name) is first
+    schema_path.write_text(json.dumps({"type": "string"}))
+    second = spec_load._load_schema(tmp_path, schema_path.name)
+    assert second is not first
+    assert second.check(1)
+    assert not second.check("value")
+    schema_path.write_text(json.dumps({"type": "integer"}))
+    assert spec_load._load_schema(tmp_path, schema_path.name) is first
+
+
+def test_schema_loader_records_each_schema_read_even_when_validation_is_cached(tmp_path, monkeypatch):
+    schema_path = tmp_path / "synthetic.schema.json"
+    schema_path.write_text(json.dumps({"type": "integer"}))
+    first = spec_load._load_schema(tmp_path, schema_path.name)
+    original = Path.read_text
+    reads: list[Path] = []
+
+    def record_read(path: Path, *args, **kwargs) -> str:
+        reads.append(path)
+        return original(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", record_read)
+    assert spec_load._load_schema(tmp_path, schema_path.name) is first
+    assert schema_path in reads
 
 
 def test_ligature_transparency_expands_left_facing_family_lists(spec):

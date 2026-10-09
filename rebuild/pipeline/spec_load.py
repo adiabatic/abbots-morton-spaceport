@@ -1,6 +1,6 @@
 """Load the rune files and the script registry into a `ResolvedSpec` (rebuild/M1-PLAN.md §5, Group 1). Loading runs schema validation, the Python lints (stance and motion naming, the reserved `sole` name, ductus parity, no `right.then` on refusals, the right-side `then:` chain depth cap, registry and reference checks), left-condition `bitmap:` resolution, predicate-class evaluation, rune-local group resolution, ligature outgoing inheritance, and left-facing ligature expansion.
 
-Schema validation reads the JSON Schema files under rebuild/schema/ through a small built-in evaluator for the keywords those files use, so the project needs no third-party validator. When `jsonschema` is importable (`uv run --with jsonschema`), `test_jsonschema_agrees_with_builtin_checker` checks that the two agree. Every error carries the YAML file, key path, and line. Errors are collected within each loading stage, and a stage that found any raises them together as one SpecError.
+Schema validation uses a cached Draft 2020-12 validator over the JSON Schema files under rebuild/schema/, with strict YAML integers and a closed schema vocabulary. Every error carries the YAML file, key path, and line. Errors are collected within each loading stage, and a stage that found any raises them together as one SpecError.
 """
 
 from __future__ import annotations
@@ -10,10 +10,16 @@ import json
 import re
 import warnings
 from dataclasses import dataclass, replace
+from functools import lru_cache
 from pathlib import Path
-from typing import Iterable
+from typing import Any, Iterable, NoReturn
+from urllib.parse import quote, unquote
 
 import yaml
+from jsonschema import Draft202012Validator, validators
+from jsonschema.exceptions import SchemaError, ValidationError
+from referencing import Registry
+from referencing.exceptions import NoSuchResource
 
 from rebuild.pipeline.model import (
     RIGHT_CHAIN_CAP,
@@ -48,6 +54,7 @@ DEFAULT_SCHEMA_DIR = REPO_ROOT / "rebuild" / "schema"
 FORBIDDEN_ID_PATTERN = re.compile(r"(before|after|noentry|noexit|nonjoining|ss[0-9])")
 
 SOLE_NAME = "sole"
+_KEY_TYPE_ERROR = "keys must be strings"
 
 _NAMING_RULE = "stance IDs and motion names describe pen motions, never neighbors, boundaries, or features (doc/rebuild-design.md section 3.1), except that a single-stance rune names its only stance and only motion 'sole' (a reserved name; the pen-motion label lives in the ductus prose)"
 _WINDOW_RULE = "refuse and require records must be decidable one position to the left of the rune they constrain, so right.then is forbidden on them (doc/rebuild-design.md section 3.3)"
@@ -93,8 +100,34 @@ class SpecWarning(UserWarning):
     pass
 
 
-class _SchemaChecker:
-    """Evaluates the keyword subset rebuild/schema/*.json uses. An unrecognized keyword raises ValueError, so a schema edit cannot skip validation silently."""
+def _strict_integer(_checker: object, value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _deny_schema_retrieval(uri: str) -> NoReturn:
+    raise NoSuchResource(ref=uri)
+
+
+_STRICT_VALIDATOR = validators.extend(
+    Draft202012Validator,
+    type_checker=Draft202012Validator.TYPE_CHECKER.redefine("integer", _strict_integer),
+)
+
+
+def _schema_path(parts: Iterable[str | int]) -> str:
+    path = ""
+    for part in parts:
+        if isinstance(part, int):
+            path += f"[{part}]"
+        else:
+            path += f".{part}" if path else part
+    return path
+
+
+class _SchemaValidator:
+    """Adapt Draft 2020-12 errors to YAML paths while checking the project's closed schema vocabulary and root-local references before any record is validated."""
+
+    VALIDATOR = _STRICT_VALIDATOR
 
     _KEYWORDS = frozenset(
         {
@@ -119,147 +152,228 @@ class _SchemaChecker:
             "if",
             "then",
             "$ref",
+            "$defs",
         }
     )
-    _IGNORED = frozenset({"$schema", "$id", "title", "description", "$defs"})
+    _ANNOTATIONS = frozenset({"$schema", "$id", "title", "description"})
+    _IGNORED = _ANNOTATIONS
+    _TYPES = frozenset({"object", "array", "string", "integer", "boolean"})
+    _SCHEMA_MAPS = frozenset({"$defs", "properties", "patternProperties"})
+    _SCHEMA_ARRAYS = frozenset({"allOf", "anyOf", "oneOf"})
+    _SCHEMA_VALUES = frozenset({"items", "additionalProperties", "propertyNames", "not", "if", "then"})
 
     def __init__(self, schema: dict, schema_name: str):
         self.schema = schema
         self.schema_name = schema_name
-        self.defs = schema.get("$defs", {})
+        self._root_schema = schema
+        self._definitions: dict[str, _SchemaValidator] = {}
+        self._check_schema_contract()
+        # A referenced root keeps this validator's integer type checker when it carries no dialect annotation.
+        runtime_schema = {key: value for key, value in schema.items() if key != "$schema"}
+        self._validator = self.VALIDATOR(runtime_schema, registry=Registry(retrieve=_deny_schema_retrieval))
+
+    def _check_schema_contract(self) -> None:
+        schema_paths: set[tuple[str | int, ...]] = set()
+        references: list[str] = []
+
+        def walk(schema: object, path: tuple[str | int, ...]) -> None:
+            if not isinstance(schema, (dict, bool)):
+                return
+            schema_paths.add(path)
+            if isinstance(schema, bool):
+                return
+            for keyword, value in schema.items():
+                if keyword not in self._KEYWORDS and keyword not in self._IGNORED:
+                    raise ValueError(f"{self.schema_name}: unsupported JSON Schema keyword {keyword!r}")
+                if keyword == "type" and (not isinstance(value, str) or value not in self._TYPES):
+                    raise ValueError(f"{self.schema_name}: unsupported type {value!r}")
+                if keyword in {"$id", "$schema"} and path:
+                    raise ValueError(f"{self.schema_name}: {keyword} is supported only at the schema root")
+                if keyword == "$schema" and value != Draft202012Validator.META_SCHEMA["$id"]:
+                    raise ValueError(f"{self.schema_name}: $schema must name JSON Schema Draft 2020-12")
+                if keyword == "$ref" and isinstance(value, str):
+                    references.append(value)
+                elif keyword in self._SCHEMA_MAPS and isinstance(value, dict):
+                    for name, child in value.items():
+                        walk(child, (*path, keyword, name))
+                elif keyword in self._SCHEMA_ARRAYS and isinstance(value, list):
+                    for index, child in enumerate(value):
+                        walk(child, (*path, keyword, index))
+                elif keyword in self._SCHEMA_VALUES:
+                    walk(value, (*path, keyword))
+
+        walk(self.schema, ())
+        try:
+            self.VALIDATOR.check_schema(self.schema)
+        except SchemaError as error:
+            raise ValueError(f"{self.schema_name}: invalid JSON Schema: {error.message}") from error
+        for reference in references:
+            if reference != "#" and not reference.startswith("#/"):
+                raise ValueError(
+                    f"{self.schema_name}: only root-local JSON Pointer $refs are supported: {reference!r}"
+                )
+            target: object = self.schema
+            target_path: list[str | int] = []
+            fragment = unquote(reference[1:])
+            for token in fragment[1:].split("/") if fragment else ():
+                token = token.replace("~1", "/").replace("~0", "~")
+                if isinstance(target, dict) and token in target:
+                    target = target[token]
+                    target_path.append(token)
+                elif isinstance(target, list) and token.isdigit() and int(token) < len(target):
+                    index = int(token)
+                    target = target[index]
+                    target_path.append(index)
+                else:
+                    raise ValueError(f"{self.schema_name}: dangling $ref {reference!r}")
+            if tuple(target_path) not in schema_paths:
+                raise ValueError(f"{self.schema_name}: $ref {reference!r} does not name a schema")
+
+    def for_definition(self, name: str) -> "_SchemaValidator":
+        if name not in self._root_schema.get("$defs", {}):
+            raise ValueError(f"{self.schema_name}: unknown schema definition {name!r}")
+        if name not in self._definitions:
+            pointer = quote(name.replace("~", "~0").replace("/", "~1"), safe="")
+            selected = object.__new__(_SchemaValidator)
+            selected.schema = {"$ref": f"#/$defs/{pointer}"}
+            selected.schema_name = self.schema_name
+            selected._root_schema = self._root_schema
+            selected._definitions = self._definitions
+            selected._validator = self._validator.evolve(schema=selected.schema)
+            self._definitions[name] = selected
+        return self._definitions[name]
 
     def check(self, value: object) -> list[tuple[str, str]]:
         errors: list[tuple[str, str]] = []
-        self._check(value, self.schema, "", errors)
-        return errors
 
-    def _resolve(self, schema: dict) -> dict:
-        while "$ref" in schema:
-            name = schema["$ref"].rsplit("/", 1)[-1]
-            if name not in self.defs:
-                raise ValueError(f"{self.schema_name}: dangling $ref {schema['$ref']}")
-            schema = self.defs[name]
-        return schema
+        def check_keys(item: object, path: str) -> None:
+            if isinstance(item, dict):
+                for key, child in item.items():
+                    key_path = f"{path}.{key}" if path else str(key)
+                    if not isinstance(key, str):
+                        errors.append((key_path, f"{_KEY_TYPE_ERROR}, got {key!r}"))
+                    check_keys(child, key_path)
+            elif isinstance(item, list):
+                for index, child in enumerate(item):
+                    check_keys(child, f"{path}[{index}]")
 
-    def _passes(self, value: object, schema: dict) -> bool:
-        probe: list[tuple[str, str]] = []
-        self._check(value, schema, "", probe)
-        return not probe
+        check_keys(value, "")
+        if errors:
+            return errors
+        for error in self._validator.iter_errors(value):
+            errors.extend(self._diagnostics(error, value))
+        return list(dict.fromkeys(errors))
 
-    def _type_ok(self, value: object, expected: str) -> bool:
-        if expected == "object":
-            return isinstance(value, dict)
-        if expected == "array":
-            return isinstance(value, list)
-        if expected == "string":
-            return isinstance(value, str)
-        if expected == "integer":
-            return isinstance(value, int) and not isinstance(value, bool)
-        if expected == "boolean":
-            return isinstance(value, bool)
-        raise ValueError(f"{self.schema_name}: unsupported type {expected!r}")
-
-    def _check(self, value: object, schema: dict, path: str, errors: list[tuple[str, str]]) -> None:
-        schema = self._resolve(schema)
-        for keyword in schema:
-            if keyword not in self._KEYWORDS and keyword not in self._IGNORED:
-                raise ValueError(f"{self.schema_name}: unsupported JSON Schema keyword {keyword!r}")
-        expected_type = schema.get("type")
-        if expected_type is not None and not self._type_ok(value, expected_type):
-            errors.append((path, f"expected {expected_type}, got {type(value).__name__} ({value!r})"))
-            return
-        if "const" in schema and value != schema["const"]:
-            errors.append((path, f"must be {schema['const']!r}, got {value!r}"))
-        if "enum" in schema and value not in schema["enum"]:
-            errors.append((path, f"must be one of {schema['enum']}, got {value!r}"))
-        if "pattern" in schema and isinstance(value, str) and not re.search(schema["pattern"], value):
-            errors.append((path, f"{value!r} does not match required pattern {schema['pattern']!r}"))
-        if "minimum" in schema and isinstance(value, int) and not isinstance(value, bool):
-            if value < schema["minimum"]:
-                errors.append((path, f"must be >= {schema['minimum']}, got {value}"))
-        if isinstance(value, list):
-            if "minItems" in schema and len(value) < schema["minItems"]:
-                errors.append((path, f"must have at least {schema['minItems']} items"))
-            if "maxItems" in schema and len(value) > schema["maxItems"]:
-                errors.append((path, f"must have at most {schema['maxItems']} items"))
-            if "items" in schema:
-                for index, item in enumerate(value):
-                    self._check(item, schema["items"], f"{path}[{index}]", errors)
-        if isinstance(value, dict):
-            self._check_object(value, schema, path, errors)
-        for sub in schema.get("allOf", ()):
-            self._check(value, sub, path, errors)
-        if "anyOf" in schema and not any(self._passes(value, sub) for sub in schema["anyOf"]):
-            errors.append((path, "does not satisfy any permitted alternative"))
-        if "oneOf" in schema:
-            matched = sum(1 for sub in schema["oneOf"] if self._passes(value, sub))
-            if matched != 1:
-                errors.append(
-                    (
-                        path,
-                        f"must satisfy exactly one of {len(schema['oneOf'])} alternatives, matched {matched}",
-                    )
+    def _diagnostics(self, error: ValidationError, value: object) -> list[tuple[str, str]]:
+        parts = list(error.absolute_path)
+        instance = error.instance
+        document_value = value
+        for part in parts:
+            if isinstance(document_value, dict):
+                document_value = document_value[part]
+            elif isinstance(document_value, list) and isinstance(part, int):
+                document_value = document_value[part]
+        if isinstance(document_value, dict) and isinstance(instance, str) and instance in document_value:
+            parts.append(instance)
+        path = _schema_path(parts)
+        keyword = error.validator
+        limit = error.validator_value
+        if keyword == "required" and isinstance(instance, dict) and isinstance(limit, list):
+            return [
+                (_schema_path((*parts, key)), f"missing required key {key!r}")
+                for key in limit
+                if key not in instance
+            ]
+        if (
+            keyword == "additionalProperties"
+            and limit is False
+            and isinstance(instance, dict)
+            and isinstance(error.schema, dict)
+        ):
+            properties = error.schema.get("properties", {})
+            patterns = error.schema.get("patternProperties", {})
+            known = sorted(set(properties) | set(patterns))
+            return [
+                (
+                    _schema_path((*parts, key)),
+                    f"unknown key {key!r} (closed vocabulary; expected one of {known})",
                 )
-        if "not" in schema and self._passes(value, schema["not"]):
-            errors.append((path, "matches a forbidden form"))
-        if "if" in schema and self._passes(value, schema["if"]) and "then" in schema:
-            self._check(value, schema["then"], path, errors)
-
-    def _check_object(self, value: dict, schema: dict, path: str, errors: list[tuple[str, str]]) -> None:
-        if "minProperties" in schema and len(value) < schema["minProperties"]:
-            errors.append((path, f"must have at least {schema['minProperties']} keys"))
-        for key in schema.get("required", ()):
-            if key not in value:
-                errors.append((path, f"missing required key {key!r}"))
-        properties = schema.get("properties", {})
-        pattern_properties = schema.get("patternProperties", {})
-        additional = schema.get("additionalProperties", True)
-        property_names = schema.get("propertyNames")
-        for key, item in value.items():
-            key_path = f"{path}.{key}" if path else str(key)
-            if not isinstance(key, str):
-                errors.append((key_path, f"keys must be strings, got {key!r}"))
-                continue
-            if property_names is not None:
-                self._check(key, property_names, key_path, errors)
-            matched = False
-            if key in properties:
-                matched = True
-                self._check(item, properties[key], key_path, errors)
-            for pattern, sub in pattern_properties.items():
-                if re.search(pattern, key):
-                    matched = True
-                    self._check(item, sub, key_path, errors)
-            if not matched:
-                if additional is False:
-                    known = sorted(set(properties) | set(pattern_properties))
-                    errors.append(
-                        (key_path, f"unknown key {key!r} (closed vocabulary; expected one of {known})")
-                    )
-                elif isinstance(additional, dict):
-                    self._check(item, additional, key_path, errors)
+                for key in instance
+                if key not in properties and not any(re.search(pattern, key) for pattern in patterns)
+            ]
+        if keyword == "type":
+            message = f"expected {limit}, got {type(instance).__name__} ({instance!r})"
+        elif keyword == "const":
+            message = f"must be {limit!r}, got {instance!r}"
+        elif keyword == "enum":
+            message = f"must be one of {limit}, got {instance!r}"
+        elif keyword == "pattern":
+            message = f"{instance!r} does not match required pattern {limit!r}"
+        elif keyword == "minimum":
+            message = f"must be >= {limit}, got {instance}"
+        elif keyword == "minItems":
+            message = f"must have at least {limit} items"
+        elif keyword == "maxItems":
+            message = f"must have at most {limit} items"
+        elif keyword == "minProperties":
+            message = f"must have at least {limit} keys"
+        elif keyword == "anyOf":
+            message = "does not satisfy any permitted alternative"
+        elif keyword == "oneOf" and isinstance(limit, list):
+            matched = sum(self._validator.evolve(schema=child).is_valid(instance) for child in limit)
+            message = f"must satisfy exactly one of {len(limit)} alternatives, matched {matched}"
+        elif keyword == "not":
+            message = "matches a forbidden form"
+        else:
+            message = error.message
+        return [(path, message)]
 
 
-def _line_index(text: str) -> dict[str, int]:
+def _line_index(
+    text: str,
+    key_paths: dict[str, str] | None = None,
+    key_errors: list[tuple[str, str]] | None = None,
+) -> dict[str, int]:
+    loader = _SAFE_LOADER(text)
     try:
-        root = yaml.compose(text, Loader=_SAFE_LOADER)
+        root = loader.get_single_node()
     except yaml.YAMLError:
+        loader.dispose()
         return {}
     index: dict[str, int] = {}
 
-    def walk(node: yaml.Node, path: str) -> None:
+    def walk(node: yaml.Node, path: str, check_path: str) -> None:
         index.setdefault(path, node.start_mark.line + 1)
+        if key_paths is not None and check_path != path:
+            key_paths[check_path] = path
         if isinstance(node, yaml.MappingNode):
             for key_node, value_node in node.value:
-                child = f"{path}.{key_node.value}" if path else str(key_node.value)
+                if isinstance(key_node, yaml.ScalarNode):
+                    spelling = key_node.value
+                    key = (
+                        spelling
+                        if key_node.tag in {"tag:yaml.org,2002:merge", "tag:yaml.org,2002:value"}
+                        else loader.construct_object(key_node)
+                    )
+                else:
+                    spelling = text[key_node.start_mark.index : key_node.end_mark.index].strip()
+                    key = spelling
+                    if key_errors is not None:
+                        key_path = f"{path}.{spelling}" if path else spelling
+                        key_errors.append((key_path, f"{_KEY_TYPE_ERROR}, got collection key {spelling!r}"))
+                child = f"{path}.{spelling}" if path else spelling
+                check_child = f"{check_path}.{key}" if check_path else str(key)
                 index[child] = key_node.start_mark.line + 1
-                walk(value_node, child)
+                walk(value_node, child, check_child)
         elif isinstance(node, yaml.SequenceNode):
             for position, item in enumerate(node.value):
-                walk(item, f"{path}[{position}]")
+                walk(item, f"{path}[{position}]", f"{check_path}[{position}]")
 
-    if root is not None:
-        walk(root, "")
+    try:
+        if root is not None:
+            walk(root, "", "")
+    finally:
+        loader.dispose()
     return index
 
 
@@ -283,10 +397,19 @@ class _FileContext:
             self.file = str(path)
         self.issues = issues
         text = path.read_text()
-        self.lines = _line_index(text)
-        self.data = yaml.load(text, Loader=_SAFE_LOADER)
+        self.key_paths: dict[str, str] = {}
+        key_errors: list[tuple[str, str]] = []
+        self.lines = _line_index(text, self.key_paths, key_errors)
+        self.data: Any
+        if key_errors:
+            for key_path, message in key_errors:
+                self.error(key_path, message)
+            self.data = None
+        else:
+            self.data = yaml.load(text, Loader=_SAFE_LOADER)
 
     def error(self, path: str, message: str) -> None:
+        path = self.key_paths.get(path, path)
         self.issues.append(SpecIssue(self.file, path, message, _line_for(self.lines, path)))
 
     def provenance(self, path: str) -> Provenance:
@@ -484,9 +607,14 @@ def _resolve_record(context: _FileContext, raw: dict, path: str, provenance: Pro
     )
 
 
-def _load_schema(schema_dir: Path, name: str) -> _SchemaChecker:
+@lru_cache(maxsize=16)
+def _schema_from_text(name: str, text: str) -> _SchemaValidator:
+    return _SchemaValidator(json.loads(text), name)
+
+
+def _load_schema(schema_dir: Path, name: str) -> _SchemaValidator:
     path = schema_dir / name
-    return _SchemaChecker(json.loads(path.read_text()), name)
+    return _schema_from_text(name, path.read_text())
 
 
 def _walk_conditions(raw: object, path: str):
@@ -1492,6 +1620,7 @@ def load_spec(runes_dir: Path, registry_path: Path, schema_dir: Path) -> Resolve
         raise SpecError(str(runes_dir), "", f"no rune files found under {runes_dir}")
     contexts: list[_FileContext] = []
     schema_clean: dict[int, bool] = {}
+    shallow_safe: set[int] = set()
     for path in rune_paths:
         context = _FileContext(path, issues)
         if not isinstance(context.data, dict):
@@ -1501,6 +1630,8 @@ def load_spec(runes_dir: Path, registry_path: Path, schema_dir: Path) -> Resolve
         for error_path, message in schema_errors:
             context.error(error_path, message)
         schema_clean[id(context)] = not schema_errors
+        if not any(message.startswith(_KEY_TYPE_ERROR) for _, message in schema_errors):
+            shallow_safe.add(id(context))
         contexts.append(context)
     if not registry_clean:
         raise SpecError.from_issues(issues)
@@ -1525,7 +1656,8 @@ def load_spec(runes_dir: Path, registry_path: Path, schema_dir: Path) -> Resolve
 
     for context in contexts:
         linter = _Linter(context, registry_families, registry_classes, registry_features)
-        linter.run_shallow()
+        if id(context) in shallow_safe:
+            linter.run_shallow()
         if schema_clean[id(context)]:
             linter.run_deep()
     if issues:

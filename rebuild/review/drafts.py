@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import sys
 from dataclasses import dataclass, replace
 from html.parser import HTMLParser
@@ -14,7 +13,7 @@ import yaml
 from rebuild.pipeline.labels import load_alias_map
 from rebuild.pipeline.model import SS10_COPY_SUFFIX, CellId
 from rebuild.pipeline.settle import is_boundary_settled
-from rebuild.pipeline.spec_load import _SchemaChecker
+from rebuild.pipeline.spec_load import _load_schema
 from rebuild.review.enrich import (
     LETTERS,
     NAMER_DOT,
@@ -223,19 +222,11 @@ class Drafter:
         self.after_classifier = JunctionClassifier(after_font)
         self.corpus_index = corpus_index if corpus_index is not None else build_corpus_index(repo_root)
         self.aliases = load_alias_map(alias_path or repo_root / "rebuild" / "m1-aliases.yaml")
-        schema = json.loads(
-            (schema_path or repo_root / "rebuild" / "schema" / "rune.schema.json").read_text()
-        )
-        defs = schema.get("$defs", {})
-        self._refuse_checker = _SchemaChecker(
-            {"$ref": "#/$defs/refuseRecord", "$defs": defs}, "rune.schema.json"
-        )
-        self._prefer_checker = _SchemaChecker(
-            {"$ref": "#/$defs/preferRecord", "$defs": defs}, "rune.schema.json"
-        )
-        self._contract_checker = _SchemaChecker(
-            {"$ref": "#/$defs/contractRecord", "$defs": defs}, "rune.schema.json"
-        )
+        schema_file = schema_path or repo_root / "rebuild" / "schema" / "rune.schema.json"
+        schema = _load_schema(schema_file.parent, schema_file.name)
+        self._refuse_checker = schema.for_definition("refuseRecord")
+        self._prefer_checker = schema.for_definition("preferRecord")
+        self._contract_checker = schema.for_definition("contractRecord")
 
     # --- the approve pin -----------------------------------------------------
 

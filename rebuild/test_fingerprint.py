@@ -782,10 +782,20 @@ def _write_data(root, files):
 
 
 def test_a_schema_annotation_or_a_data_file_comment_moves_no_data_key(tmp_path):
-    """Rewording a schema's `title` or `description` wherever a schema sits (the root, under `properties`, inside `anyOf`, under `$defs`), or the comments and formatting of a YAML data input, leaves `data_value`, `tables_value` and the run_m1 skip key unchanged. The kern sidecar holds one document per rule, so this also checks that it parses as a stream and does not fall back to its bytes. Dropping the annotations is sound only while the schema checker skips them."""
+    """Rewording a schema's `title` or `description` wherever a schema sits (the root, under `properties`, inside `anyOf`, under `$defs`), or the comments and formatting of a YAML data input, leaves `data_value`, `tables_value` and the run_m1 skip key unchanged. The kern sidecar holds one document per rule, so this also checks that it parses as a stream and does not fall back to its bytes. Dropping the annotations is sound only while the shared adapter declares them as annotations and the standard validator's keyword dispatch does not evaluate them."""
     from rebuild.pipeline import spec_load
 
-    assert set(fingerprint.SCHEMA_ANNOTATIONS) <= spec_load._SchemaChecker._IGNORED
+    annotations = set(fingerprint.SCHEMA_ANNOTATIONS)
+    assert annotations <= spec_load._SchemaValidator._ANNOTATIONS
+    assert annotations.isdisjoint(spec_load._SchemaValidator._KEYWORDS)
+    assert annotations.isdisjoint(spec_load._SchemaValidator.VALIDATOR.VALIDATORS)
+    schema = json.loads(SCHEMA)
+    projected = fingerprint._projected_schema(schema)
+    assert isinstance(projected, dict)
+    validator = spec_load._SchemaValidator(schema, "rune.schema.json")
+    without_annotations = spec_load._SchemaValidator(projected, "rune.schema.json")
+    for value in ({"rune": "qsPea", "stances": [{}]}, {"rune": 1, "stances": []}):
+        assert validator.check(value) == without_annotations.check(value)
     root = _fake_repo(tmp_path)
     _write_data(root, DATA_FILES)
     before = (
@@ -850,8 +860,9 @@ def test_a_keyword_a_value_or_an_order_moves_the_data_value(tmp_path, label, old
     assert fingerprint.data_value(root) != before
 
 
-def test_a_schema_property_named_description_stays_in_the_digest(tmp_path):
-    """Under `properties`, `description` names a property, as in rebuild/schema/script.schema.json's feature records, so its schema is hashed and a change to it moves the digest, while that schema's own `description` annotation is still dropped. A `const` value is kept whole, even a `description` key inside it."""
+@pytest.mark.parametrize("name", fingerprint.SCHEMA_ANNOTATIONS)
+def test_a_schema_member_named_like_an_annotation_stays_in_the_digest(tmp_path, name):
+    """Under `properties` and `$defs`, `title` and `description` name members, so their schemas are hashed and a change to them moves the digest, while those schemas' own annotations are dropped. Keyword values are kept whole, even an annotation's name inside `const`, `enum`, or `required`."""
     path = tmp_path / "script.schema.json"
 
     def digest(schema):
@@ -859,13 +870,59 @@ def test_a_schema_property_named_description_stays_in_the_digest(tmp_path):
         return fingerprint.schema_file_digest(path)
 
     def feature(prop):
-        return {"type": "object", "required": ["description"], "properties": {"description": prop}}
+        return {"type": "object", "required": [name], "properties": {name: prop}}
 
     base = digest(feature({"type": "string", "description": "What the set does."}))
     assert digest(feature({"type": "string", "description": "What the stylistic set does."})) == base
     assert digest(feature({"type": "string"})) == base
     assert digest(feature({"type": "integer", "description": "What the set does."})) != base
-    assert digest({"const": {"description": "one"}}) != digest({"const": {"description": "two"}})
+    assert digest(feature({"type": "string", "description": "What the set does."})) != digest(
+        {"type": "object", "required": [name], "properties": {}}
+    )
+    definitions = {"$defs": {name: {"type": "string", "description": "A definition."}}}
+    assert digest(definitions) == digest({"$defs": {name: {"type": "string"}}})
+    assert digest(definitions) != digest({"$defs": {name: {"type": "integer"}}})
+    assert digest(definitions) != digest({"$defs": {}})
+    assert digest({"const": {name: "one"}}) != digest({"const": {name: "two"}})
+    assert digest({"enum": [{name: "one"}]}) != digest({"enum": [{name: "two"}]})
+    assert digest({"required": [name]}) != digest({"required": []})
+
+
+@pytest.mark.parametrize(
+    ("schema", "value", "keyword", "changed"),
+    [
+        ({"type": "array", "minItems": 1}, ["qsPea"], "minItems", 2),
+        ({"type": "string", "pattern": "^qs"}, "qsPea", "pattern", "^other$"),
+        ({"type": "integer", "minimum": 0}, 0, "minimum", 1),
+        ({"type": "object", "required": ["rune"]}, {"rune": "qsPea"}, "required", ["stances"]),
+    ],
+)
+def test_an_evaluated_schema_keyword_moves_every_behavioral_data_key(
+    tmp_path, schema, value, keyword, changed
+):
+    """A keyword in the shared adapter's vocabulary and the standard validator's dispatch changes validation and moves the data, tables, and run_m1 skip keys. This pins the distinction between hover annotations and constraints against the validator that loads rune and draft records."""
+    from rebuild.pipeline import spec_load
+
+    assert keyword in spec_load._SchemaValidator._KEYWORDS
+    assert keyword in spec_load._SchemaValidator.VALIDATOR.VALIDATORS
+    edited = {**schema, keyword: changed}
+    assert spec_load._SchemaValidator(schema, "rune.schema.json").check(value) == []
+    assert spec_load._SchemaValidator(edited, "rune.schema.json").check(value)
+    root = _fake_repo(tmp_path)
+    path = root / "rebuild" / "schema" / "rune.schema.json"
+    path.write_text(json.dumps(schema))
+    before = (
+        fingerprint.data_value(root),
+        fingerprint.tables_value(root),
+        artifact_cycle.run_m1_skip_fingerprint(root),
+    )
+    path.write_text(json.dumps(edited))
+    after = (
+        fingerprint.data_value(root),
+        fingerprint.tables_value(root),
+        artifact_cycle.run_m1_skip_fingerprint(root),
+    )
+    assert all(new != old for old, new in zip(before, after, strict=True))
 
 
 def test_an_unparseable_data_file_hashes_raw(tmp_path):
