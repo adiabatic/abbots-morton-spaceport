@@ -1,6 +1,6 @@
-"""The review server's in-memory copy of verdicts-autosave.json, and the two JSON formats it accepts and returns.
+"""The review server's in-memory copy of verdicts-autosave.json, its delta POST protocol, and its full-store and delta GET formats.
 
-The file is one ams-review-verdicts/1 document holding every verdict on the corpus. Parsing and writing all of it for each saved verdict is too slow, so the server parses the file once, keeps the records in memory, and exchanges changes. A POST can be a delta (`sets` of whole records and `clears`, under ams-review-verdicts-delta/1), which is applied in place and appended to the journal as set and clear lines. A GET with `since=<token>` returns the records changed after that token. A GET without a token, or with one `changes_since` cannot serve, returns the whole store with the current token. The token is a boot id and a change sequence. A token gets the whole store when it predates a server restart or a reload of the file onto another stamp, or when it is older than the retained changes (`CHANGE_LOG_CAP`).
+The file is one ams-review-verdicts/1 document holding every verdict on the corpus. Parsing and writing all of it for each saved verdict is too slow, so the server parses the file once, keeps the records in memory, and exchanges changes. A POST must be a delta (`sets` of whole records and `clears`, under ams-review-verdicts-delta/1), which is applied in place and appended to the journal as set and clear lines. A GET with `since=<token>` returns the records changed after that token. A GET without a token, or with one `changes_since` cannot serve, returns the whole store with the current token. The token is a boot id and a change sequence. A token gets the whole store when it predates a server restart or a reload of the file onto another stamp, or when it is older than the retained changes (`CHANGE_LOG_CAP`).
 
 A set may carry `base_at`, the `at` of the record the tab last saw the server hold for that unit (null when it saw none). A clear is a unit id (the form older tabs send) or `{unit, base_at, at}`, where `at` is when the tab cleared it. The store keeps a tombstone for each cleared unit (unit → the clear's `at`), in memory and as a top-level `cleared` list in the file, which readers that use only `verdicts` ignore; a set removes its unit's tombstone.
 
@@ -13,7 +13,7 @@ Which stamp a delta carries decides how it is applied. The served corpus (`Serve
 
 The orphan documents live in `var/verdict-orphans/` beside the store (`orphans_dir_for`), one per stamp the verdicts were made on (`orphan_path`). Each is an ams-review-verdicts/1 document stamped for that corpus, whose records carry `reason` and `recorded_at` (a clear is a record with a null verdict), so nothing a tab sends is dropped, and none of them can become a master, because `status` surveys only the repo root and rebuild/evidence. Every accepted delta's response carries `corpus_stamp` (the store's stamp), `carried` (the units a delta on another stamp changed), `orphaned` (the unit ids sent to the orphan document as orphans), `dropped` (the units whose skip was dropped under rule 2), and `conflicts` (each unit with the store's record, or null when the store holds none).
 
-A full-store POST is also accepted when its stamp is the store's or the store is unstamped. Its bytes are written to the file unchanged, and its `cleared` list, if any, becomes the store's tombstones. A full-store POST on another stamp gets a 409 and changes nothing. When the store writes the file itself, it writes the same ams-review-verdicts/1 document with one record per line, which `parse_autosave_payload`, the merge tool, the status check and the carry all read.
+A full-store POST gets a 400 with `reason: whole-store-post-unsupported` and recovery instructions, regardless of its stamp or the file's state, and writes nothing. A 409 tells legacy readers to reload rather than download pending verdicts, and `corpus_stamp` can prompt newer clients to reload automatically, so the refusal uses neither. When the store writes the file itself, it writes an ams-review-verdicts/1 document with one record per line, which `parse_autosave_payload`, the merge tool, the status check and the carry all read; GETs and export files use that format too.
 
 The file holds the verdicts between server runs, and another writer (a pass's land, `rebuild.review.landing`, or the merge tool or a journal restore under --yes) can replace it while the server runs; each holds the store's lock (`rebuild.review.store_lock`) for its write, as the server does for each POST. So every request first compares the file's mtime, size and inode with what the store last read or wrote, and reloads on a mismatch. A reload onto the same stamp diffs the new records against the ones in memory and records the changed units, so outstanding tokens stay valid and a tab's next sync fetches only those units; a reload onto another stamp, or onto a file that is missing or unreadable, invalidates every token. A delta that changes no record and no stamp writes nothing, so the file's bytes and mtime stay as they were. A delta whose write fails reloads the file before the error propagates, so memory never holds a record the file lacks and a resend of the same delta is written. The orphan document is written before the store, so a delta whose orphan write fails changes nothing.
 """
@@ -413,44 +413,24 @@ class VerdictStore:
         self._write_bytes(self.payload_bytes())
 
     def receive(self, raw: bytes, served: ServedCorpus | None = None) -> tuple[int, dict]:
-        """Apply one POST body, a delta or a whole store, and return the HTTP status and response body. `served` is the corpus the server serves, which decides what a delta on another stamp does; None means it is unknown."""
+        """Apply a delta POST body, or refuse a full store with recovery instructions, and return the HTTP status and response body. `served` is the corpus the server serves, which decides what a delta on another stamp does; None means it is unknown."""
         self.refresh_if_changed()
         delta = parse_delta_payload(raw)
         if delta is not None:
             return self._receive_delta(delta, served)
-        data = parse_autosave_payload(raw)
-        if data is None:
-            return 400, {"ok": False, "error": f"not an {EXPORT_FORMAT} or {DELTA_FORMAT} document"}
-        return self._receive_full(raw, data)
-
-    def _receive_full(self, raw: bytes, data: dict) -> tuple[int, dict]:
-        stamp = data["manifest_generated_at"]
-        if self.stamp is not None and self.stamp != stamp:
-            return 409, {
+        if parse_autosave_payload(raw) is not None:
+            return 400, {
                 "ok": False,
-                "corpus_stamp": self.stamp,
+                "reason": "whole-store-post-unsupported",
                 "error": (
-                    f"the autosave on disk is stamped for another corpus ({self.stamp}), and a whole-store "
-                    "save is accepted only onto its own stamp; reload the app"
+                    "whole-store saves are unsupported; before closing or reloading this tab, export/download "
+                    "its verdicts or copy any pending verdicts, and note pending clears and note edits. Then "
+                    "open/reload the current app and import the saved file (or reapply copied verdicts). "
+                    "Manually reapply pending clears and note edits: historical exports omit clears, and "
+                    "imports can keep equal or newer server records. Keep the saved file until recovery is verified"
                 ),
             }
-        old_stamp = self.stamp
-        old_verdicts = list(self.records.values())
-        self._write_bytes(raw)
-        new_records = journal.latest_by_unit(data["verdicts"])
-        changed = self._diff_units(new_records)
-        self._replace(stamp, new_records, parse_cleared(data))
-        self._note_changes(changed)
-        body = {"ok": True, "saved": len(data["verdicts"]), "corpus_stamp": stamp}
-        self._journal_transition(
-            source="autosave",
-            stamp=stamp,
-            old_stamp=old_stamp,
-            old_verdicts=old_verdicts,
-            new_verdicts=data["verdicts"],
-            body=body,
-        )
-        return 200, body
+        return 400, {"ok": False, "error": f"not an {DELTA_FORMAT} document"}
 
     def _diff_units(self, new_records: dict[str, dict]) -> list[str]:
         changed = [

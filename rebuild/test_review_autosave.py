@@ -1,6 +1,6 @@
 """Tests for the review server's logic.
 
-The /autosave receiver: payload validation, atomic overwrite, and the journal event appended on every accepted save. A whole-store save on another stamp than the store's is refused with 409 and moves nothing aside. A delta on another stamp is carried onto a store on the served corpus by unit id, with the `base_at`, `at` and tombstone tests deciding each unit, and the orphans and conflicts it cannot apply are kept in the orphan document; a stale skip is dropped and clears the record it replaced; a delta stamped for the served corpus carries a store on another stamp onto it by unit id, keeping the old file as its stash, and one made on neither corpus gets a retryable 503 and writes nothing.
+The /autosave receiver: delta validation, atomic overwrite, and the journal event appended on every accepted save. A whole-store POST is refused without changing the store, journal, token, or tombstones, regardless of either stamp or whether the store exists. Export parsing and full-store GET payloads remain available. A delta on another stamp is carried onto a store on the served corpus by unit id, with the `base_at`, `at` and tombstone tests deciding each unit, and the orphans and conflicts it cannot apply are kept in the orphan document; a stale skip is dropped and clears the record it replaced; a delta stamped for the served corpus carries a store on another stamp onto it by unit id, keeping the old file as its stash, and one made on neither corpus gets a retryable 503 and writes nothing.
 
 The POST path takes the verdict store's lock without waiting, and answers a retryable 503 while another writer holds it. The resident store behind it (`rebuild.review.verdict_store`): the delta POST the app sends, the no-op delta that writes nothing, the failed write that leaves memory as the file holds it, the change token a sync GET returns, and the reload after an external rewrite of the file, which keeps tokens valid when the stamp is unchanged.
 
@@ -57,30 +57,85 @@ def verdict(unit, kind="approve", at="2026-07-03T00:00:00Z"):
     return {"unit": unit, "verdict": kind, "note": "", "at": at}
 
 
-def test_valid_payload_writes_the_file(tmp_path):
+def test_valid_delta_writes_the_export_file_atomically(tmp_path):
     path = tmp_path / "verdicts-autosave.json"
-    raw = payload("2026-07-03T23:31:04Z", [verdict("u-0001"), verdict("u-0002")])
+    stamp = "2026-07-03T23:31:04Z"
+    records = [verdict("u-0001"), verdict("u-0002")]
+    raw = delta(stamp, records)
     status, body = receive_autosave(raw, path)
     assert status == 200
-    assert body == {"ok": True, "saved": 2, "corpus_stamp": "2026-07-03T23:31:04Z"}
-    assert path.read_bytes() == raw
+    assert body["ok"] is True and body["saved"] == 2 and body["corpus_stamp"] == stamp
+    written = on_disk(path)
+    assert written["format"] == EXPORT_FORMAT
+    assert written["manifest_generated_at"] == stamp
+    assert written["verdicts"] == records
     assert not (tmp_path / "verdicts-autosave.json.tmp").exists()
 
 
-def test_same_stamp_overwrites_in_place(tmp_path):
+@pytest.mark.parametrize("existing", ["missing", "corrupt", "unstamped", "same-stamp", "other-stamp"])
+@pytest.mark.parametrize("incoming_stamp", ["2026-07-03T23:31:04Z", "2026-07-03T06:13:47Z"])
+@pytest.mark.parametrize("has_journal", [False, True])
+def test_a_whole_store_post_is_refused_without_changing_any_state(
+    tmp_path, existing, incoming_stamp, has_journal
+):
     path = tmp_path / "verdicts-autosave.json"
-    receive_autosave(payload("2026-07-03T23:31:04Z", [verdict("u-0001")]), path)
-    raw = payload("2026-07-03T23:31:04Z", [verdict("u-0001"), verdict("u-0002", "reject")])
-    status, _ = receive_autosave(raw, path)
-    assert status == 200
-    assert path.read_bytes() == raw
-    assert list(tmp_path.iterdir()) == [path]
+    journal_path = tmp_path / "verdicts-journal.ndjson"
+    if existing == "corrupt":
+        path.write_bytes(b"garbage from a crashed write")
+    elif existing != "missing":
+        stamp = "2026-07-03T06:13:47Z" if existing == "other-stamp" else "2026-07-03T23:31:04Z"
+        document = json.loads(payload(stamp, [verdict("u-1")]))
+        document["cleared"] = [{"unit": "u-deleted", "at": "t5"}]
+        if existing == "unstamped":
+            document["manifest_generated_at"] = None
+        path.write_bytes(json.dumps(document).encode())
+    if path.exists():
+        os.utime(path, ns=(1, 1))
+    if has_journal:
+        journal_path.write_bytes(b'{"existing-journal": true}\n')
+        os.utime(journal_path, ns=(2, 2))
+    store = VerdictStore(path, journal_path)
+    before = {
+        "files": {file.name: (file.read_bytes(), file.stat().st_mtime_ns) for file in tmp_path.iterdir()},
+        "stamp": store.stamp,
+        "records": {unit: dict(record) for unit, record in store.records.items()},
+        "cleared": dict(store.cleared),
+        "token": store.token,
+    }
+
+    status, body = store.receive(
+        payload(incoming_stamp, [verdict("u-incoming", "reject")]), served("u-1", "u-incoming")
+    )
+
+    assert status == 400
+    assert body["ok"] is False and body["reason"] == "whole-store-post-unsupported"
+    assert not {"corpus_stamp", "token", "saved"}.intersection(body)
+    error = body["error"].lower()
+    for instruction in (
+        "export",
+        "pending",
+        "reload",
+        "current",
+        "import",
+        "file",
+        "reapply",
+        "clear",
+        "note",
+    ):
+        assert instruction in error
+    assert "close" in error or "closing" in error
+    after_files = {file.name: (file.read_bytes(), file.stat().st_mtime_ns) for file in tmp_path.iterdir()}
+    assert after_files == before["files"]
+    assert store.stamp == before["stamp"]
+    assert store.records == before["records"]
+    assert store.cleared == before["cleared"]
+    assert store.token == before["token"]
 
 
 def test_invalid_payloads_are_rejected_without_touching_the_file(tmp_path):
     path = tmp_path / "verdicts-autosave.json"
     good = payload("2026-07-03T23:31:04Z", [verdict("u-0001")])
-    receive_autosave(good, path)
+    path.write_bytes(good)
     for raw in (
         b"not json",
         b'"a string"',
@@ -95,13 +150,16 @@ def test_invalid_payloads_are_rejected_without_touching_the_file(tmp_path):
     assert list(tmp_path.iterdir()) == [path]
 
 
-def test_corrupt_existing_file_is_overwritten_not_stashed(tmp_path):
+def test_a_delta_replaces_a_corrupt_store_without_stashing_it(tmp_path):
     path = tmp_path / "verdicts-autosave.json"
     path.write_bytes(b"garbage from a crashed write")
-    raw = payload("2026-07-03T23:31:04Z", [verdict("u-0001")])
-    status, _ = receive_autosave(raw, path)
-    assert status == 200
-    assert path.read_bytes() == raw
+    stamp = "2026-07-03T23:31:04Z"
+    records = [verdict("u-0001")]
+    status, body = receive_autosave(delta(stamp, records), path)
+    assert status == 200 and body["ok"] is True
+    written = on_disk(path)
+    assert written["manifest_generated_at"] == stamp
+    assert written["verdicts"] == records
     assert list(tmp_path.iterdir()) == [path]
 
 
@@ -118,30 +176,38 @@ def test_stash_path_sanitizes_the_stamp(tmp_path):
     assert stash.parent == tmp_path
 
 
-def test_a_whole_store_post_on_another_stamp_is_refused_with_409_and_stashes_nothing(tmp_path):
+def test_an_old_tabs_whole_store_post_cannot_erase_another_tabs_verdict_or_tombstone(tmp_path):
     path = tmp_path / "verdicts-autosave.json"
-    raw = payload("2026-07-03T23:31:04Z", [verdict("u-6344")])
-    receive_autosave(raw, path)
-    for other in ("2026-07-03T06:13:47Z", "2026-07-04T00:00:00Z"):
-        status, body = receive_autosave(payload(other, [verdict("u-1015")]), path)
-        assert status == 409
-        assert body["ok"] is False
-        assert "reload" in body["error"]
-    assert path.read_bytes() == raw
-    assert list(tmp_path.iterdir()) == [path]
+    journal_path = tmp_path / "verdicts-journal.ndjson"
+    stamp = "2026-07-03T23:31:04Z"
+    store = VerdictStore(path, journal_path)
+    assert store.receive(delta(stamp, [verdict("u-1", at="t1"), verdict("u-3", at="t1")]))[0] == 200
+    stale_snapshot = payload(stamp, list(store.records.values()))
+    assert (
+        store.receive(delta(stamp, [verdict("u-2", "reject", at="t5")], [{"unit": "u-3", "at": "t5"}]))[0]
+        == 200
+    )
+    before = path.read_bytes(), journal_path.read_bytes(), store.token
+    status, body = store.receive(stale_snapshot)
+    assert status == 400 and body["reason"] == "whole-store-post-unsupported"
+    assert (path.read_bytes(), journal_path.read_bytes(), store.token) == before
+    assert set(store.records) == {"u-1", "u-2"}
+    assert store.records["u-2"]["verdict"] == "reject"
+    assert store.cleared == {"u-3": "t5"}
+    assert set(journal.replay(journal_path)[1]) == {"u-1", "u-2"}
 
 
 def test_accepted_saves_append_to_the_journal(tmp_path):
     path = tmp_path / "verdicts-autosave.json"
     journal_path = tmp_path / "verdicts-journal.ndjson"
     stamp = "2026-07-03T23:31:04Z"
-    receive_autosave(payload(stamp, [verdict("u-1")]), path, journal_path)
+    receive_autosave(delta(stamp, [verdict("u-1")]), path, journal_path)
     receive_autosave(
-        payload(stamp, [verdict("u-1", "reject", at="2026-07-03T01:00:00Z"), verdict("u-2")]),
+        delta(stamp, [verdict("u-1", "reject", at="2026-07-03T01:00:00Z"), verdict("u-2")]),
         path,
         journal_path,
     )
-    receive_autosave(payload(stamp, [verdict("u-2")]), path, journal_path)
+    receive_autosave(delta(stamp, clears=["u-1"]), path, journal_path)
     replayed_stamp, records = journal.replay(journal_path)
     assert replayed_stamp == stamp
     assert set(records) == {"u-2"}
@@ -154,9 +220,9 @@ def test_journal_seeds_from_a_store_that_predates_it(tmp_path):
     path = tmp_path / "verdicts-autosave.json"
     journal_path = tmp_path / "verdicts-journal.ndjson"
     stamp = "2026-07-03T23:31:04Z"
-    receive_autosave(payload(stamp, [verdict("u-1"), verdict("u-2")]), path)
+    path.write_bytes(payload(stamp, [verdict("u-1"), verdict("u-2")]))
     assert not journal_path.exists()
-    receive_autosave(payload(stamp, [verdict("u-1"), verdict("u-2"), verdict("u-3")]), path, journal_path)
+    receive_autosave(delta(stamp, [verdict("u-3")]), path, journal_path)
     events = list(journal.iter_events(journal_path))
     assert [event["source"] for event in events] == ["seed", "autosave"]
     _, records = journal.replay(journal_path)
@@ -284,7 +350,7 @@ def test_a_delta_applies_sets_and_clears_in_place_and_journals_them(tmp_path):
     journal_path = tmp_path / "verdicts-journal.ndjson"
     stamp = "2026-07-03T23:31:04Z"
     store = VerdictStore(path, journal_path)
-    assert store.receive(payload(stamp, [verdict("u-1"), verdict("u-2")]))[0] == 200
+    assert store.receive(delta(stamp, [verdict("u-1"), verdict("u-2")]))[0] == 200
     status, body = store.receive(
         delta(stamp, [verdict("u-2", "reject", at="2026-07-03T01:00:00Z"), verdict("u-3")], ["u-1"])
     )
@@ -311,7 +377,7 @@ def test_a_post_while_another_writer_holds_the_store_lock_gets_a_retryable_503(t
     journal_path = tmp_path / "verdicts-journal.ndjson"
     stamp = "2026-07-03T23:31:04Z"
     store = VerdictStore(path, journal_path)
-    assert receive_autosave_locked(store, payload(stamp, [verdict("u-1")]))[0] == 200
+    assert receive_autosave_locked(store, delta(stamp, [verdict("u-1")]))[0] == 200
     before = path.read_bytes()
     journal_before = journal_path.read_bytes()
     with store_lock(path):
@@ -331,7 +397,7 @@ def test_a_delta_that_changes_nothing_writes_no_journal_event(tmp_path):
     journal_path = tmp_path / "verdicts-journal.ndjson"
     stamp = "2026-07-03T23:31:04Z"
     store = VerdictStore(path, journal_path)
-    store.receive(payload(stamp, [verdict("u-1")]))
+    store.receive(delta(stamp, [verdict("u-1")]))
     before = list(journal.iter_events(journal_path))
     status, body = store.receive(delta(stamp, [verdict("u-1")], ["u-9"]))
     assert status == 200
@@ -343,7 +409,7 @@ def test_a_delta_that_changes_nothing_leaves_the_file_untouched(tmp_path):
     path = tmp_path / "verdicts-autosave.json"
     stamp = "2026-07-03T23:31:04Z"
     store = VerdictStore(path)
-    store.receive(payload(stamp, [verdict("u-1")]))
+    store.receive(delta(stamp, [verdict("u-1")]))
     os.utime(path, ns=(1, 1))
     before = path.read_bytes()
     status, body = store.receive(delta(stamp, [verdict("u-1")], ["u-9"]))
@@ -358,7 +424,7 @@ def test_a_delta_whose_write_fails_is_written_and_journaled_when_it_is_resent(tm
     journal_path = tmp_path / "verdicts-journal.ndjson"
     stamp = "2026-07-03T23:31:04Z"
     store = VerdictStore(path, journal_path)
-    store.receive(payload(stamp, [verdict("u-1")]))
+    store.receive(delta(stamp, [verdict("u-1")]))
     real_write_bytes = store._write_bytes
 
     def disk_full(raw):
@@ -379,7 +445,7 @@ def test_a_delta_seeds_a_journal_that_does_not_exist_yet(tmp_path):
     path = tmp_path / "verdicts-autosave.json"
     journal_path = tmp_path / "verdicts-journal.ndjson"
     stamp = "2026-07-03T23:31:04Z"
-    receive_autosave(payload(stamp, [verdict("u-1"), verdict("u-2")]), path)
+    path.write_bytes(payload(stamp, [verdict("u-1"), verdict("u-2")]))
     store = VerdictStore(path, journal_path)
     store.receive(delta(stamp, [verdict("u-3")], ["u-2"]))
     events = list(journal.iter_events(journal_path))
@@ -393,7 +459,7 @@ def test_changes_since_hands_back_only_what_moved_after_the_token(tmp_path):
     path = tmp_path / "verdicts-autosave.json"
     stamp = "2026-07-03T23:31:04Z"
     store = VerdictStore(path)
-    store.receive(payload(stamp, [verdict("u-1"), verdict("u-2")]))
+    store.receive(delta(stamp, [verdict("u-1"), verdict("u-2")]))
     token = store.token
     assert store.changes_since(token) == {
         "format": DELTA_FORMAT,
@@ -412,22 +478,10 @@ def test_changes_since_hands_back_only_what_moved_after_the_token(tmp_path):
         assert store.changes_since(bad) is None
 
 
-def test_a_whole_store_post_moves_the_token_by_what_it_changed(tmp_path):
-    path = tmp_path / "verdicts-autosave.json"
-    stamp = "2026-07-03T23:31:04Z"
-    store = VerdictStore(path)
-    store.receive(payload(stamp, [verdict("u-1"), verdict("u-2")]))
-    token = store.token
-    store.receive(payload(stamp, [verdict("u-1"), verdict("u-3")]))
-    moved = changes(store, token)
-    assert [record["unit"] for record in moved["sets"]] == ["u-3"]
-    assert moved["clears"] == ["u-2"]
-
-
 def test_an_external_rewrite_onto_another_stamp_is_picked_up_and_invalidates_tokens(tmp_path):
     path = tmp_path / "verdicts-autosave.json"
     store = VerdictStore(path)
-    store.receive(payload("2026-07-03T06:13:47Z", [verdict("u-1")]))
+    store.receive(delta("2026-07-03T06:13:47Z", [verdict("u-1")]))
     token = store.token
     os.utime(path, ns=(1, 1))
     path.write_bytes(payload("2026-07-03T23:31:04Z", [verdict("u-1"), verdict("u-2")]))
@@ -442,8 +496,8 @@ def test_an_external_rewrite_onto_another_stamp_is_picked_up_and_invalidates_tok
 def test_a_same_stamp_external_rewrite_keeps_the_token_and_hands_back_only_what_moved(tmp_path):
     path = tmp_path / "verdicts-autosave.json"
     stamp = "2026-07-03T23:31:04Z"
+    path.write_bytes(payload(stamp, [verdict("u-1"), verdict("u-2"), verdict("u-3")]))
     store = VerdictStore(path)
-    store.receive(payload(stamp, [verdict("u-1"), verdict("u-2"), verdict("u-3")]))
     token = store.token
     os.utime(path, ns=(1, 1))
     path.write_bytes(
@@ -523,7 +577,7 @@ def test_a_rename_over_the_file_right_after_a_save_is_picked_up_on_the_next_refr
     path = tmp_path / "verdicts-autosave.json"
     stamp = "2026-07-03T23:31:04Z"
     store = VerdictStore(path)
-    store.receive(payload(stamp, [verdict("u-1")]))
+    store.receive(delta(stamp, [verdict("u-1")]))
     replacement = tmp_path / "merged.json"
     replacement.write_bytes(payload(stamp, [verdict("u-1"), verdict("u-2")]))
     os.utime(replacement, ns=(2, 2))
@@ -599,7 +653,7 @@ def orphan_records(path, stamp):
 def new_store(tmp_path, records, journal_path=None):
     path = tmp_path / "verdicts-autosave.json"
     store = VerdictStore(path, journal_path)
-    assert store.receive(payload(NEW, records))[0] == 200
+    assert store.receive(delta(NEW, records))[0] == 200
     return path, store
 
 
