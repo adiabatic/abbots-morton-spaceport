@@ -33,7 +33,7 @@ from rebuild.tools.peak_rss import format_gb
 from rebuild.tools.cycle_timings import CycleTimings
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-# Width assertions use stated machine sizes, not the host running the suite. With DEFAULT_MEMO_BYTES at 2.3 GB, five parked fold products at PARKED_FOLD_BYTES (1.6 GB) and DELTA_SLOT_BYTES at 4.7 GB, 38 GB is too small for the whole wave and fits four deltas alone and three beside an eight-core machine's pytest pool, and leaves room to test larger stated pool widths, and 44 GB is `_plan`'s default machine, which the plan and width tests share. Changing a kernel term changes these expectations and can require a different size to keep the memory set aside for the pool visible in a width.
+# Width assertions use stated machine sizes, not the host running the suite. With DEFAULT_MEMO_BYTES at 2.6 GB, five parked fold products at PARKED_FOLD_BYTES (1.3 GB), DELTA_SLOT_BYTES at 4.7 GB and FOLD_PREPARATION_BYTES at 1.1 GB, the whole wave is booked at 29.0 GB, so 38 GB, which leaves 30.0 GB after `memory_budget`'s reserve, fits the whole wave alone and four deltas beside an eight-core machine's pytest pool, and leaves room to test larger stated pool widths, and 44 GB is `_plan`'s default machine, which the plan and width tests share. Changing a kernel term changes these expectations and can require a different size to keep the memory set aside for the pool visible in a width.
 MACHINE_44_GB = 44_000_000_000
 MACHINE_38_GB = 38_000_000_000
 MACHINE_36_GB = 36_000_000_000
@@ -2894,16 +2894,16 @@ def test_a_stated_pool_width_is_the_width_the_cycle_reserves_by(monkeypatch):
 
 
 def test_kernel_threads_budget_takes_the_pytest_pool_off_the_machine_first():
-    """The kernel width subtracts the pytest pool along with default's retained memo and the parked fold products before dividing. A 38 GB machine fits four deltas alone, and subtracting an eight-core machine's pytest pool leaves room for three. At this boundary forgetting the memory set aside for the pool changes the answer."""
+    """The kernel width subtracts the pytest pool along with default's retained memo and the parked fold products before dividing. A 38 GB machine fits the whole wave alone, and subtracting an eight-core machine's pytest pool leaves room for four deltas. At this boundary forgetting the memory set aside for the pool changes the answer."""
     solo = ac.kernel_threads_budget(skip_make_test=True, ncores=8, total_bytes=MACHINE_38_GB)
     beside = ac.kernel_threads_budget(ncores=8, total_bytes=MACHINE_38_GB)
-    assert (solo, beside) == (4, 3)
+    assert (solo, beside) == (5, 4)
 
 
 def test_the_kernel_fits_as_many_deltas_with_the_test_gates_running_as_run_alone_on_both_fleet_machines(
     monkeypatch,
 ):
-    """The kernel terms (`kernel_exec.table_build_booking_bytes`) are chosen so that gate:make-test's pytest pool costs neither fleet machine a worker slot or the memo writes beside the wave, and this test checks the gated widths and memo write orders, which only the cycle computes. On both 48 GiB machines, at eighteen and at twelve cores, the gated and skipped-gate widths are equal to the configuration count, every delta and `default`'s fold preparation in a slot of its own, so the wave runs in one round, and at that width both write the memo files beside the wave. A pass that skips the gate starts the heaviest tier, two deltas, from scratch beside `default`, and a gated pass passes one, which the crate, starting only whole tiers, rounds down to none, so gate:make-test's pool costs the build its deltas from scratch but no slot. `AMS_KERNEL_THREADS` is cleared first, because an exported width would pass these assertions whatever the constants are."""
+    """The kernel terms (`kernel_exec.table_build_booking_bytes`) are chosen so that gate:make-test's pytest pool costs neither fleet machine a worker slot or the memo writes beside the wave, and this test checks the gated widths and memo write orders, which only the cycle computes. On both 48 GiB machines, at eighteen and at twelve cores, the gated and skipped-gate widths are equal to the configuration count, every delta and `default`'s fold preparation in a slot of its own, so the wave runs in one round, and at that width both write the memo files beside the wave and start every delta from scratch beside `default`. `AMS_KERNEL_THREADS` is cleared first, because an exported width would pass these assertions whatever the constants are."""
     from rebuild.pipeline.conform import SETTLEMENT_CONFIGS
 
     monkeypatch.delenv("AMS_KERNEL_THREADS", raising=False)
@@ -2913,7 +2913,7 @@ def test_the_kernel_fits_as_many_deltas_with_the_test_gates_running_as_run_alone
         assert (
             ac.kernel_threads_budget(skip_make_test=True, ncores=ncores, total_bytes=MACHINE_48_GIB) == gated
         )
-        for skip_make_test, scratch in ((False, 1), (True, 2)):
+        for skip_make_test in (False, True):
             assert ac.memo_writes_overlap_budget(
                 gated, skip_make_test=skip_make_test, ncores=ncores, total_bytes=MACHINE_48_GIB
             )
@@ -2925,7 +2925,7 @@ def test_the_kernel_fits_as_many_deltas_with_the_test_gates_running_as_run_alone
                     ncores=ncores,
                     total_bytes=MACHINE_48_GIB,
                 )
-                == scratch
+                == len(SETTLEMENT_CONFIGS) - 1
             )
 
 
@@ -3081,14 +3081,14 @@ def test_kernel_threads_budget_holds_its_answer_at_the_configuration_count_and_t
 
 def test_a_plan_reserves_for_the_pytest_pool_only_when_that_gate_runs():
     """The plan subtracts the pytest pool only when gate:make-test runs. When the gate is auto-skipped or `--skip-gates` is given, no pool runs, so the kernel width gets that memory back."""
-    assert _plan(ncores=8, total_bytes=MACHINE_38_GB).kernel_threads == 3
+    assert _plan(ncores=8, total_bytes=MACHINE_38_GB).kernel_threads == 4
     assert (
         _plan(
             ncores=8, total_bytes=MACHINE_38_GB, skip_make_test=True, make_test_note="closure unchanged"
         ).kernel_threads
-        == 4
+        == 5
     )
-    assert _plan(ncores=8, total_bytes=MACHINE_38_GB, skip_gates=True).kernel_threads == 4
+    assert _plan(ncores=8, total_bytes=MACHINE_38_GB, skip_gates=True).kernel_threads == 5
 
 
 def test_dry_run_renders_concurrency():

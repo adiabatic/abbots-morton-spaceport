@@ -141,7 +141,7 @@ class TestTheInvocationInterface:
             waited.append((verb, timeout))
             raise kernel_exec._no_answer(arguments, verb, timeout)
 
-        def reaped(arguments, verb, *, timeout):
+        def reaped(arguments, verb, *, timeout, env=None):
             return run(arguments, verb, timeout=timeout)
 
         monkeypatch.setattr(kernel_exec, "_run_kernel", run)
@@ -184,6 +184,30 @@ class TestTheInvocationInterface:
                 kernel_exec.replay_timeout(symbols=symbols, max_length=5, configs=1, threads=1, last=True),
             ),
         ]
+
+    def test_on_macos_the_table_build_runs_with_the_allocators_large_cache_off(self, monkeypatch, tmp_path):
+        """On macOS, `build_table_files` spawns `build-tables` with this process's environment and `TABLE_BUILD_ALLOCATOR_ENVIRONMENT` (`MallocLargeCache=0`), so the tables a memo outgrows go back to the system as they are freed. Elsewhere it passes no environment, which leaves the child this process's own."""
+        environments = []
+
+        def reaped(arguments, verb, *, timeout, env=None):
+            environments.append(env)
+            raise kernel_exec._no_answer(arguments, verb, timeout)
+
+        monkeypatch.setattr(kernel_exec, "_run_kernel_reaped", reaped)
+        monkeypatch.setenv("AMS_SOME_SETTING", "kept")
+        for platform in ("darwin", "linux"):
+            monkeypatch.setattr(kernel_exec.sys, "platform", platform)
+            with pytest.raises(kernel_exec.KernelRunError):
+                kernel_exec.build_table_files(
+                    tmp_path / "spec.json",
+                    tmp_path / "tables",
+                    ["default"],
+                    inputs=STAMP,
+                    threads=1,
+                    symbols=47,
+                )
+        assert environments == [{**os.environ, "MallocLargeCache": "0"}, None]
+        assert environments[0]["AMS_SOME_SETTING"] == "kept"
 
     def test_the_two_growing_verbs_limits_grow_with_the_alphabet_and_never_fall_below_the_fixed_one(self):
         """At the measured alphabet a table build and a deep replay unit wait `TIMEOUT`, the floor. A table build's limit grows with the alphabet, and at the full alphabet's 47 symbols a whole replay at maximum length 5 in one call, five walks at once, waits longer than `TIMEOUT`. A narrower width, which walks configurations one after another, waits longer; a walk narrowed to one last symbol waits less."""
@@ -236,7 +260,7 @@ class TestTheInvocationInterface:
             def wait(self):
                 return -9
 
-        monkeypatch.setattr(kernel_exec, "_spawn_kernel", lambda arguments, *, stdin: Hung())
+        monkeypatch.setattr(kernel_exec, "_spawn_kernel", lambda arguments, *, stdin, env=None: Hung())
         started = time.monotonic()
         with pytest.raises(kernel_exec.KernelRunError, match="on replay-strings"):
             kernel_exec._run_kernel_reaped(["ams-m1-kernel"], "replay-strings", timeout=0.2)
@@ -1209,18 +1233,25 @@ class TestTheMemoryDerivedThreadDefault:
             kernel_exec.replay_threads_default(total_bytes=34_359_738_368)
 
     @pytest.mark.parametrize(
-        "total, wanted", [(4_000_000_000, 1), (34_359_738_368, 3), (32_000_000_000, 2), (64_000_000_000, 5)]
+        "total, wanted",
+        [
+            (4_000_000_000, 1),
+            (34_359_738_368, 3),
+            (32_000_000_000, 3),
+            (30_000_000_000, 2),
+            (64_000_000_000, 5),
+        ],
     )
     def test_the_width_follows_the_machine_and_never_falls_below_one(self, total, wanted):
-        """With `DEFAULT_MEMO_BYTES` (2.3 GB) and five parked products at `PARKED_FOLD_BYTES` (1.6 GB) off the machine, a 32 GiB machine fits three delta slots at `DELTA_SLOT_BYTES` (4.7 GB), and a decimal 32 GB machine fits two. A machine too small for one delta gets one, and a 64 GB machine fits the whole wave, every configuration at once, which is as wide as the width goes."""
+        """With `DEFAULT_MEMO_BYTES` (2.6 GB) and five parked products at `PARKED_FOLD_BYTES` (1.3 GB) off the machine, a 32 GiB machine and a decimal 32 GB machine each fit three delta slots at `DELTA_SLOT_BYTES` (4.7 GB), and a 30 GB machine fits two. A machine too small for one delta gets one, and a 64 GB machine fits the whole wave, every configuration at once, which is as wide as the width goes."""
         assert kernel_exec.kernel_threads_default(configs=CONFIG_COUNT, total_bytes=total) == wanted
 
     def test_a_coresident_pool_comes_off_the_machine_before_it_is_divided(self):
-        """`coresident_bytes` is memory used by something running beside the fan-out, such as the artifact cycle's pytest pool. It comes off the machine with the reserve, so 3 GB beside a 41 GB machine leaves too little for the whole wave's 31.2 GB booking, and the wave drops the slot of its own that `default`'s fold preparation takes. It defaults to zero because a bare run_m1 runs alone."""
-        assert kernel_exec.kernel_threads_default(configs=CONFIG_COUNT, total_bytes=41_000_000_000) == 5
+        """`coresident_bytes` is memory used by something running beside the fan-out, such as the artifact cycle's pytest pool. It comes off the machine with the reserve, so 3 GB beside a 39 GB machine leaves too little for the whole wave's 29.0 GB booking, and the wave drops the slot of its own that `default`'s fold preparation takes. It defaults to zero because a bare run_m1 runs alone."""
+        assert kernel_exec.kernel_threads_default(configs=CONFIG_COUNT, total_bytes=39_000_000_000) == 5
         assert (
             kernel_exec.kernel_threads_default(
-                configs=CONFIG_COUNT, coresident_bytes=3_000_000_000, total_bytes=41_000_000_000
+                configs=CONFIG_COUNT, coresident_bytes=3_000_000_000, total_bytes=39_000_000_000
             )
             == 4
         )
