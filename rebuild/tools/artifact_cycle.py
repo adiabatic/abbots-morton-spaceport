@@ -3335,7 +3335,7 @@ def _land_report(plan: Plan) -> dict | None:
 
 
 def land_detail(data: dict) -> str:
-    """Return the land row's detail from the report the land wrote: the stamp it landed and what it laid over, orphaned and dropped."""
+    """Return the land row's detail from the report the land wrote: the stamp it landed, what it laid over, orphaned and dropped, and whether it journaled a base or sets and clears."""
     parts = [f"landed {console.fmt_count(data.get('records') or 0)} verdicts on {data.get('new_stamp')}"]
     for key, label in (
         ("overlaid", "laid over from saves made during the pass"),
@@ -3344,6 +3344,12 @@ def land_detail(data: dict) -> str:
     ):
         if data.get(key):
             parts.append(f"{console.fmt_count(data[key])} {label}")
+    if data.get("journal_base") is True:
+        parts.append("journaled as a base")
+    elif data.get("journal_base") is False:
+        sets = console.fmt_count(data.get("journal_sets") or 0)
+        clears = console.fmt_count(data.get("journal_clears") or 0)
+        parts.append(f"journaled as {sets} sets and {clears} clears")
     if data.get("locked_s") is not None:
         parts.append(f"store locked {data['locked_s']:.1f} s")
     return ", ".join(parts)

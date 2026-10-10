@@ -1,6 +1,8 @@
 """Append-only log of changes to the review app's verdict store.
 
-After each write to verdicts-autosave.json, the review server's store (`rebuild.review.verdict_store`) and `rebuild.tools.merge_verdicts` append the change to verdicts-journal.ndjson: one event line (source, time, manifest stamp) followed by one line per changed verdict. Clears get their own lines, because the store files cannot represent them (a cleared verdict is absent). A base event carries the full store instead of a diff. One seeds a new journal when the store it starts from is not empty, and every writer but the land writes one at each corpus-stamp change. The land (`rebuild.review.landing`) writes one only when the journal is due a new one (`base_due`), and otherwise journals a stamp change as the sets and clears against the store it replaces, because a unit's id is its content key and names the same unit on either stamp. So `replay(as_of=...)` can reconstruct the store at any recorded moment from the journal alone. `rebuild.tools.merge_verdicts --restore-as-of` uses that replay to undo a bad merge, an overwritten store, or an accidental clear.
+After each write to verdicts-autosave.json, the review server's store (`rebuild.review.verdict_store`) and `rebuild.tools.merge_verdicts` append the change to verdicts-journal.ndjson: one event line (source, time, manifest stamp) followed by one line per changed verdict. Clears get their own lines, because the store files cannot represent them (a cleared verdict is absent). A base event carries the full store instead of a diff. One seeds a new journal when the store it starts from is not empty, and every writer but the land writes one at each corpus-stamp change. The land (`rebuild.review.landing`) writes one only when the journal is due a new one (`base_due`) or a diff would be at least as long (`record_transition`), and otherwise journals a stamp change as the sets and clears against the store it replaces, because a unit's id is its content key and names the same unit on either stamp. So `replay(as_of=...)` can reconstruct the store at any recorded moment from the journal alone. `rebuild.tools.merge_verdicts --restore-as-of` uses that replay to undo a bad merge, an overwritten store, or an accidental clear.
+
+Those sets and clears replay to the landed store only while the journal replays to the store the land replaces, so a marker beside the store (`unjournaled_marker_for`) says when the journal may lack a store write. The review server writes it before each save's store write and removes it once that save's append succeeds unless it was already there, so a save whose append fails, is cut short, or never runs leaves it, and `rebuild.tools.rekey_verdicts --undo` leaves one for the store it puts back or asks to have put back by hand. While it exists `base_due` says a base is due, and the land removes it once it has journaled a base.
 
 An append that crashes can leave the file ending in a line with no newline. Each append holds an exclusive `flock` on the file and first ends the file on a newline: a final line that parses as an entry keeps its bytes and gets the newline, and any other final line is cut off, so the lines appended after it stay readable. A base event names how many set lines follow it, and one followed by fewer is torn. The store from a torn base until the next complete base is unknown: replay raises `JournalGap` for a moment in that span and is exact again from the next complete base on, and compaction never starts the journal at a torn base. A writer that records the journal's length and inode before it appends (the land, `rebuild.review.landing`) lets the recovery of a land that died mid-append cut the journal back to that length (`truncate_to`), the start of the land's event line, before it journals the landed store again as a base event.
 
@@ -22,6 +24,7 @@ from pathlib import Path
 EXPORT_FORMAT = "ams-review-verdicts/1"
 SCAN_STATE_FORMAT = "ams-journal-scan/2"
 JOURNAL_NAME = "verdicts-journal.ndjson"
+UNJOURNALED_NAME = "unjournaled.json"
 _TAIL_BLOCK = 1 << 16
 _RESUME_CHECK_BYTES = 1 << 16
 _COPY_BLOCK = 1 << 20
@@ -84,7 +87,7 @@ def record_transition(
     at: str | None = None,
     base: bool | None = None,
 ) -> dict:
-    """Append the change from the store's previous content to its new content. A same-stamp change is written as a diff (sets and clears). A stamp change is written as a base event holding the full new store, unless `base` is False: the land passes False when the journal is not due a base (`base_due`), and the stamp change is then written as a diff against `old_verdicts`, which must be the store the journal replays to, with its event line written even when the diff is empty, so replay moves to the new stamp. A stamp change from no previous store, or onto a journal that does not exist yet, is always a base. When the journal file does not exist yet and the previous store has the same stamp and is not empty, a seed base event holding the previous store is written first, so replay is complete from the journal's first line."""
+    """Append the change from the store's previous content to its new content. A same-stamp change is written as a diff (sets and clears). A stamp change is written as a base event holding the full new store, unless `base` is False: the land passes False when the journal is not due a base (`base_due`), and the stamp change is then written as a diff against `old_verdicts`, which must be the store the journal replays to, with its event line written even when the diff is empty, so replay moves to the new stamp. A stamp change from no previous store, or onto a journal that does not exist yet, is always a base, and so is one whose sets and clears reach the new store's record count, since its diff would be no shorter than the base. When the journal file does not exist yet and the previous store has the same stamp and is not empty, a seed base event holding the previous store is written first, so replay is complete from the journal's first line. The result says whether a base was written and how many set and clear lines followed the event line."""
     journal_path = Path(journal_path)
     at = at or now_stamp()
     moved = old_stamp != stamp
@@ -102,6 +105,10 @@ def record_transition(
         or _signature(old_records[record["unit"]]) != _signature(record)
     ]
     clears = [] if base else sorted(unit for unit in old_records if unit not in new_records)
+    if moved and not base and len(sets) + len(clears) >= len(new_records):
+        base = True
+        sets = [record for _, record in sorted(new_records.items())]
+        clears = []
 
     seed = old_records if not base and old_records and not journal_path.exists() else None
     recorded = _append(
@@ -493,8 +500,27 @@ def scan(journal_path, *, resume: ScanState | None = None) -> JournalScan:
         return _scan_handle(handle, resume)
 
 
-def base_due(events, at: str) -> bool:
-    """Return whether a land at `at` that moves the stamp writes its store as a base event, given the journal's `events` (`scan`): when the journal holds no base event, when its last base event is torn, so a diff after it would replay only from the next complete base on (`replay`), or when its last base is at least `BASE_INTERVAL` older than `at`. Otherwise the land journals the move as sets and clears. Compaction starts the journal at the newest complete base at or before its cutoff (`compact_prepare`), so the history a compacted journal keeps before the cutoff is at most the span between two bases. A base at most once per `BASE_INTERVAL` bounds that span to the interval plus the wait for the next land that moves the stamp, and leaves about one base per interval in the retention window rather than one per land. Measuring the interval from the last base, not from the start of a calendar day, never puts two bases minutes apart on either side of midnight."""
+def unjournaled_marker_for(store) -> Path:
+    """Return the marker that says the store at `store` may hold a write the journal lacks: var/cycle/unjournaled.json beside it, which for the live store is under the repo root's gitignored var/."""
+    return Path(store).parent / "var" / "cycle" / UNJOURNALED_NAME
+
+
+def mark_unjournaled(store, writer: str) -> bool:
+    """Write the marker for the store at `store` (`unjournaled_marker_for`), naming `writer` and the time, unless one exists, and return whether this call wrote it. A writer removes only a marker it wrote, once its own append succeeds, because one that was already there records an earlier write the journal missed, which only a base event puts right."""
+    marker = unjournaled_marker_for(store)
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with marker.open("x", encoding="utf-8") as handle:
+            handle.write(json.dumps({"writer": writer, "at": now_stamp()}) + "\n")
+    except FileExistsError:
+        return False
+    return True
+
+
+def base_due(events, at: str, *, marker: Path | None = None) -> bool:
+    """Return whether a land at `at` that moves the stamp writes its store as a base event, given the journal's `events` (`scan`): while `marker` (`unjournaled_marker_for`) exists, because the journal may then lack a store write and not replay to the store a diff would be taken against; when the journal holds no base event; when its last base event is torn, so a diff after it would replay only from the next complete base on (`replay`); or when its last base is at least `BASE_INTERVAL` older than `at`. Otherwise the land journals the move as sets and clears. Compaction starts the journal at the newest complete base at or before its cutoff (`compact_prepare`), so the history a compacted journal keeps before the cutoff is at most the span between two bases. A base at most once per `BASE_INTERVAL` bounds that span to the interval plus the wait for the next land that moves the stamp, and leaves about one base per interval in the retention window rather than one per land. Measuring the interval from the last base, not from the start of a calendar day, never puts two bases minutes apart on either side of midnight."""
+    if marker is not None and marker.exists():
+        return True
     last = None
     for mark in events:
         if mark.base:

@@ -6,7 +6,7 @@ Two checks guard the pairs. `pre_rename_projection` applies the forward renames 
 
 The files it rewrites are the live autosave, every verdicts-*.json at the repository root stamped for the same corpus as the autosave (the stamp-aligned carried master and the fill files among them), every rebuild/evidence/verdicts-carried-*.json, and any file passed with `--verdicts`. Each record naming a pre-rename id moves to the post-rename id; a record already naming a unit on the corpus is left alone, and one naming neither is left alone and counted as unmatched, which blocks the write when the file is stamp-aligned and the id is a content id. Stamps, notes and `at` times are kept, so the carry that follows moves the verdicts onto the new corpus as it does any other store. Verdict records carry no duplicate-group or cluster id, and the `[carried u-…@file]` markers in notes record where a verdict came from, so they keep the ids they were written with. `--references` rewrites pre-rename unit ids in text files too, such as the unit ids rebuild/standing-approvals.yaml quotes in its notes.
 
-Every file is copied to a new directory under var/keep/issue-357-rekey/ before it is rewritten, with the journal's length and whether the re-key appends to the journal (a re-key that appends first ends the journal on a newline, `journal.repair_tail`, so the length marks where its base event begins), and `--undo DIR` puts those copies back and, when it appended, truncates the journal to that length. The rewritten autosave is appended to verdicts-journal.ndjson as a base event (`journal.record_transition` with no previous stamp), because journal lines before it name pre-rename ids. The old-to-new id map of every unit whose id changed is merged into var/keep/issue-357-rekey/unit-id-map.json (`merge_id_maps`): a later run, whose corpus may differ, adds its pairs to the ones already there instead of replacing them, and first copies the previous map beside it as unit-id-map-<time>.json. So the one map holds every pair any run wrote, and `merge_verdicts --restore-as-of TIME --rekey-map` applies it to a store it replays from before the re-key. Where two runs pair one pre-rename id with different units, the later run's unit wins and the tool names the clash; the earlier pair stays in the copy. A second run finds every verdict already current and writes nothing. It prints `rekey counts: seen=N rekeyed=N current=N unmatched=N` over all the files. From reading the verdict files through the journal append, and for all of `--undo`, it holds the verdict store's lock (`rebuild.review.store_lock`, through `landing.locked_store`, which first finishes a land whose holder died), which every writer of the store and the journal holds. It refuses to rewrite the live autosave while a review server is listening, unless --yes is passed, because the re-keyed ids would replace the ones the open tabs hold; such a run, and a dry run, reads without the lock, so a run that ends up writing nothing never makes the server refuse a save.
+Every file is copied to a new directory under var/keep/issue-357-rekey/ before it is rewritten, with the journal's length and whether the re-key appends to the journal (a re-key that appends first ends the journal on a newline, `journal.repair_tail`, so the length marks where its base event begins), and `--undo DIR` puts those copies back and, when it appended, truncates the journal to that length and leaves the marker that makes the next land that moves the stamp journal a base (`journal.mark_unjournaled`), as it does when it refuses and asks for the copies to be put back by hand. The rewritten autosave is appended to verdicts-journal.ndjson as a base event (`journal.record_transition` with no previous stamp), because journal lines before it name pre-rename ids. The old-to-new id map of every unit whose id changed is merged into var/keep/issue-357-rekey/unit-id-map.json (`merge_id_maps`): a later run, whose corpus may differ, adds its pairs to the ones already there instead of replacing them, and first copies the previous map beside it as unit-id-map-<time>.json. So the one map holds every pair any run wrote, and `merge_verdicts --restore-as-of TIME --rekey-map` applies it to a store it replays from before the re-key. Where two runs pair one pre-rename id with different units, the later run's unit wins and the tool names the clash; the earlier pair stays in the copy. A second run finds every verdict already current and writes nothing. It prints `rekey counts: seen=N rekeyed=N current=N unmatched=N` over all the files. From reading the verdict files through the journal append, and for all of `--undo`, it holds the verdict store's lock (`rebuild.review.store_lock`, through `landing.locked_store`, which first finishes a land whose holder died), which every writer of the store and the journal holds. It refuses to rewrite the live autosave while a review server is listening, unless --yes is passed, because the re-keyed ids would replace the ones the open tabs hold; such a run, and a dry run, reads without the lock, so a run that ends up writing nothing never makes the server refuse a save.
 
 Usage:
   uv run python -m rebuild.tools.rekey_verdicts --dry-run
@@ -350,7 +350,7 @@ def _backup(root: Path, keep: Path, paths: list[Path], journal_path: Path, *, jo
 
 
 def undo(root: Path, backup_dir: Path) -> int:
-    """Put back every file a re-key rewrote from its copy in `backup_dir`. When the re-key appended its base event to the journal (it rewrote the live autosave), also truncate the journal to the length it had before the re-key, which drops every event appended after it, or remove the journal when the re-key created it. A journal compacted since the re-key is left alone, because the recorded length no longer marks the re-key in it. When the re-key did not append to the journal, the journal is left as it is, because every event after the recorded length belongs to a store the undo does not put back."""
+    """Put back every file a re-key rewrote from its copy in `backup_dir`. When the re-key appended its base event to the journal (it rewrote the live autosave), also truncate the journal to the length it had before the re-key, which drops every event appended after it, or remove the journal when the re-key created it. A journal compacted since the re-key is left alone, because the recorded length no longer marks the re-key in it, and nothing is put back; the person copies the files back by hand. When the re-key did not append to the journal, the journal is left as it is, because every event after the recorded length belongs to a store the undo does not put back. When the re-key rewrote the live autosave, the undo first leaves the marker that says the journal may lack a store write (`journal.mark_unjournaled`), whether it puts the store back or asks for it to be copied back by hand, so the next land that moves the stamp journals its store as a base (`journal.base_due`)."""
     with locked_store(root / "verdicts-autosave.json"):
         return _undo_locked(root, backup_dir)
 
@@ -360,6 +360,9 @@ def _undo_locked(root: Path, backup_dir: Path) -> int:
     journal_path = root / record["journal"]["path"]
     size = record["journal"]["size"]
     appended = record["journal"]["appended"]
+    autosave = root / "verdicts-autosave.json"
+    if appended:
+        journal.mark_unjournaled(autosave, "rekey_verdicts --undo")
     if (
         appended
         and size is not None
@@ -372,9 +375,10 @@ def _undo_locked(root: Path, backup_dir: Path) -> int:
         print(
             f"ERROR: {record['journal']['path']} was compacted or replaced since the re-key, so its recorded length no "
             "longer marks the re-key. Nothing was restored; copy the files back by hand as backup.json lists them. The "
-            "journal does not record a copy made by hand, so merge_verdicts --restore-as-of gives a wrong store for "
-            "every moment from the copy until the journal's next base event, such as the next stamp change made by any "
-            "writer but the land, or the first land that moves the stamp once journal.base_due says the journal is due a base."
+            "journal does not record a copy made by hand, so this undo left "
+            f"{_rel(journal.unjournaled_marker_for(autosave), root)}, which makes the next land that moves the stamp "
+            "journal its store as a base event: copy the files back before that land. Until the journal's next base "
+            "event, merge_verdicts --restore-as-of gives a wrong store for every moment from the copy on."
         )
         return 1
     for entry in record["files"]:
@@ -390,6 +394,11 @@ def _undo_locked(root: Path, backup_dir: Path) -> int:
         with journal_path.open("r+b") as handle:
             handle.truncate(size)
         print(f"truncated {record['journal']['path']} to {size} bytes")
+    if appended:
+        print(
+            f"left {_rel(journal.unjournaled_marker_for(autosave), root)}, so the next land that moves the stamp "
+            "journals the store as a base event"
+        )
     return 0
 
 

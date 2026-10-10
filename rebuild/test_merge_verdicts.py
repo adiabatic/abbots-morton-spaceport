@@ -294,10 +294,10 @@ def test_restore_refuses_a_moment_between_a_torn_base_and_the_next_complete_one(
 
 def journal_lands(path, *, base):
     """Journal a history whose lands move the stamp, each journaled as a base (`base` None) or as the sets and clears against the store it replaced (`base` False): a merge, an autosave that changes one verdict and clears another, a land that drops a unit and fills a new one, an autosave on the new stamp, a land onto the same records, and an autosave after it."""
-    first = [v("u-1"), v("u-2"), v("u-3", "reject")]
-    saved = [v("u-1"), v("u-2", "reject", at="2026-07-10T02:00:00Z")]
-    landed = [saved[1], v("u-4", note="fill")]
-    edited = [saved[1], v("u-4", "either", at="2026-07-10T04:00:00Z")]
+    first = [v("u-1"), v("u-2"), v("u-3", "reject"), v("u-6")]
+    saved = [v("u-1"), v("u-2", "reject", at="2026-07-10T02:00:00Z"), v("u-6")]
+    landed = [saved[1], v("u-4", note="fill"), v("u-6")]
+    edited = [saved[1], v("u-4", "either", at="2026-07-10T04:00:00Z"), v("u-6")]
     for source, stamp, old_stamp, old, new, hour, land in (
         ("merge", "S1", None, [], first, 1, False),
         ("autosave", "S1", "S1", first, saved, 2, False),
@@ -369,6 +369,7 @@ def test_restore_gives_the_same_store_at_every_moment_whether_lands_journal_base
             v("u-2", "reject", at="2026-07-10T02:00:00Z"),
             v("u-4", "either", at="2026-07-10T04:00:00Z"),
             v("u-5"),
+            v("u-6"),
         ],
     )
 

@@ -3383,6 +3383,18 @@ def test_cycle_summary_payload_records_an_assets_refresh():
     assert payload["assets_status"].startswith("refreshed in place")
 
 
+def test_the_land_row_says_whether_the_land_journaled_a_base_or_sets_and_clears():
+    """The land row names what the land journaled, so whether a land that moved the stamp wrote a base shows in the cycle's output and not only in the journal."""
+    landed = {"landed": True, "records": 1200, "new_stamp": "B", "locked_s": 0.4}
+    as_base = {**landed, "journal_base": True, "journal_sets": 1200, "journal_clears": 0}
+    as_diff = {**landed, "journal_base": False, "journal_sets": 3, "journal_clears": 1500}
+    assert ac.land_detail(as_base) == "landed 1,200 verdicts on B, journaled as a base, store locked 0.4 s"
+    assert ac.land_detail(as_diff) == (
+        "landed 1,200 verdicts on B, journaled as 3 sets and 1,500 clears, store locked 0.4 s"
+    )
+    assert "journaled" not in ac.land_detail({**landed, "journal_base": None})
+
+
 def test_cycle_summary_payload_names_the_gates_only_rerun_and_passes_no_kernel_width_to_it():
     """The summary must tell the three run_m1 modes apart. A gates-only rerun is not a skip, and the thread widths it reports are the ones passed to the child, which for a gates-only rerun are none."""
     plan = _plan(rerun_gates_only=True, run_m1_note="only comparison-side inputs moved")

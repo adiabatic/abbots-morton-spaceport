@@ -2,7 +2,7 @@
 
 The /autosave receiver: delta validation, atomic overwrite, and the journal event appended on every accepted save. A whole-store POST is refused without changing the store, journal, token, or tombstones, regardless of either stamp or whether the store exists. Export parsing and full-store GET payloads remain available. A delta on another stamp is carried onto a store on the served corpus by unit id, with the `base_at`, `at` and tombstone tests deciding each unit, and the orphans and conflicts it cannot apply are kept in the orphan document; a stale skip is dropped and clears the record it replaced; a delta stamped for the served corpus carries a store on another stamp onto it by unit id, keeping the old file as its stash, and one made on neither corpus gets a retryable 503 and writes nothing.
 
-The POST path takes the verdict store's lock without waiting, and answers a retryable 503 while another writer holds it. The resident store behind it (`rebuild.review.verdict_store`): the delta POST the app sends, the no-op delta that writes nothing, the failed write that leaves memory as the file holds it, the change token a sync GET returns, and the reload after an external rewrite of the file, which keeps tokens valid when the stamp is unchanged.
+The POST path takes the verdict store's lock without waiting, and answers a retryable 503 while another writer holds it. The resident store behind it (`rebuild.review.verdict_store`): the delta POST the app sends, the no-op delta that writes nothing, the failed write that leaves memory as the file holds it, the marker that says the journal may lack a store write, which a save writes before its store write and removes once its append succeeds, the change token a sync GET returns, and the reload after an external rewrite of the file, which keeps tokens valid when the stamp is unchanged.
 
 The headers every static file is served with. `static_headers_for` is a pure function so it can be tested without a server.
 
@@ -864,6 +864,39 @@ def test_a_delta_on_the_served_stamp_carries_a_store_left_on_another_stamp_onto_
         delta(OLD, [verdict("u-9", at="t95")]), served("u-1", "u-3", "u-4", "u-9", stamp=newer)
     )
     assert status == 200 and body["carried"] == ["u-9"]
+
+
+def test_a_save_leaves_the_unjournaled_marker_until_its_journal_append_succeeds(tmp_path, monkeypatch):
+    """Before a save's store write the store writes the marker that says the journal may lack a store write, and it removes the marker once the save's journal append succeeds, both for a save that carries the store onto the served stamp and for one applied in place. A save whose append fails leaves the marker, and so does a later save whose append succeeds, because the marker was already there: only a land's base puts the failed save in the journal."""
+    path = tmp_path / "verdicts-autosave.json"
+    journal_path = tmp_path / "verdicts-journal.ndjson"
+    path.write_bytes(payload(OLD, [verdict("u-1")]))
+    store = VerdictStore(path, journal_path)
+    marker = journal.unjournaled_marker_for(path)
+    marked_at_write: list[bool] = []
+    real_write_bytes = store._write_bytes
+
+    def spy(raw):
+        marked_at_write.append(marker.exists())
+        real_write_bytes(raw)
+
+    monkeypatch.setattr(store, "_write_bytes", spy)
+    corpus = served("u-1", "u-2", "u-3", "u-4")
+    assert store.receive(delta(NEW, [verdict("u-2")]), corpus)[0] == 200
+    assert next(journal.iter_events(journal_path))["stashed"] == stash_path_for(path, OLD).name
+    assert store.receive(delta(NEW, [verdict("u-3")]), corpus)[0] == 200
+    assert marked_at_write == [True, True] and not marker.exists()
+
+    def disk_full(journal_path, **kwargs):
+        raise OSError("disk full")
+
+    with monkeypatch.context() as patched:
+        patched.setattr(journal, "record_delta", disk_full)
+        status, body = store.receive(delta(NEW, [verdict("u-4")]), corpus)
+    assert status == 200 and body["journal_error"] == "disk full" and marker.exists()
+    assert store.receive(delta(NEW, [verdict("u-1", "reject", at="t9")]), corpus)[0] == 200
+    assert marker.exists()
+    assert "u-4" in store.records and "u-4" not in journal.replay(journal_path)[1]
 
 
 def test_a_stale_delta_while_the_store_is_off_the_served_corpus_gets_a_retryable_503(tmp_path):

@@ -35,7 +35,7 @@ def _units(path: Path) -> list[str]:
 
 
 def test_rekey_moves_pre_rename_ids_once_and_undoes(tmp_path, capsys):
-    """A stamp-aligned store naming a unit whose rename the tables miss blocks every write. Accepted with --allow-unmatched, pre-rename ids move to their units' post-rename ids in the autosave, a stamp-aligned carried file and a referencing text file; a current id, the missed unit and a positional id stay. Renaming a kind keeps the kinds sorted in both directions. A second run writes nothing, the id map re-keys a journal replay from before the re-key, and the backup restores every file and the journal."""
+    """A stamp-aligned store naming a unit whose rename the tables miss blocks every write. Accepted with --allow-unmatched, pre-rename ids move to their units' post-rename ids in the autosave, a stamp-aligned carried file and a referencing text file; a current id, the missed unit and a positional id stay. Renaming a kind keeps the kinds sorted in both directions. A second run writes nothing, the id map re-keys a journal replay from before the re-key, and the backup restores every file and the journal and leaves the marker that makes the next land that moves the stamp journal a base."""
     autosave, journal_path = tmp_path / "verdicts-autosave.json", tmp_path / journal.JOURNAL_NAME
     _verdicts(autosave, STAMP, [*PRE_TO_POST, "u-fDT3GBdycaj", MISSED, "u-10000"])
     _verdicts(tmp_path / "verdicts-carried-abc1234.json", STAMP, ["u-2WvdGAWe6bX"])
@@ -108,8 +108,10 @@ def test_rekey_moves_pre_rename_ids_once_and_undoes(tmp_path, capsys):
     assert _units(restored) == _units(autosave)
 
     (backup,) = [path for path in (tmp_path / rekey_verdicts.KEEP).iterdir() if path.is_dir()]
+    assert not journal.unjournaled_marker_for(autosave).exists()
     assert rekey_verdicts.main(["--root", str(tmp_path), "--undo", str(backup)]) == 0
     assert {path.name: path.read_bytes() for path in (autosave, journal_path, notes)} == before
+    assert journal.unjournaled_marker_for(autosave).exists()
 
 
 def test_a_later_rekey_merges_into_the_id_map_and_copies_the_previous_one(tmp_path, capsys):

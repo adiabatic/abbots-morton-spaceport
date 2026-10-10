@@ -16,6 +16,8 @@ The orphan documents live in `var/verdict-orphans/` beside the store (`orphans_d
 A full-store POST gets a 400 with `reason: whole-store-post-unsupported` and recovery instructions, regardless of its stamp or the file's state, and writes nothing. A 409 tells legacy readers to reload rather than download pending verdicts, and `corpus_stamp` can prompt newer clients to reload automatically, so the refusal uses neither. When the store writes the file itself, it writes an ams-review-verdicts/1 document with one record per line, which `parse_autosave_payload`, the merge tool, the status check and the carry all read; GETs and export files use that format too.
 
 The file holds the verdicts between server runs, and another writer (a pass's land, `rebuild.review.landing`, or the merge tool or a journal restore under --yes) can replace it while the server runs; each holds the store's lock (`rebuild.review.store_lock`) for its write, as the server does for each POST. So every request first compares the file's mtime, size and inode with what the store last read or wrote, and reloads on a mismatch. A reload onto the same stamp diffs the new records against the ones in memory and records the changed units, so outstanding tokens stay valid and a tab's next sync fetches only those units; a reload onto another stamp, or onto a file that is missing or unreadable, invalidates every token. A delta that changes no record and no stamp writes nothing, so the file's bytes and mtime stay as they were. A delta whose write fails reloads the file before the error propagates, so memory never holds a record the file lacks and a resend of the same delta is written. The orphan document is written before the store, so a delta whose orphan write fails changes nothing.
+
+Before a store write the journal will record, the store writes the marker that says the journal may lack a write (`journal.mark_unjournaled`), and it removes the marker once the journal append succeeds, unless the marker was already there. A marker that cannot be written fails the save as a failed store write does, so no store write goes unmarked. An append that fails (reported as `journal_error`), is cut short, or never runs because the server was killed leaves it, so the next land that moves the stamp journals a base (`journal.base_due`).
 """
 
 from __future__ import annotations
@@ -521,8 +523,10 @@ class VerdictStore:
             self.stamp = adopted
         sets, clears = self._apply(plan)
         changed = [record["unit"] for record in sets] + clears
+        marked = False
         if changed or adopted is not None:
             try:
+                marked = bool(changed) and self._mark_unjournaled()
                 self.write()
             except BaseException:
                 self.reload()
@@ -540,17 +544,16 @@ class VerdictStore:
             ],
         }
         if self.journal_path is not None and changed:
-            try:
-                journal.record_delta(
-                    self.journal_path,
-                    source=source,
-                    stamp=target,
-                    sets=[self.records[record["unit"]] for record in sets],
-                    clears=clears,
-                    seed_records=None if self.journal_path.exists() else self._records_before(sets, clears),
-                )
-            except OSError as exc:
-                body["journal_error"] = str(exc)
+            self._journal(
+                body,
+                marked,
+                journal.record_delta,
+                source=source,
+                stamp=target,
+                sets=[self.records[record["unit"]] for record in sets],
+                clears=clears,
+                seed_records=None if self.journal_path.exists() else self._records_before(sets, clears),
+            )
         return 200, body
 
     def _apply(self, plan: _Plan) -> tuple[list[dict], list[str]]:
@@ -580,6 +583,7 @@ class VerdictStore:
         self._invalidate_tokens()
         self._apply(self._plan(delta, tested=delta["replay"], members=None))
         try:
+            marked = self._mark_unjournaled()
             self.write()
         except BaseException:
             self.reload()
@@ -594,15 +598,18 @@ class VerdictStore:
             "dropped": [],
             "conflicts": [],
         }
-        self._journal_transition(
-            source="autosave",
-            stamp=stamp,
-            old_stamp=old_stamp,
-            old_verdicts=old_verdicts,
-            new_verdicts=list(self.records.values()),
-            stashed=stash.name if stash is not None else None,
-            body=body,
-        )
+        if self.journal_path is not None:
+            self._journal(
+                body,
+                marked,
+                journal.record_transition,
+                source="autosave",
+                stamp=stamp,
+                old_stamp=old_stamp,
+                old_verdicts=old_verdicts,
+                new_verdicts=list(self.records.values()),
+                stashed=stash.name if stash is not None else None,
+            )
         return 200, body
 
     def _records_before(self, sets, clears) -> dict[str, dict]:
@@ -610,10 +617,19 @@ class VerdictStore:
         touched = {record["unit"] for record in sets} | set(clears)
         return {unit: record for unit, record in self.records.items() if unit not in touched}
 
-    def _journal_transition(self, *, body: dict, **kwargs) -> None:
+    def _mark_unjournaled(self) -> bool:
+        """Before a store write the journal will record, write the marker that says the journal may lack it (`journal.mark_unjournaled`), and return whether this write left it. A store with no journal writes none."""
         if self.journal_path is None:
-            return
+            return False
+        return journal.mark_unjournaled(self.path, "review server")
+
+    def _journal(self, body: dict, marked: bool, append, **kwargs) -> None:
+        """Append the store write just made to the journal with `append` (`journal.record_delta` or `journal.record_transition`), reporting an OSError as `journal_error`, and once the append succeeds remove the marker when this write left it (`marked`). A failed append, or a server killed before or during it, leaves the marker for the next land that moves the stamp."""
+        assert self.journal_path is not None
         try:
-            journal.record_transition(self.journal_path, **kwargs)
+            append(self.journal_path, **kwargs)
         except OSError as exc:
             body["journal_error"] = str(exc)
+            return
+        if marked:
+            journal.unjournaled_marker_for(self.path).unlink(missing_ok=True)

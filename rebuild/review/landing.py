@@ -2,7 +2,7 @@
 
 A corpus-changing pass builds its corpus beside the served one, at rebuild/out/review.next (a copy-on-write clone of the served tree, `clone_tree`), or promotes a staged one, and runs the verdict update against scratch copies of the store: `snapshot` copies the live store to the pass's run directory as the snapshot S and the prepared store R, under the store's lock, and the verdict update carries, merges and fills into R. `land` then moves both into place in one short section under the store's lock (`rebuild.review.store_lock`), which every writer of the store and its journal holds, the review server included, so a save is never applied between the two moves. A pass whose corpus did not move but whose store did lands the store alone.
 
-The land first reads S, R and the new corpus's stamp and human unit ids without the lock, and, when the stamp moves, the journal's events, resuming from the scan state retention saved (`--scan-state`). Under it, it reads the live store C and aborts, keeping the staged tree, when C is on another stamp than S. Every unit whose record in C differs from S's, or that C cleared since S, is the reviewer's act after the snapshot, so it is laid over R and beats any fill. On a stamp change an overlaid set on a unit the new corpus does not have goes to the orphan document of the stamp it was made on (`verdict_store.append_orphans`), and an overlaid skip is dropped, as the carry drops every skip, so the unit is asked again: the result keeps no record for its unit, only a tombstone at the skip's `at`, so neither the verdict the skip replaced nor an older save sent later comes back. C's tombstones for units the result does not hold are kept (on a stamp change, for the units the new corpus has), and a tombstone older than `--tombstone-cutoff` is dropped. The result is written to the run directory, and the intent file (`intent_path_for`, var/cycle/land.json beside the store) records what the rest of the section will do. Then the corpus is swapped in with one `renamex_np(RENAME_SWAP)` call (`exchange_dirs`, with a three-rename fallback through `<live>.superseded`), the live store is linked to its stash name on a stamp change (`link_stash`), the result is renamed over the store, the change is appended to the journal, and the intent file is deleted. A stamp change is journaled as an event naming the stash: a base event holding the result when the journal is due one (`journal.base_due`, read from the journal's events, re-read under the lock from where the first read stopped), and otherwise the sets and clears from the store it replaced to the result. A land that keeps the stamp journals the sets and clears. Stop signals are blocked for the section. After the lock is released the swapped-out tree is renamed to a discard name beside the served corpus (`move_to_discard`) and deleted, or with `--keep-discard` left for the caller, which tells the open tabs to move before it deletes the tree; under the lock a tree is only ever renamed, never deleted.
+The land first reads S, R and the new corpus's stamp and human unit ids without the lock, and, when the stamp moves, the journal's events, resuming from the scan state retention saved (`--scan-state`). Under it, it reads the live store C and aborts, keeping the staged tree, when C is on another stamp than S. Every unit whose record in C differs from S's, or that C cleared since S, is the reviewer's act after the snapshot, so it is laid over R and beats any fill. On a stamp change an overlaid set on a unit the new corpus does not have goes to the orphan document of the stamp it was made on (`verdict_store.append_orphans`), and an overlaid skip is dropped, as the carry drops every skip, so the unit is asked again: the result keeps no record for its unit, only a tombstone at the skip's `at`, so neither the verdict the skip replaced nor an older save sent later comes back. C's tombstones for units the result does not hold are kept (on a stamp change, for the units the new corpus has), and a tombstone older than `--tombstone-cutoff` is dropped. The result is written to the run directory, and the intent file (`intent_path_for`, var/cycle/land.json beside the store) records what the rest of the section will do. Then the corpus is swapped in with one `renamex_np(RENAME_SWAP)` call (`exchange_dirs`, with a three-rename fallback through `<live>.superseded`), the live store is linked to its stash name on a stamp change (`link_stash`), the result is renamed over the store, the change is appended to the journal, and the intent file is deleted. A stamp change is journaled as an event naming the stash: a base event holding the result when the journal is due one (`journal.base_due`, read from the journal's events, re-read under the lock from where the first read stopped, and due while the marker that says the journal may lack a store write exists, `journal.unjournaled_marker_for`) or when the sets and clears would reach the result's record count (`journal.record_transition`), and otherwise the sets and clears from the store it replaced to the result. A land that keeps the stamp journals the sets and clears. A land that journaled a base removes the marker before it deletes the intent file, and `LandResult` says which the land journaled. Stop signals are blocked for the section. After the lock is released the swapped-out tree is renamed to a discard name beside the served corpus (`move_to_discard`) and deleted, or with `--keep-discard` left for the caller, which tells the open tabs to move before it deletes the tree; under the lock a tree is only ever renamed, never deleted.
 
 A land killed inside the section leaves the intent file, and the kernel releases the lock. The next holder of the lock finishes it first (`recover_interrupted_land`, and `locked_store` for the writers that take the lock): it cuts the journal back to the length the intent recorded, then reads where the land stopped. A corpus not yet swapped drops the intent, and the staged tree stays for the next pass. A swapped corpus with the old store finishes the land from the result it wrote, or is swapped back out when that result is gone, and a store already replaced gets its journal event. The review server runs the recovery on its next request (`recover_if_orphaned`), so nobody runs a command.
 
@@ -270,7 +270,7 @@ def _signals_blocked() -> Iterator[None]:
 
 @dataclass
 class LandResult:
-    """What a land did. `landed` is False when it aborted, and `reason` says why."""
+    """What a land did. `landed` is False when it aborted, and `reason` says why. `journal_base` is True when the land journaled its result as a base event, False when it journaled sets and clears, and None when it journaled nothing; `journal_sets` and `journal_clears` count the set and clear lines it journaled."""
 
     landed: bool
     reason: str = ""
@@ -283,6 +283,9 @@ class LandResult:
     stash: str | None = None
     discard: str | None = None
     locked_s: float = 0.0
+    journal_base: bool | None = None
+    journal_sets: int = 0
+    journal_clears: int = 0
 
     def as_dict(self) -> dict:
         return {**asdict(self), "locked_s": round(self.locked_s, 3)}
@@ -428,9 +431,10 @@ def _land_locked(
     journal.repair_tail(journal_path)
     journal_stat = _stat(journal_path)
     at = journal.now_stamp()
+    marker = journal.unjournaled_marker_for(autosave)
     base = None
     if moved and old_stamp is not None:
-        base = journal.base_due(journal.scan(journal_path, resume=journal_scan).events, at)
+        base = journal.base_due(journal.scan(journal_path, resume=journal_scan).events, at, marker=marker)
     intent = {
         "run_dir": str(run_dir),
         "landing": str(landing),
@@ -455,7 +459,7 @@ def _land_locked(
     with contextlib.suppress(OSError):
         os.link(landing, run_dir / LANDED_NAME)
     os.replace(landing, autosave)
-    journal.record_transition(
+    journaled = journal.record_transition(
         journal_path,
         source="land",
         stamp=new_stamp,
@@ -466,6 +470,8 @@ def _land_locked(
         at=at,
         base=base,
     )
+    if journaled["base"]:
+        marker.unlink(missing_ok=True)
     intent_path.unlink()
     return LandResult(
         True,
@@ -476,6 +482,9 @@ def _land_locked(
         orphaned=len(orphans),
         skips_dropped=skips,
         stash=stash.name if stash is not None else None,
+        journal_base=journaled["base"] if journaled["recorded"] else None,
+        journal_sets=journaled["sets"],
+        journal_clears=journaled["clears"],
     )
 
 
@@ -501,7 +510,7 @@ class LandUnrecoverable(RuntimeError):
 def recover_interrupted_land(store: Path) -> Recovery | None:
     """Finish or drop the land the intent file beside `store` records, and return what was done, or None when there is no intent. The caller holds the store's lock, so the land that wrote the intent is dead.
 
-    The journal is cut back to the length the intent recorded when it is still the same file, so whatever the land had appended, whole or in part, is removed. Then: a staged corpus that was not swapped in means the land never started to move anything, and the intent is dropped. Otherwise the land's result either still waits in its run directory, and it is moved over the store (after the store is linked to its stash name on a stamp change), or the store already holds it. Either way the store's content is appended to the journal as a base event naming the stash, and the intent is deleted. A swapped corpus whose result is gone while the store is still on another stamp than the one the land moved to (the run directory was deleted by hand) is swapped back out, so the store stays on the served corpus, and the intent is dropped; when the swapped-out corpus is gone too, `LandUnrecoverable` is raised and the intent stays.
+    The journal is cut back to the length the intent recorded when it is still the same file, so whatever the land had appended, whole or in part, is removed. Then: a staged corpus that was not swapped in means the land never started to move anything, and the intent is dropped. Otherwise the land's result either still waits in its run directory, and it is moved over the store (after the store is linked to its stash name on a stamp change), or the store already holds it. Either way the store's content is appended to the journal as a base event naming the stash, which puts replay right after any store write the journal missed, so the marker that says it may have missed one (`journal.unjournaled_marker_for`) is removed, and the intent is deleted. A swapped corpus whose result is gone while the store is still on another stamp than the one the land moved to (the run directory was deleted by hand) is swapped back out, so the store stays on the served corpus, and the intent is dropped; when the swapped-out corpus is gone too, `LandUnrecoverable` is raised and the intent stays.
     """
     store = Path(store)
     intent_path = intent_path_for(store)
@@ -557,6 +566,7 @@ def recover_interrupted_land(store: Path) -> Recovery | None:
             new_verdicts=list(landed.records.values()),
             stashed=intent.get("stash"),
         )
+        journal.unjournaled_marker_for(store).unlink(missing_ok=True)
     intent_path.unlink()
     return Recovery(f"finished the land of {run}", discard)
 
